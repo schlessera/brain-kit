@@ -10,7 +10,9 @@
  * Green is a claim about a SHA: every answer here is about the head it names.
  * `--expect-head` and `--expect-base` re-check an earlier inspection and exit
  * 1 when either moved, listing the files the base gained and which of them
- * the pull request also changes. `--failures` names each failed job and step;
+ * the pull request also changes. When GitHub returned only part of either
+ * list, `baseGained.overlapIncomplete` says so: an empty `overlapsThisPr`
+ * beside it is not "no overlap". `--failures` names each failed job and step;
  * with `--logs` it saves each failed job's log and prints only its failing
  * lines. `reviewRecord` is the newest recorded independent review among the
  * comments (`scripts/review-receipt.ts`); whether the head needs one, and
@@ -73,6 +75,19 @@ export function failingLines(log: string, limit = 30): string[] {
   return control ? [...cut, `(${control} line${control === 1 ? "" : "s"} of a deliberate expected-failure control left out)`] : cut;
 }
 
+/** GitHub's comparison of two commits lists at most this many changed files, and does not page them. */
+const COMPARE_FILE_LIMIT = 300;
+
+/**
+ * Every file a pull request changes. `gh pr view --json files` stops at 100;
+ * this list pages, and GitHub ends it at 3000 files, so the caller compares
+ * its length with the pull request's `changedFiles`.
+ */
+function changedFiles(gh: Gh, repo: string, pr: number): string[] {
+  return must(gh, ["api", "--paginate", `repos/${repo}/pulls/${pr}/files?per_page=100`, "--jq", ".[] | .filename | tojson"])
+    .split("\n").filter(Boolean).map(line => String(JSON.parse(line)));
+}
+
 export interface StatusIo { gh?: Gh; out: (text: string) => void }
 
 export async function main(argv: readonly string[], io: StatusIo): Promise<number> {
@@ -92,9 +107,9 @@ export async function main(argv: readonly string[], io: StatusIo): Promise<numbe
   const print = (value: unknown) => io.out(JSON.stringify(value, null, flags.has("pretty") ? 2 : undefined));
 
   const pr = JSON.parse(must(gh, ["pr", "view", String(number), "--repo", repo, "--json",
-    "state,isDraft,headRefOid,baseRefName,mergeable,mergeStateStatus,reviewDecision,body,files,statusCheckRollup"])) as {
+    "state,isDraft,headRefOid,baseRefName,mergeable,mergeStateStatus,reviewDecision,body,changedFiles,statusCheckRollup"])) as {
     state: string; isDraft: boolean; headRefOid: string; baseRefName: string; mergeable: string; mergeStateStatus: string;
-    reviewDecision: string; body: string; files: Array<{ path: string }>; statusCheckRollup: Rollup[] | null };
+    reviewDecision: string; body: string; changedFiles: number; statusCheckRollup: Rollup[] | null };
   const runs = (JSON.parse(must(gh, ["run", "list", "--repo", repo, "--commit", pr.headRefOid, "--limit", "50", "--json",
     "databaseId,workflowName,event,attempt,status,conclusion"])) as Array<{ databaseId: number; workflowName: string; event: string; attempt: number; status: string; conclusion: string }>)
     .map(run => ({ id: run.databaseId, workflow: run.workflowName, event: run.event, attempt: run.attempt, status: run.status, conclusion: run.conclusion || null }));
@@ -149,8 +164,12 @@ export async function main(argv: readonly string[], io: StatusIo): Promise<numbe
     moved = !unchanged.head || !unchanged.base;
     if (expectBase && !unchanged.base) {
       const gained = JSON.parse(must(gh, ["api", `repos/${repo}/compare/${expectBase}...${liveBase}`, "--jq", "[.files[].filename] | tojson"])) as string[];
-      const mine = new Set(pr.files.map(file => file.path));
-      status.baseGained = { files: gained.length, overlapsThisPr: gained.filter(file => mine.has(file)) };
+      const mine = changedFiles(gh, repo, number), changed = new Set(mine);
+      // Either list can be cut short by GitHub. An overlap read from part of a list is not the whole overlap.
+      const incomplete: string[] = [];
+      if (gained.length >= COMPARE_FILE_LIMIT) incomplete.push(`the base gained ${COMPARE_FILE_LIMIT} files or more, and GitHub's comparison lists only the first ${COMPARE_FILE_LIMIT}`);
+      if (mine.length < pr.changedFiles) incomplete.push(`read ${mine.length} of the ${pr.changedFiles} files this pull request changes`);
+      status.baseGained = { files: gained.length, overlapsThisPr: gained.filter(file => changed.has(file)), ...(incomplete.length ? { overlapIncomplete: incomplete } : {}) };
     }
   }
   print(status);
