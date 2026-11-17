@@ -3108,3 +3108,137 @@ label.bk-live-service-row {
   cursor: pointer;
 }
 .bk-editor-close:hover { background: var(--bk-color-raised); }
+
+/* ── Untrusted text (#3800, design #3795 §3 and revision 2 §3′) ───────────
+ * `UntrustedText` renders a safe markdown subset. The field isolates its
+ * bidi, so text inside cannot reorder the chrome around it; every run of
+ * untrusted words inside is its own `<bdi>` as well. */
+.bk-ut { unicode-bidi: isolate; overflow-wrap: anywhere; min-width: 0; }
+.bk-ut > * + * { margin-top: 8px; }
+.bk-ut-p { margin: 0; white-space: pre-line; }
+/* Clamped by height, not -webkit-line-clamp: line clamping a field of several
+ * block children truncates the first and draws the rest over each other. The
+ * last line fades, so a cut reads as a cut; a control below the fold expands
+ * the field when it takes focus (UntrustedText). */
+.bk-ut-clamp {
+  max-height: calc(var(--ut-lines) * 1.7em);
+  overflow: hidden;
+}
+/* Only a field that is actually cut fades: a complete one keeps its last line. */
+.bk-ut-clamp[data-cut] { mask-image: linear-gradient(to bottom, black calc(100% - 1.7em), transparent); }
+@media (max-width: 479px) {
+  .bk-ut-clamp { max-height: calc(var(--ut-lines-narrow) * 1.7em); }
+}
+.bk-ut-code {
+  font: 400 0.9em/1 "JetBrains Mono", ui-monospace, monospace;
+  padding: 1px 4px;
+  border-radius: 4px;
+  border: 1px solid var(--bk-color-line);
+  background: var(--bk-color-raised);
+  overflow-wrap: anywhere;
+}
+.bk-ut-pre {
+  margin: 0;
+  max-height: 240px;
+  overflow: auto;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--bk-color-line);
+  background: var(--bk-color-raised);
+  font: 400 11.5px/1.55 "JetBrains Mono", ui-monospace, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.bk-ut-pre:focus-visible { outline: 2px solid var(--bk-focus-ring); outline-offset: 2px; }
+.bk-ut-quote {
+  margin: 0;
+  padding-inline-start: 10px;
+  border-inline-start: 2px solid var(--bk-color-line);
+  color: var(--bk-color-ink-dim);
+}
+.bk-ut-list { margin: 0; padding-inline-start: 18px; white-space: pre-line; list-style: disc outside; }
+ol.bk-ut-list { list-style: decimal outside; }
+.bk-ut-list[data-tasks] { list-style: none; padding-inline-start: 0; }
+.bk-ut-image {
+  display: inline-block;
+  padding: 1px 6px;
+  border: 1px dashed var(--bk-color-edge);
+  border-radius: 4px;
+  font: 400 10.5px/1.5 "JetBrains Mono", ui-monospace, monospace;
+  color: var(--bk-color-ink-mute);
+  overflow-wrap: anywhere;
+}
+/* An `https:` link: a button that asks first. Inline links take the WCAG
+ * 2.5.8 inline exception; the body's 1.7 line height keeps adjacent ones at
+ * least 24px apart. */
+.bk-ut-link {
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
+.bk-ut-link-words {
+  text-decoration: underline dashed;
+  text-decoration-color: var(--bk-purple-ink);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+.bk-ut-link:hover .bk-ut-link-words { text-decoration-thickness: 2px; }
+.bk-ut-link:focus-visible { outline: 2px solid var(--bk-focus-ring); outline-offset: 2px; }
+.bk-ut-gate-label {
+  margin-bottom: 4px;
+  font: 500 9.5px/1.4 "JetBrains Mono", ui-monospace, monospace;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--bk-color-ink-mute);
+}
+.bk-ut-gate-actions { display: flex; justify-content: flex-end; gap: 8px; }
+/* Neither action is primary: Stay here and Open read as equals. */
+.bk-ut-gate-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 10px;
+  border: 1px solid var(--bk-color-edge);
+  background: transparent;
+  color: var(--bk-color-ink);
+  font: 500 12.5px/1.3 "Plus Jakarta Sans", sans-serif;
+  text-align: center;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+  --hv-bg: var(--bk-button-hover-bg-ghost);
+  --hv-bd: var(--bk-button-hover-border-ghost);
+  --hv-fg: var(--bk-color-ink);
+}
+/* The sheet below 900px stacks the actions, Open above Stay here, full width. */
+@media (max-width: 899px) {
+  .bk-ut-gate-actions { flex-direction: column-reverse; }
+  .bk-ut-gate-btn { width: 100%; }
+}
+
+/* ── GitHub components (#3800, design #3795) ─────────────────────────────
+ * The PR facts: two columns, four once the card is wide enough. Hairline
+ * separators are the grid's own background showing through a 1px gap. */
+/* The query container is the facts' own frame, not the card: size
+ * containment zeroes an element's intrinsic width, and the card must still
+ * size to its title and body inside a shrink-to-fit parent. */
+.bk-gh-facts-frame { container-type: inline-size; }
+.bk-gh-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--bk-color-line);
+}
+@container (min-width: 520px) {
+  .bk-gh-facts { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
