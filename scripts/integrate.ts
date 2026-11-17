@@ -8,6 +8,7 @@ import { declareFix, gateDecision, recordExpedited, type RedMainRecord } from ".
 import { isAncestor } from "./red-main-cli";
 import { expeditedProblems, expeditedTests, fixProbeTitle, probeReceipt, type FeedbackEvidence, type ProbeEvidence } from "./red-main-expedite";
 import { receiptFromBody, receiptRefusal } from "./check-receipt";
+import { reviewGate } from "./review-receipt";
 import type { API } from "./proof-reuse";
 
 /**
@@ -152,6 +153,20 @@ if (import.meta.main) {
       await Bun.sleep(RENEW_MS);
     }
   }
+  /**
+   * The recorded independent review of a core-package candidate (#4110); returns the refusal or null.
+   * A candidate outside the core packages is never asked, and its comments are never read.
+   */
+  function reviewRefusal(desired: Candidate) {
+    return reviewGate(store!.root, desired, async () => {
+      const bodies: string[] = [];
+      for (let page = 1; ; page++) {
+        const batch: Array<{ body?: string | null }> = await api.json(`issues/${desired.pr}/comments?per_page=100&page=${page}`);
+        bodies.push(...batch.map(comment => comment.body ?? ""));
+        if (batch.length < 100) return bodies;
+      }
+    });
+  }
   async function stopHeartbeat() { if (timer) clearInterval(timer); timer = undefined; await pending; }
   async function milestones(pr: number, issueRefs: string[]) {
     const live = await api.json(`pulls/${pr}`);
@@ -206,6 +221,9 @@ if (import.meta.main) {
       const proof = await verifyIntegrationProof(store!.root, repository, desired, api, sha => { store!.git(["fetch", "origin", sha]); });
       const refusal = receiptRefusal((await api.json(`pulls/${desired.pr}`)).body, proof.covered);
       if (refusal) throw new Error(refusal);
+      // Read again here: a review posted while the candidate was being proved is the newest record.
+      const unreviewed = await reviewRefusal(desired);
+      if (unreviewed) throw new Error(unreviewed);
       tree = proof.checkout.tree; candidateRun = proof.run;
     } else {
       expedited = await expeditedEvidence(desired, fixesRun, after);
@@ -295,8 +313,12 @@ if (import.meta.main) {
         // Refuse a run that is not the open record's, or category-only failures, before any write.
         expeditedTests(store.read().redMain, fixesRun);
         console.log(JSON.stringify({ declared: (await changeRedMain((record, now) => declareFix(record, desired.pr, now))).open?.fixes }));
-      } else if (command !== "acquire" && !receiptFromBody((await api.json(`pulls/${desired.pr}`)).body)) {
-        throw new Error(receiptRefusal("", new Set())!);
+      } else if (command !== "acquire") {
+        if (!receiptFromBody((await api.json(`pulls/${desired.pr}`)).body)) throw new Error(receiptRefusal("", new Set())!);
+        // Before any lease or candidate CI, like the receipt; an expedited red-main fix is exempt from both.
+        // `merge --lease` checks inside the merge instead, after its lease is proved to cover this candidate.
+        const unreviewed = command === "confirm" ? await reviewRefusal(desired) : null;
+        if (unreviewed) throw new Error(unreviewed);
       }
       refuseWhileRed(desired);
       if (command === "merge") {
