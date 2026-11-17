@@ -531,6 +531,17 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   [fast lane](../decisions/ci-utility.md#fast-lane-outside-the-core-packages):
   it skips ready-candidate confirmation and is proved by its `check:pr`
   receipt and its squash's main run.
+- A PR that does touch one of those four packages needs a recorded
+  independent review before `integrate.ts confirm` or `merge` will proceed
+  ([ruling](../decisions/ci-utility.md#recorded-independent-review-of-core-package-prs)).
+  The reviewer is a fresh agent context or a human, given only the PR and its
+  issue and never the author's summary. `bun scripts/review-receipt.ts post`
+  records the reviewed head and every finding with one disposition (`fixed`,
+  `filed` or `rejected`) as a PR comment. A clean merge of the base into the
+  branch keeps the record valid; a new commit, a rebase, an amend or a merge
+  that resolved a conflict needs a new review.
+  `bun scripts/review-receipt.ts check <pr>` prints the merge path's decision. The review is proof that someone else read the change, not a
+  substitute for any check above. An expedited red-main fix is exempt.
 - Run `bun run check:pr --base origin/main` before opening or marking ready,
   and paste the receipt block it prints into the PR body. Record a check you
   cannot finish with `--check-timeout=<seconds>` or `--skip <check name>`
@@ -718,6 +729,29 @@ affected tests run. Drafts run cheap gates only. Forks use ordinary
 `checks: read` for bounded proof lookup), no secrets and nonpersisted checkout
 credentials. A fork run awaiting maintainer approval has not passed.
 
+### Bumping an action pin
+
+Workflows reference each action by commit, with its release tag as a comment:
+`uses: actions/checkout@<40-hex commit> # v7`
+([why](../decisions/github-actions-ci.md#actions-pinned-by-commit)).
+`bun run lint` refuses a tag, a branch, a commit that is not in
+`scripts/action-pins.ts`, or a missing or wrong tag comment. To move a pin:
+
+1. Resolve the tag from the action's own repository, and dereference an
+   annotated tag to its commit:
+
+   ```sh
+   gh api repos/actions/checkout/git/ref/tags/v7 --jq '.object.type + " " + .object.sha'
+   # "tag <sha>" is an annotated tag: read its commit
+   gh api repos/actions/checkout/git/tags/<sha> --jq .object.sha
+   ```
+
+2. Read what changed between the old and new commits before trusting it.
+3. Change the commit in `ACTION_PINS`, replace it in every workflow, and run
+   `bun scripts/heavy-feedback-workflow.ts` to regenerate `heavy-feedback.yml`.
+4. A new action or a new major tag is a new table row. The PR lists action,
+   tag and commit.
+
 Environment setup via `scripts/ci-runtime-setup.sh` has its own 12-minute
 step limit in `unit`, `runtime` and `runtime_host`. Proof retains a separate
 30-minute unit allowance or 15-minute runtime allowance. The job caps are
@@ -729,6 +763,15 @@ infrastructure prerequisite failure with proof skipped, while proof failure
 after successful setup belongs to the proof phase. Both leave the job and
 selected aggregate nonpassing. Browser/layout do not call this setup script
 and retain their existing pinned-container proof budgets.
+
+The unit tier runs in up to eight partitions on a ready confirmation and on
+draft heavy feedback, and in up to four on main pushes and exhaustive runs.
+A selected inventory with fewer files than the cap gets one partition per
+file. `UNIT_PARTITIONS` in `scripts/proof-shards.ts` is the only place the
+counts are written: the planner publishes the partition numbers, the `unit`
+matrix and its divisor follow that output, and the aggregate and the merge
+path refuse a run whose unit jobs are not exactly the planned set
+([ruling](../decisions/ci-utility.md#eight-unit-partitions-for-ready-confirmation)).
 
 Hosted unit partitions run up to two serial Bun test processes through
 `scripts/unit-workers.ts`. Each owns its source checkout, copied frozen
