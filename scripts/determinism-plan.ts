@@ -43,15 +43,16 @@ export interface RepetitionPlan {
  * heavy for the floor still runs at the floor and is reported over budget.
  */
 export function planRepetitions(files: readonly string[], options: { repetitions?: number; floor?: number; budgetSeconds?: number;
-  costs?: Readonly<Record<string, number>> } = {}): RepetitionPlan {
+  costs?: Readonly<Record<string, number>>; unweightedSeconds?: number } = {}): RepetitionPlan {
   const requested = options.repetitions ?? DEFAULT_REPETITIONS, floor = options.floor ?? FLOOR_REPETITIONS;
   const budgetSeconds = options.budgetSeconds ?? BUDGET_SECONDS, costs = options.costs ?? FILE_COST_SECONDS;
+  const unweightedSeconds = options.unweightedSeconds ?? UNWEIGHTED_SECONDS;
   if (!Number.isSafeInteger(floor) || floor < 2) throw new Error("The repetition floor is at least two: one run proves nothing about the next");
   if (!Number.isSafeInteger(requested) || requested < floor) throw new Error(`Repetitions must be an integer of at least ${floor}`);
   if (!Number.isFinite(budgetSeconds) || budgetSeconds <= 0) throw new Error("The time budget must be positive seconds");
   if (new Set(files).size !== files.length) throw new Error("A test file was selected twice");
   const weights = files.map(file => {
-    const weighted = Object.hasOwn(costs, file), weightSeconds = weighted ? costs[file]! : UNWEIGHTED_SECONDS;
+    const weighted = Object.hasOwn(costs, file), weightSeconds = weighted ? costs[file]! : unweightedSeconds;
     if (!Number.isFinite(weightSeconds) || weightSeconds <= 0) throw new Error(`Test file costs must be positive finite seconds: ${file}`);
     return { file, weightSeconds, weighted };
   });
@@ -62,6 +63,10 @@ export function planRepetitions(files: readonly string[], options: { repetitions
   return { requested, floor, repetitions, reduced: repetitions < requested, budgetSeconds, weightSeconds, estimatedSeconds,
     overBudget: estimatedSeconds > budgetSeconds, files: weights.map(entry => ({ ...entry, repetitions })) };
 }
+
+/** What a planner repeats, for its refusals: the Bun gate's files, or another gate's units (#4163). */
+export interface PartitionSubject { proof: string; units: string; unit: string; owner: string; }
+const BUN_FILES: PartitionSubject = { proof: "Repeated-run proof", units: "changed Bun test file(s)", unit: "file", owner: "DETERMINISM_PARTITIONS" };
 
 export interface DeterminismPartition { files: string[]; weightSeconds: number; estimatedSeconds: number; }
 export interface PartitionPlan extends RepetitionPlan { capacitySeconds: number; maxPartitions: number; partitions: DeterminismPartition[]; }
@@ -76,13 +81,14 @@ export interface PartitionPlan extends RepetitionPlan { capacitySeconds: number;
  * never reduced below the floor.
  */
 export function planPartitions(files: readonly string[], options: { cadence?: string; repetitions?: number;
-  costs?: Readonly<Record<string, number>>; capacitySeconds?: number; maxPartitions?: number } = {}): PartitionPlan {
+  costs?: Readonly<Record<string, number>>; capacitySeconds?: number; maxPartitions?: number; unweightedSeconds?: number;
+  subject?: PartitionSubject } = {}): PartitionPlan {
   const capacitySeconds = options.capacitySeconds ?? DETERMINISM_PARTITIONS.capacitySeconds;
-  const maxPartitions = options.maxPartitions ?? DETERMINISM_PARTITIONS.max;
+  const maxPartitions = options.maxPartitions ?? DETERMINISM_PARTITIONS.max, subject = options.subject ?? BUN_FILES;
   if (!Number.isSafeInteger(maxPartitions) || maxPartitions < 1) throw new Error("The maximum partition count is a positive integer");
-  if (!files.length) throw new Error("Repeated-run proof was not selected");
+  if (!files.length) throw new Error(`${subject.proof} was not selected`);
   const plan = planRepetitions([...files].sort(), { repetitions: options.repetitions ?? repetitionsFor(options.cadence),
-    budgetSeconds: capacitySeconds, costs: options.costs });
+    budgetSeconds: capacitySeconds, costs: options.costs, unweightedSeconds: options.unweightedSeconds });
   const weights = Object.fromEntries(plan.files.map(entry => [entry.file, entry.weightSeconds]));
   const names = plan.files.map(entry => entry.file);
   for (let count = 1; count <= Math.min(maxPartitions, names.length); count++) {
@@ -93,9 +99,9 @@ export function planPartitions(files: readonly string[], options: { cadence?: st
     if (partitions.every(partition => partition.estimatedSeconds <= capacitySeconds || partition.files.length === 1))
       return { ...plan, capacitySeconds, maxPartitions, partitions };
   }
-  throw new Error(`Repeated-run proof refused before it ran: ${names.length} changed Bun test file(s) weigh ${plan.weightSeconds.toFixed(1)} weighted s per pass, ` +
+  throw new Error(`${subject.proof} refused before it ran: ${names.length} ${subject.units} weigh ${plan.weightSeconds.toFixed(1)} weighted s per pass, ` +
     `${plan.estimatedSeconds.toFixed(1)} s at the floor of ${plan.repetitions} repetitions. That needs more than the limit of ${maxPartitions} partitions ` +
-    `of ${capacitySeconds} weighted s each (DETERMINISM_PARTITIONS, scripts/proof-shards.ts). No file is skipped and the count stays at the floor: split the change.`);
+    `of ${capacitySeconds} weighted s each (${subject.owner}, scripts/proof-shards.ts). No ${subject.unit} is skipped and the count stays at the floor: split the change.`);
 }
 
 /** Partition `M/N` of the plan. `N` must be the planned count, so a matrix or a command that disagrees with the planner runs nothing. */
