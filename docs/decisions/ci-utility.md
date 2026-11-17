@@ -1709,7 +1709,7 @@ stay pre-merge; heavy categories move to the squash's own main run.
   `unit` (complete affected unit/integration discovery, unchanged). It no
   longer runs `runtime`, `runtime_host`, `browser`, `layout`, `captures` or
   `endurance`. The exclusion lives in one place:
-  `proofSelections` (`scripts/ci-plan.ts:434-446`) applies
+  `proofSelections` (`scripts/ci-plan.ts:490-505`) applies
   `POST_MERGE_CATEGORIES` (`scripts/red-main.ts:20-25`). Candidate admission,
   the aggregate and the merge path validate that same selection, so none of
   them can require a post-merge category.
@@ -1738,6 +1738,18 @@ stay pre-merge; heavy categories move to the squash's own main run.
 proof covered every real regression in the October cohort. The red main that
 remains is mostly latent timing, browser and runtime failures, which pre-merge
 proof rarely prevents and which made heavy confirmation the slowest step.
+
+**Amended 2026-11-17: one pre-merge browser job.** The maintainer ruled on
+[#4163](https://github.com/schlessera/brain-kit/issues/4163) that the browser,
+layout and story specs a pull request adds or modifies repeat under CPU load
+in the pinned container before it merges
+([the gate](#changed-browser-specs-repeat-under-load-before-merge)). The new
+`browser_determinism` job is a fast category: ready confirmation, draft and
+ready feedback run it when the plan selects it. It runs only the changed
+specs. The complete `browser`, `layout`, `captures` and `endurance` suites
+stay post-merge, so the reason for the split is unchanged: a suite's latent
+timing failure is still found by main, and a changed spec's own race is now
+looked for before it gets there.
 
 **What does not change.** No test, assertion, offline boundary, pinned image or
 category is removed. Main proves every selected category on the combined tree,
@@ -1774,16 +1786,16 @@ Proof content does not change.
   run needs no more runners than before.
 - **One owner.** One table holds both caps (`UNIT_PARTITIONS`,
   `scripts/proof-shards.ts:17`). The planner reads it by cadence (`unitShards`,
-  `scripts/ci-plan.ts:395-397`) and publishes the partition numbers as
+  `scripts/ci-plan.ts:443-445`) and publishes the partition numbers as
   `unit_shards`. The `unit` matrix is that output, and each partition's divisor
   is the matrix size. The hosted aggregate plans again and refuses a published
   set that differs from the plan (`selections.unit`,
   `scripts/candidate-proof.ts:68`). The merge path accepts only a job inventory
   that matches the confirmed set, bounded by the confirmation cap
-  (`unitPartitionLimit("confirmation")`, `scripts/integration-proof.ts:125-126`).
+  (`unitPartitionLimit("confirmation")`, `scripts/integration-proof.ts:142-143`).
   `bun run lint` refuses a literal matrix, a second matrix dimension or a
   literal divisor (`The unit partition count has one owner`,
-  `scripts/check-ci-workflows.ts:97-105`). The weight refresh takes its job
+  `scripts/check-ci-workflows.ts:100-108`). The weight refresh takes its job
   count from the same table.
 - **Fewer files than partitions.** A selected inventory smaller than the cap
   gets one partition per file. No partition is empty and no file runs twice
@@ -1946,27 +1958,25 @@ test more than once before it merged.
 - **What runs.** `bun scripts/test-determinism.ts --base <ref>` selects the
   Bun test files under `packages/` and `tests/` that the change adds or
   modifies against its merge base (`determinismTests`,
-  `scripts/ci-plan.ts:323-328`). It runs them in one invocation of the offline
+  `scripts/ci-plan.ts:355-360`). It runs them in one invocation of the offline
   wrapper with Bun's `--rerun-each=<n> --bail=1` (`repetitionArgv`,
-  `scripts/test-determinism.ts:93-96`), so the offline preload applies and
+  `scripts/test-determinism.ts:53-56`), so the offline preload applies and
   preparation builds once. One busy loop per CPU runs for the duration. Each
   is killed by PID on every exit path, and exits by itself if its parent dies
-  (`startBurners`, `scripts/test-determinism.ts:145-160`). The first failing
+  (`startBurners`, `scripts/test-determinism.ts:105-120`). The first failing
   repetition fails the command, which names the file, the repetition and the
   case. A passing run must also show every repetition in Bun's test report.
-- **Bounded.** Five repetitions by default, within a budget of 600 seconds of
+- **Bounded.** Five repetitions by default, within a budget of 300 seconds of
   the reviewed weights in `scripts/test-shard-costs.json`. When five do not
   fit, every file gets the same reduced count, down to a floor of two
-  (`planRepetitions`, `scripts/test-determinism.ts:71-90`). A selection too
-  heavy for the floor still runs every file twice and is reported over budget.
-  No selected file is skipped; the report lists each one with the repetitions
-  it got. Over 150 merges before the gate, 142 selections fit five
-  repetitions. A selection too heavy for the job's step limit is
-  [#4117](https://github.com/schlessera/brain-kit/issues/4117).
+  (`planRepetitions`, `scripts/determinism-plan.ts:45-65`). No selected file
+  is skipped; the report lists each one with the repetitions it got. The
+  budget is one job's capacity, so a selection too heavy for the floor is
+  [split across partitions](#an-oversized-selection-is-split-by-reviewed-weight).
 - **Two repetitions at ready confirmation.** The maintainer ruled on
   2026-11-17 ([#4137](https://github.com/schlessera/brain-kit/issues/4137))
   that ready confirmation runs the floor of two, and every other cadence keeps
-  five (`repetitionsFor`, `scripts/test-determinism.ts:41-43`). The merge lease
+  five (`repetitionsFor`, `scripts/determinism-plan.ts:22-24`). The merge lease
   is held while confirmation runs. In run 44017250694 the job took 1,236
   seconds at five repetitions, against 979 for the slowest of eight `unit`
   partitions, and the lease was held about 25 minutes. The draft head has
@@ -1978,7 +1988,7 @@ test more than once before it merged.
 - **Where it is required.** The hosted `determinism` job is selected whenever
   the plan lists such a file, at every pull-request cadence: draft, ready
   `synchronize` feedback and ready confirmation. Draft heavy feedback runs it
-  too (`proofSelections`, `scripts/ci-plan.ts:441-453`). This amends "drafts
+  too (`proofSelections`, `scripts/ci-plan.ts:490-505`). This amends "drafts
   run cheap gates only" for this one job, so the
   [fast lane](#fast-lane-outside-the-core-packages)'s newest run includes it.
   `draft gates`, `proof` and the merge path require it when selected and
@@ -2004,14 +2014,284 @@ GitHub Actions Bun prints each run's header as a `::group::` annotation, which
 the failure parser did not read, so the failure was reported without its file
 and repetition. The parser reads both forms now. That run took 552 seconds
 for about 174 weighted seconds, a ratio of about 3.2 under four burners on
-four CPUs, so a selection at the 600-second budget needs about 32 minutes of
-the 40-minute step limit.
+four CPUs. One run was not a calibration:
+[the later runs](#an-oversized-selection-is-split-by-reviewed-weight) measured
+up to 6.84, and the budget was lowered from 600 to 300 seconds.
+
+### An oversized selection is split by reviewed weight
+
+The maintainer ruled on 2026-11-17
+([#4117](https://github.com/schlessera/brain-kit/issues/4117)) that a
+selection too heavy for one job is sharded by reviewed weight, as `unit` is.
+Running workers inside one job and an exception path for large migrations
+were declined: the first shares the job's CPUs with the burners, the second
+weakens a gate that is otherwise the same for every pull request.
+
+**Why.** The job ran the whole selection in one invocation under a 40-minute
+step limit. Over the 150 merges before the gate, four selections weighed more
+than 600 seconds per pass. The largest was a 388-file fixture migration of
+about 1,327 seconds per pass, 2,654 at the floor of two. Such a selection
+could only fail by timeout, and the pull request had no way through the gate
+except splitting the change.
+
+- **One owner.** The table (`DETERMINISM_PARTITIONS`, `scripts/proof-shards.ts:44`) holds
+  one job's capacity (300 weighted seconds at the selection's repetition
+  count), the maximum of ten partitions, the 40-minute step limit and the
+  measured load ratio. The repetition budget is that capacity
+  (`BUDGET_SECONDS`, `scripts/determinism-plan.ts:29`).
+- **Count first, then partitions.** The count is decided over the whole
+  selection, as before. A selection that fits one job at that count stays one
+  job, and its command and report are unchanged. Otherwise the planner takes
+  the fewest partitions, balanced longest file first, in which every partition
+  fits the capacity (`planPartitions`, `scripts/determinism-plan.ts:83-105`).
+  Because the budget is the capacity, a selection is only ever split at the
+  floor of two, and each partition is told that count. Every file is in
+  exactly one partition.
+- **A file cannot be split.** A file whose two repetitions alone exceed the
+  capacity runs in a partition by itself.
+- **Beyond the maximum.** A selection that needs more than ten partitions is
+  refused by the planner, in the metadata job, before any partition starts.
+  The message names the selection's weight and the limit. Nothing is skipped
+  and the count is never reduced below the floor: the change has to be split.
+- **Wiring.** The planner publishes the partition numbers as
+  `determinism_shards` (`determinismShards`, `scripts/ci-plan.ts:452-455`).
+  The `determinism` matrix is that output, and each partition's divisor is the
+  matrix's own job total, so neither is written in the workflow. Each
+  partition's command reads its files from the same plan and refuses a divisor
+  that is not the planned count (`determinismPartition`,
+  `scripts/ci-proof.ts:27-31`). The hosted aggregate refuses a published set
+  that differs from the planned one (`validateSelections`,
+  `scripts/candidate-proof.ts:54-71`). The merge path requires one successful
+  `determinism (n)` job for every published number and no other
+  (`name in PLANNED_MATRICES`, `scripts/integration-proof.ts:144-149`). `bun run lint` refuses a literal
+  matrix, a literal divisor, a shared artifact name or a step limit other
+  than the owner's.
+
+**Calibration.** The job's own reports give elapsed seconds under load against
+estimated weighted seconds. Between its first run and this ruling, 35 hosted
+jobs produced a report, all on 2026-11-17, all with four burners on four
+CPUs: 32 passed and 3 failed. Five passing jobs repeated at least 90 weighted
+seconds, enough for the weights to dominate the result:
+
+| Run | Pull request | Cadence | Files | Count | Estimated (s) | Elapsed (s) | Ratio |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 43989701310 | #4134 | draft | 8 | 5 | 174.2 | 624.8 | 3.59 |
+| 43991629934 | #4134 | draft | 16 | 5 | 194.0 | 1,048.2 | 5.40 |
+| 44017250694 | #4134 | confirmation | 14 | 5 | 193.0 | 1,142.1 | 5.92 |
+| 44020374567 | #4132 | confirmation | 7 | 5 | 221.3 | 888.7 | 4.02 |
+| 44039499653 | #4145 | draft | 2 | 5 | 94.4 | 645.9 | 6.84 |
+
+The first run, 43986946575, failed in its last file after 552 seconds for the
+same 174.2 estimated seconds (3.17). The first confirmation at two
+repetitions, run 44036241499 on #4143, took 20.8 seconds for 11.4 estimated
+(1.82). The other 26 passing jobs estimated 7.1 seconds or less; there a new
+file without a reviewed weight decides the time. Seven runs of #4002
+estimated 2.0 to 3.1 seconds and took 226 to 400, because each new file cost
+22 to 34 seconds per pass and weighs the 0.1-second default.
+
+Per file the ratio is not constant. Across these reports a file with a
+reviewed weight of at least one second ran between 1.1 times its weight (a
+test that mostly waits) and 6.9 times (`tests/integration-command.test.ts`,
+18.8 weighted seconds, 129 seconds per pass under load).
+
+**The numbers.** The largest whole-job ratio, 6.84, sets the capacity: 300
+weighted seconds take 2,052 seconds at that ratio, 34 of the 40 minutes, and
+27 minutes at the median of 5.40. The earlier 600-second budget needed 68
+minutes at 6.84 and 54 at the median, so it never fitted its own step limit;
+the step limit stays at 40 minutes and the budget drops to the capacity. A
+test asserts that capacity times the recorded ratio fits the step limit. Ten
+partitions hold 3,000 weighted seconds at the floor. The largest observed
+selection plans nine. The merge path bounds a run's job inventory by every
+proof job at its widest matrix (`MAX_RUN_JOBS`, `scripts/integration-proof.ts:22`),
+so the maximum here and that bound cannot drift apart.
+
+**Accepted cost.** Five repetitions now fit only while one pass weighs at most
+60 seconds, down from 120. Replaying the same 150 merges with today's weights,
+111 select a file: 100 run five repetitions, 3 run three or four, and 8 run
+two. Of those eight, six are split (five into two or three partitions, the
+migration into nine) and two are a single file. An oversized selection costs
+up to ten runners for its two repetitions.
+
+**Known limit.** All eight contain a real-browser runtime test whose two
+repetitions alone exceed the capacity; the heaviest weighs 349.7 seconds per
+pass. Sharding cannot help a single file. It runs alone, at the floor, and no
+hosted run has yet measured whether it finishes inside the step limit
+([#4156](https://github.com/schlessera/brain-kit/issues/4156)). The five
+calibration runs are all tooling and backend tests; a refreshed weight table
+or a different mix of tests changes the ratio, and the capacity is to be
+recalibrated from the reports then.
 
 **Known limits.** Repetitions of one file share a process. Bun 1.4.2 evaluates
 the module again for each run, but `globalThis` and process state persist, so a
-file that leaks state into its next run fails too. Vitest browser, layout,
-endurance and story specs run in the pinned container and are not covered
-([#4116](https://github.com/schlessera/brain-kit/issues/4116)).
+file that leaks state into its next run fails too. Vitest browser, layout and
+story specs run in the pinned container and have
+[their own gate](#changed-browser-specs-repeat-under-load-before-merge); the
+one endurance spec is not repeated.
+
+## Changed browser specs repeat under load before merge
+
+The maintainer ruled on 2026-11-17
+([#4163](https://github.com/schlessera/brain-kit/issues/4163)) that a Vitest
+browser, layout or story spec a pull request adds or modifies must pass
+repeated passes under CPU load, in the pinned container, before it merges. The
+ruling follows the
+[#4116 measurement spike](https://github.com/schlessera/brain-kit/issues/4116#issuecomment-6943920511)
+with one change: a selection too heavy for one job is split across runners by
+reviewed weight, as the Bun gate's is. It is not skipped.
+
+**Why.** Seven of the 14 red-main incidents opened between 2026-11-09 and
+2026-11-17 were in `browser` or `layout`, and six of those were cleared by
+changing only a test. Under the [hybrid split](#hybrid-post-merge-heavy-proof)
+such a spec first ran on a runner after it merged. The spike repeated a spec
+with a known race (#3953, its fix reverted in a copy) on a hosted runner: 0 of
+8 passes failed without load, 2 of 8 with CPU burners outside the container
+and 9 of 16 with burners inside it. A further pass cost the spec's own time,
+1.6 to 10.8 seconds, after about 2 minutes 15 seconds of job start-up.
+
+- **What is selected.** Spec files the change adds or modifies against its
+  merge base: `*.visual.tsx` under `packages/ui-kit/tests/visual/`,
+  `*.stories.tsx` under `packages/ui-kit/stories/`, and `*.pointer.tsx`,
+  `*.layout.tsx` and `*.offline.tsx` under `packages/ui-react/tests/browser/`
+  (`SPEC_PATTERNS`, `scripts/browser-determinism-plan.ts:32-36`). The one
+  `*.endurance.tsx` spec stays out: it is real-time media proof with its own
+  job. A changed helper selects nothing. In the spike's window 21 merges
+  changed a helper under the spec directories; selecting specs through their
+  imports would have added none in 15 of them and at most five in the rest,
+  while one change to the most imported helper would select 27 specs.
+- **Pairs, not files.** Vitest runs a file once in every project that includes
+  it, so each selected file expands to the project/file pairs Vitest's own
+  file listing reports: three `rail-*` projects for a pointer spec, both
+  themes for a story, Chromium and WebKit for a diagram spec (`expandSpecs`,
+  `scripts/browser-determinism-plan.ts:45-54`). The planner reads that listing once
+  per plan and shares it with category selection (`listBrowserSpecs`,
+  `scripts/browser-input-closure.ts:242-260`). A changed spec that no project lists,
+  or a listing that cannot be read, fails the plan: it never becomes an empty
+  selection.
+- **Mechanism: further passes in one Vitest process.**
+  `bun scripts/browser-determinism.ts` enters the container through
+  `scripts/visual.mjs`, so the image, mounts and network are the browser
+  suite's. Inside, `scripts/browser-determinism-inside.mjs` starts Vitest once
+  through `vitest/node` and calls `runTestSpecifications` with exactly the
+  selected pairs for every pass (`runPasses`,
+  `scripts/browser-determinism-inside.mjs:109-143`). Vitest 4.1.11 then opens a new
+  tester iframe for each file: a new document, the module evaluated again,
+  `beforeAll` rerun. What carries over between passes is the browser process,
+  its context and orchestrator page, cookies, `localStorage`, `sessionStorage`
+  and IndexedDB, the Node-side state of browser commands and the Vite server.
+  That is what two consecutive files of an ordinary run already share. A spec
+  that leaves state in storage therefore meets it on its next pass, as a Bun
+  test meets its own `globalThis`.
+  - **Not `repeats`.** Vitest's `repeats` option reruns a single test inside
+    one page with every piece of state kept, and the file never reruns as a
+    unit. A spec that is not idempotent in its own document would fail for a
+    reason that is not a race.
+  - **Not a loop of `vitest run`.** Separate invocations give a new browser
+    each time, at 5 to 6.5 seconds more per repetition by the spike's
+    derivation, which was never timed. The catch rate and the false-failure
+    sample were both measured with in-process passes, and only in-process
+    passes can run exactly the selected pairs: a command line names projects
+    and files and runs their cross product.
+- **One project at a time.** Within a pass the selected projects run one after
+  another. The spike measured one project per invocation. This gate's first
+  run of a mixed selection started six projects at once beside four burners,
+  and a green visual spec failed its first pass with "Could not capture a
+  stable screenshot within 5000ms". The same selection, one project at a time,
+  passed five of five passes. One browser beside the burners is the measured
+  load; every project at once is a heavier one that nothing has measured.
+- **Load.** One busy loop per CPU, started inside the container before Vitest
+  and stopped by PID on every exit path; each exits by itself if its parent
+  dies (`startBurners`, `scripts/browser-determinism-inside.mjs:47-66`). Inside, not
+  beside: on a hosted runner the job's processes and the container are two
+  sibling cgroups of equal weight, so the kernel leaves the container half the
+  CPUs however many burners run outside it. Burners outside slowed the spike's
+  four specs 1.25 to 1.37 times and reproduced the #3953 race in 2 of 8
+  passes; burners inside slowed them 1.27 to 1.79 times and reproduced it in 9
+  of 16.
+- **Bounded.** Five repetitions, and two at ready confirmation while the merge
+  lease is held: the Bun gate's counts. The count is reduced uniformly to no
+  fewer than two inside a budget of 300 seconds of the reviewed weights in
+  `scripts/browser-shard-costs.json`. A pair without a weight costs 10 seconds
+  and the report says so; it is never free. Ten is above three quarters of the
+  refreshed table (7.9 seconds) and below its mean (12.1). Every spec a change
+  adds is unweighted until the next refresh.
+- **Partitions.** One owner (`BROWSER_DETERMINISM_PARTITIONS`,
+  `scripts/proof-shards.ts:58`) holds one job's capacity of 300 weighted seconds,
+  the maximum of 15 partitions, the 20-minute step limit, the load ratio and
+  the unweighted default. Counting and partitioning are the Bun gate's
+  functions applied to pairs
+  ([the pattern](#an-oversized-selection-is-split-by-reviewed-weight)): the
+  count is decided over the whole selection, a selection over capacity at two
+  repetitions takes the fewest partitions in which every partition fits, each
+  pair is in exactly one partition, and a pair that cannot fit runs alone. A
+  selection that needs more than 15 is refused by the planner in the metadata
+  job, naming its weight and the limit. Fifteen holds 2,250 weighted seconds
+  per pass. Of the 38 spec-changing merges in the spike's window, five were
+  over one job's capacity at two repetitions by the spike's estimate: 178,
+  390, 444 and 450 weighted seconds per pass plan two or three partitions, and
+  the largest, an 89-file change estimated at 1,993, plans 14.
+- **Wiring.** The planner publishes `browser_determinism` and
+  `browser_determinism_shards`. The job's matrix is that output and each
+  partition's divisor is the matrix's own job total. Each partition's command
+  reads its pairs from the same plan (`browserDeterminismPartition`,
+  `scripts/ci-proof.ts:41-45`), the hosted aggregate refuses a published set that
+  differs from the planned one (`validateSelections`,
+  `scripts/candidate-proof.ts:54-73`), and the merge path requires one successful
+  `browser_determinism (n)` job for every published number and no other.
+  `bun run lint` refuses a literal matrix, a literal divisor, a shared
+  artifact name or a step limit other than the owner's.
+- **Where it is required.** At every pull-request cadence that selects it
+  (draft, ready `synchronize` feedback and ready confirmation) and in draft
+  heavy feedback. `draft gates`, `proof` and the merge path require it when
+  selected and require its intentional skip otherwise. It is a fast category:
+  it is not in `POST_MERGE_CATEGORIES`.
+- **Not on main.** A main push never selects it. The squash's specs were
+  repeated before they merged, and the main run runs each of them once in
+  `browser` or `layout`.
+- **Not local.** `check:pr` never runs it; `check:pr --plan` names the command
+  when the change selects it. A deliberate local run takes a host admission
+  slot through the launcher, and `--cpu-list` confines the container's work
+  and its burners to a few CPUs of a shared host.
+
+**What does not change.** No spec, deadline or baseline changes. No failure is
+retried into a pass: the first failing repetition fails the job, which names
+the spec, the project, the repetition and the case. Unchanged specs are not
+repeated.
+
+**Expected cost.** At the spike's load ratio of 1.8, 300 weighted seconds are
+about 9 minutes of passes and about 12 minutes for the job, with its measured
+start-up: install 16 seconds, workspace build 94, image pull 17. The median
+selection weighed 13 seconds per pass. In three ready confirmations the
+slowest job was a `unit` partition at 879 to 981 seconds, so a job capped near
+12 minutes should not set the merge lease. The 20-minute step limit leaves
+room for a pass that runs slower than its weight.
+
+**False failures: what was measured.** A gate that fails green specs is worse
+than none, so this is the number that matters most and the one known least.
+
+- The spike repeated 31 project/file pairs from the fourteen most recent
+  spec-changing merges, two passes each and four more once, under four burners
+  inside the container: 66 passes on one shared development host, none failed.
+- This gate's own local runs, on the same kind of host with the container
+  pinned to four CPUs, repeated seven pairs (a visual spec, a pointer spec in
+  three projects, a layout spec and a story in two themes) five times: 35
+  passes, none failed. Further passes took 66 to 69 seconds for 52.9 weighted
+  seconds, a ratio of about 1.3; the first took 103 seconds.
+- The one false failure seen is the concurrent-projects run described above,
+  and it changed the design.
+
+**Unknown.**
+
+- The false-failure rate across all specs and on a hosted runner. The two
+  samples above are about a tenth of the specs, on one kind of host.
+- Whether repetition would have caught the other five incidents in the
+  spike's window. Only #3953 was tried.
+- The load ratio on a hosted runner with the refreshed weights. The 1.8 is
+  the spike's largest ratio for a further pass of one spec; a first pass
+  carries Vite's cold transforms and ran at 1.9 locally.
+- WebKit and the `diagrams-*` projects: no diagram spec was repeated, and
+  their native artifact preparation adds start-up that was not timed.
+- Peak memory, run-to-run variance and whether the runner's cgroup layout is
+  stable: each was read once or not at all.
 
 ## Historical measurement and upstream guidance
 

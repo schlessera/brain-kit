@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { CI_WORKFLOWS, checkCIWorkflows, publicationWorkflowProblems, workflowProblems } from "../scripts/check-ci-workflows.ts";
 import { ACTION_PINS, actionPinProblems, annotateActionPins, pinned } from "../scripts/action-pins.ts";
+import { BROWSER_DETERMINISM_PARTITIONS, DETERMINISM_PARTITIONS } from "../scripts/proof-shards.ts";
 const ROOT = resolve(import.meta.dir, "..");
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 type Obj = { [key: string]: Json };
@@ -29,7 +30,7 @@ const pullRequest = (headRepo: string | null, extra: Obj = {}): Obj => ({
 });
 function runs(workflow: Workflow, job: Job, context: Obj): boolean {
   return String(context.event_name) in workflow.on && (job.if === undefined || evaluate(job.if, {
-    github: context, needs: { changeset: { result: "success", outputs: { verify: "true", pack: "true", unit: "true", runtime: "true", runtime_host: "true", browser: "true", layout: "true", captures: "true", endurance: "true", determinism: "true" } }, pack: { result: "success" } },
+    github: context, needs: { changeset: { result: "success", outputs: { verify: "true", pack: "true", unit: "true", runtime: "true", runtime_host: "true", browser: "true", layout: "true", captures: "true", endurance: "true", determinism: "true", browser_determinism: "true" } }, pack: { result: "success" } },
   }) === true);
 }
 function evaluate(expression: string, context: Obj): Json {
@@ -131,9 +132,9 @@ describe("the authoritative jobs retain their important phases", () => {
     expect(ci.name).toBe("CI");
     expect(ci.on.push).toEqual({ branches: ["main"] });
     expect(ci.on.pull_request).toEqual({ types: ["opened", "synchronize", "reopened", "ready_for_review", "converted_to_draft"] });
-    expect(Object.keys(ci.jobs)).toEqual(["changeset", "verify", "pack", "unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance", "determinism", "proof"]);
+    expect(Object.keys(ci.jobs)).toEqual(["changeset", "verify", "pack", "unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance", "determinism", "browser_determinism", "proof"]);
     // The planner step is the only source of a metadata output: no later step can deselect a category (#4107).
-    expect(ci.jobs.changeset!.outputs).toEqual(Object.fromEntries(["verify", "pack", "unit", "browser", "layout", "captures", "runtime", "runtime_host", "endurance", "determinism", "cadence", "unit_shards", "red_main_oid"].map(name => [name, `\${{ steps.plan.outputs.${name} }}`])));
+    expect(ci.jobs.changeset!.outputs).toEqual(Object.fromEntries(["verify", "pack", "unit", "browser", "layout", "captures", "runtime", "runtime_host", "endurance", "determinism", "browser_determinism", "cadence", "unit_shards", "determinism_shards", "browser_determinism_shards", "red_main_oid"].map(name => [name, `\${{ steps.plan.outputs.${name} }}`])));
     const metadata = ci.jobs.changeset!.steps.filter(s => s.run).map(s => s.run);
     expect(metadata).toContain("bun scripts/ci-plan.ts"); expect(metadata).toContain("bun run lint");
     expect(metadata).toContain("bun scripts/env-docs.ts --check"); expect(metadata).toContain("bun scripts/check-changeset-packages.ts");
@@ -251,16 +252,16 @@ describe("CI concurrency configuration (live scheduler proof remains separate)",
 });
 
 describe("independent hosted proof after cheap gates", () => {
-  const context = (selected = "true", result = "success") => ({ needs: { changeset: { result, outputs: { verify: selected, pack: selected, unit: selected, runtime: selected, runtime_host: selected, browser: selected, layout: selected, captures: selected, endurance: selected, determinism: selected } } } });
+  const context = (selected = "true", result = "success") => ({ needs: { changeset: { result, outputs: { verify: selected, pack: selected, unit: selected, runtime: selected, runtime_host: selected, browser: selected, layout: selected, captures: selected, endurance: selected, determinism: selected, browser_determinism: selected } } } });
   test("all independent categories depend only on metadata", () => {
-    for (const name of ["verify", "pack", "unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance", "determinism"]) {
+    for (const name of ["verify", "pack", "unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance", "determinism", "browser_determinism"]) {
       expect(ci.jobs[name]!.needs).toBe("changeset");
       expect(evaluate(ci.jobs[name]!.if!, context())).toBe(true);
       expect(evaluate(ci.jobs[name]!.if!, context("false"))).toBe(false);
     }
   });
   test("the aggregate observes every category even after an intentional skip or failed prerequisite", () => {
-    expect(ci.jobs.proof!.needs).toEqual(["changeset", "verify", "pack", "unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance", "determinism"]);
+    expect(ci.jobs.proof!.needs).toEqual(["changeset", "verify", "pack", "unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance", "determinism", "browser_determinism"]);
     expect(ci.jobs.proof!.if).toContain("always()");
     expect(evaluate(ci.jobs.proof!.if!, { cancelled: false })).toBe(true);
     expect(evaluate(ci.jobs.proof!.if!, { cancelled: true })).toBe(false);
@@ -269,11 +270,11 @@ describe("independent hosted proof after cheap gates", () => {
     for (const repo of [REPO, "odysseus/brain-kit"]) {
       const c = { github: pullRequest(repo), ...context("false") };
       expect(ci.jobs.changeset!.if).toBeUndefined();
-      for (const name of ["verify", "pack", "unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance", "determinism"]) expect(evaluate(ci.jobs[name]!.if!, c)).toBe(false);
+      for (const name of ["verify", "pack", "unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance", "determinism", "browser_determinism"]) expect(evaluate(ci.jobs[name]!.if!, c)).toBe(false);
     }
   });
   test("a selected category runs on the planner's selection alone; no other output can skip it (#4107)", () => {
-    for (const name of ["verify", "pack", "unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance", "determinism"]) {
+    for (const name of ["verify", "pack", "unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance", "determinism", "browser_determinism"]) {
       expect(ci.jobs[name]!.if, `SELECTION_ALONE:${name}`).toBe(`\${{ !cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push') && needs.changeset.outputs.${name} == 'true' }}`);
       // The outputs retention used to set are gone; their absence must not skip a selected job.
       const selected = context();
@@ -586,24 +587,56 @@ test("all unit partitions upload incremental memory diagnostics even after proof
 test("the determinism job has the unit job's prerequisites and both aggregates observe it (#4109)", () => {
   const original = read("ci.yml");
   const job = ci.jobs.determinism!, unit = ci.jobs.unit!;
+  const REPEAT = 'bun scripts/ci-proof.ts determinism --shard=${{ matrix.shard }}/"$DETERMINISM_SHARDS"';
   const runs = (steps: typeof job.steps) => steps.filter(step => step.run).map(step => step.run);
   // Changed files may drive real Chrome: the same install, plan and runtime setup as unit.
   for (const command of ["bun install --frozen-lockfile --backend=copyfile", "bun scripts/ci-plan.ts", "bash scripts/ci-runtime-setup.sh"]) {
     expect(runs(unit.steps), command).toContain(command);
     expect(runs(job.steps), `UNIT_PREREQUISITE:${command}`).toContain(command);
   }
-  expect(runs(job.steps).indexOf("bash scripts/ci-runtime-setup.sh"), "SETUP_BEFORE_REPETITION").toBeLessThan(runs(job.steps).indexOf("bun scripts/ci-proof.ts determinism"));
+  expect(runs(job.steps).indexOf("bash scripts/ci-runtime-setup.sh"), "SETUP_BEFORE_REPETITION").toBeLessThan(runs(job.steps).indexOf(REPEAT));
+  expect(runs(job.steps), "THE_PARTITION_COMMAND").toContain(REPEAT);
   expect(job.if).toBe("${{ !cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push') && needs.changeset.outputs.determinism == 'true' }}");
   expect((ci.jobs.changeset!.outputs as Obj).determinism).toBe("${{ steps.plan.outputs.determinism }}");
   const feedback = Bun.YAML.parse(read("heavy-feedback.yml")) as Workflow;
-  expect(runs(feedback.jobs.determinism!.steps), "DRAFT_HEAVY_FEEDBACK_REPEATS_TOO").toContain("bun scripts/ci-proof.ts determinism");
+  expect(runs(feedback.jobs.determinism!.steps), "DRAFT_HEAVY_FEEDBACK_REPEATS_TOO").toContain(REPEAT);
+  expect(feedback.jobs.determinism!.strategy, "DRAFT_HEAVY_FEEDBACK_SPLITS_TOO").toEqual(job.strategy);
   expect(feedback.jobs.aggregate!.needs).toContain("determinism");
   expect(workflowProblems(original, "ci.yml")).toEqual([]);
-  expect(workflowProblems(original.replace("captures, endurance, determinism]", "captures, endurance]"), "ci.yml"), "PROOF_MUST_OBSERVE_IT").toContain("ci.yml: proof: aggregate must observe every selected category");
-  expect(workflowProblems(original.replace("run: bun scripts/ci-proof.ts determinism\n", "run: echo omitted\n"), "ci.yml")).toContain("ci.yml: determinism: complete proof command is missing");
+  expect(workflowProblems(original.replace("captures, endurance, determinism, browser_determinism]", "captures, endurance, browser_determinism]"), "ci.yml"), "PROOF_MUST_OBSERVE_IT").toContain("ci.yml: proof: aggregate must observe every selected category");
+  expect(workflowProblems(original.replace(`run: ${REPEAT}\n`, "run: echo omitted\n"), "ci.yml")).toContain("ci.yml: determinism: complete proof command is missing");
   expect(workflowProblems(original.replace("needs.changeset.outputs.determinism == 'true' }}", "needs.changeset.outputs.unit == 'true' }}"), "ci.yml")).toContain("ci.yml: determinism: proof must run on its explicit planner selection alone");
   const withoutSetup = original.slice(0, original.indexOf("  determinism:\n")) + original.slice(original.indexOf("  determinism:\n")).replace("run: bash scripts/ci-runtime-setup.sh\n", "run: bash scripts/ci-runtime-setup.sh --native\n");
   expect(workflowProblems(withoutSetup, "ci.yml"), "UNIT_SETUP_REQUIRED").toContain("ci.yml: determinism: environment setup must have its separate 12-minute limit");
+});
+
+test("the determinism matrix, divisor and step limit come from the planner and its one owner (#4117)", () => {
+  const text = read("ci.yml"), job = ci.jobs.determinism!;
+  expect(job.strategy).toEqual({ "fail-fast": false, matrix: { shard: "${{ fromJSON(needs.changeset.outputs.determinism_shards) }}" } });
+  const step = job.steps.find(s => s.name === "Repeat changed Bun test files under CPU load")!;
+  expect(step.env?.DETERMINISM_SHARDS).toBe("${{ strategy.job-total }}");
+  expect(step.run).toBe('bun scripts/ci-proof.ts determinism --shard=${{ matrix.shard }}/"$DETERMINISM_SHARDS"');
+  expect(step["timeout-minutes"], "STEP_LIMIT_HAS_ONE_OWNER").toBe(DETERMINISM_PARTITIONS.stepMinutes);
+  expect(job.steps.find(s => s.uses === pinned("actions/upload-artifact@v7"))!.with!.name, "ONE_ARTIFACT_PER_PARTITION").toBe("determinism-proof-${{ matrix.shard }}");
+  expect(workflowProblems(text, "ci.yml")).toEqual([]);
+  const problem = "determinism: matrix and shard divisor must come from the planner's determinism_shards output";
+  const matrix = "        shard: ${{ fromJSON(needs.changeset.outputs.determinism_shards) }}\n";
+  for (const [label, from, to, refusal] of [
+    ["LITERAL_ONE_MATRIX", matrix, "        shard: [1]\n", problem],
+    ["LITERAL_MAXIMUM_MATRIX", matrix, "        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]\n", problem],
+    ["UNIT_PARTITIONS_AS_MATRIX", matrix, "        shard: ${{ fromJSON(needs.changeset.outputs.unit_shards) }}\n", problem],
+    ["SECOND_MATRIX_DIMENSION", matrix, matrix + "        worker: [1, 2]\n", problem],
+    ["NO_MATRIX", "    strategy:\n      fail-fast: false\n      matrix:\n" + matrix, "", problem],
+    ["UNPARTITIONED_COMMAND", 'determinism --shard=${{ matrix.shard }}/"$DETERMINISM_SHARDS"', "determinism", problem],
+    ["LITERAL_DIVISOR", 'determinism --shard=${{ matrix.shard }}/"$DETERMINISM_SHARDS"', "determinism --shard=${{ matrix.shard }}/2", problem],
+    ["LITERAL_DIVISOR_VALUE", "DETERMINISM_SHARDS: ${{ strategy.job-total }}", "DETERMINISM_SHARDS: 2", problem],
+    ["OUTPUT_NOT_FROM_PLANNER", "determinism_shards: ${{ steps.plan.outputs.determinism_shards }}", 'determinism_shards: "[1]"', problem],
+    ["SHARED_ARTIFACT_NAME", "name: determinism-proof-${{ matrix.shard }}", "name: determinism-proof", "determinism: each partition must upload its own receipts"],
+    ["STEP_LIMIT_NOT_THE_OWNERS", "        timeout-minutes: 40\n        env:\n          DETERMINISM_SHARDS:", "        timeout-minutes: 60\n        env:\n          DETERMINISM_SHARDS:", "determinism: proof must retain its 40-minute limit"],
+  ] as const) {
+    expect(text.split(from), `ONE_SITE: ${label}`).toHaveLength(2);
+    expect(workflowProblems(text.replace(from, to), "ci.yml"), label).toContain(`ci.yml: ${refusal}`);
+  }
 });
 
 test("runtime categories have distinct complete commands and strict aggregate dependencies", () => {
@@ -710,9 +743,66 @@ test("verify successful step requires final marker and zero unsignalled finishes
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test("the browser repetition job enters the pinned container as the browser jobs do, and both aggregates observe it (#4163)", () => {
+  const original = read("ci.yml");
+  const job = ci.jobs.browser_determinism!, layout = ci.jobs.layout!;
+  const REPEAT = 'bun scripts/ci-proof.ts browser_determinism --shard=${{ matrix.shard }}/"$BROWSER_REPEAT_SHARDS"';
+  const runs = (steps: typeof job.steps) => steps.filter(step => step.run).map(step => step.run);
+  // A container job: the layout job's install and plan, and no native runtime setup.
+  for (const command of ["bun install --frozen-lockfile", "bun scripts/ci-plan.ts"]) {
+    expect(runs(layout.steps), command).toContain(command);
+    expect(runs(job.steps), `CONTAINER_PREREQUISITE:${command}`).toContain(command);
+  }
+  expect(runs(job.steps)).toEqual(["bun install --frozen-lockfile", "bun scripts/ci-plan.ts", REPEAT]);
+  expect(job.if).toBe("${{ !cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push') && needs.changeset.outputs.browser_determinism == 'true' }}");
+  expect((ci.jobs.changeset!.outputs as Obj).browser_determinism).toBe("${{ steps.plan.outputs.browser_determinism }}");
+  const feedback = Bun.YAML.parse(read("heavy-feedback.yml")) as Workflow;
+  expect(runs(feedback.jobs.browser_determinism!.steps), "DRAFT_HEAVY_FEEDBACK_REPEATS_TOO").toContain(REPEAT);
+  expect(feedback.jobs.browser_determinism!.strategy, "DRAFT_HEAVY_FEEDBACK_SPLITS_TOO").toEqual(job.strategy);
+  expect(feedback.jobs.aggregate!.needs).toContain("browser_determinism");
+  expect(ci.jobs.proof!.needs).toContain("browser_determinism");
+  expect(workflowProblems(original.replace("endurance, determinism, browser_determinism]", "endurance, determinism]"), "ci.yml"), "PROOF_MUST_OBSERVE_IT").toContain("ci.yml: proof: aggregate must observe every selected category");
+  expect(workflowProblems(original.replace(`run: ${REPEAT}\n`, "run: echo omitted\n"), "ci.yml")).toContain("ci.yml: browser_determinism: complete proof command is missing");
+  expect(workflowProblems(original.replace("needs.changeset.outputs.browser_determinism == 'true' }}", "needs.changeset.outputs.browser == 'true' }}"), "ci.yml")).toContain("ci.yml: browser_determinism: proof must run on its explicit planner selection alone");
+  const withoutJob = original.slice(0, original.indexOf("  browser_determinism:\n    # A changed")) + original.slice(original.indexOf("  proof:\n"));
+  expect(workflowProblems(withoutJob, "ci.yml"), "THE_JOB_IS_REQUIRED").toContain("ci.yml: missing or unexpected CI jobs");
+});
+
+test("the browser repetition matrix, divisor and step limit come from the planner and its one owner (#4163)", () => {
+  const text = read("ci.yml"), job = ci.jobs.browser_determinism!;
+  expect(job.strategy).toEqual({ "fail-fast": false, matrix: { shard: "${{ fromJSON(needs.changeset.outputs.browser_determinism_shards) }}" } });
+  const step = job.steps.find(s => s.name === "Repeat changed browser, layout and story specs under CPU load")!;
+  expect(step.env?.BROWSER_REPEAT_SHARDS).toBe("${{ strategy.job-total }}");
+  expect(step.run).toBe('bun scripts/ci-proof.ts browser_determinism --shard=${{ matrix.shard }}/"$BROWSER_REPEAT_SHARDS"');
+  expect(step["timeout-minutes"], "STEP_LIMIT_HAS_ONE_OWNER").toBe(BROWSER_DETERMINISM_PARTITIONS.stepMinutes);
+  expect(job["timeout-minutes"], "JOB_COVERS_THE_STEP").toBe(BROWSER_DETERMINISM_PARTITIONS.stepMinutes + 5);
+  expect(job.steps.find(s => s.uses === pinned("actions/upload-artifact@v7"))!.with!.name, "ONE_ARTIFACT_PER_PARTITION").toBe("browser-determinism-proof-${{ matrix.shard }}");
+  expect(workflowProblems(text, "ci.yml")).toEqual([]);
+  const problem = "browser_determinism: matrix and shard divisor must come from the planner's browser_determinism_shards output";
+  const matrix = "        shard: ${{ fromJSON(needs.changeset.outputs.browser_determinism_shards) }}\n";
+  const command = 'browser_determinism --shard=${{ matrix.shard }}/"$BROWSER_REPEAT_SHARDS"';
+  for (const [label, from, to, refusal] of [
+    ["LITERAL_ONE_MATRIX", matrix, "        shard: [1]\n", problem],
+    ["LITERAL_MAXIMUM_MATRIX", matrix, `        shard: [${Array.from({ length: BROWSER_DETERMINISM_PARTITIONS.max }, (_, index) => index + 1).join(", ")}]\n`, problem],
+    ["THE_BUN_GATES_PARTITIONS_AS_MATRIX", matrix, "        shard: ${{ fromJSON(needs.changeset.outputs.determinism_shards) }}\n", problem],
+    ["SECOND_MATRIX_DIMENSION", matrix, matrix + "        project: [visual, storybook]\n", problem],
+    ["NO_MATRIX", "    strategy:\n      fail-fast: false\n      matrix:\n" + matrix, "", problem],
+    ["UNPARTITIONED_COMMAND", command, "browser_determinism", problem],
+    ["LITERAL_DIVISOR", command, "browser_determinism --shard=${{ matrix.shard }}/2", problem],
+    ["LITERAL_DIVISOR_VALUE", "BROWSER_REPEAT_SHARDS: ${{ strategy.job-total }}", "BROWSER_REPEAT_SHARDS: 2", problem],
+    ["OUTPUT_NOT_FROM_PLANNER", "browser_determinism_shards: ${{ steps.plan.outputs.browser_determinism_shards }}", 'browser_determinism_shards: "[1]"', problem],
+    ["SHARED_ARTIFACT_NAME", "name: browser-determinism-proof-${{ matrix.shard }}", "name: browser-determinism-proof", "browser_determinism: each partition must upload its own receipts"],
+    ["STEP_LIMIT_NOT_THE_OWNERS", "        timeout-minutes: 20\n        env:\n          BROWSER_REPEAT_SHARDS:", "        timeout-minutes: 45\n        env:\n          BROWSER_REPEAT_SHARDS:", "browser_determinism: proof must retain its 20-minute limit"],
+    ["JOB_LIMIT_BELOW_THE_STEP", "    # 20 minutes proof (build, image and repeated passes) + 5 minutes for other steps.\n    timeout-minutes: 25\n", "    timeout-minutes: 20\n", "browser_determinism: job limit must cover proof and 5 minutes of other steps"],
+  ] as const) {
+    expect(text.split(from), `ONE_SITE: ${label}`).toHaveLength(2);
+    expect(workflowProblems(text.replace(from, to), "ci.yml"), label).toContain(`ci.yml: ${refusal}`);
+  }
+});
+
 test("a main push whose metadata job fails still runs its selected proof (#2942)", () => {
   const ci = Bun.YAML.parse(readFileSync(join(ROOT, ".github/workflows/ci.yml"), "utf8")) as { jobs: Record<string, { if?: string; steps?: { name?: string; id?: string }[] }> };
-  for (const name of ["verify", "pack", "unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance", "determinism"]) {
+  for (const name of ["verify", "pack", "unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance", "determinism", "browser_determinism"]) {
     const condition = ci.jobs[name]!.if ?? "";
     // No implicit success(): a status function plus an explicit push alternative.
     expect(condition, `PUSH_PROOF_SURVIVES_METADATA_FAILURE:${name}`).toContain("!cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push')");

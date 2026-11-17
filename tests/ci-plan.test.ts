@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, chmodSync, symlinkSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, chmodSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { changedFiles, FAST_TESTS, FILE_INPUT_TESTS, planChecks, planUnitChecks, planFromEnvironment, workspaces, proofSelections, rootConsumers, ROOT_CONSUMERS, unitShards, selectBrowserClosures, proofCadence } from "../scripts/ci-plan";
+import { changedFiles, FAST_TESTS, FILE_INPUT_TESTS, planChecks, planUnitChecks, planFromEnvironment, workspaces, proofSelections, rootConsumers, ROOT_CONSUMERS, unitShards, determinismShards, browserDeterminismShards, selectBrowserClosures, proofCadence } from "../scripts/ci-plan";
+
+import { planPartitions } from "../scripts/determinism-plan";
+import { FILE_COST_SECONDS } from "../scripts/test-shards";
 
 const documentGuards = ["tests/docs-paths.test.ts", "tests/decision-citations.test.ts", "tests/public-docs.test.ts"];
 
@@ -34,7 +37,7 @@ function fixture() {
 /** The real planner executable inside a fixture repository whose HEAD changes one core source file. */
 function plannerFixture() {
   const f = fixture(); f.write("scripts/ci-plan.ts", readFileSync(join(import.meta.dir, "../scripts/ci-plan.ts"), "utf8").replace('"typescript"', JSON.stringify(import.meta.resolve("typescript"))));
-  for (const name of ["browser-input-closure", "unit-test-consumers", "integration-reservation", "red-main", "proof-shards"]) f.write(`scripts/${name}.ts`, `export * from ${JSON.stringify(resolve(import.meta.dir, `../scripts/${name}.ts`))};\n`);
+  for (const name of ["browser-input-closure", "unit-test-consumers", "integration-reservation", "red-main", "proof-shards", "determinism-plan", "browser-determinism-plan"]) f.write(`scripts/${name}.ts`, `export * from ${JSON.stringify(resolve(import.meta.dir, `../scripts/${name}.ts`))};\n`);
   f.write("packages/core/src/note.ts", "export const note = 2;\n");
   f.git("add", "."); f.git("commit", "-qm", "planner fixture");
   return f;
@@ -237,7 +240,7 @@ describe("affected CI checks", () => {
       const [code, err] = await Promise.all([child.exited, new Response(child.stderr).text()]);
       expect(code, err).toBe(0);
       const expected = proofSelections(JSON.parse(readFileSync(plan, "utf8")), draft === "true");
-      expect(readFileSync(output, "utf8")).toBe(`unit_shards=${draft === "true" ? "[1,2,3,4]" : "[1,2,3,4,5,6,7,8]"}\ncadence=${draft === "true" ? "draft" : "confirmation"}\nred_main_oid=\n` + Object.entries(expected).map(([name, value]) => `${name}=${value}\n`).join(""));
+      expect(readFileSync(output, "utf8")).toBe(`unit_shards=${draft === "true" ? "[1,2,3,4]" : "[1,2,3,4,5,6,7,8]"}\ndeterminism_shards=[1]\nbrowser_determinism_shards=[1]\ncadence=${draft === "true" ? "draft" : "confirmation"}\nred_main_oid=\n` + Object.entries(expected).map(([name, value]) => `${name}=${value}\n`).join(""));
       expect(expected.unit).toBe(draft === "false");
       // Ready confirmation leaves heavy runtime proof to the squash's main run (hybrid ruling).
       expect(expected.runtime, "CONFIRMATION_DEFERS_RUNTIME").toBe(false);
@@ -375,8 +378,8 @@ describe("file-reading invariant inputs", () => {
       expect(plan.global, path).toBe(true); expect(plan.unitTests, path).toBeUndefined();
       expect(plan.affected).toEqual(packages.map(pkg => pkg.dir).sort());
       expect(Object.values(plan.local).every(Boolean), path).toBe(true);
-      const { determinism, ...selections } = proofSelections(plan);
-      expect(determinism, path).toBe(false);
+      const { determinism, browser_determinism, ...selections } = proofSelections(plan);
+      expect([determinism, browser_determinism], path).toEqual([false, false]);
       expect(Object.values(selections).every(Boolean), path).toBe(true);
       expect(plan.pack).toBe(true); expect(plan.typecheck).toBe(true);
     }
@@ -555,7 +558,8 @@ describe("changed Bun test files repeat under load before merge (#4109)", () => 
       const env = { GITHUB_EVENT_NAME: "pull_request", GITHUB_SHA: head };
       const event = { action: "synchronize", pull_request: { draft: true, base: { sha: before }, head: { sha: head } } };
       const plan = planFromEnvironment(f.dir, { ...env, BASE_SHA: before, HEAD_SHA: head }); plan.cadence = "draft";
-      return { env, event, outputs: { cadence: "draft", ...Object.fromEntries(Object.entries(proofSelections(plan)).map(([name, on]) => [name, String(on)])) } as Record<string, string> };
+      return { env, event, outputs: { cadence: "draft", determinism_shards: JSON.stringify(determinismShards(plan)), browser_determinism_shards: "[1]",
+        ...Object.fromEntries(Object.entries(proofSelections(plan)).map(([name, on]) => [name, String(on)])) } as Record<string, string> };
     };
     const selected = outputsFor(withTest, base);
     expect(selected.outputs.determinism, "DRAFT_SELECTS_REPETITION").toBe("true");
@@ -568,6 +572,50 @@ describe("changed Bun test files repeat under load before merge (#4109)", () => 
     expect(() => validateSelections(f.dir, unselected.event, unselected.env, unselected.outputs)).not.toThrow();
     expect(() => validateSelections(f.dir, unselected.event, unselected.env, { ...unselected.outputs, determinism: "true" }), "ADDED_SELECTION_REFUSED")
       .toThrow("determinism: required candidate selection differs from actual inputs");
+  });
+
+  test("the executable publishes the planned partitions, and the aggregate refuses any other set (#4117)", async () => {
+    const { validateSelections } = await import("../scripts/candidate-proof");
+    const f = plannerFixture(), base = f.git("rev-parse", "HEAD");
+    // Unweighted files at 0.1 s each: 160 weighted s per pass, 320 at the floor of two, one more than one job holds.
+    // Each exports something, so the planner's leaf-test scan (one read of every tracked file per leaf) stops at the first.
+    for (let index = 0; index < 1600; index++) f.write(`tests/fleet/ship-${String(index).padStart(4, "0")}.test.ts`, `export {};\n${passing}`);
+    f.git("add", "."); f.git("commit", "-qm", "a fleet of tests"); const head = f.git("rev-parse", "HEAD");
+    const run = async (event: object, extra: Record<string, string>) => {
+      const output = join(f.dir, "outputs-fleet"), eventPath = join(f.dir, "event-fleet.json");
+      rmSync(output, { force: true }); writeFileSync(eventPath, JSON.stringify(event));
+      const child = Bun.spawn([process.execPath, join(f.dir, "scripts/ci-plan.ts")], { cwd: f.dir, stdout: "pipe", stderr: "pipe",
+        env: { ...process.env, BEFORE_SHA: "", FEEDBACK_PR: "", RED_MAIN_OID: "", PR_DRAFT: "", GITHUB_EVENT_NAME: "pull_request", BASE_SHA: base, HEAD_SHA: head,
+          GITHUB_EVENT_PATH: eventPath, GITHUB_OUTPUT: output, CI_PLAN_PATH: join(f.dir, "plan-fleet.json"), ...extra } });
+      const [code, err] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+      return { code, err, outputs: existsSync(output) ? Object.fromEntries(readFileSync(output, "utf8").trim().split("\n").map(line => line.split("="))) as Record<string, string> : {} };
+    };
+    const pull = (draft: boolean) => ({ action: draft ? "synchronize" : "ready_for_review", pull_request: { draft, base: { sha: base }, head: { sha: head } } });
+    for (const draft of [true, false]) {
+      const planned = await run(pull(draft), {});
+      expect(planned.code, planned.err).toBe(0);
+      expect([planned.outputs.determinism, planned.outputs.determinism_shards], `SPLIT_BY_WEIGHT:draft=${draft}`).toEqual(["true", "[1,2]"]);
+      const env = { GITHUB_EVENT_NAME: "pull_request", GITHUB_SHA: head };
+      expect(() => validateSelections(f.dir, pull(draft), env, planned.outputs), "PLANNED_SET_ACCEPTED").not.toThrow();
+      const { determinism_shards: _dropped, ...missing } = planned.outputs;
+      for (const [label, outputs] of [["DROPPED_PARTITION", { ...planned.outputs, determinism_shards: "[1]" }], ["EXTRA_PARTITION", { ...planned.outputs, determinism_shards: "[1,2,3]" }],
+        ["REORDERED", { ...planned.outputs, determinism_shards: "[2,1]" }], ["MISSING_OUTPUT", missing]] as const) {
+        expect(() => validateSelections(f.dir, pull(draft), env, outputs), `${label}:draft=${draft}`).toThrow("determinism: published partition set differs from the planned one");
+      }
+    }
+    // Past the maximum: the heaviest reviewed files, as many as it takes for today's table to refuse them.
+    const heaviest = Object.entries(FILE_COST_SECONDS).sort((a, b) => b[1] - a[1]).map(([file]) => file);
+    const refuses = (count: number) => { try { planPartitions(heaviest.slice(0, count), { cadence: "draft" }); return false; } catch { return true; } };
+    let count = 1; while (!refuses(count)) count++;
+    for (const file of heaviest.slice(0, count)) f.write(file, `export {};\n${passing}`);
+    f.git("add", "."); f.git("commit", "-qm", "the heaviest tests"); const heavy = f.git("rev-parse", "HEAD");
+    const refused = await run({ action: "synchronize", pull_request: { draft: true, base: { sha: head }, head: { sha: heavy } } }, { BASE_SHA: head, HEAD_SHA: heavy });
+    expect(refused.code, "METADATA_JOB_FAILS_BEFORE_ANY_PARTITION").toBe(1);
+    expect(refused.err).toContain(`Repeated-run proof refused before it ran: ${count} changed Bun test file(s) weigh `);
+    expect(refused.err).toContain("That needs more than the limit of 10 partitions of 300 weighted s each");
+    expect(refused.outputs, "NOTHING_PUBLISHED").toEqual({});
+    // One file fewer is planned, at the maximum or under it.
+    expect(planPartitions(heaviest.slice(0, count - 1), { cadence: "draft" }).partitions.length).toBeLessThanOrEqual(10);
   });
 
   test("a change that touches no Bun test file never selects it, and a main push never repeats", () => {
@@ -584,6 +632,139 @@ describe("changed Bun test files repeat under load before merge (#4109)", () => 
     expect(push.changed).toContain("packages/core/tests/held.test.ts");
     expect(push.determinism, "MAIN_PUSH_PLANS_NO_REPETITION").toBeUndefined();
     expect(proofSelections({ ...push, cadence: "integrated" }).determinism).toBe(false);
+  });
+});
+
+describe("changed browser specs repeat under load before merge (#4163)", () => {
+  const cadences = ["draft", "feedback", "confirmation", "feedback-heavy", "integrated", "exhaustive"] as const;
+  const stories = "packages/ui-kit/stories", browser = "packages/ui-react/tests/browser";
+  const fleet = Array.from({ length: 114 }, (_, index) => `${stories}/Fleet${String(index).padStart(3, "0")}.stories.tsx`);
+  /** What the installed runner lists for the fixture's specs: a spec once per project that includes it. */
+  const listing: [string, string][] = [
+    ["visual", "packages/ui-kit/tests/visual/sails.visual.tsx"],
+    ...[`${stories}/Sail.stories.tsx`, ...fleet].flatMap(file => [["storybook", file], ["storybook-light", file]] as [string, string][]),
+    ...["rail-coarse", "rail-fine", "rail-mixed"].map(project => [project, `${browser}/oars.pointer.tsx`] as [string, string]),
+    ["ui-react-layout", `${browser}/deck.layout.tsx`], ["ui-react-layout", `${browser}/offline/fog.offline.tsx`],
+    ["ui-react-endurance", `${browser}/watch.endurance.tsx`],
+  ];
+  const pair = (project: string, file: string) => ({ project, file });
+  /** The planner executable in a repository whose Vitest is a stand-in that prints `listing`, as `vitest list --filesOnly --json` would. */
+  function specFixture(lists = true) {
+    const f = plannerFixture();
+    f.write("scripts/visual.mjs", 'const projects = projectArgs.length ? [] : ["visual", "storybook", "storybook-light", "rail-coarse", "rail-fine", "rail-mixed"];\n');
+    f.write("node_modules/vitest/vitest.mjs", lists ? `import { writeFileSync } from "node:fs";\nimport { resolve } from "node:path";\n` +
+      `const output = process.argv.find(argument => argument.startsWith("--json=")).slice("--json=".length);\n` +
+      `writeFileSync(output, JSON.stringify(${JSON.stringify(listing)}.map(([project, file]) => ({ projectName: project + " (chromium)", file: resolve(process.cwd(), "../..", file) }))));\n`
+      : "process.exit(1);\n");
+    for (const file of ["packages/ui-kit/tests/visual/sails.visual.tsx", `${stories}/Sail.stories.tsx`, `${browser}/oars.pointer.tsx`, `${browser}/deck.layout.tsx`,
+      `${browser}/offline/fog.offline.tsx`, `${browser}/watch.endurance.tsx`, `${browser}/offline/fault-network.ts`]) f.write(file, "export {};\n");
+    f.git("add", "-f", "."); f.git("commit", "-qm", "specs and their listing");
+    return { ...f, base: f.git("rev-parse", "HEAD") };
+  }
+  const commit = (f: ReturnType<typeof specFixture>, message: string) => { f.git("add", "-f", "."); f.git("commit", "-qm", message); return f.git("rev-parse", "HEAD"); };
+  async function execute(f: ReturnType<typeof specFixture>, base: string, head: string, draft: boolean) {
+    const output = join(f.dir, "outputs-specs"), eventPath = join(f.dir, "event-specs.json");
+    rmSync(output, { force: true });
+    const event = { action: draft ? "synchronize" : "ready_for_review", pull_request: { draft, base: { sha: base }, head: { sha: head } } };
+    writeFileSync(eventPath, JSON.stringify(event));
+    const child = Bun.spawn([process.execPath, join(f.dir, "scripts/ci-plan.ts")], { cwd: f.dir, stdout: "pipe", stderr: "pipe",
+      env: { ...process.env, BEFORE_SHA: "", FEEDBACK_PR: "", RED_MAIN_OID: "", PR_DRAFT: "", GITHUB_EVENT_NAME: "pull_request", BASE_SHA: base, HEAD_SHA: head,
+        GITHUB_EVENT_PATH: eventPath, GITHUB_OUTPUT: output, CI_PLAN_PATH: join(f.dir, "plan-specs.json") } });
+    const [code, err] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+    return { code, err, event, outputs: existsSync(output) ? Object.fromEntries(readFileSync(output, "utf8").trim().split("\n").map(line => line.split("="))) as Record<string, string> : {} };
+  }
+
+  test("a pull request selects the specs it adds or modifies, as the project/file pairs Vitest lists, and never on main", () => {
+    const f = specFixture();
+    f.write(`${browser}/oars.pointer.tsx`, "export {}; // changed\n"); f.write(`${stories}/Sail.stories.tsx`, "export {}; // changed\n");
+    f.write(`${browser}/offline/fog.offline.tsx`, "export {}; // changed\n"); f.write(fleet[0]!, "export {};\n");
+    // Not selected: the endurance spec, a helper beside the specs, and a spec the change deletes.
+    f.write(`${browser}/watch.endurance.tsx`, "export {}; // changed\n"); f.write(`${browser}/offline/fault-network.ts`, "export {}; // changed\n");
+    f.git("rm", "-q", `${browser}/deck.layout.tsx`); commit(f, "change specs");
+    const plan = planFromEnvironment(f.dir, { GITHUB_EVENT_NAME: "pull_request", BASE_SHA: f.base, HEAD_SHA: "HEAD" });
+    expect(plan.changed, "DELETION_AND_HELPER_ARE_IN_THE_DIFF").toEqual(expect.arrayContaining([`${browser}/deck.layout.tsx`, `${browser}/offline/fault-network.ts`, `${browser}/watch.endurance.tsx`]));
+    expect(plan.browserDeterminism, "ADDED_AND_MODIFIED_SPECS_AS_LISTED_PAIRS").toEqual([
+      pair("rail-coarse", `${browser}/oars.pointer.tsx`), pair("rail-fine", `${browser}/oars.pointer.tsx`), pair("rail-mixed", `${browser}/oars.pointer.tsx`),
+      pair("storybook-light", fleet[0]!), pair("storybook-light", `${stories}/Sail.stories.tsx`),
+      pair("storybook", fleet[0]!), pair("storybook", `${stories}/Sail.stories.tsx`),
+      pair("ui-react-layout", `${browser}/offline/fog.offline.tsx`),
+    ]);
+    const selected = Object.fromEntries(cadences.map(cadence => [cadence, proofSelections({ ...plan, cadence }).browser_determinism]));
+    expect(selected, "EVERY_PULL_REQUEST_CADENCE").toEqual({ draft: true, feedback: true, confirmation: true, "feedback-heavy": true, integrated: false, exhaustive: false });
+    // A draft keeps every other category off: with no Bun test changed, this job is the only one.
+    expect(Object.entries(proofSelections({ ...plan, cadence: "draft" })).filter(([, on]) => on).map(([name]) => name), "DRAFT_RUNS_ONLY_REPETITION").toEqual(["browser_determinism"]);
+    expect(proofSelections(plan, true).browser_determinism, "PR_DRAFT_FLAG_KEEPS_REPETITION").toBe(true);
+    const heavy = planFromEnvironment(f.dir, { GITHUB_EVENT_NAME: "workflow_dispatch", BASE_SHA: f.base, HEAD_SHA: "HEAD", FEEDBACK_PR: "7" });
+    expect(heavy.browserDeterminism, "DRAFT_HEAVY_FEEDBACK_SELECTS_THE_SAME").toEqual(plan.browserDeterminism!);
+    // The squash's specs were repeated before they merged; its main run runs each of them once.
+    const main = planFromEnvironment(f.dir, { GITHUB_EVENT_NAME: "push", BEFORE_SHA: f.base, HEAD_SHA: "HEAD" });
+    expect(main.browserDeterminism, "MAIN_NEVER_REPEATS").toBeUndefined();
+    expect(browserDeterminismShards({ ...main, cadence: "integrated" })).toEqual([1]);
+  });
+
+  test("a pull request that changes no spec does not select the job, and the aggregate requires its skip", async () => {
+    const { validateSelections } = await import("../scripts/candidate-proof");
+    const f = specFixture();
+    f.write("docs/voyage.md", "Ithaca lies west.\n"); f.write(`${browser}/offline/fault-network.ts`, "export {}; // changed\n");
+    f.write(`${browser}/watch.endurance.tsx`, "export {}; // changed\n"); const withoutSpec = commit(f, "a helper, the endurance spec and prose");
+    const plan = planFromEnvironment(f.dir, { GITHUB_EVENT_NAME: "pull_request", BASE_SHA: f.base, HEAD_SHA: withoutSpec });
+    expect(plan.browserDeterminism, "A_HELPER_SELECTS_NOTHING").toBeUndefined();
+    for (const cadence of cadences) expect(proofSelections({ ...plan, cadence }).browser_determinism, cadence).toBe(false);
+    const env = { GITHUB_EVENT_NAME: "pull_request", GITHUB_SHA: withoutSpec };
+    const unselected = await execute(f, f.base, withoutSpec, true);
+    expect(unselected.code, unselected.err).toBe(0);
+    expect([unselected.outputs.browser_determinism, unselected.outputs.browser_determinism_shards], "NOT_SELECTED").toEqual(["false", "[1]"]);
+    expect(() => validateSelections(f.dir, unselected.event, env, unselected.outputs), "THE_SKIP_IS_ACCEPTED").not.toThrow();
+    expect(() => validateSelections(f.dir, unselected.event, env, { ...unselected.outputs, browser_determinism: "true" }), "ADDED_SELECTION_REFUSED")
+      .toThrow("browser_determinism: required candidate selection differs from actual inputs");
+    // The reverse: a head that changes a spec cannot publish the job as unselected.
+    f.write(`${browser}/oars.pointer.tsx`, "export {}; // changed\n"); const withSpec = commit(f, "a pointer spec");
+    const selected = await execute(f, withoutSpec, withSpec, true);
+    expect([selected.code, selected.outputs.browser_determinism, selected.outputs.browser_determinism_shards], selected.err).toEqual([0, "true", "[1]"]);
+    expect(() => validateSelections(f.dir, selected.event, { ...env, GITHUB_SHA: withSpec }, { ...selected.outputs, browser_determinism: "false" }), "DROPPED_SELECTION_REFUSED")
+      .toThrow("browser_determinism: required candidate selection differs from actual inputs");
+  });
+
+  test("the executable publishes the planned partitions, the aggregate refuses any other set, and a selection past the maximum fails before any runner starts", async () => {
+    const { validateSelections } = await import("../scripts/candidate-proof");
+    const f = specFixture();
+    // Eight new stories in two themes: sixteen unweighted pairs at the 10 s default, 160 weighted s per pass, 320 at the floor of two.
+    for (const file of fleet.slice(0, 8)) f.write(file, "export {};\n");
+    const head = commit(f, "a fleet of stories");
+    for (const draft of [true, false]) {
+      const planned = await execute(f, f.base, head, draft);
+      expect(planned.code, planned.err).toBe(0);
+      expect([planned.outputs.browser_determinism, planned.outputs.browser_determinism_shards], `SPLIT_BY_WEIGHT:draft=${draft}`).toEqual(["true", "[1,2]"]);
+      const env = { GITHUB_EVENT_NAME: "pull_request", GITHUB_SHA: head };
+      expect(() => validateSelections(f.dir, planned.event, env, planned.outputs), "PLANNED_SET_ACCEPTED").not.toThrow();
+      const { browser_determinism_shards: _dropped, ...missing } = planned.outputs;
+      for (const [label, outputs] of [["DROPPED_PARTITION", { ...planned.outputs, browser_determinism_shards: "[1]" }], ["EXTRA_PARTITION", { ...planned.outputs, browser_determinism_shards: "[1,2,3]" }],
+        ["REORDERED", { ...planned.outputs, browser_determinism_shards: "[2,1]" }], ["MISSING_OUTPUT", missing]] as const) {
+        expect(() => validateSelections(f.dir, planned.event, env, outputs), `${label}:draft=${draft}`).toThrow("browser_determinism: published partition set differs from the planned one");
+      }
+    }
+    // 113 stories are 226 pairs: 2,260 weighted s per pass, 4,520 at the floor, one pair more than fifteen partitions hold.
+    for (const file of fleet.slice(8, 113)) f.write(file, "export {};\n");
+    const armada = commit(f, "an armada of stories");
+    const refused = await execute(f, f.base, armada, true);
+    expect(refused.code, "METADATA_JOB_FAILS_BEFORE_ANY_PARTITION").toBe(1);
+    expect(refused.err).toContain("Repeated browser proof refused before it ran: 226 changed project/file pair(s) weigh 2260.0 weighted s per pass, 4520.0 s at the floor of 2 repetitions. " +
+      "That needs more than the limit of 15 partitions of 300 weighted s each (BROWSER_DETERMINISM_PARTITIONS, scripts/proof-shards.ts). No pair is skipped and the count stays at the floor: split the change.");
+    expect(refused.outputs, "NOTHING_PUBLISHED").toEqual({});
+  });
+
+  test("a changed spec that no project lists, or a listing that cannot be read, fails the plan instead of skipping the repetition", () => {
+    const f = specFixture();
+    f.write(`${browser}/stray.pointer.tsx`, "export {};\n"); const stray = commit(f, "a pointer spec no rail project includes");
+    expect(() => planFromEnvironment(f.dir, { GITHUB_EVENT_NAME: "pull_request", BASE_SHA: f.base, HEAD_SHA: stray }), "UNLISTED_SPEC_REFUSED")
+      .toThrow(`${browser}/stray.pointer.tsx is a changed spec that no Vitest project lists, so nothing runs it`);
+    const blind = specFixture(false);
+    blind.write(`${browser}/oars.pointer.tsx`, "export {}; // changed\n"); const changed = commit(blind, "a pointer spec");
+    expect(() => planFromEnvironment(blind.dir, { GITHUB_EVENT_NAME: "pull_request", BASE_SHA: blind.base, HEAD_SHA: changed }), "NO_LISTING_NO_SILENT_SKIP")
+      .toThrow("Cannot expand 1 changed browser spec(s) to project/file pairs: Installed Vitest discovery failed");
+    // Without a changed spec the same unreadable listing only leaves category selection broad.
+    blind.write("docs/voyage.md", "Ithaca lies west.\n"); const prose = commit(blind, "prose");
+    expect(planFromEnvironment(blind.dir, { GITHUB_EVENT_NAME: "pull_request", BASE_SHA: changed, HEAD_SHA: prose }).browserDeterminism).toBeUndefined();
   });
 });
 

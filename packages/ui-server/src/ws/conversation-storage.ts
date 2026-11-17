@@ -2,6 +2,7 @@
 import type { Database } from "bun:sqlite";
 import { CONVERSATION_LIMITS, type ConversationWorkReceipt } from "@schlessera/brain-ui-sdk/protocol";
 import { conversationWorkReceiptSchema } from "@schlessera/brain-ui-sdk/schemas";
+import { principalAccount } from "../middleware/account-partition.js";
 import { assertLive, isRetired, nativeTaskRetired, ChatRetiredError } from "./chat-lifecycle.js";
 
 /** UTF-16 characters of completed result context per conversation; oldest admitted goes first. */
@@ -24,9 +25,11 @@ export function saveConversationEpoch(db: Database, state: StoredConversationEpo
     assertLive(db, [["conversation", state.id], ["session", state.sessionId]]);
     const old = db.query("SELECT principal_id FROM conversation_epochs WHERE id=?").get(state.id) as { principal_id: string } | null;
     if (old && old.principal_id !== state.principalId) throw new Error("Conversation ownership mismatch");
-    db.prepare(`INSERT INTO conversation_epochs(id,principal_id,epoch,session_id,agent_provider_id,updated_at) VALUES(?,?,?,?,?,?)
+    // The durable account is read from the principal's own row, once (#4138):
+    // deletion evidence after the login is pruned. A later save never rewrites it.
+    db.prepare(`INSERT INTO conversation_epochs(id,principal_id,principal_account,epoch,session_id,agent_provider_id,updated_at) VALUES(?,?,?,?,?,?,?)
       ON CONFLICT(id) DO UPDATE SET epoch=MAX(epoch,excluded.epoch),session_id=COALESCE(excluded.session_id,session_id),updated_at=excluded.updated_at`)
-      .run(state.id, state.principalId, state.epoch, state.sessionId ?? null, state.agentProviderId ?? null, Date.now());
+      .run(state.id, state.principalId, principalAccount(db, state.principalId), state.epoch, state.sessionId ?? null, state.agentProviderId ?? null, Date.now());
     db.exec(`DELETE FROM conversation_epochs WHERE id IN (SELECT id FROM conversation_epochs ORDER BY updated_at DESC LIMIT -1 OFFSET 64)
       AND id NOT IN (SELECT conversation_id FROM conversation_tasks WHERE receipt IS NOT NULL AND
         (json_extract(receipt,'$.state') IN ('queued','running') OR json_extract(receipt,'$.delivery')='pending'))`);
