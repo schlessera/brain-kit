@@ -6,6 +6,8 @@
  */
 import { afterAll, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import Markdown from "react-markdown";
+import { REMARK_PLUGINS } from "../src/components/chat/use-markdown-highlight.js";
 import * as blocks from "../src/components/chat/markdown-blocks.js";
 import { BrainMarkdown } from "../src/components/chat/brain-markdown.js";
 import { BrainUiProvider } from "../src/root-context.js";
@@ -27,13 +29,13 @@ function html(content: string, props: { fileLinks?: boolean; entityTags?: boolea
 }
 
 describe("splitMarkdownBlocks", () => {
-  test("splits paragraphs and headings at blank lines, dropping the blank lines between", () => {
-    expect(realSplit("# Ithaca\n\nThe raft is ready.\n\n\nPenelope weaves.")).toEqual(["# Ithaca", "The raft is ready.", "Penelope weaves."]);
+  test("splits paragraphs and headings at blank lines, keeping the blank lines with the block before", () => {
+    expect(realSplit("# Ithaca\n\nThe raft is ready.\n\n\nPenelope weaves.")).toEqual(["# Ithaca\n", "The raft is ready.\n\n", "Penelope weaves."]);
   });
   test("never splits inside a fence, backtick or tilde, any length, nor after an unclosed one", () => {
-    expect(realSplit("Before.\n\n```js\nconst a = 1;\n\nconst b = 2;\n```\n\nAfter.")).toEqual(["Before.", "```js\nconst a = 1;\n\nconst b = 2;\n```", "After."]);
-    expect(realSplit("~~~~\nsail\n\n~~~\nstill inside\n~~~~\n\nAfter.")).toEqual(["~~~~\nsail\n\n~~~\nstill inside\n~~~~", "After."]);
-    expect(realSplit("Before.\n\n```\nopen fence\n\nstill streaming")).toEqual(["Before.", "```\nopen fence\n\nstill streaming"]);
+    expect(realSplit("Before.\n\n```js\nconst a = 1;\n\nconst b = 2;\n```\n\nAfter.")).toEqual(["Before.\n", "```js\nconst a = 1;\n\nconst b = 2;\n```\n", "After."]);
+    expect(realSplit("~~~~\nsail\n\n~~~\nstill inside\n~~~~\n\nAfter.")).toEqual(["~~~~\nsail\n\n~~~\nstill inside\n~~~~\n", "After."]);
+    expect(realSplit("Before.\n\n```\nopen fence\n\nstill streaming")).toEqual(["Before.\n", "```\nopen fence\n\nstill streaming"]);
   });
   test("keeps lists, blockquotes, tables and indented continuations whole", () => {
     expect(realSplit("- one\n\n- two\n\n  more of two\n\n3. three\n\n4) four\n\n> quote\n\n> more\n\n| a |\n\n    code")).toHaveLength(1);
@@ -49,7 +51,7 @@ describe("splitMarkdownBlocks", () => {
       expect(realSplit(text), text).toHaveLength(1);
   });
   test("leading blank lines start no empty block", () => {
-    expect(realSplit("\n\nFirst.\n\nSecond.")).toEqual(["\n\nFirst.", "Second."]);
+    expect(realSplit("\n\nFirst.\n\nSecond.")).toEqual(["\n\nFirst.\n", "Second."]);
   });
 });
 
@@ -59,7 +61,8 @@ const CORPUS: Record<string, { text: string; splits: boolean; props?: { fileLink
   "loose and tight lists, an ordered list from 3": { text: "Supplies:\n\n- water\n- bread\n\nTasks:\n\n3. caulk the raft\n\n4. raise the mast\n\nDone.\n\n* oars\n\n* rope", splits: true },
   "fences with blank lines, backtick and tilde": { text: "Code:\n\n```ts\nconst raft = 1;\n\nconst mast = 2;\n```\n\nAnd:\n\n~~~~sh\nsail\n\nhome\n~~~~\n\nEnd.", splits: true },
   "an unclosed fence mid-stream": { text: "Plan:\n\nFirst step.\n\n```js\nconst wind = 'west';\n\nif (wind)", splits: true },
-  "blockquotes, tables, setext headings, HTML blocks": { text: "Athena\n======\n\n> Go home.\n>\n> Now.\n\nVoyage\n------\n\n| Day | Port |\n| --- | --- |\n| 1 | Troy |\n\n<div>\n<b>raw</b>\n</div>\n\nAfter the div.", splits: true },
+  "blockquotes, tables, setext headings": { text: "Athena\n======\n\n> Go home.\n>\n> Now.\n\nVoyage\n------\n\n| Day | Port |\n| --- | --- |\n| 1 | Troy |\n\nAfter the table.", splits: true },
+  "an HTML block": { text: "Before.\n\n<div>\n<b>raw</b>\n</div>\n\nAfter the div.", splits: false },
   "entity tags": { text: "Met <person>Penelope</person> at the loom.\n\nThen <place>Ithaca</place>.", splits: true, props: { fileLinks: true, entityTags: true } },
   "share blocks": { text: "Here it is:\n\n```share md \"Voyage log\"\n# Day one\n\nCalm seas.\n```\n\nThat is the log.\n\nAnd more.", splits: true },
   "definitions inside a blockquote and a list item": { text: "Odysseus kept [a log][log].[^1]\n\nThe crew read it.\n\n> [log]: https://ithaca.example/log\n\n- [^1]: Written at Ogygia.", splits: false },
@@ -72,7 +75,8 @@ const CORPUS: Record<string, { text: string; splits: boolean; props?: { fileLink
   "a fence indented at the top level": { text: "Before.\n\n  ```\ncode at column 0\n\nstill code\n  ```\n\nAfter.", splits: false },
   "a pre or comment block inside a list item": { text: "- <pre>\n\n  x\n\ny\n\n- <!--\n\n  z\n\nw", splits: false },
   "a fence marker inside an HTML block": { text: "<details>\n```js\na\n\nb\n```\n</details>\n\nAfter.", splits: false },
-  "an HTML block before a separate fence": { text: "<div>\nraw\n</div>\n\n```js\nconst a = 1;\n\nconst b = 2;\n```\n\nAfter.", splits: true },
+  "an HTML block before a separate fence": { text: "<div>\nraw\n</div>\n\n```js\nconst a = 1;\n\nconst b = 2;\n```\n\nAfter.", splits: false },
+  "an HTML line continuing a list item": { text: " \n* item\n</pre>\n\n```\n\n```js\n\n", splits: false },
   "links, inline code and emphasis": { text: "Read **the [log](https://ithaca.example/log)** and `notes/raft.md`.\n\n_Then_ sail.", splits: true },
 };
 
@@ -84,3 +88,41 @@ describe("split and whole render the same HTML", () => {
     });
   }
 });
+
+/**
+ * Generated documents (fixed seeds): lines drawn from every construct the
+ * split has to respect, joined by single and blank lines. Each one the
+ * splitter splits must parse to the same HTML split and whole. React's
+ * static renderer hoists an image's preload link to the start of its
+ * segment; a DOM render has none, so it is not compared.
+ */
+const LINES = [
+  "Para text", "Another line", "# Head", "Setext\n===", "Setext2\n---", "---", "***", "- item", "* item", "+ item", "1. one", "3) three",
+  "  continued", "    indented code", "> quote", "> > nested", "| a | b |\n| - | - |\n| 1 | 2 |", "```", "```js", "~~~", "````", "  ```", "   ~~~",
+  "- ```", "> ```", "<div>", "</div>", "<details>", "<span>x</span>", "<pre>", "</pre>", "<!--", "-->", "[r]: /u", "> [q]: /q", "[^1]: note", "see [x][r] and [^1]",
+  "\u00a0", " ", "\t", "<br>", "Term\n: def", "1. a\n2. b", "- a\n  - b", "text with `code`", "***bold***", "\\", "- [ ] task", "|x|", "a | b", "-- | --",
+  "hard break  ", "back\\", "<https://ithaca.example>", "*emph", "**", "[link](/u)", "![img](/i.png)", "&amp;", "1.", "-", ">", "#", "======", "| --- |", "\t- tab item", "10. ten", "~~~~ ~", "```` js", "  > quote", "\u3000", "a\u00a0b",
+];
+function seeded(seed: number) { return () => { seed = (Math.imul(seed, 1103515245) + 12345) >>> 0; return seed / 0x100000000; }; }
+const parse = (text: string) => renderToStaticMarkup(<Markdown remarkPlugins={REMARK_PLUGINS}>{text}</Markdown>).replace(/<link rel="preload"[^>]*\/>/g, "");
+
+test("generated documents parse the same split and whole", () => {
+  const differing: string[] = [];
+  let split = 0;
+  for (const seed of [2588, 7, 4242]) {
+    const random = seeded(seed);
+    for (let n = 0; n < 5000 && differing.length < 5; n++) {
+      const parts: string[] = [];
+      for (let i = 0, length = 2 + Math.floor(random() * 10); i < length; i++) {
+        parts.push(LINES[Math.floor(random() * LINES.length)]!, random() < 0.55 ? "\n\n" : "\n");
+      }
+      const text = parts.join("");
+      const pieces = realSplit(text);
+      if (pieces.length < 2) continue;
+      split++;
+      if (parse(text) !== pieces.map(parse).join("\n")) differing.push(JSON.stringify(text));
+    }
+  }
+  expect(split, "the generator produces documents that split").toBeGreaterThan(1000);
+  expect(differing).toEqual([]);
+}, 60_000);
