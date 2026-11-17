@@ -1568,7 +1568,7 @@ GitHub did not record, or whose ancestry cannot be determined, is left alone.
 So proof for a PR against an integration or release branch forked before the
 bad commit keeps running. `integrate.ts` applies the same rule to the
 candidate's base and head before confirming or merging, and refuses when
-ancestry is unknown (`refuseWhileRed`, `scripts/integrate.ts:87-91`). A non-fix squash
+ancestry is unknown (`refuseWhileRed`, `scripts/integrate.ts:88-92`). A non-fix squash
 that lands while red is reported once on its PR and on the incident, and
 recorded as an `incident` event through `scripts/ci-timings.ts record` in the
 coordinator's `red-main-events` artifact.
@@ -1926,7 +1926,7 @@ most changes before they landed.
   `packages/ui-server/` or `packages/core/`. The same predicate decides both
   (`touchesCorePackages`, `scripts/fast-lane.ts:19-21`). A fast-lane PR is
   never asked, and its comments are not read
-  (`reviewGate`, `scripts/review-receipt.ts:190-193`).
+  (`reviewGate`, `scripts/review-receipt.ts:191-194`).
 - **What counts as independent.** A reviewer that did not write the change and
   is given only the PR and its issue, never the author's summary or reasoning.
   In practice that is a fresh agent context or a human.
@@ -1937,15 +1937,15 @@ most changes before they landed.
   `filed` naming the issue or `rejected` with the reason. A review with no
   findings says so explicitly. The comment passes the leakage gate before it is
   posted. Only the newest record counts, and an unreadable newest record
-  refuses (`newestReview`, `scripts/review-receipt.ts:122-127`).
+  refuses (`newestReview`, `scripts/review-receipt.ts:123-128`).
 - **The gate.** `integrate.ts confirm` and `merge` refuse a core-package
-  candidate (`reviewRefusal`, `scripts/review-receipt.ts:168-184`) when:
+  candidate (`reviewRefusal`, `scripts/review-receipt.ts:169-185`) when:
   - no record exists;
   - the newest record has a finding without a disposition, or answers one as
     `fixed` in a commit the candidate head does not contain;
   - the candidate head contains a non-merge commit, not reachable from the
     base, that the reviewed head does not contain
-    (`unreviewedCommits`, `scripts/review-receipt.ts:157-159`).
+    (`unreviewedCommits`, `scripts/review-receipt.ts:158-160`).
 
   `confirm` checks before it takes the reservation or requests candidate CI,
   like the check receipt, and the merge reads the record again.

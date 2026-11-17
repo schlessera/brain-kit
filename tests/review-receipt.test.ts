@@ -51,7 +51,12 @@ describe("the record", () => {
     expect(reviewFromBody(reviewComment(full).replace(/\n/g, "\r\n"))).toEqual(full);
     const none = record(head, base);
     expect(none.outcome).toBe("no-findings");
-    expect(reviewComment(none)).toContain("No findings.");
+    expect(reviewComment(none)).toContain("Reviewer: agent. No findings.");
+    expect(reviewComment(full)).toContain("3 findings: 1 fixed, 1 filed, 1 rejected, 0 without a disposition.");
+    // A summary's own words stay inside the code fence: outside it, a mention would notify someone.
+    const mention = reviewComment(record(head, base, [{ summary: "@odysseus left #12 open." }]));
+    expect(mention.slice(0, mention.indexOf(REVIEW_START)), "FINDING_TEXT_ONLY_IN_THE_FENCE").not.toContain("@odysseus");
+    expect(reviewFromBody(mention)?.findings).toEqual([{ summary: "@odysseus left #12 open." }]);
     expect(() => parseReview({ ...none, outcome: "findings" }), "EMPTY_LIST_IS_NOT_A_STATEMENT").toThrow("no-findings exactly when");
     expect(() => parseReview({ ...full, outcome: "no-findings" })).toThrow("no-findings exactly when");
   });
@@ -61,7 +66,7 @@ describe("the record", () => {
     expect(() => parseReview({ ...full, reviewer: "Odysseus" }), "REVIEWER_KIND_ONLY").toThrow("Invalid review record");
     expect(() => parseReview({ ...full, reviewerName: "Odysseus" }), "NO_EXTRA_RECORD_FIELD").toThrow("Invalid review record");
     expect(() => parseReview({ ...full, findings: [{ summary: "The mast is not lashed.", author: "Odysseus" }] }), "NO_EXTRA_FINDING_FIELD").toThrow("Invalid review finding");
-    expect(Object.keys(JSON.parse(/```json\n(.*)\n```/.exec(reviewBlock(full))![1]!)).sort()).toEqual(["base", "findings", "head", "kind", "outcome", "pr", "reviewer", "version"]);
+    expect(Object.keys(JSON.parse(/```json\n([\s\S]*)\n```/.exec(reviewBlock(full))![1]!)).sort()).toEqual(["base", "findings", "head", "kind", "outcome", "pr", "reviewer", "version"]);
   });
 
   test("gives each finding at most one disposition, with exactly the detail that disposition names", () => {
@@ -253,8 +258,11 @@ describe("the command", () => {
     await expect(run(gh, root, "post", "7", "--reviewer", "agent", "--head", reviewed, "--findings", findingsFile(root, []))).rejects.toThrow("use --no-findings");
     await expect(run(gh, root, "post", "7", "--reviewer", "agent", "--head", reviewed, "--findings", findingsFile(root, [{ summary: "x", reviewer: "Odysseus" }]))).rejects.toThrow("Invalid review finding");
     const open = findingsFile(root, [{ summary: "The mast is not lashed." }]);
+    const outside = mkdtempSync(join(tmpdir(), "odysseus-review-findings-")); dirs.push(outside);
     const dry = await run(gh, root, "post", "7", "--reviewer", "agent", "--head", reviewed, "--findings", open, "--dry-run");
-    expect(dry.out).toContain("**no disposition yet**: The mast is not lashed.");
+    expect(dry.out).toContain("1 finding: 0 fixed, 0 filed, 0 rejected, 1 without a disposition.");
+    await expect(run(gh, root, "post", "7", "--reviewer", "agent", "--head", reviewed, "--findings", findingsFile(outside, [{ summary: `The block ends at ${REVIEW_END} too early.` }])),
+      "UNREADABLE_COMMENT_NEVER_POSTED").rejects.toThrow("does not read back from its own comment");
     expect(posted).toEqual([]);
     // An unanswered review can be recorded as it stands; the gate refuses it until it is answered.
     const recorded = await run(gh, root, "post", "7", "--reviewer", "agent", "--head", reviewed, "--findings", open);

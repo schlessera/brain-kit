@@ -76,21 +76,22 @@ export function parseReview(value: unknown): ReviewRecord {
 
 export const undisposed = (record: ReviewRecord) => record.findings.filter(finding => !("disposition" in finding));
 
-/** The fixed block the comment carries; the merge path reads nothing else. */
+/**
+ * The fixed block the comment carries; the merge path reads nothing else. The
+ * findings' own words appear only here, inside a code fence, where a `@name`
+ * or a `#123` in a summary is text and notifies or links nobody.
+ */
 export function reviewBlock(record: ReviewRecord): string {
-  return [REVIEW_START, "```json", JSON.stringify(record), "```", REVIEW_END].join("\n");
+  return [REVIEW_START, "```json", JSON.stringify(record, null, 2), "```", REVIEW_END].join("\n");
 }
 
-/** The whole comment: the same facts as prose for a reader, then the block. */
+/** The whole comment: one line of counts for a reader, then the block. */
 export function reviewComment(record: ReviewRecord): string {
-  const line = (finding: ReviewFinding) => !("disposition" in finding) ? `**no disposition yet**: ${finding.summary}`
-    : finding.disposition === "fixed" ? `**fixed** in ${finding.commit}: ${finding.summary}`
-    : finding.disposition === "filed" ? `**filed** as ${finding.issue}: ${finding.summary}`
-    : `**rejected**: ${finding.summary} Reason: ${finding.reason}`;
-  return ["## Independent review", "",
-    `Reviewed head ${record.head} against base ${record.base}. Reviewer: ${record.reviewer}.`, "",
-    record.findings.length ? record.findings.map((finding, index) => `${index + 1}. ${line(finding)}`).join("\n") : "No findings.", "",
-    reviewBlock(record)].join("\n");
+  const count = (disposition: string) => record.findings.filter(finding => "disposition" in finding && finding.disposition === disposition).length;
+  const outcome = record.findings.length
+    ? `${record.findings.length} finding${record.findings.length === 1 ? "" : "s"}: ${count("fixed")} fixed, ${count("filed")} filed, ${count("rejected")} rejected, ${undisposed(record).length} without a disposition.`
+    : "No findings.";
+  return ["## Independent review", "", `Reviewed head ${record.head} against base ${record.base}. Reviewer: ${record.reviewer}. ${outcome}`, "", reviewBlock(record)].join("\n");
 }
 
 /** The record one comment carries: null when it has no block; an unreadable or doubled block refuses. */
@@ -248,6 +249,10 @@ export async function main(argv: readonly string[], io: ReviewIo): Promise<numbe
   const record = parseReview({ version: 1, kind: REVIEW_KIND, pr, head: text("head"), base: text("base") ?? live.base.sha, reviewer: text("reviewer"),
     outcome: findings.length ? "findings" : "no-findings", findings });
   const body = reviewComment(record);
+  // A finding that quotes the block's own markers would post a comment the merge path cannot read.
+  let readBack: ReviewRecord | null = null;
+  try { readBack = reviewFromBody(body); } catch { /* reported below */ }
+  if (JSON.stringify(readBack) !== JSON.stringify(record)) throw new Error("The review record does not read back from its own comment: a finding contains the record's markers or a code fence; nothing was posted");
   // Every word of the comment is public: the leakage gate reads it before anything is posted.
   if (scanText("review record", body).length) throw new Error("The review record contains text the leakage gate refuses; nothing was posted");
   if (flags.has("dry-run")) { io.out(body); return 0; }
