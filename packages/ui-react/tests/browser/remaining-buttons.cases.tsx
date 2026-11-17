@@ -63,6 +63,20 @@ async function ring(el: HTMLElement) {
   const css = getComputedStyle(el);
   return document.activeElement === el && css.outlineStyle === "solid" && css.outlineWidth === "2px" && css.outlineColor !== "rgba(0, 0, 0, 0)";
 }
+/**
+ * The same keyboard focus ring for an element that disappears soon after
+ * focus leaves its owner, like a picker's result row: the combobox closes its
+ * results 150ms after blur, which a keyboard round trip after focusing can
+ * outlast on a loaded runner (#4125). The key goes first, so focusing the row
+ * is already a keyboard focus, and the style is read in the same tick.
+ */
+async function ringBeforeClose(el: HTMLElement) {
+  el.scrollIntoView({ block: "center" });
+  await userEvent.keyboard("{Shift}");
+  el.focus();
+  const css = getComputedStyle(el);
+  return document.activeElement === el && css.outlineStyle === "solid" && css.outlineWidth === "2px" && css.outlineColor !== "rgba(0, 0, 0, 0)";
+}
 /** #3252: a reaching Button keeps its kit paint and, under a coarse pointer,
  * owns each edge of its 44px target, probed 1px inside. */
 function reaches(el: HTMLElement, pointer: string) {
@@ -225,7 +239,7 @@ export function remainingButtonCases(pointer: () => "fine" | "coarse" | "mixed")
     await userEvent.click(picker); await userEvent.fill(picker, "Ithaca");
     const result = s.find("Return to Ithaca voyage/return.md");
     await expect.element(result).toBeVisible();
-    expect(await ring(result.element() as HTMLElement), "raw picker row has an inset focus ring").toBe(true);
+    expect(await ringBeforeClose(result.element() as HTMLElement), "raw picker row has an inset focus ring").toBe(true);
     // A keyboard focus proof blurs the combobox and deliberately closes its
     // results after 150ms. Use a fresh interaction for the pointer proof.
     s.draw(<ControlsBody key="pointer" />);
