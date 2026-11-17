@@ -51,16 +51,16 @@ jobs:
     outputs:
       publish: ${{ steps.selection.outputs.publish }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # Release runs pair current website main with the independently tagged product.
           ref: ${{ inputs.source_sha || 'main' }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: '1.4.2'
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '22.23.3'
       - name: Validate source and select the product
@@ -128,7 +128,7 @@ jobs:
         run: bun website/scripts/verify-publication.ts
       - name: Save browser diagnostics and build provenance
         if: always() && steps.selection.outputs.publish == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: website-proof-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
@@ -141,7 +141,7 @@ jobs:
           if-no-files-found: warn
           include-hidden-files: true
           retention-days: 14
-      - uses: actions/upload-pages-artifact@v4
+      - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
         if: steps.selection.outputs.publish == 'true'
         with:
           path: ${{ env.PAGES_WORKSPACE }}/website/dist
@@ -160,4 +160,4 @@ jobs:
     steps:
       - name: Publish the verified artifact
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
