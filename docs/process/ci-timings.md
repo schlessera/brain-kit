@@ -56,7 +56,7 @@ proof of a successful candidate.
 ## Automatic archival
 
 The [evidence archive and delivery decision](../decisions/ci-evidence.md)
-records the permanent measurement ref, monthly schema rules, retention split,
+records the permanent measurement ref, partition and schema rules, retention split,
 publication permissions and daily/weekly delivery cadence. Hourly collection,
 described here, uploads 90-day artifacts; the [durable archive](#durable-archive)
 compacts them into the permanent data ref daily. Scheduled report delivery is
@@ -185,7 +185,8 @@ download per artifact. A budget stop keeps
 what it committed and leaves the rest pending, with exit status 0.
 
 The data ref is `refs/heads/brain-ci-metrics`. Each record kind lives in
-`YYYY-MM/<kind>.json`, partitioned by UTC month, one record per line in
+`YYYY-MM/run/DD.json` for runs (UTC `run.createdAt` day) and
+`YYYY-MM/<kind>.json` for other kinds, partitioned by UTC month, one record per line in
 timestamp and identity order. Monthly files hold `run`, `pull`, `coordinator`,
 `event`, `collection`, `enrichment`, `reservations`, `red-main` and `source`
 records, keyed by the [inventory's](ci-evidence.md#record-kinds-schemas-and-retention)
@@ -217,7 +218,7 @@ Each commit is parented by the inspected remote head and pushed with exact
 never move. A competing writer causes a fresh read and merge, skipping the
 artifacts it already archived, for up to five attempts. Sources commit in
 batches of 50, so a timeout keeps earlier batches. A run that finds nothing new
-downloads nothing and commits nothing. A monthly file over 95 MiB stops the
+downloads nothing and commits nothing. Any output file over 95 MiB stops the
 publication before the push, since GitHub refuses larger blobs.
 
 Explicit normalized directories, such as a budgeted `collect --since ... --until
@@ -237,7 +238,10 @@ bun scripts/ci-timings.ts report --repo odysseus/chronicle --from-archive origin
 ```
 
 Readers refuse an unknown kind, an unknown schema version, another repository's
-record and a record outside its month partition. The archive is measurement
+record and a record outside its month or day partition. Legacy monthly
+`YYYY-MM/run.json` files remain readable and unchanged; mixed layouts join each
+run/attempt once with the deterministic observation/conflict rules. The 95 MiB
+limit applies to each daily output too, with no overflow fallback. The archive is measurement
 only and never an input to proof, selection or merging.
 
 ## Scheduled evidence reports
@@ -431,7 +435,7 @@ containing only work, wait and preemption events.
 The publisher appends immutable `events/<id>.json` files to
 `refs/heads/brain-ci-metrics`, preserving the inspected tree's other files.
 These are the dedicated published-event inputs for daily compaction (#2955),
-which owns the monthly normalized archive. This command enables neither
+which owns the partitioned normalized archive. This command enables neither
 compaction nor scheduled report delivery. Repeating a batch is a no-op;
 an existing ID with different content is refused. Unknown event versions are
 refused rather than rewritten.
