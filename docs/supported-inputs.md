@@ -324,6 +324,21 @@ provider masks, empty. So whatever is hidden from every turn under a provider
 rule, such as the generated-text caches (#2692), stays hidden from it too,
 until those caches move into a masked directory (#2725).
 
+**Tool recipients (G2).** One exception to the egress rule above: a host
+tool that sends a third party text the model chose makes that party a
+recipient, named in `allow` like an inference recipient. A conversation that
+has shown a provider folder a rule keeps from it sends it nothing, and under a
+rule that restricts it, neither does a conversation whose exposure cannot be
+judged. These recipients are named: `apify` for Apify discovery, inspection
+and runs; the curated web providers `exa`, `duckduckgo`, `brave`, `jina`,
+`perplexity`, `tavily`, `openai`, `google` (Gemini), `firecrawl` and `kagi`;
+`typesafe` for the extraction judge; and `github` for the host GitHub reads
+and searches (additive in 0.45.0, #4029). The GitHub write tools are not routed: each write
+is gated by its per-use approval card, which shows exactly what is sent, and
+by `outward.github.repositories`. To let GitHub receive a rule's folders,
+add `github` to that rule's `allow`. See
+[the MCP contract](integration-contract/mcp.md#github-data-routing-additive-0450-4029).
+
 **Which selectors hosted turns enforce (additive in 0.44.0, #2694).** A
 selector is enforced only when it maps exactly onto whole folders; the turn
 then masks those folders as above. Every other selector refuses turn admission
