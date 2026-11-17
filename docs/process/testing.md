@@ -531,6 +531,17 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   [fast lane](../decisions/ci-utility.md#fast-lane-outside-the-core-packages):
   it skips ready-candidate confirmation and is proved by its `check:pr`
   receipt and its squash's main run.
+- A PR that does touch one of those four packages needs a recorded
+  independent review before `integrate.ts confirm` or `merge` will proceed
+  ([ruling](../decisions/ci-utility.md#recorded-independent-review-of-core-package-prs)).
+  The reviewer is a fresh agent context or a human, given only the PR and its
+  issue and never the author's summary. `bun scripts/review-receipt.ts post`
+  records the reviewed head and every finding with one disposition (`fixed`,
+  `filed` or `rejected`) as a PR comment. Merging the base into the branch
+  keeps the record valid; a new commit, a rebase or an amend needs a new
+  review. `bun scripts/review-receipt.ts check <pr>` prints the merge path's
+  decision. The review is proof that someone else read the change, not a
+  substitute for any check above. An expedited red-main fix is exempt.
 - Run `bun run check:pr --base origin/main` before opening or marking ready,
   and paste the receipt block it prints into the PR body. Record a check you
   cannot finish with `--check-timeout=<seconds>` or `--skip <check name>`

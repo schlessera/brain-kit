@@ -1571,7 +1571,7 @@ GitHub did not record, or whose ancestry cannot be determined, is left alone.
 So proof for a PR against an integration or release branch forked before the
 bad commit keeps running. `integrate.ts` applies the same rule to the
 candidate's base and head before confirming or merging, and refuses when
-ancestry is unknown (`refuseWhileRed`, `scripts/integrate.ts:87-91`). A non-fix squash
+ancestry is unknown (`refuseWhileRed`, `scripts/integrate.ts:88-92`). A non-fix squash
 that lands while red is reported once on its PR and on the incident, and
 recorded as an `incident` event through `scripts/ci-timings.ts record` in the
 coordinator's `red-main-events` artifact.
@@ -1939,7 +1939,10 @@ PRs below.
   `packages/ui-react/`, `packages/ui-kit/`, `packages/ui-server/` or
   `packages/core/`. Every other PR, and every epic landing, keeps
   [ready confirmation](#hybrid-post-merge-heavy-proof) through
-  `integrate.ts confirm`.
+  `integrate.ts confirm`. The path rule has one owner in code
+  (`touchesCorePackages`, `scripts/fast-lane.ts:19-21`), which the
+  [review requirement](#recorded-independent-review-of-core-package-prs) also
+  reads.
 - **What it skips.** The explicit ready-candidate run (`verify`, `pack`,
   `unit`). A qualifying PR merges on its exact head once these hold:
   - its newest CI run on that head has no failed or cancelled job, apart from
@@ -1965,6 +1968,62 @@ packages, which keep full pre-merge proof.
 lease, red-main refusal, main's complete affected proof and releases from a
 green main all still apply. A fast-lane merge is not a successful delivery
 until its main run is green.
+
+## Recorded independent review of core-package PRs
+
+The maintainer decided on 2026-11-16 that a PR which touches the core packages
+needs a recorded independent review before it is confirmed
+([#4110](https://github.com/schlessera/brain-kit/issues/4110)). None of the
+382 PRs merged to `main` between 2026-10-26 and 2026-11-16 carried a review.
+The median PR changed 271 lines and merged 2.2 hours after it opened, and 37%
+of the merged PRs were fixes. The author's own agent was the only reader of
+most changes before they landed.
+
+- **Who.** The complement of the
+  [fast lane](#fast-lane-outside-the-core-packages): a PR whose diff against
+  its base touches `packages/ui-react/`, `packages/ui-kit/`,
+  `packages/ui-server/` or `packages/core/`. The same predicate decides both
+  (`touchesCorePackages`, `scripts/fast-lane.ts:19-21`). A fast-lane PR is
+  never asked, and its comments are not read
+  (`reviewGate`, `scripts/review-receipt.ts:191-194`).
+- **What counts as independent.** A reviewer that did not write the change and
+  is given only the PR and its issue, never the author's summary or reasoning.
+  In practice that is a fresh agent context or a human.
+- **The record.** One PR comment carrying a fixed block, written and posted by
+  `bun scripts/review-receipt.ts post`. It names the reviewed head, the base,
+  and the reviewer as `agent` or `human` and nothing more: an unknown field
+  refuses. Each finding has exactly one disposition: `fixed` naming the commit,
+  `filed` naming the issue or `rejected` with the reason. A review with no
+  findings says so explicitly. The comment passes the leakage gate before it is
+  posted. Only the newest record counts, and an unreadable newest record
+  refuses (`newestReview`, `scripts/review-receipt.ts:123-128`).
+- **The gate.** `integrate.ts confirm` and `merge` refuse a core-package
+  candidate (`reviewRefusal`, `scripts/review-receipt.ts:169-185`) when:
+  - no record exists;
+  - the newest record has a finding without a disposition, or answers one as
+    `fixed` in a commit the candidate head does not contain;
+  - the candidate head contains a non-merge commit, not reachable from the
+    base, that the reviewed head does not contain
+    (`unreviewedCommits`, `scripts/review-receipt.ts:158-160`).
+
+  `confirm` checks before it takes the reservation or requests candidate CI,
+  like the check receipt, and the merge reads the record again.
+- **What keeps a record valid.** Merging the base into the branch adds only a
+  merge commit and commits the base already has, so a branch refreshed that
+  way, however often, keeps its record. A new commit, a rebase or an amend
+  needs a new review of the new head. That includes a commit that fixes a
+  finding.
+- **Exempt.** An [expedited red-main fix](#expedited-red-main-fixes)
+  (`--fixes-main-run`), as it is from the check receipt. The next main run is
+  the backstop.
+
+**What it is not.** This is cooperative procedure, like the lease. It adds no
+repository ruleset or branch protection, it does not review fast-lane PRs, and
+it does not automate the reviewer.
+
+**Known cost.** The rule counts commits, so the content of a merge commit
+itself, such as a conflict resolution made while merging the base, is not
+compared with what the reviewer read.
 
 ## Historical measurement and upstream guidance
 

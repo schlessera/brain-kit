@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { Gh } from "../issue-queue";
 import { failingLines, main, summarizeChecks } from "../pr-status";
 import { RECEIPT_START } from "../check-receipt";
+import { reviewComment, REVIEW_START } from "../review-receipt";
 import { EXPECTED_FAILURE_PREFIX } from "../expected-failure-log";
 
 const REPO = "schlessera/brain-kit";
@@ -79,6 +80,7 @@ function github(overrides: Record<string, { code?: number; stdout: string }> = {
     "run list": { stdout: JSON.stringify([{ databaseId: 7, workflowName: "CI", event: "pull_request", attempt: 1, status: "completed", conclusion: "failure" }]) },
     [`repos/${REPO}/git/ref/heads/main`]: { stdout: `${BASE}\n` },
     [`repos/${REPO}/git/ref/pull/42/merge`]: { stdout: `${MERGE}\n` },
+    [`repos/${REPO}/issues/42/comments`]: { stdout: `${JSON.stringify("Odysseus builds a raft.")}\n` },
     [`repos/${REPO}/git/commits/${MERGE}`]: { stdout: JSON.stringify([BASE, HEAD]) },
     [`repos/${REPO}/compare/${OLD_BASE}...${BASE}`]: { stdout: JSON.stringify(["packages/ithaca/tests/oars.test.ts", "packages/pylos/src/sands.ts"]) },
     "run view": { stdout: JSON.stringify({ jobs: [{ databaseId: 70, name: "unit (1)", conclusion: "failure", steps: [{ name: "Set up", conclusion: "success" }, { name: "Run unit proof", conclusion: "failure" }] },
@@ -104,9 +106,19 @@ describe("one pull request's state", () => {
     const result = await status(github());
     expect([result.code, result.lines]).toEqual([0, 1]);
     expect(result.json).toEqual({ pr: 42, state: "OPEN", draft: false, head: HEAD, baseRef: "main", liveBase: BASE, mergeable: "MERGEABLE", mergeState: "CLEAN", review: null,
-      mergeRef: { sha: MERGE, parents: [BASE, HEAD], current: true }, receipt: true, proof: "passed",
+      mergeRef: { sha: MERGE, parents: [BASE, HEAD], current: true }, receipt: true, reviewRecord: null, proof: "passed",
       checks: { total: 2, passed: 2, skipped: 0, pending: [], failed: [] },
       runs: [{ id: 7, workflow: "CI", event: "pull_request", attempt: 1, status: "completed", conclusion: "failure" }] });
+  });
+
+  test("the newest recorded review is summarized, and an unreadable one is reported, not hidden", async () => {
+    const comments = (...bodies: string[]) => ({ [`repos/${REPO}/issues/42/comments`]: { stdout: bodies.map(body => JSON.stringify(body)).join("\n") } });
+    const review = (head: string, findings: Array<{ summary: string }> = []) => reviewComment({ version: 1, kind: "brain-review-receipt", pr: 42, head, base: BASE, reviewer: "agent",
+      outcome: findings.length ? "findings" : "no-findings", findings });
+    const newest = await status(github(comments(review(OLD_BASE), "A later remark.", review(HEAD, [{ summary: "The mast is not lashed." }]))));
+    expect(newest.json.reviewRecord).toEqual({ head: HEAD, reviewer: "agent", findings: 1, undisposed: 1 });
+    const broken = await status(github(comments(review(HEAD), `${REVIEW_START}\nno block end`)));
+    expect(broken.json.reviewRecord).toEqual({ unreadable: "Unterminated review record block" });
   });
 
   test("a merge commit that still has the old base as its parent is not current", async () => {
