@@ -1051,7 +1051,7 @@ Only a reviewed re-audit moves the audited revision
   re-audit moves that owner and refreshes the reader's pins in both maps
   together.
 
-The native diagram SVG/PNG/PDF fixture has a separate finite operation binding.
+The native diagram SVG/PNG/PDF fixture runs inside a separate finite operation boundary.
 The host launches each engine's native producer in a separate network-disabled,
 read-only-root Docker container, using the existing pinned Playwright image's
 actual immutable manifest reference. The only host mounts are the private six-workspace
