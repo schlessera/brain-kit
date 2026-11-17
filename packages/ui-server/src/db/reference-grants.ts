@@ -147,9 +147,13 @@ export function createReferenceGrant(db: Database, input: {
     repositoryPrefix: prefix.canonical, credential: input.credential, createdBy: input.createdBy, createdAt: input.now, revokedAt: null,
     ...(metadataRecipient === REFERENCE_METADATA_CREDENTIAL_RECIPIENT ? { metadataCredentialRecipient: metadataRecipient } : {}) };
   db.transaction(() => {
+    // Authority is checked against the clock inside the transaction (#4169): `input.now` was
+    // stamped before the request waited for the writer, so a login that expired meanwhile would
+    // still pass. The stamp keeps recording `createdAt` and driving retention.
+    const at = Date.now();
     const target = resolvePrincipal(db, input.principalId), creator = resolvePrincipal(db, input.createdBy);
-    if (!target || !isCookieBearingPrincipal(target) || !isUsablePrincipal(target, input.now)) throw new ReferenceGrantPrincipalError();
-    if (!creator || creator.kind !== "owner" || !isUsablePrincipal(creator, input.now)) throw new ReferenceGrantPrincipalError();
+    if (!target || !isCookieBearingPrincipal(target) || !isUsablePrincipal(target, at)) throw new ReferenceGrantPrincipalError();
+    if (!creator || creator.kind !== "owner" || !isUsablePrincipal(creator, at)) throw new ReferenceGrantPrincipalError();
     db.prepare("DELETE FROM reference_grants WHERE revoked_at IS NOT NULL AND revoked_at < ?").run(input.now - REFERENCE_GRANT_RETENTION_MS);
     const live = db.prepare(`SELECT COUNT(*) AS count FROM reference_grants g JOIN principals p ON p.id = g.principal_id WHERE ${LIVE}`).get(input.now) as { count: number };
     if (live.count >= MAX_LIVE_REFERENCE_GRANTS) throw new ReferenceGrantLimitError();
