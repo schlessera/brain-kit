@@ -414,7 +414,8 @@ export function createBrainApplication(options: {
                 const raw = target.content!;
                 if (input.operation === "edit") {
                   if (raw.split(input.old_string).length - 1 !== 1) refuse("edit_conflict", "The old string must occur exactly once in the stated base.");
-                  content = raw.replace(input.old_string, input.new_string);
+                  // Literal: a string replacement would expand `$` sequences in new_string (#2486).
+                  content = raw.replace(input.old_string, () => input.new_string);
                 } else {
                   const updated = new Date().toISOString().slice(0, 10);
                   const fields: Record<string, string | string[] | null> = { updated };
