@@ -14,4 +14,4 @@ A GitHub comment's approval card now says who would post the comment and whether
 These facts are only shown on the card. The approved content, the check that the approval was not edited, the tool's result and what the model sees are unchanged.
 
 - **Wire and server SDK:** `tool_approval_request` and `PermissionRequest` gain the optional `display` field (`ApprovalDisplay`).
-- **Kit:** `GitHubComment` in `preview` accepts no `author` and shows its whole draft. `GitHubRef` accepts `kind: null`.
+- **Kit:** `GitHubComment` in `preview` accepts no `author`, shows its whole draft and keeps the "Brain's draft · not posted" caption. `GitHubRef` accepts `kind: null`.

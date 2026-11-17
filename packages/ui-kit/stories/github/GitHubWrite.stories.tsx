@@ -111,6 +111,7 @@ function W4Neutral(p: { poster: boolean; kind: "issue" | "pr" | null }) {
 const neutralPlay = (expected: { poster: boolean; kind: "issue" | "pr" | null }) =>
   async ({ canvas, canvasElement }: { canvas: { getByText: (t: string | RegExp) => HTMLElement; queryByText: (t: string | RegExp) => HTMLElement | null; getByRole: (role: string, o?: object) => HTMLElement }; canvasElement: HTMLElement }) => {
     await expect(canvas.getByText("Not posted")).toBeVisible();
+    await expect(canvas.getByText("Brain's draft · not posted"), "the draft says Brain wrote it, whoever would post it").toBeVisible();
     await expect(canvasElement.textContent, "an unverified poster is never the deleted-account ghost").not.toContain("@ghost");
     const comment = canvas.getByRole("article");
     if (expected.poster) {

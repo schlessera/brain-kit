@@ -54,6 +54,17 @@ describe("a preview with no verified poster", () => {
   });
 });
 
+describe("a preview's draft provenance (#4154 review)", () => {
+  test("every preview says Brain drafted it, whoever would post it; a posted comment does not", () => {
+    for (const element of [<GitHubComment body="Filed #401." preview />, <GitHubComment author={telemachus} body="Filed #401." preview />]) {
+      const doc = draw(element);
+      expect(doc.body.textContent, "KIT_PREVIEW_DRAFT_PROVENANCE").toContain("Brain's draft · not posted");
+    }
+    const posted = draw(<GitHubComment author={telemachus} body="Filed #401." />);
+    expect(posted.body.textContent, "a posted comment is not Brain's draft").not.toContain("Brain's draft");
+  });
+});
+
 describe("a target with no verified kind", () => {
   test("reads repository #number, claims neither kind and has no link, whatever URL it is handed", () => {
     for (const element of [

@@ -2,7 +2,7 @@ import { UntrustedText } from "../evidence/UntrustedText.js";
 import { GitHubHostAccount, GitHubIdentity, HOST_ACCOUNT } from "./GitHubIdentity.js";
 import { GitHubStateChip } from "./GitHubStateChip.js";
 import { GitHubLink, type GitHubPerson } from "./shared.js";
-import { DRAFT_SOURCE } from "./object-parts.js";
+import { DRAFT_CAPTION, DRAFT_SOURCE } from "./object-parts.js";
 
 /**
  * `GitHubComment` — one comment: the identity row, then the body behind a
@@ -16,7 +16,9 @@ import { DRAFT_SOURCE } from "./object-parts.js";
  * absent, the row names "The host's GitHub account" and no login (#4154).
  * `login: null` keeps its meaning, a deleted account (`@ghost`), and is
  * for posted comments. A preview shows its whole draft: what is approved is
- * what is posted, so the posted comments' bound does not cut it.
+ * what is posted, so the posted comments' bound does not cut it. It also
+ * carries the draft caption, "Brain's draft · not posted", as W1 does: the
+ * poster says whose account would post it, the caption says who wrote it.
  */
 interface GitHubCommentBase {
   /** "2 d ago". The kit never computes a time. */
@@ -52,9 +54,8 @@ export function GitHubComment(p: GitHubCommentProps) {
       <div style={{ paddingInlineStart: 28 }}>
         <UntrustedText
           text={p.body}
-          {...(p.preview ? { ...DRAFT_SOURCE, author: null } : { source: "GitHub", author: login })}
+          {...(p.preview ? { ...DRAFT_SOURCE, author: null, caption: DRAFT_CAPTION } : { source: "GitHub", author: login, caption: false as const })}
           frame="rule"
-          caption={false}
           lines={6}
           expandLabel="Show whole comment"
           {...(p.preview ? {} : { maxChars: COMMENT_MAX_CHARS })}

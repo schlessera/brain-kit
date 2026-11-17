@@ -292,6 +292,7 @@ describe("write views W1–W4", () => {
             expect(links, `W4_UNKNOWN_KIND_NO_LINK ${known}`).toEqual([]);
           }
           expect(container.textContent).toContain("Not posted");
+          expect(container.textContent, `W4_DRAFT_PROVENANCE ${known} ${label}`).toContain("Brain's draft · not posted");
           expect(container.textContent).toContain("Filed #401 for the key log.");
         });
       }
