@@ -13,6 +13,8 @@ export class DialogueJournal {
   private readonly sessions = new Map<string, DialogueOwner>();
   private readonly conversations = new Map<string, DialogueOwner>();
   private readonly adopting = new Map<string, DialogueOwner>();
+  /** The login whose typed turn adopts a provisional history, by turn. */
+  private readonly adopters = new Map<string, string>();
   private readonly offsets = new Map<string, number>();
   private failure: unknown;
   private readonly failedOwners = new Set<string>();
@@ -25,7 +27,8 @@ export class DialogueJournal {
   private readonly refusals = new Map<DialogueOwner, Set<() => void>>();
   constructor(
     private readonly catalog: SessionCatalog,
-    private readonly publish: (page: DialoguePage, principalId: string) => void,
+    /** Delivers a committed page to the owner's audience: every login of its account (#3963). */
+    private readonly publish: (page: DialoguePage, owner: DialogueOwner) => void,
     private readonly failed: (owner: DialogueOwner, cause: "queue_pressure" | "storage_error" | "storage_indeterminate", kind?: DialogueEvidence["kind"]) => void
   ) {}
   private transition<T>(conversationId: string, run: () => Promise<T>): Promise<T> {
@@ -73,13 +76,24 @@ export class DialogueJournal {
     if (this.sessions.size > 128)
       this.sessions.delete(this.sessions.keys().next().value!);
   }
+  /**
+   * Whether `principalId` may use this retained history: the login that
+   * started it, or another login of its account (#3963). Storage decides
+   * again inside every write; this only skips work it would refuse.
+   */
+  private historyOwner(owner: DialogueOwner, principalId: string): boolean {
+    if (owner.principal_id === principalId) return true;
+    try { return this.catalog.dialogueOwnerForId?.(owner.id, principalId)?.id === owner.id; }
+    catch { return false; }
+  }
+  private ownerForConversation(conversationId: string, principalId: string): DialogueOwner | null | undefined {
+    return this.conversations.get(conversationId) ?? this.catalog.dialogueOwnerForConversation?.(conversationId, principalId);
+  }
   bind(conversationId: string, principalId: string, sessionId: string): void {
-    const owner =
-      this.conversations.get(conversationId) ??
-      this.catalog.dialogueOwnerForConversation?.(conversationId, principalId);
+    const owner = this.ownerForConversation(conversationId, principalId);
     if (
       !owner ||
-      owner.principal_id !== principalId ||
+      !this.historyOwner(owner, principalId) ||
       !this.catalog.dialogueBind
     )
       return;
@@ -135,9 +149,9 @@ export class DialogueJournal {
    * conversation's retained routing; storage still checks its scope.
    */
   ended(conversationId: string, principalId: string, evidence: Extract<DialogueEvidence, { kind: "voice_end" }>): boolean {
-    const owner = this.conversations.get(conversationId) ?? this.catalog.dialogueOwnerForConversation?.(conversationId, principalId);
+    const owner = this.ownerForConversation(conversationId, principalId);
     // An owner whose writes failed since it opened is not written to again.
-    if (!owner || owner.principal_id !== principalId || this.failedOwners.has(owner.id)) return false;
+    if (!owner || !this.historyOwner(owner, principalId) || this.failedOwners.has(owner.id)) return false;
     this.append(owner, JSON.stringify([conversationId, "ended", evidence.startedAt]), evidence);
     return true;
   }
@@ -150,6 +164,7 @@ export class DialogueJournal {
     )
       throw new Error("Retained conversation is not provisional");
     this.adopting.set(turnId, owner);
+    this.adopters.set(turnId, principalId);
   }
   /** Exact UI-only draft target of an authorized provisional adoption. */
   draftSource(turnId: string): string | undefined {
@@ -158,6 +173,7 @@ export class DialogueJournal {
   }
   retireTurn(turnId: string): void {
     this.adopting.delete(turnId);
+    this.adopters.delete(turnId);
     this.offsets.delete(turnId);
   }
   backend(msg: ServerMessage): void {
@@ -182,8 +198,10 @@ export class DialogueJournal {
     const adopting = this.adopting.get(turnId);
     if (msg.type === "session_info" && adopting) {
       this.conversations.set(adopting.id, adopting);
-      this.bind(adopting.id, adopting.principal_id, sessionId);
+      // The adopting turn's own login binds it, not the history's first one.
+      this.bind(adopting.id, this.adopters.get(turnId) ?? adopting.principal_id, sessionId);
       this.adopting.delete(turnId);
+      this.adopters.delete(turnId);
       this.conversations.delete(adopting.id);
     }
     const owner =
@@ -291,7 +309,7 @@ export class DialogueJournal {
               records: [record],
               coverage: owner.coverage,
             },
-            owner.principal_id
+            owner
           );
           after?.(true);
         },

@@ -5,6 +5,24 @@ import type { AgentBackend } from "@schlessera/brain-ui-sdk/server";
 import type { BackendRegistry } from "../agent/backend.js";
 import { SESSION_NOT_FOUND, type SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { ChatRetiredError } from "../ws/chat-lifecycle.js";
+import { principalAccount } from "../middleware/account-partition.js";
+
+/**
+ * The caller's host-only retained histories: its own, and those another login
+ * of its account started (#3963). This is `sameAccount` over each owner's
+ * stored evidence, kept in SQL so the page stays one indexed range. Evidence
+ * is consistent when its account is NULL, or 'owner' with no live row that
+ * says otherwise; corrupt or contradictory evidence lists for nobody. The
+ * caller's account comes from its own current row. Comparisons use IS, so no
+ * NULL term can admit a row.
+ */
+const RETAINED_CONVERSATIONS = `SELECT d.id,d.created_at FROM dialogue_owners d
+  WHERE d.session_id IS NULL AND d.id>?3
+  AND (d.principal_account IS NULL OR (d.principal_account IS 'owner'
+    AND NOT EXISTS (SELECT 1 FROM principals p WHERE p.id=d.principal_id AND p.kind IS NOT 'owner')))
+  AND (d.principal_id IS ?1 OR (?2 IS 'owner' AND (d.principal_account IS 'owner'
+    OR EXISTS (SELECT 1 FROM principals p WHERE p.id=d.principal_id AND p.kind IS 'owner'))))
+  ORDER BY d.id LIMIT 201`;
 
 export function createSessionRoutes(deps: {
   registry: BackendRegistry;
@@ -120,7 +138,7 @@ export function createSessionRoutes(deps: {
       if (after && (after.length > 2048 || !c.req.query("includeRetainedConversations")))
         return c.json({error:"Invalid retained conversation cursor"},400);
       const retainedRows = c.req.query("includeRetainedConversations") === "true" && principal
-        ? db.query("SELECT id,created_at FROM dialogue_owners WHERE principal_id=? AND session_id IS NULL AND id>? ORDER BY id LIMIT 201").all(principal.id,after ?? "") as {id:string;created_at:number}[]
+        ? db.query(RETAINED_CONVERSATIONS).all(principal.id,principalAccount(db,principal.id),after ?? "") as {id:string;created_at:number}[]
         : undefined;
       const retainedConversations = retainedRows?.slice(0,200).filter(row => !deps.retired?.({ ownerId: row.id }));
       const retainedAfter = retainedRows && retainedRows.length > 200 ? retainedConversations!.at(-1)!.id : undefined;

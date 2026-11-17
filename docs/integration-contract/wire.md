@@ -2705,8 +2705,8 @@ Missing session reads use the same known-chat check as opening/resume and return
 `SESSION_NOT_FOUND` with their request ID; absence is not legacy coverage.
 A known chat without a journal receives an empty `complete` snapshot, with no
 spoken-history warning or latest-conversation control. A session ID alone is not
-evidence of prior voice use. `legacy` requires principal/session-scoped native
-voice recovery evidence without a matching journal conversation. Missing old
+evidence of prior voice use. `legacy` requires account/session-scoped native
+voice recovery evidence without a matching journal conversation ([#3963](#retained-voice-history-belongs-to-its-account-additive-0450-3963)). Missing old
 recovery metadata cannot reconstruct speech or prove it existed. No spoken words
 are invented from task prompts, JSON, drafts or paraphrases.
 
@@ -2773,7 +2773,7 @@ so a prior unclosed epoch is still conservatively qualified before Start.
 Failure notices latch once per owner/open episode; shutdown still reports the
 aggregate writer failure. Draining a failed epoch cannot close its replacement.
 
-Before a backend names a session, a principal-owned host history owner retains
+Before a backend names a session, an account-owned host history owner retains
 the evidence without creating a backend turn. `conversation_opened` adds optional
 `historyOwnerId`/`historyGeneration`. A new `conversation_start.historyOwnerId`
 reopens such history without using it as a backend session ID. Exact host task
@@ -2828,6 +2828,48 @@ An incomplete or mismatched backend position witness never truncates the native
 answer. Its complete semantic source group remains readable with unknown
 cross-stream position until the missing history page or evidence is available.
 
+
+<a id="retained-voice-history-belongs-to-its-account-additive-0450-3963"></a>
+
+### Retained voice history belongs to its account (additive, 0.45.0, #3963)
+
+A chat's retained dialogue now follows the account that owns it, as its
+safety history does ([#3952, #3962](http.md#durable-safety-account-additive-3962)):
+another owner login, on another device, continues the chat by voice. The host
+reads the same `dialogue_read` page, resolves the same `ownerId`,
+`sessionId` and aliases, opens `conversation_start` with `sessionId` or
+`historyOwnerId` on the same canonical owner and history, binds and adopts it,
+and sends that login's live `dialogue_history` pages and dialogue storage
+errors to every connected login of the account. A typed-first chat's first
+voice, from either login, reuses the chat's safety history owner. Account
+matching is `sameAccount` over the owner's stored account (migration 089), so
+the history stays the owner's after the login that started it is pruned.
+
+What stays exact:
+
+- A live conversation and its epochs belong to the login that opened them.
+  Another login of the account starts a new conversation on the history; it
+  cannot resume, reopen or close another login's conversation or epoch.
+  Migration `090_dialogue_conversation_principal.sql` records the opening
+  login on each conversation, and fills it for existing rows from their owner,
+  which before this change was always the opening login.
+- An agent, ambient, system or unknown principal matches only itself. A
+  pruned, expired or revoked login regains nothing: the caller is still a
+  current, authorized login. Exact-principal chat deletion is unchanged.
+- History whose login was pruned before it stored an account stays unknown
+  and refused. Corrupt or contradictory stored evidence matches nobody, its
+  own principal included, and refuses only that chat.
+- Coverage never claims more than the evidence: native voice recovery of any
+  login of the account, or of a login whose row is gone, keeps a chat
+  `legacy`, and another login's unclosed earlier epoch still marks it
+  `partial`.
+
+Nothing previously accepted is refused, with two exceptions no released host
+reaches in ordinary use: voice opened on a chat whose typed safety owner is
+another account, which formerly forked a second history owner, and a record
+whose stored evidence is contradictory. Records, order, aliases, attribution
+and generations are not rewritten, no field is added, and no ownership data
+reaches a provider.
 
 ### Retained barge-in and conversation end (additive, 0.45.0, #3729)
 

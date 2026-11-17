@@ -363,6 +363,18 @@ evidence is contradictory, which no released host writes, and attribution,
 records, verdicts, gaps and generations are not rewritten
 ([decision](../decisions/session-safety-reviews.md#a-chats-safety-history-outlives-its-login-3962)).
 
+<a id="retained-conversations-account-additive-3963"></a>
+
+### Retained conversations list the account's histories (additive, #3963)
+
+`GET /api/sessions?includeRetainedConversations=true` lists, in
+`retainedConversations`, the host-only histories of the caller's account: its
+own, and those another owner login started, including one whose login has
+since been pruned. An agent, ambient or system principal still lists only its
+own. A history whose stored ownership evidence is corrupt or contradictory is
+listed for nobody. The shape, paging and `retainedAfter` cursor are unchanged
+([wire](wire.md#retained-voice-history-belongs-to-its-account-additive-0450-3963)).
+
 <a id="root-server-warning-additive-1638"></a>
 
 ### Root server warning (additive, #1638)

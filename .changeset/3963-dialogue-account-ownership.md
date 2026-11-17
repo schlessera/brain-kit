@@ -1,0 +1,5 @@
+---
+"@schlessera/brain-ui-server": minor
+---
+
+An owner can continue a chat by voice from another device (#3963). Every owner sign-in is its own principal, and a chat's retained voice history belonged to the exact login that started it, so a second login was refused with "Dialogue ownership mismatch". That history now belongs to the account, as its safety history does: another owner login opens voice on it, reads it, binds it and receives its live pages, also after the starting login has been pruned. A typed-first chat's first voice from either login uses the chat's own history owner. A live conversation and its epochs stay with the login that opened them (migration 090 records it), so sharing the history gives no control over another login's conversation. Agents, ambient, system and unknown principals still match only themselves, a pruned or revoked login regains nothing, corrupt or contradictory ownership is refused, coverage stays honestly `legacy` or `partial`, and exact-principal chat deletion is unchanged.
