@@ -72,25 +72,72 @@ export function accountScope(principal: Principal, authMode: AuthMode): string |
 const EVERY_AUTH_MODE: Record<AuthMode, true> = { password: true, tailscale: true, proxy: true, none: true };
 
 /**
+ * The account a principal is in every auth mode, or null when it has none
+ * that holds across modes (#3962). Only this can be stored as a record's
+ * durable account: today that is "owner" for an owner login. An ambient
+ * principal's account depends on the mode, and an agent or system principal
+ * has none, so each of those stays only itself.
+ */
+export function durableAccount(principal: Principal): string | null {
+  const scopes = new Set((Object.keys(EVERY_AUTH_MODE) as AuthMode[]).map(mode => accountScope(principal, mode)));
+  const [only] = scopes;
+  return scopes.size === 1 && only !== undefined ? only : null;
+}
+
+/** Every value `durableAccount` can return. Anything else stored is corrupt. */
+const DURABLE_ACCOUNTS: ReadonlySet<string> = new Set(["owner"]);
+
+/**
+ * The durable account to store beside a record's `principal_id` when the
+ * server writes it (#3962): read from that principal's own row, never taken
+ * from a request, a client or a model. Null for an unknown principal.
+ */
+export function principalAccount(db: Database, principalId: string | null | undefined): string | null {
+  const principal = principalId ? resolvePrincipal(db, principalId) : null;
+  return principal ? durableAccount(principal) : null;
+}
+
+/** A stored record's principal, with the durable account written beside it. */
+export interface AccountRecord { principalId: string | null | undefined; account: string | null | undefined }
+/** A bare id is a principal with no stored evidence: a caller, or a legacy record. */
+export type AccountParty = AccountRecord | string | null | undefined;
+
+/** What a party proves about its account; null when it is missing or its evidence is corrupt or contradictory. */
+function accountEvidence(db: Database, party: AccountParty): { id: string; account: string | null } | null {
+  const { principalId: id, account: stored } = typeof party === "object" && party !== null ? party : { principalId: party, account: null };
+  if (!id) return null;
+  if (stored !== null && stored !== undefined && !DURABLE_ACCOUNTS.has(stored)) return null;
+  const principal = resolvePrincipal(db, id);
+  if (!principal) return { id, account: stored ?? null };
+  const account = durableAccount(principal);
+  // A live row that disagrees with the stored account: neither is believed.
+  if (stored !== null && stored !== undefined && stored !== account) return null;
+  return { id, account };
+}
+
+/**
  * Whether `principal` is the same account as the principal a record is bound
  * to (#3952): a chat's safety history, for one, belongs to the account, so
  * another device's login continues it. A principal id always matches itself.
- * Two different ids match only when both resolve to principals that
- * `accountScope` puts in the same partition in every auth mode, which today
+ * Two different ids match only when both are in the same durable account,
+ * the account `accountScope` puts them in in every auth mode, which today
  * means two owner logins: the one owner mints a principal at every sign-in.
  * An ambient principal shares the owner's partition only in some modes, and
- * an agent or system principal holds none, so each matches only itself. A
- * missing or unresolvable principal is unknown and matches no other id.
+ * an agent or system principal holds none, so each matches only itself.
+ *
+ * A record passed with its stored account keeps that account after its
+ * principal row is pruned (#3962), so a later owner login continues the
+ * history the first login wrote. A bare id has no stored evidence: a missing
+ * or unresolvable principal is then unknown and matches no other id. Stored
+ * evidence that is corrupt, or that a live principal row contradicts, matches
+ * nobody. The account is never a credential: a caller is passed as a bare id
+ * and proves its account only by its own current row.
  */
-export function sameAccount(db: Database, bound: string | null | undefined, principal: string | null | undefined): boolean {
-  if (!bound || !principal) return false;
-  if (bound === principal) return true;
-  const a = resolvePrincipal(db, bound), b = resolvePrincipal(db, principal);
+export function sameAccount(db: Database, bound: AccountParty, principal: AccountParty): boolean {
+  const a = accountEvidence(db, bound), b = accountEvidence(db, principal);
   if (!a || !b) return false;
-  return (Object.keys(EVERY_AUTH_MODE) as AuthMode[]).every(mode => {
-    const scope = accountScope(a, mode);
-    return scope !== null && scope === accountScope(b, mode);
-  });
+  if (a.id === b.id) return true;
+  return a.account !== null && a.account === b.account;
 }
 
 export function deriveAccountPartitionKey(seed: string, root: string, scope: string): string {
