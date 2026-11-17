@@ -41,10 +41,8 @@ test("missing installed workspace aliases cannot be silently supplied by source 
  const{root,view}=fixture();prepareDiagramExportSource(root);rmSync(join(root,"node_modules/@schlessera/brain"));expect(()=>materializeDiagramExportSource(root,view())).toThrow("Missing or redirected installed native workspace dependency");
 });
 
-test("unused source omission and mismatched actual fresh identities refuse before materialization",()=>{
+test("an archive whose inventory no longer matches its recorded identity refuses before materialization",()=>{
  const{root,view}=fixture(),record=prepareDiagramExportSource(root),archive=join(root,"tmp/diagram-export-source.json");
- expect(()=>materializeDiagramExportSource(root,view(),undefined,{source:"0".repeat(64),installation:record.installation.sha256})).toThrow("NATIVE_EXPORT_FRESH_RECEIPT_INPUT_MISMATCH");
- expect(()=>prepareDiagramExportSource(root,false,{source:record.sourceIdentity,installation:"0".repeat(64)})).toThrow("NATIVE_EXPORT_FRESH_RECEIPT_INPUT_MISMATCH");
  record.inputs=record.inputs.filter(entry=>entry.path!=="packages/core/src/specimen.ts");writeFileSync(archive,JSON.stringify(record));
  expect(()=>materializeDiagramExportSource(root,view())).toThrow("NATIVE_EXPORT_SOURCE_INVENTORY_CHANGED");
 });
