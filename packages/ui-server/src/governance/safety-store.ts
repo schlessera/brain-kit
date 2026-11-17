@@ -4,7 +4,7 @@ import { safetyQueue } from "./safety-queue.js";
 import { assertLive,ChatRetiredError } from "../ws/chat-lifecycle.js";
 import { occurrence, type Occurrence } from "./occurrence.js";
 import type { GovernanceEventRow } from "./events.js";
-import { sameAccount } from "../middleware/account-partition.js";
+import { principalAccount, sameAccount } from "../middleware/account-partition.js";
 
 const SAFETY_DETECTORS = ["tool_web_input", "tool_file_input", "tool_search_output", "external_mcp_input", "attachment_input",
   "compute_input", "unproxied_shell_input", "proxy_input", "explicit_untrusted_input"] as const;
@@ -24,9 +24,11 @@ export interface SafetyCollectionInput { turnId: string; bindingId: string; prin
   restricted?: boolean }
 interface Collection { id: string; turn_id: string; session_id: string | null; principal_id: string | null; history_owner_id: string | null;
   generation: string; backend_id: string; started_at: number; ended: number; acknowledged: string; gap: string | null; failure: string | null;
-  policy_hash:string|null; start_revision: string; end_revision: string | null; restricted_begin: number; failure_cause: string | null }
+  policy_hash:string|null; start_revision: string; end_revision: string | null; restricted_begin: number; failure_cause: string | null;
+  /** The durable account of `principal_id`, captured by the server when this was written (#3962). */
+  principal_account: string | null }
 interface Session { session_id: string; history_owner_id: string; generation: string; principal_id: string | null;
-  classification: string; origin_turn: string | null; backend_id: string | null }
+  classification: string; origin_turn: string | null; backend_id: string | null; principal_account: string | null }
 export class SafetyUnavailable extends Error { constructor(message: string) { super(message); } }
 /** What a capacity refusal spent, so a refusal can say what frees it: `turn`
  * room frees itself (pending writes settle, or only this one record is too
@@ -209,16 +211,17 @@ export function beginSafetyCollection(db:Database,input:SafetyCollectionInput):s
   if(input.sessionId&&!session)throw new SafetyUnavailable("Unknown safety session; discover catalog history first");
   let owner=input.historyOwnerId??session?.history_owner_id??input.bindingId,generation=session?.generation??"1",uncollectedOwner=false;
   if(owner){
-    const d=one<{id:string;principal_id:string;generation:number}|null>(db,`SELECT id,principal_id,generation FROM dialogue_owners
+    const d=one<{id:string;principal_id:string;principal_account:string|null;generation:number}|null>(db,`SELECT id,principal_id,principal_account,generation FROM dialogue_owners
       WHERE id=COALESCE((SELECT id FROM dialogue_owners WHERE session_id=?),(SELECT owner_id FROM dialogue_aliases WHERE id=?),?)`,input.sessionId,owner,owner);
     // A chat's history belongs to its account: another login of the same
-    // owner continues it, and nobody else does (#3952).
-    if(d){if(!sameAccount(db,d.principal_id,input.principalId))throw new SafetyUnavailable("Safety history ownership mismatch");owner=d.id;generation=actualGeneration(d.generation);
+    // owner continues it, and nobody else does (#3952), even after the login
+    // that wrote it is pruned (#3962).
+    if(d){if(!sameAccount(db,{principalId:d.principal_id,account:d.principal_account},input.principalId))throw new SafetyUnavailable("Safety history ownership mismatch");owner=d.id;generation=actualGeneration(d.generation);
       uncollectedOwner=!db.query("SELECT 1 FROM safety_collections WHERE history_owner_id=? AND generation=? LIMIT 1").get(owner,generation);
     }
   }
   assertLive(db,[["dialogue_owner",owner]]);
-  if(session?.principal_id&&!sameAccount(db,session.principal_id,input.principalId))throw new SafetyUnavailable("Safety principal mismatch");
+  if(session?.principal_id&&!sameAccount(db,{principalId:session.principal_id,account:session.principal_account},input.principalId))throw new SafetyUnavailable("Safety principal mismatch");
   const n=one<{n:number}>(db, input.sessionId?"SELECT COUNT(*) n FROM safety_collections WHERE session_id=?":"SELECT COUNT(*) n FROM safety_collections WHERE session_id IS NULL",...(input.sessionId?[input.sessionId]:[]));
   if(n.n>=(input.sessionId?SAFETY_LIMITS.epochs:SAFETY_LIMITS.unbound))throw new SafetyCapacityExhausted("Safety coverage capacity exhausted",input.sessionId?"chat":unboundScope(db));
   if(input.sessionId===null){
@@ -232,14 +235,15 @@ export function beginSafetyCollection(db:Database,input:SafetyCollectionInput):s
   if(owner&&one<{n:number}>(db,"SELECT COUNT(*) n FROM safety_collections WHERE history_owner_id=? AND generation=?",owner,generation).n>=128)throw new SafetyCapacityExhausted("Safety coverage capacity exhausted","chat");
   if(input.policyHash!==undefined&&input.policyHash!==null&&!/^[a-f0-9]{64}$/.test(input.policyHash))throw new SafetyUnavailable("Invalid safety policy hash");
   const gap=restricted?"recording_failed":uncollectedOwner?"missing_history_owner_collection":input.sessionId&&!session?.principal_id?"unknown_history_owner":session?.backend_id&&session.backend_id!==input.backendId?"backend_history_not_reconstructed":null;
-  db.query(`INSERT INTO safety_collections(id,turn_id,session_id,principal_id,history_owner_id,generation,backend_id,started_at,gap,start_revision)
-    VALUES (?,?,?,?,?,?,?,?,?,?)`).run(input.bindingId,input.turnId,input.sessionId,input.principalId,owner,generation,input.backendId,input.at,gap,advance(db));
+  // The account comes from the principal's own row, never from the input.
+  db.query(`INSERT INTO safety_collections(id,turn_id,session_id,principal_id,principal_account,history_owner_id,generation,backend_id,started_at,gap,start_revision)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(input.bindingId,input.turnId,input.sessionId,input.principalId,principalAccount(db,input.principalId),owner,generation,input.backendId,input.at,gap,advance(db));
   db.query("UPDATE safety_collections SET policy_hash=?,restricted_begin=? WHERE id=?").run(input.policyHash??null,restricted?1:0,input.bindingId);
   db.query("UPDATE safety_meta SET scope_rows=scope_rows+1,scope_bytes=scope_bytes+2048 WHERE singleton=1").run();
   if(input.sessionId)bindSafetyCollection(db,input.turnId,input.sessionId);
   if(input.sourceSessionId){
-    const sourceOwner=one<{principal_id:string|null}|null>(db,"SELECT principal_id FROM safety_sessions WHERE session_id=?",input.sourceSessionId);
-    if(sourceOwner?.principal_id&&!sameAccount(db,sourceOwner.principal_id,input.principalId))throw new SafetyUnavailable("Safety fork history ownership mismatch");
+    const sourceOwner=one<{principal_id:string|null;principal_account:string|null}|null>(db,"SELECT principal_id,principal_account FROM safety_sessions WHERE session_id=?",input.sourceSessionId);
+    if(sourceOwner?.principal_id&&!sameAccount(db,{principalId:sourceOwner.principal_id,account:sourceOwner.principal_account},input.principalId))throw new SafetyUnavailable("Safety fork history ownership mismatch");
     safetyProjection(db,null,input.sourceSessionId); // Also validates retirement.
     db.query("UPDATE safety_collections SET gap=CASE WHEN restricted_begin=1 THEN gap ELSE 'inherited_history_not_reconstructed' END WHERE id=?").run(input.bindingId);
     const records=db.query<RecordRow,[string]>(`SELECT r.* FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id
@@ -256,16 +260,22 @@ export function safetyCatalogCreated(db:Database,sessionId:string,principalId:st
  if(db.query("SELECT 1 FROM safety_retired_turns WHERE turn_id=?").get(turnId))throw new ChatRetiredError();
  const c=collection(db,turnId);
  if(c){assertLive(db,[["dialogue_owner",c.history_owner_id]]);if(c.ended)throw new SafetyUnavailable("Safety collection ended before catalog creation");}if(!c||c.session_id!==null||c.principal_id!==principalId)return;
- db.query("UPDATE safety_sessions SET principal_id=?,origin_turn=?,classification='new',history_owner_id=?,generation=? WHERE session_id=? AND classification='discovered'").run(principalId,turnId,c.history_owner_id,c.generation,sessionId);
+ db.query("UPDATE safety_sessions SET principal_id=?,principal_account=?,origin_turn=?,classification='new',history_owner_id=?,generation=? WHERE session_id=? AND classification='discovered'").run(principalId,c.principal_account,turnId,c.history_owner_id,c.generation,sessionId);
 }
 export function bindSafetyCollection(db:Database,turnId:string,sessionId:string):void {
  const c=collection(db,turnId);if(!c)return;
  live(db,c);
  const s=one<Session|null>(db,"SELECT * FROM safety_sessions WHERE session_id=?",sessionId);if(!s)throw new SafetyUnavailable("Safety catalog binding absent");
  if(c.session_id&&c.session_id!==sessionId)throw new SafetyUnavailable("Safety binding is once-only");
- const d=one<{id:string;principal_id:string;generation:number}|null>(db,"SELECT id,principal_id,generation FROM dialogue_owners WHERE session_id=?",sessionId);
- const principal=d?.principal_id??s.principal_id??one<{principal_id:string}|null>(db,"SELECT principal_id FROM chat_session_owners WHERE session_id=?",sessionId)?.principal_id??null;
- if(c.principal_id&&principal&&!sameAccount(db,principal,c.principal_id))throw new SafetyUnavailable("Safety binding owner mismatch");
+ const d=one<{id:string;principal_id:string;principal_account:string|null;generation:number}|null>(db,"SELECT id,principal_id,principal_account,generation FROM dialogue_owners WHERE session_id=?",sessionId);
+ // The chat's owner, with the account its record stored. The catalog owner
+ // row stores none, so its account is read from the principal's row now.
+ const catalog=d||s.principal_id?null:one<{principal_id:string}|null>(db,"SELECT principal_id FROM chat_session_owners WHERE session_id=?",sessionId)?.principal_id??null;
+ const bound=d?{principalId:d.principal_id,account:d.principal_account}:s.principal_id?{principalId:s.principal_id,account:s.principal_account}
+  :{principalId:catalog,account:principalAccount(db,catalog)};
+ const principal=bound.principalId??null;
+ const writer={principalId:c.principal_id,account:c.principal_account};
+ if(c.principal_id&&principal&&!sameAccount(db,bound,writer))throw new SafetyUnavailable("Safety binding owner mismatch");
  if(c.history_owner_id&&d&&c.history_owner_id!==d.id&&c.history_owner_id!==s.history_owner_id){
   const alias=one<{owner_id:string}|null>(db,"SELECT owner_id FROM dialogue_aliases WHERE id=?",c.history_owner_id);
   if(alias?.owner_id!==d.id)throw new SafetyUnavailable("Contradictory safety history owner");
@@ -273,9 +283,9 @@ export function bindSafetyCollection(db:Database,turnId:string,sessionId:string)
  // The catalog announcement precedes DialogueJournal adoption. Resolve both
  // the native-session owner and the retained provisional owner, never the
  // discovery row's placeholder generation.
- const retained=c.history_owner_id?one<{id:string;principal_id:string;generation:number}|null>(db,
-  "SELECT id,principal_id,generation FROM dialogue_owners WHERE id=COALESCE((SELECT owner_id FROM dialogue_aliases WHERE id=?),?)",c.history_owner_id,c.history_owner_id):null;
- if(retained&&!sameAccount(db,retained.principal_id,c.principal_id))throw new SafetyUnavailable("Safety retained owner mismatch");
+ const retained=c.history_owner_id?one<{id:string;principal_id:string;principal_account:string|null;generation:number}|null>(db,
+  "SELECT id,principal_id,principal_account,generation FROM dialogue_owners WHERE id=COALESCE((SELECT owner_id FROM dialogue_aliases WHERE id=?),?)",c.history_owner_id,c.history_owner_id):null;
+ if(retained&&!sameAccount(db,{principalId:retained.principal_id,account:retained.principal_account},writer))throw new SafetyUnavailable("Safety retained owner mismatch");
  const owner=d?.id??retained?.id??s.history_owner_id,gen=d?actualGeneration(d.generation):retained?actualGeneration(retained.generation):s.generation;
  if(retained&&actualGeneration(retained.generation)!==c.generation)throw new SafetyUnavailable("Safety history generation changed");
  assertLive(db,[["session",sessionId],["dialogue_owner",owner]]);
@@ -293,7 +303,8 @@ export function bindSafetyCollection(db:Database,turnId:string,sessionId:string)
  const previous=one<{session_id:string;history_owner_id:string;generation:string}|null>(db,"SELECT * FROM safety_bindings WHERE turn_id=?",turnId);
  if(previous&&(previous.session_id!==sessionId||previous.history_owner_id!==owner||previous.generation!==gen))throw new SafetyUnavailable("Safety SessionKey binding changed");
  db.query("INSERT INTO safety_bindings VALUES(?,?,?,?,?,?) ON CONFLICT DO NOTHING").run(c.id,turnId,sessionId,owner,gen,advance(db));
- db.query("UPDATE safety_sessions SET history_owner_id=?,generation=?,principal_id=COALESCE(principal_id,?) WHERE session_id=?").run(owner,gen,principal,sessionId);
+ db.query(`UPDATE safety_sessions SET history_owner_id=?,generation=?,principal_account=CASE WHEN principal_id IS NULL THEN ? ELSE principal_account END,
+  principal_id=COALESCE(principal_id,?) WHERE session_id=?`).run(owner,gen,principal?bound.account??principalAccount(db,principal):null,principal,sessionId);
  db.query("UPDATE safety_collections SET session_id=?,history_owner_id=?,generation=?,gap=COALESCE(gap,?) WHERE id=?")
   .run(sessionId,owner,gen,principal?null:"unknown_history_owner",c.id);advance(db);
 }
