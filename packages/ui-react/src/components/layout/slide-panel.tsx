@@ -42,9 +42,11 @@ export function SlidePanel({
   children: ReactNode;
 }) {
   // A pane is no dialog, so Escape and Android back reach it through the
-  // kit's close-request helper (#2577). A drawer is an Overlay, which has its own.
-  useCloseRequest(open && mode === "pane" && closedBy !== "none", () => {
-    if (openModal()) return false;
+  // kit's close-request helper (#2577). A drawer is an Overlay, which has its
+  // own. A pane that cannot be dismissed (closedBy="none") still takes the
+  // request, so Android back does not leave the app, and refuses it.
+  useCloseRequest(open && mode === "pane", () => {
+    if (closedBy === "none" || openModal()) return false;
     onClose();
     return true;
   });

@@ -173,7 +173,7 @@ test("a modal over a destination panel takes the first close request, the panel 
 });
 
 /** A non-modal pane holding `children`, opened from a real button, for inner Escape consumers. */
-async function pane(ctx: TestContext, children: (close: () => void) => React.ReactNode) {
+async function pane(ctx: TestContext, children: (close: () => void) => React.ReactNode, closedBy: "any" | "none" = "any") {
   await page.viewport(1024, 800);
   const host = document.createElement("div");
   document.body.append(host);
@@ -183,7 +183,7 @@ async function pane(ctx: TestContext, children: (close: () => void) => React.Rea
     const close = () => { closes.push(Date.now()); setOpen(false); };
     return <>
       <button data-test-open="" onClick={() => setOpen(true)}>Open the pane</button>
-      <SlidePanel open={open} onClose={close} title="Ithaca" mode="pane">{children(close)}</SlidePanel>
+      <SlidePanel open={open} onClose={close} title="Ithaca" mode="pane" closedBy={closedBy}>{children(close)}</SlidePanel>
     </>;
   }
   const ui = createBrainUiRoot({ storage: null, request: async () => Response.json({}) });
@@ -203,6 +203,39 @@ test("Escape in the share menu inside a pane closes only the menu", async ctx =>
   await userEvent.keyboard("{Escape}"); await frame();
   expect(document.body.textContent, "the menu closed").not.toContain("Copy the chart");
   expect(s.closes, "PREVENTED_INNER_ESCAPE: the pane stays open").toEqual([]);
+  await userEvent.keyboard("{Escape}"); await frame();
+  expect(s.closes, "the next Escape closes the pane").toHaveLength(1);
+});
+
+test("a pane that cannot be dismissed takes each close request and stays open, re-armed", async ctx => {
+  const seen = spyCloseWatcher(ctx);
+  const s = await pane(ctx, () => <p>The suitors wait.</p>, "none");
+  expect(seen.created, "a closedBy=none pane still holds a close watcher").toBeGreaterThan(0);
+  for (let i = 1; i <= 3; i++) {
+    await userEvent.keyboard("{Escape}"); await frame();
+    expect(seen.closed, `request ${i} reached the pane's watcher`).toBe(i);
+    expect(s.closes, "the pane stays open").toEqual([]);
+  }
+  expect(document.querySelector('section[aria-label="Ithaca"]'), "still drawn").not.toBeNull();
+});
+
+for (const watcher of [true, false]) test(`a modal opened over a pane takes Escape first${watcher ? "" : " (without CloseWatcher)"}, the pane the next`, async ctx => {
+  if (watcher) spyCloseWatcher(ctx); else withoutCloseWatcher(ctx);
+  const s = await pane(ctx, () => <p>Penelope's loom.</p>);
+  const dialog = document.createElement("dialog");
+  dialog.textContent = "The suitors' demands";
+  document.body.append(dialog);
+  ctx.onTestFinished(() => dialog.remove());
+  const open = document.createElement("button");
+  open.textContent = "Show demands";
+  open.onclick = () => dialog.showModal();
+  document.body.append(open);
+  ctx.onTestFinished(() => open.remove());
+  await userEvent.click(open);
+  expect(dialog.open).toBe(true);
+  await userEvent.keyboard("{Escape}"); await frame();
+  expect(dialog.open, "the modal closed first").toBe(false);
+  expect(s.closes, "the pane stays open under it").toEqual([]);
   await userEvent.keyboard("{Escape}"); await frame();
   expect(s.closes, "the next Escape closes the pane").toHaveLength(1);
 });
