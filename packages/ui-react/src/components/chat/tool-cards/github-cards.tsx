@@ -104,6 +104,8 @@ interface Detail {
    * the host's own words instead of a state that blames GitHub.
    */
   refusal?: string;
+  /** Pages answered so far, so a page that adds no visible row can be followed. */
+  pages?: number;
 }
 
 /** The S4–S7 state a detail route error reads as. */
@@ -162,7 +164,9 @@ function useDetail(repository: string, number: number, part: GithubDetailPart) {
       const page = answer.page;
       setDetail((d) => {
         const items = append ? [...d.items, ...(page.items as DetailItem[])] : (page.items as DetailItem[]);
-        return { state: items.length === 0 ? "empty" : "loaded", items, next: page.next_cursor, total: page.total_count };
+        // Empty only when nothing is left to load: a page with no items can
+        // still point on (the checks part's runs end by pointing at statuses).
+        return { state: items.length === 0 && !page.next_cursor ? "empty" : "loaded", items, next: page.next_cursor, total: page.total_count, pages: (d.pages ?? 0) + 1 };
       });
     },
     [root, sessionId, repository, number, part],
@@ -220,22 +224,34 @@ function DetailPart(p: {
     load();
   }, [p.autoLoad, load]);
   const rows = p.shown ? detail.items.filter((item) => !p.shown!(item)) : detail.items;
-  // A page made only of rows the result already shows adds nothing on screen:
-  // follow it to the next page, so one press always shows something new. The
-  // result carries at most one page, so this continues at most once per press.
-  const seen = useRef({ items: 0, rows: 0 });
+  // A page that adds nothing on screen (empty, or only rows the result
+  // already shows) is followed to the next, so one press always shows
+  // something new or ends the list. The result carries at most one page of
+  // duplicates, so this follows at most a page or two per press.
+  const seen = useRef({ pages: 0, rows: 0 });
   useEffect(() => {
     const before = seen.current;
-    seen.current = { items: detail.items.length, rows: rows.length };
-    if (detail.state === "loaded" && detail.next && detail.items.length > before.items && rows.length === before.rows) more();
-  }, [detail.items.length, detail.state, detail.next, rows.length, more]);
-  if (detail.refusal)
-    return (
+    seen.current = { pages: detail.pages ?? 0, rows: rows.length };
+    if (detail.state === "loaded" && detail.next && (detail.pages ?? 0) > before.pages && rows.length === before.rows) more();
+  }, [detail.pages, detail.state, detail.next, rows.length, more]);
+  if (detail.refusal) {
+    const refused = (
       <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }} data-github-detail="refused">
         <GithubRefusal error={{ code: "unavailable", reason: null, message: detail.refusal }} />
         <Button label="Try again" tone="quiet" size="sm" block={false} onClick={retry} />
       </div>
     );
+    // A later page refused: the rows already loaded stay, the refusal follows them.
+    if (!rows.length) return refused;
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
+        <GitHubDetailSection state="loaded" noun={NOUN[p.part]} object={p.object} idleLabel={p.idleLabel} onLoad={load}>
+          {rows.map((item, i) => p.row(item, i))}
+        </GitHubDetailSection>
+        {refused}
+      </div>
+    );
+  }
   return (
     <GitHubDetailSection
       state={detail.state}

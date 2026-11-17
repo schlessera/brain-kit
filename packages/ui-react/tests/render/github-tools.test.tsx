@@ -468,6 +468,35 @@ describe("on-demand detail", () => {
     });
   }
 
+  test("checks with no runs but commit statuses load the statuses, never 'no checks'", async () => {
+    answer = (url) =>
+      url.includes("cursor=statuses")
+        ? page("checks", [{ source: "status", name: "steward/tally", state: "passed", conclusion: null, started_at: null, completed_at: null }])
+        : page("checks", [], "statuses:1");
+    const view = output("read", envelope("read", pull()));
+    await act(async () => fireEvent.click(view.getByRole("tab", { name: /Checks/ })));
+    await act(async () => {});
+    await act(async () => {});
+    expect(view.container.textContent).toContain("steward/tally");
+    expect([...view.container.querySelectorAll("[data-github-detail]")].map((n) => n.getAttribute("data-github-detail"))).not.toContain("empty");
+  });
+
+  test("a later page refused in the host's words keeps the rows already loaded", async () => {
+    const shown = issue().comments.items[0]!;
+    answer = () => page("comments", [{ ...comment(5001, "antinous", "Nobody is draining anything.", 5) }], "c2");
+    const view = output("read", envelope("read", issue()));
+    await act(async () => fireEvent.click(view.getByRole("button", { name: /Load 16 earlier comments/ })));
+    await act(async () => {});
+    expect(view.container.textContent).toContain("Nobody is draining anything.");
+    answer = () => Response.json({ error: { code: "forbidden", reason: "not_owner", message: "Only this chat's owner can load its GitHub details.", reset_at: null } }, { status: 403 });
+    await act(async () => fireEvent.click(within(view.container).getByRole("button", { name: /Load more/ })));
+    await act(async () => {});
+    expect(view.container.textContent).toContain("Only this chat's owner");
+    expect(view.container.textContent, "the loaded row stays").toContain("Nobody is draining anything.");
+    expect(view.container.textContent).toContain(shown.body!);
+    expect(within(view.container).getByRole("button", { name: /Try again/ })).toBeTruthy();
+  });
+
   test("a skipped check run reads as skipped, not as an absent report", async () => {
     answer = () => page("checks", [{ source: "check_run", name: "nightly-armoury", state: "skipped", conclusion: "skipped", started_at: null, completed_at: null }]);
     const view = output("read", envelope("read", pull()));
