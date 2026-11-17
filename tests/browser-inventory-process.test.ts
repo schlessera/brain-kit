@@ -63,6 +63,21 @@ test.each([false, true])("native watchdog reports publication %s and reaps the d
   expect(receipt.elapsedMs).toBeGreaterThanOrEqual(900);
   expect(receipt.elapsedMs).toBeLessThan(5000);
 });
+// #4149: a hosted timeout must say whether discovery was computing or the
+// runner starved it, instead of leaving the cause to be inferred from stderr.
+test.each([
+  ["waiting", "setInterval(()=>{},1000);"],
+  ["computing", "for(;;){}"],
+])("native watchdog receipt separates a %s child's CPU time from wall time", async (phase, script) => {
+  const { receipt } = diagnostics(await nativeControl(script, controlDeadlineMs));
+  expect(receipt).toMatchObject({ deadlineMs: 1000, timedOut: true, signal: "SIGKILL" });
+  expect(receipt.cpu).toEqual({ userMs: expect.any(Number), systemMs: expect.any(Number), involuntarySwitches: expect.any(Number) });
+  const cpuMs = receipt.cpu.userMs + receipt.cpu.systemMs;
+  if (phase === "waiting") expect(cpuMs).toBeLessThan(receipt.elapsedMs / 2);
+  else expect(cpuMs).toBeGreaterThan(receipt.elapsedMs / 4);
+  expect(receipt.host.parallelism).toBeGreaterThanOrEqual(1);
+  expect(receipt.host.loadavg).toHaveLength(3);
+});
 test("native signal remains distinct from watchdog expiration", async () => {
   const { receipt } = diagnostics(await nativeControl('process.kill(process.pid,"SIGTERM");', controlDeadlineMs));
   expect(receipt).toMatchObject({ deadlineMs: 1000, timedOut: false, signal: "SIGTERM", inventory: { present: false } });
