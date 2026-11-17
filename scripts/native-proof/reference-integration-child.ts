@@ -25,11 +25,16 @@ const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
 const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
 const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 
-/** Every tool result and command output, keyed by step, feeds later steps and the parent's assertions. */
+/**
+ * Every tool result and command output, keyed by step, feeds later steps and the parent's assertions.
+ * `elapsedMs` (#3513) is the step's time at the model boundary: for Claude, one in-process MCP tool call;
+ * for Pi, from the scripted answer naming the step to the next provider request carrying its result.
+ * Claude's commands share one worker and carry none.
+ */
 const state: IntegrationState = { repository, results: {} };
-function record(key: string, step: IntegrationStep, index: number, value: unknown) {
+function record(key: string, step: IntegrationStep, index: number, value: unknown, elapsedMs: number | null = null) {
   state.results[stepKey(key, index)] = value;
-  event("integration_step", { backend: selectedBackend, turn: key, index, stepKind: step.kind, ...(step.kind === "tool" ? { tool: step.tool } : {}), value });
+  event("integration_step", { backend: selectedBackend, turn: key, index, stepKind: step.kind, ...(step.kind === "tool" ? { tool: step.tool } : {}), elapsedMs, value });
 }
 const turnKey = (text: string) => Object.keys(INTEGRATION_STEPS).find(key => text.includes(`Odysseus ${key}`));
 
@@ -38,6 +43,8 @@ const turnKey = (text: string) => Object.keys(INTEGRATION_STEPS).find(key => tex
 // the provider-facing history.
 const HOST_KEY = "odysseus-offline-host-key", MODEL = "claude-sonnet-4-6";
 let piInference: { origin: string; close(): void } | undefined;
+/** When the scripted Pi answer naming each step was sent. */
+const issued = new Map<string, number>();
 if (selectedBackend === "pi") {
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, maxRequestBodySize: 16 * 1024 ** 2, async fetch(request) {
     if (request.method !== "POST" || new URL(request.url).pathname !== "/v1/messages") return new Response("unexpected offline inference route", { status: 404 });
@@ -56,7 +63,8 @@ if (selectedBackend === "pi") {
       if (state.results[stepKey(key, index)] !== undefined) continue;
       const content = results.get(`toolu_${key}_${index}`);
       const text = typeof content === "string" ? content : (content as { type: string; text?: string }[]).filter(part => part.type === "text").map(part => part.text).join("");
-      record(key, steps[index]!, index, steps[index]!.kind === "tool" ? JSON.parse(text) : text);
+      const sent = issued.get(stepKey(key, index));
+      record(key, steps[index]!, index, steps[index]!.kind === "tool" ? JSON.parse(text) : text, sent === undefined ? null : Math.round(performance.now() - sent));
     }
     appendFileSync(join(dir, "pi-requests.jsonl"), JSON.stringify({ turn: key, step: index, raw }) + "\n");
     const step = steps[index];
@@ -68,6 +76,7 @@ if (selectedBackend === "pi") {
         : [{ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }, { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: (block as { text: string }).text } }],
       { type: "content_block_stop", index: 0 }, { type: "message_delta", delta: { stop_reason: step ? "tool_use" : "end_turn", stop_sequence: null }, usage: { output_tokens: 1 } }, { type: "message_stop" }].flat();
     appendFileSync(join(dir, "pi-answers.jsonl"), JSON.stringify({ turn: key, step: index, answer: { role: "assistant", content: [block] } }) + "\n");
+    if (step) issued.set(stepKey(key, index), performance.now());
     return new Response(frames.map(frame => `event: ${(frame as { type: string }).type}\ndata: ${JSON.stringify(frame)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
   } });
   // A fictional host-held key, sent only to this offline loopback fixture.
@@ -112,9 +121,11 @@ const backend = selectedBackend === "pi"
             names: listed.tools.map((tool: { name: string }) => tool.name), allowedTools: params.options.allowedTools });
           for (const [index, step] of INTEGRATION_STEPS[key]!.entries()) {
             if (step.kind === "bash") { commands.push(`printf '@@${index}@@\\n'; ${step.command(state)}`); continue; }
+            const began = performance.now();
             const result = await client.callTool({ name: step.tool, arguments: step.input(state) });
+            const elapsedMs = Math.round(performance.now() - began);
             const text = (result.content as { type: string; text: string }[]).map(part => part.text).join("");
-            record(key, step, index, JSON.parse(text));
+            record(key, step, index, JSON.parse(text), elapsedMs);
           }
         } finally { await client.close(); }
         const child = params.options.spawnClaudeCodeProcess({ command: "/bin/sh", args: ["-c", commands.join("\n") || "true"],
