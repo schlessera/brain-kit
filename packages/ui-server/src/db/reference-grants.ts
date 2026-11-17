@@ -31,7 +31,7 @@ export const REFERENCE_HOST_CREDENTIALS: Readonly<Record<string, string>> = Obje
 });
 
 export interface ReferenceRepository {
-  /** Authority and sharing key: lowercase origin, path without a trailing slash or `.git`. */
+  /** Authority/sharing key: lowercase origin, no trailing slash, one hosted clone suffix removed on input. */
   canonical: string;
   /** The requested location, normalized but otherwise as given; transports fetch this. */
   url: string;
@@ -68,6 +68,7 @@ export function referenceRepository(input: unknown, options: { prefix?: boolean 
   if (segments.some(segment => !segment || segment === "." || segment === ".."))
     throw new ReferenceRepositoryError("repository path must not contain empty, '.' or '..' segments");
   if (!segments.length && (scheme === "file" || !options.prefix)) throw new ReferenceRepositoryError("repository must name a path");
+  if (url.origin === GITHUB) for (let index = 0; index < segments.length; index++) segments[index] = segments[index]!.toLowerCase();
   const origin = scheme === "file" ? "file://" : url.origin;
   const location = `${origin}${segments.length ? "/" + segments.join("/") : ""}`;
   // A hosted `.git` suffix names the same repository; a local path keeps it.
@@ -75,8 +76,20 @@ export function referenceRepository(input: unknown, options: { prefix?: boolean 
   return { canonical, url: location, origin, scheme, loopback };
 }
 
+/** Decode a stored authority key, preserving its literal suffix. Not raw clone input. */
+export function referenceRepositoryFromKey(input: unknown): ReferenceRepository {
+  const key = referenceRepository(input);
+  return key.scheme === "file" ? key : referenceRepository(`${key.url}.git`);
+}
+
 /** Exact match or a path-segment boundary: `…/odysseus` never covers `…/odysseus-crew`. */
 export const coversRepository = (prefix: string, repository: string) => repository === prefix || repository.startsWith(`${prefix}/`);
+
+function storedPrefix(input: string): string | null {
+  // This value is already canonical: validate and normalize GitHub case, but
+  // keep any remaining literal .git instead of removing another clone suffix.
+  try { return referenceRepository(input, { prefix: true }).url; } catch { return null; }
+}
 
 /** Refuse a credential name outside the fixed list, or one whose recipient is not this prefix's origin. */
 export function assertGrantCredential(credential: string | null, prefix: ReferenceRepository): void {
@@ -140,8 +153,9 @@ export function createReferenceGrant(db: Database, input: {
     db.prepare("DELETE FROM reference_grants WHERE revoked_at IS NOT NULL AND revoked_at < ?").run(input.now - REFERENCE_GRANT_RETENTION_MS);
     const live = db.prepare(`SELECT COUNT(*) AS count FROM reference_grants g JOIN principals p ON p.id = g.principal_id WHERE ${LIVE}`).get(input.now) as { count: number };
     if (live.count >= MAX_LIVE_REFERENCE_GRANTS) throw new ReferenceGrantLimitError();
-    if (db.prepare(`SELECT 1 FROM reference_grants g WHERE g.revoked_at IS NULL AND g.brain = ? AND g.principal_id = ? AND g.repository_prefix = ? AND g.credential IS ?`)
-      .get(grant.brain, grant.principalId, grant.repositoryPrefix, grant.credential)) throw new ReferenceGrantDuplicateError();
+    const duplicates = db.prepare(`SELECT repository_prefix FROM reference_grants g WHERE g.revoked_at IS NULL AND g.brain = ? AND g.principal_id = ? AND g.credential IS ?`)
+      .all(grant.brain, grant.principalId, grant.credential) as { repository_prefix: string }[];
+    if (duplicates.some(row => storedPrefix(row.repository_prefix) === grant.repositoryPrefix)) throw new ReferenceGrantDuplicateError();
     db.prepare(`INSERT INTO reference_grants (id, brain, principal_id, repository_prefix, credential, created_by, created_at, metadata_credential_recipient) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(grant.id, grant.brain, grant.principalId, grant.repositoryPrefix, grant.credential, grant.createdBy, grant.createdAt, metadataRecipient);
   }).immediate();
@@ -168,9 +182,14 @@ export function revokeReferenceGrant(db: Database, input: { brain: string; princ
  */
 export function coveringReferenceGrant(db: Database, input: { brain: string; principalId: string; repository: ReferenceRepository; now: number }): ReferenceGrant | null {
   const rows = db.prepare(`SELECT ${COLUMNS} FROM reference_grants g JOIN principals p ON p.id = g.principal_id
-    WHERE ${LIVE} AND g.brain = ? AND g.principal_id = ? ORDER BY length(g.repository_prefix) DESC, g.created_at DESC, g.id ASC`)
+    WHERE ${LIVE} AND g.brain = ? AND g.principal_id = ? ORDER BY g.created_at DESC, g.id ASC`)
     .all(input.now, input.brain, input.principalId) as GrantRow[];
-  const row = rows.find(candidate => coversRepository(candidate.repository_prefix, input.repository.canonical));
+  const repository = referenceRepository(input.repository.url, { prefix: true }).canonical;
+  const matches = rows.flatMap(row => {
+    const prefix = storedPrefix(row.repository_prefix);
+    return prefix !== null && coversRepository(prefix, repository) ? [{ row, prefix }] : [];
+  }).sort((a, b) => b.prefix.length - a.prefix.length);
+  const row = matches[0]?.row;
   return row ? fromRow(row) : null;
 }
 
