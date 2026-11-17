@@ -4065,6 +4065,16 @@ reconciler's timed retry cannot make a second attempt inside it.
 
 ### Outward actions (G5)
 
+**Google host tools — 2026-11-17 (#4201).** The
+[maintainer ruled](google-workspace.md) that an own-account reversible Google
+write made through the host Google tools (archive, labels, read state, stars,
+brain-made drafts, guest-free events on a calendar verified private), which is
+invisible to anyone else and has a recorded inverse, is not an outward action.
+It may run without a card under the policy's `google` block or a remembered
+approval in an untainted session, or under a session allowance in a tainted
+one. Every other Google write stays outward: it asks every time and is
+journaled as irreversible. The rest of this section is unchanged.
+
 **Inside the brain, nothing is outward.** Journaled edits, commits to the
 local repository and scratch output are free.
 
@@ -4224,6 +4234,16 @@ and a documented "no GitHub here" were both rejected. The rest of the ruling:
   A session retained before #3799 keeps its earlier append byte for byte.
 
 ### Untrusted input (G6)
+
+**Google structured reads — 2026-11-17 (#4201).** The
+[maintainer ruled](google-workspace.md) that a host Google tool result
+composed only of host-validated structured values (Google-minted Gmail ids,
+label ids and names, host-minted handles, timestamps, counts, size buckets,
+flags, closed enums and free/busy intervals) is not untrusted input and does
+not taint. Every other Google result taints the session as `google_result`
+before it returns. A tainted session follows the rules below as written,
+except that a session allowance the owner granted on a reversible Google card
+admits that operation and entity for a bounded time.
 
 **Prospective supersession — 2026-11-05 (#3599).** The
 [owner-reviewed session-safety decision](session-safety-reviews.md) permits
