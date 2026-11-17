@@ -12,11 +12,11 @@ const root = resolve(import.meta.dir, "..");
 const RETIRED = [
   "e8502b6ffb3c575f2e9a1c93dea8dbf5ceda93ece367da9d542cb10b1c9ac32b", // frozen #2293 source
   "ea866695f2a83f9da2fcf18e75e95e936668ecb28e1449845a2584aa1025b728", // last qualified installation
-  "0c2758c046f2b69d5f33b66521baf3098db5f44256b73ec96961c98d381e6245", // #2293's installation, in the worker audit record
+  "0c2758c046f2b69d5f33b66521baf3098db5f44256b73ec96961c98d381e6245", // #2293's installation, once in the worker audit record
   "bf65590d9d594d238c2c7b6e01e038a26402a676ccf16a1caf596f1179bdc9fb", // the qualified producer runtime
   "e724696a55955e9f32d396b2031214600086533c3f9b8baabcc1c6bb7311f1db", // pinned ui-kit vitest config
-  // The diagram export command's own hash (`f7c3d14c…`) is not listed: the
-  // bound-browser-documents audit pins that file independently.
+  // The diagram export command's own hash is not listed: no script pins a
+  // current source file any more, which tests/first-party-source-pins.test.ts holds.
   "c58de06eba788b6b892416ddda3abb28fa1e8e908f25c0800482fbe05e0de678", // pinned ci-proof
 ];
 
@@ -28,7 +28,8 @@ test("no script or test pins the retired native diagram qualification", () => {
     .filter((file) => !file.includes("node_modules") && file !== "tests/native-diagram-retired.test.ts");
   // The scan must see the files the binding lived in, or an empty glob passes vacuously.
   expect(files, "SCAN_COVERS_THE_PROOF_SCRIPTS").toContain("scripts/browser-input-closure.ts");
-  expect(files, "SCAN_COVERS_THE_AUDIT_RECORDS").toContain("scripts/browser-worker-audit.json");
+  // The Worker audit manifest that last carried one went with retention (#4107); a JSON record must still be scanned.
+  expect(files, "SCAN_COVERS_JSON_RECORDS").toContain("scripts/test-shard-costs.json");
   const pinned = files.flatMap((file) => RETIRED.filter((hash) => readFileSync(join(root, file), "utf8").includes(hash)).map((hash) => `${file}: ${hash.slice(0, 8)}`));
   expect(pinned, "NATIVE_DIAGRAM_QUALIFICATION_STAYS_RETIRED").toEqual([]);
 });
