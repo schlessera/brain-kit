@@ -182,6 +182,29 @@ export function commentProps(comment: GithubComment | GithubReviewComment, scope
   };
 }
 
+/**
+ * A review's known, positive line-comment count (#4147), or `null`. Zero,
+ * unknown (`null`) and a result recorded before the count existed (absent)
+ * all show no "Show n line comments".
+ */
+export function lineCommentCount(review: GithubReview): number | null {
+  const count = review.line_comments;
+  return typeof count === "number" && Number.isSafeInteger(count) && count > 0 ? count : null;
+}
+
+/**
+ * Which line comments the per-review controls reach (#4147). `counted` holds
+ * every review whose total the host established, zero included: its line
+ * comments, if any, load on that review. `remainder` is true when some line
+ * comments may belong to no counted review: a review in the result whose
+ * count is unknown or absent, or reviews the result does not carry at all.
+ * Only then does the pull request offer them in one section of its own.
+ */
+export function lineCommentCoverage(pr: GithubPullRequest): { counted: ReadonlySet<number>; remainder: boolean } {
+  const counted = new Set(pr.reviews.items.filter((r) => typeof r.line_comments === "number").map((r) => r.id));
+  return { counted, remainder: pr.reviews.has_more || counted.size < pr.reviews.items.length };
+}
+
 export function reviewProps(review: GithubReview, scope: GithubLinkScope | null, fetchedAt: string, avatarFor: AvatarFor) {
   return {
     reviewer: person(review.author, avatarFor),
