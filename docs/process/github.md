@@ -293,7 +293,11 @@ sit in the Ready view as traps.
    behavioral receipts accompany complete selected hosted proof under #1326;
    drafts remain cheap, and failed/cancelled/missing selected jobs cannot merge.
    Assign and read back the PR and delivered issues' release milestones before
-   merging; follow [Milestones](#milestones) for release attribution.
+   merging; follow [Milestones](#milestones) for release attribution. A PR
+   that touches `packages/ui-react/`, `packages/ui-kit/`, `packages/ui-server/`
+   or `packages/core/` also needs a
+   [recorded independent review](#coordinating-confirmation-and-ordinary-merges)
+   before it is confirmed.
 6. **Human handoff, when needed.** Once independent agent work is complete,
    update the body with the remaining action and its completion evidence,
    replace `agent-ready` with `needs: human`, and leave the issue open. Keep
@@ -329,6 +333,18 @@ milestones. Read [the decision and command lifecycle](../decisions/ci-utility.md
 for the five-minute lease, sixty-minute cap, supported candidates, actual
 squash/main verification and direct-merge race limits. This cooperative policy
 changes no GitHub protection or merge permissions.
+
+`confirm` and `merge` also refuse a PR that touches the core packages
+(`packages/ui-react/`, `packages/ui-kit/`, `packages/ui-server/`,
+`packages/core/`) until it carries a recorded independent review that covers
+its head: one PR comment written by `bun scripts/review-receipt.ts post`,
+after a fresh agent context or a human has reviewed the PR given only the PR
+and its issue. Every finding in it has one disposition: fixed, filed or
+rejected with a reason. Refresh a reviewed branch by merging the base, not by
+rebasing, so that the record stays valid. The
+[decision](../decisions/ci-utility.md#recorded-independent-review-of-core-package-prs)
+has the rule; the [work-issue skill](../../.agents/skills/work-issue/SKILL.md#independent-review)
+has the steps.
 
 ## Stacked pull requests
 
