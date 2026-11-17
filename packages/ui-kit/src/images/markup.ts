@@ -213,7 +213,14 @@ export function markupBytesLabel(bytes: number): string {
 
 /** The editor's refusal when an encoded layer is over the cap. */
 export function overCapMessage(bytes: number, maxBytes: number = MARKUP_MAX_BYTES): string {
-  return `This markup is ${markupBytesLabel(bytes)}; the limit is ${markupBytesLabel(maxBytes)}. Remove some freehand marks.`;
+  const size = markupBytesLabel(bytes), limit = markupBytesLabel(maxBytes);
+  // Just over the cap, the rounded sizes read the same ("50.0 MB" against
+  // "50 MB"): the exact bytes are the only unambiguous statement then.
+  if (parseFloat(size) === parseFloat(limit) && size.split(" ")[1] === limit.split(" ")[1]) {
+    const exact = (n: number) => n.toLocaleString("en-US");
+    return `This markup is ${exact(bytes)} bytes; the limit is ${exact(maxBytes)} bytes (${limit}). Remove some freehand marks.`;
+  }
+  return `This markup is ${size}; the limit is ${limit}. Remove some freehand marks.`;
 }
 
 /** The text's drawn width, measured with the same font the export uses. */

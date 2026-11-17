@@ -63,7 +63,7 @@ export interface PermissionGateOptions {
 /** Registered bridge tools refuse before remembered grants or permission cards. */
 export function piToolAvailabilityRefusal(turn: TurnContext, name: string): string | undefined {
   if (turn.autonomous) return undefined;
-  const visual = ["ask_user_list", "ask_user_rank", "ask_user_form", "request_image_mask"];
+  const visual = ["ask_user_list", "ask_user_rank", "ask_user_form", "request_image_mask", "request_image_markup"];
   // Apify (#3162) and GitHub writes (#3798) stay inside interactive typed turns: voice and no-grant turns keep their memberships.
   const interactive = ["propose_policy_change", "inbox_add", "resolve_action", "complete_share", ...Object.values(APIFY_TOOL_NAMES),
     GITHUB_TOOL_NAMES.create, GITHUB_TOOL_NAMES.comment];
@@ -71,7 +71,7 @@ export function piToolAvailabilityRefusal(turn: TurnContext, name: string): stri
     return `Tool "${name}" requires an interactive typed grant surface.`;
   const handlers: Record<string, string> = {
     ask_user: "askUser", ask_user_list: "askUserList", ask_user_rank: "askUserRank", ask_user_form: "askUserForm",
-    request_image_mask: "requestMask", get_current_location: "getLocation", query_activity: "queryActivity",
+    request_image_mask: "requestMask", request_image_markup: "requestImageMarkup", get_current_location: "getLocation", query_activity: "queryActivity",
     propose_policy_change: "proposePolicyChange", inbox_list: "inboxList", inbox_get: "inboxGet",
     inbox_add: "inboxAdd", resolve_action: "resolveAction", complete_share: "completeShare", brain_read_base: "readBrainBase",
     reference_source: "referenceAccess", reference_worktree: "referenceAccess",

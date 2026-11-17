@@ -30,7 +30,7 @@ export function observeTrackerSeen(root: BrainUiRoot, transcript: HTMLElement | 
   if (ui.activeView !== "chat" || ui.subagentStack.length > 0) return false;
   if (ui.sessionPanelOpen || ui.filePanelOpen || ui.settingsPanelOpen || ui.syncPanelOpen || ui.whatsupPanelOpen || ui.searchPanelOpen || ui.addPanelOpen || ui.paletteOpen) return false;
   // The other modal surfaces that cover Chat: the mask editor and the handoff sheet.
-  if (root.stores.mask.getState().request || root.stores.handoff.getState().sheet) return false;
+  if (root.stores.mask.getState().request || root.stores.markup.getState().request || root.stores.handoff.getState().sheet) return false;
   if (typeof document === "undefined" || document.visibilityState !== "visible") return false;
   // And any open modal dialog (a zoom viewer, a one-time credential, a sheet).
   if (typeof document.querySelector === "function" && document.querySelector('[aria-modal="true"]')) return false;
@@ -64,6 +64,7 @@ export function useTrackerSeen(transcript: RefObject<HTMLElement | null>, scroll
   // Something that covered Chat going away is a chance too.
   useRootStore("ui", (s) => `${s.activeView}:${s.paletteOpen}:${s.subagentStack.length}`);
   useRootStore("mask", (s) => s.request !== null);
+  useRootStore("markup", (s) => s.request !== null);
   useRootStore("handoff", (s) => s.sheet !== null);
   useEffect(() => {
     observeTrackerSeen(root, transcript.current, scrollDisc);

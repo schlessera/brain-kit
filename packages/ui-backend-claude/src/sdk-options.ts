@@ -28,6 +28,7 @@ import { ASK_USER_RANK_TOOL_NAME } from "./ask-user-rank-tool.js";
 import { envSnapshot, ambientExecConfig, operatorAdmittedEnvNames } from "./config/env.js";
 import { GET_LOCATION_TOOL_NAME } from "./location-tool.js";
 import { MASK_TOOL_NAME } from "./mask-tool.js";
+import { MARKUP_TOOL_NAME } from "./markup-tool.js";
 import { userMessage } from "./turn-input.js";
 import { SHOW_BLOCK_TOOL_NAME } from "./show-block-tool.js";
 import type { BackendLogFn, ClaudeBackendOptions } from "./options.js";
@@ -183,6 +184,7 @@ export interface ClaudeToolRoster {
   askUserForm: StartTurnRequest["bridge"]["askUserForm"];
   getLocation: StartTurnRequest["bridge"]["getLocation"];
   requestMask: StartTurnRequest["bridge"]["requestMask"];
+  requestImageMarkup: StartTurnRequest["bridge"]["requestImageMarkup"];
   proposePolicyChange: StartTurnRequest["bridge"]["proposePolicyChange"];
   queryActivity: StartTurnRequest["bridge"]["queryActivity"];
   /** Whether the turn registers its own size-limited /tmp tool. */
@@ -205,6 +207,9 @@ export function computeToolRoster(req: StartTurnRequest, allowedTools: readonly 
   // docs/decisions/voice-permission.md. Location, activity,
   // show_block and ask_user ask nothing of a viewer, so they are unaffected.
   const requestMask = req.noGrantSurface === true ? undefined : req.bridge.requestMask;
+  // The markup editor (#3975) needs eyes for the same reason, and is withheld
+  // the same way: registered, refused at call time, never auto-allowed here.
+  const requestImageMarkup = req.noGrantSurface === true ? undefined : req.bridge.requestImageMarkup;
   // The list card needs eyes for the same reason: up to thirty rows of chips
   // that someone has to read and tap. It is not in the voice posture, so it is
   // withheld here rather than appended into an allowlist that left it out.
@@ -249,6 +254,8 @@ export function computeToolRoster(req: StartTurnRequest, allowedTools: readonly 
     // Auto-allowed like the other bridge tools: the approval is the editor
     // itself — nothing happens unless the user paints and confirms.
     if (requestMask) allowed.push(MASK_TOOL_NAME);
+    // The same: nothing is written unless the user draws and sends a layer.
+    if (requestImageMarkup) allowed.push(MARKUP_TOOL_NAME);
     // Read-only over the host's own record — strictly narrower than the
     // file/tool access the model already has.
     if (queryActivity) allowed.push(QUERY_ACTIVITY_TOOL_NAME);
@@ -281,7 +288,7 @@ export function computeToolRoster(req: StartTurnRequest, allowedTools: readonly 
     // permission to answer.
     allowed.push(SHOW_BLOCK_TOOL_NAME);
   }
-  return { askUser, askUserList, askUserRank, askUserForm, getLocation, requestMask, proposePolicyChange, queryActivity, turnTempTool, hosted, allowed };
+  return { askUser, askUserList, askUserRank, askUserForm, getLocation, requestMask, requestImageMarkup, proposePolicyChange, queryActivity, turnTempTool, hosted, allowed };
 }
 
 /** The environment a turn's subprocesses run with, and the provider keys its worker keeps. */
@@ -353,7 +360,7 @@ export function assemblePromptContext(
   sandbox: NonNullable<StartTurnRequest["workerSandbox"]>,
   sandboxNote: string
 ) {
-  const { askUser, askUserList, askUserRank, askUserForm, getLocation, requestMask, proposePolicyChange, queryActivity, turnTempTool } = roster;
+  const { askUser, askUserList, askUserRank, askUserForm, getLocation, requestMask, requestImageMarkup, proposePolicyChange, queryActivity, turnTempTool } = roster;
   const brief = req.autonomous?.systemPromptAppend ?? buildAppend(
     backend,
     req.client,
@@ -365,6 +372,7 @@ export function assemblePromptContext(
       askUserForm: Boolean(askUserForm),
       location: Boolean(getLocation),
       mask: Boolean(requestMask),
+      markup: Boolean(requestImageMarkup),
       activity: Boolean(queryActivity),
       inbox: Boolean(req.bridge.inboxList),
       block: true,
@@ -379,7 +387,7 @@ export function assemblePromptContext(
   const context = req.autonomous ? undefined : claudePromptContext(backend.brainPath, contextId);
   const append = context ? context.retainAppend([buildAppend(backend, undefined, {
     policyChange: true, askUser: true, askUserList: true, askUserRank: true, askUserForm: true,
-    location: true, mask: true, activity: true, inbox: true, block: true, turnTemp: true, reference: true, compute: true,
+    location: true, mask: true, markup: true, activity: true, inbox: true, block: true, turnTemp: true, reference: true, compute: true,
   }, undefined), req.sessionBudgetLimits].filter(Boolean).join("\n\n"), req.sessionBudgetLimits ? { limits: req.sessionBudgetLimits } : {}) : candidate;
   const available = (name: string) => toolAvailabilityRefusal({ ...req, workerSandbox: sandbox }, name) === undefined;
   const owned = context?.prepare(req.prompt, {
@@ -387,7 +395,8 @@ export function assemblePromptContext(
     sandbox: sandboxNote,
     capabilities: JSON.stringify({ posture: req.posture ?? "default", noGrantSurface: req.noGrantSurface === true,
       askUser: available("ask_user"), askUserList: available("ask_user_list"), askUserRank: available("ask_user_rank"), askUserForm: available("ask_user_form"),
-      location: available("get_current_location"), mask: available("request_image_mask"), policyChange: available("propose_policy_change"),
+      location: available("get_current_location"), mask: available("request_image_mask"), markup: available("request_image_markup"),
+      policyChange: available("propose_policy_change"),
       activity: available("query_activity"), inbox: { list: available("inbox_list"), get: available("inbox_get"),
         add: available("inbox_add"), resolveAction: available("resolve_action"), completeShare: available("complete_share") },
       reference: available("reference_source"), compute: available("brain_compute_run") }),
@@ -576,7 +585,7 @@ function turnMcpServer(
   turnTemp: TurnTempAccess,
   observeTools: (tools: unknown[]) => void
 ) {
-  const { askUser, askUserList, askUserRank, askUserForm, getLocation, requestMask, proposePolicyChange, queryActivity, turnTempTool } = roster;
+  const { askUser, askUserList, askUserRank, askUserForm, getLocation, requestMask, requestImageMarkup, proposePolicyChange, queryActivity, turnTempTool } = roster;
   return createBrainUiMcpServer({
     observeTools,
     stableRoster: !req.autonomous,
@@ -589,6 +598,7 @@ function turnMcpServer(
     askUserFormLimits: req.bridge.askUserFormLimits,
     getLocation,
     requestMask,
+    requestImageMarkup,
     queryActivity,
     ...(!req.autonomous || req.bridge.inboxList ? { inbox: req.bridge } : {}),
     ...(!req.autonomous || req.bridge.referenceAccess ? { reference: req.bridge } : {}),
@@ -668,6 +678,7 @@ function buildAppend(
     askUserForm: boolean;
     location: boolean;
     mask: boolean;
+    markup: boolean;
     activity: boolean;
     inbox: boolean;
     block: boolean;
@@ -692,6 +703,7 @@ function buildAppend(
         askUserForm: tools.askUserForm && ASK_USER_FORM_TOOL_NAME,
         location: tools.location && GET_LOCATION_TOOL_NAME,
         mask: tools.mask && MASK_TOOL_NAME,
+        markup: tools.markup && MARKUP_TOOL_NAME,
         activity: tools.activity && QUERY_ACTIVITY_TOOL_NAME,
         inboxList: tools.inbox && visibleToolName("inbox_list", "claude"),
         inboxGet: tools.inbox && visibleToolName("inbox_get", "claude"),

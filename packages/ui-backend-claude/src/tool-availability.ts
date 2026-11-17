@@ -3,6 +3,7 @@ import { APIFY_TOOL_NAMES, GITHUB_TOOL_NAMES, GITHUB_TOOL_NAME_LIST, type StartT
 const handlers: Record<string, string> = {
   ask_user: "askUser", ask_user_list: "askUserList", ask_user_rank: "askUserRank",
   ask_user_form: "askUserForm", get_current_location: "getLocation", request_image_mask: "requestMask",
+  request_image_markup: "requestImageMarkup",
   query_activity: "queryActivity", propose_policy_change: "proposePolicyChange",
   inbox_list: "inboxList", inbox_get: "inboxGet", inbox_add: "inboxAdd", resolve_action: "resolveAction",
   complete_share: "completeShare", brain_read_base: "readBrainBase",
@@ -15,7 +16,7 @@ const handlers: Record<string, string> = {
   brain_add: "applyBrain", brain_update: "applyBrain", brain_archive: "applyBrain",
   write_file: "applyBrain", edit_file: "applyBrain", apply_staged_changes: "applyBrain",
 };
-const visual = new Set(["request_image_mask", "ask_user_list", "ask_user_rank", "ask_user_form"]);
+const visual = new Set(["request_image_mask", "request_image_markup", "ask_user_list", "ask_user_rank", "ask_user_form"]);
 // Apify (#3162) and GitHub writes (#3798) stay inside interactive typed turns: voice and no-grant turns keep their memberships.
 const interactive = new Set(["propose_policy_change", "inbox_add", "resolve_action", "complete_share", ...Object.values(APIFY_TOOL_NAMES),
   GITHUB_TOOL_NAMES.create, GITHUB_TOOL_NAMES.comment]);

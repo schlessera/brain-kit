@@ -45,10 +45,13 @@ const declarations=[
         "name": "activityFrameHandlers",
         "source": "401e15e6b6105dc9336ca45fa57eb6d235efba19178c3e1b6f6fcd0babca6ba5"
       },
+      // Re-audited for #3975: the added markup_request handler, like
+      // mask_request, copies only the frame's own fields into the markup
+      // store's open(); it reads no other runtime input.
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/mask.ts",
         "name": "maskFrameHandlers",
-        "source": "5cfccf2cf8b2fee994e57b44f3a4c6c789419fc2bf6015d79a344974b1485737"
+        "source": "a094761650c031d627ef5aa6b17011c7bae1dfd41f5888e53c6e7215812a0061"
       },
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/provider.ts",

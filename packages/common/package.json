@@ -41,6 +41,11 @@
       "types": "./dist/frontmatter-block.d.ts",
       "default": "./dist/frontmatter-block.js"
     },
+    "./internal/image-header": {
+      "bun": "./src/image-header.ts",
+      "types": "./dist/image-header.d.ts",
+      "default": "./dist/image-header.js"
+    },
     "./internal/worker-areas": {
       "bun": "./src/worker-areas.ts",
       "types": "./dist/worker-areas.d.ts",

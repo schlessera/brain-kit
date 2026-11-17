@@ -37,6 +37,7 @@ describe("clientMessageSchema", () => {
       { type: "location_error", requestId: "r1", code: 1, message: "denied" },
       { type: "mask_response", requestId: "r1", maskPng: "iVBORw0KGgo=" },
       { type: "mask_error", requestId: "r1", code: "cancelled", message: "closed" },
+      { type: "markup_error", requestId: "markup-r1", code: "cancelled", message: "The user closed the markup editor", turnId: "t1" },
     ];
     for (const f of frames) {
       expect(clientMessageSchema.safeParse(f).success).toBe(true);
@@ -62,6 +63,9 @@ describe("clientMessageSchema", () => {
       { type: "location_response", requestId: "r", coords: { latitude: "x" }, timestamp: 1 },
       { type: "mask_response", requestId: "r" }, // no mask
       { type: "mask_error", requestId: "r", code: "nope", message: "m" }, // unknown code
+      { type: "markup_error", requestId: "r", code: "nope", message: "m" }, // unknown code
+      // The layer never travels on the socket: there is no markup response frame.
+      { type: "markup_response", requestId: "r", png: "iVBORw0KGgo=" },
       // The channel decides whether a grant is refused, so it is not free text.
       { type: "tool_approval", toolUseId: "t1", channel: "Voice" },
       { type: "tool_denial", toolUseId: "t1", message: "no", channel: "phone" },

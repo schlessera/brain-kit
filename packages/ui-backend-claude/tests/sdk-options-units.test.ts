@@ -12,7 +12,7 @@ import { assemblePromptContext, computeToolRoster, turnChildEnvironment } from "
 const handler = async () => { throw new Error("PRIVILEGED_HANDLER_EXECUTED"); };
 const request = (extra: Record<string, unknown> = {}) => ({
   prompt: "Which way to Ithaca?", signal: new AbortController().signal,
-  bridge: { emit: () => {}, askUser: handler, askUserList: handler, requestMask: handler, getLocation: handler, queryActivity: handler },
+  bridge: { emit: () => {}, askUser: handler, askUserList: handler, requestMask: handler, requestImageMarkup: handler, getLocation: handler, queryActivity: handler },
   ...extra,
 }) as never;
 
@@ -20,7 +20,7 @@ describe("computeToolRoster", () => {
   test("an interactive turn binds its bridge handlers and auto-allows them after the deployment's tools", () => {
     const roster = computeToolRoster(request(), ["Read", "Bash"]);
     expect(roster.allowed).toEqual(["Read", "Bash", "mcp__brain-ui__ask_user", "mcp__brain-ui__ask_user_list",
-      "mcp__brain-ui__get_current_location", "mcp__brain-ui__request_image_mask", "mcp__brain-ui__query_activity",
+      "mcp__brain-ui__get_current_location", "mcp__brain-ui__request_image_mask", "mcp__brain-ui__request_image_markup", "mcp__brain-ui__query_activity",
       "mcp__brain-ui__turn_temp", "mcp__brain-ui__show_block"]);
     expect(roster.askUser).toBe(handler);
     expect(roster.hosted).toBe(false);
@@ -30,9 +30,11 @@ describe("computeToolRoster", () => {
   test("a turn with no grant surface withholds the handlers that need eyes", () => {
     const roster = computeToolRoster(request({ noGrantSurface: true }), []);
     expect(roster.requestMask).toBeUndefined();
+    expect(roster.requestImageMarkup).toBeUndefined();
     expect(roster.askUserList).toBeUndefined();
     expect(roster.askUser).toBe(handler);
     expect(roster.allowed).not.toContain("mcp__brain-ui__request_image_mask");
+    expect(roster.allowed).not.toContain("mcp__brain-ui__request_image_markup");
   });
 
   test("a hosted turn migrates legacy writers and keeps native writers beside the server's", () => {

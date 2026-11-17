@@ -442,6 +442,53 @@ The semantic `IconName` gains `pen`, `arrow`, `ellipse`, `text`, `undo`,
 zoom controls. No existing key, glyph or component changes. This ships in a
 minor.
 
+## Image markup tool (additive, 0.45.0, #3975)
+
+`request_image_markup` is described in
+[the MCP component](mcp.md#hosted-markup-layer-application-additive-0450-3975),
+its frames in [the wire component](wire.md#markup-requests-additive-0450-3975),
+and its upload in the [HTTP API](../http-api.md#markup-layer-upload-additive-0450-3975).
+The packages gain only these exports, and no existing export changes:
+
+- `@schlessera/brain-ui-sdk/tool-contracts` (re-exported from `/server` and
+  `/client`): `REQUEST_IMAGE_MARKUP_TOOL_NAME`, `REQUEST_IMAGE_MARKUP_DESCRIPTION`,
+  `REQUEST_IMAGE_MARKUP_INPUT_SCHEMA`, `REQUEST_IMAGE_MARKUP_INSTRUCTION_MAX`
+  (200), `IMAGE_MARKUP_PAYLOAD_SCHEMA`, `REQUEST_IMAGE_MARKUP_CONTRACT` and the
+  types `RequestImageMarkupInput`, `ImageMarkupPayload` and `ImageMarkupCounts`.
+  `BRIDGE_TOOL_CONTRACTS` and `BRIDGE_TOOL_POSTURE.names` list it after
+  `request_image_mask`. `SurfaceTools` gains an optional `markup` name.
+- `@schlessera/brain-ui-sdk/server`:
+  - `BackendBridge.requestImageMarkup?(input)`, the host-owned operation that
+    resolves with the payload;
+  - the experimental backend toolkit helper
+    `handleRequestImageMarkup(input, bridge)`, which refuses when the callback
+    is absent;
+  - `BRAIN_MARKUP_MAX_BYTES` (52,428,800), `BRAIN_MARKUP_MAX_PIXELS`
+    (16,777,216), `BRAIN_MARKUP_SOURCE_MAX_BYTES` (134,217,728),
+    `BRAIN_MARKUP_DIR` (`.brain/scratch/markup`), `BRAIN_MARKUP_MAX_NOTES`
+    (200), `BRAIN_MARKUP_NOTE_MAX_CHARS` (80) and `BRAIN_MARKUP_CLOSED`.
+- `@schlessera/brain-ui-sdk/protocol`: `ServerMarkupRequest`,
+  `ClientMarkupError` and `IMAGE_MARKUP_CAPABILITY`. `/schemas` gains
+  `serverMarkupRequestSchema` and `clientMarkupErrorSchema`.
+  `BrainUiClient`'s `client_hello` declares `imageMarkup: true`.
+- `@schlessera/brain-ui-server`: `MARKUP_UPLOAD_MAX_BODY_BYTES` (52,690,944),
+  for a deployment's `maxRequestBodySize`. `createApp` mounts the upload
+  route, and Claude and pi turns that may apply to the brain receive
+  `requestImageMarkup`.
+- `@schlessera/brain-backend-claude` and `@schlessera/brain-backend-pi`
+  register the tool in their stable interactive rosters, after
+  `request_image_mask`. It is auto-allowed when the host offers it and refused
+  at call time on voice and no-grant turns. Pi's `capsOf` and `SessionCaps`
+  gain an optional `markup`.
+- `@schlessera/brain-ui-react`: the type `MarkupRequest`. The chat page opens
+  the kit's `MarkupEditor` for a `markup_request`, uploads the layer, and
+  renders the result with the kit's `MarkupResultCard` or `MarkupFallback`.
+
+The CLI's PNG, JPEG and WebP header reader moves to
+`@schlessera/brain-common/internal/image-header` (`imageHeader`, `isPng`,
+`ImageHeader`), which has no compatibility promise. The images module
+re-exports it under its existing names, so its behaviour is unchanged.
+
 ## UI-kit enlarge icon (additive #3397)
 
 The semantic `IconName` gains `enlarge`: open content in its dedicated
