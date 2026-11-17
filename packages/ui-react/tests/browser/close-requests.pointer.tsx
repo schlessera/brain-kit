@@ -306,15 +306,22 @@ test("a dictation gate notice takes a close request as Cancel, once", async ctx 
 
 test("arm and disarm: a disarmed surface lets the close request reach the page, re-arming restores exactly one dismissal per request", async ctx => {
   const seen = spyCloseWatcher(ctx);
-  // The page's own watcher, beneath the surface: what Android back reaches
-  // when no surface takes it (#2582's drill-in history, here a sentinel).
-  const pageWatcher = new (window as unknown as { CloseWatcher: new () => EventTarget & { destroy(): void } }).CloseWatcher();
+  type Watcher = EventTarget & { destroy(): void };
+  const Native = (window as unknown as { CloseWatcher: new () => Watcher }).CloseWatcher;
+  // The page beneath the surface, as #2582's history helper will be: it takes
+  // a close request (Android back reaching popstate) and arms itself again in
+  // that same handler, with no user activation. It stays beneath throughout,
+  // so a re-armed surface watcher that joined its group would show here.
   let reachedPage = 0;
-  pageWatcher.addEventListener("close", () => { reachedPage++; });
-  ctx.onTestFinished(() => pageWatcher.destroy());
-  // The surface opens from a real press, as a panel does, so its watcher has
-  // its own group. It stays open on every request (closedBy="none" style),
-  // so each request is counted and the watcher re-arms.
+  let pageWatcher: Watcher | null = null;
+  const armPage = () => {
+    pageWatcher = new Native();
+    pageWatcher.addEventListener("close", () => { reachedPage++; armPage(); });
+  };
+  armPage();
+  ctx.onTestFinished(() => pageWatcher?.destroy());
+  // The surface opens from a real press, as a panel does. It stays open on
+  // every request (closedBy="none" style), so each request is counted.
   let dismissals = 0;
   let watch: ReturnType<typeof watchCloseRequests> | null = null;
   const open = document.createElement("button");
@@ -331,21 +338,20 @@ test("arm and disarm: a disarmed surface lets the close request reach the page, 
   expect(dismissals, "a disarmed surface ignores the close request").toBe(0);
   expect(reachedPage, "it reached the page instead").toBe(1);
 
-  // Re-arm (from a real press, as #2582's depth change follows one), then
-  // two requests: one dismissal each, nothing grouped or skipped.
-  const rearm = document.createElement("button");
-  rearm.textContent = "Back at the root";
-  rearm.onclick = () => watch!.arm();
-  document.body.append(rearm);
-  ctx.onTestFinished(() => rearm.remove());
-  await userEvent.click(rearm);
+  // Re-armed from script with no user activation, as #2582 will re-arm from
+  // popstate when the depth returns to the root. Then two requests: one
+  // dismissal each, the page beneath never, nothing grouped or skipped.
+  watch!.arm();
   expect(watch!.watching, "re-armed").toBe(true);
   await userEvent.keyboard("{Escape}"); await frame();
-  expect(dismissals, "first request after re-arming").toBe(1);
+  expect([dismissals, reachedPage], "first request after re-arming: the surface only").toEqual([1, 1]);
   await userEvent.keyboard("{Escape}"); await frame();
-  expect(dismissals, "second request: one more, the re-armed watcher was not grouped away").toBe(2);
-  expect(reachedPage, "the page saw neither").toBe(1);
-  expect(seen.created, "one watcher per arming").toBeGreaterThanOrEqual(3);
+  expect([dismissals, reachedPage], "second request: the surface only, not grouped with the page").toEqual([2, 1]);
+  // Disarm again: the page, still armed beneath, takes the next request alone.
+  watch!.disarm();
+  await userEvent.keyboard("{Escape}"); await frame();
+  expect([dismissals, reachedPage], "disarmed again: the page only").toEqual([2, 2]);
+  expect(seen.created, "a watcher per arming and re-arming").toBeGreaterThanOrEqual(4);
 });
 
 test("repeated refusals re-arm without joining the surface beneath: one action per request", async ctx => {
