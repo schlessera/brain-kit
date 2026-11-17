@@ -16,9 +16,17 @@
  * what will be sent; only an unedited allow sends it, once. Voice refuses
  * before the card. Each admission, refusal and answer is recorded as an
  * `outward_action` (`gh_write`), which the turn journal lists as irreversible.
+ *
+ * Data routing (G2, #4029): GitHub is the provider-policy recipient `github`.
+ * A read or search sends model-chosen text (a query, a repository and number),
+ * so a conversation that has shown a provider folder the policy keeps from
+ * `github`, or whose exposure cannot be judged, sends GitHub nothing. Writes
+ * are not routed: the per-use card, which shows the exact body, and the
+ * allow-list are their gate (maintainer ruling, 2026-11-16).
  */
 import { githubWriteAllowance } from "@schlessera/brain-common/internal/governance-policy";
 import type { PermissionDecision, PermissionRequest } from "@schlessera/brain-ui-sdk/server";
+import type { RecipientRoutingRefusal } from "../web-tools/routing.js";
 import {
   GITHUB_API_ORIGIN, GITHUB_ISSUE_COMMENT_INPUT_SCHEMA, GITHUB_ISSUE_CREATE_INPUT_SCHEMA, GITHUB_ISSUE_READ_INPUT_SCHEMA, GITHUB_ISSUE_SEARCH_INPUT_SCHEMA, GITHUB_LIMITS, GITHUB_TOOL_NAMES,
   GITHUB_AUTHOR_ASSOCIATIONS, githubDirectUrl, githubSearchUrl, parseGithubRepository,
@@ -28,6 +36,12 @@ import {
   type GithubToolCall, type GithubToolName, type GithubToolResult, type GithubUser, type GithubWriteToolName,
   type GithubIssueCreatePayload, type GithubIssueCommentPayload,
 } from "@schlessera/brain-ui-sdk/tool-contracts";
+
+/** GitHub's name as a provider-policy recipient (G2), beside `apify` and the web providers. */
+export const GITHUB_RECIPIENT = "github";
+
+/** Why the turn's data routing refuses a recipient; see `recipientRouting`. */
+export type GithubRoutingRefusal = RecipientRoutingRefusal;
 
 /** The recorded `outward_action` of one GitHub write, as the governance writer takes it. */
 export interface GithubOutwardAction {
@@ -64,6 +78,12 @@ export interface GithubToolsTurn {
   readonly principalId: string;
   readonly sessionId: () => string | null;
   readonly signal?: AbortSignal;
+  /**
+   * Data routing (G2, #4029) under the turn's frozen policy and the
+   * conversation's recorded exposures, asked before any read or search
+   * request. A throw counts as unproven.
+   */
+  readonly routing: (recipient: typeof GITHUB_RECIPIENT) => Promise<GithubRoutingRefusal | null>;
   /** Present only on a turn that may write (#3798); an autonomous turn has none. */
   readonly write?: GithubWriteTurn;
 }
@@ -517,6 +537,13 @@ export function createGithubToolsHost(options: GithubToolsHostOptions): GithubTo
       }
       const token = options.token();
       if (!token) return noCredential(tool);
+      // G2 before any request: a refusal sends GitHub nothing, so nothing returns to taint.
+      let routed: GithubRoutingRefusal | null = "recipient_unproven";
+      try { routed = await turn.routing(GITHUB_RECIPIENT); } catch { /* Unknown exposure is unproven. */ }
+      if (routed === "recipient_restricted") return refusal(tool, "policy_denied", routed,
+        "This conversation has shown folders the provider policy does not allow github to receive, so nothing was sent to GitHub. Start a new conversation for this GitHub work.");
+      if (routed) return refusal(tool, "policy_denied", "recipient_unproven",
+        "The provider policy restricts folders for github, and this conversation's exposure to them is unknown here, so nothing was sent to GitHub.");
       try {
         if (tool === GITHUB_TOOL_NAMES.read) {
           const input = GITHUB_ISSUE_READ_INPUT_SCHEMA.parse(call.input);
