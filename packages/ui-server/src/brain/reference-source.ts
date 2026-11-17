@@ -674,15 +674,16 @@ export function createReferenceSources(options: {
       return result!;
     } catch (error) {
       const held = result;
+      let failure = error;
       if (held) {
         // A failed close can hide an authority loss too; contain that loss
         // even when the wire itself never returned successfully.
-        try { held.assertAuthority(); } catch (authorityError) { error = authorityError; }
+        try { held.assertAuthority(); } catch (authorityError) { failure = authorityError; }
         held.release();
-        await containFailure(error, false);
+        await containFailure(failure, false);
       }
-      if (error instanceof ReferenceTransportError) throw new ReferenceSourceError(error.reason === "denied" ? "unauthorized" : error.reason, error.message);
-      throw error;
+      if (failure instanceof ReferenceTransportError) throw new ReferenceSourceError(failure.reason === "denied" ? "unauthorized" : failure.reason, failure.message);
+      throw failure;
     }
     finally { operations.delete(id); void settle(...splitKey(operation.key)).catch(error => warn("managed source settle failed", error)); }
   }
