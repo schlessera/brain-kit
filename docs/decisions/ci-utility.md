@@ -2126,14 +2126,14 @@ two. Of those eight, six are split (five into two or three partitions, the
 migration into nine) and two are a single file. An oversized selection costs
 up to ten runners for its two repetitions.
 
-**Known limit.** All eight contain a real-browser runtime test whose two
-repetitions alone exceed the capacity; the heaviest weighs 349.7 seconds per
-pass. Sharding cannot help a single file. It runs alone, at the floor, and no
-hosted run has yet measured whether it finishes inside the step limit
-([#4156](https://github.com/schlessera/brain-kit/issues/4156)). The five
-calibration runs are all tooling and backend tests; a refreshed weight table
-or a different mix of tests changes the ratio, and the capacity is to be
-recalibrated from the reports then.
+**Single-file capacity.** In that historical replay, all eight contain a
+real-browser runtime test whose two repetitions alone exceed the capacity;
+the heaviest then weighed 349.7 seconds per pass. Sharding cannot help a
+single file: it runs alone, at the floor. The later
+[single-file measurements](#single-files-above-capacity-are-measured-under-load)
+cover the four files identified by #4156, using refreshed weights and the
+scaled watchdogs. A refreshed weight table or a different mix of tests changes
+the ratio, and the capacity is to be recalibrated from the reports then.
 
 **Known limits.** Repetitions of one file share a process. Bun 1.4.2 evaluates
 the module again for each run, but `globalThis` and process state persist, so a
@@ -2141,6 +2141,60 @@ file that leaks state into its next run fails too. Vitest browser, layout and
 story specs run in the pinned container and have
 [their own gate](#changed-browser-specs-repeat-under-load-before-merge); the
 one endurance spec is not repeated.
+
+### Single files above capacity are measured under load
+
+Measured on 2026-11-17 for [#4156](https://github.com/schlessera/brain-kit/issues/4156),
+in [run 44161515414, attempt 1](https://github.com/schlessera/brain-kit/actions/runs/44161515414)
+on the throwaway draft [#4232](https://github.com/schlessera/brain-kit/pull/4232).
+Comment-only edits selected all four originally identified files. The planner
+split them into four jobs, one file per job, each repeated **twice** under
+four CPU burners on four CPUs. The existing [#4191 watchdog policy](#test-watchdogs-are-a-worst-case-catch-all)
+was active: factor **8**, with a 240-second default per-test cap. No test,
+deadline or repetition count was changed for the measurement, and no job was
+retried.
+
+The #4155 weight refresh had already changed the two-pass estimates: only
+parallel-sessions and association-signout still exceeded the 300-second
+capacity. Connection-continuity and hygiene-review were measured as well,
+as required by the original issue. Each `determinism-proof-<n>` artifact
+contains `determinism-report.json` and `determinism-junit.xml`; both show
+exactly two repetitions and no failures or skips. Report elapsed time includes
+the offline wrapper and the setup/builds inside repetition; the full proof
+step also includes the job command's preparation.
+
+| File | Two-pass estimate (s) | Report elapsed (s) | Proof step (s) | Hosted job |
+| --- | --- | --- | --- | --- |
+| `packages/ui-react/tests/parallel-sessions-runtime.test.ts` | 874.690 | 1429.3 | 1433 | [job 134317060865](https://github.com/schlessera/brain-kit/actions/runs/44161515414/job/134317060865) |
+| `packages/ui-react/tests/association-signout-runtime.test.ts` | 388.612 | 722.4 | 729 | [job 134317060918](https://github.com/schlessera/brain-kit/actions/runs/44161515414/job/134317060918) |
+| `packages/ui-react/tests/connection-continuity-runtime.test.ts` | 290.866 | 511.7 | 525 | [job 134317060892](https://github.com/schlessera/brain-kit/actions/runs/44161515414/job/134317060892) |
+| `packages/ui-server/tests/hygiene-review.test.ts` | 276.280 | 473.0 | 482 | [job 134317060923](https://github.com/schlessera/brain-kit/actions/runs/44161515414/job/134317060923) |
+
+Every job's checkout log and `proof-checkout.json` names synthetic merge
+`7e4008a99199f708b0f71ae01f4d19b615248312`, tree
+`6eafef9615efcf86ef47ff7172d9105b0057cd58`, with parents main
+`0aeb62a7acaef51deabe6a6bc84d3b7b1b72e286` and measurement head
+`33485434a248168db55d423199f3ff06cbe9fe89`. The immutable commit API and local
+Git object agree. These are sizing observations of that tree, not proof for a
+later candidate. The draft was closed without merging and its branch deleted
+after collecting the artifacts.
+
+**Decision: retain the 40-minute step.** The heaviest single file completed
+in 1,429.3 seconds; its full step took 1,433 seconds, leaving 967 seconds of
+headroom. A larger step or a file split is unnecessary on this evidence.
+The capacity, partition maximum, floor of two and factor of eight stay as
+ruled. One hosted observation per file does not guarantee every future run
+fits, and the tooling/backend calibration ratio is not a per-file bound.
+
+The checked-in measurement inventory in
+[`tests/fixtures/determinism-single-file-runs.json`](../../tests/fixtures/determinism-single-file-runs.json)
+is checked against the reviewed weights: a newly oversized file needs hosted
+evidence or an explicit recorded remedy before its coverage test can pass.
+The job writes its oversized-file warning **before** starting the wrapper
+(`const oversized`, `scripts/test-determinism.ts:197-205`), naming the file,
+repetition estimate, capacity and step limit. A step timeout therefore leaves
+the known unsplittable case in the summary even when no completion report can
+be written.
 
 ## Changed browser specs repeat under load before merge
 
