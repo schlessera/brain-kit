@@ -1696,6 +1696,7 @@ signatures (every public export and the types it is made of)
   NativePoolRecord (packages/ui-sdk/src/server/native-brain-manager-protocol.ts)
     export interface NativePoolRecord {
         id: string;
+        publicationRevoked?: boolean;
         purpose: "source" | "worktree" | "staging" | "checkpoint";
         from: string | null;
         allowanceBytes: number;
@@ -2564,12 +2565,12 @@ signatures (every public export and the types it is made of)
         poolAccessClose: (access: string, signal?: AbortSignal) => Promise<NativePoolAccess>;
         poolAccessOpen: (access: string, signal?: AbortSignal) => Promise<NativePoolAccess>;
         poolCheckpoint: (id: string, from: string, signal?: AbortSignal) => Promise<NativePoolCheckpoint>;
-        poolCreate: (id: string, purpose: NativePoolCreatePurpose, from: null | string, allowanceBytes: number, signal?: AbortSignal) => Promise<NativePoolRecord>;
+        poolCreate: (id: string, purpose: NativePoolCreatePurpose, from: null | string, allowanceBytes: number, signal?: AbortSignal, permanentWithdrawal?: true) => Promise<NativePoolRecord>;
         poolDelta: (from: string, to: string, signal?: AbortSignal) => Promise<NativeDeltaStream>;
         poolGrowth: (signal?: AbortSignal) => Promise<NativePoolGrowth>;
         poolListCheckpoint: (id: string, path: string, expectedWorkerUid: number, signal?: AbortSignal) => Promise<NativeCheckpointMetadata[]>;
-        poolPark: (id: string, signal?: AbortSignal) => Promise<NativePoolRecord>;
-        poolPublish: (id: string, view: string, name: string, signal?: AbortSignal) => Promise<NativePoolRecord>;
+        poolPark: (id: string, signal?: AbortSignal, expectedAccess?: string) => Promise<NativePoolRecord>;
+        poolPublish: (id: string, view: string, name: string, signal?: AbortSignal, expectedRoots?: readonly (null | string)[]) => Promise<NativePoolRecord>;
         poolReadCheckpoint: (id: string, path: string, maximum: number, expectedWorkerUid: number, signal?: AbortSignal) => Promise<NativeCheckpointFile>;
         poolRelease: (id: string, signal?: AbortSignal) => Promise<NativePoolRecord>;
         poolSeal: (id: string, signal?: AbortSignal) => Promise<NativePoolRecord>;

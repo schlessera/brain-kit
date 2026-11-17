@@ -36,13 +36,14 @@ export const nativeManagerRequest = z.discriminatedUnion("operation", [
   // Read-only residual-growth status (#3515) over the same observation and owner charges.
   z.object({ operation: z.literal("poolGrowth") }).strict(),
   z.object({ operation: z.literal("poolCreate"), id: nativeCheckpointId, purpose: z.enum(["source", "worktree", "staging"]),
-    from: nativeCheckpointId.nullable(), allowanceBytes: z.number().int().positive() }).strict(),
+    from: nativeCheckpointId.nullable(), allowanceBytes: z.number().int().positive(), permanentWithdrawal: z.literal(true).optional() }).strict(),
   z.object({ operation: z.literal("poolSeal"), id: nativeCheckpointId }).strict(),
   z.object({ operation: z.literal("poolRelease"), id: nativeCheckpointId }).strict(),
   z.object({ operation: z.literal("listPoolRecovery"), after: nativeCheckpointId.nullable() }).strict(),
   // Reference publication (#2429). A view is one caller-generated sharing
   // domain; the manager owns its directory and swaps one name atomically.
-  z.object({ operation: z.literal("poolPublish"), id: nativeCheckpointId, view: nativeCheckpointId, name: nativePoolName }).strict(),
+  z.object({ operation: z.literal("poolPublish"), id: nativeCheckpointId, view: nativeCheckpointId, name: nativePoolName,
+    expectedRoots: z.array(nativeCheckpointId.nullable()).min(1).max(2).optional() }).strict(),
   z.object({ operation: z.literal("poolUnpublish"), view: nativeCheckpointId, name: nativePoolName }).strict(),
   // A view's directory, opened before its first publication so a worker can bind it (#2432).
   z.object({ operation: z.literal("poolView"), view: nativeCheckpointId }).strict(),
@@ -60,7 +61,7 @@ export const nativeManagerRequest = z.discriminatedUnion("operation", [
   }).strict(),
   z.object({ operation: z.literal("poolAccessOpen"), access: nativeCheckpointId }).strict(),
   z.object({ operation: z.literal("poolAccess"), id: nativeCheckpointId, access: nativeCheckpointId }).strict(),
-  z.object({ operation: z.literal("poolPark"), id: nativeCheckpointId }).strict(),
+  z.object({ operation: z.literal("poolPark"), id: nativeCheckpointId, expectedAccess: nativeCheckpointId.optional() }).strict(),
   z.object({ operation: z.literal("poolAccessClose"), access: nativeCheckpointId }).strict(),
 ]);
 export type NativeManagerRequest = z.infer<typeof nativeManagerRequest>;
@@ -145,6 +146,8 @@ export interface NativePoolRootIdentity {
 }
 export interface NativePoolRecord {
   id: string;
+  /** Present only on opted-in source roots. Once true, publication is permanently refused. */
+  publicationRevoked?: boolean;
   /** `checkpoint` (#2430): a read-only snapshot of one writable worktree, created only by `poolCheckpoint`. */
   purpose: "source" | "worktree" | "staging" | "checkpoint";
   /** Pool root this one was snapshotted from (sealed, or the writable worktree of a checkpoint), or null for an empty root. */
