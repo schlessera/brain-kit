@@ -601,7 +601,7 @@ test("the determinism job has the unit job's prerequisites and both aggregates o
   expect(workflowProblems(original, "ci.yml")).toEqual([]);
   expect(workflowProblems(original.replace("captures, endurance, determinism]", "captures, endurance]"), "ci.yml"), "PROOF_MUST_OBSERVE_IT").toContain("ci.yml: proof: aggregate must observe every selected category");
   expect(workflowProblems(original.replace("run: bun scripts/ci-proof.ts determinism\n", "run: echo omitted\n"), "ci.yml")).toContain("ci.yml: determinism: complete proof command is missing");
-  expect(workflowProblems(original.replace("needs.changeset.outputs.determinism == 'true' }}", "needs.changeset.outputs.unit == 'true' }}"), "ci.yml")).toContain("ci.yml: determinism: proof must use its explicit planner selection and validated retention");
+  expect(workflowProblems(original.replace("needs.changeset.outputs.determinism == 'true' }}", "needs.changeset.outputs.unit == 'true' }}"), "ci.yml")).toContain("ci.yml: determinism: proof must run on its explicit planner selection alone");
   const withoutSetup = original.slice(0, original.indexOf("  determinism:\n")) + original.slice(original.indexOf("  determinism:\n")).replace("run: bash scripts/ci-runtime-setup.sh\n", "run: bash scripts/ci-runtime-setup.sh --native\n");
   expect(workflowProblems(withoutSetup, "ci.yml"), "UNIT_SETUP_REQUIRED").toContain("ci.yml: determinism: environment setup must have its separate 12-minute limit");
 });
