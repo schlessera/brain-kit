@@ -116,7 +116,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   const { workerSandbox, workerLock, workerSignal, toolExecution } = admission.hostEnv;
   const { child, sandbox, sandboxNote, turnTemp } = await launchPiWorker({ backend, env, admission, restricted, resumeId, execHelpers, confirmPatterns,
     startupStarted, turnContext });
-  const { closeTurnTemp, releases, claimTurnTempClose, diagnostic, reportLimitHits, limitEnded, send, stdioReleased } = superviseWorker({ child, reservation,
+  const { closeTurnTemp, releases, claimTurnTempClose, teardown, diagnostic, reportLimitHits, limitEnded, send, stdioReleased } = superviseWorker({ child, reservation,
     turnTemp, env, turnContext, admission, answerText: () => receipts.answerText() });
   function live(): void {
     if (!state.active || state.ended || !turnContext.bridge || !turnContext.signal || turnContext.signal.aborted) {
@@ -208,8 +208,10 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       try { send({ type: "prompt", text: state.ownedPrompt?.text ?? text, options }); await done.promise; }
       finally {
         child.stdin.end(); child.kill("SIGKILL");
-        try { await child.exited; await received; await receipts.promote({ turnTemp, sandbox, closeTurnTemp }); }
-        finally { try { await closeTurnTemp(); } finally { await stdioReleased(); } }
+        await teardown(async () => {
+          try { await child.exited; await received; await receipts.promote({ turnTemp, sandbox, closeTurnTemp }); }
+          finally { try { await closeTurnTemp(); } finally { await stdioReleased(); } }
+        });
       }
       if (state.error) throw state.error;
     },
@@ -219,8 +221,10 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       return aborting ??= (async () => {
         if (!state.active) {
           state.ended = true; claimTurnTempClose(); child.stdin.end(); child.kill("SIGKILL");
-          try { await child.exited; await received; }
-          finally { try { await closeTurnTemp(); } finally { await stdioReleased(); } }
+          await teardown(async () => {
+            try { await child.exited; await received; }
+            finally { try { await closeTurnTemp(); } finally { await stdioReleased(); } }
+          });
           return;
         }
         if (state.ended) return;
