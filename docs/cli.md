@@ -53,7 +53,10 @@ Chrome available. Without it the command explains what is missing and
 
 The page resolves no hostname by default, so remote images become a visible
 `[alt — not embedded]` placeholder. `--allow-host <host>` opens specific image
-hosts; `data:` URIs always render.
+hosts over `http:` and `https:`; `data:` URIs always render. Each value must be
+a plain host name or IP address. A wildcard, comma, space, scheme, port or path
+is a usage error before anything renders, because each host becomes one
+exception in the renderer's DNS blackhole.
 
 The shell's stylesheet lays a PDF out as full-bleed A4, with the title and
 "2 / 5" in the footer from page 2, and styles plain markdown into a finished

@@ -16,9 +16,11 @@ export "." (./src/index.ts)
   lintDocument
 
 export "./internal" (./src/internal.ts)
+  allowHostProblem
   applyExportLinkPolicy
   documentTitle
   isFullDocument
+  normalizeAllowHosts
   prepareStaticDocument
   protectExportLinkDestinations
 

@@ -7,7 +7,7 @@ import {
   lintDocument,
   type RenderContentType,
 } from "@schlessera/brain-render-template";
-import { documentTitle, isFullDocument, prepareStaticDocument } from "@schlessera/brain-render-template/internal";
+import { allowHostProblem, documentTitle, isFullDocument, prepareStaticDocument } from "@schlessera/brain-render-template/internal";
 import { DOCUMENT_KINDS, readSkeleton, resolveKind } from "@schlessera/brain-render-template/kinds";
 
 import { collectModuleRenderers } from "../../lib/module-renderers.js";
@@ -292,6 +292,12 @@ export const renderCommand: CoreCommand = {
     }
 
     const allowHosts = repeatedValues(args, "allow-host");
+    // Each host becomes a renderer DNS rule: refuse anything but a plain host
+    // before building or rendering anything (#2496).
+    for (const host of allowHosts) {
+      const problem = allowHostProblem(host);
+      if (problem) throw new UsageError(`--allow-host ${problem}`);
+    }
     const width = flags.width !== undefined ? Number(flags.width) : undefined;
     if (width !== undefined && !Number.isFinite(width)) {
       throw new UsageError(`--width must be a number, got "${String(flags.width)}"`);
