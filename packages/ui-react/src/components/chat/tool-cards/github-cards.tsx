@@ -96,6 +96,13 @@ interface Detail {
   errorStatus?: number | string;
   resetAt?: string;
   resetIn?: string;
+  /**
+   * A refusal the kit's S4–S7 words would misdescribe: one the host made
+   * itself (not this chat's owner, not in this session, not a pull request,
+   * the reader's sign-in) or GitHub rejecting the host's credential. Shown in
+   * the host's own words instead of a state that blames GitHub.
+   */
+  refusal?: string;
 }
 
 /** The S4–S7 state a detail route error reads as. */
@@ -111,9 +118,13 @@ function detailErrorState(error: GithubDetailError | GithubError & { reset_at?: 
     };
   }
   if (error.code === "unavailable" && error.reason === "no_credential") return { state: "no-credential" };
-  if (error.code === "not_found" || error.code === "forbidden") return { state: "gone" };
+  // GitHub's own refusals carry no reason or "github"; the host's carry theirs.
+  const fromGithub = error.reason === null || error.reason === "github";
+  if ((error.code === "not_found" || error.code === "forbidden") && fromGithub) return { state: "gone" };
   const status = error.reason?.match(/^http_(\d{3})$/)?.[1];
-  return { state: "error", ...(status ? { errorStatus: Number(status) } : {}) };
+  if (error.code === "upstream_error" && (status || error.reason === "network" || error.reason === "timeout" || error.reason === "cancelled"))
+    return { state: "error", ...(status ? { errorStatus: Number(status) } : {}) };
+  return { state: "error", refusal: error.message };
 }
 
 /**
@@ -135,7 +146,7 @@ function useDetail(repository: string, number: number, part: GithubDetailPart) {
         setDetail((d) => ({ ...d, state: "error" }));
         return;
       }
-      setDetail((d) => ({ ...d, state: "loading" }));
+      setDetail((d) => ({ ...d, state: "loading", refusal: undefined }));
       const answer = await fetchGithubDetailPage(root, { sessionId, repository, number, part, cursor });
       if (!answer.ok) {
         setDetail((d) => ({ ...d, ...detailErrorState(answer.error) }));
@@ -199,6 +210,7 @@ function DetailPart(p: {
     load();
   }, [p.autoLoad, load]);
   const rows = p.shown ? detail.items.filter((item) => !p.shown!(item)) : detail.items;
+  if (detail.refusal) return <GithubRefusal error={{ code: "unavailable", reason: null, message: detail.refusal }} />;
   return (
     <GitHubDetailSection
       state={detail.state}

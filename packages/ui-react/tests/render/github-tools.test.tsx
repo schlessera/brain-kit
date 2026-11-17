@@ -179,6 +179,16 @@ describe("direct links pass #3797's validator or render nowhere", () => {
     });
   }
 
+  test("a search row whose URL names another issue number renders no link for that row", async () => {
+    const item = search().items[0]!;
+    const found = output("search", envelope("search", search({ items: [{ ...item, html_url: "https://github.com/ithaca/hall/issues/410" }] })));
+    await act(async () => fireEvent.click(within(found.container).getByRole("button", { name: /Bow string frays/ })));
+    expect(links(found.container).filter((h) => h?.includes("/issues/4"))).toEqual([]);
+    const valid = output("search", envelope("search", search()));
+    await act(async () => fireEvent.click(within(valid.container).getByRole("button", { name: /Bow string frays/ })));
+    expect(links(valid.container), "the same row with its own URL links").toContain("https://github.com/ithaca/hall/issues/409");
+  });
+
   test("a search URL for another query or repository renders no search link", () => {
     for (const searchUrl of ["https://github.com/ithaca/hall/issues?q=other", "https://github.com/circe/aeaea/issues?q=repo%3Aithaca%2Fhall+bow+is%3Aopen", null]) {
       const found = output("search", envelope("search", search({ search_url: searchUrl })));
@@ -320,22 +330,40 @@ describe("on-demand detail", () => {
     expect(requested.filter((u) => u.endsWith("/files")), "coming back does not fetch again").toHaveLength(1);
   });
 
+  // GitHub's own refusals read as the kit's S4–S7 states.
   for (const [status, error, state, text] of [
     [503, { code: "unavailable", reason: "no_credential", message: "No credential." }, "no-credential", "no GitHub access set up"],
     [404, { code: "not_found", reason: "github", message: "Gone." }, "gone", "no longer shows this pull request"],
-    [403, { code: "forbidden", reason: "not_owner", message: "Not yours." }, "gone", "no longer shows this pull request"],
+    [403, { code: "forbidden", reason: null, message: "Not visible." }, "gone", "no longer shows this pull request"],
     [502, { code: "upstream_error", reason: "http_502", message: "GitHub answered 502." }, "error", "GitHub answered 502"],
     [429, { code: "rate_limited", reason: "github", message: "Limited." }, "rate-limited", "request limit is used up"],
   ] as const) {
-    test(`a ${status} ${error.code} from the route reads as ${state}`, async () => {
+    test(`a ${status} ${error.code}/${error.reason} from GitHub reads as ${state}`, async () => {
       answer = () => Response.json({ error: { ...error, reset_at: null } }, { status });
       const view = output("read", envelope("read", pull()));
       await act(async () => fireEvent.click(view.getByRole("tab", { name: /Files/ })));
       await act(async () => {});
-      const section = view.container.querySelector("[data-github-detail]:not([hidden] *)");
       expect([...view.container.querySelectorAll("[data-github-detail]")].map((n) => n.getAttribute("data-github-detail"))).toContain(state);
       expect(view.container.textContent).toContain(text);
-      void section;
+    });
+  }
+
+  // The host's own refusals, and a rejected credential, read in the host's words: never "GitHub no longer shows" or "GitHub didn't answer".
+  for (const [status, body, text] of [
+    [403, { error: { code: "forbidden", reason: "not_owner", message: "Only this chat's owner can load its GitHub details.", reset_at: null } }, "Only this chat's owner"],
+    [404, { error: { code: "not_found", reason: "not_in_session", message: "This pull request is not part of this chat.", reset_at: null } }, "not part of this chat"],
+    [404, { error: { code: "not_found", reason: "not_pull_request", message: "That is an issue, not a pull request.", reset_at: null } }, "not a pull request"],
+    [503, { error: { code: "unavailable", reason: "credential_rejected", message: "GitHub rejected the host's GitHub tools credential.", reset_at: null } }, "rejected the host's GitHub tools credential"],
+    [401, {}, "Sign in again to load more."],
+  ] as const) {
+    test(`a ${status} ${"error" in body ? `${body.error.code}/${body.error.reason}` : "with no body"} reads in the host's words`, async () => {
+      answer = () => Response.json(body, { status });
+      const view = output("read", envelope("read", pull()));
+      await act(async () => fireEvent.click(view.getByRole("tab", { name: /Files/ })));
+      await act(async () => {});
+      expect(view.container.textContent).toContain(text);
+      expect(view.container.textContent).not.toContain("no longer shows this pull request");
+      expect(view.container.textContent).not.toContain("didn't answer");
     });
   }
 
