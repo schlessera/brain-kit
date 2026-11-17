@@ -436,11 +436,11 @@ function newestPulls(pulls: PullObservation[]): PullObservation[] {
  * window, months from one before `since` through one after `until` are read, so
  * a cohort's earlier PR attempts and later main proof stay in view.
  */
-async function archiveInputs(remote: string, repository: string, since?: string, until?: string): Promise<ReportInputs & { head: string | null }> {
+export async function archiveInputs(remote: string, repository: string, since?: string, until?: string, root = process.cwd()): Promise<ReportInputs & { head: string | null }> {
   const { GitArchiveStore, readArchive } = await import("./ci-archive");
   const shift = (at: string, months: number) => { const d = new Date(at); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() + months); return d.toISOString().slice(0, 7); };
   const range = since && until ? [shift(since, -1), shift(until, 1)] as const : null;
-  const { head, rows } = await readArchive(new GitArchiveStore(process.cwd(), remote), repository, range ? m => m >= range[0] && m <= range[1] : undefined);
+  const { head, rows } = await readArchive(new GitArchiveStore(root, remote), repository, range ? m => m >= range[0] && m <= range[1] : undefined);
   if (!head) throw new Error("The archive ref does not exist on that remote");
   return { head, snapshots: rows.run as TimingSnapshot[], collections: rows.collection, operational: {
     pulls: newestPulls(rows.pull as PullObservation[]), events: rows.event as WorkEvent[], acquisitions: rows.enrichment as LifecycleAcquisition[],
@@ -448,7 +448,7 @@ async function archiveInputs(remote: string, repository: string, since?: string,
 }
 const COORDINATOR_FILE = /^coordinator-\d+-attempt-\d+\.json$/;
 
-function lifecycleCoverage(input: LifecycleAcquisition[], pulls: PullObservation[]) {
+export function lifecycleCoverage(input: LifecycleAcquisition[], pulls: PullObservation[]) {
   if (!input.length) return null;
   const scopes = [...new Map(input.map(s => [JSON.stringify(s), s])).values()]
     .sort((a, b) => Date.parse(a.collectedAt) - Date.parse(b.collectedAt));
@@ -471,7 +471,7 @@ function lifecycleCoverage(input: LifecycleAcquisition[], pulls: PullObservation
     missingPRs: expectedPRs.filter(pr => !pulls.some(p => p.number === pr)), scopes };
 }
 
-function reservationCoverage(input: ReservationArchive[]) {
+export function reservationCoverage(input: ReservationArchive[]) {
   if (!input.length) return null;
   const archives = [...new Map(input.map(s => [JSON.stringify(s), s])).values()]
     .sort((a, b) => Date.parse(a.collectedAt) - Date.parse(b.collectedAt));
