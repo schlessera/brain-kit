@@ -509,7 +509,9 @@ one PR share a cancellable group. Different PRs never cancel one another.
 
 After cheap gates, packaging, strict verification, unit shards, runtime probes,
 browser shards, layout shards, a separate endurance job and captures start independently.
-There are four measured-cost unit partitions, three browser and two layout partitions
+There are four measured-cost unit partitions
+([eight on ready confirmation and draft heavy feedback](#eight-unit-partitions-for-ready-confirmation)),
+three browser and two layout partitions
 (`PROOF_SHARDS`, `scripts/proof-shards.ts`, which the workflow guard matches against the matrices),
 with full coverage assertions and original per-browser file concurrency bounds.
 The first two-unit-partition hosted run reached its 20-minute budgets while
@@ -849,8 +851,9 @@ unavailable; process maximum RSS does not establish aggregate headroom. The
 measurement workflow remains an evidence vehicle and is not merged.
 
 Unit weights have the same explicit reviewed path:
-`bun scripts/refresh-unit-costs.ts <run-id> <attempt>`. It requires all four
-successful exhaustive unit jobs and binds actual checkout logs, immutable
+`bun scripts/refresh-unit-costs.ts <run-id> <attempt>`. It requires every planned
+partition of an exhaustive run as a successful unit job (four, or eight on a
+ready confirmation) and binds actual checkout logs, immutable
 source discovery, complete JUnit/timing partitions and downloaded archive
 digests. `scripts/unit-shard-measurement.json` records that provenance; the
 refresh names any observed unweighted file exceeding 30 seconds. Timings
@@ -1868,6 +1871,62 @@ pre-merge confirmation if any of these holds:
 - unresolved first-main failures grow by more than ten in the week;
 - red main blocks a release for more than 24 hours.
 
+## Eight unit partitions for ready confirmation
+
+Maintainer decision, 2026-11-16
+([#4108](https://github.com/schlessera/brain-kit/issues/4108)): shorten the
+merge lease hold by running ready confirmation's unit tier in more partitions.
+Proof content does not change.
+
+- **Ready confirmation and draft heavy feedback** run the unit tier in up to
+  eight partitions. **Main pushes and exhaustive runs** keep four, so a main
+  run needs no more runners than before.
+- **One owner.** One table holds both caps (`UNIT_PARTITIONS`,
+  `scripts/proof-shards.ts:17`). The planner reads it by cadence (`unitShards`,
+  `scripts/ci-plan.ts:395-397`) and publishes the partition numbers as
+  `unit_shards`. The `unit` matrix is that output, and each partition's divisor
+  is the matrix size. The hosted aggregate plans again and refuses a published
+  set that differs from the plan (`selections.unit`,
+  `scripts/candidate-proof.ts:68`). The merge path accepts only a job inventory
+  that matches the confirmed set, bounded by the confirmation cap
+  (`unitPartitionLimit("confirmation")`, `scripts/integration-proof.ts:125-126`).
+  `bun run lint` refuses a literal matrix, a second matrix dimension or a
+  literal divisor (`The unit partition count has one owner`,
+  `scripts/check-ci-workflows.ts:97-105`). The weight refresh takes its job
+  count from the same table.
+- **Fewer files than partitions.** A selected inventory smaller than the cap
+  gets one partition per file. No partition is empty and no file runs twice
+  (`unitPartitions`, `scripts/proof-shards.ts:28-32`).
+
+**Why.** One repository-wide lease serializes ready confirmation and merge.
+#4108 records that on 2026-11-16 the lease was acquired 53 times and held for
+75% of the day, with a median hold of 26 minutes. That hold is the `unit` job:
+over the 100 most recent successful PR runs it took a median 19.1 minutes (p90
+23.8), against 2.6 for `pack` and 1.9 for `verify`. The
+[hybrid ruling](#hybrid-post-merge-heavy-proof) moved the browser categories
+after merge and did not shorten the hold.
+
+**Four-partition baseline.** In run 43974750583 the four `Complete unit proof`
+steps took 857, 862, 1,027 and 1,334 seconds, after 43 to 160 seconds of
+runtime setup. The slowest `unit` job took 1,433 seconds. The reviewed weights
+in `scripts/test-shard-costs.json` balance to an estimated 1,098 seconds per
+partition at four and 549 at eight, and the largest single file is 350
+seconds. The estimate uses weights measured under four partitions. It is not
+a measurement of eight.
+
+**What does not change.** Every selected file still runs exactly once. The
+two-process queue inside a partition, the 12-minute setup, 30-minute proof and
+45-minute job limits, every per-test deadline, the browser and layout shard
+counts and the weight table are unchanged. No test leaves the pre-merge unit
+tier.
+
+**Known costs.** A confirmation uses eight unit runners instead of four, and
+each pays its own checkout, install and runtime setup. Summed runner time per
+confirmation rises while the slowest job shortens. A confirmation lists up to
+18 jobs, under the merge path's 30-job inventory bound. The weights were
+measured at four partitions, so the balance at eight may be uneven; a weight
+refresh is separate work.
+
 ## Fast lane outside the core packages
 
 The maintainer ruled on 2026-11-16 that the fast lane allowed on 2026-11-03
@@ -1969,7 +2028,8 @@ or deleted tests, unknown inputs and unavailable scans retain ordinary selection
 Main pushes and exhaustive runs retain complete affected/default discovery.
 
 The exact unit inventory is validated against default Bun discovery. It includes
-owning fast tests once, and uses at most the existing four partitions, reduced
+owning fast tests once, and uses at most its cadence's partition cap (four, or
+eight on ready confirmation and draft heavy feedback), reduced
 only when fewer files exist; no empty partition or duplicate execution substitutes
 for coverage. Selected categories remain required by the unchanged aggregate.
 

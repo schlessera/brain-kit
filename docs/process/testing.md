@@ -730,6 +730,15 @@ after successful setup belongs to the proof phase. Both leave the job and
 selected aggregate nonpassing. Browser/layout do not call this setup script
 and retain their existing pinned-container proof budgets.
 
+The unit tier runs in up to eight partitions on a ready confirmation and on
+draft heavy feedback, and in up to four on main pushes and exhaustive runs.
+A selected inventory with fewer files than the cap gets one partition per
+file. `UNIT_PARTITIONS` in `scripts/proof-shards.ts` is the only place the
+counts are written: the planner publishes the partition numbers, the `unit`
+matrix and its divisor follow that output, and the aggregate and the merge
+path refuse a run whose unit jobs are not exactly the planned set
+([ruling](../decisions/ci-utility.md#eight-unit-partitions-for-ready-confirmation)).
+
 Hosted unit partitions run up to two serial Bun test processes through
 `scripts/unit-workers.ts`. Each owns its source checkout, copied frozen
 install, build output and workspace lease. Full preparation now runs after
