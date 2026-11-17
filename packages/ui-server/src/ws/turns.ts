@@ -442,6 +442,27 @@ interface PendingMask {
   reject: (err: Error) => void;
 }
 
+/** What the browser's markup upload carries (#3975): the layer and the drawing's own summary. */
+export interface MarkupSubmission {
+  png: Uint8Array;
+  marks: { pen: number; arrow: number; ellipse: number; text: number };
+  notes: string[];
+}
+
+/**
+ * A markup editor open in the browser (#3975). Its answer arrives over the
+ * bounded HTTP upload route, which only the turn's own principal may use.
+ */
+interface PendingMarkup {
+  turn: RunningTurn;
+  turnId: string;
+  principalId: string;
+  /** The bound source's bytes, for the editor; refuses once the source changed. */
+  source: () => { bytes: Uint8Array; type: string };
+  resolve: (submission: MarkupSubmission) => void;
+  reject: (err: Error) => void;
+}
+
 
 /** The ask kinds in the order every per-kind walk visits them. */
 const ASK_KINDS: readonly AskKind[] = ["ask_user", "ask_user_list", "ask_user_rank", "ask_user_form"];
@@ -475,6 +496,7 @@ export class TurnCoordinator {
   readonly #asks = new Map<string, PendingAsk>();
   readonly #pendingLocation = new Map<string, PendingLocation>();
   readonly #pendingMask = new Map<string, PendingMask>();
+  readonly #pendingMarkup = new Map<string, PendingMarkup>();
   readonly #handoffs = new Map<string, PendingHandoff>();
   readonly #handoffPreparations = new Map<string, HandoffPreparation>();
   readonly #askOutcomes = new Map<string, AskOutcome>();
@@ -873,6 +895,46 @@ export class TurnCoordinator {
     return p;
   }
 
+  /** Open a markup request unless another turn holds its id; says whether it opened. */
+  openMarkup(requestId: string, entry: PendingMarkup): boolean {
+    if (this.collides(this.#pendingMarkup.get(requestId), requestId, entry.turn)) return false;
+    this.#pendingMarkup.set(requestId, entry);
+    return true;
+  }
+
+  /** A pending markup request that `accepts` matches, left open: an upload checks before it reads. */
+  peekMarkup(requestId: string, accepts: (p: PendingMarkup) => boolean = () => true): PendingMarkup | undefined {
+    const p = this.#pendingMarkup.get(requestId);
+    return p && accepts(p) ? p : undefined;
+  }
+
+  /** Remove and return a pending markup request that `accepts` matches; the caller settles it. */
+  claimMarkup(requestId: string, accepts: (p: PendingMarkup) => boolean = () => true): PendingMarkup | undefined {
+    const p = this.#pendingMarkup.get(requestId);
+    if (!p || !accepts(p)) return undefined;
+    this.#pendingMarkup.delete(requestId);
+    return p;
+  }
+
+  /** Reject and remove every pending markup request `orphaned` names. */
+  drainMarkup(orphaned: (p: PendingMarkup) => boolean, reason: string): void {
+    for (const [id, p] of this.#pendingMarkup) {
+      if (!orphaned(p)) continue;
+      this.#pendingMarkup.delete(id);
+      p.reject(new Error(reason));
+    }
+  }
+
+  /** Markup requests waiting for the browser. */
+  get pendingMarkup(): ReadonlyMap<string, PendingMarkup> {
+    return this.#pendingMarkup;
+  }
+
+  /** Unguessable, unlike the counters: the id names an upload route. */
+  nextMarkupRequestId(): string {
+    return `markup-${crypto.randomUUID()}`;
+  }
+
   private locationCounter = 0;
   private maskCounter = 0;
 
@@ -999,6 +1061,7 @@ export class TurnCoordinator {
     for (const p of this.#asks.values()) orphaned.add(p.entry.turn);
     for (const p of this.#pendingLocation.values()) orphaned.add(p.turn);
     for (const p of this.#pendingMask.values()) orphaned.add(p.turn);
+    for (const p of this.#pendingMarkup.values()) orphaned.add(p.turn);
     for (const turn of orphaned) this.drainPendingForTurn(turn, reason);
     return hadWork;
   }
@@ -1104,6 +1167,11 @@ export class TurnCoordinator {
       if (p.turn !== turn) continue;
       p.reject(new Error(reason));
       this.#pendingMask.delete(id);
+    }
+    for (const [id, p] of this.#pendingMarkup) {
+      if (p.turn !== turn) continue;
+      p.reject(new Error(reason));
+      this.#pendingMarkup.delete(id);
     }
   }
 

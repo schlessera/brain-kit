@@ -15,6 +15,7 @@ import { useUIStore } from "../../stores/ui-store.js";
 import { useWebSocket } from "../../hooks/use-websocket.js";
 import { useTrackerSeen } from "../../hooks/use-tracker-seen.js";
 import { MaskEditor } from "../images/mask-editor.js";
+import { MarkupEditorHost } from "../images/markup-editor.js";
 import { MessageBubble } from "./message-bubble.js";
 import { SessionSafety } from "./safety-indicator.js";
 import { useWorkRestore } from "../../hooks/use-local-work.js";
@@ -597,7 +598,8 @@ export function ChatPage() {
     const covered = ui.activeView !== "chat" || ui.sessionPanelOpen || ui.filePanelOpen || ui.settingsPanelOpen || ui.syncPanelOpen
       || ui.whatsupPanelOpen || ui.searchPanelOpen || ui.addPanelOpen || ui.paletteOpen || ui.subagentStack.length > 0
       // The other surfaces over Chat, as the seen observer lists them.
-      || root.stores.mask.getState().request !== null || root.stores.handoff.getState().sheet !== null;
+      || root.stores.mask.getState().request !== null || root.stores.markup.getState().request !== null
+      || root.stores.handoff.getState().sheet !== null;
     if (chat.activeSessionId !== intent.sessionId || covered) { opening.current = null; return; }
     // A long history arrives in several chunks, back to back: the replay is
     // over once a chunk has come and no other has followed it for a moment.
@@ -627,6 +629,13 @@ export function ChatPage() {
         onCancel={(requestId, message) =>
           send({ type: "mask_error", requestId, code: "cancelled", message })
         }
+      />
+      {/* Markup editor (#3975): the layer is uploaded, a decline goes over the socket. */}
+      <MarkupEditorHost
+        onDecline={(request, message) => send({
+          type: "markup_error", requestId: request.requestId, code: "cancelled", message,
+          ...(request.turnId ? { turnId: request.turnId } : {}),
+        })}
       />
 
       {/* Subagent drill-in: an overlay stack — chat is the residence, the

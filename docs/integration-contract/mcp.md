@@ -468,6 +468,87 @@ Only committed effects enter `changes`, including an effect followed by a later
 I/O or prune failure. PNG effects do not enter the disposable Markdown index.
 The Markdown byte cap and supported file kinds above remain unchanged.
 
+<a id="hosted-markup-layer-application-additive-0450-3975"></a>
+
+### Hosted markup layer application (additive, 0.45.0, #3975)
+
+`request_image_markup` asks the user to draw what an image edit should change:
+arrows, ellipses, freehand strokes and short text notes. A mask says where
+pixels may change; markup says what to change. The layer is for
+`brain image --ref <imagePath> --markup <markupPath>` with the same image as the
+first `--ref`, never for `--mask`.
+
+- **Input:** `{ imagePath: string, instruction?: string }`. `instruction` is at
+  most 200 characters and is shown as plain text after "Agent asks:".
+- **Result payload:** `{ imagePath, markupPath, width, height, bytes, marks:
+  { pen, arrow, ellipse, text }, notes, note }`. `markupPath` is repo-relative
+  and always under `.brain/scratch/markup/`. `width` and `height` are the
+  source's displayed size after EXIF orientation, which the layer matches.
+  `notes` are the note texts in placement order.
+- **Refusals** are tool errors that write nothing: the user closed the editor
+  (`The user closed the markup editor`), a voice or no-grant turn, no connected
+  client that declared `imageMarkup`, an unreadable or changed source, and every
+  application refusal below.
+
+The operation is host-owned end to end:
+`BackendBridge.requestImageMarkup?(input)` opens the editor, takes the layer over
+the bounded [upload route](../http-api.md#markup-layer-upload-additive-0450-3975),
+writes it and resolves with the payload. The backend never holds the layer's
+bytes or names a destination. A host without the callback refuses the tool;
+there is no fallback writer. The callback is installed only for Claude and pi
+turns that may apply to the brain.
+
+**The source.** It must be an existing PNG, JPEG or WebP file in the brain:
+
+- an exact repository path, with no traversal and no hidden or policy segment;
+- an ordinary file with one link, at most `BRAIN_MARKUP_SOURCE_MAX_BYTES`
+  (134,217,728) bytes;
+- a header the CLI can read, of at most 16,777,216 pixels.
+
+Its SHA-256 and displayed size are read before the editor opens, and the
+`markup_request` frame carries that size.
+
+**The layer.** `BRAIN_MARKUP_MAX_BYTES` is 52,428,800 (50 MiB, the CLI's
+"50 MB"). The cap is inclusive: exactly 52,428,800 bytes is accepted and one
+byte more is refused. A layer must also:
+
+- be a PNG with an alpha channel;
+- be exactly the source's displayed width and height;
+- decode completely: non-interlaced, its image data exactly the size its header
+  promises, with valid row filters;
+- not be fully transparent.
+
+The first two are `markupProblem`'s rules (#3785), read through the same header
+reader; the last two refuse a fabricated header or an empty drawing.
+
+**The destination.** The server chooses
+`.brain/scratch/markup/<stem>.<sha8>.markup.png`:
+
+- `<stem>` keeps the letters, digits, `.`, `_` and `-` of the source's file
+  name, and never starts with a dot;
+- `<sha8>` is the first eight hex digits of the source hash.
+
+A later submission for the same source takes `-2`, `-3` and so on. The layer is
+staged in a temporary the server holds open, then linked onto its name, so it
+never replaces an entry: an earlier receipt's layer, or anything planted at the
+name, keeps its bytes. The published entry must be that held inode with exactly
+the validated bytes, in an unmoved directory; otherwise the server removes the
+name it just created and refuses. The effect is recorded as soon as the layer
+exists, so a later cleanup or durability failure never hides it.
+
+**Rechecks.** The scratch rules apply unchanged: `.brain/scratch/` must be a real
+directory that git excludes. The source hash and size, the directory chain's
+topology, policy-protected targets, principal, turn, authority holds,
+cancellation and membership are rechecked under the application lock,
+immediately before the layer is linked. Voice cannot request or apply markup.
+The scratch prune runs under the same authority, keeps the new layer and
+records its actual removals.
+
+Only committed effects enter the recorded `BrainApplicationResult.changes`. No
+mark counts, notes, labels or limits enter the provider-facing history beyond
+the tool's own result. `request_image_mask`, its 8 MiB cap and the general
+`MAX_CLIENT_FRAME_BYTES` (12,000,000) are unchanged.
+
 <a id="chat-ui-in-process-tools-mcp__brain-ui__"></a>
 
 ### Chat-UI in-process tools (`mcp__brain-ui__*`)
@@ -478,8 +559,8 @@ turn, including voice-first sessions. A temporary missing handler, no-grant
 surface or strict sandbox fallback does not remove tools, schemas or descriptions.
 Registration grants no authority. Unavailable bridge calls return a model-readable
 refusal before opening a permission card or invoking the privileged handler;
-voice and no-grant turns refuse visual pickers, image masks, policy proposals and
-inbox mutations. Claude keeps native `Write`, `Edit` and `NotebookEdit` registered
+voice and no-grant turns refuse visual pickers, image masks, image markup
+(#3975), policy proposals and inbox mutations. Claude keeps native `Write`, `Edit` and `NotebookEdit` registered
 and refuses them at call time on strict/voice turns, including settings or
 remembered allows. Governed typed calls retain their stale-read and write-lock
 checks. Pi still rejects voice dispatch before a provider request: the stable
@@ -493,8 +574,9 @@ See [the package API](package-api.md#stable-hosted-application-roster-2048).
 
 The chat-UI backends register an in-process MCP server under the `brain-ui`
 key; its tool names are equally stable. `ask_user`, `ask_user_form` (additive in 0.40.0), `ask_user_rank` (additive in 0.40.0), `ask_user_list` (additive
-in 0.40.0), `get_current_location` and `request_image_mask` bridge to the
-connected browser. `query_activity`
+in 0.40.0), `get_current_location`, `request_image_mask` and
+`request_image_markup` (additive in 0.45.0, #3975) bridge to the connected
+browser. `query_activity`
 (read-only) reads the host's activity record — scopes `running` | `recent` |
 `run` | `rollups` | `inbox` | `roadblocks` (additive in 0.42.0); results are wrapped in a data-only delimiter
 (nonce-suffixed per call) because they can contain free text from past runs.
@@ -529,7 +611,7 @@ roadblocks parameters become tool errors without changing other scopes.
 answer blocks inline in the answer, or the follow-ups the model offers under
 it (`suggestions`); it validates its argument and echoes it, and rejects a `link` block whose
 address the link policy refuses, and a `tracker` block with any event whose address it refuses.
-The eleven bridge tools are declared once as **tool contracts** in
+The bridge tools are declared once as **tool contracts** in
 `@schlessera/brain-ui-sdk/tool-contracts` (also re-exported from `/server` and
 `/client`); their names and Claude-side input schemas are stable.
 
@@ -558,6 +640,7 @@ tool's result is meant to be rendered as a component rather than read as text:
 | `ask_user_list` (0.40.0) | `{ answers, skipped, notes? }` — the request is not echoed | the list card's answered record, rebuilt from the call's input plus this |
 | `get_current_location` | `{ latitude, longitude, accuracyMeters, place?, address?, addressComponents?, note?, retrievedAt }` | a map card: the fix as a pin, the shoreline from `GET /api/geo/coastline` when the server has it |
 | `request_image_mask` | `{ maskPath, imagePath, bytes, note }` | a mask result |
+| `request_image_markup` (0.45.0) | `{ imagePath, markupPath, width, height, bytes, marks, notes, note }` | the markup receipt: the layer over the hatched source, its marks, notes, size and paths |
 | `query_activity` | **none** | prose in a nonce-delimited data block |
 | `turn_temp` (0.42.0) | **none** | JSON usage or purge receipt |
 | `show_block` | `{ block }`, the validated input echoed | the block, inline at the call's position in the answer; `suggestions` alone is drawn under the answer instead |

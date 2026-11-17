@@ -17,7 +17,7 @@ test("only a proven read skips its result's observation; unknown, bash and write
     ["get_current_location", "host_bridge", "read"],
     // Host handlers that write: observed, but their effects end with the result.
     ["inbox_add", "host_bridge", "write"], ["write_file", "host_bridge", "write"], ["brain_add", "host_bridge", "write"],
-    ["request_image_mask", "host_bridge", "write"], ["propose_policy_change", "host_bridge", "write"],
+    ["request_image_mask", "host_bridge", "write"], ["request_image_markup", "host_bridge", "write"], ["propose_policy_change", "host_bridge", "write"],
     // Host evidence for a call that started as another tool proves nothing about what it ran.
     ["brain_search", "host_bridge", "unproven"], ["bash", "host_bridge", "unproven"], ["odysseus_custom", "host_bridge", "unproven"],
     // First-party worker file tools.

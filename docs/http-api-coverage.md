@@ -92,6 +92,8 @@ row's real mounting check. They do not establish mounting by themselves.
 | `POST /api/drafts/:draftId/attachments` | `mounted supported handler: POST /api/drafts/:draftId/attachments` | X |
 | `POST /api/drafts/:draftId/bind` | `mounted supported handler: POST /api/drafts/:draftId/bind` | X |
 | `POST /api/drafts/:draftId/files` | `mounted supported handler: POST /api/drafts/:draftId/files` | X |
+| `POST /api/markup/:requestId` | `mounted supported handler: POST /api/markup/:requestId` | X |
+| `GET /api/markup/:requestId/source` | `mounted supported handler: GET /api/markup/:requestId/source` | X |
 | `GET /api/files/content` | `mounted supported handler: GET /api/files/content` | F, V |
 | `GET /api/geo/coastline` | `mounted supported handler: GET /api/geo/coastline` | G, V |
 | `GET /api/governance/events` | `mounted supported handler: GET /api/governance/events` | GV |

@@ -218,6 +218,14 @@ async function bridgeCall(msg: PiWorkerRpc, bridge: BackendBridge, session: PiWo
       return output;
     } finally { turnContext.pendingMutations?.delete(work); }
   }
+  if (msg.toolName === "request_image_markup") {
+    // The host writes the layer (#3975); its own application records the
+    // receipt. A cancellation waits for the write it may have begun.
+    live();
+    const work = tool.execute(msg.toolCallId, msg.input, turnContext.signal!, undefined, undefined as never);
+    turnContext.pendingMutations?.add(work);
+    try { return await work; } finally { turnContext.pendingMutations?.delete(work); }
+  }
   return tool.execute(msg.toolCallId, msg.input, turnContext.signal!, undefined, undefined as never);
 }
 

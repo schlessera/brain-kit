@@ -78,6 +78,8 @@ export const mountLifetimes: Record<string, { shared: boolean; effects: string }
   "POST /api/drafts/:draftId/attachments": { shared: false, effects: "Draft writes/receipts/cleanup, attachment staging or binding; fresh database and filesystem." },
   "DELETE /api/drafts/:draftId": { shared: false, effects: "Draft writes/receipts/cleanup, attachment staging or binding; fresh database and filesystem." },
   "POST /api/drafts/:draftId/files": { shared: false, effects: "Composer original upload: pool reservation, receipt, file record and published bytes; fresh database and filesystem." },
+  "POST /api/markup/:requestId": { shared: true, effects: "No open markup request: refused before the body is read; no coordinator, file or database change." },
+  "GET /api/markup/:requestId/source": { shared: true, effects: "No open markup request: refused before any source read." },
   "GET /api/attachments/:fileId": { shared: true, effects: "Unknown attachment read only; no upload, sweep, reference change or file read." },
   "POST /api/drafts/:draftId/bind": { shared: false, effects: "Draft writes/receipts/cleanup, attachment staging or binding; fresh database and filesystem." },
   "GET /api/sessions/:id": { shared: false, effects: "History/list/recovery reconciliation, pending listings, or revert admission; fresh host/catalog and task state." },

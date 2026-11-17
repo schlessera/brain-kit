@@ -184,6 +184,8 @@ export interface SessionCaps {
   activity: boolean;
   inbox?: boolean;
   mask: boolean;
+  /** The host's markup editor and application (#3975); optional for a caller's own caps. */
+  markup?: boolean;
   /** The worker's turn temp is reachable through the `turn_temp` tool (#1703); not in an autonomous turn. */
   turnTemp?: boolean;
   /** Shared reference source and managed worktrees (#2432). */
@@ -242,6 +244,7 @@ export function capsOf(bridge: BackendBridge): SessionCaps {
     activity: Boolean(bridge.queryActivity),
     inbox: Boolean(bridge.inboxList),
     mask: Boolean(bridge.requestMask),
+    markup: Boolean(bridge.requestImageMarkup),
     reference: Boolean(bridge.referenceAccess),
     compute: Boolean(bridge.compute),
     apify: Boolean(bridge.apify),
@@ -254,5 +257,5 @@ export function capsOf(bridge: BackendBridge): SessionCaps {
 /** Deployment-owned tools exist even when this turn has no matching handler. */
 export const INTERACTIVE_SESSION_CAPS: Readonly<SessionCaps> = Object.freeze({
   policyChange: true, askUser: true, askUserList: true, askUserRank: true, askUserForm: true,
-  location: true, activity: true, inbox: true, mask: true, turnTemp: true, reference: true, compute: true, apify: true, attachments: true, web: true, github: true,
+  location: true, activity: true, inbox: true, mask: true, markup: true, turnTemp: true, reference: true, compute: true, apify: true, attachments: true, web: true, github: true,
 });
