@@ -50,7 +50,9 @@ describe("which specs the gate repeats", () => {
   // installed runner's listing at the last refresh, read here without starting Vitest.
   test("every project/file pair of the last complete browser and layout run is a spec the gate repeats, in the projects that ran it", () => {
     const recorded = Object.keys(readBrowserCosts().seconds).map(parsePairKey);
-    expect(recorded.length, "A_COMPLETE_RUN").toBeGreaterThan(400);
+    // A control against an empty or partial table, not a pin on its size: the table had 387 rows
+    // before the 2026-11-17 refresh and 514 after it, and that refresh has been reverted once.
+    expect(recorded.length, "A_COMPLETE_RUN").toBeGreaterThan(300);
     expect(recorded.filter(spec => !isRepeatedSpec(spec.file)).map(pairKey), "PATTERNS_COVER_EVERY_PROJECT").toEqual([]);
     const projects = (file: string) => expandSpecs([file], recorded).map(spec => spec.project);
     expect(projects(`${browser}/dictation-notice.pointer.tsx`)).toEqual(["rail-coarse", "rail-fine", "rail-mixed"]);
