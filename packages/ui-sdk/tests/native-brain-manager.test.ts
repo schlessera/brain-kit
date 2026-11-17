@@ -114,6 +114,49 @@ test("Unix client sends only fixed identities and returns raw delta plus complet
   expect(requests).toEqual([{ operation: "delta", from: ID, to: SECOND }, { operation: "release", id: ID }]);
 });
 
+test("Unix park requests retain an optional native generation expectation", async () => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-native-park-")), socketPath = join(root, "manager.sock");
+  cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+  const requests: NativeManagerRequest[] = [];
+  const service = Bun.serve({ unix: socketPath, async fetch(request) {
+    requests.push(nativeManagerRequest.parse(await request.json()));
+    return Response.json({ id: ID, access: null });
+  } });
+  cleanups.push(() => service.stop(true));
+  const client = createNativeBrainManagerClient({ socketPath, timeoutMs: 1000, maxDeltaBytes: 64 });
+  await client.poolPark(ID, undefined, SECOND); await client.poolPark(ID);
+  expect(requests, "NATIVE_PARK_EXPECTATION_REACHES_MANAGER").toEqual([
+    { operation: "poolPark", id: ID, expectedAccess: SECOND }, { operation: "poolPark", id: ID },
+  ]);
+  for (const expectedAccess of ["../other", "/srv/ithaca", null, 1])
+    expect(nativeManagerRequest.safeParse({ operation: "poolPark", id: ID, expectedAccess }).success, "NATIVE_PARK_EXPECTATION_IS_ONE_GENERATED_IDENTITY").toBe(false);
+});
+
+test("Unix source creation explicitly opts into permanent withdrawal without changing legacy calls", async () => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-native-withdrawal-")), socketPath = join(root, "manager.sock");
+  cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+  const requests: NativeManagerRequest[] = [];
+  const service = Bun.serve({ unix: socketPath, async fetch(request) {
+    const input = nativeManagerRequest.parse(await request.json()); requests.push(input);
+    return Response.json({ id: ID, ...(input.operation === "poolCreate" && input.permanentWithdrawal ? { publicationRevoked: false } : {}) });
+  } });
+  cleanups.push(() => service.stop(true));
+  const client = createNativeBrainManagerClient({ socketPath, timeoutMs: 1000, maxDeltaBytes: 64 });
+  expect(await client.poolCreate(ID, "source", null, 4096, undefined, true), "PERMANENT_WITHDRAWAL_RECEIPT_REACHES_CALLER").toMatchObject({ publicationRevoked: false });
+  await client.poolCreate(SECOND, "source", null, 4096);
+  await client.poolPublish(ID, SECOND, "ithaca", undefined, [ID, null]);
+  expect(requests, "PERMANENT_WITHDRAWAL_OPTION_REACHES_NATIVE_KEEPER").toEqual([
+    { operation: "poolCreate", id: ID, purpose: "source", from: null, allowanceBytes: 4096, permanentWithdrawal: true },
+    { operation: "poolCreate", id: SECOND, purpose: "source", from: null, allowanceBytes: 4096 },
+    { operation: "poolPublish", id: ID, view: SECOND, name: "ithaca", expectedRoots: [ID, null] },
+  ]);
+  for (const permanentWithdrawal of [false, null, 1, "true"])
+    expect(nativeManagerRequest.safeParse({ operation: "poolCreate", id: ID, purpose: "source", from: null, allowanceBytes: 4096, permanentWithdrawal }).success).toBe(false);
+  for (const expectedRoots of [[], [ID, null, SECOND], ["../ithaca"], [1]])
+    expect(nativeManagerRequest.safeParse({ operation: "poolPublish", id: ID, view: SECOND, name: "ithaca", expectedRoots }).success,
+      "NATIVE_PUBLICATION_EXPECTATION_IS_BOUNDED_ROOT_IDENTITIES").toBe(false);
+});
+
 test("lost Unix response is unknown and never an inferred absence or automatic retry", async () => {
   const root = mkdtempSync(join(tmpdir(), "odysseus-native-lost-")), socketPath = join(root, "manager.sock");
   cleanups.push(() => rmSync(root, { recursive: true, force: true }));

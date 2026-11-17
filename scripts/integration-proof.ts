@@ -4,9 +4,24 @@ import { checkout, type Checkout } from "./proof-inputs";
 import type { Candidate } from "./integration-reservation";
 import type { API } from "./proof-api";
 import { PROOF_JOBS, proofProblems } from "./ci-proof";
-import { MAX_UNIT_PARTITIONS, shardNumbers, unitPartitionLimit } from "./proof-shards";
+import { BROWSER_DETERMINISM_PARTITIONS, DETERMINISM_PARTITIONS, MAX_UNIT_PARTITIONS, PROOF_SHARDS, shardNumbers, unitPartitionLimit } from "./proof-shards";
 import { coveredCategories } from "./check-receipt";
 import type { Category } from "./red-main";
+
+/** Proof jobs whose matrix the planner publishes, with the receipt field that carries the published set and its largest size. */
+const PLANNED_MATRICES = {
+  determinism: { field: "determinismShards", max: DETERMINISM_PARTITIONS.max },
+  browser_determinism: { field: "browserDeterminismShards", max: BROWSER_DETERMINISM_PARTITIONS.max },
+} as const;
+/**
+ * The most jobs one run can list: metadata, the aggregate and every proof job
+ * at its widest matrix. The inventory is bounded by this rather than by a
+ * literal, so a new matrix or a wider one cannot make a complete run look
+ * malformed (#4163).
+ */
+export const MAX_RUN_JOBS = 2 + PROOF_JOBS.reduce((jobs, name) => jobs + (name === "unit" ? MAX_UNIT_PARTITIONS :
+  name in PLANNED_MATRICES ? PLANNED_MATRICES[name as keyof typeof PLANNED_MATRICES].max :
+  name in PROOF_SHARDS ? PROOF_SHARDS[name as keyof typeof PROOF_SHARDS] : 1), 0);
 
 export function checkoutFromJob(log: string): string {
   const lines = log.replace(/\x1b\[[0-9;]*m/g, "").split("\n");
@@ -58,7 +73,8 @@ function inventoryDiagnostic(inventory: any, run: any, head: string): string {
   const choice = (value: unknown, choices: readonly string[]) => typeof value === "string" && choices.includes(value) ? value : "unrecognized";
   const names = ["changeset", "proof", ...PROOF_JOBS,
     ...["browser", "layout"].flatMap(name => shardNumbers(name as "browser" | "layout").map(shard => `${name} (${shard})`)),
-    ...Array.from({ length: MAX_UNIT_PARTITIONS }, (_, index) => `unit (${index + 1})`)];
+    ...Array.from({ length: MAX_UNIT_PARTITIONS }, (_, index) => `unit (${index + 1})`),
+    ...Object.entries(PLANNED_MATRICES).flatMap(([name, matrix]) => Array.from({ length: matrix.max }, (_, index) => `${name} (${index + 1})`))];
   const fields = metadataObject(inventory) ? inventory : {};
   const jobs = fields.jobs;
   const predicates: string[] = [];
@@ -68,7 +84,7 @@ function inventoryDiagnostic(inventory: any, run: any, head: string): string {
   else {
     if (fields.total_count !== jobs.length) predicates.push("total_count differs from jobs.length");
     if (!jobs.length) predicates.push("jobs.length is zero");
-    if (jobs.length > 30) predicates.push("jobs.length exceeds 30");
+    if (jobs.length > MAX_RUN_JOBS) predicates.push(`jobs.length exceeds ${MAX_RUN_JOBS}`);
     // The endpoint requests at most 100 jobs. Bound diagnostics even for a malformed response.
     for (const [index, value] of jobs.slice(0, 100).entries()) {
       const job = metadataObject(value) ? value : {};
@@ -100,7 +116,7 @@ export async function verifyIntegrationProof(root: string, repository: string, c
   const inventory = await api.json(`actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=100`);
   if (!metadataObject(inventory)) throw new Error(`Incomplete or failed selected job inventory: ${inventoryDiagnostic(inventory, run, candidate.head)}`);
   const jobs: Array<{ id: number; name: string; status: string; conclusion: string; run_id: number; head_sha: string }> = inventory.jobs;
-  if (!Array.isArray(jobs) || inventory.total_count !== jobs.length || !jobs.length || jobs.length > 30 ||
+  if (!Array.isArray(jobs) || inventory.total_count !== jobs.length || !jobs.length || jobs.length > MAX_RUN_JOBS ||
       jobs.some(job => !metadataObject(job) || !Number.isSafeInteger(job.id) || job.run_id !== run.id || job.head_sha !== candidate.head || job.status !== "completed" || !["success", "skipped"].includes(job.conclusion))) throw new Error(`Incomplete or failed selected job inventory: ${inventoryDiagnostic(inventory, run, candidate.head)}`);
   const proofs = jobs.filter(job => job.name === "proof" && job.conclusion === "success");
   if (proofs.length !== 1) throw new Error("Missing complete candidate aggregate");
@@ -110,7 +126,7 @@ export async function verifyIntegrationProof(root: string, repository: string, c
   const selectedLines = proofLog.split("\n").filter(line => line.includes("BRAIN_SELECTED_PROOF_RECEIPT "));
   if (selectedLines.length !== 1) throw new Error("Fresh structured selected-proof receipt required");
   const selected = JSON.parse(selectedLines[0]!.split("BRAIN_SELECTED_PROOF_RECEIPT ")[1]!) as {
-    selections: Record<string, string>; results: Record<string, string>; retained?: unknown; unitShards: string | null;
+    selections: Record<string, string>; results: Record<string, string>; retained?: unknown; unitShards: string | null; determinismShards?: string | null; browserDeterminismShards?: string | null;
   };
   // Retention is retired (#4107): a receipt naming a retained category is not fresh proof.
   if (selected.retained !== undefined && (!Array.isArray(selected.retained) || selected.retained.length)) throw new Error("Retained proof is retired: every selected category must run fresh");
@@ -125,6 +141,12 @@ export async function verifyIntegrationProof(root: string, repository: string, c
       // Only a ready confirmation reaches the merge path, so its cap bounds the planned set (#4108).
       if (!Array.isArray(shards) || !shards.length || shards.length > unitPartitionLimit("confirmation") || shards.some((value, index) => value !== index + 1)) throw new Error("Missing actual unit partition identity");
       expected.push(...shards.map(index => `unit (${index}):success`));
+    } else if (fresh && name in PLANNED_MATRICES) {
+      // The aggregate validated this published set against the plan; every one of its partitions must have run (#4117, #4163).
+      const matrix = PLANNED_MATRICES[name as keyof typeof PLANNED_MATRICES];
+      const shards: unknown = JSON.parse(selected[matrix.field] ?? "null");
+      if (!Array.isArray(shards) || !shards.length || shards.length > matrix.max || shards.some((value, index) => value !== index + 1)) throw new Error(`Missing actual ${name} partition identity`);
+      expected.push(...shards.map(index => `${name} (${index}):success`));
     } else expected.push(`${name}:${fresh ? "success" : "skipped"}`);
   }
   if (JSON.stringify(jobs.map(job => `${job.name}:${job.conclusion}`).sort()) !== JSON.stringify(expected.sort())) throw new Error("Actual selected job inventory differs from the validated selection");

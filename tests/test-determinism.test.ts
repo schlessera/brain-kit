@@ -7,14 +7,16 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
   BUDGET_SECONDS, burnerSource, DEFAULT_REPETITIONS, firstFailure, FLOOR_REPETITIONS, observedRepetitions, parseArguments,
-  planRepetitions, repetitionArgv, REPORT_KIND, startBurners, summaryMarkdown, type Report,
+  planRepetitions, repetitionArgv, REPORT_KIND, startBurners, summaryMarkdown, testCapMs, type Report,
 } from "../scripts/test-determinism";
+import { planPartitions, selectPartition } from "../scripts/determinism-plan";
+import { DETERMINISM_PARTITIONS } from "../scripts/proof-shards";
 
 const ROOT = join(import.meta.dir, "..");
 // The wrapper, its preload and what they import, as tests/experiment-tier.test.ts copies them.
 const SCRIPTS = ["test.ts", "runtime-test-builds.ts", "test-invocation.ts", "test-invocation-child.ts", "publishable-packages.ts", "test-shards.ts",
   "test-network-preload.ts", "test-home.ts", "test-network-guard.ts", "test-network-child-preload.ts", "workspace-lease.mjs", "host-admission.mjs",
-  "test-determinism.ts"];
+  "test-determinism.ts", "determinism-plan.ts", "proof-shards.ts", "test-deadlines.ts", "test-deadline-preload.ts"];
 
 const scratch: string[] = [];
 afterEach(() => { for (const dir of scratch.splice(0)) rmSync(dir, { recursive: true, force: true }); });
@@ -30,7 +32,8 @@ describe("repetition budget", () => {
 
   test("a selection inside the budget gets the default five repetitions for every file", () => {
     const plan = planRepetitions(Object.keys(costs), { costs, budgetSeconds: 250 });
-    expect([DEFAULT_REPETITIONS, FLOOR_REPETITIONS, BUDGET_SECONDS]).toEqual([5, 2, 600]);
+    // The budget is one partition's capacity, so a selection is split only at the floor (#4117).
+    expect([DEFAULT_REPETITIONS, FLOOR_REPETITIONS, BUDGET_SECONDS]).toEqual([5, 2, DETERMINISM_PARTITIONS.capacitySeconds]);
     expect(plan).toMatchObject({ requested: 5, repetitions: 5, reduced: false, overBudget: false, weightSeconds: 50, estimatedSeconds: 250 });
     expect(plan.files).toEqual([
       { file: "tests/argo.test.ts", weightSeconds: 20, weighted: true, repetitions: 5 },
@@ -68,6 +71,117 @@ describe("repetition budget", () => {
     const argv = repetitionArgv(["tests/argo.test.ts", "packages/core/tests/ithaca.test.ts"], 4);
     expect(argv.slice(1)).toEqual(["run", "test", "--rerun-each=4", "--bail=1", "--reporter=junit", "--reporter-outfile=tmp/determinism-junit.xml",
       "./tests/argo.test.ts", "./packages/core/tests/ithaca.test.ts"]);
+  });
+
+  // Bun 1.4.2 takes the last --timeout, so the scaled cap follows the root script's own (#4191).
+  test("a scaled invocation names the scaled cap and the scaling preload after the wrapper's own flags", () => {
+    const argv = repetitionArgv(["tests/argo.test.ts"], 2, { capMs: 240_000, preload: "/odyssey/scripts/test-deadline-preload.ts" });
+    expect(argv.slice(1)).toEqual(["run", "test", "--rerun-each=2", "--bail=1", "--reporter=junit", "--reporter-outfile=tmp/determinism-junit.xml",
+      "--timeout=240000", "--preload=/odyssey/scripts/test-deadline-preload.ts", "./tests/argo.test.ts"]);
+  });
+
+  test("the cap that is scaled is the root test script's own, and a script without one is refused", () => {
+    expect(testCapMs(ROOT), "ONE_OWNER_FOR_THE_CAP").toBe(30_000);
+    const dir = mkdtempSync(join(tmpdir(), "test-determinism-cap-")); scratch.push(dir);
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ scripts: { test: "bun scripts/test.ts --timeout=1500 --bail" } }));
+    expect(testCapMs(dir)).toBe(1500);
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ scripts: { test: "bun scripts/test.ts" } }));
+    expect(() => testCapMs(dir)).toThrow("names no --timeout");
+  });
+});
+
+describe("hosted partitions by reviewed weight (#4117)", () => {
+  const { capacitySeconds, max } = DETERMINISM_PARTITIONS;
+  /** A fleet of `count` files whose pass weighs `passSeconds` in all, none heavy enough to need a partition alone. */
+  const fleet = (count: number, passSeconds: number) => Object.fromEntries(Array.from({ length: count }, (_, index) =>
+    [`tests/fleet/ship-${String(index).padStart(3, "0")}.test.ts`, Number((passSeconds / count * (index % 2 ? 1.5 : 0.5)).toFixed(3))]));
+  const sum = (values: readonly number[]) => values.reduce((total, value) => total + value, 0);
+
+  test("the calibrated numbers have one owner, and its capacity fits the step limit at the measured load ratio", () => {
+    expect(DETERMINISM_PARTITIONS).toEqual({ capacitySeconds: 300, max: 10, stepMinutes: 40, loadRatio: 6.84, deadlineFactor: 8 });
+    expect(capacitySeconds * DETERMINISM_PARTITIONS.loadRatio, "CAPACITY_FITS_THE_STEP_LIMIT").toBeLessThanOrEqual(DETERMINISM_PARTITIONS.stepMinutes * 60);
+  });
+
+  test("the deadline factor covers the measured slowdown with margin, and one hung test still fits the step limit", () => {
+    const { deadlineFactor, loadRatio, stepMinutes } = DETERMINISM_PARTITIONS;
+    expect(Number.isSafeInteger(deadlineFactor)).toBe(true);
+    expect(deadlineFactor, "FACTOR_COVERS_THE_MEASURED_SLOWDOWN_WITH_MARGIN").toBeGreaterThanOrEqual(loadRatio * 1.15);
+    // --bail=1 ends the run at the first failure, so at most one test waits out its scaled cap.
+    expect(capacitySeconds * loadRatio + testCapMs(ROOT) * deadlineFactor / 1000, "STEP_LIMIT_STILL_BOUNDS_A_SCALED_RUN").toBeLessThanOrEqual(stepMinutes * 60);
+  });
+
+  test("a selection the size of the largest observed plans several partitions, each within capacity, covering every file once", () => {
+    // The 388-file fixture migration: about 1,327 weighted seconds per pass, 2,654 at the floor of two.
+    const costs = fleet(388, 1327), files = Object.keys(costs);
+    for (const cadence of ["draft", "confirmation", "feedback-heavy"]) {
+      const plan = planPartitions(files, { cadence, costs });
+      expect(plan, cadence).toMatchObject({ repetitions: 2, floor: 2, capacitySeconds, maxPartitions: max, overBudget: true });
+      expect(plan.estimatedSeconds, "THE_OBSERVED_SIZE").toBeCloseTo(2654, 0);
+      expect(plan.partitions.length, `SEVERAL_PARTITIONS:${cadence}`).toBe(9);
+      for (const partition of plan.partitions) {
+        expect(partition.estimatedSeconds, "EACH_WITHIN_CAPACITY").toBeLessThanOrEqual(capacitySeconds);
+        expect(partition.estimatedSeconds, "AT_THE_SELECTION_COUNT").toBeCloseTo(sum(partition.files.map(file => costs[file]!)) * 2, 6);
+        expect(partition.files.length).toBeGreaterThan(0);
+      }
+      expect(plan.partitions.flatMap(partition => partition.files).sort(), "EVERY_FILE_EXACTLY_ONCE").toEqual([...files].sort());
+      expect(plan.files.map(entry => entry.repetitions), "NO_FILE_BELOW_THE_FLOOR").toEqual(files.map(() => 2));
+    }
+  });
+
+  test("a selection within one job's capacity stays one partition holding every file", () => {
+    const costs = { "tests/argo.test.ts": 20, "tests/ithaca.test.ts": 30 }, files = ["tests/ithaca.test.ts", "tests/argo.test.ts"];
+    const five = planPartitions(files, { cadence: "draft", costs });
+    expect(five.partitions, "FIVE_REPETITIONS_ONE_JOB").toEqual([{ files: ["tests/argo.test.ts", "tests/ithaca.test.ts"], weightSeconds: 50, estimatedSeconds: 250 }]);
+    expect(five).toMatchObject({ repetitions: 5, reduced: false, overBudget: false });
+    // Exactly at capacity is still one job; one weighted second more is two.
+    expect(planPartitions(files, { cadence: "draft", costs: { ...costs, "tests/ithaca.test.ts": 130 } }), "AT_CAPACITY").toMatchObject({ repetitions: 2, estimatedSeconds: 300, partitions: [{ estimatedSeconds: 300 }] });
+    expect(planPartitions(files, { cadence: "draft", costs: { ...costs, "tests/ithaca.test.ts": 131 } }).partitions.map(partition => partition.files), "OVER_CAPACITY_SPLITS")
+      .toEqual([["tests/ithaca.test.ts"], ["tests/argo.test.ts"]]);
+  });
+
+  test("the count is decided first, over the whole selection, and the partitions are made for that count", () => {
+    const costs = fleet(40, 100), files = Object.keys(costs);
+    // 100 weighted s per pass: three repetitions fit one job on a draft, and ready confirmation asks for two (#4137).
+    expect(planPartitions(files, { cadence: "draft", costs })).toMatchObject({ requested: 5, repetitions: 3, partitions: [{ estimatedSeconds: 300 }] });
+    expect(planPartitions(files, { cadence: "confirmation", costs })).toMatchObject({ requested: 2, repetitions: 2, partitions: [{ estimatedSeconds: 200 }] });
+    // 200 per pass cannot fit even two: both cadences split at the floor, never at a count a lighter partition could afford.
+    const heavy = fleet(40, 200);
+    for (const cadence of ["draft", "confirmation"]) {
+      const plan = planPartitions(Object.keys(heavy), { cadence, costs: heavy });
+      expect(plan.repetitions, cadence).toBe(2);
+      expect(plan.partitions.map(partition => Math.round(partition.estimatedSeconds)), cadence).toEqual([200, 200]);
+    }
+  });
+
+  test("a file whose repetitions alone exceed the capacity runs in a partition by itself", () => {
+    const costs = { "tests/cyclops.test.ts": 340, "tests/argo.test.ts": 100, "tests/ithaca.test.ts": 40 };
+    const plan = planPartitions(Object.keys(costs), { costs });
+    expect(plan.partitions.map(partition => [partition.files, partition.estimatedSeconds]), "UNSPLITTABLE_FILE_ALONE")
+      .toEqual([[["tests/cyclops.test.ts"], 680], [["tests/argo.test.ts", "tests/ithaca.test.ts"], 280]]);
+    expect(planPartitions(["tests/cyclops.test.ts"], { costs }).partitions).toEqual([{ files: ["tests/cyclops.test.ts"], weightSeconds: 340, estimatedSeconds: 680 }]);
+  });
+
+  test("a selection beyond the maximum partition count is refused, naming its weight and the limit", () => {
+    const costs = fleet(400, 1600), files = Object.keys(costs);
+    expect(planPartitions(files, { costs, maxPartitions: 11 }).partitions.length, "ELEVEN_WOULD_HOLD_IT").toBe(11);
+    expect(() => planPartitions(files, { costs })).toThrow(
+      "Repeated-run proof refused before it ran: 400 changed Bun test file(s) weigh 1600.0 weighted s per pass, 3200.0 s at the floor of 2 repetitions. " +
+      "That needs more than the limit of 10 partitions of 300 weighted s each (DETERMINISM_PARTITIONS, scripts/proof-shards.ts). " +
+      "No file is skipped and the count stays at the floor: split the change.");
+    // More files than the maximum, each unsplittable: still refused, never run short.
+    const giants = Object.fromEntries(Array.from({ length: 11 }, (_, index) => [`tests/giant-${index}.test.ts`, 200]));
+    expect(() => planPartitions(Object.keys(giants), { costs: giants })).toThrow("needs more than the limit of 10 partitions");
+    expect(() => planPartitions([], { costs })).toThrow("Repeated-run proof was not selected");
+    expect(() => planPartitions(files, { costs, maxPartitions: 0 })).toThrow("positive integer");
+  });
+
+  test("a partition is read only with the planned count as its divisor", () => {
+    const costs = fleet(40, 200), plan = planPartitions(Object.keys(costs), { costs });
+    expect(selectPartition(plan, "2/2")).toBe(plan.partitions[1]!);
+    for (const [shard, refusal] of [["1/1", "Repeated-run partition 1/1 is not in the planned set of 2"], ["1/3", "Repeated-run partition 1/3 is not in the planned set of 2"],
+      ["3/2", "Invalid proof shard"], ["0/2", "Expected proof --shard=M/N"], ["2", "Expected proof --shard=M/N"]] as const) {
+      expect(() => selectPartition(plan, shard), shard).toThrow(refusal);
+    }
   });
 });
 
@@ -130,8 +244,9 @@ describe("reading the wrapper's output", () => {
   test("the job summary lists each file with the repetitions it got", () => {
     const report: Report = { kind: REPORT_KIND, version: 1, base: null, ...planRepetitions(["tests/argo.test.ts"], { costs: { "tests/argo.test.ts": 400 } }),
       outcome: "failed", failure: { file: "tests/argo.test.ts", repetition: 2, test: "rows `past` the sirens", reason: "a test case failed" },
-      load: { burners: 4, cpus: 4 }, elapsedSeconds: 12.5, exitCode: 1 };
+      load: { burners: 4, cpus: 4 }, deadlines: { factor: 8, testCapMs: 240_000 }, elapsedSeconds: 12.5, exitCode: 1 };
     const summary = summaryMarkdown(report);
+    expect(summary, "SUMMARY_NAMES_THE_SCALING").toContain("Test deadlines scaled by 8 (per-test cap 240 s)");
     expect(summary).toContain("2 of 5 requested repetitions per file");
     expect(summary).toContain("(over budget at the floor)");
     expect(summary).toContain("| `tests/argo.test.ts` | 400 | 2 |");
@@ -203,7 +318,7 @@ function sh(dir: string, ...argv: string[]): string {
 }
 
 /** A committed scratch checkout carrying the real command, wrapper and preload; returns its base commit. */
-function checkout(weights: Record<string, number> = {}) {
+function checkout(weights: Record<string, number> = {}, capMs = 30_000) {
   const dir = mkdtempSync(join(tmpdir(), "test-determinism-")); scratch.push(dir);
   const write = (path: string, text: string) => { mkdirSync(dirname(join(dir, path)), { recursive: true }); writeFileSync(join(dir, path), text); };
   for (const script of SCRIPTS) cpSync(join(ROOT, "scripts", script), join(dir, "scripts", script));
@@ -211,9 +326,9 @@ function checkout(weights: Record<string, number> = {}) {
   write("scripts/ci-plan.ts", `export * from ${JSON.stringify(join(ROOT, "scripts/ci-plan.ts"))};\n`);
   write("scripts/test-shard-costs.json", JSON.stringify(weights));
   cpSync(join(ROOT, "packages/core/tests/cli-harness.ts"), join(dir, "packages/core/tests/cli-harness.ts"), { recursive: true });
-  write("package.json", JSON.stringify({ name: "odysseus-determinism", private: true, scripts: { test: "bun scripts/test.ts --timeout 30000" } }));
+  write("package.json", JSON.stringify({ name: "odysseus-determinism", private: true, scripts: { test: `bun scripts/test.ts --timeout ${capMs}` } }));
   write("bun.lock", "{ \"lockfileVersion\": 1 }\n");
-  write(".gitignore", "tmp/\nnode_modules/\n*.count\nprobe-runtime\nstep-summary.md\n");
+  write(".gitignore", "tmp/\nnode_modules/\n*.count\n*.pid\nprobe-runtime\nstep-summary.md\n");
   write("tests/harbour.test.ts", PASSING("the harbour is calm"));
   write("tests/retired.test.ts", PASSING("the old route"));
   const commit = (message: string) => { sh(dir, "git", "add", "-A"); sh(dir, "git", "-c", "commit.gpgsign=false", "commit", "-q", "-m", message); return sh(dir, "git", "rev-parse", "HEAD"); };
@@ -346,4 +461,142 @@ describe("the command, through the real offline wrapper", () => {
     expect(unknown.exitCode).toBe(1);
     expect(unknown.stderr.toString()).toContain("Not a Bun test file under packages/ or tests/: docs/voyage.md");
   }, 60_000);
+});
+
+// Watchdogs are a catch-all for the worst case (#4191). Each fixture's work is
+// half its 500 ms watchdog in calm water. `ODYSSEUS_HEADWIND` multiplies the
+// work the way the gate's CPU load does, so the receipts do not depend on how
+// slow this host happens to be: three times the work overruns the unscaled
+// watchdog and fits the scaled one. Sleeping, not computing, keeps the
+// overrun certain and the scaled run far inside its watchdog under real load.
+const HEADWIND = `const headwind = Number(process.env.ODYSSEUS_HEADWIND ?? 1);\n`;
+const WATCHDOG_FIXTURES = {
+  // No timeout of its own: the root script's cap is its watchdog.
+  "tests/cap.test.ts": `import { expect, test } from "bun:test";\n${HEADWIND}test("the crew rows home inside the runner's cap", async () => {
+  await Bun.sleep(250 * headwind);
+  expect(headwind).toBeGreaterThan(0);
+});
+`,
+  "tests/explicit.test.ts": `import { expect, test } from "bun:test";\n${HEADWIND}test("the crew rows home inside the test's own timeout", async () => {
+  await Bun.sleep(250 * headwind);
+  expect(headwind).toBeGreaterThan(0);
+}, 500);
+`,
+  // The shape of tests/integration-command.test.ts: a timer in the test stops the work before the runner would.
+  "tests/watchdog.test.ts": `import { afterEach, beforeEach, expect, test } from "bun:test";
+import { watchdogMs } from "../scripts/test-deadlines";
+${HEADWIND}let watchdog: ReturnType<typeof setTimeout>, overdue = false;
+beforeEach(() => { overdue = false; watchdog = setTimeout(() => { overdue = true; }, watchdogMs(500)); });
+afterEach(() => clearTimeout(watchdog));
+test("the crew rows home before the lookout gives up", async () => {
+  await Bun.sleep(250 * headwind);
+  expect(overdue, "IN_TEST_WATCHDOG_TRIPPED").toBe(false);
+}, 60_000);
+`,
+} as const;
+// A child that outlives any watchdog; the test records its PID and waits for it.
+const HANGING_CHILD = `const child = Bun.spawn(["sleep", "300"], { stdio: ["ignore", "ignore", "ignore"] });
+  writeFileSync(join(import.meta.dir, "lotus.pid"), String(child.pid));`;
+const HUNG_UNDER_THE_CAP = `import { expect, test } from "bun:test";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+test("the lotus-eaters never let the crew leave", async () => {
+  ${HANGING_CHILD}
+  await child.exited;
+  expect.unreachable();
+});
+`;
+const HUNG_UNDER_ITS_OWN_WATCHDOG = `import { afterEach, beforeEach, expect, test } from "bun:test";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { watchdogMs } from "../scripts/test-deadlines";
+let watchdog: ReturnType<typeof setTimeout>, stop = () => {}, overdue = false;
+beforeEach(() => { overdue = false; watchdog = setTimeout(() => { overdue = true; stop(); }, watchdogMs(200)); });
+afterEach(() => clearTimeout(watchdog));
+test("the lotus-eaters never let the crew leave", async () => {
+  ${HANGING_CHILD}
+  stop = () => child.kill("SIGKILL");
+  await child.exited;
+  expect(overdue, "IN_TEST_WATCHDOG_STOPPED_THE_HANG").toBe(false);
+}, 60_000);
+`;
+
+describe("watchdogs scale under the gate (#4191)", () => {
+  const { deadlineFactor } = DETERMINISM_PARTITIONS;
+  const headwind = (dir: string) => ({ ...scratchEnv(dir), ODYSSEUS_HEADWIND: "3" });
+  function slowFleet() {
+    const f = checkout({}, 500);
+    for (const [path, source] of Object.entries(WATCHDOG_FIXTURES)) f.write(path, source);
+    f.commit("three watchdogs, each twice the work in calm water");
+    return f;
+  }
+
+  test("tests that take half their watchdog in calm water pass under the gate's factor, with every watchdog kind scaled", async () => {
+    const f = slowFleet();
+    const run = await determinismUnder(headwind(f.dir), f.dir, "--base", f.base, "--repetitions", "2");
+    expect(run.report.failure, run.output).toBeNull();
+    expect(run.code, "SLOW_TESTS_PASS_UNDER_THE_SCALED_WATCHDOGS").toBe(0);
+    expect(run.report.deadlines, "REPORT_NAMES_THE_FACTOR_AND_THE_SCALED_CAP").toEqual({ factor: deadlineFactor, testCapMs: 500 * deadlineFactor });
+    expect(run.report.files.map(entry => [entry.file, entry.observed]), "EVERY_KIND_RAN_EVERY_REPETITION")
+      .toEqual([["tests/cap.test.ts", 2], ["tests/explicit.test.ts", 2], ["tests/watchdog.test.ts", 2]]);
+    expect(run.output).toContain(`Test deadlines scaled by ${deadlineFactor}`);
+  }, 90_000);
+
+  test.each([
+    ["tests/cap.test.ts", "the crew rows home inside the runner's cap", "this test timed out after 500ms"],
+    ["tests/explicit.test.ts", "the crew rows home inside the test's own timeout", "this test timed out after 500ms"],
+    ["tests/watchdog.test.ts", "the crew rows home before the lookout gives up", "IN_TEST_WATCHDOG_TRIPPED"],
+  ] as const)("without the scaling the same slow test in %s trips its watchdog", async (file, name, evidence) => {
+    const f = slowFleet();
+    const run = await determinismUnder(headwind(f.dir), f.dir, "--deadline-factor", "1", "--repetitions", "2", file);
+    expect(run.code, run.output).toBe(1);
+    expect(run.report.failure, "UNSCALED_WATCHDOG_TRIPS").toEqual({ file, repetition: 1, test: name, reason: "a test case failed" });
+    expect(run.output, "TRIPPED_BY_ITS_OWN_WATCHDOG").toContain(evidence);
+    expect(run.report.deadlines).toEqual({ factor: 1, testCapMs: 500 });
+  }, 60_000);
+
+  async function hung(source: string) {
+    const f = checkout({}, 250); f.write("tests/lotus.test.ts", source); f.commit("a test that never returns");
+    const started = performance.now();
+    const run = await determinism(f.dir, "--base", f.base);
+    const child = Number(readFileSync(join(f.dir, "tests/lotus.pid"), "utf8"));
+    return { run, child, elapsedMs: performance.now() - started };
+  }
+
+  test("a test that truly hangs still fails at the scaled cap, and its child is gone", async () => {
+    const { run, child, elapsedMs } = await hung(HUNG_UNDER_THE_CAP);
+    try {
+      expect(run.code, run.output).toBe(1);
+      expect(run.report.failure, "HANG_STILL_FAILS").toEqual({ file: "tests/lotus.test.ts", repetition: 1,
+        test: "the lotus-eaters never let the crew leave", reason: "a test case failed" });
+      expect(run.output, "AT_THE_SCALED_CAP").toContain(`this test timed out after ${250 * deadlineFactor}ms`);
+      expect(elapsedMs, "WITHIN_THE_SCALED_WATCHDOG").toBeLessThan(45_000);
+      expect(Number.isSafeInteger(child) && child > 1, "CHILD_PID_RECORDED").toBe(true);
+      expect(await gone(child, 5000), "HUNG_CHILD_CLEANED_UP").toBe(true);
+    } finally { if (alive(child)) process.kill(child, "SIGKILL"); }
+  }, 90_000);
+
+  test("a hang under an in-test watchdog is stopped by that watchdog at its scaled duration, and its child is gone", async () => {
+    const { run, child } = await hung(HUNG_UNDER_ITS_OWN_WATCHDOG);
+    try {
+      expect(run.code, run.output).toBe(1);
+      expect(run.report.failure).toMatchObject({ file: "tests/lotus.test.ts", repetition: 1, test: "the lotus-eaters never let the crew leave" });
+      expect(run.output, "STOPPED_BY_THE_IN_TEST_WATCHDOG").toContain("IN_TEST_WATCHDOG_STOPPED_THE_HANG");
+      // Bun reports the case's own duration: it waited out the scaled watchdog, not the written 200 ms.
+      const reported = /\(fail\) the lotus-eaters never let the crew leave \[([\d.]+)(ms|s)\]/.exec(run.output.replace(/\x1b\[[0-9;]*m/g, ""));
+      const waitedMs = reported ? Number(reported[1]) * (reported[2] === "s" ? 1000 : 1) : NaN;
+      expect(waitedMs, "WAITED_THE_SCALED_WATCHDOG").toBeGreaterThanOrEqual(200 * deadlineFactor);
+      expect(waitedMs, "NOT_THE_TEST_TIMEOUT").toBeLessThan(45_000);
+      expect(await gone(child, 5000), "HUNG_CHILD_CLEANED_UP").toBe(true);
+    } finally { if (alive(child)) process.kill(child, "SIGKILL"); }
+  }, 90_000);
+
+  test("a factor outside the range is refused before anything runs", async () => {
+    const f = checkout();
+    const refused = Bun.spawnSync([unguardedRuntime(f.dir), join(f.dir, "scripts/test-determinism.ts"), "--burners", "1", "--deadline-factor", "101", "tests/harbour.test.ts"],
+      { cwd: f.dir, stdout: "pipe", stderr: "pipe", env: scratchEnv(f.dir) });
+    expect(refused.exitCode).toBe(1);
+    expect(refused.stderr.toString()).toContain("The test deadline factor is a whole number from 1 to 100");
+    expect(refused.stderr.toString()).not.toContain("CPU burners started");
+  }, 30_000);
 });

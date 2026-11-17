@@ -8,7 +8,7 @@ actual allocated disk. That decision left the mechanism to implementation.
 This record names the mechanism, the primary sources it relies on and the
 native observations that qualified it. The pool is managed by the existing
 host-only native manager
-(`createNativeReferencePool`, `packages/ui-sdk/src/server/native-reference-pool.ts:380-1129`).
+(`createNativeReferencePool`, `packages/ui-sdk/src/server/native-reference-pool.ts:381-1130`).
 No consumer uses it yet.
 
 ## A separate volume, not another subvolume of the brain store
@@ -224,7 +224,7 @@ directory its intent records. Sealing also makes the root's top directory
 `roots/` and `views/` join the mandatory worker masks. A worker sees reference
 source only through a view bound for it, and other domains' views stay
 invisible. `poolView` (#2432) opens a view's directory before its first
-publication (`function viewOpen`, `packages/ui-sdk/src/server/native-reference-pool.ts:1095-1098`),
+publication (`function viewOpen`, `packages/ui-sdk/src/server/native-reference-pool.ts:1128-1131`),
 so a worker that binds it at its start sees the domain's first publication on a
 later lookup ([agent tools](managed-worktrees.md#agent-tools)).
 
@@ -268,6 +268,11 @@ release's check and its delete. The worker cannot create entries in the generati
 directory itself. `access/` joins the mandatory worker masks. Census accepts a
 writable worktree only in the directory its intent records, and measurement
 adopts a grant or park interrupted between its rename and its record.
+The optional `expectedAccess` on `poolPark(id, signal?, expectedAccess?)`
+compares the manager's current native holder under its serialized mutation
+lock. A different holder returns unchanged without relocation. Failed host
+grant cleanup uses this precondition rather than inferring native ownership
+from a database row whose receipt may still be pending (#3613).
 
 ## Background deduplication is rejected; residual growth is reported (#3515)
 
@@ -287,7 +292,7 @@ found three reasons, each a conflict with a rule above:
   happened, and frees nothing while the older checkpoint lives.
 
 Residual growth is reported instead, by `brain-native-store pool growth`
-(`referencePoolGrowth`, `packages/ui-sdk/src/server/native-reference-pool.ts:266-338`).
+(`referencePoolGrowth`, `packages/ui-sdk/src/server/native-reference-pool.ts:267-339`).
 It reads one stable observation and the same owner charges as admission, with
 no reconciliation, so it commits, deletes, resets and reserves nothing. Every
 source chain starts at a cold acquisition, a source with no `from`. The charge

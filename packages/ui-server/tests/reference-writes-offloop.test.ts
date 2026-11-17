@@ -291,6 +291,7 @@ test("source refresh, failed-refresh bookkeeping, bind-time revalidation and sup
 
 test("revocation sees a first private publication submitted before it and withdraws it after its commit", async () => {
   const f = await fixture();
+  const fences = await watchWriteSites(f.db, f.writer, ["reference_authority_fences"]);
   try {
     f.state.private = true;
     const publish = f.pool.poolPublish;
@@ -312,6 +313,7 @@ test("revocation sees a first private publication submitted before it and withdr
     expect(f.db.query("SELECT root_id FROM reference_sources WHERE root_id IS NOT NULL").all(), "REFERENCE_REVOCATION_WITHDRAWS_FIRST_PUBLICATION").toEqual([]);
     expect(f.db.query("SELECT id FROM reference_roots").all(), "REFERENCE_REVOKED_ROOT_RELEASE_COMMITTED").toEqual([]);
     expect(f.pool.events.map(event => event.operation), "REFERENCE_REVOKED_SOURCE_UNPUBLISHED").toContain("unpublish");
+    expect(await fences.log(), "REFERENCE_AUTHORITY_FENCES_COMMIT_ON_FULL_WORKER").toContain("reference_authority_fences");
   } finally { await f.close(); }
 });
 

@@ -47,9 +47,8 @@ import { createApifyRoutes } from "./routes/apify.js";
 import { createApifyHost } from "./apify/host.js";
 import { createGithubToolsHost } from "./github/host.js";
 import { createGithubDetails } from "./github/details.js";
-import { resolveChat } from "./ws/chat-lifecycle.js";
+import { chatOwnedBy, resolveChat } from "./ws/chat-lifecycle.js";
 import { createGithubDetailRoutes } from "./routes/github-details.js";
-import { sameAccount } from "./middleware/account-partition.js";
 import { createApifyPolicyEdits } from "./apify/settings.js";
 import { apifyBudgetSource } from "./apify/budget-liability.js";
 import { declaredContentRenderers } from "./brain/content-renderers.js";
@@ -189,6 +188,7 @@ import type { AppEnv } from "./app-env.js";
 import { createNativeBrainLeaseManager } from "./brain/native-brain-leases.js";
 import { registerReferenceWrites } from "./brain/reference-writes.js";
 import { createReferenceSources } from "./brain/reference-source.js";
+import { createGitHubReferenceAccess } from "./brain/github-reference-access.js";
 import { createReferenceTools } from "./brain/reference-tools.js";
 import { createComputeHost, readHostedComputeConfig } from "./brain/compute-host.js";
 import { createReferenceTransport } from "./brain/reference-transport.js";
@@ -538,9 +538,12 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   reconciled(hostExecution.attach(db, writer));
   // Shared reference source (#2429) runs only where the native manager owns a reference pool.
   const referencePoolConfigured = await nativeManager.poolStatus().then(() => true, () => false);
-  const referenceSources = referencePoolConfigured ? createReferenceSources({ db, pool: nativeManager, brain: nativeReady.brainUuid, credentials: referenceCredentialValues(),
-    transport: createReferenceTransport({ brainPath: config.brainPath, ...(config.maintenanceTemp ? { tempLimits: config.maintenanceTemp } : {}),
-      ...(config.dbPath && config.dbPath !== ":memory:" ? { tempDomain: { statePath: resolve(config.dbPath) } } : {}) }), ...(config.referenceSource ? { limits: config.referenceSource } : {}), log: brainLog,
+  const referenceCredentials = referenceCredentialValues();
+  const referenceTransport = createReferenceTransport({ brainPath: config.brainPath, ...(config.maintenanceTemp ? { tempLimits: config.maintenanceTemp } : {}),
+    ...(config.dbPath && config.dbPath !== ":memory:" ? { tempDomain: { statePath: resolve(config.dbPath) } } : {}) });
+  const referenceSources = referencePoolConfigured ? createReferenceSources({ db, pool: nativeManager, brain: nativeReady.brainUuid, credentials: referenceCredentials,
+    transport: referenceTransport, github: createGitHubReferenceAccess({ db, brain: nativeReady.brainUuid, credentials: referenceCredentials, transport: referenceTransport }),
+    ...(config.referenceSource ? { limits: config.referenceSource } : {}), log: brainLog,
     // Managed worktrees (#2430) keep the source roots they were snapshotted from.
     dependents: rootId => referenceWorktreeDependents(db, rootId) }) : undefined;
   // Worktree lifecycle (#2430); every grant is covered by the turn journal first.
@@ -1187,7 +1190,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // data under the tools' dedicated credential, never provider context.
   app.route("/api", createGithubDetailRoutes({ details: createGithubDetails({ token: githubToolsTokenSource() }),
     principalValid: principal => host.isPrincipalValid(principal),
-    owns: (principal, sessionId) => { const chat = resolveChat(db, { sessionId }); return !("refused" in chat) && sameAccount(db, chat.principalId, principal.id); },
+    owns: (principal, sessionId) => { const chat = resolveChat(db, { sessionId }); return !("refused" in chat) && chatOwnedBy(db, chat, principal.id); },
     retired: sessionId => host.catalog.chatRetired?.({ sessionId }) === true,
     history: async sessionId => {
       const stored = db.query("SELECT backend_id AS backendId FROM sessions WHERE id = ?").get(sessionId) as { backendId: string | null } | null;

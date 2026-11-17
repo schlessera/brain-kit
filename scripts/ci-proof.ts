@@ -7,19 +7,46 @@ import { localChecks, requireRuntimeTools } from "./check-pr";
 import { runCommands, type Command } from "./ci-runner";
 import type { CheckPlan } from "./ci-plan";
 import { balanceTests, discoverTests } from "./test-shards";
-import { repetitionsFor } from "./test-determinism";
+import { planPartitions, repetitionsFor, selectPartition, type DeterminismPartition, type PartitionPlan } from "./determinism-plan";
+import { browserRepetitionsFor, pairKey, planBrowserPartitions, selectBrowserPartition, type BrowserPartition, type BrowserPartitionPlan } from "./browser-determinism-plan";
 import { resolveBrowserPin } from "./captures/provenance";
 import { startUnitMemorySampler } from "./unit-memory";
 import { diskSampler, floorProblem } from "./ci-disk";
 
-export const PROOF_JOBS = ["verify", "pack", "unit", "browser", "layout", "captures", "runtime", "runtime_host", "endurance", "determinism"] as const;
-export type ProofCategory = "unit" | "browser" | "layout" | "captures" | "runtime" | "runtime_host" | "endurance" | "determinism";
+export const PROOF_JOBS = ["verify", "pack", "unit", "browser", "layout", "captures", "runtime", "runtime_host", "endurance", "determinism", "browser_determinism"] as const;
+export const PROOF_CATEGORIES = ["unit", "browser", "layout", "captures", "runtime", "runtime_host", "endurance", "determinism", "browser_determinism"] as const;
+export type ProofCategory = typeof PROOF_CATEGORIES[number];
 export const DETERMINISM_REPORT = "tmp/determinism-report.json";
+export const BROWSER_DETERMINISM_REPORT = "tmp/browser-determinism-report.json";
+/** Bun tests that start the pinned image with `--pull=never`: a partition holding one pulls the image first. */
+export const PINNED_IMAGE_TESTS = ["tests/workspace-lease.test.ts", "tests/browser-determinism-container.test.ts"] as const;
 
-/** The planner's added or modified Bun test files; an empty selection is never a job (#4109). */
-export function determinismFiles(plan: CheckPlan): string[] {
+/** One partition of the planner's added or modified Bun test files, at the count decided over the
+ * whole selection (#4117). An empty selection is never a job (#4109), and a shard divisor that is
+ * not the planned partition count is refused: a partition of some other split proves nothing. */
+export function determinismPartition(plan: CheckPlan, shard = "1/1"): { selection: PartitionPlan; partition: DeterminismPartition } {
   if (!plan.determinism?.length) throw new Error("Repeated-run proof was not selected");
-  return [...plan.determinism];
+  const selection = planPartitions(plan.determinism, { cadence: plan.cadence });
+  return { selection, partition: selectPartition(selection, shard) };
+}
+
+/** The files partition `shard` repeats: every selected file is in exactly one planned partition. */
+export function determinismFiles(plan: CheckPlan, shard?: string): string[] {
+  return [...determinismPartition(plan, shard).partition.files];
+}
+
+/** One partition of the planner's changed browser, layout and story spec pairs, at the count decided
+ * over the whole selection (#4163). The Bun gate's rules: an empty selection is never a job, and a
+ * shard divisor that is not the planned partition count is refused. */
+export function browserDeterminismPartition(plan: CheckPlan, shard = "1/1"): { selection: BrowserPartitionPlan; partition: BrowserPartition } {
+  if (!plan.browserDeterminism?.length) throw new Error("Repeated browser proof was not selected");
+  const selection = planBrowserPartitions(plan.browserDeterminism, { cadence: plan.cadence });
+  return { selection, partition: selectBrowserPartition(selection, shard) };
+}
+
+/** The `project::file` pairs partition `shard` repeats: every selected pair is in exactly one planned partition. */
+export function browserDeterminismPairs(plan: CheckPlan, shard?: string): string[] {
+  return browserDeterminismPartition(plan, shard).partition.pairs.map(pairKey);
 }
 
 /** Aggregate requires passed selected jobs; missing/false-looking output is not proof.
@@ -60,11 +87,27 @@ export function categoryCommands(category: ProofCategory, plan: CheckPlan, root:
       "--reporter=junit", "--reporter-outfile=tmp/unit-report.xml", "--timings=tmp/unit-timings.json", "--update-timings"],
     env: { BRAIN_REQUIRE_CHROME: "1" } }];
   // The unit job's serial form, repeated: changed files may drive real Chrome too.
-  if (category === "determinism") return [{ name: "changed Bun test files repeated under CPU load",
-    argv: [process.execPath, join(root, "scripts/test-determinism.ts"), `--report=${DETERMINISM_REPORT}`,
-      ...(repetitionsFor(plan.cadence) === undefined ? [] : [`--repetitions=${repetitionsFor(plan.cadence)}`]), ...determinismFiles(plan)],
-    env: { BRAIN_REQUIRE_CHROME: "1" } }];
-  const names: Record<Exclude<ProofCategory, "unit" | "determinism">, string[]> = {
+  if (category === "determinism") {
+    const { selection, partition } = determinismPartition(plan, shard);
+    // An unsplit selection keeps its command. A partition of a split one names the selection's
+    // count: the runner would otherwise plan its lighter subset for more repetitions (#4117).
+    const repetitions = selection.partitions.length > 1 ? selection.repetitions : repetitionsFor(plan.cadence);
+    return [{ name: "changed Bun test files repeated under CPU load",
+      argv: [process.execPath, join(root, "scripts/test-determinism.ts"), `--report=${DETERMINISM_REPORT}`,
+        ...(repetitions === undefined ? [] : [`--repetitions=${repetitions}`]), ...partition.files],
+      env: { BRAIN_REQUIRE_CHROME: "1" } }];
+  }
+  // The pinned container, entered as `browser` and `layout` enter it. As for the Bun gate, an unsplit
+  // selection keeps its command and a partition of a split one names the selection's count.
+  if (category === "browser_determinism") {
+    const { selection, partition } = browserDeterminismPartition(plan, shard);
+    const repetitions = selection.partitions.length > 1 ? selection.repetitions : browserRepetitionsFor(plan.cadence);
+    return [{ name: "workspace build for real browser checks", argv: [process.execPath, "run", "build", "--jobs=2"] },
+      { name: "changed Vitest specs repeated under CPU load in the pinned container",
+        argv: [process.execPath, join(root, "scripts/browser-determinism.ts"), `--report=${BROWSER_DETERMINISM_REPORT}`,
+          ...(repetitions === undefined ? [] : [`--repetitions=${repetitions}`]), ...partition.pairs.map(pairKey)] }];
+  }
+  const names: Record<Exclude<ProofCategory, "unit" | "determinism" | "browser_determinism">, string[]> = {
     browser: ["workspace build for real browser checks", "complete pinned visual/accessibility/pointer suite"],
     layout: ["workspace build for real browser checks", "complete pinned layout/offline suite"],
     endurance: ["workspace build for real browser checks", "complete pinned endurance suite"],
@@ -96,12 +139,12 @@ if (import.meta.main) {
       // `retained` is always empty since proof retention was retired (#4107). The field stays so
       // a checkout that predates the retirement, and the timing collector reading older runs,
       // still parse this receipt.
-      console.log(`BRAIN_SELECTED_PROOF_RECEIPT ${JSON.stringify({ selections: Object.fromEntries(PROOF_JOBS.map(name => [name, needs.changeset.outputs[name]])), results: Object.fromEntries(PROOF_JOBS.map(name => [name, needs[name]?.result])), retained: [], unitShards: needs.changeset.outputs.unit_shards ?? null })}`);
+      console.log(`BRAIN_SELECTED_PROOF_RECEIPT ${JSON.stringify({ selections: Object.fromEntries(PROOF_JOBS.map(name => [name, needs.changeset.outputs[name]])), results: Object.fromEntries(PROOF_JOBS.map(name => [name, needs[name]?.result])), retained: [], unitShards: needs.changeset.outputs.unit_shards ?? null, determinismShards: needs.changeset.outputs.determinism_shards ?? null, browserDeterminismShards: needs.changeset.outputs.browser_determinism_shards ?? null })}`);
       console.log("All selected hosted proof passed; remaining skips are planner-intended.");
     } else {
       const root = resolve(import.meta.dir, "..");
       const category = process.argv[2] as ProofCategory;
-      if (!["unit", "browser", "layout", "captures", "runtime", "runtime_host", "endurance", "determinism"].includes(category)) throw new Error("Unknown proof category");
+      if (!PROOF_CATEGORIES.includes(category)) throw new Error("Unknown proof category");
       const args = process.argv.slice(3);
       const shardArg = args.find(arg => arg.startsWith("--shard="));
       const workersArg = args.find(arg => arg.startsWith("--workers="));
@@ -114,7 +157,8 @@ if (import.meta.main) {
       if (identity.exitCode !== 0) throw new Error("Cannot record actual proof checkout");
       const [sha, tree, ...parents] = new TextDecoder().decode(identity.stdout).trim().split(" ");
       await Bun.write(join(root, "tmp/proof-checkout.json"), JSON.stringify({ category, shard,
-        checkout: { sha, tree, parents }, plan, files: category === "unit" ? unitFiles(plan, root, shard) : category === "determinism" ? determinismFiles(plan) : undefined }, null, 2));
+        checkout: { sha, tree, parents }, plan, files: category === "unit" ? unitFiles(plan, root, shard) : category === "determinism" ? determinismFiles(plan, shard) :
+          category === "browser_determinism" ? browserDeterminismPairs(plan, shard) : undefined }, null, 2));
       const native = category === "unit" || category === "runtime" || category === "runtime_host" || category === "determinism";
       const chrome = requireRuntimeTools({ ...plan, local: { ...plan.local, fullTests: native,
         browser: !native, layout: !native, captures: !native } });
@@ -125,10 +169,26 @@ if (import.meta.main) {
       // The host/container lease regression deliberately uses --pull=never
       // under the offline test harness. Prepare its actual pinned image once,
       // only on the partition that discovers that test, before entering tests.
-      if ((category === "unit" ? unitFiles(plan, root, shard) : category === "determinism" ? determinismFiles(plan) : []).includes("tests/workspace-lease.test.ts")) {
-        if (!Bun.which("docker")) throw new Error("The native workspace lease test requires Docker");
+      // The browser repetition gate's own container test starts the same image the same way (#4163).
+      const selectedFiles = category === "unit" ? unitFiles(plan, root, shard) : category === "determinism" ? determinismFiles(plan, shard) : [];
+      if (PINNED_IMAGE_TESTS.some(file => selectedFiles.includes(file))) {
+        if (!Bun.which("docker")) throw new Error("The pinned-container tests require Docker");
         const { image } = await resolveBrowserPin(root);
         commands.unshift({ name: "pinned offline workspace lease container prerequisite", argv: ["docker", "pull", image], env: {} });
+      }
+      if (category === "determinism") {
+        const { selection, partition } = determinismPartition(plan, shard);
+        if (selection.partitions.length > 1) console.log(`Partition ${shard} of a selection split by reviewed weight: ${selection.files.length} file(s), ` +
+          `${selection.weightSeconds.toFixed(1)} weighted s per pass, ${selection.repetitions} repetition(s) each (${selection.requested} requested); ` +
+          `this partition repeats ${partition.files.length} file(s), ${partition.estimatedSeconds.toFixed(1)} s estimated against a capacity of ${selection.capacitySeconds} s` +
+          `${partition.estimatedSeconds > selection.capacitySeconds ? " (one file that cannot be split)" : ""}.`);
+      }
+      if (category === "browser_determinism") {
+        const { selection, partition } = browserDeterminismPartition(plan, shard);
+        if (selection.partitions.length > 1) console.log(`Partition ${shard} of a selection split by reviewed weight: ${selection.pairs.length} project/file pair(s), ` +
+          `${selection.weightSeconds.toFixed(1)} weighted s per pass, ${selection.repetitions} repetition(s) each (${selection.requested} requested); ` +
+          `this partition repeats ${partition.pairs.length} pair(s), ${partition.estimatedSeconds.toFixed(1)} s estimated against a capacity of ${selection.capacitySeconds} s` +
+          `${partition.estimatedSeconds > selection.capacitySeconds ? " (one pair that cannot be split)" : ""}.`);
       }
       const started = performance.now();
       const cpu = () => cpus().reduce((sum, core) => sum + core.times.user + core.times.nice + core.times.sys + core.times.irq, 0) / 1000;

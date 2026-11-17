@@ -2,11 +2,13 @@
 import { appendFileSync, existsSync, readFileSync, readdirSync, readlinkSync, lstatSync, realpathSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import ts from "typescript";
-import { closureSelects, discoverBrowserClosures, type BrowserClosures } from "./browser-input-closure";
+import { closureSelects, discoverBrowserClosures, listBrowserSpecs, type BrowserClosures } from "./browser-input-closure";
 import { addUnitImportConsumers, type UnitImportGraph } from "./unit-test-consumers";
 import { coordinationFiles, RESERVATION_REF } from "./integration-reservation";
 import { includeRedSet, isPostMerge, type Category, type IncludedRedSet, type RedMainRecord } from "./red-main";
 import { unitPartitions } from "./proof-shards";
+import { planPartitions } from "./determinism-plan";
+import { expandSpecs, isRepeatedSpec, planBrowserPartitions, type SpecPair } from "./browser-determinism-plan";
 
 export interface Workspace {
   dir: string;
@@ -145,6 +147,11 @@ export interface CheckPlan {
   redMain?: IncludedRedSet;
   /** Bun test files a pull request adds or modifies; each repeats under CPU load before merge (#4109). */
   determinism?: string[];
+  /**
+   * The project/file pairs of the Vitest browser, layout and story specs a pull request adds or
+   * modifies; each repeats under CPU load in the pinned container before merge (#4163).
+   */
+  browserDeterminism?: SpecPair[];
 }
 
 export function workspaces(root: string): Workspace[] {
@@ -299,14 +306,45 @@ export function independentTests(root: string, changed: readonly string[]): stri
   } catch { return undefined; }
 }
 
-export function planChecks(changed: readonly string[], packages: readonly Workspace[], root = resolve(import.meta.dir, ".."), enableConsumerSelection = true): CheckPlan {
+export function planChecks(changed: readonly string[], packages: readonly Workspace[], root = resolve(import.meta.dir, ".."), enableConsumerSelection = true,
+  listSpecs: (root: string) => SpecPair[] = listBrowserSpecs): CheckPlan {
   // Explicit roots identify a real harness; two-argument synthetic workspace diagnostics stay conservative.
   const explicitRoot = arguments.length >= 3;
   const plan = planBeforeBrowserClosures(changed, packages, root, enableConsumerSelection, explicitRoot);
-  const selected = explicitRoot && !plan.global ? selectBrowserClosures(plan, discoverBrowserClosures(root)) : plan;
+  // Category selection and spec repetition read one listing: Vitest lists its files once per plan.
+  let listing: SpecPair[] | undefined, unavailable: unknown;
+  const list = (from: string) => {
+    if (!listing && unavailable === undefined) { try { listing = listSpecs(from); } catch (error) { unavailable = error ?? new Error("Vitest file listing failed"); } }
+    if (!listing) throw unavailable;
+    return listing;
+  };
+  const selected = explicitRoot && !plan.global ? selectBrowserClosures(plan, discoverBrowserClosures(root, list)) : plan;
   // Main pushes and their red-main replans pass enableConsumerSelection=false: repetition is pre-merge proof.
   const determinism = explicitRoot && enableConsumerSelection ? determinismTests(root, changed) : [];
-  return determinism.length ? { ...selected, determinism } : selected;
+  const specs = explicitRoot && enableConsumerSelection ? browserDeterminismSpecs(root, changed) : [];
+  return { ...selected, ...(determinism.length ? { determinism } : {}), ...(specs.length ? { browserDeterminism: browserDeterminismPairs(specs, () => list(root)) } : {}) };
+}
+
+/**
+ * The Vitest browser, layout and story specs among `changed` that exist in
+ * this checkout: what a change adds or modifies, never what it deletes
+ * (#4163). `isRepeatedSpec` (scripts/browser-determinism-plan.ts) owns the
+ * patterns; a changed helper matches none of them.
+ */
+export function browserDeterminismSpecs(root: string, changed: readonly string[]): string[] {
+  return [...new Set(changed)].filter(path => isRepeatedSpec(path) && lstatSync(join(root, path), { throwIfNoEntry: false })?.isFile() === true).sort();
+}
+
+/**
+ * Each changed spec as the project/file pairs Vitest's own listing reports
+ * for it. A listing that cannot be established is an error, never an empty
+ * selection: a changed spec must not skip its repetitions silently.
+ */
+export function browserDeterminismPairs(specs: readonly string[], list: () => SpecPair[]): SpecPair[] {
+  let listing: SpecPair[];
+  try { listing = list(); }
+  catch (error) { throw new Error(`Cannot expand ${specs.length} changed browser spec(s) to project/file pairs: ${error instanceof Error ? error.message : String(error)}`); }
+  return expandSpecs(specs, listing);
 }
 
 /**
@@ -406,6 +444,24 @@ export function unitShards(plan: CheckPlan): number[] {
   return unitPartitions(plan.cadence, plan.unitTests?.length);
 }
 
+/** Partition numbers the `determinism` matrix runs (#4117): one while the
+ * selection fits one job's capacity at its repetition count, more when it is
+ * split by reviewed weight. Throws for a selection beyond the maximum, so the
+ * metadata job fails before any partition starts. An unselected plan publishes
+ * one number: its job is skipped, and the matrix expression is never empty. */
+export function determinismShards(plan: CheckPlan): number[] {
+  if (!proofSelections(plan).determinism) return [1];
+  return planPartitions(plan.determinism!, { cadence: plan.cadence }).partitions.map((_, index) => index + 1);
+}
+
+/** Partition numbers the `browser_determinism` matrix runs (#4163), by the same rule as
+ * `determinismShards`: the planned partitions of a selected plan, and one number for an
+ * unselected one. A selection beyond the maximum throws here, in the metadata job. */
+export function browserDeterminismShards(plan: CheckPlan): number[] {
+  if (!proofSelections(plan).browser_determinism) return [1];
+  return planBrowserPartitions(plan.browserDeterminism!, { cadence: plan.cadence }).partitions.map((_, index) => index + 1);
+}
+
 export type ProofCadence = "draft" | "feedback" | "feedback-heavy" | "confirmation" | "integrated" | "exhaustive";
 
 /** A draft heavy feedback dispatch names its PR and head; ci.yml's bare dispatch declares no inputs. */
@@ -437,12 +493,15 @@ export function proofSelections(plan: CheckPlan, draft = false): Record<string, 
   draft ||= plan.cadence === "draft";
   // Changed Bun tests repeat under load at every pull-request cadence, drafts
   // included, and in draft heavy feedback; never on main (2026-11-16 ruling, #4109).
-  const determinism = !["integrated", "exhaustive"].includes(plan.cadence ?? "") && (plan.determinism?.length ?? 0) > 0;
+  const premerge = !["integrated", "exhaustive"].includes(plan.cadence ?? "");
+  const determinism = premerge && (plan.determinism?.length ?? 0) > 0;
+  // Changed Vitest specs repeat in the pinned container at the same cadences (2026-11-17 ruling, #4163).
+  const browser_determinism = premerge && (plan.browserDeterminism?.length ?? 0) > 0;
   return { ...Object.fromEntries(Object.entries({
     verify: plan.typecheck || ((feedback || !plan.local.fullTests) && plan.tests.length > 0), pack: !feedback && plan.pack,
     unit: !feedback && plan.local.fullTests, browser: !feedback && plan.local.browser, layout: !feedback && plan.local.layout,
     captures: !feedback && plan.local.captures, runtime: !feedback && plan.local.runtime, runtime_host: !feedback && plan.local.runtime, endurance: !feedback && plan.local.endurance,
-  }).map(([name, selected]) => [name, !draft && !(confirmation && isPostMerge(name as Category)) && selected])), determinism };
+  }).map(([name, selected]) => [name, !draft && !(confirmation && isPostMerge(name as Category)) && selected])), determinism, browser_determinism };
 }
 
 function git(root: string, args: string[]): string {
@@ -509,7 +568,8 @@ if (import.meta.main) {
     const draft = process.env.PR_DRAFT === "true";
     const selections = proofSelections(plan, draft);
     if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT,
-      `unit_shards=${JSON.stringify(unitShards(plan))}\n` +
+      `unit_shards=${JSON.stringify(unitShards(plan))}\n` + `determinism_shards=${JSON.stringify(determinismShards(plan))}\n` +
+      `browser_determinism_shards=${JSON.stringify(browserDeterminismShards(plan))}\n` +
       `cadence=${plan.cadence ?? "diagnostic"}\n` + `red_main_oid=${red?.oid ?? ""}\n` + Object.entries(selections).map(([name, selected]) => `${name}=${selected}\n`).join(""));
     console.log(JSON.stringify({ ...plan, draft, event: event && {
       name: process.env.GITHUB_EVENT_NAME, action: event.action,
