@@ -509,7 +509,9 @@ one PR share a cancellable group. Different PRs never cancel one another.
 
 After cheap gates, packaging, strict verification, unit shards, runtime probes,
 browser shards, layout shards, a separate endurance job and captures start independently.
-There are four measured-cost unit partitions, three browser and two layout partitions
+There are four measured-cost unit partitions
+([eight on ready confirmation and draft heavy feedback](#eight-unit-partitions-for-ready-confirmation)),
+three browser and two layout partitions
 (`PROOF_SHARDS`, `scripts/proof-shards.ts`, which the workflow guard matches against the matrices),
 with full coverage assertions and original per-browser file concurrency bounds.
 The first two-unit-partition hosted run reached its 20-minute budgets while
@@ -849,8 +851,9 @@ unavailable; process maximum RSS does not establish aggregate headroom. The
 measurement workflow remains an evidence vehicle and is not merged.
 
 Unit weights have the same explicit reviewed path:
-`bun scripts/refresh-unit-costs.ts <run-id> <attempt>`. It requires all four
-successful exhaustive unit jobs and binds actual checkout logs, immutable
+`bun scripts/refresh-unit-costs.ts <run-id> <attempt>`. It requires every planned
+partition of an exhaustive run as a successful unit job (four, or eight on a
+ready confirmation) and binds actual checkout logs, immutable
 source discovery, complete JUnit/timing partitions and downloaded archive
 digests. `scripts/unit-shard-measurement.json` records that provenance; the
 refresh names any observed unweighted file exceeding 30 seconds. Timings
@@ -1047,6 +1050,23 @@ Only a reviewed re-audit moves the audited revision
   positive control reads the reader from the frozen owner. The post-merge
   re-audit moves that owner and refreshes the reader's pins in both maps
   together.
+
+The verify-budget producer re-audit requested by
+[#3233](https://github.com/schlessera/brain-kit/issues/3233) was delivered with
+the shared reader-owner re-audit in
+[#4057](https://github.com/schlessera/brain-kit/pull/4057), merged as
+`2182752399a584370f0b6bf10cbcf3f2f960341f`. That audit moved the frozen owner
+from `736a3445e82aee509e10f3c8d00b95fc77749202` to delivered main
+`a9bcdbd6734c1733390570e2a68c10afde3b00a9` (tree
+`5221359a249376353f6fd4939f4076596517c87f`). It reviewed all twelve producers;
+the five changed sources were `scripts/ci-proof.ts`, `scripts/check-pr.ts`,
+`scripts/ci-runner.ts`, `.github/workflows/ci.yml` and `package.json`.
+The PR records their old/new digests, the combined clean-output, locked-tool,
+execution-order, checked-exit and fresh-receipt guarantees, including coordinator
+diagnostics and command cleanup, and the restored producer-bypass and corrupt-owner
+mutation receipts. Production pins and independently owned fixture provenance
+moved together. This evidence qualifies the recorded owner only; subsequent
+producer or reader drift still requires fresh proof under the procedure above.
 
 The native diagram SVG/PNG/PDF fixture has a separate finite operation binding.
 The host launches each engine's native producer in a separate network-disabled,
@@ -1568,7 +1588,7 @@ GitHub did not record, or whose ancestry cannot be determined, is left alone.
 So proof for a PR against an integration or release branch forked before the
 bad commit keeps running. `integrate.ts` applies the same rule to the
 candidate's base and head before confirming or merging, and refuses when
-ancestry is unknown (`refuseWhileRed`, `scripts/integrate.ts:87-91`). A non-fix squash
+ancestry is unknown (`refuseWhileRed`, `scripts/integrate.ts:88-92`). A non-fix squash
 that lands while red is reported once on its PR and on the incident, and
 recorded as an `incident` event through `scripts/ci-timings.ts record` in the
 coordinator's `red-main-events` artifact.
@@ -1868,6 +1888,62 @@ pre-merge confirmation if any of these holds:
 - unresolved first-main failures grow by more than ten in the week;
 - red main blocks a release for more than 24 hours.
 
+## Eight unit partitions for ready confirmation
+
+Maintainer decision, 2026-11-16
+([#4108](https://github.com/schlessera/brain-kit/issues/4108)): shorten the
+merge lease hold by running ready confirmation's unit tier in more partitions.
+Proof content does not change.
+
+- **Ready confirmation and draft heavy feedback** run the unit tier in up to
+  eight partitions. **Main pushes and exhaustive runs** keep four, so a main
+  run needs no more runners than before.
+- **One owner.** One table holds both caps (`UNIT_PARTITIONS`,
+  `scripts/proof-shards.ts:17`). The planner reads it by cadence (`unitShards`,
+  `scripts/ci-plan.ts:395-397`) and publishes the partition numbers as
+  `unit_shards`. The `unit` matrix is that output, and each partition's divisor
+  is the matrix size. The hosted aggregate plans again and refuses a published
+  set that differs from the plan (`selections.unit`,
+  `scripts/candidate-proof.ts:68`). The merge path accepts only a job inventory
+  that matches the confirmed set, bounded by the confirmation cap
+  (`unitPartitionLimit("confirmation")`, `scripts/integration-proof.ts:125-126`).
+  `bun run lint` refuses a literal matrix, a second matrix dimension or a
+  literal divisor (`The unit partition count has one owner`,
+  `scripts/check-ci-workflows.ts:97-105`). The weight refresh takes its job
+  count from the same table.
+- **Fewer files than partitions.** A selected inventory smaller than the cap
+  gets one partition per file. No partition is empty and no file runs twice
+  (`unitPartitions`, `scripts/proof-shards.ts:28-32`).
+
+**Why.** One repository-wide lease serializes ready confirmation and merge.
+#4108 records that on 2026-11-16 the lease was acquired 53 times and held for
+75% of the day, with a median hold of 26 minutes. That hold is the `unit` job:
+over the 100 most recent successful PR runs it took a median 19.1 minutes (p90
+23.8), against 2.6 for `pack` and 1.9 for `verify`. The
+[hybrid ruling](#hybrid-post-merge-heavy-proof) moved the browser categories
+after merge and did not shorten the hold.
+
+**Four-partition baseline.** In run 43974750583 the four `Complete unit proof`
+steps took 857, 862, 1,027 and 1,334 seconds, after 43 to 160 seconds of
+runtime setup. The slowest `unit` job took 1,433 seconds. The reviewed weights
+in `scripts/test-shard-costs.json` balance to an estimated 1,098 seconds per
+partition at four and 549 at eight, and the largest single file is 350
+seconds. The estimate uses weights measured under four partitions. It is not
+a measurement of eight.
+
+**What does not change.** Every selected file still runs exactly once. The
+two-process queue inside a partition, the 12-minute setup, 30-minute proof and
+45-minute job limits, every per-test deadline, the browser and layout shard
+counts and the weight table are unchanged. No test leaves the pre-merge unit
+tier.
+
+**Known costs.** A confirmation uses eight unit runners instead of four, and
+each pays its own checkout, install and runtime setup. Summed runner time per
+confirmation rises while the slowest job shortens. A confirmation lists up to
+18 jobs, under the merge path's 30-job inventory bound. The weights were
+measured at four partitions, so the balance at eight may be uneven; a weight
+refresh is separate work.
+
 ## Fast lane outside the core packages
 
 The maintainer ruled on 2026-11-16 that the fast lane allowed on 2026-11-03
@@ -1880,7 +1956,10 @@ PRs below.
   `packages/ui-react/`, `packages/ui-kit/`, `packages/ui-server/` or
   `packages/core/`. Every other PR, and every epic landing, keeps
   [ready confirmation](#hybrid-post-merge-heavy-proof) through
-  `integrate.ts confirm`.
+  `integrate.ts confirm`. The path rule has one owner in code
+  (`touchesCorePackages`, `scripts/fast-lane.ts:19-21`), which the
+  [review requirement](#recorded-independent-review-of-core-package-prs) also
+  reads.
 - **What it skips.** The explicit ready-candidate run (`verify`, `pack`,
   `unit`). A qualifying PR merges on its exact head once these hold:
   - its newest CI run on that head has no failed or cancelled job, apart from
@@ -1906,6 +1985,74 @@ packages, which keep full pre-merge proof.
 lease, red-main refusal, main's complete affected proof and releases from a
 green main all still apply. A fast-lane merge is not a successful delivery
 until its main run is green.
+
+## Recorded independent review of core-package PRs
+
+The maintainer decided on 2026-11-16 that a PR which touches the core packages
+needs a recorded independent review before it is confirmed
+([#4110](https://github.com/schlessera/brain-kit/issues/4110)). None of the
+382 PRs merged to `main` between 2026-10-26 and 2026-11-16 carried a review.
+The median PR changed 271 lines and merged 2.2 hours after it opened, and 37%
+of the merged PRs were fixes. The author's own agent was the only reader of
+most changes before they landed.
+
+- **Who.** The complement of the
+  [fast lane](#fast-lane-outside-the-core-packages): a PR whose diff against
+  its base touches `packages/ui-react/`, `packages/ui-kit/`,
+  `packages/ui-server/` or `packages/core/`. The same predicate decides both
+  (`touchesCorePackages`, `scripts/fast-lane.ts:19-21`). A fast-lane PR is
+  never asked, and its comments are not read
+  (`reviewGate`, `scripts/review-receipt.ts:218-221`).
+- **What counts as independent.** A reviewer that did not write the change and
+  is given only the PR and its issue, never the author's summary or reasoning.
+  In practice that is a fresh agent context or a human.
+- **The record.** One PR comment carrying a fixed block, written and posted by
+  `bun scripts/review-receipt.ts post`. It names the reviewed head, the base,
+  and the reviewer as `agent` or `human` and nothing more: an unknown field
+  refuses. Each finding has exactly one disposition: `fixed` naming the commit,
+  `filed` naming the issue or `rejected` with the reason. A review with no
+  findings says so explicitly. The comment passes the leakage gate before it is
+  posted. Only the newest record counts, and an unreadable newest record
+  refuses (`newestReview`, `scripts/review-receipt.ts:123-128`).
+- **The gate.** `integrate.ts confirm` and `merge` refuse a core-package
+  candidate (`reviewRefusal`, `scripts/review-receipt.ts:192-212`) when:
+  - no record exists;
+  - the newest record has a finding without a disposition, or answers one as
+    `fixed` in a commit the candidate head does not contain;
+  - the candidate head contains a non-merge commit, not reachable from the
+    base, that the reviewed head does not contain
+    (`unreviewedCommits`, `scripts/review-receipt.ts:159-161`);
+  - the candidate head contains a merge commit, in neither the base nor the
+    reviewed head, that is not a clean merge
+    (`alteredMerges`, `scripts/review-receipt.ts:173-183`).
+
+  `confirm` checks before it takes the reservation or requests candidate CI,
+  like the check receipt, and the merge reads the record again.
+- **What keeps a record valid.** Merging the base into the branch adds only a
+  merge commit and commits the base already has, so a branch refreshed that
+  way, however often, keeps its record. A new commit, a rebase or an amend
+  needs a new review of the new head. That includes a commit that fixes a
+  finding.
+- **What a merge commit may carry.** Nothing of its own
+  ([#4121](https://github.com/schlessera/brain-kit/issues/4121), maintainer
+  decision 2026-11-17). A merge keeps the record only when it has exactly two
+  parents and its tree is the one Git's automatic merge of those parents
+  writes (`git merge-tree --write-tree`). A conflict resolved by hand, an edit
+  added while merging and a merge of more than two parents are content no
+  reviewer read, so each needs a new review of the current head. A merge that
+  cannot be recomputed is refused as well: unknown is not clean.
+- **Exempt.** An [expedited red-main fix](#expedited-red-main-fixes)
+  (`--fixes-main-run`), as it is from the check receipt. The next main run is
+  the backstop.
+
+**What it is not.** This is cooperative procedure, like the lease. It adds no
+repository ruleset or branch protection, it does not review fast-lane PRs, and
+it does not automate the reviewer.
+
+**Known cost.** The clean-merge check recomputes each merge with the local
+Git and its configuration. A merge that another Git or another rename setting
+would have written differently reads as altered and costs one more review; it
+never passes unread.
 
 ## Historical measurement and upstream guidance
 
@@ -1969,7 +2116,8 @@ or deleted tests, unknown inputs and unavailable scans retain ordinary selection
 Main pushes and exhaustive runs retain complete affected/default discovery.
 
 The exact unit inventory is validated against default Bun discovery. It includes
-owning fast tests once, and uses at most the existing four partitions, reduced
+owning fast tests once, and uses at most its cadence's partition cap (four, or
+eight on ready confirmation and draft heavy feedback), reduced
 only when fewer files exist; no empty partition or duplicate execution substitutes
 for coverage. Selected categories remain required by the unchanged aggregate.
 

@@ -31,14 +31,16 @@ when changing what packages ship, dependencies, versions or publishing.
    checks in [Select and claim](#select-and-claim).
 2. `bun scripts/issue-queue.ts claim <n> --branch <type>/<n>-<slug>`.
 3. Read the issue and decide readiness ([Establish readiness](#establish-readiness)).
-   Not ready: label, comment, then step 8.
+   Not ready: label, comment, then step 9.
 4. Create the issue checkout ([Prepare the issue checkout](#prepare-the-issue-checkout)).
 5. Implement, with failing-first and mutation receipts
    ([Implement the scoped issue](#implement-the-scoped-issue)).
 6. `bun run check:pr`, open the pull request, read its state with
    `bun scripts/pr-status.ts <pr>` ([PR, CI and merge](#pr-ci-and-merge)).
-7. Confirm and merge through `bun scripts/integrate.ts`.
-8. Report the outcome on the issue and `bun scripts/issue-queue.ts release <n>`
+7. If the PR touches a core package, get an independent review and record it
+   ([Independent review](#independent-review)).
+8. Confirm and merge through `bun scripts/integrate.ts`.
+9. Report the outcome on the issue and `bun scripts/issue-queue.ts release <n>`
    ([Finish or hand off](#finish-or-hand-off)).
 
 ### Spending few tokens
@@ -309,7 +311,8 @@ with `bun scripts/integrate.ts confirm <pr> --issues owner/repo#N,...` before
 requesting expensive confirmation; it handles the draft-to-ready transition,
 minute renewal and shared proof-checked merge. The PR body must carry the
 `check:pr` receipt; skipped or timed-out local checks need exact-head hosted
-coverage. A declared red-main fix may use `--fixes-main-run <run-id>`. Hold competing confirmation and
+coverage. A PR that touches a core package also needs its
+[independent review](#independent-review) recorded first. A declared red-main fix may use `--fixes-main-run <run-id>`. Hold competing confirmation and
 main merges while another lease is live. See the CI reference for explicit
 acquire/renew/release/revoke, expiry, hard cap and unsupported native candidates.
 After the last push, convert to draft and mark ready under that reservation to
@@ -356,6 +359,93 @@ type/area/`contract` labels; do not copy readiness labels onto the PR.
   merge/evidence procedure for native stacked PRs. Respect a merge queue and
   monitor actual completion. Do not ask again for permission included in
   the end-to-end request.
+
+## Independent review
+
+A PR whose diff touches `packages/ui-react/`, `packages/ui-kit/`,
+`packages/ui-server/` or `packages/core/` needs a recorded independent review
+before `integrate.ts confirm` takes the reservation
+([ruling](../../../docs/decisions/ci-utility.md#recorded-independent-review-of-core-package-prs)).
+`bun scripts/review-receipt.ts check <pr>` prints whether this PR needs one
+(`required`) and, if so, why the merge path would refuse its current head
+(`refusal`, or null). A PR outside those packages needs none: skip this
+section. An expedited red-main fix (`--fixes-main-run`) is exempt.
+
+**When to request it.** After the implementation is complete, `check:pr`
+passes and the branch is pushed, and before `confirm`. Requesting it earlier
+wastes it, because every later commit needs another review. Draft CI and
+hosted heavy feedback can run meanwhile.
+
+**How to start the reviewer.** The reviewer is a fresh agent context or a
+human. It did not write the change, and it does not inherit the conversation
+of the context that did. Give it only:
+
+- the PR number, so that it reads the diff, the description and the comments
+  itself;
+- the issue the PR closes or advances;
+- the head SHA to review, and a checkout it can read that head in;
+- the task below.
+
+Never give it your summary of the change, your reasoning, a list of what to
+look at or your view of the risk. If you cannot start a context that is free
+of your own, ask a human to review instead. The task, with only the
+placeholders filled in:
+
+> Review pull request #PR of schlessera/brain-kit at head SHA against issue
+> #N. Read the issue's acceptance criteria and exclusions, then the whole diff
+> against the base and the code around it. Report defects only: behaviour that
+> misses a criterion, a missing or broken guard, a regression in a caller the
+> diff did not touch, a test that cannot fail, a contract change without its
+> record, a breach of the hard rules in AGENTS.md. Do not report style. Do not
+> edit, push, comment or merge. Return the head SHA you read and a JSON array
+> with one `{ "summary": "..." }` per finding: one line of at most 500
+> characters that names the file and line. Return an empty array if you found
+> nothing.
+
+**Record the review as it was returned**, before answering it and without
+dropping or rewording a finding you disagree with. Save the array to a file and
+post it at the head the reviewer read (`--reviewer human` for a human):
+
+```sh
+bun scripts/review-receipt.ts post <pr> --reviewer agent --head <reviewed-sha> --findings <file>
+bun scripts/review-receipt.ts post <pr> --reviewer agent --head <reviewed-sha> --no-findings
+```
+
+The command validates the record, runs it through the leakage gate and posts
+it as one PR comment. It names the reviewer as `agent` or `human` and nothing
+else; do not add a name, a model or a session.
+
+**Answer every finding.** Add exactly one disposition to each entry of the
+findings file, then post the record again with the same `--head`. The newest
+record is the one the merge path reads.
+
+- `"disposition": "fixed", "commit": "<full-sha>"`: the commit on this branch
+  that fixes it. A finding is one instance of a bug class, so grep the diff and
+  its file for the others before calling it fixed.
+- `"disposition": "filed", "issue": "owner/repo#N"`: a real defect outside this
+  issue's scope. File it through the GitHub skill first.
+- `"disposition": "rejected", "reason": "<one line>"`: not a defect, with
+  evidence a reader can check.
+
+**When a new review is needed.** A record covers the head the reviewer read,
+plus any later merges of the base.
+
+- A new commit of your own, a rebase or an amend needs a review of the new
+  head. That includes a commit that fixes a finding. Batch your fixes into one
+  push, then start another fresh reviewer the same way and post its record.
+  The earlier record stays on the PR, so the new reviewer can see what was
+  found and how it was answered.
+- Merging `origin/main` into the branch needs no new review, as long as the
+  merge is clean. While you wait for the lease, refresh by merge and push,
+  never by rebase.
+- A merge that conflicts needs a review of the resolved head: the resolution
+  is code nobody read. So does any edit added to a merge commit. Commit a
+  follow-up change on its own, never inside the merge.
+- Findings that are only filed or rejected add no commit, so they need no new
+  review.
+
+Run `bun scripts/review-receipt.ts check <pr>` again before `confirm`. Never
+write or edit the block by hand, and never record a review that did not happen.
 
 ## Main is red
 
