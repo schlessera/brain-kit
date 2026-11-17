@@ -55,6 +55,14 @@ export interface CloseRequestOptions {
   armed?: boolean;
 }
 
+/**
+ * Each document's open surfaces, in opening order. Only the topmost one's
+ * Escape fallback acts: a surface disarmed beneath an armed one (a drilled-in
+ * pane under a dictation take) must not take the Escape that is the upper
+ * surface's close request.
+ */
+const opened = new WeakMap<Document, symbol[]>();
+
 function watcherConstructor(view: Window | null): CloseWatcherConstructor | null {
   const candidate = (view as (Window & { CloseWatcher?: unknown }) | null)?.CloseWatcher;
   return typeof candidate === "function" ? (candidate as CloseWatcherConstructor) : null;
@@ -63,6 +71,10 @@ function watcherConstructor(view: Window | null): CloseWatcherConstructor | null
 /** Watch close requests for one open surface in `document`; destroy it on close or unmount. */
 export function watchCloseRequests(document: Document, request: () => boolean, options: CloseRequestOptions = {}): CloseRequestWatch {
   const Watcher = watcherConstructor(document.defaultView);
+  const id = Symbol("close-request");
+  const order = opened.get(document) ?? [];
+  opened.set(document, order);
+  order.push(id);
   let armed = options.armed ?? true;
   let destroyed = false;
   let watcher: PlatformCloseWatcher | null = null;
@@ -91,7 +103,7 @@ export function watchCloseRequests(document: Document, request: () => boolean, o
   const keys = (event: KeyboardEvent) => {
     // With an armed watcher, Escape is the platform's close request and
     // arrives through the watcher; handling it here too would close twice.
-    if (watcher || destroyed || event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
+    if (watcher || destroyed || event.key !== "Escape" || event.defaultPrevented || event.isComposing || order.at(-1) !== id) return;
     // Prevented only when the surface closed. A refusal (a modal over it,
     // closedBy="none", a finishing take) leaves the keydown for whatever
     // takes it next: a dialog above needs it for its own cancel.
@@ -116,6 +128,8 @@ export function watchCloseRequests(document: Document, request: () => boolean, o
       if (destroyed) return;
       destroyed = true;
       release();
+      const index = order.indexOf(id);
+      if (index !== -1) order.splice(index, 1);
       document.removeEventListener("keydown", keys);
     },
   };

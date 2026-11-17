@@ -280,6 +280,62 @@ test("a dictation take that is finishing survives a close request; once it is no
   expect(seen.closed).toBe(2);
 });
 
+test("without CloseWatcher, Escape still cancels a take once, and a finishing take refuses it", async ctx => {
+  withoutCloseWatcher(ctx);
+  const host = document.createElement("div");
+  document.body.append(host);
+  const voice = useVoiceStore.getState();
+  ctx.onTestFinished(() => { useVoiceStore.setState(voice, true); });
+  const cancels: number[] = [];
+  useVoiceStore.setState({ mode: "dictate", dictationGate: null, draining: true });
+  const renderer = createRoot(host);
+  ctx.onTestFinished(() => { flushSync(() => renderer.unmount()); host.remove(); });
+  flushSync(() => renderer.render(<DictationCapture onFinish={() => {}} onCancel={() => cancels.push(1)} />));
+  await frame();
+  await userEvent.keyboard("{Escape}"); await frame();
+  expect(cancels, "D5 refuses the fallback's Escape").toEqual([]);
+  flushSync(() => useVoiceStore.setState({ draining: false }));
+  await frame();
+  await userEvent.keyboard("{Escape}"); await frame();
+  expect(cancels, "then Escape cancels the take once").toEqual([1]);
+});
+
+test("without CloseWatcher, Escape on a dictation gate notice is Cancel, once", async ctx => {
+  withoutCloseWatcher(ctx);
+  const host = document.createElement("div");
+  document.body.append(host);
+  const voice = useVoiceStore.getState();
+  ctx.onTestFinished(() => { useVoiceStore.setState(voice, true); });
+  const cancels: number[] = [];
+  useVoiceStore.setState({ dictationGate: { kind: "blocked", reason: "choose", saved: null } });
+  const renderer = createRoot(host);
+  ctx.onTestFinished(() => { flushSync(() => renderer.unmount()); host.remove(); });
+  flushSync(() => renderer.render(<DictationNotices onConfirm={() => {}} onCancel={() => { cancels.push(1); useVoiceStore.setState({ dictationGate: null }); }} onOpenSettings={() => {}} onRetry={() => {}} onDismiss={() => {}} />));
+  await frame();
+  expect(host.querySelector('[data-dictation-notice="Dx1"]')).not.toBeNull();
+  await userEvent.keyboard("{Escape}"); await frame();
+  expect(cancels, "Cancel, once").toEqual([1]);
+});
+
+test("a disarmed surface beneath an armed one leaves Escape to the surface above", async ctx => {
+  spyCloseWatcher(ctx);
+  let lower = 0, upper = 0;
+  const openLower = document.createElement("button"); openLower.textContent = "Open the pane";
+  const openUpper = document.createElement("button"); openUpper.textContent = "Start the take";
+  document.body.append(openLower, openUpper);
+  let a: ReturnType<typeof watchCloseRequests> | null = null, b: ReturnType<typeof watchCloseRequests> | null = null;
+  // The pane keeps its Escape fallback (it is disarmed, as #2582 will do when drilled in).
+  openLower.onclick = () => { a = watchCloseRequests(document, () => { lower++; return true; }); a.disarm(); };
+  openUpper.onclick = () => { b = watchCloseRequests(document, () => { upper++; return true; }); };
+  ctx.onTestFinished(() => { a?.destroy(); b?.destroy(); openLower.remove(); openUpper.remove(); });
+  await userEvent.click(openLower); await userEvent.click(openUpper);
+  await userEvent.keyboard("{Escape}"); await frame();
+  expect([upper, lower], "the armed surface above closes; the disarmed pane beneath does not").toEqual([1, 0]);
+  b!.destroy();
+  await userEvent.keyboard("{Escape}"); await frame();
+  expect([upper, lower], "with the upper gone, Escape reaches the pane's fallback").toEqual([1, 1]);
+});
+
 test("a dictation gate notice takes a close request as Cancel, once", async ctx => {
   const seen = spyCloseWatcher(ctx);
   const host = document.createElement("div");
