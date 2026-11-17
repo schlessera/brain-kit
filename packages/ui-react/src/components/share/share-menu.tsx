@@ -78,9 +78,12 @@ export function ShareMenu({ options, title = "Share", className, renderTrigger }
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      // Captured and stopped: an Escape that dismisses this menu must not also
-      // reach whatever the menu is layered over (the diagram viewer closes on
-      // Escape too, and dismissing both at once reads as a bug).
+      // Captured, stopped and prevented: an Escape that dismisses this menu
+      // must not also reach whatever the menu is layered over (the diagram
+      // viewer closes on Escape too, and dismissing both at once reads as a
+      // bug). Stopping alone is not enough under a close watcher: Chromium
+      // raises the close request unless the keydown was prevented (#2577).
+      e.preventDefault();
       e.stopPropagation();
       setOpen(false);
     };

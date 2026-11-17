@@ -4,5 +4,6 @@
  * version. See docs/decisions/public-export-boundary.md.
  */
 export { mapViewBounds } from "./blocks/MapView.js";
+export { watchCloseRequests, type CloseRequestOptions, type CloseRequestWatch } from "./internal/close-request.js";
 export { LIGHT_TOKENS, PRINT_TOKENS, TOKENS, canvas, printThemeCss, type TokenName } from "./tokens.js";
 export { TranscriptQualifiers, TranscriptSymbols, TranscriptReadingScope, type TranscriptQualifiersProps } from "./conversation/TranscriptQualifiers.js";
