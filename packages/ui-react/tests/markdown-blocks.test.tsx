@@ -68,6 +68,9 @@ const CORPUS: Record<string, { text: string; splits: boolean; props?: { fileLink
   "a line of Unicode space continues a paragraph": { text: "Para one\n\u00a0\nstill para one.\n\nPara two\n\u3000\nstill two.\n\nThree\n\ufeff\nstill three.\n\nFour\n\u000b\nstill four.\n\nFive.", splits: true },
   "a closing fence followed by a Unicode space does not close": { text: "Before.\n\n```\ncode\n```\u00a0\n\nstill code\n\n```\n\nAfter.", splits: true },
   "a definition label wrapped after a backslash": { text: "See [a\\\nb].\n\nMore.\n\n[a\\\nb]: /u", splits: false },
+  "a list-item fence closed at column 0": { text: "1. Install:\n\n   ```bash\n   npm i\n```\n\n2. Run it\n\nDone.", splits: false },
+  "a fence indented at the top level": { text: "Before.\n\n  ```\ncode at column 0\n\nstill code\n  ```\n\nAfter.", splits: false },
+  "a pre or comment block inside a list item": { text: "- <pre>\n\n  x\n\ny\n\n- <!--\n\n  z\n\nw", splits: false },
   "links, inline code and emphasis": { text: "Read **the [log](https://ithaca.example/log)** and `notes/raft.md`.\n\n_Then_ sail.", splits: true },
 };
 
