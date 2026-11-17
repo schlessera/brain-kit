@@ -32,7 +32,7 @@ export function Header(p: { state: GitHubState; kind: "pr" | "issue"; repo: stri
 }
 
 /** The design's bound on one label: 50 characters, then an ellipsis. */
-export const LABEL_MAX = 50;
+const LABEL_MAX = 50;
 function boundLabel(label: string): string {
   const chars = Array.from(label);
   return chars.length > LABEL_MAX ? `${chars.slice(0, LABEL_MAX - 1).join("")}…` : label;
