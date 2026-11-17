@@ -1,7 +1,7 @@
 /** GitHub is the sole CI provider; contributions share read-only workflows. */
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { PROOF_SHARDS, shardNumbers, type ShardedDomain } from "./proof-shards";
+import { DETERMINISM_PARTITIONS, PROOF_SHARDS, shardNumbers, type ShardedDomain } from "./proof-shards";
 import { FEEDBACK_AGGREGATE } from "./heavy-feedback";
 import { CATEGORY_JOBS, FEEDBACK_GROUP, renderHeavyFeedbackWorkflow, sameWorkflow } from "./heavy-feedback-workflow";
 import { actionPinProblems, pinned } from "./action-pins";
@@ -81,7 +81,7 @@ export function workflowProblems(text: string, file: string): string[] {
       fail("verify: always summary must separate raw install, planning and proof outcomes and receipts");
     // Network prerequisites cannot spend proof capacity; measured basis: docs/decisions/ci-utility.md (#2658).
     // Repeated changed tests need the unit job's prerequisites: they may drive real Chrome (#4109).
-    for (const [name, proofMinutes] of [["unit", 30], ["runtime", 15], ["runtime_host", 15], ["determinism", 40]] as const) {
+    for (const [name, proofMinutes] of [["unit", 30], ["runtime", 15], ["runtime_host", 15], ["determinism", DETERMINISM_PARTITIONS.stepMinutes]] as const) {
       const job = workflow.jobs?.[name];
       const setup = job?.steps?.find(step => step.run === `bash scripts/ci-runtime-setup.sh${name === "unit" || name === "determinism" ? "" : " --native"}`);
       const command = `bun scripts/ci-proof.ts ${name}`;
@@ -106,6 +106,16 @@ export function workflowProblems(text: string, file: string): string[] {
         JSON.stringify(unit?.strategy?.matrix) !== JSON.stringify({ shard: "${{ fromJSON(needs.changeset.outputs.unit_shards) }}" }) ||
         unitProof?.run !== 'bun scripts/ci-proof.ts unit --shard=${{ matrix.shard }}/"$UNIT_SHARDS"' ||
         unitProof?.env?.UNIT_SHARDS !== "${{ strategy.job-total }}") fail("unit: matrix and shard divisor must come from the planner's unit_shards output");
+    // The determinism partition set has one owner too, DETERMINISM_PARTITIONS, read by the planner (#4117).
+    // A literal matrix or divisor would run a partition of some split the planner did not make.
+    const determinism = workflow.jobs?.determinism as any;
+    const determinismProof = determinism?.steps?.find((step: Step) => step.run?.startsWith("bun scripts/ci-proof.ts determinism"));
+    if (changeset?.outputs?.determinism_shards !== "${{ steps.plan.outputs.determinism_shards }}" ||
+        JSON.stringify(determinism?.strategy?.matrix) !== JSON.stringify({ shard: "${{ fromJSON(needs.changeset.outputs.determinism_shards) }}" }) ||
+        determinismProof?.run !== 'bun scripts/ci-proof.ts determinism --shard=${{ matrix.shard }}/"$DETERMINISM_SHARDS"' ||
+        determinismProof?.env?.DETERMINISM_SHARDS !== "${{ strategy.job-total }}") fail("determinism: matrix and shard divisor must come from the planner's determinism_shards output");
+    // One artifact name per partition: a shared name fails every upload after the first.
+    if (!determinism?.steps?.some((step: Step) => step.uses?.startsWith("actions/upload-artifact@") && step.with?.name === "determinism-proof-${{ matrix.shard }}")) fail("determinism: each partition must upload its own receipts");
     const proof = workflow.jobs?.proof;
     if (proof?.name !== "${{ github.event_name != 'pull_request' && 'integrated or exhaustive proof' || github.event.pull_request.draft && 'draft gates' || 'proof' }}") fail("proof: draft, manual or main runs must not impersonate candidate confirmation");
     if (JSON.stringify(proof?.needs) !== JSON.stringify(["changeset", ...names])) fail("proof: aggregate must observe every selected category");

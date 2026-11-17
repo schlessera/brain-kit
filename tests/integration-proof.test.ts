@@ -3,6 +3,7 @@ import { PROOF_JOBS } from "../scripts/ci-proof";
 import { verifyIntegrationProof } from "../scripts/integration-proof";
 import { scanText } from "../scripts/check-leakage";
 import type { API } from "../scripts/proof-api";
+import { DETERMINISM_PARTITIONS } from "../scripts/proof-shards";
 
 const candidate = { repository: "https://github.com/odysseus/brain-kit", pr: 7, head: "a".repeat(40), base: "b".repeat(40) };
 const job = { id: 19, name: "changeset", status: "completed", conclusion: "success", run_id: 17, head_sha: candidate.head };
@@ -127,17 +128,21 @@ for (const [label, malformed] of [
 });
 
 /** A ready confirmation as the merge path reads it: the aggregate's receipts plus the run's actual job inventory. */
-async function confirmationOutcome(published: unknown, ran: readonly number[]): Promise<string> {
+async function confirmationOutcome(published: unknown, ran: readonly number[],
+  repeated?: { published?: unknown; ran: readonly (number | string)[]; conclusion?: string }): Promise<string> {
   // Every hosted proof job, so a category added later (determinism, #4109) is part of the inventory.
   const categories: readonly string[] = PROOF_JOBS;
-  const fast = (name: string) => ["verify", "pack", "unit"].includes(name);
+  // `repeated` selects the determinism job: its published partition set and the partitions that really ran (#4117).
+  const fast = (name: string) => ["verify", "pack", "unit"].includes(name) || (name === "determinism" && repeated !== undefined);
+  const encoded = (value: unknown) => typeof value === "string" || value === null ? value : JSON.stringify(value);
   const checkout = { sha: "d".repeat(40), tree: "e".repeat(40), parents: [candidate.base, candidate.head] };
   const selected = { selections: Object.fromEntries(categories.map(name => [name, String(fast(name))])),
     results: Object.fromEntries(categories.map(name => [name, fast(name) ? "success" : "skipped"])), retained: [],
-    unitShards: typeof published === "string" || published === null ? published : JSON.stringify(published) };
+    unitShards: encoded(published), ...(repeated && "published" in repeated ? { determinismShards: encoded(repeated.published) } : {}) };
   let id = 100;
   const entry = (name: string, conclusion = "success") => ({ ...job, id: id++, name, conclusion });
   const jobs = [entry("changeset"), entry("proof"), ...categories.flatMap(name => name === "unit" ? ran.map(shard => entry(`unit (${shard})`))
+    : name === "determinism" && repeated ? repeated.ran.map(shard => entry(typeof shard === "number" ? `determinism (${shard})` : shard, repeated.conclusion))
     : [entry(name, fast(name) ? "success" : "skipped")])];
   const actual = `[command]/usr/bin/git log -1 --format=%H\n2026-07-12T00:00:00Z ${checkout.sha}\n`;
   const proofLog = actual + `BRAIN_CANDIDATE_RECEIPT ${JSON.stringify({ event: "ready_for_review", head: candidate.head, base: candidate.base, checkout })}\n` +
@@ -174,7 +179,36 @@ test("the merge path accepts a confirmation only with exactly its planned unit p
   expect(await confirmationOutcome(null, eight), "MISSING_PLAN").toBe(identity);
 });
 
+test("the merge path accepts a confirmation only with exactly its planned determinism partitions (#4117)", async () => {
+  const eight = [1, 2, 3, 4, 5, 6, 7, 8], nine = [...eight, 9], accepted = `ACCEPTED_INVENTORY ${"d".repeat(40)}`;
+  const differs = "Actual selected job inventory differs from the validated selection", identity = "Missing actual determinism partition identity";
+  const outcome = (published: unknown, ran: readonly (number | string)[]) => confirmationOutcome(eight, eight, { published, ran });
+  // An unsplit selection is one partition; the largest observed selection plans nine.
+  expect(await outcome([1], [1]), "ONE_PLANNED_ONE_RAN").toBe(accepted);
+  expect(await outcome(nine, nine), "NINE_PLANNED_NINE_RAN").toBe(accepted);
+  expect(await outcome(nine, nine.slice(0, 8)), "DROPPED_LAST_PARTITION").toBe(differs);
+  expect(await outcome(nine, [1, 2, 3, 5, 6, 7, 8, 9]), "DROPPED_MIDDLE_PARTITION").toBe(differs);
+  expect(await outcome(nine, [...nine, 9]), "DUPLICATE_PARTITION").toBe(differs);
+  expect(await outcome([1, 2], [1, 2, 3]), "RAN_MORE_THAN_PLANNED").toBe(differs);
+  // The job as it was before the matrix: its one name is no planned partition.
+  expect(await outcome([1], ["determinism"]), "UNPARTITIONED_JOB_NAME").toBe(differs);
+  const limit = Array.from({ length: DETERMINISM_PARTITIONS.max }, (_, index) => index + 1);
+  expect(await outcome(limit, limit), "THE_MAXIMUM_IS_ACCEPTED").toBe(accepted);
+  expect(await outcome([...limit, limit.length + 1], [...limit, limit.length + 1]), "ABOVE_THE_MAXIMUM").toBe(identity);
+  expect(await outcome([2, 1], [1, 2]), "REORDERED_PLAN").toBe(identity);
+  expect(await outcome([2, 3], [2, 3]), "PLAN_WITHOUT_FIRST").toBe(identity);
+  expect(await outcome([], []), "EMPTY_PLAN").toBe(identity);
+  expect(await outcome(null, [1]), "NULL_PLAN").toBe(identity);
+  expect(await confirmationOutcome(eight, eight, { ran: [1] }), "RECEIPT_WITHOUT_THE_SET").toBe(identity);
+  // A failed partition never reaches the partition check: the inventory itself is refused.
+  expect(await confirmationOutcome(eight, eight, { published: [1, 2], ran: [1, 2], conclusion: "failure" }), "FAILED_PARTITION").toContain("Incomplete or failed selected job inventory");
+  // Unselected, the job is one intentional skip and no partition set is read.
+  expect(await confirmationOutcome(eight, eight), "UNSELECTED_SKIPS_ONCE").toBe(accepted);
+});
+
 test("refusal diagnostics name every partition a confirmation can plan", async () => {
+  const repeated = await refusal({ total_count: 2, jobs: [job, { ...job, id: 21, name: `determinism (${DETERMINISM_PARTITIONS.max})`, status: "queued" }] });
+  expect(JSON.parse(repeated.split("inventory: ")[1]!).offending[0].job.name).toBe(`determinism (${DETERMINISM_PARTITIONS.max})`);
   const message = await refusal({ total_count: 2, jobs: [job, { ...job, id: 20, name: "unit (8)", status: "queued" }] });
   expect(JSON.parse(message.split("inventory: ")[1]!).offending[0].job.name).toBe("unit (8)");
 });
