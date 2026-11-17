@@ -56,17 +56,17 @@ export interface CloseRequestOptions {
 }
 
 /**
- * Each document's open surfaces, in opening order, so the platform's watcher
- * stack keeps the same order:
- * - only the topmost surface's Escape fallback acts, so a surface disarmed
- *   beneath an armed one (a drilled-in pane under a dictation take) never
- *   takes the Escape that is the upper surface's close request;
- * - a surface arms a new watcher only while it is topmost. A new watcher goes
- *   on top of the platform's stack, so arming one beneath another surface
- *   would let it take the next Back first. Its arming waits, and runs when
- *   the surfaces above it close (`wake`).
+ * Each document's open surfaces, in opening order. Only the topmost one holds
+ * a platform watcher, and only its Escape fallback acts:
+ * - a surface opened above another takes the watcher: the one beneath
+ *   releases its own (`sleep`) and stays armed, and arms again (`wake`) once
+ *   the surfaces above it close;
+ * - so a close request always reaches the topmost surface or, when that
+ *   surface is disarmed (drilled in, #2582), the page, never a surface
+ *   beneath: one Back is one step, innermost first;
+ * - and a surface beneath never takes the Escape that is the upper one's.
  */
-interface Opened { id: symbol; wake: () => void }
+interface Opened { id: symbol; wake: () => void; sleep: () => void }
 const opened = new WeakMap<Document, Opened[]>();
 
 function watcherConstructor(view: Window | null): CloseWatcherConstructor | null {
@@ -115,7 +115,9 @@ export function watchCloseRequests(document: Document, request: () => boolean, o
     // takes it next: a dialog above needs it for its own cancel.
     if (request()) event.preventDefault();
   };
-  order.push({ id, wake: () => create() });
+  // The surface beneath gives up its watcher to this one.
+  order.at(-1)?.sleep();
+  order.push({ id, wake: () => create(), sleep: () => release() });
   if (options.escape ?? true) document.addEventListener("keydown", keys);
   create();
 

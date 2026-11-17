@@ -362,6 +362,39 @@ test("re-arming a surface beneath another waits until the upper one closes", asy
   expect(seen.closed).toBe(2);
 });
 
+test("a disarmed surface above an armed one lets the close request reach the page, not the surface beneath", async ctx => {
+  spyCloseWatcher(ctx);
+  type Watcher = EventTarget & { destroy(): void };
+  const Native = (window as unknown as { CloseWatcher: new () => Watcher }).CloseWatcher;
+  let reachedPage = 0;
+  let pageWatcher: Watcher | null = null;
+  const armPage = () => { pageWatcher = new Native(); pageWatcher.addEventListener("close", () => { reachedPage++; armPage(); }); };
+  armPage();
+  ctx.onTestFinished(() => pageWatcher?.destroy());
+  let take = 0, pane = 0;
+  const startTake = document.createElement("button"); startTake.textContent = "Start the take";
+  const openPane = document.createElement("button"); openPane.textContent = "Open the pane";
+  document.body.append(startTake, openPane);
+  let a: ReturnType<typeof watchCloseRequests> | null = null, b: ReturnType<typeof watchCloseRequests> | null = null;
+  startTake.onclick = () => { a = watchCloseRequests(document, () => { take++; return true; }, { escape: false }); };
+  openPane.onclick = () => { b = watchCloseRequests(document, () => { pane++; return true; }, { escape: false }); };
+  ctx.onTestFinished(() => { a?.destroy(); b?.destroy(); startTake.remove(); openPane.remove(); });
+  // A take is live, then a pane opens above it and drills in (#2582 disarms it).
+  await userEvent.click(startTake); await userEvent.click(openPane);
+  expect([a!.watching, b!.watching], "only the topmost surface holds a watcher").toEqual([false, true]);
+  b!.disarm();
+  await userEvent.keyboard("{Escape}"); await frame();
+  expect([take, pane, reachedPage], "Back pops the pane's drill-in: the page takes it, not the take beneath").toEqual([0, 0, 1]);
+  // Back at the pane's root: the pane closes on the next request, then the take.
+  b!.arm();
+  await userEvent.keyboard("{Escape}"); await frame();
+  expect([take, pane, reachedPage], "the pane closes").toEqual([0, 1, 1]);
+  b!.destroy();
+  expect(a!.watching, "the take holds the watcher again").toBe(true);
+  await userEvent.keyboard("{Escape}"); await frame();
+  expect([take, pane, reachedPage], "then the take").toEqual([1, 1, 1]);
+});
+
 test("a dictation gate notice takes a close request as Cancel, once", async ctx => {
   const seen = spyCloseWatcher(ctx);
   const host = document.createElement("div");
@@ -448,7 +481,8 @@ test("repeated refusals re-arm without joining the surface beneath: one action p
   document.body.append(openLower, openUpper);
   let a: ReturnType<typeof watchCloseRequests> | null = null, b: ReturnType<typeof watchCloseRequests> | null = null;
   openLower.onclick = () => { a = watchCloseRequests(document, () => { lower++; return true; }, { escape: false }); };
-  openUpper.onclick = () => { b = watchCloseRequests(document, () => { upper++; return upperCloses; }, { escape: false }); };
+  // When the upper surface closes, its owner destroys the watch, as an unmount does.
+  openUpper.onclick = () => { b = watchCloseRequests(document, () => { upper++; if (upperCloses) queueMicrotask(() => b!.destroy()); return upperCloses; }, { escape: false }); };
   ctx.onTestFinished(() => { a?.destroy(); b?.destroy(); openLower.remove(); openUpper.remove(); });
   await userEvent.click(openLower); await userEvent.click(openUpper);
   for (let i = 1; i <= 8; i++) {
