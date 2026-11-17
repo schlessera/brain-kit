@@ -27,8 +27,11 @@ export class DialogueJournal {
   private readonly refusals = new Map<DialogueOwner, Set<() => void>>();
   constructor(
     private readonly catalog: SessionCatalog,
-    /** Delivers a committed page to the owner's audience: every login of its account (#3963). */
-    private readonly publish: (page: DialoguePage, owner: DialogueOwner) => void,
+    /**
+     * Delivers a committed page. `principalId` is the owner's attribution;
+     * `owner` lets the host reach every login of its account (#3963).
+     */
+    private readonly publish: (page: DialoguePage, principalId: string, owner?: DialogueOwner) => void,
     private readonly failed: (owner: DialogueOwner, cause: "queue_pressure" | "storage_error" | "storage_indeterminate", kind?: DialogueEvidence["kind"]) => void
   ) {}
   private transition<T>(conversationId: string, run: () => Promise<T>): Promise<T> {
@@ -309,6 +312,7 @@ export class DialogueJournal {
               records: [record],
               coverage: owner.coverage,
             },
+            owner.principal_id,
             owner
           );
           after?.(true);

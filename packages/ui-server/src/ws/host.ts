@@ -485,8 +485,8 @@ export class WsHost {
       if (principalId === owner.principal_id) return true;
       try { return this.catalog.dialogueAudience?.(owner, principalId) === true; } catch { return false; }
     };
-    this.dialogue = new DialogueJournal(this.catalog, (page, owner) => {
-      this.clients.broadcast({ type: "dialogue_history", ...page }, undefined, "sessionDialogue", audience(owner));
+    this.dialogue = new DialogueJournal(this.catalog, (page, principalId, owner) => {
+      this.clients.broadcast({ type: "dialogue_history", ...page }, undefined, "sessionDialogue", owner ? audience(owner) : principalId);
     }, (owner, cause, kind) => {
       const finish=this.conversations?.storageFailing(owner.id);
       const message=cause === "storage_indeterminate" ? "Conversation text persistence could not be confirmed. Voice stopped; history may be incomplete. Restore storage before restarting voice." : kind === "backend" ? "Original discussion position could not be saved. The complete answer remains in chat history. Check storage before restarting voice." : cause === "queue_pressure" ? "Conversation text is arriving faster than it can be saved. Voice capture stopped at the pending-write limit. The unsaved tail is unavailable after reload. Let pending writes finish and check storage before restarting voice." : "Conversation text could not be saved. The unsaved tail is unavailable after reload. Restore storage before restarting voice.";
