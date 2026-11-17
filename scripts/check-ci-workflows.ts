@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { PROOF_SHARDS, shardNumbers, type ShardedDomain } from "./proof-shards";
 import { FEEDBACK_AGGREGATE } from "./heavy-feedback";
 import { CATEGORY_JOBS, FEEDBACK_GROUP, renderHeavyFeedbackWorkflow, sameWorkflow } from "./heavy-feedback-workflow";
+import { actionPinProblems, pinned } from "./action-pins";
 
 export const CI_WORKFLOWS = ["ci.yml", "contract.yml"] as const;
 const RUN_EXPRESSIONS = new Set(["matrix.shard", "github.event_name", "github.base_ref", "github.event.before"]);
@@ -134,6 +135,8 @@ export function checkCIWorkflows(root: string): string[] {
   if (files.includes("ci-timings.yml")) expected.push("ci-timings.yml");
   if (files.includes("heavy-feedback.yml")) expected.push("heavy-feedback.yml");
   if (JSON.stringify(files) !== JSON.stringify(expected.sort())) problems.push("GitHub must contain only authoritative CI, contract, project-sync, red-main coordination and optional Pages/timing/heavy-feedback workflows");
+  // Every workflow, authoritative or not, runs only reviewed action commits (#4111).
+  for (const file of files.filter(file => /\.ya?ml$/.test(file))) problems.push(...actionPinProblems(readFileSync(join(directory, file), "utf8"), file));
   const depot = join(root, ".depot/workflows");
   if (existsSync(depot) && readdirSync(depot).some(file => /\.ya?ml$/.test(file))) problems.push("Active Depot CI workflow definitions must be removed");
   for (const file of CI_WORKFLOWS) {
@@ -209,7 +212,7 @@ export function timingWorkflowProblems(text: string): string[] {
   if (!collection?.run?.includes('bun scripts/ci-timings.ts collect --repo "$TIMING_REPO" --since "$since" --seed "$TIMING_DEFAULT_BRANCH" --request-budget 200 --reserve 500 --reservations --red-main') ||
     /--resources\b/.test(collection.run) || collection.env?.TIMING_DEFAULT_BRANCH !== "${{ github.event.repository.default_branch }}") fail("timing collection requires seeded acquisition, a hard budget/reserve and no scheduled resource logs");
   for (const step of steps) if ((step.run ?? "").includes("${{") || /bun install/.test(step.run ?? "")) fail("collector scripts must not interpolate events or install candidate dependencies");
-  if (!steps.some(s => s.uses === "actions/upload-artifact@v7" && s.if === "always()" && s.with?.["retention-days"] === 90 && s.with?.path === "tmp/ci-timings/")) fail("bounded always-upload timing archive missing");
+  if (!steps.some(s => s.uses === pinned("actions/upload-artifact@v7") && s.if === "always()" && s.with?.["retention-days"] === 90 && s.with?.path === "tmp/ci-timings/")) fail("bounded always-upload timing archive missing");
   return errors;
 }
 
@@ -232,7 +235,7 @@ export function publicationWorkflowProblems(text: string): string[] {
   const steps = artifact?.steps ?? [];
   const checkouts = steps.filter(step => step.uses?.startsWith("actions/checkout@"));
   if (!checkouts.length || checkouts.some(step => step.with?.["persist-credentials"] !== false)) fail("checkout credentials must not persist");
-  const upload = steps.findIndex(step => step.uses === "actions/upload-pages-artifact@v4");
+  const upload = steps.findIndex(step => step.uses === pinned("actions/upload-pages-artifact@v4"));
   for (const command of ["bun website/scripts/check.ts", "bun website/scripts/verify-publication.ts"]) {
     const check = steps.findIndex(step => step.run === command);
     if (check < 0 || upload < 0 || check >= upload) fail("browser and identity checks must precede Pages artifact upload");
