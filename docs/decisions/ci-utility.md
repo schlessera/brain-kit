@@ -1100,8 +1100,9 @@ run. The pin no longer protected anything live:
   on the current tree in any case.
 - Any dependency change moved the installation hash and turned `unit` red. That
   needed a manual requalification run on a Docker host and a second merge
-  cycle. It happened three times (#3320, #3968, #4102), and the frozen
-  producer's SVG and PNG came out byte-identical every time.
+  cycle. Two requalifications ran (#3320, #3968), and the frozen producer's
+  SVG and PNG came out byte-identical both times; #4102 was the third
+  dependency change, blocked until this retirement.
 
 The binding (`scripts/native-diagram-inputs.ts`) and its self-test are
 removed, and the browser input closure no longer binds the producer's reads.
