@@ -86,6 +86,11 @@ export function LoginScreen({ reauth, onLocalCapture }: { reauth?: { revoked: bo
         setPasskeyAvailable(true);
         // Conditional UI (progressive enhancement): surface passkeys in the
         // password input's autofill. Runs once; a user cancel is not an error.
+        // It needs that input (`autoComplete="... webauthn"`), which renders
+        // only beside a password: without it the ceremony could never show and
+        // would only spend a login-options token and a challenge (#2555). The
+        // explicit passkey button is unaffected.
+        if (!methods.password) return;
         if (!(await supportsAutofill()) || signal.aborted) return;
         let finish = () => {};
         const conditionalApi = new Proxy(api, { get(target, property) {

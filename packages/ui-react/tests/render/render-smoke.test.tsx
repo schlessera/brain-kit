@@ -3538,6 +3538,24 @@ describe("authentication and passkey root ownership", () => {
     } finally { view.unmount(); reload.mockRestore(); a.root.dispose(); b.root.dispose(); }
   });
 
+  // Conditional UI attaches to the password field's `webauthn` autofill; with
+  // no field it would spend a login-options token for nothing (#2555).
+  for (const [methods, expected] of [[{ passkey: true, password: false }, 0], [{ passkey: true, password: true }, 1]] as const) {
+    test(`conditional UI asks for login options ${expected === 0 ? "never on a passkey-only screen" : "once beside the password field"}`, async () => {
+      const platform = browser(async () => true); const a = transport("alpha");
+      const warn = spyOn(console, "warn").mockImplementation(() => {});
+      const view = render(login(a.root));
+      try {
+        await reply(a.requests[0], methods);
+        await act(async () => { await flushPromises(); });
+        expect(a.matching("/auth/passkey/login-options", "POST")).toHaveLength(expected);
+        expect(view.queryByPlaceholderText("Password") !== null, "the webauthn field renders exactly when the ceremony starts").toBe(expected === 1);
+        expect(view.getByRole("button", { name: /passkey/i }), "the explicit passkey button stays").toBeTruthy();
+        expect(warn.mock.calls.filter((call) => String(call[0]).startsWith("[passkeys]"))).toEqual([]);
+      } finally { warn.mockRestore(); view.unmount(); platform.restore(); a.root.dispose(); }
+    });
+  }
+
   test("late autofill support cannot start a ceremony after switching roots", async () => {
     const support = deferred<boolean>(); const platform = browser(() => support.promise);
     const a = transport("alpha"); const b = transport("beta");
