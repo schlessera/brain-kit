@@ -235,7 +235,7 @@ const retire = (catalog: SessionCatalog, principalId: string, operationId: strin
   catalog.retireChat!({ operationId, principalId, target: { sessionId }, expected: { backendId: "claude", generation: 1 }, removableBackends: ["claude"], at: Date.now() }, () => false);
 const retireProvisional = (catalog: SessionCatalog, principalId: string, operationId: string, ownerId: string): Promise<RetireChatResult> =>
   catalog.retireChat!({ operationId, principalId, target: { ownerId }, expected: { backendId: null, generation: 1 }, removableBackends: [], at: Date.now() }, () => false);
-const UNAVAILABLE = { status: "refused", reason: "unavailable" }, UNAUTHORIZED = { status: "refused", reason: "unauthorized" };
+const UNAVAILABLE = { status: "refused", reason: "unavailable" } as const, UNAUTHORIZED = { status: "refused", reason: "unauthorized" } as const;
 const settle = (p: Promise<unknown>) => p.then(() => "written", (e: Error) => e.message);
 /**
  * The chat `ithaca`, typed on the ship, then continued by voice from the ship
