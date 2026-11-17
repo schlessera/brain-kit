@@ -8,8 +8,8 @@ import { Field, GitHubLink, githubHref, type GitHubState } from "./shared.js";
 
 /** Internal pieces shared by `GitHubPullRequest` and `GitHubIssue`. */
 
-/** The body's hard bound, from the design's truncation table. */
-const BODY_MAX_CHARS = 20_000;
+/** A read or posted body's hard bound, from the design's truncation table. */
+export const BODY_MAX_CHARS = 20_000;
 
 /** "1,840": a count in the reader-facing format, the same in every locale the kit renders in. */
 export function count(n: number): string {
@@ -70,6 +70,13 @@ export const DRAFT_SOURCE = { source: "this draft", sourcePhrase: "in this draft
 /** The caption every not-posted draft carries: Brain wrote it, and it is not on GitHub (W1, W4). */
 export const DRAFT_CAPTION = "Brain's draft · not posted";
 
+/**
+ * An issue or pull request body. A read or posted body keeps the design's
+ * 20,000-character bound and its "Truncated" note. A draft (`draft`, a
+ * not-posted preview) shows its whole text behind the same clamp: what is
+ * approved is what is posted, up to 65,536 characters (#4197, as #4154 did
+ * for the W4 comment preview).
+ */
 export function Body(p: { body?: string | null; author: string; bodyLength?: number; bodyTruncated?: boolean; htmlUrl?: string | null; draft?: boolean }) {
   if (!p.body) {
     return <p style={{ margin: 0, font: `400 12px/1.5 ${font.body}`, color: color.inkMute }}>— No description provided.</p>;
@@ -83,7 +90,7 @@ export function Body(p: { body?: string | null; author: string; bodyLength?: num
       lines={8}
       linesNarrow={10}
       expandLabel={`Show full description · ${count(length)} characters`}
-      maxChars={BODY_MAX_CHARS}
+      {...(p.draft ? {} : { maxChars: BODY_MAX_CHARS })}
       truncated={p.bodyTruncated}
       truncatedNote={
         !p.draft && githubHref(p.htmlUrl) ? (

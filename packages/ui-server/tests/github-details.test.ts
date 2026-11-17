@@ -301,6 +301,8 @@ describe("direct links", () => {
     const reviews = pageOf((await t.json(detailPath(8, "reviews"))).body) as Extract<GithubDetailPage, { part: "reviews" }>;
     expect(reviews.items.find(item => item.id === 504)!.html_url, "GITHUB_DETAIL_REVIEW_OTHER_HOST").toBeNull();
     expect(reviews.items.find(item => item.id === 501)!.html_url).toBe(`${WEB}/pull/8#pullrequestreview-501`);
+    // A display page counts nothing: its reviews satisfy the shared schema with an unknown count (#4147).
+    expect(reviews.items.map(item => item.line_comments), "GITHUB_DETAIL_REVIEW_COUNT_UNKNOWN").toEqual(reviews.items.map(() => null));
     const comments = pageOf((await t.json(detailPath(8, "review-comments"))).body) as Extract<GithubDetailPage, { part: "review-comments" }>;
     expect(comments.items.map(item => [item.id, item.html_url]), "GITHUB_DETAIL_REVIEW_COMMENT_ID_MISMATCH").toEqual([[801, `${WEB}/pull/8#discussion_r801`], [802, null]]);
     expect(comments.items[1]).toMatchObject({ review_id: null, in_reply_to_id: 801, line: null, path: "bow/string.ts" });

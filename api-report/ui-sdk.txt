@@ -8444,6 +8444,7 @@ signatures (every public export and the types it is made of)
             body_truncated: z.ZodBoolean;
             html_url: z.ZodNullable<z.ZodURL>;
             id: z.ZodNumber;
+            line_comments: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
             state: z.ZodEnum<{
                 approved: "approved";
                 changes_requested: "changes_requested";
@@ -8866,6 +8867,7 @@ signatures (every public export and the types it is made of)
                 body_truncated: z.ZodBoolean;
                 html_url: z.ZodNullable<z.ZodURL>;
                 id: z.ZodNumber;
+                line_comments: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
                 state: z.ZodEnum<{
                     approved: "approved";
                     changes_requested: "changes_requested";
@@ -9080,6 +9082,7 @@ signatures (every public export and the types it is made of)
         queryChars: 256;
         refChars: 255;
         requestedReviewers: 30;
+        reviewComments: 100;
         reviews: 100;
         searchDefault: 10;
         searchMax: 30;
@@ -9230,6 +9233,7 @@ signatures (every public export and the types it is made of)
                 body_truncated: z.ZodBoolean;
                 html_url: z.ZodNullable<z.ZodURL>;
                 id: z.ZodNumber;
+                line_comments: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
                 state: z.ZodEnum<{
                     approved: "approved";
                     changes_requested: "changes_requested";
@@ -9548,6 +9552,7 @@ signatures (every public export and the types it is made of)
                         body_truncated: z.ZodBoolean;
                         html_url: z.ZodNullable<z.ZodURL>;
                         id: z.ZodNumber;
+                        line_comments: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
                         state: z.ZodEnum<{
                             approved: "approved";
                             changes_requested: "changes_requested";
@@ -9747,6 +9752,7 @@ signatures (every public export and the types it is made of)
         body_truncated: z.ZodBoolean;
         html_url: z.ZodNullable<z.ZodURL>;
         id: z.ZodNumber;
+        line_comments: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
         state: z.ZodEnum<{
             approved: "approved";
             changes_requested: "changes_requested";

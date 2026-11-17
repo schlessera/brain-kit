@@ -23,6 +23,7 @@ const at = (day: number) => `2026-07-${String(day).padStart(2, "0")}T09:00:00Z`;
 const penelope = { login: "penelope", type: "User" };
 const telemachus = { login: "telemachus", type: "User" };
 const herald = { login: "herald[bot]", type: "Bot" };
+const DEFAULT_REVIEW_COMMENTS = [{ review: 501 }, { review: 501 }, { review: 503 }];
 const label = (name: string) => ({ id: name.length, name, color: "d4c5f9", description: `${name} on Ithaca`, default: false });
 
 export interface FakeGithubOptions {
@@ -31,6 +32,12 @@ export interface FakeGithubOptions {
   /** Override one path's response. */
   override?: (path: string, search: URLSearchParams) => Response | undefined;
   checks?: "mixed" | "none";
+  /**
+   * Line comments on pull request #8 (#4147), each naming its review; the
+   * stand-in pages them like GitHub does. Defaults to two on review 501 and
+   * one on 503.
+   */
+  reviewComments?: Array<{ review: number | null }>;
 }
 
 export interface FakeGithub {
@@ -57,6 +64,7 @@ export function fakeGithub(options: FakeGithubOptions = {}): FakeGithub {
     pull_request: { url: `${API}/pulls/8`, html_url: `${WEB}/pull/8`, merged_at: null } };
   const pull = { number: 8, draft: false, merged: false, merged_at: null, merged_by: null, merge_commit_sha: MERGE_SHA,
     head: { ref: "bow/string-it", sha: HEAD_SHA }, base: { ref: "main" }, requested_reviewers: [penelope], commits: 2,
+    review_comments: (options.reviewComments ?? DEFAULT_REVIEW_COMMENTS).length,
     additions: 120, deletions: 7, changed_files: 4, html_url: `${WEB}/pull/8` };
   const reviews = [
     { id: 501, user: penelope, state: "APPROVED", author_association: "OWNER", body: "Only Odysseus can string it.", submitted_at: at(3), html_url: `${WEB}/pull/8#pullrequestreview-501` },
@@ -64,6 +72,9 @@ export function fakeGithub(options: FakeGithubOptions = {}): FakeGithub {
     { id: 503, user: telemachus, state: "CHANGES_REQUESTED", author_association: "COLLABORATOR", body: "", submitted_at: at(5), html_url: `${WEB}/pull/8#pullrequestreview-503` },
     { id: 504, user: telemachus, state: "DISMISSED", author_association: "COLLABORATOR", body: null, submitted_at: at(6), html_url: `https://github.com.evil.example/odysseus/ithaca/pull/8#pullrequestreview-504` },
   ];
+  const reviewComments = (options.reviewComments ?? DEFAULT_REVIEW_COMMENTS).map(({ review }, index) => ({ id: 801 + index, pull_request_review_id: review,
+    in_reply_to_id: null, user: index % 2 ? telemachus : penelope, author_association: index % 2 ? "COLLABORATOR" : "OWNER", path: "bow/string.ts", line: 10 + index,
+    body: `Line comment ${801 + index}: the knot slips.`, created_at: at(3), updated_at: at(3), html_url: `${WEB}/pull/8#discussion_r${801 + index}` }));
   const commits = COMMIT_SHAS.map((sha, index) => ({ sha, html_url: `${WEB}/commit/${sha}`, author: index ? null : telemachus,
     commit: { message: `Wax the string ${index + 1}`, author: { name: "Telemachus", date: at(2 + index) } } }));
   const json = (body: unknown, init?: ResponseInit) => Response.json(body, init);
@@ -103,6 +114,9 @@ export function fakeGithub(options: FakeGithubOptions = {}): FakeGithub {
       case "/repos/odysseus/ithaca/issues/8/comments": return json([issueComment(8, 9101, "pull")]);
       case "/repos/odysseus/ithaca/pulls/8": return json(pull);
       case "/repos/odysseus/ithaca/pulls/8/reviews": return json(reviews);
+      case "/repos/odysseus/ithaca/pulls/8/comments":
+        return json(reviewComments.slice((page - 1) * perPage, page * perPage), page * perPage < reviewComments.length
+          ? { headers: { link: `<${API}/pulls/8/comments?per_page=${perPage}&page=${page + 1}>; rel="next"` } } : undefined);
       case "/repos/odysseus/ithaca/pulls/8/commits": return json(commits);
       case `/repos/odysseus/ithaca/commits/${HEAD_SHA}/check-runs`:
         return json(options.checks === "none" ? { total_count: 0, check_runs: [] } : { total_count: 4, check_runs: [

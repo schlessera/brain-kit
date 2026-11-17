@@ -447,6 +447,8 @@ export "./brand" (./src/brand.ts)
 export "./brand/*" (./assets/brand/*) [asset]
 
 export "./internal" (./src/internal.ts)
+  type CloseRequestOptions
+  type CloseRequestWatch
   LIGHT_TOKENS
   PRINT_TOKENS
   TOKENS
@@ -458,6 +460,7 @@ export "./internal" (./src/internal.ts)
   canvas
   mapViewBounds
   printThemeCss
+  watchCloseRequests
 
 export "./links" (./src/links.ts)
   LINK_URL_MAX

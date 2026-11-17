@@ -12,11 +12,10 @@ const archivePath=repo=>join(repo,"tmp/diagram-export-source.json");
 /** Path/mode/content identity is independent of checkout IDs and output roots. */
 export function diagramSourceIdentity(inputs){return digest(Buffer.from(JSON.stringify([...inputs].sort((a,b)=>a.path<b.path?-1:a.path>b.path?1:0).map(entry=>[entry.path,entry.mode,entry.sha256]))));}
 /** Materialize each invocation privately; the archive never selects an arbitrary root. */
-export function materializeDiagramExportSource(repo,state,checkout){
+export function materializeDiagramExportSource(repo,state){
  const raw=readFileSync(archivePath(repo));if(raw.length>32*1024*1024)throw Error("Unbounded native diagram source archive");
  const record=JSON.parse(raw.toString("utf8"));
  if(record.version!==2||typeof record.immutable!=="boolean"||JSON.stringify(record.domains)!==JSON.stringify(diagramSourceDomains)||!Array.isArray(record.inputs)||!record.inputs.length||record.inputs.length>10000)throw Error("Invalid native diagram source archive");
- if(checkout&&(record.immutable!==true||record.checkout!==checkout))throw Error("Native diagram archive does not match the actual immutable checkout");
  if(record.sourceIdentity!==diagramSourceIdentity(record.inputs))throw Error("NATIVE_EXPORT_SOURCE_INVENTORY_CHANGED");
  if(JSON.stringify(record.installation)!==JSON.stringify(diagramInstallationIdentity(repo)))throw Error("NATIVE_EXPORT_INSTALLED_INPUTS_CHANGED");
  const target=join(state,"source");if(existsSync(target))throw Error("Native diagram source view must be fresh");mkdirSync(target);

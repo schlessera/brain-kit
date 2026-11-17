@@ -85,6 +85,21 @@ describe("payloads", () => {
     expect(solid(props(pull.reviews!).items!.items!).properties!.state!.enum, "GITHUB_REVIEW_STATES_INCLUDE_DISMISSED").toContain("dismissed");
   });
 
+  test("a review's line-comment count is a nonnegative integer or null, and a review recorded without one still parses (#4147)", () => {
+    const review = { id: 501, author: { login: "penelope", is_bot: false, author_association: "OWNER" }, state: "approved", submitted_at: "2026-07-03T09:00:00Z",
+      body: null, body_length: 0, body_truncated: false, html_url: null };
+    const schema = GITHUB_PULL_REQUEST_SCHEMA.shape.reviews.shape.items.element;
+    for (const count of [0, 1, 100]) expect(schema.parse({ ...review, line_comments: count }).line_comments, `GITHUB_LINE_COMMENTS_EXACT ${count}`).toBe(count);
+    expect(schema.parse({ ...review, line_comments: null }).line_comments, "GITHUB_LINE_COMMENTS_UNKNOWN").toBeNull();
+    expect(schema.safeParse(review).success, "GITHUB_LINE_COMMENTS_LEGACY_ABSENT").toBe(true);
+    for (const bad of [-1, 1.5, "3", Number.NaN, Number.POSITIVE_INFINITY, true, {}])
+      expect(schema.safeParse({ ...review, line_comments: bad }).success, `GITHUB_LINE_COMMENTS_REFUSED ${String(bad)}`).toBe(false);
+    const field = props(solid(props(pull.reviews!).items!.items!)).line_comments!;
+    expect(solid(field).type, "GITHUB_LINE_COMMENTS_INTEGER").toBe("integer");
+    expect(nullable(field), "GITHUB_LINE_COMMENTS_NULLABLE").toBe(true);
+    expect(solid(props(pull.reviews!).items!.items!).required ?? [], "GITHUB_LINE_COMMENTS_OPTIONAL_FOR_LEGACY").not.toContain("line_comments");
+  });
+
   test("checks are counts or null, and null is distinct from zero", () => {
     const checks = GITHUB_PULL_REQUEST_SCHEMA.shape.checks;
     expect(Object.keys(props(solid(json(checks)))).sort()).toEqual(["failed", "passed", "running", "skipped"]);

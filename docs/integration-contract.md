@@ -20,6 +20,19 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Per-review line-comment counts (additive, 0.45.0, #4147)
+
+Each review in a `brain_github_issue_read` pull request result gains
+`line_comments`: the exact number of line comments on that review, or `null`
+when the host could not establish one. The host counts them from one bounded
+page of the pull request's review comments and never reports a partial total.
+A review in an internal detail page carries `null`, and a result recorded
+before 0.45.0 has no field, which reads as `null`.
+`GITHUB_LIMITS` gains `reviewComments` (100), the page the count is taken from.
+Field names, inputs and existing meanings are unchanged. See
+[the MCP component](integration-contract/mcp.md#per-review-line-comment-counts-additive-0450-4147).
+This ships in a minor.
+
 ## Extraction classifier setting (additive, 0.45.0, #4088)
 
 The governance policy gains optional `taint.classifier`, `off` (the default) or

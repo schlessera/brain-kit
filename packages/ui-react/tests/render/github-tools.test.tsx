@@ -652,3 +652,140 @@ describe("the approval card", () => {
     expect(getByRole("button", { name: /Post comment/ })).toBeTruthy();
   });
 });
+
+describe("line comments per review (#4147)", () => {
+  const base = pull().reviews.items[0]!;
+  const review = (id: number, login: string, line_comments: number | null | undefined, days: number) => {
+    const { line_comments: _absent, ...rest } = { ...base, line_comments: undefined };
+    return {
+      ...rest,
+      id,
+      author: author(login),
+      state: "commented" as const,
+      submitted_at: `2026-07-0${days}T09:00:00Z`,
+      body: `Review by ${login}.`,
+      body_length: 10 + login.length,
+      html_url: `https://github.com/ithaca/hall/pull/412#pullrequestreview-${id}`,
+      ...(line_comments === undefined ? {} : { line_comments }),
+    };
+  };
+  const reviews = (items: ReturnType<typeof review>[], more = false) => ({ reviews: { items, total_count: more ? null : items.length, has_more: more } });
+  const lineComment = (id: number, reviewId: number | null, login = "eurycleia") => ({
+    id,
+    review_id: reviewId,
+    in_reply_to_id: null,
+    author: author(login),
+    path: "armoury/bow.md",
+    line: 3,
+    created_at: "2026-07-05T09:00:00Z",
+    updated_at: "2026-07-05T09:00:00Z",
+    body: `Line note ${id} on review ${reviewId}.`,
+    body_length: 30,
+    body_truncated: false,
+    html_url: `https://github.com/ithaca/hall/pull/412#discussion_r${id}`,
+  });
+  const reviewComments = () => requested.filter((u) => u.includes("/review-comments"));
+  const article = (view: ReturnType<typeof output>, login: string) => within(view.container).getByRole("article", { name: `Review by @${login}` });
+  const press = async (target: HTMLElement) => {
+    await act(async () => fireEvent.click(target));
+    await act(async () => {});
+    await act(async () => {});
+  };
+
+  test("each known positive count shows its own control; zero, unknown and a legacy review show none, and nothing loads unasked", () => {
+    const view = output("read", envelope("read", pull(reviews([review(9101, "eurycleia", 2, 3), review(9102, "argos", 1, 4), review(9103, "mentor", 0, 5), review(9104, "medon", null, 6)]))));
+    expect(within(article(view, "eurycleia")).getByRole("button", { name: "Show 2 line comments" })).toBeTruthy();
+    expect(within(article(view, "argos")).getByRole("button", { name: "Show 1 line comment" })).toBeTruthy();
+    for (const login of ["mentor", "medon"]) expect(within(article(view, login)).queryByRole("button", { name: /line comment/ }), `no control for ${login}`).toBeNull();
+    const legacy = output("read", envelope("read", pull()));
+    expect(within(article(legacy, "eurycleia")).queryByRole("button", { name: /Show \d+ line comment/ }), "a result recorded before the count shows no count control").toBeNull();
+    expect(reviewComments(), "no detail request before the reader acts").toEqual([]);
+  });
+
+  test("the PR-wide section is retired when every review in a complete list has its count", () => {
+    const view = output("read", envelope("read", pull(reviews([review(9101, "eurycleia", 2, 3), review(9103, "mentor", 0, 5)]))));
+    expect(view.queryByRole("button", { name: /^Show line comments/ }), "LINE_COMMENTS_GLOBAL_FALLBACK_RETIRED").toBeNull();
+  });
+
+  test("a review's press loads only its own comments, under it, and another review's never appear", async () => {
+    // The page names a next one: the review's two are all there are, so nothing more is read.
+    answer = () => page("review-comments", [lineComment(801, 9101), lineComment(802, 9102, "argos"), lineComment(803, 9101)], "2");
+    const view = output("read", envelope("read", pull(reviews([review(9101, "eurycleia", 2, 3), review(9102, "argos", 1, 4)]))));
+    await press(within(article(view, "eurycleia")).getByRole("button", { name: "Show 2 line comments" }));
+    expect(reviewComments(), "one request after the press").toHaveLength(1);
+    const own = article(view, "eurycleia");
+    expect(own.textContent).toContain("Line note 801 on review 9101.");
+    expect(own.textContent).toContain("Line note 803 on review 9101.");
+    expect(view.container.textContent, "LINE_COMMENTS_FILTERED_TO_REVIEW").not.toContain("Line note 802");
+    expect(within(own).queryByRole("button", { name: /Load more/ }), "LINE_COMMENTS_STOP_AT_COUNT").toBeNull();
+    expect(within(article(view, "argos")).getByRole("button", { name: "Show 1 line comment" }), "the other review is still idle").toBeTruthy();
+  });
+
+  test("a sparse page is followed within one press, never past its bound, and 'Load more' says what is shown", async () => {
+    // Every page names a next one and holds only another review's comments.
+    answer = (url) => {
+      const at = Number(new URL(url, "http://x").searchParams.get("cursor") ?? "1");
+      return page("review-comments", [lineComment(900 + at, 9102, "argos")], String(at + 1));
+    };
+    const view = output("read", envelope("read", pull(reviews([review(9101, "eurycleia", 2, 3), review(9102, "argos", 9, 4)]))));
+    await press(within(article(view, "eurycleia")).getByRole("button", { name: "Show 2 line comments" }));
+    expect(reviewComments(), "LINE_COMMENTS_FOLLOW_BOUNDED").toHaveLength(4);
+    const own = article(view, "eurycleia");
+    expect(own.textContent).not.toContain("Line note 90");
+    expect(within(own).getByRole("button", { name: /Load more/ }).textContent, "a truthful continuation, not 'none'").toContain("0 of 2 shown");
+    await press(within(own).getByRole("button", { name: /Load more/ }));
+    expect(reviewComments(), "the next press reads the next bounded run").toHaveLength(8);
+    expect(reviewComments()[4], "it continues from where the last stopped").toContain("cursor=5");
+  });
+
+  test("a sparse run that finds the review's comments stops there", async () => {
+    answer = (url) => (url.includes("cursor=2") ? page("review-comments", [lineComment(811, 9101)], "3") : page("review-comments", [lineComment(810, 9102, "argos")], "2"));
+    const view = output("read", envelope("read", pull(reviews([review(9101, "eurycleia", 3, 3), review(9102, "argos", 1, 4)]))));
+    await press(within(article(view, "eurycleia")).getByRole("button", { name: "Show 3 line comments" }));
+    expect(reviewComments()).toHaveLength(2);
+    const own = article(view, "eurycleia");
+    expect(own.textContent).toContain("Line note 811 on review 9101.");
+    expect(view.container.textContent).not.toContain("Line note 810");
+    expect(within(own).getByRole("button", { name: /Load more/ }).textContent).toContain("1 of 3 shown");
+  });
+
+  test("a review whose comments are gone reads as empty, and one review's failure stays on that review", async () => {
+    answer = () => page("review-comments", [lineComment(820, 9102, "argos")]);
+    const view = output("read", envelope("read", pull(reviews([review(9101, "eurycleia", 2, 3), review(9102, "argos", 1, 4)]))));
+    await press(within(article(view, "eurycleia")).getByRole("button", { name: "Show 2 line comments" }));
+    expect(article(view, "eurycleia").textContent, "LINE_COMMENTS_EMPTY_FOR_REVIEW").toContain("GitHub returned no line comments for this review.");
+    answer = () => Response.json({ error: { code: "rate_limited", reason: "github", message: "Limited.", reset_at: null } }, { status: 429 });
+    await press(within(article(view, "argos")).getByRole("button", { name: "Show 1 line comment" }));
+    expect(article(view, "argos").textContent).toContain("request limit is used up");
+    expect(article(view, "eurycleia").textContent, "the first review keeps its own state").toContain("GitHub returned no line comments for this review.");
+    expect(article(view, "eurycleia").textContent).not.toContain("request limit");
+    answer = () => page("review-comments", [lineComment(821, 9102, "argos")]);
+    await press(within(article(view, "argos")).getByRole("button", { name: /Try again/ }));
+    expect(article(view, "argos").textContent, "a retry loads that review's comments").toContain("Line note 821 on review 9102.");
+  });
+
+  test("line comments still load when the result carries none of the PR's reviews, or a review's count is unknown", async () => {
+    answer = () => page("review-comments", [lineComment(830, 9201, "argos"), lineComment(831, 9101)]);
+    const none = output("read", envelope("read", pull(reviews([], true))));
+    await press(none.getByRole("button", { name: "Show line comments" }));
+    expect(none.container.textContent, "LINE_COMMENTS_WITHOUT_CARRIED_REVIEWS").toContain("Line note 830 on review 9201.");
+    cleanup();
+    requested.length = 0;
+    const partly = output("read", envelope("read", pull(reviews([review(9101, "eurycleia", 1, 3), review(9102, "argos", null, 4)]))));
+    await press(partly.getByRole("button", { name: "Show line comments of other reviews" }));
+    expect(partly.container.textContent, "a review with an unknown count is reached").toContain("Line note 830 on review 9201.");
+    expect(partly.container.textContent, "a counted review's comments stay on that review").not.toContain("Line note 831");
+  });
+
+  test("loading line comments leaves the chat store and the 'Brain read' line as they were", async () => {
+    answer = () => page("review-comments", [lineComment(840, 9101)]);
+    const view = output("read", envelope("read", pull(reviews([review(9101, "eurycleia", 1, 3)]))));
+    const store = roots.at(-1)!.stores.chat;
+    const before = JSON.stringify(store.getState());
+    const brainRead = view.container.textContent?.match(/Brain read[^.]*\./)?.[0];
+    await press(within(article(view, "eurycleia")).getByRole("button", { name: "Show 1 line comment" }));
+    expect(view.container.textContent).toContain("Line note 840 on review 9101.");
+    expect(JSON.stringify(store.getState()), "LINE_COMMENTS_DISPLAY_ONLY").toBe(before);
+    expect(view.container.textContent?.match(/Brain read[^.]*\./)?.[0]).toBe(brainRead);
+  });
+});

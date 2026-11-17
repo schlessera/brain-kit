@@ -342,6 +342,13 @@ test("subagent Escape pops one level without remounting and focuses the new Back
 
 for (const destination of ["files", "settings"] as const) test(`${destination} pane: Escape respects inner prevention and modal stacking`, async ctx => {
   // Mutations: delete the pane listener, ignore defaultPrevented, or ignore openModal.
+  // The guards below are dispatched as synthetic (untrusted) Escapes, which
+  // never raise a close request: they are the keydown fallback's guards, so
+  // the test runs where that fallback is the path, without CloseWatcher
+  // (#2577). The watcher path's guards are in close-requests.pointer.tsx.
+  const closeWatcher = Object.getOwnPropertyDescriptor(window, "CloseWatcher");
+  Reflect.deleteProperty(window, "CloseWatcher");
+  ctx.onTestFinished(() => { if (closeWatcher) Object.defineProperty(window, "CloseWatcher", closeWatcher); });
   const s = await mount(ctx, 1280);
   flushSync(() => {
     if (destination === "settings") s.ui.stores.ui.getState().setSettingsTab("appearance");
