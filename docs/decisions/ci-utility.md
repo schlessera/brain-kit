@@ -1699,7 +1699,7 @@ stay pre-merge; heavy categories move to the squash's own main run.
   `unit` (complete affected unit/integration discovery, unchanged). It no
   longer runs `runtime`, `runtime_host`, `browser`, `layout`, `captures` or
   `endurance`. The exclusion lives in one place:
-  `proofSelections` (`scripts/ci-plan.ts:434-446`) applies
+  `proofSelections` (`scripts/ci-plan.ts:445-457`) applies
   `POST_MERGE_CATEGORIES` (`scripts/red-main.ts:20-25`). Candidate admission,
   the aggregate and the merge path validate that same selection, so none of
   them can require a post-merge category.
@@ -1764,16 +1764,16 @@ Proof content does not change.
   run needs no more runners than before.
 - **One owner.** One table holds both caps (`UNIT_PARTITIONS`,
   `scripts/proof-shards.ts:17`). The planner reads it by cadence (`unitShards`,
-  `scripts/ci-plan.ts:395-397`) and publishes the partition numbers as
+  `scripts/ci-plan.ts:406-408`) and publishes the partition numbers as
   `unit_shards`. The `unit` matrix is that output, and each partition's divisor
   is the matrix size. The hosted aggregate plans again and refuses a published
   set that differs from the plan (`selections.unit`,
   `scripts/candidate-proof.ts:68`). The merge path accepts only a job inventory
   that matches the confirmed set, bounded by the confirmation cap
-  (`unitPartitionLimit("confirmation")`, `scripts/integration-proof.ts:125-126`).
+  (`unitPartitionLimit("confirmation")`, `scripts/integration-proof.ts:127-128`).
   `bun run lint` refuses a literal matrix, a second matrix dimension or a
   literal divisor (`The unit partition count has one owner`,
-  `scripts/check-ci-workflows.ts:97-105`). The weight refresh takes its job
+  `scripts/check-ci-workflows.ts:100-108`). The weight refresh takes its job
   count from the same table.
 - **Fewer files than partitions.** A selected inventory smaller than the cap
   gets one partition per file. No partition is empty and no file runs twice
@@ -1936,27 +1936,25 @@ test more than once before it merged.
 - **What runs.** `bun scripts/test-determinism.ts --base <ref>` selects the
   Bun test files under `packages/` and `tests/` that the change adds or
   modifies against its merge base (`determinismTests`,
-  `scripts/ci-plan.ts:323-328`). It runs them in one invocation of the offline
+  `scripts/ci-plan.ts:318-323`). It runs them in one invocation of the offline
   wrapper with Bun's `--rerun-each=<n> --bail=1` (`repetitionArgv`,
-  `scripts/test-determinism.ts:93-96`), so the offline preload applies and
+  `scripts/test-determinism.ts:53-56`), so the offline preload applies and
   preparation builds once. One busy loop per CPU runs for the duration. Each
   is killed by PID on every exit path, and exits by itself if its parent dies
-  (`startBurners`, `scripts/test-determinism.ts:145-160`). The first failing
+  (`startBurners`, `scripts/test-determinism.ts:105-120`). The first failing
   repetition fails the command, which names the file, the repetition and the
   case. A passing run must also show every repetition in Bun's test report.
-- **Bounded.** Five repetitions by default, within a budget of 600 seconds of
+- **Bounded.** Five repetitions by default, within a budget of 300 seconds of
   the reviewed weights in `scripts/test-shard-costs.json`. When five do not
   fit, every file gets the same reduced count, down to a floor of two
-  (`planRepetitions`, `scripts/test-determinism.ts:71-90`). A selection too
-  heavy for the floor still runs every file twice and is reported over budget.
-  No selected file is skipped; the report lists each one with the repetitions
-  it got. Over 150 merges before the gate, 142 selections fit five
-  repetitions. A selection too heavy for the job's step limit is
-  [#4117](https://github.com/schlessera/brain-kit/issues/4117).
+  (`planRepetitions`, `scripts/determinism-plan.ts:45-65`). No selected file
+  is skipped; the report lists each one with the repetitions it got. The
+  budget is one job's capacity, so a selection too heavy for the floor is
+  [split across partitions](#an-oversized-selection-is-split-by-reviewed-weight).
 - **Two repetitions at ready confirmation.** The maintainer ruled on
   2026-11-17 ([#4137](https://github.com/schlessera/brain-kit/issues/4137))
   that ready confirmation runs the floor of two, and every other cadence keeps
-  five (`repetitionsFor`, `scripts/test-determinism.ts:41-43`). The merge lease
+  five (`repetitionsFor`, `scripts/determinism-plan.ts:22-24`). The merge lease
   is held while confirmation runs. In run 44017250694 the job took 1,236
   seconds at five repetitions, against 979 for the slowest of eight `unit`
   partitions, and the lease was held about 25 minutes. The draft head has
@@ -1968,7 +1966,7 @@ test more than once before it merged.
 - **Where it is required.** The hosted `determinism` job is selected whenever
   the plan lists such a file, at every pull-request cadence: draft, ready
   `synchronize` feedback and ready confirmation. Draft heavy feedback runs it
-  too (`proofSelections`, `scripts/ci-plan.ts:441-453`). This amends "drafts
+  too (`proofSelections`, `scripts/ci-plan.ts:445-457`). This amends "drafts
   run cheap gates only" for this one job, so the
   [fast lane](#fast-lane-outside-the-core-packages)'s newest run includes it.
   `draft gates`, `proof` and the merge path require it when selected and
@@ -1994,8 +1992,111 @@ GitHub Actions Bun prints each run's header as a `::group::` annotation, which
 the failure parser did not read, so the failure was reported without its file
 and repetition. The parser reads both forms now. That run took 552 seconds
 for about 174 weighted seconds, a ratio of about 3.2 under four burners on
-four CPUs, so a selection at the 600-second budget needs about 32 minutes of
-the 40-minute step limit.
+four CPUs. One run was not a calibration:
+[the later runs](#an-oversized-selection-is-split-by-reviewed-weight) measured
+up to 6.84, and the budget was lowered from 600 to 300 seconds.
+
+### An oversized selection is split by reviewed weight
+
+The maintainer ruled on 2026-11-17
+([#4117](https://github.com/schlessera/brain-kit/issues/4117)) that a
+selection too heavy for one job is sharded by reviewed weight, as `unit` is.
+Running workers inside one job and an exception path for large migrations
+were declined: the first shares the job's CPUs with the burners, the second
+weakens a gate that is otherwise the same for every pull request.
+
+**Why.** The job ran the whole selection in one invocation under a 40-minute
+step limit. Over the 150 merges before the gate, four selections weighed more
+than 600 seconds per pass. The largest was a 388-file fixture migration of
+about 1,327 seconds per pass, 2,654 at the floor of two. Such a selection
+could only fail by timeout, and the pull request had no way through the gate
+except splitting the change.
+
+- **One owner.** The table (`DETERMINISM_PARTITIONS`, `scripts/proof-shards.ts:44`) holds
+  one job's capacity (300 weighted seconds at the selection's repetition
+  count), the maximum of ten partitions, the 40-minute step limit and the
+  measured load ratio. The repetition budget is that capacity
+  (`BUDGET_SECONDS`, `scripts/determinism-plan.ts:29`).
+- **Count first, then partitions.** The count is decided over the whole
+  selection, as before. A selection that fits one job at that count stays one
+  job, and its command and report are unchanged. Otherwise the planner takes
+  the fewest partitions, balanced longest file first, in which every partition
+  fits the capacity (`planPartitions`, `scripts/determinism-plan.ts:78-99`).
+  Because the budget is the capacity, a selection is only ever split at the
+  floor of two, and each partition is told that count. Every file is in
+  exactly one partition.
+- **A file cannot be split.** A file whose two repetitions alone exceed the
+  capacity runs in a partition by itself.
+- **Beyond the maximum.** A selection that needs more than ten partitions is
+  refused by the planner, in the metadata job, before any partition starts.
+  The message names the selection's weight and the limit. Nothing is skipped
+  and the count is never reduced below the floor: the change has to be split.
+- **Wiring.** The planner publishes the partition numbers as
+  `determinism_shards` (`determinismShards`, `scripts/ci-plan.ts:415-418`).
+  The `determinism` matrix is that output, and each partition's divisor is the
+  matrix's own job total, so neither is written in the workflow. Each
+  partition's command reads its files from the same plan and refuses a divisor
+  that is not the planned count (`determinismPartition`,
+  `scripts/ci-proof.ts:22-26`). The hosted aggregate refuses a published set
+  that differs from the planned one (`validateSelections`,
+  `scripts/candidate-proof.ts:54-71`). The merge path requires one successful
+  `determinism (n)` job for every published number and no other
+  (`name === "determinism"`, `scripts/integration-proof.ts:129-134`). `bun run lint` refuses a literal
+  matrix, a literal divisor, a shared artifact name or a step limit other
+  than the owner's.
+
+**Calibration.** The job's own reports give elapsed seconds under load against
+estimated weighted seconds. Between its first run and this ruling, 35 hosted
+jobs produced a report, all on 2026-11-17, all with four burners on four
+CPUs: 32 passed and 3 failed. Five passing jobs repeated at least 90 weighted
+seconds, enough for the weights to dominate the result:
+
+| Run | Pull request | Cadence | Files | Count | Estimated (s) | Elapsed (s) | Ratio |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 43989701310 | #4134 | draft | 8 | 5 | 174.2 | 624.8 | 3.59 |
+| 43991629934 | #4134 | draft | 16 | 5 | 194.0 | 1,048.2 | 5.40 |
+| 44017250694 | #4134 | confirmation | 14 | 5 | 193.0 | 1,142.1 | 5.92 |
+| 44020374567 | #4132 | confirmation | 7 | 5 | 221.3 | 888.7 | 4.02 |
+| 44039499653 | #4145 | draft | 2 | 5 | 94.4 | 645.9 | 6.84 |
+
+The first run, 43986946575, failed in its last file after 552 seconds for the
+same 174.2 estimated seconds (3.17). The first confirmation at two
+repetitions, run 44036241499 on #4143, took 20.8 seconds for 11.4 estimated
+(1.82). The other 26 passing jobs estimated 7.1 seconds or less; there a new
+file without a reviewed weight decides the time. Seven runs of #4002
+estimated 2.0 to 3.1 seconds and took 226 to 400, because each new file cost
+22 to 34 seconds per pass and weighs the 0.1-second default.
+
+Per file the ratio is not constant. Across these reports a file with a
+reviewed weight of at least one second ran between 1.1 times its weight (a
+test that mostly waits) and 6.9 times (`tests/integration-command.test.ts`,
+18.8 weighted seconds, 129 seconds per pass under load).
+
+**The numbers.** The largest whole-job ratio, 6.84, sets the capacity: 300
+weighted seconds take 2,052 seconds at that ratio, 34 of the 40 minutes, and
+27 minutes at the median of 5.40. The earlier 600-second budget needed 68
+minutes at 6.84 and 54 at the median, so it never fitted its own step limit;
+the step limit stays at 40 minutes and the budget drops to the capacity. A
+test asserts that capacity times the recorded ratio fits the step limit. Ten
+partitions hold 3,000 weighted seconds at the floor. The largest observed
+selection plans nine, and ten keeps a confirmation's job inventory inside the
+merge path's bound of 30.
+
+**Accepted cost.** Five repetitions now fit only while one pass weighs at most
+60 seconds, down from 120. Replaying the same 150 merges with today's weights,
+111 select a file: 100 run five repetitions, 3 run three or four, and 8 run
+two. Of those eight, six are split (five into two or three partitions, the
+migration into nine) and two are a single file. An oversized selection costs
+up to ten runners for its two repetitions.
+
+**Known limit.** All eight contain a real-browser runtime test whose two
+repetitions alone exceed the capacity; the heaviest weighs 349.7 seconds per
+pass. Sharding cannot help a single file. It runs alone, at the floor, and no
+hosted run has yet measured whether it finishes inside the step limit
+([#4156](https://github.com/schlessera/brain-kit/issues/4156)). The five
+calibration runs are all tooling and backend tests; a refreshed weight table
+or a different mix of tests changes the ratio, and the capacity is to be
+recalibrated from the reports then.
 
 **Known limits.** Repetitions of one file share a process. Bun 1.4.2 evaluates
 the module again for each run, but `globalThis` and process state persist, so a
