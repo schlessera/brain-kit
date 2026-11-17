@@ -33,7 +33,7 @@ the extracted files with installed bytes. An unchanged lockfile or a single-link
 copy alone proves neither provenance nor pristine package bytes.
 
 Keep the original and recovered observations separate. Do not change package
-versions, locks, assertions, qualification pins or file modes to force a pass.
+versions, locks, assertions or file modes to force a pass.
 Rebuild as required and rerun the original focused check through its offline
 wrapper.
 Once evidence is retained and no process uses it, remove only the owned old

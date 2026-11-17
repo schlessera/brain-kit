@@ -1055,8 +1055,9 @@ mounts qualify the mount restriction.
 
 Only a successful, drained native process publishes its artifact identities into
 a fresh per-launch handoff directory. The browser validates the preparation
-session, checkout, source/installation/runtime identities and all three artifact
-hashes, writes those exact validated bytes into its private consumer view, then
+session, checkout and all three artifact hashes, and the source, installation
+and runtime identities when a caller supplies expected ones (since #4105 none
+does). It writes those exact validated bytes into its private consumer view, then
 retains the original SVG/reference zero-request replay and
 raster/font/PDF assertions. Different launches never share a prepared output root.
 The browser-side pinned font cache remains a separately owned browser input.
@@ -1074,16 +1075,21 @@ run. The pin no longer protected anything live:
   on the current tree in any case.
 - Any dependency change moved the installation hash and turned `unit` red. That
   needed a manual requalification run on a Docker host and a second merge
-  cycle. It happened three times (#3320, #3968, #4102), and the frozen
-  producer's SVG and PNG came out byte-identical every time.
+  cycle. Two requalifications ran (#3320, #3968), and the frozen producer's
+  SVG and PNG came out byte-identical both times; #4102 was the third
+  dependency change, blocked until this retirement.
 
 The binding (`scripts/native-diagram-inputs.ts`) and its self-test are
 removed, and the browser input closure no longer binds the producer's reads.
 The browser domain therefore always runs fresh. This supersedes the
 requalification rulings of 2026-11-02 (#2509/#3320) and 2026-11-11 (#3968).
-The container boundary above, the producer's own run-time identity checks and
-the browser's validation of the handoff are unchanged. Local proof is not a
-hosted baseline or permission to use a failed workflow.
+The container boundary above, the producer's own run-time checks and the
+browser's validation of the handoff session, checkout and artifact hashes are
+unchanged. The comparisons against an expected source, installation or
+runtime identity (`diagram-export-command.ts`, `prepare-diagram-export-source.mjs`,
+`ci-proof.ts`) took that identity from the retired binding, so they no longer
+run. Local proof is not a hosted baseline or permission to use a failed
+workflow.
 
 
 Discovery has a fixed 30-second wall-clock maximum for the native child to exit
