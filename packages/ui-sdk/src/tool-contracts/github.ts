@@ -65,6 +65,11 @@ export const GITHUB_LIMITS = Object.freeze({
   /** Items returned per bounded list. */
   comments: 30,
   reviews: 100,
+  /**
+   * Line comments a pull request read counts per review (#4147): one page of
+   * them. Past it, every review's `line_comments` is null (unknown).
+   */
+  reviewComments: 100,
   commits: 30,
   labels: 30,
   requestedReviewers: 30,
@@ -208,6 +213,14 @@ export const GITHUB_REVIEW_SCHEMA = z.strictObject({
   submitted_at: timestamp.nullable(),
   ...bodyFields(GITHUB_LIMITS.commentBodyChars),
   html_url: directUrl,
+  /**
+   * How many line comments the review has (#4147): an exact total counted
+   * from the pull request's review comments, or null when the host could not
+   * establish one (more than one bounded page, a comment that names no
+   * review, or a page it could not read). Absent on a result recorded before
+   * 0.45.0, which reads as null. Never a partial count.
+   */
+  line_comments: count.nullable().optional(),
 });
 
 /** The latest review state per reviewer: a later comment never hides an approval, a request for changes or a dismissal. */

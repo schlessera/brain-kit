@@ -701,6 +701,15 @@ input and forwards `{ tool, input }` to the optional new
 [the MCP component](mcp.md#host-github-tools-additive-0450-3797). No existing
 export changes.
 
+## Per-review line-comment counts (additive, 0.45.0, #4147)
+
+`@schlessera/brain-ui-sdk/tool-contracts` adds the optional, nullable
+`line_comments` field to `GITHUB_REVIEW_SCHEMA` (and so to `GithubReview` and
+every payload and detail page that holds a review), and
+`GITHUB_LIMITS.reviewComments` (100). Shapes and the counting rules are in
+[the MCP component](mcp.md#per-review-line-comment-counts-additive-0450-4147).
+No existing export changes.
+
 ## GitHub detail-page types (additive, 0.45.0, #3796)
 
 `@schlessera/brain-ui-sdk/tool-contracts` (re-exported from `/server`) adds
