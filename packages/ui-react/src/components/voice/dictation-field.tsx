@@ -123,16 +123,12 @@ export function DictationNotices({ onConfirm, onCancel, onOpenSettings, onRetry,
     else if (form === "Dx0") focusButton(ref.current, "OK");
   }, [form]);
 
-  useEffect(() => {
-    if (!form) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
-      event.preventDefault();
-      onCancel();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [form, onCancel]);
+  // Esc, or Android back, is Cancel on a gate notice (#2577), as it was on
+  // the dictation sheet these notices replaced.
+  useCloseRequest(form !== null, () => {
+    onCancel();
+    return true;
+  });
 
   if (gate?.kind === "consent") {
     return (

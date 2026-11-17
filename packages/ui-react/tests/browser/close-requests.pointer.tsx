@@ -23,7 +23,7 @@ import { ChatPage } from "../../src/components/chat/chat-page.js";
 import { SlidePanel } from "../../src/components/layout/slide-panel.js";
 import { ShareMenu } from "../../src/components/share/share-menu.js";
 import { PasskeyList } from "../../src/components/settings/passkey-list.js";
-import { DictationCapture } from "../../src/components/voice/dictation-field.js";
+import { DictationCapture, DictationNotices } from "../../src/components/voice/dictation-field.js";
 import { useVoiceStore } from "../../src/voice/voice-store.js";
 
 class FixtureSocket {
@@ -247,6 +247,30 @@ test("a dictation take that is finishing survives a close request; once it is no
   expect(seen.closed).toBe(2);
 });
 
+test("a dictation gate notice takes a close request as Cancel, once", async ctx => {
+  const seen = spyCloseWatcher(ctx);
+  const host = document.createElement("div");
+  document.body.append(host);
+  const voice = useVoiceStore.getState();
+  ctx.onTestFinished(() => { useVoiceStore.setState(voice, true); });
+  const cancels: number[] = [];
+  const renderer = createRoot(host);
+  ctx.onTestFinished(() => { flushSync(() => renderer.unmount()); host.remove(); });
+  flushSync(() => renderer.render(<DictationNotices onConfirm={() => {}} onCancel={() => { cancels.push(1); useVoiceStore.setState({ dictationGate: null }); }} onOpenSettings={() => {}} onRetry={() => {}} onDismiss={() => {}} />));
+  // A blocked take's notice (Dx1: choose a service) opens from the mic press.
+  const start = document.createElement("button");
+  start.textContent = "Dictate";
+  start.onclick = () => flushSync(() => useVoiceStore.setState({ dictationGate: { kind: "blocked", reason: "choose", saved: null } }));
+  host.append(start);
+  await userEvent.click(start); await frame();
+  expect(host.querySelector('[data-dictation-notice="Dx1"]'), "the blocked-take notice shows").not.toBeNull();
+  expect(seen.created, "the notice holds a close watcher").toBeGreaterThan(0);
+  await userEvent.keyboard("{Escape}"); await frame();
+  expect(cancels, "Cancel, once").toEqual([1]);
+  expect(seen.closed, "through the notice's watcher").toBe(1);
+  expect(host.querySelector('[data-dictation-notice="Dx1"]')).toBeNull();
+});
+
 test("arm and disarm: a disarmed surface lets the close request reach the page, re-arming restores exactly one dismissal per request", async ctx => {
   const seen = spyCloseWatcher(ctx);
   // The page's own watcher, beneath the surface: what Android back reaches
@@ -289,6 +313,32 @@ test("arm and disarm: a disarmed surface lets the close request reach the page, 
   expect(dismissals, "second request: one more, the re-armed watcher was not grouped away").toBe(2);
   expect(reachedPage, "the page saw neither").toBe(1);
   expect(seen.created, "one watcher per arming").toBeGreaterThanOrEqual(3);
+});
+
+test("repeated refusals re-arm without joining the surface beneath: one action per request", async ctx => {
+  // A surface that refuses (a finishing take, closedBy="none") re-arms with a
+  // watcher created inside the close event, with no new user activation. It
+  // must stay its own step: the surface beneath (a pane under the take) is
+  // never closed along with it, however many requests it refuses.
+  spyCloseWatcher(ctx);
+  let lower = 0, upper = 0, upperCloses = false;
+  const openLower = document.createElement("button"); openLower.textContent = "Open the pane";
+  const openUpper = document.createElement("button"); openUpper.textContent = "Start the take";
+  document.body.append(openLower, openUpper);
+  let a: ReturnType<typeof watchCloseRequests> | null = null, b: ReturnType<typeof watchCloseRequests> | null = null;
+  openLower.onclick = () => { a = watchCloseRequests(document, () => { lower++; return true; }, { escape: false }); };
+  openUpper.onclick = () => { b = watchCloseRequests(document, () => { upper++; return upperCloses; }, { escape: false }); };
+  ctx.onTestFinished(() => { a?.destroy(); b?.destroy(); openLower.remove(); openUpper.remove(); });
+  await userEvent.click(openLower); await userEvent.click(openUpper);
+  for (let i = 1; i <= 8; i++) {
+    await userEvent.keyboard("{Escape}"); await frame();
+    expect([upper, lower], `refusal ${i} reached only the upper surface`).toEqual([i, 0]);
+  }
+  upperCloses = true;
+  await userEvent.keyboard("{Escape}"); await frame();
+  expect([upper, lower], "the upper surface closes on its own").toEqual([9, 0]);
+  await userEvent.keyboard("{Escape}"); await frame();
+  expect([upper, lower], "the next request reaches the surface beneath").toEqual([9, 1]);
 });
 
 test("a disarmed surface with the Escape fallback still closes on Escape, and the page does not also take it", async ctx => {
