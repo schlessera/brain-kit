@@ -169,7 +169,7 @@ fi`); chmodSync(shim, 0o755);
     const refs=${JSON.stringify(refs)}, body=${JSON.stringify(body)}, probes=${JSON.stringify({ 401: probeLog(401), 402: probeLog(402) })};s.reads??=[];
     const mainRuns=${JSON.stringify(mainRuns)}, qualificationRuns=${JSON.stringify(qualificationRuns)};
     const repo="odysseus/brain-kit", base=candidate.base, head=candidate.head, squash=${JSON.stringify(squash)};
-    const categories=["verify","pack","unit","browser","layout","captures","runtime","runtime_host","endurance","determinism"];
+    const categories=["verify","pack","unit","browser","layout","captures","runtime","runtime_host","endurance","determinism","browser_determinism"];
     const selected={selections:Object.fromEntries(categories.map(x=>[x,"false"])),results:Object.fromEntries(categories.map(x=>[x,"skipped"])),retained:[],unitShards:null};
     if(s.mode.startsWith("browser-")){selected.selections.browser="true";selected.results.browser="success";}
     if(s.mode==="receipt-uncovered"){selected.selections.unit="false";}
