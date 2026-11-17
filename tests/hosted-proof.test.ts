@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { categoryCommands, proofProblems, PROOF_JOBS, unitFiles } from "../scripts/ci-proof";
-import { planChecks, proofSelections, workspaces, type Workspace } from "../scripts/ci-plan";
+import { planChecks, proofSelections, unitShards, workspaces, type ProofCadence, type Workspace } from "../scripts/ci-plan";
 import { discoverTests } from "../scripts/test-shards";
 import { localChecks } from "../scripts/check-pr";
 import { checkout } from "../scripts/proof-inputs";
@@ -107,6 +107,30 @@ test("affected complete discovery admits new files and reverse dependencies with
   // The experiment tier runs before a release, not in hosted unit proof (#1386).
   expect(unitFiles(global, dir)).not.toContain("experiments/harness.test.ts");
   expect(() => unitFiles(plan, dir, "3/2")).toThrow("Invalid proof shard");
+});
+
+test("eight confirmation partitions run the files four main partitions run, each exactly once (#4108)", () => {
+  const complete = planChecks(["package.json"], workspaces(ROOT));
+  // Each hosted partition calls unitFiles with its own number over the matrix size.
+  const partitions = (cadence: ProofCadence, plan = complete) => {
+    const shards = unitShards({ ...plan, cadence });
+    return shards.map(shard => unitFiles({ ...plan, cadence }, ROOT, `${shard}/${shards.length}`));
+  };
+  const discovered = discoverTests(ROOT, ["packages", "tests"]);
+  expect(discovered.length).toBeGreaterThan(100);
+  for (const [cadence, count] of [["confirmation", 8], ["feedback-heavy", 8], ["integrated", 4], ["exhaustive", 4]] as const) {
+    const sets = partitions(cadence);
+    expect(sets, `PARTITION_COUNT: ${cadence}`).toHaveLength(count);
+    expect(sets.every(files => files.length > 0), `NONEMPTY: ${cadence}`).toBe(true);
+    // Sorted equality with the duplicate-free discovery refuses an omitted, repeated or foreign file.
+    expect(sets.flat().sort(), `EXACTLY_ONCE: ${cadence}`).toEqual([...discovered].sort());
+  }
+  // A selected inventory smaller than the cap gets one nonempty partition per file.
+  const narrow = { ...planChecks(["packages/core/src/index.ts"], workspaces(ROOT)), unitTests: discovered.slice(0, 5) };
+  expect(narrow.global).toBe(false);
+  const few = partitions("confirmation", narrow);
+  expect(few.map(files => files.length), "ONE_FILE_PER_PARTITION").toEqual([1, 1, 1, 1, 1]);
+  expect(few.flat().sort()).toEqual(discovered.slice(0, 5).sort());
 });
 
 test("hosted global commands retain the full local inventory and real offline namespaces", () => {

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { API } from "./proof-reuse";
 import type { Checkout } from "./proof-inputs";
+import { unitPartitionLimit } from "./proof-shards";
 
 export interface UnitEvidenceAPI extends API {
   archive(id: number): Promise<{ digest: string; files: Record<string, string> }>;
@@ -20,7 +21,9 @@ export function assertWeightedLongFiles(milliseconds: Readonly<Record<string, nu
   }
 }
 
-/** Require four fresh successful jobs, immutable source and complete completed-file partitions. */
+/** Require every planned partition as a fresh successful job, immutable source and complete
+ * completed-file partitions. An exhaustive selection always fills its cadence's cap, and the
+ * only pull_request run with unit jobs is a ready confirmation (`UNIT_PARTITIONS`, #4108). */
 export async function refreshUnitCosts(run: number, attempt: number, api: UnitEvidenceAPI) {
   const info = await api.json(`actions/runs/${run}/attempts/${attempt}`);
   if (info.id !== run || info.run_attempt !== attempt || info.status !== "completed" || info.conclusion !== "success" ||
@@ -32,10 +35,12 @@ export async function refreshUnitCosts(run: number, attempt: number, api: UnitEv
   const milliseconds: Record<string, number> = {}, observations = [];
   const jobIDs = new Set<number>();
   let identity: Checkout | undefined;
-  for (let shard = 1; shard <= 4; shard++) {
+  const total = unitPartitionLimit(info.event === "pull_request" ? "confirmation" : undefined);
+  if (page.jobs.filter((j: any) => /^unit \(\d+\)$/.test(j?.name)).length !== total) throw new Error(`Exactly ${total} fresh successful unit jobs required`);
+  for (let shard = 1; shard <= total; shard++) {
     const jobs = page.jobs.filter((j: any) => j.name === `unit (${shard})`), job = jobs[0];
     const steps = job?.steps?.filter((s: any) => s.name === "Complete unit proof"), step = steps?.[0];
-    if (jobs.length !== 1 || !Number.isSafeInteger(job.id) || jobIDs.has(job.id) || job.run_id !== run || job.head_sha !== info.head_sha || job.status !== "completed" || job.conclusion !== "success" || steps.length !== 1 || step.status !== "completed" || step.conclusion !== "success") throw new Error("Four fresh successful unit jobs required");
+    if (jobs.length !== 1 || !Number.isSafeInteger(job.id) || jobIDs.has(job.id) || job.run_id !== run || job.head_sha !== info.head_sha || job.status !== "completed" || job.conclusion !== "success" || steps.length !== 1 || step.status !== "completed" || step.conclusion !== "success") throw new Error(`Exactly ${total} fresh successful unit jobs required`);
     jobIDs.add(job.id);
     const found = artifacts.artifacts.filter((a: any) => a.name === `unit-proof-${shard}`), artifact = found[0];
     const created = Date.parse(artifact?.created_at);
@@ -45,7 +50,7 @@ export async function refreshUnitCosts(run: number, attempt: number, api: UnitEv
     const receipt = JSON.parse(archive.files["proof-checkout.json"]!), timings = JSON.parse(archive.files["unit-timings.json"]!);
     const log = (await api.log(job.id)).replace(/\u001b\[[0-9;]*[A-Za-z]/g, "");
     const checkouts = [...log.matchAll(/git log -1 --format=%H[^\n]*\n[^\n]*? ([a-f0-9]{40})\s*(?:\n|$)/g)];
-    if (receipt.category !== "unit" || receipt.shard !== `${shard}/4` || !receipt.plan?.global || !receipt.plan?.local?.fullTests ||
+    if (receipt.category !== "unit" || receipt.shard !== `${shard}/${total}` || !receipt.plan?.global || !receipt.plan?.local?.fullTests ||
         !SHA.test(receipt.checkout?.sha) || !SHA.test(receipt.checkout?.tree) || checkouts.length !== 1 || checkouts[0]![1] !== receipt.checkout.sha ||
         (identity && JSON.stringify(identity) !== JSON.stringify(receipt.checkout))) throw new Error("Unit checkout/source identity mismatch or nonexhaustive selection");
     identity = receipt.checkout;

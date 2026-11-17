@@ -1,18 +1,18 @@
 import { expect, test } from "bun:test";
 import { assertWeightedLongFiles, refreshUnitCosts, type UnitEvidenceAPI } from "../scripts/refresh-unit-costs";
 const sha = "a".repeat(40), tree = "b".repeat(40), parent = "c".repeat(40), digest = `sha256:${"d".repeat(64)}`;
-function fixture() {
-  const run = { id: 42, run_attempt: 1, status: "completed", conclusion: "success", path: ".github/workflows/ci.yml", event: "push", head_sha: sha, repository: { full_name: "schlessera/brain-kit" } };
-  const jobs = [1, 2, 3, 4].map(id => ({ id, run_id: 42, head_sha: sha, name: `unit (${id})`, started_at: "2026-07-12T00:00:00Z", completed_at: "2026-07-12T00:03:00Z", status: "completed", conclusion: "success", steps: [{ name: "Complete unit proof", status: "completed", conclusion: "success", started_at: "2026-07-12T00:00:00Z", completed_at: "2026-07-12T00:02:00Z" }] }));
+function fixture(event = "push", partitions = 4) {
+  const run = { id: 42, run_attempt: 1, status: "completed", conclusion: "success", path: ".github/workflows/ci.yml", event, head_sha: sha, repository: { full_name: "schlessera/brain-kit" } };
+  const jobs = Array.from({ length: partitions }, (_, index) => index + 1).map(id => ({ id, run_id: 42, head_sha: sha, name: `unit (${id})`, started_at: "2026-07-12T00:00:00Z", completed_at: "2026-07-12T00:03:00Z", status: "completed", conclusion: "success", steps: [{ name: "Complete unit proof", status: "completed", conclusion: "success", started_at: "2026-07-12T00:00:00Z", completed_at: "2026-07-12T00:02:00Z" }] }));
   const artifacts = jobs.map(j => ({ id: j.id, name: `unit-proof-${j.id}`, expired: false, created_at: "2026-07-12T00:02:01Z", digest, workflow_run: { id: 42, head_sha: sha } }));
   const files = jobs.map(j => `tests/odysseus-${j.id}.test.ts`);
   const archives = jobs.map((j, i) => ({ digest, files: {
-    "proof-checkout.json": JSON.stringify({ category: "unit", shard: `${j.id}/4`, checkout: { sha, tree, parents: [parent] }, plan: { global: true, local: { fullTests: true } }, files: [files[i]] }),
+    "proof-checkout.json": JSON.stringify({ category: "unit", shard: `${j.id}/${partitions}`, checkout: { sha, tree, parents: event === "pull_request" ? [parent, sha] : [parent] }, plan: { global: true, local: { fullTests: true } }, files: [files[i]] }),
     "unit-timings.json": JSON.stringify({ version: 1, files: { [files[i]!]: j.id * 1000 } }),
     "unit-report.xml": `<testsuites failures="0"><testsuite file="${files[i]}" failures="0"></testsuite></testsuites>`,
   } }));
   const logs = jobs.map(() => `2026-07-12T00:00:00Z [command]/usr/bin/git log -1 --format=%H\n2026-07-12T00:00:00Z ${sha}\n`);
-  const commit = { sha, tree: { sha: tree }, parents: [{ sha: parent }] };
+  const commit = { sha, tree: { sha: tree }, parents: event === "pull_request" ? [{ sha: parent }, { sha }] : [{ sha: parent }] };
   const source = { sha: tree, truncated: false, tree: files.map(path => ({ path, type: "blob" })) };
   const api: UnitEvidenceAPI = { json: async path => {
     if (path === "actions/runs/42/attempts/1") return run;
@@ -54,6 +54,15 @@ for (const [name, corrupt] of [
   ["truncated source tree", f => { f.source.truncated = true; }],
 ] satisfies [string, (f: ReturnType<typeof fixture>) => void][]) test(`unit refresh rejects ${name}`, async () => {
   const f = fixture(); corrupt(f); await expect(f.refresh()).rejects.toThrow();
+});
+test("a ready confirmation refreshes from its eight partitions and a main run from its four (#4108)", async () => {
+  const confirmation = await fixture("pull_request", 8).refresh();
+  expect(confirmation.measurement.jobs.map(j => j.shard)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+  expect(Object.keys(confirmation.seconds)).toHaveLength(8);
+  for (const event of ["push", "schedule", "workflow_dispatch"]) expect((await fixture(event, 4).refresh()).measurement.jobs).toHaveLength(4);
+  // The count is the cadence's cap, never whatever the run happens to contain.
+  await expect(fixture("pull_request", 4).refresh(), "CONFIRMATION_WITH_MAIN_COUNT").rejects.toThrow("Exactly 8 fresh successful unit jobs required");
+  await expect(fixture("push", 8).refresh(), "MAIN_WITH_CONFIRMATION_COUNT").rejects.toThrow("Exactly 4 fresh successful unit jobs required");
 });
 test("missing-weight guard names the unweighted 120 second file and passes after weighting", () => {
   const file = "tests/odysseus-long.test.ts", observations = { [file]: 120000 };

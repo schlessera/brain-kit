@@ -4,7 +4,7 @@ import { checkout, type Checkout } from "./proof-inputs";
 import type { Candidate } from "./integration-reservation";
 import type { API } from "./proof-reuse";
 import { PROOF_JOBS, proofProblems } from "./ci-proof";
-import { shardNumbers } from "./proof-shards";
+import { MAX_UNIT_PARTITIONS, shardNumbers, unitPartitionLimit } from "./proof-shards";
 import { coveredCategories } from "./check-receipt";
 import type { Category } from "./red-main";
 
@@ -58,7 +58,7 @@ function inventoryDiagnostic(inventory: any, run: any, head: string): string {
   const choice = (value: unknown, choices: readonly string[]) => typeof value === "string" && choices.includes(value) ? value : "unrecognized";
   const names = ["changeset", "proof", ...PROOF_JOBS,
     ...["browser", "layout"].flatMap(name => shardNumbers(name as "browser" | "layout").map(shard => `${name} (${shard})`)),
-    ...[1, 2, 3, 4].map(shard => `unit (${shard})`)];
+    ...Array.from({ length: MAX_UNIT_PARTITIONS }, (_, index) => `unit (${index + 1})`)];
   const fields = metadataObject(inventory) ? inventory : {};
   const jobs = fields.jobs;
   const predicates: string[] = [];
@@ -121,7 +121,8 @@ export async function verifyIntegrationProof(root: string, repository: string, c
     if (fresh && (name === "browser" || name === "layout")) expected.push(...shardNumbers(name).map(shard => `${name} (${shard}):success`));
     else if (fresh && name === "unit") {
       const shards: unknown = JSON.parse(selected.unitShards ?? "null");
-      if (!Array.isArray(shards) || !shards.length || shards.length > 4 || shards.some((value, index) => value !== index + 1)) throw new Error("Missing actual unit partition identity");
+      // Only a ready confirmation reaches the merge path, so its cap bounds the planned set (#4108).
+      if (!Array.isArray(shards) || !shards.length || shards.length > unitPartitionLimit("confirmation") || shards.some((value, index) => value !== index + 1)) throw new Error("Missing actual unit partition identity");
       expected.push(...shards.map(index => `unit (${index}):success`));
     } else expected.push(`${name}:${fresh ? "success" : "skipped"}`);
   }
