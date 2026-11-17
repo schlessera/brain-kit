@@ -69,10 +69,6 @@ export const ALLOWLIST: AllowlistEntry[] = [
   { file: "packages/ui-server/src/inbox/cleanup.ts", name: "CleanupRequest", reason: INFERRED("createInboxRuntime") },
   // Readers of source text rather than importers.
   { file: "packages/ui-server/src/bin/brain-ui-cron.ts", name: "USAGE", reason: "tests/release-manifest.test.ts reads the subcommand list from the `export const USAGE` source text" },
-  ...["listSpecFromInput", "formSpecFromInput", "rankSpecFromInput"].map(name => ({
-    file: "packages/ui-react/src/hooks/websocket-handlers/chat.ts", name,
-    reason: "kept while a retired source pin held this file's hash (#4107); #4119 drops the keyword",
-  })),
 ];
 
 export interface Finding { file: string; line: number; name: string; kind: "declaration" | "re-export" }
