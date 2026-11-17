@@ -64,6 +64,21 @@ describe("splitMarkdownBlocks", () => {
     expect(realSplit(answer + "<co>")).toHaveLength(1);
     expect(realSplit(answer + "<co>Shipwrights</co>")).toHaveLength(1);
   });
+  test("a paragraph being typed that starts with a number does not collapse the split", () => {
+    const answer = "Plan:\n\n```mermaid\ngraph LR; Troy-->Ithaca\n```\n\n";
+    for (const tail of ["3.14 leagues to Ithaca", "2) the strait", "- a raft", "* oars"]) {
+      for (let i = 1; i <= tail.length; i++) {
+        expect(realSplit(answer + tail.slice(0, i)), `while "${tail.slice(0, i)}" streams`).toHaveLength(3);
+      }
+    }
+    // After a list, a new item after a blank line joins it (and makes it loose), so it stays with it.
+    expect(realSplit("- oars\n\n- sails")).toHaveLength(1);
+    expect(realSplit("> - oars\n\n3. sails")).toHaveLength(1);
+    expect(realSplit("- oars\n\nThe crew.")).toHaveLength(2);
+    // After an indented code block the whole text can read an item as a paragraph.
+    expect(realSplit("    oars\n\n1.")).toHaveLength(1);
+    expect(realSplit("    oars\n\n10. sails")).toHaveLength(1);
+  });
   test("leading blank lines start no empty block", () => {
     expect(realSplit("\n\nFirst.\n\nSecond.")).toEqual(["\n\nFirst.\n", "Second."]);
   });

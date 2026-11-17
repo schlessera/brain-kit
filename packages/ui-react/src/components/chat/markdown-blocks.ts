@@ -11,7 +11,15 @@
  * - only at a blank line outside every fenced code block (backtick or tilde,
  *   any fence length, an unclosed fence running to the end);
  * - only where the next line starts at column 0 and does not continue a
- *   list (`-`, `*`, `+`, `1.`, `1)`), a blockquote (`>`) or a table (`|`);
+ *   blockquote (`>`) or a table (`|`), and does not start a list item
+ *   (`-`, `*`, `+`, `1.`, `1)`) when the block above holds one: a new item
+ *   after a blank line joins that list and makes it loose. Below a block
+ *   with no list item, a new list cannot change it, so the split stands, and
+ *   a paragraph being typed that starts with a number (`3`, `3.`, `3.14`)
+ *   does not collapse and split again as it grows. After an indented line
+ *   no list item splits: below an indented code block the whole text can
+ *   parse an empty item (`1.`) or one not starting at 1 (`10. ten`) as a
+ *   paragraph instead;
  * - never in a text holding a link reference or footnote definition, which
  *   resolves across the whole document;
  * - never in a text holding a line that starts with HTML (a tag, a comment,
@@ -51,7 +59,16 @@ const FENCE = /^(`{3,}|~{3,})/;
 /** A blank line as CommonMark counts one: spaces and tabs only (not NBSP or other Unicode space). */
 const BLANK = /^[ \t]*$/;
 /** A line that would continue the block above a blank line instead of starting a new one. */
-const CONTINUES = /^(?:[-*+](?:\s|$)|\d{1,9}[.)](?:\s|$)|>|\||\s)/;
+const CONTINUES = /^(?:>|\||\s)/;
+/** A list item marker at the start of a line. */
+const LIST_ITEM = /^(?:[-*+]|\d{1,9}[.)])(?:\s|$)/;
+/**
+ * A line that may belong to a list: a list item marker after any indentation
+ * and blockquote prefixes, in or out of a fence. Deliberately broad (a
+ * thematic break `* * *` counts too): a false match only means a following
+ * list item does not split.
+ */
+const LIST_LINE = /^(?:[ \t]|>)*(?:[-*+]|\d{1,9}[.)])(?:\s|$)/;
 
 /** The text's top-level blocks, in order; `[text]` when it cannot be split safely. */
 export function splitMarkdownBlocks(text: string): string[] {
@@ -62,23 +79,32 @@ export function splitMarkdownBlocks(text: string): string[] {
   let fence: { char: string; length: number } | null = null;
   let blank = false;
   let content = false;
+  let list = false;
+  // Whether the last line with content outside a fence was indented.
+  let indented = false;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
     const marker = FENCE.exec(line);
+    const listLine = LIST_LINE.test(line);
     if (fence) {
+      list ||= listLine;
       // A closing fence: the same character, at least as long, nothing after it.
       if (marker && marker[1]![0] === fence.char && marker[1]!.length >= fence.length && BLANK.test(line.slice(marker[0].length))) fence = null;
+      indented = false;
       blank = false;
       continue;
     }
     if (BLANK.test(line)) { blank = true; continue; }
-    if (blank && content && !CONTINUES.test(line)) {
+    if (blank && content && !CONTINUES.test(line) && !((list || indented) && LIST_ITEM.test(line))) {
       // The blank lines stay with the block before, exactly as the whole
       // text has them: how a block ends (an indented code block's trailing
       // whitespace lines) can depend on them.
       blocks.push(lines.slice(start, i).join("\n"));
       start = i;
+      list = false;
     }
+    list ||= listLine;
+    indented = /^[ \t]/.test(line);
     blank = false;
     content = true;
     if (marker) {
