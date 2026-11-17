@@ -101,6 +101,64 @@ describe("issue and pull request reads", () => {
     expect(pull.comments.items[0]!.html_url).toBe("https://github.com/odysseus/ithaca/pull/8#issuecomment-9101");
   });
 
+  describe("each review's line-comment count (#4147)", () => {
+    const READ_PR = { tool: "brain_github_issue_read", input: { repository: "odysseus/ithaca", number: 8 } } as const;
+    const PULL_WITHOUT_TOTAL = { number: 8, head: { ref: "bow/string-it", sha: HEAD_SHA }, base: { ref: "main" }, requested_reviewers: [], commits: 2 };
+    async function counts(options: FakeGithubOptions) {
+      const { fake, github } = host(options);
+      const result = parsed(await github.call(turn, READ_PR));
+      if (!result.ok) throw new Error(JSON.stringify(result));
+      const asked = fake.seen.filter(request => request.path === "/repos/odysseus/ithaca/pulls/8/comments");
+      return { counts: (result.result as GithubPullRequest).reviews.items.map(review => [review.id, review.line_comments]), asked };
+    }
+
+    test("a complete collection gives every review its exact total, a genuine zero included, in one bounded request", async () => {
+      const { counts: got, asked } = await counts({ reviewComments: [{ review: 501 }, { review: 503 }, { review: 501 }, { review: 999 }] });
+      expect(got, "GITHUB_LINE_COMMENTS_EXACT_PER_REVIEW").toEqual([[501, 2], [502, 0], [503, 1], [504, 0]]);
+      expect(asked.map(request => new URLSearchParams(request.search).get("per_page")), "GITHUB_LINE_COMMENTS_ONE_REQUEST").toEqual(["100"]);
+    });
+
+    test("more than one page leaves every count unknown, never a partial total, and asks no second page", async () => {
+      const many = Array.from({ length: 101 }, (_, index) => ({ review: index % 2 ? 501 : 503 }));
+      // GitHub's own total is left out, so only the page's next link can say the page is not the whole collection.
+      const { counts: got, asked } = await counts({ reviewComments: many, override: path => path === "/repos/odysseus/ithaca/pulls/8" ? Response.json(PULL_WITHOUT_TOTAL) : undefined });
+      expect(got, "GITHUB_LINE_COMMENTS_CAPPED_UNKNOWN").toEqual([[501, null], [502, null], [503, null], [504, null]]);
+      expect(asked, "GITHUB_LINE_COMMENTS_NO_DRAIN").toHaveLength(1);
+    });
+
+    test("a comment that names no review, or a malformed one, leaves every count unknown", async () => {
+      for (const review of [null, 0, -3, 1.5]) {
+        const { counts: got } = await counts({ reviewComments: [{ review: 501 }, { review: review as number }] });
+        expect(got, `GITHUB_LINE_COMMENTS_UNVALIDATED_MEMBERSHIP ${review}`).toEqual([[501, null], [502, null], [503, null], [504, null]]);
+      }
+      const { counts: malformed } = await counts({ override: path => path === "/repos/odysseus/ithaca/pulls/8/comments"
+        ? Response.json([{ id: 801, pull_request_review_id: 501 }, { id: 802, pull_request_review_id: 501 }, { pull_request_review_id: 503 }]) : undefined });
+      expect(malformed, "GITHUB_LINE_COMMENTS_MALFORMED_ITEM").toEqual([[501, null], [502, null], [503, null], [504, null]]);
+      const { counts: notList } = await counts({ override: path => path === "/repos/odysseus/ithaca/pulls/8/comments" ? Response.json({ message: "odd" }) : undefined });
+      expect(notList, "GITHUB_LINE_COMMENTS_NOT_A_LIST").toEqual([[501, null], [502, null], [503, null], [504, null]]);
+    });
+
+    test("a page that disagrees with GitHub's own total is not exact", async () => {
+      const { counts: got } = await counts({ override: path => path === "/repos/odysseus/ithaca/pulls/8" ? Response.json({ ...PULL_WITHOUT_TOTAL, review_comments: 5 }) : undefined });
+      expect(got, "GITHUB_LINE_COMMENTS_TOTAL_MISMATCH").toEqual([[501, null], [502, null], [503, null], [504, null]]);
+    });
+
+    test("a credential that cannot read review comments leaves the counts unknown; other failures fail the read as before", async () => {
+      const { counts: got } = await counts({ override: path => path === "/repos/odysseus/ithaca/pulls/8/comments" ? Response.json({ message: "no" }, { status: 403 }) : undefined });
+      expect(got, "GITHUB_LINE_COMMENTS_FORBIDDEN_UNKNOWN").toEqual([[501, null], [502, null], [503, null], [504, null]]);
+      const { github } = host({ override: path => path === "/repos/odysseus/ithaca/pulls/8/comments" ? Response.json({ message: "boom" }, { status: 502 }) : undefined });
+      expect(parsed(await github.call(turn, READ_PR)), "GITHUB_LINE_COMMENTS_TYPED_ERROR").toMatchObject({ ok: false, error: { code: "upstream_error", reason: "http_502" } });
+    });
+
+    test("a pull request without reviews, and an issue, ask for no review comments", async () => {
+      const { counts: none, asked } = await counts({ override: path => path === "/repos/odysseus/ithaca/pulls/8/reviews" ? Response.json([]) : undefined });
+      expect([none, asked], "GITHUB_LINE_COMMENTS_NOT_ASKED_WITHOUT_REVIEWS").toEqual([[], []]);
+      const { fake, github } = host();
+      expect((await github.call(turn, { tool: "brain_github_issue_read", input: { repository: "odysseus/ithaca", number: 7 } })).ok).toBe(true);
+      expect(fake.seen.map(request => request.path), "GITHUB_ISSUE_READ_UNCHANGED").toEqual(["/repos/odysseus/ithaca/issues/7", "/repos/odysseus/ithaca/issues/7/comments"]);
+    });
+  });
+
   test("no reported checks is null, never zero; a credential without checks access is null too", async () => {
     for (const options of [{ checks: "none" as const }, { override: (path: string) => path.includes("/check-runs") ? Response.json({ message: "no" }, { status: 403 }) : undefined }]) {
       const { github } = host(options);
