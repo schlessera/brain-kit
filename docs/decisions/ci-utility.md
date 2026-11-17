@@ -1927,16 +1927,16 @@ test more than once before it merged.
   modifies against its merge base (`determinismTests`,
   `scripts/ci-plan.ts:323-328`). It runs them in one invocation of the offline
   wrapper with Bun's `--rerun-each=<n> --bail=1` (`repetitionArgv`,
-  `scripts/test-determinism.ts:83-86`), so the offline preload applies and
+  `scripts/test-determinism.ts:84-87`), so the offline preload applies and
   preparation builds once. One busy loop per CPU runs for the duration. Each
   is killed by PID on every exit path, and exits by itself if its parent dies
-  (`startBurners`, `scripts/test-determinism.ts:134-149`). The first failing
+  (`startBurners`, `scripts/test-determinism.ts:136-151`). The first failing
   repetition fails the command, which names the file, the repetition and the
   case. A passing run must also show every repetition in Bun's test report.
 - **Bounded.** Five repetitions by default, within a budget of 600 seconds of
   the reviewed weights in `scripts/test-shard-costs.json`. When five do not
   fit, every file gets the same reduced count, down to a floor of two
-  (`planRepetitions`, `scripts/test-determinism.ts:61-80`). A selection too
+  (`planRepetitions`, `scripts/test-determinism.ts:62-81`). A selection too
   heavy for the floor still runs every file twice and is reported over budget.
   No selected file is skipped; the report lists each one with the repetitions
   it got. Over 150 merges before the gate, 142 selections fit five
@@ -1964,6 +1964,15 @@ test more than once before it merged.
 **What does not change.** No test deadline changes. No failure is retried
 into a pass: a failing repetition is a failed job, and the remedy is fixing
 the test or what it exposes. Unchanged tests are not repeated.
+
+**First hosted run.** The job's first run, on the PR that added it, repeated
+seven changed files five times and then failed in the gate's own test: under
+GitHub Actions Bun prints each run's header as a `::group::` annotation, which
+the failure parser did not read, so the failure was reported without its file
+and repetition. The parser reads both forms now. That run took 552 seconds
+for about 174 weighted seconds, a ratio of about 3.2 under four burners on
+four CPUs, so a selection at the 600-second budget needs about 32 minutes of
+the 40-minute step limit.
 
 **Known limits.** Repetitions of one file share a process. Bun 1.4.2 evaluates
 the module again for each run, but `globalThis` and process state persist, so a

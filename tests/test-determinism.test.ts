@@ -88,6 +88,18 @@ describe("reading the wrapper's output", () => {
     expect(firstFailure("tests/argo.test.ts:\n(fail) rows past the sirens\n", files, "/odyssey")).toEqual({ file: "tests/argo.test.ts", repetition: 1, test: "rows past the sirens" });
   });
 
+  // Under GITHUB_ACTIONS Bun 1.4.2 wraps each run in a log group; recorded from hosted run 43986946575.
+  test("a GitHub Actions group header names the file and repetition too", () => {
+    const stderr = ["::group::tests/argo.test.ts: (run #1)", "(pass) rows past the sirens [0.06ms]", "::endgroup::", "",
+      "::group::tests/argo.test.ts: (run #2)", "(pass) rows past the sirens", "::endgroup::", "",
+      "::group::packages/core/tests/ithaca.test.ts: (run #1)", "(pass) the hall > recognises the scar [5.39ms]", "::endgroup::", "",
+      "::group::packages/core/tests/ithaca.test.ts: (run #2)", "error: expect(received).toBe(expected)", "",
+      "::error file=packages/core/tests/ithaca.test.ts,line=2,col=165,title=error: expect(received).toBe(expected)::",
+      "(fail) the hall > recognises the scar [5.41ms]", "Ran 5 tests across 2 files. [18.00ms]", "Bailed out after 1 failure"].join("\n");
+    expect(firstFailure(stderr, files, "/odyssey"), "HOSTED_GROUP_HEADER_READ").toEqual({ file: "packages/core/tests/ithaca.test.ts", repetition: 2, test: "the hall > recognises the scar" });
+    expect(firstFailure("::group::tests/argo.test.ts:\n(fail) rows past the sirens\n", files, "/odyssey")).toEqual({ file: "tests/argo.test.ts", repetition: 1, test: "rows past the sirens" });
+  });
+
   test("a failure without a case line keeps the last file and run that spoke; other headers are ignored", () => {
     expect(firstFailure("tests/argo.test.ts: (run #3)\nerror: Cannot find module\nnote: (run #9)\n", files, "/odyssey")).toEqual({ file: "tests/argo.test.ts", repetition: 3, test: null });
     expect(firstFailure("error: script \"test\" exited with code 1\n", files, "/odyssey")).toEqual({ file: null, repetition: null, test: null });
@@ -226,10 +238,29 @@ function unguardedRuntime(dir: string): string {
 const summaryPath = (dir: string) => join(dir, "step-summary.md");
 const scratchEnv = (dir: string) => ({ ...process.env, GITHUB_STEP_SUMMARY: summaryPath(dir) });
 
+/**
+ * Bun prints differently under GitHub Actions (log groups) and under a coding
+ * agent's environment (failures only). The first hosted run failed on exactly
+ * that difference, so the receipts name the reporter they run under.
+ */
+const REPORTERS = {
+  "plain": { GITHUB_ACTIONS: undefined },
+  "GitHub Actions log groups": { GITHUB_ACTIONS: "true" },
+} as const;
+function reporterEnv(dir: string, reporter: keyof typeof REPORTERS): Record<string, string | undefined> {
+  const env: Record<string, string | undefined> = { ...scratchEnv(dir), ...REPORTERS[reporter] };
+  for (const name of ["CLAUDECODE", "AGENT", "REPL_ID", "CI"]) delete env[name];
+  return env;
+}
+
 async function determinism(dir: string, ...args: string[]): Promise<{ code: number; report: Report; output: string; summary: string }> {
+  return determinismUnder(scratchEnv(dir), dir, ...args);
+}
+
+async function determinismUnder(env: Record<string, string | undefined>, dir: string, ...args: string[]): Promise<{ code: number; report: Report; output: string; summary: string }> {
   rmSync(summaryPath(dir), { force: true });
   const proc = Bun.spawn([unguardedRuntime(dir), join(dir, "scripts/test-determinism.ts"), "--json", "--burners", "1", ...args],
-    { cwd: dir, stdout: "pipe", stderr: "pipe", env: scratchEnv(dir) });
+    { cwd: dir, stdout: "pipe", stderr: "pipe", env });
   const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
   let report: Report;
   try { report = JSON.parse(out.trim().split("\n").at(-1)!); } catch { throw new Error(`No report (exit ${code}):\n${out}\n${err}`); }
@@ -237,6 +268,15 @@ async function determinism(dir: string, ...args: string[]): Promise<{ code: numb
 }
 
 describe("the command, through the real offline wrapper", () => {
+  test.each(Object.keys(REPORTERS) as (keyof typeof REPORTERS)[])("under the %s reporter the racy fixture's failure still names its file and repetition", async reporter => {
+    const f = checkout(); f.write("tests/landing.test.ts", RACY); f.commit("a race against the tide");
+    const run = await determinismUnder(reporterEnv(f.dir, reporter), f.dir, "--base", f.base);
+    expect(run.code, run.output).toBe(1);
+    expect(run.output.includes("::group::tests/landing.test.ts: (run #3)"), "REPORTER_IS_THE_ONE_NAMED").toBe(reporter === "GitHub Actions log groups");
+    expect(run.report.failure, `FAILURE_NAMED_UNDER_${reporter === "plain" ? "PLAIN" : "LOG_GROUPS"}`).toEqual({ file: "tests/landing.test.ts", repetition: 3,
+      test: "the crew is aboard before the tide turns", reason: "a test case failed" });
+  }, 60_000);
+
   test("a racy fixture that fails one run in three fails the gate, with its file, repetition and case named", async () => {
     const f = checkout(); f.write("tests/landing.test.ts", RACY); f.commit("a race against the tide");
     const run = await determinism(f.dir, "--base", f.base);

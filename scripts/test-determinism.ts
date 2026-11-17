@@ -14,8 +14,9 @@
  * with Bun's `--rerun-each=<n> --bail=1`. Verified against Bun 1.4.2: each file
  * runs n times in a row in one process, its module is evaluated again for each
  * run, `globalThis` and process state persist between runs, and a run with
- * output is headed `<file>: (run #k)` on stderr. A file that leaks state into
- * its next run therefore fails here too.
+ * output is headed `<file>: (run #k)` on stderr. Under GitHub Actions the same
+ * header opens a log group, `::group::<file>: (run #k)`. A file that leaks
+ * state into its next run therefore fails here too.
  *
  * Bounded: five repetitions by default, reduced uniformly to a floor of two
  * when the reviewed weights (scripts/test-shard-costs.json) exceed the budget.
@@ -89,15 +90,16 @@ const plain = (text: string) => text.replace(/\x1b\[[0-9;]*m/g, "");
 
 /**
  * The first failure in the wrapper's stderr: Bun heads a run's output with
- * `<file>: (run #k)` and reports the case as `(fail) <name> [<time>]`. A
- * failure with no case line (a load error, a crash, a killed process) still
- * names the last file and run that produced output.
+ * `<file>: (run #k)`, as a `::group::` annotation under GitHub Actions, and
+ * reports the case as `(fail) <name> [<time>]`. A failure with no case line
+ * (a load error, a crash, a killed process) still names the last file and run
+ * that produced output.
  */
 export function firstFailure(stderr: string, files: readonly string[], root: string): Omit<Failure, "reason"> {
   const selected = new Map(files.map(file => [resolve(root, file), file]));
   let file: string | null = null, repetition: number | null = null;
   for (const line of plain(stderr).split("\n")) {
-    const header = /^(.+?):(?: \(run #(\d+)\))?\s*$/.exec(line);
+    const header = /^(?:::group::)?(.+?):(?: \(run #(\d+)\))?\s*$/.exec(line);
     const named = header && selected.get(resolve(root, header[1]!));
     if (named) { file = named; repetition = Number(header![2] ?? 1); continue; }
     const failed = /^\(fail\) (.*?)(?: \[[^\]]*\])?\s*$/.exec(line);
