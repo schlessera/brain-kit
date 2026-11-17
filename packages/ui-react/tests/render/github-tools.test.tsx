@@ -16,7 +16,7 @@ import { registerBuiltinRenderers } from "../../src/components/chat/renderers/in
 import { ToolPermissionCard } from "../../src/components/chat/tool-permission-card.js";
 import { createBrainUiRoot } from "../../src/root.js";
 import { BrainUiProvider } from "../../src/root-context.js";
-import { HOSTILE_BODY, author, envelope, issue, pull, refusal, search } from "../github-fixtures.js";
+import { HOSTILE_BODY, author, comment, envelope, issue, pull, refusal, search } from "../github-fixtures.js";
 
 const roots: ReturnType<typeof createBrainUiRoot>[] = [];
 const requested: string[] = [];
@@ -290,8 +290,8 @@ describe("on-demand sections keep their own state", () => {
   });
 });
 
-const page = (part: string, items: unknown[], next: string | null = null) =>
-  Response.json({ kind: "detail_page", repository: "ithaca/hall", number: part === "comments" ? 388 : 412, part, items, total_count: null, next_cursor: next, fetched_at: "2026-07-12T09:00:00Z" });
+const page = (part: string, items: unknown[], next: string | null = null, total: number | null = null) =>
+  Response.json({ kind: "detail_page", repository: "ithaca/hall", number: part === "comments" ? 388 : 412, part, items, total_count: total, next_cursor: next, fetched_at: "2026-07-12T09:00:00Z" });
 
 describe("on-demand detail", () => {
   test("earlier comments leave out the ones the result already shows, and their new authors get no avatar", async () => {
@@ -315,6 +315,47 @@ describe("on-demand detail", () => {
     await act(async () => {});
     expect(view.container.querySelectorAll("[data-github-commit]").length, "the result's commit, then the one new commit").toBe(2);
     expect(view.container.textContent).toContain("Swap gut string for sinew");
+  });
+
+  test("'Load more' counts the comments on screen, the result's included, not the page's duplicates", async () => {
+    const shown = [6001, 6002, 6003].map((id, i) => comment(id, "philoetius", `Watch report ${i + 1}.`, 3 - i));
+    answer = () => page("comments", [shown[0], shown[1], { ...comment(5001, "antinous", "Nobody is draining anything.", 5) }], "c2", 17);
+    const view = output("read", envelope("read", issue({ comments: { items: shown, total_count: 17, has_more: true } })));
+    await act(async () => fireEvent.click(view.getByRole("button", { name: /Load 14 earlier comments/ })));
+    await act(async () => {});
+    expect(view.container.querySelectorAll("[data-github-comment]").length, "three from the result, one new").toBe(4);
+    expect(within(view.container).getByRole("button", { name: /Load more/ }).textContent).toContain("4 of 17 shown");
+  });
+
+  test("a commits page made only of commits already shown is followed to the next, so the press shows new ones", async () => {
+    const first = pull().commits.items[0]!;
+    const fresh = { ...first, sha: "5e02aa7a8f3e2d1c0b9a8f7e6d5c4b3a29180716", message: "Swap gut string for sinew", html_url: "https://github.com/ithaca/hall/commit/5e02aa7a8f3e2d1c0b9a8f7e6d5c4b3a29180716" };
+    answer = (url) => (url.includes("cursor=c2") ? page("commits", [fresh]) : page("commits", [first], "c2"));
+    const view = output("read", envelope("read", pull()));
+    fireEvent.click(view.getByRole("tab", { name: /Commits/ }));
+    await act(async () => fireEvent.click(view.getByRole("button", { name: /Show all commits/ })));
+    await act(async () => {});
+    await act(async () => {});
+    expect(requested.filter((u) => u.endsWith("/commits") || u.includes("/commits?")).length, "the duplicate page, then the next").toBe(2);
+    expect(view.container.querySelectorAll("[data-github-commit]").length).toBe(2);
+    expect(view.container.textContent).toContain("Swap gut string for sinew");
+  });
+
+  test("a generic upstream failure is S4 with Try again, and a host refusal keeps a Try again of its own", async () => {
+    answer = () => Response.json({ error: { code: "upstream_error", reason: null, message: "The host could not load this.", reset_at: null } }, { status: 502 });
+    const view = output("read", envelope("read", pull()));
+    await act(async () => fireEvent.click(view.getByRole("tab", { name: /Files/ })));
+    await act(async () => {});
+    expect([...view.container.querySelectorAll("[data-github-detail]")].map((n) => n.getAttribute("data-github-detail"))).toContain("error");
+    answer = () => Response.json({ error: { code: "forbidden", reason: "not_owner", message: "Only this chat's owner can load its GitHub details.", reset_at: null } }, { status: 403 });
+    await act(async () => fireEvent.click(within(view.container).getByRole("button", { name: /Try again/ })));
+    await act(async () => {});
+    expect(view.container.textContent).toContain("Only this chat's owner");
+    answer = () => page("files", [{ filename: "armoury/bow.md", previous_filename: null, status: "modified", additions: 12, deletions: 3, changes: 15 }]);
+    await act(async () => fireEvent.click(within(view.container).getByRole("button", { name: /Try again/ })));
+    await act(async () => {});
+    expect(view.container.textContent, "the refusal's Try again recovers the section").toContain("armoury/bow.md");
+    expect(requested.filter((u) => u.endsWith("/files")).length).toBe(3);
   });
 
   test("Files load on the tab's first open, and keep what they loaded when the reader comes back", async () => {
@@ -383,6 +424,14 @@ describe("write outcomes say what the host knows", () => {
     const { container } = output("create", refusal("create", "upstream_error", "cancelled", "The turn ended before the write was sent; nothing was sent."));
     expect(container.querySelector("[data-github-write='unknown']")).toBeNull();
     expect(container.textContent).toContain("nothing was sent");
+  });
+
+  test("a write refused on a voice turn keeps the host's words, never 'You chose Don't post'", () => {
+    const { container } = output("comment", refusal("comment", "approval_declined", "voice_posture", "Voice cannot approve a GitHub write. Nothing was sent; ask for it in a typed conversation."));
+    expect(container.querySelector("[data-github-write]")).toBeNull();
+    expect(container.textContent).toContain("Voice cannot approve a GitHub write");
+    const declined = output("comment", refusal("comment", "approval_declined", "declined", "Declined."));
+    expect(declined.container.querySelector("[data-github-write='declined']"), "the reader's own choice still reads as declined").not.toBeNull();
   });
 
   test("after approval, the approval row no longer shows the draft as not posted", () => {

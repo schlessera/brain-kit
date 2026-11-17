@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
+  Button,
   Callout,
   GitHubComment,
   GitHubCommitRow,
@@ -121,9 +122,9 @@ function detailErrorState(error: GithubDetailError | GithubError & { reset_at?: 
   // GitHub's own refusals carry no reason or "github"; the host's carry theirs.
   const fromGithub = error.reason === null || error.reason === "github";
   if ((error.code === "not_found" || error.code === "forbidden") && fromGithub) return { state: "gone" };
+  // Every upstream failure, whatever its reason, is S4 with Try again.
   const status = error.reason?.match(/^http_(\d{3})$/)?.[1];
-  if (error.code === "upstream_error" && (status || error.reason === "network" || error.reason === "timeout" || error.reason === "cancelled"))
-    return { state: "error", ...(status ? { errorStatus: Number(status) } : {}) };
+  if (error.code === "upstream_error") return { state: "error", ...(status ? { errorStatus: Number(status) } : {}) };
   return { state: "error", refusal: error.message };
 }
 
@@ -179,10 +180,11 @@ const NOUN: Record<GithubDetailPart, string> = {
   checks: "checks",
 };
 
-function moreLabel(detail: Detail): string | undefined {
+/** "Load more · 60 of 70 shown": `onScreen` counts what the reader sees, the result's rows included. */
+function moreLabel(detail: Detail, onScreen: number): string | undefined {
   if (!detail.next) return undefined;
   const of = detail.total !== null ? ` of ${detail.total}` : "";
-  return `Load more · ${detail.items.length}${of} shown`;
+  return `Load more · ${onScreen}${of} shown`;
 }
 
 /** A detail section wired to #3796, rendering its rows with `row`. */
@@ -199,6 +201,8 @@ function DetailPart(p: {
    * left out rather than drawn twice.
    */
   shown?: (item: DetailItem) => boolean;
+  /** How many rows the card already shows from the tool result. */
+  shownCount?: number;
   /** Load when the section first mounts (a tab's first open), not on a press. */
   autoLoad?: boolean;
 }) {
@@ -210,14 +214,29 @@ function DetailPart(p: {
     load();
   }, [p.autoLoad, load]);
   const rows = p.shown ? detail.items.filter((item) => !p.shown!(item)) : detail.items;
-  if (detail.refusal) return <GithubRefusal error={{ code: "unavailable", reason: null, message: detail.refusal }} />;
+  // A page made only of rows the result already shows adds nothing on screen:
+  // follow it to the next page, so one press always shows something new. The
+  // result carries at most one page, so this continues at most once per press.
+  const seen = useRef({ items: 0, rows: 0 });
+  useEffect(() => {
+    const before = seen.current;
+    seen.current = { items: detail.items.length, rows: rows.length };
+    if (detail.state === "loaded" && detail.next && detail.items.length > before.items && rows.length === before.rows) more();
+  }, [detail.items.length, detail.state, detail.next, rows.length, more]);
+  if (detail.refusal)
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }} data-github-detail="refused">
+        <GithubRefusal error={{ code: "unavailable", reason: null, message: detail.refusal }} />
+        <Button label="Try again" tone="quiet" size="sm" block={false} onClick={retry} />
+      </div>
+    );
   return (
     <GitHubDetailSection
       state={detail.state}
       noun={NOUN[p.part]}
       object={p.object}
       idleLabel={p.idleLabel}
-      moreLabel={moreLabel(detail)}
+      moreLabel={moreLabel(detail, (p.shownCount ?? 0) + rows.length)}
       errorStatus={detail.errorStatus}
       resetAt={detail.resetAt}
       resetIn={detail.resetIn}
@@ -299,6 +318,7 @@ function IssueCard({ issue }: { issue: GithubIssue }) {
               idleLabel={earlier !== null && earlier > 0 ? `Load ${earlier} earlier comments` : "Load earlier comments"}
               row={commentRow(scope, issue.fetched_at, avatarFor)}
               shown={(item) => shownComments.has((item as GithubCommentPayload).id)}
+              shownCount={shownComments.size}
             />
           ) : undefined
         }
@@ -360,6 +380,7 @@ function PullRequestCard({ pr }: { pr: GithubPullRequest }) {
             idleLabel={earlier !== null && earlier > 0 ? `Load ${earlier} earlier comments` : "Load earlier comments"}
             row={commentRow(scope, pr.fetched_at, avatarFor)}
             shown={(item) => shownComments.has((item as GithubCommentPayload).id)}
+            shownCount={shownComments.size}
           />
         ) : undefined
       }
@@ -379,6 +400,7 @@ function PullRequestCard({ pr }: { pr: GithubPullRequest }) {
           object="pull request"
           idleLabel={`Show all commits · ${pr.commits.items.length}${commitTotal !== null ? ` of ${commitTotal}` : ""} in result`}
           shown={(item) => shownCommits.has((item as GithubCommit).sha)}
+          shownCount={shownCommits.size}
           row={(item, i) => <GitHubCommitRow key={i} {...commitProps(item as GithubCommit, scope, pr.fetched_at, avatarFor)} />}
         />
       ) : null}
@@ -510,7 +532,10 @@ export function GithubSearchCard(result: GithubToolResult) {
 
 /** W3: a write that did not happen, or whose outcome is unknown; otherwise the refusal's own words. */
 function WriteRefusal({ error }: { error: GithubError }) {
-  if (error.code === "approval_declined") return <GitHubWriteNotice outcome={error.reason === "edited" ? "changed" : "declined"} />;
+  // Only the reader's own choice on the approval card reads as declined or
+  // changed; a refusal no one chose (a voice turn) keeps the host's words.
+  if (error.code === "approval_declined" && (error.reason === "declined" || error.reason === "edited"))
+    return <GitHubWriteNotice outcome={error.reason === "edited" ? "changed" : "declined"} />;
   if (outcomeUnknown(error)) return <GitHubWriteNotice outcome="unknown" />;
   return <GithubRefusal error={error} />;
 }
