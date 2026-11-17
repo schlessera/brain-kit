@@ -36,7 +36,7 @@ function harness(answer: (request: PermissionRequest) => PermissionDecision | Pr
       toolName: name => `mcp__brain-ui__${name}`, tainted: () => false, isCurrent: () => true,
       govern: event => { recorded.push(event); }, ...overrides,
     };
-    return github.call({ turnId: "turn-ithaca", principalId: "principal-penelope", sessionId: () => "sess-ithaca", write, ...turnOverrides }, call);
+    return github.call({ turnId: "turn-ithaca", principalId: "principal-penelope", sessionId: () => "sess-ithaca", routing: async () => null, write, ...turnOverrides }, call);
   } };
 }
 const writes = (fake: FakeGithub) => fake.seen.filter(request => request.method !== "GET");
@@ -197,6 +197,23 @@ describe("the repository allow-list", () => {
     expect(await h.call(CREATE)).toMatchObject({ ok: false, error: { code: "unavailable", reason: "no_credential" } });
     expect(h.cards).toEqual([]);
     expect(h.fake.seen).toEqual([]);
+  });
+});
+
+describe("data routing (G2, #4029) does not gate writes", () => {
+  test("a write in a turn whose routing refuses github still reaches its card unchanged and is sent once on approval", async () => {
+    const plain = harness(), routed = harness();
+    const asked: string[] = [];
+    const restricted = { routing: async (recipient: string) => { asked.push(recipient); return "recipient_restricted" as const; } };
+    for (const call of [CREATE, COMMENT] as GithubToolCall[]) {
+      const baseline = await plain.call(call), result = await routed.call(call, {}, restricted);
+      expect(result, `GITHUB_WRITE_NOT_ROUTED ${call.tool}`).toEqual(baseline);
+      expect(result.ok).toBe(true);
+    }
+    expect(routed.cards.map(card => [card.toolName, card.input]), "GITHUB_WRITE_CARD_UNCHANGED_UNDER_ROUTING").toEqual(plain.cards.map(card => [card.toolName, card.input]));
+    expect(routed.cards).toHaveLength(2);
+    expect(writes(routed.fake).map(request => [request.path, request.body]), "GITHUB_WRITE_SENT_UNDER_ROUTING").toEqual(writes(plain.fake).map(request => [request.path, request.body]));
+    expect(asked, "GITHUB_WRITE_NEVER_ASKS_ROUTING").toEqual([]);
   });
 });
 

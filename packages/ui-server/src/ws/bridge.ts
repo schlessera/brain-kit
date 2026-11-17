@@ -18,6 +18,8 @@ import { createWebAccess } from "./bridge-capabilities/web.js";
 import { createEffectiveSafety } from "../governance/effective-safety.js";
 import { sessionTaint } from "../governance/session-taint.js";
 import type { GithubOutwardAction } from "../github/host.js";
+import type { ProviderExposure } from "../brain/governance-policy.js";
+import { recipientRouting } from "../web-tools/routing.js";
 import { retainTurnSessionBinding } from "./bridge-session-binding.js";
 
 export { emitTurnError } from "./bridge-capabilities/turn-error.js";
@@ -133,10 +135,21 @@ function applyExternalServices(ctx: BridgeContext, bridge: BackendBridge, transc
   // taint; the turn, never the call, names principal and session. Writes
   // (#3798) take the allow-list from this turn's admitted policy, and their
   // card from this bridge's own approval surface, so voice and revoked turns
-  // refuse as they do for every other card. No policy, no writes.
+  // refuse as they do for every other card. No policy, no writes. Reads and
+  // searches are routed (G2, #4029) under the same frozen policy and the
+  // conversation's recorded exposures; writes are not, their card is the gate.
   if (host.githubTools) {
     const github = host.githubTools;
     const sessionId = () => transcript.collectedSessionId ?? turn.sessionId ?? null;
+    const routing = async (recipient: string) => {
+      // Without the frozen policy nothing says which folders GitHub may receive.
+      if (!governance) return "recipient_unproven" as const;
+      // Before the conversation is named, nothing recorded says what it showed.
+      const named = sessionId();
+      let shown: ProviderExposure[] | undefined;
+      if (named && host.governedTurns) try { shown = await host.governedTurns.exposures([named]); } catch { shown = undefined; }
+      return recipientRouting(governance.policy.policy, governance.typeFolders, shown, recipient);
+    };
     const posture = work?.posture === "voice" ? "voice" as const : "interactive" as const;
     const write = {
       repositories: () => governance?.policy.policy.outward?.github?.repositories ?? null,
@@ -156,7 +169,7 @@ function applyExternalServices(ctx: BridgeContext, bridge: BackendBridge, transc
         host.catalog.recordGovernanceEvent?.(input);
       },
     };
-    bridge.github = call => github.call({ turnId, principalId, sessionId, signal, write }, call);
+    bridge.github = call => github.call({ turnId, principalId, sessionId, signal, routing, write }, call);
   }
 }
 

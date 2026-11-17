@@ -111,7 +111,7 @@ export async function openTurnBridge(
       ...(governedHold.typeFolders ? { typeFolders: governedHold.typeFolders } : {}),
       ...(governedHold.sandbox.inferenceRecipient ? { recipient: governedHold.sandbox.inferenceRecipient.name } : {}) } : undefined,
     turnData: governedHold?.dataTree ? { tree: governedHold.dataTree, ...(governedHold.startupView ? { view: governedHold.startupView.root } : {}) } : undefined,
-    governance: governedHold ? { policy: governedHold.policy } : undefined,
+    governance: governedHold ? { policy: governedHold.policy, ...(governedHold.typeFolders ? { typeFolders: governedHold.typeFolders } : {}) } : undefined,
   });
   const safetyWrites=host.activity?.governanceWrites, safetyDb=host.activity?.governanceDb;
   if(safetyWrites&&safetyDb){
