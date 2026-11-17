@@ -30,9 +30,11 @@ async function fixture(options: { private?: boolean; worker?: boolean } = {}) {
   if (writer) registerReferenceWrites(db, writer);
   const credentials: Record<string, string | undefined> = { GITHUB_TOKEN: "odysseus-fixture-token" };
   const metadata: string[] = [], git: unknown[] = [];
-  const state = { current: true, ownerId: 201, clock: Date.now(), fetches: 0, private: options.private ?? false, status: 200 };
+  const state = { current: true, ownerId: 201, clock: Date.now(), fetches: 0, private: options.private ?? false, status: 200, invalidAt: 0, invalidJsonAt: 0 };
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, tls: { cert: tls.cert, key: tls.key }, fetch(request) {
     metadata.push(request.headers.get("authorization") ?? "anonymous");
+    if (metadata.length === state.invalidJsonAt) return new Response("{", { headers: { "content-type": "application/json" } });
+    if (metadata.length === state.invalidAt) return Response.json({ id: "invalid" });
     if (state.status !== 200) return new Response(null, { status: state.status });
     if (state.private && !request.headers.has("authorization")) return new Response(null, { status: 404 });
     return Response.json({ id: 101, owner: { id: state.ownerId, login: "Odysseus" }, name: "Ithaca", full_name: "Odysseus/Ithaca",
@@ -269,6 +271,130 @@ for (const wait of ["coverage", "native-grant"] as const)
     } finally { if (generation) await worktrees.closeGeneration(generation.id); await worktrees.close(); await f.close(); }
   });
 describe("live managed authority", () => {
+  test("a malformed refresh hides the previous source before staging cleanup or turn cancellation", async () => {
+    const f = await fixture(), releaseStarted = Promise.withResolvers<void>(), resumeRelease = Promise.withResolvers<void>(), release = f.pool.poolRelease;
+    let held: Awaited<ReturnType<typeof f.request>> | undefined, request: Promise<unknown> | undefined;
+    const controller = new AbortController();
+    try {
+      held = await f.request();
+      const nextCommit = "c".repeat(40), fetch = f.transport.fetch;
+      f.transport.resolve = async () => ({ ok: true, commit: nextCommit, ref: "refs/heads/main" });
+      f.transport.fetch = async input => { await fetch(input); return { commit: nextCommit }; };
+      f.state.invalidAt = f.metadata.length + 2;
+      f.pool.poolRelease = async (...args) => { releaseStarted.resolve(); await resumeRelease.promise; return release(...args); };
+      request = f.sources.request({ principalId: f.owner.id, repository, revision: "main", signal: controller.signal,
+        acquisition: { turnId: "odysseus-malformed-refresh", egress: f.egress, current: () => f.state.current } }).then(lease => { lease.release(); return null; }, error => error);
+      await releaseStarted.promise;
+      expect(existsSync(join(held.viewPath, held.name, "README.md")), "MALFORMED_REFRESH_HIDES_CACHE_BEFORE_STAGING_CLEANUP").toBe(false);
+      f.state.current = false; controller.abort(); resumeRelease.resolve();
+      expect(await request).toBeInstanceOf(Error);
+      expect(existsSync(join(held.viewPath, held.rootId, "README.md")), "TURN_END_CANNOT_RESTORE_KNOWN_INVALID_METADATA").toBe(false);
+    } finally { resumeRelease.resolve(); await request; held?.release(); await f.close(); }
+  });
+
+  for (const malformed of ["schema", "json"] as const)
+    test(`malformed final ${malformed} metadata withholds a cached public source`, async () => {
+      const f = await fixture(); let held: Awaited<ReturnType<typeof f.request>> | undefined;
+      try {
+        held = await f.request();
+        expect(readFileSync(join(held.viewPath, held.name, "README.md"), "utf8")).toContain("Odysseus");
+        if (malformed === "schema") f.state.invalidAt = f.metadata.length + 2;
+        else f.state.invalidJsonAt = f.metadata.length + 2;
+        await expect(f.request(), "FINAL_METADATA_REFUSES_THE_REVALIDATION").rejects.toThrow();
+        const views = await f.sources.bindable(f.other.id);
+        expect(existsSync(join(views.public, held.name, "README.md")), "MALFORMED_FINAL_METADATA_WITHHOLDS_CACHED_NAME").toBe(false);
+        expect(existsSync(join(views.public, held.rootId, "README.md")), "MALFORMED_FINAL_METADATA_WITHHOLDS_CACHED_ROOT").toBe(false);
+        f.state.invalidAt = 0; f.state.invalidJsonAt = 0;
+        const recovered = await f.request();
+        try {
+          expect(recovered.rootId, "VALID_METADATA_RESTORES_THE_WITHHELD_CACHE").toBe(held.rootId);
+          expect(readFileSync(join(recovered.viewPath, recovered.name, "README.md"), "utf8")).toContain("Odysseus");
+        } finally { recovered.release(); }
+      } finally { held?.release(); await f.close(); }
+    });
+
+  for (const alias of ["https://github.com/Odysseus/Ithaca", "https://GITHUB.COM/Odysseus/Ithaca.git"])
+    test(`GitHub authority withdrawal covers the URL alias ${alias}`, async () => {
+      const f = await fixture(); let held: Awaited<ReturnType<typeof f.request>> | undefined;
+      try {
+        held = await f.sources.request({ principalId: f.owner.id, repository: alias, revision: "main", acquisition: { turnId: "odysseus-alias-turn", egress: f.egress, current: () => f.state.current } });
+        expect(readFileSync(join(held.viewPath, held.name, "README.md"), "utf8")).toContain("Odysseus");
+        f.state.private = true;
+        await expect(f.request()).rejects.toMatchObject({ code: "unauthorized" });
+        const views = await f.sources.bindable(f.other.id);
+        expect(existsSync(join(views.public, held.name, "README.md")), "GITHUB_ALIAS_CANNOT_BYPASS_PUBLIC_WITHDRAWAL").toBe(false);
+        expect(existsSync(join(views.public, held.rootId, "README.md")), "GITHUB_ALIAS_ROOT_CANNOT_BYPASS_WITHDRAWAL").toBe(false);
+      } finally { held?.release(); await f.close(); }
+    });
+
+  test("GitHub URL aliases share the transport's canonical cache identity", async () => {
+    const f = await fixture(); let first: Awaited<ReturnType<typeof f.request>> | undefined, second: typeof first;
+    try {
+      first = await f.sources.request({ principalId: f.owner.id, repository: "https://github.com/Odysseus/Ithaca.git", revision: "main", acquisition: { turnId: "odysseus-canonical-alias", egress: f.egress, current: () => f.state.current } });
+      second = await f.request(f.other.id, "odysseus-canonical-second", f.secondEgress);
+      expect(first.repository, "GITHUB_CACHE_USES_TRANSPORT_CANONICAL_IDENTITY").toBe(repository);
+      expect(second.rootId, "GITHUB_ALIASES_REUSE_THE_SAME_SEALED_ROOT").toBe(first.rootId);
+      expect(f.state.fetches, "GITHUB_ALIASES_DO_NOT_FETCH_DUPLICATE_ROOTS").toBe(1);
+      expect(readFileSync(join(second.viewPath, second.name, "README.md"), "utf8")).toContain("Odysseus");
+    } finally { second?.release(); first?.release(); await f.close(); }
+  });
+
+  test("authority withdrawal also fences an already stored noncanonical GitHub catalog key", async () => {
+    const f = await fixture(); let held: Awaited<ReturnType<typeof f.request>> | undefined;
+    try {
+      held = await f.request();
+      // Simulate disposable catalog state retained from an earlier service.
+      f.db.transaction(() => {
+        f.db.query("UPDATE reference_sources SET repository = ? WHERE repository = ?").run("https://github.com/Odysseus/Ithaca", repository);
+        f.db.query("UPDATE reference_roots SET repository = ? WHERE repository = ?").run("https://github.com/Odysseus/Ithaca", repository);
+      })();
+      expect(readFileSync(join(held.viewPath, held.name, "README.md"), "utf8")).toContain("Odysseus");
+      f.state.private = true;
+      await expect(f.request()).rejects.toMatchObject({ code: "unauthorized" });
+      const views = await f.sources.bindable(f.other.id);
+      expect(existsSync(join(views.public, held.name, "README.md")), "STORED_GITHUB_ALIAS_IS_FENCED").toBe(false);
+    } finally { held?.release(); await f.close(); }
+  });
+
+  for (const initialPrivate of [false, true])
+    test(`a retained ${initialPrivate ? "private" : "public"} worktree alias uses the actual transport's grant scope`, async () => {
+      const f = await fixture({ private: initialPrivate }); f.grant();
+      const context = { turnId: "odysseus-retained-alias-turn", egress: f.egress, current: () => f.state.current };
+      const worktrees = createReferenceWorktrees({ db: f.db, pool: f.pool, sources: f.sources, coverage: async () => {} });
+      let generation: Awaited<ReturnType<typeof worktrees.openGeneration>> | undefined;
+      try {
+        const item = await worktrees.allocate({ principalId: f.owner.id, repository, revision: "main", acquisition: context });
+        f.db.query("UPDATE reference_worktrees SET repository = ? WHERE id = ?").run("https://github.com/Odysseus/Ithaca", item.id);
+        f.state.private = true;
+        generation = await worktrees.openGeneration({ principalId: f.owner.id, turnId: context.turnId, profile: "governed" });
+        await expect(worktrees.access({ worktreeId: item.id, principalId: f.owner.id, generation: generation.id, acquisition: context }),
+          "RETAINED_ALIAS_USES_LIVE_CANONICAL_GRANT").resolves.toMatchObject({ generation: generation.id });
+        expect(readFileSync(join(generation.path, item.id, "README.md"), "utf8")).toContain("Odysseus");
+      } finally { if (generation) await worktrees.closeGeneration(generation.id); await worktrees.close(); await f.close(); }
+    });
+
+  test("incomplete metadata hides a first native publication before delayed storage release", async () => {
+    const f = await fixture(), arrived = Promise.withResolvers<void>(), resume = Promise.withResolvers<void>(), observed = Promise.withResolvers<void>();
+    const releaseStarted = Promise.withResolvers<void>(), resumeRelease = Promise.withResolvers<void>(), publish = f.pool.poolPublish, release = f.pool.poolRelease, open = f.github.open;
+    let path = "", id = "", released = false;
+    f.pool.poolPublish = async (...args) => { const result = await publish(...args); path = join(result.path!, "README.md"); id = args[0]; arrived.resolve(); await resume.promise; return result; };
+    f.pool.poolRelease = async (...args) => { if (args[0] === id && !released) { released = true; releaseStarted.resolve(); await resumeRelease.promise; } return release(...args); };
+    const earlier = f.request().then(lease => ({ lease, error: undefined }), error => ({ lease: undefined, error }));
+    let later: Promise<{ lease: Awaited<ReturnType<typeof f.request>> | undefined; error: unknown }> | undefined;
+    try {
+      await arrived.promise; expect(readFileSync(path, "utf8")).toContain("Odysseus");
+      f.state.private = true; f.grant(); f.credentials.GITHUB_TOKEN = undefined;
+      f.github.open = async input => { try { return await open(input); } finally { observed.resolve(); } };
+      later = f.request().then(lease => ({ lease, error: undefined }), error => ({ lease: undefined, error }));
+      await observed.promise; await new Promise<void>(resolve => setImmediate(resolve));
+      resume.resolve(); await releaseStarted.promise;
+      const current = await later; current.lease?.release();
+      expect(current.error).toMatchObject({ code: "unavailable" });
+      expect(existsSync(path), "INCOMPLETE_METADATA_HIDES_NATIVE_EXPOSURE_WITHOUT_CATALOG").toBe(false);
+      resumeRelease.resolve(); expect((await earlier).error).toMatchObject({ code: "unauthorized" });
+    } finally { resume.resolve(); resumeRelease.resolve(); (await earlier).lease?.release(); (await later)?.lease?.release(); await f.close(); }
+  });
+
   test("private revocation waits for an in-flight first publication with no catalog row", async () => {
     const f = await fixture({ private: true }), issued = f.grant(), arrived = Promise.withResolvers<void>(), resume = Promise.withResolvers<void>();
     const publish = f.pool.poolPublish, release = f.pool.poolRelease, releaseStarted = Promise.withResolvers<void>(), resumeRelease = Promise.withResolvers<void>();

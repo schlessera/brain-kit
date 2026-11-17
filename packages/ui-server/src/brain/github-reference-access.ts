@@ -9,6 +9,13 @@ import { referenceRevision, ReferenceTransportError, type ReferenceCheck, type R
 type WireOptions = Parameters<typeof createGitHubReferenceWire>[0];
 type RequestBounds = Pick<WireOptions, "egress" | "maxBytes" | "timeoutMs" | "signal"> & { current?: () => boolean };
 
+/** A failed final identity observation makes existing cache authority uncertain too. */
+export class GitHubReferenceMetadataError extends ReferenceTransportError {
+  constructor(error: unknown) {
+    super(error instanceof ReferenceTransportError ? error.reason : "unavailable", error instanceof Error ? error.message : "GitHub repository identity is unavailable");
+  }
+}
+
 export function createGitHubReferenceAccess(options: {
   db: Database;
   /** Actual served brain identity, never a tool argument. */
@@ -120,7 +127,12 @@ export function createGitHubReferenceAccess(options: {
               assertCurrent();
               if (result.status !== 200 || !sameGitHubReferenceIdentity(identity, parseGitHubReferenceMetadata(location.canonical, result.value)))
                 throw new ReferenceTransportError("denied", "GitHub repository identity changed during acquisition");
-            } catch (error) { await wire.close(); throw error; }
+            } catch (error) {
+              const interrupted = input.signal?.aborted || (input.current && !input.current());
+              await wire.close();
+              if (interrupted) throw error;
+              throw new GitHubReferenceMetadataError(error);
+            }
           },
           close: () => wire.close(),
         });

@@ -26,7 +26,8 @@ import type { createNativeBrainManagerClient, NativePoolRecord } from "@schlesse
 import type { Logger } from "@opentelemetry/api-logs";
 import { coveringReferenceGrant, isLiveReferenceGrant, referenceRepository, type ReferenceGrant, type ReferenceRepository } from "../db/reference-grants.js";
 import { referenceRevision, ReferenceTransportError, type ReferenceTransport } from "./reference-transport.js";
-import type { createGitHubReferenceAccess } from "./github-reference-access.js";
+import { GitHubReferenceMetadataError, type createGitHubReferenceAccess } from "./github-reference-access.js";
+import { githubReferenceRepository } from "./github-reference-identity.js";
 import { referenceAcquisitionMatches, type ReferenceAcquisition, type ReferenceAcquisitionContext } from "./reference-acquisition.js";
 
 type GitHubAccess = Awaited<ReturnType<ReturnType<typeof createGitHubReferenceAccess>["open"]>>;
@@ -113,10 +114,17 @@ export function createReferenceSources(options: {
   const operations = new Map<string, Operation>();
   const operating = (key: string) => [...operations.values()].some(operation => operation.key === key);
   const isManaged = (repository: string) => Boolean(options.github && new URL(repository).hostname.toLowerCase() === "github.com");
+  /** Use the fixed transport's GitHub identity for cache keys and grant checks alike. */
+  function repositoryLocation(input: unknown): ReferenceRepository {
+    const repository = referenceRepository(input);
+    return isManaged(repository.canonical) ? referenceRepository(githubReferenceRepository(repository.url).cloneUrl) : repository;
+  }
   const leases = new Map<string, number>();
   const withdrawn = new Set<string>();
   /** A newer authority observation invalidates older managed requests, including before domain selection. */
   const authorityFences = new Map<string, number>();
+  /** One failed metadata observation is fenced once, before any staging cleanup. */
+  const metadataFences = new WeakMap<GitHubReferenceMetadataError, Promise<void>>();
   /** In-flight withdrawals; an acquisition of the same source waits for its withdrawal to finish. */
   const withdrawals = new Map<string, Promise<void>>();
   /**
@@ -299,7 +307,7 @@ export function createReferenceSources(options: {
   /** Private work is authorized only while its principal still holds a live covering grant. */
   function authorize(domain: string, principalId: string | null, repository: ReferenceRepository): ReferenceGrant | null {
     if (domain === PUBLIC) return null;
-    const grant = coveringReferenceGrant(db, { brain: options.brain, principalId: principalId!, repository, now: now() });
+    const grant = coveringReferenceGrant(db, { brain: options.brain, principalId: principalId!, repository: repositoryLocation(repository.url), now: now() });
     if (!grant) throw new ReferenceSourceError("unauthorized", "No live reference grant covers this repository for this principal.");
     return grant;
   }
@@ -429,24 +437,36 @@ export function createReferenceSources(options: {
     authorityFences.set(key, (authorityFences.get(key) ?? 0) + 1);
   }
   /** Repository metadata governs every cached or in-flight revision, not only the requested one. */
-  function repositoryRevisions(domain: string, repository: string, revision: string): string[] {
-    const revisions = new Set([revision]);
-    for (const row of db.query(`SELECT revision FROM reference_sources WHERE domain = ? AND repository = ?
-      UNION SELECT revision FROM reference_roots WHERE domain = ? AND repository = ?`).all(domain, repository, domain, repository) as { revision: string }[])
-      revisions.add(row.revision);
+  function repositoryKeys(domain: string, repository: string, revision: string): string[] {
+    const keys = new Set([sourceKey(domain, repository, revision)]);
+    const equivalent = (candidate: string) => {
+      if (candidate === repository) return true;
+      try { return githubReferenceRepository(candidate).canonical === repository; } catch { return false; }
+    };
+    for (const row of db.query(`SELECT repository, revision FROM reference_sources WHERE domain = ?
+      UNION SELECT repository, revision FROM reference_roots WHERE domain = ?`).all(domain, domain) as { repository: string; revision: string }[])
+      if (equivalent(row.repository)) keys.add(sourceKey(domain, row.repository, row.revision));
     for (const operation of operations.values()) {
       const [heldDomain, heldRepository, heldRevision] = splitKey(operation.key);
-      if (heldRepository === repository && (heldDomain === domain || (operation.principalId !== null && domain === privateDomain(operation.principalId)))) revisions.add(heldRevision);
+      if (equivalent(heldRepository) && (heldDomain === domain || (operation.principalId !== null && domain === privateDomain(operation.principalId)))) keys.add(sourceKey(domain, heldRepository, heldRevision));
     }
-    return [...revisions];
+    return [...keys];
   }
   function withdrawRepository(domain: string, repository: string, revision: string): Promise<void[]> {
-    return Promise.all(repositoryRevisions(domain, repository, revision).map(revision => withdraw(domain, repository, revision)));
+    return Promise.all(repositoryKeys(domain, repository, revision).map(key => withdraw(...splitKey(key))));
   }
   function suspendRepository(domain: string, repository: string, revision: string): Promise<void[]> {
-    const revisions = repositoryRevisions(domain, repository, revision);
-    for (const revision of revisions) fenceSource(sourceKey(domain, repository, revision));
-    return Promise.all(revisions.map(revision => suspendSource(domain, repository, revision)));
+    const keys = repositoryKeys(domain, repository, revision);
+    for (const key of keys) fenceSource(key);
+    return Promise.all(keys.map(key => suspendSource(...splitKey(key))));
+  }
+  function fenceMetadataFailure(error: GitHubReferenceMetadataError, principalId: string, repository: string, revision: string): Promise<void> {
+    const pending = metadataFences.get(error);
+    if (pending) return pending;
+    const work = Promise.all([PUBLIC, privateDomain(principalId)].map(domain => error.reason === "denied"
+      ? withdrawRepository(domain, repository, revision) : suspendRepository(domain, repository, revision))).then(() => {});
+    metadataFences.set(error, work);
+    return work;
   }
 
   async function acquire(signal: AbortSignal, input: { domain: string; principalId: string | null; repository: ReferenceRepository; revision: string; grant: ReferenceGrant | null;
@@ -515,6 +535,8 @@ export function createReferenceSources(options: {
       }
       });
     } catch (error) {
+      if (error instanceof GitHubReferenceMetadataError) await fenceMetadataFailure(error, input.principalId!, repository.canonical, revision)
+        .catch(cleanup => warn("metadata authority withdrawal is incomplete; bind preparation retries it", cleanup));
       // Staging is never published; its reservation is released through the pool only now that the workers stopped.
       const id = staging.id;
       const state = (db.query("SELECT state FROM reference_roots WHERE id = ?").get(id) as { state: string } | null)?.state;
@@ -604,7 +626,11 @@ export function createReferenceSources(options: {
       } catch (error) {
         result?.release(); result = undefined;
         const refusal = error instanceof ReferenceTransportError ? error.reason : error instanceof ReferenceSourceError ? error.code : null;
-        if (!signal.aborted && context.current() && (refusal === "denied" || refusal === "unauthorized" || refusal === "missing")) {
+        if (error instanceof GitHubReferenceMetadataError) {
+          // A known observation still fences cache authority if its turn ends
+          // while wire shutdown or staging cleanup is settling.
+          await fenceMetadataFailure(error, input.principalId, repository.canonical, revision);
+        } else if (!signal.aborted && context.current() && (refusal === "denied" || refusal === "unauthorized" || refusal === "missing")) {
           // Opening metadata may fail before it selects a domain. Fence both
           // known copies; neither the public cache nor this principal's cache
           // may outlive an explicit authority refusal.
@@ -643,7 +669,7 @@ export function createReferenceSources(options: {
     if (closed) throw new ReferenceSourceError("unavailable", "Reference sources are closed.");
     if (input.signal?.aborted) throw new ReferenceSourceError("cancelled", "Reference acquisition request was cancelled.");
     let repository: ReferenceRepository, revision: string;
-    try { repository = referenceRepository(input.repository); revision = referenceRevision(input.revision); }
+    try { repository = repositoryLocation(input.repository); revision = referenceRevision(input.revision); }
     catch (error) { throw new ReferenceSourceError("invalid", (error as Error).message); }
     if (isManaged(repository.canonical)) return managedRequest(input, repository, revision);
     const probeKey = `${repository.canonical}\u0000${revision}`;
@@ -687,11 +713,16 @@ export function createReferenceSources(options: {
     const key = sourceKey(domain, repository, revision);
     return exclusive(key, async () => {
       const source = row(domain, repository, revision);
-      if (!source?.root_id || withdrawn.has(key) || (suspended.has(key) && !unsettled.has(key))) return;
-      suspended.add(key); unsettled.add(key);
       const roots = db.query("SELECT id FROM reference_roots WHERE domain = ? AND repository = ? AND revision = ? AND state != 'staging'").all(domain, repository, revision) as { id: string }[];
-      await pool.poolUnpublish((await viewFor(domain)).id, source.name);
+      const pending = [...pendingPublications].filter(([, publication]) => publication.key === key);
+      if ((!source?.root_id && !roots.length && !pending.length) || (suspended.has(key) && !unsettled.has(key) && !pending.length)) return;
+      suspended.add(key); unsettled.add(key);
+      if (source) await pool.poolUnpublish((await viewFor(domain)).id, source.name);
       for (const root of roots) await hideRoot(root.id);
+      for (const [id, publication] of pending) {
+        await pool.poolUnpublish(publication.view, publication.name);
+        await hideRoot(id);
+      }
       unsettled.delete(key);
     });
   }
@@ -871,7 +902,7 @@ export function createReferenceSources(options: {
     for (const key of keys) {
       const [domain, repository, revision] = splitKey(key), principalId = domain.slice("private:".length);
       let covered = false;
-      try { covered = Boolean(coveringReferenceGrant(db, { brain: options.brain, principalId, repository: referenceRepository(repository), now: now() })); } catch { covered = false; }
+      try { covered = Boolean(coveringReferenceGrant(db, { brain: options.brain, principalId, repository: repositoryLocation(repository), now: now() })); } catch { covered = false; }
       if (!covered) await withdraw(domain, repository, revision);
     }
   }
@@ -897,7 +928,7 @@ export function createReferenceSources(options: {
         brain: options.brain, commit: source.commit_id!, ref: source.ref,
       });
       if (usableRoot && source.domain !== PUBLIC) {
-        try { usableRoot = Boolean(coveringReferenceGrant(db, { brain: options.brain, principalId: source.domain.slice("private:".length), repository: referenceRepository(source.repository), now: now() })); }
+        try { usableRoot = Boolean(coveringReferenceGrant(db, { brain: options.brain, principalId: source.domain.slice("private:".length), repository: repositoryLocation(source.repository), now: now() })); }
         catch { usableRoot = false; }
       }
       if (usableRoot) {
@@ -930,7 +961,7 @@ export function createReferenceSources(options: {
     request,
     /** Whether a live grant covers this repository for this principal now; private worktrees (#2430) need one for every access. */
     covers(input: { principalId: string; repository: string }): boolean {
-      try { return Boolean(coveringReferenceGrant(db, { brain: options.brain, principalId: input.principalId, repository: referenceRepository(input.repository), now: now() })); }
+      try { return Boolean(coveringReferenceGrant(db, { brain: options.brain, principalId: input.principalId, repository: repositoryLocation(input.repository), now: now() })); }
       catch { return false; }
     },
     revoke,
