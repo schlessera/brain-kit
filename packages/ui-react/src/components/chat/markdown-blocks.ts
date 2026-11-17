@@ -92,14 +92,14 @@ export const MAX_TAIL_LAG_MS = 200;
 
 /**
  * Which text the growing last block shows. Its deferred text, while that is
- * what the current text extends and has not lagged behind for longer than
- * `MAX_TAIL_LAG_MS`: React restarts a deferred render on every new delta, so
- * when the tail's parse outlasts the gap between deltas it would otherwise
- * not update until the stream paused. Past the bound the current text
- * renders urgently, and the lag starts again from there.
+ * what the current text extends and the last commit that showed the current
+ * text (`caughtUpAt`) is no more than `MAX_TAIL_LAG_MS` old: React restarts a
+ * deferred render on every new delta, so when the tail's parse outlasts the
+ * gap between deltas it would otherwise not update until the stream paused.
+ * Past the bound the current text renders urgently. `caughtUpAt` comes from
+ * committed renders only, so a render React discards cannot reset it.
  */
-export function tailText(text: string, deferred: string | null, lagSince: number | null, now: number): { shown: string; lagSince: number | null } {
-  if (deferred === null || deferred === text || !text.startsWith(deferred)) return { shown: text, lagSince: null };
-  if (lagSince === null) return { shown: deferred, lagSince: now };
-  return now - lagSince > MAX_TAIL_LAG_MS ? { shown: text, lagSince: null } : { shown: deferred, lagSince };
+export function tailText(text: string, deferred: string | null, caughtUpAt: number, now: number): string {
+  if (deferred === null || deferred === text || !text.startsWith(deferred)) return text;
+  return now - caughtUpAt > MAX_TAIL_LAG_MS ? text : deferred;
 }

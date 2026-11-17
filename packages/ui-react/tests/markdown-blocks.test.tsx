@@ -64,7 +64,7 @@ const CORPUS: Record<string, { text: string; splits: boolean; props?: { fileLink
   "an unclosed fence mid-stream": { text: "Plan:\n\nFirst step.\n\n```js\nconst wind = 'west';\n\nif (wind)", splits: true },
   "blockquotes, tables, setext headings": { text: "Athena\n======\n\n> Go home.\n>\n> Now.\n\nVoyage\n------\n\n| Day | Port |\n| --- | --- |\n| 1 | Troy |\n\nAfter the table.", splits: true },
   "an HTML block": { text: "Before.\n\n<div>\n<b>raw</b>\n</div>\n\nAfter the div.", splits: false },
-  "entity tags": { text: "Met <person>Penelope</person> at the loom.\n\nThen <place>Ithaca</place>.", splits: true, props: { fileLinks: true, entityTags: true } },
+  "entity tags": { text: "Met <p>Penelope</p> at the loom.\n\nThen <co>Ithaca Shipwrights</co> and <proj>The Raft</proj>.\n\nOn <d>2026-07-12</d>.", splits: true, props: { fileLinks: true, entityTags: true } },
   "share blocks": { text: "Here it is:\n\n```share md \"Voyage log\"\n# Day one\n\nCalm seas.\n```\n\nThat is the log.\n\nAnd more.", splits: true },
   "definitions inside a blockquote and a list item": { text: "Odysseus kept [a log][log].[^1]\n\nThe crew read it.\n\n> [log]: https://ithaca.example/log\n\n- [^1]: Written at Ogygia.", splits: false },
   "a definition whose label wraps across lines": { text: "See [the raft][long\nlabel].\n\nIt floats.\n\n[long\nlabel]: https://ithaca.example/raft", splits: false },
@@ -88,6 +88,7 @@ describe("split and whole render the same HTML", () => {
     test(name, () => {
       expect(realSplit(text).length > 1, splits ? "this fixture exercises a split" : "this fixture must stay whole").toBe(splits);
       expect(html(text, props, false)).toBe(html(text, props, true));
+      if (props.entityTags) expect(html(text, props, false), "entity tags really render as entities").not.toBe(html(text, { fileLinks: true }, false));
     });
   }
 });
@@ -131,16 +132,15 @@ test("generated documents parse the same split and whole", () => {
 }, 60_000);
 
 describe("tailText", () => {
-  test("shows the deferred tail while it is what the text extends, within the lag bound", () => {
-    expect(tailText("abc", "ab", null, 1000)).toEqual({ shown: "ab", lagSince: 1000 });
-    expect(tailText("abcd", "ab", 1000, 1000 + MAX_TAIL_LAG_MS)).toEqual({ shown: "ab", lagSince: 1000 });
+  test("shows the deferred tail while it is what the text extends and the last catch-up is recent", () => {
+    expect(tailText("abc", "ab", 1000, 1000 + MAX_TAIL_LAG_MS)).toBe("ab");
   });
-  test("renders the current tail once the deferred one has lagged past the bound", () => {
-    expect(tailText("abcde", "ab", 1000, 1001 + MAX_TAIL_LAG_MS)).toEqual({ shown: "abcde", lagSince: null });
+  test("renders the current tail once the last catch-up is older than the bound", () => {
+    expect(tailText("abcde", "ab", 1000, 1001 + MAX_TAIL_LAG_MS)).toBe("abcde");
   });
   test("caught up, replaced or with no deferred text, shows the current text", () => {
-    expect(tailText("abc", "abc", 1000, 5000)).toEqual({ shown: "abc", lagSince: null });
-    expect(tailText("xyz", "ab", 1000, 1001)).toEqual({ shown: "xyz", lagSince: null });
-    expect(tailText("abc", null, null, 1000)).toEqual({ shown: "abc", lagSince: null });
+    expect(tailText("abc", "abc", 0, 5000)).toBe("abc");
+    expect(tailText("xyz", "ab", 1000, 1001)).toBe("xyz");
+    expect(tailText("abc", null, 1000, 1001)).toBe("abc");
   });
 });
