@@ -79,13 +79,16 @@ export function failingLines(log: string, limit = 30): string[] {
 const COMPARE_FILE_LIMIT = 300;
 
 /**
- * Every file a pull request changes. `gh pr view --json files` stops at 100;
- * this list pages, and GitHub ends it at 3000 files, so the caller compares
- * its length with the pull request's `changedFiles`.
+ * Every file a pull request changes, one entry per file, each with every path
+ * it is changed under: a renamed file also has the path it leaves (#4152),
+ * which `gh pr view --json files` and `filename` never name.
+ * `gh pr view --json files` also stops at 100; this list pages, and GitHub
+ * ends it at 3000 files, so the caller compares its length with the pull
+ * request's `changedFiles`.
  */
-function changedFiles(gh: Gh, repo: string, pr: number): string[] {
-  return must(gh, ["api", "--paginate", `repos/${repo}/pulls/${pr}/files?per_page=100`, "--jq", ".[] | .filename | tojson"])
-    .split("\n").filter(Boolean).map(line => String(JSON.parse(line)));
+function changedFiles(gh: Gh, repo: string, pr: number): string[][] {
+  return must(gh, ["api", "--paginate", `repos/${repo}/pulls/${pr}/files?per_page=100`, "--jq", ".[] | [.filename, (.previous_filename // empty)] | tojson"])
+    .split("\n").filter(Boolean).map(line => (JSON.parse(line) as unknown[]).map(String));
 }
 
 export interface StatusIo { gh?: Gh; out: (text: string) => void }
@@ -164,7 +167,7 @@ export async function main(argv: readonly string[], io: StatusIo): Promise<numbe
     moved = !unchanged.head || !unchanged.base;
     if (expectBase && !unchanged.base) {
       const gained = JSON.parse(must(gh, ["api", `repos/${repo}/compare/${expectBase}...${liveBase}`, "--jq", "[.files[].filename] | tojson"])) as string[];
-      const mine = changedFiles(gh, repo, number), changed = new Set(mine);
+      const mine = changedFiles(gh, repo, number), changed = new Set(mine.flat());
       // Either list can be cut short by GitHub. An overlap read from part of a list is not the whole overlap.
       const incomplete: string[] = [];
       if (gained.length >= COMPARE_FILE_LIMIT) incomplete.push(`the base gained ${COMPARE_FILE_LIMIT} files or more, and GitHub's comparison lists only the first ${COMPARE_FILE_LIMIT}`);
