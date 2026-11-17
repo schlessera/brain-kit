@@ -354,3 +354,5 @@ test("Escape cancels a listening take, while a finishing one refuses it", async 
   expect(draft(s), "a cancelled take adds nothing").toBe("");
   await expect.poll(() => document.activeElement).toBe(dictate(s));
 });
+
+// Throwaway edit: selects this spec for the hosted qualification of #4163. Not for merge.

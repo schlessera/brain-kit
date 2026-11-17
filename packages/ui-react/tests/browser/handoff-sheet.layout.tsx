@@ -229,3 +229,5 @@ test("busy handoff swipe is bounded and preserves the pending handoff", async ()
   expect(ui!.stores.handoff.getState().sheet,"busy handoff stays open").toBe(state);
   expect(ui!.stores.handoff.getState().phase.kind).toBe("creating");
 });
+
+// Throwaway edit: selects this spec for the hosted qualification of #4163. Not for merge.

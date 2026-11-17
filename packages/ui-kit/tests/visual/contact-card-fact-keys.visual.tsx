@@ -288,3 +288,5 @@ for (const theme of ["dark", "light"]) {
     await expect(page.elementLocator(host!)).toMatchScreenshot(`contact-long-key-${theme}-${width}`);
   });
 }
+
+// Throwaway edit: selects this spec for the hosted qualification of #4163. Not for merge.
