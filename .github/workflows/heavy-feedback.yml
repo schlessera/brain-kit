@@ -52,6 +52,8 @@ jobs:
       pack: "${{ steps.plan.outputs.pack }}"
       determinism: "${{ steps.plan.outputs.determinism }}"
       determinism_shards: "${{ steps.plan.outputs.determinism_shards }}"
+      browser_determinism: "${{ steps.plan.outputs.browser_determinism }}"
+      browser_determinism_shards: "${{ steps.plan.outputs.browser_determinism_shards }}"
       red_main_oid: "${{ steps.plan.outputs.red_main_oid }}"
       base_sha: "${{ steps.admit.outputs.base_sha }}"
     steps:
@@ -490,6 +492,45 @@ jobs:
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
+  browser_determinism:
+    needs: changeset
+    if: "${{ !cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push') && needs.changeset.outputs.browser_determinism == 'true' }}"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: "${{ fromJSON(needs.changeset.outputs.browser_determinism_shards) }}"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: "${{ inputs.head_sha }}"
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - name: Recompute affected proof on the actual checkout
+        env:
+          BASE_SHA: "${{ needs.changeset.outputs.base_sha }}"
+          HEAD_SHA: "${{ inputs.head_sha }}"
+          FEEDBACK_PR: "${{ inputs.pr }}"
+        run: bun scripts/ci-plan.ts
+      - name: "Repeat changed browser, layout and story specs under CPU load"
+        timeout-minutes: 20
+        env:
+          BROWSER_REPEAT_SHARDS: "${{ strategy.job-total }}"
+        run: "bun scripts/ci-proof.ts browser_determinism --shard=${{ matrix.shard }}/\"$BROWSER_REPEAT_SHARDS\""
+      - name: Proof receipts and failure diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: "browser-determinism-proof-${{ matrix.shard }}"
+          path: "tmp/browser-determinism-report.json\ntmp/browser-determinism/\ntmp/proof-checkout.json\ntmp/proof-resources.json\npackages/ui-kit/.vitest-attachments/\npackages/ui-react/.vitest-attachments/\n.vitest-attachments/\ntmp/hygiene-proof/\ntmp/cold-capture/\ntmp/share-review/\npackages/ui-kit/**/__screenshots__/**/*-[0-9]*.png\npackages/ui-react/**/__screenshots__/**/*-[0-9]*.png\n!packages/ui-kit/**/__screenshots__/**/*-linux.png\n!packages/ui-react/**/__screenshots__/**/*-linux.png\n"
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 7
   aggregate:
     name: draft heavy feedback
     needs:
@@ -504,6 +545,7 @@ jobs:
       - captures
       - endurance
       - determinism
+      - browser_determinism
     if: "${{ always() && !cancelled() && github.event_name == 'workflow_dispatch' }}"
     runs-on: ubuntu-24.04
     timeout-minutes: 3
