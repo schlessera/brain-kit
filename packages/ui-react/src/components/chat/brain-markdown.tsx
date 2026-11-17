@@ -1,7 +1,8 @@
 import { MarkdownRangeContext, rehypeMarkdownRange } from "./markdown-range.js";
 import { useBrainUiRoot } from "../../root-context.js";
-import React, { memo, useContext, useEffect, useMemo } from "react";
+import React, { memo, useContext, useDeferredValue, useEffect, useMemo } from "react";
 import Markdown from "react-markdown";
+import { splitMarkdownBlocks } from "./markdown-blocks.js";
 
 import {
   classifyRepoPath,
@@ -175,15 +176,45 @@ const BrainMarkdownInner = memo(function BrainMarkdownInner({ content, className
     };
   }, [entityTags, fileLinks, root]);
 
+  // A projected range maps offsets into the whole text, so it parses whole.
+  // Otherwise each top-level block parses on its own (#2588): a streaming
+  // answer grows only at its end, so its finished blocks keep their text and
+  // `MarkdownBlock`'s memo skips them, and only the last one re-parses.
+  const blocks = useMemo(() => range ? [processed] : splitMarkdownBlocks(processed), [processed, range]);
   return (
     <div className={className ?? "brain-prose"}>
-      <MarkdownRangeContext.Provider value={null}><Markdown
-        remarkPlugins={REMARK_PLUGINS}
-        rehypePlugins={projectedPlugins}
-        components={components}
-      >
-        {processed}
-      </Markdown></MarkdownRangeContext.Provider>
+      <MarkdownRangeContext.Provider value={null}>
+        {blocks.map((text, i) => (
+          <StreamedBlock key={i} text={text} last={i === blocks.length - 1} rehypePlugins={projectedPlugins} components={components} />
+        ))}
+      </MarkdownRangeContext.Provider>
     </div>
   );
 });
+
+type BlockProps = { text: string; rehypePlugins: React.ComponentProps<typeof Markdown>["rehypePlugins"]; components: React.ComponentProps<typeof Markdown>["components"] };
+
+/**
+ * One top-level block's parse. Memoized on its text and the (memoized)
+ * plugins and components, so a finished block is not re-parsed while the
+ * answer streams on, and its elements (a rendered Mermaid diagram) keep
+ * their state: its key is its index, which a growing text never changes.
+ */
+const MarkdownBlock = memo(function MarkdownBlock({ text, rehypePlugins, components }: BlockProps) {
+  return <Markdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={rehypePlugins} components={components}>{text}</Markdown>;
+});
+
+/**
+ * A block in its place. Every block is this one component type, so the last
+ * block becoming an earlier one (a new block starts below it) changes no
+ * element type and remounts nothing. Only the last block's text is deferred,
+ * so input and scrolling outrank re-parsing the growing tail.
+ */
+function StreamedBlock({ text, last, ...rest }: BlockProps & { last: boolean }) {
+  const deferred = useDeferredValue(text);
+  return <>
+    <MarkdownBlock text={last ? deferred : text} {...rest} />
+    {/* react-markdown separates top-level blocks with a newline; keep it between ours. */}
+    {last ? null : "\n"}
+  </>;
+}
