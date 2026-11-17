@@ -31,6 +31,9 @@ import { SNAPSHOT_MODES, sdkOptionsSnapshot } from "./helpers/sdk-options-snapsh
  * allowlists and autonomous modes stay byte-identical.
  * #3799 inserts the host GitHub tools' bullet in the retained append of those
  * four modes, after the tool briefs; everything else stays byte-identical.
+ * #3613 adds reference_read to the four interactive rosters and retained
+ * briefs, and to the allowlist where reference access is available. The two
+ * autonomous modes and all unrelated options remain byte-identical.
  * Regenerate it only for a reviewed, intended change to
  * the roster, allowlist or system prompt, and say so in the PR.
  */

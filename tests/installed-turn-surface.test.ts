@@ -30,9 +30,9 @@ test("actual installed CLI request preserves shipped deferred core tools, eager 
     "mcp__brain__brain_list", "mcp__brain__brain_read", "mcp__brain__brain_read_many", "mcp__brain__brain_search", "mcp__brain__brain_update",
   ]);
   // 24 before the six external compute bridge tools (#3108), the ten fixed Apify bridge tools (#3162), read_attachment (#3154)
-  // the four host GitHub tools, two reads (#3797) and two writes (#3798), and request_image_markup (#3975).
-  expect(capture.request.tools.filter(tool => tool.name.startsWith("mcp__brain-ui__"))).toHaveLength(46);
-  for (const name of ["inbox_list", "inbox_get", "inbox_add", "resolve_action", "complete_share", "turn_temp", "reference_source", "reference_worktree",
+  // the four host GitHub tools, two reads (#3797) and two writes (#3798), request_image_markup (#3975), and immutable reference_read (#3613).
+  expect(capture.request.tools.filter(tool => tool.name.startsWith("mcp__brain-ui__"))).toHaveLength(47);
+  for (const name of ["inbox_list", "inbox_get", "inbox_add", "resolve_action", "complete_share", "turn_temp", "reference_source", "reference_worktree", "reference_read",
     "brain_compute_health", "brain_compute_plan", "brain_compute_run", "brain_compute_status", "brain_compute_cancel", "brain_compute_collect",
     "brain_apify_availability", "brain_apify_approvals", "brain_apify_revoke", "brain_apify_discover", "brain_apify_inspect", "brain_apify_prepare", "brain_apify_run", "brain_apify_status", "brain_apify_results", "brain_apify_abort",
     "read_attachment", "brain_github_issue_read", "brain_github_issue_search", "brain_github_issue_create", "brain_github_issue_comment",

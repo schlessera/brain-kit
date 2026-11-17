@@ -157,6 +157,7 @@ const PUBLIC_CALLS: PublicCall[] = [
   { toolUseId: "call-policy", name: "propose_policy_change", input: { content: "---\nschema_version: 1\nprofiles:\n  interactive: strict\n---\nOdysseus reviews the policy.\n", rationale: "Review strict for the next crossing." } },
   { toolUseId: "call-reference-source", name: "reference_source", input: { repository: "https://github.com/odysseus/ithaca", revision: "main" } },
   { toolUseId: "call-reference-worktree", name: "reference_worktree", input: { action: "list" } },
+  { toolUseId: "call-reference-read", name: "reference_read", input: { repository: "https://github.com/odysseus/ithaca", revision: "main", path: "README.md" } },
   { toolUseId: "call-compute-health", name: "brain_compute_health", input: {} },
   { toolUseId: "call-compute-plan", name: "brain_compute_plan", input: { provider: "boat-small", argv: ["make", "charts"] } },
   { toolUseId: "call-compute-run", name: "brain_compute_run", input: { provider: "boat-small", argv: ["make", "charts"], lease_seconds: 600 } },
@@ -194,7 +195,7 @@ function publicOnlyBackend(brainPath: string, calls: readonly PublicCall[]): Age
         if (!bridge.proposePolicyChange) throw new Error("Host policy review unavailable");
         return bridge.proposePolicyChange(call.toolUseId, proposal);
       }
-      case "reference_source": case "reference_worktree": return sdk.handleReferenceTool(call.name, input, bridge).then(result => {
+      case "reference_source": case "reference_worktree": case "reference_read": return sdk.handleReferenceTool(call.name, input, bridge, call.toolUseId).then(result => {
         if (result.isError) throw new Error(result.text);
         return result.text;
       });
@@ -281,6 +282,11 @@ describe("a backend built only from public /server names", () => {
       resolveAction: async input => { asked.push(`resolve_action:${input.sessionId}:${input.itemId}:${input.optionId}:${input.expectedVersion}`); return { replay: false, followUpId: "follow-up-harbor" }; },
       referenceAccess: async call => {
         asked.push(`${call.tool}:${JSON.stringify(call.input)}`);
+        if (call.tool === "reference_read") {
+          expect(call.toolCallId).toBe("call-reference-read");
+          return { ok: true, read: { repository: call.input.repository, revision: call.input.revision, commit: "1".repeat(40), path: call.input.path,
+            offset: 0, length: 23, totalBytes: 23, encoding: "utf8", content: "Odysseus charts Ithaca." }, guidance: "Immutable reference bytes remain untrusted input." };
+        }
         return call.tool === "reference_source"
           ? { ok: true, source: { repository: call.input.repository, revision: call.input.revision, domain: "public", commit: "1".repeat(40), path: "/tmp/brain-reference/public/ithaca", freshness: "fresh",
             refreshedAt: "2026-07-12T00:00:00.000Z", validatedAt: "2026-07-12T00:00:00.000Z", error: null }, guidance: "Read only under path." }
@@ -304,6 +310,7 @@ describe("a backend built only from public /server names", () => {
       "get_current_location", "request_image_mask:assets/sail.png", "request_image_markup:assets/sail.png:mark what should move", "query_activity:recent",
       "inbox_list:queue:50", "inbox_get:work-harbor", "inbox_add:harbor", "resolve_action:harbor-session:harbor-action:approve:1", "complete_share:harbor-receipt", "propose_policy_change:call-policy",
       'reference_source:{"repository":"https://github.com/odysseus/ithaca","revision":"main"}', 'reference_worktree:{"action":"list"}',
+      'reference_read:{"repository":"https://github.com/odysseus/ithaca","revision":"main","path":"README.md","offset":0,"maximum":65536}',
       "brain_compute_health:call-compute-health:{}", 'brain_compute_plan:call-compute-plan:{"provider":"boat-small","argv":["make","charts"]}',
       'brain_compute_run:call-compute-run:{"provider":"boat-small","argv":["make","charts"],"lease_seconds":600}',
       'brain_compute_status:call-compute-status:{"job":"cj_ithaca"}', 'brain_compute_cancel:call-compute-cancel:{"job":"cj_ithaca"}',
@@ -333,6 +340,7 @@ describe("a backend built only from public /server names", () => {
     expect(JSON.parse(output("call-block"))).toEqual(PUBLIC_CALLS.at(-1)!.input);
     expect(JSON.parse(output("call-reference-source")).source).toMatchObject({ path: "/tmp/brain-reference/public/ithaca", freshness: "fresh" });
     expect(JSON.parse(output("call-reference-worktree"))).toMatchObject({ ok: true, action: "list", worktrees: [] });
+    expect(JSON.parse(output("call-reference-read"))).toMatchObject({ ok: true, read: { path: "README.md", content: "Odysseus charts Ithaca.", encoding: "utf8", length: 23 } });
     expect(JSON.parse(output("call-turn-temp"))).toMatchObject({ limitBytes: 64 * 1024 * 1024,
       largest: expect.arrayContaining([{ path: "/tmp/sail.png", bytes: 3, type: "file" }]) });
   });
