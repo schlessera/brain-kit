@@ -1,0 +1,63 @@
+# The daily digest and the weekly evidence report, generated from the
+# measurement data ref (docs/decisions/ci-evidence.md). Measurement only: never
+# a proof/merge gate. Executes trusted default-branch tooling with no
+# dependency install, reads the archive and main's history, and writes nothing
+# but its own artifacts and job summary.
+name: ci-evidence-report
+
+on:
+  workflow_dispatch:
+    inputs:
+      weekly:
+        description: Also generate the weekly report, whatever the day
+        type: boolean
+        default: false
+  schedule:
+    # An hour after the 02:17 UTC archive compaction, which has a 60-minute limit.
+    - cron: "37 3 * * *"
+
+permissions: {}
+
+concurrency:
+  group: ci-evidence-report
+  cancel-in-progress: false
+
+jobs:
+  report:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read  # the data ref and main's history; reports write nothing
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          # Proof-policy epochs classify main's first-parent squashes locally.
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+      - name: Generate the daily digest, and the weekly report on Mondays
+        env:
+          REPORT_REPO: ${{ github.repository }}
+          REPORT_WEEKLY: ${{ inputs.weekly && 'true' || 'false' }}
+        run: |
+          bun scripts/ci-evidence-report.ts --cadence daily --repo "$REPORT_REPO" --from-archive origin --out tmp/ci-evidence
+          if [ "$REPORT_WEEKLY" = true ] || [ "$(date -u +%u)" = 1 ]; then
+            bun scripts/ci-evidence-report.ts --cadence weekly --repo "$REPORT_REPO" --from-archive origin --out tmp/ci-evidence
+          fi
+      - name: Write the reports to the job summary
+        if: always()
+        run: |
+          for report in tmp/ci-evidence/weekly.md tmp/ci-evidence/digest.md; do
+            if [ -s "$report" ]; then cat "$report" >> "$GITHUB_STEP_SUMMARY"; fi
+          done
+      - name: Retain the reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: ci-evidence-report
+          path: tmp/ci-evidence/
+          if-no-files-found: error
+          retention-days: 90

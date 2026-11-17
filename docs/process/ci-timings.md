@@ -210,8 +210,7 @@ is merged. A refused record is excluded, named with its kind, artifact path and
 reason in the JSON output and job summary, and makes the command exit 1 after
 publishing the rest. Each artifact gets a `source` record with its ID,
 collector run, creation time, SHA-256 digest and record/refusal counts.
-#2956 uses those to report missing collection hours and expired sources. An
-unreadable artifact is refused as a source and retried next time.
+An unreadable artifact is refused as a source and retried next time.
 
 Each commit is parented by the inspected remote head and pushed with exact
 `--force-with-lease`, using an isolated index; the caller's checkout and index
@@ -240,6 +239,76 @@ bun scripts/ci-timings.ts report --repo odysseus/chronicle --from-archive origin
 Readers refuse an unknown kind, an unknown schema version, another repository's
 record and a record outside its month partition. The archive is measurement
 only and never an input to proof, selection or merging.
+
+## Scheduled evidence reports
+
+`.github/workflows/ci-evidence-report.yml` runs daily at 03:37 UTC, an hour
+after the archive compaction, and on manual dispatch. It reads the data ref and
+main's full first-parent history, with a read-only token, and writes the daily
+digest. On Mondays, or when dispatched with `weekly`, it also writes the weekly
+report. Both go to the job summary and the `ci-evidence-report` artifact, kept
+for 90 days, whether or not anything is delivered:
+
+```sh
+bun scripts/ci-evidence-report.ts --cadence daily --repo odysseus/chronicle \
+  --from-archive origin --out tmp/ci-evidence [--until 2026-07-13T00:00:00Z] [--history origin/main]
+```
+
+The digest covers the UTC day before `--until`, and the weekly report the seven
+days before it. `--until` defaults to the start of the current UTC day and must
+fall on a whole hour. The command writes `digest.json` and `digest.md`, or
+`weekly.json` and `weekly.md`. Each Markdown report opens with a `## Summary`
+section that ends at the next heading, so it can be posted on its own and link
+the full artifact. The JSON is `version: 1`.
+
+Each report has these sections, all computed from the archive for its window:
+
+| Section | Content |
+| --- | --- |
+| `gate` | The #2934 Phase B gate over the seven days before `--until`, and `previousGate` a day earlier. See below. |
+| `throughput` | The [throughput](ci-throughput.md#what-the-report-measures) cohort headline: merges, first-main green, first-pass greens/day, latencies, size cohorts, merge paths and reservation occupancy. The weekly report also carries the full summary under `detail`. |
+| `epochs` | First-main green per [proof-policy epoch](ci-throughput.md#proof-policy-epochs) the window touches. |
+| `redMain` | Red-main incidents open at any time in the window, with time to green, those still open at its end, and the ones first observed in it. |
+| `families` | The ten failing test families most often named by those incidents, the ten most-suspected flaky families with probe outcomes, first-main failed job categories and failure classifications. |
+| `escapeClasses` | Always `null` until an archived source exists ([#4043](https://github.com/schlessera/brain-kit/issues/4043)). |
+| `runnerSlotWait` | [Runner-slot wait](ci-throughput.md#runner-slot-wait) over the attempts created in the window. |
+| `localContention` | Published work and wait events in the window; `null` when none were published. |
+| `activity` | Run attempts and merges per UTC day. A day with a missing collection hour reports `null` counts and the observed numbers as `observedRunAttempts` and `observedMerges`. |
+| `coverage` | Missing collection hours, expired sources, failed acquisitions, missing run attempts and named unknowns. |
+
+**Coverage.** An hour of the window is missing when no collection manifest's
+creation window covered it. No activity is known for a missing hour, so it is
+never read as zero. An hour covered only by partial collections is listed in
+`partialOnly`, because its runs may be incomplete, but it is not a gap. A missing
+hour or failed acquisition more than 90 days old is also counted under
+`expiredSources`: GitHub no longer holds its raw source, so the gap is permanent.
+Failed acquisitions list partial collections, lifecycle errors, failed
+reservation and red-main histories, partial coordinator scopes and coordinator
+logs that could not say what they cancelled.
+
+**Phase B gate.** The gate is `met` only when all three conditions are met for
+the seven days before `--until`; otherwise it is `not met` and `failing` names
+each condition that is not met or is unknown:
+
+- `epoch`: the current proof-policy epoch opened at a classified proof-system
+  squash at least seven days before `--until`. An unreadable history, an
+  unbounded epoch or an unknown boundary leaves it unknown.
+- `firstMainGreen`: at least 80% of the epoch's known first-main outcomes in
+  those days are green. No known outcome, or any missing collection hour in
+  those days, leaves it unknown.
+- `incidentsAttributed`: every red-main incident open in those days has a
+  `failure-classified` event naming its opening run. No red-main history
+  collected in those days, or a failed red-main acquisition, leaves it unknown.
+
+**Delivery trigger.** `changed` is true when a red-main incident is first
+observed in the window (its earliest archived red-main record falls in it), the
+gate's status differs from `previousGate`, or the window has a missing
+collection hour. `triggers` names which. An incident observed again unchanged
+does not trigger, and no duration threshold applies
+([decision](../decisions/ci-evidence.md#reports-cadence-and-delivery)). The
+weekly report is delivered whatever its flag. Posting the reports is
+[#2957](https://github.com/schlessera/brain-kit/issues/2957)'s; this workflow
+holds no write permission.
 
 ## Refresh reviewed unit weights
 
