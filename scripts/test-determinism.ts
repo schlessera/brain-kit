@@ -21,6 +21,10 @@
  * Bounded: five repetitions by default, reduced uniformly to a floor of two
  * when the reviewed weights (scripts/test-shard-costs.json) exceed the budget.
  * No selected file is dropped; the report lists each with its repetitions.
+ * The count and the hosted partitions are planned in scripts/determinism-plan.ts:
+ * hosted CI splits a selection too heavy for one job across partitions (#4117),
+ * and each partition runs this command with its own files. A local `--base`
+ * run repeats the whole selection in one invocation.
  * Policy: docs/decisions/ci-utility.md, "Changed tests repeat under load before merge".
  */
 import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -28,65 +32,21 @@ import { availableParallelism, constants } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { changedFiles, determinismTests } from "./ci-plan";
 import { ensureHostAdmission } from "./host-admission.mjs";
-import { discoverTests, FILE_COST_SECONDS } from "./test-shards";
+import { planRepetitions, type RepetitionPlan } from "./determinism-plan";
+import { discoverTests } from "./test-shards";
 
-export const DEFAULT_REPETITIONS = 5;
-export const FLOOR_REPETITIONS = 2;
-/**
- * Ready confirmation runs the floor (#4137, maintainer ruling 2026-11-17). The
- * merge lease is held while it runs, and the draft head already ran the full
- * count; the floor re-checks the tree that merges without making this job the
- * confirmation's longest. Undefined keeps the command's default.
- */
-export function repetitionsFor(cadence: string | undefined): number | undefined {
-  return cadence === "confirmation" ? FLOOR_REPETITIONS : undefined;
-}
-/** Total reviewed-weight seconds the repetitions may cost before they are reduced. */
-export const BUDGET_SECONDS = 600;
-/** A file without a reviewed weight costs the small-file default (scripts/test-shards.ts). */
-const UNWEIGHTED_SECONDS = 0.1;
+export { BUDGET_SECONDS, DEFAULT_REPETITIONS, FLOOR_REPETITIONS, planRepetitions, repetitionsFor, type FileRepetitions, type RepetitionPlan } from "./determinism-plan";
+
 /** A burner outlives its parent by one slice at most, and never this long. */
 const BURNER_LIFETIME_MS = 2 * 60 * 60_000, BURNER_SLICE_MS = 200;
 export const REPORT_KIND = "brain-test-determinism";
 const JUNIT_PATH = "tmp/determinism-junit.xml";
 
-export interface FileRepetitions { file: string; weightSeconds: number; weighted: boolean; repetitions: number; observed?: number; }
-export interface RepetitionPlan {
-  requested: number; floor: number; repetitions: number; reduced: boolean;
-  budgetSeconds: number; weightSeconds: number; estimatedSeconds: number; overBudget: boolean;
-  files: FileRepetitions[];
-}
 export interface Failure { file: string | null; repetition: number | null; test: string | null; reason: string; }
 export interface Report extends RepetitionPlan {
   kind: typeof REPORT_KIND; version: 1; base: string | null;
   outcome: "passed" | "failed" | "none-selected";
   failure: Failure | null; load: { burners: number; cpus: number }; elapsedSeconds: number; exitCode: number;
-}
-
-/**
- * The same count for every file: the most repetitions that fit the budget,
- * never more than requested and never fewer than the floor. A selection too
- * heavy for the floor still runs at the floor and is reported over budget.
- */
-export function planRepetitions(files: readonly string[], options: { repetitions?: number; floor?: number; budgetSeconds?: number;
-  costs?: Readonly<Record<string, number>> } = {}): RepetitionPlan {
-  const requested = options.repetitions ?? DEFAULT_REPETITIONS, floor = options.floor ?? FLOOR_REPETITIONS;
-  const budgetSeconds = options.budgetSeconds ?? BUDGET_SECONDS, costs = options.costs ?? FILE_COST_SECONDS;
-  if (!Number.isSafeInteger(floor) || floor < 2) throw new Error("The repetition floor is at least two: one run proves nothing about the next");
-  if (!Number.isSafeInteger(requested) || requested < floor) throw new Error(`Repetitions must be an integer of at least ${floor}`);
-  if (!Number.isFinite(budgetSeconds) || budgetSeconds <= 0) throw new Error("The time budget must be positive seconds");
-  if (new Set(files).size !== files.length) throw new Error("A test file was selected twice");
-  const weights = files.map(file => {
-    const weighted = Object.hasOwn(costs, file), weightSeconds = weighted ? costs[file]! : UNWEIGHTED_SECONDS;
-    if (!Number.isFinite(weightSeconds) || weightSeconds <= 0) throw new Error(`Test file costs must be positive finite seconds: ${file}`);
-    return { file, weightSeconds, weighted };
-  });
-  const weightSeconds = weights.reduce((sum, entry) => sum + entry.weightSeconds, 0);
-  const fit = weightSeconds > 0 ? Math.floor(budgetSeconds / weightSeconds) : requested;
-  const repetitions = Math.max(floor, Math.min(requested, fit));
-  const estimatedSeconds = weightSeconds * repetitions;
-  return { requested, floor, repetitions, reduced: repetitions < requested, budgetSeconds, weightSeconds, estimatedSeconds,
-    overBudget: estimatedSeconds > budgetSeconds, files: weights.map(entry => ({ ...entry, repetitions })) };
 }
 
 /** The wrapper's argv: one invocation, so preparation builds once for every repetition. */

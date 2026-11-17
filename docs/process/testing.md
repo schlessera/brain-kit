@@ -318,11 +318,20 @@ bun scripts/test-determinism.ts --base origin/main --json   # the report on stdo
   fails as it does in any test. One busy loop per CPU runs until the command
   exits; each is stopped by PID and exits by itself if the command is killed.
 - **The bound.** Five repetitions, reduced uniformly to no fewer than two when
-  the reviewed weights in `scripts/test-shard-costs.json` exceed 600 seconds.
+  the reviewed weights in `scripts/test-shard-costs.json` exceed 300 seconds.
   Ready confirmation runs two, because the merge lease is held while it runs
   ([ruling](../decisions/ci-utility.md#changed-tests-repeat-under-load-before-merge)).
   The report lists every selected file with the repetitions it got, and says
   when the selection is over budget at the floor.
+- **Partitions.** A selection too heavy for one job at two repetitions is
+  split by reviewed weight into `determinism (1)` to at most
+  `determinism (10)`, each within 300 weighted seconds. Every file runs twice
+  in exactly one partition. A selection that needs more than ten fails in the
+  metadata job before anything runs, naming its weight and the limit: split
+  the change. `DETERMINISM_PARTITIONS` in `scripts/proof-shards.ts` owns the
+  numbers
+  ([basis](../decisions/ci-utility.md#an-oversized-selection-is-split-by-reviewed-weight)).
+  A local `--base` run repeats the whole selection in one invocation.
 - **A failure** names the file, the repetition and the case. Repetitions of a
   file share one process, so state left on `globalThis`, in the environment or
   on disk reaches the next run. Fix the test; do not raise its deadline.

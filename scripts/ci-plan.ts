@@ -7,6 +7,7 @@ import { addUnitImportConsumers, type UnitImportGraph } from "./unit-test-consum
 import { coordinationFiles, RESERVATION_REF } from "./integration-reservation";
 import { includeRedSet, isPostMerge, type Category, type IncludedRedSet, type RedMainRecord } from "./red-main";
 import { unitPartitions } from "./proof-shards";
+import { planPartitions } from "./determinism-plan";
 
 export interface Workspace {
   dir: string;
@@ -406,6 +407,16 @@ export function unitShards(plan: CheckPlan): number[] {
   return unitPartitions(plan.cadence, plan.unitTests?.length);
 }
 
+/** Partition numbers the `determinism` matrix runs (#4117): one while the
+ * selection fits one job's capacity at its repetition count, more when it is
+ * split by reviewed weight. Throws for a selection beyond the maximum, so the
+ * metadata job fails before any partition starts. An unselected plan publishes
+ * one number: its job is skipped, and the matrix expression is never empty. */
+export function determinismShards(plan: CheckPlan): number[] {
+  if (!proofSelections(plan).determinism) return [1];
+  return planPartitions(plan.determinism!, { cadence: plan.cadence }).partitions.map((_, index) => index + 1);
+}
+
 export type ProofCadence = "draft" | "feedback" | "feedback-heavy" | "confirmation" | "integrated" | "exhaustive";
 
 /** A draft heavy feedback dispatch names its PR and head; ci.yml's bare dispatch declares no inputs. */
@@ -509,7 +520,7 @@ if (import.meta.main) {
     const draft = process.env.PR_DRAFT === "true";
     const selections = proofSelections(plan, draft);
     if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT,
-      `unit_shards=${JSON.stringify(unitShards(plan))}\n` +
+      `unit_shards=${JSON.stringify(unitShards(plan))}\n` + `determinism_shards=${JSON.stringify(determinismShards(plan))}\n` +
       `cadence=${plan.cadence ?? "diagnostic"}\n` + `red_main_oid=${red?.oid ?? ""}\n` + Object.entries(selections).map(([name, selected]) => `${name}=${selected}\n`).join(""));
     console.log(JSON.stringify({ ...plan, draft, event: event && {
       name: process.env.GITHUB_EVENT_NAME, action: event.action,
