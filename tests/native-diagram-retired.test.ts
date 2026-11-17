@@ -12,6 +12,8 @@ const root = resolve(import.meta.dir, "..");
 const RETIRED = [
   "e8502b6ffb3c575f2e9a1c93dea8dbf5ceda93ece367da9d542cb10b1c9ac32b", // frozen #2293 source
   "ea866695f2a83f9da2fcf18e75e95e936668ecb28e1449845a2584aa1025b728", // last qualified installation
+  "0c2758c046f2b69d5f33b66521baf3098db5f44256b73ec96961c98d381e6245", // #2293's installation, in the worker audit record
+  "bf65590d9d594d238c2c7b6e01e038a26402a676ccf16a1caf596f1179bdc9fb", // the qualified producer runtime
   "e724696a55955e9f32d396b2031214600086533c3f9b8baabcc1c6bb7311f1db", // pinned ui-kit vitest config
   // The diagram export command's own hash (`f7c3d14c…`) is not listed: the
   // bound-browser-documents audit pins that file independently.
