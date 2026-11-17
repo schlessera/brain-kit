@@ -12,7 +12,10 @@ open implementation scope lives in the tracker.
 Only an authenticated owner may delete its own chat. Preserve exact principal
 ownership and recheck current authorization, including revocation, at admission
 and across asynchronous boundaries. No cross-principal power, reassignment,
-agent authority or arbitrary filesystem authority follows.
+agent authority or arbitrary filesystem authority follows. The
+[same-account amendment](#same-account-deletion--2026-11-17-4138) narrows the
+exact-principal rule for one case: another current login of the same owner
+account may delete a chat whose every ownership record proves that account.
 Ambient authentication requires an explicit owner mapping; otherwise deletion
 is unavailable. Read access, labels, voice recognition and conversation content
 are not authorization. Existing [principal boundaries](session-principals.md)
@@ -91,10 +94,10 @@ prompt, title, label or transcript text. The bridge offers the creator only on
 a new turn that is not host work and whose authorization is current
 (`const creator`, `packages/ui-server/src/ws/bridge-capabilities/emission.ts:143`). The write worker
 binds it only in the transaction that first creates the session's row
-(`upsertSession(row: SessionRow)`, `packages/ui-server/src/ws/session-catalog-writes.ts:169-178`).
+(`upsertSession(row: SessionRow)`, `packages/ui-server/src/ws/session-catalog-writes.ts:170-182`).
 `resolveChat` counts the row as one more ownership record beside dialogue
-owners and voice epochs, so records that disagree still refuse as ambiguous
-(`const creator`, `packages/ui-server/src/ws/chat-lifecycle.ts:91-92`). Like the
+owners and voice epochs, so records of different accounts still refuse as
+ambiguous (`const creator`, `packages/ui-server/src/ws/chat-lifecycle.ts:102-103`). Like the
 permanent fences, the row is identity data and stays after a deletion cleans
 the chat's stores.
 
@@ -125,6 +128,64 @@ the endpoint and store cleanup this record feeds.
 
 This adds no wire shape: the `POST /api/chat-deletions` request, receipt and
 refusal shapes are unchanged, and the row is internal storage.
+
+## Same-account deletion — 2026-11-17 (#4138)
+
+**Decided by the maintainer on 2026-11-17**:
+[#4138 ruling](https://github.com/schlessera/brain-kit/issues/4138#issuecomment-6943093310),
+option B. Every owner sign-in mints its own principal
+([session principals](session-principals.md)), and a chat's retained history
+belongs to the account, so a second login of the same owner continues it by
+voice ([#3963](https://github.com/schlessera/brain-kit/issues/3963)). Deletion
+still compared exact principal IDs across the chat's ownership records, so a
+chat two logins had used was refused to both of them as ambiguous ownership.
+
+**The amendment.** Any currently authorized owner login may explicitly delete a
+chat when every deletion-relevant ownership record is verified as belonging to
+that same owner account. This narrowly amends the exact-principal deletion
+rule under [Authority and extent](#authority-and-extent). Shared read access
+alone never grants deletion authority.
+
+- **Which records.** Every record `resolveChat` consults: the canonical
+  dialogue owner, each recorded voice conversation epoch, the typed-creation
+  binding and every safety collection a typed turn left under any of the
+  chat's history owners before a session bound it, for a provisional chat and
+  a backend session's chat alike (`resolveChat`, `packages/ui-server/src/ws/chat-lifecycle.ts:87-146`).
+  Each must prove the caller's account; one that does not refuses the whole chat
+  (`chatOwnedBy`, `packages/ui-server/src/ws/chat-lifecycle.ts:158-160`).
+- **What proves an account.** The record principal's current row, or the
+  durable account the server stored beside the record when it wrote it
+  (`principal_account`, migrations 089 and 091). Migration 091 adds that
+  column to `conversation_epochs` and `chat_session_owners`, and the writers
+  fill it from the principal's own row. A pruned historical login is
+  recognized only through that stored evidence. Missing, corrupt or
+  contradictory evidence, a stored account that a live row disagrees with, or
+  records of mixed accounts refuse as `unavailable`, within that chat only.
+  Legacy rows are backfilled only where a principal row still proved the
+  account at upgrade; the others stay unknown and keep refusing.
+- **What authorizes the caller.** Only its own current principal row, re-read
+  at admission and again in the commit transaction, each time against the
+  current clock rather than the time the request was stamped, so a login that
+  expires while the request waits on the catalog or the writer is refused. A revoked, expired or
+  pruned caller gains nothing from any record's stored account. Agent,
+  ambient and system principals have no account that holds across auth modes,
+  so their records match only themselves and they never gain an account-wide
+  exception.
+- **What stays exact.** The operation, its receipt and its retry key belong to
+  the login that started it: another login of the account reads
+  `not_admitted` and cannot retry it. The lifecycle records that initiating
+  login; no record's original principal is rewritten or reassigned. Live
+  conversation and epoch controls stay with the exact login that opened them.
+  Busy refusal, stale generation and backend review, the permanent fences and
+  per-store outcomes are unchanged. The `chat_retired` frame still goes to the
+  initiating login's capable connections; every other reader, another login's
+  devices included, already refuses the retired chat.
+
+Exact-principal-only deletion was rejected because it strands shared chats.
+Creator-only deletion was rejected because a missing first login still strands
+them and it needs another durable creator model. No request, receipt or
+refusal shape changes; the admission semantics in
+[the HTTP reference](../http-api.md#explicit-chat-deletion-additive-3230) do.
 
 ## Compatibility and rejected alternatives
 
