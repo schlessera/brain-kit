@@ -1471,7 +1471,9 @@ Each result is one JSON document, `{ ok: true, tool, result }` or
 `unavailable` carries `reason` `no_credential` (the host has no
 `BRAIN_UI_GITHUB_TOOLS_TOKEN`), `credential_rejected`, `no_host` (no host
 handler in this turn), `recording_unavailable` (a write's approval could not
-be recorded) or, before #3798 only, `not_registered`. The write reasons are
+be recorded) or, before #3798 only, `not_registered`. A read's
+`policy_denied` carries `recipient_restricted` or `recipient_unproven`; see
+[Data routing](#github-data-routing-additive-0450-4029). The write reasons are
 listed under [Writes](#github-writes-additive-0450-3798).
 
 **Payloads.** `result` is typed data, never formatted text
@@ -1536,6 +1538,33 @@ another. Principal, session and turn come from the authenticated turn. Before
 any GitHub text returns, the session's taint is recorded with the new source
 `github_result` ([governance events](../http-api.md)); if that record cannot
 be written, the text is withheld.
+
+### GitHub data routing (additive, 0.45.0, #4029)
+
+GitHub is the provider-policy recipient `github`
+([supported inputs](../supported-inputs.md#governance-policy)). A read or a
+search sends GitHub text the model chose: a repository and number, or a
+search query that can quote anything the conversation was shown. So before
+any request, the host checks it under the turn's frozen policy and the
+conversation's recorded provider exposures, by the rules the web providers and
+Apify use:
+
+- A conversation that has shown a provider folder the policy does not let
+  `github` receive is refused with `policy_denied`,
+  `reason: "recipient_restricted"`.
+- Under a policy whose `providers` rules restrict `github`, a conversation
+  whose exposure cannot be judged is refused with `policy_denied`,
+  `reason: "recipient_unproven"`. That covers a conversation not yet named, a
+  recorded exposure the server cannot read, a type selector without its
+  folders, and a turn with no frozen policy.
+- A policy whose rules all allow `github`, or a conversation that showed none
+  of the folders they keep from it, reads as before.
+
+A refused call sends GitHub nothing, returns no GitHub text and taints
+nothing. The writes are not routed (maintainer ruling on #4029): each write's
+gate is its per-use card, which shows exactly what is sent, and
+`outward.github.repositories`. A write in a conversation whose reads are
+refused still reaches its card unchanged.
 
 ### GitHub writes (additive, 0.45.0, #3798)
 
