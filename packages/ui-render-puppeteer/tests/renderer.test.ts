@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { shouldAllowRequest } from "../src/renderer";
+import { createRenderer, hostRequestAllowed, shouldAllowRequest } from "../src/renderer";
 import { Semaphore } from "../src/semaphore";
 
 describe("shouldAllowRequest (default network policy)", () => {
@@ -91,5 +91,52 @@ describe("Semaphore", () => {
     expect(third).toBe(false); // still only one slot
     r2();
     (await p)();
+  });
+});
+
+describe("the image host allowlist (#2496)", () => {
+  // Each entry becomes one `EXCLUDE` in Chrome's DNS blackhole. A wildcard, a
+  // comma or anything but a plain host would widen or rewrite that rule.
+  for (const bad of ["*", "a.test, MAP * 10.0.0.1", "a.test b.test", "https://a.test", "a.test:8080", "a,b.test", "*.ithaca.test", "a.test/path", ""]) {
+    test(`createRenderer refuses ${JSON.stringify(bad)} before any launch`, () => {
+      let launches = 0;
+      expect(() => createRenderer({ allowHosts: [bad], executablePath: "/fake/chrome", launch: (async () => { launches++; throw new Error("no browser"); }) as never }))
+        .toThrow("not a plain host name or IP address");
+      expect(launches).toBe(0);
+    });
+  }
+
+  test("a valid list becomes exactly one EXCLUDE per entry in the blackhole, and no other rule", async () => {
+    const seen: string[][] = [];
+    const renderer = createRenderer({
+      allowHosts: ["img.example.test", "192.0.2.10"], executablePath: "/fake/chrome",
+      launch: (async (args: { args: string[] }) => { seen.push(args.args); throw new Error("no browser"); }) as never,
+    });
+    await renderer.renderPdf({ html: "<p>Ithaca</p>" }).catch(() => {});
+    await renderer.shutdown();
+    expect(seen.length).toBe(1);
+    expect(seen[0]!.filter((arg) => arg.startsWith("--host-resolver-rules="))).toEqual(["--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE img.example.test, EXCLUDE 192.0.2.10"]);
+  });
+
+  test("plain hosts pass: mixed case is lowercased, and IPv4 and bracketed IPv6 literals are kept", async () => {
+    const seen: string[][] = [];
+    const renderer = createRenderer({
+      allowHosts: ["IMG.Example.Test", "192.0.2.10", "[2001:db8::1]", "cdn_1.ithaca.test"], executablePath: "/fake/chrome",
+      launch: (async (args: { args: string[] }) => { seen.push(args.args); throw new Error("no browser"); }) as never,
+    });
+    await renderer.renderPdf({ html: "<p>Ithaca</p>" }).catch(() => {});
+    await renderer.shutdown();
+    expect(seen[0]!.find((arg) => arg.startsWith("--host-resolver-rules="))).toBe("--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE img.example.test, EXCLUDE 192.0.2.10, EXCLUDE [2001:db8::1], EXCLUDE cdn_1.ithaca.test");
+  });
+
+  test("an allowed host admits only its http and https requests", () => {
+    const hosts = new Set(["img.example.test"]);
+    expect(hostRequestAllowed("https://img.example.test/a.png", hosts)).toBe(true);
+    expect(hostRequestAllowed("http://IMG.example.test/a.png", hosts)).toBe(true);
+    for (const url of ["ws://img.example.test/live", "ftp://img.example.test/a.png", "file://img.example.test/etc/passwd", "wss://img.example.test/"]) {
+      expect(hostRequestAllowed(url, hosts), url).toBe(false);
+    }
+    expect(hostRequestAllowed("https://other.example.test/a.png", hosts)).toBe(false);
+    expect(hostRequestAllowed("https://img.example.test/a.png", new Set())).toBe(false);
   });
 });

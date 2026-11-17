@@ -23,7 +23,7 @@ import puppeteer, { type Browser, type HTTPRequest, type Page } from "puppeteer-
 import { existsSync } from "node:fs";
 
 import type { ExportLinkPolicy } from "@schlessera/brain-render-template";
-import { applyExportLinkPolicy, protectExportLinkDestinations } from "@schlessera/brain-render-template/internal";
+import { applyExportLinkPolicy, normalizeAllowHosts, protectExportLinkDestinations } from "@schlessera/brain-render-template/internal";
 
 import { resolveEnv } from "./config/env.js";
 import { Semaphore } from "./semaphore.js";
@@ -65,6 +65,18 @@ function resolveChromePath(explicit?: string): string {
  */
 export function shouldAllowRequest(url: string): boolean {
   return url.startsWith("data:") || url === "about:blank";
+}
+
+/** Whether a request is an http(s) fetch from one of the allowed image hosts. */
+export function hostRequestAllowed(url: string, hosts: ReadonlySet<string>): boolean {
+  if (hosts.size === 0) return false;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+    return hosts.has(parsed.hostname.toLowerCase());
+  } catch {
+    return false;
+  }
 }
 
 export interface RendererOptions {
@@ -154,8 +166,10 @@ export function createRenderer(options: RendererOptions = {}): Renderer {
   const semaphore = new Semaphore(options.maxConcurrent ?? 2, options.maxQueue ?? 16);
   const noSandbox = options.noSandbox ?? false;
   const allowScripts = options.allowScripts ?? false;
-  const allowHosts = options.allowHosts ?? [];
-  const allowedHostSet = new Set(allowHosts.map((h) => h.toLowerCase()));
+  // Refused before any launch: each entry becomes one EXCLUDE in the DNS
+  // blackhole below, so only a plain host may reach that rule (#2496).
+  const allowHosts = normalizeAllowHosts(options.allowHosts ?? []);
+  const allowedHostSet = new Set(allowHosts);
   let closed = false;
 
   interface BrowserLaunch {
@@ -262,14 +276,7 @@ export function createRenderer(options: RendererOptions = {}): Renderer {
     (idleTimer as { unref?: () => void }).unref?.();
   }
 
-  function hostAllowed(url: string): boolean {
-    if (allowedHostSet.size === 0) return false;
-    try {
-      return allowedHostSet.has(new URL(url).hostname.toLowerCase());
-    } catch {
-      return false;
-    }
-  }
+  const hostAllowed = (url: string): boolean => hostRequestAllowed(url, allowedHostSet);
 
   function onRequest(request: HTTPRequest): void {
     let allow = false;

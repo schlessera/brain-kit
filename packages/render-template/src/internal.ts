@@ -7,3 +7,4 @@ export { applyExportLinkPolicy, protectExportLinkDestinations } from "./link-pol
 export { documentTitle, isFullDocument } from "./template.js";
 
 export { prepareStaticDocument } from "./static.js";
+export { allowHostProblem, normalizeAllowHosts } from "./allow-hosts.js";
