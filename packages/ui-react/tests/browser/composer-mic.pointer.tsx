@@ -121,7 +121,7 @@ type Kind = "mouse" | "touch";
  */
 function watchHold(s: Awaited<ReturnType<typeof scene>>) {
   const quiet = JSON.stringify(s.traffic());
-  const seen = { pressed: null as number | null, opened: null as number | null,
+  const seen = { pressed: null as number | null, opened: null as number | null, completed: null as number | null,
     frames: [] as { at: number; phase: string | undefined; progress: number; hint: string | undefined; quiet: boolean }[] };
   const down = () => { seen.pressed ??= performance.now(); };
   window.addEventListener("pointerdown", down, true);
@@ -130,6 +130,7 @@ function watchHold(s: Awaited<ReturnType<typeof scene>>) {
   const frame = () => {
     if (!live) return;
     const mic = s.mic();
+    if (mic?.dataset.phase === "complete") seen.completed ??= performance.now();
     if (mic) seen.frames.push({ at: performance.now(), phase: mic.dataset.phase,
       progress: Number(mic.querySelector(".bk-voice-ring")?.getAttribute("data-progress")),
       hint: s.host.querySelector(".bk-voice-hint")?.textContent ?? undefined, quiet: JSON.stringify(s.traffic()) === quiet });
@@ -145,20 +146,24 @@ function centre(el: Element) {
   const box = el.getBoundingClientRect();
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 }
-/** A press that a failed assertion leaves down is lifted when its test ends. */
-function press(kind: Kind, at: { x: number; y: number }) {
-  onTestFinished(() => commands.sheetInput(kind, [{ type: "up", ...at, t: 0 }]));
-  return commands.sheetInput(kind, [{ type: "down", ...at, t: 0 }]);
-}
+type Step = { type: "down" | "move" | "up"; x: number; y: number; t: number; wait?: number };
 /**
- * A tap: the press and the release in one command, so the release cannot
- * arrive after the 0.6 s hold on a loaded runner. Two commands with a sleep
- * between them did (#4170).
+ * One gesture, one command. Every dwell in a gesture happens inside the
+ * command, on its clock (`wait`), never between two commands: the round trips
+ * of separate commands added to the dwell on a loaded runner, turned a tap
+ * into a hold and let a release miss the click guard (#4170). A press that a
+ * failed assertion leaves down is lifted when its test ends.
  */
+function gesture(kind: Kind, at: { x: number; y: number }, steps: Step[]) {
+  onTestFinished(() => commands.sheetInput(kind, [{ type: "up", ...at, t: 0 }]));
+  return commands.sheetInput(kind, steps);
+}
+/** A tap: the press and the release together. */
 const tap = (kind: Kind, at: { x: number; y: number }, held: number) =>
-  commands.sheetInput(kind, [{ type: "down", ...at, t: 0 }, { type: "up", ...at, t: held }]);
-const move = (kind: Kind, at: { x: number; y: number }, t: number) => commands.sheetInput(kind, [{ type: "move", ...at, t }]);
-const lift = (kind: Kind, at: { x: number; y: number }, t: number) => commands.sheetInput(kind, [{ type: "up", ...at, t }]);
+  gesture(kind, at, [{ type: "down", ...at, t: 0 }, { type: "up", ...at, t: held }]);
+/** A hold past 0.6 s, released one second after the press: 0.4 s after the hold completes, inside its click guard. */
+const hold = (kind: Kind, at: { x: number; y: number }) =>
+  gesture(kind, at, [{ type: "down", ...at, t: 0 }, { type: "up", ...at, t: 1000, wait: 1000 }]);
 
 const MODE = inject("railPointer");
 /** A mouse under a fine pointer, a touch under a coarse one, both under a mixed one. */
@@ -177,8 +182,8 @@ for (const kind of KINDS) for (const width of [320, 1280] as const) test(`a comp
     const at = centre(s.mic()!);
     const before = s.traffic();
     const watch = watchHold(s);
-    await press(kind, at);
-    // Still held: at 0.6 s Start opens, with a light haptic.
+    await hold(kind, at);
+    // At 0.6 s Start opens, with a light haptic.
     await expect.poll(() => s.client.state.getState().disclosureOpen, { message: `${kind}: the hold opens Start` }).toBe(true);
     expect(s.haptics, `${kind}: one light haptic`).toEqual([10]);
     // Mid-hold, from the page's own frames before Start opened: the ring fills
@@ -190,7 +195,6 @@ for (const kind of KINDS) for (const width of [320, 1280] as const) test(`a comp
     expect(mid.every(frame => frame.hint === "Keep holding to talk live"), `${kind}: the hint explains`).toBe(true);
     expect(mid.every(frame => frame.quiet), `${kind}: HOLD_CAPTURES_NOTHING`).toBe(true);
     expect(seen.opened! - seen.pressed!, `${kind}: Start opens no sooner than 0.6 s after the press`).toBeGreaterThanOrEqual(595);
-    await lift(kind, at, 900);
     await wait(100);
     // The release is not a tap: Start stays, and no dictation began.
     expect(s.client.state.getState().disclosureOpen, `${kind}: the release does not dismiss Start`).toBe(true);
@@ -225,26 +229,25 @@ for (const kind of KINDS) for (const width of [320, 1280] as const) test(`leavin
     const s = await scene(ctx, width);
     const at = centre(s.mic()!);
     const before = s.traffic();
-    await press(kind, at);
-    // Read after the press has reached the page: the hold's timer started no later than this.
-    const pressed = performance.now();
-    await expect.poll(() => s.mic()!.dataset.phase).toBe("holding");
+    const watch = watchHold(s);
     const away = { x: at.x - 120, y: at.y - 160 };
-    await move(kind, away, 150);
+    // Pressed, held for 150 ms, slid away, slid back and released there: still
+    // not a tap, and not a hold. The mic swallows the release's click for one
+    // second after the cancel, and the return follows the cancel by 100 ms.
+    await gesture(kind, at, [{ type: "down", ...at, t: 0 }, { type: "move", ...away, t: 150, wait: 150 },
+      { type: "move", ...at, t: 250, wait: 100 }, { type: "up", ...at, t: 300 }]);
+    expect(s.ui.stores.voice.getState().mode, `${kind}: the release after a cancel is not a tap`).toBe("idle");
     await expect.poll(() => s.mic()?.dataset.phase ?? "no mic: the hold completed", { message: `${kind}: leaving cancels` }).toBe("idle");
     expect(s.host.querySelector(".bk-voice-hint"), `${kind}: the hint goes with the hold`).toBe(null);
-    // Back over the mic and released there: still not a tap, and not a hold. The
-    // mic swallows the release's click for one second after the cancel, so the
-    // return and the release go in one command, straight after it. A sleep and
-    // two command round trips in between outlasted that second on a loaded
-    // runner, and the click then counted as a tap (#4170).
-    await commands.sheetInput(kind, [{ type: "move", ...at, t: 250 }, { type: "up", ...at, t: 300 }]);
+    const seen = watch.stop();
+    // The hold was under way when the pointer left: the page drew the ring and the hint.
+    expect(seen.frames.some(frame => frame.phase === "holding" && frame.hint === "Keep holding to talk live"), `${kind}: the hold was under way`).toBe(true);
+    expect(seen.completed, `${kind}: the hold never completed`).toBe(null);
     await wait(300);
     expect(s.ui.stores.voice.getState().mode, `${kind}: a cancelled hold does not dictate`).toBe("idle");
     // The cancelled hold never completes later either. The hold lasts 600 ms from
-    // the press, which happened before `pressed` was read, so 900 ms after that
-    // reading is past it however slow the runner is.
-    await wait(Math.max(0, pressed + 900 - performance.now()));
+    // the press the page saw, so 900 ms after it is past that however slow the runner is.
+    await wait(Math.max(0, seen.pressed! + 900 - performance.now()));
     expect(s.client.state.getState().disclosureOpen, `${kind}: a cancelled hold never opens Start`).toBe(false);
     expect(s.ui.stores.voice.getState().mode, `${kind}: a cancelled hold still does not dictate`).toBe("idle");
     expect(s.haptics).toEqual([]);
@@ -262,11 +265,11 @@ for (const kind of KINDS) for (const width of [320, 1280] as const) test(`withou
     flushSync(() => s.client.state.setState({ available: false }));
     const at = centre(s.mic()!);
     const before = s.traffic();
-    await press(kind, at);
-    await expect.poll(() => s.mic()!.dataset.phase, { message: `${kind}: the ring still fills (V4)` }).toBe("holding");
+    const watch = watchHold(s);
+    await hold(kind, at);
     await expect.poll(() => s.host.textContent, { message: `${kind}: S4 replaces Start` }).toContain(S4);
     expect(s.haptics).toEqual([10]);
-    await lift(kind, at, 800);
+    expect(watch.stop().frames.some(frame => frame.phase === "holding" && frame.progress > 0 && frame.progress < 1), `${kind}: the ring still fills (V4)`).toBe(true);
     await wait(150);
     expect(s.client.state.getState().active, `${kind}: Start does not open`).toBe(false);
     expect(s.ui.stores.voice.getState().mode, `${kind}: the release is not a tap`).toBe("idle");

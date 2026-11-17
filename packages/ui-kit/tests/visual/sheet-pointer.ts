@@ -2,7 +2,10 @@
 import type { BrowserCommand } from "vitest/node";
 import type { CDPSession } from "playwright";
 const sessions = new WeakMap<object, { cdp: CDPSession; epoch: number; active: "touch" | "pen" | "mouse" | null }>();
-type Input = { type: "down" | "move" | "up" | "cancel"; x: number; y: number; t: number; second?: boolean };
+/** `wait` holds this input back by that many real milliseconds, inside the command.
+ * A gesture with a dwell is then one command: a sleep between two commands adds
+ * their round trips to the dwell, which is how a loaded runner turns a tap into a hold. */
+type Input = { type: "down" | "move" | "up" | "cancel"; x: number; y: number; t: number; second?: boolean; wait?: number };
 /** Native Chromium input, with explicit event times to measure the 80ms window. */
 export const sheetInput: BrowserCommand<["touch" | "pen" | "mouse", Input[]]> = async (ctx, pointer, inputs) => {
   let state = sessions.get(ctx.page);
@@ -12,6 +15,7 @@ export const sheetInput: BrowserCommand<["touch" | "pen" | "mouse", Input[]]> = 
   if (!bounds) throw new Error("Sheet frame has no bounds");
   const viewport = await frame.evaluate(() => ({ width: innerWidth, height: innerHeight }));
   for (const input of inputs) {
+    if (input.wait) await new Promise(done => setTimeout(done, input.wait));
     if ((input.type === "up" || input.type === "cancel") && state.active !== pointer) continue;
     if (input.type === "down") state.active = pointer;
     if (input.type === "down" && !input.second) state.epoch = Date.now() / 1000;
