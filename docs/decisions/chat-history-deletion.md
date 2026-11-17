@@ -148,10 +148,11 @@ alone never grants deletion authority.
 
 - **Which records.** Every record `resolveChat` consults: the canonical
   dialogue owner, each recorded voice conversation epoch, the typed-creation
-  binding and, for a provisional chat, each safety collection of its history
-  owner (`resolveChat`, `packages/ui-server/src/ws/chat-lifecycle.ts:87-141`).
+  binding and every safety collection a typed turn left under any of the
+  chat's history owners before a session bound it, for a provisional chat and
+  a backend session's chat alike (`resolveChat`, `packages/ui-server/src/ws/chat-lifecycle.ts:87-146`).
   Each must prove the caller's account; one that does not refuses the whole chat
-  (`chatOwnedBy`, `packages/ui-server/src/ws/chat-lifecycle.ts:153-155`).
+  (`chatOwnedBy`, `packages/ui-server/src/ws/chat-lifecycle.ts:158-160`).
 - **What proves an account.** The record principal's current row, or the
   durable account the server stored beside the record when it wrote it
   (`principal_account`, migrations 089 and 091). Migration 091 adds that
@@ -163,7 +164,9 @@ alone never grants deletion authority.
   Legacy rows are backfilled only where a principal row still proved the
   account at upgrade; the others stay unknown and keep refusing.
 - **What authorizes the caller.** Only its own current principal row, re-read
-  at admission and again in the commit transaction. A revoked, expired or
+  at admission and again in the commit transaction, each time against the
+  current clock rather than the time the request was stamped, so a login that
+  expires while the request waits on the catalog or the writer is refused. A revoked, expired or
   pruned caller gains nothing from any record's stored account. Agent,
   ambient and system principals have no account that holds across auth modes,
   so their records match only themselves and they never gain an account-wide

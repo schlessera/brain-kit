@@ -124,6 +124,11 @@ export function resolveChat(db: Database, target: ChatTarget): Resolved | { refu
     for (const row of db.query("SELECT id FROM dialogue_aliases WHERE owner_id=?").all(owner) as { id: string }[]) owners.add(row.id);
     for (const row of db.query("SELECT id FROM dialogue_conversations WHERE owner_id=?").all(owner) as { id: string }[]) conversations.add(row.id);
   }
+  // A typed turn not yet bound to a session keeps its safety collection under
+  // the history owner. Whichever branch resolved the chat, each one is an
+  // ownership record: retirement fences and scrubs them as the chat's.
+  for (const owner of owners)
+    for (const row of db.query("SELECT DISTINCT principal_id,principal_account FROM safety_collections WHERE history_owner_id=? AND session_id IS NULL").all(owner) as OwnerRow[]) record(row);
   for (const conversation of conversations) {
     const row = db.query("SELECT principal_id,principal_account FROM conversation_epochs WHERE id=?").get(conversation) as OwnerRow | null;
     if (row) record(row);
@@ -154,7 +159,11 @@ export function chatOwnedBy(db: Database, chat: Pick<Resolved, "owners">, princi
   return chat.owners.length > 0 && chat.owners.every(owner => sameAccount(db, owner, principalId));
 }
 
-/** The caller alone: a usable owner principal. Ambient callers have no owner mapping, agents never delete. */
+/**
+ * The caller alone: a usable owner principal. Ambient callers have no owner
+ * mapping, agents never delete. `at` is the moment of the check, never a
+ * time stamped before an asynchronous wait: callers pass the current clock.
+ */
 export function authorizedOwner(db: Database, principalId: string, at: number): boolean {
   const principal = resolvePrincipal(db, principalId);
   return !!principal && principal.kind === "owner" && isUsablePrincipal(principal, at);
@@ -195,7 +204,8 @@ const targetId = (target: ChatTarget) => "sessionId" in target ? target.sessionI
 export function retireChat(db: Database, input: RetireChatInput): RetireChatResult {
   if (!input.operationId || input.operationId.length > MAX_ID) return { status: "refused", reason: "unavailable" };
   return db.transaction((): RetireChatResult => {
-    if (!authorizedOwner(db, input.principalId, input.at)) return { status: "refused", reason: "unauthorized" };
+    // Authority is the caller's now, at commit: `input.at` was stamped before the queue waits.
+    if (!authorizedOwner(db, input.principalId, Date.now())) return { status: "refused", reason: "unauthorized" };
     const previous = db.query("SELECT id,principal_id,operation_id,generation,backend_id FROM chat_lifecycles WHERE operation_id=?")
       .get(input.operationId) as { id: string; principal_id: string; operation_id: string; generation: number; backend_id: string | null } | null;
     if (previous) {

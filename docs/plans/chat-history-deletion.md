@@ -8,7 +8,7 @@ Approval supplies no automatic expiry, routine live cutoff or implementation
 release commitment.
 
 **Built (#3228):** the internal, content-free retirement ledger and gate
-(`retireChat`, `packages/ui-server/src/ws/chat-lifecycle.ts:195-234`;
+(`retireChat`, `packages/ui-server/src/ws/chat-lifecycle.ts:204-244`;
 migration `073_chat_lifecycle.sql`). It re-reads owner authority in the
 serialized writer, resolves the exact identity set from recorded dialogue
 owners, aliases and voice epochs, refuses unknown/foreign/stale/unsupported/busy

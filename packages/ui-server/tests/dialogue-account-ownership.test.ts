@@ -587,3 +587,38 @@ test("upgrading gives legacy epochs and creation bindings an account only where 
     } finally { await upgraded.settled!(); }
   } finally { await writer.close(); db.close(); rmSync(f.root, { recursive: true, force: true }); }
 });
+
+/**
+ * A typed turn's unbound safety collection under a chat's history owner is an
+ * ownership record whichever branch resolves the chat (#4138 review): a
+ * provisional dialogue owner, or a backend session's history owner.
+ */
+for (const shape of ["provisional dialogue owner", "session history owner"] as const)
+  for (const evidence of ["the account's", "corrupt", "another account's"] as const) test(`an unbound safety collection under a ${shape} is one more record: ${evidence}`, async () => {
+    const f = await fixture(); const catalog = catalogOf(f); try {
+      let historyOwnerId: string;
+      if (shape === "provisional dialogue owner") {
+        historyOwnerId = (await catalog.dialogueOpen!({ conversationId: "ogygia-voice", principalId: f.ship.id, epoch: 1, providerId: "fake-live" })).id;
+        await catalog.dialogueClose!("ogygia-voice", f.ship.id, 1, false);
+      } else {
+        await sharedChat(f, catalog);
+        historyOwnerId = (f.db.query("SELECT id FROM dialogue_owners WHERE session_id='ithaca'").get() as { id: string }).id;
+      }
+      // The home login types into that history before any session binds the turn.
+      const bindingId = crypto.randomUUID();
+      await f.writes.safetyBegin({ turnId: "calypso", bindingId, sessionId: null, principalId: f.home.id, historyOwnerId, backendId: "claude", at: 0 });
+      await f.writes.safetyEnd("calypso");
+      await catalog.settled!();
+      expect(f.db.query("SELECT principal_id,principal_account,session_id FROM safety_collections WHERE id=?").get(bindingId)).toEqual({ principal_id: f.home.id, principal_account: "owner", session_id: null });
+      if (evidence === "corrupt") f.db.query("UPDATE safety_collections SET principal_account='admiral' WHERE id=?").run(bindingId);
+      if (evidence === "another account's") f.db.query("UPDATE safety_collections SET principal_id=?,principal_account=NULL WHERE id=?").run(f.agent.id, bindingId);
+      const result = shape === "provisional dialogue owner"
+        ? await retireProvisional(catalog, f.home.id, "retire-calypso", historyOwnerId)
+        : await retire(catalog, f.home.id, "retire-calypso");
+      if (evidence === "the account's") expect(result, `UNBOUND_COLLECTION_OF_THE_ACCOUNT_RETIRES: ${shape}`).toMatchObject({ status: "retired", generation: 2 });
+      else {
+        expect(result, `UNBOUND_COLLECTION_EVIDENCE_REFUSES: ${shape} ${evidence}`).toEqual(UNAVAILABLE);
+        expect(lifecycles(f.db)).toEqual([]);
+      }
+    } finally { await catalog.settled!(); await f.close(); }
+  });

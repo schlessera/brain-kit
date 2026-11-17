@@ -320,7 +320,8 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
       // Settle every earlier submission first, so this preflight judges the
       // set the writer will see; the writer still decides atomically.
       await tail;
-      if (!authorizedOwner(db(), input.principalId, input.at)) return { status: "refused", reason: "unauthorized" };
+      // The current clock, after the wait above: never the request's stamp.
+      if (!authorizedOwner(db(), input.principalId, Date.now())) return { status: "refused", reason: "unauthorized" };
       const preview = resolveChat(db(), input.target);
       if ("refused" in preview || !chatOwnedBy(db(), preview, input.principalId)) return submit<RetireChatResult>("retireChat", input);
       if (busy(preview.identities)) return { status: "refused", reason: "busy" };

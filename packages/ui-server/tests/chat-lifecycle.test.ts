@@ -182,6 +182,38 @@ for (const change of ["revocation", "foreign epoch", "corrupt evidence"] as cons
   } finally { await f.host.close(); }
 });
 
+for (const stage of ["preflight", "commit"] as const) test(`a login that expires after the request was stamped is refused at the ${stage} by the current time`, async () => {
+  const f = await fixture();
+  try {
+    const { catalog } = f.host;
+    const input = request(f.second, { at: Date.now() });
+    await catalog.saveConversationEpoch!({ id: "telemachus", principalId: f.second, epoch: 1, sessionId: "voyage" });
+    await catalog.settled!();
+    let consulted = 0;
+    const busy = () => { consulted++; return false; };
+    // Usable at the request's stamp, expired by the time authority is checked.
+    const expire = (db: Database) => db.query("UPDATE principals SET expires_at=? WHERE id=?").run(input.at + 1, f.second);
+    let pending: Promise<unknown>;
+    if (stage === "preflight") {
+      expire(f.host.db); await Bun.sleep(5);
+      pending = catalog.retireChat!(input, busy);
+    } else {
+      await f.host.hold();
+      const submitted = posted("retireChat");
+      pending = catalog.retireChat!(input, busy);
+      await submitted;
+      expect(consulted, "PREFLIGHT_PASSED_BEFORE_EXPIRY").toBe(1);
+      const other = new Database(f.path); other.exec("PRAGMA busy_timeout = 5000");
+      try { expire(other); } finally { other.close(); }
+      await Bun.sleep(5);
+      f.host.release();
+    }
+    expect(await pending, `EXPIRY_CHECKED_AT_${stage.toUpperCase()}_BY_CURRENT_TIME`).toEqual({ status: "refused", reason: "unauthorized" });
+    if (stage === "preflight") expect(consulted, "EXPIRED_CALLER_NEVER_REACHES_BUSY").toBe(0);
+    expect(fences(f.host.db)).toBe(0);
+  } finally { await f.host.close(); }
+});
+
 test("retirement fences every identity, refuses late writes and keeps unrelated chats and accounting", async () => {
   const f = await fixture();
   try {
