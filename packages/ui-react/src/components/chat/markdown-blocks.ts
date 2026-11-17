@@ -26,11 +26,13 @@
  * brackets in the label and a label that wraps across lines. Deliberately broad: a false match only means the
  * text parses whole.
  */
-const DEFINITION = /^(?:[ \t]|>|[-*+][ \t]|\d{1,9}[.)][ \t])*\[(?:[^\]\\]|\\.)+\]:/m;
+const DEFINITION = /^(?:[ \t]|>|[-*+][ \t]|\d{1,9}[.)][ \t])*\[(?:[^\]\\]|\\[\s\S])+\]:/m;
 /** CommonMark HTML blocks of types 1 to 5, whose end is not a blank line. */
 const LONG_HTML = /^ {0,3}<(?:script|pre|style|textarea|!--|\?|![A-Za-z]|!\[CDATA\[)/im;
 /** A fence opener or closer: up to three spaces, then three or more backticks or tildes. */
 const FENCE = /^ {0,3}(`{3,}|~{3,})/;
+/** A blank line as CommonMark counts one: spaces and tabs only (not NBSP or other Unicode space). */
+const BLANK = /^[ \t]*$/;
 /** A line that would continue the block above a blank line instead of starting a new one. */
 const CONTINUES = /^(?:[-*+](?:\s|$)|\d{1,9}[.)](?:\s|$)|>|\||\s)/;
 
@@ -48,16 +50,16 @@ export function splitMarkdownBlocks(text: string): string[] {
     const marker = FENCE.exec(line);
     if (fence) {
       // A closing fence: the same character, at least as long, nothing after it.
-      if (marker && marker[1]![0] === fence.char && marker[1]!.length >= fence.length && line.slice(marker[0].length).trim() === "") fence = null;
+      if (marker && marker[1]![0] === fence.char && marker[1]!.length >= fence.length && BLANK.test(line.slice(marker[0].length))) fence = null;
       blank = false;
       continue;
     }
-    if (line.trim() === "") { blank = true; continue; }
+    if (BLANK.test(line)) { blank = true; continue; }
     if (blank && content && !CONTINUES.test(line)) {
       // The blank lines between two blocks belong to neither: the block
       // before ends at its last non-blank line.
       let end = i;
-      while (end > start && lines[end - 1]!.trim() === "") end--;
+      while (end > start && BLANK.test(lines[end - 1]!)) end--;
       blocks.push(lines.slice(start, end).join("\n"));
       start = i;
     }

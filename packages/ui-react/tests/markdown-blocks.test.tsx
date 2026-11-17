@@ -65,6 +65,9 @@ const CORPUS: Record<string, { text: string; splits: boolean; props?: { fileLink
   "definitions inside a blockquote and a list item": { text: "Odysseus kept [a log][log].[^1]\n\nThe crew read it.\n\n> [log]: https://ithaca.example/log\n\n- [^1]: Written at Ogygia.", splits: false },
   "a definition whose label wraps across lines": { text: "See [the raft][long\nlabel].\n\nIt floats.\n\n[long\nlabel]: https://ithaca.example/raft", splits: false },
   "a definition with an escaped bracket": { text: "See [the raft\\]][r].\n\nIt floats.\n\n[the raft\\]]: https://ithaca.example/raft", splits: false },
+  "a line of Unicode space continues a paragraph": { text: "Para one\n\u00a0\nstill para one.\n\nPara two\n\u3000\nstill two.\n\nThree\n\ufeff\nstill three.\n\nFour\n\u000b\nstill four.\n\nFive.", splits: true },
+  "a closing fence followed by a Unicode space does not close": { text: "Before.\n\n```\ncode\n```\u00a0\n\nstill code\n\n```\n\nAfter.", splits: true },
+  "a definition label wrapped after a backslash": { text: "See [a\\\nb].\n\nMore.\n\n[a\\\nb]: /u", splits: false },
   "links, inline code and emphasis": { text: "Read **the [log](https://ithaca.example/log)** and `notes/raft.md`.\n\n_Then_ sail.", splits: true },
 };
 
