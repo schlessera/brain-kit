@@ -1115,7 +1115,6 @@
   "tests/module-hygiene-queries.test.ts": 0.785,
   "tests/module-public-imports.test.ts": 0.1,
   "tests/native-dead-root-trace.test.ts": 0.1,
-  "tests/native-diagram-inputs.test.ts": 18.314,
   "tests/native-event-log.test.ts": 0.1,
   "tests/offline-test-launcher.test.ts": 0.123,
   "tests/opportunity-cli-agreement.test.ts": 2.381,

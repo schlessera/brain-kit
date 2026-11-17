@@ -24,7 +24,7 @@ function workerAuditMaterial(root:string,closure:InputClosure,selected:readonly 
       return [file,stat.mode&0o777,createHash("sha256").update(readFileSync(absolute)).digest("hex")];
     }).sort((a,b)=>String(a[0]).localeCompare(String(b[0])));
     const inventory=selected.map(({file,project})=>({file,project})).sort((a,b)=>a.project.localeCompare(b.project)||a.file.localeCompare(b.file));
-    return {version:1,files,directories:[...(closure.directories??[])].sort(),external:closure.external??[],...(closure.nativeDiagram?{nativeDiagram:closure.nativeDiagram}:{}),inventory};
+    return {version:1,files,directories:[...(closure.directories??[])].sort(),external:closure.external??[],inventory};
   }catch{return;}
 }
 export function workerAuditIdentity(root:string,closure:InputClosure,selected:readonly Spec[]):string|undefined{
@@ -55,8 +55,7 @@ export function inspectWorkerAudit(root:string,closure:InputClosure,selected:rea
     const owner=prefix?input.slice(prefix[0].length).split(":")[0]:undefined;
     return{code:prefix?.[1]??"unsupported-input",...(owner&&owner.length<256&&/^[A-Za-z0-9_./@-]+$/.test(owner)&&closure.files.includes(owner)?{owner}:{})};
   });
-  const expectedNative=Object.fromEntries(["source","installation","runtime"].flatMap(key=>typeof audit?.sourceAudit?.native?.[key]==="string"&&/^[a-f0-9]{64}$/.test(audit.sourceAudit.native[key])?[[key,audit.sourceAudit.native[key]]]:[]));
-  const diagnostic={version:1,expectedIdentity,actualIdentity,enforcementValid:Boolean(enforcementValid),admissionSupported:Boolean(material),selected:selected.length,files:closure.files.length,unresolvedCount:closure.unresolved.length,unresolved:labels,expectedNative,native:closure.nativeDiagramDiagnostic,material:diagnosticMaterial};
+  const diagnostic={version:1,expectedIdentity,actualIdentity,enforcementValid:Boolean(enforcementValid),admissionSupported:Boolean(material),selected:selected.length,files:closure.files.length,unresolvedCount:closure.unresolved.length,unresolved:labels,material:diagnosticMaterial};
   if(JSON.stringify(diagnostic).length>768*1024)return{qualified:false,diagnostic:{version:1,expectedIdentity,actualIdentity,reason:"bounded manifest exceeded"}};
   return{qualified,diagnostic};
 }
