@@ -153,10 +153,33 @@ export function changedPaths(root: string, candidate: ReviewCandidate): string[]
  * reviewed head contains: the work nobody reviewed. Merging the base into the
  * branch adds only a merge commit and commits the base already has, so a
  * refresh by merge leaves this empty; a rebase or an amend rewrites the
- * reviewed commits and does not.
+ * reviewed commits and does not. What the merge commit itself carries is
+ * `alteredMerges`' question.
  */
 export function unreviewedCommits(root: string, candidate: ReviewCandidate, reviewedHead: string): string[] {
   return must(root, ["rev-list", "--no-merges", candidate.head, `^${candidate.base}`, `^${reviewedHead}`]).split("\n").filter(Boolean);
+}
+
+export interface AlteredMerge { commit: string; reason: string }
+
+/**
+ * Merge commits in the candidate head, in neither the base nor the reviewed
+ * head, that carry content of their own (#4121). A merge keeps a record valid
+ * only when it is clean: two parents, and exactly the tree Git's automatic
+ * merge of those parents writes. A resolved conflict, an edit added while
+ * merging and an octopus merge are all content no reviewer read. A merge that
+ * cannot be recomputed is reported too: unknown is not clean.
+ */
+export function alteredMerges(root: string, candidate: ReviewCandidate, reviewedHead: string): AlteredMerge[] {
+  const merges = must(root, ["rev-list", "--merges", candidate.head, `^${candidate.base}`, `^${reviewedHead}`]).split("\n").filter(Boolean);
+  return merges.flatMap(commit => {
+    const [tree, ...parents] = must(root, ["show", "-s", "--format=%T %P", commit]).trim().split(" ");
+    if (parents.length !== 2) return [{ commit, reason: `has ${parents.length} parents` }];
+    const automatic = git(root, ["merge-tree", "--write-tree", "--no-messages", parents[0]!, parents[1]!]);
+    if (automatic.code === 1) return [{ commit, reason: "resolves a conflict" }];
+    if (automatic.code !== 0) return [{ commit, reason: `cannot be recomputed (git merge-tree: ${automatic.err.slice(0, 120)})` }];
+    return automatic.out.split("\n")[0] === tree ? [] : [{ commit, reason: "differs from the automatic merge of its parents" }];
+  });
 }
 
 const REMEDY = "Have a fresh agent context or a human review it, given only the pull request and its issue, then record the result with";
@@ -180,7 +203,11 @@ export function reviewRefusal(root: string, candidate: ReviewCandidate, comments
   }
   if (!available(root, record.head)) return `The reviewed head ${record.head} can be neither read nor fetched, so the commits added since cannot be established. ${REMEDY} ${post}`;
   const fresh = unreviewedCommits(root, candidate, record.head);
-  if (!fresh.length) return null;
+  if (!fresh.length) {
+    const altered = alteredMerges(root, candidate, record.head);
+    if (!altered.length) return null;
+    return `The candidate head ${candidate.head} contains ${altered.length === 1 ? "a merge commit that is" : `${altered.length} merge commits that are`} not a clean merge (${altered.slice(0, 5).map(merge => `${merge.commit.slice(0, 12)}: ${merge.reason}`).join("; ")}${altered.length > 5 ? "; ..." : ""}). A clean merge of the base keeps a record valid; a merge that resolves a conflict, carries an edit of its own or has more than two parents needs a new review of the current head. ${REMEDY} ${post}`;
+  }
   return `The candidate head ${candidate.head} contains ${fresh.length} commit${fresh.length === 1 ? "" : "s"} the reviewed head ${record.head} does not (${fresh.slice(0, 5).map(commit => commit.slice(0, 12)).join(", ")}${fresh.length > 5 ? ", ..." : ""}). Merging the base keeps a record valid; a new commit, a rebase or an amend needs a new review of the current head. ${REMEDY} ${post}`;
 }
 

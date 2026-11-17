@@ -1985,7 +1985,7 @@ most changes before they landed.
   `packages/ui-server/` or `packages/core/`. The same predicate decides both
   (`touchesCorePackages`, `scripts/fast-lane.ts:19-21`). A fast-lane PR is
   never asked, and its comments are not read
-  (`reviewGate`, `scripts/review-receipt.ts:191-194`).
+  (`reviewGate`, `scripts/review-receipt.ts:218-221`).
 - **What counts as independent.** A reviewer that did not write the change and
   is given only the PR and its issue, never the author's summary or reasoning.
   In practice that is a fresh agent context or a human.
@@ -1998,13 +1998,16 @@ most changes before they landed.
   posted. Only the newest record counts, and an unreadable newest record
   refuses (`newestReview`, `scripts/review-receipt.ts:123-128`).
 - **The gate.** `integrate.ts confirm` and `merge` refuse a core-package
-  candidate (`reviewRefusal`, `scripts/review-receipt.ts:169-185`) when:
+  candidate (`reviewRefusal`, `scripts/review-receipt.ts:192-212`) when:
   - no record exists;
   - the newest record has a finding without a disposition, or answers one as
     `fixed` in a commit the candidate head does not contain;
   - the candidate head contains a non-merge commit, not reachable from the
     base, that the reviewed head does not contain
-    (`unreviewedCommits`, `scripts/review-receipt.ts:158-160`).
+    (`unreviewedCommits`, `scripts/review-receipt.ts:159-161`);
+  - the candidate head contains a merge commit, in neither the base nor the
+    reviewed head, that is not a clean merge
+    (`alteredMerges`, `scripts/review-receipt.ts:173-183`).
 
   `confirm` checks before it takes the reservation or requests candidate CI,
   like the check receipt, and the merge reads the record again.
@@ -2013,6 +2016,14 @@ most changes before they landed.
   way, however often, keeps its record. A new commit, a rebase or an amend
   needs a new review of the new head. That includes a commit that fixes a
   finding.
+- **What a merge commit may carry.** Nothing of its own
+  ([#4121](https://github.com/schlessera/brain-kit/issues/4121), maintainer
+  decision 2026-11-17). A merge keeps the record only when it has exactly two
+  parents and its tree is the one Git's automatic merge of those parents
+  writes (`git merge-tree --write-tree`). A conflict resolved by hand, an edit
+  added while merging and a merge of more than two parents are content no
+  reviewer read, so each needs a new review of the current head. A merge that
+  cannot be recomputed is refused as well: unknown is not clean.
 - **Exempt.** An [expedited red-main fix](#expedited-red-main-fixes)
   (`--fixes-main-run`), as it is from the check receipt. The next main run is
   the backstop.
@@ -2021,9 +2032,10 @@ most changes before they landed.
 repository ruleset or branch protection, it does not review fast-lane PRs, and
 it does not automate the reviewer.
 
-**Known cost.** The rule counts commits, so the content of a merge commit
-itself, such as a conflict resolution made while merging the base, is not
-compared with what the reviewer read.
+**Known cost.** The clean-merge check recomputes each merge with the local
+Git and its configuration. A merge that another Git or another rename setting
+would have written differently reads as altered and costs one more review; it
+never passes unread.
 
 ## Historical measurement and upstream guidance
 

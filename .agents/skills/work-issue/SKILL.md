@@ -435,8 +435,12 @@ plus any later merges of the base.
   push, then start another fresh reviewer the same way and post its record.
   The earlier record stays on the PR, so the new reviewer can see what was
   found and how it was answered.
-- Merging `origin/main` into the branch needs no new review. While you wait
-  for the lease, refresh by merge and push, never by rebase.
+- Merging `origin/main` into the branch needs no new review, as long as the
+  merge is clean. While you wait for the lease, refresh by merge and push,
+  never by rebase.
+- A merge that conflicts needs a review of the resolved head: the resolution
+  is code nobody read. So does any edit added to a merge commit. Commit a
+  follow-up change on its own, never inside the merge.
 - Findings that are only filed or rejected add no commit, so they need no new
   review.
 

@@ -175,6 +175,69 @@ describe("which commits a record covers, against real Git history", () => {
   });
 });
 
+describe("what a merge commit may carry (#4121)", () => {
+  const CHART = "docs/chart.md";
+  const lines = (first: string, last: string) => [first, "Aeaea", "Ogygia", "Scheria", "Thrinacia", "Ismarus", "Aeolia", last].join("\n") + "\n";
+  /** Main gains a chart, the branch takes it by a clean merge, and the branch then edits its first line: that edit is the reviewed head. */
+  function charted() {
+    const ship = voyage();
+    ship.git("checkout", "-q", "main"); ship.commit(CHART, lines("Troy", "Ithaca"), "main: chart"); ship.git("checkout", "-q", "raft");
+    ship.mergeMain();
+    const reviewed = ship.commit(CHART, lines("Troy, left behind", "Ithaca"), "mark the departure");
+    const onMain = (text: string, message: string) => { ship.git("checkout", "-q", "main"); const tip = ship.commit(CHART, text, message); ship.git("checkout", "-q", "raft"); return tip; };
+    /** `git merge` that is allowed to stop: a conflict, or `--no-commit`. */
+    const attempt = (...args: string[]) => Bun.spawnSync(["git", "-c", "commit.gpgsign=false", "-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.invalid", "merge", "-q", "--no-ff", ...args], { cwd: ship.root, stdout: "pipe", stderr: "pipe" }).exitCode;
+    return { ...ship, reviewed, onMain, attempt };
+  }
+
+  test("a clean merge keeps the record even when both sides changed the same file", () => {
+    const { root, git, reviewed, start, onMain, mergeMain } = charted();
+    const base = onMain(lines("Troy", "Ithaca, home"), "main: mark the arrival"), head = mergeMain();
+    // The control: Git merged both edits into one file without help.
+    expect(git("show", `${head}:${CHART}`)).toBe(lines("Troy, left behind", "Ithaca, home").trim());
+    expect(reviewRefusal(root, { pr: PR, head, base }, [reviewComment(record(reviewed, start))]), "CLEAN_SAME_FILE_MERGE_KEEPS_RECORD").toBeNull();
+  });
+
+  test("a refresh whose conflict was resolved by hand needs a new review, and the merge commit is named", () => {
+    const { root, git, commit, reviewed, start, onMain, attempt } = charted();
+    const base = onMain(lines("Troy, burning", "Ithaca"), "main: rename the departure");
+    expect(attempt("--no-edit", "main"), "the merge must really conflict").not.toBe(0);
+    const head = commit(CHART, lines("Troy, burning and left behind", "Ithaca"), "merge main, resolving the chart");
+    // The control: a real two-parent merge of the base, with no non-merge commit of its own.
+    expect(git("rev-list", "--parents", "-n", "1", head).split(" ")).toHaveLength(3);
+    expect(unreviewedCommits(root, { pr: PR, head, base }, reviewed)).toEqual([]);
+    const refusal = reviewRefusal(root, { pr: PR, head, base }, [reviewComment(record(reviewed, start))]);
+    expect(refusal, "CONFLICT_RESOLUTION_NEEDS_REVIEW").toContain(`${head.slice(0, 12)}: resolves a conflict`);
+    expect(refusal).toContain("bun scripts/review-receipt.ts post 7");
+    // A review of the resolved head covers it.
+    expect(reviewRefusal(root, { pr: PR, head, base }, [reviewComment(record(head, base))])).toBeNull();
+  });
+
+  test("an edit added to a merge that had no conflict needs a new review", () => {
+    const { root, git, commit, reviewed, start, advanceMain, attempt } = charted();
+    const base = advanceMain("Calypso");
+    expect(attempt("--no-commit", "main")).toBe(0);
+    const head = commit("packages/core/src/sail.ts", "export const sail = 1;\n", "merge main");
+    expect(git("rev-list", "--parents", "-n", "1", head).split(" ")).toHaveLength(3);
+    expect(unreviewedCommits(root, { pr: PR, head, base }, reviewed)).toEqual([]);
+    expect(reviewRefusal(root, { pr: PR, head, base }, [reviewComment(record(reviewed, start))]), "EDIT_INSIDE_MERGE_NEEDS_REVIEW")
+      .toContain(`${head.slice(0, 12)}: differs from the automatic merge of its parents`);
+  });
+
+  test("a merge of more than two parents needs a new review", () => {
+    const { root, git, commit, reviewed, start, advanceMain } = charted();
+    const tip = advanceMain("Calypso");
+    git("checkout", "-qb", "sirens", start); const song = commit("docs/song.md", "the sirens sing\n", "sirens");
+    // The base already holds both lines of history, so the octopus adds no commit of its own.
+    git("checkout", "-q", "main"); git("merge", "-q", "--no-ff", "--no-edit", "sirens"); const base = git("rev-parse", "HEAD");
+    git("checkout", "-q", "raft"); git("merge", "-q", "--no-edit", tip, song);
+    const head = git("rev-parse", "HEAD");
+    expect(git("rev-list", "--parents", "-n", "1", head).split(" ")).toHaveLength(4);
+    expect(unreviewedCommits(root, { pr: PR, head, base }, reviewed)).toEqual([]);
+    expect(reviewRefusal(root, { pr: PR, head, base }, [reviewComment(record(reviewed, start))]), "OCTOPUS_NEEDS_REVIEW").toContain(`${head.slice(0, 12)}: has 3 parents`);
+  });
+});
+
 describe("dispositions", () => {
   test("an undisposed finding in the newest record refuses and is named", () => {
     const { root, reviewed, start } = voyage(), candidate = { pr: PR, head: reviewed, base: start };

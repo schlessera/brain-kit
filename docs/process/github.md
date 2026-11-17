@@ -341,7 +341,8 @@ its head: one PR comment written by `bun scripts/review-receipt.ts post`,
 after a fresh agent context or a human has reviewed the PR given only the PR
 and its issue. Every finding in it has one disposition: fixed, filed or
 rejected with a reason. Refresh a reviewed branch by merging the base, not by
-rebasing, so that the record stays valid. The
+rebasing, so that the record stays valid; a merge that needed a conflict
+resolution needs a new review. The
 [decision](../decisions/ci-utility.md#recorded-independent-review-of-core-package-prs)
 has the rule; the [work-issue skill](../../.agents/skills/work-issue/SKILL.md#independent-review)
 has the steps.

@@ -311,10 +311,12 @@ changing anything. Each refusal has one remedy:
 | A finding without a disposition | Answer it as fixed, filed or rejected and post the record again. |
 | Fixed in a commit the head does not contain | Name the commit on this branch that fixes it. |
 | The head contains commits the reviewed head does not | Get a review of the current head. Merges of the base never cause this; a new commit, a rebase or an amend does. |
+| A merge commit that is not a clean merge | Get a review of the current head. A merge that resolved a conflict, carries an edit of its own or has more than two parents is content the reviewer did not read. |
 | The reviewed head can be neither read nor fetched | Get a review of the current head. |
 
 Refresh a reviewed branch by merging `origin/main` and pushing. A rebase
-rewrites the reviewed commits and discards the record's coverage.
+rewrites the reviewed commits and discards the record's coverage. A refresh
+that needed a conflict resolution also needs a new review.
 
 While main is red, a declared fix for the open record, forward fix or
 targeted revert alike, may use `bun scripts/integrate.ts confirm <pr>
