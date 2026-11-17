@@ -22,6 +22,7 @@ import {
 } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { GitPullRequest, Search, SquarePen, MessageSquarePlus } from "lucide-react";
 import type { ComponentType } from "react";
+import { awaitsDecision, type ToolCall } from "../../../stores/chat-state.js";
 import { ClampedPre } from "../tool-views.js";
 import {
   GithubCommentCard,
@@ -48,7 +49,8 @@ function writeInput<T>(schema: { safeParse: (v: unknown) => { success: boolean; 
     // Only while the approval waits. The approval row never receives an
     // output, so after a decision a draft would keep reading "not posted";
     // the original call's row shows what happened instead.
-    if (tool.status !== "pending_approval") return null;
+    // A restored approval the host already closed (`readOnly`) waits for nothing.
+    if (!awaitsDecision(tool as ToolCall)) return null;
     const parsed = schema.safeParse(tool.input);
     return parsed.success && parsed.data ? <Preview input={parsed.data} /> : null;
   };

@@ -122,7 +122,10 @@ function detailErrorState(error: GithubDetailError | GithubError & { reset_at?: 
   // GitHub's own refusals carry no reason or "github"; the host's carry theirs.
   const fromGithub = error.reason === null || error.reason === "github";
   if ((error.code === "not_found" || error.code === "forbidden") && fromGithub) return { state: "gone" };
-  // Every upstream failure, whatever its reason, is S4 with Try again.
+  // The host's own failures (no answer, an unreadable answer, its own HTTP
+  // status) read in its words: S4 would say GitHub answered or didn't.
+  if (error.code === "upstream_error" && (error.reason?.startsWith("host_") || error.reason === "cancelled")) return { state: "error", refusal: error.message };
+  // Every other upstream failure is GitHub's, and S4 with Try again.
   const status = error.reason?.match(/^http_(\d{3})$/)?.[1];
   if (error.code === "upstream_error") return { state: "error", ...(status ? { errorStatus: Number(status) } : {}) };
   return { state: "error", refusal: error.message };
@@ -143,11 +146,13 @@ function useDetail(repository: string, number: number, part: GithubDetailPart) {
   const fetchPage = useCallback(
     async (cursor: string | null, append: boolean) => {
       last.current = cursor;
+      // Nothing is sent without a session; that is no failure of GitHub's.
       if (!sessionId) {
-        setDetail((d) => ({ ...d, state: "error" }));
+        setDetail((d) => ({ ...d, state: "error", refusal: "Open this chat again to load more from GitHub." }));
         return;
       }
-      setDetail((d) => ({ ...d, state: "loading", refusal: undefined }));
+      // A new request starts clean: no earlier failure's status or reset time survives it.
+      setDetail((d) => ({ ...d, state: "loading", refusal: undefined, errorStatus: undefined, resetAt: undefined, resetIn: undefined }));
       const answer = await fetchGithubDetailPage(root, { sessionId, repository, number, part, cursor });
       if (!answer.ok) {
         setDetail((d) => ({ ...d, ...detailErrorState(answer.error) }));
@@ -263,7 +268,10 @@ function outcomeUnknown(error: GithubError): boolean {
   // `cancelled` is ambiguous: the host uses it both before sending ("nothing
   // was sent") and mid-request ("may still have been made"), so the host's
   // own words say which. `malformed` and `redirect` are their own refusals.
-  return error.code === "upstream_error" && (error.reason === "network" || error.reason === "timeout" || /^http_\d{3}$/.test(error.reason ?? ""));
+  // An `http_NNN` is GitHub answering with that status, which W3's "GitHub
+  // didn't answer" would misstate; the host's words for it say the write may
+  // not have been made.
+  return error.code === "upstream_error" && (error.reason === "network" || error.reason === "timeout");
 }
 
 // ---------------------------------------------------------------------------

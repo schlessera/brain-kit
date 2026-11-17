@@ -358,6 +358,41 @@ describe("on-demand detail", () => {
     expect(requested.filter((u) => u.endsWith("/files")).length).toBe(3);
   });
 
+  test("a retry starts clean: an earlier failure's status does not survive it", async () => {
+    answer = () => Response.json({ error: { code: "upstream_error", reason: "http_502", message: "GitHub answered 502.", reset_at: null } }, { status: 502 });
+    const view = output("read", envelope("read", pull()));
+    await act(async () => fireEvent.click(view.getByRole("tab", { name: /Files/ })));
+    await act(async () => {});
+    expect(view.container.textContent).toContain("GitHub answered 502");
+    answer = () => Response.json({ error: { code: "upstream_error", reason: "network", message: "GitHub did not answer.", reset_at: null } }, { status: 502 });
+    await act(async () => fireEvent.click(within(view.container).getByRole("button", { name: /Try again/ })));
+    await act(async () => {});
+    expect(view.container.textContent).toContain("didn't answer");
+    expect(view.container.textContent).not.toContain("GitHub answered 502");
+  });
+
+  test("the host's own failures never read as GitHub's: an unreadable 504, and no session at all", async () => {
+    answer = () => new Response("<html>gateway</html>", { status: 504 });
+    const view = output("read", envelope("read", pull()));
+    await act(async () => fireEvent.click(view.getByRole("tab", { name: /Files/ })));
+    await act(async () => {});
+    expect(view.container.textContent).toContain("The host could not load this (HTTP 504).");
+    expect(view.container.textContent).not.toContain("GitHub answered");
+
+    registerBuiltinRenderers();
+    const name = visibleToolName(GITHUB_TOOL_NAMES.read, "pi");
+    const Output = resolveToolRenderer(call(name, undefined), "pi")!.Output!;
+    const root = createBrainUiRoot({ storage: null, request: async (url) => (requested.push(String(url)), answer(String(url))) });
+    roots.push(root);
+    const before = requested.length;
+    const lone = mount(<BrainUiProvider root={root}><Output tool={call(name, envelope("read", pull()))} /></BrainUiProvider>);
+    await act(async () => fireEvent.click(within(lone.container).getByRole("tab", { name: /Files/ })));
+    await act(async () => {});
+    expect(requested.length, "nothing is sent without a session").toBe(before);
+    expect(lone.container.textContent).toContain("Open this chat again");
+    expect(lone.container.textContent).not.toContain("didn't answer");
+  });
+
   test("Files load on the tab's first open, and keep what they loaded when the reader comes back", async () => {
     answer = () => page("files", [{ filename: "armoury/bow.md", previous_filename: null, status: "modified", additions: 12, deletions: 3, changes: 15 }]);
     const view = output("read", envelope("read", pull()));
@@ -442,6 +477,26 @@ describe("write outcomes say what the host knows", () => {
       const { container } = render(<Input tool={call(name, undefined, { input: { repository: "ithaca/hall", title: "Key log" }, status })} />);
       expect(container.textContent, status).toBe("");
     }
+  });
+
+  test("a restored approval the host already closed shows no draft, while an open one does", () => {
+    registerBuiltinRenderers();
+    const name = visibleToolName(GITHUB_TOOL_NAMES.comment, "claude");
+    const Input = resolveToolRenderer(call(name, undefined), "claude")!.Input!;
+    const input = { repository: "ithaca/hall", number: 388, body: "Filed #401 for the key log." };
+    const open = render(<Input tool={call(name, undefined, { input, status: "pending_approval" })} />);
+    expect(open.container.textContent, "positive control: a waiting approval shows its draft").toContain("Filed #401");
+    const closed = { ...call(name, undefined, { input, status: "pending_approval" }), restored: true, readOnly: { reason: "answered" } } as ToolCallView;
+    expect(render(<Input tool={closed} />).container.textContent).toBe("");
+  });
+
+  test("a write GitHub answered with a status reads in the host's words, not 'GitHub didn't answer'", () => {
+    const { container } = output("create", refusal("create", "upstream_error", "http_502", "GitHub answered 502; the write may not have been made."));
+    expect(container.querySelector("[data-github-write='unknown']")).toBeNull();
+    expect(container.textContent).toContain("GitHub answered 502; the write may not have been made.");
+    expect(container.textContent).not.toContain("didn't answer");
+    const silent = output("create", refusal("create", "upstream_error", "timeout", "GitHub did not answer in time; the write may have been made."));
+    expect(silent.container.querySelector("[data-github-write='unknown']"), "no answer at all is still W3 unknown").not.toBeNull();
   });
 });
 
