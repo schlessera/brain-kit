@@ -1,0 +1,23 @@
+# Measurement only (#4116). Lives on an unmerged branch; never merged.
+name: measure-4116
+on:
+  push:
+    branches: ["spike/4116-browser-repeat-measure"]
+permissions:
+  contents: read
+jobs:
+  measure:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+      - run: bun install --frozen-lockfile
+      - name: Build
+        run: time bun run build --jobs=2
+      - name: Measure
+        run: bash scripts/measure-4116/hosted.sh
