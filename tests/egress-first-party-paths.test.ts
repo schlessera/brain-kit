@@ -102,3 +102,5 @@ describe("first-party egress paths through the turn proxy", () => {
     expect(Object.keys(walk.reachable).filter(path => walk.reachable[path] === true), "EGRESS_SOCKET_WALK_NO_REACHABLE_HOST_SOCKET").toEqual([]);
   }, 300_000);
 });
+
+// Throwaway edit: selects this file for the split-selection qualification of #4117. Not for merge.

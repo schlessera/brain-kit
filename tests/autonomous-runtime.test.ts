@@ -129,3 +129,5 @@ for (const backend of ["claude", "pi"]) describe(`${backend} real autonomous run
     expect(r.histories[0].length).toBeGreaterThan(0);
   });
 });
+
+// Throwaway edit: selects this file for the split-selection qualification of #4117. Not for merge.

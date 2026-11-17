@@ -320,3 +320,5 @@ test("the whole cross-workspace source class retains every independently discove
   for (const record of conformance)
     expect(record.unitOwners, "SPAWNED_CONFORMANCE_IS_UNIT_OWNED").toContain("packages/core/tests/paid-provider-qualification.test.ts");
 });
+
+// Throwaway edit: selects this file for the split-selection qualification of #4117. Not for merge.

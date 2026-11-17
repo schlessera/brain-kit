@@ -339,3 +339,5 @@ test("governed Pi writes through an internal symlink using the canonical server 
   expect(r.after.target).toBe("Odysseus writes through the harbor alias.\n");
   expect(r.after.policy).toBe(POLICY);
 }, TIMEOUT);
+
+// Throwaway edit: selects this file for the split-selection qualification of #4117. Not for merge.

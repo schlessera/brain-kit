@@ -200,3 +200,5 @@ test("replacing a checkout at the same pathname revokes the live build receipt",
   write("probe.ts", consumerProbe + `expect(invocationBuild(root,["ithaca"])).toBeDefined();renameSync(root,root+".previous");cpSync(root+".previous",root,{recursive:true});source(2);await hook();expect(consume(),"REPLACED_CHECKOUT_REBUILDS_CONSUMER").toBe(2);`);
   const result = await run(root); expect(result.code, result.output).toBe(0); expect(receipts(root)).toHaveLength(2);
 });
+
+// Throwaway edit: selects this file for the split-selection qualification of #4117. Not for merge.
