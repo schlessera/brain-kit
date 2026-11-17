@@ -4,7 +4,7 @@ import { checkout, type Checkout } from "./proof-inputs";
 import type { Candidate } from "./integration-reservation";
 import type { API } from "./proof-api";
 import { PROOF_JOBS, proofProblems } from "./ci-proof";
-import { MAX_UNIT_PARTITIONS, shardNumbers, unitPartitionLimit } from "./proof-shards";
+import { DETERMINISM_PARTITIONS, MAX_UNIT_PARTITIONS, shardNumbers, unitPartitionLimit } from "./proof-shards";
 import { coveredCategories } from "./check-receipt";
 import type { Category } from "./red-main";
 
@@ -58,7 +58,8 @@ function inventoryDiagnostic(inventory: any, run: any, head: string): string {
   const choice = (value: unknown, choices: readonly string[]) => typeof value === "string" && choices.includes(value) ? value : "unrecognized";
   const names = ["changeset", "proof", ...PROOF_JOBS,
     ...["browser", "layout"].flatMap(name => shardNumbers(name as "browser" | "layout").map(shard => `${name} (${shard})`)),
-    ...Array.from({ length: MAX_UNIT_PARTITIONS }, (_, index) => `unit (${index + 1})`)];
+    ...Array.from({ length: MAX_UNIT_PARTITIONS }, (_, index) => `unit (${index + 1})`),
+    ...Array.from({ length: DETERMINISM_PARTITIONS.max }, (_, index) => `determinism (${index + 1})`)];
   const fields = metadataObject(inventory) ? inventory : {};
   const jobs = fields.jobs;
   const predicates: string[] = [];
@@ -110,7 +111,7 @@ export async function verifyIntegrationProof(root: string, repository: string, c
   const selectedLines = proofLog.split("\n").filter(line => line.includes("BRAIN_SELECTED_PROOF_RECEIPT "));
   if (selectedLines.length !== 1) throw new Error("Fresh structured selected-proof receipt required");
   const selected = JSON.parse(selectedLines[0]!.split("BRAIN_SELECTED_PROOF_RECEIPT ")[1]!) as {
-    selections: Record<string, string>; results: Record<string, string>; retained?: unknown; unitShards: string | null;
+    selections: Record<string, string>; results: Record<string, string>; retained?: unknown; unitShards: string | null; determinismShards?: string | null;
   };
   // Retention is retired (#4107): a receipt naming a retained category is not fresh proof.
   if (selected.retained !== undefined && (!Array.isArray(selected.retained) || selected.retained.length)) throw new Error("Retained proof is retired: every selected category must run fresh");
@@ -125,6 +126,11 @@ export async function verifyIntegrationProof(root: string, repository: string, c
       // Only a ready confirmation reaches the merge path, so its cap bounds the planned set (#4108).
       if (!Array.isArray(shards) || !shards.length || shards.length > unitPartitionLimit("confirmation") || shards.some((value, index) => value !== index + 1)) throw new Error("Missing actual unit partition identity");
       expected.push(...shards.map(index => `unit (${index}):success`));
+    } else if (fresh && name === "determinism") {
+      // The aggregate validated this published set against the plan; every one of its partitions must have run (#4117).
+      const shards: unknown = JSON.parse(selected.determinismShards ?? "null");
+      if (!Array.isArray(shards) || !shards.length || shards.length > DETERMINISM_PARTITIONS.max || shards.some((value, index) => value !== index + 1)) throw new Error("Missing actual determinism partition identity");
+      expected.push(...shards.map(index => `determinism (${index}):success`));
     } else expected.push(`${name}:${fresh ? "success" : "skipped"}`);
   }
   if (JSON.stringify(jobs.map(job => `${job.name}:${job.conclusion}`).sort()) !== JSON.stringify(expected.sort())) throw new Error("Actual selected job inventory differs from the validated selection");
