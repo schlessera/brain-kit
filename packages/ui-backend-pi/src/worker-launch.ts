@@ -294,6 +294,13 @@ export interface PiWorkerSupervision {
    * make the owner's awaited close a second attempt (#3544).
    */
   claimTurnTempClose(): void;
+  /**
+   * Runs an owner's teardown — a prompted turn's, an inactive abort's — that
+   * still waits for stdio release after its turn-temp close. A close refused
+   * inside it passes to the cleanup reconciler only once it ends, so the
+   * reconciler's timed retry cannot add an attempt while it settles (#3488).
+   */
+  teardown(run: () => Promise<void>): Promise<void>;
   /** The tail of the worker's stderr. */
   diagnostic(): string;
   reportLimitHits(): void;
@@ -323,13 +330,23 @@ export function superviseWorker(worker: { child: LaunchedWorker; reservation: Re
   const activity = env.cleanupActivity ?? turnContext.bridge?.activity;
   const cleanup = { bytes: held.bytes, turnTempBytes: held.turnTempBytes, close: () => closeStorage(), release: releaseReservation,
     report: (notice: import("@schlessera/brain-ui-sdk/internal").CleanupNotice) => activity?.({ kind: "worker_cleanup", ...notice }) };
+  const handOff = (error: unknown) => (worker.cleanup ?? processCleanupReconciler()).retain(cleanup, error);
+  let tearingDown = 0;
+  let deferred: { error: unknown } | undefined;
   const closeStorage = (): Promise<void> => turnTempClosing ??= (async () => { await turnTemp?.closeAsync(); })()
     .catch((error: unknown) => {
       turnTempClosing = undefined;
-      (worker.cleanup ?? processCleanupReconciler()).retain(cleanup, error);
+      if (tearingDown) deferred = { error }; else handOff(error);
       throw error;
     });
   const closeTurnTemp = async () => { await closeStorage(); releaseReservation(); };
+  const teardown = async (run: () => Promise<void>): Promise<void> => {
+    tearingDown++;
+    try { await run(); }
+    finally {
+      if (--tearingDown === 0 && deferred) { const { error } = deferred; deferred = undefined; handOff(error); }
+    }
+  };
   // The turn_temp tool reaches this worker's /tmp only while it runs (#1703).
   let workerLive = true;
   void child.exited.finally(() => { workerLive = false; }).catch(() => {});
@@ -387,5 +404,5 @@ export function superviseWorker(worker: { child: LaunchedWorker; reservation: Re
    * settle only after this, which resolves once they are closed or its bound expires.
    */
   const stdioReleased = (): Promise<void> => { child.stdin.end(); return child.released(); };
-  return { closeTurnTemp, releases, claimTurnTempClose: () => { claimed = true; }, diagnostic: () => diagnostic, reportLimitHits, limitEnded, send, stdioReleased };
+  return { closeTurnTemp, releases, claimTurnTempClose: () => { claimed = true; }, teardown, diagnostic: () => diagnostic, reportLimitHits, limitEnded, send, stdioReleased };
 }

@@ -322,6 +322,18 @@ Refresh a reviewed branch by merging `origin/main` and pushing. A rebase
 rewrites the reviewed commits and discards the record's coverage. A refresh
 that needed a conflict resolution also needs a new review.
 
+A proof-system candidate (`bun scripts/proof-system.ts classify --base <merge-base>
+--head <head>`) waits its turn in the proof-system lane. `confirm` (before
+acquiring) and `merge` refuse it until the last proof-system squash on main
+has a completed main-push run of its own and the newest completed main run
+from that squash on is green: its own green run opens the lane, and after a
+failure the next green main run reopens it. They also refuse it until its PR
+body has an `## Off-main qualification` section linking a replay or dispatch
+run on the exact head, or on an ancestor with no proof-system change after it.
+Read the window with `bun scripts/integrate.ts lane --json` instead of polling
+runs; product candidates and declared red-main fixes are never held
+([proof-system lane](../../../../docs/decisions/ci-utility.md#lane-and-qualification-gates)).
+
 While main is red, a declared fix for the open record, forward fix or
 targeted revert alike, may use `bun scripts/integrate.ts confirm <pr>
 --fixes-main-run <run-id> --issues owner/repo#N,...`. It dispatches fix probes
@@ -393,6 +405,12 @@ git fetch origin main
 
 It exits 1 when either moved. `unchanged` says which, and `baseGained` lists
 how many files the base gained and which of them this pull request also
+changes. GitHub lists at most 300 files of a comparison and 3000 of a pull
+request. When either list was cut short, `baseGained.overlapIncomplete` says
+which: `overlapsThisPr` is then a lower bound, and an empty one does not mean
+the base moved clear of this pull request. Read both lists from Git instead:
+`git diff --name-only "$verified_base" origin/main` for what the base gained,
+and `git diff --name-only origin/main...HEAD` for what the pull request
 changes.
 
 A head mismatch requires new inspection. A base mismatch requires assessment of

@@ -10,6 +10,8 @@ import { expeditedProblems, expeditedTests, fixProbeTitle, probeReceipt, type Fe
 import { receiptFromBody, receiptRefusal } from "./check-receipt";
 import { reviewGate } from "./review-receipt";
 import type { API } from "./proof-api";
+import { classify } from "./proof-system";
+import { checkQualification, laneRefusal, readLane, type MainRun } from "./proof-system-lane";
 
 /**
  * A refusal no retry can cure: the candidate changed or the reservation no longer
@@ -111,6 +113,38 @@ if (import.meta.main) {
       const child = Bun.spawnSync([process.execPath, `${import.meta.dir}/ci-timings.ts`, "record", "--repo", repository, "--event", file, "--out", dir], { stdout: "pipe", stderr: "pipe" });
       if (child.exitCode !== 0) throw new Error(new TextDecoder().decode(child.stderr).trim());
     } catch (error) { console.error(`Expedited fix merged but its record is incomplete; record it by hand: ${String(error)}`); }
+  }
+  function ensureCommit(sha: string) {
+    if (Bun.spawnSync(["git", "cat-file", "-e", `${sha}^{commit}`], { cwd: store!.root }).exitCode !== 0) store!.git(["fetch", "origin", sha]);
+  }
+  /** The main-push CI run at one squash: the newest of at most ten, one API read. */
+  async function mainRunAt(sha: string): Promise<MainRun | null> {
+    const runs = (await api.json(`actions/workflows/ci.yml/runs?event=push&branch=main&head_sha=${sha}&per_page=10`)).workflow_runs ?? [];
+    const run = runs.filter((r: any) => r.head_sha === sha).sort((a: any, b: any) => b.id - a.id)[0];
+    return run ? { id: run.id, status: run.status, conclusion: run.conclusion ?? null } : null;
+  }
+  /**
+   * Proof-system lane (#3269, #3271): a proof-system candidate needs off-main qualification on the PR
+   * and an open stability window. Product candidates are never refused here. A declared red-main fix,
+   * expedited or confirmed ordinarily, is exempt: a fix that waited for the window it repairs could never land.
+   */
+  async function refuseProofSystemLane(desired: Candidate, fixesRun: number | undefined) {
+    if (fixesRun !== undefined || store!.read().redMain.open?.fixes.includes(desired.pr)) return;
+    for (const sha of [desired.base, desired.head]) ensureCommit(sha);
+    const from = store!.git(["merge-base", desired.base, desired.head]);
+    const candidateClass = classify(from, desired.head, { cwd: store!.root });
+    if (!candidateClass.proofSystem) return;
+    const problems: string[] = [];
+    const qualification = await checkQualification({ body: (await api.json(`pulls/${desired.pr}`)).body, repository, head: desired.head, cwd: store!.root, ensure: ensureCommit,
+      async readRun(id) {
+        const run = await api.json(`actions/runs/${id}`).catch(() => null);
+        return run ? { id, headSha: run.head_sha ?? null, repository: run.repository?.full_name ?? null } : null;
+      } });
+    if ("refusal" in qualification) problems.push(qualification.refusal);
+    const lane = laneRefusal(await readLane(desired.base, mainRunAt, { cwd: store!.root }));
+    if (lane) problems.push(lane);
+    const paths = [...new Set(candidateClass.reasons.map(reason => reason.path))].join(", ");
+    if (problems.length) throw new Error(`Proof-system candidate refused (${paths}): ${problems.join(". ")}`);
   }
   /** One renewal tick: a transient failure is logged and retried next tick until the safety margin (#3302). */
   async function tick() {
@@ -224,6 +258,8 @@ if (import.meta.main) {
       // Read again here: a review posted while the candidate was being proved is the newest record.
       const unreviewed = await reviewRefusal(desired);
       if (unreviewed) throw new Error(unreviewed);
+      // Read again here too: a main run may have failed while the candidate was being proved.
+      await refuseProofSystemLane(desired, fixesRun);
       tree = proof.checkout.tree; candidateRun = proof.run;
     } else {
       expedited = await expeditedEvidence(desired, fixesRun, after);
@@ -274,7 +310,12 @@ if (import.meta.main) {
     store = new GitReservationStore(process.cwd());
     const remote = store.git(["remote", "get-url", "origin"]).replace(/^git@github.com:/, "https://github.com/").replace(/\.git$/, "");
     if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository) || remote !== `https://github.com/${repository}`) throw new Error("Authenticated repository and origin differ");
-    if (command === "main-status") {
+    if (command === "lane") {
+      if (target !== "--json" || options.length) throw new Error("usage: bun scripts/integrate.ts lane --json");
+      store.git(["fetch", "origin", "main"]);
+      const decision = await readLane(store.git(["rev-parse", "FETCH_HEAD"]), mainRunAt, { cwd: store.root });
+      console.log(JSON.stringify({ ...decision, refusal: laneRefusal(decision) }));
+    } else if (command === "main-status") {
       if (target !== undefined && target !== "--json") throw new Error("usage: bun scripts/integrate.ts main-status [--json]");
       const snapshot = store.read();
       console.log(JSON.stringify({ red: snapshot.redMain.open !== null, source: snapshot.oid, record: snapshot.redMain }));
@@ -354,7 +395,8 @@ if (import.meta.main) {
         }
         if (lost) throw lost;
       } else {
-        if (command === "confirm") await contractPassed(desired);
+        // Before any lease or candidate CI: a closed lane would refuse the merge anyway.
+        if (command === "confirm") { await refuseProofSystemLane(desired, fixesRun); await contractPassed(desired); }
         own = await acquire(desired);
         // Only an explicit acquire prints the holder token, once; confirm keeps it in memory.
         console.log(JSON.stringify(command === "acquire" ? { acquired: own, token } : { acquired: own }));
@@ -385,7 +427,7 @@ if (import.meta.main) {
           if (lost) throw lost;
         }
       }
-    } else throw new Error("usage: bun scripts/integrate.ts inspect | main-status [--json] | declare-fix <pr> | acquire/confirm/merge <pr> [--lease id --token token] [--issues owner/repo#N,...] [--fixes-main-run <run-id>] | renew/release <id> [--token token] | revoke <reason>");
+    } else throw new Error("usage: bun scripts/integrate.ts inspect | main-status [--json] | lane --json | declare-fix <pr> | acquire/confirm/merge <pr> [--lease id --token token] [--issues owner/repo#N,...] [--fixes-main-run <run-id>] | renew/release <id> [--token token] | revoke <reason>");
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1;
   } finally {
