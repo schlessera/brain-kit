@@ -331,8 +331,8 @@ jobs:
     needs: changeset
     if: ${{ !cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push') && needs.changeset.outputs.runtime_host == 'true' }}
     runs-on: ubuntu-24.04
-    # 12 minutes setup + unchanged 15 minutes proof + 3 minutes for other steps (#2658).
-    timeout-minutes: 30
+    # 12 minutes setup + 45 minutes proof + 3 minutes for other steps (#2658, #4242).
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -363,7 +363,9 @@ jobs:
         run: sudo python3 -I -S scripts/native-proof/loop-trace.py start tmp/native-host-proof/owned-loop-trace.json
       - name: Complete native hosted runtime proof
         id: runtime_proof
-        timeout-minutes: 15
+        # A hang catch-all, not a product timing: green proof took 596-810 s
+        # over 37 main runs, so 15 minutes cut off a slow runner (#4242).
+        timeout-minutes: 45
         run: bun scripts/ci-proof.ts runtime_host
       - name: Stop optional owned-loop kernel trace
         continue-on-error: true
@@ -382,7 +384,7 @@ jobs:
           SETUP_OUTCOME: ${{ steps.runtime_setup.outcome }}
           PROOF_OUTCOME: ${{ steps.runtime_proof.outcome }}
         run: |
-          printf 'Environment setup (infrastructure prerequisite, 12-minute limit): %s\nProof (15-minute limit): %s\n' \
+          printf 'Environment setup (infrastructure prerequisite, 12-minute limit): %s\nProof (45-minute limit): %s\n' \
             "$SETUP_OUTCOME" "$PROOF_OUTCOME" >> "$GITHUB_STEP_SUMMARY"
       - name: Proof receipts and failure diagnostics
         if: always()

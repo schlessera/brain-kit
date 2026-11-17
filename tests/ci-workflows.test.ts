@@ -168,7 +168,7 @@ describe("the authoritative jobs retain their important phases", () => {
 });
 
 describe("runtime environment setup and proof budgets", () => {
-  for (const [name, proofMinutes] of [["unit", 30], ["runtime", 15], ["runtime_host", 15], ["determinism", 40]] as const) {
+  for (const [name, proofMinutes] of [["unit", 30], ["runtime", 15], ["runtime_host", 45], ["determinism", 40]] as const) {
     const job = ci.jobs[name]!;
     // Repeated changed tests share the unit job's prerequisites, not the native ones (#4109).
     const setup = job.steps.find(s => s.run === `bash scripts/ci-runtime-setup.sh${name === "unit" || name === "determinism" ? "" : " --native"}`)!;
