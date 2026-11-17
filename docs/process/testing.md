@@ -950,10 +950,11 @@ Workflows reference each action by commit, with its release tag as a comment:
    tag and commit.
 
 Environment setup via `scripts/ci-runtime-setup.sh` has its own 12-minute
-step limit in `unit`, `runtime`, `runtime_host` and `determinism`. Proof retains a separate
-30-minute unit allowance or 15-minute runtime allowance. The job caps are
-45 and 30 minutes respectively, including three minutes for the remaining
-steps. The [timeout basis](../decisions/ci-utility.md#separate-environment-setup-and-proof-budgets)
+step limit in `unit`, `runtime`, `runtime_host` and `determinism`. Proof has a separate
+allowance: 30 minutes for unit, 15 for `runtime` and 45 for `runtime_host`.
+The job caps are 45, 30 and 60 minutes respectively, including three minutes
+for the remaining steps. A step limit is a watchdog: it is raised when green
+runs come near it ([#4242](../decisions/ci-utility.md#a-job-step-limit-is-a-watchdog-too)). The [timeout basis](../decisions/ci-utility.md#separate-environment-setup-and-proof-budgets)
 records the slow-mirror observations and margin. Each job always reports setup
 and proof outcomes separately in its summary: setup failure/cancellation is an
 infrastructure prerequisite failure with proof skipped, while proof failure

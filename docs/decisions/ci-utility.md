@@ -580,12 +580,14 @@ describe the 6 min 32 s attempt; they are not independent measurements.
 
 Every workflow call to `ci-runtime-setup.sh` now has a 12-minute step limit.
 This leaves 3 min 8 s above the longest reported setup, bounding mirror stalls
-without spending the proof allowance. The proof steps explicitly retain the
+without spending the proof allowance. The proof steps retained the
 former job ceilings: 15 minutes for `runtime` and `runtime_host`, and 30 minutes
-for each `unit` partition under #1485. Job limits are the sum of setup and
+for each `unit` partition under #1485. `runtime_host` proof now has 45 minutes
+([a step limit is a watchdog](#a-job-step-limit-is-a-watchdog-too), #4242).
+Job limits are the sum of setup and
 proof plus three minutes for checkout, dependency install, planning, tracing,
-summaries and artifact upload: 30 minutes for either runtime job and 45 minutes
-for unit. In the supplied successful and slow logs, checkout/install/planning
+summaries and artifact upload: 30 minutes for `runtime`, 60 minutes for
+`runtime_host` and 45 minutes for unit. In the supplied successful and slow logs, checkout/install/planning
 plus trace startup took less than 30 seconds, so this reserve has margin;
 it is finite, not a guarantee against arbitrarily stalled unrelated steps.
 
@@ -2365,6 +2367,23 @@ real hang trips it: about ten times is a reasonable start, and the per-test
 cap is enough for almost every test. A tripped watchdog on a slow run is
 raised or scaled. It is not a failed proof, and the work is not squeezed to
 fit under it.
+
+### A job step limit is a watchdog too
+
+A workflow step's `timeout-minutes` is the same kind of number: it stops a
+hung job, and a pass says nothing about it. It is sized the same way.
+
+`runtime_host` proof had 15 minutes. Over the 37 green main runs before
+2026-11-17 22:52 UTC its proof step took 596 to 810 seconds, median 617: the
+slowest used 90% of the limit. Main run
+[44184262171](https://github.com/schlessera/brain-kit/actions/runs/44184262171)
+hit it at the third of its three commands
+([#4242](https://github.com/schlessera/brain-kit/issues/4242)). The run was
+slow throughout, not stuck. Its first two commands took 549 and 290 seconds,
+against 360 to 444 and 199 to 244 in green runs, and the third was still
+printing progress when the limit stopped it. The step now has 45 minutes,
+about 3.3 times the slowest green run, and the job 60. `runtime` proof, at
+117 to 208 seconds over 38 runs, keeps its 15.
 
 ### The gate scales deadlines by a fixed factor
 

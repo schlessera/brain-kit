@@ -81,7 +81,7 @@ export function workflowProblems(text: string, file: string): string[] {
       fail("verify: always summary must separate raw install, planning and proof outcomes and receipts");
     // Network prerequisites cannot spend proof capacity; measured basis: docs/decisions/ci-utility.md (#2658).
     // Repeated changed tests need the unit job's prerequisites: they may drive real Chrome (#4109).
-    for (const [name, proofMinutes] of [["unit", 30], ["runtime", 15], ["runtime_host", 15], ["determinism", DETERMINISM_PARTITIONS.stepMinutes]] as const) {
+    for (const [name, proofMinutes] of [["unit", 30], ["runtime", 15], ["runtime_host", 45], ["determinism", DETERMINISM_PARTITIONS.stepMinutes]] as const) {
       const job = workflow.jobs?.[name];
       const setup = job?.steps?.find(step => step.run === `bash scripts/ci-runtime-setup.sh${name === "unit" || name === "determinism" ? "" : " --native"}`);
       const command = `bun scripts/ci-proof.ts ${name}`;
