@@ -2,7 +2,7 @@
 import { createHash } from "node:crypto";
 import { isAbsolute } from "node:path";
 
-export const REFERENCE_BLOB_MAXIMUM = 4 * 1024 * 1024;
+const REFERENCE_BLOB_MAXIMUM = 4 * 1024 * 1024;
 export const REFERENCE_BLOB_RANGE_MAXIMUM = 65_536;
 
 export interface ReferenceBlobInput {
