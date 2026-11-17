@@ -952,7 +952,10 @@ and actual merge-result parent/tree validation remain binding.
 `browser` and `layout` job runs fresh. This supersedes #1333 (retention), #2126
 (its hosted demonstration) and the #2408 re-audit rulings of 2026-10-18 and
 2026-11-04, and follows #4105, which retired the native diagram pin for the
-same reason.
+same reason. The last re-audit under that procedure was
+[#4057](https://github.com/schlessera/brain-kit/pull/4057), for
+[#3233](https://github.com/schlessera/brain-kit/issues/3233); its record left
+this document with the procedure and remains on that pull request.
 
 **What it was.** Under #1333, a ready PR could skip every shard of a complete
 browser or layout domain when an earlier successful run of the same
