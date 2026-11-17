@@ -2,6 +2,7 @@ import { UntrustedText } from "../evidence/UntrustedText.js";
 import { GitHubIdentity } from "./GitHubIdentity.js";
 import { GitHubStateChip } from "./GitHubStateChip.js";
 import { GitHubLink, type GitHubPerson } from "./shared.js";
+import { DRAFT_SOURCE } from "./object-parts.js";
 
 /**
  * `GitHubComment` — one comment: the identity row, then the body behind a
@@ -37,8 +38,7 @@ export function GitHubComment(p: GitHubCommentProps) {
       <div style={{ paddingInlineStart: 28 }}>
         <UntrustedText
           text={p.body}
-          source="GitHub"
-          author={login}
+          {...(p.preview ? { ...DRAFT_SOURCE, author: null } : { source: "GitHub", author: login })}
           frame="rule"
           caption={false}
           lines={6}

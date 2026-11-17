@@ -28,11 +28,19 @@ import { GitHubComment } from "../../src/github/GitHubComment.js";
 import { GitHubCommitRow } from "../../src/github/GitHubCommitRow.js";
 import { GitHubDetailSection } from "../../src/github/GitHubDetailSection.js";
 import { GitHubIdentity } from "../../src/github/GitHubIdentity.js";
+import { GitHubMergeEvent } from "../../src/github/GitHubMergeEvent.js";
 import { GitHubRef } from "../../src/github/GitHubRef.js";
+import { GitHubPullRequest } from "../../src/github/GitHubPullRequest.js";
+import { GitHubIssue } from "../../src/github/GitHubIssue.js";
 import { GitHubResultList } from "../../src/github/GitHubResultList.js";
 import { GitHubReview } from "../../src/github/GitHubReview.js";
 import { hostileBody } from "../../fixtures/github.js";
 import { AVATARS } from "../../stories/github/_github.js";
+import * as detailStories from "../../stories/github/GitHubDetailSection.stories.js";
+import * as untrustedStories from "../../stories/evidence/UntrustedText.stories.js";
+import * as resultStories from "../../stories/github/GitHubResultList.stories.js";
+
+type Runnable = { run: (context?: unknown) => Promise<void> };
 
 declare module "vitest/browser" {
   interface BrowserCommands {
@@ -129,6 +137,25 @@ describe("UntrustedText: links ask first", () => {
     }
   });
 
+  test("a draft's link names the draft, not GitHub, as where it was written", async () => {
+    for (const element of [
+      createElement(GitHubComment, { author: { login: "ithaca-brain", bot: true }, body: "See [the log](https://ithaca.example/log).", preview: true }),
+      createElement(GitHubIssue, { state: "open", repo: "ithaca/hall", title: "Key log", body: "See [the log](https://ithaca.example/log).", posting: { status: "preview" } }),
+    ]) {
+      const el = mount(element);
+      await userEvent.click(el.querySelector<HTMLButtonElement>("button[data-untrusted-link]")!);
+      const dialog = document.querySelector<HTMLDialogElement>("dialog[data-untrusted-gate]")!;
+      expect(document.getElementById(dialog.getAttribute("aria-labelledby")!)?.textContent).toBe("Open a link from this draft?");
+      expect(dialog.textContent).toContain("This link was written in this draft.");
+      expect(dialog.textContent).not.toContain("on GitHub");
+      await userEvent.keyboard("{Escape}");
+      flushSync(() => root!.unmount());
+      host!.remove();
+      root = undefined;
+      host = undefined;
+    }
+  });
+
   test("Escape closes the interstitial and returns focus to the link", async () => {
     const el = mount(createElement(UntrustedText, { text: ASK, source: "GitHub" }));
     const link = el.querySelector<HTMLButtonElement>("button[data-untrusted-link]")!;
@@ -210,7 +237,8 @@ describe("bidi cannot reorder the chrome", () => {
           caption: false,
           frame: "none",
         }),
-        createElement(GitHubRef, { key: "ref", kind: "issue", repo: "ithaca/hall", number: 9, state: "open", title: "\u202Edraobpuc eht ni", htmlUrl: "https://github.com/ithaca/hall/issues/9" }),
+        // One inline run of chrome and untrusted words: the branch name sits mid-sentence.
+        createElement(GitHubMergeEvent, { key: "merge", by: { login: "penelope" }, into: "\u202Eniam", sha: "a3f9c21", time: "1 d ago" }),
       ]),
     );
     const words = el.querySelector(".bk-ut-link-words")!.getBoundingClientRect();
@@ -219,9 +247,10 @@ describe("bidi cannot reorder the chrome", () => {
     const reason = el.querySelector("[data-untrusted-link-reason]")!.getBoundingClientRect();
     const kool = [...el.querySelectorAll("bdi")].find((b) => b.textContent === "\u202Ekool")!.getBoundingClientRect();
     expect(reason.left, "the reason stays after its words").toBeGreaterThanOrEqual(kool.right - 1);
-    const title = [...el.querySelectorAll("[data-untrusted-field]")].find((b) => b.textContent?.includes("draob"))!.getBoundingClientRect();
-    const github = el.querySelector("a[data-github-link]")!.getBoundingClientRect();
-    expect(github.left, "the GitHub link stays after the title").toBeGreaterThanOrEqual(title.right - 1);
+    const merge = el.querySelector("[data-github-merge]")!;
+    const branch = [...merge.querySelectorAll("[data-untrusted-field]")].find((b) => b.textContent === "\u202Eniam")!.getBoundingClientRect();
+    const sha = [...merge.querySelectorAll("span")].find((node) => node.textContent === " · a3f9c21")!.getBoundingClientRect();
+    expect(sha.left, "the sha stays after the branch in the merge sentence").toBeGreaterThanOrEqual(branch.right - 1);
   });
 });
 
@@ -263,37 +292,74 @@ describe("direct links: only in their slots, only to github.com", () => {
 });
 
 describe("reduced motion", () => {
-  test("S1 and the interstitial do not animate", async () => {
+  // The two reduced-motion stories, rendered as written, with the media
+  // feature emulated: Storybook itself cannot set it.
+  test("the S1 reduced-motion story holds still", async () => {
     await commands.dictationMotion("reduce");
-    const el = mount(createElement("div", null, [
-      createElement(GitHubDetailSection, { key: "s1", state: "loading", noun: "commits", object: "pull request", idleLabel: "Show commits" }),
-      createElement(UntrustedText, { key: "t", text: ASK, source: "GitHub" }),
-    ]));
+    await (detailStories.LoadingReducedMotion as unknown as Runnable).run();
     expect(matchMedia("(prefers-reduced-motion: reduce)").matches).toBe(true);
-    expect(el.getAnimations({ subtree: true }).filter((a) => a.playState === "running"), "S1 holds still").toEqual([]);
-    await userEvent.click(el.querySelector<HTMLButtonElement>("button[data-untrusted-link]")!);
-    const dialog = document.querySelector("dialog[data-untrusted-gate]")!;
+    const section = document.querySelector("[data-github-detail='loading']")!;
+    expect(section, "the story rendered S1").not.toBeNull();
+    expect(section.getAnimations({ subtree: true }).filter((a) => a.playState === "running"), "S1 holds still").toEqual([]);
+  });
+
+  test("the interstitial reduced-motion story opens without motion", async () => {
+    await commands.dictationMotion("reduce");
+    await (untrustedStories.InterstitialReducedMotion as unknown as Runnable).run();
+    const dialog = document.querySelector<HTMLDialogElement>("dialog[data-untrusted-gate]")!;
+    expect(dialog?.open, "the story opened the interstitial").toBe(true);
     expect(dialog.getAnimations({ subtree: true }), "the interstitial appears without motion").toEqual([]);
     await userEvent.keyboard("{Escape}");
   });
 });
 
 describe("targets", () => {
-  test("every control outside running text is at least 44px tall at 320px", async () => {
+  /** A control's reachable height: its box, or its `::before` reach for an inline text control. */
+  const reach = (control: HTMLElement) => {
+    const box = control.getBoundingClientRect();
+    const before = getComputedStyle(control, "::before");
+    return before.content !== "none" && before.position === "absolute" ? box.height + 2 * Math.abs(parseFloat(before.top)) : box.height;
+  };
+  /** Every control is 44px tall, or carries `.bk-hit`, the kit's coarse-pointer reach (#4086). */
+  const meetsTarget = (el: ParentNode) => {
+    for (const control of el.querySelectorAll<HTMLElement>("a, button")) {
+      if (control.matches(".bk-ut-link")) continue; // inline link: the WCAG 2.5.8 inline exception, per the design
+      if (control.classList.contains("bk-hit")) continue;
+      expect(reach(control), `${control.textContent}: 44px target`).toBeGreaterThanOrEqual(44);
+    }
+  };
+
+  test("every control in the thread, commit and detail components is a 44px target at 320px", async () => {
     await page.viewport(320, 800);
     const el = mount(
       createElement("div", null, [
         createElement(GitHubComment, { key: "c", author: { login: "eurycleia" }, time: "2 d ago", body: "Sinew stretches.", htmlUrl: "https://github.com/ithaca/hall/issues/388#issuecomment-2" }),
         createElement(GitHubCommitRow, { key: "m", sha: "b81c0d4", subject: "Add tension check", message: "Add tension check\n\nBody.", author: { login: "telemachus" }, htmlUrl: "https://github.com/ithaca/hall/commit/b81c0d4" }),
         createElement(GitHubDetailSection, { key: "d", state: "error", errorStatus: 502, noun: "commits", object: "pull request", idleLabel: "Show commits", onRetry: () => {} }),
+        createElement(GitHubDetailSection, { key: "i", state: "idle", noun: "files", object: "pull request", idleLabel: "Show files", onLoad: () => {} }),
+        createElement(UntrustedText, { key: "u", text: Array(30).fill("The bow has hung unstrung for twenty years.").join(" "), source: "GitHub", lines: 3, expandLabel: "Show full description" }),
       ]),
       288,
     );
-    for (const control of el.querySelectorAll<HTMLElement>("a, button")) {
-      const box = control.getBoundingClientRect();
-      const before = getComputedStyle(control, "::before");
-      const reach = before.content !== "none" && before.position === "absolute" ? box.height + 2 * Math.abs(parseFloat(before.top)) : box.height;
-      expect(reach, `${control.textContent}: 44px target`).toBeGreaterThanOrEqual(44);
-    }
+    expect(el.querySelector("button.bk-text-btn[aria-expanded='false']"), "the expand control rendered").not.toBeNull();
+    meetsTarget(el);
+  });
+
+  test("the result list's rows, Show more and links are 44px targets", async () => {
+    await page.viewport(320, 900);
+    await (resultStories.MixedNarrow as unknown as Runnable).run();
+    const list = document.querySelector("[data-github-results]")!;
+    await userEvent.click(list.querySelector<HTMLButtonElement>("li button")!);
+    meetsTarget(list);
+  });
+
+  test("the labels' +n and the interstitial's actions are targets", async () => {
+    await page.viewport(320, 800);
+    const el = mount(createElement(GitHubPullRequest, { state: "open", repo: "ithaca/hall", number: 412, title: "Restring the bow", author: { login: "telemachus" }, headRef: "a", baseRef: "main", labels: ["bow", "contest", "armoury", "axes"], reviews: null, checks: null, body: "See [the notes](https://notes.ithaca.example/a)." }), 288);
+    const more = el.querySelector<HTMLButtonElement>("[data-github-labels] button")!;
+    expect(more.classList.contains("bk-hit"), "+n carries the kit's 44px coarse-pointer reach").toBe(true);
+    await userEvent.click(el.querySelector<HTMLButtonElement>("button[data-untrusted-link]")!);
+    meetsTarget(document.querySelector("dialog[data-untrusted-gate]")!);
+    await userEvent.keyboard("{Escape}");
   });
 });

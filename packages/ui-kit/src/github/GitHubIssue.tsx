@@ -5,7 +5,7 @@ import { Surface } from "../primitives/Surface.js";
 import { FilterRow } from "../rows/FilterRow.js";
 import { accent, color, font } from "../tokens.js";
 import { GitHubIdentity, GitHubParticipants, type GitHubParticipantsProps } from "./GitHubIdentity.js";
-import { Body, Header, Labels, Part } from "./object-parts.js";
+import { Body, DRAFT_SOURCE, Header, Labels, Part } from "./object-parts.js";
 import { BrainRead, META, type GitHubPerson } from "./shared.js";
 
 /**
@@ -91,7 +91,7 @@ export function GitHubIssue(p: GitHubIssueProps) {
                   <bdi>{p.body ?? ""}</bdi>
                 </pre>
               ) : p.body ? (
-                <UntrustedText text={p.body} source="GitHub" frame="none" />
+                <UntrustedText text={p.body} {...DRAFT_SOURCE} frame="none" />
               ) : (
                 <p style={{ margin: 0, font: `400 12px/1.5 ${font.body}`, color: color.inkMute }}>— No description.</p>
               )}

@@ -277,7 +277,8 @@ export function GitHubPullRequest(p: GitHubPullRequestProps) {
             author={author}
             bodyLength={p.bodyLength}
             bodyTruncated={p.bodyTruncated}
-            htmlUrl={p.htmlUrl}
+            htmlUrl={p.preview ? null : p.htmlUrl}
+            draft={p.preview}
           />
         </Part>
 

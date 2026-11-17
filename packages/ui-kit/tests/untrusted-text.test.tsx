@@ -229,3 +229,19 @@ describe("words", () => {
     expect(initials("eurymachus-son-of-polybus")).toBe("ES");
   });
 });
+
+describe("previews are drafts, not GitHub objects", () => {
+  test("a preview PR renders no direct link, even with a URL and a truncated body", () => {
+    const doc = draw(
+      <GitHubPullRequest
+        state="open" repo="ithaca/hall" number={412} htmlUrl="https://github.com/ithaca/hall/pull/412" title="Restring the bow"
+        author={{ login: "telemachus" }} headRef="a" baseRef="main" reviews={null} checks={null}
+        body="The bow has hung unstrung." bodyTruncated preview
+      />,
+    );
+    expect(doc.querySelectorAll("a")).toHaveLength(0);
+    expect(doc.body.textContent).toContain("Brain's draft · not posted");
+    expect(doc.body.textContent).not.toContain("Written on GitHub");
+  });
+
+});

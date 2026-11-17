@@ -47,7 +47,7 @@ export const LoadingNarrow = Loading.extend({ ...narrow });
 
 /**
  * S1 under reduced motion: the ghost holds still. Storybook cannot set the
- * media feature, so `tests/visual/github.visual.tsx` renders this story with
+ * media feature, so `tests/visual/github-untrusted.visual.tsx` renders this story with
  * `prefers-reduced-motion: reduce` emulated and asserts that nothing animates.
  */
 export const LoadingReducedMotion = meta.story({ ...state("loading"), ...desktop });

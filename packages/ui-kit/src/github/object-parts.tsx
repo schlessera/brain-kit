@@ -58,7 +58,10 @@ export function Labels({ labels }: { labels: string[] }) {
   );
 }
 
-export function Body(p: { body?: string | null; author: string; bodyLength?: number; bodyTruncated?: boolean; htmlUrl?: string | null }) {
+/** Where a not-posted draft's links say they come from: it is not on GitHub yet. */
+export const DRAFT_SOURCE = { source: "this draft", sourcePhrase: "in this draft" } as const;
+
+export function Body(p: { body?: string | null; author: string; bodyLength?: number; bodyTruncated?: boolean; htmlUrl?: string | null; draft?: boolean }) {
   if (!p.body) {
     return <p style={{ margin: 0, font: `400 12px/1.5 ${font.body}`, color: color.inkMute }}>— No description provided.</p>;
   }
@@ -66,8 +69,7 @@ export function Body(p: { body?: string | null; author: string; bodyLength?: num
   return (
     <UntrustedText
       text={p.body}
-      source="GitHub"
-      author={p.author}
+      {...(p.draft ? { ...DRAFT_SOURCE, author: null, caption: "Brain's draft · not posted" } : { source: "GitHub", author: p.author })}
       frame="box"
       lines={8}
       linesNarrow={10}
@@ -75,7 +77,7 @@ export function Body(p: { body?: string | null; author: string; bodyLength?: num
       maxChars={BODY_MAX_CHARS}
       truncated={p.bodyTruncated}
       truncatedNote={
-        githubHref(p.htmlUrl) ? (
+        !p.draft && githubHref(p.htmlUrl) ? (
           <>
             Truncated · rest on <GitHubLink href={p.htmlUrl} label="GitHub" name="The full description" />
           </>

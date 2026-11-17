@@ -156,3 +156,11 @@ export const InterstitialOpen = meta.story({
   },
 });
 export const InterstitialOpenNarrow = InterstitialOpen.extend({ ...narrow });
+
+/**
+ * The interstitial under reduced motion: it appears with no animation.
+ * Storybook cannot set the media feature, so
+ * `tests/visual/github-untrusted.visual.tsx` runs this story with
+ * `prefers-reduced-motion: reduce` emulated and asserts that nothing animates.
+ */
+export const InterstitialReducedMotion = InterstitialOpen.extend({});

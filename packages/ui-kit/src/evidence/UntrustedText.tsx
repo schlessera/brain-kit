@@ -48,6 +48,8 @@ export interface UntrustedTextProps {
   text: string;
   /** Where it was written, for the caption and the interstitial: "GitHub". */
   source: string;
+  /** How the interstitial places the link: "on GitHub" (the default, `on {source}`), "in this draft". */
+  sourcePhrase?: string;
   /** Who wrote it, with its sigil: "@antinous". `null` or absent for an unknown author. */
   author?: string | null;
   /**
@@ -304,6 +306,7 @@ function LinkGate(p: {
   source: string;
   author?: string | null;
   returnTo: () => HTMLElement | null;
+  sourcePhrase: string;
   onClose: () => void;
 }) {
   const stay = useRef<HTMLButtonElement>(null);
@@ -334,10 +337,10 @@ function LinkGate(p: {
           <p id={message} style={{ margin: 0, color: color.inkDim }}>
             {p.author ? (
               <>
-                <bdi>{p.author}</bdi> wrote this link on {p.source}.
+                <bdi>{p.author}</bdi> wrote this link {p.sourcePhrase}.
               </>
             ) : (
-              <>This link was written on {p.source}.</>
+              <>This link was written {p.sourcePhrase}.</>
             )}{" "}
             Brain hasn't checked where it goes.
           </p>
@@ -574,6 +577,7 @@ export function UntrustedText(p: UntrustedTextProps) {
         source={p.source}
         author={p.author}
         returnTo={() => opener.current}
+        sourcePhrase={p.sourcePhrase ?? `on ${p.source}`}
         onClose={() => setActive(null)}
       />
     </div>
