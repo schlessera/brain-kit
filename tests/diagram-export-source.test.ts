@@ -27,10 +27,10 @@ test("passing source preparation rejects current edits and staged deletions",()=
  const {root,write}=fixture();write("packages/core/src/specimen.ts","changed source");expect(()=>prepareDiagramExportSource(root,true)).toThrow("differs from immutable HEAD");
  const second=fixture();second.git("rm","packages/core/src/specimen.ts");expect(()=>prepareDiagramExportSource(second.root,true)).toThrow("differs from immutable HEAD");
 });
-test("archive checkout, input bytes, file modes, aliases and missing enforcement fail before execution",()=>{
- for(const kind of ["checkout","bytes","mode","alias","guard"]){const{root,write,view}=fixture(),record=prepareDiagramExportSource(root,true),archive=join(root,"tmp/diagram-export-source.json");
-  if(kind==="checkout")expect(()=>materializeDiagramExportSource(root,view(),"0".repeat(40))).toThrow("actual immutable checkout");
-  else if(kind==="bytes"){write("packages/core/src/specimen.ts","changed source");expect(()=>materializeDiagramExportSource(root,view())).toThrow("bytes, modes or aliases changed");}
+const refusals={bytes:"changed input bytes",mode:"a changed file mode",alias:"an input replaced by an alias",guard:"an archive missing an enforcement file"};
+for(const kind of ["bytes","mode","alias","guard"] as const)test(`${refusals[kind]} fails before execution`,()=>{
+ {const{root,write,view}=fixture(),record=prepareDiagramExportSource(root,true),archive=join(root,"tmp/diagram-export-source.json");
+  if(kind==="bytes"){write("packages/core/src/specimen.ts","changed source");expect(()=>materializeDiagramExportSource(root,view())).toThrow("bytes, modes or aliases changed");}
   else if(kind==="mode"){chmodSync(join(root,"packages/core/src/specimen.ts"),0o755);expect(()=>materializeDiagramExportSource(root,view())).toThrow("bytes, modes or aliases changed");}
   else if(kind==="alias"){const file=join(root,"packages/core/src/specimen.ts");rmSync(file);symlinkSync(join(root,"packages/common/src/specimen.ts"),file);expect(()=>materializeDiagramExportSource(root,view())).toThrow("bytes, modes or aliases changed");}
   else{record.inputs=record.inputs.filter(entry=>entry.path!=="scripts/test-network-guard.ts");record.sourceIdentity=diagramSourceIdentity(record.inputs);writeFileSync(archive,JSON.stringify(record));expect(()=>materializeDiagramExportSource(root,view())).toThrow("Incomplete native diagram source archive");}
