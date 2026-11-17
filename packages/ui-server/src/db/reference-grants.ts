@@ -31,7 +31,7 @@ export const REFERENCE_HOST_CREDENTIALS: Readonly<Record<string, string>> = Obje
 });
 
 export interface ReferenceRepository {
-  /** Authority and sharing key: lowercase origin, path without a trailing slash or `.git`. */
+  /** Authority/sharing key: lowercase origin, no trailing slash, one hosted clone suffix removed on input. */
   canonical: string;
   /** The requested location, normalized but otherwise as given; transports fetch this. */
   url: string;
@@ -80,7 +80,9 @@ export function referenceRepository(input: unknown, options: { prefix?: boolean 
 export const coversRepository = (prefix: string, repository: string) => repository === prefix || repository.startsWith(`${prefix}/`);
 
 function storedPrefix(input: string): string | null {
-  try { return referenceRepository(input, { prefix: true }).canonical; } catch { return null; }
+  // This value is already canonical: validate and normalize GitHub case, but
+  // keep any remaining literal .git instead of removing another clone suffix.
+  try { return referenceRepository(input, { prefix: true }).url; } catch { return null; }
 }
 
 /** Refuse a credential name outside the fixed list, or one whose recipient is not this prefix's origin. */

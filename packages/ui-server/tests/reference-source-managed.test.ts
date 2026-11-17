@@ -326,7 +326,9 @@ describe("live managed authority", () => {
     test(`a ${retained ? "retained" : "new"} mixed-case GitHub grant covers ${prefix}`, async () => {
       const f = await fixture({ private: true }), issued = f.grant(prefix);
       try {
-        if (retained) f.db.query("UPDATE reference_grants SET repository_prefix = ? WHERE id = ?").run(prefix, issued.id);
+        // Retained rows contain canonical keys, with legacy path casing.
+        if (retained) f.db.query("UPDATE reference_grants SET repository_prefix = ? WHERE id = ?")
+          .run(issued.repositoryPrefix.replace("/odysseus", "/Odysseus").replace("/ithaca", "/Ithaca"), issued.id);
         expect(f.sources.covers({ principalId: f.owner.id, repository }), "MIXED_CASE_GITHUB_GRANT_COVERS_TRANSPORT_IDENTITY").toBe(true);
         const lease = await f.request();
         try { expect(lease.domain).toBe("private"); expect(readFileSync(join(lease.viewPath, lease.name, "README.md"), "utf8")).toContain("Odysseus"); }
