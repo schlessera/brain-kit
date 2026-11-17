@@ -1,4 +1,4 @@
-import { gitPackingHeadroom, isGitWorkTree, packRepository } from "../../lib/git-storage.js";
+import { GitNoSpaceError, gitPackingHeadroom, isGitWorkTree, isNoSpaceFailure, packRepository } from "../../lib/git-storage.js";
 import { resolveEnv } from "../../config/env.js";
 import { resolve } from "node:path";
 import { collectStorageProcess } from "../../lib/storage-process.js";
@@ -59,7 +59,7 @@ export function runStoragePack(args: string[], root: string, json: boolean): num
     }
   } catch (error) {
     result.state = started ? "partial" : "refused";
-    result.reason = /ENOSPC|No space left/i.test(String(error)) ? "no_space" : "git_maintenance_unavailable";
+    result.reason = error instanceof GitNoSpaceError || isNoSpaceFailure(String(error)) ? "no_space" : "git_maintenance_unavailable";
   }
   if (json) console.log(JSON.stringify(result));
   else console.log(result.state === "complete" ? `Packed ${result.packed} loose objects; history and refs retained.` : `Packing ${result.state}: ${result.reason}. Re-measure storage before trying again.`);

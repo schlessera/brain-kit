@@ -34,7 +34,7 @@ export function repoImageSrc(src: string, root: BrainUiRoot): string {
  * checked once per store; until the answer arrives, and whenever the check
  * cannot tell, the reference keeps its ordinary form.
  */
-export function useScratchExpired(path: string | undefined): boolean {
+function useScratchExpired(path: string | undefined): boolean {
   const scratch = scratchPath(path);
   const status = useFileStore((s) => (scratch ? s.scratchFiles[scratch] : undefined));
   const check = useFileStore((s) => s.checkScratchFile);
@@ -56,7 +56,7 @@ const InsideExpiredLink = createContext(false);
  * only open an error. It keeps the link role, marked unavailable, so a screen
  * reader still meets it as the link it was, named with the label.
  */
-export function ExpiredFileLink({ path, children, style }: { path: string; children?: React.ReactNode; style?: React.CSSProperties }) {
+function ExpiredFileLink({ path, children, style }: { path: string; children?: React.ReactNode; style?: React.CSSProperties }) {
   return (
     <span role="link" aria-disabled="true" className="brain-file-link--expired" style={style} title="This file is no longer available.">
       <span className="brain-file-link-words">
@@ -73,7 +73,7 @@ export function ExpiredFileLink({ path, children, style }: { path: string; child
  * same muted "expired". It is a `span` because markdown images sit inside
  * paragraphs.
  */
-export function ExpiredImage({ alt }: { alt?: string }) {
+function ExpiredImage({ alt }: { alt?: string }) {
   const words = alt?.trim();
   return (
     <span role="img" aria-label={`${words || "Image"}, expired`} className="brain-expired-image" title="This image is no longer available.">
@@ -153,7 +153,7 @@ export function FileLink({ path, children, style }: { path: string; children?: R
  * slugs are looked up by basename. An `#anchor` suffix is stripped before
  * lookup.
  */
-export function resolveWikilinkTarget(
+function resolveWikilinkTarget(
   raw: string,
   slugMap: Record<string, string>
 ): string | null {

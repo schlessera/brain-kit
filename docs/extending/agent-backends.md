@@ -134,7 +134,7 @@ that is the failure mode this flag guards).
 that. A backend that leaves a configured profile out (Claude, when a profile's
 required environment key is missing) may also implement
 `listUnavailableProfiles()`, returning `{ id, label, reason }` with `reason`
-from the closed `ProfileUnavailableReason` enum (`needs-credentials`). The
+from the closed `ProfileUnavailableReason` enum (`needs-credentials`, `unsupported-configuration`). The
 host lists those apart, for presentation only, and drops any entry whose
 reason is not in the enum, so never put configuration detail such as a key
 name in it. A backend that lists every configured profile, as pi does, omits
@@ -564,7 +564,7 @@ export interface BackendBridge {
   deny decision.
 
 **`turnId` is host-owned.** The host mints a `turnId` per turn, stamps it onto
-every frame the bridge emits (`packages/ui-server/src/ws/bridge.ts`), and its
+every frame the bridge emits (`packages/ui-server/src/ws/bridge-capabilities/emission.ts`), and its
 dispatch layer verifies the client's echo before resolving a pending
 approval / ask-user / location / mask request — mandatory for clients that
 declare protocol revision 3, tolerated absent for older revisions

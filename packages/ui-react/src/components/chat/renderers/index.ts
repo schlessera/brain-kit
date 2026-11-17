@@ -8,6 +8,7 @@ import { claudeToolPack } from "./claude-tools.js";
 import { piToolPack } from "./pi-tools.js";
 import { genericToolPack, GENERIC_RENDERER } from "./generic.js";
 import { brainUiToolPack } from "./brain-ui-tools.js";
+import { apifyToolPack } from "./apify-tools.js";
 
 /**
  * Register the built-in packs (idempotent).
@@ -19,6 +20,7 @@ import { brainUiToolPack } from "./brain-ui-tools.js";
  */
 export function registerBuiltinRenderers(registry: ToolRendererRegistry = defaultToolRendererRegistry): void {
   registry.register(brainUiToolPack);
+  registry.register(apifyToolPack);
   registry.register(claudeToolPack);
   registry.register(piToolPack);
   registry.register(genericToolPack);

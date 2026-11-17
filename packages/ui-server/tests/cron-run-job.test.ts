@@ -10,8 +10,10 @@ import {
   runJob,
 } from "../src/cron/run-job";
 import { createUiDb } from "../src/db/client";
-import type { HostBoundary } from "../src/brain/host-boundary";
+import { brainCommandClass, type HostBoundary } from "../src/brain/host-boundary";
 import { emitCrontab, TRUSTED_JOB_NAMES } from "../src/cron/emit";
+import { BRAIN_BIN, cleanup, keylessEnv, makeTempBrain } from "../../core/tests/cli-harness";
+import { git, initRepo } from "../../core/tests/git-fixture";
 
 function textSink() {
   let text = "";
@@ -121,7 +123,7 @@ describe("cron runJob", () => {
     expect(exitCode).toBe(23);
     expect(stdout.read()).toBe("job stdout\n");
     expect(stderr.read()).toContain("[cron-run] tracking unavailable (job runs anyway):");
-    expect(stderr.read().endsWith("job stderr\n")).toBe(true);
+    expect(stderr.read()).toEndWith("job stderr\n");
   });
 
   test("tees both streams verbatim and exports the span sink to the argv child", async () => {
@@ -213,7 +215,7 @@ describe("cron runJob", () => {
     expect(recorded?.error).toBe(`exit code 9; stderr tail: ${stderrTail}`);
     expect(recorded?.error).not.toContain("stderr-head:");
     expect(recorded?.output).toHaveLength(WIRE_OUTPUT_TAIL_CHARS);
-    expect(recorded?.output?.endsWith(":stderr-tail")).toBe(true);
+    expect(recorded?.output).toEndWith(":stderr-tail");
     expect(recorded?.output).not.toContain("stderr-head:");
   });
 
@@ -336,6 +338,49 @@ describe("cron runJob", () => {
   });
 });
 
+
+/**
+ * The record keeps the last 2,000 stderr characters, and a maintenance run's
+ * steps write many unrelated lines there. A real `brain maintain` whose git
+ * step fails, behind more than a tail of noise, must still leave the failed
+ * step's name in `cron_runs.error_message`.
+ */
+describe("a failed brain maintain cron run", () => {
+  test("names the failed step in the recorded error, past a full tail of unrelated stderr", async () => {
+    const root = makeTempBrain();
+    const dir = mkdtempSync(join(tmpdir(), "brain-ui-cron-maintain-"));
+    try {
+      initRepo(root);
+      git(root, "config", "core.bare", "maybe");
+      const noise = Array.from({ length: 60 }, (_, i) => `SKIP embed batch: provider unavailable (${i})`).join("\n");
+      expect(noise.length).toBeGreaterThan(WIRE_STDERR_TAIL_CHARS);
+      const dbPath = join(dir, "brain-ui.db");
+      const exitCode = await runJob(
+        {
+          jobName: "maintain",
+          command: ["/bin/sh", "-c", 'printf "%s\\n" "$NOISE" >&2; exec "$BUN" "$BRAIN_BIN" maintain --json'],
+          dbPath,
+          childEnv: { ...keylessEnv(root), NOISE: noise, BUN: Bun.which("bun")!, BRAIN_BIN },
+          exec: {},
+          brainPath: root,
+          stdout: textSink().sink,
+          stderr: textSink().sink,
+        },
+        { sinkPath: join(dir, "sink.jsonl") }
+      );
+      expect(exitCode).toBe(2);
+      const db = createUiDb(dbPath);
+      const row = db.query("SELECT error_message FROM cron_runs WHERE job_name = 'maintain'").get() as { error_message: string } | null;
+      db.close();
+      expect(row?.error_message).toStartWith("exit code 2; stderr tail: ");
+      expect(row?.error_message, "CRON_RECORD_DROPPED_NOISE_HEAD").not.toContain("provider unavailable (0)");
+      expect(row?.error_message, "CRON_RECORD_NAMES_FAILED_STEP").toContain("brain maintain: FAILED step(s): git (fatal: bad boolean config value");
+    } finally {
+      cleanup(root);
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("cron lifecycle recovery", () => {
   test("a broken output sink does not finish before the real child exits", async () => {
@@ -540,7 +585,9 @@ describe("cron runs jobs through the exec wrapper", () => {
   test("no trusted job name can be a namespaced module job", () => {
     // Module jobs are always `<module>-<entry>`, so a trusted name with a `-`
     // is the one way the namespacing alone would stop protecting it.
-    for (const name of TRUSTED_JOB_NAMES) expect(name).not.toContain("-");
+    // The digest is trusted (see above), so the set is never empty here.
+    expect([...TRUSTED_JOB_NAMES]).toContain("digest");
+    expect([...TRUSTED_JOB_NAMES].filter(name => name.includes("-"))).toEqual([]);
   });
 });
 
@@ -566,4 +613,66 @@ test("a job through the host boundary ends only once its launch has settled", as
     settlement.resolve();
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("propagation runs as exclusive credentialed maintenance while interactive hygiene stays credential-free", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "brain-cron-propagation-"));
+  const seen: { credentials: boolean; gate: string; argv: readonly string[] }[] = [];
+  const boundary = { isolated: () => true, launch: async (request: { credentials: boolean; gate: string; argv: readonly string[] }) => {
+    seen.push(request);
+    return { stdout: stream(), stderr: stream(), exited: Promise.resolve(0), settled: Promise.resolve(), signalCode: null, kill() {} };
+  } } as unknown as HostBoundary;
+  try {
+    for (const [jobName, command] of [["hygiene", ["brain", "hygiene", "reconcile"]], ["hygiene-propagation", ["brain", "hygiene", "propagation", "--json"]]] as const) {
+      expect(await runJob({ jobName, command: [...command], dbPath: join(dir, "brain-ui.db"), childEnv: { TYPESAFE_API_KEY: "fixture-key" }, exec: {}, boundary,
+        stdout: textSink().sink, stderr: textSink().sink }, { sinkPath: join(dir, "sink.jsonl") })).toBe(0);
+    }
+    expect(seen.map(r => ({ credentials: r.credentials, gate: r.gate }))).toEqual([
+      { credentials: false, gate: "shared" }, { credentials: true, gate: "exclusive" },
+    ]);
+    expect(brainCommandClass(["hygiene", "--json", "next"])).toEqual({ credentials: false, gate: "shared" });
+    expect(brainCommandClass(["hygiene", "--json", "propagation"])).toEqual({ credentials: true, gate: "exclusive" });
+    expect(brainCommandClass(["hygiene", "propagation", "--dry-run"])).toEqual({ credentials: true, gate: "exclusive" });
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// #3380: a module job's own subprocess that writes a read-only host path in a
+// maintenance worker prints a bare EROFS; the run's failure names the boundary
+// and the module state area, in the job's stderr and its recorded error.
+describe("a read-only write in a worker job (#3380)", () => {
+  const failing = (stderr: string) => ({ isolated: () => true, launch: async () => ({ stdout: stream(), stderr: stream(stderr),
+    exited: Promise.resolve(1), settled: Promise.resolve(), signalCode: null, kill() {} }) }) as unknown as HostBoundary;
+
+  test("a bare EROFS names the host execution boundary and the state area", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "brain-ui-cron-erofs-"));
+    const err = textSink();
+    try {
+      const dbPath = join(dir, "brain-ui.db");
+      const code = await runJob({ jobName: "beacon-run", command: ["brain", "beacon", "run"], dbPath, childEnv: {}, exec: {},
+        stdout: textSink().sink, stderr: err.sink, boundary: failing("Error: EROFS: read-only file system, mkdir '/var/lib/ithaca-beacon'\n") },
+        { sinkPath: join(dir, "sink.jsonl") });
+      expect(code).toBe(1);
+      expect(err.read(), "EROFS_HINT_NAMES_BOUNDARY").toContain("host execution boundary");
+      expect(err.read()).toContain(".brain-ui/modules/<module-name>/");
+      const db = createUiDb(dbPath);
+      try {
+        const row = db.query("SELECT status, error_message AS error FROM cron_runs WHERE job_name = 'beacon-run'").get() as { status: string; error: string };
+        expect(row.status).toBe("error");
+        expect(row.error, "EROFS_RECORDED_WITH_BOUNDARY").toContain("host execution boundary");
+        expect(row.error).toContain("/var/lib/ithaca-beacon");
+      } finally { db.close(); }
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  test("an error the CLI already explained is not explained twice", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "brain-ui-cron-erofs-"));
+    const err = textSink();
+    try {
+      await runJob({ jobName: "beacon-run", command: ["brain", "beacon", "run"], dbPath: join(dir, "brain-ui.db"), childEnv: {}, exec: {},
+        stdout: textSink().sink, stderr: err.sink,
+        boundary: failing("brain beacon run: /var/lib/ithaca-beacon is read-only. Module \"beacon\" runs in a worker (the host execution boundary)\n") },
+        { sinkPath: join(dir, "sink.jsonl") });
+      expect(err.read()).not.toContain("[cron-run]");
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
 });

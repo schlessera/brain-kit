@@ -17,6 +17,7 @@ import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
 import type { BrainApi } from "../../src/lib/api-client.js";
 import { useDictation } from "../../src/voice/use-dictation.js";
 import { registerUpdateHold, useServiceWorkerUpdates } from "../../src/index.js";
+import { primeDictation } from "../fixtures/dictation-discovery.js";
 
 const roots: BrainUiRoot[] = [];
 afterEach(() => {
@@ -86,6 +87,7 @@ function voiceRoot() {
     voiceOverrides: async () => ({ overrides: [] }),
   } as unknown as BrainApi;
   const root = createBrainUiRoot({ storage: null, api });
+  primeDictation(root, "fake");
   root.asr.register("fake", (opts) => {
     const client = new FakeClient(opts.onEvent);
     clients.push(client);

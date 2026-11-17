@@ -1,4 +1,4 @@
-import { appendFileSync, readFileSync, writeFileSync, statSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, renameSync, writeFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 const [source, dir, brain, socket, selectedBackend = "claude"] = process.argv.slice(2);
@@ -37,9 +37,29 @@ if (APPLY_TIMING) {
   // #2848: how long admission takes to copy the turn's data tree and seed its index.
   const trees = await import(join(source!, "packages/ui-server/src/brain/turn-data-tree.ts"));
   const createTurnDataTree = trees.createTurnDataTree;
+  // #2911: the tree's actual allocation on the managed volume, as Btrfs counts
+  // it, once seeded and again when the turn closes it: total (a plain copy's
+  // bytes), exclusive (allocated for this tree alone) and shared within it.
+  const allocation = async (stage: string, tree: { mount?: { root: string }; index: string }, masked: boolean) => {
+    if (!tree.mount) return;
+    // A masked turn's private index is outside the volume.
+    const paths = masked ? [tree.mount.root] : [tree.mount.root, tree.index];
+    await Bun.spawn(["sync", "-f", tree.mount.root], { stdout: "ignore", stderr: "ignore" }).exited;
+    const run = Bun.spawn(["/usr/bin/btrfs", "filesystem", "du", "-s", "--raw", ...paths], { stdout: "pipe", stderr: "pipe" });
+    const [out, errors, code] = await Promise.all([new Response(run.stdout).text(), new Response(run.stderr).text(), run.exited]);
+    const rows = out.trim().split("\n").slice(1).map(line => {
+      const [total, exclusive, shared, ...name] = line.trim().split(/\s+/);
+      return { path: name.join(" "), total: Number(total), exclusive: Number(exclusive), shared: Number(shared) };
+    });
+    event("turn_tree_allocation", { stage, masked, code, errors: errors.slice(-400), rows });
+  };
   spyOn(trees, "createTurnDataTree").mockImplementation(async (...args: Parameters<typeof createTurnDataTree>) => {
     const start = performance.now(); const tree = await createTurnDataTree(...args);
-    event("turn_tree_seed", { ms: performance.now() - start, masked: Boolean((args[0] as { masks?: unknown }).masks), mounted: Boolean(tree.mount) });
+    const masked = Boolean((args[0] as { masks?: unknown }).masks);
+    event("turn_tree_seed", { ms: performance.now() - start, masked, mounted: Boolean(tree.mount) });
+    await allocation("seed", tree, masked);
+    const close = tree.close;
+    tree.close = async () => { await allocation("close", tree, masked); return close.call(tree); };
     return tree;
   });
   const bridges = await import(join(source!, "packages/ui-server/src/ws/bridge.ts"));
@@ -62,6 +82,21 @@ if (APPLY_TIMING) {
 // #2834: time every tool frame and every journal observation, without changing either.
 const OBSERVATION_TIMING = process.env.BRAIN_NATIVE_PROOF_OBSERVATION_TIMING === "1";
 if (OBSERVATION_TIMING) {
+  // #3355 retention backlog: while the test holds this file, the journal's own
+  // clock reads 31 days earlier, so the turns it records end past retention.
+  const journals = await import(join(source!, "packages/ui-server/src/brain/turn-journal.ts"));
+  const createTurnJournal = journals.createTurnJournal, backdated = join(dir!, "journal-backdated");
+  // #2915: every step of every held observation, on the clock the fixture's manager stamps its spans with.
+  const clock = () => performance.timeOrigin + performance.now();
+  const observationTrace = (traceKind: string, turnId: string | null, toolUseId?: string) => {
+    const steps: { name: string; startedAt: number; endedAt: number | null }[] = [];
+    return (name: string) => {
+      const step = { name, startedAt: clock(), endedAt: null as number | null }; steps.push(step);
+      return () => { step.endedAt = clock(); if (name === "hold") event("observation_trace", { traceKind, turnId, toolUseId: toolUseId ?? null, steps }); };
+    };
+  };
+  spyOn(journals, "createTurnJournal").mockImplementation((...args: Parameters<typeof createTurnJournal>) =>
+    createTurnJournal(args[0], { ...(args[1] as object), now: () => Date.now() - (existsSync(backdated) ? 31 * 24 * 60 * 60 * 1000 : 0), observationTrace }));
   const bridges = await import(join(source!, "packages/ui-server/src/ws/bridge.ts"));
   const makeBridge = bridges.makeBridge;
   spyOn(bridges, "makeBridge").mockImplementation(async (...args: Parameters<typeof makeBridge>) => {
@@ -284,11 +319,13 @@ try {
   app.wsHost.failureReplay.begin = async (...args: any[]) => { const answer = await replayBegin(...args), finish = answer.finish.bind(answer); answer.finish = async (...values: any[]) => { const start = performance.now(); event("failure_replay_finish_start"); try { return await finish(...values); } finally { event("failure_replay_finish_end", { elapsedMs: performance.now() - start }); } }; return answer; };
   const principal = createPrincipal(app.db, { authMethod: "password", label: "Odysseus admission", ttlSeconds: 3600 });
   server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: app.fetch, websocket: app.websocket });
-  writeFileSync(join(dir!, "ready.json"), JSON.stringify({
+  // Published by rename: the parent polls for ready.json and then parses it.
+  writeFileSync(join(dir!, "ready.json.tmp"), JSON.stringify({
     rootWarnings: observability.logs.find({severity:"WARN"}).filter((log:any)=>String(log.body).includes("runs as root")).map((log:any)=>String(log.body)),
     port: server.port, egressPort: egressOrigin.port, principalId: principal.id, pid: process.pid, secret: SECRET,
     dbBytes: statSync(dbPath).size, status: app.activity?.runtime?.snapshot?.()
   }));
+  renameSync(join(dir!, "ready.json.tmp"), join(dir!, "ready.json"));
   event("ready", { port: server.port });
   let closing = false;
   process.on("SIGTERM", async () => {

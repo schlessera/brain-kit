@@ -64,13 +64,13 @@ describe("splitFrontmatter", () => {
     expect(r.body).toBe(md);
   });
 
-  test("realistic brain repo frontmatter", () => {
+  test("a full note block keeps its quoted title, its tag list and the body after the fence", () => {
     const md = [
       "---",
       "type: note",
-      'title: "CloudFest 2026 — rtCamp Conversation"',
-      "created: 2026-03-24",
-      "tags: [cloudfest, rtcamp, agentic]",
+      'title: "Council at Pylos — Nestor on the Way Home"',
+      "created: 2026-07-12",
+      "tags: [pylos, nestor, voyage]",
       "status: active",
       "---",
       "",
@@ -80,8 +80,8 @@ describe("splitFrontmatter", () => {
     ].join("\n");
     const r = splitFrontmatter(md);
     expect(r.fields).toHaveLength(5);
-    expect(r.fields[1].value).toBe("CloudFest 2026 — rtCamp Conversation");
-    expect(r.fields[3].list).toEqual(["cloudfest", "rtcamp", "agentic"]);
+    expect(r.fields[1].value).toBe("Council at Pylos — Nestor on the Way Home");
+    expect(r.fields[3].list).toEqual(["pylos", "nestor", "voyage"]);
     expect(r.body.startsWith("\n## Context")).toBe(true);
   });
 
@@ -89,5 +89,41 @@ describe("splitFrontmatter", () => {
     const md = "---\nkey: v\n---\n\n\nbody line\n";
     const r = splitFrontmatter(md);
     expect(r.body).toBe("\n\nbody line\n");
+  });
+
+  // The fences are found by frontmatterBlock, the rule the indexer reads by (#2507).
+  test("a closing fence at the end of the file closes the block", () => {
+    const r = splitFrontmatter("---\ntitle: a\n---");
+    expect(r.fields).toEqual([{ key: "title", value: "a" }]);
+    expect(r.body).toBe("");
+  });
+
+  test("frontmatter after a byte order mark is read", () => {
+    const r = splitFrontmatter("\uFEFF---\ntitle: a\n---\nbody\n");
+    expect(r.fields).toEqual([{ key: "title", value: "a" }]);
+    expect(r.body).toBe("body\n");
+  });
+
+  test("CRLF fences are read and the body keeps its line endings", () => {
+    const r = splitFrontmatter("---\r\ntitle: a\r\n---\r\nbody\r\n");
+    expect(r.fields).toEqual([{ key: "title", value: "a" }]);
+    expect(r.body).toBe("body\r\n");
+  });
+
+  test("trailing whitespace after the opening fence still opens a block", () => {
+    const r = splitFrontmatter("--- \ntitle: a\n---\nbody\n");
+    expect(r.fields).toEqual([{ key: "title", value: "a" }]);
+    expect(r.body).toBe("body\n");
+  });
+
+  test("a block that is never closed is shown as body, not hidden", () => {
+    const md = "---\ntitle: a\nbody\n";
+    expect(splitFrontmatter(md)).toEqual({ fields: [], body: md });
+  });
+
+  test("a leading blank line or a four-dash line is not frontmatter", () => {
+    for (const md of ["\n---\ntitle: a\n---\nbody\n", "----\ntitle: a\n----\nbody\n"]) {
+      expect(splitFrontmatter(md)).toEqual({ fields: [], body: md });
+    }
   });
 });

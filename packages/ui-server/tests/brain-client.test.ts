@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, test, expect } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, test, expect } from "bun:test";
 import {
   statSync,
   chmodSync,
@@ -208,6 +208,23 @@ describe("search cancellation and deadlines", () => {
     }
   });
 
+  test("aborting a running hygiene preview scan reaps a CLI that ignores SIGTERM (#2781)", async () => {
+    const { root, pidPath } = stalledBrain();
+    const controller = new AbortController();
+    const result = createBrainClient({ brainPath: root }).hygiene!(["media", "delete", "media-x", "--expect-fingerprint", "f", "--dry-run"], { signal: controller.signal })
+      .then(() => null, (error: Error) => error);
+    try {
+      await waitUntil(() => pidIn(pidPath) !== null);
+      const pid = pidIn(pidPath)!;
+      controller.abort();
+      expect(await result, "HYGIENE_SCAN_ABORTED").toHaveProperty("name", "AbortError");
+      expect(running(pid), "HYGIENE_SCAN_REAPED").toBe(false);
+    } finally {
+      controller.abort();
+      await result;
+    }
+  });
+
   test("HTTP search deadlines return 504 and reap the stalled process", async () => {
     const { root, pidPath } = stalledBrain();
     const brain = createBrainClient({ brainPath: root, searchTimeoutMs: 1_500 });
@@ -329,8 +346,13 @@ describe("brain CLI client over the keyless Odysseus corpus", () => {
   let brainRead: ReturnType<typeof createBrainClient>["read"];
   let brainValidate: ReturnType<typeof createBrainClient>["validate"];
 
-  beforeEach(async () => {
-    const root = temporaryBrain();
+  // Every case below only reads, so one indexed copy of the corpus serves
+  // them all; the per-test afterEach must not remove it.
+  let root: string;
+  afterAll(() => { rmSync(root, { recursive: true, force: true }); });
+
+  beforeAll(async () => {
+    root = mkdtempSync(join(tmpdir(), "brain-client-test-"));
     cpSync(resolve(import.meta.dir, "../../core/fixtures/corpus"), root, { recursive: true });
     mkdirSync(join(root, "node_modules"), { recursive: true });
     symlinkSync(resolve(import.meta.dir, "../../../node_modules/@schlessera"), join(root, "node_modules/@schlessera"));
@@ -345,6 +367,10 @@ describe("brain CLI client over the keyless Odysseus corpus", () => {
     `);
     const indexed = await runCli(root, ["index", "--json"]);
     expect(indexed.code, indexed.stderr).toBe(0);
+  });
+
+  // The native fixture behind each client is released after every test.
+  beforeEach(() => {
     const client = createBrainClient({ brainPath: root });
     brainSearch = client.search;
     brainBriefing = client.briefing;
@@ -373,7 +399,7 @@ describe("brain CLI client over the keyless Odysseus corpus", () => {
 
     test("respects limit option", async () => {
       const { results } = await brainSearch("identity", { limit: 2 });
-      expect(results.length).toBeLessThanOrEqual(2);
+      expect(results).toHaveLength(2);
     });
 
     test("respects type filter", async () => {
@@ -408,7 +434,7 @@ describe("brain CLI client over the keyless Odysseus corpus", () => {
 
     test("returns status breakdown", async () => {
       const stats = await brainStats();
-      expect(stats.byStatus).toBeDefined();
+      expect(stats.byStatus.active).toBeGreaterThan(0);
     });
 
     test("includes expected types", async () => {
@@ -421,8 +447,7 @@ describe("brain CLI client over the keyless Odysseus corpus", () => {
   describe("brainBriefing", () => {
     test("returns non-empty string", async () => {
       const content = await brainBriefing();
-      expect(typeof content).toBe("string");
-      expect(content.length).toBeGreaterThan(0);
+      expect(content).toContain("## Current Focus");
     });
   });
 
@@ -451,15 +476,14 @@ describe("brain CLI client over the keyless Odysseus corpus", () => {
 
     test("respects limit", async () => {
       const results = await brainList({ limit: 2 });
-      expect(results.length).toBeLessThanOrEqual(2);
+      expect(results).toHaveLength(2);
     });
   });
 
   describe("brainRead", () => {
     test("reads a known document", async () => {
       const content = await brainRead("me/identity.md");
-      expect(typeof content).toBe("string");
-      expect(content.length).toBeGreaterThan(0);
+      expect(content).toContain('title: "Odysseus - Identity"');
     });
 
     test("throws for nonexistent path", async () => {
@@ -470,7 +494,12 @@ describe("brain CLI client over the keyless Odysseus corpus", () => {
   describe("brainValidate", () => {
     test("returns validation output", async () => {
       const output = await brainValidate();
-      expect(typeof output).toBe("string");
+      expect(JSON.parse(output)).toMatchObject({
+        ok: true,
+        issues: expect.arrayContaining([
+          expect.objectContaining({ file: "context/current-focus.md", message: "Unresolved wiki-link: [[does-not-exist]]" }),
+        ]),
+      });
     });
   });
 });

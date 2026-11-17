@@ -56,7 +56,11 @@ export function fixtureDelta(before: { uuid: string; transaction: string; entrie
     else records.push(command(22, [[15, bytes(path)], [18, u64(0n)], [4, u64(BigInt(current.bytes))]]));
   }
   const raw = Buffer.concat([bytes("btrfs-stream\0"), Buffer.from([1, 0, 0, 0]), ...records, command(21)]);
-  const stream = new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(raw); controller.close(); } });
+  // Bounded chunks, as the native manager streams them: a large delta is never one oversized chunk.
+  const stream = new ReadableStream<Uint8Array>({ start(controller) {
+    for (let offset = 0; offset < raw.length; offset += NATIVE_DATA_CHUNK_BYTES) controller.enqueue(raw.subarray(offset, offset + NATIVE_DATA_CHUNK_BYTES));
+    controller.close();
+  } });
   return { stream, completed: Promise.resolve({ exitCode: 0 as const, bytes: raw.byteLength }) };
 }
 
@@ -118,7 +122,10 @@ export function createNativeJournalFixture(brain: string, root: string, copy = (
     async prepareStage() { throw Error("Copied native fixture does not qualify output-stage runtime; provide explicit prepared worker test output."); },
     async inspectStage() { throw Error("Copied native fixture has no output stage to inspect."); },
     async releaseStage(id) { return { id, state: "deleted" }; },
+    async prepareTurnTree() { throw Error("Copied native fixture has no managed volume for turn data trees."); },
+    async releaseTurnTree(id) { return { id, state: "deleted" }; },
     async poolStatus() { throw Error("Copied native fixture has no reference pool volume."); },
+    async poolGrowth() { throw Error("Copied native fixture has no reference pool volume."); },
     async poolCreate() { throw Error("Copied native fixture has no reference pool volume."); },
     async poolSeal() { throw Error("Copied native fixture has no reference pool volume."); },
     async poolRelease() { throw Error("Copied native fixture has no reference pool volume."); },

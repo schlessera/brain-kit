@@ -1,6 +1,8 @@
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { createHmac } from "node:crypto";
 import { basename, dirname, resolve } from "node:path";
 import { INDEX_DIR } from "@schlessera/brain-common/internal/index-location";
+import { BRAIN_SCRATCH_DIR, BRAIN_WORKSPACES_DIR } from "@schlessera/brain-common/internal/worker-areas";
 import { z } from "zod";
 import type { StorageFileEntry, StorageRoot, StorageSnapshot, StorageOwner, StorageBytes } from "@schlessera/brain-ui-sdk/protocol";
 import { SHARE_STAGING_DIR } from "@schlessera/brain-ui-sdk/protocol";
@@ -71,14 +73,14 @@ export async function collectStorage(options: StorageCollectOptions, id: string,
         const git = [...coreRootMappings.values()].find(value => value.root.category === "git" && resolve(options.brainPath, path) === value.path);
         if (git) { view = git.root; path = ""; }
         else {
-          const containing = [...coreRootMappings.values()].find(value => value.root.category === "git" && resolve(options.brainPath, path).startsWith(`${value.path}/`));
+          const containing = [...coreRootMappings.values()].find(value => value.root.category === "git" && isWithin(value.path, resolve(options.brainPath, path), { includeRoot: false }));
           if (containing) { view = containing.root; path = resolve(options.brainPath, path).slice(containing.path.length + 1); }
         }
         if (view.id === brain.id) {
           for (const [prefix, label, category, owner] of [
-            [".git", "Git metadata", "git", "brain"], [SHARE_STAGING_DIR, "Upload staging", "staging", "app"], [".brain/scratch", "Scratch", "scratch", "brain"], ["workspaces", "Workspaces", "workspace", "brain"],
-          ] as const) if (path === prefix || path.startsWith(`${prefix}/`)) { view = root(prefix, label, category, owner); sources.set(view.id, { root: view, path: resolve(options.brainPath, prefix), recursive: false, optional: true }); path = path.slice(prefix.length).replace(/^\//, ""); break; }
-          if (view.id === brain.id && (path === INDEX_DIR || path.startsWith(`${INDEX_DIR}/`))) {
+            [".git", "Git metadata", "git", "brain"], [SHARE_STAGING_DIR, "Upload staging", "staging", "app"], [BRAIN_SCRATCH_DIR, "Scratch", "scratch", "brain"], [BRAIN_WORKSPACES_DIR, "Workspaces", "workspace", "brain"],
+          ] as const) if (isWithin(prefix, path)) { view = root(prefix, label, category, owner); sources.set(view.id, { root: view, path: resolve(options.brainPath, prefix), recursive: false, optional: true }); path = path.slice(prefix.length).replace(/^\//, ""); break; }
+          if (view.id === brain.id && isWithin(INDEX_DIR, path)) {
             view = root("index", "Content index", "index", "brain");
             sources.set(view.id, { root: view, path: resolve(options.brainPath, INDEX_DIR), recursive: false, optional: true });
             path = path.slice(INDEX_DIR.length).replace(/^\//, "");

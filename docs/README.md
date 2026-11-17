@@ -24,6 +24,7 @@ question. This Markdown index is also the navigation source for public docs.
 | Guide | Use it to |
 | --- | --- |
 | [Modules](modules.md) | Enable domain workflows or author a local module; follow links to each module's full reference. |
+| [Live conversation guidance](live-conversation-guidance.md) | Understand startup brain context, selected user rules and honest background-task acknowledgements. |
 | [Storage](storage.md) | Inspect capacity, find large files, run owner-supported maintenance, and review recoverable attachment removal. |
 | [Media](media.md) | Decide which assets to keep in git and how large files behave during sync. |
 | [Evaluating search](evaluating-search.md) | Build a query set and measure retrieval without mistaking an invalid set for a useful score. |
@@ -67,6 +68,8 @@ the published template rather than a source checkout.
 | --- | --- |
 | [process/github.md](process/github.md) | Where work lives: the label taxonomy, what a milestone commits to, the project board's fields, the issue lifecycle, and what an agent does before writing code. |
 | [process/testing.md](process/testing.md) | Testing and proof: the offline test harness, tests that cannot fail, failing-first receipts, required PR proof and the GitHub Actions CI policy. |
+| [process/diagnostic-installs.md](process/diagnostic-installs.md) | Isolated dependency instrumentation, fresh-cache recovery and the limits of package-byte evidence. |
+| [process/test-authoring.md](process/test-authoring.md) | Writing tests: which kind of test proves which claim, how to structure one, and what keeps it deterministic and cheap. The rules the test-health audit checks against. |
 | [process/feature-captures.md](process/feature-captures.md) | Editorial screenshot and demo recipes, source/readiness rules and public asset provenance. |
 | [decisions/README.md](decisions/README.md) | Why things are the way they are — the alternatives rejected and the measurements that decided them. Read the record for whatever you are about to change. |
 | [investigations/README.md](investigations/README.md) | Dated historical reports, pinned source evidence and measurement limitations; current guidance remains in the guides and decisions. |

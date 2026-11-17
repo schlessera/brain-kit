@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 
-import { openDatabase } from "../../lib/db.js";
+import { documentCount, openDatabase } from "../../lib/db.js";
 import { tagReport } from "../../lib/tags.js";
 import type { TagReport } from "../../lib/tags.js";
 import { applyTagChanges, indexAndAccept } from "../../lib/tags-apply.js";
@@ -119,7 +119,7 @@ export const tagsCommand: CoreCommand = {
       if (!dryRun) {
         try {
           db = openDatabase(cli.brain.dbPath);
-          db.prepare("SELECT COUNT(*) FROM documents").get();
+          documentCount(db);
         } catch (e) {
           closeQuietly(db);
           warnings.push(`cannot open the index (${(e as Error).message}); nothing was rewritten`);

@@ -72,7 +72,7 @@ beforeAll(() => hook.phase("setup", async () => {
   const temporary = resolve(root, "memory-worker"); await mkdir(temporary); memoryState.populate(temporary);
   await app.wsHost.journal!.begin(memoryId, metadata, error => { throw error; });
   await writeFile(resolve(temporary, project, "memory/voyage.md"), "Athena remembers the crossing.\r\n");
-  // The Claude backend awaits copy-out before its turn ends (`releaseTerminal`); so does this fixture.
+  // The Claude backend awaits copy-out before its turn ends (`TurnTerminal.release`); so does this fixture.
   await memoryState.persist(temporary, undefined, (change, save) => app.wsHost.journal!.persistClaudeMemory(memoryId, change, save)); memoryState.release();
   await app.wsHost.journal!.finish(memoryId);
   const memorySeed = JSON.stringify({ turnId: memoryId, summary: app.wsHost.journal!.summary(memoryId) });
@@ -98,7 +98,7 @@ async function scene(width = 1280, theme = "dark", replay = false, conflict = fa
 // Keep native widths, live/replay, zoom, keyboard focus, HTTP download bytes and
 // real Revert/Undo file effects here with deterministic theme selection.
 const journalRuntimeCells = [[320, "dark"], [1280, "light"]] as const;
-for (const width of [320, 1280]) for (const theme of ["dark", "light"]) test(`journal configuration coverage keeps small changes first and preserves inspection ${theme} ${width}`, async () => {
+for (const [width, theme] of journalRuntimeCells) test(`journal configuration coverage keeps small changes first and preserves inspection ${theme} ${width}`, async () => {
   const { context, page, outside } = await scene(width, theme);
   let release: (() => void) | undefined, hold = false, fail = false, reads = 0;
   let started: (() => void) | undefined;
@@ -148,7 +148,10 @@ for (const width of [320, 1280]) for (const theme of ["dark", "light"]) test(`jo
     expect((await note.boundingBox())!.y, "SMALL_CHANGE_BEFORE_COVERAGE_INVENTORY").toBeLessThan(800);
     const facts = page.getByRole("button", { name: "Turn facts", exact: true });
     const factsBox = (await facts.boundingBox())!;
-    expect(factsBox.width).toBeGreaterThanOrEqual(44); expect(factsBox.height).toBeGreaterThanOrEqual(44);
+    // #3252: an sm IconButton under this fine pointer keeps its 28px paint;
+    // D55 grows it to 44px under a coarse one, so no override inflates it.
+    expect(await facts.evaluate(el => el.matches('.bk-icon-btn[data-size="sm"]') && !(el as HTMLElement).style.height), "FACTS_SM_ICON_NOT_INFLATED").toBe(true);
+    expect(factsBox.height, "FACTS_KIT_PAINT").toBeLessThan(44);
     expect(await facts.getAttribute("aria-expanded")).toBe("false");
     expect(await page.getByText("Model: unknown.", { exact: true }).count()).toBe(0);
     await facts.click(); expect(await facts.getAttribute("aria-expanded")).toBe("true");
@@ -346,7 +349,7 @@ test("whole-turn review reads first; Escape has no effect, waiting receipt stays
     await page.keyboard.press("Escape"); await dialog.waitFor({state:"hidden"});
     await page.waitForFunction(()=>document.activeElement?.textContent === "Review whole-turn revert");
     expect(await readFile(resolve(root,"brain/notes/voyage.md"),"utf8"), "REVERT_ESCAPE_NEVER_EXECUTES").toBe("Athena charts the return.\r\n");
-    await trigger.click();const commit=page.getByRole("button",{name:"Revert 2 files",exact:true});expect((await commit.boundingBox())!.height).toBeGreaterThanOrEqual(44);await commit.click();
+    await trigger.click();const commit=page.getByRole("button",{name:"Revert 2 files",exact:true});expect(await commit.evaluate(el=>el.classList.contains("bk-hit")&&(el as HTMLElement).style.minHeight!=="44px"),"REVERT_COMMIT_REACHES_NOT_INFLATED").toBe(true);await commit.click();
     await page.getByText("Waiting for running turns.",{exact:true}).waitFor();
     expect(await page.locator("[data-turn-journal] [data-revert-receipt='waiting']").count(),"REVERT_RECEIPT_SAME_DISCLOSURE").toBe(1);
     expect(await page.getByRole("button",{name:/Cancel revert|Cancel operation/}).count()).toBe(0);
@@ -395,14 +398,21 @@ test("voice and expired facts remove actions; an old POST response cannot attach
     await page.evaluate(id=>(window as any).__journalFixture.frame({type:"turn_journal",sessionId:"ithaca",turnId:id,journal:{...(window as any).__journalSeed.summary,actor:"voice"}}),turnId);
     expect(await page.getByRole("button",{name:"Review whole-turn revert",exact:true}).count(),"REVERT_VOICE_SURFACE_INACTIVE").toBe(0);
     await page.evaluate(id=>(window as any).__journalFixture.frame({type:"turn_journal",sessionId:"ithaca",turnId:id,journal:{...(window as any).__journalSeed.summary,state:"expired"}}),turnId);
-    expect(await page.getByRole("button",{name:/Revert|Undo/}).count(),"REVERT_EXPIRED_SURFACE_INACTIVE").toBe(0);
+    expect(await page.getByRole("button",{name:/revert|undo/i}).count(),"REVERT_EXPIRED_SURFACE_INACTIVE").toBe(0);
     await page.evaluate(id=>(window as any).__journalFixture.frame({type:"turn_journal",sessionId:"ithaca",turnId:id,journal:(window as any).__journalSeed.summary}),turnId);
     await context.route("**/turns/*/revert",async route=>{if(route.request().method()!=="POST")return route.continue();const response=await route.fetch();await new Promise<void>(resolve=>{releaseResponse=resolve;});await route.fulfill({response});});
     await page.getByRole("button",{name:"Review notes/voyage.md",exact:true}).click();await page.getByRole("button",{name:"Revert notes/voyage.md",exact:true}).click();
     for(let attempts=0;!releaseResponse&&attempts<100;attempts++)await Bun.sleep(10);expect(releaseResponse).toBeDefined();
     await page.evaluate(()=>(window as any).__journalFixture.switchSession());releaseResponse!();hold.release();await page.waitForTimeout(100);
     expect(await page.locator("[data-revert-receipt]").count(),"REVERT_STALE_SESSION_RESPONSE_IGNORED").toBe(0);expect(await page.getByRole("dialog").count()).toBe(0);
-  } finally {releaseResponse?.();hold.release();await context.close();}
+  } finally {
+    releaseResponse?.();hold.release();await context.close();
+    // The held revert still lands once the gate opens; put the bytes back so the
+    // cases that revert this file start from the turn's own result, in any order.
+    const voyage=resolve(root,"brain/notes/voyage.md");
+    for(let attempt=0;attempt<100&&await readFile(voyage,"utf8")!=="Ithaca\r\n";attempt++)await Bun.sleep(50);
+    await writeFile(voyage,"Athena charts the return.\r\n");
+  }
 });
 
 for (const [width, theme] of journalRuntimeCells) test(`steering skill review and existing per-file revert ${theme} ${width}`, async () => {
@@ -473,6 +483,9 @@ test("keep-both refreshes the actual disposable index with both retained files",
       if(paths.length===2)break;await Bun.sleep(50);
     }
     expect(paths,`CONFLICT_KEEP_BOTH_ACTUAL_INDEX_SEES_BOTH ${JSON.stringify(observability.logs.records())}`).toEqual(["notes/crossing-remote.md","notes/crossing.md"]);
+    // Undo the keep-both so the shared conflict stays open for the other conflict cases, in any order.
+    await page.getByRole("button",{name:"Undo",exact:true}).click();await page.getByRole("button",{name:"Revert 2 files",exact:true}).click();await page.locator("[data-revert-receipt='complete']").waitFor();
+    expect(await Bun.file(resolve(root,"brain/notes/crossing-remote.md")).exists(),"CONFLICT_KEEP_BOTH_FIXTURE_UNDONE").toBe(false);
   }finally{await context.close();}
 });
 

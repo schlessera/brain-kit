@@ -7,7 +7,7 @@ import type { LoadedModule } from "./module-types.js";
 import type { ModuleSettingsMigrationPlan } from "./module-settings-types.js";
 import { isRecord, mergeModuleSettings, moduleSettingsPath, readModuleSettings } from "./module-settings-source.js";
 import { equalSettings, rewriteSettingsJson } from "./module-settings-json.js";
-import { safeResolve, writeFileSafely } from "./safe-path.js";
+import { safeResolve, safeResolveHeld, writeFileSafely } from "./safe-path.js";
 import { git, gitPath } from "./sync/git.js";
 
 export class ModuleSettingsError extends Error {
@@ -121,7 +121,7 @@ function commitChanges(brain: BrainContext, name: string, changes: Array<{ path:
   if (git(brain.root, ["rev-parse", "--verify", "HEAD"]).code) throw new ModuleSettingsError("Commit the initial brain before saving module settings", 422);
   const paths = actual.map((c) => relative(safeResolve(brain.root, ".")!, c.path));
   for (const change of actual) {
-    if (safeResolve(brain.root, change.path) !== change.path || lstatSync(change.path, { throwIfNoEntry: false })?.isSymbolicLink()) throw new ModuleSettingsError("A settings target is unsafe; no changes made", 422);
+    if (safeResolveHeld(brain.root, change.path) !== change.path || lstatSync(change.path, { throwIfNoEntry: false })?.isSymbolicLink()) throw new ModuleSettingsError("A settings target is unsafe; no changes made", 422);
     const present = existsSync(change.path) ? readFileSync(change.path, "utf8") : null;
     if (present !== change.before) throw new ModuleSettingsError("Settings changed; review the saved values", 409);
   }

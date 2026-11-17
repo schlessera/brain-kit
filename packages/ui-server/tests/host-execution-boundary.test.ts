@@ -25,6 +25,8 @@ import { createHostBoundary, hostExecution } from "../src/brain/host-boundary";
 import { createGovernedManifests } from "../src/brain/governed-manifest";
 import { createHostExecution, quarantineDirFor } from "../src/brain/host-execution";
 import { runJob } from "../src/cron/run-job";
+import { prepareJobRepositories, readJobModuleList } from "../src/cron/job-repositories";
+import { fixtureRepository, serveGitFixture } from "./helpers/git-http-fixture";
 import { SYNC_JOB_COMMAND } from "../src/cron/emit";
 import { createUiDb } from "../src/db/client";
 import { createWriterGate } from "../src/brain/writer-gate";
@@ -313,6 +315,121 @@ describe("cron jobs (#1648)", () => {
       expect(lines.length, "sync and index each evaluated the config").toBe(2);
     } finally { db.close(); }
   }, 60_000);
+
+  test("a module job's state area survives from one cron run to the next, published from its worker (#3380)", async () => {
+    if (!supported) return;
+    const f = fixture();
+    // The Odysseus brain's local beacon module, through the real core CLI and its CommandContext.stateDir().
+    mkdirSync(join(f.brain, "modules/beacon"), { recursive: true });
+    writeFileSync(join(f.brain, "modules/beacon/module.ts"), `export default { name: "beacon", setup: () => ({
+  commands: { beacon: async () => ({ summary: "Light the watchtower beacon", async run(args, ctx) {
+    const { existsSync, readFileSync, writeFileSync } = await import("node:fs");
+    const file = ctx.stateDir!() + "/last-run.json";
+    const previous = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : { runs: 0 };
+    writeFileSync(file, JSON.stringify({ runs: previous.runs + 1 }));
+    console.log("BEACON " + JSON.stringify(previous));
+  } }) },
+  cron: [{ name: "run", schedule: "*/30 * * * *", command: "beacon run" }],
+}) };\n`);
+    const config = join(f.brain, "brain.config.ts");
+    writeFileSync(config, readFileSync(config, "utf8").replace("defineConfig({", 'defineConfig({\n  modules: { "./modules/beacon": {} },'));
+    mkdirSync(join(f.brain, "node_modules/.bin"), { recursive: true });
+    const cli = join(f.brain, "node_modules/.bin/brain");
+    writeFileSync(cli, `#!/usr/bin/env bun\nawait import(${JSON.stringify(join(ROOT, "packages/core/src/cli/brain.ts"))});\n`);
+    chmodSync(cli, 0o755);
+    const dbPath = join(f.root, "db/brain-ui.db");
+    mkdirSync(join(f.root, "db"), { recursive: true });
+    const execution = createHostExecution({ brainPath: f.brain, dbPath, exec: {}, nativeManager: nativeManager(f.brain), requireGate: true });
+    const db = createUiDb(dbPath);
+    try {
+      execution.attach(db);
+      expect(execution.boundary.isolated()).toBe(true);
+      const run = async () => {
+        const out: string[] = [], err: string[] = [];
+        const code = await runJob({ jobName: "beacon-run", command: ["brain", "beacon", "run"], dbPath, childEnv: { PATH: process.env.PATH }, exec: {},
+          brainPath: f.brain, boundary: execution.boundary, stdout: { write: text => out.push(text) }, stderr: { write: text => err.push(text) } });
+        expect(code, err.join("")).toBe(0);
+        return out.join("");
+      };
+      expect(await run(), "the first run finds no state").toContain('BEACON {"runs":0}');
+      const published = join(f.brain, ".brain-ui/modules/beacon/last-run.json");
+      expect(existsSync(published), "STATE_PUBLISHED: the worker's state write reached the brain").toBe(true);
+      expect(await run(), "CRON_STATE_PERSISTS: the second cron run reads what the first wrote").toContain('BEACON {"runs":1}');
+      expect(JSON.parse(readFileSync(published, "utf8"))).toEqual({ runs: 2 });
+      expect(existsSync(f.sentinel), "the module never ran on the host").toBe(false);
+    } finally { db.close(); }
+  }, 120_000);
+
+  test("a module job reads an allow-listed private repository from a host mirror and never holds the credential (#3380)", async () => {
+    if (!supported) return;
+    const f = fixture();
+    const token = "fixture-module-repository-token-never-for-a-job";
+    fixtureRepository(join(f.root, "srv"), "ithaca", "watchtower", "The beacon on the watchtower is lit.");
+    fixtureRepository(join(f.root, "srv"), "ithaca", "treasury", "Penelope's treasury ledger.");
+    const served = serveGitFixture(join(f.root, "srv"), token);
+    const watchtower = served.url("ithaca/watchtower"), treasury = served.url("ithaca/treasury");
+    try {
+      // The Odysseus beacon module clones its repository fresh into the worker's
+      // own temporary directory and records what its environment held.
+      mkdirSync(join(f.brain, "modules/beacon"), { recursive: true });
+      writeFileSync(join(f.brain, "modules/beacon/module.ts"), `export default { name: "beacon", setup: () => ({
+  commands: { beacon: async () => ({ summary: "Light the watchtower beacon", async run(args, ctx) {
+    const { mkdtempSync, readFileSync, writeFileSync } = await import("node:fs");
+    writeFileSync(ctx.stateDir!() + "/environment.json", JSON.stringify(process.env));
+    const dir = mkdtempSync("/tmp/beacon-");
+    const clone = Bun.spawnSync(["git", "clone", "-q", "--depth", "1", ${JSON.stringify(`${watchtower}.git`)}, dir + "/watchtower"], { stdout: "pipe", stderr: "pipe" });
+    if (clone.exitCode !== 0) { console.error("CLONE_FAILED " + clone.stderr.toString()); return 1; }
+    console.log("BEACON " + readFileSync(dir + "/watchtower/scripts/beacon.ts", "utf8"));
+  } }) },
+  cron: [{ name: "run", schedule: "*/30 * * * *", command: "beacon run" }],
+}) };\n`);
+      const config = join(f.brain, "brain.config.ts");
+      const declare = (repositories: string[]) => writeFileSync(config, readFileSync(config, "utf8").replace(/defineConfig\(\{(\n  modules: .*,)?/,
+        `defineConfig({\n  modules: { "./modules/beacon": { repositories: ${JSON.stringify(repositories)} } },`));
+      declare([watchtower]);
+      mkdirSync(join(f.brain, "node_modules/.bin"), { recursive: true });
+      const cli = join(f.brain, "node_modules/.bin/brain");
+      writeFileSync(cli, `#!/usr/bin/env bun\nawait import(${JSON.stringify(join(ROOT, "packages/core/src/cli/brain.ts"))});\n`);
+      chmodSync(cli, 0o755);
+      const dbPath = join(f.root, "db/brain-ui.db");
+      mkdirSync(join(f.root, "db"), { recursive: true });
+      const execution = createHostExecution({ brainPath: f.brain, dbPath, exec: {}, nativeManager: nativeManager(f.brain), requireGate: true });
+      const db = createUiDb(dbPath);
+      // The cron environment holds the host credential, as a deployment's does.
+      const childEnv = { PATH: process.env.PATH, GITHUB_TOKEN: token, BRAIN_UI_SYNC_GITHUB_TOKEN: token };
+      try {
+        execution.attach(db);
+        expect(execution.boundary.isolated()).toBe(true);
+        const run = async (allowList: string[]) => {
+          const out: string[] = [], err: string[] = [];
+          const code = await runJob({ jobName: "beacon-run", command: ["brain", "beacon", "run"], dbPath, childEnv, exec: {},
+            brainPath: f.brain, boundary: execution.boundary, stdout: { write: text => out.push(text) }, stderr: { write: text => err.push(text) },
+            repositories: (jobName, command) => prepareJobRepositories({ jobName, command, brainPath: execution.boundary.brainPath, dbPath, env: childEnv, allowList,
+              listModules: () => readJobModuleList({ PATH: process.env.PATH }, execution.boundary), credentialOrigin: served.origin,
+              ...(execution.boundary.maintenance?.tempLimits ? { tempLimits: execution.boundary.maintenance.tempLimits } : {}),
+              ...(execution.boundary.maintenance?.tempDomain ? { tempDomain: execution.boundary.maintenance.tempDomain } : {}) }) });
+          return { code, out: out.join(""), err: err.join("") };
+        };
+        const granted = await run([watchtower]);
+        expect(granted.code, granted.err).toBe(0);
+        expect(granted.out, "WORKER_JOB_READS_ALLOW_LISTED_REPOSITORY").toContain("The beacon on the watchtower is lit.");
+        expect(served.received.some(r => r.authorized), "HOST_TRANSPORT_USED_THE_CREDENTIAL").toBe(true);
+        const environment = readFileSync(join(f.brain, ".brain-ui/modules/beacon/environment.json"), "utf8");
+        expect(environment, "WORKER_ENVIRONMENT_NEVER_HOLDS_CREDENTIAL").not.toContain(token);
+
+        // A governed edit to brain.config.ts that asks for another repository grants nothing by itself.
+        declare([watchtower, treasury]);
+        const before = served.received.length;
+        rmSync(join(f.brain, ".brain-ui/modules/beacon/environment.json"));
+        const refused = await run([watchtower]);
+        expect(refused.code, "BRAIN_CONFIG_EDIT_CANNOT_WIDEN_ACCESS").toBe(1);
+        expect(refused.err).toContain("BRAIN_UI_MODULE_REPOSITORIES");
+        expect(served.received.slice(before), "NOTHING_FETCHED_FOR_A_REFUSED_JOB").toEqual([]);
+        expect(existsSync(join(f.brain, ".brain-ui/modules/beacon/environment.json")), "REFUSED_JOB_NEVER_RAN").toBe(false);
+        expect(existsSync(f.sentinel), "the module never ran on the host").toBe(false);
+      } finally { db.close(); }
+    } finally { served.server.stop(true); }
+  }, 180_000);
 
   test("an abort kills the whole maintenance worker, and the call settles only once it is gone", async () => {
     if (!supported) return;

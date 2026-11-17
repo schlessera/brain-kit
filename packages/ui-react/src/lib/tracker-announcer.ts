@@ -2,7 +2,7 @@ import type { ActivitySpanOutcome } from "@schlessera/brain-ui-sdk/protocol";
 import type { TrackerState, TrackerView } from "./trackers.js";
 
 /** The three states a tracker announces when it changes into one (D52 §3). */
-export type AnnouncedState = Extract<TrackerState, "needs_you" | "failed" | "done">;
+type AnnouncedState = Extract<TrackerState, "needs_you" | "failed" | "done">;
 
 const ANNOUNCED: ReadonlySet<TrackerState> = new Set<AnnouncedState>(["needs_you", "failed", "done"]);
 
@@ -22,6 +22,9 @@ export interface TrackerAnnouncement {
  * and a re-read that says the same thing announce nothing, and neither does
  * anything before a tracker's view is `settled` (nothing has answered for it
  * yet).
+ *
+ * Once a tracker has a baseline, unavailable and unknown observations do not
+ * replace it: recovering the same facts is not new work.
  *
  * The first settled view of a tracker is its baseline, not a change: a
  * tracker restored on load, taken in from another tab, or made by leaving a
@@ -44,7 +47,7 @@ export function createTrackerAnnouncer() {
       const present = new Set<string>();
       for (const view of views) {
         present.add(view.sessionId);
-        if (!view.settled) continue;
+        if (!view.settled || (last.has(view.sessionId) && (view.state === "cant_check" || view.state === "unknown"))) continue;
         const before = last.get(view.sessionId);
         last.set(view.sessionId, { state: view.state, turnId: view.turnId });
         const first = before === undefined;
@@ -56,6 +59,7 @@ export function createTrackerAnnouncer() {
       // A tracker that went (seen, acknowledged, or the set deleted) starts
       // over: if the session is tracked again, its first view is a baseline.
       for (const id of [...last.keys()]) if (!present.has(id)) last.delete(id);
+      for (const id of fresh) if (!present.has(id)) fresh.delete(id);
       return out;
     },
   };

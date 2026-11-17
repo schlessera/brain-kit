@@ -4,8 +4,7 @@ import {
   SettingsManager,
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
-import { buildSystemPromptAppend, type WebSearchBrief } from "@schlessera/brain-ui-sdk/server";
-import { resolveWebSearchConfigPath, webSearchBrief } from "@schlessera/brain-ui-sdk/internal";
+import { buildSystemPromptAppend, GITHUB_TOOL_NAMES } from "@schlessera/brain-ui-sdk/server";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 
@@ -16,7 +15,6 @@ import type {
   SessionToolkit,
 } from "./backend-options.js";
 import type { BrainAccess } from "./brain-access.js";
-import { resolveWebSearchEnv } from "./config/env.js";
 import { createPermissionGate } from "./permission-gate.js";
 import { restrictedResources } from "./restricted-resources.js";
 import { createTurnContext } from "./turn-context.js";
@@ -38,7 +36,8 @@ export function createSessionResources(options: {
   pinnedSettings?: Record<string, unknown>;
   /** Per-turn workers consume prepared packages; installation belongs to setup. */
   requireInstalledPackages?: boolean;
-  permissionFactory?: (turn: ReturnType<typeof createTurnContext>) => import("@earendil-works/pi-coding-agent").InlineExtension;
+  /** Managed workers gate tools through the outer Agent hooks and host RPC. */
+  managedToolSafety?: boolean;
   shellCwd?: string;
   directWrites?: boolean;
   nativeFileObservation?: import("./tools.js").BrainToolDeps["nativeFileObservation"];
@@ -68,8 +67,14 @@ export function createSessionResources(options: {
         activity: caps.activity,
         inbox: caps.inbox,
         mask: caps.mask,
+        markup: caps.markup,
         turnTemp: caps.turnTemp,
         reference: caps.reference,
+        compute: caps.compute,
+        apify: caps.apify,
+        attachments: caps.attachments,
+        web: caps.web,
+        github: caps.github,
       },
     });
     return { tools, turnContext };
@@ -93,8 +98,8 @@ export function createSessionResources(options: {
     const agentDir = getAgentDir();
     if (env.autonomous?.containment === "restricted") {
       return restrictedResources(brainPath, agentDir, env.autonomous, options.sandboxNote,
-        options.permissionFactory?.(toolkit.turnContext) ?? createPermissionGate({ turn: toolkit.turnContext,
-          allowedTools: new Set(env.autonomous.allowedTools), confirmPatterns }));
+        createPermissionGate({ turn: toolkit.turnContext,
+          allowedTools: new Set(env.autonomous.allowedTools), confirmPatterns }), options.managedToolSafety);
     }
     const settingsManager = options.settingsSnapshot !== undefined
       ? SettingsManager.inMemory({ ...JSON.parse(options.settingsSnapshot),
@@ -107,25 +112,20 @@ export function createSessionResources(options: {
     }
     const subagentTool =
       loadExtensions && hasPackage(settingsManager, "pi-subagents") ? "subagent" : false;
-    // No web extension, no search tool — and nothing to say about providers.
-    const webSearch =
-      loadExtensions && hasPackage(settingsManager, "pi-web-access")
-        ? readWebSearchBrief()
-        : undefined;
-    const brief = env.autonomous?.systemPromptAppend ?? buildAppend(backend, env, subagentTool, webSearch, Boolean(options.shellCwd));
+    const brief = env.autonomous?.systemPromptAppend ?? buildAppend(backend, env, subagentTool, Boolean(options.shellCwd));
     const append = env.autonomous ? [brief, options.sandboxNote].filter(Boolean).join("\n\n")
       : options.fixedAppend ?? [buildAppend(backend, { ...env, client: undefined, turnBudgetMs: undefined, caps: {
         policyChange: true, askUser: true, askUserList: true, askUserRank: true, askUserForm: true,
-        location: true, activity: true, inbox: true, mask: true, turnTemp: true, reference: true,
-      } }, subagentTool, webSearch, Boolean(options.shellCwd)), env.sessionBudgetLimits].filter(Boolean).join("\n\n");
+        location: true, activity: true, inbox: true, mask: true, markup: true, turnTemp: true, reference: true, compute: true, web: true, github: true,
+      } }, subagentTool, Boolean(options.shellCwd)), env.sessionBudgetLimits].filter(Boolean).join("\n\n");
     options.observeAppend?.(append);
     const loader = new DefaultResourceLoader({
       cwd: brainPath,
       agentDir,
       settingsManager,
       noExtensions: !loadExtensions,
-      extensionFactories: [
-        options.permissionFactory?.(toolkit.turnContext) ?? createPermissionGate({ turn: toolkit.turnContext,
+      extensionFactories: options.managedToolSafety ? [] : [
+        createPermissionGate({ turn: toolkit.turnContext,
           allowedTools: env.autonomous ? new Set(env.autonomous.allowedTools) : allowedTools, confirmPatterns }),
       ],
       agentsFilesOverride: withCwdContextFiles,
@@ -171,7 +171,6 @@ function buildAppend(
   options: CreatePiBackendOptions,
   env: SessionEnv,
   subagentTool: string | false,
-  webSearch: WebSearchBrief | undefined,
   perTurnProcess: boolean
 ): string {
   // The chat-surface brief for one session: what the answer renders into
@@ -183,9 +182,13 @@ function buildAppend(
     buildSystemPromptAppend({
       ...(env.client ? { client: env.client } : {}),
       ...(env.turnBudgetMs ? { turnBudgetMs: env.turnBudgetMs } : {}),
-      // Which search providers this deployment actually reaches. Omitted when
-      // the web extension is absent — there is no search tool then.
-      ...(webSearch ? { webSearch } : {}),
+      // The host-owned web tools (#3686), listed in every interactive
+      // session: the brief says what they do not offer. The worker never
+      // reads the host's web configuration.
+      ...(env.caps.web ? { webTools: true } : {}),
+      // The host GitHub tools (#3797), listed in every interactive session.
+      ...(env.caps.github ? { githubTools: { read: GITHUB_TOOL_NAMES.read, search: GITHUB_TOOL_NAMES.search,
+        create: GITHUB_TOOL_NAMES.create, comment: GITHUB_TOOL_NAMES.comment } } : {}),
       // Named only when the bridge actually provides the handler — the toolkit
       // registers each tool on the same condition.
       tools: {
@@ -199,9 +202,13 @@ function buildAppend(
         inboxList: env.caps.inbox && "inbox_list", inboxGet: env.caps.inbox && "inbox_get",
         inboxAdd: env.caps.inbox && "inbox_add", resolveAction: env.caps.inbox && "resolve_action", completeShare: env.caps.inbox && "complete_share",
         mask: env.caps.mask && "request_image_mask",
+        markup: env.caps.markup === true && "request_image_markup",
         turnTemp: env.caps.turnTemp === true && "turn_temp",
         referenceSource: env.caps.reference === true && "reference_source",
         referenceWorktree: env.caps.reference === true && "reference_worktree",
+        computeHealth: env.caps.compute === true && "brain_compute_health", computePlan: env.caps.compute === true && "brain_compute_plan",
+        computeRun: env.caps.compute === true && "brain_compute_run", computeStatus: env.caps.compute === true && "brain_compute_status",
+        computeCancel: env.caps.compute === true && "brain_compute_cancel", computeCollect: env.caps.compute === true && "brain_compute_collect",
         // Always registered: it needs nothing from the bridge.
         block: "show_block",
       },
@@ -239,39 +246,3 @@ function hasPackage(settingsManager: SettingsManager, name: string): boolean {
   }
 }
 
-/**
- * The web-search brief for this session, read from the same `web-search.json`
- * the pi-web-access extension reads.
- *
- * Resolved through the SDK helper, NOT from `agentDir`: pi puts its agent dir
- * at `~/.pi/agent` while the extension reads `~/.pi/web-search.json`, one level
- * up. Reading the wrong one finds nothing and would silently tell the model no
- * providers are configured.
- *
- * The extension lets its tool be renamed (`toolNames.webSearch`), so the brief
- * names whatever the model will actually see.
- */
-function readWebSearchBrief(): WebSearchBrief | undefined {
-  try {
-    const env = resolveWebSearchEnv();
-    const path = resolveWebSearchConfigPath(env);
-    const raw = existsSync(path) ? readFileSync(path, "utf-8") : "{}";
-    const parsed = JSON.parse(raw) as unknown;
-    const config =
-      parsed && typeof parsed === "object" && !Array.isArray(parsed)
-        ? (parsed as Record<string, unknown>)
-        : {};
-    const names = config.toolNames;
-    const named =
-      names && typeof names === "object" && !Array.isArray(names)
-        ? (names as Record<string, unknown>).webSearch
-        : undefined;
-    const toolName =
-      typeof named === "string" && named.trim() ? named.trim() : "web_search";
-    return webSearchBrief(config, { toolName, env });
-  } catch {
-    // A malformed config is the extension's problem to report; the brief just
-    // stays silent rather than claiming a provider set it cannot read.
-    return undefined;
-  }
-}

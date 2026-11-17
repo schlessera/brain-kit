@@ -293,8 +293,10 @@ test("A late response from the prior account cannot replace current evidence", a
   f.guidance.capacities[0]!.severity = "low";
   ui.stores.connection.getState().setVpnStatus("connected", "athena");
   await expect.poll(() => warning()?.textContent).toContain("Low space");
+  const delivered = f.delivered();
   release();
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  // The late response has been read; its ownership check has run.
+  await expect.poll(f.delivered).toBeGreaterThan(delivered);
   expect(
     warning()?.textContent,
     "STORAGE_ACCOUNT_RESPONSE_OWNERSHIP"
@@ -325,8 +327,12 @@ test("Indicator and authenticated tap-through honor Settings leave guards and cl
   refresh();
   await expect.poll(warning).toBeNull();
   history.replaceState(null, "", "#/settings/storage");
-  window.dispatchEvent(new HashChangeEvent("hashchange"));
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  const answered = f.answered();
+  // Commit the route change and its effects synchronously: the open decision
+  // has run when flushSync returns. Then wait for the read the route starts
+  // to be answered (refused) and handled, so the next refresh is a new read.
+  flushSync(() => window.dispatchEvent(new HashChangeEvent("hashchange")));
+  await expect.poll(f.answered).toBeGreaterThan(answered);
   expect(
     ui.stores.ui.getState().settingsPanelOpen,
     "STORAGE_TAP_REQUIRES_AUTHORITY"
@@ -449,8 +455,10 @@ test("A replaced root cannot publish its late operational response", async () =>
     )
   );
   await expect.poll(() => next.reads.length).toBeGreaterThan(0);
+  const delivered = oldFixture.delivered();
   release();
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  // The old root's late response has been read; its ownership check has run.
+  await expect.poll(oldFixture.delivered).toBeGreaterThan(delivered);
   expect(warning(), "STORAGE_REPLACED_ROOT_HIDES_OLD_GUIDANCE").toBeNull();
   old.dispose();
 });

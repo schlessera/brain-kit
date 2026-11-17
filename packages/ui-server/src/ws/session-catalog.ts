@@ -1,4 +1,5 @@
-import { dialogueOwner, readDialogue, hasUnretainedVoice, type PendingDialogueEpoch, type ActiveDialogueEpoch, type DialogueOpen, type DialogueAppend, type DialogueOwner, type DialogueTarget } from "./dialogue-storage.js";
+import { dialogueOwner, ownerRecord, readDialogue, hasUnretainedVoice, type PendingDialogueEpoch, type ActiveDialogueEpoch, type DialogueOpen, type DialogueAppend, type DialogueOwner, type DialogueTarget } from "./dialogue-storage.js";
+import { sameAccount } from "../middleware/account-partition.js";
 import { createActivityStore, priceUsage, type ActivityStore, type AwaitableActivityStore, type RollupPricing } from "../activity/store.js";
 import type { ActivityPricingConfig } from "../activity/store-writes.js";
 import { createModelPricing } from "../pricing/model-pricing.js";
@@ -27,6 +28,8 @@ import {
 } from "./local-exchanges.js";
 
 import { loadConversation } from "./conversation-storage.js";
+import type { HostChatStore } from "./chat-store-cleanup.js";
+import { authorizedOwner, chatRetirement, isRetired, resolveChat, unfinishedChatRetirements, type ChatRetirementStatus, type ChatStore, type ChatStoreOutcome, type ChatTarget, type RetireChatInput, type RetireChatResult, type RetiredChatIdentities } from "./chat-lifecycle.js";
 import * as retries from "./retry-requests.js";
 import * as work from "./session-work.js";
 import { attachTurnFailures, type RecordedTurnFailure } from "./turn-failures.js";
@@ -45,11 +48,32 @@ export interface SessionCatalog {
   dialogueOwnerForConversation?(conversationId:string,principalId:string): DialogueOwner | null;
   dialogueOwnerForId?(ownerId:string,principalId:string): DialogueOwner | null;
   dialogueOwnerForSession?(sessionId: string): DialogueOwner | null;
+  /** Whether `principalId` may receive this owner's retained history: a login of its account (#3963). */
+  dialogueAudience?(owner: DialogueOwner, principalId: string): boolean;
   dialogueClose?(conversationId:string,principalId:string,epoch:number,partial:boolean): Promise<void>;
   dialogueOpen?(input: DialogueOpen): Promise<DialogueOwner>;
   dialogueAppend?(input: DialogueAppend): Promise<import("@schlessera/brain-ui-sdk/protocol").DialogueRecord>;
   dialogueBind?(conversationId: string, principalId: string, sessionId: string): Promise<DialogueOwner | null>;
   dialogueRead?(principalId: string, target: DialogueTarget): Promise<import("@schlessera/brain-ui-sdk/protocol").DialoguePage | null>;
+  /**
+   * Retire one chat's identities permanently (#3228). `busy` is the host's
+   * judgement of live effect holders over the chat's current identity set,
+   * asked at submission after ownership is known; a busy chat refuses before
+   * retirement. Authority, ownership, generation and adoption are decided
+   * again in the serialized writer. Removes no content and never reports a
+   * completed deletion by itself.
+   */
+  retireChat?(input: RetireChatInput, busy: (identities: RetiredChatIdentities) => boolean): Promise<RetireChatResult>;
+  /** A retirement's non-content outcome for its owner, or null. */
+  chatRetirement?(operationId: string, principalId: string): Promise<RetireChatResult | null>;
+  /** A selected store owner's cleanup report under the retirement's intent. */
+  recordChatCleanup?(lifecycleId: string, store: ChatStore, outcome: Exclude<ChatStoreOutcome, "pending">): Promise<ChatRetirementStatus>;
+  /** A host store removes its copies of a retired chat and records the read-back outcome (#3230). */
+  cleanChatStore?(lifecycleId: string, store: HostChatStore): Promise<ChatRetirementStatus>;
+  /** Retirements some selected store has not confirmed yet, for restart reconciliation (#3230). */
+  unfinishedChatRetirements?(): Promise<ReturnType<typeof unfinishedChatRetirements>>;
+  /** Whether a chat identity is retired. Readers treat a retired chat as absent. */
+  chatRetired?(target: ChatTarget | { conversationId: string }): boolean;
   saveConversationEpoch?(state: import("./conversation-storage.js").StoredConversationEpoch): Promise<void>;
   saveConversationTask?(principalId: string, receipt: import("@schlessera/brain-ui-sdk/protocol").ConversationWorkReceipt, facts?: string): Promise<void>;
   loadConversation?(id: string, principalId: string): Promise<import("./conversation-storage.js").StoredConversation | null>;
@@ -108,7 +132,14 @@ export interface SessionCatalog {
     sessionId: string,
     promptText: string,
     providerId: string | null,
-    backendId: string
+    backendId: string,
+    /**
+     * The authenticated principal whose typed request created the session
+     * (#3337). Recorded as its content-free owner binding only when this call
+     * creates the session's row; omitted for resumes and host work.
+     */
+    ownerPrincipalId?: string,
+    creatorTurnId?: string
   ): void;
   /** Persist session accounting on the terminal `result` frame. */
   persistSession(
@@ -123,7 +154,7 @@ export interface SessionCatalog {
    * so a catalog written before it still type-checks; without it every
    * replayed message reads as typed.
    */
-  recordMessageSource?(sessionId: string, text: string, source: MessageSource, effort?: { thinkingLevel?: ThinkingLevel; turnId: string; files?: import("@schlessera/brain-ui-sdk/protocol").SharedFileMeta[] }): void;
+  recordMessageSource?(sessionId: string, text: string, source: MessageSource, effort?: { thinkingLevel?: ThinkingLevel; turnId: string; files?: import("@schlessera/brain-ui-sdk/protocol").SharedFileMeta[]; attachmentFiles?: import("../attachments/context.js").MessageAttachment[] }): void;
   recordEffectiveThinkingLevel?(sessionId: string, turnId: string, level: ThinkingLevel): void;
   /** Replayed history with each user message's recorded source joined on. */
   attachMessageSources?(sessionId: string, messages: SessionHistoryMessage[], strict?: boolean): SessionHistoryMessage[];
@@ -253,8 +284,9 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
   const pendingRow = (sessionId: string) => (rowEffects.get(sessionId) ?? []).some(effect => "upsert" in effect);
   const storedBackendId = (sessionId: string) => pendingValue(sessionId, "backendId") ?? committedRow(sessionId)?.backendId ?? null;
   const hasRow = (sessionId: string) => pendingRow(sessionId) || db().query("SELECT 1 FROM sessions WHERE id = ?").get(sessionId) !== null;
-  const upsert = (sessionId: string, promptText: string, providerId: string | null, backendId: string, costUsd: number, turns: number) => {
-    const row: writes.SessionRow = { id: sessionId, title: promptText.slice(0, 100), at: Date.now(), costUsd, turns, providerId, backendId };
+  const upsert = (sessionId: string, promptText: string, providerId: string | null, backendId: string, costUsd: number, turns: number, ownerPrincipalId?: string, creatorTurnId?: string) => {
+    const row: writes.SessionRow = { id: sessionId, title: promptText.slice(0, 100), at: Date.now(), costUsd, turns, providerId, backendId,
+      ...(ownerPrincipalId ? { ownerPrincipalId, creatorTurnId } : {}) };
     return track(rowEffects, sessionId, { upsert: { providerId, backendId } }, submit<void>("upsertSession", row));
   };
   /** Highest revision issued per session; it never goes down, so a failed acceptance's revision is never reused. */
@@ -270,20 +302,46 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
   const pendingDialogueEpochs = new Set<PendingDialogueEpoch & { closed: boolean }>();
   const retryGenerations = new Map<string, number>();
   const invalidatedRetries = new Set<string>();
+  const live = (owner: DialogueOwner | null) => owner && !isRetired(db(), "dialogue_owner", owner.id) ? owner : null;
   return {
     dialogueOwnerForConversation: (conversationId,principalId) => {
+      if(isRetired(db(),"conversation",conversationId)) return null;
       const row=db().query("SELECT owner_id FROM dialogue_conversations WHERE id=?").get(conversationId) as {owner_id:string}|null;
-      return row ? dialogueOwner(db(),{ownerId:row.owner_id},principalId) : null;
+      return row ? live(dialogueOwner(db(),{ownerId:row.owner_id},principalId)) : null;
     },
-    dialogueOwnerForId: (ownerId,principalId) => dialogueOwner(db(),{ownerId},principalId),
+    dialogueAudience: (owner,principalId) => sameAccount(db(),ownerRecord(owner),principalId),
+    dialogueOwnerForId: (ownerId,principalId) => isRetired(db(),"dialogue_owner",ownerId) ? null : live(dialogueOwner(db(),{ownerId},principalId)),
     dialogueOwnerForSession: sessionId => {
+      if(isRetired(db(),"session",sessionId)) return null;
       const row = db().query("SELECT principal_id FROM dialogue_owners WHERE session_id=?").get(sessionId) as {principal_id:string}|null;
-      return row ? dialogueOwner(db(),{sessionId},row.principal_id) : null;
+      return row ? live(dialogueOwner(db(),{sessionId},row.principal_id)) : null;
     },
+    async retireChat(input, busy) {
+      // Settle every earlier submission first, so this preflight judges the
+      // set the writer will see; the writer still decides atomically.
+      await tail;
+      if (!authorizedOwner(db(), input.principalId, input.at)) return { status: "refused", reason: "unauthorized" };
+      const preview = resolveChat(db(), input.target);
+      if ("refused" in preview || preview.principalId !== input.principalId) return submit<RetireChatResult>("retireChat", input);
+      if (busy(preview.identities)) return { status: "refused", reason: "busy" };
+      const result = await submit<RetireChatResult>("retireChat", input);
+      if (result.status === "retired") {
+        const owners = new Set(result.identities.dialogueOwners), conversations = new Set(result.identities.conversations);
+        for (const [id, scope] of activeDialogueEpochs) if (conversations.has(id) || owners.has(scope.owner.id)) activeDialogueEpochs.delete(id);
+      }
+      return result;
+    },
+    async chatRetirement(operationId, principalId) { await tail; return chatRetirement(db(), operationId, principalId); },
+    recordChatCleanup: (lifecycleId, store, outcome) => submit("chatCleanup", lifecycleId, store, outcome, Date.now()),
+    cleanChatStore: (lifecycleId, store) => submit("chatStoreCleanup", lifecycleId, store, Date.now()),
+    async unfinishedChatRetirements() { await tail; return unfinishedChatRetirements(db()); },
+    chatRetired: target => "conversationId" in target ? isRetired(db(), "conversation", target.conversationId)
+      : "sessionId" in target ? isRetired(db(), "session", target.sessionId) : isRetired(db(), "dialogue_owner", target.ownerId),
     dialogueClose: (conversationId,principalId,epoch,partial) => {
       for(const scope of pendingDialogueEpochs) if(scope.input.conversationId===conversationId && scope.input.principalId===principalId && scope.input.epoch===epoch) scope.closed=true;
       const active=activeDialogueEpochs.get(conversationId);
-      if(active?.epoch===epoch && active.owner.principal_id===principalId) activeDialogueEpochs.delete(conversationId);
+      // The epoch's own login, not the history owner's attribution (#3963).
+      if(active?.epoch===epoch && active.principalId===principalId) activeDialogueEpochs.delete(conversationId);
       return submit("dialogueClose",conversationId,principalId,epoch,partial);
     },
     dialogueOpen: async input => {
@@ -294,34 +352,40 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
       // this one's acknowledgement registers its successful active identity.
       const pending=[...pendingDialogueEpochs].filter(scope=>!scope.closed).map(scope=>({input:scope.input,generation:scope.generation,ownerId:scope.ownerId,previousEpoch:scope.previousEpoch}));
       pendingDialogueEpochs.add(scope);
-      const live=new Map([...activeDialogueEpochs].map(([id,scope])=>[id,{epoch:scope.epoch,owner:{...scope.owner}}]));
+      const live=new Map([...activeDialogueEpochs].map(([id,scope])=>[id,{epoch:scope.epoch,principalId:scope.principalId,owner:{...scope.owner}}]));
       try {
         const owner=await submit<DialogueOwner>("dialogueOpen", input, live, pending);
-        if(!scope.closed && (activeDialogueEpochs.get(input.conversationId)?.epoch ?? 0)<=input.epoch) activeDialogueEpochs.set(input.conversationId,{owner,epoch:input.epoch});
+        if(!scope.closed && (activeDialogueEpochs.get(input.conversationId)?.epoch ?? 0)<=input.epoch) activeDialogueEpochs.set(input.conversationId,{owner,epoch:input.epoch,principalId:input.principalId});
         return owner;
       } finally { pendingDialogueEpochs.delete(scope); }
     },
     dialogueAppend: input => submit("dialogueAppend", input),
     dialogueBind: async (conversationId, principalId, sessionId) => {
+      // The owner the conversation names before adoption. Read it before the
+      // bind, which retires that owner's id behind an alias.
+      const previousId=activeDialogueEpochs.get(conversationId)?.owner.id
+        ?? (db().query("SELECT owner_id FROM dialogue_conversations WHERE id=?").get(conversationId) as {owner_id:string}|null)?.owner_id;
       const owner=await submit<DialogueOwner | null>("dialogueBind", conversationId, principalId, sessionId);
-      const active=activeDialogueEpochs.get(conversationId);
-      if(owner && active && active.owner.principal_id===principalId) {
-        // Pending callbacks still hold this object across adoption. Replacing
-        // it would hide their genuine failure behind a fresh healthy owner.
-        const previousId=active.owner.id;
-        for(const scope of activeDialogueEpochs.values()) if(scope.owner.id===previousId && scope.owner.principal_id===principalId){
-          const partial=scope.owner.coverage === "partial";
-          Object.assign(scope.owner,owner);
-          if(partial) scope.owner.coverage="partial";
-        }
-        return active.owner;
+      if(!owner || previousId===undefined) return owner;
+      // Pending callbacks still hold these objects across adoption. Replacing
+      // them would hide their genuine failure behind a fresh healthy owner.
+      // The adoption already moved every live scope of the previous owner, so
+      // each takes the canonical identity in place, whichever login opened it
+      // and whichever login bound it (#3963): its liveness is the durable
+      // owner's, and its epoch authority stays its own principal.
+      let shared:DialogueOwner|undefined;
+      for(const scope of activeDialogueEpochs.values()) if(scope.owner.id===previousId){
+        const partial=scope.owner.coverage === "partial";
+        Object.assign(scope.owner,owner);
+        if(partial) scope.owner.coverage="partial";
+        shared ??= scope.owner;
       }
-      return owner;
+      return activeDialogueEpochs.get(conversationId)?.owner ?? shared ?? owner;
     },
     async dialogueRead(principalId, target) {
       await tail;
       const page=readDialogue(db(), principalId, target, activeDialogueEpochs);
-      if(page || !target.sessionId || !hasUnretainedVoice(db(),principalId,target.sessionId)) return page;
+      if(page || !target.sessionId || isRetired(db(),"session",target.sessionId) || !hasUnretainedVoice(db(),principalId,target.sessionId)) return page;
       return {ownerId:target.sessionId,sessionId:target.sessionId,generation:1,through:0,records:[],coverage:"legacy"};
     },
     saveConversationEpoch: state => submit("conversationEpoch", state),
@@ -438,8 +502,8 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
 
     getStoredBackendId: storedBackendId,
 
-    persistSessionStub(sessionId, promptText, providerId, backendId) {
-      upsert(sessionId, promptText, providerId, backendId, 0, 0).catch(err => reportWriteFailure(sessionId, err));
+    persistSessionStub(sessionId, promptText, providerId, backendId, ownerPrincipalId, creatorTurnId) {
+      upsert(sessionId, promptText, providerId, backendId, 0, 0, ownerPrincipalId, creatorTurnId).catch(err => reportWriteFailure(sessionId, err));
     },
 
     persistSession(msg, promptText, providerId, backendId) {
@@ -549,7 +613,11 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
     },
 
     bindGovernanceEvents(turnId, sessionId) {
-      try { governance().bind(turnId, sessionId).catch((err: unknown) => reportWriteFailure(sessionId, err)); }
+      try {
+        const bound = governance().bind(turnId, sessionId);
+        settle(bound);
+        void bound.catch((err: unknown) => reportWriteFailure(sessionId, err));
+      }
       catch (err) { reportWriteFailure(sessionId, err); }
     },
 

@@ -1,4 +1,5 @@
 /** Process-local last-valid policy. Every admission reads data anew; no repository code runs. */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { INDEX_DIR } from "@schlessera/brain-common/internal/index-location";
@@ -77,7 +78,7 @@ function selectorFolder(pattern: string): string | undefined {
  */
 const invalidFolder = (folder: string) => !folder || folder.startsWith("~") || /^[A-Za-z]:/u.test(folder)
   || /[\u0000-\u001f\u007f*?[\]{}()!\\]/u.test(folder) || folder.split("/").some(part => !part || part === "." || part === "..")
-  || [".git", INDEX_DIR, CACHE_DIR].some(reserved => folder === reserved || folder.startsWith(`${reserved}/`));
+  || [".git", INDEX_DIR, CACHE_DIR].some(reserved => isWithin(reserved, folder));
 
 /**
  * `folders` without any folder nested inside another of them (#2718). The
@@ -89,7 +90,7 @@ const invalidFolder = (folder: string) => !folder || folder.startsWith("~") || /
  */
 function outermostFolders(folders: Iterable<string>): string[] {
   const unique = [...new Set(folders)].sort();
-  return unique.filter(folder => !unique.some(outer => folder.startsWith(`${outer}/`)));
+  return unique.filter(folder => !unique.some(outer => isWithin(outer, folder, { includeRoot: false })));
 }
 
 /** Path selectors that map exactly onto folders; topology planning, never a provider admission verdict. */
@@ -159,7 +160,7 @@ export function translateProviderTypes(types: readonly string[], taxonomy: Provi
     const spec = Object.hasOwn(taxonomy.types, type) ? taxonomy.types[type] : undefined;
     const roots = spec?.prefixes.map(folderOf) ?? [];
     const nested = Object.entries(taxonomy.types).flatMap(([other, { prefixes }]) => other === type ? []
-      : prefixes.map(folderOf).filter(folder => roots.some(root => folder === root || folder.startsWith(`${root}/`))).map(folder => `${other} (${folder})`));
+      : prefixes.map(folderOf).filter(folder => roots.some(root => isWithin(root, folder))).map(folder => `${other} (${folder})`));
     if (!spec) refused.push(`type ${type} (not a type this brain defines)`);
     else if (type === taxonomy.inbox) refused.push(`type ${type} (the inbox type, which also covers every path outside the other types' folders)`);
     else if (!roots.length) refused.push(`type ${type} (it has no folder)`);
@@ -200,7 +201,7 @@ export function providerDeniedFolders(policy: Pick<EffectiveGovernancePolicy, "p
     ...rule.paths.map(selectorFolder).filter((root): root is string => root !== undefined),
     ...(rule.types ?? []).flatMap(type => typeFolders[type] ?? []),
   ]);
-  return outermostFolders(denied.map(folder => all.find(outer => folder === outer || folder.startsWith(`${outer}/`)) ?? folder));
+  return outermostFolders(denied.map(folder => all.find(outer => isWithin(outer, folder)) ?? folder));
 }
 
 /**
@@ -221,11 +222,10 @@ export interface ProviderExposure {
   readonly hidden: readonly string[];
 }
 
-const within = (path: string, folder: string) => path === folder || path.startsWith(`${folder}/`);
 
 /** Whether any part of an exposure's provider folders was shown to its recipient. */
 export function exposedAnything(exposure: Pick<ProviderExposure, "visible" | "hidden">): boolean {
-  return exposure.visible.some(folder => !exposure.hidden.some(hidden => within(folder, hidden)));
+  return exposure.visible.some(folder => !exposure.hidden.some(hidden => isWithin(hidden, folder)));
 }
 
 /**
@@ -237,8 +237,8 @@ export function exposedAnything(exposure: Pick<ProviderExposure, "visible" | "hi
 export function exposureConflicts(exposures: readonly ProviderExposure[], denied: readonly string[]): { folder: string; recipient: string }[] {
   const conflicts = new Map<string, { folder: string; recipient: string }>();
   for (const exposure of exposures) for (const folder of denied) {
-    if (exposure.hidden.some(hidden => within(folder, hidden))) continue;
-    const shown = exposure.visible.find(visible => within(folder, visible) || within(visible, folder));
+    if (exposure.hidden.some(hidden => isWithin(hidden, folder))) continue;
+    const shown = exposure.visible.find(visible => isWithin(visible, folder) || isWithin(folder, visible));
     if (shown) conflicts.set(`${folder}\0${exposure.recipient}`, { folder, recipient: exposure.recipient });
   }
   return [...conflicts.values()].sort((a, b) => a.folder.localeCompare(b.folder) || a.recipient.localeCompare(b.recipient));
@@ -250,7 +250,7 @@ export function exposureConflicts(exposures: readonly ProviderExposure[], denied
  * this on every contributing turn (#2726).
  */
 export function maskedInBoth(a: readonly string[], b: readonly string[]): string[] {
-  const both = a.flatMap(outer => b.flatMap(inner => within(inner, outer) ? [inner] : within(outer, inner) ? [outer] : []));
+  const both = a.flatMap(outer => b.flatMap(inner => isWithin(outer, inner) ? [inner] : isWithin(inner, outer) ? [outer] : []));
   return outermostFolders(both);
 }
 
@@ -260,7 +260,7 @@ export function maskedInBoth(a: readonly string[], b: readonly string[]): string
  * read them (#2726).
  */
 export function uncoveredFolders(masked: readonly string[], always: readonly string[]): string[] {
-  return masked.filter(folder => !always.some(covered => within(folder, covered)));
+  return masked.filter(folder => !always.some(covered => isWithin(covered, folder)));
 }
 
 /**

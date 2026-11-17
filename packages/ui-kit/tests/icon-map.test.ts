@@ -5,7 +5,7 @@
  * of failure into a red build.
  *
  * It also pins the key and glyph counts (the port shipped 78 over 76, then 79 over 77; D52 added
- * eight session-state keys, 87 over 85; Discovery adds loading, 88 over 86) — so a key lost in a merge is caught, and the
+ * eight session-state keys, 87 over 85; Discovery adds loading, 88 over 86; framed diagrams add enlarge, 89 over 87; the voice surface adds speaker, mic-off and interrupt, 92 over 90; Discard draft adds backspace, 93 over 91; the markup editor adds pen, arrow, ellipse, text, undo, redo, erase, zoom-in, zoom-out and fit, 103 over 101; the GitHub components add ten object and review keys, six of them new glyphs, 113 over 107) — so a key lost in a merge is caught, and the
  * two deprecated aliases stay repointed at their canonical exports.
  */
 
@@ -23,13 +23,17 @@ describe("icon map", () => {
     expect(unresolved).toEqual([]);
   });
 
-  test("all 88 keys survive, over 86 distinct glyphs", () => {
-    // Two pairs are aliases — deny/dismiss and settings/filter. They render
-    // identically today but mean different things, and collapsing them would
-    // leave a future icon set unable to tell them apart.
-    expect(entries.length).toBe(88);
-    expect(new Set(entries.map(([, glyph]) => glyph)).size).toBe(86);
+  test("all 113 keys survive, over 107 distinct glyphs", () => {
+    // Two pairs are aliases — deny/dismiss and settings/filter — and four
+    // GitHub keys reuse a session-state glyph (pr-closed/cancel,
+    // issue-closed/finished, not-planned/unreachable, review-pending/unproven).
+    // They render identically today but mean different things, and collapsing
+    // them would leave a future icon set unable to tell them apart.
+    expect(entries.length).toBe(113);
+    expect(new Set(entries.map(([, glyph]) => glyph)).size).toBe(107);
     expect(ICONS.loading).toBe(lucide.LoaderCircle);
+    expect(ICONS.enlarge).toBe(lucide.Expand);
+    expect(ICONS.backspace).toBe(lucide.Delete);
     expect(ICONS.deny).toBe(ICONS.dismiss);
     expect(ICONS.settings).toBe(ICONS.filter);
   });

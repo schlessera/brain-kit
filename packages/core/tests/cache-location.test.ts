@@ -5,6 +5,7 @@
  * lines into the new file. The move is idempotent, keeps union-merged lines,
  * and survives a merge with a clone that still writes the old names.
  */
+import { withoutSigningForEach } from "./git-fixture";
 import { afterEach, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "fs";
@@ -22,6 +23,8 @@ import type { Enrichment } from "../src/lib/enrichment";
 import { vecAvailable } from "./vec-fixture";
 import { makeTempBrain, runCli } from "./cli-harness";
 import { brainWithRemote, cleanupFixtures, git, write } from "./sync-fixture";
+
+withoutSigningForEach();
 
 const DIM = 16;
 const taxonomy = buildTaxonomy({ user: null });

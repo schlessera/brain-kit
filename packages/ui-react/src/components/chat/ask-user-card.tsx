@@ -45,7 +45,7 @@ function defaultState(): PerQuestionState {
 /** The preview to show for a question: the focused option's, else the single
  * chosen one's. `preview` is "content rendered when an option is focused"
  * in the ask_user contract; selection is the fallback once focus has moved on. */
-export function previewFor(
+function previewFor(
   question: AskUserQuestion,
   state: Pick<PerQuestionState, "focused" | "selected">
 ): string | undefined {
@@ -58,7 +58,7 @@ export function previewFor(
 }
 
 /** The answer the exchange recorded for one question, as the card shows it. */
-export function recordedAnswer(
+function recordedAnswer(
   question: AskUserQuestion,
   answers: Record<string, string> | undefined
 ): string {
@@ -90,7 +90,7 @@ export function answeredMeta(answeredAt: number | undefined, count = 1): string 
 export const TYPED_META = "taken from your next message";
 
 /** The typed answer is the user's own words, so the card quotes them. */
-export function quoted(text: string): string {
+function quoted(text: string): string {
   return text ? `\u201C${text}\u201D` : "";
 }
 
@@ -104,6 +104,7 @@ export function AskUserCard({
   answered,
   cancelled,
   lapsedNote,
+  endedPrompt,
   typed,
   answeredAt,
   onSubmit,
@@ -117,6 +118,11 @@ export function AskUserCard({
   answered?: Record<string, string>;
   cancelled?: boolean;
   lapsedNote?: string;
+  /**
+   * The turn that asked has ended (#3356): the card stays editable under
+   * this prompt, and its Submit no longer answers the request.
+   */
+  endedPrompt?: string;
   /** The answer was typed into the composer rather than chosen. */
   typed?: boolean;
   /** When the answer was given; absent on resumed history. */
@@ -135,7 +141,7 @@ export function AskUserCard({
   onReask?: (text: string) => void;
 }) {
   const root = useBrainUiRoot();
-  const prompt = `${root.config.assistantName} needs your input`;
+  const prompt = endedPrompt ?? `${root.config.assistantName} needs your input`;
 
   const [state, setState] = useState<PerQuestionState[]>(() =>
     questions.map(() => defaultState())

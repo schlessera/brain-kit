@@ -637,6 +637,14 @@ describe("redirects", () => {
     await expect(client.get("https://example.com/a")).rejects.toThrow(/unsupported URL file:/);
     expect(calls.length).toBe(1);
   });
+
+  test("a redirect to a URL with embedded credentials is refused rather than followed", async () => {
+    const calls = routeFetch(() => redirect("https://suitor:secret@example.org/b"));
+    const client = new ScrapeClient({ respectRobots: false });
+
+    await expect(client.get("https://example.com/a")).rejects.toThrow(/embedded credentials/);
+    expect(calls.length).toBe(1);
+  });
 });
 
 describe("the proxy path", () => {

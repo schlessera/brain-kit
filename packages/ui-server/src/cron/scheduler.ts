@@ -12,7 +12,7 @@ import { observeWrite } from "../activity/store-writes.js";
 // Runs started by the crontab report themselves via recordCronRun below;
 // their stdout/stderr still goes to syslog.
 
-export interface CronScheduler {
+interface CronScheduler {
   getCronStatus(): Array<{
     name: string;
     lastRunAt: number | null;
@@ -30,7 +30,7 @@ interface CronJob {
 }
 
 /** One in-flight job run being recorded into `cron_runs`. */
-export interface CronRunRecord {
+interface CronRunRecord {
   /** Mark the run finished: success without an argument, error with one. */
   finish(error?: string): void;
 }

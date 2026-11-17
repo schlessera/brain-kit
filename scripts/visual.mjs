@@ -119,6 +119,17 @@ if (inside) {
 const uid = typeof process.getuid === "function" ? process.getuid() : 0;
 const gid = typeof process.getgid === "function" ? process.getgid() : 0;
 
+// Browser proof is a heavy local command: separate worktrees share the host's
+// admission slots (#2943). The container cannot see the host ledger, so the
+// host side holds the slot for the whole container run.
+// Loaded here, not statically: the container never imports it, so it is not
+// part of the pinned native diagram source.
+{
+  const { ensureHostAdmission } = await import("./host-admission.mjs");
+  const admitted = await ensureHostAdmission(`browser proof (${projects.join(", ")})`);
+  if (admitted !== undefined) process.exit(admitted);
+}
+
 // Execution bootstrap owns acquisition. Metadata lookup and the network-disabled
 // native producer never pull; both consumers launch this exact manifest digest.
 const inspectImage = () => spawnSync("docker", ["image", "inspect", IMAGE, "--format", "{{json .RepoDigests}}"], { encoding: "utf8" });

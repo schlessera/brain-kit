@@ -66,9 +66,9 @@ load, and unknown keys are load errors):
 | `exclude`       | `{ segments?: string[] }`                         | Path segments the indexer should skip.                                                                |
 | `cron`          | `{ name, schedule, command }[]`                   | Advisory schedules consumed by container entrypoints and `brain doctor`.                              |
 
-Module commands receive `{ root, json, config, taxonomy }` — the module's own
-validated config block and the fully-merged taxonomy — so they never re-load
-`brain.config` themselves.
+Module commands receive `{ root, json, config, taxonomy, completions, stateDir }` —
+the module's own validated config block, the fully-merged taxonomy and the
+module's state directory — so they never re-load `brain.config` themselves.
 
 `defineModule` threads the configSchema's parsed type end to end: `setup(config)`,
 `ctx.config` in every command's `run()`, and `ctx.config` in every hygiene check
@@ -99,6 +99,68 @@ and a cast would hide the contract regressing back to `unknown`.
 How the contribution merges into the taxonomy — collisions, ordering,
 overrides — is covered in
 [concepts.md](concepts.md#document-types-and-the-taxonomy-model).
+
+### Durable state and scheduled jobs
+
+A module that keeps operational state between runs (a last-run time, a
+cursor, a small cache) keeps it in its **state area**: `ctx.stateDir()`
+returns `<brain>/.brain-ui/modules/<module-name>/`, creating it on first call.
+`moduleStateDir(root, name)` and `MODULE_STATE_DIR` from
+`@schlessera/brain/module` give the same path to code outside a command.
+
+- It is inside the brain and gitignored by its own
+  `.brain-ui/modules/.gitignore`, so it never reaches the brain's history,
+  whatever the root `.gitignore` says.
+- It resolves against the brain root the CLI resolved. Inside a worker that
+  is the writable data root, not the read-only view the worker's working
+  directory shows, so write through `ctx.stateDir()`, never relative to
+  `process.cwd()`.
+- It survives between runs. A scheduled job runs in a maintenance worker
+  while the host execution boundary holds: the host, every home directory
+  and `XDG_STATE_HOME` are read-only or discarded after the run, and the
+  brain is the one durable writable place. What a run writes in the state
+  area is published back through output staging, and the next run reads it.
+- Keep it small. Every changed file is copied back after each run.
+
+A module command that writes a read-only path outside the brain fails with a
+message that names the host execution boundary and the state area, not a
+bare `EROFS`. The cron runner adds the same explanation when a module job's
+own subprocess prints one.
+
+### Reading another repository from a scheduled job
+
+A module job's worker holds no Git credential. A module whose job needs another
+repository, such as a private one with scripts it runs, asks for it in its
+config block with the core-owned `repositories` key:
+
+```ts
+modules: {
+  "./modules/beacon": { repositories: ["https://github.com/ithaca/watchtower"] },
+}
+```
+
+- Each entry is a plain `https://` repository URL, with no credential, query,
+  fragment or dot segment, and at most 16 per module. A loopback `http://` URL
+  is accepted for local fixtures. Core validates the list and removes it before
+  the module's own `configSchema` sees the block, as it does for `enabled`.
+- Asking grants nothing by itself. Before each module job, the cron runner
+  reads `brain module list --json` without a credential to find the job's
+  module, and the host fetches a requested repository only when the operator's
+  `BRAIN_UI_MODULE_REPOSITORIES` allow-list names it too. That list lives in
+  host configuration, outside the brain, so editing `brain.config.ts` cannot
+  widen it. A request the list does not cover fails the run before the job
+  starts, and the run's error names the repository and the setting.
+- The host fetches each granted repository into a private mirror with its own
+  credential, the same way it fetches for `sync`. The job's worker gets the
+  mirror read-only and a Git URL rewrite onto it, so the job's own
+  `git clone https://github.com/ithaca/watchtower` reads the mirror, without a
+  credential and without the network.
+- Clone into a temporary directory on each run. The clone is local and fast,
+  and a working copy kept in the state area would be published back after
+  every run.
+
+This applies to scheduled jobs on a host that runs repository jobs in
+maintenance workers. A module command run by hand gets no mirror.
 
 ### Hygiene checks read the index through `ctx.queries`
 
@@ -280,7 +342,9 @@ Every entry under `modules:` remains configured and loaded. A key is a package
 name or a local path; the value keeps the module's domain configuration. The
 optional core-owned `enabled` boolean defaults to `true`. Core validates and
 removes that flag before handing the remaining block to the module's schema,
-including when `enabled: false` makes the module dormant.
+including when `enabled: false` makes the module dormant. The optional
+core-owned `repositories` list is removed the same way
+([reading another repository](#reading-another-repository-from-a-scheduled-job)).
 
 Install a package before enabling it, for example `bun add
 @schlessera/brain-module-speaking`. Keep first-party module versions aligned
@@ -600,7 +664,7 @@ first-party modules do not use it either.
 | Need | `@schlessera/brain/module` exports |
 | --- | --- |
 | Read configuration from a worker's frozen view | `configurationRoot(root)`; other roots pass through unchanged |
-| Keep a path inside the brain | `safeResolve`, `resolveWritable` |
+| Keep a path inside the brain | `safeResolve`, `resolveWritable`: a path relative to the root, never absolute and without `..`; dangling and out-and-back links are refused ([0.45.0](integration-contract/package-api.md#strictest-path-containment-answers-breaking-before-10-0450-3422)). A path argument from the command line goes through `brainRelativeArgument(root, arg)` first, which makes an absolute path inside the brain brain-relative |
 | Write a document atomically | `writeFileSafely` (`replace: false` refuses an existing name with `WriteRefusedError`, `code: "EEXIST"`) |
 | Intermediate files that are never canonical | `SCRATCH_DIR`, `scratchName`, `writeScratchFile`, `assertScratchWritable`, `isInScratch`, `isWriteRefusal`, `pruneScratch` |
 | Rewrite a generated region, keeping the rest of the file | `splitFrontmatterBlock`, `rewriteGeneratedRegion`, `inertGeneratedText` |
@@ -680,3 +744,19 @@ component loads, source remains visible. Hosts can register `React.lazy`
 components backed by a build-time `import()`; that chunk is requested only
 when a matching block is rendered. The generic browser bundling integration
 and server declaration wiring are separate from this dispatch layer.
+
+## Optional Apify workflows
+
+At execution time, modules can call `brain apify availability [actor-id] --json`
+and branch on `data.state`: `ready`, `approval_required` or `unavailable`.
+`reason` explains a disabled provider, missing credentials/limits, exhausted
+budget or unsupported posture. Without an Actor id, readiness covers only the
+provider. Show a fallback or disabled notice for unavailable workflows; explain
+the required Actor approval for `approval_required`. The check starts no Actor
+and consumes no one-use approval. Actual admission rechecks live state.
+
+Code already holding the host's Apify services and call context can import
+`checkApifyAvailability(services, context, actor_id?)` from
+`@schlessera/brain/internal/apify`. Module setup stays static: check at execution
+time so a token, policy or approval change takes effect without reloading the
+module. See [the operation contract](integration-contract/cli.md#actor-approval-revision-3580).

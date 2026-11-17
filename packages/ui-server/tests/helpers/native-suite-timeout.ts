@@ -94,7 +94,8 @@ export function registerTimeoutControl(directory: string) {
       const fs = require("node:fs");
       const stat = fs.readFileSync("/proc/self/stat", "utf8");
       const group = Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[2]);
-      fs.writeFileSync(${JSON.stringify(checkpoint)}, JSON.stringify({ pid: process.pid, group }));
+      fs.writeFileSync(${JSON.stringify(checkpoint + ".tmp")}, JSON.stringify({ pid: process.pid, group }));
+      fs.renameSync(${JSON.stringify(checkpoint + ".tmp")}, ${JSON.stringify(checkpoint)});
       setInterval(() => {}, 60000);
     `;
     writeFileSync(heldTest, `

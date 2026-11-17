@@ -4,8 +4,16 @@
 
 The maintainer approved the [reconciled bundle](https://github.com/schlessera/brain-kit/issues/2014#issuecomment-6212070681)
 after comparing the layered proposal in #2044 with the concurrent policy review.
-The [design](../plans/storage-growth.md) specifies its encoding, qualification,
+The [design](https://github.com/schlessera/brain-kit/blob/5a0ce18fdcecf0a6c5b83487c865a3f73806d5d0/docs/plans/storage-growth.md) specifies its encoding, qualification,
 recovery and delivery rules. This decision records policy, not runtime delivery.
+
+> **2026-11-02 — The design left `docs/plans/` ([#2511](https://github.com/schlessera/brain-kit/issues/2511)).**
+> #2058 and #2059 delivered it in #2172. The shipped history and guidance
+> shapes are in the integration contract
+> ([Storage history and pressure guidance](../integration-contract/http.md#storage-history-and-pressure-guidance-additive-2058));
+> the policy stays here. Read the design unchanged at the pinned link above.
+> Its offline trace experiment moved to the
+> [measurement archive](measurement-archive.md#storage-design-experiments-2511).
 
 Keep 64 six-hour, 90 daily and 32 weekly endpoints: 186 records, four capacity
 scopes and a 256 KiB serialized history ceiling. The same observations update all

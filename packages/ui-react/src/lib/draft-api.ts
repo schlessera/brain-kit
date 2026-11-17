@@ -8,7 +8,7 @@ import type { Draft, DraftErrorResponse, DraftListResponse, DraftSaveRequest, Dr
  * starts work or answers anything: these are data operations only.
  */
 /** A failure body's fields, any of which a given `DraftErrorResponse` may carry. */
-export interface DraftFailureBody {
+interface DraftFailureBody {
   error?: DraftErrorResponse["error"] | string;
   message?: string;
   current?: Draft;

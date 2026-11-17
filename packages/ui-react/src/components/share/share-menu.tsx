@@ -1,6 +1,6 @@
 import { useBrainUiRoot } from "../../root-context.js";
 import { IconButton } from "@schlessera/brain-ui-kit";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { Share2, Loader2, Check, AlertCircle } from "lucide-react";
 import { cn } from "../../lib/utils.js";
 
@@ -34,6 +34,17 @@ interface ShareMenuProps {
 
 type Status = "idle" | "busy" | "done" | "error";
 
+/** The horizontal span the menu may paint in: the viewport, narrowed by every clipping ancestor. */
+function visibleSpan(element: HTMLElement): { left: number; right: number } {
+  let left = 0, right = document.documentElement.clientWidth;
+  for (let node = element.parentElement; node; node = node.parentElement) {
+    if (getComputedStyle(node).overflowX === "visible") continue;
+    const rect = node.getBoundingClientRect();
+    left = Math.max(left, rect.left); right = Math.min(right, rect.right);
+  }
+  return { left, right };
+}
+
 export function ShareMenu({ options, title = "Share", className, renderTrigger }: ShareMenuProps) {
   const root = useBrainUiRoot();
   const lifetime = useRef(0);
@@ -42,6 +53,16 @@ export function ShareMenu({ options, title = "Share", className, renderTrigger }
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  // The menu hangs from the trigger's right edge; a trigger near the left of a
+  // narrow or clipped lane opens it from its left edge instead, so no option is cut off.
+  const [align, setAlign] = useState<"end" | "start">("end");
+  useLayoutEffect(() => {
+    if (!open) { setAlign("end"); return; }
+    const menu = menuRef.current;
+    if (!menu || align !== "end") return;
+    if (menu.getBoundingClientRect().left < visibleSpan(menu).left - 0.5) setAlign("start");
+  }, [open, align]);
 
   useEffect(() => {
     lifetime.current++;
@@ -123,8 +144,10 @@ export function ShareMenu({ options, title = "Share", className, renderTrigger }
       )}
       {open && !single && (
         <div
+          ref={menuRef}
           role="menu"
-          className="bk-focus-clip absolute right-0 top-full z-popover mt-1 min-w-[12rem] overflow-hidden rounded-lg border border-border bg-background py-1 shadow-lg"
+          data-align={align}
+          className={cn("bk-focus-clip absolute top-full", align === "end" ? "right-0" : "left-0", "z-popover mt-1 min-w-[12rem] overflow-hidden rounded-lg border border-border bg-background py-1 shadow-lg")}
         >
           {options.map((opt) => (
             <button

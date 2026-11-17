@@ -1,13 +1,16 @@
 /** Exact merge-candidate validation; feedback never authorizes merging. */
-import { planFromEnvironment, proofCadence, proofSelections } from "./ci-plan";
+import { planFromEnvironment, proofCadence, proofSelections, redMainSnapshot, unitShards } from "./ci-plan";
+import type { RedMainRecord } from "./red-main";
 import { checkout, type Checkout } from "./proof-inputs";
-import { GitHubProofAPI, type API } from "./proof-reuse";
+import { GitHubProofAPI, type API } from "./proof-api";
 
 const CONFIRMATION_REQUIRED = "Candidate confirmation required: convert this PR to draft, then mark ready for review after the final push.";
 
 export async function validateCandidate(root: string, event: any, env: NodeJS.ProcessEnv,
   api?: API, actual: Checkout = checkout(root)): Promise<void> {
   const cadence = proofCadence(env, event);
+  // Draft heavy feedback is never proof; only an exact-head ready confirmation is (#3272).
+  if (cadence === "feedback-heavy") throw new Error(`Draft heavy feedback is never proof. ${CONFIRMATION_REQUIRED}`);
   if (cadence === "feedback") throw new Error(CONFIRMATION_REQUIRED);
   if (cadence === "draft") return requireLiveDraft(event, api);
   if (cadence !== "confirmation") return;
@@ -44,15 +47,25 @@ async function requireLiveDraft(event: any, api?: API): Promise<void> {
   }
 }
 
-export function validateSelections(root: string, event: any, env: NodeJS.ProcessEnv, outputs: Record<string, string> | undefined): void {
+/**
+ * A main push is planned with the red-main set the metadata job read (#3541):
+ * re-planning without it refuses every push whose open incident widens the selection.
+ */
+export function validateSelections(root: string, event: any, env: NodeJS.ProcessEnv, outputs: Record<string, string> | undefined,
+  redMain: (oid: string | undefined) => RedMainRecord | null = oid => redMainSnapshot(root, oid).record): void {
   const cadence = proofCadence(env, event);
   if (outputs?.cadence !== cadence) throw new Error("Candidate selection cadence is missing or inconsistent");
+  if (env.GITHUB_EVENT_NAME === "push" && !outputs?.red_main_oid) throw new Error("Main proof is missing its red-main coordination snapshot");
+  const record = env.GITHUB_EVENT_NAME === "push" ? redMain(outputs!.red_main_oid) : null;
   const plan = planFromEnvironment(root, { ...env, BASE_SHA: event.pull_request?.base?.sha,
-    BEFORE_SHA: event.before, HEAD_SHA: event.pull_request?.head?.sha ?? env.GITHUB_SHA });
+    BEFORE_SHA: event.before, HEAD_SHA: event.pull_request?.head?.sha ?? env.GITHUB_SHA }, record);
   plan.cadence = cadence;
-  for (const [category, selected] of Object.entries(proofSelections(plan))) {
+  const selections = proofSelections(plan);
+  for (const [category, selected] of Object.entries(selections)) {
     if (outputs?.[category] !== String(selected)) throw new Error(`${category}: required candidate selection differs from actual inputs`);
   }
+  // The matrix ran the partitions the metadata job published; they must be the planned set (#4108).
+  if (selections.unit && outputs?.unit_shards !== JSON.stringify(unitShards(plan))) throw new Error("unit: published partition set differs from the planned one");
 }
 
 export async function requireCandidate(root: string, event: any, env: NodeJS.ProcessEnv): Promise<void> {

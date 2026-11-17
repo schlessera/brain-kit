@@ -19,9 +19,9 @@ import { useState, type ReactNode } from "react";
  * decorative. Rename state (which row is being
  * edited, the draft) is the row's own and never leaves the view.
  */
-export type PasskeyStatus = "loading" | "ready" | "unavailable";
+type PasskeyStatus = "loading" | "ready" | "unavailable";
 
-export interface PasskeyListProps {
+interface PasskeyListProps {
   credentials: PasskeySummary[];
   status: PasskeyStatus;
   /** A registration ceremony is in flight. */

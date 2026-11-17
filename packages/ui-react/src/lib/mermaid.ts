@@ -12,7 +12,6 @@
 import { mermaidThemeVariables, type MermaidTheme } from "./mermaid-theme.js";
 import { tokenizedMermaidSvg } from "./mermaid-svg.js";
 
-export type { MermaidTheme };
 
 type MermaidApi = typeof import("mermaid").default;
 
@@ -117,7 +116,7 @@ export async function renderMermaidSvg(
   }
 }
 
-export interface MermaidFence {
+interface MermaidFence {
   /** Offset of the opening fence line start. */
   start: number;
   /** Offset just past the closing fence line (and its newline, if present). */

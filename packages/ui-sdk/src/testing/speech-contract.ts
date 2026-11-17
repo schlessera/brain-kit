@@ -37,6 +37,24 @@ export function runSpeechProviderContract(
           expect(typeof provider.capabilities[name]).toBe("boolean");
         }
         expect(typeof provider.createSession).toBe("function");
+        for (const name of ["label", "destination"] as const) {
+          if (provider[name] === undefined) continue;
+          expect(typeof provider[name]).toBe("string");
+          expect(provider[name]!.trim().length).toBeGreaterThan(0);
+        }
+        if (provider.capabilities.smartTranscription !== undefined) expect(typeof provider.capabilities.smartTranscription).toBe("boolean");
+      } finally { await probe.dispose(); }
+    });
+
+    test("a provider declaring SMART transcription mints a serializable session for each mode", async () => {
+      const probe = harness.create();
+      try {
+        if (probe.provider.capabilities.smartTranscription !== true) return;
+        for (const mode of ["smart", "verbatim"] as const) {
+          const session = await probe.provider.createSession({ keyterms: [], mode });
+          expect(typeof session.url).toBe("string");
+          expect(JSON.parse(JSON.stringify(session))).toEqual(session);
+        }
       } finally { await probe.dispose(); }
     });
 

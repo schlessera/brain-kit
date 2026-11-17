@@ -53,7 +53,7 @@ discussion". Three things showed the rule was not the one being followed:
 The [maintainer's ruling on #343 question 5](https://github.com/schlessera/brain-kit/issues/343#issuecomment-5865905459)
 classifies the client/server wire protocol as a **machine compatibility
 contract now**. The protocol header already calls it that
-(`COMPATIBILITY CONTRACT`, `packages/ui-sdk/src/protocol.ts:5-8`). Its frames,
+(`COMPATIBILITY CONTRACT`, `packages/ui-sdk/src/protocol.ts:8-11`). Its frames,
 validation policies and documented behavior follow the versioning rules above:
 additions ship in minors; pre-1.0 breaks ship in minors only after a prior
 maintainer ruling, with the `breaking` label and a changeset naming the break;

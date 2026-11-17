@@ -43,7 +43,7 @@ test("a planted refs/original backup warns, names the ref, and shows the removal
   const before = refs(root);
   const logsBefore = reflogs(root);
   expect(logsBefore.length).toBeGreaterThan(0);
-  expect(before.some((r) => r.startsWith("refs/original/refs/heads/main "))).toBe(true);
+  expect(before).toContainEqual(expect.stringMatching(/^refs\/original\/refs\/heads\/main /));
 
   const check = await gitStorage(root);
   expect(check.status).toBe("warn");

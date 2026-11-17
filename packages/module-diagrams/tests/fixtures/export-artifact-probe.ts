@@ -23,11 +23,11 @@ try{
   const result=await runCli(originRoot,["diagram","export","origin.diagram.yaml","--theme","print","--format",format,"--json"],format==="svg"?{}:{PUPPETEER_EXECUTABLE_PATH:process.env.PUPPETEER_EXECUTABLE_PATH!,BRAIN_CHROME_NO_SANDBOX:"1"});
   assert.equal(result.code,0,result.stderr+result.stdout);assertNativeExportBoundary(originRoot,format,"origin.diagram.yaml");
   const value=JSON.parse(result.stdout),bytes=readFileSync(join(originRoot,value.output));assert.equal(value.ok,true);assert.equal(bytes.length,value.bytes);
-  if(format==="svg")assert.ok(bytes.toString("utf8").includes('viewBox="-20 -24 192 120"'),"NATIVE_ORIGIN_SVG_VIEWBOX");
-  if(format==="png"){assert.equal(bytes.subarray(0,8).toString("hex"),"89504e470d0a1a0a","NATIVE_ORIGIN_PNG_MAGIC");assert.equal(bytes.readUInt32BE(16),640,"NATIVE_ORIGIN_PNG_WIDTH");assert.equal(bytes.readUInt32BE(20),240,"NATIVE_ORIGIN_PNG_HEIGHT");}
+  if(format==="svg")assert.ok(bytes.toString("utf8").includes('viewBox="-29 -36 208 132"'),"NATIVE_ORIGIN_SVG_VIEWBOX");
+  if(format==="png"){assert.equal(bytes.subarray(0,8).toString("hex"),"89504e470d0a1a0a","NATIVE_ORIGIN_PNG_MAGIC");assert.equal(bytes.readUInt32BE(16),640,"NATIVE_ORIGIN_PNG_WIDTH");assert.equal(bytes.readUInt32BE(20),264,"NATIVE_ORIGIN_PNG_HEIGHT");}
   if(format==="pdf"){assert.equal(bytes.subarray(0,4).toString("ascii"),"%PDF","NATIVE_ORIGIN_PDF_MAGIC");assert.equal((bytes.toString("latin1").match(/\/Type \/Page\b/g)??[]).length,1,"NATIVE_ORIGIN_PDF_ONE_PAGE");}
   copyFileSync(join(originRoot,value.output),join(process.argv[2]!,`origin.${format}`));
-  origin.push({format,bytes:bytes.length,...(format==="png"?{width:640,height:240}:{})});
+  origin.push({format,bytes:bytes.length,...(format==="png"?{width:640,height:264}:{})});
  }
 }finally{cleanup(originRoot);}
 // The producer publishes neither release nor origin until all six children drain.

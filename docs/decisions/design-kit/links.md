@@ -108,7 +108,7 @@ found, and what the ruling did not say:
   (`LINK_BLOCK_SCHEMA`, `packages/ui-sdk/src/tool-contracts/blocks.ts:429-449`)
   mirrors the props. `classifyLink` (`classifyLink`, `packages/render-template/src/links.ts:252-311`)
   is pure. The edge table records the new dependency
-  (`"@schlessera/brain-ui-sdk"`, `tests/allowed-edges.ts:75`), and ui-kit now
+  (`"@schlessera/brain-ui-sdk"`, `tests/allowed-edges.ts:82`), and ui-kit now
   builds and publishes ahead of ui-sdk. At that point the kit's own row was unchanged.
   #558 later moved the pure classifier to the template's `./links` leaf and
   added the kit-to-template edge; D13's purity gate still holds.
@@ -355,3 +355,53 @@ outcomes, retry ownership and stale secondary results.
 `packages/ui-react/tests/artifact-recovery-runtime.test.ts` exercises the
 real password server, real browser, secondary previews, account isolation,
 phone/desktop layouts in both themes and keyboard return.
+
+## 2026-11-16 — untrusted GitHub text: links ask through a full-address interstitial (#3800)
+
+Text written on GitHub (issue and pull request bodies, comments, reviews,
+search summaries) is untrusted. The maintainer ruled on 2026-11-09 (#3795)
+that it renders as a safe markdown subset with no HTML and no images, and
+that a link in it opens only through an interstitial showing the full
+address, and only for `https:`. The kit's `UntrustedText`
+(`packages/ui-kit/src/evidence/UntrustedText.tsx`) implements that ruling
+and design revision 2 (#3795):
+
+- **No anchor in the text.** An `https:` link is a `<button>` that opens the
+  interstitial. Only the interstitial's Open action navigates: an `<a>` with
+  `target="_blank"` and `rel="noopener noreferrer nofollow"`. Focus starts
+  on Stay here, so a double Enter cannot open the site.
+- **Every other link is text.** `http:` reads "(http link · won't open)",
+  any other scheme "(not a web link)", and anything `classifyLink` refuses
+  "(link removed)". None takes a focus stop. Bare URLs are not autolinked.
+- **The registrable domain names the site.** The interstitial's large line,
+  the bold part of the full address and the label beside the link are all
+  the registrable domain, in ASCII (punycode) form. Subdomains stay dim, which
+  is what exposes a lookalike such as `github.com.ithaca-steward.example`.
+- **Bidi is isolated per run.** The field is `unicode-bidi: isolate` and each
+  run of untrusted words is its own `<bdi>`, so a stray RLO cannot move the
+  domain label or a reason beside it.
+
+**The public-suffix list comes from `tldts` (maintainer, 2026-11-16).** The
+design asks for the registrable domain from the public-suffix list, and the
+kit had none. The only other registrable-domain helper in the repo
+approximates it as the last two labels, which would name `co.uk` for
+`evil.co.uk`, and `github.io` for any GitHub Pages site. That is wrong in
+exactly the place that exists to expose lookalikes. A hand-kept list of
+suffixes would drift. The kit therefore depends on `tldts`
+(`registrableDomain`, with private domains on, so `telemachus.github.io`
+is its own site).
+
+**Direct links stay in their slots (D2/D3, maintainer, 2026-11-10).** Besides
+the canonical object, a comment, review or commit may carry its own
+`GitHub ↗`, and the result list's footnote a "Search on GitHub ↗". These open
+directly, with no interstitial. Each renders only when its URL prop is
+present and is `https:` on host exactly `github.com`, with no userinfo and no
+port (`githubHref`, `packages/ui-kit/src/github/shared.tsx`). The host
+validates the URL's shape (#3797); the kit only refuses to render anything
+else. A link inside untrusted text never becomes a direct link, even when
+it points at github.com.
+
+Proof: `packages/ui-kit/tests/untrusted-text.test.tsx` checks the markup.
+`packages/ui-kit/tests/visual/github-untrusted.visual.tsx` checks navigation,
+requests, handlers, avatars, bidi layout, the direct-link slots and reduced
+motion in a real browser.

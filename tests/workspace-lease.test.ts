@@ -251,7 +251,7 @@ const spawn = (...args) => {
 test("the real pinned container wrapper waits for host ownership of its mounted checkout", async () => {
   const root = fixture(helper, false, false, join(project, "tmp", "workspace-lease-container"));
   for (const path of ["scripts", "packages/ui-kit", "node_modules/vitest"]) mkdirSync(join(root, path), { recursive: true });
-  for (const name of ["visual.mjs", "workspace-lease.mjs", "prepare-diagram-export-source.mjs", "diagram-export-source.mjs", "diagram-export-installation.mjs", "diagram-export-producer.mjs"]) copyFileSync(join(project, "scripts", name), join(root, "scripts", name));
+  for (const name of ["visual.mjs", "workspace-lease.mjs", "host-admission.mjs", "prepare-diagram-export-source.mjs", "diagram-export-source.mjs", "diagram-export-installation.mjs", "diagram-export-producer.mjs"]) copyFileSync(join(project, "scripts", name), join(root, "scripts", name));
   writeFileSync(join(root, "node_modules/vitest/vitest.mjs"), 'import {writeFileSync} from "node:fs";writeFileSync(new URL("../../vitest-entered",import.meta.url),"native container acquired ownership\\n");\n');
   const owner = start(root, "write", "hold", "host");
   await entered(root, "host");
@@ -281,7 +281,7 @@ test("the real pinned container wrapper waits for host ownership of its mounted 
 test("direct Bun test preserves its selector, timeout and offline preload while waiting", async () => {
   const root = fixture();
   mkdirSync(join(root, "scripts")); mkdirSync(join(root, "packages/core/tests"), { recursive: true });
-  for (const name of ["test-network-preload.ts", "test-network-guard.ts", "test-network-child-preload.ts", "workspace-lease.mjs"]) {
+  for (const name of ["test-network-preload.ts", "test-home.ts", "test-network-guard.ts", "test-network-child-preload.ts", "workspace-lease.mjs"]) {
     copyFileSync(join(project, "scripts", name), join(root, "scripts", name));
   }
   copyFileSync(join(project, "packages/core/tests/cli-harness.ts"), join(root, "packages/core/tests/cli-harness.ts"));

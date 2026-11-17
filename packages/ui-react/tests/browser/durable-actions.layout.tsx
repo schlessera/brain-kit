@@ -22,6 +22,7 @@ import { ActivityPage } from "../../src/components/activity/activity-page.js";
 import { SideRail } from "../../src/components/layout/side-rail.js";
 import { MobileTabBar } from "../../src/components/layout/mobile-tab-bar.js";
 import { createInboxFixtureServer, type InboxFixtureServer } from "../fixtures/inbox-fixture-server.js";
+import { OWNED, describeHit, edgeOwners, probeScope, touchFloor } from "./hit-reach.js";
 
 const DAY = 86_400_000;
 const T0 = Date.now();
@@ -642,7 +643,7 @@ describe("durable Actions", () => {
     const runs = { "run-pruned": { rollup: { runId: "run-pruned", origin: "autonomous", outcome: "error", startedAt: T0 - DAY, durationMs: 1000, costUsd: null, effectiveCostUsd: null, failureReason: "fetch failed", name: "triage", jobName: null }, detailPruned: true } };
     const d = await device("laptop", { width: 1280, runs });
     // FilterRow still has three lenses; the rail and bar gain no item.
-    expect(/needs you \d+/.test(d.host.textContent!)).toBe(true);
+    expect(d.host.textContent).toMatch(/needs you \d+/);
     expect(d.host.querySelector("[data-rail]")!.textContent).not.toContain("Queue");
     await click(button(d.host, /^Open the queue, 3 items$/));
     expect(d.host.querySelector("[data-queue-view]")).not.toBeNull();
@@ -796,7 +797,16 @@ for (const theme of ["dark", "light"] as const) {
       const { locator } = await migrationScene(row, theme);
       const el = locator.element() as HTMLElement;
       const box = el.getBoundingClientRect();
-      const small = [3, 8].includes(row) && !matchMedia("(any-pointer: coarse)").matches;
+      const coarse = matchMedia("(any-pointer: coarse)").matches;
+      if (el.classList.contains("bk-hit")) {
+        // #3252: a reaching Button keeps its kit paint; under a coarse pointer
+        // its 44px target, probed 1px inside each edge, is its own.
+        expect(el.style.minHeight, `row ${row} does not draw a 44px box`).not.toBe("44px");
+        el.scrollIntoView({ block: "center" });
+        expect(edgeOwners(el, coarse ? 44 : 0), `row ${row} owns each edge of its target`).toEqual(OWNED);
+        return;
+      }
+      const small = [3, 8].includes(row) && !coarse;
       const floor = small ? 28 : 44;
       expect({ width: box.width >= floor, height: box.height >= floor }, `row ${row} target at least ${floor}px`).toEqual({ width: true, height: true });
     });
@@ -806,7 +816,7 @@ for (const theme of ["dark", "light"] as const) {
       const el = locator.element() as HTMLElement;
       el.focus();
       const css = getComputedStyle(el);
-      expect({ active: document.activeElement === el, width: css.outlineWidth, style: css.outlineStyle, offset: css.outlineOffset }, `row ${row} keyboard focus ring`).toEqual({ active: true, width: "2px", style: "solid", offset: [6, 14].includes(row) ? "-2px" : "2px" });
+      expect({ active: document.activeElement === el, width: css.outlineWidth, style: css.outlineStyle, offset: css.outlineOffset }, `row ${row} keyboard focus ring`).toEqual({ active: true, width: "2px", style: "solid", offset: row === 6 ? "-2px" : "2px" });
     });
   }
   for (const width of [320, 1280]) {
@@ -825,5 +835,58 @@ for (const theme of ["dark", "light"] as const) {
     expect(locator.element().getAttribute("aria-expanded"), "raw trace starts collapsed").toBe("false");
     await locator.click();
     expect(locator.element().getAttribute("aria-expanded"), "raw trace announces expanded").toBe("true");
+  });
+}
+
+// #4086 (ruled on #3531): the Actions lens row and the dismissal reasons keep
+// their kit paint and reach 44px past it under a coarse pointer, instead of
+// drawing a 44px pill. Each pill carries `.bk-hit`, keeps its paint height and
+// meets the touch floor, and no control near it loses an edge to its reach.
+function pillsReach(scope: HTMLElement, selector: string, label: string, paint: number) {
+  const pills = [...scope.querySelectorAll<HTMLElement>(selector)];
+  expect(pills.length, `${label}: renders`).toBeGreaterThan(1);
+  for (const pill of pills) {
+    const name = describeHit(pill);
+    expect(pill.classList.contains("bk-hit"), `${name}: carries the hit-area utility`).toBe(true);
+    expect(pill.getBoundingClientRect().height, `${name}: keeps its kit paint`).toBeCloseTo(paint, 0);
+    expect(touchFloor(pill), `${name}: meets the touch floor`).toBe("met");
+  }
+  return pills;
+}
+const coarse = () => matchMedia("(any-pointer: coarse)").matches;
+const stolen = (scope: ParentNode) => probeScope(scope).filter((row) => JSON.stringify(row.owners) !== JSON.stringify(OWNED));
+
+for (const width of [320, 1280]) {
+  test(`dismissal reasons reach 44px past the kit pill at ${width}px`, async () => {
+    const { d } = await migrationScene(14, "dark", width);
+    const group = d.host.querySelector<HTMLElement>('[role="group"][aria-label^="Dismissal reason"]');
+    expect(group, "the dismiss confirm is open").not.toBeNull();
+    const chips = pillsReach(group!, "button[aria-pressed]", "dismissal reasons", 29.5);
+    // At 320px the four reasons wrap, so the coarse row gap is exercised.
+    const rows = new Set(chips.map((chip) => Math.round(chip.getBoundingClientRect().top))).size;
+    if (width === 320) expect(rows, "the reasons wrap at 320px").toBeGreaterThan(1);
+    expect(stolen(group!.closest<HTMLElement>("[data-dismiss-confirm]")!), "every control in the confirm owns its edges").toEqual([]);
+    // Pressed state and names are unchanged.
+    const chip = button(group!, "Don't ask again");
+    await click(chip);
+    expect(chip.getAttribute("aria-pressed"), "a reason presses").toBe("true");
+    expect(button(card(d, "a-one"), "Dismiss with reason: Don't ask again"), "the commit names the reason").toBeTruthy();
+  });
+  test(`activity lens pills reach 44px past their paint at ${width}px`, async () => {
+    const { d } = await migrationScene(3, "dark", width);
+    const lens = [...d.host.querySelectorAll<HTMLElement>('[role="tab"]')].find((tab) => (tab.textContent ?? "").startsWith("needs you "));
+    expect(lens, "the lens row renders").toBeDefined();
+    const list = lens!.closest<HTMLElement>('[role="tablist"]')!;
+    pillsReach(list, '[role="tab"]', "lens", 20.5);
+    expect(stolen(list), "every lens pill owns its edges").toEqual([]);
+    // Its neighbours: every control within one 44px target of the row keeps
+    // its own edges. (Controls further down can sit under the phone's fixed
+    // tab bar, which is not this row's reach.)
+    const band = list.getBoundingClientRect();
+    const near = [...list.parentElement!.querySelectorAll<HTMLElement>('button, a[href], [role="button"]')].filter((el) => {
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && r.bottom > band.top - 44 && r.top < band.bottom + 44;
+    });
+    for (const el of near) expect(edgeOwners(el, coarse() && el.classList.contains("bk-hit") ? 44 : 0), `${describeHit(el)} beside the lens row`).toEqual(OWNED);
   });
 }

@@ -63,8 +63,8 @@ export async function resolveChatFiles(brainRoot: string | undefined, files: { k
   return result;
 }
 
-export const TRACK_CONTEXT_OPEN = "\n\n<brain-track-files>\n";
-export const TRACK_CONTEXT_CLOSE = "\n</brain-track-files>";
+const TRACK_CONTEXT_OPEN = "\n\n<brain-track-files>\n";
+const TRACK_CONTEXT_CLOSE = "\n</brain-track-files>";
 /** Appended to the user prompt as explicitly quoted data, never agent-authored assertions. */
 export function withTrackFiles(text: string, files: readonly SharedFileMeta[] | undefined): string {
   if (!files?.length) return text;

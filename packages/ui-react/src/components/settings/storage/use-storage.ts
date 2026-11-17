@@ -18,7 +18,7 @@ import { storageApi } from "../../../lib/storage-api.js";
 import { canonicalPath, type StorageMetric } from "./storage-model.js";
 export const running = (state: string | undefined) =>
   state === "waiting" || state === "running";
-export interface InspectedFile {
+interface InspectedFile {
   entry: StorageFileEntry;
   path: string | null;
   facts: StorageRemovalFile | null;

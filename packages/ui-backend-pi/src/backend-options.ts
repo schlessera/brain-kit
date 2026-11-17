@@ -118,12 +118,13 @@ export interface CreatePiBackendOptions {
   sessionDir?: string;
   /**
    * Load pi extensions (installed pi packages and repo-local extensions).
-   * Default TRUE since the tool_call permission gate covers extension tools:
-   * a tool the gate's allowlist does not know raises an approval card before
-   * it runs, so installing e.g. `pi-mcp-adapter` (MCP servers from the repo's
-   * `.mcp.json`) or `pi-web-access` (web search/fetch) extends the surface
-   * with the same approval posture the Claude backend gives MCP tools.
-   * Set false to pin the surface to the curated tools alone.
+   * Default FALSE (#3658): only the host's curated tools; installed extensions
+   * stay installed and inactive. Skills and context files still load. TRUE
+   * opts into discovery, but managed workers refuse any loaded extension or
+   * extension loading error: the pinned SDK's extension message injection and
+   * final dispatch paths are not qualified for safety collection. This
+   * includes web, MCP and subagent extensions. The hosted module refuses such
+   * a turn before admission instead (`gateUnsupportedConfiguration`).
    */
   loadExtensions?: boolean;
   /**
@@ -183,14 +184,28 @@ export interface SessionCaps {
   activity: boolean;
   inbox?: boolean;
   mask: boolean;
+  /** The host's markup editor and application (#3975); optional for a caller's own caps. */
+  markup?: boolean;
   /** The worker's turn temp is reachable through the `turn_temp` tool (#1703); not in an autonomous turn. */
   turnTemp?: boolean;
   /** Shared reference source and managed worktrees (#2432). */
   reference?: boolean;
+  /** External compute on the host (#3108); never in an autonomous turn. */
+  compute?: boolean;
+  /** The fixed Apify operations (#3162); interactive sessions only. */
+  apify?: boolean;
+  /** On-demand reads of the conversation's composer originals (#3154); interactive sessions only. */
+  attachments?: boolean;
+  /** The host-owned web tools (#3685); ordinary interactive sessions only, never an autonomous turn. */
+  web?: boolean;
+  /** The host GitHub read tools (#3797); interactive sessions only, never an autonomous turn. */
+  github?: boolean;
 }
 
 /** What one session's system prompt and toolset are conditioned on. */
 export interface SessionEnv {
+  /** Host-only cleanup diagnostics, captured before worker initialization. */
+  cleanupActivity?: BackendBridge["activity"];
   /** Internal static limits and current actionable budget context. */
   sessionBudgetLimits?: string;
   budgetContext?: string;
@@ -229,12 +244,18 @@ export function capsOf(bridge: BackendBridge): SessionCaps {
     activity: Boolean(bridge.queryActivity),
     inbox: Boolean(bridge.inboxList),
     mask: Boolean(bridge.requestMask),
+    markup: Boolean(bridge.requestImageMarkup),
     reference: Boolean(bridge.referenceAccess),
+    compute: Boolean(bridge.compute),
+    apify: Boolean(bridge.apify),
+    attachments: Boolean(bridge.readAttachment),
+    web: Boolean(bridge.webAccess),
+    github: Boolean(bridge.github),
   };
 }
 
 /** Deployment-owned tools exist even when this turn has no matching handler. */
 export const INTERACTIVE_SESSION_CAPS: Readonly<SessionCaps> = Object.freeze({
   policyChange: true, askUser: true, askUserList: true, askUserRank: true, askUserForm: true,
-  location: true, activity: true, inbox: true, mask: true, turnTemp: true, reference: true,
+  location: true, activity: true, inbox: true, mask: true, markup: true, turnTemp: true, reference: true, compute: true, apify: true, attachments: true, web: true, github: true,
 });

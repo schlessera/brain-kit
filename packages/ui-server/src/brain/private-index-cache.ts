@@ -32,6 +32,7 @@
  * expiry, restart) only costs the next clean build: nothing here is
  * authoritative, and `brain.db` stays disposable.
  */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { createHash } from "node:crypto";
 import { chmodSync, chownSync, lstatSync, mkdtempSync, readdirSync, realpathSync, rmSync, statSync, type BigIntStats } from "node:fs";
 import { tmpdir } from "node:os";
@@ -42,9 +43,9 @@ import { INDEX_DIR } from "@schlessera/brain-common/internal/index-location";
 import { CACHE_DIR } from "@schlessera/brain-common/internal/cache-location";
 
 /** Distinct reusable bases kept at once; each holds one index copy and one retained checkpoint. */
-export const PRIVATE_INDEX_CACHE_ENTRIES = 2;
+const PRIVATE_INDEX_CACHE_ENTRIES = 2;
 /** A base unused this long is dropped, releasing the checkpoint it pins. */
-export const PRIVATE_INDEX_CACHE_IDLE_MS = 30 * 60_000;
+const PRIVATE_INDEX_CACHE_IDLE_MS = 30 * 60_000;
 /** Changes to what the masked build produces from the same inputs bump this. */
 const BUILD_SEMANTICS = "brain-index-masked-v1";
 const BASE_PREFIX = "brain-private-index-base-";
@@ -56,7 +57,7 @@ const ASSET_EXTENSIONS = [".jpg", ".jpeg", ".png", ".pdf"];
  * index's scans skip hidden names), so the masked build sees them as empty,
  * and what turns write there cannot reach any build.
  */
-export const PRIVATE_INDEX_STATE_FOLDERS = [".brain", ".brain-ui"] as const;
+const PRIVATE_INDEX_STATE_FOLDERS = [".brain", ".brain-ui"] as const;
 
 /** Everything the masked build's output depends on besides the view's content. */
 export interface PrivateIndexIdentity {
@@ -96,7 +97,7 @@ export type PrivateIndexDiffer = (from: WorkerStartupView, to: WorkerStartupView
   Promise<{ candidates: AsyncIterable<NativeBrainDeltaCandidate>; completed: Promise<unknown> } | undefined>;
 
 /** The native send delta between two manager-acquired checkpoints. */
-export const nativePrivateIndexDiffer: PrivateIndexDiffer = async (from, to, signal) => {
+const nativePrivateIndexDiffer: PrivateIndexDiffer = async (from, to, signal) => {
   if (!isManagedWorkerStartupView(from) || !isManagedWorkerStartupView(to)) return undefined;
   const before = nativeWorkerStartupInput(from), after = nativeWorkerStartupInput(to);
   if (before.manager !== after.manager || before.checkpoint.sourceUuid !== after.checkpoint.sourceUuid) return undefined;
@@ -112,7 +113,6 @@ export type PrivateIndexChanges = { kind: "unchanged" } | { kind: "additions"; p
   /** `documents`: only Markdown or asset files changed, so the configuration and the masks it decides did not. */
   | { kind: "rebuild"; reason: string; documents?: true };
 
-const within = (path: string, folder: string) => path === folder || path.startsWith(`${folder}/`);
 
 /**
  * The folders a masked build of the view at `root` sees as empty: the turn's
@@ -121,7 +121,7 @@ const within = (path: string, folder: string) => path === folder || path.startsW
  */
 export function privateIndexBuildFolders(masked: readonly string[], root: string): string[] {
   const state = PRIVATE_INDEX_STATE_FOLDERS.filter(name => lstatSync(join(root, name), { throwIfNoEntry: false })?.isDirectory());
-  return [...new Set([...masked.filter(folder => !state.some(top => within(folder, top))), ...state])].sort();
+  return [...new Set([...masked.filter(folder => !state.some(top => isWithin(top, folder))), ...state])].sort();
 }
 
 /**
@@ -135,8 +135,8 @@ export function privateIndexInert(folders: readonly string[], roots?: { before: 
   const state = PRIVATE_INDEX_STATE_FOLDERS.filter(name => roots && [roots.before, roots.after].every(root => {
     try { return lstatSync(join(root, name)).isDirectory(); } catch { return false; }
   }));
-  return path => within(path, ".git") || within(path, INDEX_DIR) || within(path, CACHE_DIR) || folders.some(folder => within(path, folder))
-    || state.some(folder => path.startsWith(`${folder}/`));
+  return path => isWithin(".git", path) || isWithin(INDEX_DIR, path) || isWithin(CACHE_DIR, path) || folders.some(folder => isWithin(folder, path))
+    || state.some(folder => isWithin(folder, path, { includeRoot: false }));
 }
 
 /** A new file the incremental index adds without touching an existing row. */
@@ -256,7 +256,7 @@ async function copyFiles(from: string, to: string, names: readonly string[], mod
 function hiddenParent(maskPaths: readonly string[]): string | undefined {
   let parent: string;
   try { parent = realpathSync(tmpdir()); } catch { return undefined; }
-  return [`/tmp`, ...maskPaths].some(masked => within(parent, masked)) ? parent : undefined;
+  return [`/tmp`, ...maskPaths].some(masked => isWithin(masked, parent)) ? parent : undefined;
 }
 
 /** Bases a crashed server left behind: its process is gone, so nothing else owns them. */
@@ -273,7 +273,7 @@ function sweepOrphans(parent: string): void {
 }
 
 /** Runs the masked build over another view into another directory; how a base advances off the turn path. */
-export type PrivateIndexRunner = (view: WorkerStartupView, index: string, signal: AbortSignal) => {
+type PrivateIndexRunner = (view: WorkerStartupView, index: string, signal: AbortSignal) => {
   build(): Promise<{ ok: true } | { ok: false; detail: string }>;
   update(): Promise<{ ok: true; stdout: string } | { ok: false; detail: string }>;
 };
@@ -292,7 +292,7 @@ export type PrivateIndexOutcome = (
   readonly ms?: Readonly<Record<string, number>>;
 };
 
-export interface PrivateIndexCache {
+interface PrivateIndexCache {
   /**
    * Fill `index` (an empty turn-private directory) with an index of the
    * masked `startupView`, reusing the base for `identity` when it provably

@@ -1,11 +1,10 @@
 /** Core skill provenance follows installed paths, never package version equality. */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { readFileSync, realpathSync, readdirSync, statSync } from "fs";
 import { dirname, join, resolve, sep } from "path";
 import { packageRoot } from "../../package-version.js";
 
-function inside(path: string, root: string): boolean {
-  return path === root || path.startsWith(root + sep);
-}
+const INSTALL_RULE = { separator: sep } as const;
 
 function corePackage(dir: string): boolean {
   try {
@@ -26,7 +25,7 @@ export function selectCoreSkills(root: string, override?: string): { dir?: strin
   if (corePackage(local)) return { dir: join(local, "skills") };
   const running = realpathSync(packageRoot());
   // A source checkout can run its own package without installing it in node_modules.
-  if (inside(running, realpathSync(root)) && corePackage(running)) return { dir: join(running, "skills") };
+  if (isWithin(realpathSync(root), running, INSTALL_RULE) && corePackage(running)) return { dir: join(running, "skills") };
   return {
     warning: `Skills sync refused: no usable @schlessera/brain installation at ${local}; running CLI installation is ${running}. Run \`bun install\` in ${resolve(root)} and retry. No skills were linked, pruned or emitted.`,
   };
@@ -38,9 +37,9 @@ export function foreignCoreSkill(root: string, target: string): boolean {
   let dir = realTarget;
   while (dirname(dir) !== dir) {
     if (corePackage(dir)) {
-      if (!inside(realTarget, join(dir, "skills"))) return false;
+      if (!isWithin(join(dir, "skills"), realTarget, INSTALL_RULE)) return false;
       const selected = selectCoreSkills(root).dir;
-      return selected === undefined || !inside(realTarget, realpathSync(selected));
+      return selected === undefined || !isWithin(realpathSync(selected), realTarget, INSTALL_RULE);
     }
     dir = dirname(dir);
   }

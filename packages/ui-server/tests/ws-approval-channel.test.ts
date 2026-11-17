@@ -89,7 +89,6 @@ function setup() {
   const ws = fakeSocket();
   cleanup = () => {
     state.finish();
-    host.coordinator.reset();
     host.close();
     stream.close();
     db.close();

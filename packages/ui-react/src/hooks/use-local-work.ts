@@ -5,7 +5,7 @@ import type { LocalWorkStatus, WorkRestore } from "../lib/local-work.js";
 
 // A root without device-local storage keeps nothing and restores nothing.
 const NONE_KEPT = createStore<LocalWorkStatus>(() => ({ failed: false, pending: false }));
-const NOTHING_TO_RESTORE = createStore<WorkRestore>(() => ({ selection: null, focusId: null, scroll: null }));
+const NOTHING_TO_RESTORE = createStore<WorkRestore>(() => ({ selection: null, focusId: null, scroll: null, uploads: [] }));
 
 /** Whether the work context is being kept on this device (#1014). */
 export function useLocalWorkStatus<T>(selector: (state: LocalWorkStatus) => T): T {

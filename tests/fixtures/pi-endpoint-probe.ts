@@ -1,3 +1,5 @@
+import { spyOn } from "bun:test";
+import * as workers from "@schlessera/brain-ui-sdk/internal";
 import { startFixtureTurn } from "./worker-input-fixture.js";
 /** Real pi adapter in a network namespace; observe destinations without rewriting them. */
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -51,7 +53,17 @@ function response(): Response {
     { headers: { "content-type": "text/event-stream" } });
 }
 const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+  if (new URL(request.url).pathname === "/observe") {
+    const receipt = await request.json() as any;
+    if (receipt.kind === "nativeAuth") nativeAuth.push(receipt.value);
+    else if (receipt.kind === "attempt") attempts.push(receipt.value);
+    else if (receipt.kind === "synthetic") syntheticInferenceResponses++;
+    return Response.json({});
+  }
   const body = await request.json() as { model: string; messages?: unknown[]; input?: unknown[]; tools?: Array<{ name: string }> };
+  if (!oauth) attempts.push({ url: request.url, kind: "inference", model: body.model,
+    promptPresent: JSON.stringify(body.messages ?? body.input ?? []).includes("fixture prompt"),
+    authPresent: request.headers.has("authorization") || request.headers.has("x-api-key") });
   received.push({ url: request.url, model: body.model, promptPresent: JSON.stringify(body.messages ?? body.input ?? []).includes("fixture prompt"),
     tools: body.tools?.map((tool) => tool.name) ?? [] });
   if (new URL(request.url).pathname.endsWith("/responses")) {
@@ -60,16 +72,20 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
   return response();
 } });
 const configured = `http://127.0.0.1:${server.port}/configured/path`;
-// The native runtime now lives in the worker. Install this transport observer
-// as an ordinary project extension, before the configured ModelRuntime is built.
-const extensionDir = join(brainPath, ".pi/extensions");
-mkdirSync(extensionDir, { recursive: true });
-function installObserver() {
-  const settings = { oauth, provider, modelId, firstEndpoint, refreshedEndpoint,
-    configuredOrigin: server.url.origin, allowSeed };
-  writeFileSync(join(extensionDir, "endpoint-observer.ts"),
-    `import { installEndpointObserver } from ${JSON.stringify(join(import.meta.dir, "pi-endpoint-worker-observer.ts"))};
-export default function(pi) { installEndpointObserver(pi, ${JSON.stringify(settings)}); }`);
+// Install the lowest-request-method test double as a harness preload. It
+// neither registers a Pi extension nor changes the worker's mounts/limits.
+// API-key cases use unpatched transport; only native OAuth needs this mock.
+const observerPreload = join(import.meta.dir, "pi-endpoint-worker-observer.ts");
+const launchWorker = workers.launchAgentWorkerAsync;
+const observer = spyOn(workers, "launchAgentWorkerAsync").mockImplementation(input => launchWorker(oauth ? {
+  ...input, command: [input.command[0]!, "--preload", observerPreload, ...input.command.slice(1),
+    "--pi-endpoint-fixture=" + JSON.stringify({ oauth, provider, modelId, firstEndpoint, refreshedEndpoint,
+      configuredOrigin: server.url.origin, allowSeed })],
+} : input));
+if (scenario === "external-observer") {
+  const extensionDir = join(brainPath, ".pi/extensions");
+  mkdirSync(extensionDir, { recursive: true });
+  writeFileSync(join(extensionDir, "endpoint-observer.ts"), "export default function () {}\n");
 }
 
 function credential(endpoint: string, expired = false) {
@@ -87,13 +103,13 @@ writeFileSync(join(agentDir, "models.json"), JSON.stringify({ providers: {
   [provider]: { ...(noOverride ? {} : { baseUrl: endpoint }), ...(oauth ? {} : { apiKey: "fixture-bogus-key" }) },
 } }));
 
+const parentState = ["auth.json", "models.json", "settings.json"].map(name => readFileSync(join(agentDir, name), "utf8"));
 function backend(model = modelId): AgentBackend {
-  return createPiBackend({ brainPath, sessionDir, loadExtensions: true,
+  return createPiBackend({ brainPath, sessionDir, loadExtensions: scenario === "external-observer",
     profiles: [{ id: "fixture", label: "Fixture", vendor: provider, model, thinkingLevel: "off" }],
   });
 }
 async function turn(adapter: AgentBackend, autonomous = false, sessionId?: string) {
-  installObserver();
   const emitted: ServerMessage[] = [];
   frames.push(emitted);
   try {
@@ -101,14 +117,7 @@ async function turn(adapter: AgentBackend, autonomous = false, sessionId?: strin
       signal: AbortSignal.timeout(10_000),
       ...(autonomous ? { enforceAllowedTools: true, noGrantSurface: true,
         autonomous: { origin: "autonomous" as const, persistence: "none" as const, allowedTools: [], systemPromptAppend: "Fixture task." } } : {}),
-      bridge: { emit: (frame) => {
-        if (frame.type === "text_delta" && frame.text.startsWith("__pi_fixture_receipt__:")) {
-          const receipt = JSON.parse(frame.text.slice("__pi_fixture_receipt__:".length));
-          if (receipt.kind === "nativeAuth") nativeAuth.push(receipt.value);
-          else if (receipt.kind === "attempt") attempts.push(receipt.value);
-          else if (receipt.kind === "synthetic") syntheticInferenceResponses++;
-        } else emitted.push(frame);
-      }, requestPermission: async () => ({ behavior: "deny", message: "Fixture" }),
+      bridge: { emit: (frame) => emitted.push(frame), requestPermission: async () => ({ behavior: "deny", message: "Fixture" }),
         checkpointPermission: () => {}, activity: (event) => identities.push(event) },
     });
   } catch (error) { refusals.push((error as Error).message); }
@@ -158,6 +167,7 @@ try {
   console.log(JSON.stringify({ scenario, provider, modelId, configured, firstEndpoint, changedEndpoint, refreshedEndpoint,
     catalogEndpoint: catalog.baseUrl, nativeModelApi: catalog.api, nativeAuth, attempts, received, frames, refusals, identities,
     sessions, history, persisted, requestsBeforeRefusal, refreshedCredential, syntheticInferenceResponses,
+    parentStateUnchanged: parentState.every((bytes, i) => bytes === readFileSync(join(agentDir, ["auth.json", "models.json", "settings.json"][i]!), "utf8")),
     configuredInput: JSON.parse(readFileSync(join(agentDir, "models.json"), "utf8")).providers[provider]?.baseUrl ?? null,
   }));
-} finally { server.stop(true); }
+} finally { observer.mockRestore(); server.stop(true); }

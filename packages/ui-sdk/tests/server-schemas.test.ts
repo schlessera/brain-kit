@@ -16,12 +16,20 @@ import {
   serverMessageSchema,
 } from "../src/schemas.js";
 import { CONVERSATION_LIMITS, type ServerMessage } from "../src/protocol.js";
+import type { SafetyHistoryProjection } from "../src/safety.js";
 
 import { actionItem, thread } from "./inbox-fixtures.js";
 
 function parse(frame: unknown) {
   return parseServerMessage(JSON.stringify(frame));
 }
+
+const safetyIdentity = { sessionId: "s1", historyOwnerId: "ithaca", historyGeneration: "1" };
+const safetyProjection: SafetyHistoryProjection = {
+  session: safetyIdentity, evidenceRevision: "0", unresolvedCount: 0, earliestUnresolvedId: null,
+  pendingCount: 0, restriction: "restricted", reasons: ["coverage_unknown"],
+  coverage: { detectorVersion: 1, state: "unknown", epochs: [], exclusions: [] },
+};
 
 /** One valid example of every member of the union. */
 const SAMPLES: ServerMessage[] = [
@@ -81,6 +89,10 @@ const SAMPLES: ServerMessage[] = [
   },
   { type: "mask_request", requestId: "r1", imagePath: "a.png", sessionId: "s1" },
   {
+    type: "markup_request", requestId: "markup-r1", imagePath: "photos/raft-at-ithaca.jpg", instruction: "mark what should move",
+    width: 3024, height: 4032, maxBytes: 52_428_800, uploadPath: "/markup/markup-r1", sourcePath: "/markup/markup-r1/source", sessionId: "s1",
+  },
+  {
     type: "activity_snapshot",
     view: "run",
     runId: "r1",
@@ -127,6 +139,20 @@ const SAMPLES: ServerMessage[] = [
   { type: "handoff_draft", handoffId: "h-ithaca-01-p1", state: "ready", text: "Odysseus is sailing home.", runId: "r1", costUsd: 0.03 },
   { type: "handoff_receipt", handoffId: "h-ithaca-01", state: "created", sessionId: "s2" },
   { type: "tool_resolution", toolUseId: "t1", outcome: "expired", sessionId: "s1", turnId: "turn-1", reason: "Turn timed out" },
+  { type: "chat_retired", sessionId: "s1", historyOwnerIds: ["ithaca"], generation: 2 },
+  { type: "attachment_read", sessionId: "s1", read: {
+    fileId: "8e9a1c52-3f4b-4d6e-9a7b-1c2d3e4f5a6b", turnId: "turn-1", outcome: "partial",
+    scope: { pages: [1, 20], pageCount: 48 }, at: 1_783_814_400_000,
+  } },
+  { type: "safety_history", requestId: "history-ithaca", page: {
+    version: 1, identity: safetyIdentity, snapshotId: "snapshot-ithaca", cursor: null, highWater: "0",
+    projection: safetyProjection, records: [], nextCursor: null, snapshotComplete: true, detailPruned: false,
+  } },
+  { type: "safety_update", update: {
+    version: 1, identity: safetyIdentity, fromRevision: "0", toRevision: "1",
+    projection: { ...safetyProjection, evidenceRevision: "1" }, records: [],
+  } },
+  { type: "safety_unavailable", requestId: "history-ithaca", version: 1, reason: "gap" },
   {
     type: "session_queue",
     sessionId: "s1",
@@ -144,11 +170,24 @@ const SAMPLES: ServerMessage[] = [
     limits: { ...CONVERSATION_LIMITS },
     resync: { work: 1, outputs: 1 },
   },
+  {
+    type: "live_persona",
+    livePersona: {
+      selected: "ithaca-steward", selectedMissing: false, selectedInvalid: false,
+      persona: { id: "ithaca-steward", name: "Ithaca steward", voices: { "fake-live": "Calypso" }, instructionBytes: 25, revision: "a".repeat(64) },
+      personaRef: { id: "ithaca-steward", revision: "a".repeat(64) },
+      providers: { "fake-live": { voice: "Calypso", voiceSource: "persona", maxInstructionBytes: 2000, overLimit: false } },
+    },
+  },
   { type: "conversation_output", conversationId: "c1", epoch: 1, outputId: "o1", generated: "Twelve oxen.", playback: "played", playedSamples: { start: 0, end: 480 } },
   { type: "conversation_closed", conversationId: "c1", epoch: 1, reason: "stopped" },
   { type: "dialogue_history", requestId: "history-mast", ownerId: "ithaca", sessionId: "s1", generation: 1, through: 1, coverage: "complete",
     records: [{sequence:1,identity:"mast-recognition",evidence:{kind:"voice",conversationId:"c1",epoch:1,providerId:"gpt-live",event:{kind:"unassigned_input_fragment",sequence:0,text:"The mast is ready.",timing:{kind:"unavailable"},finalization:"unknown"}}}] },
   { type: "conversation_event", conversationId: "c1", epoch: 1, event: { kind: "interrupted", outputId: "o1" } },
+  // #3729: retained barge-in and the operator's end.
+  { type: "dialogue_history", ownerId: "ithaca", sessionId: "s1", generation: 1, through: 3, coverage: "complete",
+    records: [{sequence:2,identity:"raft-barge-in",evidence:{kind:"voice_interruption",conversationId:"c1",epoch:1,providerId:"gemini-live",outputId:"o1"}},
+      {sequence:3,identity:"raft-end",evidence:{kind:"voice_end",conversationId:"c1",epoch:1,providerId:"gemini-live",startedAt:1_783_846_800_000,endedAt:1_783_846_872_000}}] },
   {
     type: "conversation_work", conversationId: "c1", epoch: 1, utteranceId: "u1", requestId: "r1", state: "queued",
     delivery: "pending", recognized: "count the oxen", submitted: "Count the oxen",
@@ -163,6 +202,9 @@ const SAMPLES: ServerMessage[] = [
         warnUsd: 100, blockUsd: 200, blockTokens: 512_000_000, warning: false, blocked: false }] } },
   { type: "scope_decision_receipt", sessionId: "s1", turnId: "turn-1", eventId: "cap-loom", submissionId: "athena", state: "accepted" },
   { type: "pong", probeId: "probe-1" },
+  { type: "live_settings", liveDefault: { saved: "gpt-live", savedUsable: true, effective: "gpt-live", source: "saved" },
+    conversationProfiles: [{ providerId: "gpt-live", capabilities: { nonblockingWork: "supported", manualEndpoint: "supported", finalTranscript: "unproven", remoteOutputCancelAck: "unproven", exactPermissionSpeech: "unproven", echoIsolatedInput: "unproven", outputWordAlignment: "unproven" },
+      disclosure: { voiceService: "Fictional GPT-Live of Ithaca", destinations: ["Microphone audio goes to the fictional voice service."] } }] },
 ];
 
 // Inspect input frame discriminators, including object → transform pipes.
@@ -262,6 +304,7 @@ describe("the additive contract", () => {
         followUps: [{ id: "fu-1", text: "Ask Aeolus about the winds", queuedAt: 1, label }],
       });
       expect(result.ok).toBe(true);
+      expect(result.ok && result.message.type).toBe("session_queue");
       if (result.ok && result.message.type === "session_queue") {
         expect(result.message.followUps).toHaveLength(1);
         expect(result.message.followUps[0]!.label).toBeUndefined();
@@ -325,6 +368,12 @@ describe("rejections", () => {
     ).toBe(false);
   });
 
+  test("a retained end cannot precede its start (#3729)", () => {
+    const end = (startedAt: number, endedAt: number) => parse({ type: "dialogue_history", ownerId: "ithaca", generation: 1, through: 1, coverage: "complete",
+      records: [{ sequence: 1, identity: "raft-end", evidence: { kind: "voice_end", conversationId: "c1", epoch: 1, providerId: "gemini-live", startedAt, endedAt } }] });
+    expect(end(1_783_846_800_000, 1_783_846_800_000).ok).toBe(true);
+    expect(end(1_783_846_872_000, 1_783_846_800_000).ok).toBe(false);
+  });
   test("malformed JSON and oversized frames are refused, not thrown", () => {
     expect(parseServerMessage("{not json").ok).toBe(false);
     const huge = "x".repeat(2_000_001);
@@ -373,4 +422,33 @@ test("policy approval and live/replay receipts survive the validated additive bo
   }
   expect(parse({ ...frames[1], policyChange: { ...policyChange, state: "approve_by_voice" } }).ok).toBe(false);
   expect(parse({ ...frames[1], policyChange: { ...policyChange, baseHash: undefined } }).ok).toBe(false);
+});
+
+describe("live-service roster (#3616)", () => {
+  const profile = (providerId: string) => ({ providerId, capabilities: { nonblockingWork: "supported", manualEndpoint: "supported", finalTranscript: "unproven", remoteOutputCancelAck: "unproven", exactPermissionSpeech: "unproven", echoIsolatedInput: "unproven", outputWordAlignment: "unproven" },
+    disclosure: { voiceService: `Fictional ${providerId}`, destinations: ["Microphone audio goes to the fictional voice service."] } });
+  const hello = { type: "server_hello", protocolRev: 5, capabilities: { liveConversation: true } };
+  test("a hello carries the roster and the resolution", () => {
+    const frame = { ...hello, conversationProfiles: [profile("gemini-live"), profile("gpt-live")], liveDefault: { saved: null, savedUsable: false, effective: null, source: "none" } };
+    const result = parse(frame);
+    expect(result.ok && result.message).toEqual(frame as never);
+  });
+  test("a malformed roster or resolution is dropped without losing the hello", () => {
+    for (const bad of [
+      { conversationProfiles: [profile("gpt-live"), profile("gpt-live")] },
+      { conversationProfiles: [{ providerId: "gpt-live" }] },
+      { liveDefault: { saved: null, savedUsable: false, effective: null, source: "change" } },
+      { liveDefault: { saved: 7, savedUsable: false, effective: null, source: "none" } },
+    ]) {
+      const result = parse({ ...hello, ...bad });
+      expect(result.ok).toBe(true);
+      if (result.ok && result.message.type === "server_hello") {
+        expect(result.message.conversationProfiles).toBeUndefined();
+        expect(result.message.liveDefault).toBeUndefined();
+      }
+    }
+  });
+  test("live_settings with a malformed resolution is refused as a frame", () => {
+    expect(parse({ type: "live_settings", liveDefault: { saved: null, savedUsable: false, effective: null, source: "change" }, conversationProfiles: [] }).ok).toBe(false);
+  });
 });

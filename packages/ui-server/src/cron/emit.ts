@@ -5,24 +5,26 @@ import {
 } from "@schlessera/brain-ui-sdk/server";
 
 /** One cron manifest entry in `brain module list --json`. */
-export interface BrainModuleListCronEntry {
+interface BrainModuleListCronEntry {
   name: string;
   schedule: string;
   command: string;
 }
 
 /** One enabled module in the core CLI's module-list payload. */
-export interface BrainModuleListEnabledModule {
+interface BrainModuleListEnabledModule {
   name: string;
   key: string;
   description: string | null;
   types: string[];
   commands: string[];
   cron: BrainModuleListCronEntry[];
+  /** Repositories the module's config asks the host to fetch for its jobs (#3380); absent from older CLIs. */
+  repositories?: string[];
 }
 
 /** One disabled-but-available module in the core CLI's module-list payload. */
-export interface BrainModuleListAvailableModule {
+interface BrainModuleListAvailableModule {
   key: string;
   description: string | null;
   enabled: false;
@@ -54,6 +56,8 @@ export interface EmitCrontabOptions {
    * Default true; BRAIN_UI_CRON_HYGIENE=off turns it off.
    */
   hygiene?: boolean;
+  /** Daily credentialed propagation prepass, off until the operator opts in. Core also requires its owner opt-in. */
+  propagation?: boolean;
 }
 
 /**
@@ -130,6 +134,7 @@ export function emitCrontab(options: EmitCrontabOptions): string {
     legacyScraperPresent,
     subprocessEnvExtraNames = [],
     hygiene = true,
+    propagation = false,
   } = options;
 
   assertSingleLine("wrapperCommand", wrapperCommand);
@@ -165,6 +170,9 @@ export function emitCrontab(options: EmitCrontabOptions): string {
     // repository code, so it goes through the wrapper and is never trusted.
     ...(hygiene
       ? [`0 6 * * 1 ${user} cd / && ${wrapper} hygiene -- brain hygiene reconcile 2>&1 | logger -t brain-hygiene`]
+      : []),
+    ...(propagation
+      ? [`45 5 * * * ${user} cd / && ${wrapper} hygiene-propagation -- brain hygiene propagation --json 2>&1 | logger -t brain-hygiene-propagation`]
       : []),
     "",
     "# Module jobs (from enabled modules' cron manifests, when exposed)",
@@ -309,6 +317,8 @@ export const CRON_CONTROL_ENV_NAMES: readonly string[] = [
   "BRAIN_UI_EXEC_KILLER",
   "BRAIN_UI_MAINTENANCE_TEMP_BYTES",
   "BRAIN_UI_MAINTENANCE_TEMP_BUDGET_BYTES",
+  // The operator's module repository allow-list (#3380): the runner reads it, no job receives it.
+  "BRAIN_UI_MODULE_REPOSITORIES",
 ];
 
 export function emitEnvironment(

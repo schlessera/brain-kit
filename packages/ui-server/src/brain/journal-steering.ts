@@ -1,4 +1,5 @@
 /** Data-only inventory of known steering surfaces and retained local references. */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { steeringReferences, type SteeringReference } from "./journal-reference-roles.js";
 import { posix } from "node:path";
 import { INDEX_DB_PATH } from "@schlessera/brain-common/internal/index-location";
@@ -69,7 +70,7 @@ function* steeringInventory(snapshots: readonly JournalSnapshot[], lookup?: (pat
     for (const resolved of candidates) {
       // Scope checks precede lookup, including the canonical root/workspaces
       // distinction. Readers never receive a traversal/out-of-scope candidate.
-      if (resolved.startsWith("../") || resolved === ".." || (from.scope ? !resolved.startsWith(`${from.scope}/`) : resolved.startsWith("workspaces/"))) continue;
+      if (resolved.startsWith("../") || resolved === ".." || (from.scope ? !isWithin(from.scope, resolved, { includeRoot: false }) : resolved.startsWith("workspaces/"))) continue;
       if (policy.test(resolved) || disposable.has(resolved)) return;
       const entry = entries.get(resolved) ?? lookup?.(resolved);
       if (!entry || entry.scope !== from.scope) continue;

@@ -6,6 +6,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createNativeBrainLeaseManager } from "../src/brain/native-brain-leases.js";
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
+import { createNativeJournalObserver } from "../src/brain/native-journal-observer.js";
+import { referenceWorktreeJournalManager, type ReferenceWorktreeCheckpointLedger } from "../src/brain/reference-worktree-journal.js";
 
 const ID = "11111111-1111-4111-8111-111111111790", OTHER = "22222222-2222-4222-8222-222222221790";
 async function fixture() {
@@ -19,15 +21,15 @@ async function fixture() {
 
 test("native UUID ownership is durable before RPC and a second live generation cannot release its pins", async () => {
   const f = await fixture(), checkpoint = f.native.client.checkpoint;
-  let beforeRpc = false;
+  let beforeRpc: unknown;
   f.native.client.checkpoint = async (...args) => {
-    beforeRpc = (f.state.query("SELECT state FROM native_root_leases WHERE id=?").get(ID) as { state: string }).state === "creating";
+    beforeRpc = f.state.query("SELECT state FROM native_root_leases WHERE id=?").get(ID);
     return checkpoint(...args);
   };
   const second = await createNativeBrainLeaseManager(f.native.client, f.options);
   try {
     await f.owner.client.checkpoint(ID);
-    expect(beforeRpc, "NATIVE_LEASE_DURABLE_BEFORE_CREATION_RPC").toBe(true);
+    expect(beforeRpc, "NATIVE_LEASE_DURABLE_BEFORE_CREATION_RPC").toEqual({ state: "creating" });
     await expectRejection(second.client.release(ID), "another live");
     await expectRejection(second.client.checkpoint(ID), "another live");
     expect(await second.recoverDeadOwners()).toMatchObject({ released: [], retainedLive: 1 });
@@ -140,7 +142,8 @@ test("close drains cancelled pending creation before releasing its recorded UUID
     await started; abort.abort(Error("Cancelled admission"));
     let settled = false;
     const closing = f.owner.close().then(() => { settled = true; });
-    await Promise.resolve();
+    // A close that skipped the drain would already have committed its deletion intent.
+    await f.owner.writer.idle();
     expect(settled, "NATIVE_CLOSE_WAITS_FOR_UNKNOWN_CREATION").toBe(false);
     expect(events, "NATIVE_CLOSE_DRAINS_CREATION_BEFORE_RELEASE").toEqual(["creating"]);
     expect(f.state.query("SELECT state FROM native_root_leases WHERE id=?").get(ID)).toEqual({ state: "creating" });
@@ -284,10 +287,13 @@ test("settling a failed release never overrides a newer release of the same iden
     records.set(id, value); return value as never;
   };
   f.native.client.listPoolRecovery = async () => ({ records: [...records.values()] as never, next: null });
-  let attempts = 0, commit: () => void = () => {};
+  let attempts = 0, commit: () => void = () => {}, newer: () => void = () => {};
   const committed = new Promise<void>(resolve => { commit = resolve; });
+  const newerStarted = new Promise<void>(resolve => { newer = resolve; });
   f.native.client.poolRelease = async id => {
-    if (++attempts === 1) { await Bun.sleep(20); throw new Error("the first reply was lost"); }
+    // The first reply is lost only once the newer release of the same identity has reached the pool.
+    if (++attempts === 1) { await newerStarted; throw new Error("the first reply was lost"); }
+    newer();
     await committed;
     records.delete(id);
     return { id, purpose: "source", from: null, allowanceBytes: 4096, state: "reclaimed", root: null, path: null, ownerBytes: 0, reason: null, view: null, access: null } as never;
@@ -302,6 +308,40 @@ test("settling a failed release never overrides a newer release of the same iden
   } finally { await f.close(); }
 });
 
+test("a failed release's settlement yields to a newer release that starts while the pool answers (#2431)", async () => {
+  const f = await fixture();
+  const SOURCE = "33333333-3333-4333-8333-333333332433";
+  const records = new Map<string, Record<string, unknown>>();
+  f.native.client.poolCreate = async (id, purpose, from) => {
+    const value = { id, purpose, from, allowanceBytes: 4096, state: "writable", root: null, path: null, ownerBytes: null, reason: null, view: null, access: null };
+    records.set(id, value); return value as never;
+  };
+  let listing: () => void = () => {}, newer: () => void = () => {}, commit: () => void = () => {};
+  const listed = new Promise<void>(resolve => { listing = resolve; });
+  const newerStarted = new Promise<void>(resolve => { newer = resolve; });
+  const committed = new Promise<void>(resolve => { commit = resolve; });
+  // The pool still reports the root writable, but only answers once the newer release has reached it.
+  f.native.client.listPoolRecovery = async () => { listing(); await newerStarted; return { records: [...records.values()] as never, next: null }; };
+  let attempts = 0;
+  f.native.client.poolRelease = async id => {
+    if (++attempts === 1) throw new Error("the first reply was lost");
+    newer();
+    await committed;
+    records.delete(id);
+    return { id, purpose: "source", from: null, allowanceBytes: 4096, state: "reclaimed", root: null, path: null, ownerBytes: 0, reason: null, view: null, access: null } as never;
+  };
+  try {
+    await f.owner.client.poolCreate(SOURCE, "source", null, 4096);
+    const first = f.owner.client.poolRelease(SOURCE).then(() => null, error => error);
+    await listed;
+    const second = f.owner.client.poolRelease(SOURCE);
+    expect((await first)?.message).toBe("the first reply was lost");
+    commit();
+    expect((await second).state).toBe("reclaimed");
+    expect(f.state.query("SELECT state FROM native_pool_leases WHERE id=?").get(SOURCE), "REFERENCE_POOL_SETTLE_RECHECKS_AFTER_THE_POOL_ANSWERS").toBeNull();
+  } finally { commit(); newer(); await f.close(); }
+});
+
 test("pool leases recorded before checkpoints migrate without losing a row", async () => {
   const root = mkdtempSync(join(tmpdir(), "odysseus-native-lease-migrate-")), brain = join(root, "brain"), statePath = join(root, "native-leases.sqlite"); mkdirSync(brain);
   const native = createNativeJournalFixture(brain, root), ready = await native.client.ready();
@@ -314,5 +354,178 @@ test("pool leases recorded before checkpoints migrate without losing a row", asy
   try {
     expect(state.query("SELECT * FROM native_pool_leases").all(), "REFERENCE_POOL_LEASES_SURVIVE_MIGRATION").toEqual([{ id: ID, purpose: "source", from_id: null, allowance: 4096, state: "held" }]);
     expect(() => state.query("INSERT INTO native_pool_leases VALUES (?,'checkpoint',?,4096,'creating')").run(OTHER, ID), "REFERENCE_POOL_LEASES_ACCEPT_CHECKPOINTS").not.toThrow();
+  } finally { state.close(); await owner.close().catch(() => {}); await native.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+/**
+ * One held worktree under the real lease owner, observed through the real
+ * worktree journal manager and observer (#3528). The raw pool records every
+ * request it receives; by default it creates and deletes nothing.
+ */
+async function worktreeObservation() {
+  const f = await fixture(), calls: string[] = [];
+  const SOURCE = "33333333-3333-4333-8333-333333333528", WORKTREE = "44444444-4444-4444-8444-444444443528";
+  const record = (id: string, purpose: string, from: string | null, state: string) =>
+    ({ id, purpose, from, allowanceBytes: 4096, state, root: null, path: null, ownerBytes: null, reason: null, view: null, access: null }) as never;
+  f.native.client.poolCreate = async (id, purpose, from) => record(id, purpose, from, "writable");
+  f.native.client.poolCheckpoint = async id => { calls.push(`checkpoint:${id}`); throw new Error("the pool created no checkpoint"); };
+  f.native.client.poolRelease = async id => { calls.push(`release:${id}`); return record(id, "checkpoint", WORKTREE, "reclaimed"); };
+  await f.owner.client.poolCreate(SOURCE, "source", null, 4096);
+  await f.owner.client.poolCreate(WORKTREE, "worktree", SOURCE, 4096);
+  const recorded = new Set<string>();
+  const ledger: ReferenceWorktreeCheckpointLedger = { record: id => { recorded.add(id); }, forget: id => { recorded.delete(id); } };
+  const observer = createNativeJournalObserver(referenceWorktreeJournalManager(f.owner.client, WORKTREE, ledger));
+  const checkpointLeases = () => f.state.query("SELECT id,state FROM native_pool_leases WHERE purpose='checkpoint'").all();
+  return { ...f, calls, WORKTREE, ledger, recorded, observer, checkpointLeases };
+}
+const deferred = () => { let resolve!: () => void; const promise = new Promise<void>(done => { resolve = done; }); return { promise, resolve }; };
+const abortable = (signal?: AbortSignal) => new Promise<never>((_, reject) => {
+  if (signal?.aborted) reject(signal.reason); else signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+});
+
+test("a worktree observation aborted while its checkpoint is being recorded closes with nothing retained (#3528)", async () => {
+  const w = await worktreeObservation(), entered = deferred(), resume = deferred();
+  let id = "";
+  w.ledger.record = async checkpointId => { id = checkpointId; w.recorded.add(checkpointId); entered.resolve(); await resume.promise; };
+  try {
+    const controller = new AbortController(), reason = new Error("the turn was cancelled");
+    const initialized = w.observer.initialize(controller.signal).then(() => null, error => error);
+    await entered.promise;
+    controller.abort(reason); resume.resolve();
+    expect(await initialized, "WORKTREE_LEDGER_WAIT_ABORT_REFUSES_INITIALIZATION").toBe(reason);
+    await w.observer.close();
+    expect(w.recorded.size, "WORKTREE_LEDGER_WAIT_ABORT_FORGETS_ITS_RECORD").toBe(0);
+    expect(w.calls, "WORKTREE_LEDGER_WAIT_ABORT_ASKS_THE_POOL_NOTHING").toEqual([]);
+    expect(w.checkpointLeases(), "WORKTREE_LEDGER_WAIT_ABORT_RECORDS_NO_LEASE").toEqual([]);
+    // The acknowledgment is spent: the identity is again one no lease covers.
+    await expectRejection(w.owner.client.poolRelease(id), "no recorded app lease", "WORKTREE_REFUSED_CHECKPOINT_ACKNOWLEDGED_ONCE");
+    await expectRejection(w.owner.client.poolRelease(OTHER), "no recorded app lease", "WORKTREE_UNLEASED_ROOT_STAYS_UNDELETABLE");
+    expect(w.calls).toEqual([]);
+  } finally { resume.resolve(); await w.close(); }
+});
+
+test("a worktree observation aborted while the owner settles the worktree's release closes with nothing retained (#3528)", async () => {
+  const w = await worktreeObservation(), listing = deferred();
+  // An interrupted release of the worktree makes the owner ask the pool before recording the checkpoint's lease.
+  w.state.query("UPDATE native_pool_leases SET state='releasing' WHERE id=?").run(w.WORKTREE);
+  w.native.client.listPoolRecovery = async (_after, signal) => { listing.resolve(); return abortable(signal); };
+  try {
+    const controller = new AbortController(), reason = new Error("the turn was cancelled");
+    const initialized = w.observer.initialize(controller.signal).then(() => null, error => error);
+    await listing.promise;
+    controller.abort(reason);
+    expect(await initialized, "WORKTREE_SETTLE_WAIT_ABORT_REFUSES_INITIALIZATION").toBe(reason);
+    await w.observer.close();
+    expect(w.recorded.size, "WORKTREE_SETTLE_WAIT_ABORT_FORGETS_ITS_RECORD").toBe(0);
+    expect(w.calls, "WORKTREE_SETTLE_WAIT_ABORT_ASKS_THE_POOL_NOTHING").toEqual([]);
+    expect(w.checkpointLeases(), "WORKTREE_SETTLE_WAIT_ABORT_RECORDS_NO_LEASE").toEqual([]);
+    expect(w.state.query("SELECT state FROM native_pool_leases WHERE id=?").get(w.WORKTREE), "WORKTREE_SETTLE_WAIT_ABORT_KEEPS_THE_RELEASE_INTENT").toEqual({ state: "releasing" });
+  } finally { await w.close(); }
+});
+
+test("a worktree checkpoint ledger record that fails asks the pool nothing and leaves nothing retained (#3528)", async () => {
+  const w = await worktreeObservation();
+  w.ledger.record = async id => { w.recorded.add(id); throw new Error("the ledger write was lost"); };
+  try {
+    await expectRejection(w.observer.initialize(), "the ledger write was lost");
+    await w.observer.close();
+    expect(w.recorded.size, "WORKTREE_LEDGER_FAILURE_FORGETS_ITS_RECORD").toBe(0);
+    expect(w.calls, "WORKTREE_LEDGER_FAILURE_ASKS_THE_POOL_NOTHING").toEqual([]);
+  } finally { await w.close(); }
+});
+
+test("a worktree checkpoint aborted after its lease is recorded keeps retryable cleanup ownership (#3528)", async () => {
+  const w = await worktreeObservation(), creating = deferred();
+  w.native.client.poolCheckpoint = async (id, _from, signal) => { w.calls.push(`checkpoint:${id}`); creating.resolve(); return abortable(signal); };
+  w.native.client.listPoolRecovery = async () => ({ records: [], next: null });
+  let failRelease = true;
+  w.native.client.poolRelease = async id => {
+    w.calls.push(`release:${id}`);
+    if (failRelease) throw new Error("the manager connection dropped");
+    return { id, purpose: "checkpoint", from: w.WORKTREE, allowanceBytes: 4096, state: "reclaimed", root: null, path: null, ownerBytes: 0, reason: null, view: null, access: null } as never;
+  };
+  try {
+    const controller = new AbortController(), reason = new Error("the turn was cancelled");
+    const initialized = w.observer.initialize(controller.signal).then(() => null, error => error);
+    await creating.promise;
+    controller.abort(reason);
+    expect(await initialized).toBe(reason);
+    await expectRejection(w.observer.close(), "remain retained after shutdown", "WORKTREE_LEASED_CHECKPOINT_STAYS_RETAINED");
+    const [id] = [...w.recorded];
+    expect(w.checkpointLeases(), "WORKTREE_LEASED_CHECKPOINT_KEEPS_ITS_LEASE").toEqual([{ id, state: "releasing" }]);
+    expect(w.calls, "WORKTREE_LEASED_CHECKPOINT_RELEASE_REACHES_THE_POOL").toEqual([`checkpoint:${id}`, `release:${id}`, `release:${id}`]);
+    failRelease = false;
+    expect((await w.owner.client.poolRelease(id)).state, "WORKTREE_LEASED_CHECKPOINT_RELEASE_RETRIES").toBe("reclaimed");
+    expect(w.checkpointLeases()).toEqual([]);
+  } finally { await w.close(); }
+});
+
+/** A manager double that records turn-tree calls (#2911); `refuse` makes the next release fail, as a live reader does. */
+function treeManager(f: Awaited<ReturnType<typeof fixture>>) {
+  const calls: string[] = [], before: unknown[] = [];
+  let refuse: string | undefined;
+  f.native.client.prepareTurnTree = async (id, allowanceBytes) => {
+    before.push(f.state.query("SELECT state,kind,stage_allowance FROM native_root_leases WHERE id=?").get(id));
+    calls.push(`prepare ${id}`);
+    return { id, path: join(f.root, ".brain-native", "trees", id), allowanceBytes };
+  };
+  f.native.client.releaseTurnTree = async id => {
+    calls.push(`release ${id}`);
+    if (refuse) { const message = refuse; refuse = undefined; throw Error(message); }
+    return { id, state: "deleted" as const };
+  };
+  return { calls, before, refuseNextRelease(message: string) { refuse = message; } };
+}
+
+test("turn trees are durable leases before RPC; only their owner, or recovery after its death, releases them", async () => {
+  const f = await fixture(), trees = treeManager(f);
+  const second = await createNativeBrainLeaseManager(f.native.client, f.options);
+  try {
+    expect(await f.owner.client.prepareTurnTree(ID, 8192)).toMatchObject({ id: ID, allowanceBytes: 8192 });
+    expect(trees.before, "TREE_LEASE_DURABLE_BEFORE_CREATION_RPC").toEqual([{ state: "creating", kind: "tree", stage_allowance: 8192 }]);
+    expect(f.state.query("SELECT state FROM native_root_leases WHERE id=?").get(ID)).toEqual({ state: "sealed" });
+    await expectRejection(second.client.releaseTurnTree(ID), "another live");
+    await expectRejection(second.client.prepareTurnTree(ID, 8192), "another owner");
+    expect(await second.recoverDeadOwners(), "LIVE_OWNER_KEEPS_ITS_TREE").toMatchObject({ released: [], retainedLive: 1 });
+    expect(trees.calls.filter(call => call.startsWith("release"))).toEqual([]);
+    // The owner's process is gone: its tree is abandoned and recovered once.
+    f.state.query("UPDATE native_root_leases SET owner_start=owner_start||'-reused' WHERE id=?").run(ID);
+    trees.refuseNextRelease("A worker still mounts this turn tree");
+    expect(await second.recoverDeadOwners(), "A_REFUSED_RELEASE_IS_RETAINED").toMatchObject({ released: [], unknown: [ID] });
+    expect(f.state.query("SELECT state FROM native_root_leases WHERE id=?").get(ID)).toEqual({ state: "deleting" });
+    expect(await second.recoverDeadOwners(), "DEAD_OWNER_TREE_RECOVERED").toMatchObject({ released: [ID], unknown: [] });
+    expect(f.state.query("SELECT count(*) AS n FROM native_root_leases").get()).toEqual({ n: 0 });
+    // A wrong path in the reply is never accepted as this lease's tree.
+    f.native.client.prepareTurnTree = async (id, allowanceBytes) => ({ id, path: join(f.root, "brain", id), allowanceBytes });
+    await expectRejection(f.owner.client.prepareTurnTree(OTHER, 8192), "does not match");
+    await expectRejection(f.owner.client.releaseTurnTree("33333333-3333-4333-8333-333333331790"), "no recorded lease");
+  } finally { await second.close(); await f.close(); }
+});
+
+test("close releases this owner's turn trees", async () => {
+  const f = await fixture(), trees = treeManager(f);
+  try {
+    await f.owner.client.prepareTurnTree(ID, 4096);
+    await f.owner.close();
+    expect(trees.calls, "CLOSE_RELEASES_OWNED_TREES").toEqual([`prepare ${ID}`, `release ${ID}`]);
+    expect(f.state.query("SELECT count(*) AS n FROM native_root_leases").get()).toEqual({ n: 0 });
+  } finally { await f.close(); }
+});
+
+test("root leases recorded before turn trees migrate without losing a row", async () => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-native-lease-migrate-")), brain = join(root, "brain"), statePath = join(root, "native-leases.sqlite"); mkdirSync(brain);
+  const native = createNativeJournalFixture(brain, root), ready = await native.client.ready();
+  const old = new Database(statePath);
+  old.exec(`CREATE TABLE native_root_leases (id TEXT PRIMARY KEY,owner_pid INTEGER NOT NULL,owner_start TEXT NOT NULL,owner_generation TEXT NOT NULL,owner_boot TEXT NOT NULL,owner_pid_namespace TEXT NOT NULL,state TEXT NOT NULL CHECK(state IN ('creating','sealed','deleting')),kind TEXT NOT NULL DEFAULT 'checkpoint' CHECK(kind IN ('checkpoint','stage')),checkpoint_uuid TEXT,stage_lower_id TEXT,stage_allowance INTEGER);
+    INSERT INTO native_root_leases VALUES ('${ID}',1,'1','old','previous-boot','1','sealed','stage','${"a".repeat(32)}','${OTHER}',4096);`);
+  old.close(); chmodSync(statePath, 0o600);
+  native.client.releaseStage = async id => ({ id, state: "deleted" as const });
+  const owner = await createNativeBrainLeaseManager(native.client, { statePath, brainPath: brain, fsid: ready.fsid, brainUuid: ready.brainUuid });
+  const state = new Database(statePath);
+  try {
+    expect(state.query("SELECT id,kind,stage_lower_id,stage_allowance FROM native_root_leases").all(), "ROOT_LEASES_SURVIVE_MIGRATION")
+      .toEqual([{ id: ID, kind: "stage", stage_lower_id: OTHER, stage_allowance: 4096 }]);
+    expect(() => state.query("INSERT INTO native_root_leases(id,owner_pid,owner_start,owner_generation,owner_boot,owner_pid_namespace,state,kind) VALUES (?,1,'1','g','b','1','creating','tree')").run(OTHER),
+      "ROOT_LEASES_ACCEPT_TREES").not.toThrow();
   } finally { state.close(); await owner.close().catch(() => {}); await native.close(); rmSync(root, { recursive: true, force: true }); }
 });

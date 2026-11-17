@@ -210,9 +210,10 @@ test("share submission does not wait on the app loop and settles after earlier w
     let settled = false;
     const started = shares.start(f.principal.id, "odysseus-turn", undefined, undefined, () => true).then(() => { settled = true; });
     expect(performance.now() - at, "INBOX_SHARE_SUBMISSION_NEVER_BLOCKS_APP_LOOP").toBeLessThan(100);
-    await Bun.sleep(20);
-    expect(settled, "INBOX_SHARE_WAITS_FOR_EARLIER_COMMITS").toBe(false);
-    await slow; await started;
+    // The share's commit is queued on the write worker behind the hold, whose
+    // replies arrive in order: the share is still waiting when the hold answers.
+    expect(await slow.then(() => settled), "INBOX_SHARE_WAITS_FOR_EARLIER_COMMITS").toBe(false);
+    await started;
   } finally { await f.close(); }
 });
 

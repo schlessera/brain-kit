@@ -50,7 +50,7 @@ export interface TestAppOptions {
   /** Non-config app dependencies or display options needed by the suite. */
   appOptions?: Omit<CreateAppOptions, "config" | "dbPath">;
   /** Runs against the empty brain root before the app boots: a suite that needs a fake `brain` CLI installs it here. */
-  prepare?: (brainPath: string) => void;
+  prepare?: (brainPath: string, dbPath: string) => void;
 }
 
 /** A booted app and the lifecycle helpers an app-level test suite uses. */
@@ -118,7 +118,7 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
 
   mkdirSync(brainPath, { recursive: true });
   mkdirSync(piAgentDir, { recursive: true });
-  options.prepare?.(brainPath);
+  options.prepare?.(brainPath, dbPath);
   process.env.AUTH_MODE = "none";
   process.env.HOST = "127.0.0.1";
   process.env.NODE_ENV = "test";

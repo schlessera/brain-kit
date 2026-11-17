@@ -12,14 +12,15 @@ import { createNativeBrainManagerClient } from "@schlessera/brain-ui-sdk/interna
 import { createNativeBrainLeaseManager } from "../brain/native-brain-leases.js";
 import { assertOperationalStateOutsideBrain } from "../brain/operational-state.js";
 import { runDigest } from "../cron/digest.js";
+import { cronJobRepositories } from "../cron/job-repositories.js";
 import {
   emitCrontab,
   emitEnvironment,
   type BrainModuleListPayload,
 } from "../cron/emit.js";
+import { discoverModules, persistModuleDiscovery, readModuleList } from "../cron/module-discovery.js";
 import { runJob } from "../cron/run-job.js";
 import { createUiDb } from "../db/client.js";
-import { brainCommandClass, type HostBoundary } from "../brain/host-boundary.js";
 import { createHostExecution } from "../brain/host-execution.js";
 import type { Reconciliation } from "../brain/governed-manifest.js";
 
@@ -157,35 +158,6 @@ async function cronHostExecution(config: CronConfig, options: { gate: boolean })
   } catch (error) { await leases.close().catch(() => {}); throw error; }
 }
 
-async function readModuleList(
-  brainPath: string,
-  env: Record<string, string | undefined>,
-  boundary: HostBoundary
-): Promise<BrainModuleListPayload | null> {
-  try {
-    // The CLI imports the repository's config, so this read goes through the
-    // host boundary like every other CLI launch: a maintenance worker while
-    // it holds, the exec wrapper otherwise.
-    const result = await boundary.run({ argv: ["brain", "module", "list", "--json"], env,
-      ...brainCommandClass(["module", "list"]), purpose: "brain module list" });
-    const exitCode = result.exitCode;
-    const stdout = result.stdout;
-    if (exitCode !== 0 || stdout.trim() === "") return null;
-    const parsed: unknown = JSON.parse(stdout);
-    if (
-      !parsed ||
-      typeof parsed !== "object" ||
-      !Array.isArray((parsed as Partial<BrainModuleListPayload>).enabled) ||
-      !Array.isArray((parsed as Partial<BrainModuleListPayload>).available)
-    ) {
-      return null;
-    }
-    return parsed as BrainModuleListPayload;
-  } catch {
-    return null;
-  }
-}
-
 const [subcommand, ...args] = process.argv.slice(2);
 
 if (subcommand === "run") {
@@ -202,6 +174,9 @@ if (subcommand === "run") {
       exec: config.exec,
       brainPath: config.brainPath,
       boundary: host.boundary,
+      // Module jobs only: the operator's allow-list, never the brain, bounds what is fetched (#3380).
+      repositories: cronJobRepositories({ boundary: host.boundary, dbPath: config.dbPath, moduleDiscoveryEnv: config.moduleDiscoveryEnv,
+        env: config.childEnv, allowList: config.moduleRepositories.allowed }),
     });
   } finally { await host.close(); }
   process.exit(code);
@@ -215,22 +190,30 @@ if (subcommand === "digest" && args.length === 0) {
 if (subcommand === "crontab") {
   const config = resolveCronConfig();
   const options = crontabOptions(args);
-  let modules: BrainModuleListPayload | null = null;
-  try {
+  const report = (line: string) => process.stderr.write(`[brain-ui-cron] ${line}\n`);
+  let hostQualified = false;
+  // Each attempt qualifies the host afresh: a boot-time failure is most often
+  // native readiness still settling, which a retry is meant to outlast (#3381).
+  const discovery = await discoverModules({ report, attempt: async () => {
+    // A missing native configuration is not transient; retrying cannot change it.
+    if (!config.nativeBrain) return { modules: null, retryable: false, cause: "BRAIN_UI_NATIVE_BRAIN_SOCKET is not configured; no repository code can be evaluated" };
     const host = await cronHostExecution(config, { gate: false });
+    hostQualified = true;
     try {
       // Nothing evaluates a brain without native qualification and reconciliation.
-      modules = host.reconciled ? await readModuleList(config.brainPath, config.moduleDiscoveryEnv, host.boundary) : null;
+      if (!host.reconciled) return { modules: null, retryable: true, cause: "host not reconciled" };
+      return await readModuleList(config.moduleDiscoveryEnv, host.boundary);
     } finally { await host.close(); }
-  } catch (error) {
-    process.stderr.write(`[brain-ui-cron] module discovery unavailable; emitting core jobs only. ${error instanceof Error ? error.message : String(error)}\n`);
-  }
+  } });
+  persistModuleDiscovery({ brainPath: config.brainPath, dbPath: config.dbPath, hostQualified, outcome: discovery, report });
+  const modules: BrainModuleListPayload | null = discovery.modules;
   process.stdout.write(
     emitCrontab({
       ...options,
       modules,
       subprocessEnvExtraNames: config.subprocessEnvExtraNames,
       hygiene: config.hygiene,
+      propagation: config.propagation,
       legacyScraperPresent: isRegularFile(
         join(config.brainPath, "scripts", "jobs", "scrape-all.ts")
       ),

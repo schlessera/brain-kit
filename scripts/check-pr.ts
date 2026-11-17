@@ -5,6 +5,19 @@ import { changedFiles, planChecks, workspaces, type CheckPlan } from "./ci-plan"
 import { runCommands, type Command, type Settled } from "./ci-runner";
 import { checkPackages } from "./check-packages";
 import { checkCategories, PREEMPTED_EXIT, RECEIPT_KIND, receiptBlock, UNPROVEN, type CheckReceipt, type Outcome, type ReceiptCheck } from "./check-receipt";
+import { ensureHostAdmission } from "./host-admission.mjs";
+import { discoverTests } from "./test-shards";
+import { DEFAULT_ROOTS } from "./test";
+import { localUnitWorkerCount } from "./unit-workers";
+
+const ROOT = resolve(import.meta.dir, "..");
+
+/** The complete unit tier's files, exactly as `bun run test` received them:
+ * the selected root consumers, and with none named, what it discovers under its
+ * default roots (`testArgv`, scripts/test.ts). */
+export function localUnitInventory(plan: CheckPlan, root = ROOT): string[] {
+  return plan.unitTests?.length ? [...plan.unitTests] : discoverTests(root, DEFAULT_ROOTS);
+}
 
 export function localChecks(plan: CheckPlan, full = false, mergeBase?: string, importGraph = false, importGraphWorkers?: number): Command[] {
   const bun = process.execPath;
@@ -22,8 +35,12 @@ export function localChecks(plan: CheckPlan, full = false, mergeBase?: string, i
     return checks;
   }
   if (plan.typecheck) checks.push({ name: "strict typecheck", argv: [bun, "run", "typecheck"],
-    env: { NODE_OPTIONS: "--max-old-space-size=4096" } });
-  if (plan.local.fullTests) checks.push({ name: "complete unit and integration suite", argv: [bun, "run", "test", ...(plan.unitTests ?? []).map(path => `./${path}`)],
+    env: { NODE_OPTIONS: "--max-old-space-size=6144" } });
+  // Concurrent serial Bun processes over the same inventory, each in its own
+  // private worktree, build and maintenance ledger; the merged report must
+  // account for every file exactly once (`runUnitWorkers`, scripts/unit-workers.ts).
+  if (plan.local.fullTests) checks.push({ name: "complete unit and integration suite",
+    argv: [bun, "scripts/unit-workers.ts", `--workers=${localUnitWorkerCount()}`, ...localUnitInventory(plan)],
     env: { BRAIN_REQUIRE_CHROME: "1" } });
   else if (plan.tests.length) checks.push({ name: "affected fast invariants", argv: [bun, "run", "test", ...plan.tests.map(path => `./${path}`)] });
   if (plan.local.browser || plan.local.layout || plan.local.endurance) checks.push({ name: "workspace build for real browser checks", argv: [bun, "run", "build"] });
@@ -49,6 +66,15 @@ export function localChecks(plan: CheckPlan, full = false, mergeBase?: string, i
       env: { BRAIN_REQUIRE_CHROME: "1" } });
   }
   return checks;
+}
+
+/**
+ * The repeated-run command for a plan that changes Bun test files (#4109).
+ * `check:pr` names it and never runs it: it occupies every CPU of a shared
+ * host, so the hosted `determinism` job is where it runs.
+ */
+export function determinismCommand(plan: CheckPlan, base: string): string | undefined {
+  return plan.determinism?.length ? `bun scripts/test-determinism.ts --base ${base}` : undefined;
 }
 
 class SandboxSetupTimeout extends Error {}
@@ -120,6 +146,19 @@ export function requireRuntimeTools(plan: CheckPlan): string | undefined {
 }
 
 /** One preflight step: commands run together, or an in-process task. */
+/** Setup/metadata are ordered before these. Strict types run beside the unit
+ * tier (both memory-bounded, neither using Docker, Chrome pins or native
+ * storage); every other stage runs alone. The workspace build writes the dist
+ * the type check resolves; browser, capture and native stages share Docker,
+ * Chrome or the native loop and storage fixtures, and browser jobs keep their
+ * measured scheduling/isolation behavior and diagnostic artifacts. */
+export const CONCURRENT_LOCAL_CHECKS: ReadonlySet<string> = new Set(["strict typecheck", "complete unit and integration suite"]);
+
+export function localStages(commands: readonly Command[]): Command[][] {
+  const concurrent = commands.filter(command => CONCURRENT_LOCAL_CHECKS.has(command.name));
+  return [...(concurrent.length ? [concurrent] : []), ...commands.filter(command => !CONCURRENT_LOCAL_CHECKS.has(command.name)).map(command => [command])];
+}
+
 export type PreflightStep = Command[] | { name: string; task: () => Promise<void> };
 const stepNames = (step: PreflightStep) => Array.isArray(step) ? step.map(command => command.name) : [step.name];
 
@@ -221,7 +260,7 @@ if (import.meta.main) {
       }
       else throw new Error("usage: bun run check:pr [--base <ref>] [--full|--all] [--import-graph] [--plan] [--import-graph-workers=N] [--check-timeout=<seconds>] [--skip <check name>]... [--receipt <path>]");
     }
-    const root = resolve(import.meta.dir, "..");
+    const root = ROOT;
     const changed = all ? ["package.json"] : changedFiles(root, base, "HEAD", true, true);
     const plan = planChecks(changed, workspaces(root), root);
     let mergeBase: string | undefined;
@@ -236,18 +275,15 @@ if (import.meta.main) {
     const importGraphFeedback = full ? "skipped: --full/--all retain their existing suites" :
       importGraph ? "enabled with --import-graph" : "skipped by default; enable with --import-graph";
     console.log(JSON.stringify({ ...plan, commands: plannedCommands.map(command => command.name), commandDetails: plannedCommands,
-      importGraphFeedback, packedConsumerChecks: full && plan.pack, hostedProofRequired: plan.local }, null, 2));
+      importGraphFeedback, packedConsumerChecks: full && plan.pack, hostedProofRequired: plan.local,
+      ...(determinismCommand(plan, base) ? { determinismCommand: determinismCommand(plan, base),
+        determinismNote: "not run locally: it occupies every CPU; the hosted determinism job repeats these files under load" } : {}) }, null, 2));
     if (print) process.exit(0);
-    // Setup/metadata are ordered. Full Bun tests and strict types are the only
-    // independent memory-bounded pair; browser jobs stay sequential to retain
-    // the measured scheduling/isolation behavior and diagnostic artifacts.
-    const parallel = commands.filter(command => command.name === "strict typecheck" || command.name === "complete unit and integration suite");
     const chromeStep: Command = { name: "first real Chrome launch and render", argv: [] };
     const steps: PreflightStep[] = [...commands.slice(0, 3).map(command => [command]), [contributionChangeset],
       ...(full && plan.local.captures ? [[{ name: "pinned capture fonts and original notices", argv: [process.execPath, "run", "capture:fonts"] }]] : []),
       ...(full && plan.local.fullTests ? [[chromeStep]] : []),
-      ...(parallel.length ? [parallel] : []),
-      ...commands.slice(3).filter(command => !parallel.includes(command)).map(command => [command]),
+      ...localStages(commands.slice(3)),
       ...(full && plan.pack ? [{ name: "packed consumer checks", task: () => checkPackages(root) }] : [])];
     for (const name of skip) if (!steps.flatMap(stepNames).includes(name)) throw new Error(`--skip names no selected check: ${name}`);
     const head = new TextDecoder().decode(Bun.spawnSync(["git", "rev-parse", "HEAD"], { cwd: root, stdout: "pipe" }).stdout).trim();
@@ -265,6 +301,16 @@ if (import.meta.main) {
       for (const check of receipt.checks) check.reason = `not run: preflight setup refused (${String(error).slice(0, 200)})`;
       receipt.finishedAt = new Date().toISOString(); save(receipt);
       throw error;
+    }
+    if (full) {
+      // Full local suites are for debugging only and run through host admission
+      // (#2939, #2943), after the cheap prerequisite refusals above.
+      const admitted = await ensureHostAdmission(all ? "check:pr --all" : "check:pr --full");
+      if (admitted !== undefined) {
+        for (const check of receipt.checks) check.reason = "not run: host admission did not admit this run";
+        receipt.finishedAt = new Date().toISOString(); save(receipt);
+        process.exit(admitted);
+      }
     }
     const report = () => {
       console.log(`check:pr receipt written to ${receiptPath}. Paste this block into the PR body, replacing any earlier one:\n${receiptBlock(receipt)}`);

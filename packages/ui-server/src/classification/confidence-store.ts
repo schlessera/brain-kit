@@ -30,20 +30,17 @@ import type { Database } from "bun:sqlite";
 import type { QuestionObservation } from "@schlessera/brain-ui-sdk/internal";
 
 /** How long a recorded confidence is kept. Long enough to tune on, bounded. */
-export const CONFIDENCE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+const CONFIDENCE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
 /** How many buckets the 0-1 range is cut into for the distribution. */
-export const CONFIDENCE_BUCKETS = 10;
-
-/** How wide one of those buckets is. */
-export const CONFIDENCE_BUCKET_WIDTH = 1 / CONFIDENCE_BUCKETS;
+const CONFIDENCE_BUCKETS = 10;
 
 /**
  * One bucket of the distribution: how many answers to this question about
  * this candidate kind landed in it, how many cleared their threshold, and how
  * many belonged to a candidate that was drawn as a block.
  */
-export interface ConfidenceBucket {
+interface ConfidenceBucket {
   candidateKind: string;
   question: string;
   /** The line these rows were compared against, or null when ungated. */
@@ -55,7 +52,7 @@ export interface ConfidenceBucket {
   swapped: number;
 }
 
-export interface ConfidenceReadOptions {
+interface ConfidenceReadOptions {
   /** Only rows recorded at or after this epoch-ms. Default: everything kept. */
   since?: number;
 }

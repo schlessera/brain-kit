@@ -23,7 +23,7 @@ test("real stats, history, briefing and maintain reuse nonempty core verdicts; e
   writeFileSync(path, original);
   const expected = readStatsTrends(root, { coverageFloor: 0.9, brokenLinkCeiling: 0.05 }, now).verdicts;
   expect(expected).toHaveLength(3);
-  expect(expected.every(v => v.state === "warning")).toBe(true);
+  expect(expected.map(v => v.state)).toEqual(["warning", "warning", "warning"]);
   for (const command of [["stats", "--json"], ["stats", "--history", "--since", rows[13].date, "--json"]]) {
     const result = await runCli(root, command);
     expect(result.code, result.stderr).toBe(0);
@@ -56,7 +56,7 @@ test("no history is an explicit insufficient verdict with no briefing warnings o
   expect(result.code).toBe(0);
   const { trends } = JSON.parse(result.stdout);
   expect(trends.verdicts).toHaveLength(3);
-  expect(trends.verdicts.every((v: { state: string }) => v.state === "insufficient")).toBe(true);
+  expect(trends.verdicts.map((v: { state: string }) => v.state)).toEqual(["insufficient", "insufficient", "insufficient"]);
   expect((await runCli(root, ["briefing"])).stdout).not.toContain("Initial policy thresholds");
   expect(existsSync(join(root, STATS_HISTORY_FILE))).toBe(false);
 });

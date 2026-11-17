@@ -1,0 +1,4 @@
+---
+"@schlessera/brain": minor
+---
+Add external compute (#3105): the `@experimental` `ComputeProvider` seam with `defineComputeProvider`, its provider and lifecycle conformance suites in `@schlessera/brain/testing`, and the optional `compute.providers` config key for named provider instances with finite leases. Core gains a vendor-independent job lifecycle with durable records outside the brain and outside `brain.db` (`BRAIN_COMPUTE_STATE_DIR`, default under `XDG_STATE_HOME`), capability checks and refusals before any effect, restart reconciliation of lost allocations and commands, and explicit cleanup and unknown-cost facts. A brain without `compute` is unchanged. The `boat` built-in name is reserved for the separate `@schlessera/brain-compute-boat` package and reports `provider_unavailable` until that package ships. No CLI or MCP surface ships yet.

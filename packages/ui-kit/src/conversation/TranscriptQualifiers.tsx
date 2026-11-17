@@ -42,6 +42,14 @@ export interface TranscriptQualifiersProps {
   finish?: "updating" | "some-updating" | "finished" | "unknown";
   evidenceLabel: string;
   children: ReactNode;
+  /**
+   * How the details are reached. `glyphs` (the default) is the evidence glyph
+   * button with its hover and focus tooltip. `reveal` is a visually hidden
+   * "Details" stop that shows as a pill on focus, or when its host sets
+   * `data-reveal` on an ancestor (hover); it carries no glyph and no tooltip,
+   * and opens the same dialog (#3728).
+   */
+  trigger?: "glyphs" | "reveal";
 }
 
 const finishCopy = {
@@ -112,17 +120,28 @@ export function TranscriptQualifiers(p: TranscriptQualifiersProps) {
   }, [shown]);
   const returnFocus = () => trigger.current?.isConnected ? trigger.current : anchor.current?.isConnected ? anchor.current : owner?.returnFocus() ?? null;
   const portal = trigger.current?.ownerDocument.body;
-  return <>
-    <button
+  const opened = () => { hide(); suppressed.current = true; anchor.current = trigger.current?.closest<HTMLElement>("[data-arrival-key],[data-transcript-anchor]") ?? null; if (trigger.current) owner?.onRead(trigger.current); setOpen(true); };
+  const control = p.trigger === "reveal"
+    ? <button
+      // raw-button: kit — The reveal stop is clipped at rest, not hidden, so browse mode still finds it.
+      type="button" ref={trigger} className="bk-transcript-reveal" data-transcript-qualifiers={p.kind} data-transcript-trigger="reveal"
+      aria-label={name} aria-haspopup="dialog" aria-expanded={open} aria-controls={`${id}-details`}
+      onFocus={() => { if (trigger.current) owner?.onRead(trigger.current); skipFocus.current = false; }}
+      onClick={opened}>
+      <span className="bk-transcript-pill" aria-hidden="true">Details</span>
+    </button>
+    : <button
       // raw-button: kit — Multi-glyph evidence needs focus/hover descriptions without a native title tooltip.
       type="button" ref={trigger} className="bk-control bk-transcript-qualifiers" data-transcript-qualifiers={p.kind}
       aria-label={name} aria-haspopup="dialog" aria-expanded={open} aria-controls={`${id}-details`} aria-describedby={shown ? `${id}-tooltip` : undefined}
       onPointerEnter={event => { if (event.pointerType !== "touch") { hovered.current = true; enter(); } }}
       onPointerLeave={() => { hovered.current = false; leave(); }}
       onFocus={() => { if (trigger.current) owner?.onRead(trigger.current); if (skipFocus.current) { skipFocus.current = false; return; } enter(); }} onBlur={leave}
-      onClick={() => { hide(); suppressed.current = true; anchor.current = trigger.current?.closest<HTMLElement>("[data-arrival-key],[data-transcript-anchor]") ?? null; if (trigger.current) owner?.onRead(trigger.current); setOpen(true); }}>
+      onClick={opened}>
       <span className="bk-transcript-glyphs" aria-hidden="true">{keys.map(key => <Icon key={key} icon={vocabulary[key].icon} size={14} />)}</span>
-    </button>
+    </button>;
+  return <>
+    {control}
     {portal && shown && createPortal(<div id={`${id}-tooltip`} ref={tooltip} role="tooltip" className="bk-transcript-tooltip" style={{ ...position, colorScheme: getComputedStyle(trigger.current!).colorScheme }}
       onPointerEnter={() => { hovered.current = true; clear(); }} onPointerLeave={() => { hovered.current = false; leave(); }}>
       {sentences.join(" ")} Source: {p.source || "unknown"}. Open transcript details for evidence.

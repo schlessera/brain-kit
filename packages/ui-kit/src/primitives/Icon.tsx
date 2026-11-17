@@ -14,8 +14,8 @@
  * glyph directly, so swapping `icon` swaps the glyph, with no imperative
  * escape hatch and no timer.
  *
- * 88 keys, 86 distinct glyphs. Two pairs are aliases — `deny`/`dismiss` both
- * render an x, `settings`/`filter` both render sliders — and all 88 are kept.
+ * 89 keys, 87 distinct glyphs. Two pairs are aliases — `deny`/`dismiss` both
+ * render an x, `settings`/`filter` both render sliders — and all 89 are kept.
  * They render identically today but mean different things, and collapsing them
  * would leave a future icon set unable to tell them apart.
  *
@@ -34,6 +34,16 @@ import type { CSSProperties } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   Activity,
+  Circle,
+  Eraser,
+  MoveUpRight,
+  Pencil,
+  Redo2,
+  Scan,
+  Type,
+  Undo2,
+  ZoomIn,
+  ZoomOut,
   CircleAlert,
   CircleCheck,
   CircleDashed,
@@ -43,6 +53,7 @@ import {
   CircleSlash,
   CircleX,
   Contrast,
+  Delete,
   GripVertical,
   AlarmClock,
   ArrowDown,
@@ -70,6 +81,7 @@ import {
   Download,
   Ellipsis,
   EllipsisVertical,
+  Expand,
   FileImage,
   FileLock2,
   FilePenLine,
@@ -79,7 +91,13 @@ import {
   FolderGit2,
   FolderOpen,
   FolderTree,
+  GitCommitHorizontal,
+  GitMerge,
+  GitPullRequest,
   GitPullRequestClosed,
+  GitPullRequestDraft,
+  CircleDot,
+  Diff,
   Hand,
   History,
   Inbox,
@@ -91,6 +109,7 @@ import {
   MessageCircleQuestion,
   MessageSquare,
   Mic,
+  MicOff,
   Newspaper,
   Paperclip,
   Pause,
@@ -109,12 +128,14 @@ import {
   ShieldQuestion,
   SlidersHorizontal,
   Sparkles,
+  Square,
   SquarePen,
   Sunrise,
   Telescope,
   ThumbsDown,
   ThumbsUp,
   TriangleAlert,
+  Volume2,
   Wallet,
   Waypoints,
   Wifi,
@@ -203,6 +224,8 @@ export const ICONS = {
   digest: Newspaper,
   health: ChartColumn,  // lucide renames `bar-chart-3`; the semantic key is the kit's vocabulary
   link: ArrowUpRight,
+  /** Open content in its dedicated full-size viewer (a diagram's zoom). */
+  enlarge: Expand,
   chat: MessageSquare,
   wifi: Wifi,
   battery: BatteryFull,
@@ -219,6 +242,38 @@ export const ICONS = {
   finished: CircleCheck,
   withdrawn: CircleMinus,
   filter: SlidersHorizontal,
+  // The voice surface (#3692): brain's voice beside your mic, the muted mic,
+  // and Interrupt, which stops brain mid-sentence.
+  speaker: Volume2,
+  "mic-off": MicOff,
+  interrupt: Square,
+  /** Discard what is held, as a keyboard's backspace key does: lucide's
+   * `Delete` is the backspace-key glyph (#3762). */
+  backspace: Delete,
+  // The markup editor (#3983): its five tools share `hand` for Pan, plus
+  // history and the zoom controls.
+  pen: Pencil,
+  arrow: MoveUpRight,
+  ellipse: Circle,
+  text: Type,
+  undo: Undo2,
+  redo: Redo2,
+  erase: Eraser,
+  "zoom-in": ZoomIn,
+  "zoom-out": ZoomOut,
+  fit: Scan,
+  // GitHub objects and reviews (#3800). Four reuse a session-state glyph
+  // under their own meaning, so a future icon set can tell them apart.
+  "pr-open": GitPullRequest,
+  "pr-merged": GitMerge,
+  "pr-closed": GitPullRequestClosed,
+  "issue-open": CircleDot,
+  "issue-closed": CircleCheck,
+  "not-planned": CircleSlash,
+  draft: GitPullRequestDraft,
+  commit: GitCommitHorizontal,
+  "changes-requested": Diff,
+  "review-pending": CircleDashed,
 } as const satisfies Record<string, LucideIcon>;
 
 /** Every semantic name the kit knows. The kit's icon vocabulary. */

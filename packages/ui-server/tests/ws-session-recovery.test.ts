@@ -133,7 +133,6 @@ function world(options: { db?: Database; principalValid?: () => boolean; turnTim
   const connection = { principal, authorization: testAuthorization() };
   cleanups.push(() => {
     for (const turn of turns) turn.finish({ answer: null });
-    host.coordinator.reset();
     host.close();
     stream.close();
     if (!options.db) db.close();

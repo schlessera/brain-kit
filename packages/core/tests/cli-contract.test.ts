@@ -10,7 +10,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { cleanup, makeTempBrain, runCli } from "./cli-harness";
+import { cleanup, keylessEnv, makeTempBrain, runCli } from "./cli-harness";
+import { withoutSigning } from "./git-fixture";
 import { packageVersion } from "../src/package-version";
 
 let root: string;
@@ -103,6 +104,93 @@ describe("search", () => {
     const { stderr, code } = await runCli(root, ["search", "status", "--sort", "newest", "--json"]);
     expect(code).toBe(1);
     expect(stderr).toContain("--sort");
+  });
+});
+
+// #1352: flag values go through one typed accessor (cli/flags.ts). A malformed
+// one is a usage error (exit 1, message on stderr, nothing on stdout) in both
+// output modes, and is refused before any query runs.
+describe("malformed flag values", () => {
+  const whole = (flag: string, got: string) => `--${flag} must be a whole number of 1 or more, got ${got}`;
+  const invalid: Array<[string, string[], string]> = [
+    ["search --limit abc", ["search", "raft", "--limit", "abc"], whole("limit", '"abc"')],
+    ["search --limit 0", ["search", "raft", "--limit", "0"], whole("limit", '"0"')],
+    ["search --limit -5", ["search", "raft", "--limit", "-5"], whole("limit", '"-5"')],
+    ["search --limit 1.5", ["search", "raft", "--limit", "1.5"], whole("limit", '"1.5"')],
+    ["search --limit 10abc", ["search", "raft", "--limit", "10abc"], whole("limit", '"10abc"')],
+    ["search --mode bogus", ["search", "raft", "--mode", "bogus"], '--mode must be one of fts, vector, hybrid, got "bogus"'],
+    ["a bare search --type", ["search", "raft", "--type"], "--type needs a value"],
+    ["search --tag before another flag", ["search", "raft", "--tag", "--mode", "fts"], "--tag needs a value"],
+    ["list --tag before another flag", ["list", "--tag", "--status", "active"], "--tag needs a value"],
+    ["context --max-tokens abc", ["context", "raft", "--max-tokens", "abc"], whole("max-tokens", '"abc"')],
+    ["briefing --limit abc", ["briefing", "--limit", "abc"], whole("limit", '"abc"')],
+    // These two were usage errors before #1352 and keep their messages.
+    ["search --sort bogus", ["search", "raft", "--sort", "bogus"], '--sort must be one of score, updated, deadline, got "bogus"'],
+    [
+      "a malformed search --updated-since",
+      ["search", "raft", "--updated-since", "yesterday"],
+      '--updated-since needs a date written YYYY-MM-DD, got "yesterday"',
+    ],
+  ];
+  for (const mode of ["--json", "--human"]) {
+    for (const [what, args, message] of invalid) {
+      test(`${what} is a usage error in ${mode} mode, with no output`, async () => {
+        const { stdout, stderr, code } = await runCli(root, [...args, mode]);
+        expect({ code, stdout, stderr: stderr.trim() }).toEqual({ code: 1, stdout: "", stderr: message });
+      });
+    }
+  }
+
+  // Without an index, a query fails with "Database not found". A malformed
+  // flag reports itself instead, so it is refused before any query is tried.
+  test("a malformed flag is refused before the database is opened", async () => {
+    const unindexed = makeTempBrain();
+    try {
+      const valid = await runCli(unindexed, ["search", "raft", "--limit", "5", "--json"]);
+      expect({ code: valid.code, stderr: valid.stderr.trim() }).toEqual({
+        code: 1,
+        stderr: "Database not found. Run `brain index` first.",
+      });
+      for (const [what, args, message] of invalid) {
+        if (args[0] === "list") continue;
+        const bad = await runCli(unindexed, [...args, "--json"]);
+        expect({ what, code: bad.code, stdout: bad.stdout, stderr: bad.stderr.trim() }).toEqual({
+          what,
+          code: 1,
+          stdout: "",
+          stderr: message,
+        });
+      }
+      const add = await runCli(unindexed, ["add", "Penelope weaves by day", "--tags", "--json"]);
+      expect({ code: add.code, stdout: add.stdout, stderr: add.stderr.trim() }).toEqual({
+        code: 1,
+        stdout: "",
+        stderr: "--tags needs a value",
+      });
+      expect(existsSync(join(unindexed, "brain.db"))).toBe(false);
+    } finally {
+      cleanup(unindexed);
+    }
+  });
+
+  const paths = async (args: string[]) => {
+    const { stdout, stderr, code } = await runCli(root, ["search", "raft", "--mode", "fts", ...args, "--json"]);
+    expect({ code, stderr }).toEqual({ code: 0, stderr: "" });
+    return (JSON.parse(stdout) as { results: Array<{ path: string }> }).results.map((r) => r.path);
+  };
+
+  test("a repeated --limit keeps its last value", async () => {
+    const seven = await paths(["--limit", "7"]);
+    expect(seven).toHaveLength(7);
+    expect(await paths(["--limit", "5", "--limit", "7"])).toEqual(seven);
+  });
+
+  test("valid values keep their results: --limit 50 and --mode fts", async () => {
+    const all = await paths(["--limit", "50"]);
+    // The corpus has fewer than 20 raft matches, so 50 and the default agree.
+    expect(all.length).toBeGreaterThan(7);
+    expect(all.length).toBeLessThan(20);
+    expect(await paths([])).toEqual(all);
   });
 });
 
@@ -295,6 +383,49 @@ describe("list", () => {
   });
 });
 
+// #3643: --path-prefix, --overview and --cursor print one bounded page of the
+// shared paged listing; without them the bare array above is unchanged.
+describe("list paged discovery", () => {
+  type Page = { documents: Array<Record<string, unknown>>; next_cursor: string | null; total: number; warnings: string[] };
+  const paged = async (args: string[]) => {
+    const { stdout, stderr, code } = await runCli(root, ["list", ...args, "--json"]);
+    expect({ code, stderr }).toEqual({ code: 0, stderr: "" });
+    return JSON.parse(stdout) as Page;
+  };
+
+  test("prints { documents, next_cursor, total, warnings } and pages to the end", async () => {
+    const first = await paged(["--path-prefix", "projects/active/raft", "--overview", "--limit", "2"]);
+    expect(Object.keys(first)).toEqual(["documents", "next_cursor", "total", "warnings"]);
+    expect(first.documents).toHaveLength(2);
+    expect(first.next_cursor).toBeString();
+    const rest = await paged(["--path-prefix", "projects/active/raft", "--overview", "--limit", "100", "--cursor", first.next_cursor!]);
+    expect(rest.next_cursor).toBeNull();
+    const paths = [...first.documents, ...rest.documents].map((d) => d.path);
+    expect(paths.length).toBe(first.total);
+    expect(new Set(paths).size).toBe(first.total);
+    expect(paths.every((p) => (p as string).startsWith("projects/active/raft/"))).toBe(true);
+    const status = [...first.documents, ...rest.documents].find((d) => d.path === "projects/active/raft/status.md");
+    expect(status).toMatchObject({ updated: "2026-06-30", deadline: "2026-07-29", summary: "Latest planning check and next action for leaving Ogygia" });
+    expect(typeof status!.indexed_body_bytes).toBe("number");
+  });
+
+  test("a bad prefix or cursor is a usage error with no output", async () => {
+    for (const [args, message] of [
+      [["--path-prefix", "../outside"], "--path-prefix: path_prefix must be a root-relative folder"],
+      [["--cursor", "nope"], "--cursor: cursor is not a cursor this listing issued"],
+    ] as const) {
+      const { stdout, stderr, code } = await runCli(root, ["list", ...args, "--json"]);
+      expect({ code, stdout }).toEqual({ code: 1, stdout: "" });
+      expect(stderr).toContain(message);
+    }
+  });
+
+  test("--overview does not swallow the next argument", async () => {
+    const page = await paged(["--overview", "--type", "health", "--limit", "1"]);
+    expect(page.documents[0]!.type).toBe("health");
+  });
+});
+
 // #1351: --limit is a whole number from 1 to 100, default 20. Anything else is
 // a usage error that runs no query, in both output modes.
 describe("list --limit", () => {
@@ -410,8 +541,12 @@ describe("sync", () => {
   test("human mode: the report, then the agent's text; machine mode: one result", async () => {
     const brain = makeTempBrain({ empty: true });
     const remote = mkdtempSync(join(tmpdir(), "brain-contract-remote-"));
+    // Signing is switched off per command (#3485): an environment-scoped
+    // GIT_CONFIG_COUNT outranks the repository-local setting below, and both
+    // the fixture's commit and the one `brain sync` makes would try to sign.
+    const unsigned = withoutSigning(keylessEnv(brain));
     const git = (...args: string[]) => {
-      const result = Bun.spawnSync(["git", "-C", brain, ...args]);
+      const result = Bun.spawnSync(["git", "-C", brain, ...args], { env: unsigned });
       if (result.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${result.stderr.toString()}`);
     };
     try {
@@ -440,7 +575,7 @@ export default defineConfig({
       writeFileSync(join(brain, "survey.xyz"), "eagle survey grid\n");
 
       // An output flag is not a verb: `--human` is the text…
-      const human = await runCli(brain, ["sync", "--human"]);
+      const human = await runCli(brain, ["sync", "--human"], unsigned);
       expect(human.code).toBe(0);
       expect(human.stdout).toStartWith("brain sync: complete\n");
       expect(human.stdout).toContain("  unknown: survey.xyz\n");
@@ -449,7 +584,7 @@ export default defineConfig({
 
       // …and `--json`, or a stdout that is not a terminal, the one result.
       for (const flags of [[], ["--json"]]) {
-        const { stdout, code } = await runCli(brain, ["sync", ...flags]);
+        const { stdout, code } = await runCli(brain, ["sync", ...flags], unsigned);
         expect(code).toBe(0);
         const body = JSON.parse(stdout);
         expect(body.run.status).toBe("complete");
@@ -464,7 +599,7 @@ export default defineConfig({
         });
       }
 
-      const unknown = await runCli(brain, ["sync", "--not-a-flag"]);
+      const unknown = await runCli(brain, ["sync", "--not-a-flag"], unsigned);
       expect(unknown.code).toBe(1);
       expect(unknown.stderr).toContain("Unknown flag: --not-a-flag");
     } finally {

@@ -15,7 +15,7 @@ import type { FormEvent, ReactNode } from "react";
  * stay native; its submit is the kit `Button`, and ⏎ in a field submits the
  * form the same way.
  */
-export interface PrincipalRowData {
+interface PrincipalRowData {
   id: string;
   label: string;
   kind: "owner" | "agent" | string;
@@ -25,7 +25,7 @@ export interface PrincipalRowData {
   expires: string;
 }
 
-export interface PrincipalListProps {
+interface PrincipalListProps {
   children?: ReactNode;
   state: "loading" | "unavailable" | "error" | "ready";
   principals: PrincipalRowData[];

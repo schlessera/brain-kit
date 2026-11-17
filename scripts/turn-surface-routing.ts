@@ -3,7 +3,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema, McpError, ErrorCode, type Tool } from "@modelcontextprotocol/sdk/types.js";
-import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
+import type { McpSdkServerConfigWithInstance, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { BRIDGE_TOOL_CONTRACTS } from "@schlessera/brain-ui-sdk/server";
 import { type ClassificationRequest, type ClassificationAnswers } from "@schlessera/brain-ui-sdk/internal";
 import { createClaudeSdkTurn, type ClaudeSdkTurn } from "../packages/ui-backend-claude/src/sdk-options.js";
@@ -107,46 +107,128 @@ export interface RoutingResult {
   pruneFixtureSkills: boolean;
 }
 
-/** No query/spawn here. Baseline assembly can proceed while this pass runs. */
+/** What the router read from a turn's prompt, and the prompt to hand on. */
+interface ReadPrompt {
+  /** The text of a single text-only user message; null when the input is anything else. */
+  text: string | null;
+  /** Yields every message the original stream yields, once, in order. */
+  prompt: AsyncIterable<SDKUserMessage>;
+  timedOut: boolean;
+}
+
+/** The text of one user message whose content is text only, else null. */
+function textOnly(message: SDKUserMessage): string | null {
+  if (message.type !== "user" || message.parent_tool_use_id !== null) return null;
+  const content = message.message.content;
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content) || content.length === 0) return null;
+  let text = "";
+  for (const block of content) {
+    if (block.type !== "text") return null;
+    text += block.text;
+  }
+  return text;
+}
+
+/**
+ * Read a streamed prompt without losing it. A stream can be read only once, so
+ * the router pulls up to two messages and hands on a stream that replays what
+ * it pulled, then continues the original. The messages are the same objects:
+ * the provider-facing user bytes and their order do not change. A second
+ * message, a non-text block, a failed pull or a pull still pending at the
+ * budget makes the input unsupported; the replay still carries all of it.
+ */
+async function readStreamedPrompt(stream: AsyncIterable<SDKUserMessage>, deadline: Promise<null>): Promise<ReadPrompt> {
+  const source = stream[Symbol.asyncIterator]();
+  const pulled: SDKUserMessage[] = [];
+  let pending: Promise<IteratorResult<SDKUserMessage>> | undefined;
+  let ended = false;
+  const prompt = (async function* () {
+    try {
+      yield* pulled;
+      while (!ended) {
+        const step = await (pending ?? source.next());
+        pending = undefined;
+        if (step.done) { ended = true; return; }
+        yield step.value;
+      }
+    } finally {
+      // A consumer that stops early releases the original as well.
+      if (!ended) { ended = true; await source.return?.(); }
+    }
+  })();
+  while (!ended && pulled.length < 2) {
+    pending = source.next();
+    const settled = await Promise.race([pending.then(step => ({ step }), () => ({ step: null })), deadline]);
+    if (settled === null) return { text: null, prompt, timedOut: true };
+    // A rejected pull stays pending, so the replay rethrows it to the consumer.
+    if (settled.step === null) return { text: null, prompt, timedOut: false };
+    pending = undefined;
+    if (settled.step.done) ended = true;
+    else pulled.push(settled.step.value);
+  }
+  return { text: pulled.length === 1 && ended ? textOnly(pulled[0]!) : null, prompt, timedOut: false };
+}
+
+/**
+ * No query/spawn here. Baseline assembly can proceed while this pass runs.
+ * An outcome decided before the prompt is read returns the prepared turn
+ * itself. Once a streamed prompt has been read, every outcome returns an
+ * equivalent turn: the same fields and options, with a prompt stream that
+ * yields the same messages.
+ */
 export async function routePreparedTurn(turn: ClaudeSdkTurn, opts: RoutingOptions): Promise<RoutingResult> {
   const started = performance.now();
+  let current = turn;
   const fallback = (outcome: RoutingResult["outcome"]): RoutingResult => ({
-    turn, outcome, durationMs: performance.now() - started, tools: [], skills: [], pruneFixtureSkills: false,
+    turn: current, outcome, durationMs: performance.now() - started, tools: [], skills: [], pruneFixtureSkills: false,
   });
   if (!opts.enabled || opts.arm === "baseline") return fallback("off");
   if (!opts.client.enabled) return fallback("no_key");
   if (opts.client.breaker().open) return fallback("circuit_open");
-  if (typeof turn.prompt !== "string") return fallback("unsupported_input");
   const budgetMs = opts.budgetMs ?? 2000;
   const threshold = opts.threshold ?? 0.6; // Test setting; no calibrated policy.
+  // Validate before reading: a throw after reading would lose the stream.
   if (!Number.isFinite(budgetMs) || budgetMs <= 0 || !Number.isFinite(threshold) || threshold <= 0.5 || threshold > 1) {
     throw new Error("invalid preparation budget or confidence threshold");
   }
-  const tools = Object.values(opts.peers).flatMap(peer => peer.tools);
-  const request = routingRequest(turn.prompt, opts.previousTail ?? "", tools, opts.skills);
   let timer: ReturnType<typeof setTimeout> | undefined;
   // The transport already has a single HTTP deadline/retry/breaker. This
-  // assembly deadline also covers a transport that ignores AbortSignal.
+  // assembly deadline also covers a transport that ignores AbortSignal, and
+  // a prompt stream that does not settle.
   const deadline = new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), budgetMs); });
-  const result = await Promise.race([opts.client.classify(request), deadline]).finally(() => clearTimeout(timer));
-  if (!result) return fallback("timeout");
-  if (performance.now() - started >= budgetMs) return fallback("timeout");
-  if (result.outcome !== "answered" || !result.answers) return fallback(result.outcome);
-  const toolNames = selected(result.answers, "tool", tools.map(tool => tool.id), threshold);
-  const skillNames = selected(result.answers, "skill", opts.skills.map(skill => skill.name), threshold);
-  if (!toolNames || !skillNames) return fallback("low_confidence");
-  const picked = new Set(toolNames);
-  const options = { ...turn.options };
-  if (opts.arm === "hint") {
-    const system = options.systemPrompt;
-    if (!system || typeof system === "string" || Array.isArray(system) || system.type !== "preset") throw new Error("expected production preset prompt");
-    options.systemPrompt = { ...system, append: `${system.append ?? ""}\n\n<tool_relevance>${toolNames.join(", ") || "none"}</tool_relevance>\n<skill_relevance>${skillNames.join(", ") || "none"}</skill_relevance>` };
-  } else {
-    options.mcpServers = { ...options.mcpServers };
-    for (const [name, peer] of Object.entries(opts.peers)) options.mcpServers[name] = routedServer(name, peer, opts.arm, picked);
-  }
-  return { turn: { ...turn, options }, outcome: "answered", durationMs: performance.now() - started,
-    tools: toolNames, skills: skillNames, pruneFixtureSkills: opts.arm === "hard-prune" };
+  try {
+    let text: string | null;
+    if (typeof turn.prompt === "string") text = turn.prompt;
+    else {
+      const read = await readStreamedPrompt(turn.prompt, deadline);
+      current = { ...turn, prompt: read.prompt };
+      if (read.timedOut) return fallback("timeout");
+      text = read.text;
+    }
+    if (text === null) return fallback("unsupported_input");
+    const tools = Object.values(opts.peers).flatMap(peer => peer.tools);
+    const request = routingRequest(text, opts.previousTail ?? "", tools, opts.skills);
+    const result = await Promise.race([opts.client.classify(request), deadline]);
+    if (!result) return fallback("timeout");
+    if (performance.now() - started >= budgetMs) return fallback("timeout");
+    if (result.outcome !== "answered" || !result.answers) return fallback(result.outcome);
+    const toolNames = selected(result.answers, "tool", tools.map(tool => tool.id), threshold);
+    const skillNames = selected(result.answers, "skill", opts.skills.map(skill => skill.name), threshold);
+    if (!toolNames || !skillNames) return fallback("low_confidence");
+    const picked = new Set(toolNames);
+    const options = { ...current.options };
+    if (opts.arm === "hint") {
+      const system = options.systemPrompt;
+      if (!system || typeof system === "string" || Array.isArray(system) || system.type !== "preset") throw new Error("expected production preset prompt");
+      options.systemPrompt = { ...system, append: `${system.append ?? ""}\n\n<tool_relevance>${toolNames.join(", ") || "none"}</tool_relevance>\n<skill_relevance>${skillNames.join(", ") || "none"}</skill_relevance>` };
+    } else {
+      options.mcpServers = { ...options.mcpServers };
+      for (const [name, peer] of Object.entries(opts.peers)) options.mcpServers[name] = routedServer(name, peer, opts.arm, picked);
+    }
+    return { turn: { ...current, options }, outcome: "answered", durationMs: performance.now() - started,
+      tools: toolNames, skills: skillNames, pruneFixtureSkills: opts.arm === "hard-prune" };
+  } finally { clearTimeout(timer); }
 }
 
 export type AssemblyInput = Parameters<typeof createClaudeSdkTurn>[0];

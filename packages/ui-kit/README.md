@@ -39,6 +39,13 @@ Acts that focus background content belong in that callback. `CommandPalette` no
 longer carries dialog semantics; wrap it in `Overlay`. Load the mandatory kit stylesheet for geometry,
 scrims, scroll lock and motion. `z` and `LAYERS` name the six document layers.
 
+`ImageEditorFrame` is the shared fullscreen shell of the image editors.
+`MarkupEditor` composes it with `MarkupCanvas`, `MarkupToolbar` and
+`MarkupNoteField`: marks are stored in image coordinates, exported by
+`exportMarkupPng` as a transparent PNG at the source's displayed size, and
+checked against `MARKUP_MAX_BYTES` (52,428,800) before `onSubmit`.
+`MarkupResultCard` and `MarkupFallback` state the result afterwards.
+
 Printed keyboard hints follow `(any-pointer: fine)` in the mandatory stylesheet,
 including command-picker fallbacks, the rail palette cap, composer instructions
 and answer-field Enter glyph. Touch-only All commands keeps its labelled icon
@@ -67,6 +74,31 @@ and controlled `active` preserve result identity and keyboard selection in a
 search list. Pass `score=""` when retrieval supplies no score; it is a retrieval
 metric rather than a calibrated probability. Opening remains the caller's
 `onClick`, and long snippet tokens wrap within the card.
+
+## GitHub objects
+
+The `GitHub*` components draw what the GitHub tools return (#3800, design on
+#3795). They take props and callbacks only: no client, no fetch, no stores,
+and they never build a URL. Map the tool payload onto them in the consumer.
+
+- **Direct links.** `htmlUrl` (and `searchUrl` on `GitHubResultList`) renders
+  a `GitHub ↗` link only when it is `https:` on host `github.com`, with no
+  userinfo or port. It opens in a new tab with no opener and no referrer.
+  Validate the URL's shape before passing it; the kit only refuses to render
+  anything else.
+- **Avatars.** `avatarSrc` loads only from the page's own origin (the brain's
+  avatar proxy). Any other URL keeps the initials and makes no request.
+- **Absent is never passing.** `checks: null` reads "— None reported" and a
+  `null` review state reads "— Not reported"; neither is teal or ✓.
+- **On-demand parts.** `GitHubDetailSection` draws the states S0 to S7 from
+  its `state` prop and calls `onLoad`, `onLoadMore` and `onRetry`; the
+  consumer owns the request.
+
+`UntrustedText` renders text written outside Brain as a safe markdown subset.
+HTML and images stay text and never load. An `https:` link is a button that
+opens a full-address interstitial naming its registrable domain, and only
+the interstitial's Open action navigates. Every other link is text with the
+reason it won't open.
 
 ## Custom answers
 
@@ -365,6 +397,56 @@ across whatever is being read.
 Pass `announce={false}` to `InlineToast` when a containing live region combines
 the receipt with other feedback. `AskUserFormCard` uses this for one announcement
 of branch reveals, hidden nodes, answers set aside and the remaining count.
+
+## Voice surface
+
+One mic and one field cover dictation and live conversation (#3692). The
+components only present; the consumer maps its own dictation or conversation
+state onto them and owns every timer, permission and connection.
+
+- `VoiceField` is the surface that replaces the composer. `compact` keeps the
+  composer's 52px at rest and one fixed 84px while a state label shows (D3–D5).
+  `tall` is 136px for live states L1–L8 at 1× text. Under enlarged text it
+  grows to its content, upward, with the controls pinned to its bottom: the
+  label wraps instead of cutting off its meta, and nothing is hidden. `card`
+  grows to its content, for the Start card and notices.
+- `VoiceText` holds the field's words or one message. Words (`text`,
+  `partial`) keep the newest two whole lines. A message is `children` alone
+  (the refusal line, a notice), and the tall field shows it whole. Rich draft
+  words, such as a review with an uncertain word, pass their plain form as
+  `text` as well, so they stay words.
+- `tone` picks from one colour language: `you` (amber, you and your mic),
+  `brain` (teal, brain and its voice), `idle` (grey, nothing is heard) and
+  `fail` (red, only End and failures). `VOICE_SKINS` names the
+  `--bk-voice-*` tokens behind it.
+- `meter` shows the `level` prop (0–1) as bars, a `sweep` (thinking/working), a
+  `flat` line (muted) or a paused `hatch` (reconnecting). The meter fills the
+  whole card. Text has no background of its own. In the compact field with a
+  label, the label sits at the top and the words at the bottom, over a fade into
+  the field's ground. In the tall field, a top fade holds the label row. A soft
+  halo in the field's ground surrounds every glyph.
+- `MicButton` draws `idle`, `pressed`, `holding` (the ring from `progress`) and
+  `complete`, plus the "Keep holding to talk live" hint. It hands every pointer
+  and key event to the caller, which owns the hold threshold. `onTalkLive` adds
+  a "Talk live…" button that stays out of sight until it takes keyboard focus.
+- `VoiceControlButton` is a raised 44px round control with pressed (solid),
+  disabled and busy forms. `tone="end"` is the only red one.
+- `VoiceNotice` is a card with an icon, a title, one line and at most two
+  actions.
+- `StartCard` holds the disclosure line, "What's shared", the Service row (with
+  Change only when `onChangeService` is passed), the persona radio group, the
+  `warn`/`block`/`error` notices and one Start button. A `block` or `error`
+  notice, or `service={null}`, leaves Start `aria-disabled`.
+- `SpokenTurn`, `SpokenMark`, `UncertainWord`, `UnplayedText`, `CutOffTag`,
+  `VoiceToolChip` and `ConversationEndDivider` are the chat's spoken-turn marks.
+  A typed or legacy turn stays a plain `MessageBubble`.
+
+`motion="reduce"` (or an ancestor with `data-motion="reduce"`) forces the
+static form that `prefers-reduced-motion: reduce` produces: a still level line,
+a flat tint for the sweep, a solid cursor, no turning icons, a ring without
+easing and instant shape changes. Every state keeps its icon and its word.
+Stories live under `Voice/` and `Screens/Voice`. Per-state baselines are in
+`tests/visual/voice.visual.tsx`.
 
 ## Dictating composer state
 

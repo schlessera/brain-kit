@@ -2,11 +2,12 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { planChecks, workspaces } from "../scripts/ci-plan";
+import type { CheckPlan } from "../scripts/ci-plan";
 import { GitReservationStore } from "../scripts/integration-reservation";
 import { addSuspect, classifyFailure, clearRed, declareFix, emptyRedMain, FLAKE_WINDOW_MS, gateDecision, includeRedSet, junitFailures, recordExpedited,
-  openRed, parseRedMain, type RedFailure, type RedMainRecord } from "../scripts/red-main";
-import { coordinate, includedRedSet, incidentMarker, type CoordinatorIO, type Job, type Snapshot, type WorkflowRun } from "../scripts/red-main-coordinator";
+  openRed, parseRedMain, POST_MERGE_CATEGORIES, postMergeOnly, type RedFailure, type RedMainRecord } from "../scripts/red-main";
+import { coordinatorCancellations } from "../scripts/ci-red-main";
+import { coordinate, detectLanded, includedRedSet, incidentMarker, type CoordinatorIO, type Job, type Snapshot, type WorkflowRun } from "../scripts/red-main-coordinator";
 
 const ROOT = resolve(import.meta.dir, "..");
 const scratch: string[] = [];
@@ -96,13 +97,18 @@ describe("red-main record", () => {
 
 describe("main selection includes the open red set", () => {
   test("a later main run that does not touch the red test's closure still runs it", () => {
-    const packages = workspaces(ROOT), replan = (changed: string[]) => planChecks(changed, packages, ROOT, false);
-    const plan = replan(["docs/README.md"]);
-    expect(plan.local.fullTests).toBe(false); expect(plan.local.browser).toBe(false);
+    // The planner itself runs end to end in the executable test below; this one
+    // pins how the open set widens a narrow docs-only plan.
+    const plan = { changed: ["docs/README.md"], typecheck: false, pack: false, unitTests: ["tests/docs.test.ts"],
+      local: { fullTests: false, runtime: false, browser: false, layout: false, captures: false, endurance: false } } as unknown as CheckPlan;
+    const replanned: string[][] = [];
+    const replan = (changed: string[]) => { replanned.push(changed); return { ...plan, changed, local: { ...plan.local } } as CheckPlan; };
     const record = openRed(emptyRedMain(), { firstBad: B, run: 11, failures: [failure("packages/core/tests/frontmatter.test.ts"), failure(null, "browser")] }, NOW);
     const widened = includeRedSet(plan, record, replan);
+    expect(replanned, "RED_TEST_JOINS_THE_CLOSURE").toEqual([["docs/README.md", "packages/core/tests/frontmatter.test.ts"]]);
     expect(widened.local.fullTests, "RED_UNIT_TEST_SELECTED_WITHOUT_CLOSURE_CHANGE").toBe(true);
     expect(widened.local.browser, "RED_CATEGORY_SELECTED").toBe(true);
+    expect(widened.unitTests, "NARROWED_INVENTORY_NAMES_THE_RED_TEST").toEqual(["packages/core/tests/frontmatter.test.ts", "tests/docs.test.ts"]);
     expect(widened.changed).toEqual(["docs/README.md"]);
     expect(widened.redMain).toEqual({ run: 11, firstBad: B, failures: record.open!.failures });
     expect(includeRedSet(plan, emptyRedMain(), replan)).toBe(plan);
@@ -114,8 +120,12 @@ describe("main selection includes the open red set", () => {
     for (const name of ["core", "ui-sdk"]) { mkdirSync(join(dir, "packages", name, "src"), { recursive: true });
       writeFileSync(join(dir, "packages", name, "package.json"), JSON.stringify({ name: `@fixture/${name}`, files: ["src"] })); writeFileSync(join(dir, "packages", name, "src/index.ts"), "export {};\n"); }
     mkdirSync(join(dir, "scripts")); mkdirSync(join(dir, "docs"));
-    writeFileSync(join(dir, "scripts/ci-plan.ts"), readFileSync(join(ROOT, "scripts/ci-plan.ts"), "utf8").replace('"typescript"', JSON.stringify(import.meta.resolve("typescript"))));
-    for (const name of ["browser-input-closure", "unit-test-consumers", "integration-reservation", "red-main"]) writeFileSync(join(dir, `scripts/${name}.ts`), `export * from ${JSON.stringify(join(ROOT, `scripts/${name}.ts`))};\n`);
+    const planner = readFileSync(join(ROOT, "scripts/ci-plan.ts"), "utf8");
+    writeFileSync(join(dir, "scripts/ci-plan.ts"), planner.replace('"typescript"', JSON.stringify(import.meta.resolve("typescript"))));
+    // Shim every sibling module the planner imports, read from its source: a hand list missed ./proof-shards (#4108).
+    const siblings = [...planner.matchAll(/from "\.\/([\w-]+)"/g)].map(match => match[1]!);
+    expect(siblings, "PLANNER_SIBLINGS_FOUND").toContain("red-main");
+    for (const name of siblings) writeFileSync(join(dir, `scripts/${name}.ts`), `export * from ${JSON.stringify(join(ROOT, `scripts/${name}.ts`))};\n`);
     writeFileSync(join(dir, "docs/notes.md"), "Ithaca.\n"); git(dir, "add", "."); git(dir, "commit", "-qm", "base");
     const before = git(dir, "rev-parse", "HEAD");
     writeFileSync(join(dir, "docs/notes.md"), "Ithaca, again.\n"); git(dir, "commit", "-qam", "docs only");
@@ -167,10 +177,10 @@ describe("hosted gate", () => {
 });
 
 /** In-memory GitHub plus a real-shape record store for the coordinator. */
-function fakeGitHub(options: { jobs: Job[]; junit?: string; closure?: boolean | null; pulls?: Record<string, number>; prRuns?: WorkflowRun[]; history?: WorkflowRun[]; historyJobs?: Record<number, Job[]> }) {
+function fakeGitHub(options: { jobs: Job[]; junit?: string; artifact?: Record<string, string>; closure?: boolean | null; pulls?: Record<string, number>; prRuns?: WorkflowRun[]; history?: WorkflowRun[]; historyJobs?: Record<number, Job[]> }) {
   let snapshot: Snapshot = { oid: null, redMain: emptyRedMain() }, version = 0, clock = NOW;
   const issues: { number: number; title: string; body: string; labels: string[] }[] = [];
-  const comments: { issue: number; body: string }[] = [], cancelled: number[] = [], dispatched: unknown[] = [], events: unknown[] = [];
+  const comments: { issue: number; body: string }[] = [], cancelled: number[] = [], dispatched: unknown[] = [], events: unknown[] = [], printed: string[] = [];
   const io: CoordinatorIO = {
     repository: "odysseus/brain-kit",
     async json(path) {
@@ -199,26 +209,44 @@ function fakeGitHub(options: { jobs: Job[]; junit?: string; closure?: boolean | 
     async now() { return clock += 1000; },
     read() { return { oid: String(version), redMain: snapshot.redMain }; },
     publish(seen, record) { if (seen.oid !== String(version)) return false; version++; snapshot = { oid: String(version), redMain: parseRedMain(JSON.stringify(record)) }; return true; },
-    async artifactFiles(_run, name) { return name === "unit-proof-2" && options.junit ? [options.junit] : []; },
+    // Like the hosted unit job, the artifact holds one report per worker under tmp/;
+    // a failing shard has no merged report unless a test supplies one (#3324).
+    async artifactFiles(_run, name, file) {
+      if (name !== "unit-proof-2") return [];
+      const artifact = options.artifact ?? (options.junit ? { "tmp/unit-worker-1-report.xml": options.junit, "tmp/unit-worker-2-report.xml": "<testsuites></testsuites>", "tmp/unit-worker-1-timings.json": "{}" } : {});
+      return Object.entries(artifact).map(([path, text]) => ({ name: path.split("/").at(-1)!, text })).filter(entry => file.test(entry.name));
+    },
     async log() { return ""; },
     inClosure: () => options.closure ?? true,
     range: (since, until) => since === A && until === C ? [B, C] : [],
     isAncestor: (a, b) => a === b || (a === A && b !== A) || (a === B && b === C),
     commitTime: () => NOW,
     async recordEvent(event) { events.push(event); },
-    print() {},
+    print(line) { printed.push(line); },
   };
-  return { io, issues, comments, cancelled, dispatched, events, record: () => snapshot.redMain, set: (record: RedMainRecord) => { snapshot = { oid: String(++version), redMain: record }; } };
+  return { io, issues, comments, cancelled, dispatched, events, printed, record: () => snapshot.redMain, set: (record: RedMainRecord) => { snapshot = { oid: String(++version), redMain: record }; } };
 }
 const mainRun = (sha: string, conclusion: string, id = 100): WorkflowRun => ({ id, name: "CI", event: "push", head_branch: "main", head_sha: sha, status: "completed", conclusion,
   run_attempt: 1, display_title: "squash", created_at: "2026-07-12T00:00:00Z" });
+/** A running PR proof run whose PR had `base` as its base when the run was created. */
+const prRun = (id: number, pr: number, base?: string, head = A): WorkflowRun => ({ ...mainRun(head, "", id), event: "pull_request", head_branch: `pr-${pr}`,
+  status: "in_progress", conclusion: null, created_at: "2026-07-12T00:00:01Z", pull_requests: [{ number: pr, ...(base ? { base: { sha: base } } : {}), head: { sha: head } }] });
 const junit = `<testsuites><testsuite name="packages/core/tests/raft.test.ts" file="packages/core/tests/raft.test.ts" failures="1"><testcase name="t"><failure>expect(received).toBe(expected)</failure></testcase></testsuite></testsuites>`;
 
 describe("coordinator", () => {
+  test("a failing shard's test is read from its unit workers' reports, and a merged report is not counted twice (#3324)", async () => {
+    const jobs: Job[] = [{ id: 1, name: "changeset", conclusion: "success" }, { id: 2, name: "unit (2)", conclusion: "failure", steps: [] }];
+    const workersOnly = fakeGitHub({ jobs, junit });
+    await coordinate(workersOnly.io, mainRun(B, "failure"));
+    expect(workersOnly.record().open?.failures.map(f => f.test), "WORKER_REPORT_ATTRIBUTES_THE_TEST").toEqual(["packages/core/tests/raft.test.ts"]);
+    const both = fakeGitHub({ jobs, artifact: { "tmp/unit-report.xml": junit, "tmp/unit-worker-1-report.xml": junit, "tmp/unit-worker-2-report.xml": "<testsuites></testsuites>" } });
+    await coordinate(both.io, mainRun(B, "failure"));
+    expect(both.record().open?.failures.map(f => f.test), "MERGED_REPORT_PREFERRED_ONCE").toEqual(["packages/core/tests/raft.test.ts"]);
+  });
+
   test("two coordinator runs for the same bad SHA and test leave exactly one incident issue and cancel doomed PR proof", async () => {
     const gh = fakeGitHub({ jobs: [{ id: 1, name: "changeset", conclusion: "success" }, { id: 2, name: "unit (2)", conclusion: "failure", steps: [] }], junit,
-      prRuns: [{ ...mainRun(A, "", 300), event: "pull_request", head_branch: "feat", status: "in_progress", pull_requests: [{ number: 7 }], created_at: "2026-07-12T00:00:01Z" },
-        { ...mainRun(A, "", 301), event: "pull_request", head_branch: "fix", status: "in_progress", pull_requests: [{ number: 8 }], created_at: "2026-07-12T00:00:01Z" }] });
+      prRuns: [prRun(300, 7, C), prRun(301, 8, C)] });
     await coordinate(gh.io, mainRun(B, "failure"));
     gh.set(declareFix(gh.record(), 8, NOW + 100_000));
     await coordinate(gh.io, mainRun(B, "failure"));
@@ -230,8 +258,22 @@ describe("coordinator", () => {
     expect(gh.cancelled, "DOOMED_NON_FIX_RUN_CANCELLED_FIX_KEPT").toEqual([300, 301, 300]);
   });
 
+  test("only proof whose merge ref contains the bad commit is cancelled, and declared fixes never are (#3321)", async () => {
+    // First bad is B. Base C descends from it; base A (an integration branch forked earlier) does not.
+    const gh = fakeGitHub({ jobs: [{ id: 2, name: "unit (2)", conclusion: "failure", steps: [] }], junit,
+      prRuns: [prRun(310, 7, A), prRun(311, 9, C), prRun(312, 8, C), prRun(313, 10), prRun(314, 11, A, C)] });
+    gh.set(declareFix(openRed(emptyRedMain(), { firstBad: B, run: 100, failures: [failure("packages/core/tests/raft.test.ts")] }, NOW), 8, NOW));
+    await coordinate(gh.io, mainRun(B, "failure"));
+    expect(gh.cancelled.includes(310), "BASE_WITHOUT_BAD_COMMIT_NOT_CANCELLED").toBe(false);
+    expect(gh.cancelled.includes(311), "BASE_CONTAINING_BAD_COMMIT_CANCELLED").toBe(true);
+    expect(gh.cancelled.includes(312), "DECLARED_FIX_NOT_CANCELLED").toBe(false);
+    expect(gh.cancelled.includes(313), "UNKNOWN_BASE_NOT_CANCELLED").toBe(false);
+    expect(gh.cancelled.includes(314), "HEAD_CONTAINING_BAD_COMMIT_CANCELLED").toBe(true);
+    expect(gh.cancelled).toEqual([311, 314]);
+  });
+
   test("a suspected flake files its test issue and dispatches a probe without declaring main red", async () => {
-    const gh = fakeGitHub({ jobs: [{ id: 2, name: "unit (2)", conclusion: "failure", steps: [] }], closure: false,
+    const gh = fakeGitHub({ jobs: [{ id: 2, name: "unit (2)", conclusion: "failure", steps: [] }], closure: false, prRuns: [prRun(320, 9, C)],
       junit: junit.replace("<failure>expect(received).toBe(expected)</failure>", "<failure message=\"Timed out after 5000ms\"/>") });
     await coordinate(gh.io, mainRun(B, "failure"));
     expect(gh.record().open).toBeNull();
@@ -242,6 +284,9 @@ describe("coordinator", () => {
     await coordinate(gh.io, { ...mainRun(B, "failure", 200), name: "red-main-probe", event: "workflow_dispatch", display_title: `red-main probe flake 100 ${B}` });
     expect(gh.record().open?.failures[0]?.reasons).toEqual(["probe-reproduced"]);
     expect(gh.comments.some(comment => comment.issue === 500 && comment.body.includes("**failed**"))).toBe(true);
+    // The probe path prints the main-run cancellation line too, so the evidence collector (#2953) sees it.
+    expect(gh.cancelled).toEqual([320]);
+    expect(coordinatorCancellations(gh.printed.join("\n"), "failure"), "PROBE_CANCELLATIONS_PRINTED").toEqual([320]);
   });
 
   test("first bad is the first commit after the last green run, and a squash landed while red is reported", async () => {
@@ -295,5 +340,29 @@ describe("expedited fixes (#2940)", () => {
     await coordinate(gh.io, { ...mainRun(B, "failure", 200), name: "red-main-probe", event: "workflow_dispatch", display_title: `red-main probe fix 100 ${B}` });
     expect(gh.record(), "FIX_PROBE_NEVER_CHANGES_THE_RECORD").toBe(before);
     expect(gh.issues).toHaveLength(0); expect(gh.comments).toHaveLength(0); expect(gh.dispatched).toHaveLength(0);
+  });
+});
+
+describe("per-family red under the hybrid post-merge ruling", () => {
+  const open = (failures: RedFailure[]) => openRed(emptyRedMain(), { firstBad: B, run: 11, failures }, NOW);
+  test("red confined to post-merge categories dooms no pre-merge proof; any fast-category or unknown failure still refuses", () => {
+    expect([...POST_MERGE_CATEGORIES].sort()).toEqual(["browser", "captures", "endurance", "layout", "runtime", "runtime_host"]);
+    const heavy = open([failure(null, "browser"), failure("packages/ui-kit/tests/menu.browser.test.ts", "layout"), failure(null, "runtime_host")]);
+    const admitted = gateDecision({ record: heavy, pr: 7, contains: () => true });
+    expect(admitted.refuse, "POST_MERGE_ONLY_RED_ADMITS").toBe(false);
+    expect(admitted.message).toContain("every red failure is post-merge proof (browser, layout, runtime_host)");
+    for (const category of ["unit", "verify", "pack", "changeset"] as const) {
+      expect(gateDecision({ record: open([failure(null, "browser"), failure(null, category)]), pr: 7, contains: () => true }).refuse, `FAST_${category}_RED_REFUSES`).toBe(true);
+    }
+    expect(postMergeOnly([]), "EMPTY_FAILURE_SET_STAYS_GLOBAL").toBe(false);
+    expect(gateDecision({ record: heavy, pr: 7, contains: () => false }).message, "UNRELATED_MERGE_REF_UNCHANGED").toContain("does not contain it");
+  });
+
+  test("a squash landing while only post-merge proof is red is not reported as a bypass", async () => {
+    const io = { isAncestor: () => true, async json() { throw new Error("no API call expected"); } } as unknown as CoordinatorIO;
+    const landed = await detectLanded(io, open([failure(null, "browser")]), { head_sha: C } as WorkflowRun).then(value => value, error => String(error));
+    expect(landed, "POST_MERGE_RED_LANDING_NOT_REPORTED").toBe(false);
+    await expect(detectLanded(io, open([failure("tests/raft.test.ts")]), { head_sha: C } as WorkflowRun).then(() => null, error => String(error)))
+      .resolves.toContain("no API call expected");
   });
 });

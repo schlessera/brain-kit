@@ -46,7 +46,9 @@ export function buildAxisDiagram(spec:DiagramSpec,width=720):DiagramTree {
   });
  }else if(spec.type==="swimlane"){
   const lanes=axis?.kind==="swimlane"?axis.lanes:nodes.map(n=>({id:n.id,label:n.label})),steps=axis?.kind==="swimlane"?axis.steps:nodes.map(n=>({node:n.id,lane:n.id}));
-  const laneHeight=112,labelWidth=160,stepWidth=144,pitch=240;const required=labelWidth+steps.length*pitch+24;if(width<required)throw Error("Swimlane needs a readable full canvas; use summary and Open diagram");height=40+lanes.length*laneHeight;
+  const laneHeight=112,labelWidth=160,stepWidth=144,pitch=240;const required=labelWidth+steps.length*pitch+24;
+  // The full canvas grows to its steps; only the 320px narrow frame refuses, so the app falls back inline and the viewer draws native scale.
+  if(width<required){if(width<=320)throw Error("Swimlane needs a readable full canvas; use summary and Open diagram");width=required;}height=40+lanes.length*laneHeight;
   lanes.forEach((lane,i)=>{const y=24+i*laneHeight;box("lane",16,y,width-32,laneHeight,"zone");txt(lane.label,24,y+24);});
   const positions=new Map<string,{x:number;y:number}>();steps.forEach((step,i)=>{const n=nodes.find(n=>n.id===step.node)!,x=labelWidth+i*pitch,y=56+lanes.findIndex(l=>l.id===step.lane)*laneHeight;positions.set(n.id,{x,y});box("step",x,y,stepWidth,48,focal.has(n.id)?"focal":"node");elements.at(-1)!.node=n.id;if(typeWidthBudget(n.label,"name")>stepWidth-16)throw Error("Step label needs a shorter label or a wider detail diagram");txt(n.label,x+8,y+28,"name");elements.at(-1)!.node=n.id;});
   const placed=nodes.map(n=>({...n,at:[positions.get(n.id)!.x,positions.get(n.id)!.y] as [number,number],size:[144,48] as [number,number]}));

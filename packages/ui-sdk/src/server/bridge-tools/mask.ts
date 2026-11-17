@@ -8,6 +8,8 @@ import type {
   RequestImageMaskInput,
 } from "../../tool-contracts/index.js";
 import type { BackendBridge } from "../backend.js";
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
+import { BRAIN_SCRATCH_DIR } from "@schlessera/brain-common/internal/worker-areas";
 import { resolveInRepo } from "./resolve-in-repo.js";
 import { brainGitSteps } from "../maintenance-worker.js";
 import { runWorkerStepsAsync, runWorkerStepsSync, type WorkerSteps } from "../worker-steps.js";
@@ -117,13 +119,15 @@ export async function handleRequestImageMask(
  * excluded by git. The write itself goes to a temporary sibling and is
  * renamed onto its name, and the host's prune runs after it.
  *
- * Kept in lockstep with `packages/core/src/lib/scratch.ts` (`SCRATCH_DIR`,
- * `scratchIgnored`, `scratchDir`, `writeScratchFile`): the SDK ports the rule,
- * as it does for `resolveInRepo`, instead of depending on `@schlessera/brain`.
+ * The directory is the shared `BRAIN_SCRATCH_DIR` (#2506). The rules are
+ * core's (`packages/core/src/lib/scratch.ts`: `scratchIgnored`, `scratchDir`,
+ * `writeScratchFile`), applied here through descriptors and the maintenance
+ * worker, since the SDK does not depend on `@schlessera/brain`.
  */
-const SCRATCH_DIR = ".brain/scratch";
+const SCRATCH_DIR = BRAIN_SCRATCH_DIR;
 
-const under = (dir: string, path: string) => path === dir || path.startsWith(dir + sep);
+/** Whether `path` is `dir` or below it, by the platform separator. */
+export const under = (dir: string, path: string) => isWithin(dir, path, { separator: sep });
 
 function isSymlink(path: string): boolean {
   try {
@@ -140,19 +144,19 @@ function isSymlink(path: string): boolean {
  * As steps, so a tool call awaits the maintenance worker instead of holding
  * the server's event loop while a loaded host starts it (#2790).
  */
-function* scratchIgnoredSteps(rootReal: string, maintenance?: import("../maintenance-worker.js").MaintenanceHost): WorkerSteps<boolean> {
+function* scratchIgnoredSteps(rootReal: string, maintenance?: import("../maintenance-worker.js").MaintenanceHost, noun: ScratchNoun = "mask"): WorkerSteps<boolean> {
   requireScratchDescriptors();
   // Creating the directory is a write too: a scratch/.brain replacement must
   // not redirect even this setup step outside the held directory chain.
-  const directory = openMaskDirectory(join(rootReal, SCRATCH_DIR));
+  const directory = openMaskDirectory(join(rootReal, SCRATCH_DIR), noun);
   try { directory.verify(); } finally { directory.close(); }
   // Git reads the brain's configuration and ignore files, so it answers from
   // a maintenance worker (#1648); one that cannot run refuses the mask.
   const inRepo =
     existsSync(join(rootReal, ".git")) ||
-    (yield* brainGitSteps(rootReal, ["rev-parse", "--git-dir"], maintenance)) === 0;
+    (yield* brainGitSteps(rootReal, ["rev-parse", "--git-dir"], { ...maintenance, tempKind: "scratch_query" })) === 0;
   const query = ["check-ignore", "-q", "--no-index", "--", SCRATCH_DIR];
-  return scratchIgnoreResult({ exitCode: yield* brainGitSteps(rootReal, query, { ...maintenance, ...(!inRepo ? { emptyRepository: true } : {}) }), killed: false });
+  return scratchIgnoreResult({ exitCode: yield* brainGitSteps(rootReal, query, { ...maintenance, tempKind: "scratch_query", ...(!inRepo ? { emptyRepository: true } : {}) }), killed: false });
 }
 
 function scratchIgnoreUnavailable(): Error {
@@ -167,25 +171,25 @@ function scratchIgnoreResult(result: { exitCode: number; killed: boolean }): boo
   throw new Error("Cannot verify the .brain/scratch/ directory ignore rule: the maintenance query failed. Check the server's worker health and Git configuration, then try again.");
 }
 
-function refuseNonignoredScratch(): never {
+function refuseNonignoredScratch(noun: ScratchNoun = "mask"): never {
   throw new Error(
-    `${SCRATCH_DIR}/ is not gitignored as a directory, so a mask written there could be committed to the brain. ` +
+    `${SCRATCH_DIR}/ is not gitignored as a directory, so a ${noun} written there could be committed to the brain. ` +
       "Run `brain doctor --fix` to add it to .gitignore, then try again."
   );
 }
 
 /** The scratch directory, verified: neither `.brain` nor `.brain/scratch` is a symlink. */
-function scratchDir(rootReal: string): string {
+function scratchDir(rootReal: string, noun: ScratchNoun = "mask"): string {
   const dir = join(rootReal, SCRATCH_DIR);
   for (const path of [dirname(dir), dir]) {
     if (isSymlink(path)) {
       throw new Error(
-        `${SCRATCH_DIR}/ is redirected by a symlink (${relative(rootReal, path)}), so no mask is written there.`
+        `${SCRATCH_DIR}/ is redirected by a symlink (${relative(rootReal, path)}), so no ${noun} is written there.`
       );
     }
   }
   if (existsSync(dir) && realpathSync(dir) !== dir) {
-    throw new Error(`${SCRATCH_DIR}/ resolves to ${realpathSync(dir)}, so no mask is written there.`);
+    throw new Error(`${SCRATCH_DIR}/ resolves to ${realpathSync(dir)}, so no ${noun} is written there.`);
   }
   return dir;
 }
@@ -206,31 +210,37 @@ export function assertScratchMask(rootReal: string, maskRel: string, maskAbs: st
   runWorkerStepsSync(assertScratchMaskSteps(rootReal, maskRel, maskAbs, maintenance));
 }
 
-function* assertScratchMaskSteps(rootReal: string, maskRel: string, maskAbs: string, maintenance?: import("../maintenance-worker.js").MaintenanceHost): WorkerSteps<void> {
-  if (!assertScratchMaskDirectory(rootReal, maskRel, maskAbs)) return;
-  if (!(yield* scratchIgnoredSteps(rootReal, maintenance))) refuseNonignoredScratch();
+function* assertScratchMaskSteps(rootReal: string, maskRel: string, maskAbs: string, maintenance?: import("../maintenance-worker.js").MaintenanceHost, noun: ScratchNoun = "mask"): WorkerSteps<void> {
+  if (!assertScratchMaskDirectory(rootReal, maskRel, maskAbs, noun)) return;
+  if (!(yield* scratchIgnoredSteps(rootReal, maintenance, noun))) refuseNonignoredScratch(noun);
 }
 
-function assertScratchMaskDirectory(rootReal: string, maskRel: string, maskAbs: string): boolean {
+function assertScratchMaskDirectory(rootReal: string, maskRel: string, maskAbs: string, noun: ScratchNoun = "mask"): boolean {
   if (!maskInScratch(rootReal, maskRel, maskAbs)) return false;
-  const dir = scratchDir(rootReal);
+  const dir = scratchDir(rootReal, noun);
   if (!under(dir, maskAbs)) {
-    throw new Error(`${maskRel} resolves outside ${SCRATCH_DIR}/, so no mask is written there.`);
+    throw new Error(`${maskRel} resolves outside ${SCRATCH_DIR}/, so no ${noun} is written there.`);
   }
   return true;
 }
 
+/**
+ * What a scratch refusal says is not written: masks keep their words, and
+ * the markup application (#3975) names its own layer.
+ */
+export type ScratchNoun = "mask" | "markup layer";
+
 /** Hosted queries await their own complete native input; fallback hosts retain their synchronous reader. */
-export async function assertScratchMaskAsync(rootReal: string, maskRel: string, maskAbs: string, maintenance?: import("../maintenance-worker.js").MaintenanceHost, signal?: AbortSignal): Promise<void> {
-  if (!assertScratchMaskDirectory(rootReal, maskRel, maskAbs)) return;
-  if (!maintenance?.scratchIgnoreQuery) return runWorkerStepsAsync(assertScratchMaskSteps(rootReal, maskRel, maskAbs, maintenance));
+export async function assertScratchMaskAsync(rootReal: string, maskRel: string, maskAbs: string, maintenance?: import("../maintenance-worker.js").MaintenanceHost, signal?: AbortSignal, noun: ScratchNoun = "mask"): Promise<void> {
+  if (!assertScratchMaskDirectory(rootReal, maskRel, maskAbs, noun)) return;
+  if (!maintenance?.scratchIgnoreQuery) return runWorkerStepsAsync(assertScratchMaskSteps(rootReal, maskRel, maskAbs, maintenance, noun));
   let result: { exitCode: number; killed: boolean };
   try { result = await maintenance.scratchIgnoreQuery(signal); }
   catch { throw scratchIgnoreUnavailable(); }
   signal?.throwIfAborted();
   // The directory may have changed while the native worker was running.
-  assertScratchMaskDirectory(rootReal, maskRel, maskAbs);
-  if (!scratchIgnoreResult(result)) refuseNonignoredScratch();
+  assertScratchMaskDirectory(rootReal, maskRel, maskAbs, noun);
+  if (!scratchIgnoreResult(result)) refuseNonignoredScratch(noun);
 }
 
 /** Scratch fallback never substitutes a path-only write on an unqualified host. */
@@ -241,13 +251,13 @@ function requireScratchDescriptors(): void {
 }
 
 /** A held directory chain: every mkdir/open goes through its parent's descriptor. */
-function openMaskDirectory(directory: string) {
+function openMaskDirectory(directory: string, noun: ScratchNoun = "mask") {
   const absolute = resolve(directory);
   const root = parse(absolute).root;
   const parts = relative(root, absolute).split(sep).filter(Boolean);
   const chain: Array<{ fd: number; visible: string; dev: number; ino: number }> = [];
   const flags = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
-  const changed = () => new Error(`${absolute} is no longer a directory of its own, so no mask is written there.`);
+  const changed = () => new Error(`${absolute} is no longer a directory of its own, so no ${noun} is written there.`);
   const close = () => { for (const entry of chain.reverse()) closeSync(entry.fd); };
   try {
     let visible = root;
@@ -284,7 +294,7 @@ function openMaskDirectory(directory: string) {
   } catch (error) {
     close();
     if (["ELOOP", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) {
-      throw new Error(`${absolute} is not a directory of its own, so no mask is written there.`);
+      throw new Error(`${absolute} is not a directory of its own, so no ${noun} is written there.`);
     }
     throw error;
   }

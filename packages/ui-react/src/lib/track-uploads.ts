@@ -4,7 +4,7 @@ import type { BrainUiRoot } from "../root.js";
 
 // The parser's UTF-8 input cap is smaller than the generic share-file cap.
 export const TRACK_MAX_BYTES = TRACK_MAX_FILE_BYTES;
-export type TrackUploadState = "picked" | "uploading" | "parsing" | "paused" | "failed" | "ready";
+type TrackUploadState = "picked" | "uploading" | "parsing" | "paused" | "failed" | "ready";
 export interface PendingTrack {
   id: string;
   file: File;

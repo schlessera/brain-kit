@@ -18,7 +18,11 @@
 export type Edge = "top" | "right" | "bottom" | "left";
 
 export function targetRect(el: Element, floor: number) {
-  const r = el.getBoundingClientRect();
+  // A link that wraps has one box per line, and their union covers the prose
+  // around it, so probing the union's edges lands on that prose. Probe its
+  // first line box, which is a target of its own.
+  const lines = el.getClientRects();
+  const r = lines.length > 1 ? lines[0]! : el.getBoundingClientRect();
   const width = Math.max(r.width, floor), height = Math.max(r.height, floor);
   const x = r.left + r.width / 2, y = r.top + r.height / 2;
   return { left: x - width / 2, right: x + width / 2, top: y - height / 2, bottom: y + height / 2, x, y, width, height };
@@ -73,4 +77,23 @@ export function probeScope(scope: ParentNode): { name: string; owners: Record<Ed
     el.scrollIntoView({ block: "center", inline: "nearest" });
     return { name: describeHit(el), owners: edgeOwners(el, coarse && el.classList.contains("bk-hit") ? 44 : 0) };
   });
+}
+
+/**
+ * The touch floor, met either way: a box 44px or more on each axis, or a
+ * reaching control (`.bk-hit`) that keeps its paint under 44px and, under a
+ * coarse pointer, owns each edge of its 44px target. Under a fine pointer a
+ * reaching control is held to its paint, which is the floor it has there.
+ * Returns `"met"`, or what fell short, so a failure names the thief.
+ */
+export function touchFloor(el: HTMLElement): string {
+  if (el.classList.contains("bk-hit")) {
+    el.scrollIntoView({ block: "center", inline: "nearest" });
+    const r = el.getBoundingClientRect();
+    if (el.style.minHeight === "44px" || r.height >= 44) return `draws a ${r.height}px box`;
+    const owners = edgeOwners(el, coarsePointer() ? 44 : 0);
+    return JSON.stringify(owners) === JSON.stringify(OWNED) ? "met" : `edges: ${JSON.stringify(owners)}`;
+  }
+  const r = el.getBoundingClientRect();
+  return r.height >= 43.5 && r.width >= 43.5 ? "met" : `${r.width}x${r.height} without reach`;
 }

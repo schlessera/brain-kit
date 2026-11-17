@@ -35,9 +35,9 @@ test("ordinary Claude worker protects policy bytes, applies and indexes permitte
   expect(r.indexed, JSON.stringify(r.requests).match(/indexError.{0,800}/)?.[0] ?? JSON.stringify(r.appEvents)).toEqual([{ path: "notes/worker-raft.md" }]);
   expect(r.mask).toEqual([137,80,78,71,13,10,26,10,0,0,0,0]);
   const outputs = r.requests.flatMap((req: any) => req.results ?? []).map((result: any) => JSON.stringify(result.content));
-  expect(outputs.some((out: string) => out.includes("Odysseus scratch succeeds"))).toBe(true);
-  expect(outputs.some((out: string) => out.includes("read-only"))).toBe(true);
-  expect(outputs.some((out: string) => out.includes("Odysseus") && out.includes("results"))).toBe(true);
+  expect(outputs).toEqual(expect.arrayContaining([expect.stringContaining("Odysseus scratch succeeds")]));
+  expect(outputs).toEqual(expect.arrayContaining([expect.stringContaining("read-only")]));
+  expect(outputs).toEqual(expect.arrayContaining([expect.stringMatching(/^(?=[\s\S]*Odysseus)(?=[\s\S]*results)/)]));
   const namespaceOutput = outputs.find((out: string) => /pid:\[\d+\]/.test(out));
   expect(namespaceOutput).toBeDefined();
   const namespaceIds = namespaceOutput!.match(/pid:\[\d+\]/g);
@@ -54,17 +54,17 @@ test("ordinary Claude worker protects policy bytes, applies and indexes permitte
 });
 test("aborting an actual Claude mid-tool removes its detached descendant and history has no phantom Markdown effect", async () => {
   const r = await probe("abort");
-  expect(r.diagnostics.atAbort.native.some((file: { bash: number }) => file.bash > 0),
-    "CLAUDE_ABORT_HAS_PERSISTED_BASH").toBe(true);
+  expect(Math.max(0, ...r.diagnostics.atAbort.native.map((file: { bash: number }) => file.bash)),
+    "CLAUDE_ABORT_HAS_PERSISTED_BASH").toBeGreaterThan(0);
   expect(r.histories.length, JSON.stringify(r.diagnostics)).toBe(1);
   expect(r.sessions[0].id).toBe(r.diagnostics.sessionId);
   expect(r.calls).toBeGreaterThan(0);
   expect(r.sawDetachedChild, "actual detached sleep process started before cancellation").toBe(true);
-  expect(r.frames.some((f: any) => f.type === "tool_use_start" && f.toolName === "Bash")).toBe(true);
+  expect(r.frames).toEqual(expect.arrayContaining([expect.objectContaining({ type: "tool_use_start", toolName: "Bash" })]));
   expect(r.frames.filter((f: any) => f.type === "result").at(-1).outcome).toBe("cancelled");
   expect(r.ordinary).toBeNull(); expect(r.appEvents).toEqual([]);
   expect(r.policy).toBe("Athena: agent writers never change these policy bytes.\n");
-  expect(r.histories[0].flatMap((h: any) => h.toolCalls).some((t: any) => t.name === "Bash")).toBe(true);
+  expect(r.histories[0].flatMap((h: any) => h.toolCalls).map((t: any) => t.name)).toContain("Bash");
   expect(r.survivors, "cancelled PID namespace leaves no detached child").toEqual([]);
 });
 test("an actual Claude runtime gets a large document's base hash inline from brain_read_base, never a spill file (#1624)", async () => {
@@ -88,7 +88,7 @@ test("an actual Claude whose runtime state fills its allowance ends the turn as 
   expect(fill.output).toContain("No space left on device");
   expect(fill.output).toContain(`tmpfs           ${64 * 1024 * 1024}`);
   // The runtime itself reports success, yet could not save its answer.
-  expect(r.frames.some((f: any) => f.type === "text_delta" && f.text === "Odysseus completes the worker turn.")).toBe(true);
+  expect(r.frames).toEqual(expect.arrayContaining([expect.objectContaining({ type: "text_delta", text: "Odysseus completes the worker turn." })]));
   const results = r.frames.filter((f: any) => f.type === "result");
   expect(results).toHaveLength(1);
   expect(results[0]).toMatchObject({ outcome: "error", isError: true, failure: { errorClass: "worker_state_exceeded" } });

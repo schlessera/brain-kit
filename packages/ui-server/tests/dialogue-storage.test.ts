@@ -638,6 +638,8 @@ test("R7 an unrelated owner's delayed observation cannot serialize another conve
  f.catalog.dialogueAppend=async input=>{if(input.ownerId==="pylos")await new Promise<void>(r=>{release=r;});return append(input);};
  try{await f.journal.open(opening);await f.journal.open({...opening,conversationId:"pylos"});const e=fragment(0).evidence;if(e.kind!=="voice")throw Error("voice required");f.journal.voice("pylos",{...e,conversationId:"pylos"},()=>{});
  f.journal.close("ithaca","odysseus",1);const reopened=f.journal.open({...opening,epoch:2});
+ // Failure maximum: on success the reopen settles first; a reopen serialized behind
+ // the held append never settles, so a deadline is what names that failure.
  const outcome=await Promise.race([reopened.then(()=>"open"),Bun.sleep(200).then(()=>"blocked")]);expect(outcome,"UNRELATED_OWNER_DOES_NOT_BLOCK_REOPEN").toBe("open");
  expect(f.db.query("SELECT epoch FROM dialogue_conversations WHERE id='ithaca'").get()).toEqual({epoch:2});
  }finally{release?.();await f.close();}

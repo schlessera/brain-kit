@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, readlinkSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { publishFile } from "./atomic-file";
 import { observePlanning, type PlanningRecord } from "./planning-observer";
 import { burnCpu, bunControl, census, pause, runControl, until, withCompetitors } from "./planning-control";
 
@@ -22,7 +23,7 @@ if (mode === "competitor-child") {
   pause(15_000);
 } else if (mode === "hold") {
   await withCompetitors(dir, 1, async () => {
-    writeFileSync(join(dir, "holding"), readlinkSync("/proc/self/ns/pid"));
+    publishFile(join(dir, "holding"), readlinkSync("/proc/self/ns/pid"));
     await Bun.sleep(15_000);
   });
 } else if (mode === "sync-child") {

@@ -16,7 +16,8 @@ function fixture(files: Record<string, string>) {
   const dir = mkdtempSync(join(tmpdir(), "odysseus-proof-system-"));
   directories.push(dir);
   const git = (...args: string[]) => {
-    const result = Bun.spawnSync(["git", ...args], { cwd: dir, stdout: "pipe", stderr: "pipe", env: ENV });
+    // Command-scoped, so an environment-scoped signing setting cannot reach these fixture commits (#3485).
+    const result = Bun.spawnSync(["git", "-c", "commit.gpgsign=false", ...args], { cwd: dir, stdout: "pipe", stderr: "pipe", env: ENV });
     if (result.exitCode !== 0) throw new Error(result.stderr.toString());
     return result.stdout.toString().trim();
   };

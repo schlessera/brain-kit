@@ -1,8 +1,10 @@
 import { StorageSettlementIndeterminate, withinStorageBudget } from "../db/settlement.js";
 import { DialogueJournal } from "./dialogue.js";
+import type { DialogueOwner } from "./dialogue-storage.js";
 import { type AskUserFormLimits } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { resolveAskUserFormLimits } from "@schlessera/brain-ui-sdk/internal/client";
-import { FOLLOW_UP_QUEUE_CAPABILITY, type ServerMessage, type ServerSessionQueue } from "@schlessera/brain-ui-sdk/protocol";
+import { CHAT_DELETION_CAPABILITY, FOLLOW_UP_QUEUE_CAPABILITY, type ServerMessage, type ServerSessionQueue } from "@schlessera/brain-ui-sdk/protocol";
+import { ChatRetiredError, type RetiredChatIdentities } from "./chat-lifecycle.js";
 import type { SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { TurnClassifier } from "../classification/classify-turn.js";
 import { ClientSet, sendTo, type WSContext } from "./clients.js";
@@ -16,6 +18,7 @@ import type { ActivityStream } from "../activity/stream.js";
 import type { AwaitablePushSender } from "../activity/push-sender.js";
 import type { RuntimeStatus } from "../activity/runtime-status.js";
 import type { GovernanceEventInput } from "../governance/events.js";
+import { notifySafetyChanged } from "../governance/safety-queue.js";
 import type { Principal } from "../db/principals.js";
 import type { createInboxBridgeTools } from "../inbox/bridge-tools.js";
 import type { InboxStream } from "../inbox/stream.js";
@@ -25,11 +28,13 @@ import { spliceLocalExchanges, stripLocalContext } from "./local-exchanges.js";
 import { FailureReplay } from "./turn-failures.js";
 import type { AgentBackend, LiveConversationProvider } from "@schlessera/brain-ui-sdk/server";
 import { createKeyedLock, type KeyedLock } from "@schlessera/brain-ui-sdk/server";
-import { assertLiveConversationProvider } from "@schlessera/brain-ui-sdk/server";
+import { createLiveProviderRegistry, type LiveProviderRegistry } from "../voice/live-providers.js";
 import { ConversationHost } from "./conversation.js";
+import { turnLogAttributes, type TurnLogContext } from "./limits.js";
 import type { Labeller } from "../labels/labeller.js";
 import { createPillLabels, type PillLabels } from "../labels/pill-labels.js";
 import type { ApplicationPlanner } from "../brain/application.js";
+import type { LivePersonaService } from "../voice/personas.js";
 
 /** The activity record and its live stream, when the host records activity. */
 export interface ActivityRuntime {
@@ -58,32 +63,25 @@ const AUTHORIZATION_EXPIRY_SWEEP_MS = 1_000;
 const SESSION_EXPIRED_CLOSE_CODE = 1008;
 const SESSION_EXPIRED_CLOSE_REASON = "Session expired";
 
-/**
- * Budget for the host-side follow-up queue of ONE session (backends without a
- * native `followUp`; with one, messages go into the running turn and none of
- * this applies).
- *
- * Bytes rather than a message count, because that is what the cost actually
- * tracks: a queued entry is retained in this process until its turn runs, and
- * an entry carrying four images outweighs a hundred carrying text. Counting
- * messages made a text-only queue and a 50 MB image queue look identical.
- *
- * Past the warn mark the message is still accepted — the sender is told the
- * queue is getting heavy, in `detail` on the `queued` status and in the server
- * log. Past the hard cap it is refused with SESSION_QUEUE_FULL, which is an
- * explicit error frame, never a silent drop.
- */
-export const QUEUE_WARN_BYTES = 20 * 1024 * 1024;
-export const QUEUE_MAX_BYTES = 50 * 1024 * 1024;
-
-/**
- * Backstop on depth. Bytes do not bound COUNT, and every queued entry becomes
- * its own turn: without this, ~500k one-line messages fit inside the byte cap
- * and would run the session for days. Not the limit anyone should hit.
- */
-export const MAX_SESSION_QUEUE = 50;
+export {
+  MAX_SESSION_QUEUE,
+  QUEUE_MAX_BYTES,
+  QUEUE_WARN_BYTES,
+  turnLogAttributes,
+  type TurnLogContext,
+} from "./limits.js";
 
 export interface WsHostOptions {
+  /** @internal Live trust publication input; no matching or publication authority. */
+  safetyTrust?: import("../governance/effective-safety.js").LiveTrustRevision;
+  /** @internal Concrete read-only host evidence reader. */
+  safetyHistory?: import("../governance/safety-history.js").SafetyHistory;
+  /** @internal Live password-mode owner review capability; no model tool. */
+  ownerSafetyReviews?: import("../governance/owner-safety-reviews.js").OwnerSafetyReviews;
+  /** @internal Concrete user history service mounted by this host, not agent authority. */
+  turnReverts?: import("../brain/turn-revert.js").TurnReverts;
+  /** @internal The brain/git lock the host shares, when the app built a service that needs it first. */
+  workerLock?: KeyedLock;
   /** @internal Trusted server-state placement for the existing identity probe. */
   identitySentinelDirectory?: string;
   /** @internal Host-owned observed changes; absent histories remain unrecorded. */
@@ -94,6 +92,12 @@ export interface WsHostOptions {
   policyProposals?: import("../brain/policy-proposal.js").PolicyProposals;
   governedTurns?: import("../brain/governed-turn.js").GovernedTurns;
   /**
+   * @internal The host's Jev client for the extraction judge (#4089), shared by
+   * every turn so its breaker is. Absent: a turn whose policy turns the judge
+   * on leaves the ambiguous band on the card.
+   */
+  extractionJudge?: import("../classification/jev-client.js").JevClient;
+  /**
    * @internal Managed reference worktrees (#2430). Each governed or strict turn
    * gets its own worker generation only when `referenceWorktreeAccess` is set,
    * which the app sets with the supported worktree tools (#2432).
@@ -103,6 +107,14 @@ export interface WsHostOptions {
   referenceWorktreeAccess?: boolean;
   /** @internal The agent tools over reference source and worktrees (#2432); used only with `referenceWorktreeAccess`. */
   referenceTools?: import("../brain/reference-tools.js").ReferenceTools;
+  /** @internal Hosted external compute (#3108). */
+  computeTools?: import("../brain/compute-host.js").ComputeHost;
+  /** @internal The Apify operations (#3162): interactive turns of both backends call them through the bridge. */
+  apify?: import("../apify/host.js").ApifyHost;
+  /** @internal The host-owned web tools (#3685): Pi's governed and strict interactive turns forward their calls here. */
+  webTools?: import("../web-tools/broker.js").WebBroker;
+  /** @internal The host GitHub tools (#3797): interactive turns of both backends call them through the bridge. */
+  githubTools?: import("../github/host.js").GithubToolsHost;
   maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
   /** @internal Concrete authenticated session preference store, supplied by createApp. */
   sessionProfiles?: import("./session-profiles.js").SessionProfiles;
@@ -203,12 +215,39 @@ export interface WsHostOptions {
    */
   conversationProvider?: LiveConversationProvider;
   /**
+   * Several live-conversation providers (#3616); exclusive with
+   * `conversationProvider`, which means a list of one.
+   * @experimental Part of the LiveConversationProvider seam until 1.0.
+   */
+  conversationProviders?: LiveConversationProvider[];
+  /** Must name a registered live-conversation provider (#3616). */
+  defaultConversationProviderId?: string;
+  /**
+   * The saved brain-wide live-service default (#3616), read at each hello and
+   * Start. Absent reads as nothing saved.
+   * @internal Supplied by createApp.
+   */
+  liveDefaultProvider?: () => string | null;
+  /**
+   * Live-conversation personas (#3617). Absent: every Start uses Standard and
+   * hello carries no `livePersona`.
+   * @internal Supplied by createApp.
+   */
+  livePersonas?: LivePersonaService;
+  /**
    * Host draft storage (#979). Present: `server_hello` advertises
    * `sessionDrafts` and an accepted `chat_message.draftRef` consumes its
    * revision. Absent: drafts are neither advertised nor touched.
    * @internal Supplied by createApp (#1053).
    */
   drafts?: AwaitableDraftStore;
+  /**
+   * Composer file bounds (#3153). Present, with `drafts`: the host mounted
+   * `POST /api/drafts/:draftId/files` and `server_hello` advertises
+   * `composerFiles`. Absent: no composer file is offered or accepted.
+   * @internal Supplied by createApp.
+   */
+  attachmentLimits?: import("@schlessera/brain-ui-sdk/protocol").AttachmentLimits;
 }
 
 /** The remembered per-tool auto-allow store the ws layer consults. */
@@ -217,25 +256,6 @@ export interface ToolPermissions {
   isAutoAllowed(toolName: string): boolean;
   /** Remember this tool as always allowed. */
   add(toolName: string): void | Promise<void>;
-}
-
-/** Identity of one turn, as it appears on a log record. */
-export interface TurnLogContext {
-  sessionId?: string | null;
-  turnId?: string | null;
-  providerId?: string | null;
-}
-
-/**
- * Log attributes for one turn. Null fields are omitted rather than stringified
- * — a new session has no sessionId until `session_info` names it.
- */
-export function turnLogAttributes(turn: TurnLogContext): Record<string, string> {
-  return {
-    ...(turn.sessionId ? { "session.id": turn.sessionId } : {}),
-    ...(turn.turnId ? { "turn.id": turn.turnId } : {}),
-    ...(turn.providerId ? { profile: turn.providerId } : {}),
-  };
 }
 
 /**
@@ -252,13 +272,17 @@ export function turnLogAttributes(turn: TurnLogContext): Record<string, string> 
  * modules (#1053; docs/decisions/public-export-boundary.md).
  */
 export class WsHost {
+  /** @internal Live trust revision supplied by the concrete host publisher. */
+  readonly safetyTrust?: import("../governance/effective-safety.js").LiveTrustRevision;
   /** @internal Concrete user history service mounted by this host, not agent authority. */
-  turnReverts?: import("../brain/turn-revert.js").TurnReverts;
+  readonly turnReverts?: import("../brain/turn-revert.js").TurnReverts;
+  /** Explicit local chat deletion (#3230); present when the host answers `POST /api/chat-deletions`. */
+  chatDeletion?: import("./chat-deletion.js").ChatDeletion;
   /** @internal Concrete host-owned scope observation and process control. */
   readonly scope?: import("../brain/turn-scope.js").TurnScope;
   readonly journal?: import("../brain/turn-journal.js").TurnJournal;
   /** @internal Shared across adapters, native tools, curated applications and index refresh. */
-  readonly workerLock: KeyedLock = createKeyedLock();
+  readonly workerLock: KeyedLock;
   /** @internal Trusted server-state placement, revalidated at each turn. */
   readonly identitySentinelDirectory?: string;
   readonly brainPath?: string;
@@ -269,12 +293,22 @@ export class WsHost {
   /** @internal Hosted worker admission/reconciliation. */
   readonly policyProposals?: import("../brain/policy-proposal.js").PolicyProposals;
   readonly governedTurns?: import("../brain/governed-turn.js").GovernedTurns;
+  /** @internal The extraction judge's Jev client (#4089). */
+  readonly extractionJudge?: import("../classification/jev-client.js").JevClient;
   /** @internal Managed worktree lifecycle and the open worker generation of each running turn (#2430). */
   readonly referenceWorktrees?: import("../brain/reference-worktrees.js").ReferenceWorktrees;
   /** @internal Whether governed and strict turns open worker generations (#2432 enables it). */
   readonly referenceWorktreeAccess: boolean;
   /** @internal The agent tools over reference source and worktrees (#2432), present only with `referenceWorktreeAccess`. */
   readonly referenceTools?: import("../brain/reference-tools.js").ReferenceTools;
+  /** @internal Hosted external compute (#3108). */
+  readonly computeTools?: import("../brain/compute-host.js").ComputeHost;
+  /** @internal The Apify operations (#3162). */
+  readonly apify?: import("../apify/host.js").ApifyHost;
+  /** @internal The host-owned web tools (#3685). */
+  readonly webTools?: import("../web-tools/broker.js").WebBroker;
+  /** @internal The host GitHub tools (#3797). */
+  readonly githubTools?: import("../github/host.js").GithubToolsHost;
   /** @internal The open worker generation of each running turn. */
   readonly referenceWorktreeGenerations: Map<string, import("../brain/reference-worktrees.js").ReferenceWorktreeGeneration> = new Map();
   readonly maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
@@ -287,11 +321,14 @@ export class WsHost {
   readonly failureReplay: FailureReplay;
   readonly askUserFormLimits: AskUserFormLimits;
   /** @internal Turn bookkeeping shared with the package's own connection and dispatch modules. */
-  readonly coordinator: TurnCoordinator = new TurnCoordinator();
+  readonly coordinator: TurnCoordinator;
   /** @internal Keep native leases/state open until cancelled runners settle. */
   readonly turnTasks = new Set<Promise<void>>();
-  /** @internal Application shutdown refuses new runners. */
-  closing = false;
+  #closing = false;
+  /** @internal Application shutdown refuses new runners; set once by `beginClosing`. */
+  get closing(): boolean {
+    return this.#closing;
+  }
   /** @internal Receipt order is compared only within this host's session queues. */
   nextSendOrder = 0;
   /** @internal Host wiring (#1053). */
@@ -316,6 +353,8 @@ export class WsHost {
   readonly inboxTools: ReturnType<typeof createInboxBridgeTools> | null;
   /** @internal Host wiring (#1053). */
   readonly drafts: AwaitableDraftStore | null;
+  /** @internal Host wiring (#3153). */
+  readonly attachmentLimits: import("@schlessera/brain-ui-sdk/protocol").AttachmentLimits | null;
   /** @internal Host wiring (#1053). */
   readonly toolPermissions: ToolPermissions | null;
   /**
@@ -323,6 +362,8 @@ export class WsHost {
    * @internal Host wiring (#1053).
    */
   readonly conversations: ConversationHost | null;
+  /** Registered live services, fixed at construction (#3616). */
+  readonly liveProviders: LiveProviderRegistry;
   /** @internal Host wiring (#1053). */
   readonly classifier: TurnClassifier | null;
   /**
@@ -358,9 +399,18 @@ export class WsHost {
   private readonly authorizationExpiryTimer: ReturnType<typeof setInterval>;
   /** Only outstanding reads are retained; no transcript or per-session cache. */
   readonly dialogue: DialogueJournal;
+  /** @internal Concrete read-only host evidence reader. */
+  readonly safetyHistory?: import("../governance/safety-history.js").SafetyHistory;
+  /** @internal Browser-only individual verdict service. */
+  readonly ownerSafetyReviews?: import("../governance/owner-safety-reviews.js").OwnerSafetyReviews;
   private readonly historyReads = new Set<{ sessionId: string; changed: boolean; resultTurnId?: string }>();
 
   constructor(options: WsHostOptions) {
+    this.safetyTrust = options.safetyTrust;
+    this.safetyHistory = options.safetyHistory;
+    this.ownerSafetyReviews = options.ownerSafetyReviews;
+    this.turnReverts = options.turnReverts;
+    this.workerLock = options.workerLock ?? createKeyedLock();
     this.journal = options.journal;
     this.policyProposals = options.policyProposals;
     this.scope = options.scope;
@@ -369,9 +419,14 @@ export class WsHost {
     this.applicationPlanner = options.applicationPlanner;
     this.indexBatch = options.indexBatch;
     this.governedTurns = options.governedTurns;
+    this.extractionJudge = options.extractionJudge;
     this.referenceWorktrees = options.referenceWorktrees;
     this.referenceWorktreeAccess = Boolean(options.referenceWorktrees && options.referenceWorktreeAccess);
     if (this.referenceWorktreeAccess) this.referenceTools = options.referenceTools;
+    this.computeTools = options.computeTools;
+    this.apify = options.apify;
+    this.webTools = options.webTools;
+    this.githubTools = options.githubTools;
     this.maintenance = options.maintenance;
     this.sessionProfiles = options.sessionProfiles;
     this.budgets = options.budgets;
@@ -379,6 +434,7 @@ export class WsHost {
     this.askUserFormLimits = resolveAskUserFormLimits(options.askUserFormLimits);
     this.clients = new ClientSet(options.wsMaxConnections, (principalIds) => {
       this.coordinator.invalidateAuthorizations(principalIds);
+      if (this.activity?.governanceDb) notifySafetyChanged(this.activity.governanceDb);
     });
     this.registry = options.registry;
     this.catalog = options.catalog;
@@ -387,6 +443,28 @@ export class WsHost {
     this.maxConcurrentSessions =
       options.maxConcurrentSessions ?? (() => DEFAULT_MAX_CONCURRENT_SESSIONS);
     this.observability = options.observability ?? createSilentObservability();
+    this.log = this.observability.logger("ws");
+    this.coordinator = new TurnCoordinator({
+      log: this.log,
+      // Every settled permission request, by any path, reaches the connections
+      // that asked for host outcomes (#957).
+      onApprovalSettled: (toolUseId, record) => {
+        this.sendToCapable("toolResolution", {
+          type: "tool_resolution",
+          toolUseId,
+          outcome: record.outcome,
+          ...(record.sessionId ? { sessionId: record.sessionId } : {}),
+          turnId: record.turnId,
+          ...(record.channel ? { channel: record.channel } : {}),
+          ...(record.reason ? { reason: record.reason } : {}),
+        });
+      },
+      // Every change to a session's pending follow-ups reaches the connections
+      // that asked for the queue (#1002).
+      onQueueChanged: (sessionId, change) => {
+        this.sendToCapable(FOLLOW_UP_QUEUE_CAPABILITY, this.followUpQueueFrame(sessionId, change));
+      },
+    });
     this.wsRate =
       options.wsRate && options.wsRate.ratePerSecond > 0 ? options.wsRate : null;
     this.isPrincipalValid = options.isPrincipalValid ?? (() => true);
@@ -395,24 +473,31 @@ export class WsHost {
     this.inbox = options.inbox ?? null;
     this.inboxTools = options.inboxTools ?? null;
     this.drafts = options.drafts ?? null;
+    this.attachmentLimits = options.drafts && options.attachmentLimits ? options.attachmentLimits : null;
     this.toolPermissions = options.toolPermissions ?? null;
-    if (options.conversationProvider) assertLiveConversationProvider(options.conversationProvider);
-    this.conversations = options.conversationProvider
-      ? new ConversationHost(this, options.conversationProvider)
+    const live = this.liveProviders = createLiveProviderRegistry(options);
+    const saved = options.liveDefaultProvider ?? (() => null);
+    this.conversations = live.providers.length > 0
+      ? new ConversationHost(this, live, saved, options.livePersonas)
       : null;
-    this.dialogue = new DialogueJournal(this.catalog, (page, principalId) => {
-      this.clients.broadcast({ type: "dialogue_history", ...page }, undefined, "sessionDialogue", principalId);
+    // Retained history reaches every login of its account (#3963), never another account.
+    const audience = (owner: DialogueOwner) => (principalId: string) => {
+      if (principalId === owner.principal_id) return true;
+      try { return this.catalog.dialogueAudience?.(owner, principalId) === true; } catch { return false; }
+    };
+    this.dialogue = new DialogueJournal(this.catalog, (page, principalId, owner) => {
+      this.clients.broadcast({ type: "dialogue_history", ...page }, undefined, "sessionDialogue", owner ? audience(owner) : principalId);
     }, (owner, cause, kind) => {
       const finish=this.conversations?.storageFailing(owner.id);
       const message=cause === "storage_indeterminate" ? "Conversation text persistence could not be confirmed. Voice stopped; history may be incomplete. Restore storage before restarting voice." : kind === "backend" ? "Original discussion position could not be saved. The complete answer remains in chat history. Check storage before restarting voice." : cause === "queue_pressure" ? "Conversation text is arriving faster than it can be saved. Voice capture stopped at the pending-write limit. The unsaved tail is unavailable after reload. Let pending writes finish and check storage before restarting voice." : "Conversation text could not be saved. The unsaved tail is unavailable after reload. Restore storage before restarting voice.";
-      this.clients.broadcast({type:"error",code:cause === "storage_indeterminate" ? "DIALOGUE_INDETERMINATE" : cause === "queue_pressure" ? "DIALOGUE_PENDING_PRESSURE" : "DIALOGUE_STORAGE",historyOwnerId:owner.id,...(owner.session_id ? {sessionId:owner.session_id} : {}),message},undefined,"sessionDialogue",owner.principal_id);
+      this.clients.broadcast({type:"error",code:cause === "storage_indeterminate" ? "DIALOGUE_INDETERMINATE" : cause === "queue_pressure" ? "DIALOGUE_PENDING_PRESSURE" : "DIALOGUE_STORAGE",historyOwnerId:owner.id,...(owner.session_id ? {sessionId:owner.session_id} : {}),message},undefined,"sessionDialogue",audience(owner));
       // The write watchdog already withheld unknown observations for this owner.
       if (cause === "storage_indeterminate") {finish?.(message);return;}
       // Drain already observed text before closing its epoch, preserving the unsaved tail.
       void this.dialogue.settleOwner(owner).then(() => finish?.(message), error => {
         if (!(error instanceof StorageSettlementIndeterminate)) {finish?.(message);return;}
         const unknown="Conversation text persistence could not be confirmed. Voice stopped; history may be incomplete. Restore storage before restarting voice.";
-        this.clients.broadcast({type:"error",code:"DIALOGUE_INDETERMINATE",historyOwnerId:owner.id,...(owner.session_id ? {sessionId:owner.session_id} : {}),message:unknown},undefined,"sessionDialogue",owner.principal_id);
+        this.clients.broadcast({type:"error",code:"DIALOGUE_INDETERMINATE",historyOwnerId:owner.id,...(owner.session_id ? {sessionId:owner.session_id} : {}),message:unknown},undefined,"sessionDialogue",audience(owner));
         finish?.(unknown);
       });
     });
@@ -421,7 +506,6 @@ export class WsHost {
       ? createPillLabels({ labeller: options.labeller, catalog: this.catalog, coordinator: this.coordinator })
       : null;
     if (options.scratchPrune) this.scratchPrune = options.scratchPrune;
-    this.log = this.observability.logger("ws");
     this.failureReplay = new FailureReplay(this.catalog, this.log);
     const meter = this.observability.meter("ws");
     this.framesDropped = meter.createCounter("ws.frames.dropped", {
@@ -442,27 +526,8 @@ export class WsHost {
     this.connectionsRefused = meter.createCounter("ws.connections.refused", {
       description: "WebSocket connections refused before admission",
     });
-    this.coordinator.log = this.log;
-    // Every settled permission request, by any path, reaches the connections
-    // that asked for host outcomes (#957).
-    this.coordinator.onApprovalSettled = (toolUseId, record) => {
-      this.sendToCapable("toolResolution", {
-        type: "tool_resolution",
-        toolUseId,
-        outcome: record.outcome,
-        ...(record.sessionId ? { sessionId: record.sessionId } : {}),
-        turnId: record.turnId,
-        ...(record.channel ? { channel: record.channel } : {}),
-        ...(record.reason ? { reason: record.reason } : {}),
-      });
-    };
-    // Every change to a session's pending follow-ups reaches the connections
-    // that asked for the queue (#1002).
-    this.coordinator.onQueueChanged = (sessionId, change) => {
-      this.sendToCapable(FOLLOW_UP_QUEUE_CAPABILITY, this.followUpQueueFrame(sessionId, change));
-    };
     this.authorizationExpiryTimer = setInterval(
-      () => this.expireAuthorizationContexts(),
+      () => { this.expireAuthorizationContexts(); this.safetyHistory?.poll(); },
       AUTHORIZATION_EXPIRY_SWEEP_MS
     );
     this.authorizationExpiryTimer.unref?.();
@@ -636,6 +701,9 @@ export class WsHost {
    * @internal Host wiring (#1053).
    */
   prepareHistory(sessionId: string, messages: SessionHistoryMessage[], strictSources = false): SessionHistoryMessage[] {
+    // The last synchronous step before any history is published (#3230):
+    // a chat retired while its native history was read publishes nothing.
+    if (this.catalog.chatRetired?.({ sessionId })) throw new ChatRetiredError();
     // Turn ids first: boundaries were observed on the backend's own messages.
     messages = this.catalog.attachTurnBoundaries?.(sessionId, messages) ?? messages;
     if (this.journal) messages = messages.map(message => message.role === "assistant" && message.turnId
@@ -647,6 +715,34 @@ export class WsHost {
     const withSources = this.catalog.attachMessageSources?.(sessionId, stripped, strictSources) ?? stripped;
     const joined = spliceLocalExchanges(this.attachMessageBlocks(sessionId, withSources), exchanges, carriers);
     return this.catalog.attachRetryRequest?.(sessionId, joined) ?? joined;
+  }
+
+  /**
+   * Effect-owning work on a chat refuses its deletion (#3230): a running or
+   * starting turn, queued follow-ups, or unsettled live-conversation tasks.
+   * The owner stops or reconciles them first; deletion never cancels them.
+   * @internal Host wiring.
+   */
+  chatBusy(identities: RetiredChatIdentities): boolean {
+    for (const sessionId of identities.sessions) {
+      if (this.coordinator.bySession.has(sessionId) || this.coordinator.startingBySession.has(sessionId)
+        || this.coordinator.pendingFollowUps(sessionId).length > 0) return true;
+    }
+    return this.conversations?.busy(identities) ?? false;
+  }
+
+  /**
+   * A chat was retired (#3230): end its live conversation epochs and tell the
+   * owner's capable clients to drop their projections of it. Readers already
+   * refuse it, so a client that never learns this still cannot read it.
+   * @internal Host wiring.
+   */
+  chatRetired(principalId: string, retirement: { identities: RetiredChatIdentities; generation: number }): void {
+    this.safetyHistory?.retire(retirement.identities.sessions,retirement.identities.dialogueOwners);
+    this.conversations?.retire(retirement.identities);
+    const sessionId = retirement.identities.sessions[0];
+    this.clients.broadcast({ type: "chat_retired", ...(sessionId ? { sessionId } : {}), historyOwnerIds: [...retirement.identities.dialogueOwners],
+      generation: retirement.generation }, undefined, CHAT_DELETION_CAPABILITY, principalId);
   }
 
   /**
@@ -767,9 +863,11 @@ export class WsHost {
    * @internal Host wiring (#1053).
    */
   revokePrincipals(principalIds: readonly string[], code: number, reason: string): void | Promise<void> {
+    this.safetyHistory?.revoke(principalIds);
     const revoked = new Set(principalIds);
     if (revoked.size === 0) return;
     const affectedRunning = this.coordinator.revokePrincipals(revoked);
+    if (this.activity?.governanceDb) notifySafetyChanged(this.activity.governanceDb);
     const unbinding: Promise<number>[] = [];
     for (const principalId of revoked) {
       this.clients.closeFor(principalId, code, reason);
@@ -800,11 +898,21 @@ export class WsHost {
       body: "expired principal push unbind failed", attributes: { error: error instanceof Error ? error.message : String(error) } }));
   }
 
+  /**
+   * Refuse new runners from now on. Application shutdown calls it first, so
+   * nothing starts while the rest of the app drains.
+   * @internal Host wiring (#2515).
+   */
+  beginClosing(): void {
+    this.#closing = true;
+  }
+
   /** Stop host-owned timers during application/test teardown. */
   close(): Promise<void> {
-    this.closing = true;
+    this.beginClosing();
     this.coordinator.cancelAll("Server shutting down");
     clearInterval(this.authorizationExpiryTimer);
+    this.safetyHistory?.close();
     this.scope?.close();
     this.inbox?.close();
     this.conversations?.closeAll();

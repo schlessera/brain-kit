@@ -7,7 +7,7 @@
  * and no browser. The model is a loopback stub that answers 401 to every
  * bearer, as Anthropic answers a revoked or expired token. Every credential
  * is fake, and nothing leaves the machine: model discovery is off, and the
- * CLI's base URL is the stub.
+ * CLI's base URL is the stub, which the host relay may send the login to.
  */
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
@@ -21,6 +21,7 @@ import { resolveServerConfig } from "../src/config/env";
 import { resolveAmbientPrincipal } from "../src/db/principals";
 import type { WSContext } from "../src/ws/clients";
 import { createWsHandlers } from "../src/ws/connection";
+import { requireTurnFreeSpace } from "./helpers/turn-free-space.js";
 
 // Obviously fake: the shape Claude Code accepts, the bytes of no real token.
 const FIRST_TOKEN = `sk-ant-oat01-${"a".repeat(95)}AA`;
@@ -87,6 +88,10 @@ function headlessHost(): { brainPath: string; dbPath: string } {
     BRAIN_UI_MODEL_DISCOVERY: "0",
     BRAIN_UI_PRICING_DISCOVERY: "0",
     ANTHROPIC_BASE_URL: `http://127.0.0.1:${server.port}`,
+    // Every strict or governed turn reaches the model through the host
+    // inference relay (#3314), which sends the host login only to an origin
+    // the operator lists: here, the stub standing in for Anthropic.
+    BRAIN_UI_CLAUDE_OAUTH_ORIGINS: `http://127.0.0.1:${server.port}`,
     // In the server's environment, where a fallback would find it.
     ANTHROPIC_API_KEY: API_KEY,
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
@@ -104,6 +109,8 @@ async function deploy(token: string, mintedAt: string): Promise<BrainUiApp> {
 
 /** Send one turn and return every frame the client got. */
 async function sendTurn(app: BrainUiApp): Promise<Array<Record<string, unknown>>> {
+  // A real turn needs the scope free-space floor; say so instead of failing on it (#2551).
+  requireTurnFreeSpace(app.config.brainPath);
   const sent: string[] = [];
   const ws = { send: (data: string) => sent.push(data), close: () => {}, readyState: 1 } as unknown as WSContext;
   const principal = resolveAmbientPrincipal(app.db, "none", "No authentication", "No authentication");
@@ -175,6 +182,6 @@ describe("a rejected subscription token", () => {
     }
     expect(seen.length).toBeGreaterThan(0);
     expect(seen.filter((request) => request.xApiKey !== null)).toEqual([]);
-    expect(seen.every((request) => request.authorization === `Bearer ${FIRST_TOKEN}`)).toBe(true);
+    expect(new Set(seen.map((request) => request.authorization))).toEqual(new Set([`Bearer ${FIRST_TOKEN}`]));
   }, 120_000);
 });

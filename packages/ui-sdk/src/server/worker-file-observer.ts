@@ -1,4 +1,5 @@
 /** Read the actual host-owned mount sources; never evaluates repository code. */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { createHash } from "node:crypto";
 import { closeSync, constants, fstatSync, openSync, readlinkSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
@@ -6,7 +7,8 @@ import { nativeFileVersionFromFd, type NativeFileVersion } from "./native-file-v
 
 export interface ObservedWorkerFile { key: string; version: NativeFileVersion }
 interface Source { worker: string; host: string; rel: string }
-const within = (path: string, root: string) => path === root || path.startsWith(root + "/");
+/** Path first: it reads as "this path is within that root" at each call site. */
+export const within = (path: string, root: string) => isWithin(root, path);
 const EMPTY: NativeFileVersion = { status: "known", hash: createHash("sha256").update("").digest("hex") };
 
 /** Sources come only from the launcher's resolved mounts, and live only until worker exit. */
@@ -25,7 +27,8 @@ export function createWorkerFileObserver(options: {
       const suffix = relative(source.worker, path);
       const canonical = resolve(options.brain, source.rel, suffix);
       // A null mask is a view of no bytes, not a host read of its secret source.
-      if (/^\.env(?:\.|$)/.test(relative(options.brain, canonical).split("/")[0] ?? "") || options.maskPaths?.some(mask => within(canonical, mask))) return { key, version: EMPTY };
+      // Deny direction (#3422): a mask at `/` would cover every path.
+      if (/^\.env(?:\.|$)/.test(relative(options.brain, canonical).split("/")[0] ?? "") || options.maskPaths?.some(mask => isWithin(mask, canonical, { trailingSeparator: "boundary" }))) return { key, version: EMPTY };
       const fds: number[] = [];
       try {
         let fd = openSync(source.host, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW); fds.push(fd);

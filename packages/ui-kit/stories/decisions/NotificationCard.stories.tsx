@@ -81,8 +81,11 @@ export const WideStory = Rich.extend({ parameters: wide });
 export const Acted = meta.story({
   play: async ({ canvas, userEvent, args }) => {
     await userEvent.click(await canvas.findByText("Approve the fetch"));
-    await expect(args.actions?.[0].onClick).toHaveBeenCalled();
+    await expect(args.actions?.[0].onClick).toHaveBeenCalledTimes(1);
     await expect(args.actions?.[1].onClick).not.toHaveBeenCalled();
+    await userEvent.click(await canvas.findByText("Later"));
+    await expect(args.actions?.[1].onClick, "Later reaches its own callback").toHaveBeenCalledTimes(1);
+    await expect(args.actions?.[0].onClick).toHaveBeenCalledTimes(1);
   },
 });
 
@@ -91,6 +94,7 @@ export const Acted = meta.story({
 export const Static = meta.story({
   args: { actions: rich.actions },
   play: async ({ canvas, canvasElement }) => {
+    for (const action of rich.actions) await expect(canvas.queryByText(action.label), `${action.label} is still drawn`).toBeVisible();
     await expect(canvas.queryByRole("button")).toBeNull();
     await expect(canvasElement.querySelector("[tabindex]")).toBeNull();
   },

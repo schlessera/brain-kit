@@ -15,12 +15,15 @@
  *   allocate before work starts. Measured use replaces that reservation as it
  *   materializes; sealing converts the rest to measured allocation.
  */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { constants, closeSync, existsSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, renameSync,
   rmdirSync, statSync, symlinkSync, unlinkSync, writeFileSync, ftruncateSync, chownSync, chmodSync, realpathSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { dirname, isAbsolute, join } from "node:path";
 import { NativeBrainManagerError, nativeCheckpointId, nativePoolName, NATIVE_CONTROL_BYTES, REFERENCE_POOL_CHECKPOINT_BYTES, type NativePoolAccess, type NativePoolCheckpoint, type NativePoolRecord,
-  type NativePoolSpace, type NativePoolState, type NativePoolStatus } from "./native-brain-manager-protocol.js";
+  type NativePoolGrowth, type NativePoolGrowthComparison, type NativePoolGrowthFlag, type NativePoolGrowthSources, type NativePoolSpace, type NativePoolState,
+  type NativePoolStatus } from "./native-brain-manager-protocol.js";
+import { recordNativeRecoveryFailure } from "./native-recovery-diagnostics.js";
 import { NativeRecoveryIndex } from "./native-recovery-index.js";
 import { POOL_HELPER } from "./native-reference-pool-helper.js";
 
@@ -58,7 +61,8 @@ export interface NativeReferencePoolConfig {
 export type QualifiedReferencePoolConfig = Required<Omit<NativeReferencePoolConfig, "headroomLedgerPath">> & { headroomLedgerPath?: string };
 
 const fixedPath = (path: unknown) => typeof path === "string" && isAbsolute(path) && !path.includes("\0") && !path.split("/").includes("..") && path.length > 1;
-const inside = (child: string, parent: string) => child === parent || child.startsWith(parent.endsWith("/") ? parent : parent + "/");
+/** Child first: `inside(a, b)` reads as "a is inside b". */
+export const inside = (child: string, parent: string) => isWithin(parent, child, { trailingSeparator: "boundary" });
 const page = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) > 0 && (value as number) % 4096 === 0;
 
 export function validateNativeReferencePoolConfig(pool: NativeReferencePoolConfig, store: { storePath: string; fsid: string; socketPath: string }): QualifiedReferencePoolConfig {
@@ -134,6 +138,12 @@ export interface PoolIntent extends NativePoolRecord {
   fsid: string;
   /** Filesystem generation at reservation; an adopted root must be created at or after it. */
   reservedGeneration: string;
+  /**
+   * Owner charge recorded when the root was sealed (#3515). `ownerBytes` later
+   * shrinks to what a released root retains; this stays the cold-acquisition
+   * basis of the growth status. Absent on roots sealed before it existed.
+   */
+  sealedBytes?: number | null;
 }
 
 /** Owner-charged bytes: referenced allocation plus any pending kernel reservation. */
@@ -227,6 +237,106 @@ export function referencePoolAccounting(input: {
   return { accounting, owner, refusal };
 }
 
+/**
+ * Residual-growth thresholds ruled on #3515 from the measured baseline of
+ * #3513 (two worktrees +1.6 % of their source, changed refresh 0.39x cold).
+ * A comparison is flagged only when strictly above its threshold.
+ */
+export const REFERENCE_POOL_GROWTH_THRESHOLDS = Object.freeze({
+  /** A worktree's owner charge above this share of its source's cold acquisition. */
+  worktreeRatio: 0.25,
+  /** A changed refresh's owner charge above this multiple of its chain's cold acquisition. */
+  refreshRatio: 0.75,
+  /** More than this many retained sources of one repository and revision across views. */
+  retainedSources: 2,
+});
+/** Growth replies stay below the control response bound, leaving room for framing. */
+const GROWTH_REPLY_BYTES = NATIVE_CONTROL_BYTES - 1024;
+/** One name read from a view directory, with its symlink target as found. */
+export interface PoolPublication { view: string; name: string; target: string }
+
+/**
+ * Pure residual-growth status over one observation's owner charges (#3515).
+ * Every source chain starts at a cold acquisition (a source with no `from`);
+ * its seal-time charge is the basis for the worktrees and refreshes built on
+ * it. A basis that cannot be read is `unavailable`, never zero. A published
+ * name that does not resolve to a recorded sealed source in its own view
+ * makes the whole status unavailable rather than guessing.
+ */
+export function referencePoolGrowth(input: {
+  intents: readonly PoolIntent[]; owner: ReadonlyMap<string, number> | null; refusal: NativePoolStatus["refusal"];
+  generation: string | null; publications: readonly PoolPublication[]; unavailable?: string | null;
+}): NativePoolGrowth {
+  const thresholds = { ...REFERENCE_POOL_GROWTH_THRESHOLDS };
+  const empty = (reason: string): NativePoolGrowth => ({ basis: "btrfs-space-info-disk-used+simple-quota-owner", state: "unavailable", reason, generation: input.generation,
+    thresholds, worktrees: [], refreshes: [], sources: [], flags: [], omitted: 0 });
+  if (input.unavailable) return empty(input.unavailable);
+  // A capacity refusal still reports trustworthy charges; any other refusal means they are not.
+  if (input.refusal && input.refusal.code !== "capacity") return empty(input.refusal.message);
+  const owner = input.owner;
+  if (!owner) return empty("Reference pool owner accounting is unavailable.");
+  const byId = new Map(input.intents.map(intent => [intent.id, intent]));
+  /** The cold acquisition a sealed source descends from, or null when its chain is not fully recorded. */
+  const coldOf = (id: string): PoolIntent | null => {
+    let current = byId.get(id);
+    for (let steps = 0; current && steps <= byId.size; steps++) {
+      if (current.purpose !== "source") return null;
+      if (current.from === null) return current;
+      current = byId.get(current.from);
+    }
+    return null;
+  };
+  const basisOf = (cold: PoolIntent | null): number | null => {
+    if (!cold) return null;
+    if (cold.sealedBytes !== undefined && cold.sealedBytes !== null) return cold.sealedBytes;
+    // A live sealed root's charge cannot change: read-only, and its extents stay referenced.
+    return cold.state === "sealed" ? owner.get(cold.id) ?? null : null;
+  };
+  const compare = (intent: PoolIntent, ratio: number): NativePoolGrowthComparison => {
+    const cold = coldOf(intent.from!), basis = basisOf(cold), charge = owner.get(intent.id);
+    const thresholdBytes = basis === null ? null : Math.floor(basis * ratio);
+    const available = thresholdBytes !== null && charge !== undefined;
+    return { id: intent.id, from: intent.from!, cold: cold?.id ?? null, ownerBytes: charge ?? null, basisBytes: available ? basis : null, thresholdBytes: available ? thresholdBytes : null,
+      state: available ? "available" : "unavailable", flagged: available && charge! > thresholdBytes! };
+  };
+  const worktrees = input.intents.filter(intent => intent.purpose === "worktree" && intent.from !== null && (intent.state === "writable" || intent.state === "sealed"))
+    .map(intent => compare(intent, thresholds.worktreeRatio));
+  const refreshes = input.intents.filter(intent => intent.purpose === "source" && intent.from !== null && intent.state === "sealed")
+    .map(intent => compare(intent, thresholds.refreshRatio));
+  const groups = new Map<string, NativePoolGrowthSources>();
+  for (const publication of input.publications) {
+    const target = byId.get(publication.target);
+    if (!UUID.test(publication.target) || !target || target.purpose !== "source" || target.state !== "sealed" || target.view !== publication.view)
+      return empty(`Reference view ${publication.view} name ${publication.name} does not resolve to a recorded sealed source in that view.`);
+    const group = groups.get(publication.name) ?? { name: publication.name, roots: [], ownerBytes: 0, flagged: false };
+    // A root without a recorded charge is unknown, and so is any sum that includes it: never zero.
+    const charge = owner.get(target.id) ?? null;
+    group.roots.push({ id: target.id, view: publication.view, ownerBytes: charge });
+    group.ownerBytes = charge === null || group.ownerBytes === null ? null : group.ownerBytes + charge;
+    groups.set(publication.name, group);
+  }
+  const sources = [...groups.values()].map(group => ({ ...group, flagged: group.roots.length > thresholds.retainedSources }));
+  const flags: NativePoolGrowthFlag[] = [
+    ...worktrees.filter(item => item.flagged).map(item => ({ kind: "worktree" as const, subject: item.id, observedBytes: item.ownerBytes!, thresholdBytes: item.thresholdBytes,
+      threshold: thresholds.worktreeRatio, observedCount: null })),
+    ...refreshes.filter(item => item.flagged).map(item => ({ kind: "refresh" as const, subject: item.id, observedBytes: item.ownerBytes!, thresholdBytes: item.thresholdBytes,
+      threshold: thresholds.refreshRatio, observedCount: null })),
+    ...sources.filter(item => item.flagged).map(item => ({ kind: "retained-sources" as const, subject: item.name, observedBytes: item.ownerBytes, thresholdBytes: null,
+      threshold: thresholds.retainedSources, observedCount: item.roots.length })),
+  ];
+  const result: NativePoolGrowth = { basis: "btrfs-space-info-disk-used+simple-quota-owner", state: "available", reason: null, generation: input.generation, thresholds,
+    worktrees, refreshes, sources, flags, omitted: 0 };
+  // Stay within one control reply: unflagged detail goes first, then flagged detail; flags go last.
+  const lists = [result.worktrees, result.refreshes, result.sources] as Array<Array<{ flagged: boolean }>>;
+  const size = () => Buffer.byteLength(JSON.stringify(result));
+  for (const flagged of [false, true])
+    for (const list of lists)
+      for (let index = list.length - 1; index >= 0 && size() > GROWTH_REPLY_BYTES; index--)
+        if (list[index]!.flagged === flagged) { list.splice(index, 1); result.omitted++; }
+  while (result.flags.length && size() > GROWTH_REPLY_BYTES) { result.flags.pop(); result.omitted++; }
+  return result;
+}
+
 /** Which managed directory holds a root: roots (both null), one view or one access generation; undefined is unmanaged. */
 function poolPlace(dirId: string, input: { rootsDirId: string; viewDirIds?: ReadonlyMap<string, string>; accessDirIds?: ReadonlyMap<string, string> })
   : { view: string | null; access: string | null } | undefined {
@@ -258,7 +368,7 @@ export function referencePoolMount(mountinfo: string, pool: string, device: stri
   if (mounted.length !== 1 || mounted[0]!.type !== "btrfs" || mounted[0]!.root !== "/" || !mounted[0]!.options.includes("rw") || mounted[0]!.source !== device)
     throw new NativeBrainManagerError("unsupported", "Provision one read-write top-level Btrfs mount of the configured reference pool device.");
   // Btrfs reports anonymous per-subvolume st_dev numbers in mountinfo; the mount source names the volume.
-  if (rows.some(row => row.source === device && row.path !== pool && !["/roots", "/views", "/access"].some(managed => row.root === managed || row.root.startsWith(managed + "/"))))
+  if (rows.some(row => row.source === device && row.path !== pool && !["/roots", "/views", "/access"].some(managed => isWithin(managed, row.root))))
     throw new NativeBrainManagerError("unsupported", "The reference pool volume is also mounted outside its managed roots; one capacity must not be presented twice.");
   if (rows.some(row => row.path !== pool && inside(row.path, pool)))
     throw new NativeBrainManagerError("unsupported", "The reference pool must not contain nested mounts.");
@@ -391,11 +501,13 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
       // Intents recorded before publication or access existed carry neither.
       intent.view ??= null;
       intent.access ??= null;
+      // Roots sealed before the growth status (#3515) carry no seal-time charge.
+      intent.sealedBytes ??= null;
       const root = intent.root;
       if (intent.version !== 1 || intent.id !== id || intent.fsid !== pool.fsid || !STATES.includes(intent.state) || !PURPOSES.includes(intent.purpose)
         || (intent.from !== null && !nativeCheckpointId.safeParse(intent.from).success) || !page(intent.allowanceBytes) || !digits(intent.reservedGeneration)
         || (root !== null && (!digits(root?.rootId) || !/^[0-9a-f]{32}$/.test(root?.uuid ?? "") || !digits(root?.otransid)))
-        || (intent.ownerBytes !== null && !count(intent.ownerBytes)) || (intent.reason !== null && typeof intent.reason !== "string")
+        || (intent.ownerBytes !== null && !count(intent.ownerBytes)) || (intent.sealedBytes !== null && !count(intent.sealedBytes)) || (intent.reason !== null && typeof intent.reason !== "string")
         || (["writable", "sealed"].includes(intent.state) && root === null)
         || (intent.view !== null && (!nativeCheckpointId.safeParse(intent.view).success || ["reserved", "writable"].includes(intent.state)))
         || (intent.purpose === "checkpoint" && (intent.from === null || intent.state === "writable" || intent.view !== null))
@@ -425,8 +537,9 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
       emergencyConsumed = true; await context.command([BTRFS, "filesystem", "sync", pool.storePath]);
       try { write(); } catch (again) { throw new NativeBrainManagerError("capacity", String(again)); }
     }
+    intents.set(intent.id, intent);
     try { index.remember(intent.id); }
-    catch { throw new NativeBrainManagerError("unknown", "Reference pool intent is durable but recovery indexing failed; restart the manager to rebuild it."); }
+    catch { throw new NativeBrainManagerError("unknown", "Reference pool intent is durable but recovery indexing failed; rebuilding from durable intents is unavailable; retry the operation."); }
   }
   const ids: string[] = [];
   for (const name of readdirSync(state)) {
@@ -436,9 +549,20 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
     try { readIntent(id); } catch (error) { closeSync(stateFd); throw error; }
     ids.push(id);
   }
-  const index = (() => { try { return new NativeRecoveryIndex(ids); } catch (error) { closeSync(stateFd); throw error; } })();
-  // Startup reads every retained intent once; identities stay bounded by maxIdentities.
+  // Durable mutations update both accounting and the disposable index before replying.
   const intents = new Map<string, PoolIntent>(ids.map(id => [id, readIntent(id)!]));
+  const index = (() => { try { return new NativeRecoveryIndex(ids, () => {
+    const replacement = new Map<string, PoolIntent>();
+    for (const name of readdirSync(state)) {
+      if (name.endsWith(".tmp")) continue;
+      const id = name.slice(0, -5);
+      if (!name.endsWith(".json") || !nativeCheckpointId.safeParse(id).success) throw new NativeBrainManagerError("unknown", "Reference pool state contains an unrecognized identity.");
+      replacement.set(id, readIntent(id)!);
+    }
+    intents.clear(); for (const [id, intent] of replacement) intents.set(id, intent);
+    return replacement.keys();
+  }, (error, log) => recordNativeRecoveryFailure(join(privateRoot, "recovery-diagnostics"), "recovery-index", "native-reference-pool.writeIntent", error, log)); }
+    catch (error) { closeSync(stateFd); throw error; } })();
   // A publication interrupted between unseal and reseal leaves a sealed root writable.
   try {
     for (const intent of intents.values()) {
@@ -558,6 +682,7 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
     try { return lstatSync(emergency).blocks * 512 * dataFactor; } catch { return 0; }
   }
   async function measure(signal?: AbortSignal) {
+    index.ensureAvailable();
     const observation = await observe(signal), places = { viewDirIds: viewDirIds(), accessDirIds: accessDirIds() };
     await reconcile(observation, places, signal);
     const result = referencePoolAccounting({ observation, intents: [...intents.values()], limits: pool, rootsDirId, ...places,
@@ -586,6 +711,38 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
       if (error.code === "unavailable") throw error;
       return { ...base, qualified: false, refusal: { code: error.code === "capacity" ? "capacity" : error.code === "unsupported" ? "unsupported" : "unknown", message: error.message },
         accounting: null, physical: physicalView };
+    }
+  }
+  /** Every published name in every manager-created view, with its link target as found; nothing is followed. */
+  function publications(views: ReadonlyMap<string, string>): PoolPublication[] {
+    const result: PoolPublication[] = [];
+    for (const view of views.values())
+      for (const name of readdirSync(viewPath(view))) {
+        // Root directories carry their identity and are explained by the census; dot entries are an in-flight name swap.
+        if (UUID.test(name) || name.startsWith(".")) continue;
+        const entry = join(viewPath(view), name);
+        if (!lstatSync(entry).isSymbolicLink()) throw new NativeBrainManagerError("unknown", `Reference view ${view} entry ${name} is not a published name.`);
+        result.push({ view, name, target: readlinkSync(entry) });
+      }
+    return result;
+  }
+  /**
+   * Read-only residual-growth status (#3515): one qualification and stable
+   * observation, without reconciliation, so nothing is committed, deleted,
+   * reset or reserved. Refused evidence reads as unavailable.
+   */
+  async function growth(signal?: AbortSignal): Promise<NativePoolGrowth> {
+    const recorded = [...intents.values()];
+    try {
+      await qualify(signal);
+      const observation = await observe(signal), places = { viewDirIds: viewDirIds(), accessDirIds: accessDirIds() };
+      const published = publications(places.viewDirIds);
+      const measured = referencePoolAccounting({ observation, intents: recorded, limits: pool, rootsDirId, ...places,
+        emergencyAllocatedBytes: emergencyAllocated(profileFactor(observation.spaces.data.profiles[0] ?? "") || 1) });
+      return referencePoolGrowth({ intents: recorded, owner: measured.owner, refusal: measured.refusal, generation: observation.generation, publications: published });
+    } catch (error) {
+      if (!(error instanceof NativeBrainManagerError) || error.code === "unavailable") throw error;
+      return referencePoolGrowth({ intents: recorded, owner: null, refusal: null, generation: null, publications: [], unavailable: error.message });
     }
   }
   function publicRecord(intent: PoolIntent, owner?: number): NativePoolRecord {
@@ -664,7 +821,7 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
     if (!measured.observation.stable) throw new NativeBrainManagerError("unavailable", "Reference pool allocation is still changing; the root stays charged at its allowance until a stable seal.");
     const qgroup = measured.observation.qgroups[level0(intent.root!.rootId)];
     if (!qgroup) throw new NativeBrainManagerError("unknown", "Sealed reference pool root has no owner accounting.");
-    const sealed: PoolIntent = { ...intent, state: "sealed", ownerBytes: ownerCharge(qgroup) };
+    const sealed: PoolIntent = { ...intent, state: "sealed", ownerBytes: ownerCharge(qgroup), sealedBytes: ownerCharge(qgroup) };
     await commit(sealed, true);
     return publicRecord(sealed);
   }
@@ -964,7 +1121,7 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
   return {
     /** Mandatory worker masks for pool private state, roots, views and access generations; a worker sees only what is bound for it. */
     privatePaths: [privateRoot, roots, views, accessRoot, pool.devicePath, ...(backing?.backingPath ? [backing.backingPath] : []), ...(pool.headroomLedgerPath ? [dirname(pool.headroomLedgerPath)] : [])],
-    status, create, seal, release, publish, viewOpen, unpublish, withdraw, list, rearm: ensureEmergency,
+    status, growth, create, seal, release, publish, viewOpen, unpublish, withdraw, list, rearm: ensureEmergency,
     checkpoint, checkpointPath, deltaRoots, accessOpen, grant, park, accessClose,
     close() { index.close(); closeSync(stateFd); },
   };

@@ -25,14 +25,14 @@ retain sanitized tool requests.
 ## What the source already supplies
 
 `generateBriefing` performs the mechanical work
-(`generateBriefing`, `packages/core/src/cli/commands/briefing.ts:183-319`):
+(`generateBriefing`, `packages/core/src/cli/commands/briefing.ts:186-293`):
 focus warnings and linked documents; non-archived deadlines from today
 through sixty days; overdue reviews strictly before today, with a five-item
 cap and remaining count; module-aware audit totals and hygiene counts;
 recent activity, silent modifications and taxonomy-driven staleness. Its
 existing `now` option permits the evaluation clock without changing product
 code. The CLI exposes the plain-text report
-(`briefingCommand`, `packages/core/src/cli/commands/briefing.ts:321-340`).
+(`briefingCommand`, `packages/core/src/cli/commands/briefing.ts:295-314`).
 
 The shipped `whatsup` skill gathers that report, may read up to three files,
 then interprets urgency, groups action and FYI, and writes terse bullets.
@@ -44,7 +44,7 @@ deadline, one bounded rate-limit retry and explicit failure outcomes
 (`createJevClient`, `packages/core/src/lib/jev.ts:248-333`). The search
 reranker also uses Choice, but asks which search candidate answers a query;
 its probabilities rank candidate IDs, not briefing action categories
-(`jevReranker`, `packages/core/src/providers/rerankers/jev.ts:227-244`).
+(`jevReranker`, `packages/core/src/providers/rerankers/jev.ts:231-248`).
 Reuse the transport, not the search question. TypeSafe's
 [API reference](https://docs.typesafe.ai/api) and
 [model limitations](https://docs.typesafe.ai/model-jaggedness/jev-1.13)

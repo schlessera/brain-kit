@@ -80,8 +80,10 @@ function beforeTerminator(args: string[]): string[] {
 // reports, and rewrites frontmatter only with --apply and no --dry-run;
 // `brain hygiene` writes under `reconcile` without --dry-run, and under
 // `dismiss` and `snooze`;
-// `brain registry` rewrites index tables unless --check.
+// `brain registry` rewrites index tables unless --check;
+// `brain config media` edits the config unless --dry-run.
 const MUTATING_WITH_FLAGS: Record<string, (args: string[]) => boolean> = {
+  config: (args) => args[0] === "media" && !args.includes("--dry-run"),
   geo: (args) => args[0] === "map",
   tags: (args) => args.includes("--apply") && !args.includes("--dry-run"),
   hygiene: (args) => (args[0] === "reconcile" && !args.includes("--dry-run")) || args[0] === "dismiss" || args[0] === "snooze",
@@ -145,6 +147,14 @@ async function main(): Promise<number> {
     return (await policyCommand.run(argv.slice(1), { brain, json })) ?? 0;
   }
 
+  // Apify reads the same host-parsed policy; it never evaluates repository config either (#3162).
+  if (command === "apify") {
+    const brain = degradedContext();
+    const { apifyCommand } = await import("./commands/apify.js");
+    if (wantsHelp) { console.log(apifyCommand.helpBlock); return 0; }
+    return (await apifyCommand.run(argv.slice(1), { brain, json })) ?? 0;
+  }
+
   // Load the brain context, tolerating a missing/invalid config.
   let brain: BrainContext;
   let configError: string | undefined;
@@ -201,7 +211,7 @@ async function main(): Promise<number> {
   const hygieneNext = hygienePositionals[0] === "next";
   // An invalid config blocks commands that depend on a correct taxonomy.
   const configBlockerCheck = hygienePositionals[0] === "check" && hygienePositionals[1] === "configuration-blocker";
-  const hygieneRepairWrite = (["resolve", "undo"].includes(hygienePositionals[0]) && hygieneArgs?.flags["dry-run"] !== true) ||
+  const hygieneRepairWrite = (["resolve", "undo", "propagation"].includes(hygienePositionals[0]) && hygieneArgs?.flags["dry-run"] !== true) ||
     (hygienePositionals[0] === "check" && !configBlockerCheck);
   if (configError && !TOLERATE_CONFIG_ERROR.has(command) && !hygieneNext && !configBlockerCheck) {
     console.error(`Invalid brain.config:\n${configError}`);

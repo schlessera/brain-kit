@@ -1,3 +1,4 @@
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { resolveEnv } from "../config/env.js";
 import type { Ranked, RerankCandidate, Reranker, SearchMode } from "./seams.js";
 import { buildTaxonomy, type Taxonomy } from "./taxonomy.js";
@@ -169,7 +170,7 @@ export function buildPathMatcher(patterns: readonly string[] | undefined): ((pat
     else prefixes.push(p);
   }
   return (path) =>
-    prefixes.some((p) => path === p || path.startsWith(p + "/")) ||
+    prefixes.some((p) => isWithin(p, path)) ||
     globs.some((g) => g.match(path));
 }
 

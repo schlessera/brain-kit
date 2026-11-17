@@ -150,6 +150,8 @@ packages/ui-render-puppeteer @schlessera/brain-render-puppeteer — optional HTM
                              (network-denied, scriptless; see its header for the threat model)
 packages/scrape              @schlessera/brain-scrape — scraping base: polite HTTP (robots.txt,
                              per-host pacing), optional headless Chrome, site-adapter seam
+packages/compute-boat        @schlessera/brain-compute-boat — the `boat` external compute provider:
+                             Boat sandboxes over plain fetch, loaded only when an instance names it
 packages/ui-server           @schlessera/brain-ui-server — Hono app factory: WS turn coordinator,
                              auth (password/passkeys/tailscale/proxy), session catalog, routes
 packages/ui-kit              @schlessera/brain-ui-kit — presentational design kit: components,

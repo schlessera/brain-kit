@@ -99,7 +99,7 @@ const TONE_INK: Record<Tone, string> = {
 };
 
 /** `HH:MM` on a 24-hour clock in the reader's zone, the design's `ended 09:41`. */
-export function defaultWorkingClock(ms: number): string {
+function defaultWorkingClock(ms: number): string {
   return new Date(ms).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 }
 

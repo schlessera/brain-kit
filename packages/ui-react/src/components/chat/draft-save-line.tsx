@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Overlay, Button, TextButton } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot, useRootStore } from "../../root-context.js";
+import type { BrainUiRoot } from "../../root.js";
 import { SAVING_SHOWN_AFTER_MS, draftSaveView } from "../../lib/drafts.js";
 import { useLocalWorkStatus } from "../../hooks/use-local-work.js";
 import type { DraftConflictChoice } from "../../stores/draft-state.js";
@@ -40,38 +41,7 @@ export function DraftSaveLine({ draftId }: { draftId: string }) {
   if (draft?.deviceConflict && !draft.conflict && !localFailed) return (
     <div className="mx-auto mt-1 flex max-w-3xl flex-wrap items-center gap-x-2 px-1 font-mono text-[10.5px] leading-4 text-foreground" data-device-conflict="">
       <span role="status">Another tab changed this draft · Both versions kept</span>
-      <TextButton tone="inherit" label="Open other version" onClick={() => {
-        const otherId = draft.deviceConflict!.otherId;
-        const controller = new AbortController();
-        // This action may wait for native storage. A later navigation owns
-        // the view, including New conversation while already in a new chat.
-        const unwatch = [
-          root.stores.chat.subscribe((s, prev) => { if (s.activeSessionId !== prev.activeSessionId) controller.abort(); }),
-          root.stores.drafts.subscribe((s, prev) => {
-            if (s.fresh === prev.fresh || s.fresh === otherId) return;
-            const continued = s.drafts[s.fresh]?.deviceConflict && s.resolveId(prev.fresh) === s.fresh;
-            if (!continued) controller.abort();
-          }),
-          root.stores.ui.subscribe((s, prev) => {
-            const navigation = ["activeView", "sessionPanelOpen", "syncPanelOpen", "whatsupPanelOpen", "searchPanelOpen", "addPanelOpen", "filePanelOpen", "settingsPanelOpen", "subagentStack", "destinationPress", "panelPress", "sessionsPaneFocus"] as const;
-            if (navigation.some(key => s[key] !== prev[key])) controller.abort();
-          }),
-          root.stores.connection.subscribe((s, prev) => { if (s.accountKey !== prev.accountKey) controller.abort(); }),
-        ];
-        const open = async () => {
-          if (root.localWork) await root.localWork.openDeviceVersion(otherId, controller.signal);
-          else root.stores.drafts.getState().openDeviceVersion(otherId);
-          if (controller.signal.aborted) return;
-          unwatch.forEach(stop => stop());
-          const other = root.stores.drafts.getState().drafts[otherId];
-          const sessionId = other?.sessionId ?? null;
-          const changedSession = root.stores.chat.getState().activeSessionId !== sessionId;
-          root.stores.chat.getState().setActiveSession(sessionId);
-          if (sessionId !== null && changedSession) root.connection.send({ type: "session_resume", sessionId });
-          root.stores.ui.getState().setActiveView("chat");
-        };
-        void open().catch(() => { /* Failed snapshot keeps the current editable view and its storage-failure hint. */ }).finally(() => { unwatch.forEach(stop => stop()); });
-      }} />
+      <TextButton tone="inherit" label="Open other version" onClick={() => openOtherVersion(root, draft.deviceConflict!.otherId)} />
     </div>
   );
   if (view.state === "none") {
@@ -153,4 +123,39 @@ export function CompareDrafts({ draftId, onClose, returnFocus }: { draftId: stri
     </Overlay>,
     document.body,
   );
+}
+
+/**
+ * Open the other version of a device-local keep-both branch (#1014). This
+ * may wait for native storage; a later navigation owns the view, including
+ * New conversation while already in a new chat, and cancels it.
+ */
+export function openOtherVersion(root: BrainUiRoot, otherId: string): void {
+  const controller = new AbortController();
+  const unwatch = [
+    root.stores.chat.subscribe((s, prev) => { if (s.activeSessionId !== prev.activeSessionId) controller.abort(); }),
+    root.stores.drafts.subscribe((s, prev) => {
+      if (s.fresh === prev.fresh || s.fresh === otherId) return;
+      const continued = s.drafts[s.fresh]?.deviceConflict && s.resolveId(prev.fresh) === s.fresh;
+      if (!continued) controller.abort();
+    }),
+    root.stores.ui.subscribe((s, prev) => {
+      const navigation = ["activeView", "sessionPanelOpen", "syncPanelOpen", "whatsupPanelOpen", "searchPanelOpen", "addPanelOpen", "filePanelOpen", "settingsPanelOpen", "subagentStack", "destinationPress", "panelPress", "sessionsPaneFocus"] as const;
+      if (navigation.some(key => s[key] !== prev[key])) controller.abort();
+    }),
+    root.stores.connection.subscribe((s, prev) => { if (s.accountKey !== prev.accountKey) controller.abort(); }),
+  ];
+  const open = async () => {
+    if (root.localWork) await root.localWork.openDeviceVersion(otherId, controller.signal);
+    else root.stores.drafts.getState().openDeviceVersion(otherId);
+    if (controller.signal.aborted) return;
+    unwatch.forEach(stop => stop());
+    const other = root.stores.drafts.getState().drafts[otherId];
+    const sessionId = other?.sessionId ?? null;
+    const changedSession = root.stores.chat.getState().activeSessionId !== sessionId;
+    root.stores.chat.getState().setActiveSession(sessionId);
+    if (sessionId !== null && changedSession) root.connection.send({ type: "session_resume", sessionId });
+    root.stores.ui.getState().setActiveView("chat");
+  };
+  void open().catch(() => { /* Failed snapshot keeps the current editable view and its storage-failure hint. */ }).finally(() => { unwatch.forEach(stop => stop()); });
 }

@@ -24,3 +24,18 @@ export const sharedFileMetaSchema: z.ZodType<SharedFileMeta> = z.looseObject({
   bytes: z.number().int().min(0).max(25_000_000),
   detected: z.enum(["gpx", "kml", "geojson"]).optional(), summary: summary.optional(),
 });
+
+/** A stored composer original as the host reports it (#3153). Stored is not read. */
+export const attachmentFileSchema: z.ZodType<import("./protocol.js").AttachmentFile> = z.looseObject({
+  fileId: z.string().regex(/^[a-f0-9-]{36}$/),
+  name: z.string().min(1).max(120),
+  incomingName: z.string().max(100).optional(),
+  path: z.string().min(1).max(512),
+  mediaType: z.string().max(130),
+  bytes: z.number().int().min(1).max(25_000_000),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  kind: z.enum(["pdf", "text", "track", "image", "archive", "binary"]),
+  reader: z.enum(["pdf", "text", "track", "image", "none"]),
+  trackRejected: z.literal(true).optional(),
+  track: sharedFileMetaSchema.optional(),
+});

@@ -1,3 +1,4 @@
+import type { JournalRecoveryStatus } from "@schlessera/brain-ui-sdk/protocol";
 import type { Database } from "bun:sqlite";
 import { realpathSync, statSync } from "node:fs";
 import { resolve } from "node:path";
@@ -11,6 +12,11 @@ export const JOURNAL_CAP_BYTES = 10 * 1024 ** 3;
 export class JournalStorageUnavailable extends Error {
   readonly reason = "journal_storage_unavailable";
   constructor(message: string) { super(`The change journal cannot safely retain this observation: ${message}`); }
+}
+
+/** A known quarantined hash is local to one captured path, not the journal. */
+export class JournalObjectQuarantined extends Error {
+  constructor() { super("The retained object is quarantined."); }
 }
 
 /**
@@ -38,7 +44,7 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
   openRead(hash: string, assertOwner?: () => void): string;
   releaseRead(id: string): void;
   reserveTemporary(bytes: number): { id: string; release(): void };
-  recover(objects: { has(hash: string): boolean; verify(hash: string, bytes: number): boolean; discardPending(id: string): void }): void;
+  recover(objects: { has(hash: string): boolean; verify(hash: string, bytes: number): boolean; discardPending(id: string): void }): JournalRecoveryStatus;
 } {
   const cap = options.capBytes ?? JOURNAL_CAP_BYTES;
   const memory = dbPath === ":memory:" || dbPath === "";
@@ -206,6 +212,7 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
       const id = crypto.randomUUID();
       write(() => {
         assertOwner?.();
+        if (db.query("SELECT 1 FROM turn_journal_object_quarantine WHERE hash=?").get(hash)) throw new JournalStorageUnavailable("the retained object is quarantined");
         if (!db.query("SELECT 1 FROM turn_journal_objects WHERE hash=? AND state='present'").get(hash)) throw new JournalStorageUnavailable("the retained object is unavailable");
         db.query("INSERT INTO turn_journal_reservations (id,bytes,pid,pid_start,created_at,hash,kind) VALUES (?,0,?,?,?,?,'read')").run(id, SELF.pid, SELF.start, Date.now(), hash);
       }); return id;
@@ -223,7 +230,8 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
       } };
     },
     recover(objects) {
-      const rows = db.query("SELECT * FROM turn_journal_reservations").all() as { id: string; hash: string; bytes: number; pid: number; pid_start: string; kind: string }[];
+      const report: JournalRecoveryStatus = { unresolvedRecords: 0, firstCause: null };
+      const rows = db.query("SELECT * FROM turn_journal_reservations").all() as { id: string; hash: string; bytes: number; pid: number; pid_start: string; kind: string; recovery_failure: string | null }[];
       for (const row of rows) {
         if (processAlive(row.pid, row.pid_start)) continue;
         if (row.kind === "read") { write(() => db.query("DELETE FROM turn_journal_reservations WHERE id=?").run(row.id)); continue; }
@@ -236,25 +244,78 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
           });
           continue;
         }
-        const published = objects.has(row.hash);
-        if (published && !objects.verify(row.hash, row.bytes)) throw new JournalStorageUnavailable("a published interrupted object failed integrity verification");
+        let published = false, corrupt: unknown;
+        try {
+          published = objects.has(row.hash);
+          if (published && !objects.verify(row.hash, row.bytes)) corrupt = new Error("Published interrupted object failed integrity verification");
+        } catch (error) {
+          // An I/O refusal proves neither existence nor corruption. Keep the
+          // reservation and its state untouched for the next recovery pass.
+          const fresh: NonNullable<JournalRecoveryStatus["firstCause"]> = {
+            reservationId: row.id, hash: row.hash, site: "journal-accounting.recover", at: Date.now(),
+            errorClass: error instanceof Error ? error.name : "Error", message: (error instanceof Error ? error.message : String(error)).slice(0, 2000) };
+          // A damaged stored cause is a diagnostic, never a boot refusal.
+          let stored: unknown;
+          try { stored = row.recovery_failure ? JSON.parse(row.recovery_failure) : undefined; } catch { stored = undefined; }
+          const cause: NonNullable<JournalRecoveryStatus["firstCause"]> = stored && typeof stored === "object" && typeof (stored as { at?: unknown }).at === "number"
+            ? stored as NonNullable<JournalRecoveryStatus["firstCause"]> : fresh;
+          let diagnosticError: string | undefined;
+          try {
+            // The cause belongs to the existing reservation: it disappears only
+            // when that reservation resolves, never by clearing its charge early.
+            write(() => db.query("UPDATE turn_journal_reservations SET recovery_failure=coalesce(recovery_failure,?) WHERE id=?")
+              .run(JSON.stringify(cause), row.id));
+          } catch (failure) { diagnosticError = String(failure); }
+          // A full/unwritable diagnostic store cannot turn a local I/O refusal
+          // into a boot refusal. Return the cause to the owner even in that case.
+          report.unresolvedRecords++;
+          if (!report.firstCause || cause.at < report.firstCause.at) report.firstCause = cause;
+          process.stderr.write(JSON.stringify({ kind: "journal_object_recovery_pending", ...cause,
+            ...(cause !== fresh ? { currentErrorClass: fresh.errorClass, currentError: fresh.message } : {}), ...(diagnosticError ? { diagnosticError } : {}) }) + "\n");
+          continue;
+        }
+        if (!published && db.query("SELECT 1 FROM turn_journal_object_refs WHERE hash=? LIMIT 1").get(row.hash))
+          corrupt = new Error("Retained interrupted object is absent");
+        let quarantined = false;
         write(() => {
           // Verify liveness again under the database write lock; neither a live
           // writer nor a new reservation sharing this hash is collected.
           const current = db.query("SELECT pid,pid_start FROM turn_journal_reservations WHERE id=?").get(row.id) as { pid: number; pid_start: string } | null;
           if (!current || processAlive(current.pid, current.pid_start)) return;
           objects.discardPending(row.id);
-          if (published) db.query("UPDATE turn_journal_objects SET state='present' WHERE hash=?").run(row.hash);
+          if (corrupt) {
+            const cause = { errorClass: corrupt instanceof Error ? corrupt.name : "Error", message: (corrupt instanceof Error ? corrupt.message : String(corrupt)).slice(0, 2000) };
+            db.query("INSERT OR IGNORE INTO turn_journal_object_quarantine VALUES (?,?,?,?,?)").run(row.hash, Date.now(), cause.errorClass, cause.message, "journal-accounting.recover");
+            // Logical quarantine keeps the bytes at their original hash, charged,
+            // but no read or replacement reservation can use them. Only normal
+            // expiry/collection removes them after their owners release them.
+            db.query("UPDATE turn_journal_objects SET state='present' WHERE hash=?").run(row.hash);
+            const owners = db.query("SELECT t.turn_id,t.missing FROM turn_journal_turns t JOIN turn_journal_object_refs r ON r.turn_id=t.turn_id WHERE r.hash=?").all(row.hash) as {turn_id:string;missing:string}[];
+            for (const owner of owners) {
+              const paths = db.query(`SELECT path FROM turn_journal_changes WHERE turn_id=?1 AND (json_extract(before_json,'$.hash')=?2 OR json_extract(after_json,'$.hash')=?2)
+                UNION SELECT path FROM turn_journal_claude_memory WHERE turn_id=?1 AND (json_extract(before_json,'$.hash')=?2 OR json_extract(after_json,'$.hash')=?2)
+                UNION SELECT p.path FROM turn_journal_revert_paths p JOIN turn_journal_revert_operations o ON o.id=p.operation_id WHERE o.journal_turn_id=?1 AND (json_extract(p.before_json,'$.hash')=?2 OR json_extract(p.after_json,'$.hash')=?2)`)
+                .all(owner.turn_id, row.hash) as {path:string}[];
+              const missing = JSON.parse(owner.missing) as {path:string;reason:string}[];
+              for (const {path} of paths.length ? paths : [{path:"."}]) if (!missing.some(item => item.path === path && item.reason === "retained_object_corrupt")) missing.push({path,reason:"retained_object_corrupt"});
+              db.query("UPDATE turn_journal_turns SET state=CASE WHEN state='expired' OR ended_at IS NULL THEN state ELSE 'partial' END,missing=? WHERE turn_id=?").run(JSON.stringify(missing), owner.turn_id);
+            }
+            quarantined = true;
+          } else if (published) db.query("UPDATE turn_journal_objects SET state='present' WHERE hash=?").run(row.hash);
           db.query("DELETE FROM turn_journal_reservations WHERE id=?").run(row.id);
-          if (!published) db.query("DELETE FROM turn_journal_objects WHERE hash=? AND state='pending' AND NOT EXISTS (SELECT 1 FROM turn_journal_reservations WHERE hash=?)").run(row.hash, row.hash);
+          if (!published && !corrupt) db.query("DELETE FROM turn_journal_objects WHERE hash=? AND state='pending' AND NOT EXISTS (SELECT 1 FROM turn_journal_reservations WHERE hash=?)").run(row.hash, row.hash);
         });
+        if (quarantined) process.stderr.write(JSON.stringify({ kind: "journal_object_quarantined", hash: row.hash, site: "journal-accounting.recover", at: Date.now(),
+          errorClass: corrupt instanceof Error ? corrupt.name : "Error", message: corrupt instanceof Error ? corrupt.message : String(corrupt) }) + "\n");
       }
+      return report;
     },
     reserve(bytes, hash) {
       if (!Number.isSafeInteger(bytes) || bytes < 0) throw new JournalStorageUnavailable("invalid content reservation size");
       if (!/^[a-f0-9]{64}$/.test(hash)) throw new JournalStorageUnavailable("invalid content identity");
       const id = crypto.randomUUID();
       write(() => {
+        if (db.query("SELECT 1 FROM turn_journal_object_quarantine WHERE hash=?").get(hash)) throw new JournalObjectQuarantined();
         db.query("INSERT OR IGNORE INTO turn_journal_objects VALUES (?, ?, 'pending')").run(hash, bytes);
         db.query("INSERT INTO turn_journal_reservations (id,bytes,pid,pid_start,created_at,hash) VALUES (?, ?, ?, ?, ?, ?)").run(id, bytes, SELF.pid, SELF.start, Date.now(), hash);
       });

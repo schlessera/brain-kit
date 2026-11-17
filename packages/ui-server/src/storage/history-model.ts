@@ -4,15 +4,15 @@ import { storageTotals } from "./collect.js";
 
 export const HISTORY_LIMITS = Object.freeze({ slots: [64, 90, 32] as const, sampleBytes: 1152, metadataBytes: 40960, payloadBytes: 262144, capacities: 4, writeInterval: 60_000 });
 export const HOUR = 3_600_000, DAY = 24 * HOUR, RECENT = 6 * HOUR;
-export type Quantity = number | null;
-export type Coverage = 0 | 1 | 2;
-export type Tier = 0 | 1 | 2;
+type Quantity = number | null;
+type Coverage = 0 | 1 | 2;
+type Tier = 0 | 1 | 2;
 export type Source = 0 | 1 | 2;
 export type Capacity = [number, Quantity, Quantity, Quantity, Quantity, Coverage, Quantity, Quantity, Quantity, Quantity, Quantity, Quantity, Quantity, Quantity];
 export type Sample = [1, Tier, 0 | 1, number, number, Source, number, Coverage, 0 | 1 | 2 | 3 | 4 | 5, Capacity[]];
-export type SampleDescriptor = [string, string, 1];
-export type CapacityDescriptor = [string, string];
-export interface HistoryMetadata<S> {
+type SampleDescriptor = [string, string, 1];
+type CapacityDescriptor = [string, string];
+interface HistoryMetadata<S> {
   samples: Record<string, SampleDescriptor>;
   capacities: Record<string, CapacityDescriptor>;
   state: S;
@@ -25,7 +25,7 @@ export interface Aggregate {
 }
 type OmitFirst<T extends unknown[]> = T extends [unknown, ...infer Rest] ? Rest : never;
 export const hashScope = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 32);
-export const coverage = (value: "complete" | "partial" | "unknown"): Coverage => value === "complete" ? 0 : value === "partial" ? 1 : 2;
+const coverage = (value: "complete" | "partial" | "unknown"): Coverage => value === "complete" ? 0 : value === "partial" ? 1 : 2;
 export const bucket = (tier: Tier, at: number) => Math.floor((at - (tier === 2 ? 4 * DAY : 0)) / (tier === 0 ? RECENT : tier === 1 ? DAY : 7 * DAY));
 export const bucketStart = (tier: Tier, index: number) => index * (tier === 0 ? RECENT : tier === 1 ? DAY : 7 * DAY) + (tier === 2 ? 4 * DAY : 0);
 export const jsonBytes = (value: unknown) => Buffer.byteLength(JSON.stringify(value));

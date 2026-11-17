@@ -13,8 +13,13 @@ function app(index: (paths: readonly string[]) => Promise<void>) {
   hono.get("/api/brain/search", c => { reads.push("search"); return c.json({ results: [] }); });
   hono.get("/api/graph/meta", c => { reads.push("graph"); return c.json({}); });
   hono.get("/api/activity/stats", c => { reads.push("activity"); return c.json({}); });
+  for (const path of OTHER_READERS) hono.get(path, c => { reads.push(path); return c.json({}); });
   return { batch, hono, reads };
 }
+
+// Every other host route that reads the index, named here rather than taken
+// from INDEX_READ_ROUTES, so a route dropped from the barrier fails the test.
+const OTHER_READERS = ["/api/brain/list", "/api/brain/stats", "/api/brain/stats/history", "/api/brain/briefing", "/api/graph/clusters"];
 
 test("index read routes run only after the queued update completes", async () => {
   const { batch, hono, reads } = app(async paths => { reads.push(`index ${paths.join(",")}`); });
@@ -42,4 +47,15 @@ test("a failed update answers 503 index_stale, runs no read, and is retried by t
   failure = undefined;
   expect((await hono.request("/api/brain/search?q=Nausicaa")).status).toBe(200);
   expect(reads).toEqual(["activity", "search"]);
+});
+
+test("every index read route waits for the update queued before it", async () => {
+  const { batch, hono, reads } = app(async paths => { reads.push(`index ${paths.join(",")}`); });
+  const expected: string[] = [];
+  for (const [n, path] of OTHER_READERS.entries()) {
+    batch.queue([`notes/landfall-${n}.md`]);
+    expect((await hono.request(path)).status).toBe(200);
+    expected.push(`index notes/landfall-${n}.md`, path);
+  }
+  expect(reads).toEqual(expected);
 });

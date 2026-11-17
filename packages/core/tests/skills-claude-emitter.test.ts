@@ -25,12 +25,17 @@ function skill(root: string, name: string): SkillManifest {
 }
 
 describe("claudeEmitter symlink round-trip", () => {
-  const root = mkRepo();
-  const one = skill(root, "one");
-  const two = skill(root, "two");
-  const claudeDir = join(root, ".claude", "skills");
+  /** A fresh repo with skills one and two, emitted `times` times already. */
+  function repo(times: number) {
+    const root = mkRepo();
+    const one = skill(root, "one");
+    const two = skill(root, "two");
+    for (let run = 0; run < times; run++) claudeEmitter.emit([one, two], root);
+    return { root, one, two, claudeDir: join(root, ".claude", "skills") };
+  }
 
   test("first emit creates relative symlinks", () => {
+    const { root, one, two, claudeDir } = repo(0);
     const res = claudeEmitter.emit([one, two], root);
     expect(res.written.sort()).toEqual([".claude/skills/one", ".claude/skills/two"]);
     expect(res.removed).toEqual([]);
@@ -42,12 +47,14 @@ describe("claudeEmitter symlink round-trip", () => {
   });
 
   test("second emit is idempotent (no writes, no removals)", () => {
+    const { root, one, two } = repo(1);
     const res = claudeEmitter.emit([one, two], root);
     expect(res.written).toEqual([]);
     expect(res.removed).toEqual([]);
   });
 
   test("dropping a skill prunes its stale symlink", () => {
+    const { root, one, claudeDir } = repo(1);
     const res = claudeEmitter.emit([one], root);
     expect(res.removed).toEqual([".claude/skills/two"]);
     expect(existsSync(join(claudeDir, "two"))).toBe(false);

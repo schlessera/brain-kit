@@ -106,7 +106,9 @@ test("the operator reviews and approves on a terminal; the host record and file 
   expect(replay).toMatchObject({ exit: 0, body: { ok: true, created: false, task: { id } } });
   const listed = await run(["list"], ownerFile);
   expect(listed.exit).toBe(0);
-  expect(listed.body).toEqual({ ok: true, tasks: [replay.body.task], nextCursor: null });
+  // The file's host is shared, so other cases' tasks may be listed too: this one is listed exactly once, as the receipt says.
+  expect(listed.body).toMatchObject({ ok: true, nextCursor: null });
+  expect(listed.body.tasks.filter((task: { id: string }) => task.id === id)).toEqual([replay.body.task]);
   expect(startedTurns).toBe(0);
   expect(existsSync(join(fixture.brainPath, ".brain-index", "brain.db"))).toBe(false);
 });

@@ -32,14 +32,18 @@ import type {
 } from "@schlessera/brain-ui-sdk/server";
 
 import { failureFromPiError } from "./turn-failure.js";
+import { isPiSessionId } from "./session-storage.js";
+import type { SessionRetirement } from "@schlessera/brain-ui-sdk/internal";
 
 /** List the pi sessions rooted at this brain repo, newest activity first. */
 export async function listPiSessions(
   cwd: string,
-  sessionDir?: string
+  sessionDir?: string,
+  retirement?: Pick<SessionRetirement, "isRetired">
 ): Promise<ChatSession[]> {
   const infos = await SessionManager.list(cwd, sessionDir);
-  const sessions = infos.map((info) => ({
+  // After the await: a session retired while pi listed is not listed (#3229).
+  const sessions = infos.filter(info => !retirement?.isRetired(info.id)).map((info) => ({
     id: info.id,
     title: info.name ?? firstLine(info.firstMessage) ?? null,
     createdAt: info.created.getTime(),
@@ -60,8 +64,20 @@ export async function listPiSessions(
 export async function getPiHistory(
   cwd: string,
   sessionId: string,
-  sessionDir?: string
+  sessionDir?: string,
+  retirement?: Pick<SessionRetirement, "hold" | "isRetired">
 ): Promise<SessionHistoryMessage[]> {
+  // A retired chat reads as an unknown one (#3229). A removal waits for this
+  // read, which never publishes what it found once the chat is retired.
+  if (retirement?.isRetired(sessionId)) return [];
+  const release = retirement && isPiSessionId(sessionId) ? retirement.hold(sessionId) : undefined;
+  try {
+    const history = await readPiHistory(cwd, sessionId, sessionDir);
+    return retirement?.isRetired(sessionId) ? [] : history;
+  } finally { release?.(); }
+}
+
+async function readPiHistory(cwd: string, sessionId: string, sessionDir?: string): Promise<SessionHistoryMessage[]> {
   const infos = await SessionManager.list(cwd, sessionDir);
   const info = infos.find((i) => i.id === sessionId);
   if (!info && !sessionDir) return [];

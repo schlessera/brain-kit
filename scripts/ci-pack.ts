@@ -137,6 +137,16 @@ export const PACK_TABLE: Record<string, PackRow> = {
     files: ["dist/index.js"],
     bun: ["@schlessera/brain-scrape"],
     node: ["@schlessera/brain-scrape"],
+    // core depends on it (#3330), and the React 18 consumer installs core.
+    react18: true,
+  },
+  "compute-boat": {
+    files: ["dist/index.js", "LICENSE"],
+    bun: ["@schlessera/brain-compute-boat"],
+    // Its declarations reach core's ComputeProvider types, which need bun: types.
+    node: "bun-only",
+    // Core's optional peer: Bun installs peers, so the React 18 consumer pins it too.
+    react18: true,
   },
   "ui-server": {
     files: ["dist/index.js", "dist/bin/brain-ui-cron.js", "dist/bin/brain-ui-inbox.js"],

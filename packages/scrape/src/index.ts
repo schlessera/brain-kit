@@ -25,6 +25,8 @@ export { RateLimiter } from "./politeness/rate-limit.js";
 export type { RateLimiterOptions, RateLimiterClock } from "./politeness/rate-limit.js";
 export { RobotsCache, RobotsDisallowedError } from "./politeness/robots.js";
 export type { RobotsRules, RobotsCacheOptions, RobotsFetcher } from "./politeness/robots.js";
+export { NonPublicAddressError } from "./politeness/address.js";
+export type { AddressLookup, AddressPolicy, ResolvedAddress } from "./politeness/address.js";
 
 // Headless Chrome (needs the optional peer `puppeteer-core`).
 export { createBrowserSession } from "./browser/session.js";

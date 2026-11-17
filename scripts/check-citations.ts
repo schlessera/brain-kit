@@ -8,7 +8,7 @@
 // wrong. The convention (`docs/decisions/README.md`) is to name the symbol and
 // let the range follow it:
 //
-//   (`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:200-229`)
+//   (`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:289-330`)
 //
 // The anchor is the code span immediately before the citation, joined to it by
 // a comma. Each cited range must START on a line containing the anchor, so an
@@ -437,11 +437,6 @@ export const CITATION_EXCEPTIONS: Record<string, CitationException> = {
   "docs/plans/index-query-api.md|https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/ui-server/package.json#L70": "verified commit-pinned source-audit evidence before the supported-query consumer migrations; the historical SQL/package/context implementation is intentionally preserved",
   "docs/plans/index-query-api.md|https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/tests/allowed-edges.ts#L92": "verified commit-pinned source-audit evidence before the supported-query consumer migrations; the historical SQL/package/context implementation is intentionally preserved",
   "docs/plans/index-query-api.md|https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/ui-server/src/graph/reader.ts#L33": "verified commit-pinned source-audit evidence before the supported-query consumer migrations; the historical SQL/package/context implementation is intentionally preserved",
-  "docs/plans/navigation-recovery.md|https://github.com/schlessera/brain-kit/blob/18d5ddee154b5dbebb3dbd6c487bc8ea1fc036db/packages/ui-react/src/components/layout/desktop-palette.tsx#L84": "verified commit-pinned palette baseline before #946 moved destinations to desktop-routes.ts and opening state to the root UI store",
-  "docs/plans/navigation-recovery.md|https://github.com/schlessera/brain-kit/blob/18d5ddee154b5dbebb3dbd6c487bc8ea1fc036db/packages/ui-react/src/components/layout/desktop-palette.tsx#L52": "verified commit-pinned palette baseline before #946 moved destinations to desktop-routes.ts and opening state to the root UI store",
-  "docs/plans/navigation-recovery.md|https://github.com/schlessera/brain-kit/blob/7bfdc71074f4ff6243e0d7133e83dbb36eb2a971/packages/ui-react/src/components/chat/composer.tsx#L62": "verified commit-pinned composer draft and receipt handling before #951 moved them to the draft store and draft client",
-  "docs/plans/navigation-recovery.md|https://github.com/schlessera/brain-kit/blob/7bfdc71074f4ff6243e0d7133e83dbb36eb2a971/packages/ui-react/src/components/chat/composer.tsx#L161": "verified commit-pinned composer draft and receipt handling before #951 moved them to the draft store and draft client",
-  "docs/plans/navigation-recovery.md|https://github.com/schlessera/brain-kit/blob/ea8506b0eb511a3e16dba685d250d34e5340afa4/packages/ui-react/src/components/chat/session-drawer.tsx#L59": "verified commit-pinned single background-session drawer row before #950 replaced it with the Working group",
   "docs/investigations/turn-surface-routing-investigation.md|https://github.com/schlessera/brain-kit/blob/91995dcf1bbf0dbbc3aa7b0f3b2fda6a07c63e6a/packages/ui-backend-claude/src/sdk-options.ts#L54": "verified source-pinned measured eight-tool assembly before application tools and worker spawn changed the current implementation",
   "docs/investigations/turn-surface-routing-investigation.md|https://github.com/schlessera/brain-kit/blob/91995dcf1bbf0dbbc3aa7b0f3b2fda6a07c63e6a/packages/ui-backend-claude/src/ask-user-tool.ts#L91": "verified source-pinned measured eight-tool assembly before application tools and worker spawn changed the current implementation",
   // A dependency's installed source, at the version the record measured.

@@ -3,6 +3,7 @@ import { expect, fn } from "storybook/test";
 
 import { Toggle } from "../../src/primitives/Toggle.js";
 import type { ToggleTone } from "../../src/types.js";
+import { font } from "../../src/tokens.js";
 import { Row, stage } from "../_stage.js";
 
 const TONES: ToggleTone[] = ["amber", "teal", "purple"];
@@ -85,7 +86,7 @@ export const LabelledByVisibleText = meta.story({
   args: { label: "ignored when labelledBy is set", labelledBy: "watch-label" },
   render: (args) => (
     <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-      <span id="watch-label" style={{ font: "400 13px/1 system-ui, sans-serif", color: "var(--bk-color-ink)" }}>
+      <span id="watch-label" style={{ font: `400 13px/1 ${font.body}`, color: "var(--bk-color-ink)" }}>
         Watch this folder
       </span>
       <Toggle {...args} />

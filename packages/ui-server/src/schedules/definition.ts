@@ -14,7 +14,7 @@ import { canonicalJson } from "./canonical.js";
 import { canonicalTimeZone, isoInstant, parseCron, parseInstant, ScheduleTimeError } from "./time.js";
 
 export const SCHEDULE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
-export const DEFAULT_LIMITS = Object.freeze({ attemptTimeoutMs: 600_000, maxOperations: 3 });
+const DEFAULT_LIMITS = Object.freeze({ attemptTimeoutMs: 600_000, maxOperations: 3 });
 export const MAX_DEFINITION_FILE_BYTES = 32 * 1024;
 export const DEFINITIONS_DIR = "context/scheduled-tasks/definitions";
 export const RETIRED_DIR = "context/scheduled-tasks/retired";
@@ -33,9 +33,9 @@ const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
 export class ScheduleValidationError extends Error {}
 
-export type JsonScalar = null | boolean | string | number;
-export type JsonValue = JsonScalar | JsonValue[] | { [key: string]: JsonValue };
-export type JsonObject = { [key: string]: JsonValue };
+type JsonScalar = null | boolean | string | number;
+type JsonValue = JsonScalar | JsonValue[] | { [key: string]: JsonValue };
+type JsonObject = { [key: string]: JsonValue };
 
 const jsonScalar = z.union([z.null(), z.boolean(), z.string(), z.number()]);
 const bound = z.discriminatedUnion("kind", [
@@ -54,7 +54,7 @@ const limitsSchema = z.strictObject({
   attemptTimeoutMs: z.number().int().positive().max(DEFAULT_LIMITS.attemptTimeoutMs),
   maxOperations: z.number().int().positive().max(DEFAULT_LIMITS.maxOperations),
 });
-export const scheduleDefinitionInputSchema = z.strictObject({
+const scheduleDefinitionInputSchema = z.strictObject({
   prompt: z.string(),
   when: z.discriminatedUnion("kind", [
     z.strictObject({ kind: z.literal("at"), at: z.string(), timeZone: z.string().optional() }),
@@ -65,10 +65,10 @@ export const scheduleDefinitionInputSchema = z.strictObject({
   limits: limitsSchema.optional(),
   notifyOnSuccess: z.boolean().optional(),
 });
-export type ScheduleDefinitionInput = z.infer<typeof scheduleDefinitionInputSchema>;
-export type ScheduleScope = z.infer<typeof scopeSchema> & { tools: { name: string; inputs: JsonObject }[] };
+type ScheduleDefinitionInput = z.infer<typeof scheduleDefinitionInputSchema>;
+type ScheduleScope = z.infer<typeof scopeSchema> & { tools: { name: string; inputs: JsonObject }[] };
 
-export type ScheduleWhen =
+type ScheduleWhen =
   | { kind: "at"; at: string; timeZone: string }
   | { kind: "cron"; cron: string; timeZone: string; endAt: string | null };
 /** The materialized, reviewed definition consumers see. */
@@ -155,7 +155,7 @@ function identifierText(value: string, where: string, maxBytes: number): void {
 }
 
 /** Exact brain-relative target paths only; protected namespaces are refused. */
-export function validateTargetPath(path: string): void {
+function validateTargetPath(path: string): void {
   identifierText(path, "target", MAX_PATH_BYTES);
   if (path.startsWith("/") || path.includes("\\") || /^[A-Za-z][A-Za-z0-9+.-]*:/.test(path))
     fail("target must be a brain-relative path");

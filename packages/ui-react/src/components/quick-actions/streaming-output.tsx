@@ -25,7 +25,7 @@ const STATUS: Record<StreamState, { tone: Tone; pulse: boolean; text: string }> 
   cancelled: { tone: "red", pulse: false, text: "Cancelled" },
 };
 
-export interface StreamingOutputProps {
+interface StreamingOutputProps {
   state: StreamState;
   /** The job's lines so far, already turned into nodes by the container (paths linkified). */
   lines: ReactNode[];
@@ -67,7 +67,7 @@ export function StreamingOutput(p: StreamingOutputProps) {
  * not know what it is made of. A failed or cancelled read says why and offers
  * Retry; a briefing with nothing in it says so instead of drawing a blank.
  */
-export interface BriefingOutputProps {
+interface BriefingOutputProps {
   state: "loading" | "done" | "empty" | "error" | "cancelled";
   content: ReactNode;
   /** Why the read failed; shown under the error. */

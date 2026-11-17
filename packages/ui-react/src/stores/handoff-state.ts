@@ -11,7 +11,7 @@ import type { StoreEnvironment } from "./store-environment.js";
  * user edits (text, references, destination) is the sheet's own state; this
  * holds what arrives over the socket, so a frame handler can reach it.
  */
-export interface HandoffSheetTarget {
+interface HandoffSheetTarget {
   sourceSessionId: string;
   /** Minted per open: the idempotency key of everything this review sends. */
   handoffId: string;
@@ -22,7 +22,7 @@ export interface HandoffSheetTarget {
 }
 
 /** The model summary for the open sheet (R1: it runs when the sheet opens). */
-export interface HandoffDraftState {
+interface HandoffDraftState {
   state: "idle" | "running" | "ready" | "failed" | "cancelled";
   text?: string;
   message?: string;
@@ -31,7 +31,7 @@ export interface HandoffDraftState {
 }
 
 /** Where `Start new chat` stands. */
-export type HandoffPhase =
+type HandoffPhase =
   | { kind: "review" }
   | { kind: "creating" }
   | { kind: "checking" }
@@ -39,7 +39,7 @@ export type HandoffPhase =
   | { kind: "uncertain" };
 
 /** What the destination was sent, so its first message can be drawn before history. */
-export interface HandoffSend {
+interface HandoffSend {
   handoffId: string;
   requestId: string;
   /** Echoed on `session_info`; never the chat draft's, so no draft adopts it. */

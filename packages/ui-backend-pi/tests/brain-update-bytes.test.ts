@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, setSystemTime, test } from "bun:test";
 import { readFileSync } from "fs";
 import { join } from "path";
 
@@ -28,9 +28,14 @@ beforeAll(async () => {
 afterAll(() => brain.cleanup());
 
 test("setting one field leaves the rest of the frontmatter byte-identical", async () => {
-  await createBrainAccess(brain.root).update({ path: "notes/demo.md", status: "draft" });
-  const today = new Date().toISOString().slice(0, 10);
+  // The test owns the clock: the stamped date cannot roll over between the update and the expectation.
+  setSystemTime(new Date("2026-07-12T12:00:00Z"));
+  try {
+    await createBrainAccess(brain.root).update({ path: "notes/demo.md", status: "draft" });
+  } finally {
+    setSystemTime();
+  }
   expect(readFileSync(join(brain.root, "notes/demo.md"), "utf8")).toBe(
-    SOURCE.replace("status: active", "status: draft").replace("updated: 2026-01-05", `updated: ${today}`)
+    SOURCE.replace("status: active", "status: draft").replace("updated: 2026-01-05", "updated: 2026-07-12")
   );
 });

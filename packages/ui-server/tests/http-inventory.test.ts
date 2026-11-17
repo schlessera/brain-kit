@@ -20,7 +20,7 @@ test("real app method/path inventory equals the complete classified HTTP specifi
         expect(proseCounts).toEqual([declared.length, declared.length]);
       }
       const middleware = [...new Set(t.routes.filter((r) => r.method === "ALL").map((r) => r.path))].sort();
-      expect(middleware).toEqual(["/*", "/api/*", "/api/auth/passkey/*", "/api/auth/principals/*", "/api/brain/briefing", "/api/brain/list", "/api/brain/search", "/api/brain/stats", "/api/brain/stats/history", "/api/graph/*", "/api/internal/inbox/poke", "/api/sessions/:sessionId/turns/:turnId/revert*", "/api/storage*", "/api/storage/maintenance*", "/api/storage/removals*"]);
+      expect(middleware).toEqual(["/*", "/api/*", "/api/apify*", "/api/auth/passkey/*", "/api/auth/principals/*", "/api/brain/briefing", "/api/brain/list", "/api/brain/search", "/api/brain/stats", "/api/brain/stats/history", "/api/graph/*", "/api/internal/inbox/poke", "/api/sessions/:id/safety/reviews/*", "/api/sessions/:sessionId/turns/:turnId/revert*", "/api/storage*", "/api/storage/maintenance*", "/api/storage/removals*"]);
       expect(t.routes.filter((r) => r.method === "ALL" && r.path === "/*")).toHaveLength(staticRoot ? 3 : 2);
       expect(t.routes.some((r) => r.method === "HEAD" || r.method === "OPTIONS")).toBe(false);
     } finally { await t.close(); }
@@ -48,12 +48,12 @@ test("configured CORS preflight runs before authentication and refuses unapprove
   const t = await httpContractApp({ env: { AUTH_MODE: "proxy", TRUST_PROXY: "1", PROXY_AUTH_HEADER: "x-fixture-user", ALLOWED_ORIGINS: "https://client.example" } });
   try {
     const response = await t.fetch("/api/status", { method: "OPTIONS", headers: {
-      origin: "https://client.example", "access-control-request-method": "GET", "access-control-request-headers": "Content-Type",
+      origin: "https://client.example", "access-control-request-method": "PUT", "access-control-request-headers": "Content-Type,Content-SHA256,Speech-Provider",
     } });
     expect(response.status).toBe(204);
     expect(response.headers.get("access-control-allow-origin")).toBe("https://client.example");
     expect(response.headers.get("access-control-allow-methods")?.split(",").sort()).toEqual(["DELETE", "GET", "POST", "PUT"]);
-    expect(response.headers.get("access-control-allow-headers")).toBe("Content-Type,If-Match,Idempotency-Key,Content-SHA256");
+    expect(response.headers.get("access-control-allow-headers")).toBe("Content-Type,If-Match,Idempotency-Key,Content-SHA256,Speech-Provider");
     expect(response.headers.get("access-control-allow-credentials")).toBe("true");
     expect(await response.text()).toBe("");
     expect((await t.fetch("/api/status", { method: "OPTIONS", headers: { origin: "https://attacker.example" } })).status).toBe(403);

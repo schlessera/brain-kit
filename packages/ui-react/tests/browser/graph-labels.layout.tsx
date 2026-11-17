@@ -86,8 +86,8 @@ for (const width of [390, 900]) for (const theme of ["light", "dark"] as const) 
       if (stroke.mock.calls.length > before) painted.add(node.key);
     });
     await expect.poll(() => painted.size).toBeGreaterThan(4);
-    expect(painted.has("2")).toBe(false);
-    expect(painted.has("3")).toBe(false);
+    expect([...painted]).not.toContain("2");
+    expect([...painted]).not.toContain("3");
 
     render(1, null);
     await expect.poll(() => [...painted].sort()).toEqual(["1", "2", "3"]);
@@ -100,7 +100,7 @@ for (const width of [390, 900]) for (const theme of ["light", "dark"] as const) 
 
     render(null, null);
     await expect.poll(() => painted.size).toBeGreaterThan(4);
-    expect(painted.has("2")).toBe(false);
-    expect(painted.has("3")).toBe(false);
+    expect([...painted]).not.toContain("2");
+    expect([...painted]).not.toContain("3");
   });
 }

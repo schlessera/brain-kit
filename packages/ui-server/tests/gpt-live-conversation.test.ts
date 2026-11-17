@@ -1,5 +1,6 @@
 /** Real primary WebSocket transport redirected to a loopback fixture, no keys/network. */
 import { afterEach, expect, test } from "bun:test";
+import { contextualStatus } from "./helpers/contextual-status";
 import { contextualRefusals } from "./helpers/contextual-refusals";
 import type { SessionStartEvent, SessionStartedEvent, InputTranscriptDeltaEvent, DelegationCreatedEvent } from "openai/resources/live/live";
 import type { StartTurnRequest, LiveConversationEvent, LiveConversationSession } from "@schlessera/brain-ui-sdk/server";
@@ -158,7 +159,8 @@ test("large host facts use bounded quiet chunks then one commentary with the ori
   await until(() => f.sent.some((m) => m.type === "session.commentary.append"));
   const updates = f.sent.filter((m) => /session\.(thinking|commentary)\.append/.test(m.type));
   expect(updates.map((m) => m.content).join("")).toBe(facts);
-  expect(updates.every((m) => m.delegation_id === "delegation-1" && Buffer.byteLength(m.content) <= 500)).toBe(true);
+  expect(new Set(updates.map((m) => m.delegation_id))).toEqual(new Set(["delegation-1"]));
+  expect(Math.max(...updates.map((m) => Buffer.byteLength(m.content)))).toBeLessThanOrEqual(500);
   expect(updates.filter((m) => m.type === "session.commentary.append")).toHaveLength(1);
   expect(updates.at(-1).type).toBe("session.commentary.append");
 });
@@ -224,7 +226,7 @@ test("real adapter and host keep chat progress and a question interactive while 
   } });
   const host = new WsHost({ registry: createStaticBackendRegistry([backend], "fake"), catalog: createSessionCatalog(() => db), conversationProvider: f.provider });
   const oldCleanup = cleanup!;
-  cleanup = async () => { release(); host.coordinator.reset(); await host.close(); db.close(); await oldCleanup(); };
+  cleanup = async () => { release(); await host.close(); db.close(); await oldCleanup(); };
   const handlers = createWsHandlers(host, testPrincipal());
   const frames: any[] = [];
   const ws = { send: (data: string) => frames.push(JSON.parse(data)) } as WSContext;
@@ -242,9 +244,9 @@ test("real adapter and host keep chat progress and a question interactive while 
   expect(turns).toHaveLength(0);
   send({ type: "conversation_commit", conversationId, epoch, utteranceId: "u1", requestId: "request-1", text: "Check the Ithaca note." });
   await until(() => frames.some((m) => m.type === "ask_user_request"));
-  expect(frames.some((m) => m.type === "text_delta" && m.text === "Checking the harbour notes.")).toBe(true);
+  expect(frames).toContainEqual(expect.objectContaining({ type: "text_delta", text: "Checking the harbour notes." }));
   expect(f.sent.some((m) => m.type === "session.commentary.append")).toBe(false);
-  expect(frames.some((m) => m.type === "tool_use_start" && m.toolUseId === "lookup-1")).toBe(true);
+  expect(frames).toContainEqual(expect.objectContaining({ type: "tool_use_start", toolUseId: "lookup-1" }));
   expect(turns[0]!.noGrantSurface).toBeUndefined();
   send({ type: "conversation_audio", conversationId, epoch, utteranceId: "u2", sequence: 1, rate: 24000, pcm: "AAA=" });
   await until(() => f.sent.filter((m) => m.type === "session.input_audio.append").length === 2);
@@ -255,7 +257,7 @@ test("real adapter and host keep chat progress and a question interactive while 
   release();
   await until(() => f.sent.some((m) => m.type === "session.commentary.append"));
   expect(f.sent.find((m) => m.type === "session.commentary.append")).toMatchObject({ delegation_id: "host-1" });
-  expect(frames.some((m) => m.type === "result")).toBe(true);
+  expect(frames).toContainEqual(expect.objectContaining({ type: "result" }));
 });
 
 
@@ -404,11 +406,16 @@ test("contextual GPT lost append acknowledgement is unknown and cannot replay an
   f.emit(delegation("lost-ack")); await until(() => f.received.some(e => e.kind === "unassigned_delegation"));
   f.session.bindContextualWork!({ nativeHandle: "lost-ack", taskId: "task-one", requestId: "request-one" });
   const contextual = { conversationId: "ithaca", epoch: 1, provenance: "contextual" as const, taskId: "task-one", requestId: "request-one", turnId: "turn-one", nativeHandle: "lost-ack" };
-  const returning = f.session.returnWork(contextual, result);
-  const rejection = expect(returning).rejects.toThrow("unknown");
+  // Settle by hand: a pending `expect(...).rejects` would hold the test until
+  // the 2 s acknowledgement timer answered, and the loss itself went untested.
+  let outcome: unknown;
+  void f.session.returnWork(contextual, result).then(value => { outcome = value; }, (error: Error) => { outcome = error.message; });
   await until(() => f.sent.some(m => m.type === "session.commentary.append"));
-  f.closeRemote(); await rejection;
+  expect(outcome).toBeUndefined();
   await expect(f.session.returnWork(contextual, result)).rejects.toThrow("correlation");
+  f.closeRemote();
+  await until(() => f.received.some(e => e.kind === "closed"));
+  expect(outcome).toBe("GPT-Live result acceptance is unknown.");
   expect(f.sent.filter(m => m.type === "session.commentary.append")).toHaveLength(1);
 });
 
@@ -538,4 +545,38 @@ test("a fitting resync keeps the exact previous serialized bytes and is never re
   expect(starts[1]).toBe(starts[0]);
   // Startup context lives only in session.start; no later frame repeats it.
   expect(f.sent.filter(m => JSON.stringify(m).includes("Historical host outcomes"))).toHaveLength(2);
+});
+
+test("GPT status requires exact live binding, is monotone and never consumes result acknowledgement", async () => {
+  const f = await fixture(true, true, true);
+  f.emit(delegation("status-native"));
+  await until(() => f.received.some(event => event.kind === "unassigned_delegation"));
+  const binding = { nativeHandle: "status-native", taskId: "status-task", requestId: "status-request" };
+  const exact = { conversationId: "ithaca", epoch: 1, ...binding }, queued = { state: "queued" as const, intent: "Find the mast." };
+  expect(() => f.session.reportWorkStatus!(exact, queued)).toThrow("binding");
+  f.session.bindContextualWork!(binding);
+  for (const wrong of [{ epoch: 2 }, { conversationId: "elsewhere" }, { taskId: "other" }, { requestId: "other" }, { nativeHandle: "other" }]) {
+    expect(() => f.session.reportWorkStatus!({ ...exact, ...wrong }, queued), "STATUS_REJECTS_EVERY_MISMATCHED_IDENTITY").toThrow("binding");
+  }
+  f.session.reportWorkStatus!(exact, queued); f.session.reportWorkStatus!(exact, queued);
+  f.session.reportWorkStatus!(exact, { state: "running", intent: "Find the mast." });
+  expect(() => f.session.reportWorkStatus!(exact, queued)).toThrow("backwards");
+  await until(() => f.sent.filter(frame => frame.delegation_id === "status-native").length === 2);
+  const acceptance = f.sent.find(frame => frame.type === "session.commentary.append");
+  const returning = f.session.returnWork({ ...exact, provenance: "contextual", turnId: "status-turn" }, result);
+  let done = false; void returning.then(() => { done = true; });
+  await until(() => f.sent.filter(frame => frame.type === "session.commentary.append").length === 2);
+  f.emit({ type: "session.commentary.appended", event_id: "status-ack", client_event_id: acceptance.event_id, start_ms: 0, end_ms: 0 });
+  await f.audio(); // FIFO input/output barrier after the unrelated progress acknowledgement.
+  expect(done, "PROGRESS_ACK_IS_NOT_RESULT_ACCEPTANCE").toBe(false);
+  const completed = f.sent.filter(frame => frame.type === "session.commentary.append").at(-1);
+  f.emit({ type: "session.commentary.appended", event_id: "result-ack", client_event_id: completed.event_id, start_ms: 0, end_ms: 0 });
+  expect(await returning).toEqual({ acceptance: "acknowledged" });
+  expect(() => f.session.reportWorkStatus!(exact, queued)).toThrow("binding");
+});
+
+for (const mode of ["complete", "storage", "replace", "withdraw", "status-error"] as const) test(`host acceptance status on actual gpt adapter: ${mode}`, async () => {
+  const f = await fixture(true, true, true);
+  const oldCleanup = cleanup!;
+  await contextualStatus("gpt", mode, f, close => { cleanup = async () => { await close(); await oldCleanup(); }; });
 });

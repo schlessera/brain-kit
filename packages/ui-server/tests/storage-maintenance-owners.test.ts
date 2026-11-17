@@ -48,7 +48,9 @@ test("maintenance revalidates authorization after the real cross-process writer 
   const hold = await f.gate.acquire("exclusive", "fixture hold");
   const pending = f.boundary.run({ argv: [process.execPath, "-e", 'await Bun.write(process.env.BRAIN_WORKER_DATA_ROOT+"/started.txt","Ithaca");'], env: { PATH: process.env.PATH, BRAIN_ROOT: f.brain }, credentials: false, gate: "shared", purpose: "Storage guard fixture", outputBytes: 1024, assertAuthorized() { if (!allowed) throw Error("authorization revoked"); } });
   try {
-    await Bun.sleep(30); allowed = false; hold.release();
+    // run() checks authority synchronously before it waits for the gate, and the
+    // exclusive hold is released only after revocation: no window is needed.
+    allowed = false; hold.release();
     await expect(pending).rejects.toThrow("authorization revoked");
     expect(existsSync(join(f.brain, "started.txt")), "STORAGE_MAINTENANCE_AFTER_GATE_AUTHORITY").toBe(false);
   } finally { hold.release(); await pending.catch(() => {}); await f.close(); }
@@ -98,7 +100,7 @@ test("bounded maintenance kills and reaps an actual output-flooding worker", asy
 test("hosted packing publishes real Git packs while preserving refs and history", async () => {
   const f = fixture();
   const git = (...args: string[]) => {
-    const p = Bun.spawnSync(["git", "-C", f.brain, ...args], { stdout: "pipe", stderr: "pipe", env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" } });
+    const p = Bun.spawnSync(["git", "-c", "commit.gpgsign=false", "-C", f.brain, ...args], { stdout: "pipe", stderr: "pipe", env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" } });
     expect(p.exitCode, p.stderr.toString()).toBe(0); return p.stdout.toString();
   };
   try {

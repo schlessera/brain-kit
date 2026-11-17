@@ -37,8 +37,8 @@ test("revocation while canonical read awaits never reads backend or returns a se
  const pending=readLiveHistory(f.host,"odysseus",{sessionId:"voyage"},f.authorized);while(!finish)await Bun.sleep(1);f.revoke();finish(page);expect(await pending).toBeUndefined();expect(f.counts().backendReads).toBe(0);
 });
 for(const failure of ["journal","generation"] as const)test(`${failure} read error fails closed without a context-free snapshot`,async()=>{
- const f=source(failure==="journal"?{dialogueRead:async()=>{throw Error("source failed");}}:failure==="generation"?{dialogueOwnerForId:()=>({id:"ithaca",generation:2})}:{attachMessageSources:()=>{throw Error("provenance failed");}});
- await expect(readLiveHistory(f.host,"odysseus",{sessionId:"voyage"},f.authorized)).rejects.toThrow();
+ const f=source(failure==="journal"?{dialogueRead:async()=>{throw Error("source failed");}}:{dialogueOwnerForId:()=>({id:"ithaca",generation:2})});
+ await expect(readLiveHistory(f.host,"odysseus",{sessionId:"voyage"},f.authorized)).rejects.toThrow(failure==="journal"?"source failed":"Historical source changed");
 });
 test("authorized snapshot is recursively frozen, empty reads stay empty and do not execute tasks",async()=>{
  const f=source({dialogueRead:async()=>({...page,records:[]})});
@@ -56,11 +56,14 @@ test("submitted voice carriers keep their recorded chat source rather than fabri
 
 for(const mismatch of ["none","principal","conversation","session","turn"] as const)test(`unresolved exact carrier classification respects receipt identity mismatch=${mismatch}`,async()=>{
  const carrier='Internal task carrier {"recognized":"Research the mast."}';
- const native=[msg("user",carrier),msg("user","Later ordinary question."),msg("assistant","Later ordinary answer.",{turnId:"ordinary-turn"})];
- const stored={id:mismatch==="conversation"?"other":"old",principalId:mismatch==="principal"?"penelope":"odysseus",epoch:1,sessionId:mismatch==="session"?"other-session":"voyage",receipts:[{provenance:"contextual",turnId:mismatch==="turn"?"ordinary-turn":"missing-turn",submitted:carrier,state:"completed",requestId:"host-request",epoch:1}],results:[]};
+ const native=[msg("user",carrier),msg("assistant","Bronze owl.",{turnId:"t"}),msg("user","Later ordinary question."),msg("assistant","Later ordinary answer.",{turnId:"ordinary-turn"})];
+ // A witnessed completed receipt in the same stored conversation is the control: only a matching identity admits its fact.
+ const witnessed={provenance:"typed",turnId:"t",submitted:"Where is the bronze owl?",state:"completed",requestId:"r",epoch:1};
+ const stored={id:mismatch==="conversation"?"other":"old",principalId:mismatch==="principal"?"penelope":"odysseus",epoch:1,sessionId:mismatch==="session"?"other-session":"voyage",receipts:[{provenance:"contextual",turnId:mismatch==="turn"?"ordinary-turn":"missing-turn",submitted:carrier,state:"completed",requestId:"host-request",epoch:1},witnessed],results:[{requestId:"r",facts:"The bronze owl is on the mast."}]};
  const f=source({loadConversation:async()=>stored});f.host.registry.getBackendForSession=async()=>({getHistory:async()=>native}) as never;
  const out=await readLiveHistory(f.host,"odysseus",{sessionId:"voyage"},f.authorized);
- expect(out!.items.some(i=>"text" in i&&i.text===carrier),"MISSING_OR_FOREIGN_RECEIPT_CANNOT_AUTHENTICATE_UNKNOWN_USER").toBe(false);
+ expect(out!.items.flatMap(i=>"text" in i?[i.text]:[]),"MISSING_OR_FOREIGN_RECEIPT_CANNOT_AUTHENTICATE_UNKNOWN_USER").not.toContain(carrier);
+ expect(out!.items.flatMap(i=>i.kind==="host_fact"?[i.text]:[]),"ONLY_THE_OWNERS_STORED_CONVERSATION_SUPPLIES_FACTS").toEqual(mismatch==="none"||mismatch==="turn"?["The bronze owl is on the mast."]:[]);
  expect(out!.items.flatMap(i=>i.kind==="typed"&&i.role==="user"?[i.text]:[])).toEqual([]);
  expect(out!.coverage).toMatchObject({state:"partial",reasons:expect.arrayContaining(["source_unavailable"])});
  expect(out!.items).toContainEqual(expect.objectContaining({kind:"typed",role:"assistant",text:"Later ordinary answer."}));

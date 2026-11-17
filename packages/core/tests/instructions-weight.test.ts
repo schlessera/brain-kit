@@ -104,7 +104,7 @@ describe("measureInstructions", () => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "SKILL.md"), "---\nname: broken\n---\n\nNo description.\n");
     const m = measureInstructions(root, []);
-    expect(m.problems.some((p) => p.includes("broken") && p.includes("missing name or description"))).toBe(true);
+    expect(m.problems).toContainEqual(expect.stringMatching(/broken.*missing name or description|missing name or description.*broken/));
     expect(names(root)).not.toContain("skill broken");
   });
 });

@@ -2,8 +2,9 @@ import { parseImportedTrack, summarizeTrack, type ImportedTrack } from "@schless
 import { MAX_ROUTE_BYTES } from "@schlessera/brain-geo/internal";
 import { createHash } from "node:crypto";
 import type { Logger } from "@opentelemetry/api-logs";
-import { mkdir, readdir, rename, rm, writeFile, realpath, lstat } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { closeSync, lstatSync } from "node:fs";
+import { readdir } from "node:fs/promises";
+import { join } from "node:path";
 import {
   SHARE_MAX_FILES,
   SHARE_MAX_FILE_BYTES,
@@ -18,6 +19,10 @@ import {
   type QueueStagingManifest,
 } from "@schlessera/brain-ui-sdk/protocol";
 import { safeResolve } from "../files/walker.js";
+import {
+  at, listDirectory, makeDirectory, openStagingRoot, publishDirectory, removeEntry, verifyEntry, writeExclusive, writeExclusiveSync,
+  type StagingDirectory, type StagingRoot,
+} from "./staging-fs.js";
 
 /**
  * Staging for an incoming system share.
@@ -41,7 +46,7 @@ export class EmptyShareError extends Error {
   }
 }
 
-export type ShareLimitReason =
+type ShareLimitReason =
   | "too_many_files"
   | "file_too_large"
   | "share_too_large"
@@ -123,6 +128,15 @@ const MAX_NAME_BYTES = 100;
 const DEFAULT_MEDIA_TYPE = "application/octet-stream";
 /** A partial directory older than this was orphaned by a crash mid-write. */
 const PARTIAL_TTL_MS = 60 * 60 * 1000;
+
+/**
+ * Runs one staging change at a write boundary (#2869): it may wait first, then
+ * runs `change` synchronously, in the tick its own final check passes, so
+ * nothing that begins after that check can overlap the change. `stage` is an
+ * effect of the caller's own authority; `compensate` removes what it staged
+ * and needs only that no hold stops writes. A refusal leaves the change unmade.
+ */
+export type StagingWriteGate = <T>(effect: "stage" | "compensate", change: () => T | Promise<T>) => Promise<T>;
 
 export class UnsupportedTrackError extends Error {
   constructor() { super("Not a validated GPX, KML or supported GeoJSON track."); this.name = "UnsupportedTrackError"; }
@@ -268,7 +282,7 @@ function splitUrl(raw: string | undefined): { url?: string; leftover?: string } 
   return { leftover: raw };
 }
 
-/** How many shares are staged right now (partials excluded). */
+/** How many shares are staged right now (partials excluded). Read-only. */
 async function countStaged(root: string): Promise<number> {
   try {
     const entries = await readdir(root, { withFileTypes: true });
@@ -309,7 +323,12 @@ export async function stageShareAt(
    * again before each change, since links can move in between; a refusal is
    * never recorded as a skipped file.
    */
-  guard?: (path: string) => void
+  guard?: (path: string) => void,
+  /**
+   * Every change this call makes runs through it, each written in one
+   * synchronous step after its gate admits it. Without one, changes run at once.
+   */
+  gate?: StagingWriteGate
 ): Promise<ShareIntakeResult> {
   if (!/^[a-f0-9-]{36}$/.test(id)) throw new Error("Invalid staging id");
   input.signal?.throwIfAborted();
@@ -339,18 +358,36 @@ export async function stageShareAt(
     throw new ShareTooLargeError("share_too_large", SHARE_MAX_TOTAL_BYTES);
   }
 
-  const root = await safeResolve(SHARE_STAGING_DIR, brainPath);
-  if ((await countStaged(root)) >= SHARE_MAX_STAGED) {
+  // A link out of the brain refuses as a containment failure before anything
+  // is read; the count below only reads.
+  const resolvedRoot = await safeResolve(SHARE_STAGING_DIR, brainPath);
+  if ((await countStaged(resolvedRoot)) >= SHARE_MAX_STAGED) {
     throw new ShareTooLargeError("inbox_full", SHARE_MAX_STAGED);
   }
 
   const dir = `${SHARE_STAGING_DIR}/${id}`;
-  const finalDir = join(root, id);
-  const partialDir = join(root, `.${id}.partial`);
-  const brain = guard ? await realpath(brainPath) : "";
-  const check = (path: string) => guard?.(relative(brain, path));
-  check(partialDir);
-  await mkdir(partialDir, { recursive: true });
+  const partialName = `.${id}.partial`;
+  const finalDir = id, partialDir = partialName;
+  // The guard judges each change by the name it is made under; it follows
+  // whatever links lie on the way itself, as they are when it is asked.
+  const check = (name: string) => guard?.(`${SHARE_STAGING_DIR}/${name}`);
+  const run = <T>(effect: "stage" | "compensate", change: () => T): T | Promise<T> => gate ? gate(effect, change) : change();
+  // Every staging change goes through descriptors opened without following
+  // links (#2907): a linked staging directory refuses, as cleanup and the
+  // prune refuse it, and a link swapped in later cannot redirect a change.
+  let root: StagingRoot | undefined;
+  let partial: StagingDirectory;
+  try {
+    partial = await run("stage", () => {
+      // Judged before the staging root is opened, and again after any wait.
+      check(partialDir);
+      root ??= openStagingRoot(brainPath, true)!;
+      root.verify(); return makeDirectory(root.dir, partialName);
+    });
+  } catch (err) { root?.close(); throw err; }
+  const staging = root!;
+  /** The staging root and the partial are still the directories this call opened. */
+  const anchored = () => { staging.verify(); verifyEntry(staging.dir, partialName, partial); };
 
   try {
     // meta.json is reserved: a shared file called that must not overwrite it.
@@ -395,17 +432,20 @@ export async function stageShareAt(
         trackMeta = { incomingName, sha256: createHash("sha256").update(bytes).digest("hex"), detected: imported.format,
           summary: { ...summary, waypointCount: imported.waypointCount, waypointOmitted: imported.waypointOmissions.length } };
       }
-      check(join(partialDir, name));
-      try {
-        // "wx": never follow a link, never truncate something that exists. In a
-        // freshly minted directory nothing can pre-exist, so this is a loud
-        // assertion rather than a fix — which is the point.
-        await writeFile(join(partialDir, name), bytes, { flag: "wx" });
-        published.set(path, bytes);
-      } catch (err) {
+      // A refusal is never recorded as a skipped file: the gate, the guard and
+      // the anchor all refuse before the write is attempted. Exclusive and
+      // no-follow: never follow a link, never truncate something that exists.
+      // In a freshly minted directory nothing can pre-exist, so this is a loud
+      // assertion rather than a fix.
+      const admit = () => { check(`${partialDir}/${name}`); anchored(); };
+      let failed: { err: unknown } | undefined;
+      if (gate) failed = await gate("stage", () => { admit(); try { writeExclusiveSync(partial, name, bytes); return undefined; } catch (err) { return { err }; } });
+      else { admit(); failed = await writeExclusive(partial, name, bytes).then(() => undefined, (err: unknown) => ({ err })); }
+      if (failed) {
         // One unwritable file (ENOSPC, a stricter filesystem) must not throw
         // away the other four. Record it and carry on; the share is only lost
         // if nothing at all survives.
+        const { err } = failed;
         log?.emit({
           severityText: "ERROR",
           body: "could not stage a shared file",
@@ -414,6 +454,7 @@ export async function stageShareAt(
         skipped.push(name);
         continue;
       }
+      published.set(path, bytes);
 
       staged.push({
         name,
@@ -440,27 +481,38 @@ export async function stageShareAt(
       ...(skipped.length ? { skipped } : {}),
     };
     const meta = `${JSON.stringify(manifest, null, 2)}\n`;
-    check(join(partialDir, "meta.json"));
-    await writeFile(join(partialDir, "meta.json"), meta, "utf-8");
+    await run("stage", () => {
+      check(`${partialDir}/meta.json`);
+      anchored();
+      // Operation-owned: created exclusively, so a planted entry refuses.
+      return gate ? writeExclusiveSync(partial, "meta.json", meta) : writeExclusive(partial, "meta.json", meta);
+    });
     published.set(`${dir}/meta.json`, new TextEncoder().encode(meta));
     onPublish?.(published);
 
     // The share becomes visible here, whole, in one operation.
     input.signal?.throwIfAborted();
-    check(partialDir); check(finalDir);
-    await rename(partialDir, finalDir);
+    await run("stage", () => {
+      check(partialDir); check(finalDir);
+      staging.verify();
+      publishDirectory(staging.dir, partialName, finalDir, partial);
+    });
     if (input.signal?.aborted) {
-      check(finalDir);
-      await rm(finalDir, { recursive: true, force: true });
+      await run("compensate", () => {
+        check(finalDir);
+        staging.verify();
+        removeEntry(staging.dir, finalDir);
+      });
       input.signal.throwIfAborted();
     }
 
     const { source: _source, ...result } = manifest;
     return result;
   } catch (err) {
-    try { check(partialDir); await rm(partialDir, { recursive: true, force: true }); } catch { /* A refused or failed removal leaves the partial for reconciliation. */ }
+    try { await run("compensate", () => { check(partialDir); staging.verify(); removeEntry(staging.dir, partialName); }); }
+    catch { /* A refused, held or failed removal leaves the partial for reconciliation. */ }
     throw err;
-  }
+  } finally { closeSync(partial.fd); staging.close(); }
 }
 
 /**
@@ -477,16 +529,14 @@ export async function pruneShareStaging(
   log?: Logger,
   protectedIds: ReadonlySet<string> = new Set()
 ): Promise<number> {
-  let root: string;
+  let root: StagingRoot | null;
   let entries;
   try {
-    root = await safeResolve(SHARE_STAGING_DIR, brainPath);
     // Even an internal symlink could point at unrelated content. Only prune
     // the actual staging directory; the brain root itself may be a symlink.
-    if (await realpath(root) !== join(await realpath(brainPath), SHARE_STAGING_DIR)) {
-      throw new Error("Share staging directory must not traverse a symlink");
-    }
-    entries = await readdir(root, { withFileTypes: true });
+    root = openStagingRoot(brainPath, false);
+    if (!root) return 0;
+    try { entries = listDirectory(root.dir); } catch (err) { root.close(); throw err; }
   } catch (err) {
     // Nothing staged yet is the ordinary case. Anything else — a permission
     // problem, a file where the directory should be — must not masquerade as
@@ -502,21 +552,23 @@ export async function pruneShareStaging(
   }
 
   let removed = 0;
-  for (const entry of entries) {
-    if (!entry.isDirectory() || protectedIds.has(entry.name) ||
-        protectedIds.has(entry.name.replace(/^\./, "").replace(/\.partial$/, ""))) continue;
-    const path = join(root, entry.name);
-    const ttl = entry.name.startsWith(".") ? PARTIAL_TTL_MS : SHARE_STAGING_TTL_MS;
-    try {
-      await safeResolve(`${SHARE_STAGING_DIR}/${entry.name}`, brainPath);
-      const info = await lstat(path);
-      if (!info.isDirectory() || now - info.mtimeMs <= ttl) continue;
-      await rm(path, { recursive: true, force: true });
-      removed += 1;
-    } catch {
-      // A directory that vanished mid-sweep is the outcome we wanted anyway.
+  try {
+    for (const entry of entries) {
+      if (!entry.isDirectory() || protectedIds.has(entry.name) ||
+          protectedIds.has(entry.name.replace(/^\./, "").replace(/\.partial$/, ""))) continue;
+      const ttl = entry.name.startsWith(".") ? PARTIAL_TTL_MS : SHARE_STAGING_TTL_MS;
+      try {
+        const info = lstatSync(at(root.dir, entry.name));
+        if (!info.isDirectory() || now - info.mtimeMs <= ttl) continue;
+        root.verify();
+        removeEntry(root.dir, entry.name);
+        removed += 1;
+      } catch {
+        // A directory that vanished mid-sweep is the outcome we wanted anyway;
+        // one that changed under the sweep is left for the next.
+      }
     }
-  }
+  } finally { root.close(); }
   return removed;
 }
 

@@ -12,6 +12,7 @@ import { BrainUiProvider } from "../../src/root-context.js";
 import { AppShell } from "../../src/components/layout/app-shell.js";
 import { ChatPage } from "../../src/components/chat/chat-page.js";
 import { installFaultNetwork } from "./offline/fault-network.js";
+import { pointDetails } from "./spoken-details.js";
 
 const SESSION = "odysseus-ithaca";
 const CAPS: ConversationCapabilities = { nonblockingWork: "supported", manualEndpoint: "supported", finalTranscript: "unproven", remoteOutputCancelAck: "unproven", exactPermissionSpeech: "unproven", echoIsolatedInput: "unproven", outputWordAlignment: "unproven" };
@@ -25,7 +26,7 @@ async function scene(ctx: TestContext, width = 390, shell = false, theme: "light
     const viewport = { width: innerWidth, height: innerHeight };
     const outer = await commands.formViewport(width, 568);
     await page.viewport(width, 568);
-    ctx.onTestFinished(async () => { await page.viewport(viewport.width, viewport.height); await commands.formViewport(outer.width, outer.height); });
+    ctx.onTestFinished(async () => { await page.viewport(viewport.width, viewport.height); await commands.formViewport(outer.width - 100, outer.height - 120); });
   }
   const renderRequests: Array<{ content: string; contentType: string; format: string }> = [];
   const network = installFaultNetwork({ routes: (url, init) => {
@@ -112,9 +113,9 @@ async function contextualScene(ctx: TestContext, provider: "gemini" | "gpt", act
   const upstream: any[] = [];
   const downstream: ServerMessage[] = [];
   let evidence: any;
-  const pump = async (provider: unknown[] = [], release = false, identify = false, failHistory = false, releaseOpening = false, releaseValidation = false) => {
+  const pump = async (provider: unknown[] = [], release = false, identify = false, failHistory = false, releaseOpening = false, releaseValidation = false, settledWork = false) => {
     const client = s.socket.sent.slice(cursor).map(bytes => JSON.parse(String(bytes.data))); cursor = s.socket.sent.length;
-    evidence = await commands.conversationServer({ op: "step", id: fixture.id, client, provider, release, identify, failHistory, releaseOpening, releaseValidation });
+    evidence = await commands.conversationServer({ op: "step", id: fixture.id, client, provider, release, identify, failHistory, releaseOpening, releaseValidation, settledWork });
     upstream.push(...evidence.sent); downstream.push(...evidence.frames);
     for (const frame of evidence.frames) s.deliver(frame);
     return evidence;
@@ -132,6 +133,27 @@ async function contextualScene(ctx: TestContext, provider: "gemini" | "gpt", act
   return { ...s, mic, pump, upstream, downstream, manualDraftId, evidence: () => evidence };
 }
 
+/** Progress appends retain the binding; only a later outcome is a task result. */
+function nativeTaskUpdates(provider: "gemini" | "gpt", frames: any[]): Array<{
+  native: string; text: string; scheduling: string; frame: any; progress?: "queued" | "running";
+}> {
+  return frames.flatMap(frame => {
+    if (provider === "gemini") return (frame.toolResponse?.functionResponses ?? []).map((response: any) => ({
+      native: response.id, text: response.response.output, scheduling: response.scheduling, frame: response,
+      ...(response.willContinue === true && ["queued", "running"].includes(response.response.status) ? { progress: response.response.status } : {}),
+    }));
+    if (frame.type !== "session.thinking.append" && frame.type !== "session.commentary.append") return [];
+    let status: any;
+    try { status = JSON.parse(frame.content); } catch { /* Ordinary result text. */ }
+    return [{ native: frame.delegation_id, text: frame.content, scheduling: frame.type, frame,
+      ...(status?.pending === true && ["queued", "running"].includes(status.hostTaskStatus) ? { progress: status.hostTaskStatus } : {}) }];
+  });
+}
+
+function nativeTaskResults(provider: "gemini" | "gpt", frames: any[]) {
+  return nativeTaskUpdates(provider, frames).filter(update => !update.progress);
+}
+
 // #3131 characterization: the peer scripts recognition/output and acknowledges
 // transport only. No assertion here establishes a provider's semantic recall.
 for (const provider of ["gemini", "gpt"] as const) test(`${provider} research-result evidence: exact bytes, later references, interruption and replacement context`, async ctx => {
@@ -147,8 +169,7 @@ for (const provider of ["gemini", "gpt"] as const) test(`${provider} research-re
     : [{ type: "session.output_transcript.delta", event_id: `recall-output-${n}`, delta: text, start_ms: n * 2000 + 600, end_ms: n * 2000 + 800 }, { type: "session.output_audio.delta", delta: outputPcm(seconds) }];
   const native = provider === "gemini" ? { toolCall: { functionCalls: [{ id: "recall-research", name: "host_task" }] } }
     : { type: "session.delegation.created", event_id: "recall-delegation", offset_ms: 500, delegation: { id: "recall-research", type: "delegation", target: "client" } };
-  const returns = () => s.upstream.flatMap(f => provider === "gemini" ? (f.toolResponse?.functionResponses ?? []).map((r: any) => ({ native: r.id, text: r.response.output, scheduling: r.scheduling }))
-    : f.type === "session.thinking.append" || f.type === "session.commentary.append" ? [{ native: f.delegation_id, text: f.content, scheduling: f.type }] : []);
+  const returns = () => nativeTaskResults(provider, s.upstream).map(({ native, text, scheduling }) => ({ native, text, scheduling }));
   expect(JSON.stringify(s.upstream)).not.toContain("bronze owl");
   await s.pump([recognize(0, "Find the departure signal note."), native]);
   await s.pump([], false, true);
@@ -176,12 +197,17 @@ for (const provider of ["gemini", "gpt"] as const) test(`${provider} research-re
     expect(returns()).toHaveLength(0);
   }
   expect(s.host.textContent).not.toContain(fact);
+  expect(nativeTaskUpdates(provider, s.upstream).filter(update => update.progress).map(update => [update.native, update.progress]),
+    "ACCEPTANCE_AND_RUNNING_ARE_NOT_RESEARCH_RESULTS").toEqual([["recall-research", "queued"], ["recall-research", "running"]]);
   expect(s.evidence().tasks[0].prompt).not.toContain("bronze owl");
   await s.pump([], true);
   await expect.poll(async () => { await s.pump(); return s.evidence().tasks[0]?.completed; }).toBe(true);
   await expect.poll(async () => { await s.pump(); return returns().length; }).toBe(1);
   const exact = s.evidence().tasks[0].read + " The host task has finished.";
   expect(returns()).toEqual([{ native: "recall-research", text: exact, scheduling: provider === "gemini" ? "WHEN_IDLE" : "session.commentary.append" }]);
+  // #3263: the provider receiving the result does not mean its acknowledgement
+  // has updated the delivery receipt yet; wait for the host to publish it.
+  await s.pump([], false, false, false, false, false, true);
   const receipt = s.downstream.filter(f => f.type === "conversation_work" && f.nativeHandle === "recall-research").at(-1)!;
   expect(receipt).toMatchObject({ provenance: "contextual", epoch: firstEpoch, state: "completed", delivery: provider === "gemini" ? "unknown" : "returned", taskId: expect.any(String), requestId: expect.any(String), turnId: expect.any(String) });
   expect(s.downstream.filter(f => f.type === "text_delta" && (f as any).turnId === (receipt as any).turnId).map(f => (f as any).text).join("")).toBe(exact);
@@ -290,14 +316,16 @@ for (const provider of ["gemini", "gpt"] as const) for (const mode of ["missing-
   expect(s.socket.frames("conversation_commit")).toHaveLength(0);
   expect(s.socket.frames("chat_message")).toHaveLength(0);
   expect(s.downstream.some(f => f.type === "conversation_closed")).toBe(false);
-  expect(s.upstream.some(f => f.toolResponse || f.type === "session.commentary.append")).toBe(false);
+  expect(nativeTaskResults(provider, s.upstream), "PENDING_WORK_HAS_NO_COMPLETED_RESULT").toHaveLength(0);
+  expect(nativeTaskUpdates(provider, s.upstream).filter(update => update.progress).map(update => [update.native, update.progress]),
+    "EACH_ACCEPTED_TASK_HAS_ITS_OWN_PENDING_FEEDBACK").toEqual([["departure-1", "queued"], ["departure-1", "running"], ["route-2", "queued"]]);
   expect(s.host.scrollWidth).toBeLessThanOrEqual(s.host.clientWidth);
   await page.screenshot({ element: s.host, path: `../../.vitest-attachments/conversation/contextual-${provider}-${mode}.png` });
   await s.pump([native("departure-1")]); // duplicate while pending cannot replay an effect
   expect(s.evidence().tasks).toHaveLength(1);
   await s.pump([], true);
   await expect.poll(async () => { await s.pump(); return s.evidence().tasks.length === 2 && s.evidence().tasks.every((task: any) => task.completed); }).toBe(true);
-  await expect.poll(async () => { await s.pump(); return s.upstream.some(f => f.toolResponse || f.type === "session.commentary.append"); }).toBe(true);
+  await expect.poll(async () => { await s.pump(); return nativeTaskResults(provider, s.upstream).length; }).toBe(2);
   // The result arrived after four continued exchanges, not at its request's position.
   await expect.poll(() => s.host.querySelector(".chat-message-body")?.textContent?.includes("bronze owl")).toBe(true);
   const transcript = s.host.querySelector('[data-reading-column]') ?? s.host;
@@ -305,10 +333,10 @@ for (const provider of ["gemini", "gpt"] as const) for (const mode of ["missing-
   expect(order.indexOf("The departure signal is a bronze owl."), "new backend answer follows the already displayed fourth exchange").toBeGreaterThan(order.indexOf("Continuing the voyage conversation 4."));
   expect(s.evidence().effect).toBe(true);
   expect(s.evidence().tasks.every((task: any) => task.applied.ok)).toBe(true);
-  const identities = s.upstream.flatMap(f => provider === "gemini" ? (f.toolResponse?.functionResponses ?? []).map((r: any) => r.id) : f.type === "session.commentary.append" ? [f.delegation_id] : []);
+  const identities = nativeTaskResults(provider, s.upstream).map(update => update.native);
   expect(identities).toEqual(["departure-1", "route-2"]);
   expect(s.downstream.filter(f => f.type === "tool_approval_request")).toHaveLength(0);
-  const returned = provider === "gemini" ? s.upstream.find(f => f.toolResponse).toolResponse.functionResponses[0] : s.upstream.find(f => f.type === "session.commentary.append");
+  const returned = nativeTaskResults(provider, s.upstream)[0]!.frame;
   expect(provider === "gemini" ? returned.id : returned.delegation_id).toBe("departure-1");
   if (provider === "gemini") expect(returned).toMatchObject({ scheduling: "WHEN_IDLE", willContinue: false });
   const facts = provider === "gemini" ? returned.response.output : returned.content;
@@ -402,9 +430,12 @@ for (const provider of ["gemini", "gpt"] as const) test(`${provider} delayed bac
   await s.pump([provider === "gemini" ? { serverContent: { inputTranscription: { text: "Check the signal once more." } } }
     : { ...recognized, event_id: "identity-followup-input", delta: "Check the signal once more.", start_ms: 1000, end_ms: 1400 }, native("identity-followup")]);
   await expect.poll(async () => { await s.pump(); return s.evidence().tasks.filter((task: any) => task.completed).length; }).toBe(3);
-  const identities = s.upstream.flatMap(f => provider === "gemini" ? (f.toolResponse?.functionResponses ?? []).map((r: any) => r.id) : f.type === "session.commentary.append" ? [f.delegation_id] : []);
+  await expect.poll(async () => { await s.pump(); return nativeTaskResults(provider, s.upstream).length; }).toBe(3);
+  const identities = nativeTaskResults(provider, s.upstream).map(update => update.native);
   expect(identities).toEqual(["identity-first", "identity-queued", "identity-followup"]);
-  const facts = s.upstream.flatMap(f => provider === "gemini" ? (f.toolResponse?.functionResponses ?? []).map((r: any) => r.response.output) : f.type === "session.commentary.append" ? [f.content] : []);
+  const facts = nativeTaskResults(provider, s.upstream).map(update => update.text);
+  for (const id of identities) expect(nativeTaskUpdates(provider, s.upstream).filter(update => update.native === id && update.progress).map(update => update.progress),
+    "PROGRESS_RETAINS_THE_NATIVE_BINDING_UNTIL_THE_REAL_RESULT").toEqual(["queued", "running"]);
   expect(facts).toHaveLength(3);
   expect(facts.every((text: string) => text.includes("bronze owl")), "each exact native binding receives the retrieved backend fact").toBe(true);
   expect(s.evidence().tasks.every((task: any) => task.applied.ok)).toBe(true);
@@ -550,7 +581,8 @@ test("mixed transcript window, reading anchor, history resync and session isolat
   await expect.poll(() => s.host.querySelectorAll("[data-conversation-output]").length).toBeGreaterThan(0);
   const returned = transcriptTimelineFor(s.ui.stores.chat).state.getState().entries;
   expect(returned.filter(e => e.kind !== "voice-boundary").map(e => e.key)).toEqual(keys);
-  expect(returned.filter(e => e.kind === "voice-boundary").map(e => e.label)).toEqual(["Voice ended"]);
+  // Switching away ends the conversation; its divider comes only from the host's retained end (#3729), which this fixture has none of.
+  expect(returned.filter(e => e.kind === "voice-boundary").map(e => e.label)).toEqual([]);
 });
 
 
@@ -559,7 +591,12 @@ test("cold restored speech explicitly has unknown original discussion position",
   s.client.enter(); s.client.start();
   s.deliver({...PROFILE,resync:{work:0,outputs:1},requestId:String(s.socket.frames("conversation_start").at(-1)!.requestId)});
   s.deliver({ type: "conversation_output", conversationId: PROFILE.conversationId, epoch: 1, outputId: "historical-voyage", generated: "An earlier voyage reply.", playback: "unknown" });
-  await expect.poll(() => s.host.querySelector("[data-conversation-output]")?.textContent).toContain("Original discussion position unknown");
+  await expect.poll(() => s.host.querySelector("[data-conversation-output]")?.textContent).toContain("An earlier voyage reply.");
+  // #3700: the unknown position is evidence in the details, not a diagnostic line in the chat.
+  expect(s.host.querySelector("[data-conversation-output]")!.textContent).not.toContain("Original discussion position unknown");
+  await pointDetails(s.host.querySelector<HTMLButtonElement>('[data-conversation-output] [data-transcript-qualifiers="generated"]')!);
+  await expect.poll(() => document.querySelector("dialog[open]")?.textContent).toContain("Original discussion position unknown");
+  await userEvent.keyboard("{Escape}");
   expect(s.client.state.getState().micOn).toBe(false);
 });
 
@@ -915,6 +952,14 @@ for (const provider of ["gemini", "gpt"] as const) test(`${provider} inline reco
   expect(s.client.state.getState().micOn).toBe(true);
   const messages = s.ui.stores.chat.getState().buffers[s.ui.stores.chat.getState().activeSessionId!]!.messages;
   expect(messages.filter(m => m.role === "user").every(m => m.source === "voice-context")).toBe(true);
+  // #3263: the rendered result and the task's settled receipt are separate
+  // publications. The host settles the work after the turn's index refresh,
+  // egress and journal finalization (`executeTurn`,
+  // `packages/ui-server/src/ws/session-run/turn.ts:87-145`), and delivery
+  // follows the provider's acknowledgement (`deliver`,
+  // `packages/ui-server/src/ws/conversation.ts:903-956`). Both can reach a
+  // later step than the text, so wait for the host's actual settled receipt.
+  await s.pump([], false, false, false, false, false, true);
   expect(Object.values(s.client.state.getState().work)).toContainEqual(expect.objectContaining({ state: "completed", delivery: provider === "gemini" ? "unknown" : "returned" }));
   expect(s.host.querySelectorAll("[data-conversation-recognition]")).toHaveLength(5);
   expect(s.host.querySelector("[data-transcript-qualifiers=recognized]")?.getAttribute("aria-label")).toContain(provider === "gemini" ? "Gemini Live; unverified" : "GPT-Live; unverified");
@@ -964,6 +1009,9 @@ for (const theme of ["light", "dark"] as const) for (const width of [320, 1280])
   await expect.poll(() => s.host.querySelectorAll("[data-arrival-key]").length).toBe(40);
   const scroll = s.host.querySelector<HTMLElement>("[data-arrival-key]")!.parentElement!.parentElement!;
   scroll.scrollTop = 0; scroll.dispatchEvent(new Event("scroll"));
+  // Establish the reveal button's browser interaction position before measuring
+  // prepend recovery; the safety notice can move it within the clipped viewport.
+  page.getByRole("button", { name: /Show .*earlier/ }).element().scrollIntoView({ block: "center", behavior: "instant" });
   const anchor = s.host.querySelector<HTMLElement>("[data-arrival-key]")!;
   const top = anchor.getBoundingClientRect().top;
   await userEvent.click(page.getByRole("button", { name: /Show .*earlier/ }));
@@ -983,7 +1031,7 @@ test("recognition namespaces, finish evidence, duplicates, transfer and epoch fe
   expect(s.client.state.getState().recognition[1]).toMatchObject({ kind: "input_fragment", utteranceId: s.socket.frames("conversation_audio").at(-1)!.utteranceId, sequence: 0 });
   s.event({ kind: "unassigned_input_fragment", sequence: 1, text: "", timing: { kind: "unavailable" }, finalization: "final" });
   const finishTrigger = s.host.querySelector<HTMLButtonElement>("[data-transcript-qualifiers=recognized]")!;
-  await userEvent.click(finishTrigger);
+  await pointDetails(finishTrigger);
   await expect.poll(() => document.querySelector("dialog[open]")?.textContent).toContain("Service finish marker received");
   await userEvent.keyboard("{Escape}");
   expect(s.host.querySelectorAll("[data-conversation-recognition]")).toHaveLength(2);
@@ -1001,7 +1049,8 @@ test("recognition namespaces, finish evidence, duplicates, transfer and epoch fe
   expect(s.client.reviewUnassigned()).toBe(false);
   await expect.poll(() => s.host.textContent).toContain("Moved to voice review");
   expect(s.client.state.getState().recognition.every(f => !f.text)).toBe(true);
-  expect(s.ui.stores.voice.getState().reviewText).toBe("Which note?Which note?");
+  // Reviewed in the composer (#3694, D6): the moved words are the draft.
+  await expect.poll(() => { const d = s.ui.stores.drafts.getState(); return d.drafts[d.idFor(SESSION)]?.text; }).toBe("Which note?Which note?");
   expect(s.socket.frames("conversation_commit")).toHaveLength(0);
   expect(s.socket.frames("chat_message")).toHaveLength(0);
   s.event({ ...fragment, sequence: 4, text: "After Leave." });
@@ -1026,7 +1075,9 @@ test("bounded recognition eviction and replacement never fabricate cold-reload d
   await expect.poll(() => s.host.textContent).toContain("Voice reconnected");
   expect(s.client.state.getState().recognition.at(-1)).toMatchObject({ epoch: 2, sequence: 0, text: "A new voyage." });
   s.client.leave();
-  await expect.poll(() => s.host.textContent).toContain("Voice ended");
+  // #3729: the end divider is drawn only from the host's retained end, never a local observation.
+  expect(s.socket.frames("conversation_stop").at(-1), "Leave is the operator's final stop").not.toHaveProperty("resumable");
+  expect(s.host.querySelector('[role="separator"]'), "no retained end, so no divider").toBeNull();
   s.ui.stores.chat.getState().setActiveSession("pylos-watch");
   s.client.enter();
   expect(s.client.state.getState().recognition).toEqual([]);

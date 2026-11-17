@@ -92,6 +92,10 @@ site's permission. Fixture: `packages/module-jobs/tests/fixtures/boards/remotive
   against `RobotsCache` before the rate limiter and the network. On a
   disallowed URL it throws `RobotsDisallowedError`, and the adapter reports that
   as an error for the page rather than as an empty board.
+- **Apify runs of robots-authorized profiles** (#3330) are checked by core
+  against the same `RobotsCache`, with the scrape User-Agent, before the start
+  request; a disallowed target refuses the run. There is no `allowDisallowed`
+  on that path. See [the Apify record](apify-capability.md).
 - **`allowDisallowed`** on the fetch options is the per-site way past a
   `Disallow`. It is for a host you operate, or one you have written permission
   for, and nothing else. It is a per-call option on purpose, so there is no way

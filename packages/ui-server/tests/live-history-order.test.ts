@@ -23,7 +23,7 @@ test("preserves native order: witnessed Q1/A1 then unwitnessed Q2/A2 (answer tex
  const out=projectLiveHistory([msg("user","Typed question one."),msg("assistant","Typed answer one.",{turnId:"t1"}),msg("user","Question two."),msg("assistant","Answer two, final native form.",{turnId:"t2"})],p);
  const texts=out.items.flatMap(i=>"text" in i ? [i.text]:[]);
  const native=["Typed question one.","Typed answer one.","Question two.","Answer two, final native form."];
- expect(native.map(t=>texts.indexOf(t)),"UNWITNESSED_GROUP_FOLLOWS_PRIOR_NATIVE_EXCHANGE").toEqual(native.map(t=>texts.indexOf(t)).sort((a,b)=>a-b));
+ expect(texts.filter(t=>native.includes(t)),"UNWITNESSED_GROUP_FOLLOWS_PRIOR_NATIVE_EXCHANGE").toEqual(native);
  expect(out.coverage.reasons).toContain("ambiguous_order");
 });
 
@@ -36,8 +36,7 @@ for(const coverage of ["complete","partial"] as const)test(`all-unwitnessed type
  const env=projectLiveHistory([msg("user","T1 old typed question"),msg("assistant","A1 old typed answer",{turnId:"before-owner-1"}),msg("user","T2 old typed question"),msg("assistant","A2 old typed answer",{turnId:"before-owner-2"})],{ownerId:"ithaca",generation:1,through:3,coverage,records});
  const texts=env.items.flatMap(i=>"text" in i?[i.text]:[]);
  expect(texts,"UNWITNESSED_PREFIX_PRECEDES_JOURNAL_WITHOUT_INVENTING_A_WITNESS").toEqual(["T1 old typed question","A1 old typed answer","T2 old typed question","A2 old typed answer","V1 newer spoken question","V2 newer spoken reply","V3 newest spoken question"]);
- expect(env.coverage.state).toBe("partial");expect(env.coverage.reasons).toContain("ambiguous_order");
- if(coverage==="partial")expect(env.coverage.reasons).toContain("write_gap");
+ expect(env.coverage).toEqual({state:"partial",reasons:coverage==="partial"?["ambiguous_order","write_gap"]:["ambiguous_order"]});
  const bounded=boundHistory(env,new Set(),{maxBytes:600,maxItems:128,maxFactBytes:100});
  expect(bounded.text,"LATEST_JOURNAL_QUESTION_SURVIVES_OLD_UNANCHORED_PREFIX").toContain("V3 newest spoken question");
  expect(bounded.tailOmitted,"UNKNOWN_RECENCY_OF_DISCARDED_TEXT_IS_QUALIFIED").toBe(true);

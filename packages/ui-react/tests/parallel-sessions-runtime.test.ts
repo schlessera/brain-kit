@@ -1,6 +1,6 @@
 import { runtimeHookPhases } from "./fixtures/runtime-hook-phases";
 import { runtimePackageBuild } from "./fixtures/runtime-package-build";
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { statSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -131,7 +131,10 @@ function scriptedBackend(): AgentBackend {
       bridge.emit({ type: "session_info", sessionId, isNew: !resumed });
       const transcript = transcripts.get(sessionId) ?? [];
       transcripts.set(sessionId, transcript);
-      transcript.push({ role: "user", content: prompt, toolCalls: [] });
+      // The transcript keeps the composer originals' block a real backend
+      // records (#3153): replay strips it only once it reproduces byte for byte.
+      const attachments = /\n\n<brain-attachments>\n[\s\S]*?\n<\/brain-attachments>/.exec(contextPrompt)?.[0] ?? "";
+      transcript.push({ role: "user", content: prompt + attachments, toolCalls: [] });
       const kind = prompt.split(":")[0]!;
       const finish = (text: string, outcome: "success" | "error") => {
         transcript.push({ role: "assistant", content: text, toolCalls: [] });
@@ -152,6 +155,22 @@ function scriptedBackend(): AgentBackend {
         partial.content = opening + end;
         bridge.emit({ type: "text_delta", sessionId, text: end });
         bridge.emit({ type: "result", sessionId, outcome: how === "fail" ? "error" : "success", durationMs: 0, numTurns: 1, isError: how === "fail" });
+        return;
+      }
+      if (kind === "Actorapprove") {
+        const toolUseId = `actor-${sequence}`;
+        bridge.emit({ type: "tool_use_start", sessionId, toolUseId, toolName: "Apify Actor run" });
+        bridge.emit({ type: "tool_use_complete", sessionId, toolUseId, toolName: "Apify Actor run", input: {} });
+        const decision = await bridge.requestPermission({ toolUseId, toolName: "Apify Actor run", kind: "actor",
+          input: { actor: { id: "SeaCharts01", name: "odysseus/sea-charts" }, build: { number: "1.4.2" },
+            eligibility: { executable: true, reasons: [] }, account_id: "IthacaHousehold01", max_charge_usd: 0.05,
+            input: { novelField: "Record the harbour notices" } }, description: "Approve this Actor." });
+        answers.set(prompt, decision);
+        bridge.emit({ type: "tool_result", sessionId, toolUseId, output: "Actor decision recorded.", isError: decision.behavior !== "allow" });
+        finish(`Actor answered: ${title}.`, "success");
+        // Keep the last Actor turn registered after its result. The fixture
+        // must drain this real predecessor window before the next case connects.
+        if (prompt.includes("Deny")) await new Promise<"ok" | "fail">(release => gates.set(prompt, release));
         return;
       }
       if (kind === "Approve" || kind === "Subapprove" || kind === "Remember") {
@@ -243,6 +262,11 @@ beforeAll(async () => {
   await startHost();
   browser = await chromium.launch({ executablePath, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"], timeout: 120_000 });
 }, 240_000);
+
+// A result is visible before the host releases its turn. Closing a page does
+// not drain that turn, and a following page can receive its connect snapshot.
+// Await the real host's cancellation and close before another case connects.
+afterEach(async () => { if (app) await restartHost(); });
 
 afterAll(async () => {
   app?.cancelActiveTurns();
@@ -358,9 +382,36 @@ type ApprovalInput = { type: string; target: string | null; at: number; node: nu
 type ApprovalFrame = { event: "framesent" | "framereceived"; socket: number; at: number; frame: ClientMessage | ServerMessage };
 type ProfileRead = { path: string; status?: number; body?: string; failure?: string };
 type Device = { profileReads: ProfileRead[]; context: BrowserContext; page: Page; dialogs: string[]; sockets: string[]; approvals: ApprovalFrame[] };
-async function device(run: Run, opts: { clock?: boolean; update?: boolean } = {}): Promise<Device> {
+/**
+ * Without composer files: the real host's hello reaches the page without
+ * `capabilities.composerFiles` and `attachmentLimits`, as an older host's
+ * would (design §9, "new client, old host"). The client then keeps D52's
+ * tab-only staged-track path, which the cases that prove it (#1112, #1150)
+ * need; on a host with composer files a track is a draft-bound original
+ * instead (#3155).
+ */
+async function withoutComposerFiles(context: BrowserContext) {
+  await context.routeWebSocket(`${origin.replace("http", "ws")}/**`, (socket) => {
+    const host = socket.connectToServer();
+    host.onMessage((message) => {
+      if (typeof message === "string" && message.includes('"server_hello"')) {
+        const frame = JSON.parse(message) as Record<string, unknown> & { type: string; capabilities?: Record<string, boolean> };
+        if (frame.type === "server_hello") {
+          const { attachmentLimits: _limits, ...rest } = frame;
+          const { composerFiles: _files, ...capabilities } = frame.capabilities ?? {};
+          socket.send(JSON.stringify({ ...rest, capabilities }));
+          return;
+        }
+      }
+      socket.send(message);
+    });
+  });
+}
+
+async function device(run: Run, opts: { clock?: boolean; update?: boolean; legacyHost?: boolean } = {}): Promise<Device> {
   const context = await browser!.newContext(run.options);
   await context.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
+  if (opts.legacyHost) await withoutComposerFiles(context);
   // The whole app applies the root's stored theme to the document, so the
   // run's theme is stored under the fixture root's prefix before it loads.
   await context.addInitScript((theme) => {
@@ -526,6 +577,13 @@ async function openFromSessions(run: Run, page: Page, sessionId: string) {
  * The reader scrolls the transcript up: Chromium's own scroll gesture, by
  * touch under a coarse pointer and by mouse wheel otherwise, through the
  * input pipeline rather than a scrollTop write.
+ *
+ * Each swipe's finger comes to rest before it lifts, so the gesture leaves
+ * no fling behind. The events carry their own times, so the rest does not
+ * depend on how fast they are dispatched. A fling still moving the
+ * transcript would decide the next press instead: a tap that lands on a
+ * fling only stops it, and Chromium swallows that tap as a phone does, so
+ * "Scroll to latest" would never be pressed (#3377).
  */
 async function scrollUp(run: Run, page: Page) {
   // The transcript's scroller, as it is drawn: the gesture starts at its middle.
@@ -539,16 +597,24 @@ async function scrollUp(run: Run, page: Page) {
       await cdp.send("Input.synthesizeScrollGesture", { x: Math.round(box.x), y: Math.round(box.y), yDistance: 4000, speed: 6000, gestureSourceType: "mouse" });
       return;
     }
-    // A finger dragging the transcript down, a few times.
-    for (let swipe = 0; swipe < 3; swipe++) {
+    // A finger dragging the transcript down, a few times: a move every
+    // 16ms, then held still for 200ms before it lifts. The times end no
+    // later than now, so the next real tap is never older than this swipe.
+    const swipes = 3, steps = 12, moveMs = 16, restMs = 200;
+    let at = Date.now() - swipes * ((steps + 1) * moveMs + restMs);
+    const touch = (type: "touchStart" | "touchMove" | "touchEnd", touchPoints: Array<{ x: number; y: number }>, afterMs: number) => {
+      at += afterMs;
+      return cdp.send("Input.dispatchTouchEvent", { type, touchPoints, timestamp: at / 1000 });
+    };
+    for (let swipe = 0; swipe < swipes; swipe++) {
       const x = Math.round(box.x);
       let y = Math.round(box.y - 120);
-      await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
-      for (let step = 0; step < 12; step++) {
+      await touch("touchStart", [{ x, y }], moveMs);
+      for (let step = 0; step < steps; step++) {
         y += 20;
-        await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x, y }] });
+        await touch("touchMove", [{ x, y }], moveMs);
       }
-      await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      await touch("touchEnd", [], restMs);
     }
   } finally { await cdp.detach(); }
 }
@@ -584,6 +650,27 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
     }
   }, 120_000);
   for (const run of runs) {
+    test(`${run.name}: Actor approvals offer once, always and deny with the full input`, async () => {
+      for (const choice of ["Allow once", "Always allow", "Deny"] as const) {
+        const a = await device(run);
+        const prompt = `Actorapprove: Sea charts ${choice} (${run.name})`;
+        try {
+          await send(run, a.page, prompt);
+          const card = a.page.locator("[data-approval-card]");
+          try { await card.waitFor(); } catch (error) {
+            console.error("ACTOR_BROWSER_PENDING", JSON.stringify({ started: started.filter(s => s.command === prompt), frames: a.approvals.map(f => f.frame), body: await a.page.locator("body").innerText() }));
+            throw error;
+          }
+          for (const label of ["Allow once", "Always allow", "Deny"]) expect(await card.getByRole("button", { name: label === "Always allow" ? /^Always allow\b/ : label, exact: true }).count()).toBe(1);
+          await press(run, card.getByRole("button", { name: "Full input · 1 field", exact: true }));
+          expect(await card.locator("[data-apify-full-input]").textContent()).toContain("Record the harbour notices");
+          await press(run, card.getByRole("button", { name: choice === "Always allow" ? /^Always allow\b/ : choice, exact: true }));
+          await a.page.getByText("Actor answered:", { exact: false }).first().waitFor();
+          expect(answers.get(prompt), "ACTOR_BROWSER_DECISION").toMatchObject(choice === "Deny" ? { behavior: "deny" } : { behavior: "allow" });
+          expect((answers.get(prompt) as { always?: boolean }).always, "ACTOR_BROWSER_ALWAYS_SCOPE").toBe(choice === "Always allow" ? true : undefined);
+        } finally { await a.context.close(); await clearHostDrafts(); }
+      }
+    }, 120_000);
     test(`${run.name}: A and B stream side by side; trackers follow success, failure and a queued follow-up, and clear only once seen`, async () => {
       const tag = `(${run.name})`;
       const a = await device(run, { clock: true });
@@ -598,14 +685,15 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
         await until(a.page, "p.activeSessionId() !== null && p.streaming(p.activeSessionId())");
         const A = (await probe(a.page, (p) => p.activeSessionId()))!;
         await a.page.getByText("Setting out: Sail past the Sirens").first().waitFor();
-        expect(await probe(a.page, (p) => p.views().length), "a watched session is not tracked").toBe(0);
+        const watched = await probe(a.page, p => ({ active: p.activeSessionId(), views: p.views() }));
+        expect(watched.views, "a watched session is not tracked: " + JSON.stringify(watched)).toEqual([]);
 
         // A's own unsent words and image, typed while it streams, saved on the host.
         await composer(a.page).fill(draftA);
         await a.page.locator('input[type="file"][accept="image/*"]:not([capture])').setInputFiles({ name: "sail.png", mimeType: "image/png", buffer: SAIL });
         await until(a.page, "p.draft().images === 1");
         await a.page.locator('[data-draft-save="saved"]').waitFor();
-        await hostUntil((d) => d.some((x) => x.sessionId === A && x.attachmentCount === 1 && x.preview === draftA));
+        await hostUntil((d) => d.some((x) => x.sessionId === A && (x.attachmentCount ?? 0) + (x.fileCount ?? 0) === 1 && x.preview === draftA));
 
         // Leaving A mid-stream: an empty composer, A tracked as running, and
         // neither a confirmation nor an abort.
@@ -638,15 +726,32 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
         expect((await drawn(run, a.page)).sort(), "both drawn").toEqual([A, B].sort());
         await neverDone(run, a.page, [A, B]);
 
-        // B fails unwatched: failed, and announced once.
+        // B fails unwatched: failed, and announced once. The announcement is
+        // labelled from the session list, so wait until the list has read B's
+        // host title; before that the label falls back to B's first prompt.
+        await until(a.page, `p.listedTitle(${JSON.stringify(B)}) === ${JSON.stringify(titles.get(B))}`);
+        // B's recovery reads from here on answer only after the clock moves,
+        // as a slow read under load does (#3414): the fake clock also runs
+        // the read's timeout, so the fast-forward below cuts B's read short.
+        let answerB!: () => void;
+        const slowB = new Promise<void>((resolve) => { answerB = resolve; });
+        const readsB = `**/api/sessions/${B}/recovery`;
+        await a.context.route(readsB, async (route) => { await slowB; await route.continue().catch(() => {}); });
         await release(pb, "fail");
         await until(a.page, `${state(B)}?.state === "failed"`);
         await until(a.page, "p.spoken().length >= 1");
         await a.page.waitForTimeout(300);
         expect(await probe(a.page, (p) => p.spoken()), "B's failure is spoken once").toEqual([`${titles.get(B)} failed.`]);
+        await until(a.page, `p.recoveryReads()[${JSON.stringify(B)}]?.complete === false`);
 
-        // Two minutes pass: A's age is redrawn, and nothing is announced for it.
+        // Two minutes pass: A's age is redrawn, and nothing is announced for
+        // it. B's cut-short read makes B "can't check" until the next read
+        // answers it failed again: the same failure, which is not a change.
         await a.page.clock.fastForward("02:05");
+        await until(a.page, `${state(B)}?.state === "cant_check"`);
+        answerB();
+        await a.context.unroute(readsB);
+        await until(a.page, `${state(B)}?.state === "failed"`);
         const age = trackerControl(run, a.page, A).first();
         await a.page.waitForFunction((el) => el?.textContent?.includes("running · 2m") ?? false, await age.elementHandle(), { timeout: 10_000 });
         expect(await age.getAttribute("aria-label")).toBe(`${titles.get(A)}, running, 2m. Open session.`);
@@ -658,6 +763,7 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
         await until(a.page, `p.activeSessionId() === ${JSON.stringify(A)}`);
         await until(a.page, `p.draft().text === ${JSON.stringify(draftA)} && p.draft().images === 1`);
         expect(await composer(a.page).inputValue(), "A's words are back").toBe(draftA);
+        await a.page.locator("[data-composer] img").first().waitFor();
         expect(await a.page.locator("[data-composer] img").count(), "and A's image").toBe(1);
         await a.page.waitForTimeout(300);
         expect(await probe(a.page, (p) => p.views().find((v) => v.sessionId === p.activeSessionId())?.cleared), "selecting A cleared nothing").toBe(false);
@@ -1100,6 +1206,8 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
       const holdsA = async (page: Page, where: string) => {
         await until(page, `p.draft().text === ${JSON.stringify(draftA)} && p.draft().images === 1`);
         expect(await composer(page).inputValue(), `A's words after ${where}`).toBe(draftA);
+        // A restored image original's thumbnail is its frame, made again from the original the host keeps (#3155).
+        await page.locator("[data-composer] img").first().waitFor();
         expect(await page.locator("[data-composer] img").count(), `A's image after ${where}`).toBe(1);
       };
       /** Goes to a destination that unmounts the composer, and back to Chat. */
@@ -1121,8 +1229,9 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
         await a.page.locator('input[type="file"][accept="image/*"]:not([capture])').setInputFiles({ name: "sail.png", mimeType: "image/png", buffer: SAIL });
         await until(a.page, "p.draft().images === 1");
         await a.page.locator('[data-draft-save="saved"]').waitFor();
-        expect(await a.page.locator("[data-draft-save]").textContent()).toBe("draft · saved");
-        await hostUntil((d) => d.some((x) => x.sessionId === A && x.preview === draftA && x.attachmentCount === 1));
+        // The draft indicator's summary (#3155): this exact text and its image.
+        expect(await a.page.locator("[data-draft-save]").getAttribute("data-draft-summary")).toMatch(/^Draft saved \d\d:\d\d: this text and 1 file\.$/);
+        await hostUntil((d) => d.some((x) => x.sessionId === A && x.preview === draftA && (x.attachmentCount ?? 0) + (x.fileCount ?? 0) === 1));
 
         // New chat by the visible control: empty, and the letter is its own draft.
         await newChat(run, a.page);
@@ -1183,12 +1292,13 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
         await b.context.close();
         b = undefined;
 
-        // Offline: kept, and never called saved, until the host answers again.
+        // No answer from the host: kept, and never called saved, until the
+        // host answers again; the indicator couldn't confirm it (#3155).
         await a.context.route("**/api/drafts/**", (route) => route.abort());
         const offline = `${draftA}, and the wind`;
         await composer(a.page).fill(offline);
-        await a.page.locator('[data-draft-save="unsaved"]').waitFor({ timeout: 20_000 });
-        expect(await a.page.locator("[data-draft-save]").textContent()).toBe("draft · not saved yet");
+        await a.page.locator('[data-draft-save="unconfirmed"]').waitFor({ timeout: 20_000 });
+        expect(await a.page.locator("[data-draft-save]").getAttribute("data-draft-summary")).toBe("Couldn't confirm the draft was saved.");
         expect((await hostDrafts()).find((x) => x.sessionId === A)?.preview, "the host still has the last saved words").toBe(draftA);
         await a.context.unroute("**/api/drafts/**");
         await a.page.locator('[data-draft-save="saved"]').waitFor({ timeout: 20_000 });
@@ -1196,7 +1306,7 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
         const huge = `${draftA} ${"wine-dark sea ".repeat(5_000)}`;
         await composer(a.page).fill(huge);
         await a.page.locator('[data-draft-save="too_large"]').waitFor({ timeout: 20_000 });
-        expect(await a.page.locator("[data-draft-save]").textContent()).toBe("draft · too large to save (64 KB max) · kept on this device");
+        expect(await a.page.locator("[data-draft-save]").getAttribute("data-draft-summary")).toBe("Draft not saved: too large to save (64 KB max). Your text is kept on this device.");
         expect(await composer(a.page).inputValue(), "the words stay").toBe(huge);
         expect((await hostDrafts()).find((x) => x.sessionId === A)?.preview).toBe(offline);
         await composer(a.page).fill(draftA);
@@ -1240,7 +1350,7 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
         const overflow = `One more list for the raft ${tag}`;
         await composer(a.page).fill(overflow);
         await a.page.locator('[data-draft-save="full"]').waitFor({ timeout: 20_000 });
-        expect(await a.page.locator("[data-draft-save]").textContent()).toMatch(/100 drafts saved/);
+        expect(await a.page.locator("[data-draft-save]").getAttribute("data-draft-summary")).toMatch(/100 drafts saved/);
         expect(await composer(a.page).inputValue()).toBe(overflow);
         expect((await hostDrafts()).some((x) => x.preview === overflow), "never claimed saved").toBe(false);
         expect(a.dialogs).toEqual([]);
@@ -1253,9 +1363,9 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
       }
     }, 240_000);
 
-    test(`${run.name}: a new chat holding only a staged track stays reachable through New chat and sends nothing; removing its track ends the entry (#1112)`, async () => {
+    test(`${run.name}: on a host without composer files, a new chat holding only a staged track stays reachable through New chat and sends nothing; removing its track ends the entry (#1112)`, async () => {
       const tag = `(${run.name})`;
-      const a = await device(run);
+      const a = await device(run, { legacyHost: true });
       const plan = `Plan: Route to Pylos ${tag}`;
       const name = "ithaca-to-pylos-coastal-route-day-3.geojson";
       const route = Buffer.from(JSON.stringify({ type: "FeatureCollection", features: [{ type: "Feature", properties: { name: "Ithaca to Pylos" }, geometry: { type: "LineString", coordinates: [[20.71, 38.37], [20.95, 38.1], [21.3, 37.6], [21.69, 37.03]] } }] }));
@@ -1340,7 +1450,7 @@ const leaveRuns: Run[] = [
   { name: "1280 desktop, light, fine pointer", theme: "light", options: { viewport: { width: 1280, height: 800 } } },
 ];
 
-describe.skipIf(!executablePath)("a staged track guards the tab it lives in", () => {
+describe.skipIf(!executablePath)("on a host without composer files, a staged track guards the tab it lives in", () => {
   const name = "ithaca-to-pylos-coastal-route-day-3.geojson";
   const route = Buffer.from(JSON.stringify({ type: "FeatureCollection", features: [{ type: "Feature", properties: { name: "Ithaca to Pylos" }, geometry: { type: "LineString", coordinates: [[20.71, 38.37], [20.95, 38.1], [21.3, 37.6], [21.69, 37.03]] } }] }));
   const remove = (page: Page) => page.getByRole("button", { name: `Remove ${name}`, exact: true });
@@ -1395,7 +1505,7 @@ describe.skipIf(!executablePath)("a staged track guards the tab it lives in", ()
   for (const run of leaveRuns) for (const ending of ["removed", "sent"] as const) {
     test(`${run.name}: a reload asks while A holds a staged track out of view, and not once it is ${ending}`, async () => {
       const tag = `(${run.name}, leave, ${ending})`;
-      const a = await device(run, { update: true });
+      const a = await device(run, { update: true, legacyHost: true });
       try {
         // Nothing staged: nothing asked.
         await press(run, composer(a.page));
@@ -1418,7 +1528,7 @@ describe.skipIf(!executablePath)("a staged track guards the tab it lives in", ()
 
     test(`${run.name}: a waiting update holds while A holds a staged track, then reloads once without asking when it is ${ending}`, async () => {
       const tag = `(${run.name}, update, ${ending})`;
-      const a = await device(run, { update: true });
+      const a = await device(run, { update: true, legacyHost: true });
       try {
         const id = await stageInA(run, a, tag);
         const before = await loads(a.page);

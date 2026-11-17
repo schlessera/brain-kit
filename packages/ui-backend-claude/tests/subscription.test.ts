@@ -99,6 +99,6 @@ describe("settingsRefusal", () => {
   });
 
   test("no report is refused, not trusted", () => {
-    expect(settingsRefusal(undefined)).not.toBeNull();
+    expect(settingsRefusal(undefined)).toBe("the CLI did not report its settings");
   });
 });

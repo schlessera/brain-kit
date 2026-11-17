@@ -48,6 +48,17 @@ export interface CommandContext<C = unknown> {
    * @experimental Until 1.0; follows the shared integration contract.
    */
   completions?: BrainConfig["completions"];
+  /**
+   * The module's durable state directory, `.brain-ui/modules/<module-name>/`
+   * under `root`, created on first call (#3380). It is gitignored by its own
+   * `.gitignore` and survives between runs, including scheduled jobs in a
+   * maintenance worker, where the brain is the only durable writable place
+   * and this directory is published back after each run. Keep state small:
+   * every change is copied back through output staging. Optional only so a
+   * context built outside core's CLI (a test harness) stays valid; the CLI
+   * always provides it.
+   */
+  stateDir?(): string;
 }
 
 /** Context for a module tool, with its owning module's validated config.
@@ -215,6 +226,12 @@ export interface LoadedModule<C = unknown> {
   config: C;
   /** The loader always supplies state; omission in constructed contexts means active. */
   state?: "active" | "dormant";
+  /**
+   * Repositories the module's config block asks the host to fetch for its cron
+   * jobs (#3380), core-owned like `enabled` and never part of the domain config.
+   * A request only: the host grants one only when its operator allow-list names it.
+   */
+  repositories?: readonly string[];
   /** Original declaration for schema-derived settings and the shared writer. */
   declaration?: ModuleManifest<C>;
   /** Domain input before saved JSON overrides or schema defaults. */

@@ -36,6 +36,8 @@ test("caller copy replaces only the states it names, as inert text", () => {
 
 test("the busy label is caller copy too, with the file default kept", () => {
   expect(renderToStaticMarkup(<HygieneCard {...base} state="applying" />), "HYGIENE_CARD_FILE_DEFAULT_BUSY").toContain("Applying… checking the file first");
-  const html = renderToStaticMarkup(<HygieneCard {...base} state="applying" stateText={{ applying: "Removing… checking the worktree first" }} busyLabel="Removing… checking the worktree first" />);
-  expect(html, "HYGIENE_CARD_CALLER_BUSY").not.toContain("checking the file first");
+  // Distinct state text and busy label, so the label can only come from busyLabel.
+  const html = renderToStaticMarkup(<HygieneCard {...base} state="applying" stateText={{ applying: "Removing the worktree" }} busyLabel="Removing… checking the worktree first" />);
+  expect(html, "HYGIENE_CARD_CALLER_BUSY").toContain("Removing… checking the worktree first");
+  expect(html).not.toContain("checking the file first");
 });

@@ -19,9 +19,13 @@ bun scripts/measure-turn-surface-keyless.ts > mechanics.json
 bun run test experiments/turn-surface-routing.test.ts
 ```
 
-From 0.44.0 this file is parked as `experiments/turn-surface-routing.parked.ts`,
-outside the experiment tier, until the router reads streamed turn prompts
-([#3240](https://github.com/schlessera/brain-kit/issues/3240)).
+0.44.0 parked this file and the overlap and capture tests outside the
+experiment tier, because production had started streaming every interactive
+prompt and the router read only string prompts. They returned to the tier in
+0.45.0 once the router read streamed prompts
+([#3240](https://github.com/schlessera/brain-kit/issues/3240)). That repair
+restores the harness's mechanics; it is not new quality evidence, and the
+frozen scores below are unchanged.
 
 The command creates disposable fictional brains outside the checkout,
 connects to real MCP servers and supplies scripted responses through the
@@ -55,7 +59,7 @@ project emission is (`claudeEmitter`, `packages/core/src/lib/skills/emitters/cla
 The probe connects the returned production server instance through
 (`connectSurface`, `scripts/turn-surface-routing.ts:19-32`), rather than
 asserting the factory alone. Core inventory starts its real source entry
-through (`connectBrainSurface`, `scripts/turn-surface-fixture.ts:116-132`).
+through (`connectBrainSurface`, `scripts/turn-surface-fixture.ts:132-148`).
 Inventory uses a separate production turn instance; returned turns retain
 their fresh MCP transport. Fallback tests connect and inspect the actual
 returned entry, so the inventory cannot occupy that transport unnoticed.
@@ -69,14 +73,24 @@ without silently treating absent observations as zero.
 
 ## Private router and comparison controls
 
-(`routePreparedTurn`, `scripts/turn-surface-routing.ts:111-150`) is an
+(`routePreparedTurn`, `scripts/turn-surface-routing.ts:180-232`) is an
 unregistered research helper. Routing is disabled unless `enabled` is true.
 It consumes an already assembled turn; it does not start the SDK. The
 existing (`createJevClient`, `packages/ui-server/src/classification/jev-client.ts:99-233`) retains its
 HTTP deadline, retry and circuit breaker. A separate assembly deadline
 preserves the baseline even when an injected transport ignores cancellation.
-An overdue answer is discarded. Attachment streams preserve the full turn
-with `unsupported_input`; this bounded preparation classifies text requests.
+An overdue answer is discarded. This bounded preparation classifies text
+requests: a string prompt, or a stream holding a single user message whose
+content is text only. Production streams interactive prompts, and a stream
+can be read only once, so the router
+(`readStreamedPrompt`, `scripts/turn-surface-routing.ts:141-171`) hands
+on a stream that yields the same message objects, in order, once each; the
+user bytes the provider receives do not change. Attachment, multi-message and
+failed streams return `unsupported_input`, and a stream still open at the
+assembly deadline returns `timeout`, each with the whole input still
+delivered. Outcomes decided before the prompt is read return the prepared
+turn itself; after a streamed read, an equivalent turn with the same fields
+and options.
 
 One request contains separate tool and skill Choice questions, absolute
 need gates and per-candidate fit Nouls. State contains the latest request and
@@ -119,7 +133,7 @@ in baseline, hint and load-set, and is absent in hard-prune. Deliberately
 wrong and needless skill suggestions remain visible in the scripted output.
 These are controlled inputs, not measured wrong-load or tool-use rates.
 
-(`scoreCalls`, `scripts/turn-surface-routing.ts:166-180`) parses bridge calls
+(`scoreCalls`, `scripts/turn-surface-routing.ts:248-262`) parses bridge calls
 against the shipping contracts, excludes subagent calls and excludes
 incomplete turns. Its controls contain a valid call, an invalid call, a
 delegated call and an incomplete turn. The output reserves live input/cache

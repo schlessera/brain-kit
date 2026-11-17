@@ -27,7 +27,7 @@ import type { ActionAttempt, ActionAttemptOutcome } from "../inbox/notify.js";
 import type { AwaitableActionNotifier } from "../inbox/notify-writes.js";
 import type { StorageNotifier, StorageNoticeOutcome } from "../storage/notify.js";
 
-export interface PushSubscriptionRow {
+interface PushSubscriptionRow {
   endpoint: string;
   p256dh: string;
   auth: string;
@@ -69,7 +69,7 @@ export type AwaitablePushSender = Omit<PushSender, LifecycleWrite> & {
   [K in LifecycleWrite]: (...args: Parameters<PushSender[K]>) => ReturnType<PushSender[K]> | Promise<ReturnType<PushSender[K]>>;
 };
 
-export interface CreatePushSenderOptions {
+interface CreatePushSenderOptions {
   /** Shared hosted write connection; absent for standalone synchronous callers. */
   writer?: SqliteWriter;
   /** Injection seam for tests — the real webpush.sendNotification otherwise. */

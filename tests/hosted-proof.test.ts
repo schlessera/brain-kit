@@ -2,11 +2,10 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { categoryCommands, proofProblems, PROOF_JOBS, unitFiles } from "../scripts/ci-proof";
-import { planChecks, proofSelections, workspaces, type Workspace } from "../scripts/ci-plan";
+import { categoryCommands, DETERMINISM_REPORT, determinismFiles, proofProblems, PROOF_JOBS, unitFiles } from "../scripts/ci-proof";
+import { planChecks, proofSelections, unitShards, workspaces, type ProofCadence, type Workspace } from "../scripts/ci-plan";
 import { discoverTests } from "../scripts/test-shards";
 import { localChecks } from "../scripts/check-pr";
-import { checkout } from "../scripts/proof-inputs";
 
 const ROOT = resolve(import.meta.dir, "..");
 const directories: string[] = [];
@@ -25,12 +24,12 @@ test("only hosted single-workspace pack and browser builds opt into two compiler
 });
 afterEach(() => { for (const dir of directories.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 function receipt(selected = true): { changeset: { result: string; outputs: Record<string, string> } } & Record<string, { result: string; outputs?: Record<string, string> }> {
-  return { changeset: { result: "success", outputs: { ...Object.fromEntries(PROOF_JOBS.map(name => [name, String(selected)])), reuse: JSON.stringify({ version: 1, checkout: checkout(ROOT), retained: {} }) } },
+  return { changeset: { result: "success", outputs: Object.fromEntries(PROOF_JOBS.map(name => [name, String(selected)])) },
     ...Object.fromEntries(PROOF_JOBS.map(name => [name, { result: selected ? "success" : "skipped" }])) };
 }
 
 test("aggregate accepts actual selected passes and intentional exclusions only", () => {
-  expect(PROOF_JOBS.length).toBe(9);
+  expect(PROOF_JOBS.length).toBe(10);
   expect(proofProblems(receipt())).toEqual([]);
   expect(proofProblems(receipt(false))).toEqual([]);
   for (const name of PROOF_JOBS) for (const result of ["failure", "cancelled", "skipped", "queued", ""]) {
@@ -39,6 +38,13 @@ test("aggregate accepts actual selected passes and intentional exclusions only",
   }
   const missing = receipt(); delete missing.unit;
   expect(proofProblems(missing)).toContain("unit: selected proof did not pass (missing)");
+  // Retention is retired (#4107): nothing excuses a selected browser or layout job that did not run.
+  for (const name of ["browser", "layout"] as const) {
+    const dropped = receipt(); delete dropped[name];
+    expect(proofProblems(dropped), `DROPPED_SELECTED_JOB_FAILS:${name}`).toEqual([`${name}: selected proof did not pass (missing)`]);
+    const skipped = receipt(); skipped[name] = { result: "skipped" };
+    expect(proofProblems(skipped), `SKIPPED_SELECTED_JOB_FAILS:${name}`).toEqual([`${name}: selected proof did not pass (skipped)`]);
+  }
   const invalid = receipt(); delete invalid.changeset.outputs.runtime;
   expect(proofProblems(invalid)).toContain("runtime: selection output is missing or invalid");
   for (const state of ["failure", "cancelled", "skipped"]) {
@@ -49,14 +55,14 @@ test("aggregate accepts actual selected passes and intentional exclusions only",
   expect(proofProblems(unexpected)).toContain("browser: unselected job must be intentionally skipped (success)");
 });
 
-test("emitted aggregate executable fails a cancelled selected job and accepts its corrected receipt", async () => {
-  for (const result of ["cancelled", "success"]) {
+test("emitted aggregate executable fails a cancelled or skipped selected job and accepts its corrected receipt", async () => {
+  for (const result of ["cancelled", "skipped", "success"]) {
     const needs = receipt(); needs.layout.result = result;
     const child = Bun.spawn([process.execPath, "scripts/ci-proof.ts", "aggregate"], { cwd: ROOT,
       env: { ...process.env, GITHUB_ACTIONS: "false", GITHUB_EVENT_PATH: "", PROOF_NEEDS: JSON.stringify(needs) }, stdout: "pipe", stderr: "pipe" });
     const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     expect(code, err).toBe(result === "success" ? 0 : 1);
-    if (result === "cancelled") expect(err).toContain("layout: selected proof did not pass (cancelled)");
+    if (result !== "success") expect(err).toContain(`layout: selected proof did not pass (${result})`);
     else {
       expect(out).toContain("All selected hosted proof passed");
       const line = out.split("\n").find(line => line.startsWith("BRAIN_SELECTED_PROOF_RECEIPT "));
@@ -109,9 +115,35 @@ test("affected complete discovery admits new files and reverse dependencies with
   expect(() => unitFiles(plan, dir, "3/2")).toThrow("Invalid proof shard");
 });
 
+test("eight confirmation partitions run the files four main partitions run, each exactly once (#4108)", () => {
+  const complete = planChecks(["package.json"], workspaces(ROOT));
+  // Each hosted partition calls unitFiles with its own number over the matrix size.
+  const partitions = (cadence: ProofCadence, plan = complete) => {
+    const shards = unitShards({ ...plan, cadence });
+    return shards.map(shard => unitFiles({ ...plan, cadence }, ROOT, `${shard}/${shards.length}`));
+  };
+  const discovered = discoverTests(ROOT, ["packages", "tests"]);
+  expect(discovered.length).toBeGreaterThan(100);
+  for (const [cadence, count] of [["confirmation", 8], ["feedback-heavy", 8], ["integrated", 4], ["exhaustive", 4]] as const) {
+    const sets = partitions(cadence);
+    expect(sets, `PARTITION_COUNT: ${cadence}`).toHaveLength(count);
+    expect(sets.every(files => files.length > 0), `NONEMPTY: ${cadence}`).toBe(true);
+    // Sorted equality with the duplicate-free discovery refuses an omitted, repeated or foreign file.
+    expect(sets.flat().sort(), `EXACTLY_ONCE: ${cadence}`).toEqual([...discovered].sort());
+  }
+  // A selected inventory smaller than the cap gets one nonempty partition per file.
+  const narrow = { ...planChecks(["packages/core/src/index.ts"], workspaces(ROOT)), unitTests: discovered.slice(0, 5) };
+  expect(narrow.global).toBe(false);
+  const few = partitions("confirmation", narrow);
+  expect(few.map(files => files.length), "ONE_FILE_PER_PARTITION").toEqual([1, 1, 1, 1, 1]);
+  expect(few.flat().sort()).toEqual(discovered.slice(0, 5).sort());
+});
+
 test("hosted global commands retain the full local inventory and real offline namespaces", () => {
   const plan = planChecks(["package.json"], workspaces(ROOT));
-  const selections = proofSelections(plan);
+  // A global change touches no Bun test file, so nothing is repeated under load (#4109).
+  const { determinism, ...selections } = proofSelections(plan);
+  expect(determinism, "NO_CHANGED_TEST_NO_REPETITION").toBe(false);
   expect(Object.values(selections).every(Boolean)).toBe(true);
   expect(Object.values(proofSelections(plan, true)).every(value => !value)).toBe(true);
   const cmds = ["unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance"].flatMap(category => categoryCommands(category as "unit", plan, ROOT));
@@ -187,6 +219,34 @@ test("explicit leaf inventory is exact, validated and preserves aggregate obliga
   expect(() => unitFiles(plan, ROOT)).toThrow("Invalid selected unit inventory");
 });
 
+
+test("the aggregate requires repeated-run proof when selected and an intentional skip otherwise (#4109)", () => {
+  const selected = receipt(false); selected.changeset.outputs.determinism = "true";
+  for (const state of ["skipped", "failure", "cancelled", undefined]) {
+    if (state === undefined) delete selected.determinism; else selected.determinism = { result: state };
+    expect(proofProblems(selected), "SELECTED_REPETITION_MUST_PASS").toEqual([`determinism: selected proof did not pass (${state ?? "missing"})`]);
+  }
+  selected.determinism = { result: "success" };
+  expect(proofProblems(selected), "SELECTED_AND_PASSED").toEqual([]);
+  const unselected = receipt(false);
+  expect(proofProblems(unselected), "UNSELECTED_NOT_REQUIRED").toEqual([]);
+  unselected.determinism = { result: "success" };
+  expect(proofProblems(unselected)).toEqual(["determinism: unselected job must be intentionally skipped (success)"]);
+  const absent = receipt(false); delete absent.changeset.outputs.determinism;
+  expect(proofProblems(absent), "MISSING_SELECTION_IS_NOT_A_SKIP").toEqual(["determinism: selection output is missing or invalid"]);
+});
+
+test("the hosted repetition command runs the planner's files through the command with real Chrome required (#4109)", () => {
+  const plan = { ...planChecks(["docs/voyage.md"], workspaces(ROOT)), determinism: ["tests/ci-plan.test.ts", "packages/core/tests/briefing.test.ts"] };
+  expect(determinismFiles(plan)).toEqual(["tests/ci-plan.test.ts", "packages/core/tests/briefing.test.ts"]);
+  const [command, ...rest] = categoryCommands("determinism", plan, ROOT);
+  expect(rest).toEqual([]);
+  expect(command!.argv.slice(1)).toEqual([join(ROOT, "scripts/test-determinism.ts"), `--report=${DETERMINISM_REPORT}`, "tests/ci-plan.test.ts", "packages/core/tests/briefing.test.ts"]);
+  expect(command!.env, "CHANGED_FILES_MAY_DRIVE_REAL_CHROME").toEqual({ BRAIN_REQUIRE_CHROME: "1" });
+  for (const unselected of [{ ...plan, determinism: [] }, { ...plan, determinism: undefined }]) {
+    expect(() => categoryCommands("determinism", unselected, ROOT), "EMPTY_SELECTION_IS_NEVER_A_JOB").toThrow("Repeated-run proof was not selected");
+  }
+});
 
 test("native runtime split requires both selected jobs and preserves all six phases exactly once", () => {
   const plan = planChecks(["package.json"], workspaces(ROOT));

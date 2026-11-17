@@ -23,6 +23,8 @@ export {
 } from "./mask.js";
 export type { ImageMaskHandlerOptions } from "./mask.js";
 
+export { handleRequestImageMarkup } from "./markup.js";
+
 export { handleQueryActivity, wrapUntrustedData } from "./activity.js";
 
 export { handleShowBlock } from "./show-block.js";
@@ -39,5 +41,15 @@ export type { InboxToolName } from "./inbox.js";
 export { handleReferenceTool } from "./reference.js";
 export type { ReferenceToolName } from "./reference.js";
 
+export { handleComputeTool } from "./compute.js";
+
 export { handleTurnTemp } from "./turn-temp.js";
 export type { TurnTempPurgeRecord } from "./turn-temp.js";
+
+export { handleApifyTool } from "./apify.js";
+
+export { formatAttachmentRead, handleReadAttachment } from "./attachment.js";
+
+export { handleWebTool } from "./web.js";
+
+export { handleGithubTool } from "./github.js";

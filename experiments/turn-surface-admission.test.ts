@@ -34,7 +34,7 @@ test("installed CLI API-auth handshake refuses before any model request or promp
     testSubscriptionRefusal: true });
   expect(capture.requests).toHaveLength(0);
   expect(capture.gateRefusal).toBe("native_subscription_account_refused");
-  expect(capture.frames.some(frame => frame.type === "assistant")).toBe(false);
+  expect(capture.frames.filter(frame => frame.type === "assistant")).toEqual([]);
 });
 test("installed CLI effective auxiliary-model setting refuses after native OAuth handshake before inference", async () => {
   const capture = await captureSurface({ decision: Promise.resolve({ arm: "baseline", routed: false, tools: [], skills: [] }),

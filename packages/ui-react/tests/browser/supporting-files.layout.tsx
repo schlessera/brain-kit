@@ -14,7 +14,7 @@ beforeEach(() => { viewport = { width: innerWidth, height: innerHeight }; themeB
 beforeAll(async () => { styles = document.createElement("style"); styles.textContent = await commands.formConsumerStyles(); document.head.append(styles); });
 afterAll(() => styles.remove());
 afterEach(async () => { if (renderer) flushSync(() => renderer!.unmount()); root?.dispose(); host?.remove(); renderer = undefined; root = undefined; host = undefined;
-  document.documentElement.dataset.theme = themeBefore; await page.viewport(viewport.width, viewport.height);
+  if (themeBefore === undefined) delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = themeBefore; await page.viewport(viewport.width, viewport.height);
   if (outer) await commands.formViewport(outer.width - 100, outer.height - 120);
 });
 const block: Block = { kind: "files", items: [
@@ -44,15 +44,19 @@ for (const width of [320, 1280]) for (const theme of ["dark", "light"]) {
     rows[1]!.focus(); await userEvent.keyboard("{Enter}");
     await expect.poll(() => root!.stores.file.getState().currentContent?.path).toBe("people/circe.md");
     expect(requested).toHaveLength(2);
-    expect(requested.every(url => new URL(url).origin === "https://alpha.example" && new URL(url).searchParams.get("path") === "people/circe.md")).toBe(true);
+    expect(requested.map(url => [new URL(url).origin, new URL(url).searchParams.get("path")])).toEqual([["https://alpha.example", "people/circe.md"], ["https://alpha.example", "people/circe.md"]]);
     await page.screenshot({ path: `../../.vitest-attachments/supporting-files/${theme}-${width}.png` });
   });
-  test(`${theme} ${width}: actual export HTML retains reasons as a static list`, async () => {
-    outer = await commands.formViewport(width, 800); await page.viewport(width, 800); document.documentElement.dataset.theme = theme;
+}
+// One theme per width: the export is static HTML that is measured, never
+// captured or read for colour, and Storybook owns light/dark parity.
+for (const width of [320, 1280]) {
+  test(`${width}: actual export HTML retains reasons as a static list`, async () => {
+    outer = await commands.formViewport(width, 800); await page.viewport(width, 800);
     host = document.createElement("div"); host.style.cssText = `width:${Math.min(width, 720)}px;overflow-wrap:normal`; document.body.append(host);
     host.innerHTML = await renderBlockHtml(block);
     expect(host.textContent).toContain("Scylla".repeat(30)); expect(host.textContent).toContain("knowledge/scylla.md");
-    expect(host.querySelectorAll('[role="button"],button,a')).toHaveLength(0);
+    expect(host.querySelectorAll('[role="button"],button,a'), "SUPPORTING_EXPORT_STATIC_LIST").toHaveLength(0);
     expect(host.scrollWidth, "static reasons fit the exported measure").toBeLessThanOrEqual(host.clientWidth + 1);
   });
 }

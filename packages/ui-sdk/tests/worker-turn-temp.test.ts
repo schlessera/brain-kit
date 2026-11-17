@@ -223,7 +223,9 @@ describe("turn temp (#1655, #1703)", () => {
   test.skipIf(!LINUX)("runtime state mounted below /tmp is never read as turn temp, even unexcluded", async () => {
     const f = fixture();
     const program = `import * as fs from "node:fs";
-      fs.writeFileSync(${JSON.stringify(WORKER_STATE)} + "/transcript.jsonl", "Calypso: private.");
+      // Published by rename: the test polls for the file and then reads it.
+      fs.writeFileSync(${JSON.stringify(WORKER_STATE)} + "/transcript.jsonl.tmp", "Calypso: private.");
+      fs.renameSync(${JSON.stringify(WORKER_STATE)} + "/transcript.jsonl.tmp", ${JSON.stringify(WORKER_STATE)} + "/transcript.jsonl");
       // Wait until the server has read: the state mount only exists while the namespace lives.
       await Bun.stdin.text();`;
     const sandbox = prepareWorkerSandbox(f.brain, { home: f.home });

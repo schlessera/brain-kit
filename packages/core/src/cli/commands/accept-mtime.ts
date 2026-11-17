@@ -1,4 +1,5 @@
 import { openDatabase } from "../../lib/db.js";
+import { acceptMtimes } from "../../lib/hygiene.js";
 import type { CoreCommand } from "../types.js";
 import { emit, parseArgs, UsageError } from "../io.js";
 
@@ -16,22 +17,10 @@ export const acceptMtimeCommand: CoreCommand = {
     try {
       const relPath = pos[0];
 
-      let changed: number;
-      if (relPath) {
-        const result = db
-          .prepare(
-            "UPDATE documents SET accepted_mtime = file_mtime WHERE path = ? AND file_mtime IS NOT NULL"
-          )
-          .run(relPath);
-        changed = result.changes;
-        if (changed === 0) {
-          throw new UsageError(`No indexed document found at: ${relPath}`);
-        }
-      } else {
-        const result = db
-          .prepare("UPDATE documents SET accepted_mtime = file_mtime WHERE file_mtime IS NOT NULL")
-          .run();
-        changed = result.changes;
+      // An empty path, like none, baselines every document.
+      const changed = acceptMtimes(db, relPath || undefined);
+      if (relPath && changed === 0) {
+        throw new UsageError(`No indexed document found at: ${relPath}`);
       }
 
       emit(cli.json, { accepted: changed, path: relPath ?? "(all)" }, () => {

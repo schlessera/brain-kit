@@ -23,7 +23,7 @@ test("pre-proxy fetching and opaque commands produce taint before their output i
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("the first durable session source survives a later turn and independent recorder instance", () => {
+test("every durable session source survives a later turn and independent recorder instance", () => {
   const db = new Database(":memory:");
   db.exec("CREATE TABLE governance_events (id INTEGER PRIMARY KEY, kind TEXT, turn_id TEXT, session_id TEXT, payload TEXT)");
   const write = (event: Parameters<typeof recordFirstTaint>[1]) => {
@@ -34,16 +34,17 @@ test("the first durable session source survives a later turn and independent rec
   try {
     recordFirstTaint(db, initial, write);
     recordFirstTaint(db, { ...initial, turnId: "odysseus-second", payload: { source: "unclassified_command", tool: "bash", detail: null } }, write);
-    expect(db.query("SELECT turn_id,payload FROM governance_events").all(), "G6_FIRST_SESSION_SOURCE_IS_STICKY").toEqual([
+    expect(db.query("SELECT turn_id,payload FROM governance_events").all(), "G6_EVERY_SESSION_SOURCE_IS_RECORDED").toEqual([
       { turn_id: "odysseus-first", payload: JSON.stringify(initial.payload) },
+      { turn_id: "odysseus-second", payload: JSON.stringify({ source: "unclassified_command", tool: "bash", detail: null }) },
     ]);
     recordFirstTaint(db, { ...initial, turnId: "telemachus-first", sessionId: "telemachus-session" }, write);
-    expect(db.query("SELECT count(*) AS n FROM governance_events").get()).toEqual({ n: 2 });
-    // Anonymous turns deduplicate within their turn, never across all null sessions.
+    expect(db.query("SELECT count(*) AS n FROM governance_events").get()).toEqual({ n: 3 });
+    // Identity-free deliveries do not deduplicate by session or source.
     recordFirstTaint(db, { ...initial, turnId: "anonymous-first", sessionId: null }, write);
     recordFirstTaint(db, { ...initial, turnId: "anonymous-first", sessionId: null }, write);
     recordFirstTaint(db, { ...initial, turnId: "anonymous-second", sessionId: null }, write);
-    expect(db.query("SELECT count(*) AS n FROM governance_events").get()).toEqual({ n: 4 });
+    expect(db.query("SELECT count(*) AS n FROM governance_events").get()).toEqual({ n: 6 });
   } finally { db.close(); }
 });
 

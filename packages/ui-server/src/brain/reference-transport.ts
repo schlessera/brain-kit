@@ -8,8 +8,10 @@
 import { chmodSync, constants, closeSync, lstatSync, mkdirSync, mkdtempSync, openSync, rmSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runMaintenanceWorker, type MaintenanceCommand } from "@schlessera/brain-ui-sdk/internal";
+import { MaintenanceTempBusyError, runMaintenanceWorker, type MaintenanceCommand } from "@schlessera/brain-ui-sdk/internal";
 import type { ReferenceRepository } from "../db/reference-grants.js";
+import { githubReferenceRepository } from "./github-reference-identity.js";
+import type { GitHubReferenceWire } from "./github-reference-wire.js";
 
 /** Fixed configuration of every acquired reference repository; nothing repository-controlled is ever configuration. */
 export const REFERENCE_GIT_CONFIG = `[core]
@@ -36,17 +38,34 @@ export type ReferenceCheck =
   | { ok: false; reason: "missing" | "denied" | "unavailable"; detail: string };
 
 export class ReferenceTransportError extends Error {
-  constructor(readonly reason: "denied" | "unavailable" | "capacity" | "invalid", message: string) { super(message); this.name = "ReferenceTransportError"; }
+  constructor(readonly reason: "denied" | "unavailable" | "capacity" | "invalid" | "busy", message: string) { super(message); this.name = "ReferenceTransportError"; }
 }
+
+/**
+ * How long one reference Git command waits for the shared maintenance budget
+ * (#4079). The turn that asked holds its own short maintenance commands at the
+ * same moment, such as its scratch check; they finish well inside this. A
+ * longer holder, such as an index, makes the request answer `busy`.
+ */
+export const REFERENCE_ADMISSION_WAIT_MS = 30_000;
 
 /** The concrete operations acquisition needs; tests substitute this one host-only owner. */
 export interface ReferenceTransport {
   /** Resolve a branch or tag through the transport, with the grant's credential value or anonymously. */
-  resolve(input: { repository: ReferenceRepository; revision: string; token: string | null; signal?: AbortSignal }): Promise<ReferenceCheck>;
+  resolve(input: { repository: ReferenceRepository; revision: string; token: string | null; signal?: AbortSignal; wire?: GitHubReferenceWire;
+    /** Overrides the transport's admission wait for this call; 0 refuses at once (#4079). */
+    admissionWaitMs?: number }): Promise<ReferenceCheck>;
   /** Fetch exactly one resolved ref into `<root>/.git` and report the fetched commit. */
-  fetch(input: { repository: ReferenceRepository; ref: string; token: string | null; root: string; signal?: AbortSignal }): Promise<{ commit: string }>;
+  fetch(input: { repository: ReferenceRepository; ref: string; token: string | null; root: string; signal?: AbortSignal; wire?: GitHubReferenceWire }): Promise<{ commit: string }>;
   /** Check out `commit` into `root` without any credential or network. */
   checkout(input: { root: string; commit: string; signal?: AbortSignal }): Promise<void>;
+}
+
+function assertWireRepository(repository: ReferenceRepository, wire?: GitHubReferenceWire): void {
+  if (!wire) return;
+  if (githubReferenceRepository(repository.url).canonical !== wire.repository)
+    throw new ReferenceTransportError("invalid", "reference wire belongs to another repository");
+  wire.signal.throwIfAborted();
 }
 
 /** A branch or tag name: Git's ref-format rules, minus anything a shell or URL could reinterpret. */
@@ -54,7 +73,7 @@ export function referenceRevision(input: unknown): string {
   if (typeof input !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._/+-]{0,199}$/.test(input) || input.includes("..") || input.includes("//")
     || input.endsWith("/") || input.endsWith(".") || input.endsWith(".lock") || input.split("/").some(part => part.startsWith(".") || part.endsWith(".lock")))
     throw new ReferenceTransportError("invalid", "revision must be one branch or tag name");
-  if (/^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(input))
+  if (input.startsWith("refs/") || /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(input))
     throw new ReferenceTransportError("invalid", "request a branch or tag; a managed worktree pins an exact reported commit");
   return input;
 }
@@ -98,56 +117,108 @@ export function createReferenceTransport(options: {
   brainPath: string; timeoutMs?: number; tempLimits?: MaintenanceCommand["tempLimits"]; tempDomain?: MaintenanceCommand["tempDomain"];
   /** Test seam for the exact launched commands; production uses the maintenance worker. */
   run?: typeof runMaintenanceWorker;
+  /** How long each command waits for a busy maintenance budget; default `REFERENCE_ADMISSION_WAIT_MS`. */
+  admissionWaitMs?: number;
 }): ReferenceTransport {
-  const run = options.run ?? runMaintenanceWorker;
+  const launch = options.run ?? runMaintenanceWorker;
+  const admissionWaitMs = options.admissionWaitMs ?? REFERENCE_ADMISSION_WAIT_MS;
+  /**
+   * One command, admitted within the bound. A busy refusal ran nothing, so the
+   * command waits for the budget to free and tries again; past the bound it is
+   * a `busy` refusal the caller can retry, never an outage.
+   */
+  async function run(input: Parameters<typeof runMaintenanceWorker>[0], waitMs = admissionWaitMs) {
+    const deadline = Date.now() + waitMs;
+    for (;;) {
+      try { return await launch(input); }
+      catch (error) {
+        if (!(error instanceof MaintenanceTempBusyError)) throw error;
+        if (Date.now() >= deadline || !(await error.freedWithin(deadline - Date.now(), input.signal)))
+          throw new ReferenceTransportError("busy", `Host maintenance stayed busy for ${Math.ceil(waitMs / 1000)} s, so nothing ran. Retry this request in a minute.`);
+      }
+    }
+  }
   const timeoutMs = options.timeoutMs ?? 120_000;
-  function command(input: { argv: string[]; mirror: string; token: string | null; repository?: ReferenceRepository; network: boolean; signal?: AbortSignal })
+  function command(input: { argv: string[]; mirror: string; token: string | null; repository?: ReferenceRepository; network: boolean; signal?: AbortSignal; wire?: GitHubReferenceWire })
     : MaintenanceCommand & { signal?: AbortSignal; timeoutMs: number } {
     const env: Record<string, string> = { PATH: "/usr/bin:/bin", HOME: "/tmp/brain-maintenance-home", GIT_CONFIG_NOSYSTEM: "1",
       GIT_CONFIG_GLOBAL: "/dev/null", GIT_TERMINAL_PROMPT: "0", GIT_ASKPASS: "/bin/false", SSH_ASKPASS: "/bin/false" };
     // The credential value exists only in this network transport's environment.
     if (input.token) env.BRAIN_REFERENCE_TOKEN = input.token;
+    if (input.wire) {
+      if (!input.network || !input.repository) throw new ReferenceTransportError("invalid", "reference wire needs its fixed network repository");
+      assertWireRepository(input.repository, input.wire);
+      env.HTTPS_PROXY = env.https_proxy = input.wire.gitProxyUrl(input.token !== null);
+      env.NO_PROXY = env.no_proxy = "";
+    }
     const readPaths = input.repository?.scheme === "file" ? [input.repository.url.slice("file://".length)] : [];
-    return { brainPath: options.brainPath, credentials: input.network, env, command: [...UMASK, ...input.argv],
+    return { brainPath: options.brainPath, credentials: input.network, env, command: [...UMASK, ...input.argv], tempKind: "git",
       ...(options.tempLimits ? { tempLimits: options.tempLimits } : {}), ...(options.tempDomain ? { tempDomain: options.tempDomain } : {}),
-      transport: { mirror: input.mirror, readPaths, network: input.network }, ...(input.signal ? { signal: input.signal } : {}), timeoutMs };
+      transport: { mirror: input.mirror, readPaths, network: input.network },
+      ...(input.wire ? { signal: input.signal ? AbortSignal.any([input.signal, input.wire.signal]) : input.wire.signal }
+        : input.signal ? { signal: input.signal } : {}), timeoutMs };
+  }
+  async function network(input: Parameters<typeof command>[0], waitMs?: number) {
+    const result = await run(command(input), waitMs);
+    const failure = input.wire?.failure(); if (failure) throw failure;
+    if (input.wire && input.repository) assertWireRepository(input.repository, input.wire);
+    return result;
   }
   return {
-    async resolve({ repository, revision, token, signal }) {
+    async resolve({ repository, revision, token, signal, wire, admissionWaitMs: waitMs }) {
+      revision = referenceRevision(revision);
+      assertWireRepository(repository, wire);
       const scratch = mkdtempSync(join(tmpdir(), "brain-reference-resolve-"));
       try {
-        const result = await run(command({ repository, token, network: true, mirror: scratch, signal,
+        const result = await network({ repository, token, network: true, mirror: scratch, signal, wire,
           argv: [git(), ...networkArgs(repository, token), "ls-remote", "--exit-code", "--", repository.url,
-            `refs/heads/${revision}`, `refs/tags/${revision}`, `refs/tags/${revision}^{}`] }));
+            `refs/heads/${revision}`, `refs/tags/${revision}`, `refs/tags/${revision}^{}`] }, waitMs);
         if (result.killed) return { ok: false, reason: "unavailable", detail: "reference resolution timed out or was cancelled" };
         if (result.exitCode === 2) return { ok: false, reason: "missing", detail: `no branch or tag named ${revision}` };
         if (result.exitCode !== 0) return { ok: false, reason: classify(result.stderr), detail: result.stderr.trim().slice(-500) || `exit ${result.exitCode}` };
-        const rows = new Map(result.stdout.trim().split("\n").map(line => line.split("\t")).filter(row => row.length === 2 && /^[0-9a-f]{40,64}$/.test(row[0]!))
-          .map(row => [row[1]!, row[0]!]));
+        // Only the three explicitly requested advertisement rows may decide
+        // this source. A Map must not erase conflicting duplicate identities.
+        const allowed = new Set([`refs/heads/${revision}`, `refs/tags/${revision}`, `refs/tags/${revision}^{}`]);
+        const rows = new Map<string, string>();
+        if (Buffer.byteLength(result.stdout) > 4096) throw new ReferenceTransportError("invalid", "reference advertisement exceeds its bound");
+        const advertised = result.stdout.endsWith("\n") ? result.stdout.slice(0, -1) : result.stdout;
+        for (const line of advertised ? advertised.split("\n") : []) {
+          const fields = line.split("\t"), [commit, ref] = fields;
+          if (fields.length !== 2 || !commit || !ref || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(commit)
+            || !allowed.has(ref) || rows.has(ref)) throw new ReferenceTransportError("invalid", "reference advertisement is ambiguous or malformed");
+          rows.set(ref, commit);
+        }
         const head = rows.get(`refs/heads/${revision}`), peeled = rows.get(`refs/tags/${revision}^{}`), tag = rows.get(`refs/tags/${revision}`);
+        if ((head && (tag || peeled)) || (peeled && !tag)) throw new ReferenceTransportError("invalid", "request one unambiguous branch or tag");
         if (head) return { ok: true, commit: head, ref: `refs/heads/${revision}` };
         if (peeled ?? tag) return { ok: true, commit: (peeled ?? tag)!, ref: `refs/tags/${revision}` };
         return { ok: false, reason: "missing", detail: `no branch or tag named ${revision}` };
       } finally { rmSync(scratch, { recursive: true, force: true }); }
     },
-    async fetch({ repository, ref, token, root, signal }) {
+    async fetch({ repository, ref, token, root, signal, wire }) {
+      const target = /^refs\/(?:heads|tags)\/(.+)$/.exec(ref);
+      if (!target) throw new ReferenceTransportError("invalid", "fetch requires one resolved ordinary branch or tag");
+      referenceRevision(target[1]);
+      assertWireRepository(repository, wire);
       const gitDir = prepareReferenceGitDirectory(root);
-      const fetched = await run(command({ repository, token, network: true, mirror: gitDir, signal,
-        argv: [git(), "--git-dir", gitDir, ...networkArgs(repository, token), "fetch", "--no-tags", "--no-write-fetch-head", "--", repository.url, `+${ref}:refs/reference/source`] }));
+      const fetched = await network({ repository, token, network: true, mirror: gitDir, signal, wire,
+        argv: [git(), "--git-dir", gitDir, ...networkArgs(repository, token), "fetch", "--no-tags", "--no-write-fetch-head", "--", repository.url, `+${ref}:refs/reference/source`] });
       if (fetched.killed) throw new ReferenceTransportError("unavailable", "reference fetch timed out or was cancelled");
       if (fetched.exitCode !== 0) {
         const detail = fetched.stderr.trim().slice(-500) || `exit ${fetched.exitCode}`;
         throw new ReferenceTransportError(/quota|no space/i.test(detail) ? "capacity" : classify(detail), `reference fetch failed: ${detail}`);
       }
       // Read the fetched ref offline: no credential or network reaches this step.
-      const parsed = await run(command({ token: null, network: false, mirror: gitDir, signal,
+      const parsed = await run(command({ token: null, network: false, mirror: gitDir,
+        signal: wire ? signal ? AbortSignal.any([signal, wire.signal]) : wire.signal : signal,
         argv: [git(), "--git-dir", gitDir, "-c", "core.hooksPath=/dev/null", "rev-parse", "--verify", "refs/reference/source^{commit}"] }));
+      assertWireRepository(repository, wire);
       const commit = parsed.stdout.trim();
-      if (parsed.killed || parsed.exitCode !== 0 || !/^[0-9a-f]{40,64}$/.test(commit)) throw new ReferenceTransportError("unavailable", "fetched reference commit is unreadable");
+      if (parsed.killed || parsed.exitCode !== 0 || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(commit)) throw new ReferenceTransportError("unavailable", "fetched reference commit is unreadable");
       return { commit };
     },
     async checkout({ root, commit, signal }) {
-      if (!/^[0-9a-f]{40,64}$/.test(commit)) throw new ReferenceTransportError("invalid", "checkout needs one commit id");
+      if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(commit)) throw new ReferenceTransportError("invalid", "checkout needs one commit id");
       const gitDir = prepareReferenceGitDirectory(root);
       const result = await run(command({ token: null, network: false, mirror: root, signal,
         argv: [git(), "--git-dir", gitDir, "--work-tree", root, "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "checkout", "--force", "--detach", commit] }));

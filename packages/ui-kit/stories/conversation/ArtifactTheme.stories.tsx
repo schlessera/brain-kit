@@ -1,4 +1,6 @@
 import preview from "#.storybook/preview";
+import { standInField } from "../_stand-ins.js";
+import { atWidth, viewportAt } from "../_viewports.js";
 import { useEffect, useState, type ReactElement } from "react";
 import { expect, waitFor, within } from "storybook/test";
 import { BrainUiProvider } from "../../../ui-react/src/root-context.js";
@@ -6,7 +8,7 @@ import { createBrainUiRoot, type BrainUiRoot } from "../../../ui-react/src/root.
 import { BrainMarkdown } from "../../../ui-react/src/components/chat/brain-markdown.js";
 import { FilePanel } from "../../../ui-react/src/components/files/file-panel.js";
 import { useUIStore } from "../../../ui-react/src/stores/ui-store.js";
-import { ConsumerDocument, consumerViewport, painted, bounds, accessible } from "./_consumer-parity.js";
+import { ConsumerDocument, consumerViewport, painted, bounds, accessible, target } from "./_consumer-parity.js";
 
 const path = ".brain/scratch/raft/overview.pdf";
 /** Metadata outcomes the runtime routes return, served through the root's
@@ -23,7 +25,7 @@ function Scene() {
     <article aria-label="Conversation" style={{ margin: "24px 0" }}>
       <BrainMarkdown content={`The crossing at Scylla is recorded in [the raft overview](${path}).`} fileLinks />
     </article>
-    <textarea data-composer="" aria-label="Message" defaultValue="Ask Penelope about the shroud." style={{ display: "block", maxWidth: "100%" }} />
+    <textarea data-composer="" aria-label="Message" defaultValue="Ask Penelope about the shroud." style={{ ...standInField, display: "block", maxWidth: "100%" }} />
     <FilePanel open={open} onClose={() => close(false)} />
   </>;
 }
@@ -96,6 +98,18 @@ async function opened(canvasElement: HTMLElement, width: number, theme: string |
   return { fixture, screen, link };
 }
 
+/** `FilePanel` loads its viewer and tree as lazy chunks the first time it
+ * opens, and the first story to open it in a page pays a cold Vite transform.
+ * Once the panel's own imports have started, wait for the same modules, so
+ * that cost is not charged to the 1000 ms Testing Library waits after it
+ * (#3267). The lazy loads still run; this only orders the clock. */
+async function viewerLoaded() {
+  await Promise.all([
+    import("../../../ui-react/src/components/files/file-viewer.js"),
+    import("../../../ui-react/src/components/files/file-tree.js"),
+  ]);
+}
+
 /** One shape is mounted per width; it renders inline, inside this consumer document. */
 async function owned(canvasElement: HTMLElement, width: number, theme: string | undefined) {
   await expect(document.querySelectorAll("[data-panel=Files]"), "phone drawer").toHaveLength(width < 900 ? 1 : 0);
@@ -118,6 +132,7 @@ const meta = preview.meta({
   title: "Conversation/Artifact theme", component: ArtifactTheme,
   parameters: { layout: "fullscreen" }, beforeEach: artifactFixture,
   args: { width: 320 },
+  globals: viewportAt(320),
 });
 
 /** `artifact layout <theme> <width>` in artifact-recovery-runtime: a 500 reached
@@ -126,6 +141,7 @@ export const LayoutPhone = meta.story({
   play: async ({ args, userEvent, globals, canvasElement }) => {
     const { fixture, screen, link } = await opened(canvasElement, args.width, globals.theme);
     link.focus(); await userEvent.keyboard("{Enter}");
+    await viewerLoaded();
     await screen.findByRole("heading", { name: "Couldn't open this file." });
     await waitFor(() => expect(document.activeElement, "artifact title focus").toBe(document.querySelector("[data-file-title]")));
     const panel = await owned(canvasElement, args.width, globals.theme);
@@ -134,8 +150,7 @@ export const LayoutPhone = meta.story({
     await expect(screen.queryByText("private backend detail"), "server detail stays private").toBeNull();
     const retry = screen.getByRole("button", { name: "Try again" });
     const box = retry.getBoundingClientRect();
-    await expect(box.height, "artifact retry target height").toBeGreaterThanOrEqual(44);
-    await expect(box.width, "artifact retry target width").toBeGreaterThanOrEqual(44);
+    await target(retry, "artifact retry");
     // The runtime's own oracle: the document's layout hit test at each edge.
     for (const [x, y] of [[box.left + 1, box.top + box.height / 2], [box.right - 1, box.top + box.height / 2], [box.left + box.width / 2, box.top + 1], [box.left + box.width / 2, box.bottom - 1]] as const) {
       await expect(retry.contains(document.elementFromPoint(x, y)), `artifact retry edge hit test at ${Math.round(x)},${Math.round(y)}`).toBe(true);
@@ -161,7 +176,7 @@ export const LayoutPhone = meta.story({
     await expect(document.querySelector("[data-file-title]")).toBeNull();
   },
 });
-export const LayoutDesktop = LayoutPhone.extend({ args: { width: 1280 } });
+export const LayoutDesktop = LayoutPhone.extend(atWidth(1280));
 
 /** `artifact full state matrix <theme> <width>`: held loading, then each
  * failure, the PDF and the expired file, in the runtime's order. */
@@ -170,6 +185,7 @@ export const StatesPhone = meta.story({
     const { fixture, screen, link } = await opened(canvasElement, args.width, globals.theme);
     fixture.next = "held";
     link.focus(); await userEvent.keyboard("{Enter}");
+    await viewerLoaded();
     const loading = await screen.findByLabelText("Loading file");
     await expect(screen.getByRole("status"), "named loading status").toHaveTextContent("Loading file");
     const panel = await owned(canvasElement, args.width, globals.theme);
@@ -211,4 +227,4 @@ export const StatesPhone = meta.story({
     // The expired state stays for the unchanged addon accessibility gate.
   },
 });
-export const StatesDesktop = StatesPhone.extend({ args: { width: 1280 } });
+export const StatesDesktop = StatesPhone.extend(atWidth(1280));

@@ -1,5 +1,6 @@
 import { createInboxTools } from "../packages/ui-backend-claude/src/inbox-tools.js";
 import { createReferenceTools } from "../packages/ui-backend-claude/src/reference-tools.js";
+import { createComputeTools } from "../packages/ui-backend-claude/src/compute-tools.js";
 import * as claudeAskForm from "../packages/ui-backend-claude/src/ask-user-form-tool";
 import { describe, expect, test } from "bun:test";
 import {
@@ -25,6 +26,7 @@ import * as claudeAskList from "../packages/ui-backend-claude/src/ask-user-list-
 import * as claudeAskRank from "../packages/ui-backend-claude/src/ask-user-rank-tool";
 import * as claudeLocation from "../packages/ui-backend-claude/src/location-tool";
 import * as claudeMask from "../packages/ui-backend-claude/src/mask-tool";
+import * as claudeMarkup from "../packages/ui-backend-claude/src/markup-tool";
 import * as claudeActivity from "../packages/ui-backend-claude/src/activity-tool";
 import * as claudeBlock from "../packages/ui-backend-claude/src/show-block-tool";
 import * as claudeTurnTemp from "../packages/ui-backend-claude/src/turn-temp-tool";
@@ -64,6 +66,9 @@ const VALID_INPUTS: Record<ToolName, unknown> = {
   complete_share: { receiptIds: ["harbor-receipt"], files: [] },
   reference_source: { repository: "https://git.example/ithaca/charts.git", revision: "main" },
   reference_worktree: { action: "request", repository: "https://git.example/ithaca/charts.git", revision: "main" },
+  brain_compute_health: {}, brain_compute_plan: { provider: "boat-small", argv: ["make", "charts"], source: ["notes/raft.md"] },
+  brain_compute_run: { provider: "boat-small", argv: ["make", "charts"], artifacts: [{ path: "out/chart.svg", max_bytes: 4096 }], lease_seconds: 600 },
+  brain_compute_status: { job: "cj_ithaca" }, brain_compute_cancel: { job: "cj_ithaca" }, brain_compute_collect: { job: "cj_ithaca" },
   ask_user: {
     questions: [
       {
@@ -89,6 +94,7 @@ const VALID_INPUTS: Record<ToolName, unknown> = {
   },
   get_current_location: { highAccuracy: false },
   request_image_mask: { imagePath: "x.png" },
+  request_image_markup: { imagePath: "photos/raft-at-ithaca.jpg", instruction: "mark what should move and where" },
   query_activity: { scope: "running" },
   turn_temp: { action: "usage" },
   show_block: {
@@ -144,9 +150,14 @@ function makeAdapters(root: string) {
       timestamp: 0,
     }),
     requestMask: async () => new Uint8Array([1, 2, 3]),
+    // Host-owned end to end (#3975): the adapters relay input and receipt only.
+    requestImageMarkup: async (input: shared.RequestImageMarkupInput) => ({ imagePath: input.imagePath,
+      markupPath: ".brain/scratch/markup/raft-at-ithaca.3f9a1c2e.markup.png", width: 3024, height: 4032, bytes: 2048,
+      marks: { pen: 0, arrow: 1, ellipse: 1, text: 1 }, notes: ["make the sail red"], note: "Fixture host" }),
     queryActivity: async () => ({ running: [] }),
     inboxList: async () => ({ items: [], threads: [] }), inboxGet: async () => ({}), inboxAdd: async () => ({}), resolveAction: async () => ({}), completeShare: async () => ({ itemId: "harbor", status: "done", replay: false }),
     referenceAccess: async () => ({ ok: true as const, action: "list" as const, worktrees: [], truncated: false, guidance: "Fixture host" }),
+    compute: async () => ({ ok: true as const, fixture: "host" }),
   };
   const noGeocode = {
     enabled: false,
@@ -164,16 +175,18 @@ function makeAdapters(root: string) {
         reverseGeocodeConfig: noGeocode,
       }),
       claudeMask.createMaskTool(bridge.requestMask, root, application),
+      claudeMarkup.createMarkupTool(bridge.requestImageMarkup),
       claudeActivity.createActivityQueryTool(bridge.queryActivity),
       ...createInboxTools(bridge as never),
       ...createReferenceTools(bridge),
+      ...createComputeTools(bridge),
       claudeBlock.createShowBlockTool(),
       claudeTurnTemp.createTurnTempTool(turnTemp(root)),
     ] as any[],
     pi: pi.createPiBridgeTools({
       brainPath: root,
       turn: { bridge, turnTemp: turnTemp(root) } as never,
-      capabilities: { location: true, activity: true, mask: true, inbox: true, turnTemp: true, reference: true },
+      capabilities: { location: true, activity: true, mask: true, markup: true, inbox: true, turnTemp: true, reference: true, compute: true },
       reverseGeocodeConfig: noGeocode,
     }) as any[],
   };
@@ -324,7 +337,7 @@ describe("bridge tool adapter identity", () => {
         const claude = adapters.claude.find((item) => item.name === name)!;
         const piTool = adapters.pi.find((item) => item.name === name)!;
         const { $schema: _schema, ...jsonSchema } = z.toJSONSchema(
-          [...shared.INBOX_TOOL_CONTRACTS, ...shared.REFERENCE_TOOL_CONTRACTS].find(contract => contract.name === name)?.input ?? z.object(claude.inputSchema),
+          [...shared.INBOX_TOOL_CONTRACTS, ...shared.REFERENCE_TOOL_CONTRACTS, ...shared.COMPUTE_TOOL_CONTRACTS].find(contract => contract.name === name)?.input ?? z.object(claude.inputSchema),
           { io: "input" }
         );
         expect(piTool.parameters).toEqual(jsonSchema);
@@ -441,6 +454,15 @@ describe("bridge tool adapter validation", () => {
     reference_source: [{ repository: "https://git.example/ithaca/charts.git" }, { repository: "https://git.example/ithaca/charts.git", revision: "main", principalId: "penelope" }],
     reference_worktree: [{ action: "request", repository: "https://git.example/ithaca/charts.git" }, { action: "renew" },
       { action: "list", worktreeId: "raft" }, { action: "access", worktreeId: "raft", path: "/tmp/brain-worktrees/raft" }, { action: "delete", worktreeId: "raft" }],
+    // Caller, session, turn, profile and credential are never inputs: a forged field refuses (#3108).
+    brain_compute_health: [{ provider: "" }, { provider: "boat-small", principal: "penelope" }],
+    brain_compute_plan: [{ argv: ["true"] }, { provider: "boat-small", argv: [] }, { provider: "boat-small", argv: ["true"], session: "s-other" }],
+    brain_compute_run: [{ provider: "boat-small", argv: ["true"], principal: "penelope" }, { provider: "boat-small", argv: ["true"], apiKeyEnv: "BOAT_HEAVY_KEY" },
+      { provider: "boat-small", argv: ["true"], profile: "governed" }, { provider: "boat-small", argv: ["true"], lease_seconds: 0 },
+      { provider: "boat-small", argv: ["true"], artifacts: [{ path: "out", max_bytes: 1, file: "/srv/state" }] }],
+    brain_compute_status: [{}, { job: "cj_ithaca", session: "s-other" }],
+    brain_compute_cancel: [{ job: "" }, { job: "cj_ithaca", turn: "t-other" }],
+    brain_compute_collect: [{ job: 42 }, { job: "cj_ithaca", caller: { kind: "hosted" } }],
     ask_user: [
       {
         questions: [
@@ -543,6 +565,7 @@ describe("bridge tool adapter validation", () => {
     ],
     get_current_location: [{ highAccuracy: "yes" }],
     request_image_mask: [{ imagePath: 42 }],
+    request_image_markup: [{ imagePath: 42 }, { imagePath: "photos/raft-at-ithaca.jpg", instruction: "x".repeat(201) }],
     query_activity: [{ scope: "all" }, { scope: "recent", hoursBack: "24" }],
     turn_temp: [{ action: "delete" }, { action: "purge", paths: "frames" }, { action: "purge", paths: [""] }],
     show_block: [
@@ -755,9 +778,11 @@ describe("bridge tool loading posture", () => {
       askUserRank: unreachable as never,
       getLocation: unreachable as never,
       requestMask: unreachable as never,
+      requestImageMarkup: unreachable as never,
       queryActivity: unreachable as never,
       inbox: { inboxList: unreachable as never, inboxGet: unreachable as never, inboxAdd: unreachable as never, resolveAction: unreachable as never, completeShare: unreachable as never },
       reference: { referenceAccess: unreachable as never },
+      compute: { compute: unreachable as never },
       turnTemp: claudeTurnTemp.createTurnTempTool(turnTemp("/nonexistent")),
       brainPath: "/nonexistent",
     });

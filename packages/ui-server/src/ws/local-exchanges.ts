@@ -63,30 +63,6 @@ export function saveLocalExchange(
 }
 
 /**
- * The exchanges no prompt has carried yet, marked as carried. Called at the
- * moment a prompt is handed to the backend, so each context reaches the
- * agent once.
- */
-export function takePendingLocalExchanges(db: Database, sessionId: string): LocalExchange[] {
-  return db.transaction(() => {
-    const rows = db
-      .query(
-        `SELECT seq, exchange_id, command, prompt, answer, context, delivered_at
-         FROM local_exchanges WHERE session_id = ? AND delivered_at IS NULL ORDER BY seq`
-      )
-      .all(sessionId) as ExchangeRow[];
-    if (rows.length === 0) return [];
-    db.prepare(
-      `UPDATE local_exchanges SET delivered_at = ? WHERE session_id = ? AND delivered_at IS NULL`
-    ).run(Date.now(), sessionId);
-    return rows.flatMap((row) => {
-      const record = fromRow(row);
-      return record ? [record] : [];
-    });
-  }).immediate();
-}
-
-/**
  * Mark exactly these exchanges carried (#2850): the catalog takes pending
  * exchanges where the prompt is handed over and records the hand-over here,
  * on the write worker, after the records it names.

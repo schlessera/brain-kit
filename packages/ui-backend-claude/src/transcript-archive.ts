@@ -1,11 +1,13 @@
 /** Native Claude transcripts remain authoritative; this is their cold storage. */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { listSessions as sdkListSessions } from "@anthropic-ai/claude-agent-sdk";
 import { createHash } from "node:crypto";
 import { closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, realpathSync, renameSync, rmdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { mkdir, open, rename, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { WorkerHostError } from "@schlessera/brain-ui-sdk/internal";
+import { WorkerHostError, combineRemovalOutcomes, nativeObservationIdentity, ownedNames, removeMetadataFile, removeOwnedArtifact, sessionPromptContextLocation, sessionReplayLocation, stripHostContextFromTitle } from "@schlessera/brain-ui-sdk/internal";
+import type { SessionHistoryRemovalOutcome } from "@schlessera/brain-ui-sdk/server";
 import { envSnapshot } from "./config/env.js";
 import { directory, files, isSessionId, regular, validateSessionId } from "./worker-state.js";
 
@@ -30,7 +32,7 @@ export interface ArchiveOptions {
 export function transcriptPaths(brainPath: string, env: Record<string, string | undefined> = envSnapshot()) {
   const brain = existsSync(brainPath) ? realpathSync(brainPath) : resolve(brainPath);
   const config = resolve(env.CLAUDE_CONFIG_DIR || join(env.HOME || homedir(), ".claude"));
-  if (config === brain || config.startsWith(`${brain}/`) || brain.startsWith(`${config}/`))
+  if (isWithin(brain, config) || isWithin(config, brain))
     throw new WorkerHostError("Claude transcripts must be outside the authoritative brain and its ancestors");
   // Read-only callers must not create a config tree just to list history.
   if (existsSync(config)) directory(config);
@@ -38,13 +40,16 @@ export function transcriptPaths(brainPath: string, env: Record<string, string | 
   return { live: join(config, "projects", project), archive: join(config, "transcript-archive", project) };
 }
 
-function syncTree(path: string) {
-  for (const name of readdirSync(path)) {
-    const child = join(path, name);
-    if (lstatSync(child).isDirectory()) syncTree(child);
-  }
-  syncDirectory(path);
+/** Content-free tombstones of explicitly retired sessions (#3229); permanent. */
+export function retiredDirectory(brainPath: string, env?: Record<string, string | undefined>): string {
+  return join(transcriptPaths(brainPath, env).archive, "retired");
 }
+/** A tombstone, aliased or not, fences the session: archive and restore never touch it again. */
+function retiredOnDisk(archive: string, id: string): boolean {
+  try { lstatSync(join(archive, "retired", id)); return true; }
+  catch (error) { return (error as NodeJS.ErrnoException).code !== "ENOENT"; }
+}
+
 function syncDirectory(path: string) {
   const fd = openSync(path, "r");
   try { fsyncSync(fd); } finally { closeSync(fd); }
@@ -65,10 +70,18 @@ function atomic(path: string, bytes: Uint8Array | string) {
   } finally { rmSync(temp, { force: true }); }
 }
 /**
- * The same durable steps as `durableDirectory` and `atomic`, waiting on the
- * file system off the event loop: every turn's cleanup writes the daily scan
- * marker, and a loaded host's fsync must not stall the server (#2416).
+ * The same durable steps as `durableDirectory` and `atomic`, plus a staged
+ * tree's directory syncs, waiting on the file system off the event loop: every turn's cleanup writes
+ * the daily scan marker, and a loaded host's fsync must not stall the server
+ * (#2416). The idle-session move uses them too (#2898); restore does not.
  */
+async function syncTreeAsync(path: string): Promise<void> {
+  for (const name of readdirSync(path)) {
+    const child = join(path, name);
+    if (lstatSync(child).isDirectory()) await syncTreeAsync(child);
+  }
+  await syncDirectoryAsync(path);
+}
 async function syncDirectoryAsync(path: string) {
   const handle = await open(path, "r");
   try { await handle.sync(); } finally { await handle.close(); }
@@ -94,7 +107,7 @@ function manifest(root: string, id: string): Manifest {
   directory(join(root, id));
   const value = JSON.parse(regular(join(root, id, "manifest.json"), METADATA_BYTES).toString()) as Manifest;
   if (value.session?.id !== id || !Array.isArray(value.files) || !value.files.every(f =>
-    typeof f.path === "string" && (f.path === `${id}.jsonl` || f.path.startsWith(`${id}/`)) &&
+    typeof f.path === "string" && (f.path === `${id}.jsonl` || isWithin(id, f.path, { includeRoot: false })) &&
     f.path.split("/").every(p => p !== ".." && p !== "." && p !== "" && !p.includes("\\")) &&
     typeof f.hash === "string")) throw new Error("Invalid transcript archive manifest");
   return value;
@@ -110,8 +123,18 @@ function manifests(root: string, log?: ArchiveOptions["log"]): Manifest[] {
   }
   return result;
 }
+/** Counts synchronous index writes, so a sweep's asynchronous one that a restore or removal overtook is redone. */
+const indexWrites = new Map<string, number>();
 function index(root: string, entries: ArchivedSession[]) {
+  indexWrites.set(root, (indexWrites.get(root) ?? 0) + 1);
   atomic(join(root, "index.json"), JSON.stringify(entries));
+}
+async function reindexAsync(root: string, log: ArchiveOptions["log"]) {
+  for (;;) {
+    const seen = indexWrites.get(root) ?? 0;
+    await atomicAsync(join(root, "index.json"), JSON.stringify(manifests(root, log).map(m => m.session)));
+    if ((indexWrites.get(root) ?? 0) === seen) return;
+  }
 }
 function archivedBytes(root: string, id: string, file: Manifest["files"][number]): Uint8Array {
   const path = join(root, id, `${file.path}.gz`);
@@ -124,8 +147,17 @@ function archivedBytes(root: string, id: string, file: Manifest["files"][number]
 /** A live transcript that differs from its archived copy is the newer one: keep
  * it in place, set the archived copy aside under a conflict name, reindex. */
 function setAside(archive: string, id: string, options: ArchiveOptions) {
-  renameSync(join(archive, id), join(archive, `.conflict-${id}-${options.now?.() ?? Date.now()}`)); syncDirectory(archive);
+  renameSync(join(archive, id), asideName(archive, id, options)); syncDirectory(archive);
   index(archive, manifests(archive, options.log).map(m => m.session));
+  setAsideLogged(id, options);
+}
+async function setAsideAsync(archive: string, id: string, options: ArchiveOptions) {
+  renameSync(join(archive, id), asideName(archive, id, options)); await syncDirectoryAsync(archive);
+  await reindexAsync(archive, options.log);
+  setAsideLogged(id, options);
+}
+const asideName = (archive: string, id: string, options: ArchiveOptions) => join(archive, `.conflict-${id}-${options.now?.() ?? Date.now()}`);
+function setAsideLogged(id: string, options: ArchiveOptions) {
   (options.log ?? ((message, reason) => console.warn(message, reason)))(
     `Transcript ${id} changed after it was archived; kept the live copy and set the archived one aside`, undefined);
 }
@@ -138,16 +170,19 @@ export function listArchivedSessions(options: ArchiveOptions): ArchivedSession[]
   const entries: ArchivedSession[] = existsSync(indexPath) ? JSON.parse(regular(indexPath, METADATA_BYTES).toString()) : [];
   if (!Array.isArray(entries) || !entries.every(s => typeof s.id === "string" && isSessionId(s.id)))
     throw new Error("Invalid transcript archive index");
-  return [...new Map([...entries, ...committed].map(s => [s.id, s])).values()];
+  return [...new Map([...entries, ...committed].map(s => [s.id, s])).values()].map(s => ({ ...s, title: s.title === null ? null : stripHostContextFromTitle(s.title) }));
 }
 
 /** Restore before history reads or worker snapshots. Synchronous: no turn can
- * start or archive between validation and publication in this backend process. */
+ * start or archive between validation and publication in this backend process.
+ * It stays so on purpose (#2898): the sweep's move awaits its fsyncs, and a
+ * restore run in one of those windows is what its removal step rechecks for. */
 export function restoreArchivedSession(id: string, options: ArchiveOptions): void {
   validateSessionId(id);
   const { live, archive } = transcriptPaths(options.brainPath, options.env);
   const source = join(archive, id);
-  if (!existsSync(source)) return;
+  // A retired chat's archived copy is never restored, even if its removal has not finished.
+  if (!existsSync(source) || retiredOnDisk(archive, id)) return;
   const record = manifest(archive, id);
   // Never overwrite a newer live version. Archiving only takes idle files, so
   // a live file that differs is the newer one: keep it in place, set the
@@ -161,12 +196,17 @@ export function restoreArchivedSession(id: string, options: ArchiveOptions): voi
     archivedBytes(archive, id, file);
   }
   atomic(join(source, "restoring"), "1");
+  const activity = new Date(record.session.lastActiveAt);
+  const parents = new Set<string>();
   for (const file of record.files) {
     const target = join(live, file.path);
     atomic(target, archivedBytes(archive, id, file));
-    const now = new Date(options.now?.() ?? Date.now());
-    utimesSync(target, now, now);
+    utimesSync(target, activity, activity);
+    for (let parent = dirname(target); parent !== live; parent = dirname(parent)) parents.add(parent);
   }
+  // Publishing children changes their parents' mtimes too. The idle scan
+  // includes directories, so reset them after every file has been restored.
+  for (const parent of parents) utimesSync(parent, activity, activity);
   options.checkpoint?.("restore");
   index(archive, manifests(archive, options.log).filter(m => m.session.id !== id).map(m => m.session));
   rmSync(source, { recursive: true }); syncDirectory(archive);
@@ -192,22 +232,32 @@ function pruneEmpty(path: string) {
   }
   if (readdirSync(path).length === 0) rmdirSync(path);
 }
-/** False, deleting nothing, when the live source changed after the archive copy was taken. */
-function removeSource(live: string, archive: string, record: Manifest): boolean {
+/**
+ * False, deleting nothing, when the live source changed after the archive copy
+ * was taken; "skipped", deleting nothing, when while the sweep awaited a turn
+ * took the session, or a restore, retirement or set-aside moved its archived
+ * copy. That recheck, validation and deletion run as one synchronous step, so
+ * nothing interleaves with them (#2898); both copies then stay for recovery.
+ * The removed files' directories are synced after that step instead of after
+ * each file: a crash in between leaves a subset, which recovery accepts.
+ */
+async function removeSource(live: string, archive: string, record: Manifest, options: ArchiveOptions): Promise<boolean | "skipped"> {
+  const id = record.session.id;
+  if (options.activeSessionIds?.().has(id) || retiredOnDisk(archive, id) ||
+    !existsSync(join(archive, id)) || existsSync(join(archive, id, "restoring"))) return "skipped";
   // Validate the entire remaining source before deleting anything. A crash
   // during deletion leaves a subset, which the same check accepts on restart.
   const known = new Map(record.files.map(f => [f.path, f.hash]));
-  const remaining = sessionFiles(live, record.session.id);
+  const remaining = sessionFiles(live, id);
   for (const file of remaining) {
     if (digest(regular(join(live, file), Infinity)) !== known.get(file)) return false;
   }
   // Verify the durable copy even on recovery, before removing live bytes.
-  for (const file of record.files) archivedBytes(archive, record.session.id, file);
-  for (const file of remaining) {
-    rmSync(join(live, file)); syncDirectory(dirname(join(live, file)));
-  }
-  pruneEmpty(join(live, record.session.id));
-  if (existsSync(live)) syncDirectory(live);
+  for (const file of record.files) archivedBytes(archive, id, file);
+  for (const file of remaining) rmSync(join(live, file));
+  for (const parent of new Set(remaining.map(file => dirname(join(live, file))))) await syncDirectoryAsync(parent);
+  pruneEmpty(join(live, id));
+  if (existsSync(live)) await syncDirectoryAsync(live);
   return true;
 }
 
@@ -230,23 +280,23 @@ export async function archiveIdleSessions(options: ArchiveOptions): Promise<void
     // Recovery precedes fresh moves. Committed manifests are immutable, so a
     // lost index write or partially removed source is safe to retry.
     for (const record of manifests(archive, options.log)) {
-      if (active.has(record.session.id)) continue;
+      if (active.has(record.session.id) || retiredOnDisk(archive, record.session.id)) continue;
       if (existsSync(join(archive, record.session.id, "restoring"))) {
         restoreArchivedSession(record.session.id, options);
       } else {
-        index(archive, manifests(archive, options.log).map(m => m.session));
-        if (!removeSource(live, archive, record)) setAside(archive, record.session.id, options);
+        await reindexAsync(archive, options.log);
+        if (await removeSource(live, archive, record, options) === false) await setAsideAsync(archive, record.session.id, options);
       }
     }
     for (const session of sessions) {
       const id = session.sessionId;
-      if (!isSessionId(id) || active.has(id) || existsSync(join(archive, id))) continue;
+      if (!isSessionId(id) || active.has(id) || existsSync(join(archive, id)) || retiredOnDisk(archive, id)) continue;
       const names = sessionFiles(live, id);
       if (!names.length) continue;
       const roots = [join(live, `${id}.jsonl`), join(live, id)].filter(existsSync);
       if (Math.max(...roots.map(newestMtime)) >= now - 30 * DAY) continue;
       const record: Manifest = {
-        session: { id, title: session.customTitle || session.summary || session.firstPrompt || null,
+        session: { id, title: session.customTitle || session.summary || (session.firstPrompt ? stripHostContextFromTitle(session.firstPrompt) : null) || null,
           createdAt: session.createdAt || session.lastModified, lastActiveAt: session.lastModified },
         files: [],
       };
@@ -256,19 +306,58 @@ export async function archiveIdleSessions(options: ArchiveOptions): Promise<void
         for (const name of names) {
           const bytes = regular(join(live, name), Infinity);
           record.files.push({ path: name, hash: digest(bytes) });
-          atomic(join(staging, `${name}.gz`), Bun.gzipSync(new Uint8Array(bytes)));
+          await atomicAsync(join(staging, `${name}.gz`), Bun.gzipSync(new Uint8Array(bytes)));
         }
-        atomic(join(staging, "manifest.json"), JSON.stringify(record));
-        syncTree(staging);
-        renameSync(staging, join(archive, id)); syncDirectory(archive);
+        await atomicAsync(join(staging, "manifest.json"), JSON.stringify(record));
+        await syncTreeAsync(staging);
+        // The copy awaited: commit only if no turn, restore or retirement
+        // took the session meanwhile. The staged copy is dropped below.
+        if (options.activeSessionIds?.().has(id) || existsSync(join(archive, id)) || retiredOnDisk(archive, id)) continue;
+        renameSync(staging, join(archive, id)); await syncDirectoryAsync(archive);
         options.checkpoint?.("archive");
-        index(archive, manifests(archive, options.log).map(m => m.session));
+        await reindexAsync(archive, options.log);
         options.checkpoint?.("index");
-        if (!removeSource(live, archive, record)) setAside(archive, id, options);
+        if (await removeSource(live, archive, record, options) === false) await setAsideAsync(archive, id, options);
       } finally { rmSync(staging, { recursive: true, force: true }); }
     }
   } catch (error) {
     try { (options.log ?? ((message, reason) => console.warn(message, reason)))("Claude transcript archival failed", error); }
     catch { /* Logging cannot fail a completed turn either. */ }
   } finally { if (claimed) scanning.delete(claimed); }
+}
+
+/**
+ * Remove every artifact this backend owns for one retired session (#3229):
+ * its live transcript and subordinate tree, its archived, staged and
+ * conflict copies and index entry, its display and prompt metadata and its
+ * file observations. Synchronous, so no archive step or restore interleaves.
+ * Only names derived from the validated session identity are touched; a
+ * redirected root or aliased artifact is left alone and reported partial.
+ */
+export function removeClaudeSession(id: string, options: Pick<ArchiveOptions, "brainPath" | "env">): SessionHistoryRemovalOutcome {
+  validateSessionId(id);
+  const { live, archive } = transcriptPaths(options.brainPath, options.env);
+  const config = dirname(dirname(live));
+  const outcomes: SessionHistoryRemovalOutcome[] = [
+    removeOwnedArtifact(live, `${id}.jsonl`),
+    removeOwnedArtifact(live, id),
+    removeOwnedArtifact(archive, id),
+    ...ownedNames(archive, name => name.startsWith(`.conflict-${id}-`) || name.startsWith(`.pending-${id}-`))
+      .map(name => removeOwnedArtifact(archive, name)),
+  ];
+  // The index carries titles: drop this entry and keep every other one as it was.
+  const indexPath = join(archive, "index.json");
+  if (existsSync(indexPath)) {
+    const entries = JSON.parse(regular(indexPath, METADATA_BYTES).toString()) as ArchivedSession[];
+    if (!Array.isArray(entries)) throw new Error("Invalid transcript archive index");
+    if (entries.some(entry => entry?.id === id)) index(archive, entries.filter(entry => entry?.id !== id));
+  }
+  if (existsSync(options.brainPath)) {
+    const brain = realpathSync(options.brainPath);
+    outcomes.push(
+      removeMetadataFile({ dir: join(archive, "native-observations"), name: `${nativeObservationIdentity(brain, id)}.json` }),
+      removeMetadataFile(sessionReplayLocation(config, brain, id)),
+      removeMetadataFile(sessionPromptContextLocation(config, brain, id)));
+  } else outcomes.push("unknown");
+  return combineRemovalOutcomes(outcomes);
 }

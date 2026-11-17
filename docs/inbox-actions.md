@@ -95,13 +95,15 @@ Dismissing that Action terminates its source and journals cleanup. Cleanup failu
 retains the failed compensation record for inspection/recovery.
 
 `cleanup_pending` is server-owned work, not a model effect. Its compensation
-(`createInboxCleanup`, `packages/ui-server/src/inbox/cleanup.ts:18-69`) counts no model
+(`createInboxCleanup`, `packages/ui-server/src/inbox/cleanup.ts:15-59`) counts no model
 operation and takes no spend reservation. Compensation claims it before I/O,
 removes the server-selected staging directory and partial directory
 idempotently, then acknowledges `done` in a separate transaction. A crash
 between removal and acknowledgement safely repeats removal after lease
 recovery and backoff. Staging root symlinks and invalid IDs are refused; final
-entry symlinks are unlinked rather than traversed.
+entry symlinks are unlinked rather than traversed. Removal goes through
+descriptors opened without following links, so a link swapped in after the
+check cannot redirect it ([inbox storage](inbox-storage.md)).
 
 Staging stays available while a thread has active work, a pending decision or
 an acquired backend attempt awaiting unwind and accounting settlement.

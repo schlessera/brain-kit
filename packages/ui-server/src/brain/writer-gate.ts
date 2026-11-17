@@ -21,12 +21,14 @@
  * translated to live there too, so every process plans them, across restarts
  * (#2836).
  */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import type { Database } from "bun:sqlite";
 import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { createGovernancePolicyReader, providerFolderRoots, retainedFolderRoots, type TurnGovernancePolicy } from "./governance-policy.js";
 import { ensureRetainedDirectories } from "./index-directory.js";
+import { recordGovernanceEvent } from "../governance/events.js";
 import { procedureCaller, type SqliteWriter, type WireError, type WriteProcedures } from "../db/write-worker.js";
 
 export type GateMode = "shared" | "exclusive";
@@ -98,7 +100,7 @@ export interface WriterGate {
 }
 
 /** How often a waiting acquisition looks again. */
-export const GATE_POLL_MS = 200;
+const GATE_POLL_MS = 200;
 
 /**
  * How long provider folder admission waits for a peer whose plan predates the
@@ -107,13 +109,16 @@ export const GATE_POLL_MS = 200;
  * provider-policy turn, plan without them. The boot-time scratch prune is one;
  * on the native fixture it finishes within a second of the turn reaching it.
  */
-export const PEER_FOLDER_PLAN_WAIT_MS = 30_000;
+const PEER_FOLDER_PLAN_WAIT_MS = 30_000;
 
 const UNRETAINED_PEER = "An active peer did not retain the requested provider folders; finish that peer and retry admission";
 
-function pause(ms: number, signal?: AbortSignal): Promise<void> {
+function pause(ms: number, signal?: AbortSignal, background = false): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => { signal?.removeEventListener("abort", stop); resolve(); }, ms);
+    // A background retry never keeps the process alive: an exited process's
+    // row is stale, and the next gate read prunes it.
+    if (background) timer.unref?.();
     const stop = () => { clearTimeout(timer); reject(signal!.reason); };
     signal?.addEventListener("abort", stop, { once: true });
   });
@@ -241,7 +246,7 @@ export function gateProcedures(db: Database, brain: string): WriteProcedures {
         if (plan.unpinnedHost) throw new Error("An active peer is an unpinned host writer; finish that peer and retry admission");
         // A descendant root also pins each ancestor. An ancestor root
         // alone does not retain an arbitrary child inside its subtree.
-        if (requested.some(path => !plan.roots.some(root => root === path || root.startsWith(`${path}/`)))) unretained = true;
+        if (requested.some(path => !plan.roots.some(root => isWithin(path, root)))) unretained = true;
       }
       return unretained;
     }).immediate(),
@@ -270,6 +275,12 @@ export function gateProcedures(db: Database, brain: string): WriteProcedures {
       // the host process exists. The recorded roots are always empty.
       db.query("UPDATE writer_gate SET folder_topology = ? WHERE id = ?").run(JSON.stringify({ kind: "unpinned_host", roots: folderPaths }), id);
     }).immediate(),
+    cleanupFailure(id: string, operation: string, cause: string, at: number) {
+      recordGovernanceEvent(db, { kind: "roadblock", actor: "server", sessionId: null, turnId: null, model: null, profile: null, at,
+        dedupeKey: `writer-gate:${operation}:${id}`, payload: { category: "retry", family: "writer_gate_cleanup", signature: `${operation}:${id}`,
+          failures: [{ toolCallId: null, category: "retry", signature: cause }], resolution: null, remedy: "capability",
+          waste: { tokens: null, costUsd: null, ms: 0 }, eventIds: [] } });
+    },
     release(id: string) { db.query("DELETE FROM writer_gate WHERE id = ?").run(id); },
     ungated: () => db.transaction(() => {
       prune();
@@ -308,6 +319,37 @@ export function createWriterGate(db: Database, brainPath: string, options: { pol
     void done.then(() => {}, () => {}).then(() => pending.delete(done));
     return done;
   };
+  // These deletes are idempotent. A failed commit retains its hold/waiter,
+  // and remains owned until the delete commits. Reporting cannot gate cleanup.
+  const cleanup = (operation: "release" | "dequeue", id: string): Promise<void> => {
+    const done = (async () => {
+      let cause: { message: string; at: number } | undefined, recorded = false;
+      let attempt = 0;
+      for (;;) {
+        try {
+          await submit(operation, id);
+          if (cause && !recorded) {
+            try { await submit("cleanupFailure", id, operation, cause.message, cause.at); }
+            catch { /* Original structured cause was logged; never retain a released hold for reporting. */ }
+          }
+          return;
+        } catch (error) {
+          if (!cause) {
+            cause = { message: `${error instanceof Error ? error.name : "Error"}: ${error instanceof Error ? error.message : String(error)}`.slice(0, 1000), at: Date.now() };
+            process.stderr.write(JSON.stringify({ kind: "writer_gate_cleanup", operation, id, ...cause }) + "\n");
+          }
+          if (!recorded) {
+            try { await submit("cleanupFailure", id, operation, cause.message, cause.at); recorded = true; }
+            catch { /* Retry the independent diagnostic after the next delete attempt. */ }
+          }
+          await pause(Math.min(30_000, Math.max(1, pollMs) * 2 ** Math.min(attempt++, 10)), undefined, true);
+        }
+      }
+    })();
+    pending.add(done);
+    void done.finally(() => pending.delete(done));
+    return done;
+  };
   return {
     async acquire(mode, purpose, { signal, turn = false, queueTurns = false } = {}) {
       signal?.throwIfAborted();
@@ -325,7 +367,7 @@ export function createWriterGate(db: Database, brainPath: string, options: { pol
           let released = false, unpinnedHost = false;
           let releasing: Promise<void> | undefined;
           const checkPeerFolderPlans = async (paths: readonly string[]): Promise<boolean> => {
-            if (released) throw new Error("Writer folder plan was already released");
+            if (released || releasing) throw new Error("Writer folder plan was already released");
             const requested = mergeFolderPlans([], paths);
             if (!requested.length) return false;
             if (unpinnedHost) throw new Error("An unpinned host writer cannot qualify provider folder admission");
@@ -333,7 +375,7 @@ export function createWriterGate(db: Database, brainPath: string, options: { pol
             return submit<boolean>("peers", id, requested);
           };
           const hold: GateHold = { id, mode, get folderPaths() { return folderPaths; }, async retainFolders(paths) {
-            if (released) throw new Error("Writer folder plan was already released");
+            if (released || releasing) throw new Error("Writer folder plan was already released");
             if (unpinnedHost) throw new Error("An unpinned host writer cannot upgrade its folder plan");
             folderPaths = await submit<readonly string[]>("retain", id, folderPaths, paths);
             return folderPaths;
@@ -354,15 +396,14 @@ export function createWriterGate(db: Database, brainPath: string, options: { pol
             // Submitted at once, so every later gate write of this process
             // sees it; the returned promise settles once it has committed.
             if (releasing) return releasing;
-            released = true;
             hostWriterMarkers.delete(hold);
-            releasing = submit<void>("release", id);
+            releasing = cleanup("release", id).then(() => { released = true; });
             // A caller that does not wait still never leaves it unhandled.
             releasing.catch(() => {});
             return releasing;
           } };
           hostWriterMarkers.set(hold, async () => {
-            if (released) throw new Error("Writer folder plan was already released");
+            if (released || releasing) throw new Error("Writer folder plan was already released");
             if (unpinnedHost) return;
             await submit("unpinned", id, folderPaths);
             unpinnedHost = true;
@@ -371,7 +412,7 @@ export function createWriterGate(db: Database, brainPath: string, options: { pol
         }
         await pause(pollMs, signal);
       } } finally {
-        if (waiter) await submit("dequeue", waiter);
+        if (waiter) await cleanup("dequeue", waiter);
       }
     },
     assertUngatedHostFallback: () => submit<void>("ungated"),

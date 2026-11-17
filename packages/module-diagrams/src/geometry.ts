@@ -32,7 +32,67 @@ export function diagramGroupBounds(group: DiagramGroup): DiagramBox {
   const top = group.scopeKind === "admin" ? 1 : 8;
   return { x: group.x - 1, y: group.y - top, width: group.width + 2, height: group.height + top + 1 };
 }
+/**
+ * The painted heading of a group: an admin scope's 24px header band, or the
+ * masked label that sits across a group's top border (see the group case in
+ * `svg-model.ts`). Edge labels and cardinalities must not cover it.
+ */
+export function diagramGroupHeading(group: DiagramGroup): DiagramBox {
+  if (group.scopeKind === "admin") return { x: group.x, y: group.y, width: group.width, height: 24 };
+  return { x: group.x + 4, y: group.y - 7, width: Math.min(typeWidthBudget(group.label, "label") + 8, group.width - 8), height: 14 };
+}
 const EPS = 1e-7, RADIUS = 8, CLEARANCE = 24, PARALLEL = 12, LABEL_GAP = 8;
+/** A crossing costs as much as 24 elbows: going around the outside beats a hop. */
+const CROSSING_COST = 384;
+/** Leaving an edge's geometric default side must buy more than an elbow. */
+const SIDE_BIAS = 24;
+/** Moving a port off its sorted slot must buy more than a few pixels. */
+const SLOT_COST = 24;
+/** A route keeps the same padding from a section outline as the outline keeps from its boxes. */
+const GROUP_PAD = 16;
+/** Everything painted keeps this distance from the image edge (maintainer ruling, 2026-11-03). */
+export const DIAGRAM_MARGIN = 12;
+/** True when a segment runs alongside a section outline closer than its padding. */
+function hugsOutline(a: DiagramPoint, b: DiagramPoint, outlines: readonly DiagramBox[]): boolean {
+  const vertical = Math.abs(a.x - b.x) < EPS;
+  for (const o of outlines) {
+    if (vertical) {
+      const lo = Math.min(a.y, b.y), hi = Math.max(a.y, b.y);
+      if (Math.min(hi, o.y + o.height) - Math.max(lo, o.y) <= GROUP_PAD) continue;
+      if ([o.x, o.x + o.width].some(edge => Math.abs(a.x - edge) < GROUP_PAD - EPS)) return true;
+    } else {
+      const lo = Math.min(a.x, b.x), hi = Math.max(a.x, b.x);
+      if (Math.min(hi, o.x + o.width) - Math.max(lo, o.x) <= GROUP_PAD) continue;
+      if ([o.y, o.y + o.height].some(edge => Math.abs(a.y - edge) < GROUP_PAD - EPS)) return true;
+    }
+  }
+  return false;
+}
+const routeHugs = (points: DiagramPoint[], outlines: readonly DiagramBox[]) => points.slice(1).some((point, i) => hugsOutline(points[i]!, point, outlines));
+/** Perpendicular intersections of one orthogonal segment with earlier routes. */
+function crossCount(a: DiagramPoint, b: DiagramPoint, previous: readonly { points: DiagramPoint[] }[]): number {
+  let count = 0; const h = Math.abs(a.y - b.y) < EPS;
+  for (const route of previous) for (let j = 1; j < route.points.length; j++) {
+    const c = route.points[j - 1]!, d = route.points[j]!;
+    if (h === (Math.abs(c.y - d.y) < EPS)) continue;
+    const [horizontal, vertical] = h ? [[a, b], [c, d]] : [[c, d], [a, b]];
+    const hy = horizontal[0]!.y, vx = vertical[0]!.x;
+    if (vx > Math.min(horizontal[0]!.x, horizontal[1]!.x) + EPS && vx < Math.max(horizontal[0]!.x, horizontal[1]!.x) - EPS
+      && hy > Math.min(vertical[0]!.y, vertical[1]!.y) + EPS && hy < Math.max(vertical[0]!.y, vertical[1]!.y) - EPS) count++;
+  }
+  return count;
+}
+const routeCrossings = (points: DiagramPoint[], previous: readonly { points: DiagramPoint[] }[]) => points.slice(1).reduce((n, point, i) => n + crossCount(points[i]!, point, previous), 0);
+/** Sides of `box` that face `other`, by centre. */
+function facingSides(box: DiagramBox, other: DiagramBox): DiagramSide[] {
+  const a = center(box), b = center(other), sides: DiagramSide[] = [];
+  if (b.y > a.y + EPS) sides.push("bottom"); if (b.y < a.y - EPS) sides.push("top");
+  if (b.x > a.x + EPS) sides.push("right"); if (b.x < a.x - EPS) sides.push("left");
+  return sides;
+}
+function sidePort(box: DiagramBox, node: string, side: DiagramSide): DiagramPort {
+  return { node, side, x: side === "left" ? box.x : side === "right" ? box.x + box.width : box.x + box.width / 2, y: side === "top" ? box.y : side === "bottom" ? box.y + box.height : box.y + box.height / 2 };
+}
 const frameSizes: Record<string, [number, number]> = { "doc-inline": [960, 600], "doc-wide": [1280, 720], "slide-16x9": [1280, 720], "slide-4x3": [1024, 768], "social-og": [1200, 632], "social-square": [1080, 1080], "print-a4-landscape": [1120, 792], "print-a3-landscape": [1584, 1120], "print-letter-landscape": [1056, 816] };
 const equal = (a: DiagramPoint, b: DiagramPoint) => Math.abs(a.x - b.x) < EPS && Math.abs(a.y - b.y) < EPS;
 const distance = (a: DiagramPoint, b: DiagramPoint) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
@@ -126,12 +186,13 @@ function comparePoints(a: DiagramPoint[], b: DiagramPoint[]): number {
   return a.length - b.length;
 }
 function length(points: DiagramPoint[]) { return points.slice(1).reduce((total, point, i) => total + distance(points[i]!, point), 0); }
-function routingPoints(pair: Pair, boxes: BoxRecord[], previous: DiagramConnector[], frame: DiagramBox, outside = false): DiagramPoint[] | null {
+function routingPoints(pair: Pair, boxes: BoxRecord[], previous: DiagramConnector[], frame: DiagramBox, outside = false, crossingCost = 0, outlines: readonly DiagramBox[] = [], nest = false): DiagramPoint[] | null {
   const a = pair.from, b = pair.to, an = normal(a.side), bn = normal(b.side);
   const start = { x: a.x + an.x * CLEARANCE, y: a.y + an.y * CLEARANCE }, end = { x: b.x + bn.x * CLEARANCE, y: b.y + bn.y * CLEARANCE };
   const xs = new Set([start.x, end.x, (start.x + end.x) / 2, frame.x + CLEARANCE, frame.x + frame.width - CLEARANCE]);
   const ys = new Set([start.y, end.y, (start.y + end.y) / 2, frame.y + CLEARANCE, frame.y + frame.height - CLEARANCE]);
   for (const box of boxes) { xs.add(box.x - CLEARANCE); xs.add(box.x + box.width + CLEARANCE); ys.add(box.y - CLEARANCE); ys.add(box.y + box.height + CLEARANCE); }
+  for (const o of outlines) { xs.add(o.x - GROUP_PAD); xs.add(o.x + o.width + GROUP_PAD); ys.add(o.y - GROUP_PAD); ys.add(o.y + o.height + GROUP_PAD); }
   for (const route of previous) for (const point of route.points) { xs.add(point.x - PARALLEL); xs.add(point.x + PARALLEL); ys.add(point.y - PARALLEL); ys.add(point.y + PARALLEL); }
   const xx = [...xs].filter(x => x >= frame.x && x <= frame.x + frame.width).sort((a, b) => a - b), yy = [...ys].filter(y => y >= frame.y && y <= frame.y + frame.height).sort((a, b) => a - b);
   if ((xx.length + yy.length) * 19 > 20_000) throw Error("routing exceeds its 20000-candidate work bound; split the diagram");
@@ -153,8 +214,12 @@ function routingPoints(pair: Pair, boxes: BoxRecord[], previous: DiagramConnecto
     return routeShape(cycle, pair, frame) && clearRoute(cycle, pair, boxes) && crossings(cycle, previous) !== null ? cycle : null;
   }
   const normalized = candidates.map(normalize), preferred = new Set(normalized.slice(0, preferredCount));
-  const valid = normalized.filter(points => routeShape(points, pair, frame) && clearRoute(points, pair, boxes) && crossings(points, previous) !== null);
-  valid.sort((a, b) => length(a) + a.length * 16 - length(b) - b.length * 16 || Number(preferred.has(b)) - Number(preferred.has(a)) || comparePoints(a, b));
+  const valid = normalized.filter(points => routeShape(points, pair, frame) && clearRoute(points, pair, boxes) && !routeHugs(points, outlines) && crossings(points, previous) !== null);
+  const cost = new Map(valid.map(points => [points, length(points) + points.length * 16 + routeCrossings(points, previous) * crossingCost]));
+  // Nesting: when a sibling on this side still has to pass underneath, an equal-cost
+  // route turns as early as it may so the sibling keeps the lane below it.
+  const stub = (points: DiagramPoint[]) => distance(points[0]!, points[1]!);
+  valid.sort((a, b) => cost.get(a)! - cost.get(b)! || (nest ? stub(a) - stub(b) : 0) || Number(preferred.has(b)) - Number(preferred.has(a)) || comparePoints(a, b));
   if (valid.length) return valid[0]!;
   // Sparse visibility search is bounded independently of editorial warnings.
   if (xx.length * yy.length > 20_000) throw Error("routing exceeds its 20000-vertex work bound; split the diagram");
@@ -169,14 +234,14 @@ function routingPoints(pair: Pair, boxes: BoxRecord[], previous: DiagramConnecto
     const point = { x: xx[current.x]!, y: yy[current.y]! };
     if (current.x === endX && current.y === endY) {
       const points = normalize([...current.path, b]);
-      if (routeShape(points, pair, frame) && clearRoute(points, pair, boxes) && crossings(points, previous) !== null) return points;
+      if (routeShape(points, pair, frame) && clearRoute(points, pair, boxes) && !routeHugs(points, outlines) && crossings(points, previous) !== null) return points;
     }
     for (const [dx, dy] of [[1, 0], [0, 1], [-1, 0], [0, -1]] as const) {
       const x = current.x + dx, y = current.y + dy; if (x < 0 || y < 0 || x >= xx.length || y >= yy.length) continue;
       const next = { x: xx[x]!, y: yy[y]! }, direction = dx ? "h" : "v", turn = direction !== current.direction;
-      if (turn && current.run < 16 - EPS || boxes.some(box => segmentHits(point, next, box, RADIUS))) continue;
+      if (turn && current.run < 16 - EPS || boxes.some(box => segmentHits(point, next, box, RADIUS)) || hugsOutline(point, next, outlines)) continue;
       if (crossings(normalize([...current.path, next]), previous, true) === null) continue;
-      const run = Math.min(16, turn ? distance(point, next) : current.run + distance(point, next)), cost = current.cost + distance(point, next) + (turn ? 32 : 0);
+      const run = Math.min(16, turn ? distance(point, next) : current.run + distance(point, next)), cost = current.cost + distance(point, next) + (turn ? 32 : 0) + crossCount(point, next, previous) * crossingCost;
       const key = `${x}:${y}:${direction}:${run}`; if ((best.get(key) ?? Infinity) <= cost) continue;
       best.set(key, cost); queue.push({ x, y, direction, run, cost, path: normalize([...current.path, next]) });
     }
@@ -197,8 +262,38 @@ function pathData(route: DiagramConnector): string {
   return out.join(" ");
 }
 
-/** Pure neutral geometry for a semantically valid free-layout spec. No DOM or paint. */
+/**
+ * Pure neutral geometry for a semantically valid free-layout spec. No DOM or
+ * paint. Routing adapts ports to the other ends and to earlier routes; a spec
+ * that only the fixed geometric sides and declared port order can route keeps
+ * that routing, so adaptation never refuses a spec that routed before.
+ */
+/** Hidden box transit, then hops: what a reader notices first in a routing. */
+function crossingScore(tree: DiagramTree): [number, number] {
+  const routes = tree.elements.filter((item): item is DiagramConnector => item.kind === "connector");
+  return [routes.reduce((n, route) => n + route.transit.length, 0), routes.reduce((n, route) => n + route.bridges.length, 0)];
+}
 export function buildDiagram(input: DiagramSpec, options: DiagramGeometryOptions = {}): DiagramTree {
+  // An edge that greedy routing boxes in is routed earlier and the layout is
+  // rebuilt (rip-up and retry), at most once per edge.
+  const priority: number[] = [];
+  for (;;) {
+    try {
+      const adapted = buildDiagramWith(input, options, true, priority), score = crossingScore(adapted);
+      if (score[0] === 0 && score[1] === 0) return adapted;
+      // Never worse than the declared routing it replaces.
+      const declared = buildDiagramWith(input, options, false, []), before = crossingScore(declared);
+      return before[0] < score[0] || before[0] === score[0] && before[1] < score[1] ? declared : adapted;
+    }
+    catch (failure) {
+      if (!(failure instanceof DiagramGeometryError)) throw failure;
+      const edge = Number(/^\$\.edges\[(\d+)\]$/.exec(failure.findings[0]?.path ?? "")?.[1] ?? NaN);
+      if (!Number.isInteger(edge) || priority.includes(edge)) return buildDiagramWith(input, options, false, []);
+      priority.push(edge);
+    }
+  }
+}
+function buildDiagramWith(input: DiagramSpec, options: DiagramGeometryOptions, adaptive: boolean, priority: readonly number[]): DiagramTree {
   const spec = diagramSpecSchema.parse(input);
   if (["quadrant", "layer-stack", "pyramid", "funnel", "loop", "flywheel", "venn"].includes(spec.type)) return buildPositionalDiagram(spec);
   if ((AXIS_TYPES as readonly string[]).includes(spec.type)) return buildAxisDiagram(spec);
@@ -221,11 +316,20 @@ export function buildDiagram(input: DiagramSpec, options: DiagramGeometryOptions
   }
   for (const group of groups) boxes.set(group.id, group);
   const groupBounds = groups.map(diagramGroupBounds);
-  const x = spec.size === "fit" ? Math.min(0, ...groupBounds.map(box => Math.floor(box.x / 4) * 4)) : 0;
-  const y = spec.size === "fit" ? Math.min(0, ...groupBounds.map(box => Math.floor(box.y / 4) * 4)) : 0;
-  const [right, bottom] = frameSizes[spec.size] ?? [Math.max(96, ...[...nodes, ...groups.filter(group => group.scopeKind)].map(node => node.x + node.width + CLEARANCE), ...groupBounds.map(box => box.x + box.width)), Math.max(96, ...[...nodes, ...groups.filter(group => group.scopeKind)].map(node => node.y + node.height + CLEARANCE), ...groupBounds.map(box => box.y + box.height))];
+  // A fitted frame keeps the routing margin on every side, so an outer lane
+  // exists on the left and top exactly as it does on the right and bottom.
+  const framed = [...nodes, ...groups.filter(group => group.scopeKind)];
+  // Routing lanes need room only when there is something to route.
+  const lanes = adaptive && spec.edges.length > 0, margin = lanes ? CLEARANCE : 0, pad = lanes ? GROUP_PAD : 0;
+  const x = spec.size === "fit" ? Math.min(0, ...groupBounds.map(box => Math.floor((box.x - pad) / 4) * 4), ...(lanes ? framed.map(node => Math.floor((node.x - margin) / 4) * 4) : [])) : 0;
+  const y = spec.size === "fit" ? Math.min(0, ...groupBounds.map(box => Math.floor((box.y - pad) / 4) * 4), ...(lanes ? framed.map(node => Math.floor((node.y - margin) / 4) * 4) : [])) : 0;
+  // Section outlines a route must keep its padding from; containment scopes keep their own rules.
+  const outlines: DiagramBox[] = adaptive ? groups.filter(group => !group.scopeKind).map(({ x, y, width, height }) => ({ x, y, width, height })) : [];
+  const [right, bottom] = frameSizes[spec.size] ?? [Math.max(96, ...[...nodes, ...groups.filter(group => group.scopeKind)].map(node => node.x + node.width + CLEARANCE), ...groupBounds.map(box => box.x + box.width + pad)), Math.max(96, ...[...nodes, ...groups.filter(group => group.scopeKind)].map(node => node.y + node.height + CLEARANCE), ...groupBounds.map(box => box.y + box.height + pad))];
   const width = right - x + (spec.size === "fit" && spec.type === "dependency" && spec.edges.some(edge => edge.cycle) ? 24 : 0);
   const viewBox = { x, y, width, height: bottom - y };
+  // Adaptive routes keep the image margin: a preset canvas is inset; a fitted frame is cropped around them afterwards.
+  const routeFrame = adaptive && spec.size !== "fit" ? { x: viewBox.x + DIAGRAM_MARGIN, y: viewBox.y + DIAGRAM_MARGIN, width: viewBox.width - 2 * DIAGRAM_MARGIN, height: viewBox.height - 2 * DIAGRAM_MARGIN } : viewBox;
   if (spec.size !== "fit") {
     const findings: DiagramGeometryFinding[] = [];
     groups.forEach((group, index) => {
@@ -236,11 +340,32 @@ export function buildDiagram(input: DiagramSpec, options: DiagramGeometryOptions
   const fail = (edge: number, message: string): never => { const item = spec.edges[edge]!; throw new DiagramGeometryError([{ path: `$.edges[${edge}]`, code: "unroutable", message: `Edge '${item.id ?? `${item.from} → ${item.to}`}': ${message}` }]); };
   const pairs: Pair[] = [], attachments = new Map<string, { edge: number; end: "from" | "to"; node: string; side: DiagramSide }[]>();
   const shapePorts=new Map<string,Set<DiagramSide>>();
+  const obstaclesFor = (fromNode: string, toNode: string) => nodes.filter(node => !groups.some(group => (group.id === fromNode || group.id === toNode) && spec.groups?.find(item => item.id === group.id)?.members.includes(node.id)));
+  const SHAPED = ["decision","merge","initial","final","start","end"];
+  // Ports adapt to where the other end and the earlier routes are: each free
+  // edge takes whichever facing side pair routes cheapest, crossings included.
+  const provisional: { points: DiagramPoint[] }[] = [], probes = new Map<number, DiagramPoint[]>();
+  const chooseSides = (edge: number, item: typeof spec.edges[number], from: DiagramBox, to: DiagramBox, geometric: [DiagramSide, DiagramSide]): [DiagramSide, DiagramSide] => {
+    const options: [DiagramSide, DiagramSide][] = [geometric];
+    for (const a of facingSides(from, to)) for (const b of facingSides(to, from)) if (a !== geometric[0] || b !== geometric[1]) options.push([a, b]);
+    // Crossings first; the geometric default wins every tie, so only a pair
+    // that avoids a crossing moves a port off the dominant flow.
+    let chosen = geometric, chosenPoints: DiagramPoint[] | undefined, chosenCost: [number, number] = [Infinity, Infinity];
+    for (const option of options) {
+      let points: DiagramPoint[] | null = null;
+      try { points = routingPoints({ from: sidePort(from, item.from, option[0]), to: sidePort(to, item.to, option[1]), id: "probe" }, obstaclesFor(item.from, item.to), [], routeFrame, false, 0, outlines); } catch { points = null; }
+      if (!points) continue;
+      const cost: [number, number] = [routeCrossings(points, provisional), option === geometric ? 0 : SIDE_BIAS + length(points) + points.length * 16];
+      if (cost[0] < chosenCost[0] || cost[0] === chosenCost[0] && cost[1] < chosenCost[1] - EPS) { chosen = option; chosenPoints = points; chosenCost = cost; }
+    }
+    if (chosenPoints) { provisional.push({ points: chosenPoints }); probes.set(edge, chosenPoints); }
+    return [...chosen];
+  };
   for (let edge = 0; edge < spec.edges.length; edge++) {
     const item = spec.edges[edge]!, from = boxes.get(item.from), to = boxes.get(item.to);
     if (!from || !to) fail(edge, "an endpoint does not exist");
     if (!contains(viewBox, from!) || !contains(viewBox, to!)) fail(edge, "an endpoint is outside the selected canvas; move it or use size: fit");
-    const sides: [DiagramSide, DiagramSide] = spec.type==="tree"&&(spec.hierarchy||spec.direction) ? spec.direction==="right"?["right","left"]:["bottom","top"] : "cycle" in item && item.cycle ? ["right", "right"] : sidePair(from!, to!, item.from === item.to);
+    const sides: [DiagramSide, DiagramSide] = spec.type==="tree"&&(spec.hierarchy||spec.direction) ? spec.direction==="right"?["right","left"]:["bottom","top"] : "cycle" in item && item.cycle ? ["right", "right"] : item.from === item.to || [item.from, item.to].some(id => SHAPED.includes(nodes.find(node => node.id === id)?.shape ?? "")) ? sidePair(from!, to!, item.from === item.to) : adaptive ? chooseSides(edge, item, from!, to!, sidePair(from!, to!, false)) : sidePair(from!, to!, false);
     for(const [end,id] of [[0,item.from],[1,item.to]] as const){
       const shape=nodes.find(node=>node.id===id)?.shape;
       if(shape && ["decision","merge","initial","final","start","end"].includes(shape)){
@@ -252,19 +377,68 @@ export function buildDiagram(input: DiagramSpec, options: DiagramGeometryOptions
     pairs.push({ from: { node: item.from, side: sides[0], x: 0, y: 0 }, to: { node: item.to, side: sides[1], x: 0, y: 0 }, id: item.id ?? `edge:${edge}` });
     for (const [end, side, node] of [["from", sides[0], item.from], ["to", sides[1], item.to]] as const) { const key = `${node}:${side}`; const list = attachments.get(key) ?? []; list.push({ edge, end, node, side }); attachments.set(key, list); }
   }
+  // Fan each side's ports in the order of their far endpoints, so routes
+  // sharing a side do not swap places and cross.
+  const far = (attachment: { edge: number; end: "from" | "to" }) => boxes.get(attachment.end === "from" ? spec.edges[attachment.edge]!.to : spec.edges[attachment.edge]!.from)!;
+  // The key is where the edge's probe route first heads along this side (an
+  // outer lane sorts outermost), else the far end's centre.
+  if (adaptive) for (const list of attachments.values()) list.sort((a, b) => {
+    const vertical = a.side === "left" || a.side === "right";
+    const key = (item: typeof a) => {
+      const probe = probes.get(item.edge), points = probe && (item.end === "from" ? probe : [...probe].reverse()), turn = points?.[2] ?? points?.at(-1);
+      const c = turn ?? center(far(item)); return vertical ? c.y : c.x;
+    };
+    const farKey = (item: typeof a) => { const c = center(far(item)); return vertical ? c.y : c.x; };
+    return key(a) - key(b) || farKey(a) - farKey(b) || a.edge - b.edge;
+  });
+  const slots = new Map<string, { key: string; index: number }>();
   for (const list of attachments.values()) list.forEach((attachment, index) => {
     const box = boxes.get(attachment.node)!, vertical = attachment.side === "left" || attachment.side === "right", length = vertical ? box.height : box.width;
     const offset = length * (index + 1) / (list.length + 1), gap = length / (list.length + 1);
     const dot = nodes.some(node => node.id === attachment.node && ["merge", "initial", "final"].includes(node.shape ?? ""));
     if ((!dot && (offset < 8 - EPS || length - offset < 8 - EPS)) || list.length > 1 && gap < (length < 48 ? 8 : 12) - EPS) fail(attachment.edge, "the endpoint edge has no legal fanned port spacing (12px, or 8px below 48px)");
     const port = pairs[attachment.edge]![attachment.end]; port.x = vertical ? box.x + (attachment.side === "right" ? box.width : 0) : box.x + offset; port.y = vertical ? box.y + offset : box.y + (attachment.side === "bottom" ? box.height : 0);
+    slots.set(`${attachment.edge}:${attachment.end}`, { key: `${attachment.node}:${attachment.side}`, index });
   });
+  // Ports adapt while routing: the fanned slots of a side are fixed, but each
+  // edge takes the free slot pair at its two ends that routes cheapest
+  // against the routes already placed. Leaving sorted order costs a little.
+  const slotPoints = new Map<string, DiagramPoint[]>(), taken = new Set<string>();
+  for (const [id, slot] of slots) { const [edge, end] = id.split(":") as [string, "from" | "to"]; const port = pairs[Number(edge)]![end]; const list = slotPoints.get(slot.key) ?? []; list[slot.index] = { x: port.x, y: port.y }; slotPoints.set(slot.key, list); }
   const connectors: DiagramConnector[] = [];
-  for (let edge = 0; edge < spec.edges.length; edge++) {
+  // Long routes go first, so the edges that must wrap around claim the outer slots.
+  const probeLength = (edge: number) => { const probe = probes.get(edge); return probe ? length(probe) + probe.length * 16 : 0; };
+  const rank = (edge: number) => { const index = priority.indexOf(edge); return index < 0 ? Infinity : index; };
+  const order = [...spec.edges.keys()]; if (adaptive) order.sort((a, b) => rank(a) - rank(b) || probeLength(b) - probeLength(a) || a - b);
+  for (const edge of order) {
     const pair = pairs[edge]!, item = spec.edges[edge]!;
-    const obstacles = nodes.filter(node => !groups.some(group => (group.id === pair.from.node || group.id === pair.to.node) && spec.groups?.find(item => item.id === group.id)?.members.includes(node.id)));
+    const obstacles = obstaclesFor(pair.from.node, pair.to.node);
+    let chosenRoute: DiagramPoint[] | null | undefined;
+    if (adaptive && !("cycle" in item && item.cycle)) {
+      const ends = (["from", "to"] as const).map(end => { const slot = slots.get(`${edge}:${end}`)!; return { end, slot, free: slotPoints.get(slot.key)!.map((point, index) => ({ point, index })).filter(option => !taken.has(`${slot.key}:${option.index}`)) }; });
+      let bestCost = Infinity, best: [number, number] | undefined; chosenRoute = undefined;
+      for (const a of ends[0]!.free) for (const b of ends[1]!.free) {
+        if (ends[0]!.slot.key === ends[1]!.slot.key && a.index === b.index) continue;
+        const trial: Pair = { ...pair, from: { ...pair.from, ...a.point }, to: { ...pair.to, ...b.point } };
+        let route: DiagramPoint[] | null = null;
+        // Nest over unrouted siblings on the same side whose far ends lie the same way.
+        const heading = Math.sign(center(boxes.get(item.to)!).x - a.point.x) || Math.sign(center(boxes.get(item.to)!).y - a.point.y);
+        const nest = (attachments.get(ends[0]!.slot.key) ?? []).some(other => other.edge !== edge && !connectors.some(route => route.edge === other.edge)
+          && Math.sign((pairs[other.edge]!.from.node === pair.from.node ? center(boxes.get(spec.edges[other.edge]!.to)!) : center(boxes.get(spec.edges[other.edge]!.from)!)).x - a.point.x) === heading);
+        try { route = routingPoints(trial, obstacles, connectors, routeFrame, false, CROSSING_COST, outlines, nest); } catch { route = null; }
+        if (!route) continue;
+        const cost = length(route) + route.length * 16 + routeCrossings(route, connectors) * CROSSING_COST + (Math.abs(a.index - ends[0]!.slot.index) + Math.abs(b.index - ends[1]!.slot.index)) * SLOT_COST;
+        if (cost < bestCost - EPS) { bestCost = cost; best = [a.index, b.index]; chosenRoute = route; }
+      }
+      if (best) for (const [i, end] of (["from", "to"] as const).entries()) {
+        const slot = ends[i]!.slot, point = slotPoints.get(slot.key)![best[i]!]!;
+        pair[end].x = point.x; pair[end].y = point.y; taken.add(`${slot.key}:${best[i]}`);
+      }
+    }
     let points: DiagramPoint[] | null;
-    try { points = routingPoints(pair, obstacles, connectors, viewBox, "cycle" in item && item.cycle === true); } catch (error) { fail(edge, (error as Error).message); }
+    // The slot search already routed this edge with its nesting context; keep that route.
+    if (chosenRoute) points = chosenRoute;
+    else try { points = routingPoints(pair, obstacles, connectors, adaptive ? routeFrame : viewBox, "cycle" in item && item.cycle === true, adaptive ? CROSSING_COST : 0, adaptive ? outlines : []); } catch (error) { fail(edge, (error as Error).message); }
     let transit: string[] = [];
     if (!points!) {
       const direct = [pair.from, pair.to];
@@ -282,6 +456,7 @@ export function buildDiagram(input: DiagramSpec, options: DiagramGeometryOptions
     }
     connectors.push(connector);
   }
+  connectors.sort((a, b) => a.edge - b.edge);
   const cardinalities: DiagramCardinality[] = [];
   if (spec.type === "er") for (const connector of connectors) {
     const edge = spec.edges[connector.edge]!;
@@ -289,7 +464,7 @@ export function buildDiagram(input: DiagramSpec, options: DiagramGeometryOptions
       const text = end === "from" ? edge.fromCardinality : edge.toCardinality; if (!text) continue;
       const port = connector[end], n = normal(port.side), width = Math.ceil((typeWidthBudget(text, "label") + 8) / 4) * 4;
       const box: DiagramCardinality = {kind:"cardinality",edge:connector.edge,end,text,width,height:16,x:n.x ? port.x + (n.x > 0 ? 12 : -12-width) : port.x+12,y:n.y ? port.y + (n.y>0?12:-28) : port.y-24};
-      if (!contains(viewBox,box) || nodes.some(node=>overlaps(box,node)) || cardinalities.some(other=>overlaps(box,other)) || connectors.some(route=>route.points.slice(1).some((point,index)=>segmentHits(route.points[index]!,point,box,LABEL_GAP)) || route.bridges.some(bridge=>overlaps(box,{x:bridge.x-14,y:bridge.y-14,width:28,height:28})) || route.points.slice(1,-1).some((corner,index)=>overlaps(box,cornerBounds(route.points[index]!,corner,route.points[index+2]!))))) fail(connector.edge,"cardinality has no readable endpoint clearance; move nodes");
+      if (!contains(viewBox,box) || nodes.some(node=>overlaps(box,node)) || cardinalities.some(other=>overlaps(box,other)) || groups.some(group=>overlaps(box,diagramGroupHeading(group))) || connectors.some(route=>route.points.slice(1).some((point,index)=>segmentHits(route.points[index]!,point,box,LABEL_GAP)) || route.bridges.some(bridge=>overlaps(box,{x:bridge.x-14,y:bridge.y-14,width:28,height:28})) || route.points.slice(1,-1).some((corner,index)=>overlaps(box,cornerBounds(route.points[index]!,corner,route.points[index+2]!))))) fail(connector.edge,"cardinality has no readable endpoint clearance; move nodes");
       cardinalities.push(box);
     }
   }
@@ -310,11 +485,28 @@ export function buildDiagram(input: DiagramSpec, options: DiagramGeometryOptions
         candidates.push({ kind: "label-mask", edge: connector.edge, opaque: true, gap: 8, segment, x, y, width, height });
       }
     }
-    const mask = candidates.find(candidate => contains(viewBox, candidate) && !nodes.some(node => overlaps(candidate, node)) && !masks.some(mask => overlaps(candidate, mask)) && !cardinalities.some(label => overlaps(candidate,label)) && !connectors.some(route => route.points.slice(1).some((point, i) => segmentHits(route.points[i]!, point, candidate, LABEL_GAP)) ||
+    const mask = candidates.find(candidate => contains(viewBox, candidate) && !nodes.some(node => overlaps(candidate, node)) && !masks.some(mask => overlaps(candidate, mask)) && !cardinalities.some(label => overlaps(candidate,label)) && !groups.some(group => overlaps(candidate, diagramGroupHeading(group))) && !connectors.some(route => route.points.slice(1).some((point, i) => segmentHits(route.points[i]!, point, candidate, LABEL_GAP)) ||
       route.bridges.some(bridge => overlaps(candidate, { x: bridge.x - 6 - LABEL_GAP, y: bridge.y - 6 - LABEL_GAP, width: 12 + 2 * LABEL_GAP, height: 12 + 2 * LABEL_GAP })) ||
       route.points.slice(1, -1).some((corner, index) => overlaps(candidate, cornerBounds(route.points[index]!, corner, route.points[index + 2]!)))));
     if (!mask) fail(connector.edge, "the label has no opaque open-canvas mask with an 8px connector gap; move boxes or shorten the label");
     masks.push(mask!); labels.push({ kind: "edge-label", edge: connector.edge, text, fontSize, x: mask!.x, y: mask!.y, width, height });
+  }
+  // A fitted image is everything painted plus one uniform margin, on the 4px grid.
+  if (spec.size === "fit") {
+    const painted: DiagramBox[] = [...groups.map(diagramGroupBounds), ...nodes, ...masks, ...labels, ...cardinalities,
+      ...connectors.flatMap(route => route.points.map(point => ({ x: point.x, y: point.y, width: 0, height: 0 })))];
+    if (painted.length) {
+      // The margin is exact on the top and left; only the size rounds up to the grid.
+      const left = Math.min(...painted.map(box => box.x)) - DIAGRAM_MARGIN, top = Math.min(...painted.map(box => box.y)) - DIAGRAM_MARGIN;
+      const width = Math.ceil((Math.max(...painted.map(box => box.x + box.width)) + DIAGRAM_MARGIN - left - EPS) / 4) * 4;
+      const height = Math.ceil((Math.max(...painted.map(box => box.y + box.height)) + DIAGRAM_MARGIN - top - EPS) / 4) * 4;
+      // Callouts are planned later in the space authors leave around their boxes:
+      // keep the reserved frame and only extend it where the margin is short.
+      if (spec.callouts?.length) {
+        const x0 = Math.min(viewBox.x, left), y0 = Math.min(viewBox.y, top);
+        Object.assign(viewBox, { x: x0, y: y0, width: Math.ceil((Math.max(viewBox.x + viewBox.width, left + width) - x0 - EPS) / 4) * 4, height: Math.ceil((Math.max(viewBox.y + viewBox.height, top + height) - y0 - EPS) / 4) * 4 });
+      } else Object.assign(viewBox, { x: left, y: top, width, height });
+    }
   }
   return { schema_version: 1, type: spec.type, grammar: spec.type === "architecture" && spec.containment ? "architecture-containment" : undefined, title: spec.title, desc: spec.desc, viewBox, elements: [...groups, ...connectors, ...masks, ...labels, ...cardinalities, ...nodes] };
 }

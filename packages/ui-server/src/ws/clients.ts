@@ -92,6 +92,15 @@ export class ClientSet {
     return this.clients.size > 0;
   }
 
+  /** Whether any attached socket of `principalId` declared `capability`. */
+  anyDeclares(capability: string, principalId?: string): boolean {
+    for (const client of this.clients.values()) {
+      if (principalId !== undefined && client.principalId !== principalId) continue;
+      if (client.capabilities?.[capability] === true) return true;
+    }
+    return false;
+  }
+
   /**
    * Close and forget only sockets admitted for one principal.
    */
@@ -151,12 +160,13 @@ export class ClientSet {
     onSendError?: (err: unknown) => void,
     /** Only connections that declared this `client_hello` capability. */
     requiredCapability?: string,
-    principalId?: string
+    /** Only this principal's connections, or only those of the principals it admits. */
+    principalId?: string | ((principalId: string) => boolean)
   ): void {
     if (this.clients.size === 0) return;
     const payload = JSON.stringify(shrinkForReplication(msg));
     for (const { ws, capabilities, principalId: owner } of this.clients.values()) {
-      if (principalId !== undefined && owner !== principalId) continue;
+      if (typeof principalId === "string" ? owner !== principalId : principalId !== undefined && !principalId(owner)) continue;
       if (requiredCapability !== undefined && capabilities?.[requiredCapability] !== true) continue;
       try {
         // Bun's ServerWebSocket reports a dropped write by RETURNING 0 (closed

@@ -60,6 +60,10 @@ try {
 } finally {
   clearTimeout(timer);
   // A connection opened while the runtime exits still reaches the recorder.
+  // Negative window: no event reports that the exiting runtime opens no more
+  // connections. A barrier on the runtime's close, a FIFO marker connection and
+  // every accepted socket closing was tried (#3440): Bun's node:http reported the
+  // marker about 1 s late, so it was slower than this window.
   await Bun.sleep(500);
   recorder.close(); relay.stop(true);
 }

@@ -83,15 +83,15 @@ export function PolicyChangeCard({ toolCall, onApproval }: {
         {!verified ? <p className="text-xs" role="status">Reading the complete proposal…</p> : diffs}
         {review.warnings.map(warning => <Callout key={warning} tone="gold" text={warning} />)}
         {readError && <Callout tone="gold" text={readError} />}
-        <Button label="Read full policy diff" tone="quiet" size="md" style={{ minHeight: 44, marginBlock: 8 }} onClick={() => { trigger.current = document.activeElement as HTMLElement; setReader(true); }} />
-        {readError && <Button label="Check again" tone="quiet" size="md" style={{ minHeight: 44 }} onClick={() => void check()} />}
+        <Button label="Read full policy diff" tone="quiet" size="md" reach style={{ marginBlock: 8 }} onClick={() => { trigger.current = document.activeElement as HTMLElement; setReader(true); }} />
+        {readError && <Button label="Check again" tone="quiet" size="md" reach onClick={() => void check()} />}
       </ApprovalCard>
       <span className="sr-only" role="status">Policy change proposed. Review before approving.</span>
     </div> : <div ref={receipt} tabIndex={-1} data-policy-receipt className="rounded-md border border-border-subtle p-3 outline-none focus-visible:ring-2 focus-visible:ring-primary/50">
       <p role="status" className="text-sm">{voiceLocked ? toolCall.voicePermission?.word : busy ? review.message : readError || review.message}</p>
       <p className="font-mono text-xs">{review.state === "updated" ? `${review.baseHash ?? "defaults"} → ${review.proposedHash}` : `Based on ${review.baseHash ?? "no policy file"}`}</p>
-      {review.state === "updated" && <Button label="View policy" tone="quiet" size="md" style={{ minHeight: 44 }} onClick={() => { const opener = document.activeElement; if (opener instanceof HTMLElement) openFile(opener, opener.matches(":focus-visible")); }} />}
-      {!busy && (review.state === "unknown" || readError) && <Button label="Check again" tone="quiet" size="md" style={{ minHeight: 44 }} onClick={() => { explicit.current = true; void check(); }} />}
+      {review.state === "updated" && <Button label="View policy" tone="quiet" size="md" reach onClick={() => { const opener = document.activeElement; if (opener instanceof HTMLElement) openFile(opener, opener.matches(":focus-visible")); }} />}
+      {!busy && (review.state === "unknown" || readError) && <Button label="Check again" tone="quiet" size="md" reach onClick={() => { explicit.current = true; void check(); }} />}
     </div>}
     <Overlay open={reader} onClose={() => setReader(false)} variant="dialog" title="Policy diff" size="lg" initialFocus={heading}
       returnFocus={() => trigger.current?.isConnected ? trigger.current : receipt.current}>

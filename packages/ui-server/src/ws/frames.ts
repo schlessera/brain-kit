@@ -30,7 +30,7 @@ export function withTurnScope(
 
 /**
  * The approval card for a permission request, before turn scoping. One
- * builder for the first emission (bridge.ts) and the re-delivery on reconnect
+ * builder for the first emission (bridge-capabilities/permissions.ts) and the re-delivery on reconnect
  * (connection.ts), so a card that survives a screen lock says exactly what it
  * said the first time. `rememberable: false` mirrors the refusals dispatch.ts
  * applies to an "always allow" — outside the enforced allowlist, or with no
@@ -49,7 +49,7 @@ export function approvalRequestFrame(
     input: req.input,
     description: req.description,
     ...(req.kind ? { kind: req.kind } : {}),
-    ...(req.kind === "policy" || req.outsideEnforcedAllowlist || !hasGrantStore ? { rememberable: false } : {}),
+    ...(req.kind === "policy" || req.outsideEnforcedAllowlist || (!hasGrantStore && req.kind !== "actor") ? { rememberable: false } : {}),
   };
 }
 

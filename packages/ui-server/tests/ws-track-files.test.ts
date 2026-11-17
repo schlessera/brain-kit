@@ -60,7 +60,7 @@ test("actual dispatch carries nonempty server-derived track evidence through fir
     expect(history.messages.map(m => m.content)).toEqual(["Show this file", "Compare this file"]);
     expect(history.messages.map(m => m.files?.[0]?.path)).toEqual([path, path]);
     expect(history.messages[0]!.files![0]!.summary!.measurements.distance.value!).toBeGreaterThan(100);
-  } finally { release(); host.coordinator.reset(); host.close(); db.close(); }
+  } finally { release(); host.close(); db.close(); }
 });
 
 test("the real socket parser refuses bad file references before a backend runs", async () => {
@@ -78,7 +78,7 @@ test("the real socket parser refuses bad file references before a backend runs",
     await until(() => frames.length > 1);
     expect(frames[1]).toMatchObject({ type: "error", code: "ATTACHMENT_REJECTED" });
     expect(calls).toBe(0);
-  } finally { host.coordinator.reset(); host.close(); db.close(); }
+  } finally { host.close(); db.close(); }
 });
 
 import { writeFile } from "node:fs/promises";
@@ -123,7 +123,7 @@ test("track Retry refuses changed original bytes before acceptance and retains e
     expect(calls[0]!.prompt).toBe(prompt);
     const receipt = frames.find(f => f.type === "retry_receipt" && f.requestId === "exact-file");
     expect(receipt?.type === "retry_receipt" && receipt.files?.[0]?.sha256).toBe(files[0]!.sha256);
-  } finally { host.coordinator.reset(); host.close(); db.close(); }
+  } finally { host.close(); db.close(); }
 });
 
 test("a native live follow-up receives validated track evidence and replay restores its nonempty file chip", async () => {
@@ -148,7 +148,7 @@ test("a native live follow-up receives validated track evidence and replay resto
     await handleClientMessage(host, ws, { type: "session_resume", sessionId: "native-track-session" }, connection);
     const replay = frames.findLast(frame => frame.type === "session_history"); if (replay?.type !== "session_history") throw Error("No replay.");
     expect(replay.messages[1]!.content).toBe("Use this original"); expect(replay.messages[1]!.files).toHaveLength(1); expect(replay.messages[1]!.files![0]!.summary!.counts.retained).toBe(2);
-  } finally { release(); host.coordinator.reset(); host.close(); db.close(); }
+  } finally { release(); host.close(); db.close(); }
 });
 
 for (const withFile of [true, false]) {
@@ -180,6 +180,6 @@ for (const withFile of [true, false]) {
         expect(result.retryOfTurnId).toBeTruthy();
         expect(db.query("SELECT COUNT(*) AS n FROM retry_requests").get()).toEqual({ n: 1 });
       }
-    } finally { host.coordinator.reset(); host.close(); db.close(); }
+    } finally { host.close(); db.close(); }
   });
 }

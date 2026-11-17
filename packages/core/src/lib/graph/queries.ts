@@ -1,13 +1,14 @@
 /**
- * Read side of the graph, used by the `brain graph` CLI.
- *
- * ui-server has its own reader over the same tables (it deliberately does not
- * depend on core). Both are governed by docs/integration-contract.md — change
- * the table shapes and both must move.
+ * The `brain graph` CLI's graph modes: the CLI profile of the shared graph
+ * reader (`GraphReader`, `./reader.ts`). This adapter owns the `--json`
+ * shapes and node materialization; the reader's header lists every way this
+ * profile differs from the supported `./queries` API. Both read the same
+ * tables, which docs/integration-contract.md governs.
  */
 
 import type { Database } from "bun:sqlite";
 
+import { CLI_GRAPH_PROFILE, GraphReader, VIRTUAL_ROOT_ID, parseGraphRootKey, type Walk } from "./reader.js";
 import type {
   GraphDirection,
   GraphEdgeRecord,
@@ -15,14 +16,12 @@ import type {
   GraphSubgraph,
 } from "./types.js";
 
-/** Depth beyond this stops being a neighbourhood and becomes the whole vault. */
-export const MAX_EGO_DEPTH = 3;
-/** Discovery rings past this are noise at any realistic corpus size. */
-export const MAX_DISCOVERY_DEPTH = 8;
-/** Default staleness horizon, matching the core taxonomy default. */
-export const DEFAULT_STALE_DAYS = 180;
-/** The synthesized virtual-root node; no document carries id 0. */
-export const VIRTUAL_ROOT_ID = 0;
+export {
+  DEFAULT_STALE_DAYS,
+  MAX_DISCOVERY_DEPTH,
+  MAX_NEIGHBORHOOD_DEPTH as MAX_EGO_DEPTH,
+  VIRTUAL_ROOT_ID,
+} from "./reader.js";
 
 interface DocumentRow {
   id: number;
@@ -42,97 +41,49 @@ interface MetricsRow {
 }
 
 /**
- * Nodes, both adjacency directions and degrees, straight from `links` — no
- * derived table involved. Every mode that walks the graph per request (ego,
- * arbitrary-root discovery, orphan detection) runs off this, so those modes
- * keep working before the first precompute.
+ * The CLI's nodes, in document id order, over the reader's link structure.
+ * Degrees and walks come straight from `links` — no derived table involved —
+ * so the ego, explicit-root discovery and orphan modes keep working before the
+ * first precompute.
  */
-interface Adjacency {
+interface CliGraph {
+  reader: GraphReader;
   docs: Map<number, DocumentRow>;
-  idByPath: Map<string, number>;
   out: Map<number, number[]>;
   in: Map<number, number[]>;
   edges: GraphEdgeRecord[];
 }
 
-function loadAdjacency(db: Database): Adjacency {
+/** Every CLI graph read selects the CLI profile here, and only here. */
+function cliReader(db: Database): GraphReader {
+  return new GraphReader(db, CLI_GRAPH_PROFILE);
+}
+
+function openGraph(db: Database): CliGraph {
+  const reader = cliReader(db);
   const docs = new Map<number, DocumentRow>();
-  const idByPath = new Map<string, number>();
   const rows = db
     .prepare(
-      `SELECT id, path, title, type, updated
-       FROM documents WHERE asset_type = 'markdown' ORDER BY id`
+      `SELECT d.id AS id, d.path AS path, d.title AS title, d.type AS type, d.updated AS updated
+       FROM documents d WHERE ${reader.scope} ORDER BY d.id`
     )
     .all() as DocumentRow[];
-  for (const row of rows) {
-    docs.set(row.id, row);
-    idByPath.set(row.path, row.id);
-  }
-
-  const out = new Map<number, number[]>();
-  const inbound = new Map<number, number[]>();
-  const edges: GraphEdgeRecord[] = [];
-  const seen = new Set<string>();
-
-  const linkRows = db
-    .prepare(
-      `SELECT source_id AS source, target_id AS target
-       FROM links WHERE target_id IS NOT NULL ORDER BY source_id, target_id`
-    )
-    .all() as { source: number; target: number }[];
-
-  for (const link of linkRows) {
-    if (!docs.has(link.source) || !docs.has(link.target)) continue;
-    if (link.source === link.target) continue;
-    const key = `${link.source}>${link.target}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-
-    edges.push({ source: link.source, target: link.target });
-
-    const outbound = out.get(link.source);
-    if (outbound) outbound.push(link.target);
-    else out.set(link.source, [link.target]);
-
-    const incoming = inbound.get(link.target);
-    if (incoming) incoming.push(link.source);
-    else inbound.set(link.target, [link.source]);
-  }
-
-  return { docs, idByPath, out, in: inbound, edges };
+  for (const row of rows) docs.set(row.id, row);
+  const links = reader.links();
+  return { reader, docs, out: links.out, in: links.in, edges: links.edges };
 }
 
-function neighbors(adjacency: Adjacency, id: number, direction: GraphDirection): number[] {
-  if (direction === "out") return adjacency.out.get(id) ?? [];
-  if (direction === "in") return adjacency.in.get(id) ?? [];
-  return [...(adjacency.out.get(id) ?? []), ...(adjacency.in.get(id) ?? [])];
-}
-
-/**
- * A read-only connection never runs migrations, so these tables are simply
- * absent on a pre-v8 database. Missing derived data degrades every mode to the
- * links-only view rather than failing the command.
- */
-function queryOrEmpty<T>(db: Database, sql: string, params: unknown[] = []): T[] {
-  try {
-    return db.prepare(sql).all(...(params as never[])) as T[];
-  } catch {
-    return [];
-  }
-}
-
-function loadMetrics(db: Database): Map<number, MetricsRow> {
+function loadMetrics(graph: CliGraph): Map<number, MetricsRow> {
   const metrics = new Map<number, MetricsRow>();
-  for (const row of queryOrEmpty<MetricsRow>(db, "SELECT * FROM graph_metrics")) {
+  for (const row of graph.reader.derived<MetricsRow>("SELECT * FROM graph_metrics")) {
     metrics.set(row.document_id, row);
   }
   return metrics;
 }
 
-function loadLayout(db: Database, mode = "clusters"): Map<number, { x: number; y: number }> {
+function loadLayout(graph: CliGraph, mode = "clusters"): Map<number, { x: number; y: number }> {
   const layout = new Map<number, { x: number; y: number }>();
-  const rows = queryOrEmpty<{ id: number; x: number; y: number }>(
-    db,
+  const rows = graph.reader.derived<{ id: number; x: number; y: number }>(
     "SELECT document_id AS id, x, y FROM graph_layouts WHERE mode = ?",
     [mode]
   );
@@ -143,7 +94,7 @@ function loadLayout(db: Database, mode = "clusters"): Map<number, { x: number; y
 /** Assemble one node, taking degrees from adjacency and the rest from metrics. */
 function toNode(
   doc: DocumentRow,
-  adjacency: Adjacency,
+  graph: CliGraph,
   metrics?: MetricsRow,
   extra: Partial<GraphQueryNode> = {}
 ): GraphQueryNode {
@@ -152,8 +103,8 @@ function toNode(
     path: doc.path,
     title: doc.title,
     type: doc.type,
-    inDegree: metrics?.in_degree ?? (adjacency.in.get(doc.id) ?? []).length,
-    outDegree: metrics?.out_degree ?? (adjacency.out.get(doc.id) ?? []).length,
+    inDegree: metrics?.in_degree ?? (graph.in.get(doc.id) ?? []).length,
+    outDegree: metrics?.out_degree ?? (graph.out.get(doc.id) ?? []).length,
   };
   if (metrics) {
     if (metrics.community !== null) node.community = metrics.community;
@@ -162,9 +113,19 @@ function toNode(
   return { ...node, ...extra };
 }
 
-/** Edges with both endpoints inside `ids`. */
-function inducedEdges(adjacency: Adjacency, ids: Set<number>): GraphEdgeRecord[] {
-  return adjacency.edges.filter((edge) => ids.has(edge.source) && ids.has(edge.target));
+function degree(graph: CliGraph, id: number): number {
+  return (graph.out.get(id) ?? []).length + (graph.in.get(id) ?? []).length;
+}
+
+const EMPTY: () => GraphSubgraph = () => ({ nodes: [], edges: [], truncated: false });
+
+/** Nodes for every reached id, in walk order, with edges among them. */
+function walkScene(graph: CliGraph, walk: Walk, cap: number): GraphSubgraph {
+  const metrics = loadMetrics(graph);
+  const nodes = [...walk.distances.entries()].map(([id, distance]) =>
+    toNode(graph.docs.get(id)!, graph, metrics.get(id), { distance })
+  );
+  return graph.reader.scene(nodes, graph.edges, cap, walk.truncated);
 }
 
 export interface ClusterGraphOptions {
@@ -179,27 +140,22 @@ export interface ClusterGraphOptions {
  * first v8 index run — the caller reports that, this returns no rows.
  */
 export function getClusterGraph(db: Database, options: ClusterGraphOptions = {}): GraphSubgraph {
-  const adjacency = loadAdjacency(db);
-  const metrics = loadMetrics(db);
-  const layout = loadLayout(db);
-  const includeIsolates = options.includeIsolates ?? true;
+  const graph = openGraph(db);
+  const metrics = loadMetrics(graph);
+  const layout = loadLayout(graph);
+  const includeIsolates = graph.reader.includeIsolates(options.includeIsolates);
 
   const nodes: GraphQueryNode[] = [];
-  const ids = new Set<number>();
-  for (const doc of adjacency.docs.values()) {
+  for (const doc of graph.docs.values()) {
     const nodeMetrics = metrics.get(doc.id);
     if (options.community !== undefined && nodeMetrics?.community !== options.community) continue;
-
-    const degree =
-      (adjacency.out.get(doc.id) ?? []).length + (adjacency.in.get(doc.id) ?? []).length;
-    if (!includeIsolates && degree === 0) continue;
+    if (!includeIsolates && degree(graph, doc.id) === 0) continue;
 
     const position = layout.get(doc.id);
-    nodes.push(toNode(doc, adjacency, nodeMetrics, position ? { x: position.x, y: position.y } : {}));
-    ids.add(doc.id);
+    nodes.push(toNode(doc, graph, nodeMetrics, position ? { x: position.x, y: position.y } : {}));
   }
 
-  return { nodes, edges: inducedEdges(adjacency, ids), truncated: false };
+  return graph.reader.scene(nodes, graph.edges, graph.reader.profile.sceneNodes);
 }
 
 export interface EgoGraphOptions {
@@ -214,34 +170,12 @@ export interface EgoGraphOptions {
  * one mode that works against a database that has never been precomputed.
  */
 export function getEgoGraph(db: Database, options: EgoGraphOptions): GraphSubgraph {
-  const adjacency = loadAdjacency(db);
-  const metrics = loadMetrics(db);
-  const depth = Math.min(Math.max(options.depth ?? 1, 1), MAX_EGO_DEPTH);
-  const direction = options.direction ?? "both";
+  const graph = openGraph(db);
+  const centerId = graph.reader.lookup(options.center);
+  if (centerId === null) return EMPTY();
 
-  const centerId = adjacency.idByPath.get(options.center);
-  if (centerId === undefined) return { nodes: [], edges: [], truncated: false };
-
-  const distances = new Map<number, number>([[centerId, 0]]);
-  let frontier = [centerId];
-  for (let hop = 1; hop <= depth && frontier.length > 0; hop++) {
-    const next: number[] = [];
-    for (const id of frontier) {
-      for (const neighbor of neighbors(adjacency, id, direction)) {
-        if (distances.has(neighbor)) continue;
-        distances.set(neighbor, hop);
-        next.push(neighbor);
-      }
-    }
-    frontier = next;
-  }
-
-  const ids = new Set(distances.keys());
-  const nodes = [...distances.entries()].map(([id, distance]) =>
-    toNode(adjacency.docs.get(id)!, adjacency, metrics.get(id), { distance })
-  );
-
-  return { nodes, edges: inducedEdges(adjacency, ids), truncated: false };
+  const walk = graph.reader.neighborhood(centerId, options.depth, options.direction);
+  return walkScene(graph, walk, graph.reader.profile.neighborhoodNodes);
 }
 
 export interface DiscoveryGraphOptions {
@@ -261,73 +195,49 @@ export function getDiscoveryGraph(
   db: Database,
   options: DiscoveryGraphOptions = {}
 ): GraphSubgraph {
-  const adjacency = loadAdjacency(db);
-  const metrics = loadMetrics(db);
-  const direction = options.direction ?? "out";
-  const maxDepth = Math.min(Math.max(options.maxDepth ?? MAX_DISCOVERY_DEPTH, 1), MAX_DISCOVERY_DEPTH);
+  const graph = openGraph(db);
+  const maxDepth = graph.reader.discoveryDepth(options.maxDepth);
 
   if (options.root) {
-    const rootId = adjacency.idByPath.get(options.root);
-    if (rootId === undefined) return { nodes: [], edges: [], truncated: false };
+    const rootId = graph.reader.lookup(options.root);
+    if (rootId === null) return EMPTY();
 
-    const distances = new Map<number, number>([[rootId, 0]]);
-    let frontier = [rootId];
-    for (let hop = 1; hop <= maxDepth && frontier.length > 0; hop++) {
-      const next: number[] = [];
-      for (const id of frontier) {
-        for (const neighbor of neighbors(adjacency, id, direction)) {
-          if (distances.has(neighbor)) continue;
-          distances.set(neighbor, hop);
-          next.push(neighbor);
-        }
-      }
-      frontier = next;
-    }
-
-    const ids = new Set(distances.keys());
-    const nodes = [...distances.entries()].map(([id, distance]) =>
-      toNode(adjacency.docs.get(id)!, adjacency, metrics.get(id), { distance })
-    );
-    return { nodes, edges: inducedEdges(adjacency, ids), truncated: false };
+    const walk = graph.reader.discovery(rootId, maxDepth, options.direction);
+    return walkScene(graph, walk, graph.reader.profile.sceneNodes);
   }
 
-  const rootKey = getGraphMetaValue(db, "graph_root");
-  const rows = queryOrEmpty<{ id: number; distance: number; parentId: number | null }>(
-    db,
-    "SELECT document_id AS id, distance, parent_id AS parentId FROM graph_root_distances"
-  );
-
+  const metrics = loadMetrics(graph);
+  const root = parseGraphRootKey(getGraphMetaValue(db, "graph_root"));
   const nodes: GraphQueryNode[] = [];
   const ids = new Set<number>();
-  for (const row of rows) {
-    const doc = adjacency.docs.get(row.id);
-    if (!doc || row.distance > maxDepth) continue;
-    nodes.push(toNode(doc, adjacency, metrics.get(row.id), { distance: row.distance }));
-    ids.add(row.id);
+  for (const [id, distance] of graph.reader.rootDistances()) {
+    const doc = graph.docs.get(id);
+    if (!doc || distance > maxDepth) continue;
+    nodes.push(toNode(doc, graph, metrics.get(id), { distance }));
+    ids.add(id);
   }
 
-  const edges = inducedEdges(adjacency, ids);
-
-  // A virtual root is drawn from its recorded seed list; an indexed root is
-  // already one of the nodes above at distance 0.
-  if (rootKey?.startsWith("virtual:")) {
-    const path = rootKey.slice("virtual:".length);
+  // A virtual root is drawn from its recorded seed list, after the edges
+  // between documents; an indexed root is already one of the nodes above at
+  // distance 0.
+  const edges = [...graph.edges];
+  if (root?.virtual) {
     nodes.unshift({
       id: VIRTUAL_ROOT_ID,
-      path,
-      title: path,
+      path: root.path,
+      title: root.path,
       type: "index",
       inDegree: 0,
       outDegree: 0,
       distance: 0,
       virtual: true,
     });
-    for (const seedId of readRootLinks(db)) {
+    for (const seedId of graph.reader.rootLinks(getGraphMetaValue(db, "graph_root_links"))) {
       if (ids.has(seedId)) edges.push({ source: VIRTUAL_ROOT_ID, target: seedId });
     }
   }
 
-  return { nodes, edges, truncated: false };
+  return graph.reader.scene(nodes, edges, graph.reader.profile.sceneNodes);
 }
 
 export interface MaintenanceOptions {
@@ -355,44 +265,31 @@ export function getMaintenanceFindings(
   db: Database,
   options: MaintenanceOptions = {}
 ): MaintenanceFindings {
-  const adjacency = loadAdjacency(db);
-  const metrics = loadMetrics(db);
-  const staleDays = options.staleDays ?? DEFAULT_STALE_DAYS;
+  const graph = openGraph(db);
+  const metrics = loadMetrics(graph);
+  const staleDays = graph.reader.staleDays(options.staleDays);
   const root = getGraphMetaValue(db, "graph_root");
 
   const cutoff = new Date(Date.now() - staleDays * 86_400_000).toISOString().split("T")[0];
 
   const orphans: GraphQueryNode[] = [];
   const stale: (GraphQueryNode & { updated: string })[] = [];
-  for (const doc of adjacency.docs.values()) {
-    const degree =
-      (adjacency.out.get(doc.id) ?? []).length + (adjacency.in.get(doc.id) ?? []).length;
-    if (degree === 0) orphans.push(toNode(doc, adjacency, metrics.get(doc.id)));
+  for (const doc of graph.docs.values()) {
+    if (degree(graph, doc.id) === 0) orphans.push(toNode(doc, graph, metrics.get(doc.id)));
     if (doc.updated < cutoff) {
-      stale.push({ ...toNode(doc, adjacency, metrics.get(doc.id)), updated: doc.updated });
+      stale.push({ ...toNode(doc, graph, metrics.get(doc.id)), updated: doc.updated });
     }
   }
 
   const unreachable: GraphQueryNode[] = [];
   if (root) {
-    const reachable = new Set(
-      queryOrEmpty<{ id: number }>(db, "SELECT document_id AS id FROM graph_root_distances").map(
-        (row) => row.id
-      )
-    );
-    for (const doc of adjacency.docs.values()) {
-      if (!reachable.has(doc.id)) unreachable.push(toNode(doc, adjacency, metrics.get(doc.id)));
+    const reachable = graph.reader.rootDistances();
+    for (const doc of graph.docs.values()) {
+      if (!reachable.has(doc.id)) unreachable.push(toNode(doc, graph, metrics.get(doc.id)));
     }
   }
 
-  const brokenLinks = db
-    .prepare(
-      `SELECT d.path AS sourcePath, l.target AS target
-       FROM links l JOIN documents d ON d.id = l.source_id
-       WHERE l.target_id IS NULL
-       ORDER BY d.path, l.target`
-    )
-    .all() as { sourcePath: string; target: string }[];
+  const brokenLinks = graph.reader.brokenLinks();
 
   return { staleDays, root, orphans, unreachable, brokenLinks, stale };
 }
@@ -412,13 +309,13 @@ export interface GraphStats {
 
 /** Everything `brain graph stats` reports, straight out of the derived tables. */
 export function getGraphStats(db: Database): GraphStats {
-  const communities = queryOrEmpty<{
+  const reader = cliReader(db);
+  const communities = reader.derived<{
     community: number;
     size: number;
     label: string | null;
     topTerms: string | null;
   }>(
-    db,
     "SELECT community, size, label, top_terms AS topTerms FROM graph_communities ORDER BY size DESC, community ASC"
   ).map((row) => ({
     community: row.community,
@@ -427,7 +324,7 @@ export function getGraphStats(db: Database): GraphStats {
     topTerms: parseJsonArray(row.topTerms),
   }));
 
-  const count = (sql: string): number => queryOrEmpty<{ n: number }>(db, sql)[0]?.n ?? 0;
+  const count = (sql: string): number => reader.derived<{ n: number }>(sql)[0]?.n ?? 0;
 
   const algoRaw = getGraphMetaValue(db, "graph_algo");
   let algo: unknown = null;
@@ -445,13 +342,7 @@ export function getGraphStats(db: Database): GraphStats {
     nodes: count("SELECT COUNT(*) AS n FROM graph_metrics"),
     // Counted the way the graph counts them — deduped, self-links dropped, and
     // links into binary assets excluded — so this agrees with `graph compute`.
-    edges: count(
-      `SELECT COUNT(*) AS n FROM (
-         SELECT DISTINCT l.source_id, l.target_id FROM links l
-         JOIN documents s ON s.id = l.source_id AND s.asset_type = 'markdown'
-         JOIN documents t ON t.id = l.target_id AND t.asset_type = 'markdown'
-         WHERE l.source_id <> l.target_id)`
-    ),
+    edges: count(`SELECT COUNT(*) AS n FROM (${reader.edgeSql})`),
     brokenLinks: count("SELECT COUNT(*) AS n FROM links WHERE target_id IS NULL"),
     components: count("SELECT COUNT(DISTINCT component) AS n FROM graph_metrics"),
     reachable: count("SELECT COUNT(*) AS n FROM graph_root_distances"),
@@ -466,17 +357,6 @@ function parseJsonArray(raw: string | null): string[] {
   try {
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed.map(String) : [];
-  } catch {
-    return [];
-  }
-}
-
-function readRootLinks(db: Database): number[] {
-  const raw = getGraphMetaValue(db, "graph_root_links");
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.map(Number).filter(Number.isInteger) : [];
   } catch {
     return [];
   }

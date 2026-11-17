@@ -19,6 +19,8 @@
 import { DEFAULT_USER_AGENT } from "../config/env.js";
 import { RateLimiter, hostOf } from "../politeness/rate-limit.js";
 import { RobotsCache } from "../politeness/robots.js";
+import { checkPublicUrl, fetchPinned } from "../politeness/address.js";
+import type { AddressLookup, AddressPolicy, ResolvedAddress } from "../politeness/address.js";
 import { clearToFetch } from "../politeness/policy.js";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -38,7 +40,22 @@ export interface ScrapeClientOptions {
   /** Enforce robots.txt. Default true; see the robots module header. */
   respectRobots?: boolean;
   rateLimiter?: RateLimiter;
+  /**
+   * Shares a robots cache. A supplied cache keeps its own User-Agent and
+   * address policy; with `addressPolicy: "public-only"` it must have been
+   * built with the same policy, or the constructor throws.
+   */
   robots?: RobotsCache;
+  /**
+   * Which addresses requests may reach. Default `"any"`. `"public-only"`
+   * is for a caller fetching a URL a user supplied: it refuses non-public
+   * addresses on the initial request, every redirect hop and the robots.txt
+   * fetch, whatever `respectRobots` is, and connects to the address it
+   * checked (see the README for the proxy path).
+   */
+  addressPolicy?: AddressPolicy;
+  /** Resolver for `"public-only"` checks. Defaults to the system resolver. */
+  lookup?: AddressLookup;
 }
 
 export interface FetchOptions {
@@ -195,13 +212,26 @@ export class ScrapeClient {
   /** Share these owned objects with a browser to coordinate one run's requests. */
   readonly rateLimiter: RateLimiter;
   readonly robots: RobotsCache;
+  readonly addressPolicy: AddressPolicy;
+  private readonly lookup: AddressLookup | undefined;
 
   constructor(options: ScrapeClientOptions = {}) {
     this.userAgent = options.userAgent ?? DEFAULT_USER_AGENT;
     this.respectRobots = options.respectRobots ?? true;
     this.rateLimiter =
       options.rateLimiter ?? new RateLimiter({ defaultDelayMs: options.defaultDelayMs });
-    this.robots = options.robots ?? new RobotsCache();
+    this.addressPolicy = options.addressPolicy ?? "any";
+    this.lookup = options.lookup;
+    if (options.robots && this.addressPolicy === "public-only" && options.robots.addressPolicy !== "public-only") {
+      throw new TypeError(
+        `ScrapeClient addressPolicy "public-only" needs a robots cache built with the same policy; the supplied one is "${options.robots.addressPolicy}".`
+      );
+    }
+    this.robots = options.robots ?? new RobotsCache({
+      userAgent: this.userAgent,
+      addressPolicy: this.addressPolicy,
+      lookup: this.lookup,
+    });
   }
 
   /**
@@ -265,6 +295,11 @@ export class ScrapeClient {
       if (next.protocol !== "http:" && next.protocol !== "https:") {
         throw new Error(`${current} redirected to unsupported URL ${next.href}`);
       }
+      // Credentials in a redirect target are the site choosing what this
+      // client authenticates as, possibly somewhere else. Never sent.
+      if (next.username || next.password) {
+        throw new Error(`${current} redirected to a URL with embedded credentials`);
+      }
       current = next.href;
     }
   }
@@ -275,6 +310,9 @@ export class ScrapeClient {
     opts: FetchOptions,
     headers: Record<string, string>
   ): Promise<Response> {
+    // Before robots.txt or pacing, so a refused address is never contacted for either.
+    const pinned: ResolvedAddress | null =
+      this.addressPolicy === "public-only" ? await checkPublicUrl(url, this.lookup) : null;
     const delayMs = await this.clearToFetch(url, opts);
 
     const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -313,11 +351,11 @@ export class ScrapeClient {
         const timer = setTimeout(() => controller.abort(), timeoutMs);
         let response: Response;
         try {
-          response = await fetch(url, {
+          response = await fetchPinned(url, {
             headers,
             signal: controller.signal,
             redirect: "manual",
-          });
+          }, pinned);
         } finally {
           clearTimeout(timer);
         }

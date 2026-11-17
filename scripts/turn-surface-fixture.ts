@@ -15,6 +15,28 @@ import { DEFAULT_ALLOWED_TOOLS } from "../packages/ui-backend-claude/src/tool-po
 import corpusConfig from "../packages/core/fixtures/corpus/brain.config.js";
 
 export const FROZEN_CASES = cases;
+
+/**
+ * The bridge tools production assembly registers for an interactive turn,
+ * written out independently of the contracts. Registration is the full stable
+ * roster (#2048 A): a posture or a missing host handler refuses a call at the
+ * permission hook and never removes a schema, so the listing is the same on
+ * normal and no-grant turns. tests/installed-turn-surface.test.ts asserts the
+ * same count on the request the installed CLI sends.
+ */
+export const STABLE_BRIDGE_ROSTER = [
+  "apply_staged_changes", "ask_user", "ask_user_form", "ask_user_list", "ask_user_rank",
+  "brain_add", "brain_apify_abort", "brain_apify_approvals", "brain_apify_availability",
+  "brain_apify_discover", "brain_apify_inspect", "brain_apify_prepare", "brain_apify_results",
+  "brain_apify_revoke", "brain_apify_run", "brain_apify_status", "brain_archive",
+  "brain_compute_cancel", "brain_compute_collect", "brain_compute_health", "brain_compute_plan",
+  "brain_compute_run", "brain_compute_status", "brain_github_issue_comment", "brain_github_issue_create",
+  "brain_github_issue_read", "brain_github_issue_search",
+  "brain_read_base", "brain_update", "complete_share",
+  "edit_file", "get_current_location", "inbox_add", "inbox_get", "inbox_list",
+  "propose_policy_change", "query_activity", "read_attachment", "reference_source", "reference_worktree",
+  "request_image_markup", "request_image_mask", "resolve_action", "show_block", "turn_temp", "write_file",
+] as const;
 export function createFixture(control?: { corpus?: boolean }) {
   const root = mkdtempSync(join(tmpdir(), "turn-surface-fixture-"));
   writeFileSync(join(root, "brain.config.json"), JSON.stringify({ profile: { name: "Odysseus" } }));

@@ -30,11 +30,12 @@ test("fixed owned-prune variants refuse missing/duplicate anchors and preserve g
 });
 
 test("real variant tick joins existing work and starts a subsequent pass with the same receiver/signal/output", async () => {
-  const root = mkdtempSync(join(tmpdir(), "odysseus-prune-variant-"));
+  // The transform may refuse (#2466): it runs before anything is allocated, and
+  // every resource below is owned by the finally from the moment it exists.
   const source = ownedPruneVariant(cron, boundary).cron.replace('"../governance/event-writes.js"', JSON.stringify(resolve(import.meta.dir, "../../ui-server/src/governance/event-writes.ts")));
-  const file = join(root, "scratch-prune.ts"); writeFileSync(file, source);
+  const root = mkdtempSync(join(tmpdir(), "odysseus-prune-variant-"));
   const descriptor = Object.getOwnPropertyDescriptor(console, "log")!;
-  const records: unknown[] = []; Object.defineProperty(console, "log", { ...descriptor, value: (text: string) => records.push(JSON.parse(text)) });
+  const records: unknown[] = [];
   let pruner: { tick(): Promise<void>; close(): Promise<void> } | undefined;
   let release!: () => void; const gate = new Promise<void>(done => { release = done; });
   let calls = 0, pins = 0; const seenSignals: AbortSignal[] = [], warnings: unknown[] = [];
@@ -44,6 +45,8 @@ test("real variant tick joins existing work and starts a subsequent pass with th
     return JSON.stringify({ bytes: 0, pinned: { files: 0, bytes: 0 } });
   } };
   try {
+    const file = join(root, "scratch-prune.ts"); writeFileSync(file, source);
+    Object.defineProperty(console, "log", { ...descriptor, value: (text: string) => records.push(JSON.parse(text)) });
     const { startScratchPrune } = await import(file);
     pruner = startScratchPrune({ brain, pins: { file: "Odysseus pins", async refresh(signal: AbortSignal) { expect(signal.aborted).toBe(false); pins++; } },
       every: () => () => {}, log: { emit(value: unknown) { warnings.push(value); } } });
@@ -76,7 +79,6 @@ test("real variant tick joins existing work and starts a subsequent pass with th
 test("real original and variant boundary methods preserve owned operation order, result and cleanup error identity", async () => {
   const variant = ownedPruneVariant(cron, boundary).boundary;
   const descriptor = Object.getOwnPropertyDescriptor(console, "log")!, diagnostics: unknown[] = [];
-  Object.defineProperty(console, "log", { ...descriptor, value: (line: string) => diagnostics.push(JSON.parse(line)) });
   const failure = Error("Odysseus owned operation refusal");
   async function execute(source: string, fail: boolean, publish = true) {
     const signal = new AbortController().signal, logger = { emit() {} }, launch = { command: ["/bin/true"] };
@@ -115,6 +117,7 @@ test("real original and variant boundary methods preserve owned operation order,
     catch (error) { return { error, calls }; }
   }
   try {
+    Object.defineProperty(console, "log", { ...descriptor, value: (line: string) => diagnostics.push(JSON.parse(line)) });
     const original = await execute(boundary, false), observed = await execute(variant, false);
     expect(observed, "OWNED_PRUNE_AUTHORITY_AND_EXECUTION_PRESERVED").toEqual(original);
     expect(observed.calls).toEqual(["authorize", "gate", "credential", "output-lock", "authorize", "view", "output", "git", "authorize", "authorize", "on-execute", "worker", "authorize", "publish", "output-cleanup", "view-cleanup"]);

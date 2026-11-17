@@ -139,7 +139,7 @@ when its artifact is null.
 | Command | Does | Notes |
 |---|---|---|
 | `search "q"` ⚖ | Hybrid FTS + vector search | `{results, warnings}`; `--mode fts\|vector\|hybrid`, `--rerank none\|heuristic\|jev` (default: local heuristic; configured provider when `reranker.enabled` is true and available), `--rerank-dry-run` (print the reranker's request to stderr, send nothing), `--chunks` (each result's matching chunks), `--type/--tag/--relevance/--status/--include-archived/--assets-only/--limit`; date filters `--updated-since/--updated-before/--deadline-from/--deadline-to <YYYY-MM-DD>` (inclusive), `--sort score\|updated\|deadline`, `--upcoming` (= `--deadline-from <today> --sort deadline`); degrades to FTS with a warning when embeddings are unavailable, and to the retrieval order with a warning when the reranker does not run |
-| `context "q"` ⚖ | Assemble a markdown context block for agent consumption | `--max-tokens N`; includes identity/current-focus canonicals when configured, first as their summary and lead, so a larger budget never holds fewer search hits; each search hit is placed as its snippet, then, with the budget left after every hit is placed, grown in rank order into the whole `##` section its best-matching chunk comes from, read from the file (a hit takes at most 40% of the budget; a longer section is cut at a block boundary; one with no block that fits stays a snippet); budget left after that grows identity and focus towards their whole body, and what is left after that goes to a `### Related` list of the top hits' neighbours (directory `_index.md`, then linked docs), summary lines only |
+| `context "q"` ⚖ | Assemble a markdown context block for agent consumption | `--max-tokens N`; `--include <path>` and `--exclude <path>`, repeatable (an exact file, or a folder ending in `/`; an exclusion wins), keep every lane inside the scope and add a `### Coverage` note of what was left out ([scoped context](integration-contract/mcp.md#scoped-context-additive-0450-3644)); includes identity/current-focus canonicals when configured, first as their summary and lead, so a larger budget never holds fewer search hits; each search hit is placed as its snippet, then, with the budget left after every hit is placed, grown in rank order into the whole `##` section its best-matching chunk comes from, read from the file (a hit takes at most 40% of the budget; a longer section is cut at a block boundary; one with no block that fits stays a snippet); budget left after that grows identity and focus towards their whole body, and what is left after that goes to a `### Related` list of the top hits' neighbours (directory `_index.md`, then linked docs), summary lines only |
 | `eval` ⚖ | Score a retrieval query set against this brain's index: hit@k, MRR@10 and an oracle row, overall and per class | `--set <file>` (default `evals/retrieval.jsonl`), `--mode fts\|vector\|hybrid\|all` (default hybrid), `--rerank none\|heuristic\|jev` (`meta.reranker` names the judgment reranker; an explicit `jev` flag or environment request while disabled or unavailable refuses the run), `--k 1,3,10` (at most 1000), `--now <ISO date>` (when the set's header does not pin one; selectors and recency use it), `--context` with `--budgets 1000,4000,8000` (also run each query through `brain context` at each budget: answer present, budget used), `--out <file>` (inside the brain; paths resolve against the brain root), `--strict` (refuse when an indexed document quotes the set's queries; without it they are `warnings`), `--lint` (validate the set and report `paraphrase` queries that share a word with an expected document's title, without scoring or the index), `--baseline <file>` (compare per query against a stored run: lost/gained per k and class; `--max-net-loss 2`, `--must-pass <classes>`, `--allow-set-change`; exit `1` when the gate fails, `3` when not comparable), `--redact` (no query text or paths); exits `2` on a usage error (unlike other commands, so `1` is only the gate) and without a score when a validity gate fails (missing set or path, a selector that selects nothing, stale index, a degraded lane). See [evaluating-search.md](evaluating-search.md) |
 | `storage inventory` | Bounded metadata inventory of the explicit brain root and approved local Git stores | Requires `BRAIN_ROOT`; hidden/ignored attachments, object deduplication, 200-entry hierarchy pages, qualified allocation/capacity and explicit partial coverage. See the [storage JSON contract](integration-contract/cli.md#storage-inventory-additive-2009). No config evaluation, database open, attachment reads or cleanup. |
 | `stats` ⚖ | Corpus counts, health figures and sizes | carries `health` (broken-link rate, embedding coverage, stale/orphan/untagged, the thresholds in force) and `size` (corpus bytes+files, `brain.db` bytes and row counts, free space); stale and orphan mean what `audit` means; an unmeasurable figure is `null`, never `0` — `embeddings` included, which is `null` when a vector table exists but could not be counted (sqlite-vec did not load) and `0` when there is no vector table; warn levels come from the [`stats` config block](configuration.md#stats). Human output prints health above the inventory and caps each breakdown at the top 5 by count plus a `+N more` remainder; `--all` prints every row. `--all` is human-only — `--json` always carries the full, uncapped breakdowns |
@@ -153,9 +153,9 @@ when its artifact is null.
 | `audit` ⚖ | Staleness/propagation/index-lag/orphan/type-mismatch/marker/broken-link/repeated-text/duplicate-title audit | `{issues, errors, warnings, infos, mustFix, informational}`; module hygiene checks appended. TODO and VERIFY markers are one `info` finding per document and kind, with `count` and the first three as `examples`; `verification: unverified` in the frontmatter is one `verify` finding on its own. An unresolved wiki-link is a `broken-link` warning, resolved exactly as `validate` resolves it. `mustFix` is errors plus warnings, `informational` is infos. `--fix --json` returns `AuditFixResult[]`: deterministic suggestions with `canAutoFix` and optional `repair: { capability: "registry", path }` for an available registry repair only. It calls no provider, emits no replacement `fix`, applies nothing and grants no execution permission |
 | `accept-mtime` | Baseline file mtimes so silent-edit detection stops flagging mechanical edits | |
 | `tags` ⚖ | Tag hygiene report: variant groups with a proposed canonical tag, tags that repeat the document's type or directory, alias hits, out-of-vocabulary tags | read-only; reads frontmatter, not the index; configure with [`taxonomy.tags`](configuration.md#taxonomytags). `--apply` migrates the tags: every `aliases` entry and every variant group whose canonical is in `vocabulary` (`--groups`: all of them; `--redundant`: also drop redundant tags; `--only <old>`: one tag; `--dry-run`: report only). It edits only the `tags:` entries on the raw text, never bumps `updated`, reindexes, and accepts the touched files' mtimes. A file edited while it runs is skipped, and `--only` merges only the collisions its own rename causes |
-| `hygiene reconcile\|list\|next\|dismiss\|snooze\|resolve\|undo\|check` ⚖ | The content-hygiene log under `context/hygiene/`: `reconcile` refreshes the index, detects issues (audit checks, `brain validate`'s corpus checks, silent edits, index table rows, `--extra` candidates), joins reports of one problem into one finding with a stable ID, its sources and an evidence fingerprint, applies the open/snoozed/dismissed/resolved state machine and writes only the files that change; `list` reads the log; `next` reconciles and selects one open finding by severity, explicit urgency, age and ID with a structured priority reason and end-state counts (informational findings are counted but not shown); `dismiss` and `snooze` record a disposition that holds until its evidence fingerprint changes (or, for a snooze, it comes due). Wiki-link rows use indexed targets, including aliases and configured directory anchors; ambiguous/unresolved rows are skipped | `reconcile --fixed <file>` records the skill's auto-fixes in `last-run.md`; `reconcile --dry-run` writes no log file (the index is still refreshed); `list --state open\|snoozed\|dismissed\|resolved`; `dismiss <id> --expect-fingerprint <fp> [--reason <text>]`; `snooze <id> --until <date\|date-time> --expect-fingerprint <fp>`. A stale fingerprint is refused with exit `1` and nothing written; `brain validate` still reports what is dismissed. Sections of the log it does not own are kept as written, each file is replaced atomically, and while a check cannot run (a module's check throws, fact-drift cannot read a canonical file) nothing that was not detected again is resolved. `next --finding <id> --dry-run --json` reads the current detected open finding by ID without writing Markdown; counts retain the existing log state. `next --json` exits `1` with a structured configuration blocker before any indexing or log writes when the config is invalid. See [selection mappings](integration-contract/package-api.md#hygiene-selection-additive-1026). The `content-hygiene` skill orchestrates reconciliation |
+| `hygiene reconcile\|list\|next\|dismiss\|snooze\|resolve\|undo\|check` ⚖ | The content-hygiene log under `context/hygiene/`: `reconcile` refreshes the index, detects issues (audit checks, `brain validate`'s corpus checks, silent edits, index table rows, `--extra` candidates), joins reports of one problem into one finding with a stable ID, its sources and an evidence fingerprint, applies the open/snoozed/dismissed/resolved state machine and writes only the files that change; `list` reads the log; `next` reconciles and selects one open finding by severity, explicit urgency, age and ID with a structured priority reason and end-state counts (informational findings are counted but not shown); `dismiss` and `snooze` record a disposition that holds until its evidence fingerprint changes (or, for a snooze, it comes due). Wiki-link rows use indexed targets, including aliases and configured directory anchors; ambiguous/unresolved rows are skipped | `reconcile --fixed <file>` records the skill's auto-fixes in `last-run.md`; `reconcile --dry-run` writes no log file (the index is still refreshed); `list --state open\|snoozed\|dismissed\|resolved\|kept`; `dismiss <id> --expect-fingerprint <fp> [--reason <text>]`; `snooze <id> --until <date\|date-time> --expect-fingerprint <fp>`. A stale fingerprint is refused with exit `1` and nothing written; `brain validate` still reports what is dismissed. Sections of the log it does not own are kept as written, each file is replaced atomically, and while a check cannot run (a module's check throws, fact-drift cannot read a canonical file) nothing that was not detected again is resolved. `next --finding <id> --dry-run --json` reads the current detected open finding by ID without writing Markdown; counts retain the existing log state. `next --json` exits `1` with a structured configuration blocker before any indexing or log writes when the config is invalid. Since 0.45.0, `next --defer <id>=<fp>,…` skips findings left pending this pass, and `media <delete\|move\|persist\|keep-copy>`, `keep-copy` and `unkeep` are the media review effects hygiene review drives ([contract](integration-contract/cli.md)). See [selection mappings](integration-contract/package-api.md#hygiene-selection-additive-1026). The `content-hygiene` skill orchestrates reconciliation |
 | `registry` ⚖ | Regenerate the registry table of every `_index.md` with a `registry:` frontmatter block, from its children's frontmatter, between `<!-- brain:generated:registry -->` markers | `--check` writes nothing and lists stale indexes (exit 1), and is the only form that runs in an uninitialized directory; an index or child that cannot be read or parsed is reported under `invalid` and left as it is; `updated` is bumped only on a file whose table changed; `{indexes, written, stale, invalid}` |
-| `maintain` | Routine maintenance sequence: registry tables (as `brain registry`), incremental index, vector compaction (only when fewer than half the vector slots are live), audit snapshot (the same counts as `brain audit`, module hygiene checks included, with its must-fix and informational totals), stats recording (0.40.0+), tag report (counts only), git packing, scratch prune | exit 2 if any step failed (the tag report never fails it); the hosting container runs it daily. The git step runs git's non-destructive `loose-objects`, `incremental-repack` and `pack-refs` maintenance tasks when the brain is a git work tree (git's own gc counts loose objects, not bytes, so a content repo's large blobs can stay loose indefinitely); it never deletes a ref or expires a reflog; `--no-git` skips it. A brain with no chat server has no other periodic pass, so schedule it (cron) or the scratch area is pruned only when something writes into it |
+| `maintain` | Routine maintenance sequence: registry tables (as `brain registry`), incremental index, vector compaction (only when fewer than half the vector slots are live), audit snapshot (the same counts as `brain audit`, module hygiene checks included, with its must-fix and informational totals), stats recording (0.40.0+), tag report (counts only), git packing, scratch prune | exit 2 if any step failed (the tag report never fails it), and then stderr's last line names each failed step and the start of its result (`brain maintain: FAILED step(s): git (fatal: …)`, at most about 1,000 characters), so a scheduler that keeps only stderr's tail still records which step failed; the hosting container runs it daily. The git step runs git's non-destructive `loose-objects`, `incremental-repack` and `pack-refs` maintenance tasks when the brain is a git work tree (git's own gc counts loose objects, not bytes, so a content repo's large blobs can stay loose indefinitely); it never deletes a ref or expires a reflog; `--no-git` skips it. A brain with no chat server has no other periodic pass, so schedule it (cron) or the scratch area is pruned only when something writes into it |
 | `scratch clean\|prune` | Empty the scratch area (`.brain/scratch/`), or prune unlinked files to 7 days and 1 GB, preserving retained conversation links | `{action, removed: [{path, bytes, reason}], failed: [{path, reason}], bytes, files}`; exit 2 when a file could not be removed; `prune` also reports `{pinned: {files, bytes}, overageBytes, pinError?}` and accepts `--pins-file <path>`; all prune callers honor managed pin data under `.brain/`. Missing/corrupt managed pins suspend deletion (exit 2); pinned overage is reported. `clean` explicitly removes pinned files too. `render`, `image`, `okf export` and the UI's mask tool prune after writing there, and the chat server prunes hourly |
 | `briefing` ⚖ | Mechanical daily briefing: deadlines, reviews due, silent edits | no LLM involved; the `/whatsup` skill layers interpretation on top. Opens with a `> **Warning:**` line for each `brain audit` finding about the focus document (review overdue, over its `canonicalPolicy` budget, past-dated lines). Overdue Reviews lists the 5 oldest, then `… and N more (brain audit)`; `--limit-reviews <n>` changes the cap. **Upkeep** always shows the current audit must-fix count (errors plus warnings, including enabled module checks; informational TODO/VERIFY findings do not count). When `context/hygiene/last-run.md` or `open.md` exists, it also gives the last content-hygiene run, its age (`(overdue)` past 10 days) and the number of open entries |
 
@@ -232,8 +232,8 @@ preserved without checking whether the heading exists.
 | `module enable\|disable <name>` | Reactivate or park a configured workflow, synchronize skills and owned instructions | preserves domain config and content; refuses legacy mixed instruction sections before writes; see [migration](modules.md#instruction-migration) |
 | `config check` | Validate config, print effective taxonomy summary | |
 | `config get <dotted.path>` | Read a resolved config value | lets skills query module config |
-| `sync` ⚖ | `sync run`, then the `/sync` skill only for what needs judgment | In 0.40.0+, machine mode (`--json` or non-TTY stdout) emits one `{run, agent}` result; human mode prints the report and any agent answer. Hands over to a configured runner for unresolved conflicts, `UNKNOWN` leftovers, or interactive `MEDIA`/`LARGE` leftovers. Without an invocation, preserves the run's exit code (`0` complete, `1` failed, `3` needs judgment); a successful agent invocation exits `0`, an agent failure `2`. On 0.39.0, bare sync always prints text; use `sync run --json` for the mechanical envelope |
-| `sync run` | The whole sync without an agent: reconcile stashes, `assess --fix`, `commit`, `pull`, `resolve`, `conclude`, `stash`, `push` (up to three re-pulls on a rejected push), `post-sync`, then a report | `status` `complete` (exit 0), `failed` (exit 1) or `needs-judgment` (exit 3: a conflict is left in progress, or a file holds conflict markers; nothing pushed). Media, unknown files and names that only look like secrets are listed as leftovers, never committed. `--json`: `{status, reason?, steps, leftovers: {unresolved, unknown, media}, judge, timings, report}`, where each `steps` key holds that verb's envelopes in run order |
+| `sync` ⚖ | `sync run`, then the `/sync` skill only for what needs judgment | In 0.40.0+, machine mode (`--json` or non-TTY stdout) emits one `{run, agent}` result; human mode prints the report and any agent answer. Hands over to a configured runner for unresolved conflicts or `UNKNOWN` leftovers; media alone never starts it (in 0.45.0+, the report counts it as `Media awaiting review: N` for hygiene review). Without an invocation, preserves the run's exit code (`0` complete, `1` failed, `3` needs judgment); a successful agent invocation exits `0`, an agent failure `2`. On 0.39.0, bare sync always prints text; use `sync run --json` for the mechanical envelope |
+| `sync run` | The whole sync without an agent: reconcile stashes, `assess --fix`, `commit`, `pull`, `resolve`, `conclude`, `stash`, `push` (up to three re-pulls on a rejected push), `post-sync`, then a report | `status` `complete` (exit 0), `failed` (exit 1) or `needs-judgment` (exit 3: a conflict is left in progress, or a file holds conflict markers; nothing pushed). Media, unknown files and names that only look like secrets are leftovers, never committed; the report counts media in one line and names no media file (0.45.0+). `--json`: `{status, reason?, steps, leftovers: {unresolved, unknown, media, mediaPending, mediaSetAside}, judge, timings, report}`, where each `steps` key holds that verb's envelopes in run order; `mediaPending` and `mediaSetAside` are additive in 0.45.0 ([contract](integration-contract/cli.md)) |
 | `sync <verb>` | The steps on their own: `assess [--fix]`, `group`, `commit [--plan \| --plan-file <path>]`, `stash [--dry-run]`, `pull`, `resolve`, `conflicts`, `conclude`, `push`, `post-sync` | grouping is taxonomy-driven. `assess --fix` ignores artifacts and unmistakable secrets (`.env`, `.env.*`, `*.key`, `*.pem`) and holds other secret-shaped names back as `UNKNOWN`. `assess` classes a binary `MEDIA` and a file over `media.maxTrackedBytes` `LARGE`, each with its `bytes`; see [media.md](media.md). `resolve` merges each conflicted file by the strategy in [configuration.md](configuration.md#merge-strategies). `commit` leaves out, and exits 1 for, any file holding conflict markers |
 
 Sync assessment and grouping preserve literal Git paths, including Unicode,
@@ -318,6 +318,85 @@ maintain evaluate before their existing recording step. See the
 [full trend contract](integration-contract/cli.md#recorded-corpus-trend-verdicts-additive-in-0400)
 and [decision](decisions/stats-trends.md).
 
+## External compute
+
+`brain compute` runs a bounded command on a configured
+[compute provider instance](configuration.md#compute) instead of this
+machine. Nothing runs remotely unless `--provider` names an instance; there is
+no default, and ordinary commands are never redirected. Without a `compute`
+key in `brain.config` every verb except `health` refuses with
+`compute_disabled`.
+
+```sh
+brain compute health
+brain compute plan --provider ithaca-host --source notes/raft.md --lease 600 -- bun test
+brain compute run --provider ithaca-host --source notes/raft.md --artifact out/report.txt:65536 -- bun test
+brain compute run --provider ithaca-host --detach -- bun run build
+brain compute status cj_...
+brain compute collect cj_...
+brain compute cancel cj_...
+```
+
+`plan` shows what a run would upload, the lease and the cost estimate
+without doing anything; an estimate of `null` means unknown, never free. Only
+the files named with `--source` leave the machine, checked against the
+governance policy's provider rules with the instance id as recipient.
+`--env NAME=VALUE` passes non-secret values only: credential-shaped names are
+refused, and values are recorded with the job and may be kept in the
+provider's own command history. Collected artifacts are stored with their
+sha256 in the compute state directory, outside the brain.
+
+`run` waits for the job by default and prints its final state, exit, cleanup
+fact and cost; Ctrl-C cancels the job, even while it is still starting, and
+reports whether the sandbox was released. A second Ctrl-C leaves at once
+(exit `130`, or `143` for a second SIGTERM) and names the job to cancel.
+`--detach` returns once the command has started. Exit `1` is a usage error or
+a refusal (nothing was allocated), exit `2` a job whose cleanup was not
+confirmed (run `brain compute reconcile`), and exit `3` a job that ended
+other than `succeeded`. Job ids belong to the operating-system user that
+started them from the CLI; jobs started through the MCP tools are separate.
+Human output shows control characters from the provider or the remote
+command (other than newline and tab) as `\xHH` escapes, so collected output
+cannot drive the terminal; `--json` keeps the bytes.
+Operators can run `brain compute reconcile` to settle jobs a dead process left
+behind, and `brain compute abandon JOB --confirm` to accept an unresolved
+`uncertain` outcome. The `/external-compute` skill guides an agent through the
+same steps. See the [JSON and exit-code contract](integration-contract/cli.md#external-compute-additive-0450-3107)
+and [writing a provider](extending/compute-providers.md).
+
+## Apify
+
+`brain apify` discovers, inspects and runs Apify Actors, the same ten
+operations the `brain_apify_*` MCP tools and the chat UI use. Apify is paid
+remote extraction, not web search, and it is off until
+`context/policies/governance.md` sets `apify.enabled: true`
+([policy fields](supported-inputs.md#governance-policy)).
+
+| Command | Does | Notes |
+|---|---|---|
+| `apify approvals` | List remembered Actors | reusable `candidate` references let this session inspect them without another catalog search |
+| `apify availability [actor-id]` / `revoke <actor-id>` | Check readiness or revoke an Actor approval | readiness consumes no approval; revocation applies to later runs |
+| `apify discover <words…>` | Search the Actor catalog | sends only the words; `--limit N` (1–10) |
+| `apify inspect <candidate>` | One Actor's exact build, input schema, price and whether it can run here | everything returned is untrusted remote text |
+| `apify prepare <candidate> --input <json> --max-charge-usd <usd>` | Prepare one run | starts and spends nothing |
+| `apify run <proposal>` | Run a proposal once | needs a remembered Actor approval: nothing is asked on the terminal |
+| `apify status <run>` / `results <run>` / `abort <run>` | Follow a run you started | `results` pages with `--cursor`, `--limit` (1–100) |
+| `apify account [confirm <account-id>]` | The bound account; confirm a changed one | never prints the token |
+
+The process needs `APIFY_TOKEN` and `BRAIN_APIFY_LEDGER`, the absolute path of
+the ledger the UI server uses, so both share the account's day limit. Without
+the ledger every operation refuses. `--session <name>` keeps your references
+apart from another session's (default `default`). Each operation prints one
+`{ ok, operation, data }` or `{ ok: false, operation, error }` envelope and
+exits `0` or `1` ([the contract](integration-contract/cli.md#apify-operations-additive-0450-3162)).
+
+An agent checks remembered Actors first and inspects likely matches to confirm
+fit. When none fits, it compares the best 3–5 suitable new Actors (or two if
+only two fit) and waits for your choice. The comparison explains identity,
+fit, available pricing and limitations. Picking one does not approve its
+execution; the normal Actor approval follows in chat. A suitable remembered
+approval can be reused across sessions, subject to current policy and budgets.
+
 ## Queue intake on a UI server
 
 `brain queue add --server https://example.org --key odysseus-route-1
@@ -378,6 +457,16 @@ See the [schedule contract](integration-contract/package-api.md#scheduled-tasks-
 
 ### Preview and confirm a hygiene repair
 
+For opted-in propagation automation, `brain hygiene propagation --dry-run --json`
+shows the actual source diffs, typed JEV answers and threshold sensitivity. It
+may call the provider but writes no Markdown. Without `--dry-run`, it records
+separate freshness judgments; source/derivative content and dates stay unchanged.
+The normal reconcile/next paths use matching receipts automatically. All
+non-current, uncertain, below-floor and unavailable cases remain reviewable.
+See [configuration](configuration.md#hygienepropagation) for owner opt-in,
+confidence presets, extra veto-only questions and hosted scheduling. This is
+separate from applying a bounded content repair below.
+
 Use `brain hygiene next --json` to discover the selected finding's complete
 `handlers` array, including each choice's input schema, effect and post-check.
 Broken links offer a note picker and text-only choice, plus a suggestion only
@@ -426,3 +515,13 @@ a separately confirmed Undo. Dismiss and Later are review dispositions;
 shows the confirmed dispositions and deferred backlog counts. The
 [review contract](integration-contract/package-api.md#human-started-hygiene-review-additive-1027)
 defines the HTTP operations, durable Action state and check-only restart recovery.
+
+Since 0.45.0, each media file `brain sync` counts as `Media awaiting review: N`
+is a finding here, and the sync report never lists the files. Its card offers
+*Persist here*, *Move to a final location…*, *Keep a permanent copy…* (for a
+conversation-linked scratch file) and *Delete…*, each previewed before
+anything is written and undoable from its receipt while the rollback data is
+retained, and *Leave pending*, which skips the file for the rest of the pass
+and still counts it. The review's count and the next sync's agree after each
+choice and after each Undo. [media.md](media.md#what-brain-kit-does-about-it)
+says what each choice leaves for the next sync.

@@ -88,10 +88,11 @@ test("real dispatch records delayed governed admission and first frame, and link
     now=1900;request.bridge.emit({type:"result",sessionId:"ithaca",durationMs:200,numTurns:1,isError:false,costUsd:0});
   }});
   const host=new WsHost({registry:createStaticBackendRegistry([backend],"pi"),catalog:createSessionCatalog(()=>db),activity:{store,stream},
-    governedTurns:{async begin(){now=1400;return {sandbox:{profile:"strict",noteFacts:{}},policy,async end(){now=2000;return null;}};},refresh(){},async close(){},async bindSession(){},async exposures(){return [];},facts(){return {policyProfile:"strict",policy};}} as unknown as import("../src/brain/governed-turn.js").GovernedTurns});
+    governedTurns:{async begin(...args:unknown[]){const timing=args[5] as ((name:string)=>()=>void)|undefined;const end=timing?.("gate_acquire");now=1400;end?.();return {sandbox:{profile:"strict",noteFacts:{}},policy,async end(){now=2000;return null;}};},refresh(){},async close(){},async bindSession(){},async exposures(){return [];},facts(){return {policyProfile:"strict",policy};}} as unknown as import("../src/brain/governed-turn.js").GovernedTurns});
   try {
     await runSession(host,{authorization:testAuthorization("odysseus"),text:"Plan Ithaca",attachments:[]});
     const record=store.lifecycles()[0]!;
+    expect(record.subPhases,"DISPATCH_PASSES_THE_GOVERNED_STEP_TIMER").toEqual([{phase:"governed",name:"gate_acquire",startedAt:1000,endedAt:1400,elapsedMs:400}]);
     expect(record).toMatchObject({acceptedAt:1000,governedStartedAt:1000,governedAcquiredAt:1400,backendInvokedAt:1400,
       firstFrameAt:1700,endedAt:2000,sessionId:"ithaca",totalElapsedMs:1000,timeToFirstFrameMs:700,backendStartupMs:300,outcome:"success"});
     expect(record.backendRunId).toBe(record.turnId);

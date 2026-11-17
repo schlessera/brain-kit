@@ -56,6 +56,20 @@ inspecting CI on a PR live in the `work-issue` skill's
   commands and explicitly preloaded child probes. Production invocations keep
   their own policy. The startup-view copier still refuses concurrent changes.
 
+The shared test preload assigns a fresh disposable `HOME` and
+`CLAUDE_CONFIG_DIR`, including when a caller inherited a real Claude config
+path. Tests that supply their own profile paths must keep them in owned
+fixtures. The test launcher supplies a separate disposable invoking home before
+starting Bun, so even a native HOME fallback cannot select user storage. The
+preload then assigns the test's working home. After the test process and its
+children finish, the launcher compares the invoking home's sentinel tree with
+its original path membership and metadata, including nanosecond change times.
+This detects retained creations and same-size overwrites without patching
+filesystem functions or observing unrelated sessions' storage activity.
+The preload restores both environment descriptors and removes its storage
+after all test files finish. Turns must await owned observation saves before
+settling so teardown cannot race storage writes.
+
 ### Deliberate offline commands on Linux
 
 Use the repository launcher when a manual test command needs OS-level network
@@ -88,6 +102,12 @@ networking unavailable while letting real Chrome report `navigator.onLine`
 as true for local fixtures. Loopback alone reports false and correctly pauses
 share upload before the ownership assertions (#2401). Keep browser egress
 guards and the test preload enabled.
+
+An inherited `/sys/class/net` mount may still list the parent's interfaces
+after entering a fresh network namespace. Audit the current namespace through
+`ip -j link show` and its IPv4/IPv6 route queries; do not infer its interfaces
+from that inherited sysfs view. The managed Git wire fixture requires only
+loopback, empty main routes and all setup capabilities dropped before Git runs.
 
 Setup needs `unshare --keep-caps`, but retaining those capabilities for tests
 makes bubblewrap refuse with `Unexpected capabilities but not setuid`.
@@ -138,6 +158,18 @@ This is a test prerequisite selected in
 [#2394](https://github.com/schlessera/brain-kit/issues/2394), not a replacement
 for the real runtime monitor. The production floor and its Stop-only behavior
 remain enforced, including if free space falls during a turn.
+
+Hosted unit shards keep fixture brains on the runner's root filesystem, where
+the 5% term is about 3.8 GB. Their environment setup runs
+`bun scripts/ci-disk.ts reclaim` (`reclaim`, `scripts/ci-disk.ts`), which
+removes preinstalled toolchains that no job uses. It records the runner's disk
+in `tmp/runner-disk.json`. Setup fails as an infrastructure prerequisite unless
+the floor plus the unit proof's own reserve remains. During proof, every
+category samples the same filesystem into `tmp/proof-resources.json`. If it
+dips below the floor, an annotation attributes turn-dependent failures to
+runner disk exhaustion
+([#3256](https://github.com/schlessera/brain-kit/issues/3256)). The floor
+itself does not change.
 
 For the negative control, use the private tmpfs recipe above with `size=3g`
 and run `fallocate -l 1600M "$1/fill"` immediately after mounting. The affected
@@ -201,7 +233,7 @@ remainingButtonCases(() => "fine");
 ```
 
 Remove that temporary leaf after the diagnostic, including on failure. It is
-not part of ordinary layout discovery or the retained proof inventory.
+not part of ordinary layout discovery or the proof inventory.
 
 1. Save `packages/ui-kit/vitest.config.ts` outside the tree. Temporarily replace
    only the `ui-react-layout` project's discovery array with
@@ -264,6 +296,41 @@ event loop that does not deliver the worker's reply, so the test times out.
 Await it and assert on the result, or use `expectRejection`
 (`packages/ui-server/tests/helpers/expect-rejection.ts`)
 ([why](../decisions/sqlite-write-worker.md#testing-note)).
+
+## Changed tests repeat under load
+
+A Bun test file that a pull request adds or modifies runs several times under
+CPU load before it merges
+([the 2026-11-16 ruling](../decisions/ci-utility.md#changed-tests-repeat-under-load-before-merge)).
+Most red-main incidents in the two weeks before it were cleared by changing
+only a test that had passed once.
+
+```sh
+bun scripts/test-determinism.ts --base origin/main          # what the hosted job runs
+bun scripts/test-determinism.ts --base origin/main --json   # the report on stdout
+```
+
+- **Selection.** Files that `bun test` discovers under `packages/` and
+  `tests/`, added or modified against the merge base. Deleted files, the
+  experiment tier and Vitest specs are not selected.
+- **The run.** One invocation of `bun run test` with `--rerun-each` and
+  `--bail=1`, so the offline preload is active and a non-loopback connection
+  fails as it does in any test. One busy loop per CPU runs until the command
+  exits; each is stopped by PID and exits by itself if the command is killed.
+- **The bound.** Five repetitions, reduced uniformly to no fewer than two when
+  the reviewed weights in `scripts/test-shard-costs.json` exceed 600 seconds.
+  The report lists every selected file with the repetitions it got, and says
+  when the selection is over budget at the floor.
+- **A failure** names the file, the repetition and the case. Repetitions of a
+  file share one process, so state left on `globalThis`, in the environment or
+  on disk reaches the next run. Fix the test; do not raise its deadline.
+- **Where it runs.** The hosted `determinism` job, at every pull-request
+  cadence including draft, and in draft heavy feedback. `draft gates` and
+  `proof` require it when the change selects it. `check:pr` never runs it: it
+  occupies every CPU, and the host is shared. `check:pr --plan` prints the
+  command when it applies. A local run waits for
+  [host admission](#host-admission-for-heavy-local-commands);
+  `--burners <n>` lowers the load for a diagnosis.
 
 ## Tests that cannot fail
 
@@ -351,6 +418,13 @@ boundary, the reasons and the file- and assertion-level inventory are in
   `python3`, `bwrap`, `unshare`, `setpriv` and `ip`, permitted namespaces and a
   built workspace (`bun run build`), and refuses to start without them. `bun run test experiments/<file>` runs one
   file while debugging.
+- **Nested worker namespaces.** The installed-runtime placement control also
+  needs the real worker host probe to pass inside its outer offline namespace.
+  An AppArmor profile on the outer `bwrap` can deny the inner worker's namespace
+  creation even when a direct host probe succeeds. The control fails early
+  with `OWNED_CLAUDE_NESTED_WORKER_HOST_REQUIRED`, the probe's cause and the
+  current AppArmor label when available. Use a qualified isolated proof host;
+  neither a skipped placement nor disabling either boundary supplies proof.
 - **The release gate.** Release preparation runs the tier after
   `bun run version` and before `bun run release` (the
   [release skill](../../.agents/skills/release/SKILL.md) has the sequence).
@@ -359,6 +433,22 @@ boundary, the reasons and the file- and assertion-level inventory are in
   publish unless it names the current working-tree content, `bun.lock`,
   experiment inventory and Bun version. A failing experiment test is a failing
   release check, not a skip.
+
+## The skill tooling tier
+
+Tests of the scripts behind the repo-local agent skills live under
+`scripts/skill-tests/` and run with `bun run test:skills`. They cover
+`scripts/test-health.ts` and its modules, `scripts/issue-queue.ts` and
+`scripts/pr-status.ts`.
+
+They are deliberately not product proof. Default discovery walks `./packages`
+and `./tests`, so every `check:pr` mode, the hosted unit shards that accompany
+each package change, and the release's experiment tier exclude them by
+construction. A failure there never blocks a product change or a release. The
+`test-health` skill runs the tier as its first step and stops its own run when
+it is red: a broken tool restricts only itself
+([the decision](../decisions/test-health.md)). Run it before changing those
+scripts, with the same offline preload and timeout as `bun run test`.
 
 ## Optional bubblewrap upgrade for local Linux proof
 
@@ -412,15 +502,81 @@ permits setup failures and does not belong in proof. A PATH change on the host
 does not upgrade a fixed `/usr/bin/bwrap` inside a container; qualify that runtime
 separately before changing its supplied binary. Hosted CI images stay unchanged.
 
+## Host admission for heavy local commands
+
+Local long suites are for debugging a specific failure only (#2939); they run
+through a host-wide admission ledger, `scripts/host-admission.mjs` (#2943).
+Separate worktrees on one machine share its slots, so a heavy command that
+would exceed the limit waits, printing the holders and its queue position,
+instead of starting and timing out. Test deadlines are never raised to absorb
+contention.
+
+Heavy commands are the integrated default `bun run test` suite, runtime-host
+and native test selections, any selected file whose measured cost in
+`scripts/test-shard-costs.json` reaches 30 seconds, `check:pr --full`/`--all`,
+the parallel unit-worker queue (one slot for all its workers) and
+`bun run test:browser` (held on the host for the whole container run). Focused
+tests and default `check:pr` are not admitted. Nested heavy commands inherit
+their caller's slot, also when a caller replaced their environment: the
+ledger itself shows a live ancestor holding a slot. The admitted command
+receives the workspace lease's descriptor, as a nested user namespace needs. A wait is recorded as a `wait-started`/`wait-finished`
+pair with reason `other` through `scripts/ci-timings.ts record`
+([coordination events](ci-throughput.md#record-coordination-and-incidents)).
+
+| Variable | Meaning |
+| --- | --- |
+| `BRAIN_HOST_ADMISSION_LIMIT` | Concurrent heavy commands admitted on this host. Defaults to one per four CPUs, at least 1; anything but a positive integer is refused. |
+| `BRAIN_HOST_ADMISSION_DIR` | Ledger directory. Defaults to `brain-host-admission-<uid>` under the system temporary directory. The test preload gives each test process a private ledger, which its descendants also find through their ancestry; a test exercising the host ledger names its own. |
+| `BRAIN_WORKER_ID`, `BRAIN_ORCHESTRATOR_ID` | Opaque worker and orchestrator IDs recorded with each slot. Without them a worker is `host-<pid>` and has no orchestrator; it still gets the admission limit. |
+| `BRAIN_RED_MAIN_FIX` | The PR number of a declared red-main fix. Its commands are admitted ahead of every queued ordinary command; they do not preempt running ones. Equivalent to `run --red-main-fix <pr>`. |
+| `BRAIN_HOST_ADMISSION` | Internal: the slot an admitted command's descendants inherit. Never set it by hand. |
+
+```sh
+node scripts/host-admission.mjs status
+node scripts/host-admission.mjs run [--red-main-fix <pr>] -- <command...>
+node scripts/host-admission.mjs preempt <slot> --reason red-main-fix [--grace-ms 10000]
+```
+
+The ledger records each slot's holder process identity, worker, orchestrator
+and priority class. A holder whose process has died is reclaimed on the next
+pass, after its orphaned command group has been killed. `preempt` follows the
+[#2938 ruling](https://github.com/schlessera/brain-kit/issues/2938): it refuses
+a slot outside the caller's orchestrator subtree, any reason but
+`red-main-fix`, and a call while no red-main fix is waiting. It sends SIGTERM to
+the holder's process group, lets cleanup run for the grace period, then kills
+it; the slot is released only after the group has gone. The preempted run exits
+`75` and is recorded as `preempted` in the ledger history, which is neither a
+pass nor a failure. Another orchestrator's holder yields only through queue
+priority or the maintainer.
+
 ## Required proof for a PR
 
 The policy is [the CI decision](../decisions/ci-utility.md); the commands are
 in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-and-merge.md).
 
 - Contract tests assert the `--json` envelopes. Automatic CI runs cheap
-  metadata gates and complete affected hosted unit/integration/runtime,
-  keyless funnel, pinned browser proof, strict types and packaging on explicit
-  ready-candidate confirmation events. Agents keep focused local behavioral proof.
+  metadata gates, complete affected hosted unit/integration, strict types and
+  packaging on explicit ready-candidate confirmation events. Affected runtime,
+  native host, pinned browser, layout, capture and endurance proof runs on
+  every main squash
+  ([hybrid ruling](../decisions/ci-utility.md#hybrid-post-merge-heavy-proof)).
+  Agents keep focused local behavioral proof. A PR that touches none of
+  `packages/ui-react/`, `packages/ui-kit/`, `packages/ui-server/` or
+  `packages/core/` may instead take the
+  [fast lane](../decisions/ci-utility.md#fast-lane-outside-the-core-packages):
+  it skips ready-candidate confirmation and is proved by its `check:pr`
+  receipt and its squash's main run.
+- A PR that does touch one of those four packages needs a recorded
+  independent review before `integrate.ts confirm` or `merge` will proceed
+  ([ruling](../decisions/ci-utility.md#recorded-independent-review-of-core-package-prs)).
+  The reviewer is a fresh agent context or a human, given only the PR and its
+  issue and never the author's summary. `bun scripts/review-receipt.ts post`
+  records the reviewed head and every finding with one disposition (`fixed`,
+  `filed` or `rejected`) as a PR comment. A clean merge of the base into the
+  branch keeps the record valid; a new commit, a rebase, an amend or a merge
+  that resolved a conflict needs a new review.
+  `bun scripts/review-receipt.ts check <pr>` prints the merge path's decision. The review is proof that someone else read the change, not a
+  substitute for any check above. An expedited red-main fix is exempt.
 - Run `bun run check:pr --base origin/main` before opening or marking ready,
   and paste the receipt block it prints into the PR body. Record a check you
   cannot finish with `--check-timeout=<seconds>` or `--skip <check name>`
@@ -510,11 +666,13 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   Agents retain targeted debugging, failing-first/restored mutation
   receipts and visual judgment; ordinary PRs do not duplicate complete types,
   packaging or browser/runtime suites locally.
-- Ready-candidate confirmation supplies complete repeatable proof for affected workspaces and
-  reverse dependencies plus root tests. Global/unknown changes expand to full
-  discovery. Relevant pinned browser/accessibility/pointer, layout/offline/
-  endurance, editorial, real Claude/Chrome and cleanup categories remain
-  intact. The `proof` aggregate requires every selected job to succeed;
+- Ready-candidate confirmation supplies complete repeatable fast proof for
+  affected workspaces and reverse dependencies plus root tests. Global/unknown
+  changes expand to full discovery. Relevant pinned browser/accessibility/
+  pointer, layout/offline/endurance, editorial, real Claude/Chrome and cleanup
+  categories remain intact and run on the squash's own main run; a red result
+  there is a red-main incident held per family, and does not block fast
+  confirmation of other PRs. The `proof` aggregate requires every selected job to succeed;
   missing tools, unavailable runtimes, failures, cancellations and unexpected
   skips are not green.
 - Retain every test, default discovery, pinned offline image and failure
@@ -524,7 +682,10 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   release preparation runs instead of PR proof. Scheduled
   exhaustive CI is additional coverage, not a replacement for selected
   pre-merge proof.
-- Drafts run cheap gates. Ready `opened`, `reopened` and `ready_for_review`
+- Drafts run cheap gates, plus the `determinism` job when the change adds or
+  modifies a Bun test file
+  ([changed tests repeat under load](#changed-tests-repeat-under-load)).
+  Ready `opened`, `reopened` and `ready_for_review`
   events request full affected confirmation. Ready `synchronize` runs affected
   fast invariants and types only; `proof` remains nonpassing until the author
   converts to draft and marks ready after the final push. A push invalidates
@@ -543,17 +704,14 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   and live PR readiness/head plus the independent live base ref. Any base advance
   requires a new confirmation request (a rebase is not inherently required). Relevant
   input/dependency/harness changes require fresh checks; never call an old
-  receipt a new combined-tree pass. Under #1333, complete browser/layout
-  domains may retain validated equivalent successful automatic receipts.
-  Inclusion fingerprints recompute each immutable tree's complete supported
-  import/declaration closure and tracked path/blob/mode, build/discovery/partition
-  and runner identities. Unknown generated/runtime inputs execute fresh; a
-  graph-structure hash or unchanged imported files alone cannot authorize reuse.
+  receipt a new combined-tree pass. Every selected category runs fresh on that
+  checkout: browser proof retention and the source pins that qualified it are
+  [retired](../decisions/ci-utility.md#retaining-complete-browser-domains)
+  (#4107), so no job is skipped on the strength of an earlier run and no test
+  fails because a product file's hash moved.
   Before naming a source run as passing proof, verify its workflow name/path,
   event, head, conclusion and complete job inventory. Repository synchronization
-  jobs do not provide CI proof. Read the current retention ledger and aggregate;
-  original run/job/checkout
-  identity remains distinct. Other categories stay fresh. Verify actual squash
+  jobs do not provide CI proof. Read the aggregate. Verify actual squash
   parent/tree and automatic main-push proof. Respect branch rules. A writer can bypass checks when protection is absent;
   agents still require passing candidate proof and must re-read head/base before
   matching-head merge. This change does not alter repository protection.
@@ -601,13 +759,38 @@ action/runtime versions, pinned offline browser image and diagnostic
 artifacts. Independent selected categories run after metadata; the final proof
 aggregate rejects failures, cancellations, missing outputs and unexpected
 skips. Tests-only changes may intentionally skip packaging while complete
-affected tests run. Drafts run cheap gates only. Forks use ordinary
+affected tests run. Drafts run cheap gates only, with one exception: the
+`determinism` job repeats a change's added or modified Bun test files under
+CPU load at every pull-request cadence. Forks use ordinary
 `pull_request`, a read-only token (`contents: read`, plus `actions: read` /
 `checks: read` for bounded proof lookup), no secrets and nonpersisted checkout
 credentials. A fork run awaiting maintainer approval has not passed.
 
+### Bumping an action pin
+
+Workflows reference each action by commit, with its release tag as a comment:
+`uses: actions/checkout@<40-hex commit> # v7`
+([why](../decisions/github-actions-ci.md#actions-pinned-by-commit)).
+`bun run lint` refuses a tag, a branch, a commit that is not in
+`scripts/action-pins.ts`, or a missing or wrong tag comment. To move a pin:
+
+1. Resolve the tag from the action's own repository, and dereference an
+   annotated tag to its commit:
+
+   ```sh
+   gh api repos/actions/checkout/git/ref/tags/v7 --jq '.object.type + " " + .object.sha'
+   # "tag <sha>" is an annotated tag: read its commit
+   gh api repos/actions/checkout/git/tags/<sha> --jq .object.sha
+   ```
+
+2. Read what changed between the old and new commits before trusting it.
+3. Change the commit in `ACTION_PINS`, replace it in every workflow, and run
+   `bun scripts/heavy-feedback-workflow.ts` to regenerate `heavy-feedback.yml`.
+4. A new action or a new major tag is a new table row. The PR lists action,
+   tag and commit.
+
 Environment setup via `scripts/ci-runtime-setup.sh` has its own 12-minute
-step limit in `unit`, `runtime` and `runtime_host`. Proof retains a separate
+step limit in `unit`, `runtime`, `runtime_host` and `determinism`. Proof retains a separate
 30-minute unit allowance or 15-minute runtime allowance. The job caps are
 45 and 30 minutes respectively, including three minutes for the remaining
 steps. The [timeout basis](../decisions/ci-utility.md#separate-environment-setup-and-proof-budgets)
@@ -617,6 +800,15 @@ infrastructure prerequisite failure with proof skipped, while proof failure
 after successful setup belongs to the proof phase. Both leave the job and
 selected aggregate nonpassing. Browser/layout do not call this setup script
 and retain their existing pinned-container proof budgets.
+
+The unit tier runs in up to eight partitions on a ready confirmation and on
+draft heavy feedback, and in up to four on main pushes and exhaustive runs.
+A selected inventory with fewer files than the cap gets one partition per
+file. `UNIT_PARTITIONS` in `scripts/proof-shards.ts` is the only place the
+counts are written: the planner publishes the partition numbers, the `unit`
+matrix and its divisor follow that output, and the aggregate and the merge
+path refuse a run whose unit jobs are not exactly the planned set
+([ruling](../decisions/ci-utility.md#eight-unit-partitions-for-ready-confirmation)).
 
 Hosted unit partitions run up to two serial Bun test processes through
 `scripts/unit-workers.ts`. Each owns its source checkout, copied frozen
@@ -705,7 +897,7 @@ name any still-missing automatic failure screenshots. Passing cases, local
 files and upload patterns alone do not establish hosted retention.
 
 Reading CI for a PR — the actual current head, the live base, checkout SHAs,
-run/job/attempt IDs, retained #1333 receipts, refused-start jobs, and the
+run/job/attempt IDs, refused-start jobs, and the
 merge and post-merge checks — is the `work-issue` skill's
 [CI and merge reference](../../.agents/skills/work-issue/references/ci-and-merge.md).
 
@@ -719,18 +911,9 @@ Tailwind stylesheet is backed by the dependency manifests and lockfile, with
 `source(none)` disabling implicit scanning, and the kit token export names its
 source. An edited or duplicate statement invalidates its declaration. Missing
 inputs, symlinks, escaped paths, globs, remote URLs, dynamic sources and unknown
-build directives remain unresolved and require fresh proof. This discovery
-support does not itself establish a complete retainable browser domain.
-
-
-Retention's bounded browser-command audit must preserve imported top-level
-execution. Its tests import a real config in a Bun child and observe a transitive
-module input even while the registered callback remains dormant. Activating a
-command through a selected spec, inherited setup or configuration must force
-fresh execution; registration alone is not invocation. Registered dormant
-callbacks require the same complete call/escape audit, and a mutation of that
-activation guard must fail the named assertion.
-The exact audited configuration/source guard makes unsupported edits fresh.
+build directives remain unresolved, and the category then keeps the planner's
+broad selection rule. Discovery only selects categories: it never lets a
+selected job be skipped.
 
 ## Cross-PR timing collection
 

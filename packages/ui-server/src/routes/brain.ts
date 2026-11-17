@@ -14,7 +14,7 @@ import { realpathSync } from "fs";
 import { readJsonBody } from "../middleware/body-limit.js";
 import { requireJson } from "../middleware/origin.js";
 
-export interface BrainRoutesDeps {
+interface BrainRoutesDeps {
   /** App-owned admission state; the host boundary still coordinates repository writers. */
   syncingRoots?: Set<string>;
   brainCliMinimum?: string;

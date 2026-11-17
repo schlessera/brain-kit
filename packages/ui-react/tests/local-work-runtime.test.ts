@@ -163,6 +163,12 @@ type Fixture = {
   write(accountKey: string, key: string): Promise<Outcome>;
   firstVisible(): { anchor: string; offset: number; scrollTop: number } | null;
   scrollTo(top: number): void;
+  draftsSupported(): boolean | null;
+  draftId(): string;
+  draft(draftId: string): { text: string; sessionId: string | null; revision: number | null; uncertain: boolean; bind: { sessionId: string; requestId: string } | null } | null;
+  texts(): string[];
+  hostDrafts(): Promise<Array<{ draftId: string; sessionId: string | null; revision: number; preview: string }>>;
+  clearHostDrafts(): Promise<void>;
 };
 const fixture = <T,>(page: Page, fn: (f: Fixture) => T) => page.evaluate(`(${fn.toString()})(window.__local)`) as Promise<Awaited<T>>;
 async function until(page: Page, predicate: string, timeout = 15_000) {
@@ -275,7 +281,9 @@ describe.skipIf(!executablePath)("device-local work context (#1014)", () => {
       await field(page).evaluate((el: HTMLTextAreaElement) => el.setSelectionRange(12, 26));
       await page.locator('input[type="file"][accept="image/*"][multiple]').setInputFiles(resolve(scratch!, "shroud.png"));
       await until(page, "f.images().length === 1");
+      // Dictated words join the draft as editable text (D6, #3694).
       await fixture(page, (f) => f.review("and the suitors never noticed"));
+      await until(page, `f.text() === ${JSON.stringify(`${DRAFT} and the suitors never noticed`)}`);
       await field(page).focus();
       await field(page).evaluate((el: HTMLTextAreaElement) => el.setSelectionRange(12, 26));
       await committed(page);
@@ -287,7 +295,7 @@ describe.skipIf(!executablePath)("device-local work context (#1014)", () => {
         selection: await field(page).evaluate((el: HTMLTextAreaElement) => [el.selectionStart, el.selectionEnd]),
         place: (await fixture(page, (f) => f.firstVisible()))!,
       };
-      expect(before.text).toBe(DRAFT);
+      expect(before.text).toBe(`${DRAFT} and the suitors never noticed`);
       expect(before.images).toHaveLength(1);
       expect(before.images[0]!.data.length).toBeGreaterThan(0);
       expect(before.selection).toEqual([12, 26]);
@@ -300,11 +308,11 @@ describe.skipIf(!executablePath)("device-local work context (#1014)", () => {
       await page.reload();
       await ready(page);
       // Given time to come back; the assertions below say what did.
-      await until(page, `f.text() === ${JSON.stringify(DRAFT)}`, 5_000).catch(() => {});
+      await until(page, `f.text() === ${JSON.stringify(before.text)}`, 5_000).catch(() => {});
       // The transcript's place is held for a moment against late layout.
       await page.waitForTimeout(1_800);
 
-      expect(await field(page).inputValue(), "the draft text").toBe(DRAFT);
+      expect(await field(page).inputValue(), "the draft text, dictated words included").toBe(before.text);
       expect(await fixture(page, (f) => f.images()), "the image's bytes").toEqual(before.images);
       expect(await fixture(page, (f) => f.reviewText()), "the review text").toBe(before.review);
       expect(await field(page).evaluate((el: HTMLTextAreaElement) => [el.selectionStart, el.selectionEnd]), "the selection").toEqual(before.selection);
@@ -526,7 +534,8 @@ describe.skipIf(!executablePath)("device-local work context (#1014)", () => {
       await b.reload();
       await ready(b);
       expect(await field(b).inputValue(), "the authenticated tab resumes its own branch").toBe("Telemachus keeps his own voyage");
-      expect(await b.locator("[data-device-conflict]").innerText()).toContain("Both versions kept");
+      // The draft indicator says so (#3155); Open other version is its detail action.
+      expect(await b.locator("[data-device-conflict]").getAttribute("data-draft-summary")).toBe("Another tab changed this draft. Both versions are kept.");
     } finally {
       try {
         if (restoreHold) {
@@ -615,10 +624,12 @@ describe.skipIf(!executablePath)("device-local work context (#1014)", () => {
       await signIn(page);
       await page.goto(origin);
       await until(page, "f.connected() && f.accountKey() !== null");
+      // The draft indicator's summary (#3155), as its tooltip and details show it.
       const line = page.locator("[data-draft-save]");
+      const summary = () => line.getAttribute("data-draft-summary");
       await field(page).fill("Scylla on one side");
       await committed(page);
-      expect(await line.textContent(), "kept, and said so").toBe("draft · this host doesn't keep drafts · kept on this device");
+      expect(await summary(), "kept, and said so").toBe("Not saved: this host doesn't keep drafts. Your text is kept on this device.");
 
       await page.evaluate(() => {
         IDBObjectStore.prototype.put = function () { throw new DOMException("The quota has been exceeded.", "QuotaExceededError"); };
@@ -629,12 +640,12 @@ describe.skipIf(!executablePath)("device-local work context (#1014)", () => {
       expect(said, "the failure copy in the hint").toBe(true);
       expect(await fixture(page, (f) => f.status()?.failed)).toBe(true);
       expect(await fixture(page, (f) => f.snapshotNow())).toEqual({ ok: false, error: "QuotaExceededError" });
-      expect(await line.textContent(), "no claim that it is kept").toBe("draft · this host doesn't keep drafts");
+      expect(await summary(), "no claim that it is kept").toBe("Not saved: this host doesn't keep drafts.");
 
       await field(page).press("End");
       await field(page).pressSequentially(" · six men lost");
       expect(await field(page).inputValue(), "still editable").toBe("Scylla on one side, Charybdis on the other · six men lost");
-      expect(await line.textContent(), "still no claim").toBe("draft · this host doesn't keep drafts");
+      expect(await summary(), "still no claim").toBe("Not saved: this host doesn't keep drafts.");
       const stored = await fixture(page, (f) => f.list(f.accountKey()!));
       expect(stored.ok && stored.value.some((r) => JSON.stringify(r.value).includes("Charybdis")), "nothing of it was kept").toBe(false);
     } finally {
@@ -702,4 +713,179 @@ describe.skipIf(!executablePath)("device-local work context (#1014)", () => {
       await context.close();
     }
   }, 30_000);
+});
+
+// Reconciliation owed across a reload (#1214): the snapshot keeps an uncertain
+// first save and a pending bind through real IndexedDB, and the reloaded page
+// settles each against the real host's #979 draft routes instead of losing it.
+describe.skipIf(!executablePath)("draft reconciliation kept on this device (#1214)", () => {
+  // One matcher reference: `unroute` removes only a handler registered with the same one.
+  const draftPath = (url: URL) => url.origin === origin && url.pathname.startsWith("/api/drafts/");
+  const draftOf = (page: Page, id: string) => page.evaluate((draftId) => (window as unknown as { __local: Fixture }).__local.draft(draftId), id);
+  const hostDrafts = (page: Page) => fixture(page, (f) => f.hostDrafts());
+  async function newChat(page: Page) {
+    await signIn(page);
+    await page.goto(origin);
+    await until(page, "f.connected() && f.accountKey() !== null && f.draftsSupported() === true");
+    await fixture(page, (f) => f.restoring());
+    await fixture(page, (f) => f.clearHostDrafts());
+    expect(await fixture(page, (f) => f.activeSessionId()), "a fresh device opens the new chat").toBeNull();
+  }
+  /** Polls until `done`, for at most `ms`: the assertions after it say what happened. */
+  async function settle(done: () => Promise<boolean>, ms = 20_000) {
+    const end = Date.now() + ms;
+    while (Date.now() < end && !(await done())) await Bun.sleep(100);
+  }
+
+  test("an emptied draft whose first save got no answer is deleted on the host after a reload, not brought back", async () => {
+    const context = await browser!.newContext({ viewport: { width: 900, height: 700 } });
+    const page = await context.newPage();
+    try {
+      await newChat(page);
+      const text = "Ask Aeolus for the west wind";
+      // The host stores the first save; its answer never arrives. Offline after that.
+      let stored = false;
+      await context.route(draftPath, async (route) => {
+        if (!stored && route.request().method() === "PUT") { stored = true; await route.fetch(); }
+        await route.abort();
+      });
+      await field(page).fill(text);
+      const id = await fixture(page, (f) => f.draftId());
+      await until(page, `f.draft(${JSON.stringify(id)})?.uncertain === true`, 20_000);
+      expect((await hostDrafts(page)).find((d) => d.draftId === id), "the host stored the save whose answer was lost").toMatchObject({ revision: 1, preview: text });
+      await field(page).fill("");
+      await until(page, `f.draft(${JSON.stringify(id)})?.text === ""`);
+      await committed(page);
+      expect((await hostDrafts(page)).some((d) => d.draftId === id), "the host still holds it at the reload").toBe(true);
+      await context.unroute(draftPath);
+      await page.reload();
+      await until(page, "f.connected() && f.accountKey() !== null && f.draftsSupported() === true");
+      await fixture(page, (f) => f.restoring());
+      // Settled one way or the other: the host's copy deleted, or the cleared text back.
+      await settle(async () => !(await hostDrafts(page)).some((d) => d.draftId === id) || (await fixture(page, (f) => f.texts())).includes(text));
+      expect(await fixture(page, (f) => f.texts()), "the cleared text is not restored from the host").not.toContain(text);
+      expect((await hostDrafts(page)).some((d) => d.draftId === id), "the host's copy of the lost save is deleted").toBe(false);
+      expect(await field(page).inputValue()).toBe("");
+      // Settled: the device no longer keeps it as owed, so a later reload asks nothing again.
+      await committed(page);
+      const records = await fixture(page, (f) => f.list(f.accountKey()!));
+      const kept = records.ok ? records.value.find((r) => r.key === `root:odysseus-local/draft/${id}`)?.value : undefined;
+      expect(kept === undefined || !(kept as { uncertain?: boolean }).uncertain, "the settled draft's record is no longer uncertain").toBe(true);
+    } finally {
+      await fixture(page, (f) => f.clearHostDrafts()).catch(() => {});
+      await context.close();
+    }
+  }, 120_000);
+
+  test("a pending bind survives a reload and the host binds the newer save to its session", async () => {
+    const context = await browser!.newContext({ viewport: { width: 900, height: 700 } });
+    // The first message is held on its way out until the newer save is on the host.
+    let releaseMessage: (() => void) | null = null;
+    await context.routeWebSocket(() => true, (socket) => {
+      const server = socket.connectToServer();
+      socket.onMessage((frame) => {
+        const message = JSON.parse(String(frame)) as { type: string };
+        if (message.type === "chat_message" && !releaseMessage) releaseMessage = () => server.send(frame);
+        else server.send(frame);
+      });
+      // D52's path: a host without outgoing snapshots. On one with them a
+      // save waits while a snapshot's send is out (#3155, #3733), so no newer
+      // save can race the acceptance; the case below proves that host.
+      server.onMessage((frame) => {
+        const message = JSON.parse(String(frame)) as { type: string; sessionDraftLimits?: { maxOutgoingSnapshots?: number } };
+        if (message.type !== "server_hello" || !message.sessionDraftLimits) { socket.send(frame); return; }
+        delete message.sessionDraftLimits.maxOutgoingSnapshots;
+        socket.send(JSON.stringify(message));
+      });
+    });
+    const page = await context.newPage();
+    try {
+      await newChat(page);
+      const first = "Which harbour shelters the fleet?";
+      await field(page).fill(first);
+      const id = await fixture(page, (f) => f.draftId());
+      await until(page, `f.draft(${JSON.stringify(id)})?.revision === 1`);
+      await field(page).press("Enter");
+      await settle(async () => releaseMessage !== null, 5_000);
+      expect(releaseMessage, "the first message is held before the host sees it").not.toBeNull();
+      // The newer edit's save reaches the host; its answer is held.
+      let answerSave: (() => Promise<void>) | null = null;
+      let bindsOffline = false;
+      await context.route(draftPath, async (route) => {
+        const request = route.request();
+        if (request.method() === "PUT" && !answerSave) {
+          const response = await route.fetch();
+          answerSave = () => route.fulfill({ response });
+          return;
+        }
+        if (bindsOffline && new URL(request.url()).pathname.endsWith("/bind")) { await route.abort(); return; }
+        await route.continue();
+      });
+      const newer = "And the harbour fees";
+      await field(page).fill(newer);
+      await settle(async () => (await hostDrafts(page)).some((d) => d.draftId === id && d.revision === 2), 10_000);
+      expect((await hostDrafts(page)).find((d) => d.draftId === id), "the newer save is on the host, unbound").toMatchObject({ revision: 2, sessionId: null, preview: newer });
+      expect((await draftOf(page, id))?.revision, "this page has not heard that save's answer").toBe(1);
+      // Accepted while that save is out: the host kept revision 2, and the bind is owed.
+      releaseMessage!();
+      await until(page, `f.draft(${JSON.stringify(id)})?.bind != null`);
+      const session = (await draftOf(page, id))!.bind!.sessionId;
+      bindsOffline = true;
+      await answerSave!();
+      await until(page, `f.draft(${JSON.stringify(id)})?.revision === 2`);
+      await committed(page);
+      expect(await draftOf(page, id), "the bind is still owed at the reload").toMatchObject({ text: newer, revision: 2, bind: { sessionId: session } });
+      expect((await hostDrafts(page)).find((d) => d.draftId === id)?.sessionId, "the host's newer save is still unbound").toBeNull();
+      await context.unroute(draftPath);
+      await page.reload();
+      await until(page, "f.connected() && f.accountKey() !== null && f.draftsSupported() === true");
+      await fixture(page, (f) => f.restoring());
+      await settle(async () => (await hostDrafts(page)).find((d) => d.draftId === id)?.sessionId === session);
+      expect((await hostDrafts(page)).find((d) => d.draftId === id)?.sessionId, "the pending bind completes after the reload").toBe(session);
+      expect(await draftOf(page, id)).toMatchObject({ text: newer, sessionId: session, bind: null });
+    } finally {
+      await fixture(page, (f) => f.clearHostDrafts()).catch(() => {});
+      await context.close();
+    }
+  }, 120_000);
+
+  test("on a host that keeps outgoing snapshots, words typed while the first message is out wait for its acceptance, then save under its session", async () => {
+    const context = await browser!.newContext({ viewport: { width: 900, height: 700 } });
+    let releaseMessage: (() => void) | null = null;
+    await context.routeWebSocket(() => true, (socket) => {
+      const server = socket.connectToServer();
+      socket.onMessage((frame) => {
+        const message = JSON.parse(String(frame)) as { type: string };
+        if (message.type === "chat_message" && !releaseMessage) releaseMessage = () => server.send(frame);
+        else server.send(frame);
+      });
+    });
+    const page = await context.newPage();
+    try {
+      await newChat(page);
+      const first = "Which harbour shelters the fleet?";
+      await field(page).fill(first);
+      const id = await fixture(page, (f) => f.draftId());
+      await until(page, `f.draft(${JSON.stringify(id)})?.revision === 1`);
+      await field(page).press("Enter");
+      await settle(async () => releaseMessage !== null, 5_000);
+      expect(releaseMessage, "the message goes once the save that holds its snapshot is acknowledged").not.toBeNull();
+      expect((await hostDrafts(page)).find((d) => d.draftId === id), "that save cleared the composer").toMatchObject({ revision: 2, sessionId: null, preview: "" });
+      const newer = "And the harbour fees";
+      await field(page).fill(newer);
+      // A negative window: the newer words would save within SAVE_DELAY_MS
+      // (well under 2s) if anything let them. Nothing may until the answer.
+      await settle(async () => (await hostDrafts(page)).some((d) => d.draftId === id && d.revision > 2), 2_000);
+      expect((await hostDrafts(page)).find((d) => d.draftId === id), "no save lists the snapshot again while its send is out (#3733)").toMatchObject({ revision: 2, preview: "" });
+      expect((await draftOf(page, id))?.text, "the words stay in the field").toBe(newer);
+      releaseMessage!();
+      await until(page, "f.activeSessionId() !== null");
+      const session = (await fixture(page, (f) => f.activeSessionId()))!;
+      await settle(async () => (await hostDrafts(page)).some((d) => d.sessionId === session && d.preview === newer));
+      expect((await hostDrafts(page)).filter((d) => d.preview === newer).map((d) => d.sessionId), "the newer words are that session's draft").toEqual([session]);
+    } finally {
+      await fixture(page, (f) => f.clearHostDrafts()).catch(() => {});
+      await context.close();
+    }
+  }, 120_000);
 });

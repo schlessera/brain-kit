@@ -1,42 +1,21 @@
 import { describe, test, expect, beforeEach, afterEach, spyOn } from "bun:test";
 import { Database } from "bun:sqlite";
-import { existsSync, unlinkSync, readFileSync } from "fs";
+import { readFileSync } from "fs";
 
 // Drive the real writer and status reader; fixture SQL only seeds history.
 import type { BrainClient } from "../src/brain/client";
 import { recordCronRun, createCronScheduler } from "../src/cron/scheduler";
 
-const TEST_DB = `/tmp/brain-ui-cron-test-${process.pid}.db`;
-
 describe("cron scheduler logic", () => {
   let db: Database;
 
+  // The shipped schema, not a hand-copied table, in memory: nothing on disk to collide or leak.
   beforeEach(() => {
-    if (existsSync(TEST_DB)) unlinkSync(TEST_DB);
-    db = new Database(TEST_DB, { create: true });
-    db.exec("PRAGMA journal_mode = WAL");
-    db.exec(`
-      CREATE TABLE cron_runs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        job_name TEXT NOT NULL,
-        started_at INTEGER NOT NULL,
-        finished_at INTEGER,
-        status TEXT NOT NULL CHECK (status IN ('running', 'success', 'error')),
-        error_message TEXT,
-        duration_ms INTEGER
-      )
-    `);
-    db.exec(
-      "CREATE INDEX idx_cron_runs_job ON cron_runs(job_name, started_at DESC)"
-    );
+    db = new Database(":memory:");
+    db.exec(readFileSync(new URL("../migrations/001_initial.sql", import.meta.url), "utf8"));
   });
 
-  afterEach(() => {
-    db.close();
-    for (const suffix of ["", "-shm", "-wal"]) {
-      if (existsSync(TEST_DB + suffix)) unlinkSync(TEST_DB + suffix);
-    }
-  });
+  afterEach(() => db.close());
 
   test("getCronStatus returns latest run per job", () => {
     // Insert multiple runs for the same job

@@ -3,7 +3,10 @@ import { hybridSearch, isIsoDate } from "../../lib/search-engine.js";
 import { loadVecSupport } from "../../lib/db.js";
 import { rerankSetup } from "../../lib/registry.js";
 import type { CoreCommand } from "../types.js";
+import { enumFlag, positiveIntegerFlag, stringFlag } from "../flags.js";
 import { emit, openReadonlyDb, parseArgs, today, UsageError } from "../io.js";
+
+const SEARCH_MODES = ["fts", "vector", "hybrid"] as const satisfies ReadonlyArray<SearchOptions["mode"]>;
 
 const DATE_FLAGS = ["updated-since", "updated-before", "deadline-from", "deadline-to"] as const;
 
@@ -48,9 +51,15 @@ export const searchCommand: CoreCommand = {
         throw new UsageError(`--${flag} needs a date written YYYY-MM-DD, got ${JSON.stringify(value)}`);
       }
     }
-    if (flags.sort !== undefined && !(SEARCH_SORTS as readonly unknown[]).includes(flags.sort)) {
-      throw new UsageError(`--sort must be one of ${SEARCH_SORTS.join(", ")}, got ${JSON.stringify(flags.sort)}`);
-    }
+    // Every flag is read here, before the database is opened: a malformed
+    // value is a usage error that runs no query (#1352).
+    const sort = enumFlag(flags, "sort", SEARCH_SORTS);
+    const mode = enumFlag(flags, "mode", SEARCH_MODES) ?? "hybrid";
+    const limit = positiveIntegerFlag(flags, "limit") ?? 20;
+    const type = stringFlag(flags, "type");
+    const tag = stringFlag(flags, "tag");
+    const relevance = stringFlag(flags, "relevance");
+    const status = stringFlag(flags, "status");
 
     let setup;
     try {
@@ -62,22 +71,23 @@ export const searchCommand: CoreCommand = {
     }
     const opts: SearchOptions = {
       query,
-      mode: (flags.mode as SearchOptions["mode"]) || "hybrid",
+      mode,
       rerank: setup.rerank,
-      type: flags.type as string | undefined,
-      tag: flags.tag as string | undefined,
-      relevance: flags.relevance as string | undefined,
-      status: flags.status as string | undefined,
-      includeArchived: flags.status === "archived" || flags["include-archived"] === true,
+      type,
+      tag,
+      relevance,
+      status,
+      includeArchived: status === "archived" || flags["include-archived"] === true,
       assetsOnly: flags["assets-only"] === true,
       chunks: flags.chunks === true,
-      limit: flags.limit ? parseInt(flags.limit as string, 10) : 20,
-      updatedSince: flags["updated-since"] as string | undefined,
-      updatedBefore: flags["updated-before"] as string | undefined,
+      limit,
+      // The date flags are checked above; these reads only narrow the type.
+      updatedSince: stringFlag(flags, "updated-since"),
+      updatedBefore: stringFlag(flags, "updated-before"),
       // --upcoming is sugar; an explicit --deadline-from or --sort wins.
-      deadlineFrom: (flags["deadline-from"] as string | undefined) ?? (flags.upcoming ? today() : undefined),
-      deadlineTo: flags["deadline-to"] as string | undefined,
-      sort: (flags.sort as SearchOptions["sort"]) ?? (flags.upcoming ? "deadline" : undefined),
+      deadlineFrom: stringFlag(flags, "deadline-from") ?? (flags.upcoming ? today() : undefined),
+      deadlineTo: stringFlag(flags, "deadline-to"),
+      sort: sort ?? (flags.upcoming ? "deadline" : undefined),
     };
 
     const dated = opts.updatedSince || opts.updatedBefore || opts.deadlineFrom || opts.deadlineTo;

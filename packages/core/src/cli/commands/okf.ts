@@ -8,6 +8,7 @@ import {
   type OkfExportReport,
 } from "../../lib/okf-exporter.js";
 import type { CoreCommand } from "../types.js";
+import { brainRelativeArgument } from "../../lib/safe-path.js";
 import { emit, parseArgs, UsageError } from "../io.js";
 
 const HELP = `brain okf — export and validate Open Knowledge Format v0.1 bundles
@@ -81,7 +82,7 @@ export const okfCommand: CoreCommand = {
         const report = await exportOkfBundle({
           root: cli.brain.root,
           taxonomy: cli.brain.taxonomy,
-          outDir: typeof flags.out === "string" ? flags.out : undefined,
+          outDir: typeof flags.out === "string" ? brainRelativeArgument(cli.brain.root, flags.out) : undefined,
           include: repeatedValues(argv, "include"),
           exclude: repeatedValues(argv, "exclude"),
           copyAssets: flags["no-assets"] !== true,

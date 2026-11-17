@@ -2,7 +2,7 @@ import { createStore } from "zustand/vanilla";
 import type { ConfiguredModule, ModuleSettingsSnapshot, ModuleSettingsMigrationPreview } from "@schlessera/brain-ui-sdk";
 
 export type SettingsPath = Array<string | number>;
-export interface VariantSelection { selected: string; original: string; keys: string[]; originallyPresent: string[] }
+interface VariantSelection { selected: string; original: string; keys: string[]; originallyPresent: string[] }
 export interface ModuleSettingsSession {
   modules: ConfiguredModule[];
   loading: boolean;

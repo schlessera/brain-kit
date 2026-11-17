@@ -46,6 +46,8 @@ beforeAll(async () => {
       GOOGLE_GEMINI_BASE_URL: upstream.url.origin } });
   const [code, stderr] = await Promise.all([index.exited, new Response(index.stderr).text()]);
   if (code !== 0) throw new Error(`brain index --embeddings failed: ${stderr}`);
+  // The index's own embedding request is setup, not a test's provider contact.
+  seen.length = 0;
 });
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); seen.length = 0; });
 afterAll(() => { upstream.stop(true); rmSync(root, { recursive: true, force: true }); });
@@ -88,7 +90,8 @@ for (const method of ["run", "launch"] as const) {
     expect([DOTENV_KEY, HOST_KEYS.GEMINI_API_KEY, HOST_KEYS.OPENAI_API_KEY, HOST_KEYS.ANTHROPIC_API_KEY]
       .filter(secret => result.stdout.includes(secret)), "RELAYED_MAINTENANCE_LEAKS_NO_RELAYED_KEY").toEqual([]);
     expect(observed.dotenv, "RELAYED_MAINTENANCE_DOTENV_MASKED").toBe("EACCES");
-    // JeV is not relayed: its key stays with credentialed maintenance (disclosed in status).
+    // JeV is relayed for turn workers only (#3792): its key stays with credentialed maintenance, whose
+    // sync judge and propagation review call TypeSafe directly (disclosed in status).
     expect(observed.env.TYPESAFE_API_KEY).toBe(HOST_KEYS.TYPESAFE_API_KEY);
     expect(observed.env.BRAIN_PROVIDER_RELAY_SOCKET).toBe("/run/brain-providers/relay.sock");
     expect(observed.env.BRAIN_WITHHELD_KEYS, "RELAYED_MAINTENANCE_NAMES_HELD_KEYS").toBe("ANTHROPIC_API_KEY,GEMINI_API_KEY,OPENAI_API_KEY");

@@ -93,6 +93,16 @@ test("the transport resolves public revisions anonymously and private ones only 
     .toMatchObject({ ok: true, commit: git(join(fixture, "srv", "loom.git"), "rev-parse", "main") });
 }, 60_000);
 
+test("an ambiguous branch and tag name is refused by the actual Git transport", async () => {
+  if (await privateMaintenanceTest(import.meta.path, "an ambiguous branch and tag name is refused by the actual Git transport", 60000)) return;
+  const repository = referenceRepository(url("public", "ithaca")), bare = join(fixture, "srv", "ithaca.git");
+  git(bare, "tag", "main", "refs/heads/main");
+  try {
+    await expect(createReferenceTransport({ brainPath: brain }).resolve({ repository, revision: "main", token: null }),
+      "REFERENCE_AMBIGUOUS_BRANCH_TAG_REFUSED").rejects.toMatchObject({ reason: "invalid" });
+  } finally { git(bare, "tag", "-d", "main"); }
+}, 60_000);
+
 test("acquisition publishes a complete thousand-file checkout and keeps the credential out of source evaluation", async () => {
   if (await privateMaintenanceTest(import.meta.path, "acquisition publishes a complete thousand-file checkout and keeps the credential out of source evaluation", 180000)) return;
   const db = createUiDb(":memory:");

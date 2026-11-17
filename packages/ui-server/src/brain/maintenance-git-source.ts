@@ -3,6 +3,7 @@
  * worker view; a directory the worker identity cannot search is withheld and
  * read by its exact owner, the server, through `collectOwnedGitAttributes`.
  */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { accessSync, closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, readdirSync, type Stats } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 export interface MaintenanceGitSources {
@@ -136,7 +137,7 @@ export async function collectMaintenanceGitSources(binary: string, maximum: numb
     phase = "hooks";
     const declared = answer.config.filter(([key]) => key.toLowerCase() === "core.hookspath").at(-1)?.[1];
     const hooks = declared ? resolve(root, declared) : join(root, ".git/hooks");
-    if (hooks === root || hooks.startsWith(`${root}/`)) {
+    if (isWithin(root, hooks)) {
       const parts = relative(root, hooks).split("/").filter(Boolean); let current = openSync(at(fd), DIRECTORY);
       try {
         for (const part of parts) { if (!name(part)) throw Error("Unsupported retained hook path"); const next = directory(current, part); closeSync(current); current = next; }
@@ -210,7 +211,7 @@ export function parseMaintenanceGitSources(text: string, maximum: number, expect
     withheld.add(item.path);
   }
   // The worker never enters a withheld directory, so nothing it reports can lie below one.
-  const below = (path: string) => [...withheld].some(root => path.startsWith(`${root}/`));
+  const below = (path: string) => [...withheld].some(root => isWithin(root, path, { includeRoot: false }));
   if ([...paths, ...withheld].some(below)) throw Error("Inconsistent withheld Git input receipt");
   if (!value.repository && (value.config.length || value.hookNames.length || value.attributes.length || value.withheld.length)) throw Error("Inconsistent concrete Git source receipt");
   return value;

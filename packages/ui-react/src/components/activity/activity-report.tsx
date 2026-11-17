@@ -26,7 +26,7 @@ import { DiagnosticReview, type ReviewCopy } from "../report/diagnostic-review.j
  * record from this server without payloads. The run is never changed.
  */
 
-export const ACTIVITY_REVIEW_COPY: ReviewCopy = {
+const ACTIVITY_REVIEW_COPY: ReviewCopy = {
   reportSubtitle: "Opening the issue sends this text to GitHub before you submit it. The issue will be public at github.com/schlessera/brain-kit.",
   copySubtitle: "Review and edit this text. Copy places it on your clipboard only when you choose Copy.",
   footnote: (
@@ -63,7 +63,7 @@ function isOffline(wsStatus: string): boolean {
   return wsStatus !== "connected" || (typeof navigator !== "undefined" && navigator.onLine === false);
 }
 
-export const OFFLINE_NOTE = "You appear to be offline. Copy works now; the GitHub link needs a connection.";
+const OFFLINE_NOTE = "You appear to be offline. Copy works now; the GitHub link needs a connection.";
 
 /** One report request: the run, and its record when the opener already holds it. */
 export interface ActivityReportRequest {

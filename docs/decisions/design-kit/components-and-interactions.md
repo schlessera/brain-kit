@@ -1245,6 +1245,126 @@ as proof, because Chromium's touch adjustment snaps a tap near a control onto
 it whether or not the control reaches. Consumer sites are probed the same way
 through `ui-react/tests/browser/hit-reach.ts`.
 
+**A link that wraps is probed on its first line box.** A wrapped inline link
+has one box per line, and the union of those boxes covers the prose around
+it. Probing the union's edges therefore lands on that prose. The first line
+box is a target in its own right, so the probe uses it.
+
+### 2026-11-03 — The rest of `ui-react` reaches instead of inflating
+
+The remaining app screens now follow the same rule: chat, voice, activity,
+files, graph, connectivity, the page-failure screen, the diagnostic review and
+search. Kit Buttons drop `minHeight: 44` and take `reach`. Rows of reaching
+Buttons that can wrap or stack 8px apart add `any-pointer-coarse:gap-y-4`.
+`TextButton` drops the `minHeight: 44` it was given, because a standalone
+`TextButton` already has a 44px minimum box. A small `IconButton` forced to
+44px under a fine pointer drops the override, because D55 already grows it
+under a coarse one. The bordered binary-file download link takes `.bk-hit`.
+`hit-reach.app.pointer.tsx` probes these scenes in all three pointer lanes.
+
+A 44px box stays where it is the design, or where it draws no visible box:
+
+| Kept at 44px | Why |
+| --- | --- |
+| Text inputs, selects and search fields | 44px is the field's own box, and a replaced element cannot carry a pseudo-element. |
+| Rows: `bk-row` list rows, `ListRow`, the mobile sheet rows, the untrusted-marks entry and list rows, trace rows in run detail, label rows around a `Toggle`, and the storage indicator strip | The row is the target, as for kit rows. |
+| Borderless links and `Disclosure` triggers given 44px through a host rule | They paint no box, so nothing visible is inflated. D57 records the `Disclosure` case. |
+| Icon controls the size of an `md` `IconButton`: the mask and markup editors' tools, swatches and widths, the viewer toolbar's link and share trigger, the zoom toolbar, and the graph's floating discs | 44px is the kit's `md` icon size. |
+| `ApprovalCard`'s Deny mount (96 × 44) and `Send bug report` | Approved designs specify 44px. |
+| The live conversation strip | Its bar is laid out around 44px controls (its 44/52px rows). It is a touch-first surface, not inflated `sm` or `md` Buttons. (The dictation sheet's primary button was here too until #3694 replaced the sheet with the voice field.) |
+| The crash fallback (`app-error-boundary`) | It renders without the kit and uses system colours. |
+
+Two sites drew a visible pill 44px tall, and neither had a kit size to move
+to: the file viewer's Preview/Raw `FilterRow` pills, which could not reach
+because `FilterRow`'s strip clips them with `overflow: hidden`, and the
+Actions dismissal-reason pills, which are raw pressed chips beside a
+non-interactive kit `Chip`. The ruling for both follows.
+
+### 2026-11-08 — `FilterRow` pills reach by default; dismissal reasons take the kit pill (#3531)
+
+**Decision (maintainer, 2026-11-08).** Neither site keeps a 44px paint. Both
+paint at an existing kit size and reach 44px under `any-pointer: coarse`.
+**Every interactive `FilterRow` pill reaches by default**, with no prop for
+it. Static pills stay non-interactive and never reach. The runtime change and
+its caller audit are #4086.
+
+**Paint sizes.** The viewer's Preview/Raw pills keep the kit `FilterRow` pill:
+`4px 10px` padding, 10.5px/1 type, a 1px border, about **20.5px** tall, so
+the vertical reach is about 11.75px a side. The dismissal reasons take the
+kit `Chip variant="pill"` geometry: `6px 12px` padding, 11.5px/1.35 type,
+radius 999, about **29.5px** tall, so the vertical reach is 7.25px a side.
+Under a fine pointer both are their paint, as #3252 already rules.
+
+**How each meets 44px.**
+
+- `FilterRow` puts `.bk-hit` on every pill with an `onClick`. Under a coarse
+  pointer its strip clips only horizontally (`overflow-x: clip;
+  overflow-y: visible`): `clip` leaves the other axis `visible`, where
+  `hidden` would turn it into `auto`. Horizontal overflow and paint are
+  unchanged. Focus keeps `bk-control-inset`, because the strip still clips at
+  its ends (#1775). The strip's clipping is the `.bk-filter-row` class, since
+  an inline style cannot clip one axis under one pointer only.
+- The viewer drops its `[role=tab]` 44px overrides. Under a coarse pointer it
+  widens the gap between its wrapped toolbar lines from 12px to 20px
+  (`any-pointer-coarse:gap-y-5`), so that the 11.75px pill reach and the
+  7.8px reach of an `sm` Button on the line above would still clear each
+  other. As built (#4086), every control that can sit on the line above is a
+  44px box with no reach (the untrusted mark is an `md` `IconButton`), which
+  12px already clears; the wider gap keeps the rule when a reaching control is
+  put there.
+- The dismissal reasons stay raw `aria-pressed` buttons, swap `bk-row
+  min-h-11` for `bk-control bk-hit`, and widen their wrapped-row gap to 16px
+  under a coarse pointer (`any-pointer-coarse:gap-y-4`, the row gap the
+  reaching Buttons above already use), since two 7.25px reaches total 14.5px.
+  `bk-control` puts the focus ring outside, which is safe because the group
+  does not clip. Accessible names, `aria-description` and pressed state stay
+  as they are.
+
+**Spacing, clipping and focus bind every caller.** Default reach does not
+permit overlap. The 44px floor, the coarse-pointer condition and the neighbour
+rule (gap ≥ the sum of the two facing reaches) still hold, and a caller that
+breaks them is corrected, not exempted. With `FilterRow`'s 6px gap each side's
+horizontal reach must be at most 3px, so an interactive pill must be at least
+38px wide, or its row must widen the gap to meet the same rule. Each caller is
+also checked for an ancestor that clips its vertical reach, wrapped or stacked
+neighbours that need a wider coarse-pointer row gap, labels that wrap, and
+focus rings that would be cut. #4086 lists every interactive caller.
+
+**Narrow pills paint 44px wide on touch (maintainer, 2026-11-16, #4086).**
+The audit measured three interactive pills under 44px: the viewer's Raw
+(40px) and the graph Direction row's In (31px) and Out (41px). Their
+sideways reach would be clipped at the strip's ends, where the strip keeps
+clipping, and In and Out would overlap across the 6px gap. So under a coarse
+pointer an interactive pill paints at least 44px wide, label centred
+(`.bk-filter-row > .bk-hit`). No pill then reaches sideways, which meets the
+38px rule above for every caller without a per-caller exception. Height and
+fine-pointer paint are unchanged. Rejected: a 38px minimum under every
+pointer, because an end pill would still fall up to 3px short and the
+fine-pointer paint would change, and per-caller fixes, because each new
+narrow pill would meet the same problem.
+
+**Why default, not opt-in.** The brief proposed an opt-in `reach` prop,
+mirroring `Button`'s, and an audit of the other callers later. That branch is
+**superseded for `FilterRow`**. Reach by default brings every interactive
+filter row up to the touch floor at once, and it makes the caller audit part
+of the change instead of a follow-up that can lapse. `Button`'s `reach` stays
+opt-in, as recorded above.
+
+**Rejected.** For the viewer: a segmented control (the kit has none, and a
+new seam needs a second use), keeping 44px as the design (a 44px pill around
+10.5px type is the defect), and padding the strip to absorb the reach (it
+would grow every `FilterRow` by 23px under fine pointers too). For the
+dismissal reasons: an interactive kit `Chip` (the only pressed chip, so no
+second use), `ChoiceOption` rows (they read as a required, effectful choice,
+where the copy says a reason "never grants or stops anything"), and Buttons
+(`Button` has no pressed state).
+
+**Mocks.** The [design brief](https://github.com/schlessera/brain-kit/issues/3531#issuecomment-6611584754)
+carries the 320px and 1280px mocks, the edge tables and the coarse-pointer
+gap arithmetic. Its geometry applies unchanged to the default-reach branch.
+Only its `reach` prop and its opt-in recommendation (P1) are replaced by this
+ruling.
+
 ## 2026-11-02 — D57: collapsibles follow the job, not one Disclosure (#3253)
 
 App screens drew raw `<details>` and ad-hoc `aria-expanded` toggles for four
@@ -1329,7 +1449,7 @@ implements them with the session store:
 | `settings/modules-tab.tsx` complete source values | `<details>` | Evidence: `Complete source values · {n} keys`. |
 | `settings/module-settings-fields.tsx` collapsible lists | `Surface` and `<details>` | Editable item: `ItemCard`. |
 | `voice/conversation-unassigned.tsx` | `<details>` "Optional voice review" | Optional control: `Callout` and "Review in composer". |
-| `voice/conversation-strip.tsx` background tasks | `<details>` | Evidence: `Background tasks · {n} contextual requests`. |
+| `voice/conversation-field.tsx` background tasks | `<details>` | Removed from the live field (#3699); each task is a `VoiceToolChip` in the chat (#3700). |
 | `voice/recordings-tray.tsx` header | raw `aria-expanded` button | Panel: `Tray`, `On this device · {n} recordings · {size}`. |
 | `graph/graph-maintenance.tsx` finding groups | `TextButton` and dot | Panel: `Tray` with the lens swatch; the label keeps the kind's name. |
 | `graph/graph-scene.tsx` `ClusterLegend` | raw `aria-expanded` row | Panel: `Tray`, `Topics · {n}`. |
@@ -1357,3 +1477,90 @@ which is the case `.bk-hit` above exists for. An item's inline removal
 confirmation uses reaching Buttons in a row with
 `any-pointer-coarse:gap-y-4`, as that section requires. All three use the kit focus ring: inset on rows, +2 on `⋯`.
 Nothing animates, so reduced motion needs no extra rule.
+
+## 2026-11-03 — D58: compact operation status is one presentational control (#3281)
+
+Two consumers need to say what happened to work the user cannot see. One is the
+draft saving its text and files (#3155). The other is a chat deletion the host
+has not confirmed (#3231). A persistent status line costs composer space, and
+a bare `StatusDot` cannot explain an unknown outcome or offer recovery. The
+maintainer chose a compact, animated, colour-coded icon with hover and tap
+details. On 2026-11-02 they approved the specification on the issue
+(R1 A, R2 A, R3 A).
+
+### The state matrix
+
+Every state has its own existing `Icon` key and an existing semantic ink, so
+neither colour nor motion carries meaning alone
+(`STATES`, `packages/ui-kit/src/chrome/StatusIndicator.tsx:52-61`).
+
+| State | Glyph key | Tone | Motion |
+| --- | --- | --- | --- |
+| `active` | `loading` | amber | `breathe`, 2s, while the consumer reports real work |
+| `queued` | `later` | neutral | static: waiting on a known prerequisite, not saved |
+| `success` | `finished` | teal | static: authoritative confirmation from the consumer |
+| `attention` | `attention` | gold | static: known recoverable limitation, such as offline |
+| `unknown` | `unproven` | gold | static: outcome unconfirmed, never success |
+| `failed` | `stopped` | red | static: known failure |
+| `refused` | `unreachable` | red | static: known refusal, never inferred from a lost reply |
+| `idle` | `withdrawn` | neutral | static: nothing pending |
+
+- **R1 A, queued is neutral.** Ordinary waiting stays calm, and caution is
+  kept for attention and unknown facts. Rejected: gold, which made pending
+  work look like a problem.
+- **R2 A, draft success persists.** The static teal check stays while the
+  exact acknowledged draft is nonempty and unchanged. An edit clears it at
+  once. Rejected: hiding it a few seconds after saving, which brings back the
+  "is it saved?" doubt and needs a timer that could keep a stale claim alive.
+  That mapping belongs to the #3155 consumer. The component has no timer.
+
+### Interaction
+
+The control
+(`StatusIndicator`, `packages/ui-kit/src/chrome/StatusIndicator.tsx:127-229`)
+draws a 20px glyph inside a native 44px `<button>`. A square `::before` keeps
+the target's corners inside the rounded paint. The control has no native
+`title`, so it composes the `TranscriptQualifiers` pattern and does not use
+`IconButton`, which always emits one.
+
+- **Hover and focus show the same summary.** Hover waits 300ms. The tooltip
+  can be hovered, is clamped 16px inside the viewport, flips below when there
+  is no room above, and Escape hides it without moving focus.
+- **Click, tap, Enter and Space open persistent details** in
+  `Overlay variant="dialog"`, which is a sheet at phone widths and a dialog on
+  desktop. Initial focus goes to the heading. Escape, Close and the scrim follow
+  the topmost-overlay rules and return focus to the trigger, or to the
+  consumer's `returnFocus` once the trigger has gone. After a close, a resting
+  pointer must leave the trigger before hover shows the tooltip again.
+- **Opening details has no effect.** Check, Retry and every other effect are
+  separate consumer buttons inside the details.
+- **Updates happen in place.** The heading is not refocused, and an action the
+  user is on keeps focus.
+- **One polite live region** sits beside the trigger, or inside the modal while
+  it is open, because the rest of the page is inert then
+  (`useAnnouncement`, `packages/ui-kit/src/chrome/StatusIndicator.tsx:87-124`).
+  It announces after a 1s coalescing window, and only when the derived state
+  changes or an operation newly enters attention, unknown, failed or refused.
+  Progress, summary and fact changes stay silent.
+
+### Several operations
+
+The display state is derived, worst first: refused, failed, unknown,
+attention, active, queued, success, idle
+(`statusIndicatorLead`, `packages/ui-kit/src/chrome/StatusIndicator.tsx:69-75`).
+Two or more operations show a count. Details list every operation separately,
+keyed by the consumer's id, never by array index. An empty list renders a
+reserved 44px slot with no control. It is idle, never success, and it is how
+an empty draft hides the indicator without a layout shift.
+
+### What it is not
+
+It is not a state engine, an evidence timer or an operation service. The
+consumer owns state, freshness, identity, persistence, principal binding and
+the authority behind every action. `StatusDot` and its consumers are
+unchanged, and nothing else migrates. Stories show the draft and
+deletion-recovery placements and a generic sync example with fixture data;
+#3155 and #3231 own the runtime.
+
+The animation is a scoped amendment to D52's static row, recorded
+[there](sessions-and-drafts.md#3-the-shared-row-above-the-composer-amends-d22).

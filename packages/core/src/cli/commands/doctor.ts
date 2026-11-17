@@ -12,6 +12,8 @@ import {
   getMeta,
   embeddingIdentityMatches,
   SCHEMA_VERSION as EXPECTED_SCHEMA_VERSION,
+  vecVersion,
+  vectorCount,
 } from "../../lib/db.js";
 import { indexAll } from "../../lib/indexer.js";
 import { migrateSidecarCaches } from "../../lib/indexer/caches.js";
@@ -23,6 +25,7 @@ import { foreignCoreSkill } from "../../lib/skills/core-installation.js";
 import { packageVersion } from "../../package-version.js";
 import { missingEmbeddingKey, rerankerKeyEnv, resolveReranker } from "../../lib/registry.js";
 import { JEV_MODEL } from "../../lib/llm-defaults.js";
+import { relayedKey } from "@schlessera/brain-common/internal/provider-relay";
 import type { CoreCommand, CliContext } from "../types.js";
 import { emit, embeddingDims, parseArgs } from "../io.js";
 import { resolveEmitters } from "../skills-util.js";
@@ -366,7 +369,8 @@ function checkReranker(cli: CliContext): Check {
     return { id: "reranker", status: "pass", detail: `reranking by ${cfg?.provider === "none" ? "retrieval order (none)" : "lifecycle factors (heuristic)"}, set in config` };
   }
   const keyEnv = rerankerKeyEnv(cfg);
-  if (!readEnvVar(keyEnv)) {
+  // A key the host withholds and relays is available through the relay (#3792).
+  if (!readEnvVar(keyEnv) && !relayedKey(keyEnv)) {
     return {
       id: "reranker",
       status: "warn",
@@ -424,7 +428,7 @@ async function checkEmbeddings(cli: CliContext): Promise<Check> {
 
     let vecCount = 0;
     try {
-      vecCount = (db.prepare("SELECT COUNT(*) as n FROM vec_chunks").get() as { n: number }).n;
+      vecCount = vectorCount(db);
     } catch {
       /* vec table absent */
     }
@@ -620,7 +624,7 @@ async function checkSqliteVecMac(): Promise<Check> {
     const { load } = await import("sqlite-vec");
     const db = new Database(":memory:");
     load(db);
-    db.prepare("SELECT vec_version()").get();
+    vecVersion(db);
     db.close();
     return { id: "sqlite-vec-macos", status: "pass", detail: "sqlite-vec loads on this macOS SQLite" };
   } catch (e) {

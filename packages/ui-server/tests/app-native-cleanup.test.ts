@@ -48,7 +48,7 @@ test("unknown native deletion stays durable while app shutdown still closes UI s
     ledger = new Database(f.leasePath);
     const rows = ledger.query("SELECT id,state FROM native_root_leases").all() as { id: string; state: string }[];
     expect(rows.length, "APP_UNKNOWN_RELEASE_RETAINS_DURABLE_OWNERSHIP").toBeGreaterThan(0);
-    expect(rows.every(row => row.state === "deleting")).toBe(true);
+    expect(rows.map(row => row.state)).toEqual(rows.map(() => "deleting"));
     f.native.client.release = release;
     const ready = await f.native.client.ready(), recovery = await createNativeBrainLeaseManager(f.native.client, { statePath: f.leasePath, brainPath: ready.brainPath, fsid: ready.fsid, brainUuid: ready.brainUuid });
     try {

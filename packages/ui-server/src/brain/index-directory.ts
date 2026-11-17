@@ -36,7 +36,7 @@ export function ensureIndexDirectory(brain: string): void {
 }
 
 /** Create `.brain-cache/` as {@link ensureIndexDirectory} creates `.brain-index/`. */
-export function ensureCacheDirectory(brain: string): void {
+function ensureCacheDirectory(brain: string): void {
   ensureRetainedDirectory(brain, CACHE_DIR);
 }
 

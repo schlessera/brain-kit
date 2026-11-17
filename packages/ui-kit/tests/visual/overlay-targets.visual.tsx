@@ -135,7 +135,7 @@ for (const theme of ["dark", "light"]) {
     await userEvent.keyboard("{Tab}");
     expect(document.activeElement, "Search precedes New chat").toBe(newChat);
     // Reduced motion: the pill is open in the same frame, with no transition.
-    expect(getComputedStyle(label).transitionDuration.split(",").every((d) => d.trim() === "0s"), "no transition under reduced motion").toBe(true);
+    expect(getComputedStyle(label).transitionDuration.split(",").map((d) => d.trim()).filter((d) => d !== "0s"), "no transition under reduced motion").toEqual([]);
     const after = rect(newChat!);
     expect(rect(label).width, "focus prints the word").toBeGreaterThan(30);
     expect(after.right, "the pill grows leftward").toBe(before.right);

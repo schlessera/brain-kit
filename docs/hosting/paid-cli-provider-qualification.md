@@ -8,7 +8,9 @@ contract proposed for [#1673](https://github.com/schlessera/brain-kit/issues/167
 the maintainer's 2026-10-23 rulings on that issue: first-party recipients by
 default plus `BRAIN_UI_CLI_PROVIDER_ORIGINS`, a socket the CLI finds through
 `BRAIN_PROVIDER_RELAY_SOCKET`, per-attempt rows with no reservation, maintenance
-charged to its turn or day, and no relay for video or JeV. The sections below
+charged to its turn or day, and no relay for video or JeV. #2738 later relayed
+the video Files lifecycle (see below), and #3792 the JeV reranker's request for
+turn workers (`typesafe` family, operation `reranking`, unpriced). The sections below
 keep the audit's evidence and requirements; where the relay settles one, it
 says so.
 
@@ -55,7 +57,7 @@ SDK conversion without adding a public embedding-provider seam.
 
 The image CLI preserves `bytes`, `costIsEstimate`, `costUsd`, `model`, `note`,
 `output`, `outputs`, `provider`, `reason` and `renamed`
-(`const payload`, `packages/module-images/src/cli.ts:407-419`). Its help example
+(`const payload`, `packages/module-images/src/cli.ts:490-501`). Its help example
 is abbreviated; it is not the complete machine contract. Internal image raw
 usage does not imply that this envelope exposes it.
 
@@ -90,9 +92,9 @@ providers refused rather than treated as first-party evidence.
 
 The current inference relay already strips inbound credentials, selects its
 fixed origin/routes and invokes host credentials for each dispatch
-(`startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:71-253`).
+(`startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:73-261`).
 Its event has outcome/status, not provider usage
-(`InferenceRelayEvent`, `packages/ui-sdk/src/server/inference-relay.ts:47-53`).
+(`InferenceRelayEvent`, `packages/ui-sdk/src/server/inference-relay.ts:47-55`).
 For these CLI consumers, the host would supply a non-secret transport projection
 and keep real keys outside the worker. A fixture key reaching a loopback upstream
 is not proof of that credential-free projection.
@@ -109,11 +111,15 @@ missing usage means unknown spend, not zero spend.
 Embedding and generation routes can be constrained to known methods and model
 paths. Video requires more: the native Files lifecycle follows a provider upload
 URL, sends bytes, polls an owned handle and deletes it with a fresh cleanup
-deadline (`withVideoFiles`, `packages/core/src/providers/completions/video.ts:16-76`).
+deadline (`withVideoFiles`, `packages/core/src/providers/completions/video.ts:21-83`).
 The host must validate upload destinations and retain a private registry of
 handles created by that turn. It must not accept worker-selected arbitrary
-upload URLs or general GET/DELETE access. The existing POST-only relay cannot be
-claimed to cover that lifecycle. Multipart edits must preserve native boundaries,
+upload URLs or general GET/DELETE access. #1673's POST-only relay did not cover
+that lifecycle. #2738 extends it to: it hands the worker a token URL in place of
+the provider's upload URL, which must be on the authorized origin's `/upload/`
+path; it polls, deletes or names in a generation only handles its own uploads
+created; and it deletes the turn's leftover files when it stops
+([agent workers](agent-workers.md#metered-provider-relay-1673)). Multipart edits must preserve native boundaries,
 references, masks and cancellation rather than reconstructing a JSON approximation.
 
 ### Capture units before converting the response
@@ -151,8 +157,10 @@ concrete durable owner and transaction point in the later implementation, with
 restart/retry controls, rather than relying on a worker-supplied counter.
 
 Budget coverage excluded provider/tool spend until #1673; it now names the
-relayed CLI providers and nothing else
-(`TURN_BUDGET_COVERAGE`, `packages/ui-server/src/brain/turn-budgets.ts:46`).
+relayed CLI providers, where the host wires its Apify ledger (#3307) the
+Apify runs it admitted, and the hosted external compute jobs it admitted
+(#3108), and nothing else
+(`TURN_BUDGET_COVERAGE`, `packages/ui-server/src/brain/turn-budgets.ts:47`).
 Only qualified recorded units may advance that disclosure. Before activation,
 prove refusal before the next dispatch once the applicable known budget is
 exhausted, alongside native cancellation/cleanup and deduplication. Exact advance

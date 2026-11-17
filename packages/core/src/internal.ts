@@ -14,10 +14,24 @@ export { ingest, prepareIngest } from "./lib/ingestion.js";
 export { hybridSearch } from "./lib/search-engine.js";
 export { relevanceOnArchive } from "./lib/archiver.js";
 export type { ArchiveResult } from "./lib/archiver.js";
-export { estimateTokens } from "./lib/context-assembler.js";
+export { coverageNote, emptyContextCoverage, estimateTokens } from "./lib/context-assembler.js";
+export type { ContextCoverage } from "./lib/context-assembler.js";
+export { MAX_SCOPE_ENTRIES, MAX_SCOPE_ENTRY_LENGTH } from "./lib/context-scope.js";
+export type { ContextScopeInput } from "./lib/context-scope.js";
 export { initContext } from "./lib/context.js";
 export type { BrainContext } from "./lib/context.js";
 export { readDocumentPart } from "./lib/document-parts.js";
+// The bounded multi-read pi's brain_read_many adapts (#3642).
+export {
+  READ_MANY_DESCRIPTION,
+  READ_MANY_MAX_PATH_CHARS,
+  READ_MANY_MAX_REQUESTS,
+  READ_MANY_MAX_SECTION_CHARS,
+  READ_MANY_MAX_TOTAL_CHARS,
+  READ_MANY_MIN_ITEM_CHARS,
+  READ_MANY_MIN_TOTAL_CHARS,
+  readMany,
+} from "./lib/ops/read-many.js";
 export { updateDocument } from "./lib/frontmatter-edit.js";
 export type { FrontmatterValue } from "./lib/frontmatter-edit.js";
 export { inertGeneratedText, rewriteGeneratedRegion, splitFrontmatterBlock } from "./lib/generated-regions.js";
@@ -50,3 +64,51 @@ export { geminiCompletions } from "./providers/completions/gemini.js";
 
 export { collectModuleRenderers } from "./lib/module-renderers.js";
 export type { ResolvedModuleRenderer } from "./lib/module-renderers.js";
+
+// External compute lifecycle for the `brain compute` CLI, MCP and hosted admission (#3105).
+export { createComputeService, computeJobView, ComputeStateError, computeBrainKey, resolveComputeStateDir, COMPUTE_JOB_ID } from "./lib/compute/index.js";
+export type {
+  ComputeService,
+  ComputeHealthReport,
+  ComputeCollection,
+  ComputeReconcileReport,
+  ComputeApproval,
+  ComputeBudget,
+  ComputeCaller,
+  ComputeClock,
+  ComputeJobView,
+  ComputeJobResult,
+  ComputePlan,
+  ComputeRefusal,
+  ComputeRunRequest,
+  ComputeServiceOptions,
+} from "./lib/compute/index.js";
+export { COMPUTE_PROVIDERS, loadComputePackage, resolveComputeInstance } from "./lib/registry.js";
+// The operation set and driver a host admits hosted jobs through (#3108).
+export {
+  COMPUTE_TOOL_NAMES,
+  computeHealthInput,
+  computeRequestInput,
+  computeJobInput,
+  createComputeOps,
+  createComputeDriver,
+  jobOutput,
+  jobSettled,
+} from "./lib/ops/compute.js";
+export type {
+  ComputeOps,
+  ComputeOpsOptions,
+  ComputeDriver,
+  ComputeDriverOptions,
+  ComputeEnvelope,
+  ComputeErrorEnvelope,
+  ComputeJobOutput,
+  ComputeJobEnvelope,
+  ComputeCollectEnvelope,
+  ComputePlanEnvelope,
+  ComputeHealthEnvelope,
+  ComputeHealthInput,
+  ComputeRequestInput,
+  ComputeJobInput,
+} from "./lib/ops/compute.js";
+export type { ComputeBuiltin, ResolvedComputeInstance } from "./lib/registry.js";

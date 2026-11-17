@@ -14,8 +14,9 @@ import { createSessionResources } from "./session-resources.js";
 import { createSessionRuntime } from "./native-session-runtime.js";
 import { toolLockFromKeyed } from "./tools.js";
 import { createPiBridgeTools } from "./bridge-tools.js";
-import { PI_WORKER_STATE, SessionTooLargeError, pipeMessages, sendPipe, type PiWorkerMessage } from "./worker-protocol.js";
+import { PI_WORKER_STATE, PiInputSafetyUnavailableError, SessionTooLargeError, pipeMessages, sendPipe, type PiWorkerMessage } from "./worker-protocol.js";
 import type { CreatePiBackendOptions, PiSessionLike, SessionEnv, SessionToolkit } from "./backend-options.js";
+import { discoversPiExtensions } from "./extension-inspection.js";
 
 interface Init {
   type: "init";
@@ -41,6 +42,7 @@ interface Init {
 }
 sendPipe(process.stdout, { type: "startup_timing", phase: "worker_started", durationMs: 0 });
 let session: PiSessionLike | undefined;
+let initialized=false;
 let manager: SessionManager | undefined;
 let turn: SessionToolkit;
 const controller = new AbortController();
@@ -144,7 +146,7 @@ async function initialize(init: Init): Promise<void> {
         try { return await fn(); } finally { await rpc("unlock", scope.name, scope.id, { lockId }); }
       },
     } : toolLockFromKeyed(createKeyedLock()),
-    allowedTools: new Set(), confirmPatterns: compileConfirmPatterns([], () => {}), loadExtensions: init.backend.loadExtensions ?? true,
+    allowedTools: new Set(), confirmPatterns: compileConfirmPatterns([], () => {}), loadExtensions: discoversPiExtensions(init.backend),
     // pi settings changes stay in scratch; source settings/extensions remain read-only.
     settingsSnapshot: init.agentFiles["settings.json"] ?? "{}",
     ...(init.relayed?.transport ? { pinnedSettings: { transport: init.relayed.transport } } : {}),
@@ -156,21 +158,7 @@ async function initialize(init: Init): Promise<void> {
     } }) } : { shellCwd: init.dataTree ? WORKER_DATA_ROOT : WORKER_SCRATCH }),
     ...(init.sandboxNote ? { sandboxNote: init.sandboxNote } : {}),
     fixedAppend: init.fixedAppend, observeAppend: append => { renderedAppend = append; },
-    permissionFactory: holder => ({ name: "brain-server-permission-gate", factory: pi => {
-      pi.on("tool_call", async event => {
-        if (controller.signal.aborted) return { block: true, reason: "Turn cancelled" };
-        const result = await rpc("permission", event.toolName, event.toolCallId, event.input as Record<string, unknown>);
-        if (result.behavior === "deny") return { block: true, reason: result.message };
-        if (result.updatedInput) {
-          const input = event.input as Record<string, unknown>;
-          for (const key of Object.keys(input)) delete input[key];
-          Object.assign(input, result.updatedInput);
-        }
-        return undefined;
-      });
-      // The holder is still bound per turn; no host bridge is loaded here.
-      void holder;
-    } }),
+    managedToolSafety: true,
   });
   const buildResources = resources.build;
   resources.build = async (...args) => {
@@ -201,12 +189,24 @@ async function initialize(init: Init): Promise<void> {
     turn.turnContext.bridge = {
       emit() { throw new Error("Workers cannot emit privileged bridge frames"); },
       requestPermission() { throw new Error("Use the server permission RPC"); },
+      commitToolAdmission: async (id, name, input) => { await rpc("admission", name, id, input); },
       applyBrain: input => rpc("apply", toolScope.getStore()?.name ?? "", toolScope.getStore()?.id ?? "", input as unknown as Record<string, unknown>),
       readBrainBase: path => rpc("readBase", "brain_read_base", toolScope.getStore()?.id ?? "", { path }),
     };
     return turn;
   };
   const runtime = createSessionRuntime({ backend: init.backend, resources, sessionDir: state,
+    toolSafety: {
+      permission: (name,id,input) => rpc("permission",name,id,input),
+      // Initialization is awaited by the same loop that consumes RPC answers.
+      // Refuse startup one-way; the typed error makes the host retain loss.
+      unavailable: async()=>{if(initialized)await rpc("safetyUnavailable","","",{});},
+      result: (name,id,content) => {
+        const segments=content.filter(part=>part.type==="text").map(part=>(part as {text:string}).text);
+        return rpc("safetyResult",name,id,{output:segments.join("\n"),segments});
+      },
+      stop: () => controller.abort(),
+    },
     sessionId: init.sessionId, entries: init.entries, observeManager: sm => { manager = sm; },
     modelRuntimeOptions: { authPath: join(state, "auth.json"), modelsPath: join(state, "models.json"), modelsStorePath: join(state, "models-cache.json") },
   });
@@ -227,7 +227,9 @@ async function initialize(init: Init): Promise<void> {
   });
   send({ type: "ready", sessionId: session.sessionId, append: renderedAppend, ...(session.model ? { model: session.model } : {}),
     ...(session.thinkingLevel ? { thinkingLevel: session.thinkingLevel } : {}),
-    levels: session.getAvailableThinkingLevels?.() ?? [], cost: session.getSessionStats().cost });
+    levels: session.getAvailableThinkingLevels?.() ?? [], cost: session.getSessionStats().cost,
+    // Before any model-directed code runs: the host's evidence for an extension-free worker (#2874).
+    loadedExtensions: opened.loadedExtensions });
 }
 
 async function syncAuth(): Promise<void> {
@@ -241,7 +243,6 @@ async function syncAuth(): Promise<void> {
 try {
   // Initialization is awaited in this loop. Prompt must run concurrently so
   // permission answers, follow-ups and cancellation can still arrive.
-  let initialized = false;
   for await (const raw of pipeMessages(process.stdin)) {
     const msg = raw as any;
     if (!initialized) {
@@ -276,7 +277,8 @@ try {
     } else throw new Error("Unknown server message");
   }
 } catch (error) {
-  send({ type: "error", message: error instanceof Error ? error.message : String(error) });
+  send({ type: "error", message: error instanceof Error ? error.message : String(error),
+    ...(error instanceof PiInputSafetyUnavailableError?{errorClass:"input_safety_unavailable"}:{}) });
 } finally {
   await session?.abort();
   (session as AgentSession | undefined)?.dispose();

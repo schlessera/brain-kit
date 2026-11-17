@@ -1,9 +1,9 @@
 import type { GraphNodePayload, GraphSubgraphResponse } from "@schlessera/brain-ui-sdk/protocol";
 
 export const DISCOVERY_MAX_DEPTH = 8;
-export interface DiscoveryIntent { id: number; path: string; distance: number; }
+interface DiscoveryIntent { id: number; path: string; distance: number; }
 export interface DiscoveryEvidence { data: GraphSubgraphResponse; depth: number; }
-export interface DiscoveryExpansionFailure { message: string; needsRefresh: boolean; }
+interface DiscoveryExpansionFailure { message: string; needsRefresh: boolean; }
 export interface DiscoveryExpansionState {
   intents: readonly DiscoveryIntent[];
   loading: readonly string[];

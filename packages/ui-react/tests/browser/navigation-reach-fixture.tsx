@@ -44,6 +44,7 @@ import { ChatPage } from "../../src/components/chat/chat-page.js";
 import { ActivityPage } from "../../src/components/activity/activity-page.js";
 import { GraphPage } from "../../src/components/graph/graph-page.js";
 import { useUIStore } from "../../src/stores/ui-store.js";
+import { OWNED, edgeOwners } from "./hit-reach.js";
 
 declare module "vitest" {
   interface ProvidedContext { railPointer: "fine" | "coarse" | "mixed"; }
@@ -222,7 +223,12 @@ async function press(s: Scene, el: HTMLElement, mode: string) {
   const name = (el.getAttribute("aria-label") ?? el.textContent ?? "").trim();
   expect(name, `a named control: ${el.outerHTML.slice(0, 80)}`).not.toBe("");
   const r = rect(el);
-  if (mode !== "fine") {
+  if (mode !== "fine" && el.classList.contains("bk-hit")) {
+    // #3252: a reaching control keeps its paint; its 44px target is its own,
+    // probed 1px inside each edge.
+    expect(r.height, `${name} keeps its paint rather than drawing 44px`).toBeLessThan(44);
+    expect(edgeOwners(el, 44), `44px target edges: ${name}`).toEqual(OWNED);
+  } else if (mode !== "fine") {
     expect(r.height, `44px target height: ${name}`).toBeGreaterThanOrEqual(43.5);
     expect(r.width, `44px target width: ${name}`).toBeGreaterThanOrEqual(43.5);
   }

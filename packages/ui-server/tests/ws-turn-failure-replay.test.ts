@@ -43,6 +43,7 @@ function harness(id: "claude" | "pi") {
   let turns = 0;
   let persist = true;
   let historyHold: Promise<void> | undefined;
+  let endHold: Promise<void> | undefined;
   let reads = 0;
   const bridges: BackendBridge[] = [];
   let lateFailure: TurnFailure | undefined;
@@ -67,6 +68,8 @@ function harness(id: "claude" | "pi") {
         isError: true, outcome: "error", failure: lateFailure });
       req.bridge.emit({ type: "result", sessionId: "s1", numTurns: 1, durationMs: 1, isError: !!failure,
         outcome: failure ? "error" : "success", ...(failure ? { failure } : {}) });
+      // A backend may still be settling after its result: the turn ends later.
+      await endHold;
     },
     async getHistory() {
       reads++;
@@ -85,6 +88,11 @@ function harness(id: "claude" | "pi") {
     get reads() { return reads; },
     withholdTranscript() { persist = false; },
     emitLateFailure(next: TurnFailure) { lateFailure = next; },
+    holdEnd() {
+      let release!: () => void;
+      endHold = new Promise<void>((resolve) => { release = () => { endHold = undefined; resolve(); }; });
+      return release;
+    },
     holdHistory() {
       let release!: () => void;
       historyHold = new Promise<void>((resolve) => { release = () => { historyHold = undefined; resolve(); }; });
@@ -311,6 +319,27 @@ for (const id of ["claude", "pi"] as const) describe(`${id}: live failure surviv
       const replay = frames.find((frame) => frame.type === "session_history");
       expect(replay?.type === "session_history" && replay.messages.at(-1)?.failure?.errorClass).toBe("invalid_request");
       expect(replay?.type === "session_history" && replay.messages.at(-1)?.failure).toEqual(live);
+    } finally { release(); await sending; }
+  });
+
+  test("a resume between a turn's result and its end waits for the turn's boundary", async () => {
+    const h = harness(id);
+    const release = h.holdEnd();
+    const sending = h.send();
+    try {
+      for (let i = 0; i < 200 && !h.frames.some((frame) => frame.type === "result"); i++) await Bun.sleep(5);
+      // Servers stamp the turn id on every frame (protocol.ts, RESERVED).
+      const result = h.frames.find((frame): frame is Extract<ServerMessage, { type: "result" }> & { turnId?: string } => frame.type === "result");
+      expect(result?.turnId).toBeString();
+      // A client reads the history again on the result, as a started
+      // follow-up carrying composer originals does (#3155).
+      const frames: ServerMessage[] = [];
+      const loading = handleClientMessage({ send: (data) => frames.push(JSON.parse(data)) }, { type: "session_resume", sessionId: "s1" });
+      for (let i = 0; i < 20 && !frames.some((frame) => frame.type === "session_history"); i++) await Bun.sleep(5);
+      release();
+      await sending; await loading;
+      const replay = frames.find((frame) => frame.type === "session_history");
+      expect(replay?.type === "session_history" && replay.messages.at(-1)?.turnId, "the answer carries its turn").toBe(result?.turnId);
     } finally { release(); await sending; }
   });
 });

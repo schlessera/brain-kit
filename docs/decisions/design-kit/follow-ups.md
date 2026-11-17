@@ -45,7 +45,7 @@ does a replayed session show?
    last call that parses is lifted to the answer's closing row, after the text
    and the share menu. At its call position `groupParts` draws nothing
    (`payload?.block.kind === "suggestions"`,
-   `packages/ui-react/src/components/chat/message-bubble.tsx:292`), and shares
+   `packages/ui-react/src/components/chat/message-bubble.tsx:317`), and shares
    and prints leave it out. This also amends D37 §8's "chips while live,
    `FeedbackRow` later": #41 closed as not planned, so the closing row is
    suggestions or nothing.
@@ -65,12 +65,17 @@ does a replayed session show?
    alike.** Until it lands there is no error suppression. A cancelled turn is
    never suppressed: the model calls suggestions last, so a turn that reached
    the call has an answer.
+   *Amended 2026-11-03 (#3519, maintainer):* the description now asks for
+   the call before the answer's final sentence instead of last, because a
+   turn ending on the call returned no text and the Claude CLI's
+   no-visible-output nudge made the model write the answer twice. The call
+   still follows the answer's substance, so this reasoning holds.
 8. **The rule rides in the tool description, not the brief.** The brief sits
    at its pinned eleven lines and 749 characters, and with the tools always
    loaded (D44) it measured no effect on the call rate. The description, which
    D44 puts in every prompt, carries a `suggestions:` line. The brief's
    "names every kind" assertion exempts `suggestions` by name
-   (`BRIEF_EXEMPT`, `packages/ui-sdk/tests/tool-contracts.test.ts:137-141`).
+   (`BRIEF_EXEMPT`, `packages/ui-sdk/tests/tool-contracts.test.ts:141-145`).
 9. **It merges before it is measured, and the release waits.** #550 runs the
    keyed measurement on both backends: the suggestion rate, the rate when the
    answer ends in a question, the drop rate, the added tokens, and a read of
@@ -144,6 +149,10 @@ After #635's two `additionalProperties: false` declarations, the same
 keyless listing on 2026-10-02 adds **866** flat-schema characters and **709**
 after the definitions transform; the description remains **336** characters.
 These updated counts do not supply the live measurements reserved for #550.
+
+Rechecked on 2026-11-15: after #3525 (2026-11-03) moved the suggestions call
+before the answer's final sentence, the shipped description line adds **426
+JSON characters**; the earlier **336** counts above describe the historical rule.
 
 The maintainer's 2026-10-07 ruling pins new comparisons to
 `claude-sonnet-5-5`. Earlier observations on `claude-sonnet-5` keep their

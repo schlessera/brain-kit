@@ -65,19 +65,55 @@ test("real process tree freezes, resumes once per dimension, then stops with eve
   }
 });
 
-test("shared snapshots count ignored scratch, workspaces and repeated observed bytes, with independent finite grant", async () => {
+test("shared snapshots count ignored scratch, workspace bytes and repeated observed bytes, with independent finite grant", async () => {
   const f = scopeFixture({ max_bytes_written: 8, max_files_changed: 3 }); let child: ReturnType<typeof f.worker> | undefined;
   try {
     await f.begin(); child = f.worker('while :; do sleep 1; done');
     writeFileSync(join(f.brain, ".brain/scratch/loom"), "12345678"); await f.journal.observe();
     expect(f.receipt()).toMatchObject({ dimension: "turn_bytes", count: 8, cap: 8, newCap: 16 });
     expect((await f.scope.decide(f.message("continue"), true)).state).toBe("accepted");
-    writeFileSync(join(f.brain, "workspaces/shroud"), "x"); writeFileSync(join(f.brain, "sail"), "x"); await f.journal.observe();
+    // The workspace file adds bytes but no changed path (#3793).
+    writeFileSync(join(f.brain, "workspaces/shroud"), "x"); writeFileSync(join(f.brain, "sail"), "x"); writeFileSync(join(f.brain, "mast"), "x"); await f.journal.observe();
     expect(f.receipt()).toMatchObject({ dimension: "files_changed", count: 3, newCap: 6 });
     expect((await f.scope.decide(f.message("continue", "files"), true)).state, "SCOPE_OTHER_DIMENSION_RETAINS_GRANT").toBe("accepted");
     writeFileSync(join(f.brain, ".brain/scratch/loom"), "87654321"); await f.journal.observe();
-    expect(f.receipt()).toMatchObject({ dimension: "turn_bytes", count: 18, cap: 16, overshoot: 2 }); expect(f.receipt().newCap).toBeUndefined();
+    expect(f.receipt()).toMatchObject({ dimension: "turn_bytes", count: 19, cap: 16, overshoot: 3 }); expect(f.receipt().newCap).toBeUndefined();
     (await f.scope.decide(f.message("stop", "bytes-stop"), true)); await child.exited;
+  } finally { child?.kill("SIGKILL"); if (child) await child.exited; await f.close(); }
+});
+
+test("files_changed leaves out a reference clone under workspaces/ but counts every path outside it (#3793)", async () => {
+  const f = scopeFixture({ max_files_changed: 1000 }); let child: ReturnType<typeof f.worker> | undefined;
+  try {
+    await f.begin(); child = f.worker('while :; do sleep 1; done');
+    // A fetch and checkout of a mid-sized repository, and nothing in the brain.
+    mkdirSync(join(f.brain, "workspaces/argo/src"), { recursive: true });
+    for (let index = 0; index < 1500; index++) writeFileSync(join(f.brain, "workspaces/argo/src", `oar-${index}.ts`), `export const oar = ${index};\n`);
+    await f.journal.observe();
+    const scope = () => f.journal.summary("voyage").scope!;
+    expect(scope().receipts, "WORKSPACE_CLONE_DOES_NOT_PAUSE_FILES_CHANGED").toEqual([]);
+    expect(scope().changedPaths, "SUMMARY_STILL_DISCLOSES_WORKSPACE_PATHS").toBeGreaterThanOrEqual(1500);
+    for (let index = 0; index < 999; index++) writeFileSync(join(f.brain, `ithaca-${index}.md`), `Day ${index}\n`);
+    await f.journal.observe();
+    expect(scope().receipts, "BRAIN_PATHS_BELOW_THE_CAP_DO_NOT_PAUSE").toEqual([]);
+    // A sibling sharing the prefix is outside workspaces/ and counts.
+    mkdirSync(join(f.brain, "workspaces-old")); writeFileSync(join(f.brain, "workspaces-old/x.md"), "Old raft\n");
+    writeFileSync(join(f.brain, "ithaca-999.md"), "Day 999\n");
+    await f.journal.observe();
+    expect(f.receipt(), "BRAIN_PATHS_PAST_THE_CAP_STILL_PAUSE").toMatchObject({ dimension: "files_changed", count: 1001, cap: 1000, state: "paused", frozen: true });
+    await f.scope.decide(f.message("stop"), true); await child.exited;
+  } finally { child?.kill("SIGKILL"); if (child) await child.exited; await f.close(); }
+});
+
+test("workspace writes still count toward turn_bytes and pause the turn there (#3793)", async () => {
+  const f = scopeFixture({ max_files_changed: 1, max_bytes_written: 1024 }); let child: ReturnType<typeof f.worker> | undefined;
+  try {
+    await f.begin(); child = f.worker('while :; do sleep 1; done');
+    mkdirSync(join(f.brain, "workspaces/argo"));
+    writeFileSync(join(f.brain, "workspaces/argo/hull.bin"), Buffer.alloc(1024, 1)); writeFileSync(join(f.brain, "workspaces/argo/keel.bin"), Buffer.alloc(1024, 2));
+    await f.journal.observe();
+    expect(f.journal.summary("voyage").scope!.receipts, "WORKSPACE_BYTES_PAUSE_TURN_BYTES_ONLY").toMatchObject([{ dimension: "turn_bytes", count: 2048, cap: 1024, state: "paused" }]);
+    await f.scope.decide(f.message("stop"), true); await child.exited;
   } finally { child?.kill("SIGKILL"); if (child) await child.exited; await f.close(); }
 });
 

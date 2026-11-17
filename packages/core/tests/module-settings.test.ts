@@ -1,7 +1,14 @@
 import { afterEach, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { join } from "path";
-import { BRAIN_BIN, cleanup, keylessEnv, makeTempBrain, runCli } from "./cli-harness";
+import { BRAIN_BIN, cleanup, keylessEnv as harnessEnv, makeTempBrain, runCli as harnessCli } from "./cli-harness";
+import { withoutSigning } from "./git-fixture";
+
+// Settings saves commit through the CLI. Every Git child, fixture and product
+// alike, gets signing disabled at command scope, so no ambient signing
+// configuration reaches these temporary repositories.
+const keylessEnv = (root: string) => withoutSigning(harnessEnv(root));
+const runCli = (root: string, args: string[]) => harnessCli(root, args, keylessEnv(root));
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) cleanup(root); });

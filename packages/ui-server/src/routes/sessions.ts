@@ -3,7 +3,26 @@ import type { AppEnv } from "../app-env.js";
 import type { Database } from "bun:sqlite";
 import type { AgentBackend } from "@schlessera/brain-ui-sdk/server";
 import type { BackendRegistry } from "../agent/backend.js";
-import type { SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
+import { SESSION_NOT_FOUND, type SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
+import { ChatRetiredError } from "../ws/chat-lifecycle.js";
+import { principalAccount } from "../middleware/account-partition.js";
+
+/**
+ * The caller's host-only retained histories: its own, and those another login
+ * of its account started (#3963). This is `sameAccount` over each owner's
+ * stored evidence, kept in SQL so the page stays one indexed range. Evidence
+ * is consistent when its account is NULL, or 'owner' with no live row that
+ * says otherwise; corrupt or contradictory evidence lists for nobody. The
+ * caller's account comes from its own current row. Comparisons use IS, so no
+ * NULL term can admit a row.
+ */
+const RETAINED_CONVERSATIONS = `SELECT d.id,d.created_at FROM dialogue_owners d
+  WHERE d.session_id IS NULL AND d.id>?3
+  AND (d.principal_account IS NULL OR (d.principal_account IS 'owner'
+    AND NOT EXISTS (SELECT 1 FROM principals p WHERE p.id=d.principal_id AND p.kind IS NOT 'owner')))
+  AND (d.principal_id IS ?1 OR (?2 IS 'owner' AND (d.principal_account IS 'owner'
+    OR EXISTS (SELECT 1 FROM principals p WHERE p.id=d.principal_id AND p.kind IS 'owner'))))
+  ORDER BY d.id LIMIT 201`;
 
 export function createSessionRoutes(deps: {
   registry: BackendRegistry;
@@ -19,6 +38,8 @@ export function createSessionRoutes(deps: {
    * earlier run are not listed: nothing would refresh them.
    */
   labels?: boolean;
+  /** Whether a chat identity is retired (#3230). A retired chat is absent from every list and read. */
+  retired?: (target: { sessionId: string } | { ownerId: string }) => boolean;
 }): Hono<AppEnv> {
   const { registry, db } = deps;
   const pending = new Map<AgentBackend, ReturnType<AgentBackend["listSessions"]>>();
@@ -88,7 +109,8 @@ export function createSessionRoutes(deps: {
           })
         )
       );
-      const listed = results.flatMap((result) => result.status === "fulfilled" ? result.value : []);
+      const listed = results.flatMap((result) => result.status === "fulfilled" ? result.value : [])
+        .filter((session) => !deps.retired?.({ sessionId: session.id }));
       // A handoff destination names its source (#61). The title is the one
       // the source's own backend lists, else the catalog's first prompt.
       const titles = new Map(listed.map((session) => [session.id, session.title]));
@@ -116,9 +138,9 @@ export function createSessionRoutes(deps: {
       if (after && (after.length > 2048 || !c.req.query("includeRetainedConversations")))
         return c.json({error:"Invalid retained conversation cursor"},400);
       const retainedRows = c.req.query("includeRetainedConversations") === "true" && principal
-        ? db.query("SELECT id,created_at FROM dialogue_owners WHERE principal_id=? AND session_id IS NULL AND id>? ORDER BY id LIMIT 201").all(principal.id,after ?? "") as {id:string;created_at:number}[]
+        ? db.query(RETAINED_CONVERSATIONS).all(principal.id,principalAccount(db,principal.id),after ?? "") as {id:string;created_at:number}[]
         : undefined;
-      const retainedConversations = retainedRows?.slice(0,200);
+      const retainedConversations = retainedRows?.slice(0,200).filter(row => !deps.retired?.({ ownerId: row.id }));
       const retainedAfter = retainedRows && retainedRows.length > 200 ? retainedConversations!.at(-1)!.id : undefined;
       return c.json({ sessions, ...(retainedConversations ? {retainedConversations} : {}), ...(retainedAfter ? {retainedAfter} : {}), ...(unavailableBackends.length ? { unavailableBackends } : {}) });
     } catch (err) {
@@ -131,13 +153,19 @@ export function createSessionRoutes(deps: {
 
   .get("/sessions/:id", async (c) => {
     const id = c.req.param("id");
+    // Rechecked after every await: a chat retired mid-read publishes nothing (#3230).
+    const gone = () => deps.retired?.({ sessionId: id }) === true;
+    const absent = () => c.json({ error: SESSION_NOT_FOUND, message: "This host has no such session." }, 404);
     try {
       await deps.settled?.();
+      if (gone()) return absent();
       const backend = await registry.getBackendForSession(getStoredBackendId(id));
       const messages = await backend.getHistory(id);
       await deps.settled?.();
+      if (gone()) return absent();
       return c.json({ id, messages: deps.prepareHistory?.(id, messages) ?? messages });
     } catch (err) {
+      if (err instanceof ChatRetiredError || gone()) return absent();
       return c.json(
         { error: err instanceof Error ? err.message : "Failed to get session" },
         500

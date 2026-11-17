@@ -25,21 +25,20 @@ plugin({ name: "measure-pi-native-worker", setup(build) {
       source = replaceExactly(source, "parameters: toPiParameters(SHOW_BLOCK_INPUT_SCHEMA)", "parameters: toPiParameters(__measurementSchema)");
       source = replaceExactly(source, "handleShowBlock(SHOW_BLOCK_INPUT_SCHEMA.parse(input))", "handleShowBlock(__measurementSchema.parse(input))");
     } else if (path.endsWith("native-session-runtime.ts")) {
-      source = `import { createMeasurementModelRuntime } from ${helper};\n` + source;
+      source = `import { createMeasurementModelRuntime, measurementToolSafety } from ${helper};\n` + source;
       source = replaceExactly(source, "await ModelRuntime.create(options.modelRuntimeOptions)", "await createMeasurementModelRuntime()", 2);
+      source = replaceExactly(source, "installPiToolSafety(session.agent,options.toolSafety,", "installPiToolSafety(session.agent,measurementToolSafety(options.toolSafety,brainPath),", 2);
     } else if (path.endsWith("worker-entry.ts")) {
       source = `import { adoptMeasurementPreparedPrompt } from ${helper};\nimport { waitPiSchemaCaptures } from ${capture};\nimport { flushMeasurementFiles } from ${receipts};\n` + source;
       source = replaceExactly(source, 'void session!.prompt(msg.text, msg.options)',
         'adoptMeasurementPreparedPrompt(msg.__measurementPrompt);\n      void session!.prompt(msg.text, msg.options)');
       source = replaceExactly(source, "await syncAuth();", "await waitPiSchemaCaptures(); flushMeasurementFiles(); await syncAuth();", 2);
     } else {
-      source = `import { measurementFixtureGuard } from ${helper};\n` + source;
       const start = source.indexOf("    const settingsManager = ");
       const end = source.indexOf("    const subagentTool =", start);
       if (start < 0 || end < 0) throw new Error("Measurement settings source anchor drift.");
       source = source.slice(0, start) + '    const settingsManager = SettingsManager.inMemory({ transport: "sse", compaction: { enabled: false }, retry: { enabled: false, maxRetries: 0, provider: { maxRetries: 0, timeoutMs: 180000 } }, cacheWarming: "off", packages: [], extensions: [], skills: [], prompts: [], enableAnalytics: false, enableInstallTelemetry: false });\n' + source.slice(end);
       source = replaceExactly(source, "noExtensions: !loadExtensions,", "noExtensions: true, noSkills: true, noPromptTemplates: true,");
-      source = replaceExactly(source, "extensionFactories: [", "extensionFactories: [measurementFixtureGuard(brainPath),");
     }
     return { contents: source, loader: "ts" };
   });

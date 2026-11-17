@@ -36,18 +36,21 @@ import {
   WEB_SEARCH_FALLBACK_ON,
   WEB_SEARCH_PROVIDER_KEYS,
   WEB_SEARCH_PROVIDERS,
+  WEB_TOOL_UNAVAILABLE_FEATURES,
   hasWebSearchCredential,
+  webSearchKeySource,
   readWebSearchOverride,
   readWebSearchRouting,
   resolveWebSearchConfigPath,
   webSearchProvider,
 } from "@schlessera/brain-ui-sdk/internal";
+import type { WebToolUnavailableFeature } from "@schlessera/brain-ui-sdk/internal";
 import type { AgentConfig } from "../config/env.js";
 import { resolveWebSearchEnv } from "../config/env.js";
 import { loadBackendDescriptor, loadBackendModule } from "../agent/backend.js";
 
 /** One toggleable provider, as the Settings UI renders it. */
-export interface WebSearchProviderView {
+interface WebSearchProviderView {
   id: string;
   label: string;
   /** In the active chain. */
@@ -58,6 +61,11 @@ export interface WebSearchProviderView {
   keyConfigured: boolean;
   /** Its key comes from the environment instead — not editable here. */
   keyFromEnv: boolean;
+  /**
+   * The stored key is a credential command (`!command`). The host web
+   * executor never runs one, so the provider has no usable key (#3686).
+   */
+  keyIsCommand: boolean;
   /** Works without any credential. */
   keyless: boolean;
   /** Qualitative cost, for the UI. */
@@ -66,7 +74,7 @@ export interface WebSearchProviderView {
   blurb: string;
 }
 
-export interface WebSearchConfigView {
+interface WebSearchConfigView {
   /** False when the pi backend is not configured — the client hides the card. */
   configured: boolean;
   /** The active chain, in the order it is tried. Empty = the extension picks. */
@@ -84,10 +92,14 @@ export interface WebSearchConfigView {
    */
   appliesTo: string[];
   providers: WebSearchProviderView[];
+  /** What the host web tools do not offer, whatever the config says (#3686). */
+  unavailable: readonly WebToolUnavailableFeature[];
 }
 
-export interface WebSearchRoutesDeps {
+interface WebSearchRoutesDeps {
   agent: AgentConfig;
+  /** True while boot excluded pi as unavailable (#3817): the routes answer as if pi were not configured. */
+  excluded?: () => boolean;
   /** Test seam — overrides the config file location. */
   configPath?: string;
   /** Test seam — overrides the environment credential lookup. */
@@ -135,7 +147,7 @@ export function createWebSearchRoutes(deps: WebSearchRoutesDeps): Hono {
   const configPath = () => deps.configPath ?? resolveWebSearchConfigPath(env);
 
   const piConfigured = () =>
-    Boolean(agent.piProfilesJson) || (agent.backend || "claude") === "pi";
+    (Boolean(agent.piProfilesJson) || (agent.backend || "claude") === "pi") && !deps.excluded?.();
 
   /**
    * The pi models in the picker. Malformed config cannot reach here —
@@ -174,10 +186,12 @@ export function createWebSearchRoutes(deps: WebSearchRoutesDeps): Hono {
           typeof config[p.keyField] === "string" &&
           (config[p.keyField] as string).trim() !== "",
         keyFromEnv: Boolean(p.envVar && (env[p.envVar] ?? "").trim() !== ""),
+        keyIsCommand: p.keyField !== null && webSearchKeySource(config[p.keyField], env) === "command",
         keyless: p.keyless,
         costNote: p.costNote,
         blurb: p.blurb,
       })),
+      unavailable: WEB_TOOL_UNAVAILABLE_FEATURES,
     };
   }
 
@@ -186,7 +200,7 @@ export function createWebSearchRoutes(deps: WebSearchRoutesDeps): Hono {
       // Not-configured is a normal state, not an error: the client hides the
       // whole card (same convention as /pi-auth/providers).
       if (!piConfigured()) {
-        return c.json({ configured: false, order: [], overriddenBy: null, appliesTo: [], providers: [] });
+        return c.json({ configured: false, order: [], overriddenBy: null, appliesTo: [], providers: [], unavailable: [] });
       }
       return c.json(await view());
     })

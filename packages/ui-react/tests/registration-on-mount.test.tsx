@@ -130,6 +130,9 @@ if (!childMode) {
       expect(harness.createAsrClient(asrOptions("deepgram"))).toBeInstanceOf(
         harness.DeepgramClient
       );
+      expect(harness.createAsrClient(asrOptions("gemini"))).toBeInstanceOf(
+        harness.GeminiAsrClient
+      );
       expect(harness.createAsrClient(asrOptions("webspeech"))).toBeInstanceOf(
         harness.WebSpeechClient
       );
@@ -192,23 +195,28 @@ if (!childMode) {
     // The contract-bound pack registers first and is deliberately unscoped:
     // the same tool carries a different name on each backend, so it matches by
     // name rather than by which backend owns the session.
+    // The Apify pack (#3163) is global too: its approval cards carry fixed
+    // names, and its results arrive under either backend's tool spelling.
     expect(distinct.map((pack) => pack.backend ?? "global")).toEqual([
+      "global",
       "global",
       "claude",
       "pi",
       "global",
     ]);
     expect(distinct[0]).toBe(harness.brainUiToolPack);
-    expect(distinct[1]).toBe(harness.claudeToolPack);
-    expect(distinct[2]).toBe(harness.piToolPack);
-    // Every repeat passed one of those same three objects; a pack rebuilt per
-    // call would show up as a fourth distinct object above.
-    expect(packs.every((pack) => distinct.includes(pack))).toBe(true);
+    expect(distinct[1]).toBe(harness.apifyToolPack);
+    expect(distinct[2]).toBe(harness.claudeToolPack);
+    expect(distinct[3]).toBe(harness.piToolPack);
+    // A pack rebuilt per call would show up as a sixth distinct object above.
+    // The repeats must still reach the registry (no module latch), so every
+    // pack was handed over more than once.
+    expect(packs.length).toBeGreaterThan(distinct.length);
 
     const providers = registerAsrClient.mock.calls.map(
       ([providerId]: [string, AsrClientFactory]) => providerId
     );
-    expect([...new Set(providers)]).toEqual(["deepgram", "webspeech"]);
+    expect([...new Set(providers)]).toEqual(["deepgram", "gemini", "webspeech"]);
 
     strictDictation.unmount();
     strictTimeline.unmount();

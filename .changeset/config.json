@@ -22,7 +22,8 @@
       "@schlessera/brain-geo",
       "@schlessera/brain-module-video",
       "@schlessera/brain-common",
-      "@schlessera/brain-module-diagrams"
+      "@schlessera/brain-module-diagrams",
+      "@schlessera/brain-compute-boat"
     ]
   ],
   "linked": [],

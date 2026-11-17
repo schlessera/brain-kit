@@ -35,11 +35,13 @@ interface Entry {
   sources: { source: "hygiene"; name: string; severity: "warning" }[]; severity: "warning" | null; fingerprint: string | null;
   disposition: { kind: "dismissed" | "snoozed"; on: string | null; reason: string | null; fingerprint: string | null } | null;
   invalidation: { on: string; disposition: "dismissed" | "snoozed"; dispositionOn: string | null; changed: string[]; previousId: string | null } | null;
+  /** A host finding is never kept as a media copy; the CLI's list shape carries these as null. */
+  copy: null; copySha256: null; keptOn: null;
 }
 /** The loaded `@schlessera/brain/internal` module, as far as this module reads it. */
 export interface ReferenceWorktreeHygieneCore {
   canonicalFindings(candidates: Candidate[]): Map<string, Finding>;
-  selectHygieneNext(root: string, findings: Map<string, Finding>, entries: Entry[], now: Date, findingId?: string): { finding: Finding | null; counts: Next["counts"] };
+  selectHygieneNext(root: string, findings: Map<string, Finding>, entries: Entry[], now: Date, findingId?: string): { finding: Finding | null; counts: Next["counts"]; media: Next["media"] };
   REVIEW_SEVERITY: Record<string, number>;
   REVIEW_URGENCY: Record<string, number>;
   reviewUrgency(value: string | null): string;
@@ -48,7 +50,9 @@ type Core = ReferenceWorktreeHygieneCore;
 /** The CLI's `next` projection, as the review reads it. */
 type NextFinding = Record<string, unknown> & { id: string; severity?: string | null; urgency?: string | null; firstSeen?: string | null };
 type Next = { finding: NextFinding | null;
-  counts: { eligibleRemaining: number; fixed: number; dismissed: number; snoozed: number; nextSnoozeDueAt: string | null; informationalNotShown: number } };
+  counts: { eligibleRemaining: number; fixed: number; dismissed: number; snoozed: number; nextSnoozeDueAt: string | null; informationalNotShown: number; kept: number };
+  /** Media counts (#2780): a host finding is never media, so the CLI's are the whole answer. */
+  media: { awaitingReview: number; setAside: number; kept: number; links: object } };
 type Work = Pick<ReferenceWorktreeCleanup, "work" | "changedPaths" | "unverifiedPaths" | "digest">;
 type Inventory = ReturnType<ReferenceWorktrees["inventory"]>[number];
 /** What a worktree's host state says is wrong with it. */
@@ -148,7 +152,7 @@ export function createReferenceWorktreeHygiene(options: { db: Database; worktree
       resolvedBy: row.resolved_by, resolvedOn: row.resolved_at === null ? null : isoDay(row.resolved_at),
       sources: [{ source: "hygiene", name: REFERENCE_WORKTREE_HYGIENE_CATEGORY, severity: "warning" }], severity: "warning", fingerprint: row.fingerprint,
       disposition: row.state === "dismissed" || row.state === "snoozed" ? { kind: row.state, on: row.disposed_at === null ? null : isoDay(row.disposed_at), reason: row.reason, fingerprint: row.disposition_fingerprint } : null,
-      invalidation: row.invalidation_json ? JSON.parse(row.invalidation_json) : null };
+      invalidation: row.invalidation_json ? JSON.parse(row.invalidation_json) : null, copy: null, copySha256: null, keptOn: null };
   }
   const entries = () => (db.query("SELECT * FROM reference_worktree_findings ORDER BY id").all() as FindingRow[]).map(entry);
 
@@ -221,6 +225,7 @@ export function createReferenceWorktreeHygiene(options: { db: Database; worktree
       dismissed: cli.counts.dismissed + host.counts.dismissed, snoozed: cli.counts.snoozed + host.counts.snoozed,
       nextSnoozeDueAt: [cli.counts.nextSnoozeDueAt, host.counts.nextSnoozeDueAt].filter((at): at is string => at !== null).sort((a, b) => Date.parse(a) - Date.parse(b))[0] ?? null,
       informationalNotShown: cli.counts.informationalNotShown + host.counts.informationalNotShown,
+      kept: (cli.counts.kept ?? 0) + (host.counts.kept ?? 0),
     };
     const rank = (f: NextFinding) => [core.REVIEW_SEVERITY[f.severity ?? "unknown"] ?? core.REVIEW_SEVERITY.unknown!,
       core.REVIEW_URGENCY[core.reviewUrgency(f.urgency ?? null)]!, f.firstSeen ? Date.parse(`${f.firstSeen}T00:00:00Z`) : Infinity] as const;
@@ -229,7 +234,7 @@ export function createReferenceWorktreeHygiene(options: { db: Database; worktree
       return x[0] - y[0] || x[1] - y[1] || x[2] - y[2] || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
     };
     const winners = [cli.finding, host.finding].filter((f): f is NextFinding => f !== null).sort(order);
-    return { finding: winners[0] ?? null, counts };
+    return { finding: winners[0] ?? null, counts, media: cli.media };
   }
 
   /** The `brain hygiene` operations the review sends, answered from host state. */

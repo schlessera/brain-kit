@@ -34,7 +34,7 @@ describe("table-union compares cells as written", () => {
     const { content, notes } = resolvedOf(planMerge({ path: "_index.md", base, ours, theirs }, "table-union").render(new Map()));
     expect(content).toContain("| ridge | [old](new-url) |");
     expect(content).toContain("| ridge | [new](old) |");
-    expect(notes.some((note) => note.includes("both sides changed"))).toBe(true);
+    expect(notes).toContainEqual(expect.stringContaining("both sides changed"));
   });
 
   test("a link target only THEIRS changed is taken", () => {

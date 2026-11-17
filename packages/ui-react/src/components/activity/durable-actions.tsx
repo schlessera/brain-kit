@@ -65,7 +65,7 @@ function provenance(thread: InboxThread | undefined): string | undefined {
 }
 
 /** Send one decision frame and record it, or do nothing at all. */
-export function useSendDecision() {
+function useSendDecision() {
   const root = useBrainUiRoot();
   return (item: InboxActionItem, decision: Omit<InFlightDecision, "state" | "sentVersion">): boolean => {
     const inbox = root.stores.inbox.getState();
@@ -305,7 +305,7 @@ export function DecisionCard({
             <div data-decision-changed="" className="flex flex-col gap-2">
               <Callout tone="gold" text={`This decision changed while you were reading it. Changed: ${change.fields.join(" · ")}`} />
               {!change.reviewed ? (
-                <Button label="Review changes" tone="ghost" size="sm" block={false} style={{ minHeight: 44 }} onClick={() => reviewChanges(item.id)} />
+                <Button label="Review changes" tone="ghost" size="sm" block={false} reach onClick={() => reviewChanges(item.id)} />
               ) : (
                 <ChangeReview before={change.before} after={item} fields={change.fields} />
               )}
@@ -413,7 +413,7 @@ function ExtraEffects({ view }: { view: DecisionView }) {
       {view.unavailable.map((u) => (
         <div key={u.option.id} className="flex flex-col gap-1.5">
           <EffectPreview {...u.effect} />
-          <Button label={u.option.label} subtitle="Not available in this version" tone="ghost" size="sm" block={false} disabled onClick={() => {}} style={{ minHeight: 44 }} />
+          <Button label={u.option.label} subtitle="Not available in this version" tone="ghost" size="sm" block={false} disabled onClick={() => {}} />
         </div>
       ))}
     </>
@@ -462,7 +462,9 @@ function DismissConfirm({
   return (
     <div data-dismiss-confirm="" className="flex flex-col gap-2">
       <p className="text-xs text-foreground">Dismiss this decision?</p>
-      <div role="group" aria-label="Dismissal reason (optional · changes no permission)" className="flex flex-wrap gap-2">
+      {/* #4086: the reasons reach 7.25px past their 29.5px kit pill, so a wrapped
+          row needs 16px between rows under a coarse pointer. */}
+      <div role="group" aria-label="Dismissal reason (optional · changes no permission)" className="flex flex-wrap gap-2 any-pointer-coarse:gap-y-4">
         {DISMISS_REASONS.map((r) => (
           <button
             // raw-button: select — pressed dismissal chips; kit Chip is non-interactive
@@ -475,7 +477,9 @@ function DismissConfirm({
             disabled={disabled}
             onClick={() => onReason(reason === r.id ? null : r.id)}
             className={
-              "bk-row min-h-11 rounded-full border px-3 text-xs transition-colors " +
+              // The kit pill geometry (`Chip variant="pill"`): 6px 12px, 11.5px/1.35,
+              // 29.5px tall; `.bk-hit` reaches 44px under a coarse pointer (#4086).
+              "bk-control bk-hit rounded-full border px-3 py-1.5 text-[11.5px] leading-[1.35] transition-colors " +
               (reason === r.id ? "border-primary bg-primary/10 text-foreground" : "border-border-subtle text-muted-foreground hover:text-foreground")
             }
           >

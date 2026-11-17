@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { CapacityEvidence, WindowEvidence } from "./history-evidence.js";
 import { RECENT } from "./history-model.js";
-export type Severity = "observed" | "low" | "critical";
+type Severity = "observed" | "low" | "critical";
 export interface Refusal {
   target: string;
   resource: "bytes" | "quota" | "inodes" | "unknown";

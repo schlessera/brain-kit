@@ -1,10 +1,12 @@
 /** Changed versions only; checkpoint advancement follows the journal commit. */
+import { JournalObjectQuarantined } from "./journal-accounting.js";
 import { createNativeJournalObserver, type NativeJournalManager, type NativeJournalMetadata, type NativeJournalUnreadable } from "./native-journal-observer.js";
 import { freezeNativeJournalPolicy, journalMetadataOnlyPath, journalPathScope } from "./native-journal-policy.js";
 import { nativeJournalPermissionDenied, readNativeJournalFile, withNativeJournalFile, type NativeJournalReadContext } from "./native-journal-read.js";
 import { verifiedWorkerIdentity, workerIdentityHelper } from "@schlessera/brain-ui-sdk/internal";
 import { isJournalSteeringPath, nativeJournalSteeringInputs, type JournalSteeringOptions } from "./journal-steering.js";
 import type { JournalSnapshotEntry } from "./journal-snapshot.js";
+import type { PhaseTimer } from "../activity/turn-lifecycle.js";
 
 export type NativeJournalPolicy = Awaited<ReturnType<typeof freezeNativeJournalPolicy>>;
 export function createNativeJournalCapture(manager: NativeJournalManager, retain: (source: number, bytes: number, signal?: AbortSignal) => Promise<string>, steeringOptions: JournalSteeringOptions = {},
@@ -15,7 +17,7 @@ export function createNativeJournalCapture(manager: NativeJournalManager, retain
    */
   rootScope: { steering: boolean; index: boolean } = { steering: true, index: true },
   /** A previous checkpoint's release failed after its observation committed (#2872). */
-  releaseFailed?: (error: unknown) => void) {
+  releaseFailed?: (error: unknown, checkpointId: string) => void) {
   const workerUid = () => {
     if (!identity || !workerIdentityHelper()) return undefined;
     const actual = verifiedWorkerIdentity(identity.brainPath);
@@ -61,8 +63,9 @@ export function createNativeJournalCapture(manager: NativeJournalManager, retain
       signal?.throwIfAborted();
       return { ...result, hash };
     },
-    async observe(policies: ReadonlyMap<string, NativeJournalPolicy>, signal?: AbortSignal) {
-      const observation = await observer.observe(signal);
+    async observe(policies: ReadonlyMap<string, NativeJournalPolicy>, signal?: AbortSignal, timing?: PhaseTimer) {
+      const observation = await observer.observe(signal, timing);
+      const end = timing?.("observe_capture");
       try {
         const captured = new Map<string, string>();
         const unreadable = new Map<string, NativeJournalUnreadable>(observation.unreadable.map(item => [item.path, item]));
@@ -76,6 +79,11 @@ export function createNativeJournalCapture(manager: NativeJournalManager, retain
             const privateRead = context(root, signal), started = performance.now();
             try { hash = await withNativeJournalFile(root.path, metadata.path, metadata.bytes, privateRead, file => retain(file.fd, metadata.bytes, signal)); }
             catch (error) {
+              if (error instanceof JournalObjectQuarantined) {
+                unreadable.set(metadata.path, {path:metadata.path, bytes:metadata.bytes, mode:metadata.mode, kind:metadata.kind,
+                  reason:"retained_object_corrupt", ms:0});
+                return result;
+              }
               if (!privateRead || !nativeJournalPermissionDenied(error)) throw error;
               unreadable.set(metadata.path, { path: metadata.path, bytes: metadata.bytes, mode: metadata.mode, kind: metadata.kind, reason: "worker_reader_unavailable", ms: Math.max(0, Math.round(performance.now() - started)) });
               return result;
@@ -137,6 +145,7 @@ export function createNativeJournalCapture(manager: NativeJournalManager, retain
             return before ? classified(before, changed.has(path) ? observation.beforeRoot : observation.afterRoot) : undefined;
           }, steeringOptions);
         for (const item of unreadable.values()) if (item.kind === "directory" || item.bytes === null) steering.unavailable.push(item.path);
+        end?.();
         // Without a change the inventory is not taken: an empty set then says
         // nothing about the brain's configuration (#3257).
         return { changes, steering: { ...steering, inventoried: snapshots.length > 0 }, unreadable: [...unreadable.values()], stats: observation.stats, commit: observation.commit, abort: observation.abort };

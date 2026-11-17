@@ -24,6 +24,17 @@ const read = (entries: SessionMessage[]) =>
   buildSessionHistory(SESSION, (async () => entries) as unknown as typeof getSessionMessages, import.meta.dir);
 
 describe("an API error replays as the turn's failure", () => {
+  test("bare retained relay refusal text names the host without inventing a status or cause", async () => {
+    const [, answer] = await read([userTurn("Continue"), syntheticEntry("Inference network admission refused")]);
+    expect(answer!.failure).toEqual({ errorClass: "host_refused", message: "The host refused this model request." });
+  });
+  test.each([403, 499])("a relay %i replays as host refusal without a login instruction", async status => {
+    const [, answer] = await read([userTurn("Continue"), syntheticEntry(
+      `${status === 403 ? "Failed to authenticate. " : ""}API Error: ${status} Inference network admission refused`)]);
+    expect(answer!.failure).toEqual({ errorClass: "host_refused", status,
+      message: "The host refused this model request." });
+    expect(answer!.content).toBe("");
+  });
   test("the unsupported-model turn: an empty answer that failed, with the status its text states", async () => {
     const history = await read([userTurn("Test"), syntheticEntry(UNSUPPORTED_MODEL_TEXT)]);
     expect(history).toEqual([
@@ -100,12 +111,52 @@ describe("an API error replays as the turn's failure", () => {
     }
   });
 
-  test("the runtime's other synthetic messages replay as text", async () => {
-    for (const text of ["No response requested.", "API Error: Request was aborted."]) {
+  // #3356: what the runtime writes when a turn stopped is a status for that
+  // turn, never the agent's words, and only an aborted request names a cause.
+  test("the runtime's stop notices replay as a runtime notice, not as the agent's text", async () => {
+    for (const [text, cause] of [["No response requested.", "unspecified"], ["API Error: Request was aborted.", "aborted"]] as const) {
       const [, message] = await read([userTurn("hi"), syntheticEntry(text)]);
       expect(message!.failure).toBeUndefined();
-      expect(message!.content).toBe(text);
+      expect(message!.content).toBe("");
+      expect(message!.parts).toEqual([]);
+      expect(message!.runtimeNotice).toEqual({ cause, message: text });
     }
+  });
+
+  test("a stop notice after a partial answer keeps that answer and lands on its message", async () => {
+    const history = await read([userTurn("Find it"), answerEntry(PARTIAL_ANSWER), syntheticEntry("No response requested.")]);
+    expect(history).toHaveLength(2);
+    expect(history[1]!.content).toBe(PARTIAL_ANSWER);
+    expect(history[1]!.parts).toEqual([{ kind: "text", text: PARTIAL_ANSWER }]);
+    expect(history[1]!.runtimeNotice).toEqual({ cause: "unspecified", message: "No response requested." });
+  });
+
+  test("the same stop observed again is one notice, and a failure stays the fuller account", async () => {
+    const repeated = await read([userTurn("hi"), syntheticEntry("No response requested."), syntheticEntry("No response requested.")]);
+    expect(repeated).toHaveLength(2);
+    expect(repeated[1]!.content).toBe("");
+    expect(repeated[1]!.runtimeNotice).toEqual({ cause: "unspecified", message: "No response requested." });
+    const failed = await read([userTurn("hi"), syntheticEntry(OVERLOADED_TEXT), syntheticEntry("No response requested.")]);
+    expect(failed).toHaveLength(2);
+    expect(failed[1]!.failure).toEqual({ errorClass: "unknown", message: OVERLOADED_TEXT });
+    expect(failed[1]!.runtimeNotice).toBeUndefined();
+  });
+
+  test("the model or the user quoting a stop notice is their own text", async () => {
+    for (const text of ["No response requested.", "API Error: Request was aborted."]) {
+      const [user, answer] = await read([userTurn(text), answerEntry(text)]);
+      expect(user!.content).toBe(text);
+      expect(answer!.content).toBe(text);
+      expect(answer!.runtimeNotice).toBeUndefined();
+    }
+  });
+
+  test("a 499 cancelled request stays a classified failure, not a notice", async () => {
+    const text = "API Error: 499 Inference request cancelled";
+    const [, message] = await read([userTurn("hi"), syntheticEntry(text)]);
+    expect(message!.failure).toEqual({ errorClass: "host_refused", status: 499, message: "The host refused this model request." });
+    expect(message!.runtimeNotice).toBeUndefined();
+    expect(message!.content).toBe("");
   });
 
   test("a model's answer that talks about an API error is not a failure", async () => {

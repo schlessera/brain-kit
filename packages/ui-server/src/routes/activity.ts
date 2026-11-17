@@ -2,6 +2,7 @@ import { cacheDiagnostics } from "../activity/cache-diagnostics.js";
 import { Hono } from "hono";
 import type { Database } from "bun:sqlite";
 import {
+  ACTIVITY_COMPUTE_CAPABILITY,
   isFailureOutcome,
   type ActivityAggregate,
   type ActivityRollups,
@@ -10,7 +11,7 @@ import {
 } from "@schlessera/brain-ui-sdk/protocol";
 
 import { rowToRunRollup, type AwaitableActivityStore } from "../activity/store.js";
-import { toWireEvent, toWireRollup, toWireSpan } from "../activity/stream.js";
+import { COMPUTE_RUN_PREFIX, toWireEvent, toWireRollup, toWireSpan } from "../activity/stream.js";
 import type { ActivityNotifier } from "../activity/notify.js";
 import { noticeClientId } from "../inbox/notify.js";
 import type { AwaitableActionNotifier } from "../inbox/notify-writes.js";
@@ -37,6 +38,14 @@ import {
  * pruned") afterwards; only never-existed ids 404. Cost/token aggregates
  * read per-run rollups, which carry ROOT-span accounting only.
  */
+/**
+ * A request that parses `compute`-origin runs (#3108) declares it as the live
+ * stream's `client_hello` does: `?activityCompute=1`. Without it, compute runs
+ * are left out of the run list and their detail is unknown, so an older
+ * client's span schema never meets an origin it does not know.
+ */
+const declaresCompute = (value: string | undefined) => value === "1" || value === "true";
+
 export function createActivityRoutes(deps: {
   db: Database;
   settingsWrites?: SettingsWrites;
@@ -150,6 +159,7 @@ export function createActivityRoutes(deps: {
         const job = c.req.query("job");
         const session = c.req.query("session");
         const status = c.req.query("status");
+        const compute = declaresCompute(c.req.query(ACTIVITY_COMPUTE_CAPABILITY));
 
         // Live first (open roots), then history from rollups. Rollups exist
         // for every finished run (terminal writes upsert them), so one table
@@ -157,6 +167,7 @@ export function createActivityRoutes(deps: {
         const live: ActivityRunSummary[] = store
           .openRootSpans()
           .filter((s) => !origin || s.origin === origin)
+          .filter((s) => compute || s.origin !== "compute")
           .filter((s) => !job || s.jobName === job)
           .filter((s) => !session || s.sessionId === session)
           .map((s) => ({
@@ -187,6 +198,7 @@ export function createActivityRoutes(deps: {
           filters.push("origin = ?");
           params.push(origin);
         }
+        if (!compute) filters.push("origin != 'compute'");
         if (job) {
           filters.push("job_name = ?");
           params.push(job);
@@ -234,6 +246,7 @@ export function createActivityRoutes(deps: {
 
     .get("/activity/runs/:runId", (c) => {
       const runId = c.req.param("runId");
+      if (runId.startsWith(COMPUTE_RUN_PREFIX) && !declaresCompute(c.req.query(ACTIVITY_COMPUTE_CAPABILITY))) return c.json({ error: "Unknown run" }, 404);
       try {
         const snapshot = store.snapshotRun(runId);
         const row = db

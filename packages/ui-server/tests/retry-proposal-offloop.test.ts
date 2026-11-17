@@ -152,11 +152,15 @@ test("dispatch waits for the reservation receipt and duplicate frames never disp
     const reserve = f.catalog.reserveRetry!;
     const held = f.writer.channel(probe, { table: "odysseus_log" }); await held.ready;
     let slow: Promise<unknown> | undefined;
-    f.catalog.reserveRetry = (...args) => { slow ??= held.call("slow", "Calypso", 300); return reserve(...args); };
+    const reserving = Promise.withResolvers<void>();
+    f.catalog.reserveRetry = (...args) => { slow ??= held.call("slow", "Calypso", 300); reserving.resolve(); return reserve(...args); };
     const first = handleClientMessage(host, ws, frame, connection); dispatched.push(first);
-    await Bun.sleep(30);
-    expect(calls, "RETRY_PENDING_RESERVATION_NO_DISPATCH").toEqual([]);
-    expect(receipts, "RETRY_PENDING_RESERVATION_NO_ACK").toEqual([]);
+    await Promise.race([reserving.promise, first]);
+    // The reservation is queued on the write worker behind the hold, whose
+    // replies arrive in order: nothing that follows it has run when the hold answers.
+    const pending = await (slow ?? Promise.resolve()).then(() => ({ calls: [...calls], receipts: [...receipts] }));
+    expect(pending.calls, "RETRY_PENDING_RESERVATION_NO_DISPATCH").toEqual([]);
+    expect(pending.receipts, "RETRY_PENDING_RESERVATION_NO_ACK").toEqual([]);
     const duplicate = handleClientMessage(host, ws, frame, connection); dispatched.push(duplicate);
     await Promise.all([first, duplicate]); await slow;
     expect(early, "RETRY_COMMITTED_BEFORE_RECEIPT_AND_DISPATCH").toEqual([]);
@@ -202,11 +206,14 @@ test("proposal insertion and writing save commit before approval and policy publ
     expect(proposals.read("athena", "voyage", "policy-voyage", "ithaca")?.state, "POLICY_READ_AFTER_INSERT_SETTLED").toBe("pending");
     const writingSlow = held.call("slow", "Circe", 300);
     approval.resolve(true);
-    await Bun.sleep(30);
+    // Wait for the approval's continuations, then read while the worker is still inside the hold.
+    await new Promise(resolve => setImmediate(resolve));
     expect(state(), "POLICY_WRITING_SAVE_STILL_QUEUED").toBe("pending");
-    expect(readFileSync(f.path, "utf8"), "POLICY_FILE_UNTOUCHED_BEFORE_WRITING_COMMIT").toBe(original);
-    expect(publications).toBe(0);
-    await writingSlow;
+    // The writing save is queued on the write worker behind the hold, whose
+    // replies arrive in order: nothing that follows it has run when the hold answers.
+    const queued = await writingSlow.then(() => ({ file: readFileSync(f.path, "utf8"), publications }));
+    expect(queued.file, "POLICY_FILE_UNTOUCHED_BEFORE_WRITING_COMMIT").toBe(original);
+    expect(queued.publications).toBe(0);
     expect((await result).state, "POLICY_FINAL_SAVE_WORKER_FULL").toBe("updated");
     expect(await duplicate).toEqual(await result);
     await proposals.settled();

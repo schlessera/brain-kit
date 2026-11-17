@@ -17,9 +17,10 @@ import { resolveAskUserFormLimits } from "@schlessera/brain-ui-sdk/internal/clie
  */
 
 import { join, resolve } from "path";
-import { isThinkingLevel, type ThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
+import { ATTACHMENT_POOL_DEFAULT_BYTES, isThinkingLevel, type ThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 
 import { CRON_CONTROL_ENV_NAMES } from "../cron/emit.js";
+import { parseRepositoryAllowList } from "../brain/module-repositories.js";
 import { parseProviderRecipientOrigins } from "../brain/provider-recipients.js";
 
 import { SEVERITIES, type Severity } from "../observability/types.js";
@@ -46,6 +47,15 @@ import {
  * documents it and the resolver applies it, and they used to be two literals.
  */
 const DEFAULT_CLAUDE_MODEL = "claude-opus-5-5";
+
+/** BRAIN_UI_PI_EXTENSIONS (#3658): curated tools unless discovery is explicitly chosen. */
+function parsePiExtensions(raw: string | undefined): "curated" | "discover" {
+  const value = raw?.trim().toLowerCase() || "curated";
+  if (value !== "curated" && value !== "discover") {
+    throw new Error('BRAIN_UI_PI_EXTENSIONS must be "curated" or "discover".');
+  }
+  return value;
+}
 
 function parseDefaultThinkingLevel(raw: string | undefined): ThinkingLevel {
   const value = raw?.trim() || "medium";
@@ -142,6 +152,12 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     required: false,
   },
   {
+    name: "BRAIN_UI_CRON_PROPAGATION",
+    description: "Opt into the daily 05:45 credentialed hygiene-propagation prepass. It runs brain hygiene propagation through the exclusive maintenance boundary; core also requires hygiene.propagation.enabled. Interactive hygiene remains credential-free.",
+    default: "off",
+    required: false,
+  },
+  {
     name: "BRAIN_UI_SUBPROCESS_ENV_EXTRA",
     description:
       "Comma-separated environment variable names to admit to every child " +
@@ -173,6 +189,18 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
       "(Settings → Skills) — typically read-only Contents on the skill " +
       "repos. Falls back to GITHUB_TOKEN.",
     default: "$GITHUB_TOKEN",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_MODULE_REPOSITORIES",
+    description:
+      "Operator allow-list of repository URLs (comma or whitespace separated, HTTPS) " +
+      "a module cron job may read. The host fetches a repository a module's " +
+      "`repositories` config asks for only when this list names it too, using the " +
+      "sync transport's credential (BRAIN_UI_SYNC_GITHUB_TOKEN, else GITHUB_TOKEN); " +
+      "the job's worker reads a host mirror and never holds the credential. Read by " +
+      "the cron runner only, never forwarded to a job. Empty refuses every request.",
+    default: "(empty — no module repository is fetched)",
     required: false,
   },
   {
@@ -235,7 +263,7 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     description:
       "Extra recipients for the brain CLI's relayed provider keys: KEY=origin[,origin], separated by semicolons. " +
       "Each origin is an exact https origin (http only for a loopback host). By default the relay sends GEMINI_API_KEY, " +
-      "ANTHROPIC_API_KEY and OPENAI_API_KEY only to their own first-party origins; a custom endpoint or a custom key " +
+      "ANTHROPIC_API_KEY, OPENAI_API_KEY and TYPESAFE_API_KEY only to their own first-party origins; a custom endpoint or a custom key " +
       "variable is refused unless listed here. A malformed value stops the server.",
     default: "(unset; first-party origins only)",
     required: false,
@@ -320,6 +348,12 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     required: false,
   },
   {
+    name: "BRAIN_UI_ATTACHMENT_POOL_BYTES",
+    description: "Host attachment pool in bytes: every composer original kept for drafts, sent messages, pending uploads and the seven-day grace period, plus in-flight reservations and legacy draft images. Positive integer; a value that is not one falls back to the default. At capacity new uploads are refused and nothing is purged early.",
+    default: "1073741824 (1 GiB)",
+    required: false,
+  },
+  {
     name: "BRAIN_UI_NATIVE_BRAIN_SOCKET",
     description: "Absolute host-only Unix socket for the managed Btrfs brain service. Hosted workers require this qualified store; unsupported storage has no full-copy fallback.",
     default: "(required)",
@@ -373,6 +407,28 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     name: "BRAIN_UI_REFERENCE_ACQUISITIONS",
     description: "Host-wide reference acquisitions and refreshes that may run at once (#2429). Requests for the same source join one operation; readers are not limited.",
     default: "2",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_COMPUTE_KEYS",
+    description:
+      "External compute credentials the host may use for hosted jobs (#3108), by built-in provider: " +
+      "semicolon-separated `provider=NAME[,NAME...]` entries, such as `boat=BOAT_CI_KEY,BOAT_HEAVY_KEY`. " +
+      "A listed provider's own default variable is bound too; list it alone (`boat`) to bind only that. " +
+      "A brain.config instance whose apiKeyEnv is not bound here is refused as provider_unavailable. Values " +
+      "are read on the host only and never reach a worker; a bound name that BRAIN_UI_SUBPROCESS_ENV_EXTRA " +
+      "or a profile would forward disables hosted compute. Unset: hosted compute has no credential, not even " +
+      "a provider's default variable.",
+    default: "(empty)",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_COMPUTE_STATE_DIR",
+    description:
+      "Where hosted external compute keeps job records, leases, reservations and artifacts (#3108). Host " +
+      "operational state, masked from workers. Slots and budgets are shared per directory: point " +
+      "BRAIN_COMPUTE_STATE_DIR of a shell `brain compute` at the same directory to share one pool with it.",
+    default: "<DB_PATH>.compute",
     required: false,
   },
   {
@@ -583,6 +639,17 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     required: false,
   },
   {
+    name: "BRAIN_UI_PI_EXTENSIONS",
+    description:
+      '"curated" runs pi turns on the host\'s curated tools and leaves installed pi extensions inactive (reported at startup). ' +
+      '"discover" turns pi extension discovery on; managed input-safety collection does not support loaded extensions, so with any ' +
+      "installed extension pi reports its profiles as unavailable and refuses its turns before admission, while other backends keep running. " +
+      "In either mode a configured pi package that is not installed, or configuration that cannot be inspected, does the same. " +
+      "Any other value refuses boot.",
+    default: "curated",
+    required: false,
+  },
+  {
     name: "CLAUDE_CODE_OAUTH_TOKEN",
     description:
       "Subscription token from `claude setup-token`: authenticates every Claude " +
@@ -599,7 +666,7 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
       "The date CLAUDE_CODE_OAUTH_TOKEN was minted (ISO 8601, e.g. 2026-09-23), " +
       "set next to the token in the same redeploy. The server counts the " +
       "token's one-year lifetime from it and warns 30 days before expiry. " +
-      "An unparseable date refuses boot. Server-only.",
+      "An invalid date keeps serving with an explicit unknown-expiry warning in owner status and logs. Server-only.",
     default: "no expiry warning (one WARN at boot says so)",
     required: false,
   },
@@ -646,17 +713,56 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     default: "(unset)",
     required: false,
   },
+  // Apify (#3159)
+  {
+    name: "APIFY_TOKEN",
+    description:
+      "Apify API token, read only by the host. It authenticates nothing until the governance policy sets apify.enabled: true; " +
+      "the host then binds the account the fixed Apify API reports. Never passed to any subprocess, worker, prompt, log or response.",
+    default: null,
+    required: false,
+  },
+  {
+    name: "BRAIN_APIFY_LEDGER",
+    description:
+      "Absolute path of the shared Apify ledger (#3161, #3162): reservations, run handles and request counts, private to the host user and outside every brain. " +
+      "A standalone `brain apify` or `brain mcp` process that sets the same path shares the account's day limit and concurrency bound with the server. " +
+      "Never passed to a worker.",
+    default: "DB_PATH.apify-ledger.sqlite (server); unset, which refuses Apify as accounting_unavailable (standalone CLI and MCP)",
+    required: false,
+  },
+  // Host GitHub tools (#3797)
+  {
+    name: "BRAIN_UI_GITHUB_TOOLS_TOKEN",
+    description:
+      "GitHub token for the host GitHub tools (brain_github_issue_read, brain_github_issue_search, brain_github_issue_create, brain_github_issue_comment), read only by the host. " +
+      "Use a fine-grained token limited to the repositories a turn may use, with Issues, Pull requests, Checks and Commit statuses read access, and Issues write only if outward.github.repositories admits writes. " +
+      "No fallback: GITHUB_TOKEN and the other GitHub tokens are never used for these tools, and without this one they answer unavailable. " +
+      "Never passed to any subprocess, worker, prompt, log or response.",
+    default: null,
+    required: false,
+  },
   // voice
   {
     name: "DEEPGRAM_API_KEY",
     description: "Deepgram API key for streaming ASR (short-lived tokens are minted from it).",
     default: null,
-    required: "VOICE_PROVIDER=deepgram (or any voice use without VOICE_PROVIDER=webspeech)",
+    required: "When registering built-in Deepgram dictation",
+  },
+  {
+    name: "GEMINI_API_KEY",
+    description:
+      "Google Gemini API key. For dictation it registers the gemini-3.5-transcribe-live provider (id gemini): the server " +
+      "mints a single-use constrained token from it per take, so the key itself never reaches the browser. A configured key " +
+      "makes Gemini a selectable dictation provider; it becomes the default only through VOICE_PROVIDER=gemini, a saved " +
+      "choice, or as the only registered provider.",
+    default: null,
+    required: "When registering built-in Gemini dictation",
   },
   {
     name: "VOICE_PROVIDER",
     description:
-      'Speech provider: "deepgram", "webspeech" (opt-in only — Chromium streams audio to Google), or the id supplied through createApp({ speechProvider }). An explicit name must match a supplied value. Unset prefers that value, otherwise auto-detects deepgram when its key is present.',
+      'Host default dictation provider: "deepgram", "gemini", "webspeech" (explicit opt-in; Chromium streams audio to Google), or a registered by-value id. createApp({ defaultSpeechProviderId }) takes precedence. A legacy speechProvider replaces built-ins and must match this name. Unset prefers that value, otherwise registered deepgram. A configured GEMINI_API_KEY only adds a choice. A saved dictation choice overrides the host default; an unavailable saved choice never falls back.',
     default: "(auto-detect)",
     required: false,
   },
@@ -755,6 +861,8 @@ export interface AgentConfig {
    * profiles join the picker.
    */
   piProfilesJson: string | null;
+  /** BRAIN_UI_PI_EXTENSIONS (#3658): whether pi loads installed extensions; absent means curated. */
+  piExtensions?: "curated" | "discover";
   modelDiscovery: boolean;
   modelTtlMs: number;
   /** Each Claude worker's runtime-state allowance in bytes, resolved and validated (#1625). */
@@ -789,6 +897,9 @@ export interface VoiceConfig {
   /** Trimmed, lowercased VOICE_PROVIDER; null when unset (auto-detect). */
   provider: string | null;
   deepgramApiKey: string | null;
+  /** GEMINI_API_KEY; registers the Gemini Transcribe Live dictation provider. Optional so
+   * hand-built configs stay valid; absent means unset. */
+  geminiApiKey?: string | null;
   keytermLimit: number;
   /** Resolved keyterm cache directory. */
   cacheDir: string;
@@ -796,6 +907,14 @@ export interface VoiceConfig {
 
 /** Fully-resolved server configuration. Plain data — safe to construct in tests. */
 export interface ServerConfig {
+  /**
+   * Hosted external compute (#3108): credential variable names bound per
+   * built-in provider, and the host compute state directory (null with an
+   * ephemeral database, which disables hosted compute).
+   */
+  compute?: { keys: Readonly<Record<string, readonly string[]>>; stateDir: string | null;
+    /** BRAIN_UI_SUBPROCESS_ENV_EXTRA's names: a bound credential among them would reach workers. */
+    workerEnvExtra: readonly string[] };
   /** Trusted host roots only; never accepted from Storage HTTP requests. */
   storage?: { backupRoots: readonly string[]; gitRoots: readonly string[] };
   /** Host-only Unix service for managed native brain storage. */
@@ -826,6 +945,8 @@ export interface ServerConfig {
   sourceCommit: string;
   allowedOrigins: string[];
   maxConcurrentSessions: number;
+  /** The host attachment pool in bytes (BRAIN_UI_ATTACHMENT_POOL_BYTES, #3153). */
+  attachmentPoolBytes: number;
   /**
    * Per-turn timeout in ms (BRAIN_UI_TURN_TIMEOUT_MS), or null to use the
    * WsHost default (10 minutes). An explicit createApp option still wins.
@@ -888,6 +1009,8 @@ export interface CronConfig {
   subprocessEnvExtraNames: string[];
   /** Whether the crontab schedules the weekly `hygiene` job (BRAIN_UI_CRON_HYGIENE). */
   hygiene: boolean;
+  /** Daily credentialed source-freshness prepass, BRAIN_UI_CRON_PROPAGATION; absent is off. */
+  propagation?: boolean;
   /**
    * Control configuration the cron RUNNER itself reads — the exec wrapper and
    * its cancellation helper. Kept apart from `childEnv` on purpose: that one
@@ -900,6 +1023,8 @@ export interface CronConfig {
   exec: ExecWrapperConfig;
   /** BRAIN_UI_CLI_PROVIDER_ORIGINS, for the provider relay of a credentialed job (#1673). */
   cliProviderOrigins: ReadonlyMap<string, readonly string[]>;
+  /** BRAIN_UI_MODULE_REPOSITORIES: the operator's allow-list of repositories a module job may read (#3380). */
+  moduleRepositories: { allowed: string[]; invalid: string[] };
 }
 
 function scheduleInferenceOrigins(raw: string | undefined): string[] | null {
@@ -1078,6 +1203,7 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
   const ttlHours = Number.isFinite(rawTtl) && rawTtl > 0 ? rawTtl : 24;
 
   return {
+    compute: resolveComputeConfig(env, env.DB_PATH || join(process.cwd(), "brain-ui.db")),
     nativeBrain: resolveNativeBrainConfig(env),
     referenceSource: resolveReferenceSourceConfig(env),
     providerRecipientOrigins: parseProviderRecipientOrigins(env.BRAIN_UI_PROVIDER_RECIPIENT_ORIGINS),
@@ -1101,6 +1227,8 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
     sourceCommit: env.SOURCE_COMMIT ?? "dev",
     allowedOrigins: list(env.ALLOWED_ORIGINS),
     maxConcurrentSessions,
+    attachmentPoolBytes: Number.isSafeInteger(Number(env.BRAIN_UI_ATTACHMENT_POOL_BYTES)) && Number(env.BRAIN_UI_ATTACHMENT_POOL_BYTES) > 0
+      ? Number(env.BRAIN_UI_ATTACHMENT_POOL_BYTES) : ATTACHMENT_POOL_DEFAULT_BYTES,
     // Positive integer or null — 0, negatives, and garbage all mean "unset",
     // so a typo degrades to the safe default instead of an instant timeout.
     turnTimeoutMs:
@@ -1135,6 +1263,7 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
       defaultThinkingLevel: parseDefaultThinkingLevel(env.BRAIN_UI_CLAUDE_DEFAULT_THINKING_LEVEL),
       profilesJson: env.BRAIN_UI_CLAUDE_PROFILES?.trim() || null,
       piProfilesJson: env.BRAIN_UI_PI_PROFILES?.trim() || null,
+      piExtensions: parsePiExtensions(env.BRAIN_UI_PI_EXTENSIONS),
       modelDiscovery,
       modelTtlMs: ttlHours * 60 * 60 * 1000,
       workerStateBytes: workerState.allowanceBytes,
@@ -1152,6 +1281,7 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
     voice: {
       provider: env.VOICE_PROVIDER?.trim().toLowerCase() || null,
       deepgramApiKey: env.DEEPGRAM_API_KEY || null,
+      geminiApiKey: env.GEMINI_API_KEY || null,
       keytermLimit: Number(env.VOICE_KEYTERM_LIMIT || 500),
       cacheDir: env.VOICE_CACHE_DIR || join(brainPath, ".brain-ui"),
     },
@@ -1198,6 +1328,31 @@ function resolveReferenceSourceConfig(env: EnvRecord): NonNullable<ServerConfig[
     refreshMs: positive("BRAIN_UI_REFERENCE_REFRESH_SECONDS", 300, 86_400) * 1000, operations: positive("BRAIN_UI_REFERENCE_ACQUISITIONS", 2, 16) };
 }
 
+const COMPUTE_PROVIDER = /^[a-z][a-z0-9-]{0,62}$/;
+const COMPUTE_KEY_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * BRAIN_UI_COMPUTE_KEYS and BRAIN_UI_COMPUTE_STATE_DIR (#3108). A listed
+ * provider binds its explicit names and its own default variable; `boat` or
+ * `boat=` binds only the default. A malformed binding refuses the boot by
+ * name rather than binding something unintended.
+ */
+export function resolveComputeConfig(env: EnvRecord, dbPath: string): NonNullable<ServerConfig["compute"]> {
+  const keys: Record<string, string[]> = {};
+  for (const entry of (env.BRAIN_UI_COMPUTE_KEYS ?? "").split(";").map(part => part.trim()).filter(Boolean)) {
+    const eq = entry.indexOf("=");
+    const provider = (eq >= 0 ? entry.slice(0, eq) : entry).trim();
+    const names = eq >= 0 ? entry.slice(eq + 1).split(",").map(name => name.trim()).filter(Boolean) : [];
+    if (!COMPUTE_PROVIDER.test(provider) || names.some(name => !COMPUTE_KEY_NAME.test(name))) {
+      throw new Error(`BRAIN_UI_COMPUTE_KEYS: "${entry}" is not provider[=NAME[,NAME...]]`);
+    }
+    keys[provider] = [...new Set([...(keys[provider] ?? []), ...names])];
+  }
+  const ephemeral = dbPath === "" || dbPath === ":memory:";
+  const stateDir = env.BRAIN_UI_COMPUTE_STATE_DIR ? resolve(env.BRAIN_UI_COMPUTE_STATE_DIR) : ephemeral ? null : `${resolve(dbPath)}.compute`;
+  return { keys, stateDir, workerEnvExtra: parseSubprocessEnvExtra(env.BRAIN_UI_SUBPROCESS_ENV_EXTRA) };
+}
+
 /**
  * Resolve the standalone cron bin's paths and allowlisted scheduled-job
  * environment. The escape hatch is parsed here, at this package's sole env
@@ -1227,11 +1382,13 @@ export function resolveCronConfig(
     ),
     subprocessEnvExtraNames,
     hygiene: envFlag(env.BRAIN_UI_CRON_HYGIENE, true),
+    propagation: envFlag(env.BRAIN_UI_CRON_PROPAGATION, false),
     controlEnv: Object.fromEntries(
       CRON_CONTROL_ENV_NAMES.filter((name) => env[name]).map((name) => [name, env[name]])
     ),
     exec: execConfig(env),
     cliProviderOrigins: parseCliProviderOrigins(env.BRAIN_UI_CLI_PROVIDER_ORIGINS),
+    moduleRepositories: parseRepositoryAllowList(env.BRAIN_UI_MODULE_REPOSITORIES),
   };
 }
 
@@ -1301,6 +1458,31 @@ export function subprocessEnv(
 }
 
 /**
+ * The host-only Apify token (#3159), read once at the edge into a closure.
+ * Only the host's Apify authority calls it; the value is placed on its fixed
+ * upstream request alone and never enters a worker, record, log or response.
+ */
+/** The host's Apify ledger path (#3162): `BRAIN_APIFY_LEDGER`, or beside the UI database. */
+export function apifyLedgerPath(dbPath: string, env: NodeJS.ProcessEnv = process.env): string {
+  return env.BRAIN_APIFY_LEDGER?.trim() || `${dbPath}.apify-ledger.sqlite`;
+}
+
+export function apifyTokenSource(env: NodeJS.ProcessEnv = process.env): () => string | undefined {
+  const token = env.APIFY_TOKEN?.trim() || undefined;
+  return () => token;
+}
+
+/**
+ * The host GitHub tools' credential (#3797), read once at the edge into a
+ * closure: `BRAIN_UI_GITHUB_TOOLS_TOKEN` and nothing else. There is no
+ * fallback to `GITHUB_TOKEN` or any other token.
+ */
+export function githubToolsTokenSource(env: NodeJS.ProcessEnv = process.env): () => string | undefined {
+  const token = env.BRAIN_UI_GITHUB_TOOLS_TOKEN?.trim() || undefined;
+  return () => token;
+}
+
+/**
  * The pi config directory, resolved with EXACTLY the precedence pi-web-access
  * uses for its `web-search.json` (PI_CODING_AGENT_DIR, then XDG_CONFIG_HOME/pi,
  * then ~/.pi) — the settings routes write the file the extension reads, so
@@ -1325,9 +1507,11 @@ export function resolvePiConfigDir(env: EnvRecord = process.env): string {
  * The environment the web-search surface reads: the variables that locate the
  * extension's `web-search.json`, plus each provider's API-key variable.
  *
- * PRESENCE is all anything does with the key values — they are never logged,
- * returned over the API, or copied into the config file. Reading them here
- * keeps the rest of the package taking configuration as a value.
+ * The Settings surface checks only the PRESENCE of the key values; the host
+ * web executor (#3686) receives them in its own environment, never a
+ * worker's. They are never logged, returned over the API, or copied into the
+ * config file. Reading them here keeps the rest of the package taking
+ * configuration as a value.
  */
 export function resolveWebSearchEnv(
   env: NodeJS.ProcessEnv = process.env
@@ -1347,8 +1531,9 @@ export const DYNAMIC_ENV_READS: readonly DynamicEnvReadSpec[] = [
     source: "web-search provider catalog (`WEB_SEARCH_PROVIDERS`)",
     description:
       "Presence checks for catalog-declared API-key names when reporting " +
-      "web-search provider availability. Credentials are not returned over " +
-      "the API, logged or copied into web-search.json.",
+      "web-search provider availability, and the values handed to the host " +
+      "web executor's own environment (#3686). Credentials are not returned " +
+      "over the API, logged, given to workers or copied into web-search.json.",
   },
   {
     source: "filtered environment snapshot (`subprocessEnv`)",

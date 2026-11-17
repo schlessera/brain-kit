@@ -10,6 +10,7 @@ import { BrainUiProvider } from "../../src/root-context.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
 import { GraphPage } from "../../src/components/graph/graph-page.js";
 import { discoveryLayout } from "../../src/lib/discovery-layout.js";
+import { touchFloor } from "./hit-reach.js";
 
 const full = snapshot as GraphSubgraphResponse;
 const originalMeta = metaSnapshot as GraphMetaResponse;
@@ -260,7 +261,7 @@ for (const width of [320, 1440]) test(`${width}: depth-eight native action revea
   await expect.poll(() => ui!.stores.graph.getState().discoveryExpansion.notice?.text).toBe("1 note added · Layout updated"); await settled();
   expect(ui!.stores.graph.getState().subgraph!.nodes.find(n => n.id === 17)?.distance).toBe(8);
   expect(ui!.stores.graph.getState().subgraph!.nodes.some(n => n.id === 18)).toBe(false);
-  expect(requests.every(depth => depth <= 8)).toBe(true);
+  expect(Math.max(...requests), "NEVER_REQUESTS_BEYOND_EIGHT_HOPS").toBe(8);
   await expect.element(page.getByText("No more notes within 8 hops of the root", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Reset expanded, 2 notes expanded", exact: true }).click(); await settled();
   expect(ui!.stores.graph.getState().selectedId).toBeNull();
@@ -317,7 +318,10 @@ for (const fixture of ["sparse", "dense", "truncated", "stale"] as const)
       if (width >= 900) await userEvent.keyboard("{Escape}");
       const expand = page.getByRole("button", { name: `Expand ${owner.node.title || owner.node.path}`, exact: true });
       const expandElement = expand.element() as HTMLElement;
-      expect(expandElement.getBoundingClientRect().height).toBeGreaterThanOrEqual(width < 900 ? 44 : 24);
+      expect(expandElement.getBoundingClientRect().height).toBeGreaterThanOrEqual(24);
+      // #3252: the phone node card's Expand keeps its sm paint and reaches
+      // 44px past it under a coarse pointer (`hit-reach.app.pointer.tsx`).
+      if (width < 900) expect(touchFloor(expandElement), "Expand meets the touch floor").toBe("met");
       expect(ui.stores.graph.getState().discoveryExpansionFor(owner.node).count).toBeUndefined();
       const status = host.querySelector('[role="status"]')!;
       const announcements: string[] = [];

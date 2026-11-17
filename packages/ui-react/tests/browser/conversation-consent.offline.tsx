@@ -23,7 +23,7 @@ async function scene(ctx: TestContext, width = 390, shell = false, theme: "light
     const viewport = { width: innerWidth, height: innerHeight };
     const outer = await commands.formViewport(width, 568);
     await page.viewport(width, 568);
-    ctx.onTestFinished(async () => { await page.viewport(viewport.width, viewport.height); await commands.formViewport(outer.width, outer.height); });
+    ctx.onTestFinished(async () => { await page.viewport(viewport.width, viewport.height); await commands.formViewport(outer.width - 100, outer.height - 120); });
   }
   const network = installFaultNetwork({ routes: (url) => url.pathname.endsWith("/sessions") ? Response.json({ sessions: [] }) : undefined,
     onOpen(socket) { socket.deliver({ type: "server_hello", conversationProfile: {providerId:PROFILE.providerId,capabilities:PROFILE.capabilities,disclosure:PROFILE.disclosure}, protocolRev: 5, principalKey: "odysseus-principal", capabilities: { askReceipts: true, liveConversation: true, conversationPause: true, toolResolution: true, chatRequestAck: true } }); socket.deliver({ type: "session_info", sessionId: SESSION, isNew: false }); socket.deliver({ type: "session_history", sessionId: SESSION, messages: [] }); socket.deliver({ type: "status", sessionId: SESSION, status: "idle" }); } });
@@ -104,9 +104,13 @@ test("review: provider closure during pending opening settles without late captu
   s.deliver({ type: "conversation_closed", conversationId: PROFILE.conversationId, epoch: 1, reason: "provider_closed" });
   s.client.mute();
   s.opened(2);
-  await new Promise(resolve => setTimeout(resolve, 100));
-  expect(s.client.state.getState().micOn).toBe(false);
+  // Frames are handled as they are delivered, and a capture opens the
+  // microphone synchronously, so once epoch 2 is applied any capture its
+  // opening or readiness allowed has already called getUserMedia. Without a
+  // new capture session the microphone cannot turn on later.
+  await expect.poll(() => s.client.state.getState().profile?.epoch).toBe(2);
   expect(mic.opens()).toBe(1);
+  expect(s.client.state.getState().micOn).toBe(false);
 });
 
 test("review: hiding during replacement opening cannot delete the retained conversation", async ctx => {
@@ -131,13 +135,13 @@ for (const change of ["backend", "model", "removed", "replaced-id"] as const) te
   s.ui.stores.provider.setState({ available: changed });
   expect(s.client.state.getState().micOn, "PROFILE_CHANGE_REVOKES_CAPTURE_IMMEDIATELY").toBe(false);
   expect(s.client.state.getState().disclosureOpen).toBe(true);
-  expect(mic.streams[0]!.getTracks().every(track => track.readyState === "ended")).toBe(true);
+  expect(mic.streams[0]!.getTracks().map(track => track.readyState), "PROFILE_CHANGE_ENDS_CAPTURE_TRACKS").toEqual(["ended"]);
   s.client.resume();
   expect(mic.opens()).toBe(1);
   s.deliver({ type: "conversation_closed", conversationId: PROFILE.conversationId, epoch: 1, reason: "provider_closed" });
   s.opened(2);
   expect(s.client.state.getState().micOn).toBe(false);
-  expect(s.socket.frames("conversation_audio").some(f => f.epoch === 2)).toBe(false);
+  expect(s.socket.frames("conversation_audio").filter(f => f.epoch === 2), "NO_EPOCH_2_AUDIO_BEFORE_START").toEqual([]);
   s.client.start();
   await expect.poll(() => s.client.state.getState().micOn).toBe(true);
   expect(mic.opens()).toBe(2);

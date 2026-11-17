@@ -3,9 +3,9 @@ import { openModal } from "../../lib/destination-start.js";
 import { Overlay } from "@schlessera/brain-ui-kit";
 
 /** Drawers use Overlay; panes are fixed regions beside the rail. */
-export type SlidePanelMode = "drawer" | "pane";
+type SlidePanelMode = "drawer" | "pane";
 /** Native dialog dismissal vocabulary, implemented by Overlay. */
-export type SlidePanelClosedBy = "any" | "closerequest" | "none";
+type SlidePanelClosedBy = "any" | "closerequest" | "none";
 
 export function SlidePanel({
   open,

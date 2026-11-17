@@ -1,7 +1,8 @@
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { inheritedEnv } from "../config/env.js";
 import { constants, fstatSync, openSync, closeSync, readFileSync, readSync, realpathSync, statfsSync, type BigIntStats } from "node:fs";
 import { opendir } from "node:fs/promises";
-import { resolve, relative, isAbsolute, sep } from "node:path";
+import { resolve, isAbsolute, sep } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 
 // Linux O_PATH obtains metadata without opening FIFO/device endpoints or reading bytes.
@@ -61,12 +62,13 @@ function openRoot(path: string): number {
     return fd;
   } catch (error) { closeSync(fd); throw error; }
 }
-const inside = (root: string, path: string) => { const rel = relative(root, path); return rel === "" || (!isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`)); };
+/** `path.relative`'s answer: both paths resolved first, and `/` holds every absolute path. */
+const RELATIVE_RULE = { resolvePaths: true, separator: sep, trailingSeparator: "boundary" } as const;
 
 /** Read only Git's fixed location markers through held, non-followed descriptors.
  * Config/includes, hooks, filters, helpers and object contents are never evaluated. */
 function metadataGitPaths(root: string, allowed: readonly string[]): { path: string; objects: boolean }[] {
-  const approved = (path: string) => inside(root, path) || allowed.some(value => inside(value, path));
+  const approved = (path: string) => isWithin(root, path, RELATIVE_RULE) || allowed.some(value => isWithin(value, path, RELATIVE_RULE));
   const text = (fd: number, parent: number): string => {
     const stat = fstatSync(fd, { bigint: true });
     if (!stat.isFile() || mountId(fd) !== mountId(parent) || stat.size > BigInt(STORAGE_LIMITS.gitBytes)) throw Error("git-metadata-unsupported");
@@ -263,8 +265,8 @@ export async function collectStorageInventory(rootPath: string, options: Options
           const resolutionId = `${candidate.objects ? "objects" : "store"}:${path}`;
           if (inspected.has(resolutionId)) continue;
           inspected.add(resolutionId);
-          if (!inside(root, path) && !allowedGitRoots.some(allowed => inside(allowed, path))) { fail("git", "external-git-root-not-approved"); continue; }
-          if (!roots.some(other => inside(other.path, path))) roots.push({ path, kind: "git" });
+          if (!isWithin(root, path, RELATIVE_RULE) && !allowedGitRoots.some(allowed => isWithin(allowed, path, RELATIVE_RULE))) { fail("git", "external-git-root-not-approved"); continue; }
+          if (!roots.some(other => isWithin(other.path, path, RELATIVE_RULE))) roots.push({ path, kind: "git" });
           if (!candidate.objects) continue;
           let directory: number | undefined, info: number | undefined, metadata: number | undefined, file: number | undefined;
           try {

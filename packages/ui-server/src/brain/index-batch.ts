@@ -12,7 +12,7 @@
  */
 
 /** What became of one application's queued paths. */
-export interface IndexOutcome {
+interface IndexOutcome {
   /** The application's own committed paths. */
   paths: readonly string[];
   /** True only once an update that covered them completed. */
@@ -121,7 +121,7 @@ export function createIndexBatch(options: {
 }
 
 /** pi's direct in-worker readers of the index, and the shell that can run the CLI's. */
-const INDEX_READERS = new Set(["brain_search", "brain_context", "brain_read", "brain_list", "brain_graph", "bash", "Bash"]);
+const INDEX_READERS = new Set(["brain_search", "brain_context", "brain_read", "brain_list", "brain_graph", "brain_read_many", "bash", "Bash"]);
 
 /**
  * Whether a tool, by the name the runtime calls it, can read the index: every

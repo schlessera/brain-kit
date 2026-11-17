@@ -21,7 +21,7 @@ const view = () => {
   const drafts = root.stores.drafts.getState();
   const id = drafts.idFor(root.stores.chat.getState().activeSessionId);
   const d = drafts.drafts[id];
-  return { draftId: id, text: d?.text ?? "", images: d?.attachments.length ?? 0, revision: d?.host?.revision ?? null, conflict: Boolean(d?.conflict) };
+  return { draftId: id, text: d?.text ?? "", images: (d?.attachments.length ?? 0) + (d?.files ?? []).filter((f) => f.file.kind === "image").length, revision: d?.host?.revision ?? null, conflict: Boolean(d?.conflict) };
 };
 
 Object.assign(window, {
@@ -30,7 +30,7 @@ Object.assign(window, {
     supported: () => root.stores.drafts.getState().supported,
     activeSessionId: () => root.stores.chat.getState().activeSessionId,
     view,
-    unbound: () => Object.values(root.stores.drafts.getState().drafts).filter((d) => d.sessionId === null && (d.text || d.attachments.length)).map((d) => d.text),
+    unbound: () => Object.values(root.stores.drafts.getState().drafts).filter((d) => d.sessionId === null && (d.text || d.attachments.length || d.files?.length)).map((d) => d.text),
     sends: () => Object.values(root.stores.drafts.getState().sends).map((s) => ({ requestId: s.requestId, state: s.state, draftRef: s.draftRef })),
     lastAssistant: () => {
       const chat = root.stores.chat.getState();

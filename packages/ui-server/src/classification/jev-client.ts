@@ -46,7 +46,7 @@ export const BREAKER_FAILURES = 3;
 /** First backoff once open; doubles per further failure. */
 export const BREAKER_BASE_MS = 30_000;
 /** The backoff never grows past this. */
-export const BREAKER_MAX_MS = 30 * 60_000;
+const BREAKER_MAX_MS = 30 * 60_000;
 
 export interface JevResult {
   outcome: JevOutcome;
@@ -63,7 +63,7 @@ export interface JevResult {
 /** The slice of `fetch` the client uses, so a test can hand in one that never resolves. */
 export type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
 
-export interface JevClientOptions {
+interface JevClientOptions {
   apiKey: string | null;
   /** Injected so a test can hand in a fetch that never resolves. */
   fetch?: FetchLike;
@@ -79,7 +79,12 @@ export interface JevClientOptions {
 export interface JevClient {
   /** Enabled means a key is configured; the pass is skipped otherwise. */
   readonly enabled: boolean;
-  classify(request: ClassificationRequest): Promise<JevResult>;
+  /**
+   * `dispatched` runs just before each physical request leaves, and only
+   * then: a call the breaker or a missing key skips never reports one, so a
+   * metered caller records spend for exactly the requests sent.
+   */
+  classify(request: ClassificationRequest, hooks?: { dispatched?(): void }): Promise<JevResult>;
   /** The breaker's state, for the record and for tests. */
   breaker(): { open: boolean; consecutiveFailures: number; retryAt: number | null };
 }
@@ -105,8 +110,10 @@ export function createJevClient(options: JevClientOptions): JevClient {
 
   async function attempt(
     body: string,
-    signal: AbortSignal
+    signal: AbortSignal,
+    dispatched?: () => void
   ): Promise<{ kind: "ok"; answers: ClassificationAnswers; model?: string; usage?: JevResult["usage"] } | { kind: "status"; status: number } | { kind: "bad"; model?: string; usage?: JevResult["usage"] }> {
+    dispatched?.();
     const response = await doFetch(endpoint, {
       method: "POST",
       headers: {
@@ -180,7 +187,7 @@ export function createJevClient(options: JevClientOptions): JevClient {
   return {
     enabled: apiKey !== null,
     breaker: () => ({ open: retryAt !== null && now() < retryAt, consecutiveFailures, retryAt }),
-    async classify(request) {
+    async classify(request, hooks) {
       const startedAt = now();
       const done = (outcome: JevOutcome, answers: ClassificationAnswers | null, status?: number): JevResult => {
         const result: JevResult = { outcome, answers, durationMs: now() - startedAt };
@@ -204,7 +211,7 @@ export function createJevClient(options: JevClientOptions): JevClient {
         for (let tries = 0; tries < (options.production ? 1 : 2); tries++) {
           if (signal.aborted) break;
           try {
-            const outcome = await attempt(body, signal);
+            const outcome = await attempt(body, signal, hooks?.dispatched);
             if (outcome.kind === "ok") return { ...done("answered", outcome.answers), model: outcome.model, usage: outcome.usage };
             if (outcome.kind === "bad") return { ...done("bad_response", null), model: outcome.model, usage: outcome.usage };
             lastStatus = outcome.status;

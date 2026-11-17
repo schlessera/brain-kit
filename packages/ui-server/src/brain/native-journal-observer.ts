@@ -1,3 +1,4 @@
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { isJournalSteeringPath } from "./journal-steering.js";
 /** One metadata index and rolling sealed roots; no initial content capture. */
 import { randomUUID } from "node:crypto";
@@ -6,6 +7,7 @@ import { open, lstat, readdir, readlink, type FileHandle } from "node:fs/promise
 import { parseNativeBrainDelta } from "@schlessera/brain-ui-sdk/internal";
 import type { createNativeBrainManagerClient } from "@schlessera/brain-ui-sdk/internal";
 import { nativeJournalPermissionDenied } from "./native-journal-read.js";
+import type { PhaseTimer } from "../activity/turn-lifecycle.js";
 
 /** Structural subset of the concrete private native manager/client. */
 export interface NativeJournalCheckpoint {
@@ -16,6 +18,11 @@ export interface NativeJournalManager {
   delta(from: string, to: string, signal?: AbortSignal): Promise<{
     stream: ReadableStream<Uint8Array>; completed: Promise<{ exitCode: 0; bytes: number }>;
   }>;
+  /**
+   * Also called for an identity whose `checkpoint` was refused. A manager
+   * that refused it before recording any lease acknowledges that nothing
+   * remains to release (#3528); otherwise the observer keeps the identity.
+   */
   release(id: string, signal?: AbortSignal): Promise<unknown>;
   readCheckpoint?: ReturnType<typeof createNativeBrainManagerClient>["readCheckpoint"];
   statCheckpoint?: ReturnType<typeof createNativeBrainManagerClient>["statCheckpoint"];
@@ -25,12 +32,12 @@ export interface NativeJournalMetadata {
   path: string; kind: "directory" | "file" | "symlink" | "other";
   mode: number; bytes: number; stamp: string; inode: string; target?: string;
 }
-export interface NativeJournalChange {
+interface NativeJournalChange {
   path: string; before: NativeJournalMetadata | null; after: NativeJournalMetadata | null;
 }
 export interface NativeJournalUnreadable {
   path: string; bytes: number | null; mode?: number; kind?: NativeJournalMetadata["kind"];
-  reason: "worker_reader_unavailable";
+  reason: "worker_reader_unavailable" | "retained_object_corrupt";
   ms: number;
 }
 export class NativeJournalObservationError extends Error {
@@ -235,7 +242,7 @@ class RootMetadataReader {
   close(): Promise<void> { return this.root?.close() ?? Promise.resolve(); }
 }
 
-export interface NativeJournalObservation {
+interface NativeJournalObservation {
   beforeRoot: NativeJournalCheckpoint; afterRoot: NativeJournalCheckpoint;
   changes: NativeJournalChange[];
   stats: { readEntries: number; walkedDirectories: number };
@@ -273,11 +280,11 @@ export interface NativeJournalReleaseAccounting {
  * `releaseFailed` is told when a previous checkpoint's release fails after its
  * observation committed, outside the caller's hold.
  */
-export function createNativeJournalObserver(native: NativeJournalManager, workerUid?: () => number | undefined, releaseFailed?: (error: unknown) => void) {
+export function createNativeJournalObserver(native: NativeJournalManager, workerUid?: () => number | undefined, releaseFailed?: (error: unknown, checkpointId: string) => void, releaseRetryMs = 30_000) {
   let index = new MetadataIndex(), root: NativeJournalCheckpoint | undefined;
   let missingInventory = new Map<string, NativeJournalUnreadable>();
   const uncertain = (path: string) => {
-    for (const prefix of missingInventory.keys()) if (prefix === "." || prefix === path || path.startsWith(prefix + "/")) return true;
+    for (const prefix of missingInventory.keys()) if (prefix === "." || isWithin(prefix, path)) return true;
     return false;
   };
   function* visible(entries: IterableIterator<NativeJournalMetadata>): IterableIterator<NativeJournalMetadata> {
@@ -288,6 +295,10 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
   const shutdown = new AbortController(), retained = new Set<string>();
   const signalFor = (signal?: AbortSignal) => signal ? AbortSignal.any([signal, shutdown.signal]) : shutdown.signal;
   async function checkpoint(signal: AbortSignal) {
+    // The lease owner refuses an aborted signal before recording any lease, so
+    // an id retained past that refusal could never be released (#3521). Check
+    // in the same synchronous step that hands the id to the manager.
+    signal.throwIfAborted();
     const id = randomUUID(); retained.add(id);
     try {
       const answer = await native.checkpoint(id, signal);
@@ -301,19 +312,40 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
   }
   // The cleanup owner of previous checkpoints: one release at a time, in commit
   // order, once the capture that superseded each is recorded (#2872).
-  const outstanding = new Map<string, { bytes: number; state: "pending" | "failed" }>();
+  const outstanding = new Map<string, { bytes: number; state: "pending" | "failed"; error?: unknown; reported?: boolean }>();
   let releasing: Promise<void> | undefined;
+  let retryTimer: ReturnType<typeof setTimeout> | undefined;
+  function retryLater(): void {
+    if (closed || retryTimer || ![...outstanding.values()].some(entry => entry.state === "failed")) return;
+    retryTimer = setTimeout(() => {
+      retryTimer = undefined;
+      for (const entry of outstanding.values()) if (entry.state === "failed") entry.state = "pending";
+      releaseNext();
+    }, releaseRetryMs);
+    retryTimer.unref?.();
+  }
   const settledWaiters = new Set<() => void>();
   const queued = () => [...outstanding.values()].filter(entry => entry.state === "pending").length;
+  function failedRelease(id: string, error: unknown): void {
+    // A final or uncommitted root can first fail during close. It has no
+    // measured replaced bytes, but its lease must stay visible and owned too.
+    if (!outstanding.has(id)) outstanding.set(id, { bytes: 0, state: "failed" });
+    const entry = outstanding.get(id)!;
+    entry.state = "failed"; entry.error = error;
+    if (!entry.reported) {
+      entry.reported = true;
+      try { releaseFailed?.(error, id); } catch { /* Reporting never blocks the next release. */ }
+    }
+  }
   function releaseNext(): void {
     if (releasing) return;
     const next = [...outstanding].find(([, entry]) => entry.state === "pending");
     if (!next) { for (const settled of settledWaiters) settled(); settledWaiters.clear(); return; }
-    const [id, entry] = next;
+    const [id] = next;
     releasing = release(id).then(() => { outstanding.delete(id); }, error => {
       // The checkpoint stays retained and charged until a retry releases it.
-      entry.state = "failed";
-      try { releaseFailed?.(error); } catch { /* Reporting never blocks the next release. */ }
+      failedRelease(id, error);
+      retryLater();
     }).finally(() => { releasing = undefined; releaseNext(); });
   }
   function releasesSettled(): Promise<void> {
@@ -329,8 +361,11 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
   async function reserveRelease(): Promise<void> {
     while (outstanding.size >= NATIVE_RELEASE_BACKLOG) {
       if (queued()) { await releasing; continue; }
-      const [id] = outstanding.keys();
-      await release(id!); outstanding.delete(id!);
+      const [id, entry] = outstanding.entries().next().value!;
+      entry.state = "pending";
+      releaseNext();
+      await releasing;
+      if (outstanding.get(id)?.state === "failed") throw entry.error;
     }
   }
   function deferRelease(id: string, bytes: number): void {
@@ -356,13 +391,18 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
     })();
     return initializing;
   }
-  async function prepare(signal?: AbortSignal): Promise<NativeJournalObservation> {
+  async function prepare(signal?: AbortSignal, timing?: PhaseTimer): Promise<NativeJournalObservation> {
     await initialize(signal);
+    // The wait for room behind earlier releases (#2915), before any checkpoint.
+    let end = timing?.("observe_reserve");
     await reserveRelease();
+    end?.();
     const active = signalFor(signal), before = root!;
     let after: NativeJournalCheckpoint | undefined, reader: RootMetadataReader | undefined;
     try {
+      end = timing?.("observe_checkpoint");
       after = await checkpoint(active);
+      end?.(); end = timing?.("observe_delta");
       const job = await native.delta(before.id, after.id, active);
       // Observe an early transport failure without an unhandled rejection.
       void job.completed.catch(() => {});
@@ -382,6 +422,7 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
         // before releasing roots the send process could still be reading.
         await job.completed.catch(() => {}); throw error;
       }
+      end?.(); end = timing?.("observe_metadata");
       const patches = new Map<string, NativeJournalMetadata | null | undefined>();
       reader = await RootMetadataReader.create(after, active, native, workerUid,
         path => patches.has(path) ? patches.get(path) ?? undefined : index.entries.get(path));
@@ -426,6 +467,7 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
         }
       }
       active.throwIfAborted();
+      end?.();
       const changes: NativeJournalChange[] = [];
       for (const path of paths) {
         const previous = index.entries.get(path) ?? null, current = patches.get(path);
@@ -469,9 +511,9 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
     ignoreEntries(): IterableIterator<NativeJournalMetadata> { if (closed) return unavailable("Native observer is closed."); return visible(index.ignoreInputs.values()); },
     unreadableEntries(): NativeJournalUnreadable[] { return [...missingInventory.values()]; },
     get(path: string): NativeJournalMetadata | undefined { if (closed) return unavailable("Native observer is closed."); return uncertain(path) ? undefined : index.entries.get(path); },
-    async observe(signal?: AbortSignal): Promise<NativeJournalObservation> {
+    async observe(signal?: AbortSignal, timing?: PhaseTimer): Promise<NativeJournalObservation> {
       if (closed || inFlight || pending) unavailable("Native observation must be serialized and reconciled.");
-      const operation = prepare(signal); inFlight = operation;
+      const operation = prepare(signal, timing); inFlight = operation;
       try { return await operation; } finally { inFlight = undefined; }
     },
     /** Accounting of previous checkpoints whose release left the observation. */
@@ -484,16 +526,15 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
     releasesSettled,
     /** Drains queued releases, retries failed ones, and reports any checkpoint still retained. */
     async close() {
-      closed = true; shutdown.abort(new Error("native_observer_closed"));
+      closed = true; clearTimeout(retryTimer); retryTimer = undefined; shutdown.abort(new Error("native_observer_closed"));
       await initializing?.catch(() => {}); await inFlight?.catch(() => {});
       if (pending) await pending.abort().catch(() => {});
       await releasesSettled();
       const errors: unknown[] = [];
-      for (const id of retained) { try { await release(id); outstanding.delete(id); } catch (error) { errors.push(error); } }
+      for (const id of retained) { try { await release(id); outstanding.delete(id); } catch (error) { failedRelease(id, error); errors.push(error); } }
       root = undefined; index = new MetadataIndex(); missingInventory.clear();
       if (errors.length) throw new NativeJournalObservationError(`${retained.size} native checkpoint(s) remain retained after shutdown: ${[...retained].join(", ")}. ${String(errors[0])}`);
     },
   };
 }
 
-export type NativeJournalObserver = ReturnType<typeof createNativeJournalObserver>;

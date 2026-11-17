@@ -31,7 +31,7 @@ export interface BrandMarkProps {
 }
 
 /** Below this height the mark uses the small-size master. */
-export const BRAND_MARK_SMALL_BELOW = 24;
+const BRAND_MARK_SMALL_BELOW = 24;
 
 /** `mark-on-*.svg`, viewBox 0 0 64 64. */
 const MARK = {

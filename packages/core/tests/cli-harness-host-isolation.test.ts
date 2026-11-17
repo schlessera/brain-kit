@@ -62,7 +62,7 @@ for (const mode of ["success", "failure", "shared", "standalone"] as const) {
       for (const receipt of receipts) {
         expect(receipt.code).toBe(0);
         expect(receipt.dirs).toHaveLength(3);
-        for (const dir of receipt.dirs) expect(dir.startsWith(`${ownedTemp}/`)).toBe(true);
+        for (const dir of receipt.dirs) expect(dir).toStartWith(`${ownedTemp}/`);
       }
       if (mode === "shared") expect(receipts[1]!.dirs).toEqual(receipts[0]!.dirs);
       expect(existsSync(keep), "cleanup must preserve unrelated temporary entries").toBe(true);

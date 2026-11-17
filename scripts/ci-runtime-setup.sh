@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # Ephemeral hosted runner only: preserve the pre-existing real-runtime CI setup.
 set -euo pipefail
+if [ "${1:-}" != "--native" ]; then
+  # Unit turn fixtures keep their brains on the root filesystem and need its
+  # free-space floor through proof (#3256). Reclaim unused toolchains, record
+  # the runner's disk, and refuse here, as infrastructure, without headroom.
+  bun scripts/ci-disk.ts reclaim
+fi
 sudo apt-get update -qq
 sudo apt-get install --yes bubblewrap iproute2 poppler-utils
 # Unit partitions retain their existing prerequisites; the runtime job alone

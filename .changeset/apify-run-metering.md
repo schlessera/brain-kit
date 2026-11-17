@@ -1,0 +1,7 @@
+---
+"@schlessera/brain": minor
+"@schlessera/brain-common": minor
+"@schlessera/brain-ui-server": minor
+---
+
+Apify runs are now metered and bounded on the host (#3161). The governance policy's `apify` block accepts `limits`: `run_usd`, `turn_usd`, `session_usd`, `day_usd`, `max_runs_per_turn`, `max_requests_per_turn`, `max_concurrent_runs`, `max_runtime_seconds`, `max_result_items`, `max_result_bytes` and `max_retention_seconds`. `brain policy check --json` reports them under `effective.apify.limits`, which is `null` when unset. Without limits no Actor run is admitted; with them every field is required, and they never enlarge the global `budgets`. The day and concurrency limits count every brain that uses the same Apify account. The server's run service validates each run against a qualified profile of its exact build: the full input schema, target fields, work bounds, site permission and an all-in pay-per-event price list. It reserves the run cap and the profile's bounded lifecycle and storage cost atomically, in a private ledger file shared across processes, before it sends the start request once with the limits as run options. A start whose outcome is unknown keeps its reservation and is never repeated. Charges settle exactly once from the run's own report. Aborts never claim a zero bill. Results are bounded, owned and expire. No real build is qualified yet, and this release adds no CLI command, MCP tool or route.

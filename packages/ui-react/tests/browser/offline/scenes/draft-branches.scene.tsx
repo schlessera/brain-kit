@@ -487,8 +487,9 @@ defineScene({
       session: root.stores.chat.getState().activeSessionId,
       selection: [field().selectionStart, field().selectionEnd],
       focused: document.activeElement === field(),
+      // The draft indicator's summary (#3155); its trigger is the action above.
       notice:
-        document.querySelector("[data-device-conflict]")?.textContent ?? "",
+        document.querySelector("[data-device-conflict]")?.getAttribute("data-draft-summary") ?? "",
       failed: root.localWork!.status.getState().failed,
       drafts: Object.values(root.stores.drafts.getState().drafts).map((d) => ({
         id: d.draftId,
@@ -499,8 +500,15 @@ defineScene({
   },
   async openOther() {
     await settled();
-    const action = document.querySelector<HTMLButtonElement>(
+    // Open other version is the draft indicator's detail action (#3155).
+    const trigger = document.querySelector<HTMLButtonElement>(
       "[data-device-conflict] button"
+    );
+    if (!trigger) throw new Error("no draft indicator for the other version");
+    trigger.click();
+    await wait(0);
+    const action = document.querySelector<HTMLElement>(
+      '[data-draft-action="other_version"] [data-bk-button]'
     );
     if (!action) throw new Error("no other-version action");
     action.click();
@@ -670,8 +678,15 @@ defineScene({
   },
   async compare() {
     await settled();
-    const button = document.querySelector<HTMLButtonElement>(
-      "[data-draft-compare]"
+    // Compare drafts is the draft indicator's detail action (#3155).
+    const trigger = document.querySelector<HTMLButtonElement>(
+      '[data-draft-save="conflict"] button'
+    );
+    if (!trigger) return false;
+    trigger.click();
+    await wait(0);
+    const button = document.querySelector<HTMLElement>(
+      '[data-draft-action="compare"] [data-bk-button]'
     );
     if (!button) return false;
     button.click();

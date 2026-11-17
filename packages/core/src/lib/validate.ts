@@ -14,6 +14,7 @@
  * the taxonomy so validation and the indexer's link graph agree exactly.
  */
 
+import { frontmatterBlock } from "@schlessera/brain-common/internal/frontmatter-block";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { readFileSync, existsSync } from "fs";
 import { resolve } from "path";
@@ -148,8 +149,9 @@ export function validateDetailed(root: string, taxonomy: Taxonomy): DetailedVali
     const fullPath = resolve(root, filePath);
     const raw = readFileSync(fullPath, "utf-8");
 
-    // Check for frontmatter
-    if (!raw.startsWith("---")) {
+    // Check for frontmatter, by the fences the indexer reads (#2507): a
+    // byte order mark before them is fine, a `----` line is not a fence.
+    if (!frontmatterBlock(raw)) {
       issues.push({
         file: filePath,
         level: "error",
@@ -250,6 +252,13 @@ export function validateDetailed(root: string, taxonomy: Taxonomy): DetailedVali
         message: `Invalid generated_from: ${describeValue(data.generated_from)}. It must be a non-empty string: a repo-relative path or a tool name`,
         detail: { rule: "field-invalid", ...about("generated_from") },
       });
+    }
+    for (const field of ["propagation_scope", "propagation_reference"]) {
+      if (field in data && (typeof data[field] !== "string" || !data[field].trim() || (field === "propagation_scope" && data[field].length > 4000) ||
+        (field === "propagation_reference" && !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(data[field])))) {
+        issues.push({ file: filePath, level: "error", message: `Invalid ${field}: expected ${field === "propagation_reference" ? "a full Git commit ID" : "a non-empty scope string"}`,
+          detail: { rule: "field-invalid", ...about(field) } });
+      }
     }
     // `verification` (#394): `unverified` is the one value brain reads. Any
     // other would read as a claim (say, "verified") that nothing checks.

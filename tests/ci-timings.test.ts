@@ -129,7 +129,9 @@ test("collection workflow reads trusted code with a read-only token and no candi
   expect(timingWorkflowProblems(workflow.replace("  schedule:", "  workflow_run:\n  schedule:"))).toContain("ci-timings.yml: measurement must use scheduled/manual trusted execution only");
   for (const unsafe of [workflow.replace("--request-budget 200", "--request-budget 1000"),
     workflow.replace("--reserve 500", "--reserve 0"), workflow.replace('--seed "$TIMING_DEFAULT_BRANCH" ', ""),
-    workflow.replace("--reservations", "--resources --reservations")]) {
+    workflow.replace("--reservations", "--resources --reservations"),
+    // Red-main evidence (#2953) is part of every scheduled collection.
+    workflow.replace(" --red-main", "")]) {
     expect(timingWorkflowProblems(unsafe)).toContain("ci-timings.yml: timing collection requires seeded acquisition, a hard budget/reserve and no scheduled resource logs");
   }
   expect(timingWorkflowProblems(workflow.replace('"43 * * * *"', '"43 6 * * *"')))
@@ -239,5 +241,63 @@ test("native report joins overlapping downloaded reservation and acquisition arc
     const conflict = invoke();
     expect(conflict.exitCode).toBe(1);
     expect(new TextDecoder().decode(conflict.stderr)).toContain("Conflicting lease history");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("runner-slot wait preserves creation time and legacy unknowns", async () => {
+  const created = "2026-07-12T10:00:00Z", started = "2026-07-12T10:03:30Z";
+  const api: TimingAPI = { json: async () => ({ total_count: 1, jobs: [{ ...job(), created_at: created, started_at: started }] }), log: async () => "" };
+  const fresh = await collectAttempt(api, "odysseus/chronicle", rawRun, 1, false);
+  expect(fresh.version).toBe(2);
+  expect(fresh.jobs[0]!.createdAt).toBe(created);
+  fresh.context = { cadence: "draft", global: false, head: sha };
+  const legacy = snapshot(13); legacy.jobs[0]!.id = 2;
+  delete legacy.jobs[0]!.createdAt;
+  const report = summarize([fresh, legacy]);
+  expect(report.runnerSlotWait.overall).toEqual({ n: 1, mean: 210, median: 210, p90: 210, max: 210,
+    unknown: 1, overFiveMinutes: { numerator: 0, denominator: 1, percent: 0 } });
+  expect(report.runnerSlotWait.byWorkflow[rawRun.path]!.unknown).toBe(1);
+  expect(report.runnerSlotWait.byCategory.unit!.median).toBe(210);
+  expect(report.runnerSlotWait.byEvent.pull_request_draft!.n).toBe(1);
+  expect(report.runnerSlotWait.byEvent.pull_request_unknown!.unknown).toBe(1);
+  expect(markdown(report)).toContain("Runner-slot wait");
+  expect(markdown(report)).toContain("unknown");
+});
+
+test("runner-slot wait cohorts keep strict threshold, real zero and unexecuted unknowns", () => {
+  const inputs = [0, 300, 301, 900].map((wait, i) => {
+    const s = snapshot(20 + i); s.version = 2; s.jobs[0]!.id = 20 + i;
+    s.jobs[0]!.createdAt = start; s.jobs[0]!.startedAt = new Date(Date.parse(start) + wait * 1000).toISOString();
+    s.run.event = ["pull_request", "push", "workflow_dispatch", "pull_request"][i]!;
+    s.run.branch = "main"; s.context = { cadence: "confirmation", global: false, head: sha }; return s;
+  });
+  const queued = snapshot(30); queued.jobs = [normalizeJob({ ...job(30), created_at: start, steps: [], conclusion: "cancelled" })];
+  const r = summarize([...inputs, queued]).runnerSlotWait;
+  expect(r.overall).toEqual({ n: 4, mean: 375.25, median: 300.5, p90: 900, max: 900, unknown: 1,
+    overFiveMinutes: { numerator: 2, denominator: 4, percent: 50 } });
+  expect(r.byEvent.pull_request_ready!.n).toBe(2);
+  expect(r.byEvent.push_main!.median).toBe(300);
+  expect(r.byEvent.workflow_dispatch!.median).toBe(301);
+});
+
+test("native report reads v2 slot waits with legacy archives and rejects unknown versions", () => {
+  const dir = mkdtempSync(join(tmpdir(), "slot-wait-"));
+  try {
+    const s = snapshot(); s.version = 2; s.jobs[0]!.createdAt = start;
+    s.jobs[0]!.startedAt = "2026-07-12T10:03:30Z";
+    writeFileSync(join(dir, "run-12-attempt-1.json"), JSON.stringify(s));
+    const legacy = snapshot(13); legacy.jobs[0]!.id = 2; delete legacy.jobs[0]!.createdAt;
+    writeFileSync(join(dir, "run-13-attempt-1.json"), JSON.stringify(legacy));
+    const child = Bun.spawnSync([process.execPath, "scripts/ci-timings.ts", "report", "--out", dir], { stdout: "pipe", stderr: "pipe" });
+    expect(child.exitCode).toBe(0);
+    const r = JSON.parse(readFileSync(join(dir, "summary.json"), "utf8"));
+    expect(r.version).toBe(2); expect(r.runnerSlotWait.overall.median).toBe(210);
+    expect(r.runnerSlotWait.overall.unknown).toBe(1);
+    expect(readFileSync(join(dir, "summary.md"), "utf8")).toContain("3.50");
+    expect(() => deduplicate([{ ...s, version: 3 } as unknown as TimingSnapshot])).toThrow("Invalid timing snapshot");
+    const older = structuredClone(s); older.collectedAt = start;
+    const newer = structuredClone(s); newer.version = 1; delete newer.jobs[0]!.createdAt;
+    expect(deduplicate([older, newer])[0]!.jobs[0]!.createdAt).toBe(start);
+    expect(deduplicate([older, newer])[0]!.version).toBe(2);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

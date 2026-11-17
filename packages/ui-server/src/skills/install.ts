@@ -21,21 +21,22 @@
  *   touch a package skill — those are symlinks and stay refused.
  */
 
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { Unzip, UnzipInflate } from "fflate";
 import { existsSync, lstatSync, mkdirSync, renameSync, rmSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 
 export const MAX_ARCHIVE_BYTES = 100 * 1024 * 1024;
-export const MAX_INFLATED_BYTES = 250 * 1024 * 1024;
-export const MAX_FILES_PER_SKILL = 400;
-export const MAX_FILE_BYTES = 10 * 1024 * 1024;
+const MAX_INFLATED_BYTES = 250 * 1024 * 1024;
+const MAX_FILES_PER_SKILL = 400;
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
 
 const NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
 export class InstallError extends Error {}
 
-export interface InstallOutcome {
+interface InstallOutcome {
   /** Installed-as name (frontmatter), or the archive folder for failures. */
   name: string;
   status: "installed" | "replaced" | "skipped";
@@ -43,13 +44,13 @@ export interface InstallOutcome {
   files?: number;
 }
 
-export interface InstallOptions {
+interface InstallOptions {
   overwrite?: boolean;
   /** Only consider entries under this archive subpath (GitHub `tree` URLs). */
   subpath?: string;
 }
 
-export interface InstallDeps {
+interface InstallDeps {
   brainPath: string;
 }
 
@@ -80,7 +81,7 @@ function concatChunks(chunks: Uint8Array[], total: number): Uint8Array {
   return whole;
 }
 
-export interface UnzipCaps {
+interface UnzipCaps {
   maxFileBytes: number;
   maxInflatedBytes: number;
 }
@@ -198,7 +199,7 @@ export function installSkillsFromEntries(
     const skillFiles = new Map<string, Uint8Array>();
     for (const [path, bytes] of files) {
       if (!path.startsWith(rootPrefix)) continue;
-      if (deeper.some((d) => path.startsWith(d + "/"))) continue;
+      if (deeper.some((d) => isWithin(d, path, { includeRoot: false }))) continue;
       skillFiles.set(path.slice(rootPrefix.length), bytes);
     }
 
@@ -296,7 +297,7 @@ export function installSkillsFromZip(
 // GitHub
 // ---------------------------------------------------------------------------
 
-export interface GitHubSource {
+interface GitHubSource {
   owner: string;
   repo: string;
   ref?: string;

@@ -107,3 +107,6 @@ export interface VoiceVocabulary {
   terms: string[];
   extractorVersion: number;
 }
+
+/** One page of `pageIndexDocuments`; shared with `brain list --overview` and `brain_list`. */
+export type { DocumentPage, PagedDocument } from "../lib/document-page.js";

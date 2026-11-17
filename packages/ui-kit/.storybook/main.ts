@@ -9,6 +9,18 @@ export default defineMain({
   viteFinal: async (config) => ({
     ...config,
     build: { ...config.build, cssTarget: ["chrome123", "firefox128", "safari17.5"] },
+    plugins: [
+      ...(config.plugins ?? []),
+      // A same-origin avatar request that never answers, so the "avatar
+      // loading" story shows the pending state rather than racing the load
+      // (#3800). The connection closes when the page lets it go.
+      {
+        name: "brain-held-avatar",
+        configureServer(server: { middlewares: { use: (path: string, handler: (req: { on: (event: string, fn: () => void) => void }, res: { end: () => void }) => void) => void } }) {
+          server.middlewares.use("/__held-avatar.svg", (req, res) => req.on("close", () => res.end()));
+        },
+      },
+    ],
   }),
   // stories/ mirrors src/, so a component and its stories line up without
   // stories living inside the directory that ships. src/ may not import a

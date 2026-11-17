@@ -63,13 +63,9 @@ export const WaveformIsDeterministic = meta.story({
     const bars = [...canvasElement.querySelectorAll("span")].filter(
       (s) => s.style.width === "2px",
     );
+    // The heights follow this clip's 38 seconds, so a formula that stopped
+    // reading `seconds` draws another shape and fails here.
     await expect(bars.map((b) => b.style.height)).toEqual(expected.map((h) => `${h}px`));
-
-    // And the shape is a function of the clip, not a constant.
-    const other = Array.from({ length: 6 }, (_, i) =>
-      Math.round(4 + Math.abs(Math.sin((i + 1) * 1.7 + 91)) * 13),
-    );
-    await expect(other).not.toEqual(expected);
   },
 });
 

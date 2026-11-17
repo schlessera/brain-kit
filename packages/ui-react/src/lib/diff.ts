@@ -53,7 +53,7 @@ function diffSeq<T>(
 }
 
 /** A rendered diff row. */
-export type DiffRow = { kind: "same" | "del" | "ins"; line: string };
+type DiffRow = { kind: "same" | "del" | "ins"; line: string };
 
 /**
  * Merge `old_string`/`new_string` into a single diff: unchanged lines appear

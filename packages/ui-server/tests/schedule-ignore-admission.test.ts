@@ -56,6 +56,9 @@ test("schedule Git waits for an exclusive holder before creating its actual chil
   try {
     const held = await f.gate.acquire("exclusive", "Athena maintenance"); f.holds.push(held);
     const result = f.check("ignored.md");
+    // Negative window: the waiting acquisition retries its SQLite row every 5 ms
+    // (`pollMs`) and reports nothing for a refused attempt, and correct code never
+    // admits it. 25 ms, about five refused polls, is the only observable.
     await Bun.sleep(25);
     expect(f.spawnRows, "SCHEDULE_EXCLUSIVE_OWNER_BLOCKS_PROCESS_CREATION").toEqual([]);
     held.release();

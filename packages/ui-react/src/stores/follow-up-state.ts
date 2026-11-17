@@ -37,7 +37,7 @@ export interface PendingFollowUp {
 }
 
 /** What this client sent, kept to draw its message exactly when it starts. */
-export interface LocalFollowUp {
+interface LocalFollowUp {
   requestId: string;
   text: string;
   source: MessageSource;
@@ -50,7 +50,7 @@ export interface LocalFollowUp {
 }
 
 /** One polite announcement for the pending group (D52 §3). */
-export interface FollowUpAnnouncement {
+interface FollowUpAnnouncement {
   sessionId: string;
   text: string;
   /** Bumped per announcement, so the same words announce twice. */

@@ -2,7 +2,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
-export function unitWorkerFixture(options: { failBuild?: boolean; diagnostics?: boolean; failAfterDiagnostics?: boolean; diagnosticLink?: "file" | "directory" | "ancestor" } = {}) {
+export function unitWorkerFixture(options: { failBuild?: boolean; diagnostics?: boolean; failAfterDiagnostics?: boolean; diagnosticLink?: "file" | "directory" | "ancestor"; dropReport?: boolean } = {}) {
   const source = resolve(import.meta.dir, "../..");
   const root = mkdtempSync(join(dirname(source), ".odysseus-unit-workers-"));
   mkdirSync(join(root, "tmp"));
@@ -15,7 +15,15 @@ export function unitWorkerFixture(options: { failBuild?: boolean; diagnostics?: 
   };
   write("scripts/unit-worker-entry.sh", readFileSync(join(source, "scripts/unit-worker-entry.sh"), "utf8"));
   write(".gitignore", "node_modules/\ntmp/\ndist/\n.vitest-attachments/\n");
-  write("package.json", JSON.stringify({ name: "odysseus-unit-fixture", type: "module", scripts: { build: "bun scripts/build.ts", test: "bun scripts/test.ts" } }));
+  write("package.json", JSON.stringify({ name: "odysseus-unit-fixture", type: "module", scripts: { build: "bun scripts/build.ts",
+    test: options.dropReport ? "bun scripts/drop-report.ts" : "bun scripts/test.ts" } }));
+  // The Odysseus worker's tests pass and it exits 0, but its JUnit report is gone.
+  if (options.dropReport) write("scripts/drop-report.ts", `import {rmSync} from "node:fs";
+const args=process.argv.slice(2);
+const child=Bun.spawn([process.execPath,"scripts/test.ts",...args],{stdio:["inherit","inherit","inherit"]});
+const code=await child.exited;
+if(code===0&&args.some(arg=>arg.endsWith("tests/odysseus.test.ts")))rmSync("tmp/unit-report.xml");
+process.exit(code);\n`);
   write("packages/raft/package.json", JSON.stringify({ name: "@odysseus/raft", version: "1.0.0" }));
   write("packages/raft/README.md", "Odysseus builds the raft.\n");
   // This byte-owned stand-in tests dependency copying, not a compiler version.
@@ -66,7 +74,7 @@ const stop=Date.now()+5000;while((!existsSync(join(shared,"built-1"))||!existsSy
 ${options.failBuild ? "process.exit(7);" : ""}
 mkdirSync("dist",{recursive:true});writeFileSync("dist/lease.json",JSON.stringify({lease:JSON.parse(process.env.BRAIN_WORKSPACE_LEASE),nonce:process.env.BRAIN_TEST_INVOCATION_NONCE}));writeFileSync("dist/ready.txt","Odysseus builds the raft.");receipt.packageEnd("raft",true);receipt.finish(0);\n`);
   for (const file of ["scripts/test.ts", "scripts/runtime-test-builds.ts", "scripts/test-invocation.ts", "scripts/test-invocation-child.ts", "scripts/publishable-packages.ts",
-    "scripts/workspace-lease.mjs", "scripts/test-network-preload.ts", "scripts/test-network-child-preload.ts", "scripts/test-network-guard.ts", "packages/core/tests/cli-harness.ts"]) {
+    "scripts/workspace-lease.mjs", "scripts/host-admission.mjs", "scripts/test-shards.ts", "scripts/test-shard-costs.json", "scripts/test-network-preload.ts", "scripts/test-home.ts", "scripts/test-network-child-preload.ts", "scripts/test-network-guard.ts", "packages/core/tests/cli-harness.ts"]) {
     write(file, readFileSync(join(source, file), "utf8"));
   }
   const files = ["odysseus", "penelope"].map(name => `tests/${name}.test.ts`);

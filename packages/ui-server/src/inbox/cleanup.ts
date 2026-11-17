@@ -1,15 +1,12 @@
 import type { Database } from "bun:sqlite";
-import { realpath, rm } from "node:fs/promises";
-import { join } from "node:path";
-import { SHARE_STAGING_DIR } from "@schlessera/brain-ui-sdk/protocol";
 import type { InboxQueueItem } from "@schlessera/brain-ui-sdk/protocol";
 import { createInboxStore } from "./store.js";
 import { inboxLifecycleWrites } from "./lifecycle-writes.js";
-import { safeResolve } from "../files/walker.js";
+import { removeStagedArrival } from "../share/staging-fs.js";
 import { assertInboxRecoveryReady } from "./recovery-gate.js";
 import { reapInboxThreadLifetimes } from "./lifetime.js";
 
-export interface CleanupItemOutcome { id: string; state: "running" | "cleaned" | "failed"; reason: string | null }
+interface CleanupItemOutcome { id: string; state: "running" | "cleaned" | "failed"; reason: string | null }
 export interface CleanupReport { cleaned: number; failed: number; deferred: number; cancelled: boolean; truncated: boolean; items: CleanupItemOutcome[] }
 export interface CleanupRequest { signal?: AbortSignal; assertAuthorized?: () => void; onItem?: (item: CleanupItemOutcome) => void | Promise<void> }
 
@@ -23,17 +20,10 @@ export function createInboxCleanup(db: Database, brainRoot: string, options: { n
   let active: Promise<CleanupReport> | null = null, closed = false;
   async function remove(stagingId: string): Promise<void> {
     if (!/^[a-f0-9-]{36}$/.test(stagingId)) throw new Error("Invalid cleanup staging id");
-    const root = await safeResolve(SHARE_STAGING_DIR, brainRoot);
-    const expected = join(await realpath(brainRoot), SHARE_STAGING_DIR);
-    try {
-      if (await realpath(root) !== expected) throw new Error("Cleanup staging root must not traverse a symlink");
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
-    // A final entry symlink is unlinked by rm, never followed. Parent symlinks
-    // are refused above; IDs come only from the server's intake journal.
-    for (const name of [stagingId, `.${stagingId}.partial`])
-      await rm(join(root, name), { recursive: true, force: true });
+    // A final entry symlink is unlinked, never followed; a linked or changing
+    // staging directory refuses, through descriptors rather than a pathname
+    // check (#2907). IDs come only from the server's intake journal.
+    removeStagedArrival(brainRoot, stagingId);
   }
   async function reconcile(request?: CleanupRequest): Promise<CleanupReport> {
     request?.signal?.throwIfAborted(); request?.assertAuthorized?.(); assertInboxRecoveryReady(db);

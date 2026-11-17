@@ -95,6 +95,68 @@ Existing issues #1242 (PDF effect readiness), #1685 (hygiene layout readiness),
 #1837 (repeated build attribution), and the recording/matrix children retain their
 ownership rather than being duplicated here.
 
+### Re-census of later files
+
+The inventory above is a snapshot. Waits added after it are held to the same
+rule ([#3332](https://github.com/schlessera/brain-kit/issues/3332)). The
+[re-census](https://github.com/schlessera/brain-kit/tree/a13f2247adcc3946d44c023553ff662e926143ea/scripts/measurements/wait-census-3332-2026-11-02)
+runs the same expression at `3984040f199cbadbee6e4ce3f1beff816b68dc36`. It
+classifies every match in files that do not match at the inventory source
+(604 lines in 204 files) as justified, replaceable or not a wait. The
+classification is rule-based and does not count executions. A slice that
+replaces waits re-reads each enclosing test first, and its pull request records
+any reclassification and its mutation receipts.
+
+| Source / assertion | Attributed role and retained proof | Completion control / native boundary |
+| --- | --- | --- |
+| `private-index-cache.test.ts`, idle expiry and active-base skip | Registered idle timers, armed and delivered while a turn holds the base; expiry still applies once the turn finishes | `privateIndexClock` owns only the cache's timers and `Date.now`. Checkpoints, files and the held delta stay native. |
+| Same file, advance/close ordering | The advance holds the base's queue before a turn arrives; close stops a delta or run that has actually started | The bench's `entered`/`running` signals replace 50–100 ms sleeps. Dropping either await reorders the outcome. |
+| `reference-source.test.ts` and `reference-tools.test.ts`, admission, eviction and exposure ordering | Each step starts after the scripted fetch, admission or held pool call it depends on; a cancelled fetch's reservation is released only after its teardown | Conditions on the scripted transport and pool replace 5–20 ms sleeps. A held teardown barrier replaces the 30 ms `settleDelayMs` latency. The collaborators are in memory, so one macrotask turn runs all work up to the held barrier. |
+| `application-index-timing.test.ts`, deferred index update | Twenty writes return before a slow index update; one targeted update covers them | The update is held until the writes are measured, instead of sleeping 1500 ms. On a route where a write waits for it, each update still takes 1500 ms and the median assertion fails. |
+| `chat-lifecycle.test.ts` and `writer-gate-offloop.test.ts`, work queued behind a held writer | The retirement, or the host downgrade, is posted to the real write worker before the racing step | A `Worker.prototype.postMessage` observer replaces 20–50 ms sleeps and fixed timers; the descriptor is restored after each case. |
+| `write-worker.test.ts`, app writes against a running procedure | The worker is inside the held procedure before the app writes | The probe sets an `entered` flag that the test awaits with `Atomics.waitAsync`, instead of sleeping 20–50 ms. |
+| `native-brain-leases.test.ts`, `storage-offloop.test.ts` and `turn-egress.test.ts` | A lost reply after a newer release started; failures settled before close; a pending taint | The newer release's arrival, one macrotask after the synchronous tick, and a bounded taint poll replace fixed 20–100 ms waits. |
+| `worker-steps-event-loop.test.ts`, a supervisor lost during a status request | The request is outstanding when the supervisor is lost; its late answer neither settles again nor releases the broker | The status step is held open, so the request is outstanding by construction. The test releases it and awaits its answer, instead of sleeping 150 ms and then 200 ms. |
+| `maintenance-worker-kill-child.ts`, every thread confirms its stop | A non-leader thread that reports itself running delays the snapshot until it confirms | The thread reports running for exactly two polls, instead of until a 10 ms timer fires. The zero-delay heartbeat timers in the fork-ordering cases are the observation: they prove that stop confirmation yields. |
+| Claude `worker-cleanup.test.ts` and `worker-stdio-release.test.ts`, reservation and settlement held | The reservation stays charged, and settlement waits, while only the held close or release remains | The state handle's real close is observed, or the release request is polled for. One macrotask then runs any continuation, instead of 20–50 ms windows. |
+| ui-react `runtime-hook-phases.test.ts`, pending output | Exit and stderr completion are reported while stdout is held | A condition on those two records, then one macrotask, replaces a 20 ms window. |
+| Root `build-concurrency.test.ts`, optional dependency before its consumer | A consumer never compiles before its optional dependency, despite a peer cycle | The dependency's compiler wrapper holds until a peer has finished and its slot has been refilled, instead of sleeping 500 ms. A consumer started in that slot compiles, and fails, while the dependency is held. |
+| Root `helpers/planning-observer.ts`, first sampler reading | The sampler has a reading before the observed call blocks the main thread | The sampler posts `ready` after its first reading. The observer awaits that message, instead of one 250 ms interval, with the existing stop budget as its failure maximum. |
+| ui-server negative observations behind a real write-worker hold (`drafts-settings-offloop`, `inbox-writes-offloop`, `retry-proposal-offloop`, `storage-offloop`, `storage-scan-offloop`, `writer-gate-offloop`) | The queued commit, and everything after it, has not run while an earlier probe call holds the worker | The worker answers in submission order on one port, so the test reads its main-thread flags when the hold answers, instead of after a 20–50 ms window. Rows the worker commits to the database file are read while the hold is still running, because once it answers the worker may already be committing. |
+| ui-server negative observations behind an in-memory hold (`app-writes-offloop`, `drafts-settings-offloop`, `push-drain`, `native-journal-observer`, `private-index-stdio-release`, `reference-source`, `reference-tools`) | Settlement waits for the one held write, release or acquisition | The test waits until the held step has started, then one macrotask runs every continuation that does not wait for it, instead of 10–50 ms. |
+| `http-mount-timers.test.ts` and `live-history-adapters.test.ts` | Cancelled native timers never fire; no history frame precedes the first input | A live control timer due after the cancelled ones, and an input frame on the same ordered socket, replace 60–80 ms and 20 ms windows. |
+| Failure maxima, reason in source | `app-http-drain`, `app-metadata-cancellation`, `close-cancels-shared-runs`, `dialogue-storage`, `reference-source`, `reference-tools` and `write-worker` races whose expected outcome settles first | The deadline branch is never awaited on success. |
+| Negative windows kept, reason in source | Writer-gate waiters in `host-fallback-gates` and `schedule-ignore-admission`; the `reference-writes-offloop` `pending` helper; app shutdown in `app-writer-cleanup`; the replayed tombstone in `contextual-refusals`; the `relayed-runtime-traffic-probe` exit window | A gate waiter polls every 5 ms and reports no refused attempt. The `pending` helper's callers read database rows that must be read inside the hold. A marker request for the replayed tombstone would start its own turn and change the counts. The shutdown windows cover real-IO round trips that correct code never completes, so no event marks them. |
+| Kept real time, reason in source | `native-identity-inspector` abort during a blocking FIFO open; geo `routing` admission-write latency while the transport deadline is armed; the delayed-fsync spies in `native-observation-storage`, `transcript-archive` and `native-observation-settlement` (event-loop liveness under slow IO) | The inspector's blocked state has no portable signal. The geo latency and fsync delays are the stimulus itself. |
+| ui-react `share-review/commands.ts`, review admission refused or retired | A failed copy, another account, a live owner in another tab, a racing tab or an expired record never admits review | The fixture counts its share-review lock requests and their settlements; a request that admits stays open. The command waits until a request made after a mark has settled, or a review is admitted, instead of 1.2–1.5 s. The racing loser waits for an attempt made after the winner admitted. Where the account's review rows and stashed originals are empty or sealed, nothing can be admitted, so no window is needed. Dismiss waits for the queue to empty, which follows the durable delete. |
+| Same file, a lost response | The upload's response opens, then loses its body, so Chromium cannot retry it transparently | The socket closes from the write callback of the partial body, instead of 50 ms later. Closing before the flush lets Chromium retry, and the case fails. |
+| ui-react `storage-guidance.layout.tsx`, late and refused responses | A response for the prior account or a replaced root never replaces current evidence; a refused route never opens Settings | The fixture counts the responses it answers and the bodies the consumer reads. The tests wait for the held response to be read, or for the route's refused read to be answered, instead of 50 ms. The route change is committed with `flushSync`, so its open decision has run. |
+| ui-react `transcript-qualifiers.offline.tsx` and `conversation-controls.offline.tsx`, tooltip and reply holds | Escape keeps a qualifier hint hidden; the pointer can rest on a hint; short playback gaps keep Speaking | The qualifier's 300 ms show and 150 ms hide timers, and the strip's 300 ms reply hold, run on vitest's fake `setTimeout`. The tests advance them or run every pending timer, instead of 350 ms windows and real gaps. |
+| ui-react `conversation-endpoint`, `conversation-consent` and `conversation.offline.tsx` | No speech block arrives after the drain; consent alone, or a pending opening after Mute, never reopens capture | The first audio frame below the speaking threshold follows every queued speaking block, instead of a 200 ms drain. Frames are handled on delivery and a capture calls `getUserMedia` synchronously, so the consent cases read the open count once epoch 2 is applied, or at once, instead of after 100 ms or 30 ms. |
+| Kept, reason in source | ui-react `recording-limits` source starvation; the drains in `dialogue-browser-server` and `contextual-conversation-browser-server` | The starvation is the real-time stimulus. The fixture drains only pace or batch frames: tests poll step replies for every outcome. |
+| Reclassified, no change | `hygiene-lifecycle-command` 234 (cancellation-safety release cap); `storage-server-command` 39 (startup failure maximum); `liveness-clock` 53 (the page timer under the controlled clock) | Each is a maximum or the timer under test, and its reason is in source. |
+| Claude `worker-event-loop.test.ts` and Pi `worker-stdio-release.test.ts`, a turn abort and a withheld stdio release | A worker survives its turn's abort; a turn stays pending while its last teardown step is withheld | The abort listeners run inside `abort()`, and everything after the withheld release runs in-process, so one macrotask replaces the 300 ms and 100 ms windows. |
+| ui-sdk `worker-steps-event-loop.test.ts`, identity polls and a rejected release | A timer fires while an identity poll is outstanding; a rejected release is handled | The awaited status request stays outstanding until the 1 ms ticker has fired, instead of 30 ms. One macrotask lets Bun report an unhandled rejection, instead of 20 ms. |
+| Negative windows and stimuli kept, reason in source | Claude `worker-event-loop` broker close; Pi `early-cancel-lifecycle` temp close and `worker-stdio-release` late descriptor close; ui-sdk `identity-broker-qualification.native` pulse spans and `worker-steps-event-loop` blocking hold and `settledWithin`; root `build-concurrency` live-peer window and `test-invocation-lifetime` orphan window | The broker close, the native temp close and process exits have no event outside the turn, and awaiting one would attach the handler whose absence is checked. The pulse file is the only witness that a writer outside the listed PIDs stopped. The blocking hold and the late close are the stimulus. The `build-concurrency` window opens only after the failing compiler has exited. |
+| ui-server `private-index.test.ts`, the first type-selector turn after server start | The turn's peer-plan wait admits it once the server-start writer finishes, rather than refusing | The gate worker answers in submission order, so a peer check submitted after the wait's first check marks the point where the wait has seen the writer. The writer is released then, instead of 300 ms after the wait starts, and the wait must settle after the release. |
+| ui-react `untrusted-marks-runtime.test.ts`, an unsupported server | No cue, control, unknown note or entry row is drawn | The window starts once the detail and list lookups have been answered with the generic 404, instead of when the toolbar appears. An unsupported server draws nothing, so no element marks the answer as rendered; the 200 ms window stays, with that reason in source. |
+| ui-react `conversation-controls.offline.tsx`, the pointer resting on the attach tooltip | The tip stays visible while the pointer is on it | A tip that lost its host's hover runs a 150 ms visibility transition to hidden. The test reads the style, then awaits the tip's running animations, instead of 300 ms. |
+
+The second re-census runs the same expression at `a63e564f02f9b1ab0462bb0ac02dbf8ea6eacee7`. It covers the 66 files that started matching after `3984040f` (128 lines), and the 35 lines added since then to files that already matched. The [bundle](https://github.com/schlessera/brain-kit/tree/e3b6a50630f7dc04322af2ec609af8982a4ec8e1/scripts/measurements/wait-census-3332-2026-11-08) records both lists, the rule-based classification and the reviewed outcome of every row the rules called replaceable or a negative observation.
+
+| Source / assertion | Attributed role and retained proof | Completion control / native boundary |
+| --- | --- | --- |
+| core `compute-cli.test.ts`, a signal while a job starts | The signal is recorded while the job is still starting, and the run settles cancelled | The test reads the child's stderr until its handler logs the signal, then opens the stage gate, instead of 200 ms. |
+| core `compute-ops.test.ts`, the background driver | A running job stays tracked after each visit; `stop()` during a visit ends visiting | A wrapper on `status` counts answered visits. The test checks after each answered visit, and stops right after one, instead of 30–40 ms. The windows after settle and after stop stay, with their reason in source: no event marks that no timer is armed. |
+| core `compute-race.test.ts`, racing admissions | Exactly one of six racers is admitted | Each racer prints `ready` before it polls for the barrier; the barrier is written once all six are ready, instead of after 300 ms. The runner's 50 ms ledger gap stays: it is the stimulus that widens a broken lock's window. |
+| ui-server `apify-runs`, `attachment-sweep`, `attachment-extract`, `attachment-reads-delivery` | Racing processes hold the ledger; concurrent uploads hold their reservations; cancel reaches a running extract; a read follows the hello | Ready files from each race child, a poll on `attachment_reservations`, a `Bun.spawn` observer (descriptor restored) and a `ping`/`pong` barrier replace 20–300 ms windows. |
+| ui-server `compute-host`, `contextual-status`, `relay-recording-settlement`, `safety-ledger`, `session-run-stages`, `ws-turn-budgets` | In-flight calls finish before cancel settles; no provider acceptance before durable admission; a relay waits for its own egress recording; backend contact waits for safety admission; the turn timeout drains; a late response returns with every report submitted | The host's `clock` option, a marker on the same ordered socket after one macrotask, an egress wrapper recording `admit()`, a pending-count poll plus a contact-time check, the controller's `abort` event and the report count at return replace 5–200 ms windows. |
+| Kept, reason in source (ui-server) | `contextual-status` after the provider socket closes; `tainted-destination-ask` shared-card and late-contact windows; `policy-observation-pause` 600 ms against a `Date.now()` deadline; the misbehaving extract worker's hold; `journal-idle-maintenance`, `turn-coordinator` and `ws-turn-budgets` maxima | A closed socket or a loopback contact has no later frame to mark it. The pause deadline is read from `Date.now()`, which no clock in the file reaches. The worker hold is the measured input. The maxima are never awaited on success. |
+| ui-react `draft-files.test.ts`, `attachment-queue.test.ts` | The draft is saved only after the 800 ms debounce; the queue asks again only after its busy retry | Fake timers advance the debounce (799 ms, then 1 ms) and the 2 s busy retry, instead of 900 ms sleeps and a real 2 s retry. |
+| ui-react `composer-files.offline.tsx`, `hygiene-media.layout.tsx` and its fixture | A held send is sent once on acceptance; `a` sends nothing while checking; a busy preview is ready once the foreign preview frees the scan | The fixture socket delivers the host's acceptance, the key handler's synchronous send is read at once, and the fixture answers `releasePlans` after the foreign preview has finished, instead of 50 ms–1.2 s. The native-loader windows stay with their reason: no page event marks a request that is never made. |
+| ui-sdk `refused-launch-gate.test.ts`, a refused or orphaned gated payload | The payload never starts once its gate is refused | The test polls `/proc/<pid>/stat` (PID and start time) until each gated sandbox is gone, with a 10 s failure maximum, instead of 1.2 s windows. The signal delays stay: they stand in for scheduler latency. |
+| Kept real time, reason in source (other packages) | Claude `transcript-archive-event-loop` fsync delay; ui-sdk `inference-relay` and `provider-relay` native socket idle timer; ui-kit `ghost-handoff` and `streaming-handoff` long tasks | Each is the stimulus: slow IO, Bun's native idle timer, which no JS clock advances, and a long task that must also delay the browser's own frames. |
+
 ## Continuity settling boundaries
 
 Networked continuity contexts start with native offline state, create their
@@ -114,8 +176,8 @@ each complete delay and awaiting each actual failed native handshake before
 advancing again. One original 20-second failure cap covers the whole drop.
 The clock observes the client's `onclose` callback and owns only its final
 registered timer: that callback ends with `scheduleReconnect`
-(`ws.onclose`, `packages/ui-sdk/src/client/ws-client.ts:267-285`;
-`scheduleReconnect`, `packages/ui-sdk/src/client/ws-client.ts:544-551`).
+(`ws.onclose`, `packages/ui-sdk/src/client/ws-client.ts:268-286`;
+`scheduleReconnect`, `packages/ui-sdk/src/client/ws-client.ts:545-552`).
 The test independently checks the three registered delays and the native
 connection-attempt/failure counts. A changed registration order or callback
 must satisfy those controls; it cannot silently become a shorter policy.
@@ -169,10 +231,10 @@ case observes that later effect through its retained native window.
 The history and queue receiving observer is only a barrier for the current
 synchronous production handlers, not a generic asynchronous-handler completion
 claim: `session_history` and scoped `status` update the chat store synchronously
-(`session_history`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:437-457`;
-`status`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:458-483`), while
-queue adoption updates the follow-up/draft stores synchronously (`if (msg.type ===
-"session_queue")`, `packages/ui-react/src/connection.ts:412-424`). Native protocol
+(`session_history`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:442-462`;
+`status`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:463-488`), while
+queue adoption updates the follow-up/draft stores synchronously
+(`function queueReport(`, `packages/ui-react/src/ws-client/follow-ups.ts:85-94`). Native protocol
 completion, committed store state and the retained observation window serve
 different purposes. A future asynchronous handler needs its own committed-state
 acknowledgement before this barrier remains sufficient.
@@ -224,13 +286,13 @@ per-site `sites` counters distinguish attribution from helper-definition counts.
 change, upload abort/resume or host draft reconciliation can schedule a separate
 device-context write. That write reads native browser state and enters browser
 locks/IndexedDB before adopting retained draft records back into the mounted
-stores (`context`, `packages/ui-react/src/lib/local-work.ts:296-310`;
-`flush`, `packages/ui-react/src/lib/local-work.ts:313-324`;
-`adoptDeviceRecord`, `packages/ui-react/src/lib/local-work.ts:502-508`). The real
+stores (`context`, `packages/ui-react/src/lib/local-work.ts:305-319`;
+`flush`, `packages/ui-react/src/lib/local-work.ts:322-333`;
+`adoptDeviceRecord`, `packages/ui-react/src/lib/local-work.ts:513-519`). The real
 scroll listener schedules that work (`handleScroll`,
-`packages/ui-react/src/components/chat/chat-page.tsx:318-328`), as do draft,
+`packages/ui-react/src/components/chat/chat-page.tsx:319-329`), as do draft,
 track, selection and focus subscriptions (`stores.drafts.subscribe`,
-`packages/ui-react/src/lib/local-work.ts:632-643`). A protocol receipt or the
+`packages/ui-react/src/lib/local-work.ts:643-654`). A protocol receipt or the
 first moved wheel frame can precede this native write and its React reaction;
 late adoption can blur the field, change scroll/selection, replace an answer or
 restore a consumed pill. A disconnected upload can similarly be misclassified
@@ -242,7 +304,7 @@ acknowledgements remain separate positive conditions.
 **Duration and margin.** In the quiet scenes, `changed` registers the real
 250 ms device debounce (`LOCAL_WRITE_DELAY_MS`,
 `packages/ui-react/src/lib/local-work.ts:88-90`; `changed`,
-`packages/ui-react/src/lib/local-work.ts:518-531`). The five non-IME boundaries
+`packages/ui-react/src/lib/local-work.ts:529-542`). The five non-IME boundaries
 retain 500 ms: one 250 ms scheduled opportunity plus 250 ms (100%) headroom
 for native dispatch, storage/lock continuations and React work, followed by
 the original two native animation frames. This is a bounded opportunity to
@@ -255,8 +317,8 @@ requires it; host/network failure maxima and retry intervals are not sleeps to
 be added to these windows.
 
 For real IME start and commit, input also arms the **800 ms host debounce**
-(`SAVE_DELAY_MS`, `packages/ui-react/src/lib/draft-client.ts:33-35`;
-`schedule`, `packages/ui-react/src/lib/draft-client.ts:66-70`). The native horizon
+(`SAVE_DELAY_MS`, `packages/ui-react/src/lib/draft-client.ts:36-38`;
+`schedule`, `packages/ui-react/src/lib/draft-client.ts:80-84`). The native horizon
 is 1000 ms: that 800 ms opportunity plus 200 ms (25%) dispatch/IO/render headroom
 and the original two frames. The parallel 250 ms device debounce is inside this
 horizon. The final exact committed draft still has to reach the host. Returning
@@ -525,7 +587,9 @@ The nine former 640 ms settlements in `packages/ui-kit/tests/ghost-text.test.tsx
 retain their assertions. The test captures every global timeout registered by
 these mounted components, including a wrongly configured delay. Its independent
 600 ms oracle checks the actual `useArrival` effect (`useArrival`,
-`packages/ui-kit/src/internal/GhostText.tsx:181-194`). At 599 ms the same outgoing
+`packages/ui-kit/src/internal/GhostText.tsx:216-248`). happy-dom computes no CSS
+animations, so no fade runs and the hook ends the handoff on its 600 ms
+fallback timer. Stand-in fades cover the path where a fade runs (#3425). At 599 ms the same outgoing
 and incoming nodes must remain; at 600 ms the real callback runs inside React
 `act`, whose committed result must remove both handoff classes. Neither an
 arbitrary microtask nor immediate absence proves completion.
@@ -552,11 +616,15 @@ in the successor. The original glyph, role, style, accessibility, inertness,
 interaction, ordering and loaded-state assertions stay in this file.
 
 Native proof remains unchanged and required: `playHandoff` in
-`packages/ui-kit/stories/_ghost.tsx` observes 300 ms mid-handoff opacity,
-320/720 px geometry and actual arrival/removal under 700 ms. LoadingToReady
+`packages/ui-kit/stories/_ghost.tsx` observes mid-handoff opacity,
+320/720 px geometry, a 600 ms fade in animation time, a fade that ends before
+removal (#3425) and removal within three rendered frames of that fade's end
+(#3417). LoadingToReady
 stories run in both Storybook theme projects. Chromium's
 `packages/ui-kit/tests/visual/ghost-handoff.visual.tsx` retains both themes,
-input-orchestration exclusion and the 800 ms mutation that fails the cap.
+input-orchestration and main-thread-stall exclusion, a long task right after
+the commit that delays the fades' start (#3425), and the mutation holding one
+width's ghost 400 ms past its fade that still fails.
 Logical component time proves none of CSS rasterization, native elapsed
 animation budgets or geometry. Production JavaScript and CSS remain 600 ms.
 
@@ -1733,8 +1801,8 @@ intact. Extra same-stack registrations fail the ownership assertion; numeric
 matching or callback text is insufficient (`installReceiptWatchdogObserver`,
 `packages/ui-react/tests/fixtures/receipt-watchdog-observer.ts:2-88`). The actual
 manager arms after send and later probes liveness before asking for the same
-submission (`send`, `packages/ui-react/src/lib/answer-delivery/manager.ts:327-342`;
-`armWatchdog`, `packages/ui-react/src/lib/answer-delivery/manager.ts:250-260`).
+submission (`send`, `packages/ui-react/src/lib/answer-delivery/manager.ts:325-340`;
+`armWatchdog`, `packages/ui-react/src/lib/answer-delivery/manager.ts:248-258`).
 
 The candidate checks the independently required 5000 ms registration before
 pausing at its actual deadline minus one millisecond. It observes no callback,

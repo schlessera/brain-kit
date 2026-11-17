@@ -2,6 +2,7 @@
 import { seconds, stats, percentage } from "./ci-timing-stats";
 import type { TimingAPI, TimingSnapshot } from "./ci-timings";
 import type { LeaseObservation } from "./ci-coordination";
+import { proofPolicyEpochs, type EpochSource } from "./ci-epochs";
 
 export interface PullObservation {
   version: 1; repository: string; number: number; collectedAt: string;
@@ -11,8 +12,8 @@ export interface PullObservation {
   mergeObject?: { sha: string; tree: string; parents: string[] };
 }
 export interface WorkEvent {
-  version: 1; id: string; repository: string; kind: "work-started" | "work-finished" | "wait-started" | "wait-finished" | "failure-classified" | "incident" | "revert" | "expedited-fix";
-  at: string; worker?: string; task?: string; reason?: "reservation" | "ci" | "review" | "conflict" | "other";
+  version: 1; id: string; repository: string; kind: "work-started" | "work-finished" | "wait-started" | "wait-finished" | "preempted" | "failure-classified" | "incident" | "revert" | "expedited-fix";
+  at: string; worker?: string; task?: string; orchestrator?: string; reason?: "reservation" | "ci" | "review" | "conflict" | "other";
   pr?: number; run?: number; attempt?: number; job?: number; relatedPR?: number;
   classification?: "product" | "test" | "infrastructure" | "stale-candidate" | "intentional-feedback";
   evidence?: string;
@@ -37,12 +38,13 @@ function green(s: TimingSnapshot): boolean {
 /** Only public operational references and opaque coordination IDs are retained. */
 export function validateWorkEvent(value: unknown): WorkEvent {
   const e = value as WorkEvent;
-  const allowed = new Set(["version", "id", "repository", "kind", "at", "worker", "task", "reason", "pr", "run", "attempt", "job", "relatedPR", "classification", "evidence"]);
+  const allowed = new Set(["version", "id", "repository", "kind", "at", "worker", "task", "orchestrator", "reason", "pr", "run", "attempt", "job", "relatedPR", "classification", "evidence"]);
   if (!e || typeof e !== "object" || Object.keys(e).some(k => !allowed.has(k)) || e.version !== 1 ||
     typeof e.id !== "string" || !/^[a-zA-Z0-9_-]{1,100}$/.test(e.id) || !/^[\w.-]+\/[\w.-]+$/.test(e.repository) || !stamp(e.at) ||
-    !["work-started", "work-finished", "wait-started", "wait-finished", "failure-classified", "incident", "revert", "expedited-fix"].includes(e.kind)) throw new Error("Invalid coordination event");
+    !["work-started", "work-finished", "wait-started", "wait-finished", "preempted", "failure-classified", "incident", "revert", "expedited-fix"].includes(e.kind)) throw new Error("Invalid coordination event");
+  if (e.orchestrator !== undefined && (typeof e.orchestrator !== "string" || !/^[a-zA-Z0-9_-]{1,100}$/.test(e.orchestrator))) throw new Error("Opaque orchestrator ID required");
   for (const field of ["pr", "run", "attempt", "job", "relatedPR"] as const) if (e[field] !== undefined && !number(e[field])) throw new Error(`Invalid event ${field}`);
-  if (/^(work|wait)-/.test(e.kind)) {
+  if (/^(work|wait)-/.test(e.kind) || e.kind === "preempted") {
     if (![e.worker, e.task].every(x => typeof x === "string" && /^[a-zA-Z0-9_-]{1,100}$/.test(x))) throw new Error("Opaque worker/task IDs required");
     if (e.kind.startsWith("wait-") && !["reservation", "ci", "review", "conflict", "other"].includes(e.reason ?? "")) throw new Error("Wait reason required");
   } else {
@@ -112,7 +114,7 @@ export function concurrency(input: Interval[], window: AnalysisWindow) {
 }
 
 export function summarizeThroughput(snapshots: TimingSnapshot[], pulls: PullObservation[], events: WorkEvent[], window: AnalysisWindow,
-  fullRun: { runnerSeconds: number | null; elapsedSeconds: number | null; samples: number }, scenario: Scenario, leases?: LeaseObservation[]) {
+  fullRun: { runnerSeconds: number | null; elapsedSeconds: number | null; samples: number }, scenario: Scenario, leases?: LeaseObservation[], epochSource?: EpochSource) {
   const since = Date.parse(window.since), until = Date.parse(window.until);
   if (!Number.isFinite(since) || !Number.isFinite(until) || until <= since) throw new Error("Throughput needs a positive analysis window");
   if (![scenario.failedPRFraction, scenario.failedRunCostFraction].every(x => Number.isFinite(x) && x >= 0 && x <= 1) ||
@@ -157,8 +159,13 @@ export function summarizeThroughput(snapshots: TimingSnapshot[], pulls: PullObse
       createToGreenSeconds: postGreen ? seconds(p.createdAt, new Date(completed(postGreen)!).toISOString()) : null,
       observedRunnerSeconds: [...pre, ...main].reduce((n, s) => n + execution(s), 0),
       equivalence, incidents: events.filter(e => ["incident", "revert"].includes(e.kind) && e.pr === p.number).map(e => e.id),
-      mergePath: mergePath(p, mergeAt) };
+      mergePath: mergePath(p, mergeAt), epoch: null as string | null };
   });
+  // Proof-policy epochs (#3270): unknown when no main history was supplied.
+  const failureClassified = new Set(events.filter(e => e.kind === "failure-classified").map(e => `${e.run}/${e.attempt}`));
+  const epochs = epochSource ? proofPolicyEpochs(prRows.map(p => ({ ...p, merge: delivered.find(d => d.number === p.number)!.merge })),
+    failureClassified, window, epochSource) : null;
+  if (epochs) for (const p of prRows) p.epoch = epochs.assigned.get(p.number) ?? null;
   const firstKnown = prRows.filter(p => p.firstMainOutcome !== "unknown"), firstGreen = prRows.filter(p => p.firstMainOutcome === "success");
   const eventual = prRows.filter(p => p.mergeToGreenSeconds !== null), paired = prRows.filter(p => p.preAttempts && p.postAttempts);
   const jobIntervals = rows.flatMap(s => s.jobs.filter(j => j.execution === "observed" && stamp(j.startedAt) && stamp(j.completedAt))
@@ -196,7 +203,7 @@ export function summarizeThroughput(snapshots: TimingSnapshot[], pulls: PullObse
   const equivalentElapsedRuns = 2 + scenario.failedPRFraction * scenario.additionalPushes * elapsedFraction;
   const estimate = fullRun.runnerSeconds === null ? null : paired.length * equivalentRuns * fullRun.runnerSeconds;
   const actual = paired.reduce((n, p) => n + p.observedRunnerSeconds, 0);
-  const failed = rows.filter(s => s.run.conclusion === "failure"), classified = new Set(events.filter(e => e.kind === "failure-classified").map(e => `${e.run}/${e.attempt}`));
+  const failed = rows.filter(s => s.run.conclusion === "failure"), classified = failureClassified;
   const reservationIntervals = (leases ?? []).map(l => ({ start: l.acquired, end: Math.min(l.expires, l.cap, l.endedAt ?? Infinity) }));
   const reservations = leases ? concurrency(mergeIntervals(reservationIntervals), window) : null;
   let candidateJobSeconds = 0;
@@ -252,6 +259,7 @@ export function summarizeThroughput(snapshots: TimingSnapshot[], pulls: PullObse
       return [String(name), { prs: group.length, firstMainGreen: percentage(group.filter(p => p.firstMainOutcome === "success").length,
         group.filter(p => p.firstMainOutcome !== "unknown").length), createToMergeSeconds: stats(group.flatMap(p => p.createToMergeSeconds === null ? [] : [p.createToMergeSeconds])) }];
     })),
+    epochs: epochs?.report ?? null,
     prs: prRows };
 }
 
@@ -274,5 +282,22 @@ export function throughputMarkdown(r: ReturnType<typeof summarizeThroughput>): s
     `Merge paths: ${JSON.stringify(r.reliability.mergePaths)}; expedited red-main fixes: ${r.reliability.expeditedFixRecords.length}. Unrecorded merges bypassed integrate.ts; unknown means no reservation history was collected.`,
     `Final candidate receipt / immutable squash comparisons: ${JSON.stringify(r.evidence.squashComparedToRecordedReceipt)}. Differences require contextual review; unknown is not equivalent.`,
     `Scenario: ${JSON.stringify(r.scenario.assumptions)}; equivalent full runs/PR ${format(r.scenario.equivalentFullRunsPerPR)}; estimated compute saving ${format(r.scenario.estimatedSavingPercent)}%; full reference samples: ${r.scenario.baselineSamples}.`,
-    "Causal wall-time and reliability improvements remain unknown. Guarantee satisfaction requires the existing independent proof/merge validation; these rates do not replace it.", ""].join("\n");
+    "Causal wall-time and reliability improvements remain unknown. Guarantee satisfaction requires the existing independent proof/merge validation; these rates do not replace it.", "",
+    ...epochMarkdown(r.epochs)].join("\n");
+}
+
+/** Per-epoch rows and the current epoch's Phase B gate inputs. Reports inputs; never decides the gate. */
+function epochMarkdown(e: ReturnType<typeof summarizeThroughput>["epochs"]): string[] {
+  const format = (x: number | null) => x === null ? "unknown" : x.toFixed(2);
+  const id = (x: string) => x === "unbounded" ? "unbounded" : x.slice(0, 12);
+  if (!e) return ["## Proof-policy epochs", "", "Unknown: no main history was supplied, so deliveries are not assigned to epochs.", ""];
+  if (e.status === "unavailable") return ["## Proof-policy epochs", "", `Unknown: main history \`${e.ref}\` is unavailable (${e.error}). Every delivery's epoch is unknown.`, ""];
+  const green = (g: { numerator: number; denominator: number; percent: number | null }) => `${g.numerator}/${g.denominator} (${format(g.percent)}%)`;
+  const c = e.current;
+  return ["## Proof-policy epochs", "",
+    `Each proof-system squash on \`${e.ref}\` opens an epoch; a squash that could not be classified opens one with an unknown boundary. Squashes classified: ${e.commitsClassified}; deliveries outside that history: ${e.unassigned.length}.`, "",
+    "| Epoch | Boundary | Start | End | Days | Merges | First-main green |", "| --- | --- | --- | --- | ---: | ---: | ---: |",
+    ...e.epochs.map(x => `| ${id(x.id)}${x.current ? " (current)" : ""} | ${x.start?.kind ?? "not found"} | ${x.start?.at ?? "unknown"} | ${x.end} | ${format(x.durationSeconds === null ? null : x.durationSeconds / 86400)} | ${x.merges} | ${green(x.firstMainGreen)} |`), "",
+    c ? `Current epoch ${id(c.id)} (Phase B gate inputs): boundary ${c.start?.kind ?? "not found"}; ${format(c.days)} consecutive days to ${c.until}; first-main green ${green(c.firstMainGreen)}; incident attribution: ${c.incidentAttribution.status} (${c.incidentAttribution.classifiedAttempts}/${c.incidentAttribution.failedFirstMainAttempts} failed first-main attempts classified). This reports the gate's inputs; it does not decide the gate.`
+      : "Current epoch: unknown (no main history before the window end).", ""];
 }

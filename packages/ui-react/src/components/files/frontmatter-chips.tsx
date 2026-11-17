@@ -11,7 +11,7 @@ import type { FrontmatterField } from "../../lib/frontmatter.js";
  * A list-valued field is one chip per element, keyed by the field; an empty
  * value is an explicit em dash, because a blank chip reads as nothing.
  */
-export interface FrontmatterChipsProps {
+interface FrontmatterChipsProps {
   fields: FrontmatterField[];
   open: boolean;
   onOpenChange: (open: boolean) => void;

@@ -17,7 +17,7 @@ import {
   readFileSync, readlinkSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync,
 } from "node:fs";
 import { createHash } from "node:crypto";
-import { join, resolve } from "node:path";
+import { join, relative as relativePath, resolve } from "node:path";
 
 const REPO = resolve(import.meta.dir, "../..");
 const [stage, adapter, scenario, root, donorPid] = process.argv.slice(2) as [string, "claude" | "pi", string, string, string?];
@@ -99,7 +99,7 @@ function __attempt(fs) {
     run("area-hardlink", dir, () => fs.linkSync(${JSON.stringify(policyPath)}, dir + "/policy-hardlink-" + process.pid));
     run("area-rename", dir, () => fs.renameSync(${JSON.stringify(policyPath)}, dir + "/crew.md"));
   }
-  const scratch = process.env.BRAIN_WORKER_SCRATCH;
+  const scratch = process.env.BRAIN_WORKER_SCRATCH ?? "/tmp/brain-worker-scratch";
   const policy = fs.statSync(${JSON.stringify(policyPath)});
   const aliased = [];
   const walk = dir => { for (const name of fs.readdirSync(dir)) { const p = dir + "/" + name; const s = fs.lstatSync(p);
@@ -144,7 +144,7 @@ async function outer(): Promise<void> {
   writeFileSync(join(brainPath, "witness.ts"), `import * as fs from "node:fs";${attemptSource}
 const source = process.argv[2];
 const report = { source, ...${scenario.startsWith("governed") ? "{ results: [], scratchAliases: [], scratch: true, areaWritable: [] }" : "__attempt(fs)"} };
-if (process.env.BRAIN_WORKER_SCRATCH) fs.writeFileSync(process.env.BRAIN_WORKER_SCRATCH + "/witness-" + source + ".json", JSON.stringify(report));
+fs.writeFileSync((process.env.BRAIN_WORKER_SCRATCH ?? "/tmp/brain-worker-scratch") + "/witness-" + source + ".json", JSON.stringify(report));
 const base = process.env.ANTHROPIC_BASE_URL;
 if (base) await fetch(base + "/witness", { method: "POST", body: JSON.stringify(report) }).catch(() => {});
 if (source === "mcp") process.execve(${JSON.stringify(process.execPath)}, [${JSON.stringify(process.execPath)}, ${JSON.stringify(join(REPO, "packages/core/src/cli/brain.ts"))}, "mcp"], process.env);`);
@@ -152,7 +152,7 @@ if (source === "mcp") process.execve(${JSON.stringify(process.execPath)}, [${JSO
   mkdirSync(join(brainPath, ".claude"));
   writeFileSync(join(brainPath, ".claude/settings.json"), JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: "command", command: `${process.execPath} ${join(brainPath, "witness.ts")} hook` }] }] } }));
   mkdirSync(join(brainPath, ".pi/extensions"), { recursive: true });
-  writeFileSync(join(brainPath, ".pi/extensions/proof.ts"), piExtension());
+  if (scenario === "external-extension") writeFileSync(join(brainPath, ".pi/extensions/proof.ts"), piExtension());
   // The one place outside-boundary observations are taken, before and after.
   if (scenario === "governed-lock") {
     const git = (...args: string[]) => Bun.spawnSync(["git", ...args], { cwd: brainPath, stdout: "pipe", stderr: "pipe" });
@@ -310,7 +310,9 @@ async function server(): Promise<void> {
       [{ name: "$subagent", input: { description: "Odysseus subagent", prompt: "SUBAGENT-ODYSSEUS: try the policy writes", subagent_type: "general-purpose" } }],
       routed, bridgeEffects, [permitted],
     ] : [
-      [{ name: "probe_worker", input: { config: attackConfig } }, bash(attack)],
+      // The supported curated bash path exercises the same alias operations,
+      // writable areas and descriptor/mapping attack, without a Pi extension.
+      [bash(`${process.execPath} ${join(brainPath, "witness.ts")} curated-bash; ${attack}`), bash(attack)],
       bashWrites.map(bash), routed, bridgeEffects, [permitted],
     ];
   } else if (scenario === "governed-alias") {
@@ -352,12 +354,42 @@ async function server(): Promise<void> {
   const lockSteps = new Map<string, number>();
   const requests: Array<{ tools: string[]; results: unknown[]; subagent: boolean }> = [];
   const witnesses: unknown[] = [];
+  // Every governed and strict turn reaches inference only through the host
+  // relay (#3314), which carries no `/witness` request. Each pre-tool executor
+  // also writes its report to the worker's scratch, which the host reads
+  // through the launcher's retained handle on the worker's private turn temp.
+  const { spyOn } = await import("bun:test");
+  const workers = await import("@schlessera/brain-ui-sdk/internal");
+  const scratches: string[] = [], scanned = new Set<string>();
+  const launchWorker = workers.launchAgentWorkerAsync;
+  spyOn(workers, "launchAgentWorkerAsync").mockImplementation(async input => {
+    const worker = await launchWorker(input);
+    if (worker.turnTemp) scratches.push(join(worker.turnTemp.root, relativePath("/tmp", workers.WORKER_SCRATCH)));
+    return worker;
+  });
+  const collectWitnesses = () => {
+    for (const dir of scratches) {
+      let names: string[];
+      try { names = readdirSync(dir).filter(name => /^witness-.+\.json$/.test(name)).sort(); } catch { continue; }
+      for (const name of names) {
+        const file = join(dir, name);
+        if (scanned.has(file)) continue;
+        let report: unknown;
+        try { report = JSON.parse(readFileSync(file, "utf8")); } catch { continue; } // still being written
+        scanned.add(file);
+        // One report per executor run, whichever channel brought it.
+        if (!witnesses.some(seen => JSON.stringify(seen) === JSON.stringify(report))) witnesses.push(report);
+      }
+    }
+  };
   const unavailable: string[] = [];
   const issued: Array<{ id: string; name: string; input: unknown; subagent: boolean }> = [];
   const inference = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const path = new URL(request.url).pathname;
     if (path === "/witness") { witnesses.push(await request.json()); return Response.json({}); }
     if (path !== "/v1/messages") return Response.json({});
+    // Executors that start before the first tool event have run by the first request.
+    collectWitnesses();
     calls++;
     const body = await request.json() as { tools?: Array<{ name: string }>; messages?: Array<{ content: unknown }> };
     const tools = body.tools?.map(t => t.name) ?? [];
@@ -391,10 +423,17 @@ async function server(): Promise<void> {
   process.env.PI_CODING_AGENT_DIR = agentDir;
   writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ retry: { enabled: false }, compaction: { enabled: false }, cacheWarming: "off" }));
   writeFileSync(join(agentDir, "models.json"), JSON.stringify({ providers: { anthropic: { baseUrl: url, apiKey: "offline-fixture" } } }));
+  // Pi's host credential store creates an empty auth file before worker
+  // launch. Initialize it before taking the worker-preservation snapshot.
+  writeFileSync(join(agentDir, "auth.json"), "{}", { mode: 0o600 });
+  const piState = () => ["auth.json", "models.json", "settings.json"].map(name => existsSync(join(agentDir, name)) ? readFileSync(join(agentDir, name), "utf8") : null);
+  const initialPiState = JSON.stringify(piState());
+  // A pi turn's relay sends its credential only to an origin listed for it (#3314): the loopback stub.
+  process.env.BRAIN_UI_PI_CREDENTIAL_ORIGINS = `anthropic=${url}`;
   const backend = adapter === "claude"
     ? createClaudeBackend({ brainPath, log: () => {}, profiles: [{ id: "fixture", label: "Fixture", model: "claude-sonnet-4-6", billing: "api", requiredEnvKeys: [],
       buildEnv: () => ({ ANTHROPIC_BASE_URL: url, ANTHROPIC_API_KEY: "offline-fixture", CLAUDE_CODE_OAUTH_TOKEN: "", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" }) }] })
-    : createPiBackend({ brainPath, loadExtensions: !scenario.startsWith("governed"), sessionDir: join(root, "pi-sessions"), confirmBashPatterns: [],
+    : createPiBackend({ brainPath, loadExtensions: scenario === "external-extension", sessionDir: join(root, "pi-sessions"), confirmBashPatterns: [],
       profiles: [{ id: "fixture", label: "Fixture", vendor: "anthropic", model: "claude-sonnet-4-6", thinkingLevel: "off" }] });
 
   // Case 5: the route's own deterministic race seam swaps topology between
@@ -443,18 +482,17 @@ async function server(): Promise<void> {
   host.clients.add({ send(text: string) {
     const frame = JSON.parse(text); frames.push(frame);
     if (frame.type === "tool_approval_request") {
-      const pending = host.coordinator.pendingApprovals.get(frame.toolUseId);
-      host.coordinator.pendingApprovals.delete(frame.toolUseId); pending?.resolve({ behavior: "allow" });
+      host.coordinator.claimApproval(frame.toolUseId)?.resolve({ behavior: "allow" });
     }
     if (frame.type === "mask_request") {
       maskRequests++;
-      const pending = host.coordinator.pendingMask.get(frame.requestId)!;
-      host.coordinator.pendingMask.delete(frame.requestId); pending.resolve(png);
+      host.coordinator.claimMask(frame.requestId)!.resolve(png);
     }
     if (frame.type === "ask_user_request") {
       askRequests++;
-      const pending = host.coordinator.pendingAskUser.get(frame.requestId)!;
-      host.coordinator.pendingAskUser.delete(frame.requestId); pending.resolve({ answers: { Policy: "context/policies/crew.md" } } as any);
+      const pending = host.coordinator.pendingAsk(frame.requestId)!;
+      host.coordinator.acceptAsk(pending, { submissionId: "policy-probe", principalId: "odysseus" });
+      (pending.entry.resolve as (result: unknown) => void)({ answers: { Policy: "context/policies/crew.md" } });
     }
   } } as any, "odysseus");
 
@@ -493,11 +531,12 @@ async function server(): Promise<void> {
       authorization.release();
     }
   } finally { clearTimeout(deadline); }
+  collectWitnesses();
   const applications = db.query("SELECT payload FROM activity_events WHERE event_type LIKE 'brain_application%'").all()
     .map((row: any) => JSON.parse(row.payload).v);
   const toolResults = frames.filter(f => f.type === "tool_result").map(f => ({ toolUseId: f.toolUseId, isError: f.isError, output: String(f.output ?? "") }));
   const toolStarts = frames.filter(f => f.type === "tool_use_start" || f.type === "tool_use_complete").map(f => ({ toolUseId: f.toolUseId, toolName: f.toolName }));
-  writeFileSync(receiptPath, JSON.stringify({ calls, spawned, issued, requests, witnesses, unavailable, frames: frames.filter(f => f.type !== "text_delta" && f.type !== "status"),
+  writeFileSync(receiptPath, JSON.stringify({ adapter, parentPiStateUnchanged: initialPiState === JSON.stringify(piState()), calls, spawned, issued, requests, witnesses, unavailable, frames: frames.filter(f => f.type !== "text_delta" && f.type !== "status"),
     toolResults, toolStarts, applications, raceReceipts, maskRequests, askRequests, settled, failure, autonomous, held, mapped, mappingBytes: mapping.length,
     governance: queryGovernanceEvents(db, { limit: 100 }), serverPid: process.pid, python, posture, serialization: existsSync(join(brainPath, "notes/git-serialization.md")) ? readFileSync(join(brainPath, "notes/git-serialization.md"), "utf8") : null }));
   Bun.spawn = original.spawn; Bun.spawnSync = original.spawnSync;

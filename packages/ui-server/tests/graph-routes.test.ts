@@ -91,8 +91,7 @@ describe("GET /graph/meta", () => {
   });
 
   test("a missing brain.db reads as an unavailable graph, not a crash", async () => {
-    process.env.BRAIN_PATH = `${BRAIN_PATH}-nonexistent`;
-
+    // No fixture: the routes' brainRoot holds no brain.db.
     const { status, body } = await get<GraphMetaResponse>("/graph/meta");
 
     expect(status).toBe(200);
@@ -228,7 +227,7 @@ describe("GET /graph/clusters", () => {
 
     expect(body.truncated).toBe(true);
     expect(body.nodes).toHaveLength(5000);
-    expect(body.nodes.some((n) => n.id === 1)).toBe(false);
+    expect(body.nodes.map((n) => n.id)).not.toContain(1);
   });
 
   test("refuses with 503 when the graph has never been computed", async () => {
@@ -373,7 +372,7 @@ describe("GET /graph/discovery", () => {
     expect(body.nodes.find((n) => n.id === 1)!.distance).toBe(0);
     expect(body.nodes.find((n) => n.id === 3)!.distance).toBe(2);
     // No virtual node: the walk started from a real document.
-    expect(body.nodes.some((n) => n.virtual)).toBe(false);
+    expect(body.nodes.filter((n) => n.virtual)).toEqual([]);
   });
 
   test("an explicit root honours maxDepth", async () => {

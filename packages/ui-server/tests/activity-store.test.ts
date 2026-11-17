@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { readdirSync, readFileSync } from "fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 
 import { createTurnRecorder } from "../src/activity/recorder.js";
@@ -86,11 +87,12 @@ describe("activity store: spans and ordering", () => {
       kind: "tool",
       origin: "session",
     });
-    store.patchSpan("tool-1", { waitUntil: Date.now() });
+    const waitUntil = 1_800_000_000_000;
+    store.patchSpan("tool-1", { waitUntil });
     store.endSpan("tool-1", { outcome: "denied", reason: "user declined" });
     const span = store.getSpan("tool-1")!;
     expect(span.outcome).toBe("denied");
-    expect(span.waitUntil).not.toBeNull();
+    expect(span.waitUntil).toBe(waitUntil);
   });
 
   test("cascade close cancels open children with reason", () => {
@@ -151,44 +153,49 @@ describe("activity store: spans and ordering", () => {
 
 describe("activity store: two writers", () => {
   test("interleaved writers on one file never collide on per-run seq", () => {
-    const path = `/tmp/activity-two-writer-${process.pid}-${Date.now()}.db`;
+    const dir = mkdtempSync(join(tmpdir(), "activity-two-writer-"));
+    const path = join(dir, "ui.db");
     const dbA = createUiDb(path);
     const dbB = createUiDb(path);
-    const server = createActivityStore(dbA, { writer: "server" });
-    const cron = createActivityStore(dbB, { writer: "cron" });
+    try {
+      const server = createActivityStore(dbA, { writer: "server" });
+      const cron = createActivityStore(dbB, { writer: "cron" });
 
-    startTurn(server, "turn-run");
-    cron.startSpan({
-      spanId: "cron-root",
-      runId: "cron-run",
-      name: "cron sync",
-      kind: "cron",
-      origin: "cron",
-      jobName: "sync",
-    });
-    server.startSpan({
-      spanId: "turn-tool",
-      runId: "turn-run",
-      parentSpanId: "turn-run-root",
-      name: "execute_tool Read",
-      kind: "tool",
-      origin: "session",
-    });
-    cron.endSpan("cron-root", { outcome: "success" });
-    server.endSpan("turn-tool", { outcome: "success" });
-    server.endSpan("turn-run-root", { outcome: "success" });
+      startTurn(server, "turn-run");
+      cron.startSpan({
+        spanId: "cron-root",
+        runId: "cron-run",
+        name: "cron sync",
+        kind: "cron",
+        origin: "cron",
+        jobName: "sync",
+      });
+      server.startSpan({
+        spanId: "turn-tool",
+        runId: "turn-run",
+        parentSpanId: "turn-run-root",
+        name: "execute_tool Read",
+        kind: "tool",
+        origin: "session",
+      });
+      cron.endSpan("cron-root", { outcome: "success" });
+      server.endSpan("turn-tool", { outcome: "success" });
+      server.endSpan("turn-run-root", { outcome: "success" });
 
-    // The server discovers the cron writer's run purely via the global cursor.
-    const all = server.changesSince(0, 100);
-    const cronChanges = all.filter((c) => c.runId === "cron-run");
-    expect(cronChanges.map((c) => c.seq)).toEqual([1, 2]);
-    const turnChanges = all.filter((c) => c.runId === "turn-run");
-    expect(turnChanges.map((c) => c.seq)).toEqual([1, 2, 3, 4]);
-    // Global cursor strictly increases across both writers.
-    const ids = all.map((c) => c.changeId);
-    expect([...ids].sort((a, b) => a - b)).toEqual(ids);
-    dbA.close();
-    dbB.close();
+      // The server discovers the cron writer's run purely via the global cursor.
+      const all = server.changesSince(0, 100);
+      const cronChanges = all.filter((c) => c.runId === "cron-run");
+      expect(cronChanges.map((c) => c.seq)).toEqual([1, 2]);
+      const turnChanges = all.filter((c) => c.runId === "turn-run");
+      expect(turnChanges.map((c) => c.seq)).toEqual([1, 2, 3, 4]);
+      // Global cursor strictly increases across both writers.
+      const ids = all.map((c) => c.changeId);
+      expect([...ids].sort((a, b) => a - b)).toEqual(ids);
+    } finally {
+      dbA.close();
+      dbB.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

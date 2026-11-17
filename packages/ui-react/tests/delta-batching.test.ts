@@ -4,7 +4,9 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { useChatStore, activeChat } from "../src/stores/chat-store";
-import { handleServerMessage, flushChatDeltas } from "../src/hooks/use-websocket";
+import { defaultRoot } from "../src/default-root";
+
+const { handleServerMessage, flushChatDeltas } = defaultRoot.connection;
 
 /** Frame callbacks the handler queued, run only when a test says to. */
 let frames: FrameRequestCallback[] = [];

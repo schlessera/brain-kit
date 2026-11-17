@@ -13,7 +13,7 @@
  * A press of Files (D52 N3) returns it to the top of the file by loading the
  * same `src` again (`data-html-preview`, `components/files/file-panel.tsx`).
  */
-export const HTML_PREVIEW_SANDBOX = "allow-scripts";
+const HTML_PREVIEW_SANDBOX = "allow-scripts";
 
 export function FileViewerHtml({ src, onCheck }: { src: string; onCheck?: () => void }) {
   return (

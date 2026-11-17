@@ -3,6 +3,8 @@ import type { Draft } from "@schlessera/brain-ui-sdk/protocol";
 import { createBrainUiRoot, type BrainUiRoot } from "../src/root.ts";
 import { tracksFor, trackKey, stagedTrackViews } from "../src/lib/draft-tracks.ts";
 import type { PendingAttachment } from "../src/lib/image-attachments.ts";
+import { parseDraft, storeDraft } from "../src/lib/local-work.ts";
+import type { LocalDraft } from "../src/stores/draft-state.ts";
 
 // The draft client (#951, D52 §5) against a small in-memory host that keeps
 // #979's revision rules: If-Match, conflicts carrying the host's version,
@@ -101,6 +103,7 @@ function fakeHost() {
   let down = false;
   let full = false;
   let losePut = false;
+  let bindDown = false;
   let deleteHold: ReturnType<typeof deferred> | null = null;
   let deleteFailure = 0;
   let maxText = Infinity;
@@ -166,6 +169,14 @@ function fakeHost() {
       images.set(attachmentId, { draftId: id, mime: headers.get("content-type")!, bytes, name: null });
       return json({ attachmentId });
     }
+    if (sub === "/bind") {
+      if (bindDown) throw new TypeError("fetch failed");
+      const body = JSON.parse(String(init.body)) as { sessionId: string; requestId: string };
+      if (!row || row.deleted) return json({ error: "DRAFT_NOT_FOUND", message: "" }, 404);
+      const revision = row.revision + 1;
+      rows.set(id, { ...row, sessionId: body.sessionId, revision, updatedAt: 9_000 + revision });
+      return json({ revision });
+    }
     if (method === "GET") {
       // The answer is what the host held when the read arrived, however late it lands.
       const now = rows.get(id);
@@ -208,6 +219,8 @@ function fakeHost() {
     setDown: (value: boolean) => { down = value; },
     setFull: (value: boolean) => { full = value; },
     loseNextPut: () => { losePut = true; },
+    /** Every bind gets no answer while set. */
+    setBindDown: (value: boolean) => { bindDown = value; },
     failNextDelete: (status: number) => { deleteFailure = status; },
     holdDeletes: () => { const gate = deferred(); deleteHold = gate; gates.add(gate); return async () => { deleteHold = null; gates.delete(gate); gate.resolve(); await clock.advance(0); }; },
     setMaxText: (value: number) => { maxText = value; },
@@ -618,6 +631,71 @@ describe("uncertain answers", () => {
     socket.open();
     socket.deliver({ type: "status", status: "idle" });
     expect(ui.stores.drafts.getState().supported).toBe(false);
+  });
+});
+
+/**
+ * A reload (#1214): this page's drafts go through the record the device keeps
+ * them as, and a fresh root on the same host restores them before its first
+ * host list, as `refresh` waits for `localWork.restoring()`.
+ */
+function reload(host: ReturnType<typeof fakeHost>, before: ReturnType<typeof boot>) {
+  const kept = Object.values(before.drafts().drafts)
+    .map((d) => parseDraft(JSON.parse(JSON.stringify(storeDraft(d)))))
+    .filter((d): d is LocalDraft => d !== null);
+  roots.splice(roots.indexOf(before.ui), 1);
+  before.ui.dispose();
+  const after = boot(host);
+  after.drafts().restoreLocal(kept);
+  return after;
+}
+
+describe("reconciliation owed across a reload (#1214)", () => {
+  test("an emptied draft whose first save got no answer is reconciled after a reload, not brought back", async () => {
+    const host = fakeHost();
+    const before = boot(host);
+    const id = before.drafts().idFor(ITHACA);
+    host.loseNextPut();
+    before.drafts().edit(id, ITHACA, { text: "Ask Aeolus" });
+    await until(() => before.drafts().drafts[id]?.uncertain === true);
+    expect(host.rows.get(id)?.revision, "the host stored the save whose answer was lost").toBe(1);
+    // Offline now: the reconciliation cannot run before the reload.
+    host.setDown(true);
+    before.drafts().edit(id, ITHACA, { text: "" });
+    await clock.advance(SAVE_PAUSE + 1);
+    expect(host.rows.get(id)?.deleted, "nothing reached the host before the reload").toBeUndefined();
+    host.setDown(false);
+    const after = reload(host, before);
+    await clock.advance(SAVE_PAUSE + FIRST_RETRY);
+    expect(Object.values(after.drafts().drafts).map((d) => d.text), "the cleared text is not restored from the host").not.toContain("Ask Aeolus");
+    expect(host.rows.get(id)?.deleted, "the host's copy of the lost save is deleted").toBe(true);
+    expect(after.drafts().drafts[id]).toBeUndefined();
+  });
+
+  test("a pending bind survives a reload and completes", async () => {
+    const host = fakeHost();
+    const before = boot(host);
+    const first = before.drafts().fresh;
+    before.drafts().edit(first, null, { text: "Which harbour?" });
+    await until(() => before.drafts().drafts[first]?.host?.revision === 1);
+    before.drafts().beginSend({ requestId: "req-harbour", draftId: first, sessionId: null, text: "Which harbour?", attachments: [],
+      message: { type: "chat_message", requestId: "req-harbour", text: "Which harbour?", source: "typed" } }, "Which harbour?");
+    const release = host.hold();
+    before.drafts().edit(first, null, { text: "And the harbour fees" });
+    await until(() => host.calls.includes(`PUT /drafts/${first}`) && before.drafts().drafts[first]?.savingSince !== null, 5_000, true);
+    // Accepted while the newer unbound save is out: its answer decides, and the bind is owed.
+    before.drafts().accepted("req-harbour", ITHACA);
+    expect(before.drafts().drafts[first]?.bind).toEqual({ sessionId: ITHACA, requestId: "req-harbour" });
+    host.setBindDown(true);
+    await release();
+    await until(() => host.calls.includes(`POST /drafts/${first}/bind`));
+    expect(host.rows.get(first), "the newer save is on the host, still unbound").toMatchObject({ revision: 2, sessionId: null });
+    expect(before.drafts().drafts[first]?.bind, "the bind is still owed at the reload").toEqual({ sessionId: ITHACA, requestId: "req-harbour" });
+    host.setBindDown(false);
+    const after = reload(host, before);
+    await clock.advance(SAVE_PAUSE + FIRST_RETRY);
+    expect(host.rows.get(first)?.sessionId, "the pending bind completes after the reload").toBe(ITHACA);
+    expect(after.drafts().drafts[first]).toMatchObject({ sessionId: ITHACA, bind: null, text: "And the harbour fees", host: { revision: 3, sessionId: ITHACA } });
   });
 });
 
@@ -1147,5 +1225,80 @@ describe("registered draft deadlines", () => {
     const calls = [...host.calls];
     await clock.advance(60_001);
     expect(host.calls, "disposed timers cannot issue later requests").toEqual(calls);
+  });
+});
+
+describe("check again (#3155, rev 5 §1)", () => {
+  /** The host stored a save of the second revision, and its answer was lost on the way back. */
+  async function lostSecondSave(host: ReturnType<typeof fakeHost>) {
+    const { ui, drafts } = boot(host);
+    const id = drafts().idFor(ITHACA);
+    drafts().edit(id, ITHACA, { text: "Steer between Scylla and Charybdis." });
+    await until(() => drafts().drafts[id]?.host?.revision === 1);
+    host.loseNextPut();
+    drafts().edit(id, ITHACA, { text: "Steer closer to Scylla." });
+    await until(() => drafts().drafts[id]?.failure?.kind === "unsaved");
+    return { ui, drafts, id };
+  }
+
+  test("a lost answer reads as unconfirmed; Check again is one read and no save, and the host's matching revision is acknowledged", async () => {
+    const host = fakeHost();
+    const { ui, drafts, id } = await lostSecondSave(host);
+    expect(drafts().drafts[id]!.failure, "the answer was lost, not refused").toEqual({ kind: "unsaved", lost: true });
+    expect(host.rows.get(id)?.revision, "the host stored the save").toBe(2);
+    const before = host.calls.length;
+    const result = await ui.connection.drafts.checkSave(id);
+    await settle();
+    expect(result).toBe("saved");
+    expect(host.calls.slice(before), "exactly one read, never a save").toEqual([`GET /drafts/${id}`]);
+    const d = drafts().drafts[id]!;
+    expect(d.host?.revision, "the revision that save made").toBe(2);
+    expect(d.host?.edit, "this exact edit").toBe(d.edit);
+    expect(d.failure).toBeNull();
+  });
+
+  test("an edit after the lost save: Check again finds the older revision, which is never this draft's acknowledgement", async () => {
+    const host = fakeHost();
+    const { ui, drafts, id } = await lostSecondSave(host);
+    drafts().edit(id, ITHACA, { text: "Steer closer to Scylla, and keep the oars low." });
+    const before = host.calls.length;
+    expect(await ui.connection.drafts.checkSave(id)).toBe("saved");
+    expect(host.calls.slice(before)).toEqual([`GET /drafts/${id}`]);
+    const d = drafts().drafts[id]!;
+    expect(d.host?.revision).toBe(2);
+    expect(d.host?.edit, "the acknowledged edit is the older one").toBe(d.edit - 1);
+  });
+
+  test("an unreachable host: Check again changes nothing and saves nothing", async () => {
+    const host = fakeHost();
+    const { ui, drafts, id } = await lostSecondSave(host);
+    host.setDown(true);
+    const before = host.calls.length;
+    expect(await ui.connection.drafts.checkSave(id)).toBe("unreachable");
+    expect(host.calls.slice(before)).toEqual([`GET /drafts/${id}`]);
+    expect(drafts().drafts[id]!.failure).toEqual({ kind: "unsaved", lost: true });
+    expect(drafts().drafts[id]!.host?.revision).toBe(1);
+  });
+
+  test("the host still holds the revision before the save: not saved, and still no save from Check again", async () => {
+    const host = fakeHost();
+    const { ui, drafts, id } = await lostSecondSave(host);
+    // As if the request never reached the host: it holds revision 1 still.
+    host.rows.set(id, { ...host.rows.get(id)!, revision: 1, text: "Steer between Scylla and Charybdis." });
+    const before = host.calls.length;
+    expect(await ui.connection.drafts.checkSave(id)).toBe("not_saved");
+    expect(host.calls.slice(before)).toEqual([`GET /drafts/${id}`]);
+    expect(drafts().drafts[id]!.host?.revision).toBe(1);
+  });
+
+  test("a draft whose save was answered has nothing to check, and no request is made", async () => {
+    const host = fakeHost();
+    const { ui, drafts } = boot(host);
+    const id = drafts().idFor(ITHACA);
+    drafts().edit(id, ITHACA, { text: "Bind me to the mast." });
+    await until(() => drafts().drafts[id]?.host?.revision === 1);
+    const before = host.calls.length;
+    expect(await ui.connection.drafts.checkSave(id)).toBe("none");
+    expect(host.calls.length).toBe(before);
   });
 });

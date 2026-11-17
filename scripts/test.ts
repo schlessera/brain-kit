@@ -17,12 +17,15 @@
  */
 
 import { constants } from "node:os";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { realpathSync } from "node:fs";
 import { invocationChild } from "./test-invocation-child";
+import { createInvokingTestHome } from "./test-home";
 import { runtimeBuildSelection } from "./runtime-test-builds";
 import { acceptsSpeechDelegation, clearInvocation, prepareCopiedInvocation, prepareInvocation, takePreparedTree } from "./test-invocation";
 import { ensureWorkspaceLease, workspaceTestAccess } from "./workspace-lease.mjs";
+import { ensureHostAdmission } from "./host-admission.mjs";
+import { FILE_COST_SECONDS } from "./test-shards";
 
 /** What runs when the caller names no path. */
 export const DEFAULT_ROOTS: readonly string[] = ["packages", "tests"];
@@ -125,6 +128,33 @@ export function testArgv(args: readonly string[]): string[] {
   return testPaths(args).length ? [...args] : [...DEFAULT_PATH_ARGS, ...args];
 }
 
+/** A measured file at or over this many seconds is a heavy local command on its own (#2943). */
+export const HEAVY_TEST_FILE_SECONDS = 30;
+
+/**
+ * Why a selection needs host admission, or undefined for a focused run: the
+ * integrated default suite, runtime-host and native suites, and any selected
+ * file whose measured cost reaches HEAVY_TEST_FILE_SECONDS. Paths match the
+ * way runtimeBuildSelection matches them.
+ */
+export function heavyTestReason(root: string, cwd: string, args: readonly string[],
+  costs: Readonly<Record<string, number>> = FILE_COST_SECONDS): string | undefined {
+  const paths = testPaths(args);
+  if (!paths.length) return "integrated suite";
+  if (runtimeBuildSelection(root, cwd, paths).length) return "runtime-host tests";
+  if (paths.some(path => /(?:^|\/)native-proof(?:\/|$)|\.native\./.test(path))) return "native tests";
+  const selects = (file: string) => paths.some(path => {
+    const absolute = join(root, file);
+    if (isAbsolute(path) || path.startsWith(".")) {
+      const target = resolve(cwd, path);
+      return absolute === target || absolute.startsWith(`${target}/`);
+    }
+    return absolute.includes(path);
+  });
+  const long = Object.entries(costs).find(([file, seconds]) => seconds >= HEAVY_TEST_FILE_SECONDS && selects(file));
+  return long ? `long test file ${long[0]}` : undefined;
+}
+
 if (import.meta.main) {
   const coordinated = await ensureWorkspaceLease(resolve(import.meta.dir, ".."), workspaceTestAccess());
   if (coordinated !== undefined) process.exit(coordinated);
@@ -159,6 +189,13 @@ if (import.meta.main) {
     }
     args = forwarded;
     argv = testArgv(args);
+    const heavy = help ? undefined : heavyTestReason(resolve(import.meta.dir, ".."), process.cwd(), args);
+    // Inside the workspace lease: a queued command never holds a host slot
+    // while it waits for its own checkout's output.
+    if (heavy) {
+      const admitted = await ensureHostAdmission(`bun run test (${heavy})`);
+      if (admitted !== undefined) process.exit(admitted);
+    }
     if (balanced.length) {
       if (balanced.length !== 1 || argv.length === args.length ||
           args.some((arg) => arg.startsWith("--shard") || arg.startsWith("--cwd"))) {
@@ -183,6 +220,7 @@ if (import.meta.main) {
   const listeners = signals.map(signal => () => { cancelled = signal; stop(signal); });
   signals.forEach((signal, index) => process.on(signal, listeners[index]!));
   let dispose = () => {};
+  let invokingHome: ReturnType<typeof createInvokingTestHome> | undefined;
   let result = 1;
   try {
     const paths = testPaths(argv);
@@ -200,12 +238,14 @@ if (import.meta.main) {
     if (!cancelled) {
       const beforeTests = performance.now();
       console.error(JSON.stringify({ kind: "test-invocation", event: "tests-start", pid: process.pid, at: Date.now() }));
-      const tests = invocationChild([process.execPath, "test", "--preload", join(import.meta.dir, "test-network-preload.ts"), ...argv], { stdin: "inherit" });
+      invokingHome = createInvokingTestHome();
+      const tests = invocationChild([process.execPath, "test", "--preload", join(import.meta.dir, "test-network-preload.ts"), ...argv], { stdin: "inherit", env: { ...process.env, HOME: invokingHome.home, CLAUDE_CONFIG_DIR: invokingHome.config } });
       started(tests);
       await tests.ready;
       const relay = async (stream: ReadableStream<Uint8Array>, channel: "stdout" | "stderr") => { for await (const chunk of stream) process[channel].write(chunk); };
       const joined = await Promise.allSettled([tests.exited, relay(tests.stdout, "stdout"), relay(tests.stderr, "stderr")]);
       await tests.finish();
+      invokingHome.assertUnchanged();
       result = joined[0].status === "fulfilled" ? joined[0].value : 1;
       if (joined.some(item => item.status === "rejected")) result = result || 1;
       if (tests.signalCode) result = 128 + (constants.signals[tests.signalCode] ?? 0);
@@ -216,7 +256,7 @@ if (import.meta.main) {
   finally {
     const stopped = await Promise.allSettled(stopping);
     if (stopped.some(item => item.status === "rejected")) { console.error("Invocation child cleanup failed", stopped); result = result || 1; }
-    dispose();
+    try { dispose(); } finally { invokingHome?.dispose(); }
     signals.forEach((signal, index) => process.off(signal, listeners[index]!));
   }
   process.exit(cancelled ? 128 + (constants.signals[cancelled] ?? 0) : result);

@@ -1,4 +1,3 @@
-import { defaultRoot } from "../default-root.js";
 import { useBrainUiRoot } from "../root-context.js";
 import type { BrainUiRoot } from "../root.js";
 import { useEffect, useRef, useState } from "react";
@@ -41,14 +40,6 @@ async function fetchVpnStatus(root: BrainUiRoot): Promise<VpnReading> {
   } finally {
     clearTimeout(timeout);
   }
-}
-
-/**
- * Ask the mounted connectivity poller for a fresh reading. The poller remains
- * the only writer of vpnStatus and serializes this with its scheduled checks.
- */
-export function recheckVpnStatus(): void {
-  defaultRoot.recheckVpn?.();
 }
 
 export function useVpnStatus(localOnly = false) {

@@ -10,8 +10,14 @@ Bun.dns.lookup = async (host: string) => [
 ];
 globalThis.fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
   const request = new Request(input, init);
-  appendFileSync(replay.log, JSON.stringify({ url: request.url, method: request.method, headers: Object.fromEntries(request.headers) }) + "\n");
-  const reply = replay.replies[request.url];
-  if (!reply) throw new Error(`Unscripted offline route request: ${request.url}`);
+  // scrape's "public-only" policy connects to the address it checked and keeps
+  // the host name in the Host header and TLS server name. Replies are keyed by
+  // the host name; the log also records the address actually connected to.
+  const named = new URL(request.url), host = request.headers.get("host");
+  if (host) named.host = host;
+  const url = named.href;
+  appendFileSync(replay.log, JSON.stringify({ url, connectedTo: request.url, method: request.method, headers: Object.fromEntries(request.headers) }) + "\n");
+  const reply = replay.replies[url];
+  if (!reply) throw new Error(`Unscripted offline route request: ${url}`);
   return new Response(reply.body ?? "", { status: reply.status ?? 200, headers: reply.location ? { location: reply.location } : undefined });
 }, globalThis.fetch);

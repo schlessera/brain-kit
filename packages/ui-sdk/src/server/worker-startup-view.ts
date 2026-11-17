@@ -21,7 +21,8 @@ export interface WorkerStartupView {
 }
 
 type NativeClient = ReturnType<typeof createNativeBrainManagerClient>;
-const nativeInputs = new WeakMap<WorkerStartupView, { checkpoint: NativeCheckpoint; manager: Pick<NativeClient, "checkpoint" | "release"> & Partial<Pick<NativeClient, "prepareStage" | "inspectStage" | "releaseStage">> }>();
+type NativeViewManager = Pick<NativeClient, "checkpoint" | "release"> & Partial<Pick<NativeClient, "prepareStage" | "inspectStage" | "releaseStage" | "prepareTurnTree" | "releaseTurnTree">>;
+const nativeInputs = new WeakMap<WorkerStartupView, { checkpoint: NativeCheckpoint; manager: NativeViewManager }>();
 /** Trusted acquisition metadata; no request-supplied manager or checkpoint is accepted. */
 export function nativeWorkerStartupInput(view: WorkerStartupView) {
   if (releasedViews.has(view)) throw new Error("native startup checkpoint owner is closed");
@@ -38,6 +39,29 @@ export function isManagedWorkerStartupView(view: WorkerStartupView | undefined):
   if (!view || releasedViews.has(view)) return false;
   const input = nativeInputs.get(view);
   return Boolean(input?.manager.prepareStage && input.manager.inspectStage && input.manager.releaseStage);
+}
+/**
+ * The manager that acquired a live managed view, for placing the turn's data
+ * tree on the same volume (#2911); undefined for an unmanaged view. A managed
+ * view whose manager cannot place one is refused, never given a full copy.
+ */
+export function nativeTurnTreeManager(view: WorkerStartupView): Pick<NativeClient, "prepareTurnTree" | "releaseTurnTree"> | undefined {
+  // Read the acquisition itself: only a view the manager acquired has one.
+  const manager = releasedViews.has(view) ? undefined : nativeInputs.get(view)?.manager;
+  if (!manager?.prepareStage || !manager.inspectStage || !manager.releaseStage) return undefined;
+  if (!manager.prepareTurnTree || !manager.releaseTurnTree)
+    throw new Error("The native manager that acquired this startup view cannot place a turn data tree on the managed volume; no full-copy fallback runs.");
+  return manager as Pick<NativeClient, "prepareTurnTree" | "releaseTurnTree">;
+}
+/** Why a governed or strict turn whose startup view is not on managed native storage is refused (#3314). */
+export const UNMANAGED_TURN_STORAGE = "Governed and strict turns need a startup view the native manager acquired on managed native storage, where the turn egress relay runs; this turn's view is not one, so it is refused.";
+/**
+ * Refuse a governed or strict turn's view unless it is managed: every such turn
+ * runs on the turn egress proxy and the host inference relay, and none runs
+ * without them (#1665, #3314).
+ */
+export function assertManagedTurnStartupView(view: WorkerStartupView | undefined): void {
+  if (!isManagedWorkerStartupView(view)) throw new Error(UNMANAGED_TURN_STORAGE);
 }
 const nativeRoots = new Set<string>();
 const nativeBrains = new Map<string, { dev: bigint; ino: bigint; fsid: string; sourceUuid: string }>();
@@ -79,10 +103,11 @@ export function createWorkerStartupView(_brain: string, _options: { omitGit?: bo
 export function retainWorkerStartupView(view: WorkerStartupView): WorkerStartupView {
   if (releasedViews.has(view)) throw new Error("native startup checkpoint owner is closed");
   view.storage.retain();
-  let released = false, completion: void | Promise<void>;
+  let released = false, completion: Promise<void> | undefined;
   const retained: WorkerStartupView = { ...view, cleanup() {
-    if (!released) { released = true; releasedViews.add(retained); completion = view.storage.release(); }
-    return completion;
+    if (!released) { released = true; releasedViews.add(retained); }
+    return completion ??= Promise.resolve(view.storage.release())
+      .catch((error: unknown) => { completion = undefined; throw error; });
   } };
   const native = nativeInputs.get(view); if (native) nativeInputs.set(retained, native);
   return retained;
@@ -96,7 +121,7 @@ export function retainWorkerStartupView(view: WorkerStartupView): WorkerStartupV
  * await the owner's cleanup. A lost RPC releases/reconciles the same identity.
  */
 export async function prepareNativeWorkerStartupView(brainPath: string,
-  manager: Pick<NativeClient, "checkpoint" | "release"> & Partial<Pick<NativeClient, "prepareStage" | "inspectStage" | "releaseStage">>,
+  manager: NativeViewManager,
   signal?: AbortSignal): Promise<WorkerStartupView> {
   signal?.throwIfAborted();
   const brain = realpathSync(brainPath), id = randomUUID();
@@ -136,12 +161,15 @@ export async function prepareNativeWorkerStartupView(brainPath: string,
   const storage: WorkerStartupStorage = { root: expected,
     retain() { if (closing) throw new Error("native startup checkpoint is closed"); refs++; },
     release() {
-      if (closing) return deletion;
-      if (--refs > 0) return;
-      closing = true;
-      nativeRoots.delete(expected);
-      deletion = manager.release(id).then(() => {});
-      return deletion;
+      if (!closing) {
+        if (--refs > 0) return;
+        closing = true;
+        nativeRoots.delete(expected);
+      }
+      // A refused deletion retries the same identity without dropping a
+      // second reference or admitting another consumer of this closed view.
+      return deletion ??= manager.release(id).then(() => {})
+        .catch((error: unknown) => { deletion = undefined; throw error; });
     },
   };
   const owner: WorkerStartupView = { brain, root: expected, storage, cleanup() {} };

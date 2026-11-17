@@ -20,6 +20,11 @@ export function AskUserFormExchangeCard(p: {
   answers?: AskUserFormAnswers;
   cancelled?: boolean;
   lapsedNote?: string;
+  /**
+   * The turn that asked has ended (#3356): the card stays editable under
+   * this prompt, and its Submit no longer answers the request.
+   */
+  endedPrompt?: string;
   answeredAt?: number;
   onSubmit?: (
     requestId: string,
@@ -62,7 +67,7 @@ export function AskUserFormExchangeCard(p: {
       {...base}
       key={reopened ? "reopened" : "live"}
       singleKeys={singleKeys}
-      prompt={`${root.config.assistantName} needs your input`}
+      prompt={p.endedPrompt ?? `${root.config.assistantName} needs your input`}
       onSubmit={(submitted) => {
         const result = askUserFormPayload(p.form, submitted);
         if (reopened) {

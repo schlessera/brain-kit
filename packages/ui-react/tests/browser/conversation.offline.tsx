@@ -3,7 +3,7 @@ import { afterAll, beforeAll, expect, test, type TestContext } from "vitest";
 import { commands, userEvent, page } from "vitest/browser";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
-import { CONVERSATION_LIMITS, type ConversationCapabilities, type ConversationWireEvent, type ServerConversationOpened, type ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
+import { CONVERSATION_LIMITS, type ConversationCapabilities, type ConversationWireEvent, type ConsumerServerMessage, type ServerConversationOpened, type ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { createBrainUiRoot } from "../../src/root.js";
 import { BrainUiProvider } from "../../src/root-context.js";
 import { AppShell } from "../../src/components/layout/app-shell.js";
@@ -25,7 +25,7 @@ async function scene(ctx: TestContext, width = 390, shell = false, theme: "light
     const viewport = { width: innerWidth, height: innerHeight };
     const outer = await commands.formViewport(width, 568);
     await page.viewport(width, 568);
-    ctx.onTestFinished(async () => { await page.viewport(viewport.width, viewport.height); await commands.formViewport(outer.width, outer.height); });
+    ctx.onTestFinished(async () => { await page.viewport(viewport.width, viewport.height); await commands.formViewport(outer.width - 100, outer.height - 120); });
   }
   const network = installFaultNetwork({ routes: (url) => url.pathname.endsWith("/sessions") ? Response.json({ sessions: [] }) : undefined,
     onOpen(socket) { socket.deliver({ type: "server_hello", conversationProfile: {providerId:PROFILE.providerId,capabilities:PROFILE.capabilities,disclosure:PROFILE.disclosure}, protocolRev: 5, principalKey: "odysseus-principal", capabilities: { askReceipts: true, liveConversation: true, conversationPause: true, toolResolution: true, chatRequestAck: true } }); socket.deliver({ type: "session_info", sessionId: SESSION, isNew: false }); socket.deliver({ type: "session_history", sessionId: SESSION, messages: [] }); socket.deliver({ type: "status", sessionId: SESSION, status: "idle" }); } });
@@ -46,13 +46,13 @@ async function scene(ctx: TestContext, width = 390, shell = false, theme: "light
   const button = (name: string) => [...document.querySelectorAll<HTMLElement>('[role="button"],button')].find((node) => (node.getAttribute("aria-label") ?? node.textContent) === name)!;
   const event = (event: ConversationWireEvent, epoch = client.state.getState().profile!.epoch) => socket.deliver({ type: "conversation_event", conversationId: PROFILE.conversationId, epoch, event });
   let pendingOpen: (()=>void) | undefined, lastOpenedRequest: unknown;
-  const opened = (epoch = 1, caps = CAPS) => {
+  const opened = (epoch = 1, caps = CAPS, overrides: Partial<ServerConversationOpened> = {}) => {
     const deliver = () => { const requestId=socket.frames("conversation_start").at(-1)?.requestId; lastOpenedRequest=requestId;
-      socket.deliver({...PROFILE,epoch,capabilities:caps,requestId}); event({kind:"ready",input:{encoding:"pcm16",channels:1,sampleRate:24000},output:{encoding:"pcm16",channels:1,sampleRate:24000}},epoch); };
+      socket.deliver({...PROFILE,...overrides,epoch,capabilities:caps,requestId}); event({kind:"ready",input:{encoding:"pcm16",channels:1,sampleRate:24000},output:{encoding:"pcm16",channels:1,sampleRate:24000}},epoch); };
     const requestId=socket.frames("conversation_start").at(-1)?.requestId;
     if(!requestId || requestId===lastOpenedRequest) {
       // Provider metadata is public before Start; no opened/ready is delivered yet.
-      socket.deliver({type:"server_hello",protocolRev:5,principalKey:"odysseus-principal",capabilities:{liveConversation:true,conversationPause:true,askReceipts:true,toolResolution:true,chatRequestAck:true},conversationProfile:{providerId:PROFILE.providerId,capabilities:caps,disclosure:PROFILE.disclosure}});
+      socket.deliver({type:"server_hello",protocolRev:5,principalKey:"odysseus-principal",capabilities:{liveConversation:true,conversationPause:true,askReceipts:true,toolResolution:true,chatRequestAck:true,...(overrides.historyOwnerId ? {sessionDialogue:true} : {})},conversationProfile:{providerId:PROFILE.providerId,capabilities:caps,disclosure:PROFILE.disclosure}});
       pendingOpen=deliver;
     } else deliver();
   };
@@ -75,12 +75,14 @@ test("capture truth and disclosure: a ready speech session cannot mark an unopen
   await s.enter();
   expect(s.client.state.getState().micOn).toBe(false);
   expect(s.socket.frames("conversation_audio")).toHaveLength(0);
+  // The Start card (#3698) keeps the former sheet's disclosure behind "What's shared".
+  await userEvent.click(document.querySelector<HTMLElement>("[data-start-card] .bk-voice-shared")!);
   expect(document.body.textContent).toContain("Host relay:");
   expect(document.body.textContent).toContain("Independently selected agent backend:");
   await userEvent.click(s.button("Start"));
   await expect.poll(() => s.client.state.getState().micOn).toBe(true);
   await expect.poll(() => s.socket.frames("conversation_audio").length, { timeout: 5000 }).toBeGreaterThan(0);
-  expect(document.activeElement?.getAttribute("aria-label")).toBe("Mute mic");
+  expect(document.activeElement?.getAttribute("aria-label")).toBe("Mute");
 });
 
 test("commit only: GPT-Live fragments remain NOT SENT while ordinary progress and tools keep streaming", async (ctx) => {
@@ -88,7 +90,7 @@ test("commit only: GPT-Live fragments remain NOT SENT while ordinary progress an
   await s.start();
   s.input("Find the departure note");
   expect(s.socket.frames("conversation_commit"), "unknown fragments cannot commit themselves").toHaveLength(0);
-  await expect.poll(() => s.host.textContent).toContain("NOT SUBMITTED AS A BRAIN TASK");
+  await expect.poll(() => s.host.querySelector("[data-conversation-field] .bk-voice-label-meta")?.textContent, { message: "the field says the draft is not sent" }).toBe("Draft · not sent yet");
   s.deliver({ type: "text_delta", sessionId: SESSION, text: "Looking through the voyage notes" });
   s.deliver({ type: "tool_use_start", sessionId: SESSION, toolUseId: "ithaca-search", toolName: "brain_search" });
   s.deliver({ type: "tool_use_complete", sessionId: SESSION, toolUseId: "ithaca-search", toolName: "brain_search", input: { query: "departure" } });
@@ -189,7 +191,7 @@ test("barge-in flush: Stop reply discards every queued PCM chunk without revokin
   s.event({ kind: "output_transcript", outputId: "ithaca-reply", sequence: 0, text: "The note is ready." });
   for (let sequence = 0; sequence < 3; sequence++) s.event({ kind: "audio", outputId: "ithaca-reply", sequence, format: { encoding: "pcm16", sampleRate: 24000, channels: 1 }, pcm: btoa(binary) });
   await expect.poll(() => s.client.state.getState().playing).toBe(true);
-  await userEvent.click(s.button("Stop reply"));
+  await userEvent.click(s.button("Interrupt"));
   expect(s.client.state.getState().playing).toBe(false);
   expect(ended).toHaveLength(3);
   await expect.poll(() => ended.every(Boolean), { timeout: 500, message: "every real scheduled audio source ended at the cut, including future chunks" }).toBe(true);
@@ -204,15 +206,27 @@ test("barge-in flush: Stop reply discards every queued PCM chunk without revokin
   await expect.poll(() => s.host.textContent).toContain("spoken portion unknown");
 });
 
-test("terminal: an unanswered card becomes inert without tool_result", async (ctx) => {
+// #3356 ruling A (docs/decisions/answer-delivery.md, "A question whose turn
+// ended"): an unanswered card whose turn ends stays the editable question
+// under an ended prompt, so a draft survives; the "no longer waiting" note
+// appears only once the user dismisses it. Voice must still stop treating it
+// as the question being answered.
+test("terminal: an unanswered card ends without tool_result and voice stops answering it", async (ctx) => {
   const s = await scene(ctx); await s.start(); s.client.mute();
   s.deliver({ type: "text_delta", sessionId: SESSION, turnId: "ithaca-turn", text: "Checking the route" });
   s.deliver({ type: "ask_user_request", sessionId: SESSION, turnId: "ithaca-turn", requestId: "ithaca-question", questions: [{ question: "Which day?", header: "Day", multiSelect: false, options: [{ label: "Tomorrow", description: "Before departure" }] }] });
   await expect.poll(() => s.host.querySelector('[data-ask-waiting]')).not.toBe(null);
+  await expect.poll(() => s.client.state.getState().interaction).toBe("Answering question");
   s.deliver({ type: "result", sessionId: SESSION, turnId: "ithaca-turn", isError: false, durationMs: 100, numTurns: 1 });
   await expect.poll(() => s.host.querySelector('[data-ask-waiting]')).toBe(null);
-  await expect.poll(() => s.host.textContent).toContain("no longer waiting");
-  expect(s.ui.stores.chat.getState().buffers[SESSION]?.askUser?.terminal).toBe(true);
+  await expect.poll(() => s.host.querySelector('[data-ask-ended]')?.textContent ?? "").toContain("The turn ended before you answered");
+  await expect.poll(() => s.client.state.getState().interaction).not.toBe("Answering question");
+  expect(s.ui.stores.chat.getState().buffers[SESSION]?.askUser).toMatchObject({ terminal: true, cancelled: true });
+  await userEvent.click(s.button("Dismiss"));
+  await expect.poll(() => s.host.textContent).toContain("no longer waiting · the turn ended");
+  expect(s.host.querySelector('[data-ask-ended]')).toBe(null);
+  expect(s.socket.frames("ask_user_response")).toHaveLength(0);
+  expect(s.socket.frames("ask_user_cancel")).toHaveLength(0);
 });
 
 test("epoch guard: stale transcript and an old Send callback cannot consume a new epoch's review candidate", async (ctx) => {
@@ -255,7 +269,7 @@ for (const theme of ["dark", "light"] as const) for (const width of [320, 1280])
   s.ui.stores.followUp.getState().addLocal(SESSION, { requestId: "ithaca-pending", text: "Check the harbour fees", source: "voice-conversation", queuedAt: Date.now() });
   s.deliver({ type: "text_delta", sessionId: SESSION, text: "The harbour work continues while you speak." });
   await expect.poll(() => s.host.querySelector('[data-conversation-review]')).not.toBe(null);
-  const strip = s.host.querySelector<HTMLElement>('[data-conversation-strip]')!;
+  const strip = s.host.querySelector<HTMLElement>('[data-conversation-field]')!;
   const area = [...s.host.querySelectorAll<HTMLElement>('div')].find((element) => element.classList.contains("@container"))!;
   expect(area.getBoundingClientRect().height, "the actual scrolling transcript keeps at least 264 pixels at 320 × 568").toBeGreaterThanOrEqual(264);
   expect(strip.scrollWidth).toBeLessThanOrEqual(strip.clientWidth);
@@ -694,7 +708,7 @@ for (const theme of ["dark", "light"] as const) test(`permission layout ${theme}
   const s = await scene(ctx, 320, true, theme); await s.start(); approval(s, "ithaca-layout");
   recognition(s, "Review the departure note");
   await expect.poll(() => s.host.querySelector('[data-voice-refusal-window]')).not.toBe(null);
-  const strip = s.host.querySelector<HTMLElement>('[data-conversation-strip]')!;
+  const strip = s.host.querySelector<HTMLElement>('[data-conversation-field]')!;
   const area = [...s.host.querySelectorAll<HTMLElement>('div')].find(element => element.classList.contains("@container"))!;
   expect(area.getBoundingClientRect().height).toBeGreaterThanOrEqual(264);
   for (const target of strip.querySelectorAll<HTMLElement>('[role="button"],button')) expect(target.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
@@ -778,9 +792,11 @@ test("microphone permission denial is visible and a late ready cannot undo expli
   ctx.onTestFinished(() => { if (descriptor) Object.defineProperty(media, "getUserMedia", descriptor); else Reflect.deleteProperty(media, "getUserMedia"); });
   const s = await scene(ctx); await s.enter();
   await userEvent.click(s.button("Start"));
-  await expect.poll(() => s.client.state.getState().notice).toContain("Microphone permission denied");
+  await expect.poll(() => s.client.state.getState().notice).toContain("Microphone is blocked");
   expect(s.client.state.getState().micOn).toBe(false);
-  await expect.poll(() => s.host.textContent).toContain("Microphone permission denied");
+  await expect.poll(() => s.host.textContent).toContain("Microphone is blocked. Allow it in this site’s browser settings, then Start again.");
+  expect(s.host.querySelector<HTMLElement>("[data-conversation-field]")?.dataset.liveState, "a blocked microphone stops the conversation (L9)").toBe("L9");
+  expect(s.button("Start again"), "the copy names the action L9 offers").not.toBeUndefined();
   s.client.mute();
   s.event({ kind: "ready", input: { encoding: "pcm16", channels: 1, sampleRate: 24000 }, output: { encoding: "pcm16", channels: 1, sampleRate: 24000 } });
   expect(calls).toBe(1);
@@ -936,15 +952,16 @@ for (const width of [390, 320]) test(`missing-ID conversation stays live and rev
   expect(s.client.state.getState().active).toBe(false);
   expect(s.client.state.getState().micOn).toBe(false);
   expect(s.client.reviewUnassigned(), "the transfer cannot append twice").toBe(false);
-  expect(s.ui.stores.drafts.getState().drafts[id]?.text).toBe("Existing typed note.");
-  expect(s.ui.stores.voice.getState().reviewText).toBe("Existing voice review.\n\nFind the departure note.");
+  // Reviewed in the composer (#3694, D6): voice text joins the draft, after what was typed, once.
+  await expect.poll(() => s.ui.stores.drafts.getState().drafts[id]?.text).toBe("Existing typed note. Existing voice review. Find the departure note.");
+  expect(s.ui.stores.voice.getState().reviewText).toBe("");
   expect(s.socket.frames("conversation_commit")).toHaveLength(0);
   expect(s.socket.frames("chat_message")).toHaveLength(0);
   await expect.poll(() => s.button("Send")).not.toBeUndefined();
   await userEvent.click(s.button("Send"));
   const sent = s.socket.frames("chat_message");
   expect(sent).toHaveLength(1);
-  expect(sent[0]).toMatchObject({ source: "voice-dictate", text: "Existing typed note.\nExisting voice review.\n\nFind the departure note." });
+  expect(sent[0]).toMatchObject({ source: "voice-dictate", text: "Existing typed note. Existing voice review. Find the departure note." });
   expect(sent[0]).not.toHaveProperty("utteranceId");
 });
 
@@ -980,6 +997,184 @@ test("unassigned review preserves captured and typed drafts exactly once", async
   expect(s.ui.stores.voice.getState().reviewText).toBe("Unassigned note.");
   expect(s.client.reviewUnassigned()).toBe(false);
   expect(s.ui.stores.drafts.getState().drafts[id]?.text).toBe("Typed note.\n\nCaptured note.");
+  expect(s.socket.frames("chat_message")).toHaveLength(0);
+  expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+});
+
+async function mixedReviewScene(ctx: TestContext) {
+  controlledMicrophone(ctx);
+  const s = await scene(ctx, 320, true);
+  // Keep actual earlier contextual evidence, then negotiate reviewed mode in a
+  // replacement entry. No state-only fragments or ownership are fabricated.
+  s.opened(1, { ...CAPS, contextualTasks: "supported" });
+  s.client.enter(); s.client.start();
+  await expect.poll(() => s.client.state.getState().micOn).toBe(true);
+  await expect.poll(() => s.socket.frames("conversation_audio").length).toBeGreaterThan(0);
+  s.event({ kind: "unassigned_input_fragment", sequence: 0, text: "Odysseus discusses the harbour. ", timing: { kind: "unavailable" }, finalization: "final" });
+  s.input("Keep the mast in sight.", "final");
+  const context = s.client.state.getState().unassigned;
+  const recognition = s.client.state.getState().recognition;
+  expect(context).toHaveLength(2);
+  expect(context.every(f => f.taskContext)).toBe(true);
+  s.client.leave();
+  s.opened(2); s.client.enter(); s.client.start();
+  await expect.poll(() => s.client.state.getState().micOn).toBe(true);
+  return { ...s, context, contextualRecognition: recognition };
+}
+
+for (const afterLeave of [false, true]) test(`mixed review transfers only genuine candidates once${afterLeave ? " after Leave" : ""} and keeps unknown-work reporting`, async ctx => {
+  const s = await mixedReviewScene(ctx);
+  const drafts = s.ui.stores.drafts.getState(), id = drafts.idFor(SESSION);
+  drafts.edit(id, SESSION, { text: "Keep the typed raft draft." });
+  s.ui.stores.voice.getState().setReviewText("Existing voice review.");
+  s.event({ kind: "unassigned_input_fragment", sequence: 0, text: "Review the launch note.", timing: { kind: "unavailable" } });
+  s.event({ kind: "unassigned_delegation", handle: "watch-unassociated-work", offsetMs: 500 });
+  if (afterLeave) s.client.leave();
+  await expect.poll(() => s.host.querySelector('[aria-label="Voice review controls"]')?.textContent).toContain("1 voice fragment wasn't sent.");
+  expect(s.host.scrollWidth).toBeLessThanOrEqual(320);
+  expect(s.client.reviewUnassigned(), "MIXED_REVIEW_TRANSFERS_REAL_CANDIDATES").toBe(true);
+  await expect.poll(() => s.ui.stores.drafts.getState().drafts[id]?.text, { message: "CONTEXT_NEVER_ENTERS_MIXED_COMPOSER_REVIEW" }).toBe("Keep the typed raft draft. Existing voice review. Review the launch note.");
+  expect(s.client.state.getState().unassigned).toEqual(s.context);
+  expect(s.client.state.getState().recognition.filter(f => f.contextual), "contextual transcript is never marked moved").toEqual(s.contextualRecognition);
+  expect(s.client.state.getState().recognition.filter(f => !f.contextual)).toMatchObject([{ text: "", moved: true }]);
+  expect(s.client.state.getState().unassignedWork, "TEXT_REVIEW_DOES_NOT_RESOLVE_UNKNOWN_WORK").toBe(1);
+  await expect.poll(() => s.host.querySelector('[aria-label="Voice review controls"]')?.textContent).toContain("Voice requested agent work without an input association.");
+  expect(s.host.querySelector('[aria-label="Voice review controls"]')?.textContent).toContain("No request was submitted or linked to running work.");
+  expect(s.host.querySelector('[aria-label="Voice review controls"]')?.textContent).not.toContain("fragment wasn't sent");
+  expect(s.client.reviewUnassigned()).toBe(false);
+  expect(s.ui.stores.drafts.getState().drafts[id]?.text).toBe("Keep the typed raft draft. Existing voice review. Review the launch note.");
+  expect(s.client.state.getState().active).toBe(false);
+  expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+  expect(s.socket.frames("chat_message")).toHaveLength(0);
+  expect(s.socket.frames("tool_denial")).toHaveLength(0);
+  expect(s.socket.frames("conversation_playback")).toHaveLength(0);
+});
+
+test("unknown work stays with its chat through review, a new voice entry and return", async ctx => {
+  const s = await scene(ctx); await s.start();
+  s.event({ kind: "unassigned_input_fragment", sequence: 0, text: "Review the mast note.", timing: { kind: "unavailable" } });
+  s.event({ kind: "unassigned_delegation", handle: "mast-unassociated", offsetMs: 500 });
+  expect(s.client.reviewUnassigned()).toBe(true);
+  await expect.poll(() => s.host.querySelector('[aria-label="Voice review controls"]')?.textContent).toContain("Voice requested agent work without an input association.");
+  flushSync(() => s.ui.stores.chat.getState().setActiveSession("odysseus-harbour"));
+  expect(s.host.querySelector('[aria-label="Voice review controls"]'), "UNKNOWN_WORK_NOTICE_MUST_NOT_MIGRATE_TO_UNRELATED_CHAT").toBeNull();
+  expect(s.client.state.getState().unassignedWork).toBe(0);
+  s.opened(2); s.client.enter(); s.client.start();
+  await expect.poll(() => s.client.state.getState().micOn).toBe(true);
+  expect(s.host.querySelector('[aria-label="Voice review controls"]'), "NEW_VOICE_ENTRY_DOES_NOT_INHERIT_UNKNOWN_WORK").toBeNull();
+  s.client.leave();
+  flushSync(() => s.ui.stores.chat.getState().setActiveSession(SESSION));
+  expect(s.client.state.getState().unassignedWork, "ORIGINAL_CHAT_RETAINS_ITS_UNKNOWN_WORK").toBe(1);
+  await expect.poll(() => s.host.querySelector('[aria-label="Voice review controls"]')?.textContent).toContain("Voice requested agent work without an input association.");
+  expect(s.client.reviewUnassigned()).toBe(false);
+  expect(s.socket.frames("chat_message")).toHaveLength(0);
+  expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+});
+
+test("unknown work follows provisional dialogue ownership and its adopted session", async ctx => {
+  const s = await scene(ctx);
+  flushSync(() => s.ui.stores.chat.getState().setActiveSession(null));
+  s.client.enter(); s.opened(1, CAPS, { sessionId: undefined, historyOwnerId: "odysseus-watch-owner" }); s.client.start();
+  await expect.poll(() => s.client.state.getState().micOn).toBe(true);
+  s.event({ kind: "unassigned_input_fragment", sequence: 0, text: "Review the watch note.", timing: { kind: "unavailable" } });
+  s.event({ kind: "unassigned_delegation", handle: "watch-unassociated", offsetMs: 500 });
+  expect(s.client.reviewUnassigned()).toBe(true);
+  const key = "dialogue:odysseus-watch-owner";
+  expect(s.ui.stores.chat.getState().activeSessionId).toBe(key);
+  expect(s.client.state.getState().unassignedWork, "UNKNOWN_WORK_FOLLOWS_RETAINED_OWNER").toBe(1);
+  const page = { type: "dialogue_history" as const, ownerId: "odysseus-watch-owner", generation: 1, through: 0, records: [], coverage: "complete" as const };
+  s.deliver(page);
+  s.deliver({ ...page, sessionId: "odysseus-watch-session" });
+  expect(s.ui.stores.chat.getState().activeSessionId).toBe("odysseus-watch-session");
+  expect(s.client.state.getState().unassignedWork, "UNKNOWN_WORK_FOLLOWS_DIALOGUE_ADOPTION").toBe(1);
+  flushSync(() => s.ui.stores.chat.getState().setActiveSession("odysseus-harbour"));
+  expect(s.client.state.getState().unassignedWork, "ADOPTED_NOTICE_CANNOT_APPEAR_IN_ANOTHER_CHAT").toBe(0);
+  flushSync(() => s.ui.stores.chat.getState().setActiveSession("odysseus-watch-session"));
+  expect(s.client.state.getState().unassignedWork).toBe(1);
+  expect(s.socket.frames("chat_message")).toHaveLength(0);
+  expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+});
+
+test("unknown work follows a voice-first reviewed task into its session", async ctx => {
+  const s = await scene(ctx);
+  flushSync(() => s.ui.stores.chat.getState().setActiveSession(null));
+  await s.start();
+  s.event({ kind: "unassigned_delegation", handle: "raft-unassociated", offsetMs: 500 });
+  s.input("Find the raft note.");
+  expect(s.client.commit(s.client.state.getState().token)).toBe(true);
+  const commit = s.socket.frames("conversation_commit")[0]!;
+  s.deliver({ type: "session_info", sessionId: "odysseus-raft-session", requestId: String(commit.requestId), isNew: true, turnId: "raft-turn" });
+  expect(s.client.state.getState().sessionId).toBe("odysseus-raft-session");
+  await expect.poll(() => s.client.state.getState().unassignedWork, { message: "UNKNOWN_WORK_FOLLOWS_REVIEWED_SESSION_ADOPTION" }).toBe(1);
+  s.client.leave();
+  flushSync(() => s.ui.stores.chat.getState().setActiveSession(SESSION));
+  expect(s.client.state.getState().unassignedWork, "REVIEWED_ADOPTION_DOES_NOT_MIGRATE_NOTICE").toBe(0);
+  flushSync(() => s.ui.stores.chat.getState().setActiveSession("odysseus-raft-session"));
+  expect(s.client.state.getState().unassignedWork).toBe(1);
+  expect(s.socket.frames("conversation_commit")).toHaveLength(1);
+  expect(s.socket.frames("chat_message")).toHaveLength(0);
+});
+
+test("unknown work follows an admitted contextual task from its provisional owner", async ctx => {
+  const s = await scene(ctx);
+  flushSync(() => s.ui.stores.chat.getState().setActiveSession(null));
+  s.client.enter(); s.opened(1, CAPS, { sessionId: undefined, historyOwnerId: "odysseus-signal-owner" }); s.client.start();
+  await expect.poll(() => s.client.state.getState().micOn).toBe(true);
+  s.event({ kind: "unassigned_delegation", handle: "signal-unassociated", offsetMs: 500 });
+  s.client.leave();
+  expect(s.ui.stores.chat.getState().activeSessionId).toBe("dialogue:odysseus-signal-owner");
+  s.opened(2, { ...CAPS, contextualTasks: "supported" }, { sessionId: undefined, historyOwnerId: "odysseus-signal-owner" });
+  s.client.enter(); s.client.start();
+  await expect.poll(() => s.client.state.getState().micOn).toBe(true);
+  s.deliver({ type: "conversation_work", conversationId: PROFILE.conversationId, epoch: 2, provenance: "contextual", taskId: "signal-task", nativeHandle: "signal-native", requestId: "signal-request", turnId: "signal-turn", sessionId: "odysseus-signal-session", state: "running", delivery: "pending", recognized: "Find the departure signal.", submitted: "Find the departure signal." });
+  expect(s.ui.stores.chat.getState().activeSessionId).toBe("odysseus-signal-session");
+  expect(s.client.state.getState().unassignedWork, "UNKNOWN_WORK_FOLLOWS_CONTEXTUAL_ADOPTION").toBe(1);
+  s.client.leave();
+  flushSync(() => s.ui.stores.chat.getState().setActiveSession(SESSION));
+  expect(s.client.state.getState().unassignedWork).toBe(0);
+  flushSync(() => s.ui.stores.chat.getState().setActiveSession("odysseus-signal-session"));
+  expect(s.client.state.getState().unassignedWork).toBe(1);
+  expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+  expect(s.socket.frames("chat_message")).toHaveLength(0);
+});
+
+test("unknown work distinguishes fresh drafts and is cleared at the principal boundary", async ctx => {
+  const s = await scene(ctx);
+  flushSync(() => s.ui.stores.chat.getState().setActiveSession(null));
+  const drafts = s.ui.stores.drafts.getState(), original = drafts.idFor(null);
+  drafts.edit(original, null, { text: "Keep the original mast draft." });
+  await s.start();
+  s.event({ kind: "unassigned_input_fragment", sequence: 0, text: "Review the mast note.", timing: { kind: "unavailable" } });
+  s.event({ kind: "unassigned_delegation", handle: "draft-unassociated", offsetMs: 500 });
+  expect(s.client.reviewUnassigned()).toBe(true);
+  expect(s.client.state.getState().unassignedWork).toBe(1);
+  drafts.newChat();
+  expect(s.client.state.getState().unassignedWork, "FRESH_DRAFT_DOES_NOT_INHERIT_UNKNOWN_WORK").toBe(0);
+  drafts.openUnbound(original);
+  expect(s.client.state.getState().unassignedWork, "ORIGINAL_DRAFT_RETAINS_UNKNOWN_WORK").toBe(1);
+  s.deliver({ type: "server_hello", protocolRev: 5, principalKey: "penelope-principal", capabilities: { liveConversation: true, conversationPause: true } });
+  expect(s.client.state.getState().unassignedWork).toBe(0);
+  drafts.newChat(); drafts.openUnbound(original);
+  expect(s.client.state.getState().unassignedWork, "PRINCIPAL_BOUNDARY_DROPS_UNKNOWN_WORK_OWNERS").toBe(0);
+  expect(s.socket.frames("chat_message")).toHaveLength(0);
+  expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+});
+
+for (const limit of ["fragments", "characters"] as const) test(`mixed review bounds ${limit} independently of contextual discussion`, async ctx => {
+  const s = await mixedReviewScene(ctx);
+  const text = limit === "fragments" ? " mast" : " mast".repeat(CONVERSATION_LIMITS.maxFragmentChars / 5);
+  const capacity = limit === "fragments" ? CONVERSATION_LIMITS.maxFragmentsPerUtterance : CONVERSATION_LIMITS.maxUtteranceChars / text.length;
+  const count = capacity + 5;
+  for (let sequence = 0; sequence < count; sequence++) s.event({ kind: "unassigned_input_fragment", sequence, text, timing: { kind: "unavailable" } });
+  expect(s.client.state.getState().unassigned.filter(f => f.taskContext), "REVIEW_ROLLOVER_PRESERVES_CONTEXT").toEqual(s.context);
+  const review = s.client.state.getState().unassigned.filter(f => !f.taskContext);
+  expect(review).toHaveLength(capacity);
+  expect(review.map(f => f.sequence)).toEqual(Array.from({ length: capacity }, (_, i) => i + 5));
+  expect(s.client.state.getState().micOn).toBe(true);
+  expect(s.client.state.getState().notice).toContain("Only recent recognition remains in the review buffer");
+  expect(s.client.reviewUnassigned()).toBe(true);
+  expect(s.ui.stores.voice.getState().reviewText).toBe(text.repeat(capacity));
+  expect(s.client.reviewUnassigned()).toBe(false);
   expect(s.socket.frames("chat_message")).toHaveLength(0);
   expect(s.socket.frames("conversation_commit")).toHaveLength(0);
 });
@@ -1023,7 +1218,9 @@ for (const terminal of ["leave", "provider_error", "backpressure"] as const) tes
     expect(s.client.state.getState().micOn).toBe(false);
     expect(oldStream.getTracks().every(track => track.readyState === "ended")).toBe(true);
   }
-  await userEvent.click(s.button("Leave voice"));
+  // A closed epoch that withdrew capture is L9, whose Close leaves like End.
+  await expect.poll(() => s.button(terminal === "leave" ? "End" : "Close")).toBeDefined();
+  await userEvent.click(s.button(terminal === "leave" ? "End" : "Close"));
   expect(s.client.state.getState().active).toBe(false);
   expect(oldStream.getTracks().every(track => track.readyState === "ended")).toBe(true);
   // Re-enter the same service in the same root. A fresh conversation has its
@@ -1062,7 +1259,7 @@ test("root refresh: dispose releases physical capture and a fresh root requires 
   expect(fresh.client.state.getState().micOn).toBe(false);
   expect(mic.opens()).toBe(1);
   old.client.enter(); old.client.resume();
-  old.client.frame({ ...PROFILE, epoch: 2, requestId: String(old.socket.frames("conversation_start")[0]?.requestId) });
+  old.client.receive({ ...PROFILE, epoch: 2, requestId: String(old.socket.frames("conversation_start")[0]?.requestId) });
   expect(mic.opens()).toBe(1);
   await userEvent.click(fresh.button("Start"));
   await expect.poll(() => fresh.client.state.getState().micOn).toBe(true);
@@ -1170,7 +1367,7 @@ for (const ending of ["leave", "logout", "dispose"] as const) test(`close diagno
   else if (ending === "logout") await s.ui.authLock.expire("signed out", true);
   else s.dispose();
   expect(s.client.state.getState().notice, "LIFECYCLE_CLEARS_CLOSE_DIAGNOSTIC").not.toContain(CLOSE_DIAGNOSTICS.provider_error);
-  s.client.frame(closed);
+  s.client.receive(closed);
   expect(s.client.state.getState().notice, "LATE_CLOSE_CANNOT_RESTORE_DIAGNOSTIC").not.toContain(CLOSE_DIAGNOSTICS.provider_error);
   expect(s.client.state.getState().active).toBe(false);
 });
@@ -1246,7 +1443,8 @@ for (const reason of ["disconnected", "provider_closed"] as const) test(`recover
   expect(mic.streams[0]!.getTracks().every(track => track.readyState === "ended")).toBe(true);
   expect(s.client.state.getState().text).toBe("Ask Nestor about the ships");
   // Withhold the replacement receipt: consent alone cannot reopen capture.
-  await new Promise(resolve => setTimeout(resolve, 30));
+  // The closure was handled as it was delivered, and a capture opens the
+  // microphone synchronously, so no window is needed to see that none started.
   assertPrivate();
   expect(mic.opens()).toBe(1);
   s.opened(2);
@@ -1296,6 +1494,10 @@ test("output recovery timeout never mutes capture; manual output recovery and Le
   clearInterval(timer);
   expect(s.client.state.getState().micOn).toBe(true);
   expect(s.client.state.getState().playing).toBe(false);
+  const f = field(s);
+  expect(s.host.querySelector("[data-conversation-field] .bk-voice-label-meta")?.textContent).toBe("Reply audio off");
+  expect(s.host.querySelector("[data-conversation-field] [data-voice-text]")?.textContent).toBe("Brain’s voice was paused after a dropout. Replies still arrive as text.");
+  expect(f.controls(), "recovery stays manual and in the row").toEqual(["Mute", "Recover reply audio", "End"]);
   await page.screenshot({ element: s.host, path: "../../.vitest-attachments/conversation/output-recovery-320.png" });
   await userEvent.click(s.button("Recover reply audio"));
   s.event({ kind: "audio", outputId: "output-1", sequence: 1, pcm: outputPcm(0.2), format: { encoding: "pcm16", channels: 1, sampleRate: 24000 } });
@@ -1376,4 +1578,516 @@ for(const [code,copy] of [
   expect(s.client.state.getState().notice,"SCOPED_STORAGE_CAUSE_SURVIVES_CLOSE").toBe(copy);
   expect(JSON.stringify(s.client.state.getState())).not.toContain(REMOTE_CLOSE_TEXT);
  }else expect(s.client.state.getState().micOn).toBe(true);
+});
+
+test("late reviewed session identity preserves its original unknown-work notice", async ctx => {
+  const s = await scene(ctx);
+  flushSync(() => s.ui.stores.chat.getState().setActiveSession(null));
+  await s.start();
+  s.event({ kind: "unassigned_delegation", handle: "mast-unassociated", offsetMs: 500 });
+  s.input("Find the mast note.");
+  expect(s.client.commit(s.client.state.getState().token)).toBe(true);
+  const commit=s.socket.frames("conversation_commit")[0]!;
+  s.client.leave();
+  flushSync(() => s.ui.stores.chat.getState().setActiveSession(SESSION));
+  expect(s.client.state.getState().unassignedWork).toBe(0);
+  s.deliver({type:"session_info",sessionId:"odysseus-late-mast",requestId:String(commit.requestId),turnId:"mast-turn",isNew:true});
+  flushSync(() => s.ui.stores.chat.getState().setActiveSession("odysseus-late-mast"));
+  expect(s.client.state.getState().unassignedWork,"LATE_REVIEWED_ADOPTION_PRESERVES_UNKNOWN_WORK").toBe(1);
+  expect(s.socket.frames("conversation_commit")).toHaveLength(1);
+});
+test("late contextual session identity preserves its original unknown-work notice", async ctx => {
+  const s = await scene(ctx);
+  flushSync(() => s.ui.stores.chat.getState().setActiveSession(null));
+  s.client.enter(); s.opened(1,CAPS,{sessionId:undefined,historyOwnerId:"odysseus-late-owner"}); s.client.start();
+  await expect.poll(() => s.client.state.getState().micOn).toBe(true);
+  s.event({kind:"unassigned_delegation",handle:"watch-unassociated",offsetMs:500});
+  s.client.leave();
+  s.opened(2,{...CAPS,contextualTasks:"supported"},{sessionId:undefined,historyOwnerId:"odysseus-late-owner"});
+  s.client.enter();s.client.start();
+  await expect.poll(() => s.client.state.getState().micOn).toBe(true);
+  s.deliver({type:"conversation_work",conversationId:PROFILE.conversationId,epoch:2,provenance:"contextual",taskId:"late-task",nativeHandle:"late-native",requestId:"late-request",turnId:"late-turn",state:"running",delivery:"pending",recognized:"Find the watch note.",submitted:"Find the watch note."});
+  s.client.leave();
+  flushSync(() => s.ui.stores.chat.getState().setActiveSession(SESSION));
+  expect(s.client.state.getState().unassignedWork).toBe(0);
+  s.deliver({type:"session_info",sessionId:"odysseus-late-watch",requestId:"late-request",turnId:"late-turn",isNew:true});
+  flushSync(() => s.ui.stores.chat.getState().setActiveSession("odysseus-late-watch"));
+  expect(s.client.state.getState().unassignedWork,"LATE_CONTEXTUAL_ADOPTION_PRESERVES_UNKNOWN_WORK").toBe(1);
+  expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+});
+
+for (const navigate of [false,true]) test(`ordinary composer send preserves fresh-draft unknown work, away=${navigate}`, async ctx => {
+ const s=await scene(ctx);
+ flushSync(()=>s.ui.stores.chat.getState().setActiveSession(null));
+ const d=s.ui.stores.drafts.getState(), origin=d.idFor(null);
+ d.edit(origin,null,{text:"Keep the mast note."});
+ await s.start();
+ s.event({kind:"unassigned_input_fragment",sequence:0,text:"Find the departure note.",timing:{kind:"unavailable"}});
+ s.event({kind:"unassigned_delegation",handle:"odysseus-unbound",offsetMs:1});
+ expect(s.client.reviewUnassigned()).toBe(true);
+ expect(s.client.state.getState().unassignedWork).toBe(1);
+ await expect.poll(()=>s.button("Send")).not.toBeUndefined();
+ await userEvent.click(s.button("Send"));
+ const sent=s.socket.frames("chat_message");
+ expect(sent).toHaveLength(1);
+ expect(sent[0]?.source).toBe("voice-dictate");
+ if(navigate) flushSync(()=>s.ui.stores.chat.getState().setActiveSession(SESSION));
+ s.deliver({type:"session_info",sessionId:"odysseus-manual-mast",requestId:String(sent[0]!.requestId),draftId:String(sent[0]!.draftId),turnId:"odysseus-manual-turn",isNew:true});
+ if(navigate) expect(s.ui.stores.chat.getState().activeSessionId).toBe(SESSION);
+ flushSync(()=>s.ui.stores.chat.getState().setActiveSession("odysseus-manual-mast"));
+ expect.soft(s.client.state.getState().unassignedWork,"COMPOSER_ADOPTION_PRESERVES_UNKNOWN_WORK").toBe(1);
+ expect(s.socket.frames("chat_message")).toHaveLength(1);
+ expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+});
+
+test("navigating retained device draft versions cannot change unknown-work ownership",async ctx=>{
+ const s=await scene(ctx);
+ flushSync(()=>s.ui.stores.chat.getState().setActiveSession(null));
+ const d=s.ui.stores.drafts.getState(), origin=d.idFor(null);
+ d.edit(origin,null,{text:"Odysseus local mast draft."});
+ await s.start();
+ s.event({kind:"unassigned_delegation",handle:"odysseus-device-branch",offsetMs:1});
+ s.client.leave();
+ const local=s.ui.stores.drafts.getState().drafts[origin]!;
+ const incoming={draftId:origin,sessionId:null,text:"Penelope other mast revision.",attachments:[],editedAt:local.editedAt+1,host:null};
+ d.keepDeviceBranch(origin,"odysseus-local-branch",incoming,null);
+ expect(s.ui.stores.drafts.getState().fresh).toBe("odysseus-local-branch");
+ expect(d.resolveId(origin)).toBe("odysseus-local-branch");
+ expect(s.client.state.getState().unassignedWork,"BRANCH_RETAINS_ORIGINAL_NOTICE").toBe(1);
+ d.openUnbound(origin);
+ expect(s.ui.stores.drafts.getState().fresh).toBe(origin);
+ expect.soft(s.client.state.getState().unassignedWork,"OTHER_DEVICE_VERSION_CANNOT_INHERIT_NOTICE").toBe(0);
+ d.openUnbound("odysseus-local-branch");
+ expect.soft(s.client.state.getState().unassignedWork,"ORIGINAL_BRANCH_RETAINS_NOTICE_AFTER_NAVIGATION").toBe(1);
+ expect(s.socket.frames("chat_message")).toHaveLength(0);
+ expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+});
+
+const canonicalPage = {"ownerId": "odysseus-canonical-owner", "sessionId": "odysseus-native-session", "generation": 1, "through": 0, "records": [], "coverage": "partial" as const};
+
+for(const route of ["provisional-same-owner","provisional-canonical-owner","native-same-owner"] as const) test(`correlated history adoption retains unknown work via ${route}`,async ctx=>{
+ const s=await scene(ctx);
+ flushSync(()=>s.ui.stores.chat.getState().setActiveSession(null));
+ s.client.enter();s.opened(1,CAPS,{sessionId:undefined,historyOwnerId:"odysseus-provisional-owner"});s.client.start();
+ await expect.poll(()=>s.client.state.getState().micOn).toBe(true);
+ s.event({kind:"unassigned_delegation",handle:"odysseus-history-notice",offsetMs:1});
+ s.client.leave();
+ const provisional="dialogue:odysseus-provisional-owner";
+ expect(s.ui.stores.chat.getState().activeSessionId).toBe(provisional);
+ expect(s.client.state.getState().unassignedWork).toBe(1);
+ const originalPage={type:"dialogue_history" as const,ownerId:"odysseus-provisional-owner",generation:1,through:0,records:[],coverage:"complete" as const};
+ s.deliver(originalPage);
+ const key=route==="native-same-owner" ? canonicalPage.sessionId! : provisional;
+ s.client.loadDialogue(key);
+ let read=s.socket.frames("dialogue_read").findLast(frame=>frame.ownerId==="odysseus-provisional-owner" && key===provisional || frame.sessionId===key)!;
+ expect(read,"READ_WAS_ACTUALLY_REQUESTED").toBeDefined();
+ const reply=route==="provisional-canonical-owner" ? canonicalPage : {...originalPage,sessionId:canonicalPage.sessionId};
+ if (route === "native-same-owner") {
+   s.deliver({...reply,type:"dialogue_history",sessionId:"odysseus-unrelated-history",requestId:String(read.requestId)});
+   expect(s.ui.stores.chat.getState().activeSessionId,"NATIVE_READ_CANNOT_RETARGET_SELECTION").toBe(provisional);
+   expect(s.client.state.getState().unassignedWork,"NATIVE_READ_CANNOT_RETARGET_NOTICE").toBe(1);
+   s.client.loadDialogue(key);
+   read=s.socket.frames("dialogue_read").findLast(frame=>frame.sessionId===key)!;
+ }
+ s.deliver({...reply,type:"dialogue_history",requestId:String(read.requestId)});
+ expect(s.ui.stores.chat.getState().activeSessionId).toBe(canonicalPage.sessionId);
+ expect(s.client.state.getState().dialogue[canonicalPage.sessionId!]?.ownerId).toBe(reply.ownerId);
+ expect.soft(s.client.state.getState().unassignedWork,`CORRELATED_HISTORY_ADOPTION_PRESERVES_NOTICE:${route}`).toBe(1);
+ expect(s.socket.frames("chat_message")).toHaveLength(0);
+ expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+});
+
+for (const navigate of [false, true]) test(`stale and unknown history replies cannot retarget the retained notice, away=${navigate}`,async ctx=>{
+ const s=await scene(ctx);flushSync(()=>s.ui.stores.chat.getState().setActiveSession(null));
+ s.client.enter();s.opened(1,CAPS,{sessionId:undefined,historyOwnerId:"odysseus-provisional-owner"});s.client.start();
+ await expect.poll(()=>s.client.state.getState().micOn).toBe(true);
+ s.event({kind:"unassigned_delegation",handle:"odysseus-stale-notice",offsetMs:1});s.client.leave();
+ const key="dialogue:odysseus-provisional-owner";
+ const page={type:"dialogue_history" as const,ownerId:"odysseus-provisional-owner",generation:2,through:0,records:[],coverage:"complete" as const};
+ s.deliver(page);
+ if (navigate) flushSync(()=>s.ui.stores.chat.getState().setActiveSession(SESSION));
+ s.deliver({...page,sessionId:"odysseus-stale-session",requestId:"odysseus-unknown-read"});
+ s.deliver({...page,sessionId:"odysseus-stale-session",generation:1});
+ expect(s.ui.stores.chat.getState().activeSessionId,"STALE_HISTORY_CANNOT_CHANGE_SELECTION").toBe(navigate ? SESSION : key);
+ flushSync(()=>s.ui.stores.chat.getState().setActiveSession("odysseus-stale-session"));
+ expect(s.client.state.getState().unassignedWork).toBe(0);
+ flushSync(()=>s.ui.stores.chat.getState().setActiveSession(key));
+ expect(s.client.state.getState().unassignedWork).toBe(1);
+});
+
+test("pending composer acceptance follows the retained local draft after opening its other version", async ctx => {
+  const s = await scene(ctx);
+  flushSync(() => s.ui.stores.chat.getState().setActiveSession(null));
+  const drafts = s.ui.stores.drafts.getState(), origin = drafts.idFor(null);
+  drafts.edit(origin, null, { text: "Keep the local mast note." });
+  await s.start();
+  s.event({ kind: "unassigned_delegation", handle: "odysseus-pending-branch", offsetMs: 1 });
+  s.client.leave();
+  await expect.poll(() => s.button("Send")).not.toBeUndefined();
+  await userEvent.click(s.button("Send"));
+  const sent = s.socket.frames("chat_message").at(-1)!;
+  const local = s.ui.stores.drafts.getState().drafts[origin]!;
+  drafts.keepDeviceBranch(origin, "odysseus-pending-local", {
+    draftId: origin, sessionId: null, text: "Penelope's other revision.", attachments: [], editedAt: local.editedAt + 1, host: null,
+  }, null);
+  drafts.openUnbound(origin);
+  expect(s.client.state.getState().unassignedWork, "OTHER_VERSION_HAS_NO_PENDING_NOTICE").toBe(0);
+  s.deliver({ type: "session_info", sessionId: "odysseus-pending-native", requestId: String(sent.requestId), draftId: String(sent.draftId), isNew: true });
+  flushSync(() => s.ui.stores.chat.getState().setActiveSession("odysseus-pending-native"));
+  expect(s.client.state.getState().unassignedWork, "ACCEPTED_SEND_USES_STABLE_LOCAL_ORIGIN").toBe(1);
+  flushSync(() => s.ui.stores.chat.getState().setActiveSession(null));
+  drafts.openUnbound(origin);
+  expect(s.client.state.getState().unassignedWork).toBe(0);
+  expect(s.socket.frames("chat_message")).toHaveLength(1);
+  expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+});
+
+for (const from of ["fresh", "provisional"] as const) for (const history of ["same-owner", "canonical-owner", "unavailable"] as const) test(`late reviewed acceptance after durable Leave preserves notice, ${from}, ${history}`, async ctx => {
+  const s=await scene(ctx);
+  flushSync(()=>s.ui.stores.chat.getState().setActiveSession(null));
+  s.client.enter();s.opened(1,CAPS,{sessionId:undefined,historyOwnerId:"odysseus-late-provisional"});s.client.start();
+  await expect.poll(()=>s.client.state.getState().micOn).toBe(true);
+  await expect.poll(()=>s.socket.frames("conversation_audio").length).toBeGreaterThan(0);
+  s.event({kind:"unassigned_delegation",handle:"odysseus-late-unbound",offsetMs:1});
+  if(from==="provisional") {
+    s.client.leave();
+    const beforeAudio=s.socket.frames("conversation_audio").length;
+    s.opened(2,CAPS,{sessionId:undefined,historyOwnerId:"odysseus-late-provisional"});s.client.enter();s.client.start();
+    await expect.poll(()=>s.client.state.getState().micOn).toBe(true);
+    await expect.poll(()=>s.socket.frames("conversation_audio").length).toBeGreaterThan(beforeAudio);
+  }
+  s.input("Find the mast note.");
+  expect(s.client.commit(s.client.state.getState().token)).toBe(true);
+  const commit=s.socket.frames("conversation_commit").at(-1)!;
+  s.client.leave();
+  const source="dialogue:odysseus-late-provisional", target="odysseus-late-native";
+  expect(s.ui.stores.chat.getState().activeSessionId).toBe(source);
+  expect(s.client.state.getState().unassignedWork).toBe(1);
+  s.deliver({type:"dialogue_history",ownerId:"odysseus-late-provisional",generation:1,through:0,records:[],coverage:"complete"});
+  flushSync(()=>s.ui.stores.chat.getState().setActiveSession(SESSION));
+  s.deliver({type:"session_info",sessionId:target,requestId:String(commit.requestId),turnId:"odysseus-late-turn",isNew:true});
+  expect(s.ui.stores.chat.getState().activeSessionId).toBe(SESSION);
+  const read=s.socket.frames("dialogue_read").findLast(f=>f.sessionId===target)!;
+  expect(read).toBeDefined();
+  if(history==="unavailable") s.deliver({type:"error",code:"DIALOGUE_UNAVAILABLE",requestId:String(read.requestId),sessionId:target,message:"Fixture history temporarily unavailable."});
+  else s.deliver({type:"dialogue_history",requestId:String(read.requestId),sessionId:target,ownerId:history==="same-owner"?"odysseus-late-provisional":"odysseus-canonical-owner",generation:1,through:0,records:[],coverage:"partial"});
+  flushSync(()=>s.ui.stores.chat.getState().setActiveSession(target));
+  expect.soft(s.client.state.getState().unassignedWork,`LATE_REVIEWED_DURABLE_ADOPTION:${history}`).toBe(1);
+  flushSync(()=>s.ui.stores.chat.getState().setActiveSession(source));
+  expect.soft(s.client.state.getState().unassignedWork,`RETIRED_PROVISIONAL_NOTICE_MOVED:${history}`).toBe(0);
+  expect(s.socket.frames("conversation_commit")).toHaveLength(1);
+  expect(s.socket.frames("chat_message")).toHaveLength(0);
+});
+
+for (const acceptance of ["session_info", "queued", "queue_report", "refusal"] as const) test(`ordinary provisional composer ${acceptance} follows exact acceptance`,async ctx=>{
+  const s=await scene(ctx);flushSync(()=>s.ui.stores.chat.getState().setActiveSession(null));
+  s.client.enter();s.opened(1,CAPS,{sessionId:undefined,historyOwnerId:"odysseus-composer-provisional"});s.client.start();
+  await expect.poll(()=>s.client.state.getState().micOn).toBe(true);
+  s.event({kind:"unassigned_delegation",handle:"odysseus-composer-work",offsetMs:1});s.client.leave();
+  const source="dialogue:odysseus-composer-provisional",target="odysseus-composer-native";
+  // Complete the real owner read before using its ordinary composer.
+  s.client.loadDialogue(source);
+  const read=s.socket.frames("dialogue_read").findLast(f=>f.ownerId==="odysseus-composer-provisional")!;
+  expect(read).toBeDefined();
+  s.deliver({type:"dialogue_history",requestId:String(read.requestId),ownerId:"odysseus-composer-provisional",generation:1,through:0,records:[],coverage:"complete"});
+  const d=s.ui.stores.drafts.getState(); d.edit(d.idFor(source),source,{text:"Find the mast decision."});
+  await expect.poll(()=>s.button("Send")?.hasAttribute("disabled")).toBe(false);
+  await userEvent.click(s.button("Send"));
+  const sent=s.socket.frames("chat_message").at(-1)!;expect(sent).toBeDefined();
+  flushSync(()=>s.ui.stores.chat.getState().setActiveSession(SESSION));
+  s.deliver({type:"session_info",sessionId:"odysseus-foreign",requestId:"odysseus-foreign-request",isNew:false});
+  flushSync(()=>s.ui.stores.chat.getState().setActiveSession("odysseus-foreign"));
+  expect(s.client.state.getState().unassignedWork).toBe(0);
+  flushSync(()=>s.ui.stores.chat.getState().setActiveSession(SESSION));
+  if(acceptance==="session_info")s.deliver({type:"session_info",sessionId:target,requestId:String(sent.requestId),isNew:true});
+  else if(acceptance==="queued")s.deliver({type:"status",sessionId:target,requestId:String(sent.requestId),status:"queued"});
+  else if(acceptance==="queue_report")s.deliver({type:"session_queue",sessionId:target,followUps:[{id:"odysseus-queued-entry",requestId:String(sent.requestId),text:"Find the mast decision.",source:"typed",queuedAt:1}]});
+  else s.deliver({type:"error",sessionId:source,requestId:String(sent.requestId),code:"CHAT_REFUSED",message:"Fixture refusal."});
+  flushSync(()=>s.ui.stores.chat.getState().setActiveSession(target));
+  expect(s.client.state.getState().unassignedWork).toBe(acceptance==="refusal"?0:1);
+  flushSync(()=>s.ui.stores.chat.getState().setActiveSession(source));
+  expect(s.client.state.getState().unassignedWork).toBe(acceptance==="refusal"?1:0);
+  expect(s.socket.frames("chat_message")).toHaveLength(1);expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+});
+
+for(const rotate of [false,true])test(`composer consumption preserves origin before retirement, rotate=${rotate}`,async ctx=>{
+ const s=await scene(ctx);flushSync(()=>s.ui.stores.chat.getState().setActiveSession(null));
+ const d=s.ui.stores.drafts.getState(), origin=d.idFor(null);
+ d.edit(origin,null,{text:"Find the mast decision."});d.setSupport(true);
+ const before=s.ui.stores.drafts.getState().drafts[origin]!;
+ d.saved(origin,{revision:1,edit:before.edit,sessionId:null,attachmentIds:[],updatedAt:1},new Map());
+ await s.start();s.event({kind:"unassigned_delegation",handle:"odysseus-consume",offsetMs:1});s.client.leave();d.setSupport(true);
+ await expect.poll(()=>s.button("Send")?.hasAttribute("disabled")).toBe(false);await userEvent.click(s.button("Send"));
+ const sent=s.socket.frames("chat_message").at(-1)!;expect(sent.draftRef).toBeDefined();
+ if(rotate)d.edit(origin,null,{text:"Keep the next watch note."});
+ flushSync(()=>s.ui.stores.chat.getState().setActiveSession(SESSION));
+ s.deliver({type:"session_info",sessionId:"odysseus-consumed",requestId:String(sent.requestId),draftId:String(sent.draftId),isNew:true});
+ expect(s.ui.stores.drafts.getState().drafts[origin]).toBeUndefined();
+ flushSync(()=>s.ui.stores.chat.getState().setActiveSession("odysseus-consumed"));
+ expect(s.client.state.getState().unassignedWork).toBe(1);
+ s.deliver({type:"session_info",sessionId:"odysseus-duplicate-foreign",requestId:String(sent.requestId),isNew:true});
+ flushSync(()=>s.ui.stores.chat.getState().setActiveSession("odysseus-duplicate-foreign"));expect(s.client.state.getState().unassignedWork).toBe(0);
+ flushSync(()=>s.ui.stores.chat.getState().setActiveSession("odysseus-consumed"));expect(s.client.state.getState().unassignedWork).toBe(1);
+ expect(s.socket.frames("chat_message")).toHaveLength(1);expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+});
+
+for(const [knownTurn,reenter] of [[true,false],[false,false],[true,true]] as const)test(`contextual task identity arriving after Leave preserves known queued ownership, turn known=${knownTurn}, reenter=${reenter}`,async ctx=>{
+ const s=await scene(ctx);flushSync(()=>s.ui.stores.chat.getState().setActiveSession(null));
+ await s.start();s.event({kind:"unassigned_delegation",handle:"odysseus-queued-notice",offsetMs:1});
+ s.opened(2,{...CAPS,contextualTasks:"supported"},{sessionId:undefined});s.client.start();
+ await expect.poll(()=>s.client.state.getState().micOn).toBe(true);
+ const task={type:"conversation_work" as const,conversationId:PROFILE.conversationId,epoch:2,provenance:"contextual" as const,taskId:"odysseus-late-task",nativeHandle:"odysseus-late-handle",requestId:"odysseus-late-request",delivery:"pending" as const,recognized:"Find the mast note.",submitted:"Find the mast note."};
+ s.deliver({...task,...(knownTurn?{state:"running" as const,turnId:"odysseus-late-turn"}:{state:"queued" as const})});
+ expect(s.client.state.getState().work[task.requestId]?.taskId).toBe(task.taskId);
+ expect(s.client.state.getState().unassignedWork).toBe(1);
+ s.client.leave();flushSync(()=>s.ui.stores.chat.getState().setActiveSession(SESSION));
+ if(reenter) { s.client.enter(); expect(s.client.state.getState().active).toBe(true); }
+ // The server sent these in order; they arrive after the client pressed Leave.
+ s.deliver({...task,state:"running",turnId:"odysseus-late-turn"});
+ s.deliver({type:"session_info",sessionId:"odysseus-context-native",requestId:task.requestId,turnId:"odysseus-late-turn",isNew:true});
+ expect(s.ui.stores.chat.getState().activeSessionId).toBe(SESSION);
+ flushSync(()=>s.ui.stores.chat.getState().setActiveSession("odysseus-context-native"));
+ expect.soft(s.client.state.getState().unassignedWork,"LATE_RUNNING_RECEIPT_BINDS_ALREADY_KNOWN_TASK").toBe(1);
+ expect(s.socket.frames("conversation_commit")).toHaveLength(0);expect(s.socket.frames("chat_message")).toHaveLength(0);
+});
+
+// Known host work outlives the voice entry, but never introduces new inactive
+// identities or lets an evicted, foreign, replayed or prior-principal frame bind.
+test("late contextual correlation is bounded, exact and cleared with its principal", async ctx => {
+  const s = await scene(ctx);
+  flushSync(() => s.ui.stores.chat.getState().setActiveSession(null));
+  await s.start();
+  s.event({ kind: "unassigned_delegation", handle: "odysseus-bounded-notice", offsetMs: 1 });
+  s.opened(2, { ...CAPS, contextualTasks: "supported" }, { sessionId: undefined });
+  s.client.start();
+  await expect.poll(() => s.client.state.getState().micOn).toBe(true);
+  const task = (i: number) => ({ type: "conversation_work" as const, conversationId: PROFILE.conversationId, epoch: 2,
+    provenance: "contextual" as const, taskId: `odysseus-task-${i}`, nativeHandle: `odysseus-handle-${i}`, requestId: `odysseus-request-${i}`,
+    delivery: "pending" as const, recognized: "Find the mast note.", submitted: "Find the mast note." });
+  for (let i = 0; i < 130; i++) s.deliver({ ...task(i), state: "queued" });
+  s.client.leave();
+  flushSync(() => s.ui.stores.chat.getState().setActiveSession(SESSION));
+  const identity = (requestId: string, turnId: string, sessionId: string) => s.deliver({ type: "session_info", requestId, turnId, sessionId, isNew: true });
+  for (const i of [0, 1, 130]) {
+    s.deliver({ ...task(i), state: "running", turnId: `odysseus-turn-${i}` });
+    identity(task(i).requestId, `odysseus-turn-${i}`, "odysseus-unproven-native");
+  }
+  const retained = task(2); // Exactly the oldest of the 128 retained identities.
+  for (const changed of [{ conversationId: "odysseus-foreign-conversation" }, { epoch: 1 }, { taskId: "odysseus-foreign-task" }, { nativeHandle: "odysseus-foreign-handle" }]) {
+    s.deliver({ ...retained, ...changed, state: "running", turnId: "odysseus-foreign-turn" });
+    identity(retained.requestId, "odysseus-foreign-turn", "odysseus-unproven-native");
+  }
+  expect(s.ui.stores.chat.getState().activeSessionId).toBe(SESSION);
+  flushSync(() => s.ui.stores.chat.getState().setActiveSession("odysseus-unproven-native"));
+  expect(s.client.state.getState().unassignedWork, "UNKNOWN_EVICTED_AND_FOREIGN_WORK_CANNOT_BIND").toBe(0);
+  flushSync(() => s.ui.stores.chat.getState().setActiveSession(SESSION));
+  s.deliver({ ...retained, state: "running", turnId: "odysseus-retained-turn" });
+  s.deliver({ ...retained, state: "running", turnId: "odysseus-foreign-turn" });
+  identity(retained.requestId, "odysseus-foreign-turn", "odysseus-unproven-native");
+  flushSync(() => s.ui.stores.chat.getState().setActiveSession("odysseus-unproven-native"));
+  expect(s.client.state.getState().unassignedWork, "KNOWN_TURN_CANNOT_BE_REPLACED").toBe(0);
+  flushSync(() => s.ui.stores.chat.getState().setActiveSession(SESSION));
+  identity(retained.requestId, "odysseus-retained-turn", "odysseus-bounded-native");
+  expect(s.ui.stores.chat.getState().activeSessionId).toBe(SESSION);
+  expect(s.client.state.getState().micOn).toBe(false);
+  flushSync(() => s.ui.stores.chat.getState().setActiveSession("odysseus-bounded-native"));
+  expect(s.client.state.getState().unassignedWork, "OLDEST_RETAINED_CONTEXTUAL_IDENTITY_STILL_BINDS").toBe(1);
+  identity(retained.requestId, "odysseus-retained-turn", "odysseus-replayed-native");
+  flushSync(() => s.ui.stores.chat.getState().setActiveSession("odysseus-replayed-native"));
+  expect(s.client.state.getState().unassignedWork, "BOUND_CONTEXTUAL_NOTICE_CANNOT_RETARGET").toBe(0);
+  flushSync(() => s.ui.stores.chat.getState().setActiveSession("odysseus-bounded-native"));
+  await s.ui.authLock.expire("signed out", true);
+  s.client.receive({ ...retained, state: "running", turnId: "odysseus-retained-turn" });
+  s.client.frame({ type: "session_info", sessionId: "odysseus-bounded-native", requestId: retained.requestId, turnId: "odysseus-retained-turn", isNew: true } as ConsumerServerMessage & { turnId: string });
+  expect(s.client.state.getState().unassignedWork, "LATE_CONTEXTUAL_IDENTITY_CANNOT_SURVIVE_AUTH_CLEAR").toBe(0);
+  expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+  expect(s.socket.frames("chat_message")).toHaveLength(0);
+});
+
+/* ── The tall voice field (#3699): each live state from the client's own evidence ── */
+
+function field(s: Awaited<ReturnType<typeof scene>>) {
+  const root = () => s.host.querySelector<HTMLElement>("[data-conversation-field]");
+  return {
+    state: () => root()?.dataset.liveState,
+    word: () => root()?.querySelector("[data-voice-word]")?.textContent,
+    control: (name: string) => root()?.querySelector<HTMLButtonElement>(`button[aria-label="${name}"]`) ?? null,
+    controls: () => [...root()?.querySelectorAll(".bk-voice-field button") ?? []].map(node => node.getAttribute("aria-label")),
+    text: () => root()?.querySelector(".bk-voice-field")?.textContent ?? "",
+  };
+}
+/** Interrupt is live only while brain's reply plays (L4), in every state. */
+function interruptOnlyInL4(f: ReturnType<typeof field>) {
+  const interrupt = f.control("Interrupt");
+  if (interrupt) expect(interrupt.disabled, `INTERRUPT_ONLY_IN_L4 (${f.state()})`).toBe(f.state() !== "L4");
+}
+const PCM24 = { encoding: "pcm16", channels: 1, sampleRate: 24000 } as const;
+
+/** Three seconds of brain's voice, in the one-second chunks the wire carries. */
+function speech(s: Awaited<ReturnType<typeof scene>>, outputId: string) {
+  for (let sequence = 0; sequence < 3; sequence++) s.event({ kind: "audio", outputId, sequence, pcm: outputPcm(1), format: PCM24 });
+}
+
+test("live field: Listening, Speaking, Talked over, Muted and End follow real capture and playback", async (ctx) => {
+  const mic = controlledMicrophone(ctx, true);
+  const s = await scene(ctx); const f = field(s);
+  await s.enter();
+  expect(s.host.querySelector("[data-conversation-field]")!.getAttribute("data-live-state"), "no live field before Start").toBe(null);
+  expect([...s.host.querySelectorAll(".bk-voice-field")].every(node => node.closest("[data-start-card]")), "the Start card is the only surface before Start").toBe(true);
+  await userEvent.click(s.button("Start"));
+  await expect.poll(f.state).toBe("L1");
+  expect(f.word()).toBe("Listening");
+  expect(f.controls()).toEqual(["Mute", "Interrupt", "End"]);
+  expect(f.text(), "the field names the service and the connected time, nothing more").toMatch(/^Listening\s*GPT-Live · \d+:\d\d$/);
+  interruptOnlyInL4(f);
+  await expect.poll(() => s.client.levels().input, { message: "the meter reads the real microphone level" }).toBeGreaterThan(0);
+  await userEvent.click(f.control("Mute")!);
+  await expect.poll(f.state).toBe("L7");
+  expect(f.control("Unmute")!.getAttribute("aria-pressed")).toBe("true");
+  interruptOnlyInL4(f);
+  // V5: Mute stops your microphone only; brain may finish its sentence.
+  speech(s, "ithaca-reply");
+  await expect.poll(f.state).toBe("L4");
+  expect(f.control("Unmute")!.getAttribute("aria-pressed"), "muted while brain speaks").toBe("true");
+  expect(s.client.state.getState().micOn).toBe(false);
+  interruptOnlyInL4(f);
+  await expect.poll(() => s.client.levels().output, { message: "the meter reads what plays" }).toBeGreaterThan(0);
+  await userEvent.click(f.control("Interrupt")!);
+  await expect.poll(f.state).toBe("L7");
+  interruptOnlyInL4(f);
+  // Talking over brain cuts it and gives you the floor (L5), then Listening again.
+  await expect.poll(() => s.client.state.getState().outputRecovery, { message: "the local quiet check ends" }).toBe("audible");
+  speech(s, "ithaca-tail");
+  await expect.poll(f.state).toBe("L4");
+  await userEvent.click(f.control("Unmute")!);
+  await expect.poll(f.state).toBe("L5");
+  expect(f.word()).toBe("Listening");
+  interruptOnlyInL4(f);
+  mic.quiet();
+  await expect.poll(f.state, { timeout: 5000 }).toBe("L1");
+  await userEvent.click(f.control("End")!);
+  expect(s.client.state.getState().active).toBe(false);
+  await expect.poll(() => s.host.querySelector("textarea[data-composer]"), { message: "End returns the composer (L10)" }).not.toBe(null);
+  expect(s.host.querySelector("[data-conversation-field]")).toBe(null);
+});
+
+test("live field: Connecting, Working and Needs your tap; an approval stays tap-only", async (ctx) => {
+  controlledMicrophone(ctx);
+  const s = await scene(ctx); const f = field(s);
+  s.client.enter(); s.client.start();
+  await expect.poll(f.state).toBe("S5");
+  expect(f.word()).toBe("Connecting");
+  expect(f.control("Mute")!.disabled, "nothing to mute while connecting").toBe(true);
+  interruptOnlyInL4(f);
+  s.opened();
+  await expect.poll(f.state).toBe("L1");
+  await expect.poll(() => s.socket.frames("conversation_audio").length).toBeGreaterThan(0);
+  s.deliver({ type: "text_delta", sessionId: SESSION, turnId: "ithaca-permission", text: "Checking the raft plan" });
+  await expect.poll(f.state, { message: "host work is Working" }).toBe("L3");
+  interruptOnlyInL4(f);
+  approval(s, "ithaca-tap");
+  await expect.poll(f.state).toBe("L6");
+  expect(f.word()).toBe("Needs your tap");
+  expect(f.controls(), "L6_NO_VOICE_GRANT: the field offers no way to approve").toEqual(["Mute", "Interrupt", "End"]);
+  expect(f.text(), "L6_NO_VOICE_GRANT: the body directs to the card and offers nothing to say").toMatch(/^Needs your tapGPT-Live · \d+:\d\dTap Allow or Deny on the card\. Voice can’t approve or refuse with this service\.$/);
+  interruptOnlyInL4(f);
+  recognition(s, "yes, allow it");
+  expect(s.socket.frames("tool_approval"), "speech never approves").toHaveLength(0);
+  await userEvent.click(page.getByRole("button", { name: /^Allow/ }));
+  expect(s.socket.frames("tool_approval")).toHaveLength(1);
+  expect(s.socket.frames("tool_approval")[0]?.channel ?? "card").toBe("card");
+  await expect.poll(f.state, { message: "the tap answers it; the field leaves L6" }).not.toBe("L6");
+});
+
+test("live field: a held draft takes the body and Interrupt's place unless brain speaks (R1)", async (ctx) => {
+  const mic = controlledMicrophone(ctx, true);
+  const s = await scene(ctx, 320); const f = field(s);
+  await s.start();
+  const meta = () => s.host.querySelector("[data-conversation-field] .bk-voice-label-meta")?.textContent;
+  const body = () => s.host.querySelector("[data-conversation-field] [data-voice-text]")?.textContent;
+  const audio = s.socket.frames("conversation_audio").at(-1)!;
+  // A calibrated low score holds the words for review; they are the draft.
+  s.event({ kind: "input_fragment", utteranceId: String(audio.utteranceId), sequence: 0, text: "Ask Calypso when the axe is back", finalization: "final", certainty: "known", origin: "user", confidence: 0.5 });
+  await expect.poll(body).toBe("Ask Calypso when the axe is back");
+  expect(meta()).toBe("Draft · not sent yet");
+  expect(f.state()).toBe("L1");
+  expect(f.controls(), "DRAFT_HIDES_INTERRUPT").toEqual(["Mute", "Discard draft", "Send now", "End"]);
+  // V5: muted, brain may still finish its sentence.
+  await userEvent.click(f.control("Mute")!);
+  speech(s, "ithaca-axe");
+  await expect.poll(f.state).toBe("L4");
+  expect(f.controls(), "L4 with a draft carries five controls").toEqual(["Unmute", "Interrupt", "Discard draft", "Send now", "End"]);
+  interruptOnlyInL4(f);
+  const frame = s.host.querySelector<HTMLElement>(".bk-voice-field")!.getBoundingClientRect();
+  for (const name of f.controls()) {
+    const box = f.control(name!)!.getBoundingClientRect();
+    expect(box.width, `${name} keeps a 44px target`).toBeGreaterThanOrEqual(44);
+    expect(box.right, `${name} fits the 320px row`).toBeLessThanOrEqual(frame.right + 0.5);
+  }
+  expect(body(), "brain speaking does not hide the draft").toBe("Ask Calypso when the axe is back");
+  await page.screenshot({ element: s.host, path: "../../.vitest-attachments/conversation/draft-speaking-320.png" });
+  await userEvent.click(f.control("Interrupt")!);
+  await expect.poll(f.state).toBe("L7");
+  expect(f.controls(), "DRAFT_HIDES_INTERRUPT").toEqual(["Unmute", "Discard draft", "Send now", "End"]);
+  await userEvent.click(f.control("Unmute")!);
+  await expect.poll(() => s.client.state.getState().micOn).toBe(true);
+  await userEvent.click(f.control("Discard draft")!);
+  expect(s.client.state.getState().text).toBe("");
+  expect(s.socket.frames("conversation_commit"), "Discard sends nothing").toHaveLength(0);
+  await expect.poll(f.controls).toEqual(["Mute", "Interrupt", "End"]);
+  expect(meta()).toMatch(/^GPT-Live · \d+:\d\d$/);
+  // Unproven origin: the draft's body says it was unclear, and Send now stays explicit.
+  await expect.poll(() => s.socket.frames("conversation_audio").length).toBeGreaterThan(0);
+  mic.quiet();
+  await expect.poll(() => s.client.state.getState().outputRecovery, { message: "the local quiet check ends", timeout: 6000 }).toBe("audible");
+  s.input("Tally the cask");
+  await expect.poll(body).toBe("I couldn't hear that clearly. Review before sending.");
+  expect(meta()).toBe("Draft · not sent yet");
+  await userEvent.click(f.control("Send now")!);
+  await expect.poll(() => s.socket.frames("conversation_commit").length).toBe(1);
+  expect(s.socket.frames("conversation_commit")[0]?.text).toBe("Tally the cask");
+});
+
+for (const [count, copy] of [[12, "Started with the last 12 messages"], [1, "Started with the last 1 message"]] as const) test(`coverage (R2): the host's count of ${count} sent messages opens the live section in the chat`, async (ctx) => {
+  controlledMicrophone(ctx);
+  const s = await scene(ctx, 320, true);
+  s.client.enter(); s.client.start();
+  s.opened(1, CAPS, { historyCoverage: { state: "complete", tailOmitted: false, includedMessages: count } });
+  await expect.poll(() => s.client.state.getState().profile?.historyCoverage?.includedMessages, { message: "the wire field survives validation" }).toBe(count);
+  const notice = () => s.host.querySelector<HTMLElement>("[data-voice-coverage]");
+  await expect.poll(() => notice()?.textContent, { message: "VOICE_COVERAGE_COUNT_COPY" }).toBe(`${copy} · Details`);
+  expect(notice()!.closest("[data-conversation-field]"), "a chat notice, not a row above the field").toBe(null);
+  expect(notice()!.closest("[data-arrival-key]")).not.toBe(null);
+  await userEvent.click(s.button("Prior context details"));
+  await expect.poll(() => s.client.state.getState().disclosureOpen, { message: "Details opens the existing sheet" }).toBe(true);
+});
+
+test("live field: Reconnecting while recovery runs, Stopped only when it fails, Start again reopens Start", async (ctx) => {
+  controlledMicrophone(ctx, true);
+  const s = await scene(ctx); const f = field(s);
+  await s.start();
+  s.network.drop({ announce: true });
+  await expect.poll(f.state).toBe("L8");
+  expect(f.word()).toBe("Reconnecting…");
+  expect(s.client.state.getState().capture, "recovery keeps consent").toBe("listening");
+  interruptOnlyInL4(f);
+  s.network.recover(); s.ui.connection.reconnectNow();
+  await expect.poll(() => s.network.socket() !== s.socket && s.ui.stores.connection.getState().wsStatus === "connected").toBe(true);
+  const replacement = s.network.socket()!;
+  await expect.poll(() => replacement.frames("conversation_start").length).toBe(1);
+  replacement.deliver({ ...PROFILE, epoch: 2, requestId: replacement.frames("conversation_start").at(-1)?.requestId });
+  replacement.deliver({ type: "conversation_event", conversationId: PROFILE.conversationId, epoch: 2, event: { kind: "ready", input: PCM24, output: PCM24 } });
+  await expect.poll(f.state, { message: "recovery returns to Listening" }).toBe("L1");
+  replacement.deliver({ type: "error", code: "CONVERSATION_UNKNOWN", message: "Voice scope is unavailable." });
+  await expect.poll(f.state).toBe("L9");
+  const stopped = s.host.querySelector<HTMLElement>("[data-conversation-field]")!;
+  expect(stopped.textContent).toContain("Live conversation stopped");
+  expect(stopped.textContent, "the client's own reason, no more").toContain("Voice scope is unavailable.");
+  expect(s.client.state.getState().micOn).toBe(false);
+  await userEvent.click(s.button("Start again"));
+  await expect.poll(() => s.client.state.getState().disclosureOpen, { message: "Start again leads to the Start card" }).toBe(true);
+  expect([...s.host.querySelectorAll(".bk-voice-field")].map(node => !!node.closest("[data-start-card]")), "only the Start card draws").toEqual([true]);
+  expect(s.client.state.getState().micOn).toBe(false);
+  await userEvent.click(s.button("Cancel"));
+  expect(s.client.state.getState().active).toBe(false);
 });

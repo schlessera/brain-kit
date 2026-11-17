@@ -19,6 +19,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readSync } from "fs";
 import { dirname, resolve } from "path";
 
 import type { MediaPolicy } from "../media.js";
+import { syncMediaCounts } from "../media-review.js";
 import type { Taxonomy } from "../taxonomy.js";
 import {
   applyIgnores,
@@ -413,6 +414,14 @@ export interface RunEnvelope {
     unresolved: ResolveEnvelope["unresolved"];
     unknown: string[];
     media: { path: string; bytes: number }[];
+    /**
+     * Media awaiting review (#2780): the assessed MEDIA and LARGE files with
+     * no valid dismissed, snoozed or kept disposition. The report shows this
+     * count, never the paths; `media` still lists them.
+     */
+    mediaPending: number;
+    /** The assessed media a valid disposition sets aside, by kind. */
+    mediaSetAside: { dismissed: number; snoozed: number; kept: number };
   };
   judge: SyncJudgeReport;
   /** Wall time per step in milliseconds, summed over each time it ran. */
@@ -538,6 +547,7 @@ export async function runSync(env: SyncEnv): Promise<RunEnvelope> {
 
   const finish = (status: RunStatus, reason?: string): RunEnvelope => {
     const files = lastAssess?.files ?? [];
+    const media = syncMediaCounts(root, env.media, files, new Date());
     const envelope: RunEnvelope = {
       status,
       ...(reason === undefined ? {} : { reason }),
@@ -548,6 +558,8 @@ export async function runSync(env: SyncEnv): Promise<RunEnvelope> {
         media: files
           .filter((file) => (file.class === "MEDIA" || file.class === "LARGE") && file.status !== "D")
           .map((file) => ({ path: file.path, bytes: file.bytes ?? 0 })),
+        mediaPending: media.pending,
+        mediaSetAside: media.setAside,
       },
       judge: env.judge.report(),
       timings,

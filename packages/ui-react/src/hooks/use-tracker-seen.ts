@@ -12,8 +12,8 @@ const AT_BOTTOM_PX = 20;
  * the document is visible, the transcript ends on the message the host
  * linked to the latest turn, and that end is in the viewport by the
  * transcript's own bottom test, with no scroll disc drawn. Selecting the
- * session, being scrolled up, a hidden tab, a background buffer and a
- * replay without the linked turn do not count.
+ * session, being scrolled up, a hidden tab, a background buffer, a replay
+ * without the linked turn and an answer still being written do not count.
  */
 export function observeTrackerSeen(root: BrainUiRoot, transcript: HTMLElement | null, scrollDisc: boolean): boolean {
   const chat = root.stores.chat.getState();
@@ -30,12 +30,17 @@ export function observeTrackerSeen(root: BrainUiRoot, transcript: HTMLElement | 
   if (ui.activeView !== "chat" || ui.subagentStack.length > 0) return false;
   if (ui.sessionPanelOpen || ui.filePanelOpen || ui.settingsPanelOpen || ui.syncPanelOpen || ui.whatsupPanelOpen || ui.searchPanelOpen || ui.addPanelOpen || ui.paletteOpen) return false;
   // The other modal surfaces that cover Chat: the mask editor and the handoff sheet.
-  if (root.stores.mask.getState().request || root.stores.handoff.getState().sheet) return false;
+  if (root.stores.mask.getState().request || root.stores.markup.getState().request || root.stores.handoff.getState().sheet) return false;
   if (typeof document === "undefined" || document.visibilityState !== "visible") return false;
   // And any open modal dialog (a zoom viewer, a one-time credential, a sheet).
   if (typeof document.querySelector === "function" && document.querySelector('[aria-modal="true"]')) return false;
+  // An answer still being written proves nothing: its turn is the one the
+  // live frames named before the reader left, which is correlation only,
+  // and history links a turn only once it has ended (#964). Its replay
+  // strips that turn; until the replay arrives the stale one must not
+  // count, or reopening a running session would read as seeing it (#3406).
   const last = chat.buffers[sessionId]?.messages.at(-1);
-  if (!last || last.turnId !== key.turnId) return false;
+  if (!last || last.isStreaming || last.turnId !== key.turnId) return false;
   if (transcript.clientHeight === 0) return false;
   if (transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight >= AT_BOTTOM_PX) return false;
   return trackers.observeSeen({ sessionId, ...key });
@@ -59,6 +64,7 @@ export function useTrackerSeen(transcript: RefObject<HTMLElement | null>, scroll
   // Something that covered Chat going away is a chance too.
   useRootStore("ui", (s) => `${s.activeView}:${s.paletteOpen}:${s.subagentStack.length}`);
   useRootStore("mask", (s) => s.request !== null);
+  useRootStore("markup", (s) => s.request !== null);
   useRootStore("handoff", (s) => s.sheet !== null);
   useEffect(() => {
     observeTrackerSeen(root, transcript.current, scrollDisc);

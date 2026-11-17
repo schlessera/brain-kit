@@ -1,8 +1,9 @@
 // The worker host notice (#1632) on the mounted Composer, in real Chromium
 // with the consumer styles: it sits above the field inside the composer's
-// column at phone and desktop widths in both themes, wraps a long probe
-// requirement without overflowing, keeps a 44px "Check again" target, and
-// leaves the composer usable. No network: the root's fixture transport
+// column at phone and desktop widths, wraps a long probe requirement without
+// overflowing, keeps a 44px "Check again" target, and leaves the composer
+// usable. One theme: nothing in the notice's geometry depends on it, and
+// Storybook owns light/dark parity. No network: the root's fixture transport
 // answers /api/status and the re-check.
 import { afterAll, afterEach, beforeAll, expect, test } from "vitest";
 import { commands, page, userEvent } from "vitest/browser";
@@ -13,6 +14,7 @@ import { Composer } from "../../src/components/chat/composer.js";
 import { ROOT_SERVER_DOCS_URL, WORKER_HOST_DOCS_URL } from "../../src/components/chat/worker-host-notice.js";
 import { BrainUiProvider } from "../../src/root-context.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
+import { touchFloor } from "./hit-reach.js";
 
 // The probe's longest named requirement: the fresh-/proc refusal with
 // bubblewrap's own words after it.
@@ -66,9 +68,9 @@ async function mount(width: number, theme: "light" | "dark", workerHost: WorkerH
   return { host, frames, checks };
 }
 
-for (const width of [320, 1280]) for (const theme of ["light", "dark"] as const) {
-  test(`${width} ${theme}: the notice sits above a usable composer and clears on Check again`, async () => {
-    const { host, frames, checks } = await mount(width, theme);
+for (const width of [320, 1280]) {
+  test(`${width}: the notice sits above a usable composer and clears on Check again`, async () => {
+    const { host, frames, checks } = await mount(width, "light");
     await expect.poll(() => host.querySelector("[data-worker-host-notice]")).not.toBeNull();
     const notice = host.querySelector<HTMLElement>("[data-worker-host-notice]")!;
     const composer = host.querySelector<HTMLElement>("[data-composer]")!;
@@ -83,7 +85,7 @@ for (const width of [320, 1280]) for (const theme of ["light", "dark"] as const)
     expect(link.getBoundingClientRect().right).toBeLessThanOrEqual(box.right);
     const check = page.getByRole("button", { name: "Check again" });
     const target = check.element().getBoundingClientRect();
-    expect(target.height).toBeGreaterThanOrEqual(44);
+    expect(touchFloor(check.element() as HTMLElement), "Check again meets the touch floor (#3252)").toBe("met");
     expect(target.right).toBeLessThanOrEqual(width);
 
     // The composer still sends: the server, not the notice, refuses the turn.
@@ -100,9 +102,9 @@ for (const width of [320, 1280]) for (const theme of ["light", "dark"] as const)
 // A root-run server (#1638): the warning stands above the composer, wraps at
 // phone width, and leaves the composer usable. Turns still run.
 const ROOT: WorkerHostStatus = { ...UP, rootServer: { warning: "The server runs as root (uid 0), so its agent workers do too." } };
-for (const width of [320, 1280]) for (const theme of ["light", "dark"] as const) {
-  test(`${width} ${theme}: the root server notice sits above a usable composer`, async () => {
-    const { host, frames } = await mount(width, theme, ROOT, ROOT);
+for (const width of [320, 1280]) {
+  test(`${width}: the root server notice sits above a usable composer`, async () => {
+    const { host, frames } = await mount(width, "light", ROOT, ROOT);
     await expect.poll(() => host.querySelector("[data-root-server-notice]")).not.toBeNull();
     expect(host.querySelector("[data-worker-host-notice]")).toBeNull();
     const notice = host.querySelector<HTMLElement>("[data-root-server-notice]")!;

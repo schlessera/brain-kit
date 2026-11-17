@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "updated": 1783814460000,
+  "open": {
+    "firstBad": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "run": 100,
+    "opened": 1783814400000,
+    "failures": [
+      {
+        "test": "packages/core/tests/raft.test.ts",
+        "category": "unit",
+        "verdict": "real",
+        "reasons": [
+          "in-affected-closure",
+          "assertion-signature"
+        ],
+        "run": 100,
+        "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    ],
+    "incident": 500,
+    "fixes": [],
+    "reported": [],
+    "claim": {
+      "worker": "wi-20260712-penelope",
+      "orchestrator": "orch-ithaca",
+      "claimed": 1783814460000,
+      "renewed": 1783814460000,
+      "expires": 1783818060000,
+      "takeover": null
+    }
+  },
+  "suspects": [],
+  "last": {
+    "action": "claim",
+    "at": 1783814460000,
+    "run": 100
+  }
+}

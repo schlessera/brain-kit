@@ -25,7 +25,7 @@ function setup(options?: { watched?: boolean }): {
   return { db, store, notifier };
 }
 
-function failCron(store: ActivityStore, runId: string, jobName = "sync") {
+function failCron(store: ActivityStore, runId: string, jobName = "sync", startedAt?: number, outcome: "error" | "success" = "error") {
   store.startSpan({
     spanId: `${runId}:root`,
     runId,
@@ -33,9 +33,13 @@ function failCron(store: ActivityStore, runId: string, jobName = "sync") {
     kind: "cron",
     origin: "cron",
     jobName,
+    ...(startedAt === undefined ? {} : { startedAt }),
   });
-  store.endSpan(`${runId}:root`, { outcome: "error", reason: "boom" });
+  store.endSpan(`${runId}:root`, { outcome, reason: outcome === "error" ? "remote: Invalid username or token" : undefined });
 }
+
+const HOUR = 60 * 60 * 1000;
+const DAY = 24 * HOUR;
 
 describe("activity notifier", () => {
   test("replays offline failures and never resurrects acknowledged intents on restart", () => {
@@ -125,6 +129,61 @@ describe("activity notifier", () => {
     failCron(store, "run-4");
     notifier.tick();
     expect(notifier.inbox()).toHaveLength(1);
+  });
+
+  test("an unacknowledged failure does not mute the same job's failure the next day (#3354)", () => {
+    const { db, store, notifier } = setup();
+    try {
+      const day1 = Date.now() - 3 * DAY;
+      failCron(store, "day-1", "sync", day1);
+      notifier.tick(day1 + 60_000);
+      const first = notifier.inbox();
+      expect(first).toHaveLength(1);
+      expect(first[0]!.body).toBe("Open to see the run.");
+      // Delivered by push, never acknowledged in Activity.
+      notifier.markDelivered(first[0]!.id, "sent");
+
+      failCron(store, "day-2", "sync", day1 + DAY);
+      notifier.tick(day1 + DAY + 60_000);
+      const inbox = notifier.inbox();
+      expect(inbox.map((i) => i.runId)).toEqual(["day-2"]);
+      expect(notifier.pending().map((i) => i.runId)).toEqual(["day-2"]);
+      expect(inbox[0]!.title).toBe("sync failed");
+      expect(inbox[0]!.body).toBe("Failed 2 times in a row over 1 day. Open to see the run.");
+      expect(inbox[0]!.body).not.toContain("token");
+      // The superseded intent leaves the inbox; one live intent per tag remains.
+      const rows = db.query("SELECT run_id, acknowledged FROM notification_intents ORDER BY id").all();
+      expect(rows).toEqual([{ run_id: "day-1", acknowledged: 1 }, { run_id: "day-2", acknowledged: 0 }]);
+
+      // Repeats inside the window still coalesce onto the day-2 intent.
+      failCron(store, "day-2b", "sync", day1 + DAY + 2 * HOUR);
+      notifier.tick(day1 + DAY + 2 * HOUR + 60_000);
+      expect(notifier.inbox().map((i) => i.runId)).toEqual(["day-2"]);
+
+      // The count spans coalesced runs; a success ends the streak.
+      failCron(store, "day-3", "sync", day1 + 2 * DAY);
+      notifier.tick(day1 + 2 * DAY + 60_000);
+      expect(notifier.inbox()[0]!.body).toBe("Failed 4 times in a row over 2 days. Open to see the run.");
+      failCron(store, "ok", "sync", day1 + 2 * DAY + HOUR, "success");
+      failCron(store, "after-ok", "sync", day1 + 3 * DAY);
+      notifier.tick(day1 + 3 * DAY + 60_000);
+      expect(notifier.inbox()[0]!.runId).toBe("after-ok");
+      expect(notifier.inbox()[0]!.body).toBe("Open to see the run.");
+    } finally { db.close(); }
+  });
+
+  test("a watched repeat outside the window is still created suppressed", () => {
+    const { db, store, notifier } = setup({ watched: true });
+    try {
+      const day1 = Date.now() - 2 * DAY;
+      failCron(store, "day-1", "sync", day1);
+      notifier.tick(day1 + 60_000);
+      failCron(store, "day-2", "sync", day1 + DAY);
+      notifier.tick(day1 + DAY + 60_000);
+      const inbox = notifier.inbox();
+      expect(inbox.map((i) => [i.runId, i.status])).toEqual([["day-2", "suppressed"]]);
+      expect(notifier.pending()).toHaveLength(0);
+    } finally { db.close(); }
   });
 
   test("the global rate cap suppresses a failure storm", () => {

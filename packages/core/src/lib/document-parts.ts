@@ -3,6 +3,8 @@ import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
 
+import { frontmatterLength } from "@schlessera/brain-common/internal/frontmatter-block";
+
 import { caseFold } from "./case-fold.js";
 import { estimateTokens } from "./chunker.js";
 
@@ -65,22 +67,10 @@ const parser = unified().use(remarkParse).use(remarkGfm);
 
 /**
  * Length of the frontmatter block, by the rule gray-matter applies when core
- * reads a document: after a byte order mark, which gray-matter strips, the
- * file opens with `---` not followed by a fourth `-`, and the block runs to
- * the first `\n---` (to the end of the file if there is none), plus one line
- * ending after it. The length counts the mark, so it is an offset into the
- * original text.
+ * reads a document. It lives with `frontmatterBlock` next to `parseFrontmatter`
+ * in brain-common, so every site that finds the fences agrees (#2507).
  */
-export function frontmatterLength(text: string): number {
-  const bom = text.charCodeAt(0) === 0xfeff ? 1 : 0;
-  if (!text.startsWith("---", bom) || text.charAt(bom + 3) === "-") return 0;
-  const close = text.indexOf("\n---", bom + 3);
-  if (close === -1) return text.length;
-  let end = close + 4;
-  if (text[end] === "\r") end++;
-  if (text[end] === "\n") end++;
-  return end;
-}
+export { frontmatterLength } from "@schlessera/brain-common/internal/frontmatter-block";
 
 interface LocatedHeading {
   level: number;
@@ -206,4 +196,68 @@ export function readDocumentPart(text: string, opts: ReadPartOptions): string {
   );
   const head = frontmatter ? [frontmatter.replace(/\r?\n$/, ""), ""] : [];
   return [...head, `[${note}]`, "", ...outlineLines].join("\n") + "\n";
+}
+
+/** One heading of a {@link DocumentScope} outline. */
+export interface ScopeHeading {
+  level: number;
+  /** The heading's visible text, as `section` matches it. */
+  text: string;
+  /** Estimated tokens of the section this heading opens, subsections included. */
+  tokens: number;
+}
+
+/** What a document or one section holds, without rendering an outline. */
+export interface DocumentScope {
+  /** The scope's text: byte for byte what `readDocumentPart` returns for the same `section` and no `maxTokens`. */
+  content: string;
+  /** The frontmatter block; always the whole document's, also for a section. */
+  frontmatter: string;
+  /** The top-level headings inside the scope, in document order (a section's own heading first). */
+  headings: ScopeHeading[];
+}
+
+/**
+ * The structured form of {@link readDocumentPart} without `maxTokens`: the
+ * selected text plus its outline, for callers that budget the outline
+ * themselves (`brain_read_many`, #3642). The section rule is the same one:
+ * the same parser, the same heading match and the same extent. Throws
+ * {@link SectionNotFoundError} for an unknown section; `available` on the
+ * error lists every heading's visible text.
+ */
+export function documentScope(text: string, section?: string): DocumentScope {
+  const frontmatter = text.slice(0, frontmatterLength(text));
+  const body = text.slice(frontmatter.length);
+  let headings = locateHeadings(body);
+  let range = { start: 0, end: body.length };
+  let content = text;
+  if (section !== undefined) {
+    const wanted = matchKey(section);
+    const i = headings.findIndex((h) => matchKey(h.text) === wanted);
+    if (i === -1) throw new ScopeSectionNotFoundError(headings.map((h) => h.text));
+    range = { start: headings[i].start, end: sectionEnd(headings, i, body.length) };
+    headings = headings.filter((h) => h.start >= range.start && h.start < range.end);
+    content = body.slice(range.start, range.end);
+  }
+  return {
+    content,
+    frontmatter,
+    headings: headings.map((h, i) => ({
+      level: h.level,
+      text: h.text,
+      tokens: estimateTokens(body.slice(h.start, sectionEnd(headings, i, range.end))),
+    })),
+  };
+}
+
+/** An unknown section for {@link documentScope}, with the document's headings as data. */
+export class ScopeSectionNotFoundError extends SectionNotFoundError {
+  constructor(readonly available: string[]) {
+    super("section not found");
+  }
+}
+
+/** The key two section queries share when they select the same heading. */
+export function sectionMatchKey(section: string): string {
+  return matchKey(section);
 }

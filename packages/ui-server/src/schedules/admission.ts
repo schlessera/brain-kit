@@ -24,7 +24,7 @@ import { occurrenceId, OUTSTANDING_STATES, type ExecutionPolicy, type Occurrence
 import { SCHEDULE_FRESHNESS_MS } from "./time.js";
 
 /** Result text kept on the occurrence: bounded, inert, never authority. */
-export const MAX_RESULT_BYTES = 4096;
+const MAX_RESULT_BYTES = 4096;
 /** Tools whose repetition cannot repeat an effect, so a failed attempt may retry. */
 const SAFE_READ_TOOLS = new Set(["brain_read"]);
 
@@ -34,7 +34,7 @@ export interface AdmissionTimers {
   clearTimeout(timer: Timer): void;
 }
 
-export interface ScheduleAdmissionDeps extends Pick<AutonomousTurnDeps, "store" | "runtime" | "onWrite" | "log" | "nativeManager" | "privateIndex" | "brainPath" | "applicationPlanner" | "indexBatch" | "identitySentinelDirectory" | "governanceWrites"> {
+interface ScheduleAdmissionDeps extends Pick<AutonomousTurnDeps, "store" | "runtime" | "onWrite" | "log" | "nativeManager" | "privateIndex" | "brainPath" | "applicationPlanner" | "indexBatch" | "identitySentinelDirectory" | "governanceWrites"> {
   service: ScheduleService;
   /** The backend the approved execution policy names. */
   backend: AgentBackend;
@@ -473,4 +473,3 @@ export function createScheduleAdmission(db: Database, deps: ScheduleAdmissionDep
   };
 }
 
-export type ScheduleAdmission = ReturnType<typeof createScheduleAdmission>;

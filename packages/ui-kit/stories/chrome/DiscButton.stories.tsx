@@ -119,8 +119,9 @@ export const PairNewChatExpanded = meta.story({
     if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
       await expect(getComputedStyle(label).transitionDuration, "the pill opens over 150ms").toContain("0.15s");
     }
-    // 150ms under normal motion, none under reduced motion.
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    // Wait for the pill's own transitions rather than a guess at their length:
+    // 150ms under normal motion, none (an empty list) under reduced motion.
+    await Promise.all(newChat.getAnimations({ subtree: true }).map((animation) => animation.finished));
     const after = rect(newChat);
     await expect(after.width, "the pill widens the box").toBeGreaterThan(before.width + 40);
     await expect(after.right, "it grows leftward").toBe(before.right);

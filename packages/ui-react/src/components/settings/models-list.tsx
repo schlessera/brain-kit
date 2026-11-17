@@ -19,7 +19,7 @@ import { useState, type ReactNode } from "react";
  * §4, "no opacity de-emphasis"): it reads as hidden from its chip, at full
  * contrast. Refresh, Add and the section errors are the kit's.
  */
-export interface ModelsCatalogViewProps {
+interface ModelsCatalogViewProps {
   catalog: ModelCatalogResponse | null;
   loading: boolean;
   refreshing: boolean;
@@ -153,7 +153,7 @@ function DefaultModelSelect({ catalog, onChange }: { catalog: ModelCatalogRespon
  * change or redeploy. They appear in the roster above as ordinary profiles
  * (api-billed via OPENROUTER_API_KEY). The draft is the section's own.
  */
-export function OpenRouterSection({ models, onChange }: { models: string[]; onChange: (models: string[]) => void }) {
+function OpenRouterSection({ models, onChange }: { models: string[]; onChange: (models: string[]) => void }) {
   const [draft, setDraft] = useState("");
 
   function add() {

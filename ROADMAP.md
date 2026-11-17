@@ -19,7 +19,7 @@ Everything below is the part that does *not* change every week.
 
 ## Where this stands
 
-Nineteen packages version in lockstep under `@schlessera/brain-*`. Published
+Twenty packages version in lockstep under `@schlessera/brain-*`. Published
 packages remain independently consumable:
 
 | Package | What it is |
@@ -33,6 +33,7 @@ packages remain independently consumable:
 | `brain-render-template` | Shared markdown/HTML → print-ready document shell |
 | `brain-render-puppeteer` | Optional HTML→PNG/PDF renderer, network-denied and scriptless |
 | `brain-scrape` | Scraping base: polite HTTP, robots.txt, headless Chrome, site-adapter seam |
+| `brain-compute-boat` | External compute provider for Boat sandboxes, loaded only when an instance names `boat` |
 | `brain-ui-server` | Hono app factory: WS turn coordinator, auth, session catalog, routes |
 | `brain-ui-kit` | Presentational design kit: components, tokens, Storybook |
 | `brain-ui-react` | React chat/files/voice components, stores, WS transport |
@@ -70,7 +71,7 @@ when it was made — not a preference.
    such thing as a data migration for derived state.
 2. **A seam only where a second implementation is plausible within a year.**
    Seams exist for embeddings, completions, rerankers, agent runners, agent backends,
-   speech, tool renderers, and skill emitters. Everywhere else, concrete code
+   speech, tool renderers, skill emitters and compute providers. Everywhere else, concrete code
    stays concrete. The not-pluggable list in
    [docs/extending/README.md](docs/extending/README.md) is final.
 3. **Skills orchestrate, the CLI executes.** Deterministic logic goes into a
@@ -84,7 +85,10 @@ when it was made — not a preference.
    maintainer ruling first, and from 1.0 a major bump.
 5. **Fail closed on exposure.** A publicly reachable chat UI without auth
    refuses to boot, the renderer is denied every egress channel, and
-   `brain doctor` warns loudly on a public content remote.
+   `brain doctor` warns loudly on a public content remote. Every other
+   guard contains proportionately: it restricts only what is uncertain, runs
+   restricted before refusing and recovers automatically when recovery needs no
+   judgment. See [docs/decisions/proportionate-containment.md](docs/decisions/proportionate-containment.md).
 6. **Your content repo stays yours.** brain-kit is infrastructure delivered by
    version bump; it never merges into your content, and your taxonomy is built
    by onboarding rather than shipped by us.

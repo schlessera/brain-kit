@@ -140,7 +140,7 @@ component `.tsx` files, so "17 non-component files" is wrong. Outside
 
 **Attach the whole store API, not just getState/setState.** Tests already call
 `.getInitialState()` in three places (`getInitialState()`,
-`render-smoke.test.tsx:143,144`, `getInitialState()`,
+`render-smoke.test.tsx:145,146`, `getInitialState()`,
 `graph-store.test.ts:105`). `Object.assign(hook, store)` covers it; a
 hand-picked two-method shim would not.
 
@@ -154,7 +154,7 @@ structure in `details`. Worse: **the Pi adapter sends text content only and drop
 (`const output =`, `stream-adapter.ts:203`). So "JSON payload in the output
 string" is a *convention we would be establishing*, not one we are following.
 The no-bump conclusion still holds — `Additions never bump it`,
-`packages/ui-sdk/src/protocol.ts:54` states additions do not bump the rev, only semantics changes
+`packages/ui-sdk/src/protocol.ts:57` states additions do not bump the rev, only semantics changes
 do — and `ToolCallView.output?: string` already lets a renderer parse
 locally. Turning `output` itself into an object would be a different, breaking
 change.

@@ -19,6 +19,17 @@ async function probe(scenario: string): Promise<any> {
 function inference(r: any): string[] { return r.attempts.filter((a: any) => a.kind === "inference").map((a: any) => a.url); }
 
 describe("pi native endpoint routing through the real adapter", () => {
+  test("external observer extension refuses before inference and session persistence", async () => {
+    const r = await probe("external-observer");
+    expect(r.refusals).toHaveLength(1);
+    expect(r.refusals[0]).toContain("Pi input collection is not qualified");
+    expect(inference(r)).toEqual([]);
+    expect(r.received).toEqual([]);
+    expect(r.sessions).toEqual([]);
+    expect(r.persisted).toEqual([]);
+    expect(r.parentStateUnchanged).toBe(true);
+    expect(r.frames.flat().some((f: any) => f.type === "tool_use_start")).toBe(false);
+  });
   test("configured endpoint receives ordinary new, resident and persisted-resume requests", async () => {
     const r = await probe("ordinary");
     expect(r.configuredInput).toBe(r.configured);

@@ -12,6 +12,7 @@
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { publishFile } from "../../../../tests/helpers/atomic-file";
 import type { AgentBackend, BrainApplicationInput } from "@schlessera/brain-ui-sdk/server";
 import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { type CreateAppOptions } from "../../src/app";
@@ -64,5 +65,5 @@ const app = await createApp({
 } as CreateAppOptions);
 const principal = createPrincipal(app.db, { authMethod: "password", label: "Odysseus", ttlSeconds: 3600 });
 const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: app.fetch, websocket: app.websocket });
-writeFileSync(join(dir, "ready.json"), JSON.stringify({ port: server.port, principalId: principal.id, pid: process.pid }));
+publishFile(join(dir, "ready.json"), JSON.stringify({ port: server.port, principalId: principal.id, pid: process.pid }));
 process.on("SIGTERM", async () => { server.stop(true); await app.close(); process.exit(0); });

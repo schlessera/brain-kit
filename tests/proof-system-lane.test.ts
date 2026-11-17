@@ -37,94 +37,106 @@ beforeAll(() => {
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 
-describe("stability window (#3269, as clarified in issuecomment-6575963951)", () => {
+describe("stability window (#3269, single run as amended in #2938 issuecomment-6580707195)", () => {
   test("finds the last proof-system squash and the squashes after it", () => {
-    expect(lastProofSystemSquash(sha.mast!, { cwd: dir })).toEqual({ squash: sha.sails!, later: [sha.oars!, sha.mast!], more: false, scanned: 3 });
-    expect(lastProofSystemSquash(sha.oars!, { cwd: dir })).toEqual({ squash: sha.sails!, later: [sha.oars!], more: false, scanned: 2 });
-    expect(lastProofSystemSquash(sha.raft!, { cwd: dir })).toEqual({ squash: null, later: [], more: false, scanned: 2 });
+    expect(lastProofSystemSquash(sha.mast!, { cwd: dir })).toEqual({ squash: sha.sails!, later: [sha.oars!, sha.mast!], omitted: 0, scanned: 3 });
+    expect(lastProofSystemSquash(sha.oars!, { cwd: dir })).toEqual({ squash: sha.sails!, later: [sha.oars!], omitted: 0, scanned: 2 });
+    expect(lastProofSystemSquash(sha.sails!, { cwd: dir })).toEqual({ squash: sha.sails!, later: [], omitted: 0, scanned: 1 });
+    expect(lastProofSystemSquash(sha.raft!, { cwd: dir })).toEqual({ squash: null, later: [], omitted: 0, scanned: 2 });
   });
 
   // Synthetic merge order: p is the proof-system squash, a..k the squashes after it.
   const later = "abcdefghijk".split("");
-  const history = (count: number, more = false) => ({ squash: "p", later: later.slice(0, count), more, scanned: count + 1 });
+  const history = (count: number, omitted = 0) => ({ squash: "p", later: later.slice(0, count), omitted, scanned: count + omitted + 1 });
   const ok = (id: number): MainRun => ({ id, status: "completed", conclusion: "success" });
   const bad = (id: number, conclusion = "failure"): MainRun => ({ id, status: "completed", conclusion });
   const busy = (id: number): MainRun => ({ id, status: "in_progress", conclusion: null });
-  const decide = (own: MainRun | null, rest: (MainRun | null)[], more = false) =>
-    decideLane("main", history(rest.length, more), new Map([["p", own], ...rest.map((run, index): [string, MainRun | null] => [later[index]!, run])]));
+  const decide = (own: MainRun | null, rest: (MainRun | null)[], omitted = 0) =>
+    decideLane("main", history(rest.length, omitted), new Map([["p", own], ...rest.map((run, index): [string, MainRun | null] => [later[index]!, run])]));
 
-  test("the own run must be green", () => {
-    for (const own of [bad(1), bad(1, "cancelled"), busy(1), null]) {
-      const decision = decide(own, [ok(2), ok(3)]);
-      expect(decision, `OWN_RUN_NOT_GREEN:${JSON.stringify(own)}`).toMatchObject({ state: "closed", open: false, ownGreen: false, required: 3 });
-      expect(laneRefusal(decision)).toContain("needs its own main run green first");
+  test("the own green run opens the lane without waiting for later runs", () => {
+    for (const rest of [[], [busy(2)], [null], [busy(2), null], [ok(2)]]) {
+      const decision = decide(ok(1), rest);
+      expect(decision, `OWN_GREEN_OPENS:${JSON.stringify(rest)}`).toMatchObject({ state: "open", open: true, ownGreen: true, required: 0 });
+      expect(laneRefusal(decision)).toBeNull();
     }
   });
 
-  test("own green and one later green run: 1 more green main run required", () => {
-    for (const tail of [[], [null], [busy(3)], [{ id: 3, status: "queued", conclusion: null }]]) {
-      const decision = decide(ok(1), [ok(2), ...tail]);
-      expect(decision, `ONE_MORE:${JSON.stringify(tail)}`).toMatchObject({ state: "closed", ownGreen: true, streak: 1, required: 1 });
+  test("an own run that has not settled holds the lane, whatever later runs show", () => {
+    for (const [own, rest] of [[busy(1), []], [null, []], [{ id: 1, status: "queued", conclusion: null }, [ok(2)]], [busy(1), [ok(2), ok(3)]]] as const) {
+      const decision = decide(own, [...rest]);
+      expect(decision, `OWN_RUN_NOT_SETTLED:${JSON.stringify(own)}`).toMatchObject({ state: "closed", open: false, required: 1, decisive: null });
+      expect(laneRefusal(decision)).toContain("has no settled main run of its own yet");
       expect(laneRefusal(decision)).toContain("1 more green main run required");
     }
   });
 
-  test("own green and the next two green open the lane", () => {
-    const decision = decide(ok(1), [ok(2), ok(3)]);
-    expect(decision).toMatchObject({ state: "open", open: true, streak: 2, required: 0 });
-    expect(laneRefusal(decision)).toBeNull();
+  test("a failed, cancelled or timed-out own run holds the lane until the next green main run", () => {
+    for (const own of [bad(1), bad(1, "cancelled"), bad(1, "timed_out")]) {
+      const decision = decide(own, [busy(2)]);
+      expect(decision, `OWN_RUN_NOT_GREEN:${JSON.stringify(own)}`).toMatchObject({ state: "closed", ownGreen: false, required: 1, decisive: { position: 0 } });
+      expect(laneRefusal(decision)).toContain("its own main run is not green");
+      expect(decide(own, [busy(2), ok(3)]), `NEXT_GREEN_AFTER_A_RED_OWN_RUN:${JSON.stringify(own)}`).toMatchObject({ state: "open", ownGreen: false, decisive: { position: 2 } });
+    }
+    // A squash that never got a run is settled not green once a later squash exists.
+    expect(decide(null, [busy(2)])).toMatchObject({ state: "closed", ownGreen: false, decisive: { position: 0, settled: true } });
   });
 
-  test("a later failure restarts the count: one green after it is not enough, two consecutive are", () => {
-    const one = decide(ok(1), [bad(2), ok(3)]);
-    expect(one, "FAILURE_RESTARTS_THE_COUNT").toMatchObject({ state: "closed", streak: 1, required: 1 });
-    expect(laneRefusal(one)).toContain("1 more green main run required");
-    expect(laneRefusal(one)).toContain("next run 1 at a: run 2 failure");
-    expect(decide(ok(1), [ok(2), bad(3), ok(4)]), "GREEN_BEFORE_THE_FAILURE_DOES_NOT_COUNT").toMatchObject({ state: "closed", streak: 1, required: 1 });
-    expect(decide(ok(1), [bad(2), ok(3), ok(4)])).toMatchObject({ state: "open", required: 0 });
-    expect(decide(ok(1), [ok(2), bad(3), ok(4), ok(5)])).toMatchObject({ state: "open", required: 0 });
+  test("after a later failure, a single later green run reopens the lane", () => {
+    const failed = decide(ok(1), [bad(2)]);
+    expect(failed, "LATER_FAILURE_CLOSES").toMatchObject({ state: "closed", ownGreen: true, required: 1, decisive: { position: 1 } });
+    expect(laneRefusal(failed)).toContain("the newest settled main run after it is not green");
+    expect(laneRefusal(failed)).toContain("run 1 after it at a: run 2 failure");
+    expect(decide(ok(1), [bad(2), busy(3)]), "PENDING_IS_NOT_GREEN").toMatchObject({ state: "closed", required: 1 });
+    expect(decide(ok(1), [bad(2), ok(3)]), "ONE_GREEN_REOPENS").toMatchObject({ state: "open", required: 0, decisive: { position: 2 } });
+    expect(decide(ok(1), [bad(2), ok(3), busy(4)])).toMatchObject({ state: "open" });
+    expect(decide(ok(1), [ok(2), bad(3)]), "GREEN_BEFORE_THE_FAILURE_DOES_NOT_COUNT").toMatchObject({ state: "closed", decisive: { position: 2 } });
   });
 
-  test("cancelled and missing runs are not green; pending runs stop the count", () => {
-    expect(decide(ok(1), [ok(2), bad(3, "cancelled")]), "CANCELLED_IS_NOT_GREEN").toMatchObject({ state: "closed", streak: 0, required: 2 });
-    expect(laneRefusal(decide(ok(1), [ok(2), bad(3, "cancelled")]))).toContain("2 more green main runs required");
-    // A squash with no run before a later squash never gets one: it restarts the count.
-    expect(decide(ok(1), [ok(2), null, ok(4)])).toMatchObject({ state: "closed", streak: 1, required: 1 });
-    expect(decide(ok(1), [null, ok(3), ok(4)])).toMatchObject({ state: "open" });
-    // An in-progress run may still fail: nothing after it counts yet.
-    expect(decide(ok(1), [busy(2), ok(3), ok(4)])).toMatchObject({ state: "closed", streak: 0, required: 2 });
-    expect(decide(ok(1), [])).toMatchObject({ state: "closed", required: 2 });
+  test("cancelled and missing later runs are not green", () => {
+    const cancelled = decide(ok(1), [bad(2, "cancelled")]);
+    expect(cancelled, "CANCELLED_IS_NOT_GREEN").toMatchObject({ state: "closed", required: 1 });
+    expect(laneRefusal(cancelled)).toContain("run 2 cancelled");
+    expect(decide(ok(1), [bad(2, "cancelled"), ok(3)])).toMatchObject({ state: "open" });
+    // A squash with no run before a later squash never gets one.
+    expect(decide(ok(1), [null, busy(3)]), "MISSING_IS_NOT_GREEN").toMatchObject({ state: "closed", decisive: { position: 1, run: null, settled: true } });
+    expect(laneRefusal(decide(ok(1), [null, busy(3)]))).toContain("run 1 after it at a: no main-push CI run)");
   });
 
-  test("beyond the bound the lane is unknown and refused", () => {
-    const flapping = Array.from({ length: MAX_MAIN_RUNS - 1 }, (_, index) => index % 2 ? bad(index + 2) : ok(index + 2));
-    const unknown = decide(ok(1), flapping, true);
+  test("when every later run read is unsettled and older ones were not read, the lane is unknown and refused", () => {
+    const pending = Array.from({ length: MAX_MAIN_RUNS - 1 }, (_, index) => busy(index + 2));
+    const unknown = decide(ok(1), pending, 3);
     expect(unknown).toMatchObject({ state: "unknown", open: false, required: null });
     expect(laneRefusal(unknown)).toContain("Proof-system lane unknown");
-    expect(decide(ok(1), flapping, false)).toMatchObject({ state: "closed", required: 1 });
+    expect(decide(ok(1), pending, 0)).toMatchObject({ state: "open" });
   });
 
-  test("readLane reads runs in merge order, stops once decided and agrees with the refusal", async () => {
+  test("readLane reads the own run, then later runs newest first, stops once decided and agrees with the refusal", async () => {
     const asked: string[] = [];
-    const decision = await readLane(sha.mast!, async at => { asked.push(at); return at === sha.oars ? { id: 2, status: "completed", conclusion: "failure" } : ok(1); }, { cwd: dir });
-    expect(asked).toEqual([sha.sails!, sha.oars!, sha.mast!]);
-    expect(decision).toMatchObject({ state: "closed", streak: 1, required: 1, next: null });
+    const runs: Record<string, MainRun> = { [sha.sails!]: ok(1), [sha.oars!]: bad(2), [sha.mast!]: busy(3) };
+    const decision = await readLane(sha.mast!, async at => { asked.push(at); return runs[at]!; }, { cwd: dir });
+    expect(asked).toEqual([sha.sails!, sha.mast!, sha.oars!]);
+    expect(decision).toMatchObject({ state: "closed", required: 1, next: null });
     expect(laneRefusal(decision)).toContain("run 2 failure");
     const own: string[] = [];
-    await readLane(sha.mast!, async at => { own.push(at); return bad(1); }, { cwd: dir });
-    expect(own, "NO_LATER_READS_AFTER_A_RED_OWN_RUN").toEqual([sha.sails!]);
+    await readLane(sha.mast!, async at => { own.push(at); return busy(1); }, { cwd: dir });
+    expect(own, "NO_LATER_READS_BEFORE_THE_OWN_RUN_SETTLES").toEqual([sha.sails!]);
+    const newest: string[] = [];
+    await readLane(sha.mast!, async at => { newest.push(at); return ok(1); }, { cwd: dir });
+    expect(newest, "STOPS_AT_THE_NEWEST_SETTLED_RUN").toEqual([sha.sails!, sha.mast!]);
     const product = await readLane(sha.raft!, async () => { throw new Error("NO_RUN_READ_WITHOUT_A_PROOF_SYSTEM_SQUASH"); }, { cwd: dir });
     expect(product).toMatchObject({ open: true, proofSystemSquash: null });
   });
 
   test("readLane never reads more than the bound", async () => {
-    // Twelve product squashes after mast whose runs alternate red and green.
+    // Twelve product squashes after mast whose runs are all still in progress.
     let tip = sha.mast!;
     for (let index = 0; index < 12; index++) tip = git("commit-tree", `${tip}^{tree}`, "-p", tip, "-m", `wave ${index}`);
     const asked: string[] = [];
-    const decision = await readLane(tip, async at => { asked.push(at); return asked.length % 2 ? ok(asked.length) : bad(asked.length); }, { cwd: dir });
+    const decision = await readLane(tip, async at => { asked.push(at); return at === sha.sails ? ok(1) : busy(asked.length); }, { cwd: dir });
     expect(asked, "BOUNDED_MAIN_RUN_READS").toHaveLength(MAX_MAIN_RUNS);
     expect(asked[0]).toBe(sha.sails!);
+    expect(asked[1]).toBe(tip);
     expect(decision).toMatchObject({ state: "unknown", open: false, required: null });
   });
 });

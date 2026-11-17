@@ -48,8 +48,13 @@ describe("config/env descriptor", () => {
     expect(names.sort()).toEqual(
       [
         "ANTHROPIC_API_KEY",
+        "APIFY_TOKEN",
         "BRAIN_AGENT_RUNNER_UNAVAILABLE",
+        "BRAIN_APIFY_LEDGER",
         "BRAIN_CHROME_NO_SANDBOX",
+        "BRAIN_COMPUTE_STATE_DIR",
+        "BRAIN_MEDIA_PINNED_PATH_LIMIT",
+        "BRAIN_MEDIA_REFERENCE_LIMITS",
         "BRAIN_PROVIDER_RELAY_SOCKET",
         "BRAIN_RERANK_MODE",
         "BRAIN_ROOT",
@@ -58,11 +63,13 @@ describe("config/env descriptor", () => {
         "BRAIN_WITHHELD_KEYS",
         "BRAIN_WORKER_CONFIG_ROOT",
         "BRAIN_WORKER_DATA_ROOT",
+        "BRAIN_WORKER_OUTPUT_ALLOWANCE",
         "CLAUDE_CODE_PATH",
         "GEMINI_API_KEY",
         "NO_COLOR",
         "TYPESAFE_API_KEY",
         "XDG_BIN_HOME",
+        "XDG_STATE_HOME",
       ].sort()
     );
   });

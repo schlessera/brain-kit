@@ -13,7 +13,7 @@ import {
   visibleToolName,
 } from "@schlessera/brain-ui-sdk/client";
 
-export const ASK_USER_TOOL_NAME = visibleToolName(ASK_USER_CONTRACT.name, "claude");
+const ASK_USER_TOOL_NAME = visibleToolName(ASK_USER_CONTRACT.name, "claude");
 export const GET_LOCATION_TOOL_NAME = visibleToolName(
   GET_CURRENT_LOCATION_CONTRACT.name,
   "claude"

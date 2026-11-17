@@ -81,7 +81,7 @@ test("no identity or focus section is prepended", async () => {
 test("the search's warnings lead the block when they fit", async () => {
   // Keyless: vector search is unavailable, and the block says so first.
   const out = await context("lantern", 4000);
-  expect(out.startsWith("> vector search unavailable")).toBe(true);
+  expect(out).toStartWith("> vector search unavailable");
   expect(estimateTokens(out)).toBeLessThanOrEqual(4000);
 });
 

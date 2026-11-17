@@ -12,11 +12,14 @@ Tool names and input schemas are stable:
 | Tool | Annotations | structuredContent |
 |------|-------------|-------------------|
 | `brain_search` | readOnly | `{ results, warnings }` — each result is `{ path, title, type, relevance, status, summary, updated, deadline, tags, score, snippet, supersededBy? }`; every field after `type` may be `null`. `status`, `summary`, `updated` and `deadline` are additive in 0.38.0. `supersededBy`, the path of the document that `supersedes` this one, is present only when one does (additive in 0.38.0) |
-| `brain_context` | readOnly | `{ context, warnings }` |
+| `brain_context` | readOnly | `{ context, warnings }`, plus `coverage` when the call has a path scope (additive in 0.45.0; see [Scoped context](#scoped-context-additive-0450-3644)) |
 | `brain_read` | readOnly | none — the first `content` block is the file text, verbatim; with `section`, that section; over `max_tokens`, the frontmatter and an outline of headings with estimated token counts. `max_tokens` is the threshold that switches to the outline, not a cap on the output: a large frontmatter or very many headings give an outline larger than it |
-| `brain_list` | readOnly | `{ documents, warnings }` |
+| `brain_list` | readOnly | `{ documents, warnings }`; with `path_prefix`, `overview` or `cursor`, one bounded page `{ documents, next_cursor, total, truncated?, warnings }` (see [paged inventory](#brain_list-paged-inventory-additive-0450-3643), additive in 0.45.0) |
+| `brain_read_many` (additive, 0.45.0) | readOnly | none — the first and only `content` block is the compact JSON envelope `{ items, truncated, max_total_chars, max_item_chars, warnings }`; see [Bounded multi-read](#bounded-multi-read-additive-0450-3642) |
 | `brain_graph` | readOnly | `{ edges: [{ source, target, resolved }], nodes: [{ path, title, type, summary, updated }], warnings }`. `nodes` holds one entry, sorted by `path`, for every document an edge touches: each `source`, and each `target` whose `resolved` is `true`. An unresolved target is raw link text and never a node. `summary` and `updated` may be `null`. `nodes` is additive in 0.38.0 |
 | `brain_add` / `brain_update` / `brain_archive` | non-destructive, idempotent (update/archive) | result object |
+| `brain_compute_*` | see [External compute tools](#external-compute-tools-additive-0450-3107) | the `brain compute` envelope |
+| `brain_apify_discover` … `brain_apify_abort` (additive, 0.45.0) | open-world; read-only except `run` and `abort` | the Apify envelope; see [Apify tools](#apify-tools-additive-0450-3162) |
 
 `brain_search`, `brain_list` and `brain_graph` repeat their structuredContent
 as the first `content` block, and the write tools return their result object
@@ -33,7 +36,10 @@ characters collapse to single spaces and it is capped at 80 characters, so a
 config value cannot add lines of its own. They point to `brain_search`,
 `brain_context`, `brain_read` and `brain_graph` for reading, and `brain_add`
 and `brain_update` for writing, and say that `brain.db` is never edited
-(`serverInstructions`, `packages/core/src/mcp-server.ts:77-89`). Tool descriptions are descriptive in the
+(`serverInstructions`, `packages/core/src/mcp-server.ts:95-109`). Since 0.45.0
+they add one sentence: the `brain_apify_*` tools reach Apify's paid remote
+extractors under the governance policy, are not web search, and discovering or
+inspecting an Actor never runs it. Tool descriptions are descriptive in the
 same way. The read tools' descriptions state their defaults and the server
 caps: `brain_search` `limit` at 50 and `brain_graph` `depth` at 5, and
 `brain_list`'s accepted `limit` range of 1 to 100.
@@ -47,16 +53,237 @@ applies one:
 | Tool | Inputs |
 |------|--------|
 | `brain_search` | `query`, `type?`, `tag?`, `relevance?`, `mode?` (`fts`\|`vector`\|`hybrid`, default `hybrid`), `rerank?` (`none`\|`heuristic`\|`jev`; omitted → the configured provider when `reranker.enabled` is true and available, otherwise local heuristic. An explicit `jev` cannot enable judgment while off; it warns and falls back. 0.39.0 added `jev` and dropped the schema default of `heuristic`), `include_archived?` (default `false`), `assets_only?` (default `false`), `limit?` (default `10`), `updated_since?`, `updated_before?`, `deadline_from?`, `deadline_to?` (`YYYY-MM-DD`, inclusive), `sort?` (`score`\|`updated`\|`deadline`, default `score`), `upcoming?` (default `false`) — the six date inputs added in 0.38.0, additively; an invalid date is a tool error |
-| `brain_context` | `query`, `max_tokens?` (default `4000`), `include_identity?` (default `true`), `include_current_focus?` (default `true`) |
+| `brain_context` | `query`, `max_tokens?` (default `4000`), `include_identity?` (default `true`), `include_current_focus?` (default `true`), `include?`, `exclude?` (each at most 64 paths of 1 to 512 characters; additive in 0.45.0, see [Scoped context](#scoped-context-additive-0450-3644)) |
 | `brain_read` | `path`, `section?` (a heading's visible text, compared under Unicode canonical caseless matching (full case folding); the body is parsed as GFM, and only top-level ATX and setext headings count, never one inside code, HTML, a table, a list or a blockquote; the section runs to the next heading of the same or higher level; of two equal headings the first is returned; an unknown one is an error naming the document's headings), `max_tokens?` (positive safe integer; the threshold for the outline, not an output cap; no default, so the whole file comes back unless it is given). Both additive in 0.38.0 |
-| `brain_list` | `type?`, `tag?`, `status?`, `relevance?`, `limit?` (integer `1`–`100`, default `20`; the schema says `"type": "integer", "minimum": 1, "maximum": 100`. A fraction, `0`, a negative or a value over `100` is rejected as invalid input, a tool result with `isError: true` and no `structuredContent`, the convention every schema violation follows. **Breaking in 0.41.0 (#1351):** the schema was a plain `number` and the server clamped the value into 1–100, so `0` listed 1 and `500` listed 100) |
+| `brain_list` | `type?`, `tag?`, `status?`, `relevance?`, `limit?` (integer `1`–`100`, default `20`; the schema says `"type": "integer", "minimum": 1, "maximum": 100`. A fraction, `0`, a negative or a value over `100` is rejected as invalid input, a tool result with `isError: true` and no `structuredContent`, the convention every schema violation follows. **Breaking in 0.41.0 (#1351):** the schema was a plain `number` and the server clamped the value into 1–100, so `0` listed 1 and `500` listed 100), `path_prefix?`, `overview?` (boolean), `cursor?` (the three additive in 0.45.0, #3643) |
 | `brain_graph` | `path`, `depth?` (default `1`), `direction?` (`outgoing`\|`incoming`\|`both`, default `both`) |
+| `brain_read_many` | `requests` (1–20 of `{ path, section?, offset?, column?, expected_sha256? }`; no other key), `max_total_chars?` (integer `2000`–`40000`; `24000` when omitted), `max_item_chars?` (integer `512`–`40000` and at most `max_total_chars`; `8000`, or `max_total_chars` if smaller, when omitted). Additive in 0.45.0; see [Bounded multi-read](#bounded-multi-read-additive-0450-3642) |
 | `brain_add` | `content`, `type?`, `title?`, `tags?` (comma-separated) |
 | `brain_update` | `path`, `summary?`, `status?` (`active`\|`archived`\|`draft`), `relevance?` (`primary`\|`secondary`\|`historical`), `tags?` (comma-separated, replaces), `deadline?`, `next_review?` (ISO 8601; `""` removes), `append_content?`. Setting `status: "archived"` applies `brain_archive`'s relevance rule to the effective relevance (the `relevance` passed in the same call, else the document's): a `primary` or missing one becomes `historical` and `"relevance"` is listed in `changes`; an explicit `secondary` or `historical` stays (additive in 0.38.0) |
 | `brain_archive` | `path`, `dry_run?` (default `false`) |
 
 Read tools append an index-staleness warning when markdown files are newer
-than their `indexed_at`.
+than their `indexed_at`; `brain_read_many` carries it, once, in its envelope's
+`warnings` instead of a second content block.
+
+<a id="brain_list-paged-inventory-additive-0450-3643"></a>
+
+### `brain_list` paged inventory (additive, 0.45.0, #3643)
+
+Passing any of `path_prefix`, `overview` or `cursor`, even `overview: false`,
+selects one bounded page of the shared paged inventory instead of the legacy
+listing: `{ documents, next_cursor, total, truncated?, warnings }`, newest
+`updated` first then by `path`, at most 30,000 UTF-8 bytes of compact JSON,
+whole rows only. Every row keeps the six listing fields; `overview: true` adds
+`summary`, `updated`, `deadline`, `indexed_at` and `indexed_body_bytes`, and a
+row shortened to fit names the fields in `clipped`. `updated` is the
+frontmatter date as indexed, not the file's mtime or project activity;
+`indexed_body_bytes` is the UTF-8 size of the indexed body without its
+frontmatter, never the whole file's size. `path_prefix` matches whole path
+segments. `next_cursor` is `null` at the end; a malformed cursor, a cursor
+from a listing with other filters or prefix, and a malformed prefix are tool
+errors (`isError: true`, no `structuredContent`) naming the input. The page
+carries the server's usual warnings, a stale-cursor warning when the index
+changed since the cursor was issued, and, with `overview`, a warning for
+listed sources changed after indexing or missing. Pi's `brain_list` takes the
+same three inputs and returns the same page as compact JSON text, and pi's
+`brain_search` takes `overview` to show each result's status, `updated`,
+`deadline` and summary (whitespace collapsed, at most 300 code points)
+within its 30,000-byte output, keeping whole results and ending with
+`… <n> more result(s) omitted to fit the output budget` when they do not all
+fit; without it pi's search output is unchanged. The fields, order, cursor,
+bound and warnings are specified once in
+[the paged inventory](../content-index-queries.md#paged-inventory-and-the-overview-projection).
+A call with none of the three inputs returns the legacy `{ documents,
+warnings }` byte for byte.
+
+<a id="scoped-context-additive-0450-3644"></a>
+
+### Scoped context (additive, 0.45.0, #3644)
+
+`brain_context` takes two optional path lists, `include` and `exclude`; `brain
+context` takes them as repeatable `--include` and `--exclude` flags and pi's
+`brain_context` as `include` and `exclude` parameters. All three call one
+assembler (`assembleContext`, `packages/core/src/lib/context-assembler.ts:346-567`),
+which validates the scope (`parseContextScope`,
+`packages/core/src/lib/context-scope.ts:105-133`) before anything is read.
+
+- **Entries.** A repository-relative path. One ending in `/` is a folder
+  prefix and covers everything under it at any depth; any other entry names
+  exactly one file (`projects` is a file called `projects`, not the folder).
+  There are no globs. An absolute path, a `.`, `..` or empty segment, `\`,
+  `:` or a control character is refused: a tool error on MCP, a usage error
+  (exit `1`, nothing on stdout, no query run) on the CLI, a thrown tool error
+  on pi. Each list holds at most 64 entries of 1 to 512 characters.
+- **Precedence.** An exclusion wins over an inclusion everywhere. With no
+  include list, every path not excluded is in scope; with one, only the paths
+  it covers. Include entries match case-sensitively; exclude entries match
+  under Unicode compatibility case folding, so a differently cased spelling of
+  an excluded path is still excluded. A file is also checked under its real
+  path: an in-repository symlink to an excluded file is excluded, and one that
+  leaves the root is unavailable.
+- **Every lane.** The scope applies before a source file is opened, to the
+  identity and current-focus documents, to the search pool (drawn from the
+  scope's indexed paths, so nothing outside it takes a place or fills spare
+  budget), to each hit's section expansion and to the `### Related`
+  neighbours; an out-of-scope `_index.md` is passed over for the next one up.
+  An include list that does not cover the identity or current-focus document
+  leaves it out. The scope only narrows: it never makes readable what the
+  index, policy or provider masks leave out.
+- **Coverage.** A scoped call returns `coverage`: `{ exhaustive: false,
+  include, exclude, excerpts: [{ path, lane, form }], omitted: [{ path, reason
+  }], omittedMore, budgetExhausted }`. `lane` is `identity`, `focus`, `search`
+  or `related`; `form` is `whole`, `cut`, `section`, `snippet` or `summary`.
+  `reason` is `budget` (an in-scope candidate with no room), `unavailable`
+  (named or canonical but not indexed, missing, unreadable or outside the
+  root), `not_ranked` (an exactly included path the query did not select) or
+  `excluded` (an exactly included path an exclusion also covers). At most 64
+  omissions are listed; `omittedMore` counts the rest. A briefing is ranked
+  and budgeted, never an inventory: a path in scope that is in neither list
+  was simply not selected. MCP adds `coverage` to `structuredContent` and a
+  `### Coverage` note as the last content block; the CLI prints the note after
+  the context, and pi appends it to the tool text and puts `coverage` in the
+  result's `details`. The note is outside the token budget; it names the
+  partial excerpts (`snippet` or `cut`), whose files hold more than the
+  briefing shows, and the omissions, at most 20 of each.
+- **Unscoped calls are unchanged.** Without an entry in either list, output,
+  `structuredContent` and defaults are what they were: MCP and the CLI include
+  identity and current focus by default; pi never does, scoped or not, since
+  its session already loads them.
+
+<a id="bounded-multi-read-additive-0450-3642"></a>
+
+### Bounded multi-read (additive, 0.45.0, #3642)
+
+`brain_read_many` reads up to 20 documents or sections under one size budget.
+MCP serves it as `brain_read_many`, pi registers a tool of the same name with
+the same input, and `brain read-many --json` prints the same envelope. All
+three run one core operation (`readMany`,
+`packages/core/src/lib/ops/read-many.ts:426-480`); the decision behind it is
+[bounded-multi-read.md](../decisions/bounded-multi-read.md). `brain_read` is
+unchanged: its output, its whole-file default and its uncapped `max_tokens`
+threshold are what they were, and so is the hosted `brain_read_base`.
+
+- **Unit.** Every size is UTF-16 code units of compact JSON,
+  `JSON.stringify(x).length`, field names, quoting, metadata and escaping
+  included. The whole envelope is at most `max_total_chars` and each item at
+  most `max_item_chars`. UTF-8 bytes can be up to three times that.
+  `est_tokens` is `ceil(chars / 4)`, an estimate, never a provider count.
+- **Refused whole.** A call that fails the schema, sets `column` without
+  `offset`, sets `max_item_chars` above `max_total_chars`, or whose caps
+  cannot hold a `budget_exhausted` stub for every request (or a stub within
+  `max_item_chars`) reads nothing: a tool error on MCP and pi, a usage error
+  (exit `1`, nothing on stdout) on the CLI. Nothing is clamped.
+- **Envelope.** `{ items, truncated, max_total_chars, max_item_chars, warnings }`.
+  `items[i].index === i`, in request order, which is the caller's priority.
+  Before each item the call reserves room for a stub for every later request,
+  so a later request is answered, at worst, as `budget_exhausted`, never
+  dropped. `truncated` is true when an item is an `outline`, an `error`, or a
+  `partial` with a `next`. `warnings` holds the call's tool warnings once: on
+  MCP the read tools' config, module-load and stale-index warnings; the CLI
+  and pi have none.
+- **Items.** Each has `index`, `path` (as given), `section` when asked, and a
+  `kind`:
+  - `full`: `sha256`, `content`. `content` is byte for byte what `brain_read`
+    returns for the same `path` and `section`.
+  - `outline`: the scope does not fit and has headings to choose between (a
+    section needs a subheading). `sha256`, `bytes`, `chars`, `est_tokens` (of
+    the scope), `frontmatter` (whole document only, when it fits whole;
+    otherwise `frontmatter_chars`), `headings: [{ level, text, est_tokens }]`
+    in document order while they fit, `omitted_headings` when some did not,
+    and `next: { offset: 1 }`. An outline that could hold no heading is not
+    returned; the scope is paged instead.
+  - `partial`: the scope has nothing to choose between, or `offset` was given.
+    `sha256`, `bytes`, `chars`, `est_tokens`, `offset`, `column` (when not
+    `0`), `lines` (of the scope), `returned_lines` (lines touched, one cut
+    short included), `text` and, unless the page reaches the end, `next: {
+    offset, column? }`. A page takes whole lines while they fit, then the
+    fitting prefix of the next line, cut on a code point. Requesting `next`
+    each time and joining every page's `text` reproduces the scope exactly.
+  - `duplicate`: `of`, the index of an earlier request that resolves to the
+    same file (through spelling and in-root links) with the same section
+    (compared as `section` matches headings), `offset`, `column` and
+    `expected_sha256`. That item stands for both, whatever its kind.
+  - `error`: `code`, `message` (fixed text, never a host path), and `sha256`
+    and `headings` where noted.
+- **Error codes.** `refused` (the path is absolute, has a `..`, colon or
+  backslash segment, or leaves the root through a link: `brain_read`'s rule),
+  `not_found`, `not_a_file`, `too_large` (over 4 MiB, checked again after the
+  read), `work_limit` (the call has read 16 MiB of distinct files),
+  `read_failed`, `section_not_found` (with `sha256` and as many of the
+  document's heading texts as fit in `headings`), `source_changed` (the file's
+  SHA-256 is not `expected_sha256`; carries the current `sha256`),
+  `bad_offset` (past the last line, past the end of the offset line, or a
+  `column` that splits a surrogate pair; carries `sha256`) and
+  `budget_exhausted`. One item's error never fails the call. Consumers
+  tolerate unknown codes.
+- **Versions.** Each distinct file is read once per call, so every item of
+  it names the same `sha256`: the SHA-256 of its bytes, the hash
+  `brain_read_base` calls `expectedBaseHash`. It is a retrieval version, not a
+  hosted write receipt: pi's `brain_read_many` records no write base.
+- **Authority.** Each request is resolved as one `brain_read` resolves it, by
+  the same resolver on each surface, and read through the filesystem the
+  caller runs in, so provider masks and data trees apply as they do to
+  `brain_read`. MCP marks it `readOnlyHint: true`; both backends auto-allow it
+  as they do `brain_read`, it is in the Claude voice posture, takes no lock,
+  waits at the index barrier like `brain_read`, and the turn journal observes
+  it as `unproven`. Schedules do not accept it.
+- **Cancellation.** The signal is checked before every request and before
+  and after every file read. A cancelled call rejects with no partial result:
+  MCP passes the request's abort signal, pi the tool's and the turn's.
+- **CLI.** `brain read-many <path>... [--max-total-chars N] [--max-item-chars
+  N]`, or `--input <file.json>` / `--stdin` with the MCP input object. `--json`
+  prints the envelope as compact JSON, so the printed text is the text the
+  caps count; human mode prints one labelled block per item.
+
+<a id="external-compute-tools-additive-0450-3107"></a>
+
+### External compute tools (additive, 0.45.0, #3107)
+
+`brain mcp` serves six `brain_compute_*` tools after the eight document tools
+and before module tools. They call the same core operation set as
+[`brain compute`](cli.md#external-compute-additive-0450-3107) and return the
+same envelopes: a success as `structuredContent` with its compact JSON text
+copy, a refusal as a tool result with `isError: true` carrying
+`{ ok: false, error: { code, message } }` in both. A schema violation is the
+usual tool error without `structuredContent`. An operation that fails inside
+the server instead of refusing (an unreadable state directory, for example)
+is also a tool error without `structuredContent`, with the fixed text
+`Error: <tool name> failed inside the brain MCP server; its log has the
+details`: the thrown message, which can name local paths, goes only to the
+server's stderr.
+
+| Tool | Annotations | Inputs | Result |
+|------|-------------|--------|--------|
+| `brain_compute_health` | readOnly, openWorld | `provider?` | the `health` envelope |
+| `brain_compute_plan` | readOnly, not openWorld | `provider`, `argv`, `cwd?`, `env?`, `source?`, `artifacts?` (`[{ path, max_bytes? }]`, default cap 1 MiB), `lease_seconds?`, `retain?` | the `plan` envelope |
+| `brain_compute_run` | not readOnly, not destructive, not idempotent, openWorld | as `brain_compute_plan` | the `run` envelope, returned once the command has started |
+| `brain_compute_status` | not readOnly, not destructive, idempotent, openWorld | `job` | the `status` envelope |
+| `brain_compute_cancel` | destructive, idempotent, openWorld | `job` | the `cancel` envelope |
+| `brain_compute_collect` | not readOnly, not destructive, idempotent, openWorld | `job` | the `collect` envelope |
+
+Every input schema is a closed object (`additionalProperties: false`), pinned
+with the others in `mcp-input-schemas.json`. No input names a caller, a
+principal, a session, a credential or a vendor id: the caller is
+`{ kind: "mcp", principal: <the server process's operating-system user> }`,
+and a job is addressable only by the caller kind and principal that started
+it. `status`, `cancel` and `collect` advance the job they report.
+
+The six tools are registered whatever the brain's configuration says, with
+fixed names, order, descriptions and schemas, so a session's tool roster does
+not change when compute is configured, disabled or reconfigured; an
+unconfigured or unavailable provider refuses at call time
+([provider-history.md](../decisions/provider-history.md)). Status and cost
+appear only in results the agent asked for.
+
+`brain_compute_run` does not wait for the job. While the server process
+lives it advances the jobs it started through the same `status` operation,
+one visit at a time with backoff (2 s rising to 15 s), at most 16 visits a
+pass to the least recently visited jobs first and up to 256 jobs tracked,
+until each has ended and its cleanup is settled. A job whose visits throw
+five times in a row is no longer advanced, and the server logs it on stderr. Closing the server stops those
+visits and cancels nothing: a job is then bounded by its lease, and the next
+`status`, `cancel`, `collect` or `brain compute reconcile` settles it.
 
 <a id="hosted-authoritative-application-tools"></a>
 
@@ -159,7 +386,7 @@ index-dependent read or at the end of the turn, whichever comes first. A brain
 whose index holds no Markdown yet, or cannot be trusted for a targeted update,
 gets a complete build instead. Index-dependent reads are every tool of the
 brain's own MCP server (`mcp__brain__*`), pi's `brain_search`, `brain_context`,
-`brain_read`, `brain_list` and `brain_graph`, either backend's shell, and capture
+`brain_read`, `brain_list`, `brain_graph` and `brain_read_many`, either backend's shell, and capture
 planning for `add`; each waits for every application committed before it, in
 any turn, before it runs. File reads and host application tools do not wait.
 When the update fails, the waiting read is refused with a message that names the
@@ -241,6 +468,87 @@ Only committed effects enter `changes`, including an effect followed by a later
 I/O or prune failure. PNG effects do not enter the disposable Markdown index.
 The Markdown byte cap and supported file kinds above remain unchanged.
 
+<a id="hosted-markup-layer-application-additive-0450-3975"></a>
+
+### Hosted markup layer application (additive, 0.45.0, #3975)
+
+`request_image_markup` asks the user to draw what an image edit should change:
+arrows, ellipses, freehand strokes and short text notes. A mask says where
+pixels may change; markup says what to change. The layer is for
+`brain image --ref <imagePath> --markup <markupPath>` with the same image as the
+first `--ref`, never for `--mask`.
+
+- **Input:** `{ imagePath: string, instruction?: string }`. `instruction` is at
+  most 200 characters and is shown as plain text after "Agent asks:".
+- **Result payload:** `{ imagePath, markupPath, width, height, bytes, marks:
+  { pen, arrow, ellipse, text }, notes, note }`. `markupPath` is repo-relative
+  and always under `.brain/scratch/markup/`. `width` and `height` are the
+  source's displayed size after EXIF orientation, which the layer matches.
+  `notes` are the note texts in placement order.
+- **Refusals** are tool errors that write nothing: the user closed the editor
+  (`The user closed the markup editor`), a voice or no-grant turn, no connected
+  client that declared `imageMarkup`, an unreadable or changed source, and every
+  application refusal below.
+
+The operation is host-owned end to end:
+`BackendBridge.requestImageMarkup?(input)` opens the editor, takes the layer over
+the bounded [upload route](../http-api.md#markup-layer-upload-additive-0450-3975),
+writes it and resolves with the payload. The backend never holds the layer's
+bytes or names a destination. A host without the callback refuses the tool;
+there is no fallback writer. The callback is installed only for Claude and pi
+turns that may apply to the brain.
+
+**The source.** It must be an existing PNG, JPEG or WebP file in the brain:
+
+- an exact repository path, with no traversal and no hidden or policy segment;
+- an ordinary file with one link, at most `BRAIN_MARKUP_SOURCE_MAX_BYTES`
+  (134,217,728) bytes;
+- a header the CLI can read, of at most 16,777,216 pixels.
+
+Its SHA-256 and displayed size are read before the editor opens, and the
+`markup_request` frame carries that size.
+
+**The layer.** `BRAIN_MARKUP_MAX_BYTES` is 52,428,800 (50 MiB, the CLI's
+"50 MB"). The cap is inclusive: exactly 52,428,800 bytes is accepted and one
+byte more is refused. A layer must also:
+
+- be a PNG with an alpha channel;
+- be exactly the source's displayed width and height;
+- decode completely: non-interlaced, its image data exactly the size its header
+  promises, with valid row filters;
+- not be fully transparent.
+
+The first two are `markupProblem`'s rules (#3785), read through the same header
+reader; the last two refuse a fabricated header or an empty drawing.
+
+**The destination.** The server chooses
+`.brain/scratch/markup/<stem>.<sha8>.markup.png`:
+
+- `<stem>` keeps the letters, digits, `.`, `_` and `-` of the source's file
+  name, and never starts with a dot;
+- `<sha8>` is the first eight hex digits of the source hash.
+
+A later submission for the same source takes `-2`, `-3` and so on. The layer is
+staged in a temporary the server holds open, then linked onto its name, so it
+never replaces an entry: an earlier receipt's layer, or anything planted at the
+name, keeps its bytes. The published entry must be that held inode with exactly
+the validated bytes, in an unmoved directory; otherwise the server removes the
+name it just created and refuses. The effect is recorded as soon as the layer
+exists, so a later cleanup or durability failure never hides it.
+
+**Rechecks.** The scratch rules apply unchanged: `.brain/scratch/` must be a real
+directory that git excludes. The source hash and size, the directory chain's
+topology, policy-protected targets, principal, turn, authority holds,
+cancellation and membership are rechecked under the application lock,
+immediately before the layer is linked. Voice cannot request or apply markup.
+The scratch prune runs under the same authority, keeps the new layer and
+records its actual removals.
+
+Only committed effects enter the recorded `BrainApplicationResult.changes`. No
+mark counts, notes, labels or limits enter the provider-facing history beyond
+the tool's own result. `request_image_mask`, its 8 MiB cap and the general
+`MAX_CLIENT_FRAME_BYTES` (12,000,000) are unchanged.
+
 <a id="chat-ui-in-process-tools-mcp__brain-ui__"></a>
 
 ### Chat-UI in-process tools (`mcp__brain-ui__*`)
@@ -251,8 +559,8 @@ turn, including voice-first sessions. A temporary missing handler, no-grant
 surface or strict sandbox fallback does not remove tools, schemas or descriptions.
 Registration grants no authority. Unavailable bridge calls return a model-readable
 refusal before opening a permission card or invoking the privileged handler;
-voice and no-grant turns refuse visual pickers, image masks, policy proposals and
-inbox mutations. Claude keeps native `Write`, `Edit` and `NotebookEdit` registered
+voice and no-grant turns refuse visual pickers, image masks, image markup
+(#3975), policy proposals and inbox mutations. Claude keeps native `Write`, `Edit` and `NotebookEdit` registered
 and refuses them at call time on strict/voice turns, including settings or
 remembered allows. Governed typed calls retain their stale-read and write-lock
 checks. Pi still rejects voice dispatch before a provider request: the stable
@@ -266,8 +574,9 @@ See [the package API](package-api.md#stable-hosted-application-roster-2048).
 
 The chat-UI backends register an in-process MCP server under the `brain-ui`
 key; its tool names are equally stable. `ask_user`, `ask_user_form` (additive in 0.40.0), `ask_user_rank` (additive in 0.40.0), `ask_user_list` (additive
-in 0.40.0), `get_current_location` and `request_image_mask` bridge to the
-connected browser. `query_activity`
+in 0.40.0), `get_current_location`, `request_image_mask` and
+`request_image_markup` (additive in 0.45.0, #3975) bridge to the connected
+browser. `query_activity`
 (read-only) reads the host's activity record — scopes `running` | `recent` |
 `run` | `rollups` | `inbox` | `roadblocks` (additive in 0.42.0); results are wrapped in a data-only delimiter
 (nonce-suffixed per call) because they can contain free text from past runs.
@@ -302,7 +611,7 @@ roadblocks parameters become tool errors without changing other scopes.
 answer blocks inline in the answer, or the follow-ups the model offers under
 it (`suggestions`); it validates its argument and echoes it, and rejects a `link` block whose
 address the link policy refuses, and a `tracker` block with any event whose address it refuses.
-The eleven bridge tools are declared once as **tool contracts** in
+The bridge tools are declared once as **tool contracts** in
 `@schlessera/brain-ui-sdk/tool-contracts` (also re-exported from `/server` and
 `/client`); their names and Claude-side input schemas are stable.
 
@@ -331,6 +640,7 @@ tool's result is meant to be rendered as a component rather than read as text:
 | `ask_user_list` (0.40.0) | `{ answers, skipped, notes? }` — the request is not echoed | the list card's answered record, rebuilt from the call's input plus this |
 | `get_current_location` | `{ latitude, longitude, accuracyMeters, place?, address?, addressComponents?, note?, retrievedAt }` | a map card: the fix as a pin, the shoreline from `GET /api/geo/coastline` when the server has it |
 | `request_image_mask` | `{ maskPath, imagePath, bytes, note }` | a mask result |
+| `request_image_markup` (0.45.0) | `{ imagePath, markupPath, width, height, bytes, marks, notes, note }` | the markup receipt: the layer over the hatched source, its marks, notes, size and paths |
 | `query_activity` | **none** | prose in a nonce-delimited data block |
 | `turn_temp` (0.42.0) | **none** | JSON usage or purge receipt |
 | `show_block` | `{ block }`, the validated input echoed | the block, inline at the call's position in the answer; `suggestions` alone is drawn under the answer instead |
@@ -689,7 +999,7 @@ reclassify previously recorded history from today's environment (#293).
 
 `ModuleContribution.tools` declares lazy MCP definitions by local name.
 `brain mcp` imports these definitions at startup and serves them after the
-eight core tools, in module config order and then declaration order. A loader
+core tools (the eight document tools, then the six `brain_compute_*` tools from 0.45.0), in module config order and then declaration order. A loader
 may resolve a `ModuleTool` directly or an object with a `default` tool export.
 Other CLI commands do not import the definitions.
 
@@ -883,7 +1193,16 @@ receipts, destructive effects, changed documents and incomplete intake refuse.
 Each original requires exactly one strict disposition object. Retention uses
 `{ sourcePath, disposition: "retained", path }`: `path` must be an ordinary
 `assets/` file with the original intake hash and a Markdown link in a filed
-document. Discard uses `{ sourcePath, disposition: "discarded", reason }`, with
+document that resolves to `path` from that document's folder: document-relative
+(`../../assets/x.pdf` from `a/b/note.md`), brain-root-absolute (`/assets/x.pdf`)
+or root-relative from a root-level note (`assets/x.pdf`), percent-encoded or in
+`<…>` when the path has spaces. Inline links, images and reference definitions
+count; links inside code spans or fenced blocks and wiki-links do not, since
+wiki-links resolve only to Markdown documents. A refusal names the expected
+target and an example link (accepting these link forms is additive in 0.45.0).
+When several receipts cover one path, the one matching its current content
+proves it; a path no passed receipt matches refuses, naming those receipts.
+Discard uses `{ sourcePath, disposition: "discarded", reason }`, with
 a nonempty reason capped at 1000 characters, and requires the existing exact
 interactive approval. Missing files, aliases, changed originals and unsupported
 retention refuse. The operation promotes no binary and grants no new writer.
@@ -898,6 +1217,85 @@ compensation lifecycle. The path also works with dispatch disabled. Voice,
 restricted and unbound sessions cannot complete interactive shares.
 
 <a id="reference-source-and-managed-worktree-tools-additive-0440-2432"></a>
+
+## Apify tools (additive, 0.45.0, #3162)
+
+Seven tools reach Apify, with the same names, strict input schemas and
+envelope on every surface that offers them: the core MCP server (`brain mcp`),
+and both first-party chat backends' bridges (Claude names them
+`mcp__brain-ui__<name>` and loads them eagerly; pi attaches plain names). Each
+calls the operation `brain apify <operation> --json` calls
+([CLI component](cli.md#apify-operations-additive-0450-3162), which documents
+every input bound and `data` shape).
+
+| Tool | Input |
+|---|---|
+| `brain_apify_discover` | `query` (1–80 characters), `limit?` (integer 1–10) |
+| `brain_apify_inspect` | `candidate` (1–64 characters) |
+| `brain_apify_prepare` | `candidate`, `input` (object), `max_charge_usd` (positive, at most 1,000,000) |
+| `brain_apify_run` | `proposal` |
+| `brain_apify_status` | `run` |
+| `brain_apify_results` | `run`, `cursor?` (1–64 characters), `limit?` (integer 1–100) |
+| `brain_apify_abort` | `run` |
+| `brain_apify_availability` | `actor_id?` (immutable id) |
+| `brain_apify_approvals` | empty object |
+| `brain_apify_revoke` | `actor_id` (immutable id) |
+
+Inputs are strict objects: an Actor id, URL, token, run option or any other
+field is invalid. The result is the envelope `{ ok, operation, data }` or
+`{ ok: false, operation, error: { code, reason, message } }`, a tool error when
+`ok` is false. On the core server it is also `structuredContent`; a schema
+violation is an error result without it, as for every core tool. Discovered
+Actor schemas, READMEs and results are returned as data marked
+`untrusted: true`; no tool is ever added or removed for an Actor, and the
+roster is fixed for a server process and for a chat session.
+
+On the core server the operator's own policy, `APIFY_TOKEN` and
+`BRAIN_APIFY_LEDGER` apply, as for the CLI; the session is `default` and
+nobody can be asked, so a run needs a remembered Actor approval for its principal. In the chat
+backends the host takes principal, session, turn, posture and approvals from
+the authenticated turn and holds the credential and the ledger; the worker
+sends the input only. The tools are in every interactive session's fixed
+roster, after the reference tools, and auto-allowed: the host raises a per-use
+`command` approval for each discovery or inspection under `ask`, and an
+`actor` approval for a run without a remembered Actor approval. A remembered tool grant authorizes none of them.
+Voice and no-grant-surface turns refuse them at call time; restricted
+autonomous rosters do not include them; the host refuses any non-interactive
+turn with `policy_denied`. A chat worker that also loads the
+brain's own `brain mcp` sees that server's `brain_apify_*` tools too (deferred,
+as every core tool is there); they refuse, because the worker holds neither
+the token nor the ledger. A run is refused as `accounting_unavailable`
+(`session_unbound`) until the conversation is named, so the turn budgets can
+attribute its liability. A turn's cancellation, timeout or budget stop aborts
+the runs it started.
+
+Availability and approval-list tools advertise read-only MCP annotations;
+revoking an Actor approval advertises a mutation.
+
+Three additive tools complete the fixed roster in #3580:
+`brain_apify_availability` accepts `{ actor_id? }`, `brain_apify_approvals`
+accepts `{}`, and `brain_apify_revoke` accepts `{ actor_id }`. Actor ids are
+immutable, 1–64 alphanumeric characters. Results use the same envelope and
+[operation shapes](cli.md#apify-operations-additive-0450-3162). Availability
+is advisory and consumes no run approval. Actor schemas and outputs remain
+data; credential-extraction scanning applies to Actor input and output.
+
+Since #3624, each approval-list entry also includes `candidate: string | null`
+([CLI result shape](cli.md#apify-operations-additive-0450-3162)). A non-null
+reference lets this session inspect and prepare the remembered Actor without
+searching the catalog again. It carries no execution permission. References
+remain principal/session/account-bound and all normal policy and spend checks
+apply.
+
+Shared agent guidance checks remembered approvals first and reuses a suitable
+Actor after inspection. If none fits and several new Actors do, the agent
+compares the best 3–5 (two if only two fit), explaining owner/name, task fit,
+available pricing and uncertainty, and limitations. It waits for a user choice
+before preparing or running one. Chat uses the existing `ask_user_form`
+single-choice node, which can present five options; other clients can ask in
+conversation. Cancellation selects nothing. This is agent orchestration, not a
+new admission mechanism: selecting an Actor neither approves a run nor creates
+a remembered approval.
 
 ## Reference source and managed worktree tools (additive, 0.44.0, #2432)
 
@@ -914,6 +1312,13 @@ are exported from `@schlessera/brain-ui-sdk/tool-contracts` and `/server`.
 | `reference_source` | `repository` (1–2048 characters: https without credentials, loopback http or absolute `file://`), `revision` (1–200 characters, a branch or tag) | `{ ok: true, source, guidance }` |
 | `reference_worktree` | `action`: `request` (with `repository`, `revision`), `access`, `renew` or `release` (with `worktreeId`, 1–64 characters), or `list` (no other field) | `{ ok: true, action, worktree, guidance }`; for `list`, `{ ok: true, action: "list", worktrees, truncated, guidance }` with at most 20 worktrees, most recent activity first |
 
+Managed acquisition requires one unambiguous short branch/tag name (#3613).
+Raw `refs/...` names, refspecs and raw 40/64-hex object IDs are refused before
+transport dispatch. A branch and a tag sharing the requested short name are
+ambiguous even when they currently name identical commits. Only the requested
+ordinary full ref and its own annotated-tag peel may resolve; malformed,
+duplicate, foreign or oversized advertisements do not select a source.
+
 Inputs are strict objects: an action given a field it does not take, or
 missing one it needs, is invalid. Principal, profile, brain, session, worker
 generation and paths are never inputs; the host takes them from the
@@ -922,7 +1327,9 @@ authenticated turn, and another principal's worktree identity reads as
 backends, with `code` one of `unavailable`, `unauthorized`, `missing`,
 `invalid`, `capacity`, `busy`, `released` or `cancelled`. Messages are at most
 500 bytes; one that could name a host path is replaced by a fixed message for
-its code, as is a stale source's `error`.
+its code, as is a stale source's `error`. Each Git command of a request waits
+up to 30 seconds for the host's maintenance budget; a request still refused
+then is `busy` with retry guidance, and nothing ran (additive, 0.45.0, #4079).
 
 `source` is `{ repository, revision, domain, commit, path, freshness,
 refreshedAt, validatedAt, error }`. `freshness` is `fresh` or `stale`; a stale
@@ -948,6 +1355,394 @@ source and `list`, and refuses the other worktree actions. Each call runs
 through the reference services, which check authority again
 ([managed worktrees](../decisions/managed-worktrees.md#agent-tools)).
 
+## External compute bridge tools (additive, 0.45.0, #3108)
+
+Both first-party backends attach six host-executed tools to their existing UI
+bridge: `brain_compute_health`, `brain_compute_plan`, `brain_compute_run`,
+`brain_compute_status`, `brain_compute_cancel` and `brain_compute_collect`.
+Claude names them `mcp__brain-ui__<name>` and loads them eagerly; pi attaches
+plain names. They stay in every interactive session's fixed roster, after
+`reference_worktree`; a turn without a host handler refuses the call instead.
+They are auto-allowed: the host decides authority and shows its own card for a
+run. Restricted autonomous rosters do not include them. In every Claude
+session the in-worker brain server's `mcp__brain__brain_compute_*` tools are
+disallowed, so a hosted turn reaches external compute only through the host.
+
+Inputs are exactly the strict inputs of the
+[MCP tools of #3107](#external-compute-tools-additive-0450-3107), and results
+their envelopes, with two host differences: a collect's artifacts carry no
+`file` (no host path reaches the agent), and every bound credential value is
+redacted. Principal, session, turn, policy, posture, profile, brain, state
+directory and credentials are never inputs; the host takes them from the
+authenticated turn. A job belongs to its conversation: a later turn of it may
+check, cancel or collect the job, whichever principal the host authorized for
+that conversation (a re-login is recorded on the job's Activity run), and any
+other conversation gets `job_unknown`. Input that does not parse, an extra key included, refuses
+`policy_denied` before the host sees it; a turn without a handler refuses
+`compute_disabled`.
+
+A run on an interactive typed turn asks for approval on a `command` card,
+every time, naming the instance, provider, lease, cost estimate or that it is
+unknown, retention, source files with their hash, argv, environment variable
+names, artifacts and whether the conversation is tainted; an edited card is a
+refusal. A voice turn, a turn without a grant surface and a turn with no
+client connected refuse `approval_required` without a card; a plan answers
+the same, without a card. Hosted runs accept only built-in providers and
+credentials the operator bound on the host; a provider value or an unbound
+`apiKeyEnv` is `provider_unavailable`. A `.env*` file, a Tier A protected
+path, and a source or `cwd` hidden by the turn's provider masks are
+`source_refused`. A job outlives a turn that ends normally; a cancelled,
+timed-out, budget-stopped or revoked turn cancels its jobs, including one it
+was still starting, before anything is allocated. The rules and
+their reasons are in [the compute decision](../decisions/external-compute.md#settled-by-3108).
+
+## `read_attachment` (additive, 0.45.0, #3154)
+
+Both first-party backends attach one host-executed tool to their UI bridge:
+`read_attachment`, named `mcp__brain-ui__read_attachment` on Claude (loaded
+eagerly) and `read_attachment` on pi. It is in every interactive session's
+fixed roster, with or without attachments, so an upload never changes the
+tools; a turn without a host handler gets `outcome: "unavailable"`. It is
+auto-allowed: the host authorizes each call. Restricted autonomous rosters do
+not include it.
+
+Input, a strict object (`READ_ATTACHMENT_INPUT_SCHEMA`):
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `id` | string | The attachment id from the message's `<brain-attachments>` block. |
+| `pages` | string, optional | PDF only: `"3"` or `"3-7"`, at most 20 pages. Default: pages 1–20. |
+| `cursor` | string, optional | An earlier result's `next`. Not combined with `pages`. |
+
+The result (`AttachmentReadResult`) is one JSON line of facts, followed, when
+text was returned, by the text inside an
+`<<<attachment-data-<nonce>` … `attachment-data-<nonce>>>>` delimiter:
+
+| Field | Meaning |
+| --- | --- |
+| `id`, `name`, `kind` | The original, as recorded; `name` and `kind` are absent when the id was refused. |
+| `outcome` | `read`: the requested scope in full. `partial`: an output bound cut it (`truncated`, `next`), or some pages had no text (`pagesWithoutText`). `no_text`: a valid PDF with no extractable text in the scope; no OCR is run. `encrypted`: a password is needed; none is supplied. `malformed`: not a readable PDF, or not valid UTF-8. `failed` (`reason`: `timeout`, `resource_limit`, `crash` or `error`). `unavailable`: no reader for this kind, or none could start. `changed`: the bytes no longer match the recorded digest; nothing is returned. `refused`: unknown id, not sent to this conversation, deleted, a bad range or cursor. |
+| `scope` | `{ pages: [first, last], pageCount }` for a PDF, `{ bytes: [start, end), totalBytes }` for text. A result never claims more than it covers. |
+| `pagesWithoutText`, `truncated`, `next`, `message`, `reason` | As above; `message` is one sentence. |
+
+Every outcome except `read` and `partial` is a tool error. Text pages open with
+`[page N]`, or `[page N, continued]` when a cursor resumes inside a page. Text
+is cut on a code-point boundary at 65,536 UTF-8 bytes per call and 262,144 per
+turn; past the turn's budget the result is `partial` with an empty text and a
+`next` for a later turn.
+
+Only originals a **message of the calling session** references are readable:
+draft and outgoing bindings are not. Each call rechecks the record, that the
+file is a regular file under the attachment store reached through no link, its
+size and its SHA-256. Session, principal and turn come from the authenticated
+turn and are never inputs. Each call taints the session as `chat_attachment`,
+whatever its outcome. The read appends an ordinary tool result; no earlier
+message, tool or system text changes, and the host's read records are UI data
+that never reach the provider. The bounds and reasons are in
+[the attachment decision](../decisions/chat-attachments.md#what-3154-built).
+
+## Host GitHub tools (additive, 0.45.0, #3797)
+
+A hosted turn reaches GitHub through four fixed host tools, declared with
+strict schemas and typed payloads in `@schlessera/brain-ui-sdk/tool-contracts`
+(`github.ts`). Both first-party backends attach the two read tools to their
+UI bridge: Claude names them `mcp__brain-ui__<name>` and loads them eagerly;
+pi attaches plain names. They are in every interactive session's fixed roster
+(typed, voice and no-grant-surface), after `read_attachment`, whether or not
+the host holds a credential, and auto-allowed. Restricted autonomous rosters
+do not include them. Since #3798 (additive) both backends also attach the two
+write tools, after the reads, in the same roster and order and under the same
+conditions; see [Writes](#github-writes-additive-0450-3798).
+
+| Tool | Input | Registered |
+|---|---|---|
+| `brain_github_issue_read` | `repository` (`owner/repo`), `number` (integer 1–2147483647) | 0.45.0 (#3797) |
+| `brain_github_issue_search` | `repository`, `query` (1–256 characters; `repo:`, `org:`, `user:` and `owner:` qualifiers refused), `kind?` (`issue`, `pull_request`, `any`; default `any`), `state?` (`open`, `closed`, `any`; default `any`), `limit?` (1–30, default 10) | 0.45.0 (#3797) |
+| `brain_github_issue_create` | `repository`, `title` (1–256), `body?` (up to 65,536), `labels?` (up to 10 names) | 0.45.0 (#3798) |
+| `brain_github_issue_comment` | `repository`, `number`, `body` (1–65,536) | 0.45.0 (#3798) |
+
+`repository` follows GitHub's name grammar: owner `[A-Za-z0-9-]{1,39}`,
+repository `[A-Za-z0-9._-]{1,100}` and not `.` or `..`. Inputs are strict
+objects; no field names an endpoint, origin, token, principal or session.
+Each result is one JSON document, `{ ok: true, tool, result }` or
+`{ ok: false, tool, error: { code, reason, message } }` (a tool error).
+`code` is `invalid_input`, `unavailable`, `not_found`, `forbidden`,
+`rate_limited`, `upstream_error`, `policy_denied` or `approval_declined`.
+`unavailable` carries `reason` `no_credential` (the host has no
+`BRAIN_UI_GITHUB_TOOLS_TOKEN`), `credential_rejected`, `no_host` (no host
+handler in this turn), `recording_unavailable` (a write's approval could not
+be recorded) or, before #3798 only, `not_registered`. A read's
+`policy_denied` carries `recipient_restricted` or `recipient_unproven`; see
+[Data routing](#github-data-routing-additive-0450-4029). The write reasons are
+listed under [Writes](#github-writes-additive-0450-3798).
+
+**Payloads.** `result` is typed data, never formatted text
+(`GITHUB_RESULT_SCHEMAS`). A read returns `kind: "issue"` or
+`kind: "pull_request"`; a search returns `kind: "search"`.
+
+- Issue: `repository`, `number`, `title`, `title_truncated`, `state`
+  (`open`, `closed`), `state_reason` (`completed`, `not_planned`, `reopened`,
+  `duplicate` or null), `locked`, `author`, `labels`, `created_at`,
+  `updated_at`, `closed_at`, `body`, `body_length`, `body_truncated`,
+  `comments` (the most recent 30, oldest first), `html_url`, `fetched_at`.
+- Pull request: the issue fields plus `draft`, `merged`, `merged_at`,
+  `merged_by`, `merge_commit_sha` (merged only), `head_ref`, `base_ref`,
+  `requested_reviewers`, `reviews`, `review_decisions` (the latest state per
+  reviewer, including `dismissed`; a later comment never hides a decision),
+  `checks`, `changes` (`changed_files`, `additions`, `deletions`) and
+  `commits` (`sha`, `author`, `author_name`, `authored_at`, `message`,
+  `message_truncated`, `html_url`). There is no merge-method field.
+- `checks` is `{ passed, failed, running, skipped }` over the head commit's
+  check runs and commit statuses, or `null` when GitHub reports none or the
+  credential cannot read them. `null` is not zero.
+- Every bounded list (`comments`, `reviews`, `commits`, `labels`) is
+  `{ items, total_count, has_more }`; `total_count` is null only where GitHub
+  reports no total.
+- An author (issue, comment, review) is `{ login, is_bot, author_association }`;
+  a user is `{ login, is_bot }`. `login` is null for a deleted account.
+- Search: `repository`, `query`, `search_query` (the host's `is:` qualifiers
+  and the query), `total_count`, `incomplete_results`, `has_more`, `items` and
+  `search_url`. Each item has `kind`, `number`, `title`, `state`,
+  `state_reason`, `draft` (null for an issue), `merged_at`, `comments`,
+  `author`, `labels`, `created_at`, `updated_at`, `excerpt` (up to 280
+  characters, or null) and `html_url`.
+
+Text GitHub users wrote (titles, bodies, comments, label names and
+descriptions, branch names, commit messages, excerpts) is untrusted: its JSON
+Schema carries `untrusted: true`, and it is data, never instructions.
+
+**Direct links.** Each `html_url` comes from the API response, never
+constructed, and passes the exported `githubDirectUrl(value, scope, target)`;
+`search_url` is built by `githubSearchUrl(scope, q)` from the fixed
+`https://github.com` origin with the search text only as the encoded `q`
+value. A URL that fails is `null` and is never repaired. Every URL must
+serialise to itself as a WHATWG URL, use `https:` on host exactly
+`github.com` with no port, user name or password, have no `.`, `..` or
+percent-encoded segment, and name the fetched object's owner, repository and
+number (owner and repository compare without case). The shapes are
+`/{owner}/{repo}/issues/{n}` or `/pull/{n}` for the object;
+`#issuecomment-{id}` on either for a comment, `/pull/{n}#pullrequestreview-{id}`
+and `/pull/{n}#discussion_r{id}` for reviews and review comments, with `{id}`
+the item's own id; `/{owner}/{repo}/commit/{sha}` or
+`/pull/{n}/commits/{sha}` with the commit's own 40-hex `{sha}`; and
+`/{owner}/{repo}/issues?q=…` (or `/search?q=…&type=issues` across
+repositories) for a search. No other query and no other fragment.
+
+**Credential and host.** The host reads `BRAIN_UI_GITHUB_TOOLS_TOKEN` alone
+([supported inputs](../supported-inputs.md)); there is no fallback to
+`GITHUB_TOKEN` or any other token. No subprocess audience, operator extra or
+worker launch admits it. Reads are bounded by what that token can see. The
+host calls only `https://api.github.com`, follows a redirect only within it,
+scopes every search to the named repository and drops any result from
+another. Principal, session and turn come from the authenticated turn. Before
+any GitHub text returns, the session's taint is recorded with the new source
+`github_result` ([governance events](../http-api.md)); if that record cannot
+be written, the text is withheld.
+
+### GitHub data routing (additive, 0.45.0, #4029)
+
+GitHub is the provider-policy recipient `github`
+([supported inputs](../supported-inputs.md#governance-policy)). A read or a
+search sends GitHub text the model chose: a repository and number, or a
+search query that can quote anything the conversation was shown. So before
+any request, the host checks it under the turn's frozen policy and the
+conversation's recorded provider exposures, by the rules the web providers and
+Apify use:
+
+- A conversation that has shown a provider folder the policy does not let
+  `github` receive is refused with `policy_denied`,
+  `reason: "recipient_restricted"`.
+- Under a policy whose `providers` rules restrict `github`, a conversation
+  whose exposure cannot be judged is refused with `policy_denied`,
+  `reason: "recipient_unproven"`. That covers a conversation not yet named, a
+  recorded exposure the server cannot read, a type selector without its
+  folders, and a turn with no frozen policy.
+- A policy whose rules all allow `github`, or a conversation that showed none
+  of the folders they keep from it, reads as before.
+
+A refused call sends GitHub nothing, returns no GitHub text and taints
+nothing. The writes are not routed (maintainer ruling on #4029): each write's
+gate is its per-use card, which shows exactly what is sent, and
+`outward.github.repositories`. A write in a conversation whose reads are
+refused still reaches its card unchanged.
+
+### GitHub writes (additive, 0.45.0, #3798)
+
+`brain_github_issue_create` files one issue and `brain_github_issue_comment`
+posts one comment, through the same credential and API origin. A write goes
+only to a repository the turn's admitted governance policy lists under
+[`outward.github.repositories`](../supported-inputs.md#governance-policy).
+The host decides each call in this order, and nothing reaches GitHub before
+the last step:
+
+1. **Allow-list.** A repository the list does not open is refused with
+   `policy_denied`, `reason: "repository_not_allowed"`, and a message naming
+   `outward.github.repositories`. No card is shown. An absent or empty list,
+   or a turn under no governance policy, refuses every write.
+2. **Posture.** A voice turn is refused with `approval_declined`,
+   `reason: "voice_posture"`, before any card: voice can refuse a write but
+   never approve one. A turn with no write surface, such as any autonomous
+   turn, is refused with `policy_denied`, `reason: "no_write_surface"`.
+3. **Credential.** Without `BRAIN_UI_GITHUB_TOOLS_TOKEN`, `unavailable`
+   (`no_credential`), before any card.
+4. **Card.** One per-use command card on the turn's own approval surface,
+   named with the backend's visible tool name. Its input is exactly what is
+   sent: `{ repository, title, body?, labels? }` for an issue and
+   `{ repository, number, body }` for a comment, after the schema's trimming,
+   with an absent field neither shown nor sent. Its description says the
+   write is sent once, in the user's name, and cannot be undone, and notes a
+   session that has read untrusted input. The card is never remembered.
+5. **Answer.** A denial is `approval_declined`, `reason: "declined"`. An
+   approval that comes back with a changed input is `approval_declined`,
+   `reason: "edited"`, and sends nothing; the model must make the call again,
+   which runs every step for the new input. A turn that ended or lost its
+   authority while the card was open sends nothing (`upstream_error`,
+   `reason: "cancelled"`).
+6. **Send.** One `POST` to the fixed API origin, never retried and never
+   redirected. A failure that GitHub answered says nothing was written; a
+   timeout or network failure says the write may still have been made.
+
+Both backends auto-allow the write tools in a typed turn with a grant surface
+and a host handler, so the host's card is the only one. In a voice or
+no-grant turn the runtime's own permission boundary refuses them before the
+host is reached, and the roster is unchanged.
+
+A success returns `kind: "issue_created"` (`repository`, `number`, `title`,
+`labels`, `created_at`, `html_url`) or `kind: "comment_created"`
+(`repository`, `number`, `comment_id`, `created_at`, `html_url`); `html_url`
+passes `githubDirectUrl` for the created issue or comment, or is null. A
+write's own result does not taint the session.
+
+Each refusal at steps 1, 2 and 5, each answer and each approval is recorded as an `outward_action` governance
+event with `action: "gh_write"`, `target` `owner/repo` (an issue) or
+`owner/repo#n` (a comment), the card's input, `tainted`, `historyRewrite:
+false`, `rule: null` and `decision` `refused`, `declined` or `approved`. The
+approval is recorded before the request is sent; if it cannot be recorded,
+nothing is sent. The turn journal lists every one as irreversible.
+
+### Raw connections to GitHub's API (0.45.0, #3799)
+
+The worker holds no GitHub credential, and the four tools above are the
+supported way to reach GitHub. A shell command that reaches GitHub's API
+directly is not refused outright. The default outward hosts include
+`api.github.com` and `uploads.github.com`. If the turn's running calls are not
+all visible reads, or approved outward actions naming that host, a connection
+to either host waits on the existing `Network` approval card. That covers an
+opaque script, or a compound command the classifier cannot read. The card is
+a per-use `tool_approval_request` with `toolName: "Network"`,
+`kind: "command"`, `input: { host, port, method }` and the description
+`<METHOD> to <host>:<port>`, for example `CONNECT to api.github.com:443`. It
+is never remembered.
+
+- Allowing it admits the held connection.
+- Declining it refuses the connection with
+  `403 Forbidden - outward connection not approved` and the body `Blocked: a
+  connection to <host> acts outside the brain in the user's name, and it was
+  not approved. Do not retry it; say what you needed it for.` The decision is
+  recorded as `egress_connection` with `outcome: "denied"` and
+  `reason: "outward_not_approved"`.
+- Stopping the turn while the card waits cancels the connection and withdraws
+  the card. A late answer admits nothing.
+- A card raised while no client is connected is held and sent to the next
+  client that connects. Only the turn's own timeout bounds that wait.
+
+Voice turns have no grant surface and are refused without a card. Both
+backends' fixed system brief, the append each interactive session retains
+once, tells the model to use the GitHub tools and not `gh`, `curl` or
+WebFetch. When the tools answer `unavailable` or `policy_denied`, the model is
+to tell the user what they said and stop. A session retained before #3799
+keeps its earlier append. No wire shape changes.
+
+## Host-owned web tools (additive, 0.45.0, #3685)
+
+The pi backend's ordinary governed and strict interactive sessions list four
+host-executed bridge tools: `web_search`, `fetch_content`,
+`get_search_content` and `source_check`. Their names and parameters follow the
+pinned upstream pi-web-access tools, narrowed to what the host admits. They
+are in every interactive session's fixed roster, whether or not the host can
+run them. On a host without a web executor, the gate refuses each call before
+it runs, with no card. No autonomous roster lists them, restricted or not. The
+Claude backend is unchanged and keeps its own `WebSearch` and `WebFetch`.
+They are auto-allowed like Claude's: the host binds and bounds every call.
+
+Inputs are strict objects (`WEB_SEARCH_INPUT_SCHEMA`,
+`FETCH_CONTENT_INPUT_SCHEMA`, `GET_SEARCH_CONTENT_INPUT_SCHEMA`,
+`SOURCE_CHECK_INPUT_SCHEMA`):
+
+| Tool | Fields |
+| --- | --- |
+| `web_search` | exactly one of `query` or `queries` (at most 4), plus optional `numResults` (1–20), `includeContent`, `recencyFilter` (`day`, `week`, `month`, `year`), `domainFilter` (at most 10), `category` and `provider` |
+| `fetch_content` | exactly one of `url` or `urls` (at most 5 absolute `http(s)` URLs), plus optional `mode` (`readable` or `raw`) |
+| `get_search_content` | `responseId`, plus optional `query`, `queryIndex`, `url`, `urlIndex`, `offset`, `limit` (at most 30,000 characters), `findText` (one string or at most 10) and `findMode` (`exact`, `case-insensitive`, `fuzzy`) |
+| `source_check` | `claim`, plus optional `queries`, `numResults`, `fetchContent`, `recencyFilter`, `domainFilter` and `provider` |
+
+Each text field holds at most 500 characters and each URL at most 2,048, and a
+serialized input is at most 16,384 bytes (`WEB_TOOL_LIMITS`). `provider` names
+one id from the curated catalog (`WEB_TOOL_PROVIDERS`, the same ten ids as
+`WEB_SEARCH_PROVIDERS`) or a list of at most 3, or `auto`. The host
+additionally refuses any provider it does not admit, and always refuses `all`.
+No field selects an endpoint, proxy, command, local path, credential or
+browser profile: `proxy`, `forceClone` and `redirects`, like any other unknown
+field, are `invalid_input`. Upstream parameters for deferred workflows and
+excluded credential modes are recognised and answered `unsupported` with the
+`feature` they name: `workflow` other than `none` on `web_search`, and `mode:
+"answer"`, `prompt`, `answerModel`, `timestamp`, `frames`, `model` and `auth`
+on `fetch_content`.
+
+The result is one JSON envelope (`WebToolEnvelope`) as the tool output:
+`{ ok: true, tool, text, responseId? }`, or `{ ok: false, tool, error: { code,
+message, feature? } }` as a tool error. `text` is external content. The codes
+(`WEB_TOOL_ERROR_CODES`) are `invalid_input`, `unsupported`,
+`provider_not_admitted`, `unavailable`, `unknown_handle`, `replayed_call`,
+`busy`, `request_too_large`, `response_too_large`, `cancelled`, `deadline`,
+`executor_died`, `failed`, and, since #3687, `policy_denied` and
+`budget_exceeded`.
+
+Since #3687 every external recipient a call reaches is admitted for the
+calling turn: a provider the call names before anything is dispatched, and
+each request the executor sends to a provider's API host while the call runs,
+whether a search, an extraction fallback or a nested model call. A
+conversation that has shown a provider folder to its model sends no recipient
+the provider policy keeps that folder from (`policy_denied`; an exposure the
+host cannot judge is refused too), and a blocked budget scope refuses the
+request (`budget_exceeded`). Each admitted provider request counts toward the
+turn, conversation and day as unknown spend in the budget receipt's
+`unknownRuns`, never as zero. Pages the call fetches are checked by the egress
+route, not the provider policy.
+
+Since #3688 a Pi turn whose inference the host relays lends that admitted
+model to its web calls. OpenAI search then works on the turn's ChatGPT/Codex
+login (`openaiSearchProviders`) or on the current model
+(`searchRouting.useCurrentModel`), and uses that model and no other: a
+request that names another, such as an `openaiSearchModel` override, is
+refused before anything is sent. The host resolves and refreshes the
+credential on every request; the executor holds only a placeholder. A missing
+login, or one the host cannot refresh, fails the call with nothing sent.
+These requests go to `openai` as their recipient and are admitted and counted
+like any other provider request. A turn without the relay has no Pi login to
+search with, as before.
+
+A `responseId` is an opaque handle the host issues. It is scoped to the
+calling principal and session and to the executor session that stored the
+content, and it ends when that executor ends. An executor's own result id
+never reaches the model. A guessed, foreign or expired handle is
+`unknown_handle`, with nothing saying which. Principal, session, turn,
+tool-call id, worker profile, policy revision and cancellation come from the
+authenticated turn and are never inputs. A tool-call id runs once per turn.
+Each call taints the session (`web_search` or `web_fetch`) before it runs, and
+its result is recorded before the model receives it. A call appends an
+ordinary tool result; no earlier message, tool or system text changes.
+
+Since #3686 the host runs these tools on the pinned upstream extension in a
+trusted Pi session. One child process serves each principal's session, and
+its stored results live and end with it. The brief of a session that lists
+the tools names what they do not offer. Those features come from one list,
+`WEB_TOOL_UNAVAILABLE_FEATURES`: curator review and automatic summaries,
+answer mode, image, video and YouTube analysis, GitHub repository cloning,
+the extension's commands and shortcuts, and the excluded browser-cookie and
+credential-command modes. `GET /api/web-search` reports the same list as
+`unavailable`.
+
 ## Hosted policy proposal (additive, #1662)
 
 `propose_policy_change` (Claude: `mcp__brain-ui__propose_policy_change`)
@@ -962,6 +1757,18 @@ card. Invalid input returns errors and creates no card. The native permission
 checkpoint delegates to this validation/write route; the eventual tool handler
 reconciles the same tool-use identity rather than executing a second write.
 A remembered tool grant cannot authorize a policy change. Speech never grants.
+
+**Breaking input narrowing for 0.45.0 (#3666, maintainer-approved pre-1.0
+break):** proposed frontmatter must have closed, standalone `---` delimiter
+lines, with optional trailing spaces/tabs. Unclosed blocks, annotated/suffixed
+openings such as `---yaml` or `---x`, and parser-recognized closing prefixes
+such as `---x`, `---yaml` or `----` are refused before approval or any pending
+actionable card. Refusal publishes no file bytes, journal edit or policy-change
+event. Migration: submit standalone, closed `---` fences. BOM, LF/CRLF and an
+EOF closing fence remain supported; accepted content is published byte for
+byte without normalization. The same validation runs again at publication.
+This rule applies only to proposed bytes: a valid replacement can repair an
+old ambiguous policy, whose review retains the shared parser's boundaries.
 
 A valid card names the exact base hash (null for no file), frontmatter diff,
 changed section names, body-change indicator/body diff and quoted agent

@@ -8,6 +8,7 @@ import { definePreview } from "@storybook/react-vite";
 // cannot drift apart.
 import "../src/styles.css";
 import "./preview.css";
+import { VIEWPORT_OPTIONS } from "../stories/_viewports.js";
 
 export default definePreview({
   addons: [addonA11y(), addonThemes()],
@@ -67,6 +68,9 @@ export default definePreview({
     // exception is gone; do not reintroduce a theme-specific rule set.)
     a11y: { test: "error" },
     layout: "centered",
+    // Storybook's defaults plus the consumer-parity widths, so a consumer
+    // story opens at the width it declares (stories/_viewports.ts, #3749).
+    viewport: { options: VIEWPORT_OPTIONS },
   },
   tags: ["autodocs"],
 });

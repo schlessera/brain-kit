@@ -143,7 +143,7 @@ test("--pr reports only collisions involving that PR", async () => {
   const all = list(prs.rowers, prs.suitors, prs.chart, prs.sails);
   const report = await collisions({ root, listPrs: all, pr: 104, fetch: true });
   expect(report.collisions.map(c => [c.kind, ...pair(c)])).toEqual([["closure", 101, 104], ["closure", 102, 104]]);
-  expect(collisions({ root, listPrs: all, pr: 999, fetch: false })).rejects.toThrow("not an open PR");
+  await expect(collisions({ root, listPrs: all, pr: 999, fetch: false })).rejects.toThrow("not an open PR");
 });
 
 test("--paths reports which open PRs touch or share the closure of an area", async () => {

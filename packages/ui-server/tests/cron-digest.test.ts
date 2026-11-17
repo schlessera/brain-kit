@@ -23,20 +23,22 @@ describe("cron digest", () => {
     const dbPath = join(directory, "brain-ui.db");
     const now = 1_700_000_000_000;
 
-    const exitCode = runDigest(
-      { dbPath, stdout: stdout.sink, stderr: stderr.sink },
-      {
-        generateDigest: (opened) => generateActivityDigest(opened, now),
-      }
-    );
+    try {
+      const exitCode = runDigest(
+        { dbPath, stdout: stdout.sink, stderr: stderr.sink },
+        {
+          generateDigest: (opened) => generateActivityDigest(opened, now),
+        }
+      );
 
-    expect(exitCode).toBe(0);
-    const db = createUiDb(dbPath);
-    expect(digestRetentionFloor(db)).toBe(now);
-    db.close();
-    rmSync(directory, { recursive: true, force: true });
-    expect(stdout.read()).toBe("[brain-digest] generated: 0 runs, 0 failures, $0.00\n");
-    expect(stderr.read()).toBe("");
+      expect(exitCode).toBe(0);
+      const db = createUiDb(dbPath);
+      try { expect(digestRetentionFloor(db)).toBe(now); } finally { db.close(); }
+      expect(stdout.read()).toBe("[brain-digest] generated: 0 runs, 0 failures, $0.00\n");
+      expect(stderr.read()).toBe("");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   test("an unsupported digest implementation fails loud", () => {

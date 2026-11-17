@@ -8,7 +8,7 @@ import { useChatCommands } from "../chat/use-chat-commands.js";
 /** The palette's row tone, which the rail does not draw. */
 type Tone = NonNullable<PaletteItem["tone"]>;
 
-export interface DesktopDestination {
+interface DesktopDestination {
   icon: IconName;
   label: string;
   tone: Tone;

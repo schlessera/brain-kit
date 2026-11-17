@@ -5,15 +5,10 @@
  * something to say are printed.
  */
 
+import { mediaReportLine } from "../media-review.js";
 import type { RunEnvelope } from "./run.js";
 
 const short = (sha: string) => sha.slice(0, 7);
-
-function size(bytes: number): string {
-  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${bytes} B`;
-}
 
 export function renderReport(run: RunEnvelope): string {
   const { steps, leftovers } = run;
@@ -73,7 +68,6 @@ export function renderReport(run: RunEnvelope): string {
   const left: string[] = [
     ...leftovers.unresolved.map((file) => `unresolved: ${file.path} — ${file.reason}`),
     ...leftovers.unknown.map((path) => `unknown: ${path}${heldBack.has(path) ? ` — ${heldBack.get(path)}` : ""}`),
-    ...leftovers.media.map((file) => `media: ${file.path} (${size(file.bytes)})`),
     ...fixes.flatMap((fixed) => fixed.trackedArtifacts).map((file) => `tracked ${file.reason === "sensitive" ? "secret" : "artifact"}: ${file.path}`),
     ...fixes.flatMap((fixed) =>
       unwritten(fixed) === undefined ? [] : fixed.ignored.flatMap((add) => add.paths.map((path) => `not ignored: ${path} — ${unwritten(fixed)}`))
@@ -83,5 +77,8 @@ export function renderReport(run: RunEnvelope): string {
     ...stashFailed.map((entry) => `stash failed: ${entry.ref} — ${entry.reason}`),
   ];
   if (left.length > 0) lines.push("Left for you:", ...left.map((line) => `  ${line}`));
+  // Media is a count with a route into review, never a list of files (#2780).
+  const media = mediaReportLine({ pending: leftovers.mediaPending, setAside: leftovers.mediaSetAside });
+  if (media) lines.push(media);
   return lines.join("\n");
 }

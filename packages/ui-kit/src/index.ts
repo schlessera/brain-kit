@@ -99,6 +99,7 @@ export {
 } from "./evidence/DataTable.js";
 export { Receipt, type ReceiptProps, type ReceiptRow } from "./evidence/Receipt.js";
 export { SearchResultCard, type SearchResultCardProps } from "./evidence/SearchResultCard.js";
+export { UntrustedText, registrableDomain, type UntrustedTextProps } from "./evidence/UntrustedText.js";
 export { TraceSteps, type TraceStep, type TraceStepsProps } from "./evidence/TraceSteps.js";
 
 /* Decision surfaces. */
@@ -236,6 +237,33 @@ export {
 /* Chrome — the frame a screen is assembled inside. */
 export { BottomSheet, type BottomSheetProps } from "./chrome/BottomSheet.js";
 export { DiscButton, DiscRow, type DiscButtonProps, type DiscRowProps } from "./chrome/DiscButton.js";
+
+/* The voice surface (#3692): one mic, one field, one colour language for
+ * dictation and live conversation. Presentational; ui-react wires the state. */
+export { VOICE_SKINS, type VoiceMotion, type VoiceSkin, type VoiceTone } from "./voice/tone.js";
+export { VoiceMeter, type VoiceMeterMode, type VoiceMeterProps } from "./voice/VoiceMeter.js";
+export { VoiceStateLabel, type VoiceStateLabelProps } from "./voice/VoiceStateLabel.js";
+export { VoiceControlButton, type VoiceControlButtonProps } from "./voice/VoiceControlButton.js";
+export { VoiceField, VoiceText, type VoiceFieldLabel, type VoiceFieldProps, type VoiceFieldShape, type VoiceTextProps } from "./voice/VoiceField.js";
+export { MicButton, type MicButtonProps, type MicPhase } from "./voice/MicButton.js";
+export { VoiceNotice, type VoiceNoticeAction, type VoiceNoticeProps } from "./voice/VoiceNotice.js";
+export { StartCard, type StartCardNotice, type StartCardPersona, type StartCardProps } from "./voice/StartCard.js";
+export { LiveServiceSettings, type LiveServiceOption, type LiveServiceSettingsProps, type LiveServiceStatus } from "./voice/LiveServiceSettings.js";
+export {
+  ConversationEndDivider,
+  CutOffTag,
+  SpokenMark,
+  SpokenTurn,
+  UncertainWord,
+  UnplayedText,
+  VoiceToolChip,
+  type Speaker,
+  type SpokenMarkProps,
+  type SpokenTurnDetails,
+  type SpokenTurnProps,
+  type UncertainWordProps,
+  type VoiceToolChipProps,
+} from "./voice/SpokenTurn.js";
 export { Composer, type ComposerProps, type ComposerRecall, type ComposerState } from "./chrome/Composer.js";
 export { ComposerRow, type ComposerRowProps } from "./chrome/ComposerRow.js";
 export {
@@ -284,8 +312,67 @@ export { TrackMap, type TrackMapProps } from "./blocks/TrackMap.js";
 export { RecordingRow, type RecordingRowProps, type RecordingRowState } from "./rows/RecordingRow.js";
 
 export { Overlay, type OverlayProps, type OverlayVariant, type OverlayCloseReason } from "./chrome/Overlay.js";
+export { StatusIndicator, type StatusIndicatorFact, type StatusIndicatorOperation, type StatusIndicatorProps, type StatusIndicatorState } from "./chrome/StatusIndicator.js";
 
 export { IconButton, type IconButtonProps } from "./primitives/IconButton.js";
 export { TextButton, type TextButtonProps } from "./primitives/TextButton.js";
 
 export { StorageMap, type StorageMapItem, type StorageMapProps } from "./storage/StorageMap.js";
+
+/* The image editors (#3983): the shared frame, and the markup editor's parts. */
+export { ImageEditorFrame, type ImageEditorFrameProps } from "./images/ImageEditorFrame.js";
+export { MarkupEditor, MARKUP_CLOSED, MARKUP_EDITOR_TITLE, type MarkupEditorProps } from "./images/MarkupEditor.js";
+export { MarkupCanvas, type MarkupCanvasProps, type MarkupView } from "./images/MarkupCanvas.js";
+export { MarkupToolbar, MARKUP_EMPTY_HINT, MARKUP_TOOLS, type MarkupToolbarProps } from "./images/MarkupToolbar.js";
+export { MarkupNoteField, type MarkupNoteFieldProps } from "./images/MarkupNoteField.js";
+export {
+  MarkupResultCard,
+  MarkupFallback,
+  MARKUP_NOT_RENDERED,
+  MARKUP_RECEIPT_NOTES,
+  markupReceiptRows,
+  type MarkupResultCardProps,
+  type MarkupFallbackProps,
+} from "./images/MarkupResultCard.js";
+export {
+  MARKUP_COLORS,
+  MARKUP_MAX_BYTES,
+  MARKUP_MAX_ZOOM,
+  MARKUP_NOTE_MAX,
+  MARKUP_SECOND_TOUCH_MS,
+  MARKUP_WIDTHS,
+  countMarks,
+  describeCounts,
+  exportMarkupPng,
+  markupBytesLabel,
+  markupNotes,
+  markupSummary,
+  overCapMessage,
+  type ArrowMark,
+  type EllipseMark,
+  type Mark,
+  type MarkupColor,
+  type MarkupCounts,
+  type MarkupExport,
+  type MarkupPoint,
+  type MarkupSize,
+  type MarkupTool,
+  type MarkupWidth,
+  type PenMark,
+  type TextMark,
+} from "./images/markup.js";
+
+/* GitHub objects: presentational, props and callbacks only (#3800). */
+export { GitHubStateChip, type GitHubStateChipProps } from "./github/GitHubStateChip.js";
+export { GitHubRef, type GitHubRefProps } from "./github/GitHubRef.js";
+export { GitHubIdentity, GitHubParticipants, type GitHubIdentityProps, type GitHubParticipantsProps } from "./github/GitHubIdentity.js";
+export { GitHubPullRequest, type GitHubPullRequestProps } from "./github/GitHubPullRequest.js";
+export { GitHubIssue, GitHubWriteNotice, type GitHubIssueProps, type GitHubWriteNoticeProps } from "./github/GitHubIssue.js";
+export { GitHubThread, type GitHubThreadItem, type GitHubThreadProps } from "./github/GitHubThread.js";
+export { GitHubComment, type GitHubCommentProps } from "./github/GitHubComment.js";
+export { GitHubReview, type GitHubReviewProps, type GitHubReviewState } from "./github/GitHubReview.js";
+export { GitHubCommitRow, type GitHubCommitRowProps } from "./github/GitHubCommitRow.js";
+export { GitHubMergeEvent, type GitHubMergeEventProps } from "./github/GitHubMergeEvent.js";
+export { GitHubResultList, type GitHubResult, type GitHubResultListProps } from "./github/GitHubResultList.js";
+export { GitHubDetailSection, type GitHubDetailSectionProps, type GitHubDetailState } from "./github/GitHubDetailSection.js";
+export { githubHref, type GitHubPerson, type GitHubState } from "./github/shared.js";

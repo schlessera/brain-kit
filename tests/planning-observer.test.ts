@@ -127,6 +127,9 @@ test.skipIf(process.platform !== "linux")("cancelling an owned namespace drains 
     while (!existsSync(join(dir, "holding")) && performance.now() < deadline) await Bun.sleep(5);
     expect(existsSync(join(dir, "holding")), "OWNED_DESCENDANT_STARTED_BEFORE_CANCELLATION").toBe(true);
     const namespace = readFileSync(join(dir, "holding"), "utf8");
+    // The fixture publishes atomically. An empty namespace would match no process
+    // and make the descendant check below pass without proving anything.
+    expect(namespace, "OWNED_NAMESPACE_PUBLISHED").toMatch(/^pid:\[[1-9][0-9]*\]$/);
     child.kill("SIGKILL");
     await drained; // A descendant retaining either pipe prevents this from completing.
     const living = () => readdirSync("/proc").filter(pid => {

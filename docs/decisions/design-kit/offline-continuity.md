@@ -91,7 +91,7 @@ transcript-ready audio. Playback and review remain local. Transcribe requires
 its explicit upload confirmation and the server capability. Add to draft
 persists the chosen draft and its receipt before accepted metadata/deletion;
 failure keeps the recording. It never sends a message or answers an approval
-(`async accept`, `packages/ui-react/src/lib/recordings.ts:688-716`).
+(`async accept`, `packages/ui-react/src/lib/recordings.ts:699-727`).
 The [tray runtime proof](https://github.com/schlessera/brain-kit/pull/1241)
 measures focus, reading-anchor preservation, playback, failed writes and native
 transaction ordering. Surviving transcript text remains reviewable even if its
@@ -103,7 +103,7 @@ origin/device, across account and unassigned partitions**, with no age expiry
 and no eviction to admit a new recording (`RECORDING_MAX_MS`,
 `packages/ui-react/src/lib/recordings.ts:9-16`). The lower browser capacity
 wins. Estimates are advisory; write success determines what exists
-(`async function budget`, `packages/ui-react/src/lib/recordings.ts:195-205`).
+(`async function budget`, `packages/ui-react/src/lib/recordings.ts:196-206`).
 Limits stop capture and keep a contiguous playable prefix, rather than cutting
 an encoded chunk or deleting older work. Both quota and blob I/O errors stop
 writes. The [store runtime proof](https://github.com/schlessera/brain-kit/pull/1230)
@@ -112,7 +112,7 @@ chunks and crash recovery.
 
 **Saved up to** is the last chunk end whose chunk/index transaction completed,
 not elapsed UI time or the requested MediaRecorder interval
-(`const next =`, `packages/ui-react/src/lib/recordings.ts:326-343`). Requested
+(`const next =`, `packages/ui-react/src/lib/recordings.ts:337-354`). Requested
 intervals and warning/minimum-budget defaults are tuning, never promises.
 [#1250's measured fixture correction](https://github.com/schlessera/brain-kit/pull/1253)
 further demonstrates why a visible recording sheet or a timeslice deadline is
@@ -265,7 +265,7 @@ can do with surviving data; they do not measure when a real browser evicts it:
 | Neither index nor chunks (and no other surviving record) | Nothing can be listed or reported; no loss notice can be promised |
 
 Recovery uses the surviving index and ordered chunks
-(`async recover(partition)`, `packages/ui-react/src/lib/recordings.ts:553-617`).
+(`async recover(partition)`, `packages/ui-react/src/lib/recordings.ts:564-628`).
 The store tests force missing-chunk states, including a full origin that cannot
 repair metadata. Requesting `navigator.storage.persist()` is best effort; no
 copy calls it a guarantee. No unload callback can save data after a crash, and

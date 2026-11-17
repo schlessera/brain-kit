@@ -80,25 +80,32 @@ coordination, not protection against arbitrary filesystem edits.
 Direct Vitest diagnostics do not acquire whole-command ownership.
 Editorial captures retain their existing separate capture guard. Use the
 coordinated entry points or separate worktrees when overlapping those runs.
+Before instrumenting installed dependencies, follow
+[dependency diagnostic preparation](docs/process/diagnostic-installs.md):
+worktrees alone do not isolate Bun cache hardlinks.
 
-The frozen native diagram control also requires the independently qualified
-installation bytes and modes. An `installation-mismatch` with matching frozen
-source is an install problem: keep its source revision, 859-file inventory and
-qualification fingerprints unchanged. A frozen lockfile does not repair a
-modified shared package cache, and copying that cache copies the modifications
-([#1980](https://github.com/schlessera/brain-kit/issues/1980)). Recover only the
-owned checkout through a fresh private cache and independent file copies:
+No test pins the hash of a source file or of the installation
+([#4105](https://github.com/schlessera/brain-kit/issues/4105),
+[#4107](https://github.com/schlessera/brain-kit/issues/4107)): editing product
+source, or adding, removing or upgrading a dependency, needs no re-audit or
+requalification. Browser proof runs fresh whenever it is selected, and the
+native diagram producer runs in its Docker boundary. A frozen lockfile still does not
+repair a modified shared package cache, and copying that cache copies the
+modifications ([#1980](https://github.com/schlessera/brain-kit/issues/1980)).
+When a check fails on installed bytes, recover only the owned checkout through
+a fresh private cache and independent file copies, under umask `022`; the
+preparation script sets its own umask so yours is unchanged:
 
 ```sh
-native_fixture_cache=$(mktemp -d)
-bun install --force --frozen-lockfile --backend=copyfile --cache-dir "$native_fixture_cache"
-bun run test ./tests/native-diagram-inputs.test.ts
+# Preserve evidence and move aside this owned checkout's node_modules first.
+sh scripts/prepare-diagnostic-install.sh
 ```
 
-Retain the failed and restored installation identities. Verify any suspected
-package edits against the lockfile's archive integrity; never normalize unknown
-bytes or modes to force qualification. Leave shared caches and other checkouts
-alone. This recovery does not prevent future diagnostic cache edits (#1980).
+Verify any suspected package edits against the lockfile's archive integrity;
+never normalize unknown bytes or modes to force a pass. Leave shared caches and
+other checkouts alone. Use the same preparation before future dependency
+instrumentation; retain the original failure evidence as described in the
+diagnostic guide.
 
 The Linux backend nonpersistence tests require `bubblewrap` and permitted user
 namespaces. They launch the installed Claude and pi adapters with a loopback
@@ -214,8 +221,13 @@ real Chrome and required namespaces may not silently skip. The final `proof`
 check requires every selected category to pass. Scheduled/manual exhaustive
 runs supplement affected PR proof; they do not replace it.
 
-Drafts stay on cheap gates. Opening/reopening a ready PR or marking it ready
-requests full affected candidate confirmation. Subsequent pushes run fast
+Drafts stay on cheap gates, plus one job: a PR that adds or modifies a Bun
+test file has those files repeated under CPU load
+([why](docs/process/testing.md#changed-tests-repeat-under-load)). Opening/reopening a ready PR or marking it ready
+requests affected candidate confirmation of the fast categories (types,
+packaging, unit/integration); heavy runtime, browser, layout, capture and
+endurance proof runs on the squash's own main run
+([hybrid ruling](docs/decisions/ci-utility.md#hybrid-post-merge-heavy-proof)). Subsequent pushes run fast
 feedback only and leave `proof` nonpassing. Convert to draft and mark ready
 after the final push to request confirmation again. Main remains full affected;
 scheduled/manual proof remains exhaustive. Independent packaging, types, unit and browser/runtime jobs start
@@ -229,7 +241,7 @@ Record actual head/base, job/attempt IDs, checkout logs and focused local
 receipts in the PR. Missing tools, failed/cancelled jobs and unexpected skips
 leave proof incomplete. The candidate gate requires the live head/base to match the tested merge
 checkout; a base advance requires a new confirmation request, without inherently
-requiring a rebase. Admitted immutable browser-domain retention remains available. Preserve
+requiring a rebase. Preserve
 the earlier tested tree rather than attributing it to a new base. Relevant
 input/dependency/harness changes require fresh proof; unknown changes expand
 conservatively. There is no generic cache of passing tests. Respect branch rules
@@ -280,9 +292,13 @@ available, with the pinned image and diagnostics unchanged.
 
 Browser shards use a committed per-project/file timing table, not live CI
 artifacts or a fixed allowlist. Unknown specs get a positive one-second weight;
-invalid tables fail visibly. Refresh explicitly from two successful browser jobs:
-`bun scripts/refresh-browser-costs.ts <run-id> <attempt>`. Review the source
-head/checkout/tree, job IDs and seconds/median metadata alongside the table.
+invalid tables fail visibly. Refresh explicitly from one successful CI run
+attempt in which every shard of the domain, as configured in `PROOF_SHARDS`
+(`scripts/proof-shards.ts`), ran fresh and succeeded:
+`bun scripts/refresh-browser-costs.ts <run-id> <attempt> [browser|layout]`
+(browser by default). Cancelled or partial proof supplies no
+measurements. Review the source head/checkout/tree, job IDs and seconds/median
+metadata alongside the table.
 Unsharded discovery is unchanged and existing browser file concurrency is kept.
 
 `bun run test:browser` runs every configured browser project in the pinned
@@ -420,7 +436,7 @@ with a standard XML parser and inspect its testcase names and counts.
    as binary and drop it from every search; escaping leaves the runtime value
    untouched. `bun run lint` is the gate.
 7. Versioning is lockstep across `@schlessera/brain-*` as a single changesets
-   `fixed` group: all nineteen packages, including packages whose own code did
+   `fixed` group: all twenty packages, including packages whose own code did
    not change and receive only a dependency bump. This is a deliberate pre-1.0 solo-maintainer
    tradeoff, not an oversight. Add a changeset to any user-visible change. Keep
    the changeset itself short — what was added / changed / removed, in one line
@@ -440,6 +456,14 @@ internal: no compatibility promise, valid only at the same lockstep version.
 `scripts/check-frontmatter-parse.ts`, part of `bun run lint`, refuses any other
 import of gray-matter. The reason is in
 [docs/decisions/frontmatter-parsing.md](docs/decisions/frontmatter-parsing.md).
+
+In ui-server, ui-kit and ui-react, `bun run lint` refuses an `export` in `src/`
+that no other file imports (`scripts/check-unused-exports.ts`). Drop the
+keyword, or delete the declaration if its own file does not use it either. An
+entry point's own exports and the declarations its api-report signatures
+record are exempt. Anything else that has to stay exported, such as a type
+that another file's declaration emit infers, gets an allowlist entry with a
+one-line reason in that script.
 
 The invisible-character and leakage gates here are brain-kit's own. A
 deployment keeps its own copies with its own patterns, and a copy that runs

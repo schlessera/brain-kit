@@ -1,3 +1,4 @@
+import { safetyCatalogCreated } from "../governance/safety-store.js";
 import { openDialogue, appendDialogue, bindDialogue, closeDialogue } from "./dialogue-storage.js";
 /**
  * Session catalog writes off the event loop (#2850). The hosted server's app
@@ -27,6 +28,8 @@ import * as work from "./session-work.js";
 import { saveTurnFailure, type RecordedTurnFailure } from "./turn-failures.js";
 
 import { saveConversationEpoch, saveConversationTask } from "./conversation-storage.js";
+import { assertLive, recordChatCleanup, retireChat, type ChatStore, type ChatStoreOutcome, type RetireChatInput } from "./chat-lifecycle.js";
+import { cleanChatStore, type HostChatStore } from "./chat-store-cleanup.js";
 export const url = import.meta.url;
 
 export const UPSERT_SESSION_SQL = `INSERT INTO sessions (id, title, created_at, last_active_at, total_cost_usd, num_turns, provider_id, backend_id)
@@ -41,6 +44,13 @@ export const UPSERT_SESSION_SQL = `INSERT INTO sessions (id, title, created_at, 
 /** One `sessions` upsert, with its clock taken where it was submitted. */
 export interface SessionRow {
   id: string; title: string; at: number; costUsd: number; turns: number; providerId: string | null; backendId: string | null;
+  /**
+   * The authenticated principal whose typed request created this session
+   * (#3337). Bound only if this upsert creates the row; an existing session
+   * (a legacy chat, a resume) never gains or changes an owner here.
+   */
+  ownerPrincipalId?: string | null;
+  creatorTurnId?: string;
 }
 
 export interface ClaudeUsageContext { billingMode?: BillingMode; pricingRoute?: PricingRoute; principalId?: string }
@@ -135,8 +145,13 @@ export function setup(db: Database, options: SessionCatalogWriteOptions = {}): W
   // Keep an invalidation even if its DELETE fails: later reservations must
   // never dispatch the obsolete row left behind. A successful new save resets it.
   const invalidatedRetries = new Set<string>();
+  // A retired chat's session accepts no new work, revision, retry, content or
+  // projection (#3228). Every write here runs serialized with the retirement,
+  // so the check and its write cannot straddle it. Accounting and clearing stay open.
+  const live = (sessionId: string) => assertLive(db, [["session", sessionId]]);
   return {
     saveRetryRequest(sessionId: string, turnId: string, principalId: string, request: ClientChatMessage, prompt: string, failure: TurnFailure) {
+      live(sessionId);
       retries.saveRetryRequest(db, sessionId, turnId, principalId, request, prompt, failure);
       invalidatedRetries.delete(sessionId);
     },
@@ -146,36 +161,48 @@ export function setup(db: Database, options: SessionCatalogWriteOptions = {}): W
     },
     refuseRetry: (sessionId: string, requestId: string, principalId: string, message: string) => retries.refuseRetry(db, sessionId, requestId, principalId, message),
     reserveRetry(sessionId: string, turnId: string, requestId: string, principalId: string, expectedPrompt?: string) {
+      live(sessionId);
       if (invalidatedRetries.has(sessionId)) return { receipt: retries.refuseRetry(db, sessionId, requestId, principalId,
         "The original request is unavailable or is no longer the latest turn.") };
       return retries.reserveRetry(db, sessionId, turnId, requestId, principalId, expectedPrompt);
     },
     upsertSession(row: SessionRow) {
-      db.prepare(UPSERT_SESSION_SQL).run(row.id, row.title, row.at, row.at, row.costUsd, row.turns, row.providerId, row.backendId);
+      live(row.id);
+      const owner = row.ownerPrincipalId;
+      if (!owner) { db.prepare(UPSERT_SESSION_SQL).run(row.id, row.title, row.at, row.at, row.costUsd, row.turns, row.providerId, row.backendId); return; }
+      db.transaction(() => {
+        const created = !db.query("SELECT 1 FROM sessions WHERE id=?").get(row.id);
+        db.prepare(UPSERT_SESSION_SQL).run(row.id, row.title, row.at, row.at, row.costUsd, row.turns, row.providerId, row.backendId);
+        if (created) {
+          db.prepare("INSERT OR IGNORE INTO chat_session_owners(session_id,principal_id,created_at) VALUES(?,?,?)").run(row.id, owner, row.at);
+          safetyCatalogCreated(db,row.id,owner,row.creatorTurnId);
+        }
+      })();
     },
     claudeUsage(sessionId: string, backendId: string, turnId: string, evidence: ClaudeUsageEvidence, resumed: boolean, context?: ClaudeUsageContext) {
       const { store, pricing } = account();
       accountClaudeUsage(db, store, pricing(), sessionId, backendId, turnId, evidence, resumed, context);
     },
     stateRoom(sessionId: string, observation: StateRoomObservation) {
+      live(sessionId);
       db.query("INSERT INTO session_state_room (session_id, observation) VALUES (?, ?) ON CONFLICT(session_id) DO UPDATE SET observation = excluded.observation")
         .run(sessionId, JSON.stringify(observation));
     },
-    turnFailure: (sessionId: string, backendId: string, record: RecordedTurnFailure) => saveTurnFailure(db, sessionId, backendId, record),
-    acceptWork: (sessionId: string, input: { revision: number; requestId: string | null; backendId: string | null; at: number }) =>
-      work.acceptWork(db, sessionId, input),
-    dispatchWork: (sessionId: string, input: { revision: number; turnId: string; backendId: string; startedAt: number }) =>
-      work.dispatchWork(db, sessionId, input),
-    turnBoundary: (sessionId: string, backendId: string, boundary: work.TurnBoundary) => work.saveTurnBoundary(db, sessionId, backendId, boundary),
-    messageSource: (sessionId: string, text: string, source: MessageSource, effort: { thinkingLevel?: ThinkingLevel; turnId: string; files?: SharedFileMeta[] } | undefined, at: number) =>
-      saveMessageSource(db, sessionId, text, source, effort, at),
-    effectiveThinkingLevel: (sessionId: string, turnId: string, level: ThinkingLevel) => saveEffectiveThinkingLevel(db, sessionId, turnId, level),
+    turnFailure: (sessionId: string, backendId: string, record: RecordedTurnFailure) => { live(sessionId); return saveTurnFailure(db, sessionId, backendId, record); },
+    acceptWork: (sessionId: string, input: { revision: number; requestId: string | null; backendId: string | null; at: number }) => { live(sessionId); return work.acceptWork(db, sessionId, input); },
+    dispatchWork: (sessionId: string, input: { revision: number; turnId: string; backendId: string; startedAt: number }) => { live(sessionId); return work.dispatchWork(db, sessionId, input); },
+    turnBoundary: (sessionId: string, backendId: string, boundary: work.TurnBoundary) => { live(sessionId); return work.saveTurnBoundary(db, sessionId, backendId, boundary); },
+    messageSource: (sessionId: string, text: string, source: MessageSource, effort: { thinkingLevel?: ThinkingLevel; turnId: string; files?: SharedFileMeta[]; attachmentFiles?: import("../attachments/context.js").MessageAttachment[] } | undefined, at: number) => { live(sessionId); return saveMessageSource(db, sessionId, text, source, effort, at); },
+    effectiveThinkingLevel: (sessionId: string, turnId: string, level: ThinkingLevel) => { live(sessionId); return saveEffectiveThinkingLevel(db, sessionId, turnId, level); },
     // A stub that failed to persist leaves no row to update: that is not a
     // recorded link, and saying so keeps the caller's key fail-closed.
-    handoff: (sessionId: string, handoffId: string, sourceSessionId: string, sourceTurns: number | null) =>
-      db.query("UPDATE sessions SET handoff_from = ?, handoff_id = ?, handoff_from_turns = ? WHERE id = ? RETURNING id")
-        .get(sourceSessionId, handoffId, sourceTurns, sessionId) !== null,
+    handoff(sessionId: string, handoffId: string, sourceSessionId: string, sourceTurns: number | null) {
+      live(sessionId);
+      return db.query("UPDATE sessions SET handoff_from = ?, handoff_id = ?, handoff_from_turns = ? WHERE id = ? RETURNING id")
+        .get(sourceSessionId, handoffId, sourceTurns, sessionId) !== null;
+    },
     label(sessionId: string, label: string, source: string) {
+      live(sessionId);
       db.prepare("UPDATE sessions SET label = ?, label_source = ? WHERE id = ?").run(label, source, sessionId);
     },
     dialogueClose: (conversationId:string,principalId:string,epoch:number,partial:boolean) => closeDialogue(db,conversationId,principalId,epoch,partial),
@@ -183,9 +210,12 @@ export function setup(db: Database, options: SessionCatalogWriteOptions = {}): W
     dialogueAppend: (input: import("./dialogue-storage.js").DialogueAppend) => appendDialogue(db, input),
     dialogueBind: (conversationId: string, principalId: string, sessionId: string) => bindDialogue(db, conversationId, principalId, sessionId),
     conversationEpoch: (state: import("./conversation-storage.js").StoredConversationEpoch) => saveConversationEpoch(db, state),
+    retireChat: (input: RetireChatInput) => retireChat(db, input),
+    chatCleanup: (lifecycleId: string, store: ChatStore, outcome: Exclude<ChatStoreOutcome, "pending">, at: number) => recordChatCleanup(db, lifecycleId, store, outcome, at),
+    chatStoreCleanup: (lifecycleId: string, store: HostChatStore, at: number) => cleanChatStore(db, lifecycleId, store, at),
     conversationTask: (principalId: string, receipt: import("@schlessera/brain-ui-sdk/protocol").ConversationWorkReceipt, facts?: string) => saveConversationTask(db, principalId, receipt, facts),
-    localExchange: (sessionId: string, exchange: LocalExchange, delivered: boolean, at: number) => saveLocalExchange(db, sessionId, exchange, delivered, at),
-    exchangesDelivered: (sessionId: string, exchangeIds: string[], at: number) => markLocalExchangesDelivered(db, sessionId, exchangeIds, at),
+    localExchange: (sessionId: string, exchange: LocalExchange, delivered: boolean, at: number) => { live(sessionId); return saveLocalExchange(db, sessionId, exchange, delivered, at); },
+    exchangesDelivered: (sessionId: string, exchangeIds: string[], at: number) => { live(sessionId); return markLocalExchangesDelivered(db, sessionId, exchangeIds, at); },
     addCost(sessionId: string, costUsd: number) {
       db.prepare("UPDATE sessions SET total_cost_usd = COALESCE(total_cost_usd, 0) + ? WHERE id = ?").run(costUsd, sessionId);
     },

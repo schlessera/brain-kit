@@ -30,8 +30,9 @@ function probeAnswers(...answers: WorkerHostProbe[]) {
   probe = spyOn(workerHostBoundary, "probe").mockImplementation(() => answers[Math.min(i++, answers.length - 1)]!);
   return probe;
 }
-// Copied fixture brains are never managed native storage, so turn egress stays off (#1665).
-const UNMANAGED_EGRESS = { active: false, detail: expect.stringContaining("no managed native storage") };
+// Copied fixture brains are never managed native storage: status reports turn egress off,
+// and every governed and strict turn on such a brain is refused (#1665, #3314).
+const UNMANAGED_EGRESS = { active: false, detail: expect.stringContaining("every governed and strict turn is refused") };
 const workerHostOf = async (response: Response) => ((await response.json()) as SystemStatus).runtime?.workerHost;
 let helper: ReturnType<typeof mockQualifiedIdentityHelper> | undefined;
 afterEach(() => { helper?.restore(); helper = undefined; });

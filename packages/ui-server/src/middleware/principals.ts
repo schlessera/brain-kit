@@ -40,7 +40,7 @@ const MAX_AGENT_TTL_DAYS = SESSION_TTL_SECONDS / SECONDS_PER_DAY;
 const MAX_LABEL_LENGTH = 64;
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/gu;
 
-export interface PrincipalManagementContext {
+interface PrincipalManagementContext {
   db: Database;
   revoker: Pick<WsHost, "revokePrincipals">;
   log?: Logger;
@@ -56,6 +56,7 @@ function grantJson(grant: ReferenceGrant) {
     principal_id: grant.principalId,
     repository_prefix: grant.repositoryPrefix,
     credential: grant.credential,
+    ...(grant.metadataCredentialRecipient ? { metadata_credential_recipient: grant.metadataCredentialRecipient } : {}),
     created_by: grant.createdBy,
     created_at: grant.createdAt,
   };
@@ -225,9 +226,9 @@ export function principalManagementRoutes(
   });
 
   app.post("/auth/principals/:id/reference-grants", requireJson(), async (c) => {
-    let body: { repositoryPrefix?: unknown; credential?: unknown };
+    let body: { repositoryPrefix?: unknown; credential?: unknown; metadataCredentialRecipient?: unknown };
     try {
-      const result = await readJsonBody<{ repositoryPrefix?: unknown; credential?: unknown }>(c);
+      const result = await readJsonBody<typeof body>(c);
       if (result instanceof Response) return result;
       if (!result || typeof result !== "object" || Array.isArray(result)) {
         return c.json({ error: "Invalid request body" }, 400);
@@ -245,6 +246,7 @@ export function principalManagementRoutes(
         principalId,
         repositoryPrefix: body.repositoryPrefix,
         credential: body.credential === undefined ? null : body.credential,
+        metadataCredentialRecipient: body.metadataCredentialRecipient,
         createdBy: caller.id,
         now: Date.now(),
       });

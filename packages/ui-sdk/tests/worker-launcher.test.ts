@@ -356,7 +356,9 @@ os.execve(${JSON.stringify(boot.command[0])}, ${JSON.stringify(boot.command)}, $
       try {
         const relay = f.relay();
         expect(() => workerCommand({ brainPath: f.brain, command: [process.execPath], env: {},
-          restricted: { readPaths: [path === "ancestor" ? f.root : path], inferenceDir: relay } })).toThrow("broader than an explicit envelope");
+          restricted: { readPaths: [path === "ancestor" ? f.root : path], inferenceDir: relay } }))
+          // `/` holds the reserved private mounts (#3422), so the runtime placement check refuses it first.
+          .toThrow(path === "/" ? "collides with reserved private worker path" : "broader than an explicit envelope");
       } finally { f.cleanup(); }
     });
 

@@ -1,15 +1,30 @@
 /** Exact-candidate reservation lifecycle and cooperative, proof-checked merge. */
 import { randomUUID } from "node:crypto";
 import { scanText } from "./check-leakage";
-import { GitReservationStore, assertLease, liveLease, reservationServerTime, reservationTransition, RENEW_MS, sameCandidate,
+import { GitReservationStore, assertLease, holderToken, holds, LEASE_MS, liveLease, reservationServerTime, reservationTransition, RENEW_MS, sameCandidate,
   type Candidate, type Operation, type Lease } from "./integration-reservation";
-import { latestIntegrationRun, verifyIntegrationProof } from "./integration-proof";
-import { declareFix, recordExpedited, type RedMainRecord } from "./red-main";
+import { contractReadiness, latestIntegrationRun, verifyIntegrationProof } from "./integration-proof";
+import { declareFix, gateDecision, recordExpedited, type RedMainRecord } from "./red-main";
+import { isAncestor } from "./red-main-cli";
 import { expeditedProblems, expeditedTests, fixProbeTitle, probeReceipt, type FeedbackEvidence, type ProbeEvidence } from "./red-main-expedite";
 import { receiptFromBody, receiptRefusal } from "./check-receipt";
-import type { API } from "./proof-reuse";
+import { reviewGate } from "./review-receipt";
+import type { API } from "./proof-api";
 import { classify } from "./proof-system";
 import { checkQualification, laneRefusal, readLane, type MainRun } from "./proof-system-lane";
+
+/**
+ * A refusal no retry can cure: the candidate changed or the reservation no longer
+ * holds this lease. Anything else on the renewal or proof-poll path (a push,
+ * ls-remote or API transport error, an HTTP 5xx, an unavailable clock) is
+ * retried on the next tick while the lease is provably still live (#3302).
+ */
+class Fatal extends Error {}
+const describe = (error: unknown) => (error instanceof Error ? error.message : String(error)).trim().split("\n").slice(0, 3).join(" | ");
+/** Never act on a lease that may have expired: give up one renewal interval before it could. */
+const SAFETY_MS = LEASE_MS - RENEW_MS;
+/** How long `confirm` waits for a pending contract run before refusing (#3573). */
+const CONTRACT_WAIT_MS = 10 * RENEW_MS;
 
 async function gh(...args: string[]): Promise<string> {
   const child = Bun.spawn(["gh", ...args], { stdout: "pipe", stderr: "pipe" });
@@ -19,9 +34,14 @@ async function gh(...args: string[]): Promise<string> {
 }
 
 if (import.meta.main) {
-  let own: Lease | undefined, store: GitReservationStore | undefined;
+  // `token` proves this process holds `own` (#3303). It stays in memory; only `acquire` prints it.
+  let own: Lease | undefined, token: string | undefined, store: GitReservationStore | undefined;
   let actor = 0, repository = "";
   let timer: ReturnType<typeof setInterval> | undefined, pending = Promise.resolve(), lost: unknown;
+  // Local monotonic time until which the owned lease is certainly live, and of the last successful renewal.
+  let liveUntil = 0, renewedAt = 0, pollFailingSince: number | undefined;
+  /** `started` precedes the server clock read, so the local deadline never outlasts the lease. */
+  const held = (lease: Lease, started: number, serverNow: number) => { liveUntil = started + lease.expires - serverNow; renewedAt = started; };
   const clock = async () => reservationServerTime(await gh("api", "--include", "-H", "Cache-Control: no-cache",
     `repos/${repository}/git/ref/heads/main?integration_clock=${randomUUID()}`));
   const api: API = { async json(path) { return JSON.parse(await gh("api", `repos/${repository}/${path}`)); },
@@ -35,8 +55,10 @@ if (import.meta.main) {
   }
   async function change(operation: Operation) {
     for (let attempt = 0; attempt < 3; attempt++) {
-      const snapshot = store!.read(), next = reservationTransition(snapshot.state, operation, actor, await clock());
-      if (scanText("coordination", JSON.stringify(next)).length) throw new Error("Public coordination state failed the leakage gate");
+      const snapshot = store!.read(), now = await clock();
+      let next: ReturnType<typeof reservationTransition>;
+      try { next = reservationTransition(snapshot.state, operation, actor, now); } catch (error) { throw new Fatal(describe(error)); }
+      if (scanText("coordination", JSON.stringify(next)).length) throw new Fatal("Public coordination state failed the leakage gate");
       if (store!.publish(snapshot, next)) return next;
       await Bun.sleep(100 * 2 ** attempt);
     }
@@ -44,12 +66,15 @@ if (import.meta.main) {
   }
   async function renew() {
     if (!own) throw new Error("No owned reservation");
-    if (!sameCandidate(await candidate(own.candidate.pr), own.candidate)) throw new Error("Candidate head/base changed; reacquisition and new confirmation required");
-    const state = await change({ kind: "renew", id: own.id }); own = state.active!;
+    const started = performance.now();
+    if (!sameCandidate(await candidate(own.candidate.pr), own.candidate)) throw new Fatal("Candidate head/base changed; reacquisition and new confirmation required");
+    const state = await change({ kind: "renew", id: own.id, token }); own = state.active!;
+    held(own, started, state.updated);
   }
   async function acquire(desired: Candidate) {
     for (let attempt = 0; attempt < 3; attempt++) {
-      try { return (await change({ kind: "acquire", candidate: desired })).active!; }
+      const secret = holderToken(), started = performance.now();
+      try { const state = await change({ kind: "acquire", candidate: desired, token: secret }), lease = state.active!; token = secret; held(lease, started, state.updated); return lease; }
       catch (error) {
         if (!String(error).includes("Integration busy:") || attempt === 2) throw error;
         console.error(String(error)); await Bun.sleep(1000 * 2 ** attempt);
@@ -58,10 +83,14 @@ if (import.meta.main) {
     }
     throw new Error("Bounded acquisition exhausted");
   }
-  /** Cooperative merge blocking while red (#2942): only a declared fix proceeds. */
-  function refuseWhileRed(pr: number) {
-    const open = store!.read().redMain.open;
-    if (open && !open.fixes.includes(pr)) throw new Error(`main red at ${open.firstBad}, ${open.incident ? `incident #${open.incident}` : "incident pending"}; only a declared fix may confirm or merge (bun scripts/integrate.ts declare-fix <pr>)`);
+  /**
+   * Cooperative merge blocking while red (#2942): a candidate whose merge ref contains
+   * the bad commit proceeds only as a declared fix (#3321). Unknown ancestry refuses.
+   */
+  function refuseWhileRed(desired: Candidate) {
+    const decision = gateDecision({ record: store!.read().redMain, pr: desired.pr,
+      contains: sha => isAncestor(sha, desired.base, store!.root) || isAncestor(sha, desired.head, store!.root) });
+    if (decision.refuse) throw new Error(`${decision.message}; only a declared fix may confirm or merge (bun scripts/integrate.ts declare-fix <pr>)`);
   }
   async function changeRedMain(update: (record: RedMainRecord, now: number) => RedMainRecord) {
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -94,16 +123,19 @@ if (import.meta.main) {
     const run = runs.filter((r: any) => r.head_sha === sha).sort((a: any, b: any) => b.id - a.id)[0];
     return run ? { id: run.id, status: run.status, conclusion: run.conclusion ?? null } : null;
   }
-  /** Proof-system lane (#3269, #3271): a proof-system candidate needs off-main
-   * qualification on the PR and an open stability window. Product candidates
-   * are never refused here; callers skip declared red-main fixes. */
-  async function refuseProofSystemLane(desired: Candidate, body: string | null | undefined) {
+  /**
+   * Proof-system lane (#3269, #3271): a proof-system candidate needs off-main qualification on the PR
+   * and an open stability window. Product candidates are never refused here. A declared red-main fix,
+   * expedited or confirmed ordinarily, is exempt: a fix that waited for the window it repairs could never land.
+   */
+  async function refuseProofSystemLane(desired: Candidate, fixesRun: number | undefined) {
+    if (fixesRun !== undefined || store!.read().redMain.open?.fixes.includes(desired.pr)) return;
     for (const sha of [desired.base, desired.head]) ensureCommit(sha);
     const from = store!.git(["merge-base", desired.base, desired.head]);
     const candidateClass = classify(from, desired.head, { cwd: store!.root });
     if (!candidateClass.proofSystem) return;
     const problems: string[] = [];
-    const qualification = await checkQualification({ body, repository, head: desired.head, cwd: store!.root, ensure: ensureCommit,
+    const qualification = await checkQualification({ body: (await api.json(`pulls/${desired.pr}`)).body, repository, head: desired.head, cwd: store!.root, ensure: ensureCommit,
       async readRun(id) {
         const run = await api.json(`actions/runs/${id}`).catch(() => null);
         return run ? { id, headSha: run.head_sha ?? null, repository: run.repository?.full_name ?? null } : null;
@@ -114,8 +146,60 @@ if (import.meta.main) {
     const paths = [...new Set(candidateClass.reasons.map(reason => reason.path))].join(", ");
     if (problems.length) throw new Error(`Proof-system candidate refused (${paths}): ${problems.join(". ")}`);
   }
+  /** One renewal tick: a transient failure is logged and retried next tick until the safety margin (#3302). */
+  async function tick() {
+    if (lost) return;
+    try { await renew(); }
+    catch (error) {
+      if (error instanceof Fatal) { lost = error; return; }
+      const since = Math.round((performance.now() - renewedAt) / 1000);
+      console.error(`Lease renewal failed ${since}s after the last success; retrying next tick: ${describe(error)}`);
+      if (performance.now() >= liveUntil - RENEW_MS) lost = new Error(`No lease renewal succeeded for ${since}s (safety margin ${SAFETY_MS / 1000}s before possible expiry); last error: ${describe(error)}`);
+    }
+  }
   function heartbeat() {
-    timer = setInterval(() => { pending = pending.then(async () => { if (!lost) try { await renew(); } catch (error) { lost = error; } }); return pending; }, RENEW_MS);
+    timer = setInterval(() => { pending = pending.then(tick); return pending; }, RENEW_MS);
+  }
+  /** A proof read that fails transiently is retried next tick; a refusal is not, and polling gives up with the lease's margin. */
+  async function poll<T>(read: () => Promise<T>): Promise<T | undefined> {
+    try { const value = await read(); pollFailingSince = undefined; return value; }
+    catch (error) {
+      if (error instanceof Fatal) throw error;
+      pollFailingSince ??= performance.now();
+      const failing = Math.round((performance.now() - pollFailingSince) / 1000);
+      console.error(`Proof poll failed (failing for ${failing}s); retrying next tick: ${describe(error)}`);
+      if (failing * 1000 >= SAFETY_MS) throw new Error(`Proof polls failed for ${failing}s; last error: ${describe(error)}`);
+      return undefined;
+    }
+  }
+  /**
+   * Hold confirmation until the newest exact-head contract run has passed (#3573). The merge path
+   * refuses anything else, so requesting candidate CI first would spend a whole run on a refusal.
+   * A pending run is waited for, without a reservation, for a bounded time.
+   */
+  async function contractPassed(desired: Candidate) {
+    for (let waited = 0; ; waited += RENEW_MS) {
+      const readiness = contractReadiness(await latestIntegrationRun(api, "contract.yml", desired), desired.head);
+      if (readiness.state === "passed") return;
+      if (readiness.state === "refused") throw new Error(readiness.message);
+      if (waited >= CONTRACT_WAIT_MS) throw new Error(`${readiness.message} after ${waited / 1000}s; confirm again once it completes. No reservation was taken and no candidate CI was requested.`);
+      console.error(`${readiness.message}; waiting before taking the reservation`);
+      await Bun.sleep(RENEW_MS);
+    }
+  }
+  /**
+   * The recorded independent review of a core-package candidate (#4110); returns the refusal or null.
+   * A candidate outside the core packages is never asked, and its comments are never read.
+   */
+  function reviewRefusal(desired: Candidate) {
+    return reviewGate(store!.root, desired, async () => {
+      const bodies: string[] = [];
+      for (let page = 1; ; page++) {
+        const batch: Array<{ body?: string | null }> = await api.json(`issues/${desired.pr}/comments?per_page=100&page=${page}`);
+        bodies.push(...batch.map(comment => comment.body ?? ""));
+        if (batch.length < 100) return bodies;
+      }
+    });
   }
   async function stopHeartbeat() { if (timer) clearInterval(timer); timer = undefined; await pending; }
   async function milestones(pr: number, issueRefs: string[]) {
@@ -171,6 +255,11 @@ if (import.meta.main) {
       const proof = await verifyIntegrationProof(store!.root, repository, desired, api, sha => { store!.git(["fetch", "origin", sha]); });
       const refusal = receiptRefusal((await api.json(`pulls/${desired.pr}`)).body, proof.covered);
       if (refusal) throw new Error(refusal);
+      // Read again here: a review posted while the candidate was being proved is the newest record.
+      const unreviewed = await reviewRefusal(desired);
+      if (unreviewed) throw new Error(unreviewed);
+      // Read again here too: a main run may have failed while the candidate was being proved.
+      await refuseProofSystemLane(desired, fixesRun);
       tree = proof.checkout.tree; candidateRun = proof.run;
     } else {
       expedited = await expeditedEvidence(desired, fixesRun, after);
@@ -183,9 +272,9 @@ if (import.meta.main) {
     await milestones(desired.pr, issueRefs);
     await stopHeartbeat();
     if (lost) throw lost;
-    refuseWhileRed(desired.pr);
+    refuseWhileRed(desired);
     if (!sameCandidate(await candidate(desired.pr), desired)) throw new Error("Candidate changed before merge");
-    assertLease(store!.read().state, own.id, actor, desired, await clock());
+    assertLease(store!.read().state, own.id, actor, desired, await clock(), token);
     await gh("pr", "merge", String(desired.pr), "--repo", repository, "--squash", "--match-head-commit", desired.head);
     const merged = await api.json(`pulls/${desired.pr}`);
     if (!merged.merged || !merged.merge_commit_sha) throw new Error("Merge not complete; no delivery claim");
@@ -193,7 +282,7 @@ if (import.meta.main) {
     if (commit.parents?.length !== 1 || commit.parents[0]?.sha !== desired.base || commit.tree?.sha !== tree) throw new Error("Actual squash parent/tree differ; reconcile actual main before claiming completion");
     store!.git(["fetch", "origin", "main"]); store!.git(["merge-base", "--is-ancestor", merged.merge_commit_sha, "origin/main"]);
     await milestones(desired.pr, issueRefs);
-    await change({ kind: "release", id: own.id }); own = undefined;
+    await change({ kind: "release", id: own.id, token }); own = undefined;
     if (expedited) await recordExpeditedFix(desired, fixesRun!, merged.merge_commit_sha, expedited);
     const main = await api.json(`actions/workflows/ci.yml/runs?event=push&head_sha=${merged.merge_commit_sha}&per_page=10`);
     const mainProof = "pending; inspect actual main jobs before claiming full completion";
@@ -207,13 +296,14 @@ if (import.meta.main) {
     const [command, target, ...options] = process.argv.slice(2), values = new Map<string, string>();
     for (let index = 0; index < options.length; index += 2) {
       const key = options[index]!, value = options[index + 1];
-      if (!["--issues", "--lease", "--fixes-main-run"].includes(key) || !value || value.startsWith("--") || values.has(key)) throw new Error("Invalid integration options");
+      if (!["--issues", "--lease", "--token", "--fixes-main-run"].includes(key) || !value || value.startsWith("--") || values.has(key)) throw new Error("Invalid integration options");
       values.set(key, value);
     }
     const issues = values.has("--issues") ? values.get("--issues")!.split(",") : [];
     const fixesRun = values.has("--fixes-main-run") ? Number(values.get("--fixes-main-run")) : undefined;
     if (fixesRun !== undefined && (!/^[1-9]\d*$/.test(values.get("--fixes-main-run")!) || !Number.isSafeInteger(fixesRun))) throw new Error("--fixes-main-run needs a main CI run ID");
     if (fixesRun !== undefined && !["confirm", "merge"].includes(command ?? "")) throw new Error("--fixes-main-run applies to confirm and merge only");
+    if (values.has("--token") && !["merge", "renew", "release"].includes(command ?? "")) throw new Error("--token applies to merge, renew and release only");
     if (issues.some(value => !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+#[1-9]\d*$/.test(value)) || issues.length > 100) throw new Error("Invalid delivered issue identities");
     repository = await gh("repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner");
     const user = JSON.parse(await gh("api", "user")); actor = user.id;
@@ -221,7 +311,7 @@ if (import.meta.main) {
     const remote = store.git(["remote", "get-url", "origin"]).replace(/^git@github.com:/, "https://github.com/").replace(/\.git$/, "");
     if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository) || remote !== `https://github.com/${repository}`) throw new Error("Authenticated repository and origin differ");
     if (command === "lane") {
-      if (target !== "--json") throw new Error("usage: bun scripts/integrate.ts lane --json");
+      if (target !== "--json" || options.length) throw new Error("usage: bun scripts/integrate.ts lane --json");
       store.git(["fetch", "origin", "main"]);
       const decision = await readLane(store.git(["rev-parse", "FETCH_HEAD"]), mainRunAt, { cwd: store.root });
       console.log(JSON.stringify({ ...decision, refusal: laneRefusal(decision) }));
@@ -242,36 +332,44 @@ if (import.meta.main) {
       console.log(JSON.stringify(await change({ kind: "revoke", reason: target ?? "", maintainer: permission.permission === "admin" || ["admin", "maintain"].includes(permission.role_name) })));
     } else if (command === "release" || command === "renew") {
       const state = store.read().state;
-      if (!state.active || state.active.id !== target || state.active.actor !== actor) throw new Error("Lease identity does not belong to this invocation");
+      token = values.get("--token");
+      if (state.active?.holder !== undefined && token === undefined) throw new Error(`${command} needs --token <token>, printed once by the acquire that took this lease; another holder's lease ends only by expiry or revoke`);
+      if (!state.active || state.active.id !== target || state.active.actor !== actor || !holds(state.active, token)) throw new Error("Lease identity does not belong to this invocation");
       own = state.active;
-      if (command === "renew") { await renew(); console.log(JSON.stringify(own)); own = undefined; }
-      else { console.log(JSON.stringify(await change({ kind: "release", id: own.id }))); own = undefined; }
+      // A failed renew exits nonzero and leaves the lease for the next renewal or expiry;
+      // only an explicit release (or confirm/merge's own completion) ends it (#3302).
+      if (command === "renew") try { await renew(); console.log(JSON.stringify(own)); } finally { own = undefined; }
+      else { console.log(JSON.stringify(await change({ kind: "release", id: own.id, token }))); own = undefined; }
     } else if (["acquire", "confirm", "merge"].includes(command ?? "")) {
       if (!/^[1-9]\d*$/.test(target ?? "") || !Number.isSafeInteger(Number(target))) throw new Error("A PR number is required");
       if (command === "merge" && values.has("--lease")) {
         const current = store.read().state.active;
-        if (current && current.id === values.get("--lease") && current.actor === actor && current.candidate.pr === Number(target) && current.candidate.repository === `https://github.com/${repository}`) own = current;
+        token = values.get("--token");
+        if (current && current.id === values.get("--lease") && current.actor === actor && holds(current, token) && current.candidate.pr === Number(target) && current.candidate.repository === `https://github.com/${repository}`) own = current;
       }
       const desired = await candidate(Number(target));
+      // Refuse an undeliverable confirmation before any write, lease or candidate CI (#3850); merge checks again.
+      if (command === "confirm") await milestones(desired.pr, issues);
       if (fixesRun !== undefined) {
         // Refuse a run that is not the open record's, or category-only failures, before any write.
         expeditedTests(store.read().redMain, fixesRun);
         console.log(JSON.stringify({ declared: (await changeRedMain((record, now) => declareFix(record, desired.pr, now))).open?.fixes }));
-      } else if (command !== "acquire" && !receiptFromBody((await api.json(`pulls/${desired.pr}`)).body)) {
-        throw new Error(receiptRefusal("", new Set())!);
+      } else if (command !== "acquire") {
+        if (!receiptFromBody((await api.json(`pulls/${desired.pr}`)).body)) throw new Error(receiptRefusal("", new Set())!);
+        // Before any lease or candidate CI, like the receipt; an expedited red-main fix is exempt from both.
+        // `merge --lease` checks inside the merge instead, after its lease is proved to cover this candidate.
+        const unreviewed = command === "confirm" ? await reviewRefusal(desired) : null;
+        if (unreviewed) throw new Error(unreviewed);
       }
-      refuseWhileRed(desired.pr);
-      // A declared red-main fix takes the fast track: exempt from the window and from qualification.
-      const lane = async () => {
-        if (fixesRun === undefined && !store!.read().redMain.open?.fixes.includes(desired.pr)) await refuseProofSystemLane(desired, (await api.json(`pulls/${desired.pr}`)).body);
-      };
+      refuseWhileRed(desired);
       if (command === "merge") {
         const lease = values.get("--lease");
         if (!lease) throw new Error("Explicit --lease required");
         const state = store.read().state;
-        if (state.active?.id === lease && state.active.actor === actor) own = state.active;
-        assertLease(state, lease, actor, desired, await clock());
-        await lane();
+        if (state.active?.id === lease && state.active.holder !== undefined && token === undefined) throw new Error("merge --lease needs --token <token>, printed once by the acquire that took this lease");
+        if (state.active?.id === lease && state.active.actor === actor && holds(state.active, token)) own = state.active;
+        const started = performance.now(), now = await clock();
+        held(assertLease(state, lease, actor, desired, now, token), started, now);
         await merge(issues, fixesRun);
       } else if (command === "confirm" && fixesRun !== undefined) {
         own = await acquire(desired);
@@ -284,39 +382,44 @@ if (import.meta.main) {
           "-f", `inputs[source_run]=${fixesRun}`, "-f", `inputs[sha]=${sha}`, "-f", `inputs[tests]=${JSON.stringify(tests)}`);
         const live = await api.json(`pulls/${desired.pr}`);
         if (!sameCandidate(await candidate(desired.pr), desired)) throw new Error("Candidate changed before the expedited request");
-        assertLease(store.read().state, own.id, actor, desired, await clock());
+        assertLease(store.read().state, own.id, actor, desired, await clock(), token);
         // A fresh ready request runs the exact-head affected fast invariants; the rest of that run is not waited for.
         if (!live.draft) await gh("pr", "ready", String(desired.pr), "--repo", repository, "--undo");
         await gh("pr", "ready", String(desired.pr), "--repo", repository);
         while (!lost) {
-          const { baseProbe, headProbe, feedback } = await expeditedEvidence(desired, fixesRun, after);
-          const pending = [baseProbe, headProbe].some(probe => probe?.status !== "completed") || !feedback || feedback.changeset === null ||
-            (feedback.changeset === "success" && feedback.verify === null);
+          const evidence = await poll(() => expeditedEvidence(desired, fixesRun, after));
+          const pending = !evidence || [evidence.baseProbe, evidence.headProbe].some(probe => probe?.status !== "completed") || !evidence.feedback ||
+            evidence.feedback.changeset === null || (evidence.feedback.changeset === "success" && evidence.feedback.verify === null);
           if (!pending) { await stopHeartbeat(); await merge(issues, fixesRun, after); break; }
           await Bun.sleep(RENEW_MS);
         }
         if (lost) throw lost;
       } else {
-        if (command === "confirm") await lane();
+        // Before any lease or candidate CI: a closed lane would refuse the merge anyway.
+        if (command === "confirm") { await refuseProofSystemLane(desired, fixesRun); await contractPassed(desired); }
         own = await acquire(desired);
-        console.log(JSON.stringify({ acquired: own }));
-        if (command === "acquire") own = undefined; // Caller retains the explicit id.
+        // Only an explicit acquire prints the holder token, once; confirm keeps it in memory.
+        console.log(JSON.stringify(command === "acquire" ? { acquired: own, token } : { acquired: own }));
+        if (command === "acquire") { own = undefined; token = undefined; } // Caller retains the explicit id and token.
         else {
           heartbeat();
           const previousRun = await latestIntegrationRun(api, "ci.yml", desired);
           const live = await api.json(`pulls/${desired.pr}`);
           if (!sameCandidate(await candidate(desired.pr), desired)) throw new Error("Candidate changed before confirmation request");
-          assertLease(store.read().state, own.id, actor, desired, await clock());
+          assertLease(store.read().state, own.id, actor, desired, await clock(), token);
           if (!live.draft) await gh("pr", "ready", String(desired.pr), "--repo", repository, "--undo");
           await gh("pr", "ready", String(desired.pr), "--repo", repository);
           while (!lost) {
-            const run = await latestIntegrationRun(api, "ci.yml", desired);
-            if (run?.id > (previousRun?.id ?? 0) && run.status === "completed") {
+            const observed = await poll(async () => {
+              const run = await latestIntegrationRun(api, "ci.yml", desired);
+              if (!(run?.id > (previousRun?.id ?? 0) && run.status === "completed")) return null;
               const jobs = await api.json(`actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=100`);
               const metadata = jobs.jobs?.find((job: { name: string }) => job.name === "changeset");
               const log = metadata ? await api.log(metadata.id) : "";
-              if (/"cadence":\s*"(?:draft|feedback)"/.test(log)) { await Bun.sleep(RENEW_MS); continue; }
-              if (run.conclusion !== "success") throw new Error(`Candidate proof ${run.conclusion}; reservation released without retry`);
+              return /"cadence":\s*"(?:draft|feedback)"/.test(log) ? null : run;
+            });
+            if (observed) {
+              if (observed.conclusion !== "success") throw new Error(`Candidate proof ${observed.conclusion}; reservation released without retry`);
               await stopHeartbeat(); await merge(issues); break;
             }
             await Bun.sleep(RENEW_MS);
@@ -324,14 +427,14 @@ if (import.meta.main) {
           if (lost) throw lost;
         }
       }
-    } else throw new Error("usage: bun scripts/integrate.ts inspect | main-status [--json] | lane --json | declare-fix <pr> | acquire/confirm/merge <pr> [--lease id] [--issues owner/repo#N,...] [--fixes-main-run <run-id>] | renew/release <id> | revoke <reason>");
+    } else throw new Error("usage: bun scripts/integrate.ts inspect | main-status [--json] | lane --json | declare-fix <pr> | acquire/confirm/merge <pr> [--lease id --token token] [--issues owner/repo#N,...] [--fixes-main-run <run-id>] | renew/release <id> [--token token] | revoke <reason>");
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1;
   } finally {
     await stopHeartbeat();
     if (own && store) try {
       const current = store.read().state.active;
-      if (current?.id === own.id && current.actor === actor) await change({ kind: "release", id: own.id });
+      if (current?.id === own.id && current.actor === actor && holds(current, token)) await change({ kind: "release", id: own.id, token });
     } catch (error) { console.error(`Owned reservation cleanup unfinished: ${String(error)}`); process.exitCode = 1; }
   }
 }

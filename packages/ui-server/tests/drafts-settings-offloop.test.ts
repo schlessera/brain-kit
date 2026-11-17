@@ -1,3 +1,4 @@
+import { createSpeechProviderRegistry } from "../src/voice/speech-providers";
 import { expect, test } from "bun:test";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -98,9 +99,9 @@ test("draft acceptance returns immediately behind a slow write; reads wait and a
     const read = Promise.resolve(app.request("/drafts/ithaca-draft")).then(response => { readDone = true; return response; });
     const list = app.request("/drafts");
     const late = refused(() => drafts.save(f.owner.id, "ithaca-draft", save("late", 1)));
-    await Bun.sleep(30);
-    expect(readDone, "DRAFT_GET_WAITS_FOR_ACCEPT_COMMIT").toBe(false);
-    await held;
+    // The accept commit is queued on the write worker behind the hold, whose
+    // replies arrive in order: the read is still waiting when the hold answers.
+    expect(await held.then(() => readDone), "DRAFT_GET_WAITS_FOR_ACCEPT_COMMIT").toBe(false);
     const response = await read;
     expect(response.status, "DRAFT_GET_SEES_SENT_TOMBSTONE").toBe(410);
     expect(await response.json()).toMatchObject({ error: "DRAFT_DELETED", tombstoneRevision: 2 });
@@ -129,7 +130,7 @@ test("a transcription claim commits at FULL before provider dispatch; duplicates
     };
     const app = new Hono<AppEnv>();
     app.use("*", async (c, next) => { c.set("principal", f.owner); await next(); });
-    app.route("/", createTranscriptionRoutes({ store, speechProvider, voice: { provider: speechProvider.id, deepgramApiKey: null, keytermLimit: 0, cacheDir: f.root }, keyterms: { brainPath: f.root, cacheDir: f.root, limit: 0 } }));
+    app.route("/", createTranscriptionRoutes({ store, db: f.db, speechProviders: createSpeechProviderRegistry({ provider: speechProvider.id, deepgramApiKey: null, keytermLimit: 0, cacheDir: f.root }, { speechProvider }), keyterms: { brainPath: f.root, cacheDir: f.root, limit: 0 } }));
     const id = randomUUID(), audio = new Uint8Array([1, 2, 3]);
     const hash = createHash("sha256").update(audio).digest("hex");
     const path = `/voice/recordings/${id}/transcription`;
@@ -226,14 +227,18 @@ test("the turn recorder settles only after its subscription proof has committed"
   let release!: () => void;
   const held = new Promise<void>(resolve => { release = resolve; });
   let proved = false;
-  const runtime = createRuntimeStatus(() => new Date(NOW), quietLog, () => held.then(() => { proved = true; }));
+  const entered = Promise.withResolvers<void>();
+  const runtime = createRuntimeStatus(() => new Date(NOW), quietLog, () => { entered.resolve(); return held.then(() => { proved = true; }); });
   const recorder = createTurnRecorder({ store: createActivityStore(db), runtime }, { turnId: "ithaca", sessionId: null });
   try {
     recorder.observeActivity({ kind: "runtime_observed", billing: "subscription", policy: "subscription" });
     recorder.finish("success");
     let settled = false;
     const done = recorder.settled().then(() => { settled = true; });
-    await Bun.sleep(20);
+    // Everything but the held proof write is in memory: once that write has
+    // started, one macrotask runs every continuation that does not wait for it.
+    await Promise.race([entered.promise, done]);
+    await new Promise(resolve => setImmediate(resolve));
     expect(settled, "RECORDER_SETTLED_WAITS_FOR_SUBSCRIPTION_PROOF").toBe(false);
     release();
     await done;

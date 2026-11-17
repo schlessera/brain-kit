@@ -60,6 +60,16 @@ fixed worker-UID raw reading and owned cleanup. SCM_RIGHTS transfers only explic
 descriptors; unexpected handles, substituted roots, wrong filesystem/size,
 malformed status, stale identities and unrelated targets refuse.
 
+The coordinator's gate pipe is not the payload's only gate. bubblewrap starts
+its sandbox when that pipe reads end-of-file, which happens when the
+coordinator dies. So every separate-identity payload also runs behind the
+trusted stdin gate: an absolute `/bin/sh` that needs one complete `go` line
+before it becomes the command. The server writes that line only after the
+coordinator confirms the release. A coordinator or server that dies before
+release never starts the payload. Helpers see no protocol change, because the
+gate is part of the command after `--`
+([the ruling](../decisions/policy-write-boundary.md#the-identity-helpers-start-gate-fails-closed-too--2026-11-03)).
+
 Before releasing bubblewrap's private start gate, the coordinator retains
 verified runtime-state and turn-temp directory handles. Their tmpfs
 superblocks must represent both outside UIDs: creating them in a user
@@ -86,12 +96,12 @@ The explicitly prepared ordinary egress proxy follows that same helper
 selection. Its directory and socket remain owned by the server and use its
 shared primary group, with exact `0750`/`0660` modes; a setgid temporary parent
 cannot choose another IPC group (`const separateIdentity`,
-`packages/ui-sdk/src/server/egress-proxy.ts:77-83`). Without a helper they retain
+`packages/ui-sdk/src/server/egress-proxy.ts:132-138`). Without a helper they retain
 owner-only `0700`/`0600` modes. Before mounting the proxy, the launcher checks
 canonical paths, server ownership, the expected helper group, exact modes and
 socket type. Missing entries, symlinks and widened permissions refuse before
 the payload starts (`if (input.egress)`,
-`packages/ui-sdk/src/server/worker-launcher.ts:552-567`). This does not select
+`packages/ui-sdk/src/server/worker-launcher.ts:580-595`). This does not select
 the ordinary inference route or enable the proxy by default.
 
 Native output stages use the existing manager's active stage identity. The
@@ -133,7 +143,22 @@ Recovery copies reserve the existing aggregate output-staging budget in
 addition to retained source storage. Closing a handle aborts its pending copy;
 the copy reservation remains until that work drains and owned cleanup is
 confirmed. An unconfirmed cleanup retains ownership and reservations for
-reconciliation rather than reporting successful reclamation.
+reconciliation rather than reporting successful reclamation. For
+end-of-turn cleanup, both backends keep retrying with capped backoff
+and release the reservation only once a close is confirmed. Pi initialization
+failures and post-launch callback refusals retain the same retry owner. A Claude
+launch whose supervisor cleanup is unconfirmed transfers its original retryable
+close to that owner too, even though no worker handle reached the backend.
+Required native output and checkpoint cleanup must confirm before the failed
+launch's reservation is released. Retries do not keep the process alive; shutdown
+cancels them and releases no uncertain allowance, including a close that confirms
+after shutdown begins. If a legacy or malformed cleanup-unconfirmed error has no
+retryable close, both backends keep its charge and emit one structured
+`worker_cleanup_stranded` diagnostic with the backend, cause and retained
+allowances; they do not schedule an operation they cannot retry. The original turn's Activity events
+record the cleanup cause, retained allowances and eventual confirmation,
+including confirmation after the turn has ended. After five failed retries a
+host diagnostic reports slow reconciliation; retries continue without a restart.
 
 Files made private are read by fixed, uncredentialed worker-UID code through
 authorized retained roots: no repository imports/evaluation, path escapes,
@@ -487,6 +512,17 @@ aggregate explicitly for parallel maintenance. Neither value derives from
 agent-session concurrency or uses agent turn temp, runtime state or the
 separately bounded startup/publication storage.
 
+Admission is immediate: a command that does not fit is refused with
+`worker_state_busy` before anything runs. The refusal names what holds the
+budget by kind only (`index`, `scratch query`, `git`, `sync`, `probe` or
+`command`), never a path or a process. At the defaults one allowance fills the
+budget, so the automatic index and a turn's scratch check cannot overlap
+(#3461). An automatic index that loses that race stays pending and runs as
+soon as the budget frees; it is not reported as a failure, and close
+discards it. A turn whose scratch check loses keeps `.brain/scratch/`
+read-only for that turn, as before. An index you request still reports busy
+at once.
+
 Each command's sized private `/tmp` contains scratch and fresh XDG config,
 cache, data and state directories. Credential-free HOME is also in that
 filesystem. Credentialed HOME is readable but read-only; writes requiring a
@@ -581,7 +617,8 @@ What runs there, and how it meets the brain's **writer gate**:
 | Work | Credentials and network | Writer gate |
 | --- | --- | --- |
 | Application route planning (`brain_add`) and its index refresh | None | Shared |
-| `brain hygiene`, `skills sync`, `scratch prune`, module settings, enable and disable | None | Shared |
+| Interactive `brain hygiene` (excluding the explicit propagation prepass), `skills sync`, `scratch prune`, module settings, enable and disable | None | Shared |
+| Explicit `brain hygiene propagation` and opted-in `hygiene-propagation` cron job | Yes | Exclusive |
 | `brain briefing`, `stats`, `list`, `read`, `validate`, `module list`, `--version` | None | Shared |
 | `brain search` | Yes (the query embedding) | Shared |
 | Hosted `brain sync` (client, streamed route and generated sync cron job) | None in the brain; Git credentials only in the host mirror transport | Exclusive |
@@ -654,6 +691,14 @@ refuses rather than run git on the host.
   process and must not load the brain's `bunfig.toml` or `.env`. The runner
   starts each repository job in the brain itself, in a maintenance worker,
   and reconciles any governed turn a dead server left behind first.
+- **A module job's repositories** are fetched by the host, never by the job
+  (#3380). Before a module job, the runner reads `brain module list --json`
+  in a credential-free worker. It fetches each repository the job's module
+  asks for only if `BRAIN_UI_MODULE_REPOSITORIES`, the operator's allow-list,
+  names it too, and refuses the job otherwise. The sync transport fetches
+  into a private mirror beside the sync mirror, using the sync credential.
+  The job's worker reads that mirror through a Git URL rewrite and holds no
+  Git credential. Leave the setting empty to fetch nothing.
 
 **When the boundary holds.** `governed` is the default profile, so the
 boundary holds wherever `governed` can run, and from then on for good: once
@@ -806,7 +851,7 @@ the host root, `/home`, `/etc`, `/run`, `/var`, `/tmp` or an ancestor of the
 brain. No host home, stored login or `/run` socket is visible.
 
 The worker's only route out is the server-owned inference relay
-(`export function startInferenceRelay(`, `packages/ui-sdk/src/server/inference-relay.ts:71-253`).
+(`export function startInferenceRelay(`, `packages/ui-sdk/src/server/inference-relay.ts:73-261`).
 It is a Unix socket in a private `0700` directory, bind-mounted read-only at
 `/run/brain-inference`. It forwards only `POST` to the provider's inference
 routes, such as `/v1/messages` and `/v1/messages/count_tokens` for Anthropic,
@@ -878,6 +923,30 @@ left on device`). Copying up a modified existing file consumes its full copied
 bytes. Deleting a lower-only baseline file does not free writable capacity.
 No host-backed output overflow fallback exists. The agent's limits note states
 the same resolved output allowance.
+
+Maintenance Git packing is bounded by the same allowance. Hosted `brain
+maintain` runs git's incremental `loose-objects`, `incremental-repack` and
+`pack-refs` tasks inside its maintenance worker, so each new pack is written into
+that worker's output stage, never directly into the brain's `.git`. The
+launcher declares the stage's size and setting to the worker in
+`BRAIN_WORKER_OUTPUT_ALLOWANCE`. A pack larger than the space left fails the `git`
+step with a named refusal instead of git's bare `Out of diskspace`:
+
+```text
+FAILED — no space: git packing ran out of space in the maintenance worker's output stage (allowance 268435456 bytes, set by BRAIN_UI_OUTPUT_STAGING_BYTES; 264241152 bytes available when the step started). git: fatal: sha1 file '.git/objects/pack/tmp_pack_…' write error. Out of diskspace
+```
+
+The available figure is the stage's free space when the step started, measured
+the way `brain storage pack --json` reports `headroom`. To let the pack through,
+raise `BRAIN_UI_OUTPUT_STAGING_BYTES` above the largest pack the step writes (a
+multiple of 4096) and restart the server. Unset, the budget follows it as
+allowance × `MAX_CONCURRENT_SESSIONS`; an explicit
+`BRAIN_UI_OUTPUT_STAGING_BUDGET_BYTES` must be raised to at least the new
+allowance too. The cost: every consumer, each agent turn as well as each
+maintenance run, then reserves the larger allowance, so the admitted total grows
+with it, or fewer consumers fit at once under an explicit budget. A
+`brain maintain` run outside a hosted worker reports the same shortfall against
+the filesystem holding `.git`, without a hosted setting.
 
 A fixed trusted helper uses util-linux `unshare` and `mount` to create a
 copy-on-write overlay with immutable input as its lower layer and upper/work
@@ -996,7 +1065,7 @@ root-owned files and connect to root-owned and abstract Unix sockets.
 
 Native storage accepts the server's fixed UID/GID, including UID 0 under this
 same warning (`validateNativeBrainManagerConfig`,
-`packages/ui-sdk/src/server/native-brain-manager.ts:50-72`). This does not give
+`packages/ui-sdk/src/server/native-brain-manager.ts:53-75`). This does not give
 the worker capabilities or remove its masks, filesystem filter or read-only
 root `/proc`. The host still has to qualify for user namespaces. Since Linux
 5.12, mapping a child namespace to parent UID 0 requires `CAP_SETFCAP` at the
@@ -1249,7 +1318,7 @@ its working directory. No first-party code reads `.env` any other way. The
 launcher binds `/dev/null` over every present `.env*` name at the brain root,
 and over the file an `.env*` link leads to, after every other mount, so no
 later bind can restore it (`maintenanceEnvMasks`,
-`packages/ui-sdk/src/server/maintenance-env-masks.ts:66-70`). The worker cannot
+`packages/ui-sdk/src/server/maintenance-env-masks.ts:67-71`). The worker cannot
 open them: a read fails with `EACCES`, so Bun loads nothing and `cat .env`
 prints nothing. A new `.env*` name is a protected tier A path, so a turn
 cannot create one in the brain either.
@@ -1270,11 +1339,9 @@ keep.
 | Turn | Keeps |
 | --- | --- |
 | Claude through the host inference relay | Only placeholders under the Claude CLI's own variables |
-| Claude without the relay (no managed native storage) | The Claude CLI's inference credential: `CLAUDE_CODE_OAUTH_TOKEN`, or the profile's `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` and the variable it declares |
 | pi through the relay | Nothing |
-| pi without the relay | Every credential above. pi resolves its own credentials in the worker there and may read any of them, also through a `models.json` `$NAME`. Hosts without managed native storage keep today's inference credentials until [#2654](https://github.com/schlessera/brain-kit/issues/2654). |
 | Restricted (autonomous) | Unchanged: its envelope's minimum environment |
-| Maintenance workers | With managed native storage: no relayed key (`GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and keys listed in `BRAIN_UI_CLI_PROVIDER_ORIGINS`) and no `.env*`; the CLI reaches those providers through the [metered relay](#metered-provider-relay-1673). Keys the relay does not carry (`TYPESAFE_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN` for a `brain sync` agent runner) stay. Without managed native storage: unchanged, every key in the `brainCli` and `cron` audiences |
+| Maintenance workers | No relayed key (`GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and keys listed in `BRAIN_UI_CLI_PROVIDER_ORIGINS`) and no `.env*`; the CLI reaches those providers through the [metered relay](#metered-provider-relay-1673). Keys the relay does not carry for them stay: `TYPESAFE_API_KEY`, which their sync judge and propagation review send to TypeSafe directly (only turn workers relay it, #3792), and `CLAUDE_CODE_OAUTH_TOKEN` for a `brain sync` agent runner |
 
 **Which commands need a key.** The audit of the first-party commands an agent
 runs in its worker:
@@ -1282,7 +1349,7 @@ runs in its worker:
 | Command | Key it reads (default variable) | In a worker that lacks it |
 | --- | --- | --- |
 | `brain search` (hybrid or vector), and `brain_search` from the brain's own `brain mcp` server | The embeddings provider's `apiKeyEnv` (`GEMINI_API_KEY`) for the query embedding | Keyword results. The warning names the provider, with `degraded_to=keyword_search` (`none` for `--mode vector`) |
-| `brain search` with an enabled `jev` reranker or `--rerank jev` | The reranker's `apiKeyEnv` (`TYPESAFE_API_KEY`) | Lifecycle order, `degraded_to=lifecycle_order` |
+| `brain search` with an enabled `jev` reranker or `--rerank jev` | The reranker's `apiKeyEnv` (`TYPESAFE_API_KEY`) | Lifecycle order, `degraded_to=lifecycle_order`, on a host without the relay; reranked through it otherwise (#3792) |
 | `brain index --embeddings` | The embeddings key | A keyword index, `degraded_to=keyword_index` on stderr |
 | `brain process` | The completions provider's `apiKeyEnv` (`GEMINI_API_KEY` for `gemini-flash`, `ANTHROPIC_API_KEY` for `anthropic-haiku`) | Refused, naming the provider |
 | `brain image` | `OPENAI_API_KEY`, `GEMINI_API_KEY` | Refused, naming each withheld provider (the pinned one with `--provider` or `--model`) |
@@ -1311,7 +1378,9 @@ worker keeps its ordinary messages. The token's grammar is part of the
 **What #1673 changes.** On a turn with a turn proxy, the commands above that
 use a Gemini, Anthropic or OpenAI image provider work again, through the
 [metered relay](#metered-provider-relay-1673), with no key in the worker. The
-`jev` reranker and `brain video watch` still report `provider_unavailable`.
+same holds for `brain video watch` since #2738, and for the `jev` reranker
+since #3792: a relayed turn's `brain search` and `brain_search` are reranked
+instead of reporting `provider_unavailable`.
 A relayed Claude API-key turn holds the inference placeholder under
 `ANTHROPIC_API_KEY`; the launcher names that key in `BRAIN_WITHHELD_KEYS`, and
 the CLI's `anthropic-haiku` reaches the host's key through the relay instead of
@@ -1322,18 +1391,34 @@ sending the placeholder.
 **What it is.** A host-owned Unix socket for the `brain` CLI's own paid
 providers. A governed or strict turn that runs on the turn egress proxy gets
 one, linked beside the proxy at `/run/brain-egress/providers.sock`. A
-credentialed maintenance run on a host with managed native storage gets its
+credentialed maintenance run gets its
 own at `/run/brain-providers/relay.sock`. The launcher names it in
 `BRAIN_PROVIDER_RELAY_SOCKET`. A built-in provider whose key is withheld sends
 its native request there (the routes are in the
 [CLI contract](../integration-contract/cli.md#provider-relay-additive-0440-1673)):
-Gemini embeddings and non-video completions, Anthropic completions, and OpenAI
-and Gemini images. Video uploads and the `jev` reranker are not relayed.
+Gemini embeddings and completions, the Gemini Files lifecycle a local video
+needs (#2738), Anthropic completions, OpenAI and Gemini images, and the `jev`
+reranker's one request (#3792). A maintenance run keeps its JeV key and does
+not relay it.
+
+**Video files (#2738).** A relayed `brain video watch` uploads, polls, uses and
+deletes its file through the relay. The relay keeps the upload URL the provider
+issued on the host and gives the worker a token URL instead; it accepts a
+provider URL only on the authorized origin's `/upload/` path. It polls,
+deletes or names in a generation only the Files handles its own uploads
+created, so a worker cannot reach another file on the host's account, and it
+has no other `GET` or `DELETE` route. The upload start and the bytes wait on the
+budget like any other request; polling and deletion do not, so cleanup always
+runs. Each step is its own attempt row (operation `files`), priced at zero
+because the Files API is free; the video's tokens are charged on the
+generation. Files a turn leaves behind, after a cancel or a killed worker, are
+deleted with the host's key when the turn's relay stops.
 
 **Who may receive a key.** The relay sends `GEMINI_API_KEY` only to
 `https://generativelanguage.googleapis.com`, `ANTHROPIC_API_KEY` only to
-`https://api.anthropic.com` and `OPENAI_API_KEY` only to
-`https://api.openai.com`, in the header that provider expects. A custom
+`https://api.anthropic.com`, `OPENAI_API_KEY` only to
+`https://api.openai.com` and `TYPESAFE_API_KEY` only to
+`https://api.typesafe.ai`, in the header that provider expects. A custom
 endpoint (`GOOGLE_GEMINI_BASE_URL`, `GEMINI_BASE_URL`, `OPENAI_BASE_URL`) or a
 custom `apiKeyEnv` is refused, before any contact, unless the operator lists
 that key and exact origin in `BRAIN_UI_CLI_PROVIDER_ORIGINS`:
@@ -1361,8 +1446,8 @@ read from the raw response before any SDK drops them. An attempt a crash
 interrupts therefore stays disclosed. When a turn ends, its relay waits for
 in-flight attempts to report before the turn's accounting closes. Gemini embeddings
 are priced at Google's published list price per modality; completions use
-the same Activity price table as the agent's own inference; image units stay
-unpriced. Reported tokens without a price count toward the unpriced-token
+the same Activity price table as the agent's own inference; image units and
+JeV reranking (operation `reranking`, #3792) stay unpriced. Reported tokens without a price count toward the unpriced-token
 stops; a request whose provider reported no usage is unknown spend and never
 blocks by itself. A turn's requests count toward its turn, conversation and
 UTC-day budgets and appear in its budget receipt, whose coverage now names
@@ -1374,25 +1459,44 @@ runs on arrival and again just before dispatch. Nothing is reserved in advance, 
 blocked complete and are counted: a busy turn can end slightly above its
 stop.
 
-**Egress.** A turn's relayed request is ordinary turn egress (G5): it passes
-the turn's deny, allowlist and taint rules and byte ceiling, and appears as an
-`egress_connection` with the provider's host and path. An `allowlist` policy
-therefore has to allow the provider's host for the CLI to reach it.
+**Egress.** A turn's relayed request is turn egress (G5): it passes the turn's
+deny and allowlist rules and byte ceiling, and appears as an
+`egress_connection` with the provider's host and path, tagged `provider: true`. An `allowlist` policy
+therefore has to allow the provider's host for the CLI to reach it. Since
+#3246, a relayed request neither taints the session nor is narrowed by its
+taint. Reranking and WebFetch therefore work in either order, and content can
+still reach an approved provider after untrusted input. The worker's own
+connections to the provider's host stay narrowed, in that turn and in later
+ones: the tag keeps the relay's request from making the host a contacted one
+([G6](../decisions/governed-writable-workers.md#untrusted-input-g6)).
 
-**Hosts without managed native storage** keep their current behaviour: turn
-workers report the CLI's providers unavailable, and maintenance workers keep
-the keys, unmetered. Worker-host status says which applies.
+**Every governed and strict turn has the relay.** The server boots only on
+managed native storage (#1793), and a turn whose startup view the native
+manager did not acquire there is refused at admission instead of running
+without the relay (#3314). No supported host runs turns or credentialed
+maintenance with the provider keys in the worker.
 
 ### Worker startup status
 
 The live launcher reads bubblewrap's `--json-status-fd` through a dedicated,
-unlinked pipe. Before releasing its `--block-fd` start gate, it checks that
-the reported child descends from this launch and runs in a different PID
-namespace. Runtime-state and turn-temp mounts are verified and initial state
-is populated while that gate is closed. The trusted bootstrap still rejects
-unexpected inherited descriptors; a fixed host shell opens only the status
-and gate channels afterwards, and bubblewrap closes both before the payload
-runs. Setup refusal ends the unstarted worker.
+unlinked pipe. Before releasing its start gate, it checks that the reported
+child descends from this launch and runs in a different PID namespace.
+Runtime-state and turn-temp mounts are verified and initial state is populated
+while that gate is closed. The trusted bootstrap still rejects unexpected
+inherited descriptors; a fixed host shell opens only the status and gate
+channels afterwards. bubblewrap keeps the status channel out of the sandbox.
+The gate channel reaches only the trusted absolute `/bin/sh` that runs first
+inside it: that shell reads one line, requires exactly `go`, closes the gate
+descriptor and only then becomes the payload, so the payload holds neither
+channel and its stdin is untouched. End-of-file, a partial line or any other
+line ends the sandbox unstarted. So a server that dies before release, which
+closes the gate's only writer, never starts the payload. bubblewrap's own
+`--block-fd` is not used, because it starts the payload on end-of-file.
+
+Setup refusal ends the unstarted worker. As a second guard, a refused gate
+stays open until bubblewrap and every process it gated are confirmed dead. The
+refusal stops bubblewrap and kills its children and the verified sandbox
+process itself. A gate whose processes never die stays open.
 
 This startup qualification does not provide a separate worker UID or the
 external descriptor broker. The separate-UID implementation remains tracked
@@ -1454,7 +1558,7 @@ This is a measurement of the paths, not a qualified host tuple.
 
 | Path | Result |
 | --- | --- |
-| Claude inference | Runs through the host inference relay, not the generic proxy, on the same turn counter and record (`inference: true`). Governed and strict server turns on managed native storage compose it for subscription and API-key profiles alike; the worker holds a placeholder and the relay adds the host login or the profile's key. The real native CLI qualifies both offline (`packages/ui-backend-claude/tests/native-route-qualification.test.ts`). |
+| Claude inference | Runs through the host inference relay, not the generic proxy, on the same turn counter and record (`inference: true`). Every governed and strict server turn composes it for subscription and API-key profiles alike; the worker holds a placeholder and the relay adds the host login or the profile's key. The real native CLI qualifies both offline (`packages/ui-backend-claude/tests/native-route-qualification.test.ts`). |
 | Pi inference through the relay | Passes (2026-10-23): a real governed worker's pi session reaches inference only through the host relay over the turn proxy's socket, and each request is recorded with `inference: true`. Covered: API keys, the Codex login (with a host-side refresh) and the Anthropic login. Credentials that run a command, and provider and credential types outside the relay's matrix, are refused (`packages/ui-backend-pi/tests/host-relay.test.ts`). |
 | `git` over HTTPS | Passes: clone through CONNECT, opaque bytes recorded. |
 | `git` over SSH | Passes: clone through the first-party CONNECT helper, which the worker bootstrap sets as Git's `ProxyCommand` unless the caller already chose `GIT_SSH_COMMAND`. OpenSSH reads `~/.ssh` from the passwd home, which the worker masks, so keys and host keys must be supplied explicitly. |
@@ -1463,8 +1567,9 @@ This is a measurement of the paths, not a qualified host tuple.
 | Headless Chromium | Passes: the page loads through CONNECT. Chrome's own background requests also go through the proxy and are recorded. |
 | Socket walk | Passes in both profiles. The relay and proxy sockets are the only sockets below a mask, fixture sockets under `/run` and a home directory are unreachable, and the walk of the rest of the visible filesystem completed without finding a host socket. Before all of `/var` was masked ([#2657](https://github.com/schlessera/brain-kit/pull/2657)), a CUPS socket under `/var/snap` accepted a connection on this host. |
 
-Every path passes. Default-on applies on hosts with managed native storage
-only:
+Every path passes. Default-on applies on every host: the server boots only on
+managed native storage (#1793), and a turn whose startup view is not on it is
+refused (#3314).
 
 - **Claude.** A governed or strict Claude turn, on a subscription or an
   API-key profile, runs on its own turn proxy and the host inference relay. Every connection is a governance event, and a
@@ -1487,10 +1592,11 @@ only:
   - pi's `auth.json` linked into the brain.
 
   Before this, those turns ran with the credential inside the worker.
-- **No managed native storage.** Governed and strict turns keep their current
-  network without the turn proxy, and their note says egress is unrecorded.
-  `GET /api/status` reports this as `runtime.workerHost.governed.egress`
-  (`{ active, detail }`).
+- **Status.** `GET /api/status` reports this as
+  `runtime.workerHost.governed.egress` (`{ active, detail }`), which is
+  `active: true` on every running server. `active: false` describes a brain
+  that is not on managed native storage, where every governed and strict turn
+  is refused; no turn runs without the turn proxy.
 
 The native hosted proof checks the records on real managed Btrfs storage for
 both backends. Each governed turn's proxied connection must be one durable
@@ -1506,8 +1612,8 @@ it to another origin, list that exact origin (scheme, host and port, no path)
 in `BRAIN_UI_CLAUDE_OAUTH_ORIGINS`, for example
 `BRAIN_UI_CLAUDE_OAUTH_ORIGINS=https://gateway.ithaca.invalid`. An unlisted
 custom origin refuses the turn before its prompt is sent or the login is read.
-A host that already sets a custom `ANTHROPIC_BASE_URL` for subscription turns
-must add this variable when it moves to managed native storage.
+A host that sets a custom `ANTHROPIC_BASE_URL` for subscription turns must
+add this variable.
 
 **Custom pi origins.** A pi credential may reach the origins of its
 provider's built-in models. To send it elsewhere, for example where pi's
@@ -1516,8 +1622,7 @@ provider in `BRAIN_UI_PI_CREDENTIAL_ORIGINS`:
 `BRAIN_UI_PI_CREDENTIAL_ORIGINS="anthropic=https://gateway.ithaca.invalid;openai-codex=https://codex.ithaca.invalid"`.
 Each provider's list covers that provider's credential only, whether a login
 or an API key. An unlisted origin refuses the turn before the credential is
-read. A host that already routes a pi provider to a custom origin must add it
-when it moves to managed native storage.
+read. A host that routes a pi provider to a custom origin must add it.
 
 An API-key profile needs no listing: its key and its route come from the same
 declaration in `BRAIN_UI_CLAUDE_PROFILES` (the profile's `baseUrl`, else the
@@ -1535,9 +1640,8 @@ a turn on it sees no provider folder. If you run a gateway you trust with the
 data a rule allows, name it with `BRAIN_UI_PROVIDER_RECIPIENT_ORIGINS`, for
 example `BRAIN_UI_PROVIDER_RECIPIENT_ORIGINS="anthropic=https://gateway.ithaca.invalid"`.
 Listing an origin in `BRAIN_UI_CLAUDE_OAUTH_ORIGINS` or
-`BRAIN_UI_PI_CREDENTIAL_ORIGINS` alone does not. Without managed native
-storage no relay runs, so no recipient is proven and every provider folder
-stays masked. The table and the rules are in
+`BRAIN_UI_PI_CREDENTIAL_ORIGINS` alone does not. A turn with no proven
+recipient sees no provider folder. The table and the rules are in
 [supported inputs](../supported-inputs.md#governance-policy).
 
 **Continuing a conversation under provider rules (#2726).** A turn whose
@@ -1564,7 +1668,7 @@ wrappers do not borrow that exemption
 (`commandTaintSource`, `packages/ui-server/src/activity/command-taint.ts:2-27`).
 The first source is kept as a session `taint` governance event, using the same
 SQLite transaction for the existing-source check and write
-(`recordFirstTaint`, `packages/ui-server/src/governance/session-taint.ts:17-23`).
+(`recordFirstTaint`, `packages/ui-server/src/governance/session-taint.ts:21-27`).
 The recorder waits for a tool result and excludes known denied calls; failed
 calls can still return untrusted partial output. It records the source kind
 and tool name, without copying command text or content into the payload. If
@@ -1574,9 +1678,29 @@ A tainted session's outward actions all ask, whatever `outward.allow` says,
 on both backends. On the turn proxy, every admitted connection other than the
 inference relay taints the session too, and a tainted session's new
 connections reach only `taint.egress.allow` and hosts its proxies already
-admitted. Refusals are `egress_denial` events with reason `taint_allowlist`.
-Without the proxy (hosts without managed native storage) nothing narrows
-egress, and the capabilities note says so. Files the
+admitted. In an interactive turn, a connection to any other host first shows
+a permission card naming the host and what tainted the session; allowing it
+admits that host for the rest of the session (#3430). Voice turns refuse
+without a card. With `taint.classifier: heuristics` in the governance policy
+(off by default), the host also judges each call a tainted session makes
+before it runs (#4088): a call that looks like it carries the session's
+notes out is refused, or asks with the reason on the card, even to a host
+the session already reached, and a clean read admits the hosts it names
+without the card while it runs. Adding `taint.judge: { mode: jev }` (also
+off by default) puts the heuristics' ambiguous calls to Jev with the host's
+`TYPESAFE_API_KEY` instead of asking (#4089). Each such call is metered in the
+turn budgets, and without the key, an answer, or budget it asks as before. Refusals, including a declined card, are `egress_denial`
+events with reason `taint_allowlist`. Every refusal with a policy cause
+(taint, the deny or allow list, the byte ceiling, an unapproved outward host)
+answers with a status text and a body naming that cause, so `curl -v`, `git`
+and HTTP clients show it, and a relayed provider request the proxy refused
+reports it in `error.message` and `error.reason` (#3431).
+Every governed and strict turn runs on the proxy; a turn that cannot is
+refused (#3314). On a turn behind the proxy, the Bash
+classifier above is off: the proxy's connection taint is the shell signal, so
+ordinary commands such as `brain diagram --help` leave the session clean, and
+a shell read of an untrusted file that opens no connection does not taint it
+(#3429). Files the
 user marks untrusted are not a source yet. The rules are in
 [the decision record](../decisions/governed-writable-workers.md#untrusted-input-g6).
 
@@ -1586,7 +1710,9 @@ The offline transport audit for [#2277](https://github.com/schlessera/brain-kit/
 qualifies existing first-party request shapes. The
 [metered provider relay](#metered-provider-relay-1673) built on it in
 [#1673](https://github.com/schlessera/brain-kit/issues/1673) relays the rows
-below except video and JeV.
+below except video and JeV; [#2738](https://github.com/schlessera/brain-kit/issues/2738)
+added video and [#3792](https://github.com/schlessera/brain-kit/issues/3792)
+JeV, for turn workers.
 
 | CLI consumer / provider | Credential selection | Native destination and request family | Accounting at the consumer |
 | --- | --- | --- | --- |
@@ -1601,7 +1727,7 @@ The factories and concrete recipient provenance are implemented at
 (`geminiEmbeddings`, `packages/core/src/providers/embeddings/gemini.ts:59-221`),
 (`geminiCompletions`, `packages/core/src/providers/completions/gemini.ts:56-134`),
 (`anthropicCompletions`, `packages/core/src/providers/completions/anthropic.ts:63-147`)
-and (`jevReranker`, `packages/core/src/providers/rerankers/jev.ts:227-347`).
+and (`jevReranker`, `packages/core/src/providers/rerankers/jev.ts:231-272`).
 Configured model labels, endpoint overrides and key-variable names select native
 routing; none grants permission to release a host-held credential.
 

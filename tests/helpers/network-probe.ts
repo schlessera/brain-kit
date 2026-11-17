@@ -180,6 +180,18 @@ export async function runProbe(scenario: string): Promise<void> {
       console.error(err);
       expect(code).not.toBe(0);
     }
+  } else if (scenario === "local-unix") {
+    // A Unix-socket fetch keeps its socket under the guard; the URL's host is
+    // only the request's Host header (#3431).
+    const { mkdtempSync, rmSync } = await import("node:fs");
+    const { createServer } = await import("node:http");
+    const { tmpdir } = await import("node:os");
+    const dir = mkdtempSync(`${tmpdir()}/probe-unix-`);
+    const server = createServer((request, response) => response.end(`UNIX:${request.url}`));
+    await new Promise<void>(resolve => server.listen(`${dir}/probe.sock`, resolve));
+    try {
+      expect(await (await fetch("http://localhost/fixture", { unix: `${dir}/probe.sock` } as RequestInit)).text()).toBe("UNIX:/fixture");
+    } finally { server.close(); rmSync(dir, { recursive: true, force: true }); }
   } else if (["local", "redirect", "redirect-error", "manual"].includes(scenario)) {
     const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
       const path = new URL(request.url).pathname;

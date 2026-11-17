@@ -1,8 +1,10 @@
-import { constants, closeSync, fstatSync, ftruncateSync, mkdirSync, openSync, readFileSync, realpathSync, writeFileSync, writeSync } from "node:fs";
+import { constants, closeSync, existsSync, fstatSync, ftruncateSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, writeFileSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve, relative, sep } from "node:path";
 import { createHash } from "node:crypto";
 import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
+import type { SessionHistoryRemovalOutcome } from "@schlessera/brain-ui-sdk/server";
+import { combineRemovalOutcomes, nativeObservationIdentity, ownedNames, removeMetadataFile, removeOwnedArtifact, sessionPromptContextLocation, sessionReplayLocation } from "@schlessera/brain-ui-sdk/internal";
 
 /** Server-owned state is never mounted writable into a worker. */
 export function piSessionDirectory(brainPath: string, configured?: string): string {
@@ -67,4 +69,49 @@ export function syncPiAuth(dir: string, original: string | undefined, content: s
     writeSync(fd, content, 0, "utf8");
     ftruncateSync(fd, Buffer.byteLength(content));
   } finally { closeSync(fd); }
+}
+
+/** Server-minted Pi session identities, the only ones a removal or tombstone names. */
+export const isPiSessionId = (id: string) => /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(id);
+/** Content-free tombstones of explicitly retired sessions (#3229); permanent. */
+export const piRetiredDirectory = (sessionDir: string) => join(sessionDir, "retired");
+
+const HEADER_BYTES = 64 * 1024;
+/** The session header of one plain, single-name transcript file, or undefined. */
+function header(path: string): { type?: unknown; id?: unknown; cwd?: unknown } | undefined {
+  let fd: number;
+  try { fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); } catch { return undefined; }
+  try {
+    const stat = fstatSync(fd);
+    if (!stat.isFile() || stat.nlink !== 1) return undefined;
+    const buffer = Buffer.alloc(HEADER_BYTES), count = readSync(fd, buffer, 0, HEADER_BYTES, 0);
+    const line = buffer.subarray(0, count).toString("utf8").split("\n")[0];
+    try { return JSON.parse(line!); } catch { return undefined; }
+  } finally { closeSync(fd); }
+}
+
+/**
+ * Remove every artifact this backend owns for one retired session (#3229):
+ * the whole SessionManager tree (every branch, under its canonical name and
+ * any older SDK-managed name whose header names it in this brain), display
+ * and prompt metadata and file observations. A transcript is attributed by
+ * its own header, never by a matching name alone: a canonical name whose
+ * header is missing or names another session is left in place, partial.
+ */
+export function removePiSession(sessionDir: string, brainPath: string, id: string): SessionHistoryRemovalOutcome {
+  if (!isPiSessionId(id)) throw new BackendRequestError("Invalid server session identity");
+  const outcomes: SessionHistoryRemovalOutcome[] = [];
+  for (const name of ownedNames(sessionDir, name => name.endsWith(".jsonl"))) {
+    const canonical = name === `${id}.jsonl`, found = header(join(sessionDir, name));
+    const ours = found?.type === "session" && found.id === id;
+    if (ours && found.cwd === brainPath) outcomes.push(removeOwnedArtifact(sessionDir, name));
+    else if (canonical) outcomes.push("partial");
+  }
+  if (!existsSync(brainPath)) return combineRemovalOutcomes([...outcomes, "unknown"]);
+  const brain = realpathSync(brainPath);
+  outcomes.push(
+    removeMetadataFile({ dir: join(sessionDir, "native-observations"), name: `${nativeObservationIdentity(brain, id)}.json` }),
+    removeMetadataFile(sessionReplayLocation(sessionDir, brainPath, id)),
+    removeMetadataFile(sessionPromptContextLocation(sessionDir, brainPath, id)));
+  return combineRemovalOutcomes(outcomes);
 }

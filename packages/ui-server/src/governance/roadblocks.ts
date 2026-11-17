@@ -30,8 +30,8 @@ import {
  * single unresolved failure followed by an eligible successful step.
  */
 
-export type RoadblockCategory = GovernanceEventPayload<"roadblock">["category"];
-export type RoadblockPayload = GovernanceEventPayload<"roadblock">;
+type RoadblockCategory = GovernanceEventPayload<"roadblock">["category"];
+type RoadblockPayload = GovernanceEventPayload<"roadblock">;
 
 /** One tool call as the host observed it. */
 export interface TracedCall {
@@ -98,7 +98,7 @@ const FAMILY_BY_TOOL: Record<string, string> = {
   write: "file_write", edit: "file_write", multiedit: "file_write", notebookedit: "file_write",
   write_file: "file_write", edit_file: "file_write", apply_staged_changes: "file_write",
   read: "file_read", read_file: "file_read", notebookread: "file_read", brain_read: "file_read",
-  brain_read_base: "file_read",
+  brain_read_base: "file_read", brain_read_many: "file_read",
   grep: "search", glob: "search", ls: "search", brain_search: "search", brain_list: "search",
   webfetch: "web", websearch: "web", web_fetch: "web", web_search: "web",
   brain_add: "brain_write", brain_update: "brain_write", brain_archive: "brain_write",
@@ -281,7 +281,7 @@ function statusProgram(command: string): string | null {
  * name only, so `/srv/brain/.brain/x.md` and `.brain/y.md` group together and
  * absolute roots never leak into the signature.
  */
-export function pathArea(path: string): string {
+function pathArea(path: string): string {
   const parts = path.replace(/\\/g, "/").replace(/\/+$/, "").split("/").filter((p) => p && p !== ".");
   if (parts.length <= 1) return "*";
   const dir = parts.at(-2)!;
@@ -313,7 +313,7 @@ function urlKind(input: unknown): string | null {
 }
 
 /** The tool family a call belongs to; an episode only closes within it. */
-export function familyOf(tool: string, input: unknown): string {
+function familyOf(tool: string, input: unknown): string {
   const { name, server } = bareTool(tool);
   const family = FAMILY_BY_TOOL[name.toLowerCase()];
   if (family === "shell") {
@@ -354,7 +354,7 @@ function deniedArea(output: string): string | null {
 }
 
 /** Why a finished call failed, or null when it did not. */
-export function failureCause(call: TracedCall): Cause | null {
+function failureCause(call: TracedCall): Cause | null {
   if (call.denied) return { category: "permission_denied", detail: "denied" };
   if (call.output === null) return null;
   const output = call.output;

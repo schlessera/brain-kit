@@ -59,11 +59,13 @@ bun run check:pr --base origin/main
 
 - [ ] Focused local preflight/behavioral receipts and complete selected hosted proof passed; actual head/base/job checkout evidence is in Proof.
 - [ ] Acceptance criteria from the issue are all met, or the gap is named below.
+- [ ] A PR touching `packages/ui-react/`, `packages/ui-kit/`, `packages/ui-server/` or `packages/core/` carries a recorded independent review of its head (`bun scripts/review-receipt.ts check <pr>`), or it touches none of them.
 - [ ] The PR and completed/advanced issues have verified release milestones under docs/process/github.md.
 - [ ] A changeset is included, or this changes nothing a consumer can see.
 - [ ] No personal data anywhere in the diff — the leakage gate covers the whole tree.
 - [ ] The integration contract index or relevant component is updated in this same commit, or nothing in the machine surface moved.
 - [ ] Docs under `docs/` reflect the change, or nothing documented moved.
+- [ ] A fail-closed guard added or changed answers the [proportionate-containment checklist](docs/decisions/proportionate-containment.md#checklist-for-a-new-or-changed-guard) in this body, or no guard changed.
 - [ ] Provider history stays append-only (`docs/decisions/provider-history.md`): the provider-history guard passes, or nothing on a turn's path changed.
 
 ## Anything left open

@@ -2,6 +2,7 @@
 import type { Database } from "bun:sqlite";
 import { CONVERSATION_LIMITS, type ConversationWorkReceipt } from "@schlessera/brain-ui-sdk/protocol";
 import { conversationWorkReceiptSchema } from "@schlessera/brain-ui-sdk/schemas";
+import { assertLive, isRetired, nativeTaskRetired, ChatRetiredError } from "./chat-lifecycle.js";
 
 /** UTF-16 characters of completed result context per conversation; oldest admitted goes first. */
 export const MAX_RETAINED_RESULT_CHARS = 16_000;
@@ -20,6 +21,7 @@ export interface StoredConversation extends StoredConversationEpoch {
 }
 export function saveConversationEpoch(db: Database, state: StoredConversationEpoch): void {
   db.transaction(() => {
+    assertLive(db, [["conversation", state.id], ["session", state.sessionId]]);
     const old = db.query("SELECT principal_id FROM conversation_epochs WHERE id=?").get(state.id) as { principal_id: string } | null;
     if (old && old.principal_id !== state.principalId) throw new Error("Conversation ownership mismatch");
     db.prepare(`INSERT INTO conversation_epochs(id,principal_id,epoch,session_id,agent_provider_id,updated_at) VALUES(?,?,?,?,?,?)
@@ -35,6 +37,10 @@ export function saveConversationEpoch(db: Database, state: StoredConversationEpo
 export function saveConversationTask(db: Database, principalId: string, receipt: ConversationWorkReceipt, facts?: string): void {
   if (receipt.provenance !== "contextual" || !conversationWorkReceiptSchema.safeParse(receipt).success) throw new Error("Invalid contextual receipt");
   db.transaction(() => {
+    // Consumed identities of a retired chat stay consumed after its rows are
+    // evicted or cleared: none of them executes or records an outcome again (#3228).
+    assertLive(db, [["conversation", receipt.conversationId], ["task", receipt.taskId], ["request", receipt.requestId], ["session", receipt.sessionId]]);
+    if (nativeTaskRetired(db, receipt.conversationId, receipt.epoch, receipt.nativeHandle)) throw new ChatRetiredError();
     const owner = db.query("SELECT principal_id FROM conversation_epochs WHERE id=?").get(receipt.conversationId) as { principal_id: string } | null;
     if (owner?.principal_id !== principalId) throw new Error("Conversation ownership mismatch");
     const old = db.query("SELECT task_id,request_id,receipt,result_facts FROM conversation_tasks WHERE conversation_id=? AND epoch=? AND native_handle=?")
@@ -70,6 +76,7 @@ export function saveConversationTask(db: Database, principalId: string, receipt:
   }).immediate();
 }
 export function loadConversation(db: Database, id: string, principalId: string): StoredConversation | null {
+  if (isRetired(db, "conversation", id)) return null;
   const row = db.query("SELECT epoch,session_id,agent_provider_id FROM conversation_epochs WHERE id=? AND principal_id=?")
     .get(id, principalId) as { epoch: number; session_id: string | null; agent_provider_id: string | null } | null;
   if (!row) return null;

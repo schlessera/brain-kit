@@ -20,7 +20,7 @@ to this one v1. A smaller non-autonomous release does not meet this outcome.
 Markdown owns brain content, including the existing hygiene finding log.
 `brain.db` remains disposable. Claims, leases, checkpoints, reservations,
 resolution records and stream cursors belong to the UI server's operational
-store (`createUiDb`, `packages/ui-server/src/db/client.ts:27-44`). They are not
+store (`createUiDb`, `packages/ui-server/src/db/client.ts:28-45`). They are not
 an alternate authoritative content index. A checkpoint is append-only history;
 `state_md` is a bounded projection for prompting. Server-owned columns retain
 trust and provenance even when a model compacts that projection.
@@ -30,7 +30,7 @@ decision is meaningless: Queue items acquire leases; Actions stay pending or
 snoozed until a validated disposition. Every mutation emits its change row in
 the same transaction. Reuse the activity cursor algorithm and transactional
 snapshot discipline, rather than importing its activity-specific stream
-(`createActivityStream`, `packages/ui-server/src/activity/stream.ts:160-176`).
+(`createActivityStream`, `packages/ui-server/src/activity/stream.ts:169-185`).
 
 ## Authority and containment
 
@@ -71,11 +71,11 @@ requires one enforcement mechanism with different named memberships for voice
 and unattended work. Keep that requirement when implementing availability
 control. Existing mandatory backend conformance supports safe rejection of an
 unsupported restricted request; silently ignoring it is forbidden. The current
-optional inputs are (`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:602`) and (`noGrantSurface?: boolean`, `packages/ui-sdk/src/server/backend.ts:626`). These are permission primitives,
+optional inputs are (`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:684`) and (`noGrantSurface?: boolean`, `packages/ui-sdk/src/server/backend.ts:708`). These are permission primitives,
 not a claim of filesystem or network containment.
 
 The ordinary Claude assembly loads project settings and appends bridge tools
-(`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:110-499`).
+(`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:122-511`).
 Its environment is already filtered (`envSnapshot`,
 `packages/ui-backend-claude/src/config/env.ts:201-209`), with profile credentials
 and operator extras. An autonomous envelope needs its own narrower credential
@@ -85,7 +85,7 @@ is historical. Preserve subscription billing and the selected runtime identity.
 Pi disables built-in tools but currently loads resources and extensions
 (`createSessionResources`, `packages/ui-backend-pi/src/session-resources.ts:29-149`)
 and gates extension calls (`createPermissionGate`,
-`packages/ui-backend-pi/src/permission-gate.ts:96-125`). Removing four curated
+`packages/ui-backend-pi/src/permission-gate.ts:105-154`). Removing four curated
 tools cannot prove that extensions, MCP, scratch writers or in-process code have
 no egress or write access. Both first-party runtimes owe executable evidence;
 the plan's earlier “pi is easy” claim is not a containment result.
@@ -203,8 +203,8 @@ code atomically creates the Action and blocks its Queue item, then denies the
 permission and unwinds the turn. Already completed side effects are not undone
 by an abort. Attempt staging and cleanup therefore need idempotent recovery,
 with filesystem compensation outside SQLite transactions. Ordinary permission
-parking still exists (`requestPermission: (req) => {`,
-`packages/ui-server/src/ws/bridge.ts:362-455`); it is not a durable Action store.
+parking still exists (`const requestPermission`,
+`packages/ui-server/src/ws/bridge-capabilities/permissions.ts:19-188`); it is not a durable Action store.
 
 Resolution validates the stored effect again, checks current authority, records
 one resolution and applies the guarded state transition in one transaction.
@@ -241,7 +241,7 @@ suppressed-per-model Action; unknown usage cannot become a guessed zero.
 Subscription billing moves the turn counter even when spend is zero. The activity
 sum exposes unpriced runs (`sumEffectiveCost`,
 `packages/ui-server/src/activity/store.ts:179-194`) and settles only after execution
-(`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:746`).
+(`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:787`).
 Retrospective totals alone cannot enforce admission.
 
 The maintainer's [2026-10-01 ruling on #678](https://github.com/schlessera/brain-kit/issues/678#issuecomment-5926691626)
@@ -306,7 +306,7 @@ costs or a provider-enforced spend ceiling.
 Narrower per-request relay accounting is not selected for v1. The current
 observer reports method, path, outcome and status, with no trusted token or
 cost bound (`InferenceRelayEvent`,
-`packages/ui-sdk/src/server/inference-relay.ts:47-53`). Completed-response
+`packages/ui-sdk/src/server/inference-relay.ts:47-55`). Completed-response
 snapshots cannot bound a pre-header continuation's input, output, cache usage
 or hidden requests. A smaller fraction, historical average, guessed zero or
 clipping below known spend would invent evidence. Revisit narrower accounting
@@ -330,7 +330,7 @@ D37 binds the five destinations: reuse Actions (`needs you`, `running`, `done`)
 for durable decisions, and make Queue a secondary view with links to existing run
 detail. Do not add a second Actions/Activity destination. The current page's
 notification acknowledgement is not resolution (`ActionsLens`,
-`packages/ui-react/src/components/activity/activity-page.tsx:68-69`). Exact effects,
+`packages/ui-react/src/components/activity/activity-page.tsx:69-70`). Exact effects,
 reconnect convergence, accessible focus and visible failure are required; new
 cards need an interaction design that fits the current kit.
 
@@ -389,6 +389,14 @@ journals compensated cleanup after successful verification. This reconciliation
 does not enable dispatch or alter its production gates. The additive schemas,
 refusals and replay behavior are recorded in the
 [completion contract](../integration-contract/mcp.md#interactive-share-completion-additive-1764).
+
+Amended 2026-11-02 ([#3353](https://github.com/schlessera/brain-kit/issues/3353)):
+the finite attempt budget bounds autonomous retries, and a bound filing turn is
+the user's own retry. Interactive claims therefore spend no attempts and ignore
+retry backoff, and the bound session can reclaim a share that earlier
+attempt-counting turns left `failed`, retiring its exhausted-retries Action. A
+retained file's link counts when its Markdown destination resolves to the
+retained path from the filed document's folder, as a renderer would follow it.
 
 ## Alternatives rejected
 

@@ -11,6 +11,12 @@ import { hasStoredCredential } from "./auth.js";
 import { createPiBackend } from "./backend.js";
 import type { PiProfile } from "./backend-options.js";
 import { assertPiSdks } from "./version-requirements.js";
+import { blockingPiConfiguration, describePiExtensionFindings, gateUnsupportedConfiguration, inspectPiExtensions, PI_EXTENSIONS_ENV, unsupportedConfigurationMessage } from "./extension-inspection.js";
+
+/** The host's `BRAIN_UI_PI_EXTENSIONS` choice, parsed into agent config (#3658). */
+function discoversExtensions(config: Readonly<Record<string, unknown>>): boolean {
+  return config.piExtensions === "discover";
+}
 
 const PROFILE_SOURCE = "BRAIN_UI_PI_PROFILES";
 const CLAUDE_PROFILE_SOURCE = "BRAIN_UI_CLAUDE_PROFILES";
@@ -159,7 +165,20 @@ const FIRST_PARTY_PI_PROVIDERS: ReadonlySet<string> = new Set([
 export const backendModule: BackendModule = defineBackendModule({
   id: "pi",
   async probeRuntime(context) {
-    return { sdk: assertPiSdks(context.versionRequirements, "startup probe") };
+    const sdk = assertPiSdks(context.versionRequirements, "startup probe");
+    // Disclose, never refuse boot (#3658): other backends stay usable. The
+    // inspection reads settings and directories; no extension code runs.
+    const discover = discoversExtensions(context.config);
+    const mode = discover ? "discover" : "curated";
+    const inspection = await inspectPiExtensions(context.brainPath);
+    const blocking = blockingPiConfiguration(inspection, discover);
+    if (blocking) context.log?.("warn", `pi profiles are unavailable: ${unsupportedConfigurationMessage(blocking, discover)}`, { "pi.extensions": mode });
+    const inactive = !discover && inspection.ok ? inspection.findings.filter(finding => !finding.missing) : [];
+    if (inactive.length > 0) {
+      context.log?.("warn", `pi extensions are installed but inactive; turns use the curated tools: ${describePiExtensionFindings({ ok: true, findings: inactive })}. ` +
+        `Managed input-safety collection does not support loaded Pi extensions (${PI_EXTENSIONS_ENV}=curated).`, { "pi.extensions": mode });
+    }
+    return { sdk };
   },
   profileSchema: {
     source: PROFILE_SOURCE,
@@ -187,10 +206,11 @@ export const backendModule: BackendModule = defineBackendModule({
       };
       const turnTempBytes = typeof context.config.turnTempBytes === "number" ? context.config.turnTempBytes : undefined;
       const turnTempBudgetBytes = typeof context.config.turnTempBudgetBytes === "number" ? context.config.turnTempBudgetBytes : undefined;
-      const backend = createPiBackend({
+      const piBackend = createPiBackend({
         exec: context.exec,
         ...(context.maintenance ? { maintenance: context.maintenance } : {}),
         brainPath: context.brainPath,
+        loadExtensions: discoversExtensions(context.config),
         turnTemp: { ...(turnTempBytes !== undefined ? { allowanceBytes: turnTempBytes } : {}),
           ...(turnTempBudgetBytes !== undefined ? { budgetBytes: turnTempBudgetBytes } : {}) },
         ...(context.versionRequirements ? { versionRequirements: context.versionRequirements } : {}),
@@ -200,6 +220,8 @@ export const backendModule: BackendModule = defineBackendModule({
           : {}),
         ...(context.log ? { log: context.log } : {}),
       });
+      // Every hosted Pi turn passes the configuration gate (#3658).
+      const backend = gateUnsupportedConfiguration(piBackend, context.brainPath, discoversExtensions(context.config));
       let credentialCache: { at: number; value: boolean } | null = null;
       const hasCredential = (): boolean => {
         if (credentialCache && Date.now() - credentialCache.at < CREDENTIAL_MEMO_MS) {

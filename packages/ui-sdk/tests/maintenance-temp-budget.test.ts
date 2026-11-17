@@ -1,9 +1,10 @@
-import { afterEach, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
 import { Database } from "bun:sqlite";
+import { createHash } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { reserveMaintenanceTemp, type MaintenanceTempReservation } from "../src/server/maintenance-temp-budget";
+import { reserveMaintenanceTemp, type MaintenanceTempDomain, type MaintenanceTempReservation } from "../src/server/maintenance-temp-budget";
 import { hostMaintenanceTempLimits } from "../src/server/maintenance-temp-limits";
 import { resolveMaintenanceTempLimits } from "../src/server/worker-state-limits";
 import { ledgerChildLine } from "./maintenance-temp-ledger-protocol";
@@ -14,6 +15,14 @@ const children: ReturnType<typeof Bun.spawn>[] = [];
 const detached: { pid: number; start: string }[] = [];
 const reservations: MaintenanceTempReservation[] = [];
 const roots: string[] = [];
+// Each test admits on its own ledger: the default one is shared by every
+// process of this user on the host, so another suite's reservation would
+// read as this test's busy refusal.
+let domain: MaintenanceTempDomain;
+beforeEach(() => {
+  const root = mkdtempSync("/tmp/odysseus-maintenance-budget-"); roots.push(root);
+  domain = { statePath: join(root, "ui.db") };
+});
 const start = (pid: number) => {
   try { const raw = readFileSync(`/proc/${pid}/stat`, "utf8"); return raw.slice(raw.lastIndexOf(")") + 2).split(" ")[19]; }
   catch { return undefined; }
@@ -25,12 +34,12 @@ afterEach(async () => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 function reserve(allowanceBytes = DEFAULT, budgetBytes = DEFAULT) {
-  const reservation = reserveMaintenanceTemp({ allowanceBytes, budgetBytes });
+  const reservation = reserveMaintenanceTemp({ allowanceBytes, budgetBytes }, domain);
   reservations.push(reservation); return reservation;
 }
 type Receipt = { admitted: boolean; attached?: boolean; error?: string; waiting?: boolean; errorClass?: string; id?: string; directory?: string; pid?: number; worker?: { attached: boolean; pid: number } };
 async function spawn(role: string, allowanceBytes = DEFAULT, budgetBytes = DEFAULT, action = "hold", marker?: string) {
-  const child = Bun.spawn([process.execPath, CHILD, role, JSON.stringify({ allowanceBytes, budgetBytes }), action, ...(marker ? [marker] : [])], {
+  const child = Bun.spawn([process.execPath, CHILD, role, JSON.stringify({ allowanceBytes, budgetBytes, statePath: domain.statePath }), action, ...(marker ? [marker] : [])], {
     stdin: "pipe", stdout: "pipe", stderr: "pipe",
   });
   children.push(child);
@@ -43,13 +52,17 @@ async function attach(reservation: MaintenanceTempReservation) {
   children.push(child);
   return { child, receipt: JSON.parse(await ledgerChildLine(child, "attach")) as Receipt };
 }
+/** The ledger a reservation was admitted on: a private domain's file sits beside its state path. */
+const ledgerFile = (reservation: MaintenanceTempReservation) => reservation.statePath
+  ? join(reservation.directory, `.brain-maintenance-${createHash("sha256").update(reservation.statePath).digest("hex").slice(0, 24)}.db`)
+  : join(reservation.directory, "reservations.db");
 function rows(reservation: MaintenanceTempReservation) {
-  const db = new Database(join(reservation.directory, "reservations.db"));
+  const db = new Database(ledgerFile(reservation));
   try { return db.query("SELECT id, bytes, released FROM reservations WHERE id = ?").all(reservation.id); }
   finally { db.close(); }
 }
 function changeOwner(reservation: MaintenanceTempReservation, changes: Record<string, unknown>) {
-  const db = new Database(join(reservation.directory, "reservations.db"));
+  const db = new Database(ledgerFile(reservation));
   try {
     const row = db.query("SELECT owner FROM reservations WHERE id = ?").get(reservation.id) as { owner: string };
     db.query("UPDATE reservations SET owner = ? WHERE id = ?").run(JSON.stringify({ ...JSON.parse(row.owner), ...changes }), reservation.id);
@@ -60,8 +73,8 @@ test("maintenance defaults and positive overrides are independent of agent sessi
   expect(hostMaintenanceTempLimits({ MAX_CONCURRENT_SESSIONS: "99" })).toEqual({ allowanceBytes: DEFAULT, budgetBytes: DEFAULT });
   expect(hostMaintenanceTempLimits({ BRAIN_UI_MAINTENANCE_TEMP_BYTES: "4096", BRAIN_UI_MAINTENANCE_TEMP_BUDGET_BYTES: "8192" })).toEqual({ allowanceBytes: 4096, budgetBytes: 8192 });
   for (const value of [0, -4096, 1, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER, null]) {
-    expect(() => resolveMaintenanceTempLimits({ allowanceBytes: value as number })).toThrow();
-    expect(() => resolveMaintenanceTempLimits({ budgetBytes: value as number })).toThrow();
+    expect(() => resolveMaintenanceTempLimits({ allowanceBytes: value as number }), String(value)).toThrow("BRAIN_UI_MAINTENANCE_TEMP_BYTES must be a positive whole number of bytes");
+    expect(() => resolveMaintenanceTempLimits({ budgetBytes: value as number }), String(value)).toThrow("BRAIN_UI_MAINTENANCE_TEMP_BUDGET_BYTES must be a positive whole number of bytes");
   }
   for (const value of ["-4096", "1e6", "4096.0", "NaN", "8192KiB"]) expect(() => hostMaintenanceTempLimits({ BRAIN_UI_MAINTENANCE_TEMP_BYTES: value })).toThrow("digits only");
   expect(() => reserveMaintenanceTemp({ allowanceBytes: 8192, budgetBytes: 4096 })).toThrow("cover at least one");
@@ -70,12 +83,12 @@ test("maintenance defaults and positive overrides are independent of agent sessi
 test("full allowances remain fixed across configuration changes and release is idempotent", () => {
   const first = reserve();
   expect(rows(first)).toMatchObject([{ bytes: DEFAULT, released: 0 }]);
-  expect(() => reserveMaintenanceTemp({ allowanceBytes: 4096, budgetBytes: DEFAULT }), "MAINTENANCE_LEDGER_ADMISSION").toThrow("Maintenance temporary storage is busy");
+  expect(() => reserveMaintenanceTemp({ allowanceBytes: 4096, budgetBytes: DEFAULT }, domain), "MAINTENANCE_LEDGER_ADMISSION").toThrow("Maintenance temporary storage is busy");
   const second = reserve(DEFAULT, 2 * DEFAULT);
-  expect(() => reserveMaintenanceTemp({ allowanceBytes: DEFAULT, budgetBytes: DEFAULT })).toThrow("busy");
+  expect(() => reserveMaintenanceTemp({ allowanceBytes: DEFAULT, budgetBytes: DEFAULT }, domain)).toThrow("busy");
   first.release(); first.release();
   expect(rows(first), "MAINTENANCE_LEDGER_RELEASE").toEqual([]);
-  expect(() => reserveMaintenanceTemp({ allowanceBytes: DEFAULT, budgetBytes: DEFAULT })).toThrow("busy");
+  expect(() => reserveMaintenanceTemp({ allowanceBytes: DEFAULT, budgetBytes: DEFAULT }, domain)).toThrow("busy");
   second.release();
   const next = reserve(); expect(rows(next)).toHaveLength(1);
 });
@@ -117,7 +130,7 @@ test("parent death preserves an attached live worker, then recovers after that w
   const first = await spawn("owner-with-worker");
   expect(first.receipt.worker?.attached).toBe(true);
   first.child.kill("SIGKILL"); await first.child.exited;
-  expect(() => reserveMaintenanceTemp({ allowanceBytes: DEFAULT, budgetBytes: DEFAULT }), "LIVE_WORKER_SURVIVES_OWNER_ACCOUNTING").toThrow("busy");
+  expect(() => reserveMaintenanceTemp({ allowanceBytes: DEFAULT, budgetBytes: DEFAULT }, domain), "LIVE_WORKER_SURVIVES_OWNER_ACCOUNTING").toThrow("busy");
   const worker = detached.at(-1)!;
   process.kill(worker.pid, "SIGKILL");
   for (let i = 0; i < 100; i++) {
@@ -136,7 +149,7 @@ test("PID reuse and an earlier boot are positively stale, while a foreign PID na
     next.release(); old.release();
   }
   const unknown = reserve(); changeOwner(unknown, { namespace: "pid:[0]" });
-  expect(() => reserveMaintenanceTemp({ allowanceBytes: DEFAULT, budgetBytes: DEFAULT }), "UNKNOWN_MAINTENANCE_OWNER_RETAINED").toThrow("busy");
+  expect(() => reserveMaintenanceTemp({ allowanceBytes: DEFAULT, budgetBytes: DEFAULT }, domain), "UNKNOWN_MAINTENANCE_OWNER_RETAINED").toThrow("busy");
   unknown.release(); expect(rows(unknown)).toEqual([]);
 });
 
@@ -149,7 +162,7 @@ test("attachment is single-use and release keeps a live child counted until exit
   expect(await duplicate.child.exited).toBe(0);
   pending.release(); pending.release();
   expect(rows(pending), "RELEASE_PRESERVES_ATTACHED_LIVE_CHILD").toMatchObject([{ bytes: DEFAULT, released: 1 }]);
-  expect(() => reserveMaintenanceTemp({ allowanceBytes: DEFAULT, budgetBytes: DEFAULT })).toThrow("busy");
+  expect(() => reserveMaintenanceTemp({ allowanceBytes: DEFAULT, budgetBytes: DEFAULT }, domain)).toThrow("busy");
   worker.child.kill("SIGKILL"); await worker.child.exited;
   const next = reserve();
   expect(rows(pending)).toEqual([]); next.release();
@@ -187,7 +200,7 @@ test("a live owner hidden by procfs is held rather than mistaken for a crashed r
     if(path===`/proc/${process.pid}/stat`) throw Object.assign(new Error("owned process is hidden"),{code:"ENOENT"});
     return (read as (...args: unknown[])=>unknown)(path,...args);
   }) as typeof read);
-  try { expect(()=>reserveMaintenanceTemp({allowanceBytes:DEFAULT,budgetBytes:DEFAULT}),"UNVERIFIED_LIVE_OWNER_RETAINED").toThrow("busy"); }
+  try { expect(()=>reserveMaintenanceTemp({allowanceBytes:DEFAULT,budgetBytes:DEFAULT},domain),"UNVERIFIED_LIVE_OWNER_RETAINED").toThrow("busy"); }
   finally { hidden.mockRestore(); first.release(); }
 });
 

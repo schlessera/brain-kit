@@ -120,6 +120,13 @@ receipt are one database transaction. Committed provenance is immutable and
 survives principal pruning. Intake never creates a lease/claim or dispatches
 work. Boot and subsequent intake compensate abandoned preparations after an
 hour, while committed staging IDs are protected from legacy share TTL pruning.
+Staging, compensation, reconciliation, inbox cleanup and the TTL prune change
+the staging directory only through directories opened without following links,
+from the brain's canonical root down; the brain root itself may be a link. A
+linked `.brain-ui` or `.brain-ui/inbox`, or one that changes while in use, is
+refused rather than followed: the receipt is kept for a later, safe retry and
+whatever the link names is left alone. A refused reconciliation at boot is
+logged and does not stop the server.
 The audit-only export includes these receipts; it still excludes staging bytes
 and is not a backup. See the [HTTP intake/recovery contract](http-api.md#authenticated-cli-intake-additive-679).
 

@@ -52,7 +52,7 @@ function harness(script: Script, extra: Partial<StartTurnRequest> = {}) {
   const backend = createClaudeBackend({ brainPath: "/brain", profiles, queryFn, log: () => {} });
   const start = () =>
     backend.startTurn({ prompt: "Plan the voyage home.", signal: controller.signal, bridge, ...extra });
-  return { backend, frames, first, ready, start, abort: () => controller.abort() };
+  return { backend, bridge, frames, first, ready, start, abort: () => controller.abort() };
 }
 
 const init = { type: "system", subtype: "init", session_id: "voyage" };
@@ -144,6 +144,47 @@ describe("delivering a follow-up into the running turn", () => {
     await turn;
 
     expect(followUp?.message.content).toBe("Mind the Cyclops.");
+  });
+
+  test("resumed input is reserved while safety acknowledgement delays SDK startup", async () => {
+    const acknowledged = Promise.withResolvers<void>();
+    let followUp: SDKUserMessage | undefined;
+    const h = harness(async function* (input) {
+      yield init;
+      const next = await input.next();
+      followUp = next.done ? undefined : next.value;
+      yield lifecycle(followUp?.uuid, "completed");
+      yield result(2, 10, 0.01);
+    }, { sessionId: "voyage" });
+    let readyCalls = 0;
+    h.bridge.inputSafety = {
+      ready: async () => { readyCalls++; await acknowledged.promise; },
+      begin: async () => {}, result: async () => {}, unavailable: async () => {},
+    };
+    const turn = h.start();
+    try {
+      await expect(h.backend.followUp!({ sessionId: "voyage", prompt: "Mind the Cyclops." }),
+        "SAFETY_READY_PRESERVES_SYNCHRONOUS_RESUMED_INPUT").resolves.toBeUndefined();
+      expect(readyCalls).toBe(1);
+      expect(h.first, "SAFETY_READY_FENCES_SDK_PROMPT_RELEASE").toEqual([]);
+      acknowledged.resolve();
+      await turn;
+      expect(followUp?.message.content).toBe("Mind the Cyclops.");
+    } finally { acknowledged.resolve(); h.abort(); }
+  });
+
+  test("failed safety acknowledgement releases a resumed input claim for retry", async () => {
+    const h = harness(async function* () { yield init; yield result(1, 5, 0); }, { sessionId: "voyage" });
+    const failure = new Error("Odysseus collector unavailable");
+    h.bridge.inputSafety = {
+      ready: async () => { throw failure; },
+      begin: async () => {}, result: async () => {}, unavailable: async () => {},
+    };
+    await expect(h.start()).rejects.toBe(failure);
+    expect(h.first, "SAFETY_READY_FAILURE_PREVENTS_SDK_START").toEqual([]);
+    h.bridge.inputSafety.ready = async () => {};
+    await h.start();
+    expect(h.first, "SAFETY_READY_FAILURE_RELEASES_RESUMED_CLAIM").toHaveLength(1);
   });
 
   test("is refused for an autonomous run, which is not a conversation", async () => {

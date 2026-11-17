@@ -2,24 +2,39 @@
 import assert from "node:assert/strict";
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { createRequire } from "node:module";
+import { join, resolve } from "node:path";
 import { captureSurface } from "../../scripts/capture-turn-surface.js";
 import { observedSkills } from "../../scripts/turn-surface-skills.js";
+import { requireWorkerHostAsync } from "../../packages/ui-sdk/src/server/worker-launcher.js";
 
 const networkInterfaces = readFileSync("/proc/net/dev", "utf8").trim().split("\n").slice(2).map(line => line.split(":")[0]!.trim());
 assert.deepEqual(networkInterfaces, ["lo"], "OWNED_CLAUDE_REQUIRES_OFFLINE_NAMESPACE");
 const root = resolve(import.meta.dir, "../../tmp"); mkdirSync(root, { recursive: true });
 const outside = mkdtempSync(join(root, "odysseus-cli-placement-"));
 const inside = mkdtempSync(join(tmpdir(), "odysseus-cli-placement-"));
-const sdk = dirname(Bun.resolveSync("@anthropic-ai/claude-agent-sdk", join(import.meta.dir, "../../packages/ui-backend-claude/src")));
-const installed = join(sdk, `node_modules/@anthropic-ai/claude-agent-sdk-linux-${process.arch}/claude`);
+// Resolve the platform binary from the SDK entry, as the SDK itself does, so
+// nested and hoisted layouts both find the package the SDK would launch.
+const sdkRequire = createRequire(Bun.resolveSync("@anthropic-ai/claude-agent-sdk", join(import.meta.dir, "../../packages/ui-backend-claude/src")));
+const installed = sdkRequire.resolve(`@anthropic-ai/claude-agent-sdk-linux-${process.arch}/claude`);
+const manifest = JSON.parse(readFileSync(sdkRequire.resolve("./manifest.json"), "utf8"));
 try {
+  // The outer offline namespace can inherit an AppArmor label that forbids
+  // the real worker's nested namespaces, before either copied CLI starts.
+  try { await requireWorkerHostAsync(outside); }
+  catch (cause) {
+    let label = "unavailable";
+    try { label = readFileSync("/proc/self/attr/current", "utf8").replace(/\0/g, "").trim(); } catch { /* AppArmor is optional. */ }
+    throw new Error("OWNED_CLAUDE_NESTED_WORKER_HOST_REQUIRED: the outer offline namespace must permit the inner worker boundary. " +
+      "AppArmor label: " + JSON.stringify(label) + ". " + (cause instanceof Error ? cause.message : String(cause)), { cause });
+  }
   const paths = [outside, inside].map(root => {
     writeFileSync(join(root, "package.json"), '{"name":"odysseus-owned-cli-control"}\n');
     const path = join(root, "claude"); copyFileSync(installed, path); return path;
   });
   const digest = (path: string) => new Bun.CryptoHasher("sha256").update(readFileSync(path)).digest("hex");
   const installedDigest = digest(installed), runtimeDigests = paths.map(digest);
+  assert.equal(installedDigest, manifest.platforms[`linux-${process.arch}`].checksum, "OWNED_CLAUDE_NATIVE_MATCHES_SDK_MANIFEST");
   assert.deepEqual(runtimeDigests, [installedDigest, installedDigest], "OWNED_CLAUDE_NATIVE_BYTES_MATCH");
   const results = [];
   for (const path of paths) {

@@ -65,7 +65,10 @@ test("native cancellation removes retained handles while live unref timers remai
   let fired = 0;
   const timeout = setTimeout(() => { fired++; }, 20).unref();
   const interval = setInterval(() => { fired++; }, 20).unref();
-  const live = setTimeout(() => { fired++; }, 40).unref();
+  // Due after both cancelled 20 ms handles: Bun runs due timers in deadline
+  // order, so once it fires either cancelled handle would already have fired.
+  const liveFired = Promise.withResolvers<void>();
+  const live = setTimeout(() => { fired++; liveFired.resolve(); }, 40).unref();
   try {
     expect(timers.pending.has(timeout)).toBe(true);
     expect(timers.pending.has(interval)).toBe(true);
@@ -74,7 +77,7 @@ test("native cancellation removes retained handles while live unref timers remai
     expect(timers.pending.has(timeout), "NATIVE_CANCELLED_TIMEOUT_IS_NOT_LIVE").toBe(false);
     expect(timers.pending.has(interval), "NATIVE_CANCELLED_INTERVAL_IS_NOT_LIVE").toBe(false);
     expect(timers.pending.has(live), "LIVE_UNREF_TIMER_IS_STILL_LIVE").toBe(true);
-    await Bun.sleep(80);
+    await liveFired.promise;
     expect(fired, "ONLY_THE_LIVE_CONTROL_FIRES").toBe(1);
     expect(timers.pending.size).toBe(0);
   } finally {
@@ -93,12 +96,14 @@ test("native handle close, numeric cancellation and refresh preserve timer liven
     (timeout as unknown as { close(): void }).close();
     clearTimeout(Number(numeric));
     expect(timers.pending.size, "CLOSE_AND_NUMERIC_CANCELLATION_ARE_NOT_LIVE").toBe(0);
-    const refreshed = setTimeout(() => { fired++; }, 20).unref();
+    // Created and refreshed after the cancelled handles, so it is due after them.
+    const refreshedFired = Promise.withResolvers<void>();
+    const refreshed = setTimeout(() => { fired++; refreshedFired.resolve(); }, 20).unref();
     try {
       refreshed.refresh();
       expect(timers.pending.has(refreshed), "REFRESHED_TIMEOUT_IS_LIVE").toBe(true);
-      await Bun.sleep(60);
-      expect(fired).toBe(1);
+      await refreshedFired.promise;
+      expect(fired, "ONLY_THE_REFRESHED_TIMEOUT_FIRES").toBe(1);
       expect(timers.pending.size).toBe(0);
       refreshed.refresh();
       expect(timers.pending.has(refreshed), "FIRED_THEN_REFRESHED_TIMEOUT_IS_LIVE").toBe(true);

@@ -272,7 +272,8 @@ describe("tool payload capture (AE7)", () => {
 
     const events = eventsOf(store, "turn-bigint", "tool-1");
     expect(events.map((e) => e.eventType)).toEqual(["tool_input"]);
-    expect(typeof events[0]!.payload).toBe("string");
+    // JSON.stringify throws on a BigInt member; the fallback is String(value).
+    expect(events[0]!.payload).toBe("[object Object]");
   });
 });
 
@@ -352,4 +353,20 @@ describe("a denial the host never saw (#110)", () => {
       (refused.store.snapshotRun("turn-refused")?.events ?? []).map((e) => e.eventType)
     ).toContain("approval_decision");
   });
+});
+
+test("cleanup diagnostics remain durable after the turn finishes without changing its outcome", async () => {
+  const { db, store, recorder } = setup("odysseus-cleanup");
+  try {
+    recorder.finish("error");
+    recorder.observeActivity({ kind: "worker_cleanup", state: "retrying", bytes: 4096, turnTempBytes: 8192,
+      errorClass: "Error", message: "worker_identity_cleanup_unconfirmed" });
+    await recorder.settled();
+    const events = db.query("SELECT payload FROM activity_events WHERE span_id=? AND event_type='worker_cleanup'").all("odysseus-cleanup:turn");
+    expect(JSON.stringify(events), "OWNER_CLEANUP_CAUSE_DURABLE").toContain("worker_identity_cleanup_unconfirmed");
+    recorder.observeActivity({ kind: "worker_cleanup", state: "resolved", bytes: 4096, turnTempBytes: 8192 });
+    await recorder.settled();
+    expect(JSON.stringify(db.query("SELECT * FROM activity_events WHERE span_id=?").all("odysseus-cleanup:turn"))).toContain("resolved");
+    expect(store.getSpan("odysseus-cleanup:turn")!.outcome).toBe("error");
+  } finally { db.close(); }
 });

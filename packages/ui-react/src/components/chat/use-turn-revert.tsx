@@ -58,18 +58,18 @@ export function useTurnRevert(sessionId: string | null, turnId: string | undefin
   }
   function action(path: string) {
     const eligible = plan?.paths.find(item => item.path === path && item.state === "eligible"), restore = restorePlan?.paths.find(item => item.path === path && item.state === "eligible");
-    return loadedKey === key && enabled && (eligible || restore) && <Button label={restore ? "Restore file" : "Revert file"} ariaLabel={`${restore ? "Restore" : "Revert"} ${path}`} block={false} style={{ minHeight: 44 }} disabled={posting || pending(receipt)} onClick={() => void start(turnId!, restore ? "restore" : "revert", path)} />;
+    return loadedKey === key && enabled && (eligible || restore) && <Button label={restore ? "Restore file" : "Revert file"} ariaLabel={`${restore ? "Restore" : "Revert"} ${path}`} block={false} reach disabled={posting || pending(receipt)} onClick={() => void start(turnId!, restore ? "restore" : "revert", path)} />;
   }
   const eligible = review?.paths.filter(item => item.state === "eligible") ?? [];
   const controls = loadedKey === key && enabled && <div ref={controlsRef} className="grid gap-2 min-w-0">
-    {plan?.paths.some(item => item.state === "eligible") && <span data-revert-review=""><Button label="Review whole-turn revert" tone="quiet" style={{ minHeight: 44 }} disabled={posting || pending(receipt)} onClick={() => { reviewTrigger.current = controlsRef.current?.querySelector<HTMLElement>("[data-revert-review] [role=button]") ?? null; setReview(plan); }} /></span>}
+    {plan?.paths.some(item => item.state === "eligible") && <span data-revert-review=""><Button label="Review whole-turn revert" tone="quiet" reach disabled={posting || pending(receipt)} onClick={() => { reviewTrigger.current = controlsRef.current?.querySelector<HTMLElement>("[data-revert-review] [role=button]") ?? null; setReview(plan); }} /></span>}
     {receipt && <div className="grid gap-2 text-sm break-words" data-revert-receipt={receipt.state}>
       <p>{copy(receipt)}</p>
       {receipt.resolution && <p>Selected after observation {receipt.resolution.version.sequence}{receipt.resolution.otherVersion ? ` and ${receipt.resolution.otherVersion.sequence}` : ""}. Writer ownership remains shared.</p>}
       {receipt.error && <p>Recorded outcome: {receipt.error}.</p>}
       {receipt.paths.map(path => <p key={path.path}>{path.path}: {path.state}{path.reason ? ` (${path.reason})` : ""}</p>)}
-      {["waiting", "applying", "unknown", "failed"].includes(receipt.state) && <Button label="Check again" tone="quiet" style={{ minHeight: 44 }} disabled={posting} onClick={() => void check()} />}
-      {["complete", "partial"].includes(receipt.state) && receipt.undoAvailable && <span data-revert-undo=""><Button label="Undo" tone="quiet" style={{ minHeight: 44 }} onClick={() => {
+      {["waiting", "applying", "unknown", "failed"].includes(receipt.state) && <Button label="Check again" tone="quiet" reach disabled={posting} onClick={() => void check()} />}
+      {["complete", "partial"].includes(receipt.state) && receipt.undoAvailable && <span data-revert-undo=""><Button label="Undo" tone="quiet" reach onClick={() => {
         reviewTrigger.current = controlsRef.current?.querySelector<HTMLElement>("[data-revert-undo] [role=button]") ?? null;
         const ownKey = key; root.api.turnRevertPlan(sessionId!, receipt.journalTurnId).then(value => { if (identity.current === ownKey) setReview(value); }).catch(() => { if (identity.current === ownKey) { setError("The recorded user operation expired or is unavailable. Undo was not started."); setReceipt(previous => previous ? { ...previous, undoAvailable: false } : null); } });
       }} /></span>}
@@ -80,8 +80,8 @@ export function useTurnRevert(sessionId: string | null, turnId: string | undefin
     <div className="p-4 grid gap-4 min-w-0"><h2 ref={heading} tabIndex={-1} className="font-medium">{review?.turnId === turnId ? "Review whole-turn revert" : "Review Undo"}</h2>
       <p>Only retained observed versions can be restored. Paths changed since that observation are skipped; other paths can still be restored. Git history and outward effects remain.</p>
       <ul className="grid gap-2 text-sm break-all">{review?.paths.map(path => <li key={path.path}>{path.path}: {path.state === "eligible" ? "Eligible" : `Excluded (${path.reason})`}</li>)}</ul>
-      <Button label={`Revert ${eligible.length} ${eligible.length === 1 ? "file" : "files"}`} style={{ minHeight: 44 }} disabled={!eligible.length || posting || pending(receipt)} onClick={() => void start(review!.turnId, review!.action)} />
-      <Button label="Close" tone="quiet" style={{ minHeight: 44 }} onClick={() => setReview(null)} />
+      <Button label={`Revert ${eligible.length} ${eligible.length === 1 ? "file" : "files"}`} reach disabled={!eligible.length || posting || pending(receipt)} onClick={() => void start(review!.turnId, review!.action)} />
+      <Button label="Close" tone="quiet" reach onClick={() => setReview(null)} />
     </div>
   </Overlay>;
   return { controls, action, dialog,

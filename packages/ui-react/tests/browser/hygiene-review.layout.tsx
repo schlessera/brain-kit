@@ -1,5 +1,5 @@
 /// <reference types="@vitest/browser-playwright" />
-import { afterEach, beforeAll, afterAll, expect, test } from "vitest";
+import { afterEach, beforeAll, afterAll, expect, test, vi } from "vitest";
 import { commands, page, userEvent } from "vitest/browser";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
@@ -9,6 +9,16 @@ import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
 import { BrainUiProvider } from "../../src/root-context.js";
 import { DesktopPalette } from "../../src/components/layout/desktop-palette.js";
 import { ActivityPage } from "../../src/components/activity/activity-page.js";
+import { stopHygieneFixture } from "./hygiene-fixture-stop.ts";
+
+// Every poll here waits on a real round trip through the hygiene fixture
+// server. Vitest's 1-second default lost that race on loaded hosted runners
+// (#4125: a different case timed out on each run, with and without the
+// change under test); this file's own server-bound polls already used 5
+// seconds. A poll that passes resolves as soon as it does, so only a
+// genuine failure takes longer to report.
+vi.setConfig({ expect: { poll: { timeout: 5000 } } });
+afterAll(() => vi.resetConfig());
 
 let fixture: { id: string; url: string; scratch: string } | undefined;
 let renderer: Root | undefined,
@@ -52,7 +62,7 @@ async function disposeScene() {
   sceneUi?.dispose();
   sceneSocket?.close();
   sceneHost?.remove();
-  if (sceneFixture) await commands.hygieneServer({ op: "stop", id: sceneFixture.id });
+  if (sceneFixture) await stopHygieneFixture(sceneFixture.id);
   frames.length = 0;
 }
 afterEach(async () => {

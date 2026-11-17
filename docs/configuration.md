@@ -211,6 +211,81 @@ taxonomy: {
 | `source`      | `string`                         | Exact path of the canonical source document.       |
 | `derivatives` | `string` (glob)                  | Glob for documents that derive from the source.    |
 | `severity`    | `"error" \| "warning" \| "info"` | Optional finding severity.                          |
+| `scope`       | nonempty `string`, up to 4000 characters | Declared purpose and required coverage of the derivatives, used by opted-in freshness review. A document's `propagation_scope` overrides it. |
+
+### `hygiene.propagation`
+
+Optional automatic propagation review, **off until `enabled: true`**. It keeps
+complete current/reference source texts and an explicit source diff. Only a
+positive currency judgment meeting the owner's policy can acknowledge freshness.
+Source and derivative content, `created` and `updated` stay byte-identical; the
+receipt lives in `context/hygiene/propagation-reviews.md`. Missing context,
+provider failure and every other judgment remain for the owner.
+
+```ts
+hygiene: {
+  propagation: { enabled: true, profile: "balanced" },
+},
+taxonomy: {
+  propagation: [{
+    source: "notes/voyage-plan.md",
+    derivatives: "notes/command-summary.md",
+    scope: "Current ship commander only; omit provisions.",
+  }],
+},
+```
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `enabled` | `false` | Persistent owner authorization for this automation. A key or CLI flag cannot turn it on. |
+| `profile` | `"balanced"` | `conservative`: floor 0.9 plus cross-checks; `balanced`: 0.7 plus cross-checks; `permissive`: floor 0, currency question only. |
+| `minConfidence` | From profile | Optional 0–1 override; every required answer must meet it. This is answer concentration, **not** a probability of correctness. |
+| `crossChecks` | From profile | Also require positive answers on support for all included assertions and sufficient in-scope coverage. They can only veto the currency answer; confidence is never averaged or multiplied. |
+| `maxFiles` | `10` | At most 1–100 uncached model judgments per invocation. Cached negatives do not consume the quota. |
+| `timeoutMs` | `5000` | Per-request deadline, 100–30000 ms, bounded by the remaining run budget. |
+| `budgetMs` | `10000` | Run dispatch budget, 100–60000 ms, shared by history/diff preparation and provider calls. |
+| `maxInputChars` | `40000` | Complete request character bound, 1000–80000. Oversize inputs are left for review, never clipped. Provider context limits can still refuse a request. |
+| `exclude` | `[]` | Additional contained paths/prefixes/globs never sent to the provider. Taxonomy exclusions also apply, including canonical symlink targets. |
+
+The presets are policy choices, not calibrated correctness guarantees. Start
+with `brain hygiene propagation --dry-run --json`: it reports individual
+judgments and acceptance at several floors, both currency-only and cross-checked,
+without extra calls for that sensitivity table. It replays the saved answers;
+changing the question bundle on a fresh request may also change the primary
+answer. The [measured tradeoff](decisions/propagation-triage.md#user-selected-confidence-and-cross-checks)
+is from short authored examples, not an expected production error rate.
+The distinction follows [TypeSafe's confidence definition](https://docs.typesafe.ai/confidence):
+it summarizes the answer distribution, not independently verified correctness.
+
+Scope must be explicit, in a matching propagation rule or the derivative's
+nonempty `propagation_scope` frontmatter. `propagation_reference` may name the
+full Git commit ID of a known reference source snapshot. Otherwise review uses
+the commit recording the exact current derivative bytes. That is a recorded
+content version, **not** an inferred generation time. An uncommitted derivative
+without an explicit reference, missing historical source, historical symlink,
+unclear scope or unavailable source stays for review. Dates alone never select
+history. All configured sources plus a Markdown `generated_from` are consulted.
+
+The concrete model is pinned to the evaluated `jev-1.13.0`; `TYPESAFE_API_KEY`
+authenticates it. Successful typed judgments, including those left for humans,
+are cached by source/derivative bytes, scope and model/question version. Changing
+a threshold re-applies the policy locally to those answers. The UTC observation
+day is part of the evidence: time-dependent judgments expire on a new day, even
+when files did not change. Unseen/oldest-reviewed paths go first so bounded runs
+can advance through a backlog. Enabling additional
+checks asks again only if their answers are missing. Source, derivative or
+scope changes invalidate the evidence; model/question upgrades require review
+again. Disabling the feature stops using its acknowledgements. Deleting the
+disposable index does not lose the Markdown receipts.
+
+Ordinary `hygiene reconcile` and non-preview `hygiene next` run the prepass when
+enabled and credentials are available. `audit` only reads receipts and never
+calls a model; `next --dry-run` never starts provider work. Hosted interactive
+review remains credential-free. For hosted scheduling, opt into
+`BRAIN_UI_CRON_PROPAGATION=on` as well: the generated daily 05:45
+`hygiene-propagation` job runs through credentialed, exclusive maintenance,
+separately from the credential-free weekly hygiene job. It also requires core
+0.45.0+ and the brain's persistent opt-in; it is never an unwrapped trusted job.
 
 ### `taxonomy.facts`
 
@@ -359,7 +434,7 @@ never replace them.
 
 | Key        | Type       | Built-in default                                                                                  |
 | ---------- | ---------- | ------------------------------------------------------------------------------------------------- |
-| `dirs`     | `string[]` | `.git`, `node_modules`, `.claude`, `.agents`, `scripts`, `logs`, `tmp`, `workspaces`, `okf-dist`, `.brain/scratch`, `evals`, `context/scheduled-tasks` |
+| `dirs`     | `string[]` | `.git`, `node_modules`, `.claude`, `.agents`, `scripts`, `logs`, `tmp`, `workspaces`, `okf-dist`, `.brain/scratch`, `evals`, `context/scheduled-tasks`, `context/policies`, `_voice` |
 | `files`    | `string[]` | `CLAUDE.md`, `README.md`, `AGENTS.md`, `GEMINI.md`                                                 |
 | `segments` | `string[]` | *(none in core; modules may add — e.g. speaking excludes `alt-decks`, `versions`, `deck`)*        |
 
@@ -381,6 +456,12 @@ The root agent instruction files are excluded from content indexing and
 validation, including `GEMINI.md` generated by `brain skills sync`. These are
 exact root-relative paths: a content note at `notes/GEMINI.md` is still included.
 Adding your own `exclude.files` entries keeps the built-in exclusions.
+
+`_voice` holds the live-conversation personas a UI host edits in Settings
+(`_voice/personas/<id>.md`). Their instructions only shape how a voice service
+speaks, so they never appear in search, briefings or agent context. The files
+stay in Git and are plainly editable. Before 0.45.0 the folder was indexed like
+any other; an existing brain drops it on the next `brain index`.
 
 ```ts
 exclude: { dirs: ["drafts"], segments: ["private"] }
@@ -594,6 +675,75 @@ modes remain available. The approved behavior change is recorded in
 [decisions/reranker-activation.md](decisions/reranker-activation.md). See [extending/rerankers.md](extending/rerankers.md) for the
 interface, the measurements and how to add your own.
 
+## `compute`
+
+External compute: named provider instances that can allocate a disposable
+sandbox, run a command in it, return its results and release it. Absent by
+default. With no `compute` key there is no provider and no network access, and
+every compute operation except health refuses with `compute_disabled`. Nothing
+runs remotely unless a caller names an instance; no instance is a default.
+[decisions/external-compute.md](decisions/external-compute.md) is the contract.
+
+```ts
+compute: {
+  providers: {
+    "boat-small": {
+      provider: "boat",              // a built-in name, or a ComputeProvider value
+      apiKeyEnv: "BOAT_CI_KEY",      // the variable holding this instance's key
+      options: { machine: "small" }, // validated by the provider's own schema
+      lease: { maxSeconds: 3600 },   // required, finite
+      maxConcurrent: 2,
+      hourlyCeilingUsd: 0.1,
+    },
+    "ithaca-host": {
+      provider: sshCompute({ host: "ithaca.example", workRoot: "/srv/jobs" }), // hypothetical package
+      lease: { maxSeconds: 1800 },
+    },
+  },
+},
+```
+
+| Key | Meaning |
+| --- | --- |
+| `providers.<id>` | One instance. The id is lowercase letters, digits and hyphens, at most 63 characters, and is what a caller names. Two instances of one implementation keep separate options and keys. |
+| `provider` | `"boat"` (the separate `@schlessera/brain-compute-boat` package, an optional peer loaded only when an instance names it; see [Boat](#boat)) or a `ComputeProvider` value. An unknown name is `provider_unknown`; a missing package, an unset key or options the provider rejects make the instance `provider_unavailable`. |
+| `apiKeyEnv` | The environment variable name holding the instance's key. The key never appears in config, job records, receipts, tool arguments, results or the sandbox environment. Without it a built-in reads its own default variable. |
+| `options` | Opaque to core; validated by the implementation's `configSchema`. |
+| `lease.maxSeconds` | Required. The longest lease a job on this instance may hold, at most seven days and never more than the provider's own ceiling. A job asks for this lease unless it names a shorter one. |
+| `maxConcurrent` | Jobs at once on this instance, counting finished jobs whose cleanup has not been confirmed and retained jobs until their retention ends. Default 1. |
+| `hourlyCeilingUsd` | Optional. When set, admission reserves `ceiling × lease` against the host's budgets. When absent the job runs with its cost recorded as unknown, bounded by the lease and the concurrency cap. |
+| `retainOnRelease` | Release keeps the sandbox's data for the provider's retention limit instead of discarding it. Refused when the provider cannot retain. A job may opt out (`retain: false`) but may only ask to retain (`--retain`, `retain: true`) on an instance that sets this. |
+
+### Boat
+
+`provider: "boat"` needs `@schlessera/brain-compute-boat` installed beside
+`@schlessera/brain`. Without `apiKeyEnv` the instance reads
+`BRAIN_COMPUTE_BOAT_API_KEY`, never the variable Boat's own CLI uses; give it a
+scoped key with the actions the
+[package README](../packages/compute-boat/README.md#the-key) lists (Boat's
+`ci` preset), never an account administration key. Its `options`, all
+optional and validated strictly:
+
+| Option | Meaning |
+| --- | --- |
+| `machine` | `small`, `default`, `large` or `xlarge`. |
+| `from` | A saved snapshot name or share code to start from. |
+| `environment` | A Boat environment to attach. Without it the sandbox gets none of the account's secrets or logins (`noEnv`). |
+| `org` | The organization wallet to bill. |
+
+A retained release keeps the sandbox's data for at most 14 days. Actual cost
+is Boat's own usage report at list price, and unknown without one.
+
+Job records, leases, reservations and collected artifacts live in a compute
+state directory outside the brain checkout and outside `brain.db`: by default
+`$XDG_STATE_HOME/brain/compute/<brain key>/` (`~/.local/state` when unset), or
+`BRAIN_COMPUTE_STATE_DIR`. It is deliberately not a config key: the brain is
+agent-editable. A state directory inside the brain is refused. `brain index
+--force` neither reads nor rebuilds it. See
+[extending/compute-providers.md](extending/compute-providers.md) for the job
+lifecycle and how to write a provider, and [`brain compute`](cli.md#external-compute)
+and the [`brain_compute_*` MCP tools](mcp.md#tools) for running jobs.
+
 ## `graph`
 
 `graph.root` is a repository-relative document path from which the knowledge
@@ -768,6 +918,14 @@ characters, and a glob with no `/` also matches the file name alone.
 media: { ignore: ["assets/renders/*"], track: ["me/*.jpg"] }
 ```
 
+`brain config media <add-track|remove-track|add-ignore|remove-ignore>
+<pattern>` changes one entry without running the config: it previews the
+change with `--dry-run`, including the files sync sees now that the pattern
+matches, then applies it with `--expect-sha` from that preview. It works only
+when the lists are literal arrays in a directly exported object; anything
+else is refused, for you to edit by hand
+([cli.md](integration-contract/cli.md)).
+
 ## `sync`
 
 How `brain sync` integrates remote commits and settles what git cannot: a
@@ -900,9 +1058,14 @@ the capability you need and read its command's requirements.
 | `ANTHROPIC_API_KEY` | completions | The `anthropic-haiku` completions provider. Overridable via `completions.apiKeyEnv`, and cleared inside a Claude subscription chat turn. |
 | `TYPESAFE_API_KEY` | `brain sync` | The Jev judgments a sync asks. Without it every judgment takes its conservative default. See [`sync`](#sync). |
 | `GOOGLE_API_KEY` | upstream Gemini SDK | Not a brain-kit key input. Providers pass their selected key explicitly; the SDK may emit a cosmetic dual-key warning. The variable is not temporarily unset. |
+| `BRAIN_MEDIA_PINNED_PATH_LIMIT` | `brain hygiene`, `brain sync` | Trusted host bound on the conversation-pinned scratch paths one media inventory reads. Default `5000`. Past it, review reports that conversation links were not fully checked. A value that is not a positive integer stops media detection. |
+| `BRAIN_MEDIA_REFERENCE_LIMITS` | `brain hygiene`, `brain sync` | Trusted host bounds on the declared reference scan behind every media finding, as `<limit>=<n>` pairs: `notes` (50000), `noteBytes` (256 MiB), `perNote` (4 MiB, at most `noteBytes`), `scanTime` in ms (20000), `refsPerFinding` (500), and for a media effect's plan `rewrittenNotes` (200) and `preview` in bytes (1 MiB; a hosted review also refuses a previewed Action past its 512,000-byte transport limit, whatever this says). Past a limit the scan or plan is refused and nothing claims the references were checked. An invalid value stops media detection. |
 | `BRAIN_RERANK_MODE` | search | Selects `jev`, `heuristic` or `none`. An explicit `--rerank` still wins; neither can enable model judgment while `reranker.enabled` is false. |
 | `TYPESAFE_API_KEY` | search | Key for the built-in `jev` reranker (default name; `reranker.apiKeyEnv` can point elsewhere). Model search also requires `reranker.enabled: true`; absent key → the `heuristic` ordering. |
 | `XDG_BIN_HOME` | `brain setup`, `brain doctor` | Where the `brain` symlink is written. Default `~/.local/bin`. |
+| `BRAIN_COMPUTE_STATE_DIR` | external compute | Absolute directory for compute job records and artifacts, outside the brain checkout. Default `$XDG_STATE_HOME/brain/compute/<brain key>`. |
+| `XDG_STATE_HOME` | external compute | Base of the default compute state directory. Default `~/.local/state`. |
+| `BRAIN_COMPUTE_BOAT_API_KEY` | external compute | Default key variable of a `boat` instance without `apiKeyEnv`. Read on the trusted host only; never forwarded into a sandbox. |
 | `NO_COLOR` | CLI output | Suppresses ANSI colour, per the informal standard. |
 | `BRAIN_SKIP_HOOKS` | git hooks | `=1` bypasses the installed pre-commit/post-commit/post-checkout/post-merge hooks. |
 | `CHROME_CDP_URL` | jobs scraping | Retained alias for `SCRAPE_CHROME_URL`; the latter wins when both are set. Without an endpoint the shared scraper can launch its own browser. |

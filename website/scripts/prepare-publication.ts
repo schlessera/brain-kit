@@ -1,6 +1,6 @@
 import { cp, mkdir, rm } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { sourceInputHash, snapshotName } from './publication-source.ts';
+import { sourceInputDigests, sourceInputHash, snapshotName } from './publication-source.ts';
 
 const repository = resolve(import.meta.dir, '../..');
 const output = process.env.PUBLICATION_WORKSPACE;
@@ -44,6 +44,6 @@ if (tag) {
   }
 }
 const brainKit = { mode: tag ? 'release' : 'workspace', version: product.version, sourceSha: productSha, tag: tag || null, registry };
-await Bun.write(resolve(output, snapshotName), JSON.stringify({ schemaVersion: 1, sourceSha, sourceDirty, brainKit, editorialRoot: repository, editorialInputHash: await sourceInputHash(repository), inputHash: await sourceInputHash(output) }, null, 2) + '\n');
+await Bun.write(resolve(output, snapshotName), JSON.stringify({ schemaVersion: 1, sourceSha, sourceDirty, brainKit, editorialRoot: repository, editorialInputHash: await sourceInputHash(repository), inputHash: await sourceInputHash(output), inputFiles: await sourceInputDigests(output) }, null, 2) + '\n');
 if (process.env.GITHUB_ENV) await Bun.write(process.env.GITHUB_ENV, (await Bun.file(process.env.GITHUB_ENV).text()) + `PAGES_WORKSPACE=${output}\nWEBSITE_SOURCE_SHA=${sourceSha}\nWEBSITE_CONTENT_ROOT=${repository}\nEXPECTED_BRAIN_KIT_SHA=${productSha}\nEXPECTED_BRAIN_KIT_TAG=${tag}\n`);
 console.log(JSON.stringify({ website: sourceSha, brainKit, workspace: output }, null, 2));

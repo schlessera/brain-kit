@@ -22,7 +22,7 @@ import { chmodSync, chownSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { launchAgentWorker, prepareWorkerSandbox, retainWorkerStartupView, workerIdentityHelper, type WorkerStartupView } from "@schlessera/brain-ui-sdk/internal";
-import { privateIndexArgv } from "./client.js";
+import { privateIndexArgv, workerBrainCliCommand } from "./client.js";
 
 /** How long admission waits for the private index; a slower build leaves a partial index. */
 export const PRIVATE_INDEX_BUILD_MS = 120_000;
@@ -59,9 +59,20 @@ async function bounded(stream: unknown, bytes: number): Promise<{ text: string; 
 }
 
 /**
+ * The last line of a failed run's stderr that says why. Bun ends an uncaught
+ * error, such as a CLI script it cannot find, with its own version banner,
+ * which names nothing (#2865).
+ */
+function exitReason(stderr: string): string {
+  return stderr.split("\n").map(line => line.trim()).filter(line => line && !/^Bun v\d\S* \(/u.test(line)).at(-1) ?? "";
+}
+
+/**
  * Run the brain's own CLI in a credential-free strict worker on the immutable
  * startup view, with `folders` masked, `.git` hidden and only the private
- * index directory writable. Repository code never runs on the host.
+ * index directory writable. Repository code never runs on the host. The
+ * `scripts/brain-cli.ts` fallback runs on the server's own Bun
+ * (`workerBrainCliCommand`).
  */
 export async function runMaskedBrainCli(options: {
   brainPath: string; startupView: WorkerStartupView; folders: readonly string[]; index: string;
@@ -72,6 +83,9 @@ export async function runMaskedBrainCli(options: {
   visible?: readonly string[];
 }): Promise<{ ok: true; stdout: string } | { ok: false; detail: string; stdout?: string }> {
   options.signal.throwIfAborted();
+  // Refused before anything launches: the host never runs the command.
+  const command = workerBrainCliCommand(options.command);
+  if (!command.ok) return { ok: false, detail: `${options.label} cannot run in a masked worker: ${command.detail}` };
   const sandbox = { ...prepareWorkerSandbox(options.brainPath, { profile: "strict", areas: [], maskPaths: options.maskPaths }),
     providerMasks: Object.freeze({ folders: Object.freeze([...options.folders]), index: options.index, indexWritable: true,
       ...(options.visible ? { visible: Object.freeze([...options.visible]) } : {}) }) };
@@ -80,7 +94,7 @@ export async function runMaskedBrainCli(options: {
   try {
     worker = launchAgentWorker({ brainPath: options.brainPath, startupView: view, sandbox,
       env: { PATH: [dirname(process.execPath), "/usr/local/bin", "/usr/bin", "/bin"].join(":"), BRAIN_ROOT: options.brainPath, HOME: "/tmp", NO_COLOR: "1" },
-      command: [...options.command] });
+      command: command.command });
   } catch (error) {
     await view.cleanup();
     return { ok: false, detail: error instanceof Error ? error.message : String(error) };
@@ -93,7 +107,7 @@ export async function runMaskedBrainCli(options: {
     const [stdout, stderr, exit] = await Promise.all([bounded(worker.stdout, options.outputBytes ?? OUTPUT_BYTES), bounded(worker.stderr, OUTPUT_BYTES), worker.exited]);
     options.signal.throwIfAborted();
     if (timedOut) return { ok: false, detail: `${options.label} did not finish within ${options.timeoutMs / 1000} s` };
-    if (exit !== 0) return { ok: false, detail: `${options.label} exited ${exit}: ${stderr.text.trim().split("\n").at(-1) ?? ""}`,
+    if (exit !== 0) return { ok: false, detail: `${options.label} exited ${exit}: ${exitReason(stderr.text)}`,
       ...(options.outputBytes !== undefined && stdout.whole ? { stdout: stdout.text } : {}) };
     // Output is read only when it is wanted, and then only whole.
     return options.outputBytes === undefined || stdout.whole ? { ok: true, stdout: stdout.text }

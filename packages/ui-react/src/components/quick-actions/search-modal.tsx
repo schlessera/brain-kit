@@ -242,7 +242,7 @@ export function SearchPanel({
               ? `${results.length}${results.length === LIMIT ? "+" : ""} result${results.length === 1 ? "" : "s"}`
               : ""}
           </span>
-          <Button tone="quiet" size="sm" label="Close" block={false} style={{ minHeight: 44 }} onClick={onClose} />
+          <Button tone="quiet" size="sm" label="Close" block={false} reach onClick={onClose} />
         </div>
       </div>
     </SlidePanel>

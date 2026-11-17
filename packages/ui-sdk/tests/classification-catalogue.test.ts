@@ -46,7 +46,7 @@ describe("the catalogue", () => {
         const questions = questionsFor(candidate);
         expect(Object.keys(questions).length).toBeGreaterThan(0);
         for (const [id, question] of Object.entries(questions)) {
-          expect(id.startsWith(`${candidate.id}.`)).toBe(true);
+          expect(id).toStartWith(`${candidate.id}.`);
           expect(["choice", "noul"]).toContain(question.type);
           // The classifier is told which state key to look at, never the
           // whole answer.

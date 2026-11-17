@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { Hono } from "hono";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { generateSignedCookie } from "hono/cookie";
 
 import type { AppEnv } from "../src/app-env";
@@ -66,11 +69,57 @@ describe("reference grant records", () => {
     expect(covering(telemachus.id, "https://github.com/odysseus/ithaca", "another-brain"), "REFERENCE_GRANT_BRAIN_SUBSTITUTION").toBeNull();
   });
 
+  test("API credential permission is explicit, durable and scoped to a live repository grant", () => {
+    const penelope = owner(), telemachus = agent(penelope.id);
+    const legacy = grant(telemachus.id, penelope.id, "https://github.com/odysseus", "GITHUB_TOKEN");
+    expect(legacy).not.toHaveProperty("metadataCredentialRecipient");
+    expect(covering(telemachus.id, "https://github.com/odysseus/ithaca")).not.toHaveProperty("metadataCredentialRecipient");
+    const record = createReferenceGrant(db, { brain: BRAIN, principalId: telemachus.id, createdBy: penelope.id,
+      repositoryPrefix: "https://github.com/odysseus/ithaca", credential: "GITHUB_TOKEN", now: Date.now(),
+      metadataCredentialRecipient: "https://api.github.com" });
+    expect(covering(telemachus.id, "https://github.com/odysseus/ithaca"), "REFERENCE_API_RECIPIENT_EXPLICITLY_PERSISTED")
+      .toHaveProperty("metadataCredentialRecipient", "https://api.github.com");
+    expect(covering(penelope.id, "https://github.com/odysseus/ithaca"), "REFERENCE_API_PERMISSION_PRINCIPAL_BOUND").toBeNull();
+    revokeReferenceGrant(db, { brain: BRAIN, principalId: telemachus.id, id: record.id, now: Date.now() });
+    expect(covering(telemachus.id, "https://github.com/odysseus/ithaca")).not.toHaveProperty("metadataCredentialRecipient");
+  });
+
+  test("API credential permission never accepts another recipient, a credentialless grant or another repository host", () => {
+    const penelope = owner();
+    for (const [repositoryPrefix, credential, metadataCredentialRecipient] of [
+      ["https://github.com/odysseus", "GITHUB_TOKEN", "https://github.com"],
+      ["https://github.com/odysseus", "GITHUB_TOKEN", "https://api.github.com.evil.example"],
+      ["https://github.com/odysseus", "GITHUB_TOKEN", true],
+      ["https://github.com/odysseus", null, "https://api.github.com"],
+      ["http://127.0.0.1:8418/odysseus", "GITHUB_TOKEN", "https://api.github.com"],
+    ]) expect(() => createReferenceGrant(db, { brain: BRAIN, principalId: penelope.id, createdBy: penelope.id,
+      repositoryPrefix, credential, metadataCredentialRecipient, now: Date.now() }), "REFERENCE_API_RECIPIENT_BOUNDARY").toThrow();
+  });
+
   test("the longest covering prefix wins", () => {
     const penelope = owner();
     grant(penelope.id, penelope.id, "https://github.com/odysseus", "GITHUB_TOKEN");
     const narrow = grant(penelope.id, penelope.id, "https://github.com/odysseus/ithaca", "BRAIN_UI_SYNC_GITHUB_TOKEN");
     expect(covering(penelope.id, "https://github.com/odysseus/ithaca")?.credential).toBe(narrow.credential);
+  });
+
+  test("upgrading legacy grants and reopening preserves only explicitly granted API permission", () => {
+    const root = mkdtempSync(join(tmpdir(), "odysseus-reference-grants-")), path = join(root, "ui.db");
+    let disk = createUiDb(path);
+    try {
+      const principal = createPrincipal(disk, { authMethod: "password", label: "Penelope", ttlSeconds: 3600 });
+      const input = { brain: BRAIN, principalId: principal.id, createdBy: principal.id, repositoryPrefix: "https://github.com/odysseus",
+        credential: "GITHUB_TOKEN", now: Date.now() };
+      createReferenceGrant(disk, input);
+      disk.exec("ALTER TABLE reference_grants DROP COLUMN metadata_credential_recipient; DELETE FROM _migrations WHERE filename = '088_reference_metadata_recipient.sql'");
+      disk.close(); disk = createUiDb(path);
+      const read = () => coveringReferenceGrant(disk, { brain: BRAIN, principalId: principal.id,
+        repository: referenceRepository("https://github.com/odysseus/ithaca"), now: Date.now() });
+      expect(read(), "REFERENCE_LEGACY_UPGRADE_DOES_NOT_GRANT_API_RECIPIENT").not.toHaveProperty("metadataCredentialRecipient");
+      createReferenceGrant(disk, { ...input, repositoryPrefix: "https://github.com/odysseus/ithaca", metadataCredentialRecipient: "https://api.github.com" });
+      disk.close(); disk = createUiDb(path);
+      expect(read(), "REFERENCE_API_RECIPIENT_SURVIVES_RESTART").toHaveProperty("metadataCredentialRecipient", "https://api.github.com");
+    } finally { disk.close(); rmSync(root, { recursive: true, force: true }); }
   });
 
   test("revoking the grant or its principal removes authority immediately", () => {
@@ -148,6 +197,18 @@ describe("owner-only reference grant routes", () => {
     const penelope = owner(), telemachus = agent(penelope.id), header = await cookie(penelope.id);
     expect((await app().request(`/api/auth/principals/${telemachus.id}`, json("DELETE", header))).status).toBe(200);
     expect(revoked).toEqual([{ grantIds: [], principalIds: [telemachus.id] }]);
+  });
+
+  test("only an owner can create explicit API permission and its receipt lists the fixed recipient", async () => {
+    const penelope = owner(), telemachus = agent(penelope.id), header = await cookie(penelope.id), instance = app();
+    const body = { repositoryPrefix: "https://github.com/odysseus/ithaca", credential: "GITHUB_TOKEN", metadataCredentialRecipient: "https://api.github.com" };
+    expect((await instance.request(`/api/auth/principals/${telemachus.id}/reference-grants`, json("POST", await cookie(telemachus.id), body))).status,
+      "REFERENCE_API_RECIPIENT_OWNER_ONLY").toBe(403);
+    const response = await instance.request(`/api/auth/principals/${telemachus.id}/reference-grants`, json("POST", header, body));
+    expect(response.status).toBe(201);
+    expect(await response.json(), "REFERENCE_API_RECIPIENT_OWNER_RECEIPT").toHaveProperty("metadata_credential_recipient", "https://api.github.com");
+    const listed = await instance.request(`/api/auth/principals/${telemachus.id}/reference-grants`, { headers: { cookie: header } });
+    expect((await listed.json() as { grants: unknown[] }).grants[0], "REFERENCE_API_RECIPIENT_OWNER_LIST").toHaveProperty("metadata_credential_recipient", "https://api.github.com");
   });
 
   test("validation, unknown principals, duplicates and non-owners refuse", async () => {

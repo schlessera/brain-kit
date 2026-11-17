@@ -15,12 +15,15 @@ import {
   type AuditDoc,
 } from "../../lib/auditor.js";
 import type { Taxonomy } from "../../lib/taxonomy.js";
+import { documentUpdated, focusLinkedDocuments, overdueReviewRows, upcomingDeadlines } from "../../lib/briefing-reads.js";
 import { openDatabase } from "../../lib/db.js";
+import { silentEdits } from "../../lib/hygiene.js";
 import { codeRanges, inRanges } from "../../lib/markdown-code.js";
 import { filterSearch } from "../../lib/search-engine.js";
 import { resolveStatsThresholds } from "../../lib/stats.js";
 import { readStatsTrends } from "../../lib/stats-trends.js";
 import type { CoreCommand } from "../types.js";
+import { positiveIntegerFlag } from "../flags.js";
 import { parseArgs, UsageError } from "../io.js";
 
 function addDays(dateStr: string, days: number): string {
@@ -215,15 +218,7 @@ export async function generateBriefing(brain: BrainContext, limit = 15, opts: Br
 
     // 2. Focus-linked documents (wiki-links from the current-focus doc)
     if (focusRel) {
-      const focusLinks = db
-        .prepare(
-          `SELECT d.path, d.title, d.type, d.updated, d.summary
-           FROM links l
-           JOIN documents d ON d.id = l.target_id
-           WHERE l.source_id = (SELECT id FROM documents WHERE path = ?)
-           ORDER BY d.updated DESC`
-        )
-        .all(focusRel) as any[];
+      const focusLinks = focusLinkedDocuments(db, focusRel);
       if (focusLinks.length > 0) {
         lines.push("\n## Focus-Linked Documents\n");
         for (const r of focusLinks) {
@@ -234,13 +229,7 @@ export async function generateBriefing(brain: BrainContext, limit = 15, opts: Br
 
     // 3. Upcoming deadlines (next 60 days)
     const futureDate = addDays(todayStr, 60);
-    const deadlines = db
-      .prepare(
-        `SELECT deadline, path, title, summary FROM documents
-         WHERE deadline >= ? AND deadline <= ? AND status != 'archived'
-         ORDER BY deadline ASC`
-      )
-      .all(todayStr, futureDate) as any[];
+    const deadlines = upcomingDeadlines(db, todayStr, futureDate);
     if (deadlines.length > 0) {
       lines.push("\n## Upcoming Deadlines\n");
       for (const r of deadlines) {
@@ -250,13 +239,7 @@ export async function generateBriefing(brain: BrainContext, limit = 15, opts: Br
 
     // 4. Overdue reviews: due before today, as `brain audit` reads it
     // (findOverdueReviews), so the audit the cap points to lists every one.
-    const overdue = db
-      .prepare(
-        `SELECT next_review, path, title FROM documents
-         WHERE next_review IS NOT NULL AND next_review < ? AND status != 'archived'
-         ORDER BY next_review ASC`
-      )
-      .all(todayStr) as any[];
+    const overdue = overdueReviewRows(db, todayStr);
     if (overdue.length > 0) {
       lines.push("\n## Overdue Reviews\n");
       for (const r of overdue.slice(0, reviewLimit)) {
@@ -277,22 +260,13 @@ export async function generateBriefing(brain: BrainContext, limit = 15, opts: Br
     if (recent.length > 0) {
       lines.push("\n## Recently Active\n");
       for (const r of recent) {
-        const row = db.prepare("SELECT updated FROM documents WHERE path = ?").get(r.path) as any;
-        lines.push(`- ${row?.updated || "?"} | ${r.type} | ${r.path} | ${r.title} | ${(r.summary || "").slice(0, 80)}`);
+        lines.push(`- ${documentUpdated(db, r.path) || "?"} | ${r.type} | ${r.path} | ${r.title} | ${(r.summary || "").slice(0, 80)}`);
       }
     }
 
     // 6. Silently modified (file changed but frontmatter `updated` not bumped).
     // Mtimes baselined via `brain accept-mtime` are exempt.
-    const silentMods = db
-      .prepare(
-        `SELECT file_mtime, updated, path, title FROM documents
-         WHERE file_mtime > updated
-           AND (accepted_mtime IS NULL OR file_mtime > accepted_mtime)
-           AND status != 'archived'
-         ORDER BY file_mtime DESC LIMIT 10`
-      )
-      .all() as any[];
+    const silentMods = silentEdits(db, { limit: 10 });
     if (silentMods.length > 0) {
       lines.push("\n## Silently Modified\n");
       for (const r of silentMods) {
@@ -326,7 +300,7 @@ export const briefingCommand: CoreCommand = {
   --limit-reviews <n>     Overdue reviews to list before "… and N more" (default: 5)`,
   async run(args, cli) {
     const { flags } = parseArgs(args);
-    const limit = parseInt(flags.limit as string, 10) || 15;
+    const limit = positiveIntegerFlag(flags, "limit") ?? 15;
     let reviewLimit: number | undefined;
     if (flags["limit-reviews"] !== undefined) {
       reviewLimit = typeof flags["limit-reviews"] === "string" ? Number(flags["limit-reviews"]) : NaN;

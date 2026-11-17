@@ -7,11 +7,11 @@ beforeAll(async () => { captures = await captureOffline(join(import.meta.dir, "f
 
 test("Pi captures three real resumed interactive turns and a tool result through Responses", () => {
   for (const [name, capture] of Object.entries(captures)) {
-    if (["reference", "renewal", "freshness"].includes(name)) continue;
+    if (["reference", "renewal", "freshness", "compute"].includes(name)) continue;
     expect(capture.sessions).toHaveLength(3);
     expect(new Set(capture.sessions).size).toBe(1);
     expect(main(capture).map(e => e.turn)).toEqual([0, 0, 1, 2]);
-    expect(main(capture).every(e => e.path === "/v1/responses")).toBe(true);
+    expect(main(capture).map(e => e.path).filter(path => path !== "/v1/responses")).toEqual([]);
     expect(main(capture)[1]!.raw).toContain('"function_call_output"');
     if (name !== "promotion") expect(main(capture)[1]!.raw).toContain("Odysseus repairs the raft.");
   }
@@ -33,6 +33,15 @@ test("Pi stable system stays byte-identical on resume and repository changes", (
 });
 test("Pi ordinary messages retain every previous request and scripted answer", () => {
   for (const name of ["control", "repository", "facts", "budget", "datatree"]) for (const [a, b] of pairs(captures[name]!)) history(a, b);
+});
+// The fixed system brief names the host GitHub tools on every request
+// (#3799); the identity guards above hold its bytes across turns.
+test("Pi fixed system names the host GitHub tools on every request", () => {
+  for (const name of ["control", "repository", "promotion", "datatree"]) for (const exchange of main(captures[name]!)) {
+    const text = JSON.stringify(system(exchange));
+    expect(text, `GITHUB_TOOLS_NOTE_IN_SYSTEM ${name}`).toContain("`brain_github_issue_read`");
+    expect(text, `GITHUB_TOOLS_NOTE_IN_SYSTEM ${name}`).toContain("GitHub goes through the host tools.");
+  }
 });
 test("Pi requests contain no internal budget notes at the backend boundary", () => {
   for (const [name, capture] of Object.entries(captures)) if (name !== "budget") noInternalNotes(capture);
@@ -103,3 +112,26 @@ for (const [name, tool, label] of [["renewal", "reference_worktree", "RENEWAL"],
     }
   });
 }
+
+// #3108: external compute runs on the host through the worker pipe. Across a
+// turn with compute, a turn whose host has none, and a turn whose job changed,
+// the tools, system prompt and earlier history stay byte-identical.
+test("Pi compute tools keep tools, system and history stable across enabled, disabled and changing results", () => {
+  const capture = captures.compute!;
+  expect(capture.sessions).toHaveLength(3);
+  expect(new Set(capture.sessions).size).toBe(1);
+  expect(main(capture).map(e => e.turn), "COMPUTE_PI_EVERY_TURN_CALLS").toEqual([0, 0, 1, 1, 2, 2]);
+  expect(capture.calls, "COMPUTE_PI_HOST_RECEIVES_PARSED_INPUT").toEqual([
+    expect.objectContaining({ tool: "brain_compute_status", input: { job: "cj_ithaca" }, toolUseId: expect.stringContaining("call_odysseus_0") }),
+    expect.objectContaining({ tool: "brain_compute_status", input: { job: "cj_ithaca" }, toolUseId: expect.stringContaining("call_odysseus_2") })]);
+  const results = main(capture).filter((_, index) => index % 2 === 1);
+  for (const exchange of results) expect(exchange.raw).toContain('"function_call_output"');
+  expect(results[1]!.raw, "COMPUTE_PI_DISABLED_TURN_REFUSES").toContain("no available host handler");
+  expect(results[2]!.raw, "COMPUTE_PI_RESULTS_CHANGE").toContain('\\"state\\":\\"succeeded\\"');
+  for (const [a, b] of pairs(capture)) {
+    identical(body(a).tools, body(b).tools, "COMPUTE_PI_TOOLS_STABLE");
+    identical(system(a), system(b), "COMPUTE_PI_SYSTEM_STABLE");
+    history(a, b);
+  }
+  expect(body(main(capture)[0]!).tools.map((tool: { name: string }) => tool.name), "COMPUTE_PI_HOST_TOOLS_PRESENT").toEqual(expect.arrayContaining(["brain_compute_run", "brain_compute_collect"]));
+});

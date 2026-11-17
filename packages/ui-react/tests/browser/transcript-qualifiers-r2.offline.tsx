@@ -11,6 +11,7 @@ import { TranscriptQualifiers } from "@schlessera/brain-ui-kit/internal";
 import { transcriptTimelineFor } from "../../src/lib/transcript-timeline.js";
 import type { ConversationRecognition } from "../../src/voice/conversation-client.js";
 import { installFaultNetwork } from "./offline/fault-network.js";
+import { pointDetails } from "./spoken-details.js";
 
 const SESSION = "odysseus-raft";
 let styles: HTMLStyleElement;
@@ -34,7 +35,7 @@ async function scene(ctx: TestContext, width = 320, theme: "light" | "dark" = "d
   const render = (content = <ChatPage />) => flushSync(() => root.render(<BrainUiProvider root={ui}>{content}</BrainUiProvider>));
   render(fullChat ? <ChatPage /> : <></>);
   const release = ui.connection.connect();
-  ctx.onTestFinished(async () => { flushSync(() => root.unmount()); release(); ui.dispose(); network.restore(); host.remove(); document.documentElement.style.fontSize = previous.size; if (previous.theme === undefined) delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = previous.theme; await page.viewport(previous.width, previous.height); await commands.formViewport(outer.width, outer.height); });
+  ctx.onTestFinished(async () => { flushSync(() => root.unmount()); release(); ui.dispose(); network.restore(); host.remove(); document.documentElement.style.fontSize = previous.size; if (previous.theme === undefined) delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = previous.theme; await page.viewport(previous.width, previous.height); await commands.formViewport(outer.width - 100, outer.height - 120); });
   await expect.poll(() => ui.stores.connection.getState().wsStatus).toBe("connected");
   return { ui, host, render };
 }
@@ -53,7 +54,7 @@ test("review: technical evidence is reachable with native Tab", async ctx => {
   const visited:string[]=[];
   for(let n=0;n<4;n++){await userEvent.keyboard("{Tab}");visited.push(document.activeElement?.tagName+":"+document.activeElement?.textContent);}
   console.log("REVIEW_TAB", JSON.stringify(visited));
-  expect(visited.some(x=>x.startsWith("SUMMARY:")),"Tab must reach collapsed technical evidence").toBe(true);
+  expect(visited,"Tab must reach collapsed technical evidence").toContainEqual(expect.stringMatching(/^SUMMARY:/));
   const summary = document.querySelector<HTMLDialogElement>("dialog[open]")!.querySelector("summary")!;
   expect(document.activeElement).toBe(summary);
   await userEvent.keyboard(" ");
@@ -70,9 +71,9 @@ test("review: task request offers exact View result", async ctx => {
   const answer={...request,id:"raft-answer",role:"assistant" as const,source:undefined,content:"The raft notes are ready.",parts:[{kind:"text" as const,text:"The raft notes are ready."}],toolCalls:[],isStreaming:false};
   flushSync(()=>s.ui.stores.chat.setState(state=>({buffers:{...state.buffers,[SESSION]:{...state.buffers[SESSION]!,messages:[...state.buffers[SESSION]!.messages,{...answer,id:"unrelated-answer",requestId:"unrelated-request",turnId:"unrelated-turn"},answer]}}})));
   await expect.poll(()=>s.host.querySelector("[data-conversation-task-result]")).not.toBeNull();
-  expect([...s.host.querySelectorAll('button,[role="button"]')].some(x=>x.textContent==="View request"),"fixture has exact backlink").toBe(true);
+  expect([...s.host.querySelectorAll('button,[role="button"]')].map(x=>x.textContent),"fixture has exact backlink").toContain("View request");
   console.log("REVIEW_LINKS",JSON.stringify([...s.host.querySelectorAll('button,[role="button"]')].map(x=>x.textContent).filter(x=>x?.includes("View"))));
-  expect([...s.host.querySelectorAll('button,[role="button"]')].some(x=>x.textContent==="View result"),"request must expose exact retained result").toBe(true);
+  expect([...s.host.querySelectorAll('button,[role="button"]')].map(x=>x.textContent),"request must expose exact retained result").toContain("View result");
   const answerEntry = transcriptTimelineFor(s.ui.stores.chat).state.getState().entries.find(e => e.kind === "message" && e.message.id === answer.id && e.section !== "progress")!;
   await userEvent.click(page.getByRole("button", { name: "View result", exact: true }));
   await expect.poll(() => (document.activeElement as HTMLElement)?.dataset.arrivalKey).toBe(answerEntry.key);
@@ -83,7 +84,7 @@ test("review: incoming rows preserve open details and focus fallback", async ctx
   const s=await scene(ctx);
   const outputs=Array.from({length:40},(_,i)=>({conversationId:"odysseus-voice",epoch:1,sessionId:SESSION,providerId:"gemini-live",outputId:`raft-${i}`,generated:`Raft report ${i}.`,playback:"unknown" as const}));
   flushSync(()=>s.ui.connection.conversation.state.setState({outputs}));
-  const trigger=qualifier(s.host,"generated"); trigger.scrollIntoView(); await userEvent.click(trigger);
+  const trigger=qualifier(s.host,"generated"); trigger.scrollIntoView(); await pointDetails(trigger);
   expect(document.querySelector("dialog[open]")).not.toBeNull();
   flushSync(()=>s.ui.connection.conversation.state.setState({outputs:[...outputs,{...outputs[0]!,outputId:"raft-new",generated:"A new report."}]}));
   console.log("REVIEW_WINDOW",JSON.stringify({dialog:!!document.querySelector("dialog[open]"),connected:trigger.isConnected,focus:document.activeElement?.tagName}));
@@ -125,7 +126,7 @@ test("canonical source removal closes details onto a surviving reading anchor", 
   const s = await scene(ctx);
   const output = {conversationId:"odysseus-voice",epoch:1,sessionId:SESSION,providerId:"gemini-live",outputId:"raft-source",generated:"The raft source.",playback:"unknown" as const};
   flushSync(()=>s.ui.connection.conversation.state.setState({outputs:[output]}));
-  const trigger=qualifier(s.host,"generated"); const readingAnchor = trigger.closest("[data-reading-column]"); await userEvent.click(trigger);
+  const trigger=qualifier(s.host,"generated"); const readingAnchor = trigger.closest("[data-reading-column]"); await pointDetails(trigger);
   expect(document.querySelector("dialog[open]")).not.toBeNull();
   flushSync(()=>s.ui.connection.conversation.state.setState({outputs:[{...output,outputId:"raft-retained",generated:"Another retained report."}]}));
   await expect.poll(()=>document.querySelector("dialog[open]")).toBeNull();
@@ -142,7 +143,9 @@ for (const kind of ["recognized", "legend"] as const) test(`recognition ${kind} 
   const row = s.host.querySelector<HTMLElement>("[data-conversation-recognition]")!;
   const trigger = kind === "recognized" ? qualifier(row) : [...row.querySelectorAll<HTMLButtonElement>("button")].find(b => b.textContent === "Transcript symbols")!;
   expect(s.host.querySelector("[data-arrival-key]")!.contains(trigger), "fixture recognition is the oldest visible canonical row").toBe(true);
-  trigger.scrollIntoView(); await userEvent.click(trigger);
+  trigger.scrollIntoView();
+  if (kind === "recognized") await pointDetails(trigger);
+  else await userEvent.click(trigger);
   expect(document.querySelector("dialog[open]")).not.toBeNull();
   flushSync(()=>s.ui.connection.conversation.state.setState({outputs:[...outputs,{...outputs[0]!,outputId:"raft-tail"}]}));
   expect(document.querySelector("dialog[open]")).not.toBeNull();
@@ -155,15 +158,16 @@ for (const kind of ["recognized", "legend"] as const) test(`recognition ${kind} 
   expect(s.host.querySelectorAll("[data-arrival-key]")).toHaveLength(40);
 });
 
-test("focused qualifier explanation retains its source before activation", async ctx => {
+test("a focused Details stop retains its source before activation", async ctx => {
   const s=await scene(ctx);
   const outputs=Array.from({length:40},(_,i)=>({conversationId:"odysseus-voice",epoch:1,sessionId:SESSION,providerId:"gemini-live",outputId:`focus-raft-${i}`,generated:`Report ${i}.`,playback:"unknown" as const}));
   flushSync(()=>s.ui.connection.conversation.state.setState({outputs}));
   const trigger=qualifier(s.host,"generated"); trigger.scrollIntoView(); trigger.focus();
-  await expect.poll(()=>document.querySelector('[role="tooltip"]')).not.toBeNull();
+  await expect.poll(()=>getComputedStyle(trigger).clipPath, { message: "focus shows the Details pill" }).toBe("none");
   flushSync(()=>s.ui.connection.conversation.state.setState({outputs:[...outputs,{...outputs[0]!,outputId:"focus-tail"}]}));
   expect(document.activeElement).toBe(trigger);
-  expect(document.querySelector('[role="tooltip"]')).not.toBeNull();
+  expect(trigger.isConnected, "the focused stop's row stays mounted").toBe(true);
+  expect(getComputedStyle(trigger).clipPath).toBe("none");
   await userEvent.keyboard("{Escape}{Tab}");
   await expect.poll(()=>s.host.querySelectorAll("[data-arrival-key]").length).toBe(40);
   expect(trigger.isConnected).toBe(false);

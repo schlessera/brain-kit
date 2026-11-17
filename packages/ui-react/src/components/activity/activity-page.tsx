@@ -34,6 +34,7 @@ import { ApprovalCard, approvalOutcome } from "./approval-card.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import { formatRelativeTime } from "../chat/tool-views.js";
 import { RollupCards } from "./activity-rollups.js";
+import { ApifyActivity } from "./apify-activity.js";
 import { LiveRow, RunRow } from "./activity-run-list.js";
 import { RunDetail, RunTraceSteps } from "./activity-run-detail.js";
 import { IntentCard } from "./activity-views.js";
@@ -614,7 +615,7 @@ export function ActivityPage() {
               <Button
                 tone="suggest" size="sm" icon="attention" label="Pricing stale"
                 ariaLabel="Pricing refresh is failing — costs may use stale rates. Open Settings"
-                block={false} style={{ minHeight: 44 }}
+                block={false} reach
                 onClick={() => openSettings("models")}
               />
             </span>
@@ -693,7 +694,7 @@ export function ActivityPage() {
                       {stable.fresh > 0 && (
                         <div data-decision-fresh="">
                           <Button tone="quiet" size="sm" center label={`${stable.fresh} new · show`}
-                            style={{ minHeight: 44 }} onClick={stable.show} />
+                            reach onClick={stable.show} />
                         </div>
                       )}
                       {stable.order.map((id, i) => {
@@ -813,6 +814,7 @@ export function ActivityPage() {
               )}
             </section>
           )}
+          {lens === "running" && <ApifyActivity only="unresolved" />}
 
           {lens === "done" && (
             <>
@@ -824,6 +826,7 @@ export function ActivityPage() {
                 </section>
               )}
               {rollups && <RollupCards rollups={rollups} />}
+              <ApifyActivity only="today" />
               <section>
                 <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground outline-none" tabIndex={-1} data-history-heading="">
                   History

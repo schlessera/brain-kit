@@ -3,6 +3,8 @@ import { CONVERSATION_LIMITS } from "@schlessera/brain-ui-sdk/protocol";
 import type { ConversationResync, ConversationScope, LiveConversationOpenOptions } from "@schlessera/brain-ui-sdk/server";
 import { boundHistory, historicalResultKey } from "./session-history.js";
 import { MAX_RETAINED_RESULT_CHARS } from "../ws/conversation-storage.js";
+import { conversationOrientation } from "@schlessera/brain-ui-sdk/internal";
+import { personaSection } from "./conversation-guidance.js";
 
 /**
  * Startup-context ceilings in exact serialized UTF-8 bytes (#3200). `maxBytes`
@@ -86,12 +88,20 @@ export function selectResync(scope: ConversationScope, resync: ConversationResyn
   return bytes(text) <= limits.maxBytes ? { text, resultKeys, factBytes: limits.maxFactBytes - factBytes } : { text: "", resultKeys: new Set(), factBytes: 0 };
 }
 
-/** Compute the immutable seed once per native open, reserving actual history bytes. */
+/**
+ * Compute the immutable seed once per native open, reserving actual history
+ * bytes. Reservation order (#3617): the framed persona section, then the
+ * orientation; history gets the remainder. The persona section is returned for
+ * the adapter to append after its fixed host rules.
+ */
 export function liveContext(scope: ConversationScope, options: LiveConversationOpenOptions,
   limits: { maxBytes: number; maxFactBytes: number }) {
+  const persona = personaSection(options.persona?.instructions);
+  const orientation = conversationOrientation(options.orientation);
+  limits = { ...limits, maxBytes: Math.max(0, limits.maxBytes - bytes(persona) - bytes(orientation)) };
   const reserve = boundHistory(options.history, new Set(), { ...limits, maxItems: 128, maxBytes: Math.floor(limits.maxBytes / 3) }).bytes;
   const resync = selectResync(scope, options.resync, { ...limits, maxBytes: limits.maxBytes - reserve });
   const history = boundHistory(options.history, resync.resultKeys, { maxItems: 128,
     maxBytes: limits.maxBytes - bytes(resync.text), maxFactBytes: limits.maxFactBytes - resync.factBytes });
-  return { blocks: [history.text, resync.text].filter(Boolean), coverage: { state: history.coverage.state, tailOmitted: history.tailOmitted } };
+  return { persona, blocks: [orientation, history.text, resync.text].filter(Boolean), coverage: { state: history.coverage.state, tailOmitted: history.tailOmitted, includedMessages: history.includedMessages } };
 }

@@ -61,7 +61,7 @@ const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/gu;
 const SESSION_REVOKED_CLOSE_CODE = 1008;
 const SESSION_REVOKED_CLOSE_REASON = "Sessions invalidated";
 
-export const LOGIN_RATE_LIMIT = 5; // failures per window, per client IP
+const LOGIN_RATE_LIMIT = 5; // failures per window, per client IP
 const LOGIN_RATE_WINDOW_MS = 60_000; // per minute
 // A global cap in addition to the per-IP one: the per-IP key is derived from
 // X-Forwarded-For, which a client behind a trusted proxy can rotate to mint a
@@ -78,7 +78,7 @@ const LOGIN_RATE_WINDOW_MS = 60_000; // per minute
 // admission path while each pool still has a process-wide ceiling. The failure
 // map and both reservation maps cap at 1,024 source keys, comfortably above
 // the global password-failure budget while bounding forged-IP memory growth.
-export const GLOBAL_LOGIN_RATE_LIMIT = 100; // failures per window, all IPs combined
+const GLOBAL_LOGIN_RATE_LIMIT = 100; // failures per window, all IPs combined
 export const PASSKEY_LOGIN_RATE_LIMIT = 5;
 const PASSWORD_VERIFY_IN_FLIGHT_PER_IP = 2;
 const PASSWORD_VERIFY_IN_FLIGHT_GLOBAL = 8;
@@ -444,7 +444,7 @@ export function applyPrincipalRevocation(
 /**
  * Revoke every cookie-bearing principal and disconnect its attached clients.
  */
-export async function revokeAllSessions(
+async function revokeAllSessions(
   db: Database,
   revoker: Pick<WsHost, "revokePrincipals">
 ): Promise<void> {

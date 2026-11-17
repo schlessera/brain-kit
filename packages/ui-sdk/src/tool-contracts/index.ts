@@ -45,6 +45,7 @@ export {
   GET_CURRENT_LOCATION_DESCRIPTION,
   GET_CURRENT_LOCATION_INPUT_SCHEMA,
   GET_CURRENT_LOCATION_TOOL_NAME,
+  IMAGE_MARKUP_PAYLOAD_SCHEMA,
   IMAGE_MASK_PAYLOAD_SCHEMA,
   LOCATION_PAYLOAD_SCHEMA,
   QUERY_ACTIVITY_CONTRACT,
@@ -55,6 +56,11 @@ export {
   REQUEST_IMAGE_MASK_DESCRIPTION,
   REQUEST_IMAGE_MASK_INPUT_SCHEMA,
   REQUEST_IMAGE_MASK_TOOL_NAME,
+  REQUEST_IMAGE_MARKUP_CONTRACT,
+  REQUEST_IMAGE_MARKUP_DESCRIPTION,
+  REQUEST_IMAGE_MARKUP_INPUT_SCHEMA,
+  REQUEST_IMAGE_MARKUP_INSTRUCTION_MAX,
+  REQUEST_IMAGE_MARKUP_TOOL_NAME,
   TURN_TEMP_CONTRACT,
   TURN_TEMP_DESCRIPTION,
   TURN_TEMP_INPUT_SCHEMA,
@@ -71,11 +77,14 @@ export type {
   AskUserRankPayload,
   BridgeToolName,
   GetCurrentLocationInput,
+  ImageMarkupCounts,
+  ImageMarkupPayload,
   ImageMaskPayload,
   LocationPayload,
   QueryActivityInput,
   TurnTempInput,
   RequestImageMaskInput,
+  RequestImageMarkupInput,
 } from "./bridge.js";
 export {
   BLOCK_SCHEMA,
@@ -117,5 +126,13 @@ export type {
 export * from "./inbox.js";
 
 export * from "./reference.js";
+export * from "./compute.js";
+
+export * from "./apify.js";
+
+export * from "./attachment.js";
+export * from "./web.js";
 
 export * from "./policy.js";
+
+export * from "./github.js";

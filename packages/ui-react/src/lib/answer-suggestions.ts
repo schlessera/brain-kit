@@ -19,7 +19,7 @@ import type { VoiceMode } from "@schlessera/brain-ui-sdk/protocol";
 import type { ChatMessage } from "../stores/chat-state.js";
 import { isShowBlockTool } from "./tool-names.js";
 
-export type SuggestionsBlock = Extract<Block, { kind: "suggestions" }>;
+type SuggestionsBlock = Extract<Block, { kind: "suggestions" }>;
 export type SuggestionsItem = SuggestionsBlock["items"][number];
 
 /** The row label when the model gives none. */
@@ -92,18 +92,18 @@ export function endsWithQuestion(message: ChatMessage): boolean {
 }
 
 /** The facts the closing row depends on beyond the message itself. */
-export interface SuggestionsContext {
+interface SuggestionsContext {
   /** Every message of the session, in order. */
   messages: readonly ChatMessage[];
   /** The session still has a turn running or queued. */
   running: boolean;
   voiceMode: VoiceMode;
-  /** Voice text waiting in the review card. */
+  /** Dictated text not yet moved into the draft (#3694). */
   voiceReviewPending: boolean;
 }
 
 /** The user message that started the turn `message` answers. */
-export function promptOf(message: ChatMessage, messages: readonly ChatMessage[]): ChatMessage | undefined {
+function promptOf(message: ChatMessage, messages: readonly ChatMessage[]): ChatMessage | undefined {
   const index = messages.indexOf(message);
   for (let i = index - 1; i >= 0; i--) {
     if (messages[i]!.role === "user") return messages[i];

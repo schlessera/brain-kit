@@ -5,7 +5,7 @@ import type { StorageHistory } from "./history-store.js";
 import { procedureCaller, type SqliteWriter } from "../db/write-worker.js";
 import * as noticeWrites from "./notify-writes.js";
 export type StorageNoticeOutcome = "accepted" | "failed" | "unknown" | "gone";
-export type StorageNoticeState = "pending" | "sending" | "accepted" | "failed" | "unknown" | "suppressed";
+type StorageNoticeState = "pending" | "sending" | "accepted" | "failed" | "unknown" | "suppressed";
 export interface Receipt { episode: string; endpoint: string; principal_id: string; state: StorageNoticeState; attempts: number; attempted_at: number | null; next_at: number | null; pid: number | null; process_start: string | null }
 export interface StorageNoticeAttempt {
   id: string;

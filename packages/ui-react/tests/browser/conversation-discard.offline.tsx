@@ -23,7 +23,7 @@ async function scene(ctx: TestContext, width = 390, shell = false, theme: "light
     const viewport = { width: innerWidth, height: innerHeight };
     const outer = await commands.formViewport(width, 568);
     await page.viewport(width, 568);
-    ctx.onTestFinished(async () => { await page.viewport(viewport.width, viewport.height); await commands.formViewport(outer.width, outer.height); });
+    ctx.onTestFinished(async () => { await page.viewport(viewport.width, viewport.height); await commands.formViewport(outer.width - 100, outer.height - 120); });
   }
   const renderRequests: Array<{ content: string; contentType: string; format: string }> = [];
   const network = installFaultNetwork({ routes: (url, init) => {
@@ -120,8 +120,11 @@ for (const consumed of ["submitted", "question", "permission", "lost-profile"] a
   if (consumed === "lost-profile") {
     s.deliver({ type: "error", code: "CONVERSATION_UNKNOWN", message: "Voice scope is unavailable." });
     expect(s.client.state.getState().profile).toBe(null);
-  }
-  await userEvent.click(s.button("Discard"));
+    // A lost voice scope stops the conversation (L9): Close and Start again, the draft kept as a saved draft.
+    await expect.poll(() => s.host.querySelector<HTMLElement>("[data-conversation-field]")?.dataset.liveState).toBe("L9");
+    expect(s.host.querySelector('[data-conversation-field] button[aria-label="Discard draft"]')).toBe(null);
+    flushSync(() => s.client.discard());
+  } else await userEvent.click(s.button("Discard draft"));
   expect(s.client.state.getState().recognition.map(f => f.text), "Discard must retain earlier consumed recognition").toEqual([text, "Independent recognition."]);
   await expect.poll(() => [...s.host.querySelectorAll("[data-recognized-text]")].map(n => n.textContent)).toEqual([text, "Independent recognition."]);
   expect(transcriptTimelineFor(s.ui.stores.chat).state.getState().entries.some(e => e.key === firstEntry.key)).toBe(true);

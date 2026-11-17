@@ -50,6 +50,8 @@ export interface InferenceRelayEvent {
   outcome: "forwarded" | "refused";
   status: number;
   reason?: string;
+  /** Host-only admission cause; the HTTP body remains unchanged. */
+  denialReason?: string;
 }
 
 export interface InferenceRelay {
@@ -92,17 +94,22 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
   const separateIdentity = Boolean(workerIdentityHelper());
   chmodSync(dir, separateIdentity ? 0o750 : 0o700);
   const socketPath = join(dir, "relay.sock");
-  const refuse = (method: string, path: string, status: number, reason: string): Response => {
-    options.observe?.({ method, path, outcome: "refused", status, reason });
+  const refuse = (method: string, path: string, status: number, reason: string, denialReason?: string): Response => {
+    options.observe?.({ method, path, outcome: "refused", status, reason, ...(denialReason ? { denialReason } : {}) });
     return Response.json({ type: "error", error: { type: "brain_inference_refused", message: reason } }, { status });
   };
   let server: ReturnType<typeof Bun.serve>;
   try {
     server = Bun.serve({
       unix: socketPath,
-      async fetch(request, owner) {
-        // Streaming inference can idle between events for longer than the default.
-        owner.timeout(request, 0);
+      // Streaming inference can idle between events for longer than Bun's 10s
+      // default, e.g. while a model writes one large tool input. Bun 1.4 does
+      // not honour a per-request `timeout(request, 0)` once the response
+      // streams, so disable it here.
+      // bun-types declares idleTimeout only for hostname servers; the runtime
+      // honours it on a Unix socket too (#3441 regression tests prove it).
+      ...({ idleTimeout: 0 } as object),
+      async fetch(request) {
         const url = new URL(request.url);
         const path = url.pathname;
         if (request.method !== "POST") return refuse(request.method, path, 405, "Only inference requests are relayed");
@@ -113,12 +120,12 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
         const signal = operation ? AbortSignal.any([request.signal, operation.signal]) : request.signal;
         const denied = (reason: string, status = 403): Response => {
           operation?.finish("denied", reason);
-          return refuse(request.method, path, status, reason === "max_bytes_per_turn" ? "Inference egress limit exceeded" : "Inference request refused");
+          return refuse(request.method, path, status, reason === "max_bytes_per_turn" ? "Inference egress limit exceeded" : "Inference request refused", operation?.reason?.() ?? reason);
         };
         if (operation && !await operation.admit()) {
           const cancelled = request.signal.aborted || operation.outcome() === "cancelled";
           operation.finish(cancelled ? "cancelled" : "denied", "inference_admission_refused");
-          return refuse(request.method, path, cancelled ? 499 : 403, "Inference network admission refused");
+          return refuse(request.method, path, cancelled ? 499 : 403, "Inference network admission refused", operation.reason?.());
         }
         const declared = Number(request.headers.get("content-length") ?? "0");
         if (declared > MAX_INFERENCE_REQUEST_BYTES) return denied("inference_request_too_large", 413);
@@ -181,6 +188,10 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
         if (operation && !operation.charge(headerBytes(`${request.method} ${path}${url.search} HTTP/1.1`, headers))) {
           return denied("max_bytes_per_turn");
         }
+        // Body/credential waits may have crossed an input-recording failure.
+        // Re-enter the concrete host admission at the last dispatch boundary.
+        if(operation&&!await operation.admit())return denied("inference_admission_refused");
+        if(operation&&!operation.commit())return denied("inference_admission_refused");
         let response: Response;
         try {
           // Never follow a redirect: the upstream must not choose another host.

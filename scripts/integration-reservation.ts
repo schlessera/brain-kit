@@ -1,23 +1,40 @@
 /** Cooperative integration ownership: remote Git CAS, never a branch lock. */
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { emptyRedMain, parseRedMain, RED_MAIN_FILE, type RedMainRecord } from "./red-main";
 
 export const RESERVATION_REF = "refs/heads/brain-integration-reservation";
 export const LEASE_MS = 5 * 60_000, RENEW_MS = 60_000, MAX_MS = 60 * 60_000;
 export interface Candidate { repository: string; pr: number; head: string; base: string; }
-export interface Lease { id: string; actor: number; candidate: Candidate; acquired: number; expires: number; cap: number; }
+/**
+ * `holder` is the SHA-256 of a secret only the acquiring process knows (#3303).
+ * The id is public and every agent can share one GitHub actor, so neither tells
+ * holders apart. A lease without `holder` was acquired by pre-token code and keeps
+ * the id-and-actor rule for its remaining term; old code ignores the field and
+ * its renewal spreads it forward unchanged.
+ */
+export interface Lease { id: string; actor: number; candidate: Candidate; acquired: number; expires: number; cap: number; holder?: string; }
 export interface ReservationState {
   version: 1; updated: number; active: Lease | null;
   last: { action: "acquire" | "renew" | "release" | "revoke"; actor: number; at: number; previous: Lease | null; reason?: string } | null;
 }
 /** One ref commit holds both coordination files; every write preserves the other one. */
 export interface Snapshot { oid: string | null; state: ReservationState; redMain?: RedMainRecord; }
-export type Operation = { kind: "acquire"; candidate: Candidate; id?: string } |
-  { kind: "renew"; id: string } | { kind: "release"; id: string } | { kind: "revoke"; reason: string; maintainer: boolean };
+export type Operation = { kind: "acquire"; candidate: Candidate; id?: string; token?: string } |
+  { kind: "renew"; id: string; token?: string } | { kind: "release"; id: string; token?: string } | { kind: "revoke"; reason: string; maintainer: boolean };
 const hash = (value: unknown): value is string => typeof value === "string" && /^[a-f0-9]{40}$/.test(value);
 export const emptyReservation = (): ReservationState => ({ version: 1, updated: 0, active: null, last: null });
 export const sameCandidate = (a: Candidate, b: Candidate): boolean => a.repository === b.repository && a.pr === b.pr && a.head === b.head && a.base === b.base;
 export const liveLease = (lease: Lease | null, now: number): lease is Lease => !!lease && now < lease.expires && now < lease.cap;
+/** A fresh holder secret; it never enters the public ref, only its digest does. */
+export const holderToken = (): string => randomBytes(32).toString("hex");
+export const holderDigest = (token: string): string => createHash("sha256").update(token).digest("hex");
+const TOKEN = /^[a-f0-9]{64}$/;
+/** True when `token` proves this process holds `lease`; a pre-token lease has no holder to prove. */
+export function holds(lease: Lease, token: string | undefined): boolean {
+  if (lease.holder === undefined) return true;
+  if (typeof token !== "string" || !TOKEN.test(token)) return false;
+  return timingSafeEqual(Buffer.from(holderDigest(token), "hex"), Buffer.from(lease.holder, "hex"));
+}
 
 export function reservationServerTime(response: string): number {
   const headers = response.split(/\r?\n\r?\n/, 1)[0]!;
@@ -38,7 +55,8 @@ export function parseReservation(text: string): ReservationState {
     Number.isSafeInteger(lease.candidate?.pr) && lease.candidate.pr > 0 && /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(lease.candidate.repository) &&
     hash(lease.candidate.head) && hash(lease.candidate.base) &&
     [lease.acquired, lease.expires, lease.cap].every(value => Number.isSafeInteger(value) && value >= 0) && lease.acquired <= state.updated && lease.cap === lease.acquired + MAX_MS &&
-    lease.expires <= Math.min(state.updated + LEASE_MS, lease.cap) && lease.expires > lease.acquired;
+    lease.expires <= Math.min(state.updated + LEASE_MS, lease.cap) && lease.expires > lease.acquired &&
+    (!Object.hasOwn(lease, "holder") || (typeof lease.holder === "string" && TOKEN.test(lease.holder)));
   if (!validLease(state.active)) throw new Error("Invalid shared reservation lease");
   const last = state.last;
   if (last !== null && (!last || typeof last !== "object" || !["acquire", "renew", "release", "revoke"].includes(last.action) ||
@@ -48,9 +66,9 @@ export function parseReservation(text: string): ReservationState {
   return state;
 }
 
-export function assertLease(state: ReservationState, id: string, actor: number, candidate: Candidate, now: number): Lease {
+export function assertLease(state: ReservationState, id: string, actor: number, candidate: Candidate, now: number, token?: string): Lease {
   const lease = state.active;
-  if (!liveLease(lease, now) || lease.id !== id || lease.actor !== actor || !sameCandidate(lease.candidate, candidate)) throw new Error("Missing, expired, superseded, wrong-owner or mismatched candidate reservation");
+  if (!liveLease(lease, now) || lease.id !== id || lease.actor !== actor || !holds(lease, token) || !sameCandidate(lease.candidate, candidate)) throw new Error("Missing, expired, superseded, wrong-owner, wrong-holder or mismatched candidate reservation");
   return lease;
 }
 
@@ -60,14 +78,17 @@ export function reservationTransition(state: ReservationState, operation: Operat
   let active = previous;
   if (operation.kind === "acquire") {
     if (liveLease(previous, now)) throw new Error(`Integration busy: ${JSON.stringify(previous)}`);
-    active = { id: operation.id ?? randomBytes(16).toString("hex"), actor, candidate: operation.candidate, acquired: now, expires: now + LEASE_MS, cap: now + MAX_MS };
+    if (operation.token !== undefined && !TOKEN.test(operation.token)) throw new Error("Invalid reservation holder token");
+    active = { id: operation.id ?? randomBytes(16).toString("hex"), actor, candidate: operation.candidate, acquired: now, expires: now + LEASE_MS, cap: now + MAX_MS,
+      ...(operation.token === undefined ? {} : { holder: holderDigest(operation.token) }) };
   } else if (operation.kind === "renew") {
     if (!previous) throw new Error("No reservation to renew");
-    assertLease(state, operation.id, actor, previous.candidate, now);
+    assertLease(state, operation.id, actor, previous.candidate, now, operation.token);
     active = { ...previous, expires: Math.min(now + LEASE_MS, previous.cap) };
   } else if (operation.kind === "release") {
-    // An expired owner may clean up its own lease, never a successor's.
-    if (!previous || previous.id !== operation.id || previous.actor !== actor) throw new Error("Reservation release does not own the current lease");
+    // An expired owner may clean up its own lease, never a successor's. Only the
+    // holding process can release; anyone else waits for expiry or uses revoke.
+    if (!previous || previous.id !== operation.id || previous.actor !== actor || !holds(previous, operation.token)) throw new Error("Reservation release does not own the current lease");
     active = null;
   } else {
     if (!operation.maintainer || !operation.reason.trim() || operation.reason.length > 1000) throw new Error("Maintainer revocation requires an explicit bounded reason");

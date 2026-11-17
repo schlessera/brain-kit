@@ -13,13 +13,17 @@ export interface RecordedTurnFailure {
 }
 
 /** Position is among backend-normalized assistants, before local exchanges are inserted. */
-export function assistantCount(messages: SessionHistoryMessage[]): number {
+function assistantCount(messages: SessionHistoryMessage[]): number {
   return messages.filter((message) => message.role === "assistant").length;
 }
 
 /** Guard against an edited/truncated/rebranched transcript reusing an old position. */
 export function updatePrefix(hash: Bun.CryptoHasher, message: SessionHistoryMessage): void {
-  hash.update(JSON.stringify([message.role, message.content, message.thinking ?? null,
+  // A runtime notice was replayed as the message's closing text before #3356;
+  // hashing it there keeps positions recorded before then.
+  const notice = message.runtimeNotice?.message;
+  const content = notice ? (message.content ? `${message.content}\n\n${notice}` : notice) : message.content;
+  hash.update(JSON.stringify([message.role, content, message.thinking ?? null,
     message.toolCalls, message.attachmentCount ?? 0, message.failure?.message ?? null]));
   hash.update("\n");
 }
@@ -62,7 +66,8 @@ const BOUNDARY_READ_MS = 10_000;
 /** One concrete host's in-flight writes; never shared across apps or sessions. */
 export class FailureReplay {
   private readonly pending = new Map<string, Set<Promise<void>>>();
-  constructor(private readonly catalog: SessionCatalog, private readonly log: Logger) {}
+  /** `boundaryReadMs` bounds a boundary read and a result-to-finish hold; tests shorten it. */
+  constructor(private readonly catalog: SessionCatalog, private readonly log: Logger, private readonly boundaryReadMs = BOUNDARY_READ_MS) {}
 
   async wait(sessionId: string): Promise<void> {
     for (;;) {
@@ -107,7 +112,7 @@ export class FailureReplay {
         // so the read is bounded by its own timer instead.
         const messages = await Promise.race([
           backend.getHistory(sessionId),
-          new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("history read timed out")), BOUNDARY_READ_MS); }),
+          new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("history read timed out")), this.boundaryReadMs); }),
         ]);
         this.catalog.recordScratchPins?.(sessionId, backend.id, messages);
         const count = assistantCount(messages);
@@ -125,6 +130,8 @@ export class FailureReplay {
 
   async begin(backend: AgentBackend, sessionId: string | undefined, turnId: string, signal: AbortSignal): Promise<{
     observe: (sessionId: string, failure: TurnFailure) => void;
+    /** The turn's own result went out: history reads of its session wait for its end (`finish`). */
+    resulted: (sessionId: string) => void;
     /** `sessionId` is the session the turn ran in, when it ran; boundaries are recorded only then. */
     finish: (sessionId?: string | null) => Promise<void>;
   }> {
@@ -139,6 +146,9 @@ export class FailureReplay {
     const settled = new Promise<void>((resolve) => { release = resolve; });
     let write: Promise<void> | undefined;
     let closed = false;
+    let end!: () => void;
+    const ended = new Promise<void>((resolve) => { end = resolve; });
+    let held = false;
     return {
       observe: (sid, failure) => {
         if (closed || before === null || write) return;
@@ -158,12 +168,29 @@ export class FailureReplay {
         })();
         this.track(sid, write);
       },
+      resulted: (sid) => {
+        // A client may read the history again the moment the result
+        // arrives, while host teardown still runs. Its replay must wait for
+        // this turn's boundary, or the answer it ends replays without its
+        // turn id and nothing replays it again (#3155). Bounded like the
+        // boundary read, so a teardown that never finishes cannot hold
+        // the session's history.
+        if (closed || held || before === null || !this.catalog.recordTurnBoundary) return;
+        held = true;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const hold = Promise.race([ended, new Promise<void>((resolve) => { timer = setTimeout(resolve, this.boundaryReadMs); })])
+          .finally(() => clearTimeout(timer));
+        this.track(sid, hold);
+      },
       finish: async (sid) => {
         const first = !closed;
-        closed = true; release(); await write;
-        if (first && sid && ((before !== null && this.catalog.recordTurnBoundary) || this.catalog.recordScratchPins)) {
-          await this.boundary(backend, sid, turnId, before);
-        }
+        closed = true; release();
+        try {
+          await write;
+          if (first && sid && ((before !== null && this.catalog.recordTurnBoundary) || this.catalog.recordScratchPins)) {
+            await this.boundary(backend, sid, turnId, before);
+          }
+        } finally { end(); }
       },
     };
   }

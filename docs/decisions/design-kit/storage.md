@@ -11,13 +11,27 @@ approval; it is a design, not evidence of a shipped pane or removal operation.
 The screenshots in the original brief illustrate the proposal; the rulings
 and layouts here control where the proposal differs.
 
-The [accounting model](../../plans/storage-accounting.md) supplies ownership,
-object identity, capacity scopes and coverage. The [lifecycle model](../../plans/storage-lifecycle.md)
+The [accounting model](https://github.com/schlessera/brain-kit/blob/5a0ce18fdcecf0a6c5b83487c865a3f73806d5d0/docs/plans/storage-accounting.md) supplies ownership,
+object identity, capacity scopes and coverage. The [lifecycle model](https://github.com/schlessera/brain-kit/blob/5a0ce18fdcecf0a6c5b83487c865a3f73806d5d0/docs/plans/storage-lifecycle.md)
 supplies action eligibility and recovery. Read both with the later
 [native storage decision](../native-brain-storage.md): immutable native
 checkpoints, writable output staging, turn temp and retained recovery objects
 have distinct owners and capacity. A lower-only deletion does not release
 writable-upper headroom. Neither discovery authorizes a new retention policy.
+
+> **2026-11-02 — Both discoveries left `docs/plans/` ([#2511](https://github.com/schlessera/brain-kit/issues/2511)).**
+> #1779, #1780, #1781 and #2013 are closed, and the inventory, owner
+> maintenance and recoverable removal they informed are built (#2009 in #2017,
+> #2010–#2013 in #2172). Their recommendations and constraints that
+> still bind are in this entry, chiefly under
+> [Maintenance and ongoing management](#maintenance-and-ongoing-management) and
+> [Implementation boundaries and deferred capabilities](#implementation-boundaries-and-deferred-capabilities);
+> the shipped command and HTTP shapes are in the integration contract
+> (`docs/integration-contract/cli.md`, `docs/integration-contract/http.md`).
+> Read the discoveries unchanged at the pinned links above. The accounting
+> experiment moved to the
+> [measurement archive](../measurement-archive.md#storage-design-experiments-2511);
+> the lifecycle experiment is still `experiments/storage-lifecycle.ts`.
 
 ### Placement and alternatives
 

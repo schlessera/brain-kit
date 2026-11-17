@@ -24,7 +24,7 @@ import type { SessionChat, ToolCall } from "../stores/chat-state.js";
 export type RestoredApprovalClosure = "answered" | "ended" | "revoked" | "unlisted";
 
 /** D52 §4 R3's words, verbatim. `unlisted` has none. */
-export const RESTORED_APPROVAL_WORDS: Record<Exclude<RestoredApprovalClosure, "unlisted">, string> = {
+const RESTORED_APPROVAL_WORDS: Record<Exclude<RestoredApprovalClosure, "unlisted">, string> = {
   answered: "answered on another device",
   ended: "ended with the turn",
   revoked: "no longer yours to answer",
@@ -35,13 +35,13 @@ export function restoredApprovalWord(closure: RestoredApprovalClosure | undefine
 }
 
 /** A restored card that still takes a decision, with the turn that raised it. */
-export interface AwaitingRestoredCard {
+interface AwaitingRestoredCard {
   toolUseId: string;
   turnId: string | null;
 }
 
 /** A restored card is open: pending here, and not closed, or closed only as `unlisted`. */
-export function isOpenRestored(tool: ToolCall): boolean {
+function isOpenRestored(tool: ToolCall): boolean {
   return !!tool.restored && tool.status === "pending_approval" && (!tool.readOnly || tool.readOnly === "unlisted");
 }
 

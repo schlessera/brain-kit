@@ -41,10 +41,13 @@ Linux/bubblewrap probe, visible startup refusal and measured launcher profiles.
 Browser clients can use other operating systems. The [restricted autonomous
 prompt guide](autonomous-prompt-cache.md) records the trusted prefix boundary and
 the separately authorized cache measurement procedure.
+[Hosted external compute](external-compute.md) covers the credential binding,
+state directory and approval a chat turn needs to start a job on a compute
+provider such as Boat.
 
 **The server refuses to boot against `@schlessera/brain` older than 0.44.0.**
 The floor is enforced at
-(`MIN_BRAIN_CLI_VERSION`, `packages/ui-server/src/brain/client.ts:111`) and covers
+(`MIN_BRAIN_CLI_VERSION`, `packages/ui-server/src/brain/client.ts:132`) and covers
 all commands and flags the server invokes, including 0.42.0’s scratch pin input.
 From 0.44.0 the search index lives in `.brain-index/` instead of a root-level
 `brain.db`: the server reads it there, deletes the old root-level copy at boot
@@ -112,6 +115,40 @@ is set; the server passes the key through to the brain CLI. Without it the
 sync takes the conservative defaults. See
 [configuration.md](../configuration.md#sync).
 
+## GitHub tools
+
+A hosted turn reads and files GitHub issues and pull requests through four
+host tools: `brain_github_issue_read`, `brain_github_issue_search`,
+`brain_github_issue_create` and `brain_github_issue_comment`. The host holds
+the token. Workers never get a GitHub credential, so `gh` inside a turn stays
+unauthenticated.
+
+1. In GitHub's **Settings → Developer settings → Fine-grained tokens**,
+   create a token. Restrict it to the repositories a turn may use; choose
+   **Only select repositories**.
+2. Give it read access to **Issues**, **Pull requests**, **Checks** and
+   **Commit statuses**. GitHub adds **Metadata** read on its own. A pull
+   request's checks summary reads check runs and commit statuses. If one of
+   those permissions is missing, the summary comes back `null` (not
+   reported, which is different from zero), and GitHub's `X-Accepted-GitHub-Permissions` response header names the
+   missing permission.
+3. If turns should file issues or comment, add **Issues** write access as
+   well.
+4. Set it as `BRAIN_UI_GITHUB_TOOLS_TOKEN` in the server's environment and
+   recreate the container. No other token stands in for it: without this one
+   the tools answer `unavailable`.
+5. To allow writes, list the repositories under `outward.github.repositories`
+   in the brain's governance policy (`owner/repo`, or `owner/*` for every
+   repository of one owner). A write anywhere else is refused before any card
+   is shown. Every allowed write still asks for its own approval.
+
+Reads see only what the token can see. Their results count as untrusted
+input for the session. A command that calls GitHub's API directly, such as a
+script or a compound `curl` line, waits on a `Network` approval card rather
+than reaching GitHub. Without a credential it could not act as you anyway.
+See [the decision](../decisions/governed-writable-workers.md#outward-actions-g5)
+and [the tool contract](../integration-contract/mcp.md#host-github-tools-additive-0450-3797).
+
 ## Recovery and partial availability
 
 The UI server permits one HTTP sync at a time per canonical brain root.
@@ -134,8 +171,10 @@ results are incomplete.
 Notification detection persists its cursor with inbox entries in the UI
 SQLite database. After restart it replays retained activity changes in batches,
 including failures recorded while the server was offline. Existing notifications
-are deduplicated, including acknowledged entries. Keep the UI database on its
-persisted volume to retain this progress.
+are deduplicated, including acknowledged entries. A job that keeps failing
+notifies again after a 12-hour quiet window, whether or not its last
+notification was acknowledged, and the repeat says how many runs in a row have
+failed. Keep the UI database on its persisted volume to retain this progress.
 
 Share cleanup refuses staging paths that traverse symlinks, including links to
 other directories inside the brain. Accessing the brain root itself through a
@@ -340,7 +379,9 @@ What the server does between logins:
 - **Before expiry.** From 30 days before `expiresAt`, and after it, the server
   logs a WARN at boot and at most once a day, naming the date and this
   procedure. Without `BRAIN_UI_CLAUDE_TOKEN_MINTED_AT` it cannot tell, and says
-  so once at boot. A date it cannot read refuses the boot.
+  so once at boot. An invalid date keeps serving and reports "expiry unknown:
+  invalid mint date" in authenticated status and the boot log; correct the date
+  and restart to restore the estimate.
 - **Proof it works.** `lastProvenAt` is the latest successful turn that ran on
   the subscription (kept in the database, so it survives a restart and the
   activity retention window), or a successful model-discovery call with the

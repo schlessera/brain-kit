@@ -39,7 +39,7 @@ test("absent and dormant diagrams modules report actual fences without loading a
  }finally{cleanup(root);}
 });
 test("enabled hygiene reports invalid fresh specs and sees old documents beyond the list query cap",async()=>{
- const root=makeTempBrain({empty:true});try{configure(root);for(let i=0;i<105;i++)writeFileSync(join(root,`note-${i}.md`),markdown("A voyage note."));writeFileSync(join(root,"dispatch.md"),markdown(fence()));expect((await runCli(root,["index","--force"])).code).toBe(0);writeFileSync(join(root,"dispatch.md"),markdown('```diagram\nschema_version: 1\ntype: unknown\n```\n'));expect(categories((await runCli(root,["audit","--json"])).stdout).some((x:{category:string;path:string})=>x.category==="diagram-invalid"&&x.path==="dispatch.md")).toBe(true);
+ const root=makeTempBrain({empty:true});try{configure(root);for(let i=0;i<105;i++)writeFileSync(join(root,`note-${i}.md`),markdown("A voyage note."));writeFileSync(join(root,"dispatch.md"),markdown(fence()));expect((await runCli(root,["index","--force"])).code).toBe(0);writeFileSync(join(root,"dispatch.md"),markdown('```diagram\nschema_version: 1\ntype: unknown\n```\n'));expect(categories((await runCli(root,["audit","--json"])).stdout).map((x:{category:string;path:string})=>[x.category,x.path])).toContainEqual(["diagram-invalid","dispatch.md"]);
  }finally{cleanup(root);}
 });
 test("flattening preserves literal source text and resolves opaque generated mix steps",()=>{
@@ -77,4 +77,19 @@ test("FIFO and directory leaves cannot block diagram source or derived inspectio
  unlinkSync(join(root,"release.light.svg"));unlinkSync(join(root,"release.dark.svg"));for(const theme of ["light","dark"])mkdirSync(join(root,`release.${theme}.svg`));expect((await boundedAudit(root)).map((issue:{category:string})=>issue.category)).toEqual(["diagram-stale"]);for(const theme of ["light","dark"])rmdirSync(join(root,`release.${theme}.svg`));unlinkSync(join(root,"dispatch.md"));fifo(join(root,"dispatch.md"));expect((await boundedAudit(root)).map((issue:{category:string})=>issue.category)).toEqual(["diagram-source"]);
  writeFileSync(join(root,"brain.config.ts"),'import {defineConfig} from "@schlessera/brain";export default defineConfig({});\n');expect((await boundedAudit(root)).map((issue:{category:string})=>issue.category)).toEqual(["diagram-source"]);
  }finally{cleanup(root);}
+});
+
+test("absolute CLI paths inside the brain are converted to brain-relative; outside, or through a link out, they are refused (#3422)",async()=>{
+ const root=makeTempBrain({empty:true}),outside=makeTempBrain({empty:true});
+ try{
+  configure(root);writeFileSync(join(root,"release.diagram.yaml"),source);symlinkSync(outside,join(root,"escape"),"dir");
+  const inside=await command(root,["diagram","export",join(root,"release.diagram.yaml"),"--out",join(root,"release.abs.svg"),"--json"]);
+  expect(inside.code,inside.stderr).toBe(0);expect(inside.value.input).toBe("release.diagram.yaml");expect(inside.value.output).toBe("release.abs.svg");
+  expect(existsSync(join(root,"release.abs.svg"))).toBe(true);
+  for(const out of [join(outside,"result.svg"),join(root,"escape","result.svg")]){
+   const refused=await command(root,["diagram","export","release.diagram.yaml","--out",out,"--json"]);
+   expect(refused.code).toBe(1);expect(refused.value.output).toBeNull();expect(refused.value.errors[0].message).toContain("must remain inside the brain");
+  }
+  expect(existsSync(join(outside,"result.svg"))).toBe(false);
+ }finally{cleanup(root);cleanup(outside);}
 });

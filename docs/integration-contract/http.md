@@ -39,12 +39,23 @@ hash directly. Missing/expired raw details never grant a download bypass.
 links use the embedding root's configured API base.
 Those read helpers do not execute mutations.
 
+<a id="untrusted-file-marks-additive-2673"></a>
+
+### Untrusted file marks (additive, #2673)
+
+Four internal `/api/files/untrusted` operations mark a readable brain file
+untrusted, read one path's mark, list the marks a principal may see and let the
+owner clear one. They are paired UI transport, specified with their authority
+and disclosure rules in [the HTTP inventory](../http-api.md#untrusted-file-marks-internal-2673).
+The `taint` governance event's shape is unchanged: its reserved
+`source: "user_marked"` value is now produced.
+
 <a id="brain-wide-configuration-coverage-additive-3257"></a>
 
 ### Brain-wide configuration coverage (additive, #3257)
 
 `GET /api/journal/configuration-coverage` returns `ConfigurationCoverageRead`
-(`ConfigurationCoverageRead`, `packages/ui-sdk/src/turn-journal.ts:182-184`):
+(`ConfigurationCoverageRead`, `packages/ui-sdk/src/turn-journal.ts:183-185`):
 the brain's current set of configuration inputs steering could not trace. It
 is `{ state: "known", hash, paths, count, turnId, observedAt }` for the set the
 most recent complete turn recorded from a configuration inventory: `paths` is
@@ -149,6 +160,73 @@ conflicts, unavailable detail, unknown outcomes and partial work remain explicit
 voice, agent and autonomous execution do not gain a history action. This is
 additive in 0.42.0; no existing read or CLI/MCP shape changes.
 
+<a id="native-intent-recovery-additive-3816"></a>
+
+### Native intent recovery (additive, #3816)
+
+Authenticated `GET /api/status` adds optional `nativeRecovery`:
+`{ quarantinedIntents: number, stagingChargedBytes: number | null,
+diagnosticsPath: string }`, also declared by `SystemStatus`. It reports the
+manager's boot quarantine and conservative staging charge. Invalid UUIDs and
+confirmed absent stage directories charge zero; surviving stages retain their
+independently recorded historical tmpfs allowance. The charge includes known
+stage reservations at boot. `null` means no safe bound is proven, never zero:
+`healthy` is false and staging refuses with a recovery diagnostic rather than
+claiming a temporary busy slot. Other operations remain available. The private
+diagnostics path and causes are never exposed by unauthenticated `/api/health`.
+This optional reporting is additive in 0.45.0; no CLI/MCP shape changes.
+
+### Staging refusal and unresolved journal recovery (additive, #3826)
+
+Authenticated `GET /api/status` extends `nativeRecovery` with optional
+`stagingRefusal: string`. It describes the recovery needed when a quarantined
+charge is unknown or when quarantine alone leaves too little budget for the
+configured per-stage allowance. In either case `healthy` is false. Individual
+stage requests use their actual requested allowance: a smaller request may fit;
+only pressure that can clear when active stages finish returns temporary busy.
+The refusal tells the owner to inspect private diagnostics, then either repair
+the stage's receipt or confirm its storage is removed (bounded quarantine) or
+restore the allowance record from proof of the original size (unknown bound),
+and to restart the native manager and the server: `nativeRecovery` is read when
+the server boots. No unknown or surviving storage charge is released.
+
+The response also adds optional `journalRecovery`, declared by `SystemStatus`:
+`{ unresolvedRecords: number, firstCause: null | { reservationId: string,
+hash: string, at: number, errorClass: string, message: string, site: string } }`.
+This is the journal worker's boot recovery summary: the count is unresolved
+object reservations, including multiple reservations of the same hash, and
+`firstCause` is the earliest recorded I/O refusal among them (`at` is Unix
+milliseconds). The first cause stays on its charged reservation across restarts;
+a successful later recovery removes both. Zero unresolved records means
+`firstCause: null`. Any unresolved records make `healthy` false without refusing
+boot or unrelated work. If persisting a cause fails, the current boot still
+reports it and logs the diagnostic-write failure; the existing reservation
+remains durable and charged. Neither summary is exposed by unauthenticated
+`/api/status` or public `/api/health`. Additive in 0.45.0.
+
+<a id="degraded-backend-availability-and-unknown-expiry-additive-3817"></a>
+
+### Degraded backend availability and unknown expiry (additive, #3817)
+
+A failed secondary backend leaves public `GET /api/health` live (HTTP 200),
+with `status: "degraded"` and `reasons: ["backend_unavailable"]`; uptime and
+timestamp stay present. Raw causes and backend identities remain protected.
+Authenticated `GET /api/status` adds `backendAvailability` with this boot's
+`unavailable` array and durable `lastFailures` (latest per backend). Records
+carry `backendId`, `phase`, `site`, `errorClass`, `message`, and ISO `at` as specified
+in [the HTTP reference](../http-api.md#liveness-and-operational-status).
+`healthy` is false while any secondary backend is excluded. The default
+backend still must pass; no version-incompatible backend executes.
+
+An invalid subscription mint date adds `subscription.expiryWarning` with
+`reason: "invalid_mint_date"`, `message`, `errorClass`, and ISO `at` while
+`mintedAt` and `expiresAt` remain null. Serving and authentication continue.
+The missing-date and valid-date shapes are unchanged. These additions ship
+in 0.45.0; no CLI/MCP envelope or provider history changes. The exported
+`assertBackendResolvable` now returns the excluded secondary backends as
+`BackendBootFailure[]`; callers that ignored its former void return continue
+to work. Primary-backend and shared profile-configuration errors still throw.
+
 <a id="published-react-health-and-sync-helpers-breaking-health-correction"></a>
 
 ### Published React health and sync helpers (breaking health correction)
@@ -212,7 +290,90 @@ The status reports; it does not decide. A pass is never cached and a known
 failure never short-circuits a turn: every turn runs its own probe and refuses
 with `worker_host_unsupported` naming the requirement
 ([maintainer ruling](https://github.com/schlessera/brain-kit/issues/1632#issuecomment-6112509133)).
+A requirement may end in a parenthetical detail. When a turn's separate-UID
+launch times out during identity setup, its refusal names the supervisor's last
+recorded setup step there. The probe's own requirement is unchanged
+([additive, #3664](../integration-contract.md#setup-timeouts-name-their-step-additive-0450-3664)).
 Clients must tolerate either mode being absent.
+
+<a id="safety-recording-status-additive-3810"></a>
+
+### Safety recording status and owner recovery (additive, #3810, #3812)
+
+For an owner principal, authenticated `GET /api/status` gains optional
+`safetyRecording`: `{ latched, since, reason, cause, retained, lastRecovery }`.
+`latched` is true while the brain-wide safety recorder is failed. `since` is
+the Unix-millisecond time of the first latch; `reason` is `recording_failed`
+or `capacity`, and `capacity` only when a capacity check refused the write.
+`cause` is the first latch's `{ reason, site, turnId, errorClass, message,
+stack, since, count, durable }`: identifiers and error text only, never
+message content; later latches only increase `count`. `retained` is true when
+only this process holds the loss because its durable notice could not commit;
+`cause` is then the cause this process holds, with `durable: false`.
+`lastRecovery` is the latest `{ trigger, actor, at, gapped, cause }`, where
+`trigger` is `boot`, `automatic` or `owner`. Other principals never receive
+the field.
+
+A brain-wide latch is the exception, not the rule. A failure before delivery
+refuses its one turn; lost evidence after delivery restricts its chat with a
+permanent gap; only an evidence store that cannot take a scoped fact latches
+the brain. While latched, new turns run under their tainted policy with a
+permanent pre-delivery gap, and the host clears the latch by itself once the
+gap facts are durable and every producer that predates it has ended, failed or
+not
+([proportionate containment](../decisions/proportionate-containment.md)).
+
+Owner-only `POST /api/status/safety-recording/recover` takes a JSON body
+(ignored), runs the same recovery and answers 200 with `{ recovery,
+safetyRecording }`. It refuses with 409 `{ code: "producers_open", message,
+retryable: true }`, changing nothing, while any safety producer or collection
+is open. Each recovery is recorded with its trigger, actor, time and the cause
+it cleared. Affected chats keep their gaps.
+
+<a id="account-bound-safety-history-additive-3952"></a>
+
+### A chat's safety history belongs to its account (additive, #3952)
+
+A turn, a safety read (`GET /api/sessions/:id/safety`, WS `safety_read`) and
+an owner review of a chat now accept any principal of the chat's account, not
+only the principal that started it. A principal id always matches itself.
+Two different ids match only when both resolve to the same account partition,
+which today means two owner logins, so an agent, ambient or system principal
+matches only itself; a missing or unresolvable principal matches no other id.
+Another account's principal is refused exactly as before. Read
+snapshots, review handles, receipts and the verdict's `principalId` stay bound
+to the exact principal. Nothing previously accepted is refused, and stored
+rows are not rewritten ([decision](../decisions/session-safety-reviews.md#a-chats-safety-history-belongs-to-its-account-3952)).
+
+<a id="durable-safety-account-additive-3962"></a>
+
+### A chat's safety history outlives the login that started it (additive, #3962)
+
+The same turn, safety read and owner review keep accepting another owner
+login after the login that wrote the history has been pruned. The host stores
+each safety record's account beside its principal when it writes it, from the
+principal's own row, so a pruned owner login's record still names the owner
+account. That stored account is never a credential: the caller is still a
+current, authorized login, and a pruned, expired or revoked principal gains
+nothing. A record written before this change, whose principal is already
+gone, stays unknown and refused. Stored evidence that is corrupt, or that a
+live principal row contradicts, matches no principal at all, its own
+included. Nothing previously accepted is refused except a record whose stored
+evidence is contradictory, which no released host writes, and attribution,
+records, verdicts, gaps and generations are not rewritten
+([decision](../decisions/session-safety-reviews.md#a-chats-safety-history-outlives-its-login-3962)).
+
+<a id="retained-conversations-account-additive-3963"></a>
+
+### Retained conversations list the account's histories (additive, #3963)
+
+`GET /api/sessions?includeRetainedConversations=true` lists, in
+`retainedConversations`, the host-only histories of the caller's account: its
+own, and those another owner login started, including one whose login has
+since been pruned. An agent, ambient or system principal still lists only its
+own. A history whose stored ownership evidence is corrupt or contradictory is
+listed for nobody. The shape, paging and `retainedAfter` cursor are unchanged
+([wire](wire.md#retained-voice-history-belongs-to-its-account-additive-0450-3963)).
 
 <a id="root-server-warning-additive-1638"></a>
 
@@ -273,6 +434,255 @@ The additive `provider_mask_refusal` kind (#2690) records a host bridge tool
 that refused a path the turn's provider folder masks hide: the tool as the
 agent called it, the brain-relative path, the `providers` rule and the policy
 hash. One event is written per refused call.
+
+**Durable session safety collection (breaking before 1.0, #3600).**
+The version 1 governance taint payload optionally adds strict host occurrence
+metadata; the source enum adds `legacy_unknown`. Every input/output/path/mark
+signal is independent, including later signals from the same source. Exact
+host-key retries deduplicate; changed identity/payload retries refuse. Admission
+records `trusted: false`, the admitted policy hash (or `null`) and trust revision
+`"0"`. Runtime source trust remains disabled. Verified proxy provenance records
+only the actual web origin or opaque tunnel authority; worker tool arguments
+never establish transport or repository provenance. The proxy's optional
+`connectionId` relates its admission and receipt, without guessing a tool call.
+
+An immutable occurrence starts open. The separate `taint_exposure` event records
+host-proven bounded HTTP/tool delivery completion, or interrupted/unknown
+completion. Each external result segment and later connection has independent
+evidence. A CONNECT close or shell completion cannot prove bounded input ended.
+Claude pre/post hooks and the Pi worker's awaited result RPC commit detection
+before execution/result delivery. The host provider relay also refuses
+unsettled/failed recording, independently of runtime hook cancellation, and
+rechecks recording health and cancellation after awaiting budget admission.
+Shared recording loss in another turn therefore fences the pending dispatch.
+Claude reserves resumed input synchronously so immediate follow-ups remain
+accepted while collector readiness is pending. Readiness must complete before
+worker or SDK startup; failure releases the input reservation for retry.
+Unsupported or metadata-free collectors retain
+an incomplete epoch. The version 1 detector manifest explicitly excludes
+proxied-shell local file reads and opaque tunnel inner protocols.
+
+Pi's outer Agent hooks collect curated tool results before continuation.
+Managed workers refuse all loaded external extensions and extension loading
+errors before session creation, and recheck the live loader/runner before Agent
+provider dispatch. No extension path, name or package identity is exempt. This
+includes web/MCP/subagent extensions and handlers registered during execution:
+live result/message mutation and independent custom-message injection make a
+handler blacklist insufficient. No arbitrary extension delivery is qualified.
+
+Refusal awaits the existing optional internal
+`BackendBridge.inputSafety.unavailable()` notice and stops the worker. The host
+owns durable failure retention; callback rejection alone cannot establish it.
+Startup collector loss uses a typed one-way worker error, without awaiting an
+RPC answer behind initialization. The host awaits its loss notice before
+acquisition settles; only successful initialization acknowledges the detector
+epoch. Ordinary cancellation, busy-session and caller refusals preserve their
+existing outcomes and do not fail recording across the app. A
+refused configuration must retain incomplete coverage through recovery. The
+notice cannot grant authority or clear evidence, and transformed history is
+never rewritten to recover coverage.
+
+Failure to commit a collector-loss notice retains a bounded connection-local
+loss marker and immediately refuses new collection/provider dispatch through
+every facade. Producer completion must durably retain that loss before sealing
+the epoch; failure leaves it open for restart classification. Explicit recovery
+commits affected historical gaps before clearing local state, even if the
+original notice rolled back. Unknown/capacity-overflow loss correlation retains
+conservative gaps for all epochs.
+
+No external extension receives nested `ctx.executeTool()` access; curated tools
+contain no nested calls. The prior inline nested gate is removed, and no nested
+execution capability is advertised. Managed workers pin the installed
+`SettingsManager.getCacheWarmingMode()` method to `off`, including across
+settings reloads and mode writes. This disables the installed CacheWarmer's
+separate direct `ModelRuntime.streamSimple()` dispatch, which the Agent stream
+fence does not wrap. Both provider-history guards and supported-host/selected
+hosted proof remain required qualification; focused in-memory SQLite loopback
+captures are not FULL write-worker/restart or namespace proof.
+Search paths and explicit marks remain independent signals when the same line
+also indicates truncation or contains ordinary excerpt words such as omitted.
+
+The host retains an independent durable ledger, decimal uint64 revision,
+once-only provisional-to-SessionKey binding and bounded coverage epochs. Every
+pre-upgrade session is incomplete, including those with no old taint row; an
+old row migrates as one known occurrence. Imported/discovered histories remain
+unknown, including provisional owners discovered after migration. Canonical
+aliases and actual history generations bind that evidence, including when
+the catalog announcement precedes retained-dialogue adoption. A later typed
+dialogue reuses the already-bound host owner; neither opening nor resuming it
+rewrites the original binding. Resumes/backend
+changes retain prior epochs, and forks inherit
+unresolved evidence and unknown coverage only on their first unresumed turn.
+Queued continuations retain that snapshot without recopying source evidence or
+importing later source activity. Actual catalog creator, principal,
+history owner, aliases and generation govern binding. Retired session/owner/turn
+identities refuse late callbacks even after private detail is removed.
+The principal binds as its account
+([additive, #3952](#account-bound-safety-history-additive-3952)).
+
+Effective admission is restricted for any unresolved occurrence, incomplete or
+unknown coverage, pending recording, failure or exhausted capacity. Only a
+proven new session with acknowledged mandatory collectors and zero unresolved
+records can be normal. This deliberately changes the former no-row-means-clean
+G6 default under the [dated ruling](../decisions/session-safety-reviews.md).
+Existing provider history remains byte-identical. No review/clearing route,
+trust enforcement or safety capability is enabled; the reviewed
+public safety-history DTOs remain prospective. Older clients continue under host
+restrictions without new mutation controls.
+
+**Live admission supersession (breaking before 1.0, #3602).** Proxy dispatch,
+both first-party backend gates, outward policy allowances and new journal
+attribution use the current effective aggregate. The host reads
+`(evidenceRevision, trustRevision, authorityEpoch)` with the exact turn/session
+generation and frozen ordinary policy hash after its last asynchronous wait,
+in the continuation that dispatches. Pi also rechecks after its post-permission
+RTK and lock waits, with an exact-input, one-use final worker admission. New/pending input, recording loss and
+unknown coverage remain restrictive; pending/failed verdicts never clear them.
+A proxy may exclude only its own newly retained input from that request's
+first-byte test when it was otherwise normal. A concurrent connection cannot
+borrow that authority. Contacted-host legacy grants begin only at dispatch;
+validated provider relays remain excluded from those grants.
+
+A completed per-use outward approval is distinct from standing policy authority.
+An earlier standing allowance is recomputed at dispatch; a stale pending card
+is claimed/withdrawn through the coordinator, with a durable
+`safety_admission_expired` governance event before the backend wait settles.
+Its existing tool-resolution outcome is `expired`. No denied or interrupted
+operation replays automatically. Direct host permission callers have the same
+host-owned snapshot and withdrawal behavior. An answer claimed by a handler
+stays under coordinator ownership while its legacy grant write waits; safety
+invalidation, cancellation and grant-write failure settle it exactly once and
+cannot dispatch a stale grant. Terminal event reasons are `safety_changed`,
+`turn_ended` and `grant_storage_failed`. A successfully persisted legacy grant
+remains its independent historical fact and cannot revive the expired call.
+Receipt-storage failure stops the turn and emits an explicit failed terminal
+outcome, without claiming durable withdrawal. Ordinary budgets, commands, profiles,
+egress configuration, credential routing and outward/voice controls keep their
+existing independent, turn-bound meanings. No persistent source matching,
+Settings publication, scoped-network capability or owner review route is enabled
+by this admission slice. Historical journal/egress/approval facts and provider
+prefixes are unchanged; only later decisions and new journal attribution use
+the live state.
+
+**Individual verdict persistence (breaking before 1.0, #3601).** The host-only
+writer now prepares one selected finalized occurrence and atomically commits
+its immutable `safe` decision, revision and terminal request receipt on the FULL
+SQLite write worker. This implements the dated
+[G6 ruling](../decisions/session-safety-reviews.md); owner-authenticated HTTP/wire operations remain a separate implementation slice.
+No endpoint or capability is added by this persistence layer. Host identity
+arguments do not establish human authorization.
+
+The authoritative projection reduces all retained compact identities and
+committed decisions, independently of any history page. Resolving A leaves B
+and later same-source C unresolved. Only complete detector coverage, zero
+unresolved/pending occurrences and no recording/capacity latch permit normal.
+Open/interrupted exposures refuse review; original occurrences, transitions,
+decisions and historical policy facts remain immutable. Pruning removes display
+detail only; selected IDs, verdict references, counts and revision survive.
+
+Internal preparation accepts a strict version-1 single-occurrence body bound to
+the exact SessionKey and expected evidence revision. Ranges, source-wide clears,
+session-wide clears and caller authority fields refuse. Trust publication is not
+part of this operation. A host-minted request binds canonical body digest,
+principal, channel and generation, and expires after 900000 ms.
+Time is sampled inside the acquired write transaction, after writer-queue and
+SQLite lock waits. Issuance starts the full handle lifetime; decision and replay
+expiry use execution time, and receipt retention starts at terminal storage.
+New committed evidence stales a prepared review; pending input restricts immediately, and a
+pending verdict never decrements the aggregate. Failed verdict COMMIT rolls back
+decision, revision and receipt together without reporting success.
+Recording-loss refusals remain `recording_failed`, distinct from input that is
+still `recording_pending`, including loss retained only by the app connection.
+
+Same-body retries retain their exact original receipt, including its historical
+projection, for 86400000 ms after terminal commit; admission always reads the
+current projection separately. Changed-body reuse returns `request_conflict`;
+already-resolved, nonfinal, stale, expired and unavailable requests have explicit
+refused outcomes. Refusals carry no normal projection. Receipts are reserved
+before handle issuance: 32 outstanding per principal, maximum 256 per brain,
+10000 retained receipts and 16777216 reserved bytes. The implementation reserves
+262144 bytes per receipt, so the effective brain ceiling is 64 retained handles.
+Capacity refuses new preparation without evicting live receipts or consuming the
+verdict space prepaid by retained occurrences. Unknown/pruned handles can never
+become fresh requests. Restart preserves prepared and terminal receipts; open
+collection epochs still degrade under the existing restart rule. Retirement
+precedes successful replay and returns `retired` for the owning identity even
+after private request/decision detail is removed. Permanent lifecycle fences
+remain; no request TTL recreates a retired session. Provider history is unchanged.
+
+The ledger enforces the design's 8192-byte occurrence, 100000-row/67108864-byte
+session and 1000000-row/536870912-byte brain ceilings, counting reserved verdict
+and terminal slots. Durable pending ceilings are 256 rows/1048576 bytes per
+session and 4096 rows/16777216 bytes per brain, shared across writers. Unbound
+collection is capped at 1024 bindings/8388608 bytes, with 128 epochs per session.
+Collection metadata and permanent retirement-fence capacity are reserved too.
+Catalog and collection admission atomically include all outstanding durable row
+and byte reservations in the same ceilings. Binding unbound collections also
+atomically checks their combined pending count and serialized pending bytes.
+Before accepting input, failure/capacity restrictions use preallocated durable
+emergency cells. Outstanding terminal evidence uses its existing reserve.
+Restart retains pending failure and unknown exposure; explicit internal recovery
+requires stopped producers, settled connection-local writes and available
+capacity. Only a committed recovery clears the shared local failure latch;
+existing and new facades retain historical gaps and unresolved evidence. Ended
+failure facts remain in epoch coverage but, after that recovery, no longer
+represent an active outage preventing a new restricted turn on that session.
+Detail pruning preserves IDs, counts and compact audit/reserved capacity;
+unbound safety evidence has no eviction TTL. Revision exhaustion refuses before
+wrap. These foundations supply the later verdict slice's projection without
+publishing a mutation surface.
+
+<a id="managed-reference-acquisition-additive-3613"></a>
+
+**Managed reference acquisition audit (additive, #3613).** Version 1
+`egress_connection` may carry `managedReference: true` for the host's fixed
+GitHub acquisition wire. Worker headers cannot select this tag. Its TLS bytes
+share the turn's existing byte counter, and its recipient retains ordinary
+egress policy and restricted-recipient checks. These records never add the
+destination to the session's contacted hosts, in memory or after reload.
+Acquisition alone has delivered no source content to the model and records no
+input occurrence; an immutable read needs its own independently bound evidence.
+No repository trust capability or worker-facing authenticated relay is added.
+
+<a id="shell-taint-behind-the-egress-proxy-breaking-3429"></a>
+
+**Shell taint behind the egress proxy (breaking before 1.0, #3429).** On a
+turn behind the turn egress proxy, `taint` is no longer recorded with
+`source: "fetching_command"` or `"unclassified_command"`; the proxy's
+`egress_connection` source covers shell network access there. A turn without
+the proxy still records both. The payload shape and version are unchanged, and
+stored events keep their recorded sources.
+
+<a id="tainted-destinations-ask-additive-3430"></a>
+
+**Tainted destinations ask (additive, #3430).** In a tainted interactive turn
+behind the proxy, a connection to a host outside `taint.egress.allow` and the
+session's contacted hosts now raises the existing tool-permission request
+before it is refused: `toolName: "Network"`, `kind: "command"`, `input` of
+`{ host, port, method, target }` with `target` as `host:port`, and a
+`description` naming what tainted the session and what allowing does. No
+request field, kind or card variant is added. An allowed connection records
+`egress_connection` as any admitted one does; a declined one records
+`egress_connection` with `reason: "taint_not_approved"` and the existing
+`egress_denial` with `reason: "taint_allowlist"`. A turn stopped while the card
+is pending records the connection as `cancelled` with `turn_cancelled`, as any
+connection its turn stops. Voice turns refuse without a request, as before,
+with `reason: "taint_not_allowed"`.
+
+The `outward_action` kind's `action` gains `compute_run` and the `taint`
+kind's `source` gains `compute_output` (both additive, #3108): a hosted
+external compute run's approval decision, its target the instance id, and a
+collected job's output. Version 1 is unchanged otherwise.
+
+Authenticated `GET /api/status` gains `runtime.compute` (additive, #3108):
+`{ enabled, reason, core, stateDir, stateMasked, bindings, instances,
+openJobs }`. `reason` says why hosted compute refuses every run, or is `null`.
+`core` is `present`, `missing` or `unknown`. Each binding is `{ provider,
+package, remoteExpiry, defaultKeyEnv, credentials }`, with each credential `{
+name, implicit, present, leakedToWorkers }` (names only, never a value).
+`instances` is the last configuration a turn read, each `{ id, provider,
+builtin, credential, bound, present, refusal }`, or `null` before any read.
+No vendor is called to produce it.
 
 The kinds and each kind's payload are versioned separately. A payload change
 that is not purely additive bumps that kind's `schemaVersion`, and stored
@@ -534,9 +944,11 @@ The existing availability and host-execution fields keep their meaning.
 
 `runtime.workerHost.governed.egress` (additive, 0.44.0, #1665) is
 `{ active, detail }`: whether governed and strict turns run on their own turn
-egress proxy. It is `active: true` only on a host with managed native storage;
-`detail` says which turns are routed and, when inactive, that their egress is
-unrecorded.
+egress proxy. The server boots only on managed native storage (#1793), so it is
+`active: true` on every running server, and `detail` says which turns are
+routed. The field is not removed: `active: false` remains for a brain that is
+not on managed native storage, where `detail` says that every governed and
+strict turn is refused rather than run without the proxy (#3314).
 
 ### Operational-state layout refusal (additive, #1649)
 
@@ -597,16 +1009,17 @@ with actor `user`.
 
 ### Steering observations (additive, #1658)
 
-Journal details may add `tainted: true` and `taintSourceEventId` to a steering
-change only when an existing taint record preceded the observation in that
-session or turn. The ID is retained with the change; replay never derives it
-from later events. A missing flag is not a claim that untrusted-input coverage
+Journal details may add `tainted: true` and an optional `taintSourceEventId` to a steering
+change. New observations capture effective restriction, including unknown
+coverage without an attributable source. An available ID names the current
+unresolved event. Older rows retain their original attribution; replay never
+derives it from later events or verdicts. A missing flag is not a claim that untrusted-input coverage
 is complete. Policy changes remain class `policy`, with user attribution, and
 are excluded from `steeringFiles`.
 
 The governance event API accepts/returns `steering_change`, version 1, with
 `path`, journal `sequence`, nullable `beforeHash`/`afterHash`, nullable
-`taintSourceEventId`, and `overlappingTurnIds`. It records an observation, not
+`taintSourceEventId`, `overlappingTurnIds` and optional `tainted: true`. New observations retain effective restriction even when unknown coverage has no attributable source; older rows and events are unchanged. It records an observation, not
 an exclusive writer or per-write interception. Configuration inventory that
 cannot identify a retained local input is named in journal `missing` with
 `configuration_inputs_not_fully_identified`; raw-version availability remains
@@ -758,6 +1171,20 @@ its principal applies to the next authority check, including in-flight private
 refreshes. The routes add no credential storage and return no credential value.
 The [grant decision](../decisions/reference-source-grants.md) records the ruling.
 
+Additive #3613: grant creation also accepts optional
+`metadataCredentialRecipient: "https://api.github.com" | null`. Only an owner
+may give this separate fixed metadata credential-recipient permission on a
+GitHub HTTPS grant with a named credential. Other recipients and
+credentialless/non-GitHub grants are refused. Existing and omitted/null grants
+have no additional permission. Explicit permission persists through the shared
+FULL writer and is returned as optional
+`metadata_credential_recipient: "https://api.github.com"` in create/list
+receipts; legacy receipt shapes remain unchanged. It shares the live grant's
+brain/principal/repository scope and revocation. The field establishes no
+transport or source-trust qualification and exposes no generic API relay.
+Changing recipient permission uses revoke/recreate; an existing grant with
+the same principal/prefix/credential remains a duplicate.
+
 ## Content renderer bootstrap declarations (additive, #2087)
 
 Authenticated `GET /api/status` includes optional `contentRenderers`, an array of
@@ -772,3 +1199,87 @@ The payload contains no client/static entry specifier and authorizes no imports.
 The build registers trusted client packs. Missing packs retain source with a
 “Renderer not bundled.” note. Explicit development mode warns once per root and
 known differing version pair; unknown versions do not imply a mismatch.
+
+## Session safety history read (additive, #3604)
+
+Owner review is separately available through the two-phase
+[individual review API](../http-api.md#individual-safety-review)
+(#3603). Both supported method/path entries belong to the classified HTTP
+inventory, with matching mounted-handler and lifetime coverage. Its exact
+request, immutable historical receipt, fresh aggregate, password-mode human
+authority, strict Origin/JSON checks, refusal envelopes and
+lifetime/capacity bounds are authoritative there. Reviewing A never resolves
+later B/C, unknown coverage or failed recording. Prepared authority is checked
+on the acquired FULL transaction and final response boundary, including replay.
+Migration 084 retains finalized-only SQLite enforcement while accepting the
+aggregate's durable canonical/adopted membership; no old decision is rewritten.
+This additive transport implements the already approved individual-verdict
+semantics and ships with a minor changeset under the pre-1.0 ruling.
+
+`GET /api/sessions/:id/safety` adds the bounded authenticated `SafetyPage`
+read defined by [the HTTP specification](../http-api.md#session-safety-sidecars)
+and [wire sidecars](wire.md#session-safety-history-additive-3604). Queries never
+execute a review or policy change. Principal, generation, retirement and cursor
+expiry are rechecked at delivery after settlement. `snapshotComplete` and
+detector completeness are separate; neither omitted details nor a review receipt
+replace the aggregate. Route absence and refused reads are explicitly
+unavailable. Existing history visibility and mutation authority remain intact.
+
+Additively for #3605, `entries=1` requests explicit bounded tool-entry
+correlation on this read. No other value or duplicate parameter is accepted.
+The cursor and subsequent subscription retain that choice. Omitting it keeps
+the original strict version-1 record shape. This metadata grants no authority
+and never infers attribution for opaque transport.
+
+### Selectable dictation providers (additive, #3707)
+
+The [dictation routes](../http-api.md#selectable-dictation-providers) add
+read-only `/api/voice/providers` discovery and revisioned
+`/api/voice/dictation/settings` GET/PUT. The registered set is fixed; a removed
+saved choice blocks dictation. Only human owners/ambient accounts write settings.
+`POST /api/voice/session` accepts optional `{ providerId, smart }`; an explicit
+id is exact or 409 `speech_provider_unavailable`, never a fallback. Bodyless
+clients and `/voice/capabilities` retain their shapes. Discovery never mints.
+Saved-audio PUT binds `Speech-Provider` before claim/body consumption; absent
+headers preserve effective-provider resolution. Retry provider changes return
+409 `transcription_provider_mismatch` with the receipt. Settings revisions,
+error codes, response schemas and operation binding are supported HTTP promises.
+
+
+### Live-conversation service default (additive, #3616)
+
+[`GET`/`PUT /api/settings/voice`](../http-api.md#live-conversation-service-default)
+read and save the brain-wide default live-conversation service as the top-level
+`VoiceLiveSettings` pair `{ defaultProvider: string | null, revision: number }`,
+beside the persona selection (#3617) with its own revision.
+Reading needs a human session (owner or ambient); writing has its own
+owner-only guard: the owner's password or passkey session, or the ambient human,
+and 403 with an empty body for anyone else, before the body is read. Unknown
+ids are 400 `LIVE_PROVIDER_UNKNOWN`, malformed bodies 400 `LIVE_SETTINGS_INVALID`,
+stale revisions 409 `LIVE_SETTINGS_CHANGED` with `current`. A save sends
+[`live_settings`](wire.md#live-service-selection-additive-3616) and applies from
+the next explicit Start. It is independent of `/api/models/default` and
+`/api/voice/dictation/settings`. The route shapes, error codes and the guard are
+supported HTTP promises.
+
+### Live-conversation personas (additive, 0.45.0, #3617)
+
+The [persona routes](../http-api.md#live-conversation-personas) read and write
+`_voice/personas/<id>.md` and the selection. Every route requires a human
+session of the brain (an owner, or an ambient-auth account); delegated agent,
+worker and system principals receive `403` with an empty body. Writes replace
+the file atomically inside the brain and never follow a link out of
+`_voice/personas`. Revisions are the sha-256 of the file bytes; `PUT` and
+`DELETE` must name the current one or receive `409 PERSONA_CHANGED`. Error
+bodies are fixed codes, never persona text. Route paths, request and response
+schemas, revision semantics and error codes are supported HTTP promises.
+
+### Checkpoint cleanup diagnostics (additive, #3815)
+
+Authenticated `GET /api/status` adds `journalCleanup`: `retained` contains
+`pending`, `failed` and `retainedBytes` for this process's superseded checkpoints;
+`lastFailure` is null or the durable historical failure with `kind`,
+`checkpointId`, `at` (epoch milliseconds), `scope`, `errorClass`, `cause` and
+`retrying: true` at the time it was recorded. The historical cause survives
+recovery and restart; it does not assert a currently blocked turn. Current
+charges remain separate in `retained`. No field changes public `/health`.

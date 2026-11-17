@@ -5,7 +5,7 @@ import type { BrainUiRoot } from "../root.js";
 import { accountPartition, type PartitionHandle } from "./local-partitions.js";
 
 export const SHARE_REVIEW_PREFIX = "share:review:";
-export type ShareReview = { record: StoredShare; confirmed: boolean };
+type ShareReview = { record: StoredShare; confirmed: boolean };
 
 /** Several mounted consumers may share one root; ownership belongs to the root. */
 export type ShareReviewSession = {

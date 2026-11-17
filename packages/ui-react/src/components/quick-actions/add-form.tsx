@@ -25,14 +25,14 @@ import { useFinePointer } from "../../hooks/use-fine-pointer.js";
  */
 export type AddState = "editing" | "saving" | "saved" | "error";
 
-export interface AddDraft {
+interface AddDraft {
   content: string;
   title: string;
   type: string;
   tags: string;
 }
 
-export interface AddFormProps {
+interface AddFormProps {
   state: AddState;
   draft: AddDraft;
   /** Types already in the brain, offered as completions — a hint list, not a closed set. */

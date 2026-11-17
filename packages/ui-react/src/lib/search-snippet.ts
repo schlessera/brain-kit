@@ -9,7 +9,7 @@ import { stripMarkdown } from "./strip-markdown.js";
  * syntax stripped and the whitespace collapsed, so a result row is one legible
  * line with its hits highlighted.
  */
-export interface SnippetSegment {
+interface SnippetSegment {
   text: string;
   hit: boolean;
 }

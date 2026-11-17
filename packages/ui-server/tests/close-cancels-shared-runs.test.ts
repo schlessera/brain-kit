@@ -160,6 +160,7 @@ test("the client's shutdown signal cancels admitted metadata with its exact reas
   closing.abort(new Error("Server shutting down"));
   const reason = new Error("Server shutting down");
   shutdown.abort(reason);
+  // Failure maximum: on success the cancellation settles first and the 10 s branch is never awaited.
   const outcome = await Promise.race([modules, Bun.sleep(10_000).then(() => "still running")]);
   expect(outcome, "SHUTDOWN_CANCELS_ADMITTED_METADATA").toBe(reason);
 }, 45_000);

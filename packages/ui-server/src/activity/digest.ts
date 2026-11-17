@@ -17,12 +17,11 @@ import { isFailureOutcome, type ActivityDigest } from "@schlessera/brain-ui-sdk/
 import { getSetting, setSetting } from "../db/settings.js";
 import { rowToRunRollup, sumEffectiveCost } from "./store.js";
 
-export type { ActivityDigest } from "@schlessera/brain-ui-sdk/protocol";
 
-export const DIGEST_LATEST_KEY = "activity.digest.latest";
-export const DIGEST_COVERED_KEY = "activity.digest.coveredUntil";
-export const DIGEST_DISMISSED_KEY = "activity.digest.dismissedAt";
-export const DIGEST_JOB_NAME = "digest";
+const DIGEST_LATEST_KEY = "activity.digest.latest";
+const DIGEST_COVERED_KEY = "activity.digest.coveredUntil";
+const DIGEST_DISMISSED_KEY = "activity.digest.dismissedAt";
+const DIGEST_JOB_NAME = "digest";
 
 /** First run ever: no covered-until marker — cap the window at 24h. */
 const FIRST_WINDOW_MS = 24 * 60 * 60 * 1000;

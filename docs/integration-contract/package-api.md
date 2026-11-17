@@ -60,6 +60,28 @@ A backend that never calls it, and every call it reports nothing for, keeps
 the observation after each result. This is first-party implementation sharing
 under the internal-entry classification below and requires a patch changeset.
 
+## Workspace paths in turn observation facts (additive, 0.45.0, #3793)
+
+The `onObservation` observer of `createTurnJournal`'s journal, tagged
+`@internal` but recorded in `api-report/` because the journal's type is
+inferred, receives one more fact: `workspacePaths`, how many of the
+observation's `changedPaths` lie below `workspaces/` by path containment.
+`changedPaths` still counts every changed path. The host scope monitor caps
+`files_changed` at `changedPaths - workspacePaths`; `turn_bytes`, the
+free-space floor and the scope summary's `changedPaths` are unchanged. No wire,
+HTTP or policy shape changes.
+
+## Managed GitHub acquisition wire (internal #3613)
+
+The internal turn proxy has a first-party `managedReference(target,
+signal)` operation for fixed GitHub HTTPS acquisition and a `remainingBytes()`
+counter. It retains ordinary G6 recipient narrowing, final admission fences
+and byte accounting; it cannot grant a contacted-host allowance. No worker
+header selects it. The internal entry also exports the existing
+`egressAddressRefusal` validator so the fixed acquisition wire validates every
+DNS address before connecting to a checked IP. These are implementation
+sharing, with no supported public transport extension seam (#3613).
+
 ## Prepared ordinary inference transport (internal #1665)
 
 The existing `WorkerSandbox` input adds optional `@internal egress`, a concrete host-created
@@ -97,7 +119,8 @@ that has a turn proxy, and one per credentialed maintenance run where the host
 has managed native storage. A relay sends a key only to that key's built-in
 first-party origin (`GEMINI_API_KEY` to `https://generativelanguage.googleapis.com`,
 `ANTHROPIC_API_KEY` to `https://api.anthropic.com`, `OPENAI_API_KEY` to
-`https://api.openai.com`) or to an exact origin the server's
+`https://api.openai.com`, `TYPESAFE_API_KEY` to `https://api.typesafe.ai`
+since #3792) or to an exact origin the server's
 `BRAIN_UI_CLI_PROVIDER_ORIGINS` (`KEY=origin[,origin];...`) lists for that key.
 A custom endpoint or a custom key variable is refused unless listed. The
 public protocol adds the `TurnBudgetCoverage` type ([wire](wire.md#completed-inference-usage-and-budgets-additive-1669)).
@@ -131,6 +154,115 @@ passes its origin to `startInferenceRelay` as the new internal
 origin, and a turn without a relay refuses to start. The first-party
 Claude and pi backends implement all three.
 
+<a id="consumer-frames-without-pong-breaking-3389"></a>
+
+## Consumer frames without `pong` (breaking before 1.0, #3389)
+
+`@schlessera/brain-ui-sdk/protocol` (and the root and `./client` entries that
+re-export it) exports `ConsumerServerMessage`, defined as
+`Exclude<ServerMessage, ServerPong>`: the frames `BrainUiClient` hands its
+consumer. `ServerFrameHandlers` is keyed on `ConsumerServerMessage["type"]`
+and its `onAny` takes a `ConsumerServerMessage`. Before, both were keyed on
+`ServerMessage`, so a consumer could register a `pong` handler that the client
+never called, because it answers its own probes and returns first. That
+handler is now a type error; delete it. Code typed against `ServerMessage`
+still accepts every frame the client delivers.
+
+`ServerMessage`, `ServerPong`, `serverPongSchema` and `parseServerMessage` are
+unchanged, as is the [liveness exchange](wire.md#interactive-answer-receipts-breaking-910) on the wire.
+
+In `@schlessera/brain-ui-react`, `root.connection.conversation` gains
+`receive(frame)` for the frames the conversation client owns:
+`dialogue_history`, `tool_resolution`, `conversation_opened`,
+`conversation_closed`, `conversation_event`, `conversation_work`,
+`conversation_output` and `conversation_permission`. The server-frame handler
+map routes them there, and `frame()`, which still sees every inbound frame
+first, now returns them unchanged instead of consuming them. `frame()` takes
+and returns a `ConsumerServerMessage`. `root.connection.handleServerMessage`
+still takes a `ServerMessage` and ignores a `pong` fed to it. The client's
+`permissions` likewise gains `resolution(frame)` for `tool_resolution`, which
+`permissions.frame()` no longer reads. What voice does with each frame is
+unchanged.
+
+<a id="reading-a-chat-deletions-outcome-additive-3455"></a>
+
+## Reading a chat deletion's outcome (additive, #3455)
+
+`@schlessera/brain-ui-sdk/protocol` (and the root and `./client` entries that
+re-export it) exports `ChatDeletionNotAdmitted`, the 404 body of
+`GET /api/chat-deletions/:operationId` when nothing is retired under that
+operation for the caller. In `@schlessera/brain-ui-server`, the chat deletion
+service gains `read(operationId, principalId)`, which returns the caller's
+current receipt or null and never admits or cleans up. Semantics are in the
+[HTTP](../http-api.md#explicit-chat-deletion-additive-3230) component.
+
+<a id="explicit-chat-deletion-additive-3230"></a>
+
+## Explicit chat deletion (additive, #3230)
+
+`@schlessera/brain-ui-sdk/protocol` (and the root and `./client` entries that re-export it) exports `CHAT_DELETION_CAPABILITY`
+(`"chatDeletion"`), `ChatDeletionRequest`, `ChatDeletionReceipt`,
+`ChatDeletionStore`, `ChatDeletionOutcome`, `ChatDeletionRetained`,
+`ChatDeletionRefusal` and `ServerChatRetired`, now a member of `ServerMessage`.
+`DraftErrorCode` and `DraftErrorResponse` gain `DRAFT_CHAT_RETIRED`.
+`@schlessera/brain-ui-sdk/schemas` exports `serverChatRetiredSchema`, and
+`parseServerMessage` accepts the frame. A client that switches exhaustively over
+`ServerMessage["type"]` needs a case for `chat_retired`; the host sends it only to
+connections that declared the capability. In `@schlessera/brain-ui-server`, `WsHost`
+gains optional `chatDeletion` and the session catalog optional `cleanChatStore` and
+`unfinishedChatRetirements`, host wiring reachable from its exports. Semantics are in the
+[HTTP](../http-api.md#explicit-chat-deletion-additive-3230) and
+[wire](wire.md#explicit-chat-deletion-additive-3230) components.
+
+<a id="typed-chat-owner-bindings-additive-3337"></a>
+
+## Typed chat owner bindings (additive, #3337)
+
+In `@schlessera/brain-ui-server`, the session catalog's `persistSessionStub`
+takes an optional fifth argument, `ownerPrincipalId`. The bridge passes it only
+when an authenticated typed request created the session. The catalog records it
+as the chat's content-free owner binding only if that call creates the
+session's row. A custom catalog that ignores the argument keeps today's
+behaviour, so typed-only chats stay undeletable. Semantics are in the
+[HTTP](../http-api.md#explicit-chat-deletion-additive-3230) component.
+
+## Native history removal (additive, #3229)
+
+`BackendCapabilities` adds optional `historyRemoval?: boolean`, and
+`AgentBackend` adds optional `removeSessionHistory?(req:
+SessionHistoryRemovalRequest): Promise<SessionHistoryRemovalResult>`, exported
+from `@schlessera/brain-ui-sdk/server` with
+`SessionHistoryRemovalRequest` (`{ operationId: string; sessionId: string;
+signal?: AbortSignal }`), `SessionHistoryRemovalResult` (`{ outcome }`) and
+`SessionHistoryRemovalOutcome` (`"removed" | "partial" | "unknown"`).
+Removal is supported only when the capability is `true` and the method exists;
+the conformance suite in `@schlessera/brain-ui-sdk/testing` checks that they
+agree. A host refuses deletion of a chat on any other backend before it
+retires anything; older backends remain valid and simply do not support it.
+
+A host calls it only for a chat its owner explicitly retired, under that
+retirement's operation identity, as the
+[deletion policy](../decisions/chat-history-deletion.md) allows. Before its first
+await the backend fences the session durably and permanently: `listSessions`
+omits it, `getHistory` returns `[]`, and resume, follow-up, archive and
+restore refuse it, after a restart too. It then waits for the session's running
+turns and readers to drain and removes every native artifact it owns: live,
+archived, staged and conflict copies, subordinate and branch files, display and
+prompt metadata and file observations. Only names derived from the validated
+session identity are touched; a link, hard-linked file, redirected root or
+artifact whose own header names another session is left in place.
+
+The outcome is content-free and maps onto the host's per-store ledger:
+`removed` only when every owned artifact is confirmed absent and the installed
+runtime no longer lists the session; `partial` while owned content may remain,
+including when `signal` aborts the caller's wait first (the removal keeps its
+single owner and finishes after a genuine drain); `unknown` when an unexpected
+failure left the state unconfirmed. Every outcome but `removed` is retried under
+the same operation. A second operation for the same session, an invalid
+identity or a redirected tombstone root rejects with `BackendRequestError`.
+Previously sent provider bytes are never rewritten, and provider-held copies
+are outside it. The first-party Claude and Pi backends implement it.
+
 ## Inbox provenance (additive, #2741)
 
 The intake `createInboxIntake` returns adds `person(input, key, principal)`:
@@ -157,6 +289,253 @@ control. Both are plain inert text, wrapped anywhere and never parsed. An
 omitted prop or state keeps every existing file default, meaning, state
 machine, focus and announcement. The kit has no finding-kind prop: callers
 choose the copy from the action and outcome they hold.
+
+## Composer file attachments (additive, 0.45.0, #3153)
+
+`@schlessera/brain-ui-sdk/protocol` exports the composer-file constants and
+types and `@schlessera/brain-ui-sdk/schemas` the `attachmentFileSchema` and
+`attachmentLimitsSchema` validators listed in
+[the wire component](wire.md#composer-file-attachments-additive-0450-3153).
+`SessionDraftLimits`, `DraftSummary`, `Draft`, `DraftSaveRequest`,
+`ChatImageAttachment`, `ClientChatMessage`, `ServerHello` and
+`SessionHistoryMessage` gain optional fields only; `DraftErrorResponse`'s
+`DRAFT_TOO_LARGE` `bound` gains `draftFiles` and `draftCount`. The
+environment input `BRAIN_UI_ATTACHMENT_POOL_BYTES` sets the host attachment
+pool (default 1,073,741,824 bytes). The governed worker profile mounts
+`.brain-ui/attachments/` read-only (`HOST_READ_ONLY_AREAS` in the SDK's
+internal worker protection). It is not a protected path: no policy names it
+and nothing is quarantined when the host writes it.
+
+In `@schlessera/brain-ui-server`, `ServerConfig` gains `attachmentPoolBytes`
+and `SessionCatalog.recordMessageSource`'s optional effort argument gains
+`attachmentFiles?: MessageAttachment[]` (an `AttachmentFile` with an optional
+`inline` flag), which the host records so replay can reproduce the block.
+
+## Outgoing snapshot bubbles (additive, 0.45.0, #3155)
+
+`BrainUiConnection.drafts` (the `connection` of a `createBrainUiRoot` root)
+gains two methods beside `resend`, `check` and `edit`:
+
+- `resendSnapshot(requestId)`: Send again for a send that an outgoing
+  snapshot carries and no answer settled. A new request replaces it, and the
+  old snapshot is returned and left out as its successor is created. It
+  returns false when that send is not unconfirmed.
+- `sendPaused(draftId, snapshotId)`: Send for a held snapshot restored after a
+  reload, which never sends without this call.
+
+`check(requestId)` also accepts a snapshot's send. A recovery envelope with no
+accepted work (`revision` 0) returns that snapshot unsent. `UnconfirmedSends`
+skips sends that a snapshot carries, because their bubble stands for them.
+The kit's `StatusIndicatorProps.announce` is described with
+[the indicator](#ui-kit-compact-operation-status-additive-3281). No other
+export changes.
+
+## Composer draft indicator (additive, 0.45.0, #3155)
+
+`ComposerProps` in `@schlessera/brain-ui-kit` gains optional
+`status?: ReactNode`. It is a compact status placed beside the attach trigger,
+in the order attach · status · field · mic · send/stop. The kit places it in a
+44px box that takes a 28px place in the row, so the field keeps its height,
+and draws nothing for it on a `plain` surface. Omitted, the row is unchanged.
+`@schlessera/brain-ui-react`'s composer passes its draft indicator, a
+`StatusIndicator`, there. The indicator replaces the save line that was under
+the field
+([the D52 amendment](../decisions/design-kit/sessions-and-drafts.md)).
+`DraftSaveLine`'s behaviour is unchanged where it is still used.
+
+`BrainUiConnection.drafts` gains `checkSave(draftId)`. It is Check again for a
+draft save whose answer was lost: one `GET /api/drafts/:draftId`, never a save.
+It resolves to one of these:
+
+- `saved`: the host's revision is the one that save would have made, with the
+  same text, images, original bindings and snapshot list. The draft takes it
+  as acknowledged.
+- `not_saved`: the host still holds the revision before the save.
+- `changed`: the host holds something else.
+- `unreachable`
+- `none`: no save of that draft is unanswered.
+
+No route, wire frame or other export changes. `api-report/` records the added
+prop.
+
+## Reading composer attachments (additive, 0.45.0, #3154)
+
+`@schlessera/brain-ui-sdk/tool-contracts` (and `/server`, which re-exports it)
+gains `READ_ATTACHMENT_TOOL_NAME`, `READ_ATTACHMENT_INPUT_SCHEMA`,
+`READ_ATTACHMENT_DESCRIPTION`, `READ_ATTACHMENT_CONTRACT`,
+`ATTACHMENT_READ_MAX_PAGES` (20), `ATTACHMENT_READ_MAX_CALL_BYTES` (65,536),
+`ATTACHMENT_READ_MAX_TURN_BYTES` (262,144), `ATTACHMENT_READ_OUTCOMES` and the
+types `ReadAttachmentInput`, `AttachmentReadResult`, `AttachmentReadOutcome`
+and `AttachmentReadFailure`, as [the MCP component](mcp.md#read_attachment-additive-0450-3154)
+describes. `@schlessera/brain-ui-sdk/server` gains the experimental backend
+toolkit helpers `handleReadAttachment(input, bridge)` and
+`formatAttachmentRead(result, nonce?)`, and `BackendBridge` the optional
+`readAttachment(input)`. No existing export changes.
+
+## Host-owned web tools (additive, 0.45.0, #3685)
+
+`@schlessera/brain-ui-sdk/tool-contracts` (and `/server`, which re-exports it)
+gains `WEB_TOOL_NAMES`, `WEB_TOOL_NAME_LIST`, `isWebToolName`,
+`WEB_TOOL_PROVIDERS`, `WEB_TOOL_LIMITS`, `WEB_TOOL_ERROR_CODES`, the four input
+schemas `WEB_SEARCH_INPUT_SCHEMA`, `FETCH_CONTENT_INPUT_SCHEMA`,
+`GET_SEARCH_CONTENT_INPUT_SCHEMA` and `SOURCE_CHECK_INPUT_SCHEMA`,
+`WEB_TOOL_CONTRACTS`, `parseWebToolInput(name, input)`,
+`webToolProviders(input)` and the types `WebToolName`, `WebToolProvider`,
+`WebToolErrorCode`, `WebToolEnvelope`, `WebToolParse`, `WebToolCall`,
+`WebToolInput` and each tool's input type, as
+[the MCP component](mcp.md#host-owned-web-tools-additive-0450-3685) describes.
+`@schlessera/brain-ui-sdk/server` gains the experimental backend toolkit
+helper `handleWebTool(name, input, bridge, toolCallId)`, and `BackendBridge`
+the optional `webAccess(call)`. No existing export changes.
+
+Since #3688 `WebToolCall` has an optional `model: WebModelAccess`, the turn's
+admitted model as its backend lends it on the host, and `handleWebTool` takes
+it as an optional fifth argument, `model`. `WebModelAccess` is
+`{ provider, model, open(egress, signal?) }`; `open` starts a host relay for
+exactly that model into a web executor's egress route (`WebModelEgress`:
+`{ dir, inference }`) and resolves to `{ grant, stop() }`. `WebModelGrant`
+(`{ provider, model, credential: "api_key" | "oauth", basePath, socket }`) is
+everything the executor is told, and never holds a credential. A backend that
+does not set `model` behaves as before.
+
+## UI-kit image editors and markup (additive, 0.45.0, #3983)
+
+`@schlessera/brain-ui-kit` exports the shared image-editor shell and the
+markup editor's parts. `request_image_markup` integration (#3975) consumes
+them; no tool, wire or mask contract changes here.
+
+- `ImageEditorFrame`: the fullscreen dark editor shell. Props `open`, `title`,
+  optional `subtitle` (plain text), `subtitlePrefix` and `subtitleMode`
+  (`"truncate"`, one line, or `"expand"`, two lines that expand with
+  `aria-expanded`), `closeLabel`, `onClose(reason)`, `error`, `toolbar`,
+  `children` (the stage), `initialFocus`, `stageRef`, `stagePadding` and
+  `data-*`. The mask editor in `@schlessera/brain-ui-react` now renders inside
+  it with unchanged visible behaviour.
+- `MarkupEditor`: the composed editor. Props `open`, `src`, `imagePath`,
+  optional `instruction`, `size` (the source's displayed `{ width, height }`
+  after EXIF orientation, which the layer is exported at), `maxBytes`
+  (default `MARKUP_MAX_BYTES`, 52,428,800), `onSubmit(layer)`, `onDismiss()`,
+  and `initialMarks`, `initialView`, `initialTool`, `exportLayer` and `layout`
+  for stories and tests. "Send markup" needs a committed mark; dismissal with
+  marks asks first; an encoded layer over `maxBytes` keeps the editor open
+  with `overCapMessage`. `MARKUP_EDITOR_TITLE` and `MARKUP_CLOSED` ("The user
+  closed the markup editor") are the strings the integration matches.
+- Parts: `MarkupCanvas` (controlled marks, own zoom/pan, `onCommit`,
+  `onNoteRequest`, `noteField`, `focusTarget`), `MarkupToolbar` (with
+  `MARKUP_TOOLS` and `MARKUP_EMPTY_HINT`), `MarkupNoteField`,
+  `MarkupResultCard` (`imagePath`, `markupPath`, `width`, `height`, `bytes`,
+  `marks`, `notes`, optional `markupSrc` and `matchesSource`; with
+  `markupReceiptRows`, `MARKUP_NOT_RENDERED`, `MARKUP_RECEIPT_NOTES`) and
+  `MarkupFallback` (`imagePath?`, `reason`).
+- The model: types `Mark` (`PenMark`, `ArrowMark`, `EllipseMark`, `TextMark`,
+  all in image coordinates), `MarkupTool`, `MarkupColor`, `MarkupWidth`,
+  `MarkupPoint`, `MarkupSize`, `MarkupCounts` and `MarkupExport`
+  (`{ png, bytes, width, height, counts, notes }`); constants
+  `MARKUP_COLORS`, `MARKUP_WIDTHS`, `MARKUP_MAX_BYTES`, `MARKUP_MAX_ZOOM`,
+  `MARKUP_NOTE_MAX` and `MARKUP_SECOND_TOUCH_MS`; and `exportMarkupPng(marks,
+  size)`, `countMarks`, `markupNotes`, `describeCounts`, `markupSummary`,
+  `markupBytesLabel` and `overCapMessage`. `counts` uses the result keys
+  `pen`, `arrow`, `ellipse` and `text`.
+
+The semantic `IconName` gains `pen`, `arrow`, `ellipse`, `text`, `undo`,
+`redo`, `erase`, `zoom-in`, `zoom-out` and `fit` for the markup toolbar and
+zoom controls. No existing key, glyph or component changes. This ships in a
+minor.
+
+## UI-kit GitHub components and untrusted text (additive, 0.45.0, #3800)
+
+`@schlessera/brain-ui-kit` exports the presentational GitHub components and a
+safe renderer for text written outside Brain. They take props and callbacks
+only: no client, fetch or store, and they never build a URL. #3795 binds the
+GitHub tool payloads to them; no tool, wire or payload contract changes here.
+
+- `UntrustedText` (`text`, `source`, optional `sourcePhrase`, `author`,
+  `frame` `"box" | "rule" | "none"`, `caption`, `lines`, `linesNarrow`,
+  `expandLabel`, `maxChars`, `truncated`, `truncatedNote`) renders a safe
+  markdown subset. HTML and images stay text; an `https:` link is a button
+  that opens a full-address interstitial, and only its Open action navigates
+  (new tab, `noopener noreferrer nofollow`). `registrableDomain(host)` returns
+  the public-suffix registrable domain it names.
+- Components: `GitHubPullRequest`, `GitHubIssue` (with `posting`
+  `"preview" | "posted"`), `GitHubWriteNotice` (`outcome`
+  `"declined" | "changed" | "unknown"`), `GitHubThread` (`GitHubThreadItem`),
+  `GitHubComment`, `GitHubReview` (`GitHubReviewState`), `GitHubCommitRow`,
+  `GitHubMergeEvent`, `GitHubResultList` (`GitHubResult`),
+  `GitHubDetailSection` (`GitHubDetailState`: `"idle" | "loading" | "loaded" |
+  "empty" | "error" | "rate-limited" | "no-credential" | "gone"`),
+  `GitHubStateChip` (`GitHubState`), `GitHubRef`, `GitHubIdentity` and
+  `GitHubParticipants`, each with its `…Props` type, plus `GitHubPerson`.
+- `githubHref(raw)` returns a direct link's address only for `https:` on host
+  exactly `github.com` with no userinfo or port, else `null`; every direct
+  `GitHub ↗` slot renders through it. `avatarSrc` loads only from the page's
+  own origin.
+
+`Overlay` gains optional `describedBy` (`aria-describedby`). The semantic
+`IconName` gains `pr-open`, `pr-merged`, `pr-closed`, `issue-open`,
+`issue-closed`, `not-planned`, `draft`, `commit`, `changes-requested` and
+`review-pending`. The package gains the `tldts` runtime dependency. No
+existing export, key, glyph or prop changes. This ships in a minor.
+
+## Image markup tool (additive, 0.45.0, #3975)
+
+`request_image_markup` is described in
+[the MCP component](mcp.md#hosted-markup-layer-application-additive-0450-3975),
+its frames in [the wire component](wire.md#markup-requests-additive-0450-3975),
+and its upload in the [HTTP API](../http-api.md#markup-layer-upload-additive-0450-3975).
+The packages gain only these exports, and no existing export changes:
+
+- `@schlessera/brain-ui-sdk/tool-contracts` (re-exported from `/server` and
+  `/client`): `REQUEST_IMAGE_MARKUP_TOOL_NAME`, `REQUEST_IMAGE_MARKUP_DESCRIPTION`,
+  `REQUEST_IMAGE_MARKUP_INPUT_SCHEMA`, `REQUEST_IMAGE_MARKUP_INSTRUCTION_MAX`
+  (200), `IMAGE_MARKUP_PAYLOAD_SCHEMA`, `REQUEST_IMAGE_MARKUP_CONTRACT` and the
+  types `RequestImageMarkupInput`, `ImageMarkupPayload` and `ImageMarkupCounts`.
+  `BRIDGE_TOOL_CONTRACTS` and `BRIDGE_TOOL_POSTURE.names` list it after
+  `request_image_mask`. `SurfaceTools` gains an optional `markup` name.
+- `@schlessera/brain-ui-sdk/server`:
+  - `BackendBridge.requestImageMarkup?(input)`, the host-owned operation that
+    resolves with the payload;
+  - the experimental backend toolkit helper
+    `handleRequestImageMarkup(input, bridge)`, which refuses when the callback
+    is absent;
+  - `BRAIN_MARKUP_MAX_BYTES` (52,428,800), `BRAIN_MARKUP_MAX_PIXELS`
+    (16,777,216), `BRAIN_MARKUP_SOURCE_MAX_BYTES` (134,217,728),
+    `BRAIN_MARKUP_DIR` (`.brain/scratch/markup`), `BRAIN_MARKUP_MAX_NOTES`
+    (200), `BRAIN_MARKUP_NOTE_MAX_CHARS` (80) and `BRAIN_MARKUP_CLOSED`.
+- `@schlessera/brain-ui-sdk/protocol`: `ServerMarkupRequest`,
+  `ClientMarkupError` and `IMAGE_MARKUP_CAPABILITY`. `/schemas` gains
+  `serverMarkupRequestSchema` and `clientMarkupErrorSchema`.
+  `BrainUiClient`'s `client_hello` declares `imageMarkup: true`.
+- `@schlessera/brain-ui-server`: `MARKUP_UPLOAD_MAX_BODY_BYTES` (52,690,944),
+  for a deployment's `maxRequestBodySize`. `createApp` mounts the upload
+  route, and Claude and pi turns that may apply to the brain receive
+  `requestImageMarkup`.
+- `@schlessera/brain-backend-claude` and `@schlessera/brain-backend-pi`
+  register the tool in their stable interactive rosters, after
+  `request_image_mask`. It is auto-allowed when the host offers it and refused
+  at call time on voice and no-grant turns. Pi's `capsOf` and `SessionCaps`
+  gain an optional `markup`.
+- `@schlessera/brain-ui-react`: the type `MarkupRequest`. The chat page opens
+  the kit's `MarkupEditor` for a `markup_request`, uploads the layer, and
+  renders the result with the kit's `MarkupResultCard` or `MarkupFallback`.
+
+The CLI's PNG, JPEG and WebP header reader moves to
+`@schlessera/brain-common/internal/image-header` (`imageHeader`, `isPng`,
+`ImageHeader`), which has no compatibility promise. The images module
+re-exports it under its existing names, so its behaviour is unchanged.
+
+## UI-kit enlarge icon (additive #3397)
+
+The semantic `IconName` gains `enlarge`: open content in its dedicated
+full-size viewer. It draws lucide's `Expand`, the glyph the chat Mermaid block
+already uses for Open diagram. The framed diagram renderer's header uses it.
+No existing key, glyph or component changes.
+
+## UI-kit backspace icon (additive, 0.45.0, #3762)
+
+The semantic `IconName` gains `backspace`: discard what is held, as a
+keyboard's backspace key does. It draws lucide's `Delete`, the backspace-key
+glyph. The voice field's Discard draft control uses it. No existing key, glyph
+or component changes. This ships in a minor.
 
 ## UI-kit Button reach (additive #3252)
 
@@ -211,6 +590,42 @@ and `onOpenChange` fires on every toggle with the value being moved to.
 not exported, and is no extension seam. No CLI, MCP, wire, storage or HTTP
 shape changes; a minor changeset covers the additions.
 
+## UI-kit compact operation status (additive, #3281)
+
+`@schlessera/brain-ui-kit` exports `StatusIndicator` and the types
+`StatusIndicatorProps`, `StatusIndicatorOperation`, `StatusIndicatorFact` and
+`StatusIndicatorState`. [D58](../decisions/design-kit/components-and-interactions.md#2026-11-03--d58-compact-operation-status-is-one-presentational-control-3281)
+records the state matrix and the interaction.
+
+- `StatusIndicatorProps`: `label` (what the status is about), `summary` (the
+  tooltip sentence, repeated at the top of details), `title` (the details
+  heading), `operations` and an optional `returnFocus` callback, used when
+  details close after the trigger has gone.
+- `StatusIndicatorOperation`: `id` (the consumer's stable identity), `state`,
+  `stateLabel` (the state in the consumer's words), and optional
+  `explanation`, `facts` (`StatusIndicatorFact`: `key`, `value`) and
+  `actions` (a `ReactNode` of consumer buttons, rendered in details only).
+- `StatusIndicatorState`: `active`, `queued`, `success`, `attention`,
+  `unknown`, `failed`, `refused` or `idle`.
+
+An optional `announce` (additive, #3155) defaults to `true`. With `false` the
+indicator renders no live region, for a consumer that announces the same
+change itself, so it is never spoken twice.
+
+The component is presentational. It derives only the displayed state and the
+count. The display state is the worst operation's state, in the order refused,
+failed, unknown, attention, active, queued, success, idle. Two or more
+operations show a count. An empty list renders a reserved 44px slot without a
+control, and it is never success. The accessible name is
+`{label}: {lead stateLabel}[; {n} operations]. Details.`
+
+The consumer is responsible for authoritative evidence. Nothing in the
+component infers success from time, animation or response order, and opening
+details triggers no action. State, freshness, identity, persistence and every
+action's authority stay with the consumer. `StatusDot` is unchanged. No CLI,
+MCP, wire, storage or HTTP shape changes; a minor changeset covers the
+additions.
+
 ## Maintenance temporary-storage host configuration (additive #1708)
 
 `BRAIN_UI_MAINTENANCE_TEMP_BYTES` and `BRAIN_UI_MAINTENANCE_TEMP_BUDGET_BYTES`
@@ -248,6 +663,63 @@ for storage and supported-host requirements.
 
 <a id="package-entry-points"></a>
 
+## Apify bridge tools (additive, 0.45.0, #3162)
+
+`@schlessera/brain-ui-sdk/tool-contracts` (re-exported from `/server`) adds
+`APIFY_TOOL_CONTRACTS`, the seven `brain_apify_*` contracts, with
+`APIFY_OPERATIONS`, `APIFY_TOOL_NAMES`, `APIFY_ERROR_CODES`, `APIFY_GUIDANCE`,
+`apifyOperationOf` and the `ApifyToolCall`, `ApifyToolResult`,
+`ApifyEnvelope`, `ApifyErrorCode`, `ApifyOperation` and `ApifyToolName`
+types. `@schlessera/brain-ui-sdk/server` adds `handleApifyTool(name, input,
+bridge)`, which validates the strict input and forwards `{ tool, input }` to
+the optional new `BackendBridge.apify(call)`; without it the tool refuses as
+`provider_disabled`. The host binds principal, session, turn, posture and
+approvals; a backend sends the parsed input only. Names, schemas and the
+envelope are documented in [the MCP component](mcp.md#apify-tools-additive-0450-3162).
+Both first-party backends register the tools in every interactive session.
+
+## Host GitHub tools (additive, 0.45.0, #3797)
+
+`@schlessera/brain-ui-sdk/tool-contracts` (re-exported from `/server`) adds
+the four GitHub tool contracts (`GITHUB_TOOL_CONTRACTS`,
+`GITHUB_READ_TOOL_CONTRACTS` and each `GITHUB_ISSUE_*_CONTRACT`), their names
+(`GITHUB_TOOL_NAMES`, `GITHUB_TOOL_NAME_LIST`, `GITHUB_READ_TOOL_NAMES`,
+`isGithubToolName`), the four strict input schemas, the payload schemas
+(`GITHUB_ISSUE_READ_PAYLOAD_SCHEMA`, `GITHUB_ISSUE_SEARCH_PAYLOAD_SCHEMA`,
+`GITHUB_ISSUE_CREATE_PAYLOAD_SCHEMA`, `GITHUB_ISSUE_COMMENT_PAYLOAD_SCHEMA`
+and their parts), `GITHUB_RESULT_SCHEMAS`, `GITHUB_ERROR_CODES`,
+`GITHUB_LIMITS`, the origins `GITHUB_WEB_ORIGIN` and `GITHUB_API_ORIGIN`, the
+name helpers `isGithubRepositoryName` and `parseGithubRepository`, the
+direct-link validators `githubDirectUrl(value, scope, target)`,
+`githubSearchUrl(scope, q)` and `isGithubSearchUrl(value, scope, q)`, and the
+matching types (`GithubToolCall`, `GithubToolResult`, each payload, input and
+part). `@schlessera/brain-ui-sdk/server` adds the experimental backend toolkit
+helper `handleGithubTool(name, input, bridge)`, which validates the strict
+input and forwards `{ tool, input }` to the optional new
+`BackendBridge.github(call)`; without it the tool refuses `unavailable`
+(`no_host`). Shapes are documented in
+[the MCP component](mcp.md#host-github-tools-additive-0450-3797). No existing
+export changes.
+
+## GitHub detail-page types (additive, 0.45.0, #3796)
+
+`@schlessera/brain-ui-sdk/tool-contracts` (re-exported from `/server`) adds
+the item and page types the internal
+[GitHub detail route](../http-api.md#github-detail-pages-internal-0450-3796)
+returns: `GITHUB_DETAIL_PARTS` with `isGithubDetailPart` and the
+`GithubDetailPart` type, `GITHUB_DETAIL_PAGE_SIZE` (30),
+`GITHUB_REVIEW_COMMENT_SCHEMA`, `GITHUB_CHANGED_FILE_SCHEMA` with
+`GITHUB_CHANGED_FILE_STATUSES`, `GITHUB_CHECK_RUN_SCHEMA` with
+`GITHUB_CHECK_CONCLUSIONS`, `GITHUB_DETAIL_PAGE_SCHEMA` (one page per part, in
+the existing comment, review and commit types and the three new ones),
+`GITHUB_DETAIL_ERROR_SCHEMA` (the tools' error plus a nullable `reset_at`) and
+`GITHUB_DETAIL_ERROR_RESPONSE_SCHEMA`, and the matching types
+`GithubReviewComment`, `GithubChangedFile`, `GithubCheckRun`,
+`GithubDetailPage` and `GithubDetailError`. Text GitHub users wrote is marked
+untrusted as in the tool payloads. The route's raw path and payload stay
+internal; these exports are the types a client binds to. No existing export
+changes.
+
 ## Package entry points
 
 **Breaking pre-1.0 export curation (#534, ruled on #343 question 1).** Each
@@ -258,7 +730,8 @@ behavior. A member tagged `@internal` in its own JSDoc is excluded, as a
 private member is.
 
 Entry points named `/internal` (`@schlessera/brain/internal`,
-`@schlessera/brain/internal/graph`,
+`@schlessera/brain/internal/graph`, `@schlessera/brain/internal/apify` (additive, #3162),
+`@schlessera/brain-common/internal/apify` and `@schlessera/brain-common/internal/apify-operations` (additive, #3162),
 `@schlessera/brain-scrape/internal`, `@schlessera/brain-render-template/internal`,
 `@schlessera/brain-ui-kit/internal`, `@schlessera/brain-ui-sdk/internal`,
 `@schlessera/brain-ui-sdk/internal/client`, `@schlessera/brain-ui-server/internal`,
@@ -348,6 +821,13 @@ root now exports the share pipeline (`shareMarkdown`, `renderBlockHtml`,
 website's demo uses exactly these, so it builds from the public entry instead of
 from ui-react's source tree.
 
+**Additive: `ChatMessage.attachmentFiles` (#3155).** A user message in
+ui-react's chat store may carry `attachmentFiles?: AttachmentFile[]`: the
+composer originals it named in `chat_message.attachmentRefs`, from the
+optimistic send or from `SessionHistoryMessage.attachmentFiles` on replay. It
+lists the stored originals only. It says nothing about which of their contents
+the agent read, and a reader must not infer a read state from it.
+
 **Additive: `AppErrorBoundary` (#1377).** `@schlessera/brain-ui-react` exports
 `AppErrorBoundary` and `AppErrorBoundaryProps` (`children`, plus a `reload`
 hook for tests). A shell wraps its whole tree in it, providers included, so a
@@ -382,6 +862,45 @@ process context. First-party modules import this entry and never
 `@schlessera/brain/queries`. The `/internal` entry keeps the same names for
 the first-party packages that still import them.
 
+<a id="strictest-path-containment-answers-breaking-before-10-0450-3422"></a>
+**Breaking before 1.0: strictest path containment answers (0.45.0, #3422).**
+`safeResolve(root, rel)` and `resolveWritable(root, rel)` take a path relative
+to the brain root. They return its canonical path, or `null` for any of these:
+
+- an absolute `rel`, even one inside the root;
+- a `..` segment, even one whose result would stay inside;
+- `:` or `\` in a segment, or a NUL;
+- a dangling symlink, wherever it points;
+- a path whose existing components do not all stay inside, such as one that
+  leaves through one link and comes back through another;
+- a root whose realpath fails.
+
+Before 0.45.0, core accepted an absolute path inside the root and a `..` that
+stayed inside. It also followed a dangling link to an inside target and checked
+only the final path. A caller holding an absolute path passes it relative to
+the root's realpath.
+
+The CLI keeps accepting absolute path arguments inside the brain
+([maintainer ruling](https://github.com/schlessera/brain-kit/pull/3465#issuecomment-6602766385)).
+Before resolving one, it converts it with the new, additive
+`brainRelativeArgument(root, arg): string`, also exported from
+`@schlessera/brain/module` for module commands. An absolute argument lexically
+under the root as given or under its realpath becomes repo-relative (`.` for
+the root itself). Any other argument comes back unchanged, so `safeResolve`
+still refuses an absolute path outside the brain and one with a `..` segment.
+The converted path still goes through `safeResolve`, so an absolute path
+through a symlink that leaves the brain is refused. The arguments it covers:
+
+- `brain read`, `archive` and `process` `<path>`;
+- `import --stamp`;
+- `render` `<path>` and `--out`;
+- `eval --out`;
+- `geo` track paths, `--compare`, `--along` and `map --out`;
+- `okf export --out`;
+- `image --out`, `--ref` and `--mask`;
+- `diagram export|build` `<path>` and `--out`;
+- `travel photo --to`, and `travel route` `<file>` and `--to`.
+
 **Additive frozen configuration root (#2848).** `@schlessera/brain/module`
 exports `configurationRoot(root: string): string`. When `root` equals the
 trusted worker's `BRAIN_WORKER_DATA_ROOT` and `BRAIN_WORKER_CONFIG_ROOT` is
@@ -389,6 +908,60 @@ set, it returns the configuration root; otherwise it returns `root` unchanged.
 Module configuration reads use this view while content reads use the data
 root. Jobs scoring reads both `settings/jobs.json` and relative criteria
 Markdown from this frozen view. This addition ships in a minor.
+
+<a id="module-state-area"></a>
+
+**Additive module state area (0.45.0, #3380).** `CommandContext` gains an
+optional `stateDir(): string`. Core's CLI always provides it to a module
+command: it returns `<root>/.brain-ui/modules/<module-name>/`, the module's
+durable state directory, creating it (mode `0700`) on first call, together
+with `.brain-ui/modules/.gitignore` (`*`) when that is absent. `root` is the
+brain root the CLI resolved, which inside a trusted worker is
+`BRAIN_WORKER_DATA_ROOT`. A symlink at `.brain-ui`, `.brain-ui/modules`, the
+module's directory or that `.gitignore` refuses with `ModuleStateError`; a
+module name outside `^[a-z0-9][a-z0-9-]{0,63}$` refuses the same way.
+`@schlessera/brain/module` exports the same rule as `MODULE_STATE_DIR`
+(`".brain-ui/modules"`), `moduleStatePath(name)` (brain-relative, no disk
+access), `moduleStateDir(root, name)` and `ModuleStateError`. The path is part
+of the module contract: a scheduled module job keeps durable state there, and
+in a maintenance worker it is published back through output staging after
+each run like any other brain write, so the next run reads it.
+
+**Read-only host writes from a module command (0.45.0, #3380).** When a module
+command throws an `EROFS` error whose `path` lies outside the brain root (or
+has no path), the CLI exits 2 with a `ModuleReadOnlyPathError` message on
+stderr instead: it names the path, the module and its state area, and, when
+`BRAIN_WORKER_DATA_ROOT` is set, the host execution boundary. An `EROFS`
+inside the brain root keeps the existing `read_only_brain` refusal. No JSON
+shape changes. The cron runner adds a `[cron-run]` line and prefixes the
+recorded error with the same explanation when a worker job exits nonzero with
+an unexplained `EROFS` or "read-only file system" in its stderr.
+
+<a id="module-repositories"></a>
+
+**Additive module repositories (0.45.0, #3380).** A module's config block
+accepts an optional core-owned `repositories: string[]`, removed before the
+module's `configSchema` sees the block, like `enabled`. Each entry must be an
+`https://` URL (or a loopback `http://` URL) with no credential, query,
+fragment or dot segment; at most 16 are allowed, and duplicates collapse. An
+invalid list is a load error for that module. `LoadedModule` gains the optional
+`repositories` field, and `brain module list --json` reports it on every
+configured module (see the [CLI component](cli.md)). The list is a request:
+`@schlessera/brain-ui-server`'s cron runner fetches a repository for a module
+job only when the operator's `BRAIN_UI_MODULE_REPOSITORIES` names it too. That
+allow-list is read from the runner's host environment, is never forwarded to a
+job, and compares repositories by origin and path, ignoring a trailing `/` or
+`.git`. The runner maps a job named `<module>-<entry>` to its module through a
+credential-free `brain module list --json`, matching both the name and the
+entry's `brain …` command. A job whose module asks for a repository the list
+does not allow, or whose fetch fails, is refused before it starts: it exits 1,
+its `cron_runs` error names the repository and the setting, and nothing is
+fetched for it. A granted repository is fetched into a host-private bare mirror
+beside the sync mirror by the sync transport, with `BRAIN_UI_SYNC_GITHUB_TOKEN`
+(else `GITHUB_TOKEN`) sent only to `https://github.com`. The job's worker gets
+the mirror read-only and `url.file://<mirror>.insteadOf` rewrites for the
+URL's plain, `/`, `.git` and `.git/` spellings. It never receives a Git
+credential. The crontab layout is unchanged.
 
 **Additive protected scratch retention (#1743).** The existing module helper
 `pruneScratch(root, now?, options?)` accepts optional
@@ -496,6 +1069,13 @@ receipts; pi counts completed assistant `message_end` receipts, excluding aborte
 and error answers. Server checkpoint settlement uses these receipts as described
 in the [budget guide](../inbox-budget.md). Backends without this optional reporting
 retain conservative missing-receipt settlement.
+
+The additive server-only `BackendActivityEvent` variant `worker_cleanup`
+(#3815) contains `{ state: "retrying" | "resolved", bytes, turnTempBytes,
+errorClass?, message? }`. Both backends report retained cleanup allowances and
+their confirmation, including after a turn ends. The host records these as
+`worker_cleanup` Activity events on the original run without changing its
+terminal outcome. They never enter provider history and add no client frame.
 
 The additive server-only `BackendActivityEvent` variant `resource_limit`
 (#1660) contains `{ limits, fatal }`: each new host resource-limit hit of the
@@ -912,6 +1492,35 @@ network denial, disabled scripting and opt-in sandbox removal retain their
 policy. The rationale and measurements are in
 [renderer-budgets.md](../decisions/renderer-budgets.md).
 
+<a id="scrape-address-policy"></a>
+
+## Scrape address policy and the bounded robots.txt fetch (#2502)
+
+`@schlessera/brain-scrape` adds `ScrapeClientOptions.addressPolicy`
+(`"any" | "public-only"`, default `"any"`) and `ScrapeClientOptions.lookup`.
+It also exports the `NonPublicAddressError` class and the `AddressPolicy`,
+`AddressLookup` and `ResolvedAddress` types. `ScrapeClient` exposes a readonly
+`addressPolicy`. With `"public-only"`, the client refuses a non-public
+address before robots.txt, pacing or the request. It checks the initial
+request, every redirect hop and the robots.txt fetch, whatever
+`respectRobots` is set to. Every resolved address must be public. On the
+native path the connection goes to the checked address, while the original
+host name travels in `Host` and the TLS server name. The proxy path cannot
+pin the address and documents its remaining window in the package README. A
+supplied `robots` cache must carry the same policy, or the constructor
+throws a `TypeError`.
+
+`RobotsCacheOptions` gains `userAgent`, `maxBytes` (default 1 MiB),
+`maxRedirects` (default 5), `addressPolicy` and `lookup`, and `RobotsCache`
+exposes a readonly `addressPolicy`. The network robots.txt fetch now sends
+the client's User-Agent instead of Bun's default. It follows redirects one
+hop at a time, holding each hop to the policy, and refuses an oversized
+body. A refusal is a failed fetch and keeps the existing permissive
+outcome. `ScrapeClient` and `createBrowserSession` pass their User-Agent
+into the cache they construct. Every HTTP redirect to a URL with embedded
+credentials is now refused. All of this is additive and ships in a minor.
+Browser navigation has no address policy.
+
 <a id="browser-scraping-navigation-policy"></a>
 
 ## Browser scraping navigation policy
@@ -960,8 +1569,12 @@ records the approved request boundary and override policy.
 The concrete synchronous `@schlessera/brain/queries` entry supports
 `readGraphMeta`, `readGraphClusters`, `readGraphNeighborhood`,
 `readGraphDiscovery`, `readGraphMaintenance`, `readLinkWalk`,
-`readVoiceVocabulary`, `listIndexDocuments`, `findIndexDocuments` and
-`readStorageReferences`. The additive Storage operation takes `{brainPath, path}`
+`readVoiceVocabulary`, `listIndexDocuments`, `findIndexDocuments`,
+`readStorageReferences` and `pageIndexDocuments`. The additive paging
+operation (0.45.0, #3643) returns one bounded page of the
+[paged inventory](../content-index-queries.md#paged-inventory-and-the-overview-projection)
+as `DocumentPage` (`PagedDocument` rows), the same page `brain list --overview`
+and `brain_list` return. The additive Storage operation takes `{brainPath, path}`
 and returns the common query envelope with `{sources: [{path, indexedAt}], truncated}`.
 It limits resolved incoming sources to 200, reads index metadata only, and refuses
 a symlinked index. Zero observed sources never establishes that a file is unused.
@@ -980,6 +1593,9 @@ without loading executable config or providers for those two reads. Their
 existing pi text/details envelopes, listing default `20`/cap `100`, graph
 default `1`/cap `4`, direction, ordering and truncation remain unchanged.
 An absent indexed graph path still returns empty `edges` and `nodes`.
+Pi's `brain_list` with `path_prefix`, `overview` or `cursor` (additive in
+0.45.0) returns `pageIndexDocuments`' page as compact JSON text; an
+`invalid_input` there names `path_prefix`, `limit` and `cursor` in its error.
 Index compatibility, WAL snapshot consistency and per-call replacement checks
 belong to core. Missing indexes retain the `brain index` instruction; incompatible
 or corrupt indexes request `brain index --force`; busy indexes request a retry;
@@ -1068,14 +1684,17 @@ installation is absent or skewed.
 
 ## Extension interfaces
 
-These eleven seams are `@experimental` until 1.0: breaking changes are
+These thirteen seams are `@experimental` until 1.0: breaking changes are
 minor-version events, announced in the CHANGELOG. Each declaration carries its
 own `@experimental` tag. Related experimental declarations include:
 `BackendBridge`, `BackendCapabilities`, `StartTurnRequest`, `RendererPack`,
 `SpeechSession`, `AsrClientOptions`, `AsrClientFactory`, `AsrClientRegistry`, `LiveConversationSession`,
 `LiveConversationEvent`, `ConversationScope`, `ConversationWorkRef`, `ConversationWorkResult`, `AdapterResult`, `ScrapeContext`,
 `RerankCandidate`, `RerankRequest`, `Ranked`, `AdapterStatus`,
-`AdapterRunOptions`, `RunAdaptersOptions`, `AdapterOutcome` and jobs `JobAdapter`.
+`AdapterRunOptions`, `RunAdaptersOptions`, `AdapterOutcome`, jobs `JobAdapter`,
+and the types the `ComputeProvider` seam is made of (`ComputeCapabilities`,
+`ComputeContext`, the outcome unions, `JobCost` and the rest listed under
+[external compute](#external-compute-seam-additive-3105)).
 [#343](https://github.com/schlessera/brain-kit/issues/343) selects deliberate
 public signatures, including their reachable types, for 1.0 stability; the
 [package entry points](#package-entry-points) section states the boundary.
@@ -1102,6 +1721,7 @@ optional parameter does not change the server-owned `applyImageMask` route.
 | `AgentRunner` | `@schlessera/brain` |
 | `SkillEmitter` | `@schlessera/brain` |
 | `Reranker` | `@schlessera/brain` |
+| `ComputeProvider` | `@schlessera/brain` |
 | `AgentBackend` | `@schlessera/brain-ui-sdk/server` |
 | `SpeechProvider` | `@schlessera/brain-ui-sdk/server` |
 | `LiveConversationProvider` | `@schlessera/brain-ui-sdk/server` |
@@ -1112,6 +1732,128 @@ optional parameter does not change the server-owned `applyImageMask` route.
 
 `tests/seam-list.test.ts` fails when this table, the one in
 extending/README.md and the tags in the source disagree.
+
+<a id="external-compute-seam-additive-3105"></a>
+
+### External compute seam (additive, #3105)
+
+`@schlessera/brain` exports `ComputeProvider` and `defineComputeProvider`,
+with the experimental types the seam is made of: `ComputeCapabilities`,
+`ComputeContext`, `ComputeLogger`, `ComputeOptionsSchema`, `ComputeJsonValue`,
+`ComputeRefusalCode`, `ComputeHealth`, `ComputeRefused`, `ComputeFailed`,
+`ComputeUncertain`, `ComputeExitReason`, `AllocationKey`, `SandboxRef`,
+`CommandHandle`, `AllocateRequest`, `SourceBundle`, `CommandSpec`,
+`ArtifactRequest`, `CostObservation`, `AllocateOutcome`, `FindOutcome`,
+`StageOutcome`, `ExecOutcome`, `CommandStatus`, `KillOutcome`,
+`CollectedArtifact`, `CollectOutcome`, `ReleaseOutcome` and `JobCost`.
+`@schlessera/brain/testing` adds `runComputeProviderContract` and
+`runComputeLifecycleContract` with their harness types.
+
+The `brain.config` key `compute.providers` selects instances by explicit id
+([configuration](../configuration.md#compute)); its absence keeps every
+compute operation except health refused with `compute_disabled`. The twelve
+refusal codes are the stable `ComputeRefusalCode` values. The environment
+inputs `BRAIN_COMPUTE_STATE_DIR` and `XDG_STATE_HOME` place the compute state
+directory, which must lie outside the brain checkout and is never `brain.db`.
+The built-in name `boat` resolves the separate
+`@schlessera/brain-compute-boat` package, core's optional peer; its exports
+are [their own component](#boat-compute-provider-additive-3106).
+
+The job lifecycle, store and reconciliation are first-party sharing through
+`@schlessera/brain/internal` with no compatibility promise; the CLI and MCP
+operations and their JSON shapes are specified with their own component when
+they ship. [The decision](../decisions/external-compute.md) is the contract
+design and [the guide](../extending/compute-providers.md) the authoring
+reference.
+
+<a id="boat-compute-provider-additive-3106"></a>
+
+### Hosted external compute (additive, 0.45.0, #3108)
+
+`@schlessera/brain-ui-sdk/tool-contracts` (re-exported from `/server`) gains
+`COMPUTE_TOOL_CONTRACTS`, one contract per tool (`COMPUTE_HEALTH_CONTRACT`
+through `COMPUTE_COLLECT_CONTRACT`), their names, the strict input schemas
+`COMPUTE_HEALTH_INPUT_SCHEMA`, `COMPUTE_REQUEST_INPUT_SCHEMA` and
+`COMPUTE_JOB_INPUT_SCHEMA` (identical to core's), `COMPUTE_DEFAULT_ARTIFACT_MAX_BYTES`
+and the types `ComputeToolCall`, `ComputeToolResult`, `ComputeToolRefusalCode`,
+`ComputeToolName` and the three input types. The contracts join
+`BRIDGE_TOOL_CONTRACTS` after the reference tools, so
+`BRIDGE_TOOL_POSTURE.names` and `allowedTools(adapter)` end with them, and
+`SurfaceTools` gains `computeHealth` through `computeCollect`. `/server` gains
+`handleComputeTool(name, input, bridge, toolUseId?)`, which validates the
+input and returns `{ text, isError }`, and `BackendBridge.compute?(call)`,
+through which a backend hands the host only the tool, its parsed input and the
+model's call id. `/protocol` gains `ACTIVITY_COMPUTE_CAPABILITY`, and
+`ActivitySpanOrigin` gains `compute`; the shipped `BrainWsClient` declares the
+capability. `JournalOutwardAction.action` gains `compute_run`. `/internal`
+gains `hostComputeCredential(name)`, the env chokepoint for a bound compute
+credential. Pi's internal `TOOL_RISK` classifies `brain_compute_run` and
+`brain_compute_cancel` as `mutate` and the other four as `read`; its session
+capabilities gain `compute`. The Claude backend disallows the six
+`mcp__brain__brain_compute_*` names in every session.
+
+Core's `/internal` (first-party, not a supported entry point) gains the
+operation set and driver: `createComputeOps`, `createComputeDriver`,
+`jobOutput`, `jobSettled`, `COMPUTE_TOOL_NAMES`, the three input schemas and
+their envelope types, and `ComputeApproval`. `ComputeOpsOptions.hosted?:
+{ sourcePolicy, approve, budget, recheck? }` lets a host admit with its turn's
+frozen data-to-provider rules and its own ledger, without the
+inside-a-worker refusal or a policy re-read, and `ComputeServiceOptions.recheck?(caller)`
+is asked under the admission lock before the slot count and reservation; false
+refuses `policy_denied` with nothing reserved. `ComputeRunHooks.onCreated`
+may answer `"cancel"`, which records a cancel request before the job's first
+drive, so nothing is allocated. `@schlessera/brain-ui-server`
+gains the server settings `BRAIN_UI_COMPUTE_KEYS` and
+`BRAIN_UI_COMPUTE_STATE_DIR`, and `ServerConfig.compute`. The tools are
+specified in the [MCP contract](mcp.md#external-compute-bridge-tools-additive-0450-3108).
+
+### Boat compute provider (additive, #3106)
+
+`@schlessera/brain-compute-boat` is a new lockstep package and core's optional
+peer. Its root entry exports `computeProvider` (the `ComputeProvider` the
+`boat` built-in resolves to, id `"boat"`), `defaultKeyEnv`
+(`"BRAIN_COMPUTE_BOAT_API_KEY"`), `BOAT_CAPABILITIES`, `boatOptionsSchema`
+with its `BoatOptions` type, and `BOAT_MACHINES`. The instance `options` it
+accepts are `machine`, `from`, `environment` and `org`, validated strictly.
+It imports `@schlessera/brain` for types only, depends at runtime on `zod`
+alone, ships no vendor SDK and no install script, and makes no request until a
+provider method is called. Core loads it lazily; an instance naming `boat`
+without it installed is `provider_unavailable`. Its behaviour against Boat
+(credential-free sandboxes, readiness, stop as release rather than pause,
+retention, cost and the error table) is specified in the
+[package README](../../packages/compute-boat/README.md); its conformance is
+the two suites above. Boat's environment variable for its own CLI is never
+read.
+
+<a id="live-service-registration-additive-3616"></a>
+
+### Live-service registration (additive, #3616)
+
+`CreateAppOptions` (`@schlessera/brain-ui-server`) adds
+`conversationProviders?: LiveConversationProvider[]`, fixed at construction in
+registration order, and `defaultConversationProviderId?: string`, the host's
+default while nothing is saved. `conversationProvider` still registers one and
+means a list of one. Construction fails when both are given, on duplicate ids,
+on an invalid provider, or when `defaultConversationProviderId` names no
+registered provider. The saved brain-wide default lives in the ui-server
+settings store under `voice.live.defaultProvider` as
+`{ value: string | null, revision: number }`; corrupt rows read as nothing
+saved, revision 0. It is persisted server state, not part of the disposable
+content index. How a Start resolves the service is in
+[the wire contract](wire.md#live-service-selection-additive-3616).
+
+`@schlessera/brain-ui-sdk/protocol` exports `LiveDefault`, `LiveProviderSource`,
+`ServerLiveSettings`, `VoiceLiveSettings` and `VoiceLiveSettingsUpdate`;
+`ServerHello` adds `conversationProfiles?` and `liveDefault?`,
+`ClientConversationStart` adds `providerId?` and `ServerConversationOpened` adds
+`providerSource?`. `VoiceSettingsResponse` (the shared `/api/settings/voice`
+body, #3617) extends `VoiceLiveSettings`, and `VoiceSettingsUpdateRequest` adds
+optional `defaultProvider` and `revision`. `@schlessera/brain-ui-sdk/schemas` exports
+`conversationProfilesSchema`, `liveDefaultSchema`, `serverLiveSettingsSchema`
+and `voiceLiveSettingsSchema`; a malformed roster or `liveDefault` is dropped
+from a hello without losing the frame. `@schlessera/brain-ui-kit` exports the
+presentational `LiveServiceSettings` group (`LiveServiceOption`,
+`LiveServiceSettingsProps`, `LiveServiceStatus`), which opens nothing itself.
 
 <a id="dictation-speech-integration-and-conformance"></a>
 
@@ -1134,9 +1876,55 @@ the supplied implementation. It validates a nonempty trimmed lowercase id,
 four boolean capabilities and callable `createSession` before invoking it.
 The returned `SpeechSession` has a string URL, finite nonnegative expiry,
 optional string token and optional string-record params. Empty URL/zero expiry
-remain supported for browser/local sessions. Validation, mismatch and provider
-failures return the existing 500 `{ error }` envelope without fallback.
+remain supported for browser/local sessions. An invalid legacy value, a
+`VOICE_PROVIDER` mismatch or an unregistered `VOICE_PROVIDER` keeps the server
+running; the voice routes answer with the existing 500 `{ error }` envelope,
+as do session validation and provider failures, without fallback.
 The deprecated token route remains Deepgram-specific.
+
+`CreateAppOptions.speechProviders?: SpeechProvider[]` adds implementations to
+configured built-ins. Supplying it together with legacy `speechProvider`, duplicate
+ids, invalid list entries or an unregistered `defaultSpeechProviderId` fails construction.
+Legacy `speechProvider` replaces all built-ins and must match `VOICE_PROVIDER`.
+`defaultSpeechProviderId?: string` sets the host default ahead of `VOICE_PROVIDER`,
+then registered Deepgram; a legacy supplied value is its own default. Deepgram
+and Gemini each register when their key is configured (a key adds a choice and
+never makes Gemini the host default); browser speech registers only through
+`VOICE_PROVIDER=webspeech`.
+A saved brain-wide choice overrides the host default. Removed saved choices block
+selection; with neither saved nor host choice only a sole provider is selected.
+
+`SpeechProvider` adds optional `label?: string`, `destination?: string` and
+`createSession` option `mode?: "smart" | "verbatim"`; `SpeechCapabilities` adds
+`smartTranscription?: boolean`. Mode is passed only to providers declaring it.
+Identity, capabilities, metadata and executor references are fixed at registration.
+`VoiceProvidersResponse`, `DictationSettings`, `VoiceSessionRequest` are exported
+protocol types for the [HTTP shapes](../http-api.md#selectable-dictation-providers).
+`createBrainApi` adds `voiceProviders()`, `dictationSettings()` and
+`saveDictationSettings(settings: DictationSettings)` (sends the revision as
+If-Match). `voiceSession(signal?, selection?: VoiceSessionRequest)` sends no body
+when selection is omitted. Explicit selection never substitutes another provider.
+
+**Additive (0.45.0, #3709): choosing the dictation provider in the app.** The
+ui-react Settings selection accepts `voice`; `openSettings("voice")` opens the
+lazy Voice pane between Models and Accounts, and Models remains the default.
+The pane reads discovery and writes the dictation settings only; it requests no
+session, microphone or provider. The shipped composer sends
+`voiceSession(signal, { providerId, smart })` with the provider it disclosed and
+refuses a response naming another. The first take to a provider on a device
+waits for an explicit acknowledgement of its `destination` (device-local, per
+account, keyed by provider id and destination text) before either request.
+`RecordingStore.transcribe(partition, id, progress, retry?, provider?)` gains an
+optional fifth argument, sent as `Speech-Provider`; without it the upload
+behaves as before. A retry refused with `transcription_provider_mismatch`
+applies the returned receipt and rejects, keeping the recording. `@schlessera/brain-ui-kit`'s `Composer` adds `micTip?: boolean`, which
+shows `micLabel` as the mic's pointer tooltip outside dictation, and
+`micUnavailable?: string`, which keeps the mic named and focusable but
+`aria-disabled`, uses the string as its accessible description and tooltip, and
+ignores taps and keys; the shipped composer sets it when discovery reports no
+registered dictation service. `RecordingStore.transcribe` rejections for a
+pre-claim refusal carry the server's error code as `code`. No wire, HTTP or
+protocol shape changes.
 
 The route builds keyterms only when supported, snapshots provider identity and
 capabilities, and publishes `VoiceSessionResponse` with connection material.
@@ -1159,6 +1947,49 @@ closes. These suites are the conformance floor; an adapter must also cover
 its protocol-specific authentication, capture and failure behavior. The
 [authoring guide](../extending/speech.md) supplies complete public server/client
 examples and points to executable harnesses and real route/Chrome integration.
+
+Additive (#3708): `SpeechProvider` gains optional `label?: string` and
+`destination?: string`, and `createSession` options gain optional
+`mode?: "smart" | "verbatim"`. `SpeechCapabilities` gains optional
+`smartTranscription?: boolean`, which declares that the provider honours
+`mode`; providers without it ignore the option, and an absent mode means the
+provider's default. The server rejects a supplied label or destination that is
+not a nonempty string, and a non-boolean `smartTranscription`, with the
+existing 500 envelope. The published provider suite checks the same types and,
+for a SMART provider, that both modes mint a serializable session. The mounted
+session route sends no mode yet, so SMART providers use their default.
+
+The built-in `gemini` provider (`gemini-3.5-transcribe-live`) is selected by
+`VOICE_PROVIDER=gemini` and, without `VOICE_PROVIDER`, only when
+`GEMINI_API_KEY` is set and `DEEPGRAM_API_KEY` is not. `VOICE_PROVIDER=gemini`
+without the key is a selection error. Its capabilities are `streaming`,
+`interimResults`, `keyterms` and `smartTranscription` true, `endpointing`
+false, and `savedAudio` false. Each session is one
+`POST https://generativelanguage.googleapis.com/v1beta/auth_tokens`
+(`x-goog-api-key`) minting a single-use token (`uses: 1`, connect within 60 s,
+expire after 11 min) whose `bidiGenerateContentSetup` sets
+`models/gemini-3.5-transcribe-live`, `generationConfig.responseModalities:
+["TEXT"]` and `inputAudioTranscription` (`mode` `SMART` unless `verbatim` is
+requested; `customVocabulary` from the keyterms, at most 100 terms of at most
+64 UTF-8 bytes, omitted when empty), and whose `fieldMask` locks exactly the
+fields set (`model,generationConfig.responseModalities,inputAudioTranscription.mode`,
+plus `inputAudioTranscription.customVocabulary` when present). The session is
+`{ url: <constrained v1alpha Live endpoint>, token: "auth_tokens/…",
+expiresAt: <connect deadline>, params: { model, mode, sampleRate: "16000",
+vocabulary: <JSON array> } }`. Any mint failure is 500
+`{ error: "Gemini dictation session failed" }` without the key or Google's
+text, and no other provider is tried. There is no session resumption: Google's
+10-minute session limit ends the take through the client's provider-ended
+path. The root-registered `gemini` `AsrClient` appends `access_token`, repeats
+the locked setup, and streams mono PCM16 LE at 16 kHz in 100 ms base64
+`realtimeInput.audio` frames, resampled from the hardware rate. Its bounds are
+5 s of audio before `setupComplete`, a 10 s handshake, a 256 KiB upload
+backlog (each failing the take as a network error), and a 3 s wait for the
+final after `audioStreamEnd` on Done. Interim text is a replacing partial;
+each final transcription is one final, `endsTurn` from `finished` (true when
+absent). Keyless proofs establish protocol and resource behaviour, not
+Google's acceptance, accuracy or latency
+([#3710](https://github.com/schlessera/brain-kit/issues/3710)).
 
 <a id="saved-audio-transcription-additive-1021"></a>
 
@@ -1505,6 +2336,216 @@ CLI's missing-config write refusal. A check blocker lists unavailable checks;
 reconciliation still preserves unseen entries under its existing failure
 rules, and selection never claims completion from incomplete detection.
 
+<a id="media-awaiting-review-additive-2780"></a>
+
+## Media awaiting review (additive, #2780)
+
+One media inventory feeds `brain sync`'s count and hygiene review. It holds
+two populations: the working tree's uncommitted `MEDIA` and `LARGE` files as
+`brain sync assess` classes them (never Git-ignored or `media.ignore` files),
+and the regular `MEDIA`/`LARGE` files under `.brain/scratch/` that the scratch
+pin snapshot lists, even when `media.ignore` matches them. The scratch area is
+never walked. At most `BRAIN_MEDIA_PINNED_PATH_LIMIT` (5,000) distinct pinned
+paths are read per inventory. A missing, unreadable, redirected or malformed
+snapshot admits no scratch file (`links.state: "unknown"`). A valid snapshot
+whose scan is not finished (`ready: false`) admits its listed paths
+(`"incomplete"`). Neither state, nor `tooLarge`, ever claims that every
+conversation link was checked.
+
+Each file is one finding of category `media`, identified by its exact raw
+repo-relative path, with source `hygiene/media` (informational) and/or
+`hygiene/large` (warning). A file reached only through a pin has
+`hygiene/scratch-media`/`scratch-large` instead: it appears in review and never
+in the count. Its fingerprint fields are `sha256`, `bytes`, `classes`, `policy`
+(the matching `media.track`/`media.ignore` entries), `refs`, `pins` (the sorted
+session keys whose pin list holds that exact path, so an unrelated
+conversation never changes it), `severity` and `urgency`. `refs` is the
+reference-inventory digest (#2781): `none` when no note references the file, a
+16-hex digest of each reference's note, form and destination as written (line
+numbers left out), or `too-large`/`unscannable` when the bounded scan was
+refused. One scan of the brain's `*.md` notes outside hidden directories and
+`context/hygiene/` finds Markdown inline links and images, `<…>` destinations,
+reference definitions, wiki links and embeds, frontmatter values and HTML
+`src`/`href`/`poster`; code is never a reference. Its bounds are
+`BRAIN_MEDIA_REFERENCE_LIMITS` (`notes` 50,000, `noteBytes` 256 MiB, `perNote`
+4 MiB, `scanTime` 20 s, `refsPerFinding` 500; and for an effect's plan,
+`rewrittenNotes` 200 and `preview` 1 MiB, #2781). Replacing the earlier
+`unscanned` value reopens every media disposition once.
+
+A fifth log state, `kept`, holds a media original whose permanent copy was
+made, in `context/hygiene/kept.md` under `## Kept as a permanent copy`. Each
+entry records `kept-on:`, `copy:`, `copy-sha256:`, `journal:` and
+`disposition-fingerprint:`. It holds while the original's fingerprint is
+unchanged and the copy is a contained regular file outside `.brain/` and
+`workspaces/` that `media.track` keeps. Otherwise reconcile reopens the original
+with an `invalidated: … kept on <day> · changed: <fields>` receipt, naming
+`copy-missing`, `copy-untracked`, `kept-incomplete` or the fingerprint fields.
+Editing the copy keeps it kept. `brain hygiene keep-copy` writes the entry
+through reconcile's expected-fingerprint request, refusing a copy that would
+not hold at once. A pruned original moves the entry to
+`resolved.md` with `resolved-by: original-pruned`. `kept.md` is written only
+once it holds an entry, and `_index.md` adds `- Kept: N` only while it exists.
+An existing brain's hygiene files therefore stay byte-identical.
+
+The count is `mediaReviewCounts`, read-only and shared by both callers. It
+does not trust the file an entry sits in:
+
+| Counted media finding's log state | `awaitingReview` | Set aside / kept |
+| --- | --- | --- |
+| open, resolved, or no entry | yes | — |
+| dismissed, fingerprint unchanged (or none recorded) | no | `setAside` |
+| snoozed, fingerprint unchanged and `now < dueAt` | no | `setAside` |
+| snoozed and due, or fingerprint changed | yes | — |
+| kept and valid | no | `kept` |
+| kept and invalid | yes | — |
+
+Hygiene review's Leave pending is per-pass operational state on the server,
+not a log state. It skips a finding while its fingerprint is unchanged
+(`hygiene next --defer`), and the finding still counts in `awaitingReview`.
+The review state gains `pass` (a Start after a complete or idle review begins
+a new pass and clears the list), `deferred: [{ findingId, fingerprint }]`, a
+`kept` counter, `counts.kept`, and `media: { awaitingReview, setAside, kept }`
+from the last selection. A stored row without them reads as `0` or `[]`.
+Hygiene effects gain operation `defer`, and outcomes gain status `deferred`.
+
+<a id="media-review-effects-additive-2781"></a>
+
+## Media review effects (additive, #2781)
+
+A media finding's four governed effects are Delete, Move, Persist here and
+Keep a permanent copy. The CLI plans and writes them
+(`brain hygiene media`, [cli.md](cli.md)); the UI server owns capture,
+compensation, Undo and recovery, in the bounded change journal (Rollback A).
+
+- **Capture before mutation.** Under the exclusive writer gate, a user
+  journal turn covers every file the plan lists, and each pre-image (the
+  media bytes for Delete and Move, each rewritten note, the config) is
+  retained and verified by SHA-256 before the CLI is asked to write. A
+  capture the journal's 10 GiB shared cap, or its per-file copy bound, cannot
+  hold refuses as `capture-capacity`, with nothing written.
+- **Per-file compensation.** A file is put back only while it still holds
+  exactly what the effect wrote. Anything else is `conflict` (or
+  `left-changed` for a folder no longer empty) and is left alone; the outcome
+  is then `partial`. No all-file atomicity is claimed.
+- **Undo** first checks that every retained pre-image still exists and every
+  file still holds its post-image, and refuses before any write otherwise
+  (`rollback-evicted`, `changed-since` with the path). It then applies the
+  same per-file rule. Undo is not guaranteed for any period: the journal may
+  evict rollback data under pressure.
+- **Recovery** after a restart compensates an interrupted apply, or finishes
+  an interrupted Undo, from the durable operation row. It never re-applies.
+- **Keep a permanent copy** records its `kept` entry with
+  `brain hygiene keep-copy` only after the copy verified (step 6b). A refused
+  entry compensates: the copy is removed and the config restored. The
+  original's bytes, path and pins are never touched.
+- **Undo of Keep a permanent copy** removes its `kept` entry in the same
+  Undo, after the copy and config are restored, with
+  `brain hygiene unkeep <id> --journal <journalId>`. The original is pending
+  again, without an `invalidated: … copy-missing` receipt. An entry already
+  gone needs nothing; any other answer makes the Undo `partial` with reason
+  `kept-entry-unremoved` (or `kept-entry-unknown`). A compensated or
+  recovered copy removes an entry its lost step 6b receipt may have written
+  the same way.
+
+Additive shapes in `@schlessera/brain-ui-sdk`:
+
+| Surface | Change |
+| --- | --- |
+| `HygieneEffect.operation` | gains `media-delete`, `media-move`, `media-persist`, `media-keep-copy`; the effect may carry `destination`, `premiseDigest` and `approvedBy` (the principal who previewed a broader config change, below) |
+| `InboxOption.media` | `HygieneMediaPlan`: the CLI plan (`action`, `premiseDigest`, `destination`, `files`, `captureBytes`, `links`, `references`, `rewrites`, `blockers`, `configDiff`, `copy`, `resultClass`, `refusals`), and optionally `scope` (`exact`\|`pattern`\|null), `pattern`, `ignoreAdjust`, `matches` (`{ track, ignore }` of `HygieneMediaMatches`), `approvalDigest` and `media` (`HygieneMediaProbe`, below, or null), which a CLI before them omits |
+| `HygieneMediaProbe`, `hygieneMediaProbeSchema` | new (0.45.0): `{ width, height, durationMs }`, the source's pixel size and duration in whole milliseconds from the first 64 KiB of its header, each a positive integer or null when the header does not say |
+| `HygienePreviewRequest.requestId`, `HygienePreviewResponse` | additive (0.45.0): the request's optional `requestId` (1–128 of `A-Z a-z 0-9 . _ : -`) is echoed in the response; `HygienePreviewResponse` is the preview's 200 body, below |
+| `HygieneMediaMatches`, `hygieneMediaMatchesSchema` | new (0.45.0): `{ pattern, anyFolder, count, bytes, changed, ignoredStill, sensitive, largest: [{ path, bytes, before, after }] (at most 5), digest }`, a list pattern's current matches among the files sync sees, with the class (`TRACK`\|`ARTIFACT`\|`SENSITIVE`\|null) the lists give each before and after |
+| `HygieneAction.outcome.status` | gains `kept`, a confirmed Keep a permanent copy |
+| `HygieneReviewMediaUndoCommand`, `HygieneReviewRequest` | new (0.45.0): `{ operation: "undo-media", journalId }`, Undo of a confirmed media effect from review (below); `HygieneReviewRequest` is it or the unchanged `HygieneReviewCommand`, parsed by the new `hygieneReviewMediaUndoCommandSchema` and `hygieneReviewRequestSchema`; `hygieneReviewCommandSchema` is unchanged |
+| `HygieneReviewRead.mediaUndo` | `HygieneMediaReceipt`, on the `undo-media` response only (0.45.0) |
+| `HygieneAction.outcome.media` | `HygieneMediaReceipt`: `{ journalId, action, outcome: "pending"\|"applied"\|"kept"\|"compensated"\|"partial"\|"refused"\|"stale"\|"undone", reason?, refusals?, files: [{ path, state: "created"\|"changed"\|"removed"\|"restored"\|"unchanged"\|"left-changed"\|"conflict" }], copySha256?, undo: { available, reason?, path? } }` |
+
+A media finding's card offers Persist here, Persist with a broader rule…
+(not for scratch or share-staged files), Move to a final location…, Keep a
+permanent copy… (scratch only) and Delete…, before Leave pending. Persist and
+Delete are planned when the card is prepared; Move and Keep a copy when a
+destination is previewed (`POST /hygiene/review/preview` with the path as
+`input`), and the broader rule (option `media-persist-rule`, effect
+`media-persist`) when its `media.track` pattern is previewed as `input`.
+When a previewed track entry would still lose to exactly one broader
+`media.ignore` entry, the preview plans that ignore's removal too
+(`ignoreAdjust`), with the files it stops ignoring in `matches.ignore`;
+several such entries stay refused as `ignore-adjustment-required`. A plan
+with an `approvalDigest` (a broader rule or ignore adjustment) records the
+previewing principal as `effect.approvedBy`; confirming it as anyone else is
+`stale` with reason `stale-approval`, and the CLI refuses the same reason
+when the config, the diff or any match changed since. A plan with refusals keeps them on the option and has no
+`premiseDigest`, so it cannot be confirmed. Confirming applies exactly the
+previewed plan: an applied effect resolves the card as `fixed`, a kept copy
+as `kept` (the review's `kept` counter); `stale` and `refused` leave it
+pending; `compensated` and `partial` are `check_failed` with that code. An
+old server that cannot parse `kept` fails closed as `check_failed`. Recovery
+confirms a kept copy only when the log's entry is `kept` with the same
+fingerprint and copy SHA-256; otherwise `receipt-unknown`. Routes and their
+error strings are unchanged.
+
+**Undo from review** (additive in 0.45.0, maintainer ruling 2026-11-03).
+`POST /api/hygiene/review` with strict
+`{ "operation": "undo-media", "journalId": "<HygieneMediaReceipt.journalId>" }`
+undoes the confirmed effect of a resolved media card, for the principal that
+applied it, under the same preflights as the CLI Undo: every retained
+pre-image still held and no file changed since. The response is the review
+read plus `mediaUndo`, the Undo's own receipt. A refusal is a 200 result,
+`mediaUndo.outcome: "refused"` with `reason` (`changed-since` with `path`,
+`rollback-evicted`, `already-undone`), and nothing is written. The resolved
+card keeps its status and gets the Undo's receipt by inbox replication:
+`outcome.status: "undone"` with `media` the Undo receipt; `check_failed` with
+code `partial` when some file could not be put back; or, after a refusal, its
+original outcome with `media.undo` re-read. An undone effect leaves the
+review's `fixed` or `kept` counter. The finding is pending again and an
+active review selects it in order, on a new card. Repeating the command
+returns the same receipt and changes nothing. A `journalId` that names no
+resolved media card of this principal is `review_failed` (500); malformed is
+400, as for every command.
+
+**Preview response and scan concurrency** (additive in 0.45.0, design rev 4
+§3.3, rev 5 §9/§11). `POST /api/hygiene/review/preview` still returns the
+pending Action, now as `HygienePreviewResponse`: the Action plus `refusals`
+(always present), `requestId` (when the request sent one) and, for a media
+option, `media`, the stored plan's `HygieneMediaProbe`. Named refusals are a
+200 result, never an error: a media plan's own `refusals`, the CLI's when it
+returned no plan (`not-detected`, `stale`), or one the route adds when it
+stored nothing:
+- `preview-busy`: one media preview scan runs per server, and another
+  principal's is running. Nothing is queued or retried.
+- `preview-superseded`: a newer media preview from the same principal
+  aborted this one's scan, killing its CLI. The newer one is unaffected.
+- `inventory-too-large` with `limit: "preview"`, `effective` and `observed`:
+  the Action with this plan would serialize to more than the transport's
+  per-message limit (512,000 bytes), so it could not be returned or
+  replicated whole. It is refused, never truncated. A larger
+  `BRAIN_MEDIA_REFERENCE_LIMITS` `preview` setting does not raise this bound.
+
+`BrainClient.hygiene(args, { signal })` accepts an optional abort signal
+(additive); aborting it kills the running `brain hygiene` CLI, as for search.
+
+Repair (non-media) previews are not part of the scan gate and return
+`refusals: []`. A throw is still `409 preview_refused` with no detail, and an
+authority failure still `403`; the routes and their error strings are
+unchanged.
+
+**Review card** (additive in 0.45.0, #2782; design rev 4 §8, rev 5 §8.1,
+rev 6 §5). `@schlessera/brain-ui-react`'s `createBrainApi` changes two
+helpers additively: `hygienePreview(request, signal?)` resolves to
+`HygienePreviewResponse` (an `InboxActionItem` with the fields above), and the
+new `hygieneMediaUndo(journalId)` posts `undo-media` and resolves to the
+review read with `mediaUndo`. An embedder that supplies its own `BrainApi`
+implements the new helper. The media card sends a fresh `requestId` with
+each preview and renders, or lets the commit apply, only the latest one
+whose plan the replicated Action also stores. When a preview answers
+`409` and a newer Action version replicates within one second (an earlier
+choice's preview stored it meanwhile), the card re-sends that preview once
+against it; any other `409` or `403` is stated and never retried. In the inbox
+store, `deferred` (Leave pending) and `kept` outcomes settle a decision as
+success, like `snoozed` and `fixed`. Leave pending is sent as a `later`
+decision, because its lifecycle transition is an untimed `snoozed`.
+
 <a id="module-hygiene-context-breaking-699"></a>
 
 ## Module hygiene context (breaking, #699)
@@ -1672,6 +2713,9 @@ unload a module or cancel running sessions.
   document paths are repo-relative (no absolute, `~`, `..`, or control
   characters) and resolved through a symlink-aware canonicalizer, so neither a
   symlinked directory nor a dangling symlink redirects a write out of the repo.
+  A CLI path argument may also be absolute: one inside the brain root is
+  converted to a repo-relative path first, and one outside it is refused
+  (0.45.0, #3422).
 - **Mutating commands require an initialized brain.** `add`, `import`, `index`,
   `archive`, `accept-mtime`, `process`, `maintain`, `sync`, `skills sync`, and
   `setup`, plus `okf export`, exit 1 when no `brain.config` is found rather than initializing a
@@ -3083,7 +4127,8 @@ transaction or server-level replay/authorization guarantee.
 ### Human-started hygiene review (additive, #1027)
 
 The authenticated host exposes `GET /api/hygiene/review` and
-`POST /api/hygiene/review` with strict `{ "operation": "start" | "pause" | "resume" | "refresh" }`.
+`POST /api/hygiene/review` with strict `{ "operation": "start" | "pause" | "resume" | "refresh" }`
+(and, additive in 0.45.0, `undo-media`: see [media review effects](#media-review-effects-additive-2781)).
 Both return `{ "review": HygieneReviewState, "action": InboxActionItem | null }`.
 The read is operational state; start/resume select through the supported
 `brain hygiene next --json` boundary without inference. Owner and ambient
@@ -3356,6 +4401,35 @@ retain existing owned checkpoint authority and storage caps; they do not
 authorize arbitrary host paths. See the [host boundary](../hosting/agent-workers.md#separate-worker-identity)
 for descriptor transfer, supervision, cleanup and best-effort limits.
 
+### Managed turn data trees (additive, 0.45.0, #2911)
+
+The native manager client gains two operations, and the lease owner wraps
+both:
+
+- `prepareTurnTree(id, allowanceBytes)` returns `NativeTurnTree`
+  (`{ id, path, allowanceBytes }`). `id` is a caller-generated UUID and
+  `allowanceBytes` a positive multiple of 4096. The manager alone chooses the
+  path: `<store>/.brain-native/trees/<id>`, owned by its fixed app UID and
+  group with mode `0710`. It refuses with `capacity` when the live trees'
+  allowances, this one and one emergency reserve's worth of headroom do not
+  fit the volume's free space, or while the emergency reserve is consumed. A
+  retry with the same identity and allowance returns the same tree; a
+  released identity refuses with `released`.
+- `releaseTurnTree(id)` returns `{ id, state: "deleted" }` once the manager has
+  removed the directory and observed a filesystem commit. It refuses with
+  `unavailable`, removing nothing, while any process still mounts the tree. An
+  unrecorded directory refuses with `unknown`. An unknown identity with no
+  directory is recorded as deleted, which fences a later create.
+
+`NativeRecoveryRecord.kind` gains `tree`, and records gain an optional
+`treeRequest` (`{ allowanceBytes }`). Checkpoint operations refuse a tree
+identity with `invalid`, and the tree operations refuse a checkpoint or stage
+identity the same way. The lease owner records a `tree` root lease before each
+request. It releases only its own trees, or a dead owner's during recovery,
+and its lease table migrates in place. No call accepts a host path, UID or
+mode. The rules are in the
+[native storage decision](../decisions/native-brain-storage.md#turn-data-trees-on-the-managed-volume-2911).
+
 ### Reference pool storage (additive, #2428)
 
 The root-owned `brain-native-store` configuration accepts an optional
@@ -3459,6 +4533,60 @@ No call accepts a host path, UID or mount. Worker masks now include the pool's
 `access` directory, and `brain-native-store pool` records carry the new fields.
 The mechanism is recorded in the
 [pool decision](../decisions/reference-pool-accounting.md#worktree-checkpoints-and-access-generations-2430).
+
+<a id="reference-pool-growth-status-additive-0450-3515"></a>
+
+### Reference pool growth status (additive, 0.45.0, #3515)
+
+`brain-native-store pool growth <config>` prints the same envelope as `status`,
+with `action: "growth"` and `growth`, and the same exit codes. The native
+manager client gains `poolGrowth()`, which takes no identity, path or selector
+and returns `NativePoolGrowth`:
+
+- `basis` is `btrfs-space-info-disk-used+simple-quota-owner`. `state` is
+  `available` or `unavailable`. `reason` says why the whole status is
+  unavailable; `generation` is the observation's filesystem generation.
+- `thresholds` are `{ worktreeRatio: 0.25, refreshRatio: 0.75, retainedSources: 2 }`,
+  exported as `REFERENCE_POOL_GROWTH_THRESHOLDS`.
+- `worktrees` (writable or sealed) and `refreshes` (sealed sources with a
+  `from`) are `NativePoolGrowthComparison`s:
+  - `id`, `from`, and `cold`, the cold acquisition at the root of the chain;
+  - `ownerBytes`, null when the accounting has no charge for the root;
+  - `basisBytes`, that acquisition's charge when it was sealed;
+  - `thresholdBytes`, `basisBytes` times the ratio, rounded down;
+  - `state`, and `flagged`, true when `ownerBytes` is strictly above
+    `thresholdBytes`.
+
+  A basis or charge that cannot be read gives `state: "unavailable"` and null
+  bytes, never zero, and is never flagged.
+- `sources` are `NativePoolGrowthSources`, one per published name: `name`,
+  `roots` (`id`, `view`, `ownerBytes`), their summed `ownerBytes`, and
+  `flagged` when more than `retainedSources` views publish the name. A root
+  with no recorded charge has `ownerBytes: null`, and so does the sum: never
+  zero. The count flag still applies.
+- `flags` are `NativePoolGrowthFlag`s: `kind` (`worktree`, `refresh` or
+  `retained-sources`), `subject` (root id or name), `observedBytes` (null only
+  for a retained-sources sum that includes an unknown charge),
+  `thresholdBytes` (null for the count), `threshold`, and `observedCount`
+  (null for a ratio).
+- `omitted` counts comparisons, groups or flags left out to keep one reply
+  within the 64 KiB control bound. Unflagged detail goes first.
+
+The status is read-only. It neither reconciles, deletes, resets nor reserves
+anything, and nothing in it forecasts savings or freed capacity. It is
+unavailable in these cases:
+
+- the pool refuses for any reason other than `capacity`;
+- the owner accounting is unreadable;
+- a view holds a non-link entry;
+- a published name resolves to anything but a recorded sealed source in its
+  own view, such as a path, another view or a stale identity.
+
+The manager records each root's charge when it is sealed, so the basis
+survives the root's release. Roots sealed before this release carry none. A
+released one reads as unavailable, while a live sealed one uses its current,
+unchanging charge. The rationale is in
+[the pool decision](../decisions/reference-pool-accounting.md#background-deduplication-is-rejected-residual-growth-is-reported-3515).
 
 <a id="reference-and-worktree-tools-additive-0440-2432"></a>
 
@@ -4065,6 +5193,35 @@ retires the reviewed input identities; late recognition cannot restore them.
 These actions and Mute cancel pending automatic review timers, while output recovery
 remains independent of microphone consent.
 
+### Conversation capture intent and meter readings (#3699)
+
+Additive. The conversation client's state carries `capture`, the intent behind
+`micOn`: `idle` before Start in an entry, `listening` while consent stands
+(recoverable transitions restore capture on their own), `muted` after a manual
+Mute until Unmute, and `stopped` when a genuine failure withdrew consent and only
+a new Start resumes capture. Manual Mute stays `muted` across teardown and
+reconnects. `levels()` returns display-only 0–1 readings, `{ input, output }`:
+the newest microphone block while capture is open, and the 10 ms window of the
+reply sounding now. Neither value gates capture, endpointing, output recovery or
+permission routing.
+
+<a id="start-card-persona-choice-3698"></a>
+
+### Start-card persona choice (#3698)
+
+Additive. The conversation client's state carries `personaChoice`, the
+`ConversationPersonaRef` this entry's Start sends instead of the saved persona's
+`personaRef`; `null` sends the saved one. `choosePersona(ref | null)` sets it
+before Start: a persona picked on the Start card, `{ id: "standard", revision:
+"builtin" }` for "Use Standard this time", or a ref with `voice: "default"` for
+"Use the default voice this time". It is ignored once Start was agreed, saves
+nothing, and is cleared on Enter and Leave. The host still refuses a revision
+that is no longer current. When the host refuses a first Start that opened
+nothing, the entry may choose its service (`chooseService`) or persona again
+before the next explicit Start; a `CONVERSATION_PERSONA_CHANGED` refusal also
+clears `personaChoice`. Neither call opens a microphone, reads history or
+contacts a provider.
+
 ### Retained dialogue data (#3177)
 
 The SDK protocol exports `DialogueEvidence`, `DialogueRecord`, `DialoguePage`,
@@ -4076,6 +5233,22 @@ Optional history-owner metadata on conversation open/start and plain chat input
 is additive; legacy backend session IDs and native provider guards keep their
 meaning. No provider history-selection API is delivered by this slice.
 
+
+`DialogueEvidence` additionally includes `voice_interruption` and `voice_end`
+(#3729, additive in 0.45.0), with their runtime schemas in the same entry.
+`DialogueJournal` gains `interruption()` and `ended()` for the host's existing
+write path. The [wire amendment](wire.md#retained-barge-in-and-conversation-end-additive-0450-3729)
+defines when each is written and how the client draws them.
+
+For account-owned retained history (#3963, additive in 0.45.0),
+`DialogueOwner` gains optional `principal_account`, the stored account beside
+`principal_id`; `SessionCatalog` gains optional `dialogueAudience(owner,
+principalId)`, whether that login may receive the owner's pages; and the
+`DialogueJournal` publish callback receives the owner as an optional third
+argument after the unchanged page and `principalId`. Existing catalogs and
+callbacks keep compiling and behave as before. The
+[wire amendment](wire.md#retained-voice-history-belongs-to-its-account-additive-0450-3963)
+defines who may use the history.
 
 Failed-write live text exposes optional `ServerConversationEvent.retention` and
 `ServerError.historyOwnerId`, plus the existing client projection's explicit
@@ -4128,7 +5301,11 @@ recency is unknown. Partial coverage uses “may be missing” copy rather than 
 claim about the exact newest item. These bounds never delete the display archive.
 
 `LiveConversationSession.historyCoverage?` exposes the adapter's actual bounded
-historical selection as `{state, tailOmitted}`. Third-party providers may ignore
+historical selection as `{state, tailOmitted, includedMessages?}`. The optional
+`includedMessages` (additive, #3699) is the number of prior chat and spoken
+messages the startup context actually carried; completed results and gap markers
+are not counted, and it is 0 when no history block was sent. It is host-only
+display data: it is never part of any provider-facing text. Third-party providers may ignore
 the additive history input but cannot thereby claim existing-chat continuity.
 The frozen provider prefix/tools/instructions are never rewritten within an epoch.
 
@@ -4208,3 +5385,349 @@ packet audio. Unsupported codec/container forms, including audio/mp4, retain
 conservative elapsed-wall timestamps for the rest of that recording. Old stored
 wall timestamps remain readable without migration. No field, stop reason or
 state is added. This semantic change ships in a minor before 1.0.
+
+<a id="composer-attach-label-additive-0450-3045"></a>
+
+## Composer attach label (additive, 0.45.0, #3045)
+
+`ComposerProps` in `@schlessera/brain-ui-kit` gains optional
+`attachLabel?: string`, the attach trigger's accessible name. Omitted or empty,
+it is "Attach — photo, camera, files" (previously the fixed
+"Attach — photo, camera, file"). An actionable trigger also paints that name as
+an `aria-hidden` pointer tooltip; an inert trigger, including a dictating
+composer's, has neither. Existing props and defaults are otherwise unchanged,
+and no wire schema changes. `api-report/` records the added prop.
+
+<a id="composer-mic-control-additive-0450-3727"></a>
+
+## Composer mic control (additive, 0.45.0, #3727)
+
+`ComposerProps` in `@schlessera/brain-ui-kit` gains optional
+`micControl?: ReactNode`, a caller-drawn mic (the kit's `MicButton`) in the
+`send` and `plain` field's mic slot. When it is set, `mic`, `onMic`,
+`micLabel`, `micTip` and `micUnavailable` are ignored, the slot takes the
+control's 44px target with -4px
+block margins (a 54px field), and the field aligns its controls to the last
+line of a multi-line draft. The `voice` variant keeps its own disc. Omitted,
+the composer renders exactly as before. No wire schema changes.
+`api-report/` records the added prop.
+
+
+<a id="spoken-turn-details-additive-0450-3728"></a>
+
+## Spoken-turn details (additive, 0.45.0, #3728)
+
+`SpokenTurnProps` in `@schlessera/brain-ui-kit` gains optional
+`details?: SpokenTurnDetails`, and the package exports the new type
+`SpokenTurnDetails` (`Omit<TranscriptQualifiersProps, "trigger">`). With it, a
+spoken turn renders one visually hidden "Details" stop, named by the existing
+transcript-qualifier string and marked `aria-haspopup="dialog"`, that shows as a
+pill on keyboard focus or after a 300ms pointer hover. Enter, Space, Shift+F10,
+the ContextMenu key, a right-click (unless text inside the turn is selected) and
+a 500ms touch long-press open the existing transcript details dialog, and focus
+returns to the stop on close. No glyph renders. `TranscriptQualifiersProps`,
+now reachable through that type, gains optional `trigger?: "glyphs" | "reveal"`;
+omitted or `"glyphs"`, the trigger renders exactly as before. A turn without
+`details` is unchanged. `api-report/` records the added props and type.
+
+## Prospective trust policy data (additive, #3607)
+
+The governance policy types reachable through ui-server's public signatures
+accept optional `taint.trusted_sources` and resolve it to a validated list,
+empty by default. The [supported input](../supported-inputs.md#prospective-trust-policy-data-additive-3607)
+defines strict selectors, capability defaults and bounds. The same-commit API
+reports record this additive type change. Pure canonicalization and matching
+helpers remain on the existing brain-common internal governance-policy entry
+point and establish no new extension seam or runtime authority. No SDK safety
+capability, HTTP endpoint, history DTO or provider conversation changes here.
+
+## Extraction classifier setting (additive, 0.45.0, #4088)
+
+The governance policy types reachable through ui-server's public signatures
+accept optional `taint.classifier` (`"off" | "heuristics"`) and resolve it to
+`"off"` by default. The [supported input](../supported-inputs.md#governance-policy)
+describes what `heuristics` does. The same-commit API report records this
+additive type change. No SDK type, HTTP endpoint, card field or provider
+conversation changes: the classifier's card and refusal are existing
+permission requests and tool-result text.
+
+## Extraction judge setting (additive, 0.45.0, #4089)
+
+The governance policy types reachable through ui-server's public signatures
+accept optional `taint.judge` (`{ mode?: "off" | "jev"; floor?: number }`, a
+floor from 0.5 to 1) and resolve it to `{ mode: "off", floor: 0.9 }`. The
+internal `ProviderOperation` gains `"extraction_judge"`, the operation each
+judge call is recorded under in the turn budgets. The same-commit API report
+records these additive type changes. No SDK type, HTTP endpoint, card field or
+provider conversation changes: the judge's answers stay host state, and a call
+it leaves on the card or refuses uses the existing permission request and
+tool-result text.
+
+## Live brain orientation and task status (additive, #3623)
+
+`LiveConversationOpenOptions.orientation?: ConversationOrientation` supplies an
+authorized per-epoch snapshot. Its `guidance` entries are
+`ConversationGuidance { source, topic, text }`, with topics `preferences`,
+`capture_policy`, `purpose` and `conventions`; its `knowledge` entries have
+`source`, `text` and topic `identity`, `current_focus` or `domains`.
+`unavailable: readonly string[]` names missing/withheld source categories.
+Guidance is scoped user instruction; knowledge and history are data, never
+execution or permission authority. Absence preserves the prior startup data
+shape. First-party adapters bound the whole serialized orientation to 3,200
+UTF-8 bytes and subtract its actual bytes from the existing shared
+history/resync ceilings. Source/selection bounds and omissions are specified
+in [the guidance reference](../live-conversation-guidance.md).
+
+`AgentBackend.conversationGuidance?: readonly ConversationGuidance[]` exposes
+only selected configured conversation/capture guidance. Both first-party
+factories derive it from their existing `systemPromptAppend` option with the
+same section selector; their full append is never exported to voice. Older
+and third-party backends may omit it, yielding explicit missing context.
+This is an additive input to the existing two-backend/two-engine seams, not
+a new context-provider extension point. API reports include the reachable
+types. The common interaction brief also appears in the default typed append;
+configured overrides retain their existing replacement semantics.
+
+`LiveConversationSession.reportWorkStatus?(ref: ConversationTaskRef, status:
+{ state: "queued" | "running"; intent: string }): void` is optional ordered
+progress feedback. `ConversationTaskRef` contains `conversationId`, `epoch`,
+`taskId`, `requestId` and `nativeHandle`. A first-party session requires its
+exact current contextual binding, rejects backward progress and suppresses
+duplicate state. Status does not consume the handle, settle the request, grant
+permission or acknowledge a result. A missing method preserves older provider
+behavior; the host never fabricates provider acceptance feedback for it.
+The host calls queued only after initial task persistence and running only
+after host turn admission starts (before governance/backend entry may finish);
+stale, withdrawn, ended or unauthorized tasks receive
+neither. Status-send failure ends the epoch without retry/replay. This API
+does not report provider acceptance or audible output.
+
+Gemini uses continuing function responses with the exact call id, queued
+`WHEN_IDLE` and running `SILENT`. GPT uses commentary/thinking appends with the
+exact `delegation_id`, at most 500 serialized UTF-8 content bytes. These minimal
+model-needed facts are appended once; UI receipts and internal accounting stay
+host-side. Progress append acknowledgements cannot settle the existing result
+acknowledgement promise. Reviewed-only tasks keep their existing admission and
+result behavior. The [wire/disclosure amendment](wire.md#live-orientation-disclosure-and-progress-additive-3623)
+adds no frame, revision or client permission grant.
+
+## Live-conversation personas (additive, 0.45.0, #3617)
+
+`LiveConversationProvider` (`@schlessera/brain-ui-sdk/server`) gains three
+optional fields, all present or all absent: `voices: readonly
+ConversationVoice[]` (one to 128 unique `{ id, label }`), `defaultVoice` (one
+of them) and `personaInstructionBytes` (1 to 6,000). `assertLiveConversationProvider`
+refuses a partial or inconsistent set. A provider without them supports only
+Standard, and the host refuses any other persona for it.
+
+`LiveConversationOpenOptions.persona?: ConversationPersona` (`{ voice?: string;
+instructions: string }`) is the persona the host froze at Start. Absent means
+Standard and must reproduce the provider's behaviour before personas exactly.
+`voice` is one of the provider's `voices`; absent means `defaultVoice`.
+`instructions` is normalized plain text (line endings to LF, trimmed) within
+`personaInstructionBytes`. A provider frames it after its own fixed rules and
+never lets it reach tool declarations, permissions or history; the first-party
+adapters refuse an unoffered voice or an over-cap text rather than substitute
+or truncate. This adds fields to the existing live-conversation seam; it is not
+a new extension point.
+
+`@schlessera/brain-ui-sdk/protocol` exports `ConversationVoice`,
+`ConversationPersonaRef`, `LivePersona`, `LivePersonaSummary`,
+`LivePersonaInvalidReason`, `LivePersonaListResponse`,
+`LivePersonaCreateRequest`, `LivePersonaUpdateRequest`,
+`LivePersonaProviderStatus`, `LivePersonaStatus`, `VoiceSettingsResponse`,
+`VoiceSettingsUpdateRequest`, `ServerLivePersona`, `STANDARD_PERSONA_ID`,
+`STANDARD_PERSONA_REVISION` and `LIVE_PERSONA_LIMITS`; the schemas entry point
+exports their zod schemas. In `@schlessera/brain-ui-react`, the conversation
+client's state gains `livePersona: LivePersonaStatus | null` and its Start
+echoes `livePersona.personaRef`; Settings › Voice gains the Persona group.
+
+## Observed live content map (additive, 0.45.0, #3630)
+
+`ConversationOrientation.knowledge[].topic` gains `content_map`. It carries
+source-labeled **OBSERVED partial** directory-index purpose/summary leads as
+data, never effective runtime taxonomy, user instruction or authority. All
+existing topics and optional opening semantics remain. First-party startup
+enumerates/reads a bounded root/top-level sample under the same held root as
+provider policy; invalid/restrictive policy, detected root substitution or
+authorization loss withholds new repository knowledge. TypeScript config is
+never executed and does not disable the observed map. Unsupported anchored
+enumeration is an explicit gap. The map precedes supplemental knowledge;
+whole selected guidance still wins aggregate pressure. The 3,200-byte
+orientation and shared total startup ceilings remain unchanged. Exact source,
+count, byte and omission limits are in
+[the guidance reference](../live-conversation-guidance.md). Both profiles
+[disclose the additional data](wire.md#observed-content-map-disclosure-additive-3630)
+before Start; this adds no execution seam or startup host task. This is an
+additive minor SDK change, without a model-obedience or acoustic guarantee.
+
+
+## Live safety admission (additive host input, #3602)
+
+`BackendBridge` accepts an optional internal `admissionSafety` host callback with
+synchronous `read()` and invalidation subscription. Its snapshot binds decimal
+`evidenceRevision`, `trustRevision`, `authorityEpoch`, the host's turn/session
+scope, frozen ordinary `policyHash`, effective restriction, recorder health and
+current authority. `PermissionRequest.admissionSnapshot` is host-only metadata;
+it is never a wire field, worker initialization input or provider content.
+The shared `requestToolPermission` snapshots and rechecks the live input after
+approval waits. The host's `requestPermission` boundary also owns its initial
+snapshot and final revalidation for direct application, policy, compute and
+actor callers; caller metadata cannot opt out. Claimed answers remain under
+coordinator ownership through grant storage and may expire during that wait.
+On initial session naming, the host waits for its catalog/governance identity
+binding before taking the first card snapshot. This wait is bounded and
+cancellable; health and authority are checked again afterward. A healthy
+first card therefore survives its own binding, while later changes still
+withdraw stale authority.
+Admission evidence revisions are monotonic within the host's canonical safety
+scope, independently of the brain-wide history/review cursor. Unrelated sessions
+do not withdraw a pending approval. Own immutable lifecycle appends, canonical
+history adoption, locally pending input and shared recorder loss still invalidate
+it, including changes that leave the unresolved aggregate or global cursor
+unchanged. Projection, membership and latest scoped sequence are read from one
+SQLite snapshot; revision exhaustion refuses admission. Pending-input reads and
+capacity checks include retained provisional aliases before their SQL reservation
+commits. HTTP/WS history cursors and review request revisions remain brain-wide.
+First-party backend gates additionally revalidate in their final dispatch
+continuations after locks, index barriers and occurrence writes. Every Claude
+pre-tool hook fences its own final asynchronous wait, including parallel
+rewrites and native file observations.
+Host publication also checks qualified recording after its own lock/hold waits.
+Application, image-mask, inbox and compute effects share that final host health
+predicate; policy publication checks health independently of its own journal
+observation, and share completion retains it through its final submission.
+Recorder health remains separate from principal lifetime and does not rotate
+the authority epoch or reload ordinary policy. Completed per-use approvals
+retain their existing scope; pending input or recording loss cannot authorize
+a new irreversible publication.
+Inference and provider relays wait for their turn proxy's already submitted
+egress records before taking a fresh admission snapshot. This cancellable
+settlement prevents a completed connection's pending exposure commit from
+spuriously refusing the next model request. It excludes no occurrence and
+grants no authority: independent pending input, recorder loss and revoked
+authority still refuse, with final dispatch checks after later waits.
+Absent input retains the existing taint callback fallback and grants no new
+capability. The live trust input is revision/notification only; matching and
+publication have separate implementations. See the [effective admission
+contract](http.md#governance-events-additive-1651) and
+[the ruling](../decisions/session-safety-reviews.md).
+
+Pi's internal worker pipe also has an `admission` request for the exact
+host-held permission input. The worker sends it after RTK and lock waits,
+immediately before spawning bash. It consumes the host's one-use admission
+ticket and cannot approve, widen or replay a call. In-process bash uses the
+same revalidation at that point. The internal `commitToolAdmission` bridge
+callback transports that check; it carries no provider-facing data or new
+public tool. Lock and native observation RPCs also recheck current host safety.
+
+## Session safety read DTOs (additive, #3604)
+
+The generated React store declarations retain the named `SafetyState` type
+used by the existing store factory and service types.
+
+`@schlessera/brain-ui-sdk/protocol` adds `SafetySessionKey`, `SafetyTarget`,
+`SafetyIdentity`, `SafetyHistoryProjection`, `SafetyRecord`, `SafetyPage`,
+`SafetyUpdate`, `SafetyUnavailable`, `SafetyCapabilities`, the three client
+read/subscribe/unsubscribe frame types and three server read/update/unavailable
+frame types. `SESSION_SAFETY_CAPABILITY` names `sessionSafetyHistory`;
+`SAFETY_READ_CAPABILITIES` describes only the qualified read transport, with all
+mutation flags false. `ServerHello.safetyCapabilities` is optional. Runtime
+`safeParse` schemas are exported from `/schemas`: `safetySessionKeySchema`,
+`safetyPageSchema`, `safetyUpdateSchema` and `safetyCapabilitiesSchema`. Normal
+client/server frame parsers validate the additive frames. They are concrete
+wire DTOs, not a new extension seam. Bounds and recovery semantics are in
+[the wire contract](wire.md#session-safety-history-additive-3604).
+
+## Individual owner safety review DTOs (additive, #3603)
+
+`@schlessera/brain-ui-sdk/protocol` adds `SafetyReviewBody`,
+`SafetyReviewReceipt` and `SafetyReviewResponse`. `/schemas` adds
+`safetyProjectionSchema`, `safetyReviewBodySchema`, `safetyReviewReceiptSchema`
+and `safetyReviewResponseSchema`. These strict, bounded DTOs describe the
+[two-phase HTTP API](../http-api.md#individual-safety-review); they expose no
+model tool or publication seam. Historical receipt projections and fresh
+`currentProjection` are distinct. `SafetyCapabilities.review` is boolean and
+its read-only reason additionally accepts `owner_required` or null; optional
+literal review lifetime/body bounds describe a supporting host. Absent or
+unsupported capability remains unavailable and grants no mutation authority.
+
+## Chat safety review controls (additive, #3605)
+
+`createBrainApi` adds `safetyPrepare(body, signal)` and
+`safetyCommit(requestId, body, signal)` for the existing two-phase owner HTTP
+review. Both parse the bounded SDK response, including refusal receipts.
+There is no retry queue or persisted mutation authority. A lost commit response
+remains unknown until a new read; reconnect and reload never send a verdict.
+
+The React transcript renders host-owned sidecars independently of chat message
+objects. An explicit turn/tool correlation places a 44px safety indicator on
+that entry and on its collapsed run. Uncorrelated input has a named turn event.
+Persistent details expose source, observation time, provenance, finalization and
+individual human verdicts. The narrow review is **Only this trigger**; a safe
+shield means **Marked safe by you**, never objective verification or removal of
+provider context. Standing-rule choices remain absent. Receipt projections
+never replace newer live evidence; only complete, zero-unresolved, healthy
+coverage can display **Normal policy restored**. Auth loss, selection changes
+and retirement discard pending authority. Any retained detail during a same-chat
+refresh is read-only until the new snapshot completes.
+
+
+Transport loss retains already read evidence as **last read**, with review
+capability, pending request authority and normal-policy claims removed. The
+notice and entry indicators keep their geometry while the same owner obtains
+a fresh snapshot. This display cache is partitioned by the host's opaque
+principal key, active session and auth epoch; a missing principal key creates
+a new partition at every hello. It grants no authority. New principals, auth
+loss, explicit unavailable/retired reads and deletion purge retained details.
+Late updates from a disconnected socket cannot loosen the retained facts, and
+recovery never resumes a prepared decision.
+
+## Native recovery quarantine status (#3816)
+
+`NativeManagerReady` gains optional `recovery` with `quarantinedIntents`,
+`stagingChargedBytes` (null when no safe stage bound is known) and
+`diagnosticsPath`. It is present when historical native
+intents cannot be read. Those identities remain fenced; staging capacity and
+unknown checkpoint dependencies remain charged. The manager serves readiness
+and unrelated checkpoint operations. A recovery page containing a quarantined
+identity refuses explicitly rather than reporting an incomplete inventory as
+complete. Causes remain in the host-private diagnostics directory. Authenticated
+`GET /api/status` exposes the boot report as optional `nativeRecovery`, also
+added to `SystemStatus`. A null staging charge makes `healthy` false and new
+staging returns a recovery refusal, not a retryable capacity error. A confirmed
+absent stage directory or invalid UUID charges zero; a surviving stage retains
+its independently persisted historical tmpfs cap. Public `/api/health` remains
+unchanged.
+
+## Journal cleanup diagnostics (additive, #3815)
+
+The journal host's additive `cleanupStatus()` method (#3815) returns
+`{ retained: { pending, failed, retainedBytes }, lastFailure }`, the same
+current accounting and historical diagnostic record exposed as
+[`journalCleanup` on authenticated status](http.md#checkpoint-cleanup-diagnostics-additive-3815).
+
+
+### Unresolved recovery summaries (#3826)
+
+`NativeManagerReady.recovery` and `SystemStatus.nativeRecovery` add optional
+`stagingRefusal`, a recovery explanation when quarantine prevents admission of
+the configured allowance. The manager tests each stage's actual allowance
+before classifying its refusal. `JournalRecoveryStatus` and optional
+`SystemStatus.journalRecovery` expose the count and first cause of unresolved
+object reservations from boot. The journal host adds `recoveryStatus()` returning
+that summary. Fields and recovery semantics are in the
+[HTTP contract](http.md#staging-refusal-and-unresolved-journal-recovery-additive-3826).
+
+## GitHub tools system brief (additive, 0.45.0, #3799)
+
+`buildSystemPromptAppend` in `@schlessera/brain-ui-sdk/server` accepts
+optional `githubTools`, of the type `GithubToolsBrief`
+(`{ read, search, create, comment }`, the visible tool names) that its
+signature reaches.
+With it, the brief gains one fixed bullet that sends GitHub through those
+tools; without it, the output is unchanged. Both first-party backends pass it
+for every interactive session, so a new session's retained append contains
+the bullet. A session retained earlier keeps its append byte for byte. The
+same-commit API report records the additive types. See
+[the MCP component](mcp.md#raw-connections-to-githubs-api-0450-3799).

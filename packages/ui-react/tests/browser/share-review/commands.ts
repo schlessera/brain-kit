@@ -14,7 +14,23 @@ async function action<T>(page: Page, method: string): Promise<T> {
   return page.evaluate(method => (window as unknown as { shareProof: Record<string, () => unknown> }).shareProof[method]!(), method) as Promise<T>;
 }
 async function ready(page: Page) { await page.waitForFunction(() => "shareProof" in window); }
+type Admission = { requested: number; settled: number };
+const admission = (page: Page) => action<Admission>(page, "admission");
+/**
+ * Wait for this page's review admission to decide, instead of a fixed window.
+ * Decided means a review was admitted, or at least one share-review lock
+ * request was made after `since` and every request has settled: each attempt
+ * ended without holding review (see `admission` in app.tsx).
+ */
+async function decided(page: Page, since = 0) {
+  await page.waitForFunction(since => {
+    const proof = (window as unknown as { shareProof: { queue(): string[]; admission(): Admission } }).shareProof;
+    const { requested, settled } = proof.admission();
+    return proof.queue().length > 0 || (requested > since && settled === requested);
+  }, since);
+}
 async function queue(page: Page) { await page.waitForFunction(() => (window as unknown as { shareProof: { queue(): string[] } }).shareProof.queue().length === 1); }
+async function empty(page: Page) { await page.waitForFunction(() => (window as unknown as { shareProof: { queue(): string[] } }).shareProof.queue().length === 0); }
 async function original(page: Page) {
   const originals = await action<Original[]>(page, "inventory");
   assert.equal(originals.length, 1, "one durable original remains before authoritative handoff");
@@ -39,8 +55,8 @@ export const shareReview: BrowserCommand<[Scenario], string> = async (ctx, scena
         if (scenario === "lost-response" && uploads === 1) {
           // Start the response before losing its body. An unopened response on
           // a reused connection can be transparently retried by Chromium.
-          res.writeHead(201, { "content-type": "application/json" }); res.write("{");
-          setTimeout(() => res.destroy(), 50); return;
+          // Close only after the opened response is flushed to the socket.
+          res.writeHead(201, { "content-type": "application/json" }); res.write("{", () => res.destroy()); return;
         }
         res.setHeader("content-type", "application/json");
         res.end(JSON.stringify({ ...(scenario === "lost-admission" && uploads > 1 ? { filingSessionId: "odysseus-filing" } : {}), id: "odysseus-intake", receivedAt: Date.now(), dir: ".brain/inbox/odysseus-intake", text: "Penelope keeps the original loom plan.", files: scenario === "partial" ? [] : [{ name: "loom.pdf", path: ".brain/inbox/odysseus-intake/loom.pdf", mediaType: "application/pdf", bytes: 5 }] }));
@@ -64,7 +80,7 @@ export const shareReview: BrowserCommand<[Scenario], string> = async (ctx, scena
     const landing = await action<string>(page, "stash");
     if (scenario === "transfer" || scenario === "transfer-signout") {
       const faulty = new URL(landing); faulty.searchParams.set("copyFailure", "yes");
-      await page.goto(faulty.href); await ready(page); await page.waitForTimeout(1200);
+      await page.goto(faulty.href); await ready(page); await decided(page);
       assert.deepEqual(await action(page, "queue"), [], "failed durable copy never admits memory-only review");
       await original(page);
       assert.equal((await action<{ shares: number }>(page, "loss")).shares, 1, "sign-out inventory includes the interrupted transfer");
@@ -73,7 +89,7 @@ export const shareReview: BrowserCommand<[Scenario], string> = async (ctx, scena
         assert.deepEqual(await action(page, "cleared"), { originals: 0, account: true }, "intentional sign-out removes the transfer remnant as well as account work");
         assert.equal(uploads, 0); assert.deepEqual(egress, []); return "passed";
       }
-      const other = await context.newPage(); await other.goto(`${origin}/?account=odysseus-sparta`); await ready(other); await other.waitForTimeout(1200);
+      const other = await context.newPage(); await other.goto(`${origin}/?account=odysseus-sparta`); await ready(other); await decided(other);
       assert.deepEqual(await action(other, "queue"), [], "transfer journal prevents cross-account adoption after a failed copy");
       await other.close(); await page.goto(landing); await ready(page); await queue(page); await original(page);
       assert.equal(uploads, 0); assert.deepEqual(egress, [], "fixture has no external egress"); return "passed";
@@ -116,9 +132,11 @@ export const shareReview: BrowserCommand<[Scenario], string> = async (ctx, scena
       await action(page, "expire");
       assert.deepEqual(await action(page, "queue"), [], "auth lock drops the memory payload");
       const other = await context.newPage(); await other.goto(`${origin}/?account=odysseus-sparta`); await ready(other);
-      await other.waitForTimeout(1500);
-      assert.deepEqual(await action(other, "queue"), [], "another account cannot recover this original");
+      // Admission reads only this account's review rows and the stashed
+      // originals, which `inventory` reads too. Both are empty, so this page
+      // has nothing it could admit and the queue check needs no window.
       assert.deepEqual(await action(other, "inventory"), [], "another account cannot read this original");
+      assert.deepEqual(await action(other, "queue"), [], "another account cannot recover this original");
       await other.close();
       assert.equal(await action(page, "restore"), true, "real auth lock restores the same account");
       await queue(page); await original(page); assert.equal(uploads, 0);
@@ -127,7 +145,8 @@ export const shareReview: BrowserCommand<[Scenario], string> = async (ctx, scena
       assert.deepEqual(await action(page, "queue"), [], "unmount drops review memory when releasing ownership");
       await original(page);
       const peer = await context.newPage(); await peer.goto(origin); await ready(peer); await queue(peer);
-      await action(page, "remount"); await page.waitForTimeout(1200);
+      const since = (await admission(page)).requested;
+      await action(page, "remount"); await decided(page, since);
       assert.deepEqual(await action(page, "queue"), [], "a remounted root cannot show another tab's review");
       await peer.close(); await queue(page); await original(page);
       assert.equal(uploads, 0);
@@ -135,7 +154,7 @@ export const shareReview: BrowserCommand<[Scenario], string> = async (ctx, scena
       await action(page, "mountSecond"); await action(page, "unmount");
       assert.equal((await action<string[]>(page, "queue")).length, 1, "a remaining consumer keeps the root's ownership");
       await action(page, "confirm"); await original(page);
-      const peer = await context.newPage(); await peer.goto(origin); await ready(peer); await peer.waitForTimeout(1200);
+      const peer = await context.newPage(); await peer.goto(origin); await ready(peer); await decided(peer);
       assert.deepEqual(await action(peer, "queue"), [], "another tab cannot claim a root with a live consumer");
       await action(page, "resume");
       await page.waitForFunction(() => (window as unknown as { shareProof: { queue(): string[] } }).shareProof.queue().length === 0);
@@ -159,16 +178,25 @@ export const shareReview: BrowserCommand<[Scenario], string> = async (ctx, scena
       await page.close();
       const [first, second] = await Promise.all([context.newPage(), context.newPage()]);
       await Promise.all([first.goto(landing), second.goto(landing)]); await Promise.all([ready(first), ready(second)]);
-      await first.waitForTimeout(1500);
+      // Wait for one tab to admit. The other's first attempt may have run while
+      // the closed owner still held the lock, so wait for one of its attempts
+      // that starts after the admission: that one meets the winner's lock.
+      const admitted = [first, second].map(tab => queue(tab).then(() => tab));
+      admitted.forEach(wait => wait.catch(() => {}));
+      const loser = await Promise.race(admitted) === first ? second : first;
+      await decided(loser, (await admission(loser)).requested);
       const counts = [(await action<string[]>(first, "queue")).length, (await action<string[]>(second, "queue")).length];
       assert.equal(counts[0]! + counts[1]!, 1, "native lock admits exactly one racing tab");
       const owner = counts[0] ? first : second; const survivor = counts[0] ? second : first;
       await owner.close(); await queue(survivor); await original(survivor);
       assert.equal(uploads, 0, "abandonment does not grant consent");
     } else if (scenario === "dismiss") {
-      await action(page, "dismiss"); await page.waitForTimeout(100);
+      // Dismiss removes the review from the queue only after its durable delete.
+      await action(page, "dismiss"); await empty(page);
       assert.deepEqual(await action(page, "inventory"), [], "dismiss commits durable cleanup");
-      await page.reload(); await ready(page); await page.waitForTimeout(1200);
+      await page.reload(); await ready(page);
+      // Nothing is left to admit (see "auth"), so the queue check needs no window.
+      assert.deepEqual(await action(page, "inventory"), []);
       assert.deepEqual(await action(page, "queue"), []); assert.equal(uploads, 0);
     } else if (scenario === "signout") {
       assert.equal((await action<{ shares: number }>(page, "loss")).shares, 1, "sign-out warns about the retained original");
@@ -186,11 +214,14 @@ export const shareReview: BrowserCommand<[Scenario], string> = async (ctx, scena
       await page.getByRole("button", { name: "Keep working", exact: true }).click();
       await original(page);
       await action(page, "clear"); await page.close();
-      const fresh = await context.newPage(); await fresh.goto(origin); await ready(fresh); await fresh.waitForTimeout(1200);
+      const fresh = await context.newPage(); await fresh.goto(origin); await ready(fresh);
+      // Sign-out removed the originals and sealed the account partition, so
+      // this page has nothing it could admit and the queue check needs no window.
+      assert.deepEqual(await action(fresh, "cleared"), { originals: 0, account: true }, "account sign-out clear removes retained originals");
       assert.deepEqual(await action(fresh, "queue"), [], "account sign-out clear removes retained shares");
       assert.equal(uploads, 0);
     } else if (scenario === "ttl") {
-      await action(page, "expireRecord"); await page.reload(); await ready(page); await page.waitForTimeout(1200);
+      await action(page, "expireRecord"); await page.reload(); await ready(page); await decided(page);
       assert.deepEqual(await action(page, "queue"), [], "expired account reviews are not admitted");
       assert.deepEqual(await action(page, "inventory"), [], "existing TTL bounds retained originals");
       assert.equal(uploads, 0);
@@ -198,7 +229,7 @@ export const shareReview: BrowserCommand<[Scenario], string> = async (ctx, scena
       await action(page, "resume"); await action(page, "confirm");
       assert.equal(uploads, 1); await original(page);
       assert.equal(await action(page, "chats"), 0, "incomplete receipt never hands off or starts chat");
-      await action(page, "dismiss"); await page.waitForTimeout(100);
+      await action(page, "dismiss"); await empty(page);
       assert.deepEqual(await action(page, "inventory"), []);
     } else {
       if (scenario === "lost-response") await action(page, "resume");

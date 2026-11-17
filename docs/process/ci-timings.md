@@ -8,6 +8,9 @@ The [throughput measurement guide](ci-throughput.md) extends these observations
 with delivery latency, main-push outcomes, concurrency, reservation history,
 explicit worker/incident records and configurable scenario assumptions.
 
+The [integration evidence inventory](ci-evidence.md) maps each metric to its
+producer, normalized schema, cadence, retention and collection gaps.
+
 ## Collect and report
 
 Use authenticated `gh` with Actions, contents and pull-request read access:
@@ -24,8 +27,9 @@ The time interval selects runs by their original creation time. Every available
 attempt of a selected run is collected separately. `--resources` additionally
 reads executed proof-job logs for their structured resource markers and the
 aggregate's selection/retention marker. It does not persist full logs. Without
-that option, job and step timestamps are still available, but retained browser
-proof cannot always be distinguished from other skipped jobs. An unavailable
+that option, job and step timestamps are still available. In runs archived
+before browser proof retention was retired (#4107), a retained browser job
+cannot always be distinguished from other skipped jobs. An unavailable
 marker remains unknown, rather than a zero-duration command.
 
 Filtered searches recursively split time ranges at GitHub's 1,000-result cap.
@@ -51,8 +55,16 @@ proof of a successful candidate.
 
 ## Automatic archival
 
+The [evidence archive and delivery decision](../decisions/ci-evidence.md)
+records the permanent measurement ref, monthly schema rules, retention split,
+publication permissions and daily/weekly delivery cadence. Hourly collection,
+described here, uploads 90-day artifacts; the [durable archive](#durable-archive)
+compacts them into the permanent data ref daily. Scheduled report delivery is
+not part of either.
+
 `.github/workflows/ci-timings.yml` collects an overlapping two-day creation
-window hourly, with job/step timings, PR lifecycle and reservation history,
+window hourly, with job/step timings, PR lifecycle, reservation history and
+[red-main evidence](ci-throughput.md#red-main-incidents-flakes-and-proof-stopped-while-red),
 and supports manual dispatch. Each invocation seeds from the preceding
 default-branch `ci-timings` artifact, then fetches only new or incomplete
 attempts. Completed attempts and unchanged/merged lifecycle observations are
@@ -95,7 +107,10 @@ older rerun attempts also need an attempt-identity call. One shared PR index
 costs one call per 100 recently updated PRs. A changed PR normally costs two
 calls (detail and one timeline page), or three when its immutable squash is
 read. Unattributed main heads add an exact-SHA lookup. No resource-job log
-calls occur on the schedule.
+calls occur on the schedule. Red-main history is read through Git, not the API.
+Only while main was red does each new coordinator attempt cost two calls (jobs
+and its log), plus one discovery call per 100 coordinator runs in each red
+interval.
 
 For example, a warm run with two discovery pages, one PR-index page, 20 new
 attempts, and five changed merged PRs costs **42 calls**: `1 + 3 + 2 + 1 + 20 +
@@ -123,7 +138,11 @@ Reservation-history failures are isolated: `reservations.json` records an
 continues. The report keeps that error in its reservation scopes and sets
 `reservationAcquisition.complete` to false. Any failed reservation scope leaves
 total occupancy unknown; successful lease observations remain available in
-`reservationAcquisition.leases` for inspection.
+`reservationAcquisition.leases` for inspection. Red-main history failures are
+isolated the same way in `red-main.json`. A failed coordinator discovery, or a
+budget stop before it, marks that scope `partial` in its `coordinatorScope`.
+The report then lists it under `redMain.acquisition`, rather than reporting no
+cancellations.
 
 Download archives before they expire, using their measurement workflow run IDs:
 
@@ -144,6 +163,153 @@ occupancy. Mixed repositories and conflicting identities are refused.
 Measurement files are ignored local artifacts under `tmp/`; do not commit raw
 GitHub payloads or full logs.
 
+## Durable archive
+
+`.github/workflows/ci-evidence-archive.yml` runs daily at 02:17 UTC and on
+manual dispatch. It lists every retained `ci-timings` artifact uploaded by a
+scheduled or dispatched collector run on the default branch, skips those the
+archive already holds, and walks the rest oldest first:
+
+```sh
+bun scripts/ci-timings.ts archive --repo odysseus/chronicle --branch main \
+  --request-budget 120 --reserve 500
+```
+
+Normally that is the previous day's artifacts. After an outage, or until the
+initial backfill finishes, it also takes every earlier retained artifact not
+yet archived. The dispatch's `backfill` input raises the request budget to 450;
+dispatch it again until the job summary reports `pending: 0`. The command
+shares the collector's [API budget and reserve](#api-cost-and-expected-coverage-gaps):
+one listing call per 100 collector runs and per 100 artifacts, plus one
+download per artifact. A budget stop keeps
+what it committed and leaves the rest pending, with exit status 0.
+
+The data ref is `refs/heads/brain-ci-metrics`. Each record kind lives in
+`YYYY-MM/<kind>.json`, partitioned by UTC month, one record per line in
+timestamp and identity order. Monthly files hold `run`, `pull`, `coordinator`,
+`event`, `collection`, `enrichment`, `reservations`, `red-main` and `source`
+records, keyed by the [inventory's](ci-evidence.md#record-kinds-schemas-and-retention)
+identities and partitioned by the run, PR, coordinator or artifact creation
+time, the event time, or the collection time. `summary.json`, Markdown and
+analysis inputs are derived and are not archived. Coordination events the
+[publisher](#publish-local-coordination-events) appended under `events/` stay
+there and are also compacted into the month's `event.json`.
+
+Compaction applies the report's own joins. Overlapping run snapshots keep the
+richer receipts and exact squash attribution; at equal collection times the
+PR-attributed copy wins. The newest PR observation wins. Events, sources and
+other immutable identities must agree; a contradiction refuses the newcomer.
+Hourly collection manifests and reservation histories repeat a two-day window,
+so each identical expected attempt or lease observation is stored only in the
+month's earliest record carrying it. The report's joins are idempotent over
+identical entries, so nothing they read is lost. Every record keeps its own
+schema version; nothing is migrated.
+
+Every record passes the schema check and the tree's leakage screen before it
+is merged. A refused record is excluded, named with its kind, artifact path and
+reason in the JSON output and job summary, and makes the command exit 1 after
+publishing the rest. Each artifact gets a `source` record with its ID,
+collector run, creation time, SHA-256 digest and record/refusal counts.
+An unreadable artifact is refused as a source and retried next time.
+
+Each commit is parented by the inspected remote head and pushed with exact
+`--force-with-lease`, using an isolated index; the caller's checkout and index
+never move. A competing writer causes a fresh read and merge, skipping the
+artifacts it already archived, for up to five attempts. Sources commit in
+batches of 50, so a timeout keeps earlier batches. A run that finds nothing new
+downloads nothing and commits nothing. A monthly file over 95 MiB stops the
+publication before the push, since GitHub refuses larger blobs.
+
+Explicit normalized directories, such as a budgeted `collect --since ... --until
+...` backfill, compact the same way, from a trusted checkout with push access:
+
+```sh
+bun scripts/ci-timings.ts archive --repo odysseus/chronicle --dir tmp/ci-timing-backfill
+```
+
+Report from the data ref instead of artifacts. `--from-archive` names the git
+remote holding it. With `--since` and `--until`, only the months from one
+before the interval to one after it are read:
+
+```sh
+bun scripts/ci-timings.ts report --repo odysseus/chronicle --from-archive origin \
+  --since 2026-07-05T00:00:00Z --until 2026-07-12T00:00:00Z --out tmp/ci-report
+```
+
+Readers refuse an unknown kind, an unknown schema version, another repository's
+record and a record outside its month partition. The archive is measurement
+only and never an input to proof, selection or merging.
+
+## Scheduled evidence reports
+
+`.github/workflows/ci-evidence-report.yml` runs daily at 03:37 UTC, an hour
+after the archive compaction, and on manual dispatch. It reads the data ref and
+main's full first-parent history, with a read-only token, and writes the daily
+digest. On Mondays, or when dispatched with `weekly`, it also writes the weekly
+report. Both go to the job summary and the `ci-evidence-report` artifact, kept
+for 90 days, whether or not anything is delivered:
+
+```sh
+bun scripts/ci-evidence-report.ts --cadence daily --repo odysseus/chronicle \
+  --from-archive origin --out tmp/ci-evidence [--until 2026-07-13T00:00:00Z] [--history origin/main]
+```
+
+The digest covers the UTC day before `--until`, and the weekly report the seven
+days before it. `--until` defaults to the start of the current UTC day and must
+fall on a whole hour. The command writes `digest.json` and `digest.md`, or
+`weekly.json` and `weekly.md`. Each Markdown report opens with a `## Summary`
+section that ends at the next heading, so it can be posted on its own and link
+the full artifact. The JSON is `version: 1`.
+
+Each report has these sections, all computed from the archive for its window:
+
+| Section | Content |
+| --- | --- |
+| `gate` | The #2934 Phase B gate over the seven days before `--until`, and `previousGate` a day earlier. See below. |
+| `throughput` | The [throughput](ci-throughput.md#what-the-report-measures) cohort headline: merges, first-main green, first-pass greens/day, latencies, size cohorts, merge paths and reservation occupancy. The weekly report also carries the full summary under `detail`. |
+| `epochs` | First-main green per [proof-policy epoch](ci-throughput.md#proof-policy-epochs) the window touches. |
+| `redMain` | Red-main incidents open at any time in the window, with time to green, those still open at its end, and the ones first observed in it. |
+| `families` | The ten failing test families most often named by those incidents, the ten most-suspected flaky families with probe outcomes, first-main failed job categories and failure classifications. |
+| `escapeClasses` | Always `null` until an archived source exists ([#4043](https://github.com/schlessera/brain-kit/issues/4043)). |
+| `runnerSlotWait` | [Runner-slot wait](ci-throughput.md#runner-slot-wait) over the attempts created in the window. |
+| `localContention` | Published work and wait events in the window; `null` when none were published. |
+| `activity` | Run attempts and merges per UTC day. A day with a missing collection hour reports `null` counts and the observed numbers as `observedRunAttempts` and `observedMerges`. |
+| `coverage` | Missing collection hours, expired sources, failed acquisitions, missing run attempts and named unknowns. |
+
+**Coverage.** An hour of the window is missing when no collection manifest's
+creation window covered it. No activity is known for a missing hour, so it is
+never read as zero. An hour covered only by partial collections is listed in
+`partialOnly`, because its runs may be incomplete, but it is not a gap. A missing
+hour or failed acquisition more than 90 days old is also counted under
+`expiredSources`: GitHub no longer holds its raw source, so the gap is permanent.
+Failed acquisitions list partial collections, lifecycle errors, failed
+reservation and red-main histories, partial coordinator scopes and coordinator
+logs that could not say what they cancelled.
+
+**Phase B gate.** The gate is `met` only when all three conditions are met for
+the seven days before `--until`; otherwise it is `not met` and `failing` names
+each condition that is not met or is unknown:
+
+- `epoch`: the current proof-policy epoch opened at a classified proof-system
+  squash at least seven days before `--until`. An unreadable history, an
+  unbounded epoch or an unknown boundary leaves it unknown.
+- `firstMainGreen`: at least 80% of the epoch's known first-main outcomes in
+  those days are green. No known outcome, or any missing collection hour in
+  those days, leaves it unknown.
+- `incidentsAttributed`: every red-main incident open in those days has a
+  `failure-classified` event naming its opening run. No red-main history
+  collected in those days, or a failed red-main acquisition, leaves it unknown.
+
+**Delivery trigger.** `changed` is true when a red-main incident is first
+observed in the window (its earliest archived red-main record falls in it), the
+gate's status differs from `previousGate`, or the window has a missing
+collection hour. `triggers` names which. An incident observed again unchanged
+does not trigger, and no duration threshold applies
+([decision](../decisions/ci-evidence.md#reports-cadence-and-delivery)). The
+weekly report is delivered whatever its flag. Posting the reports is
+[#2957](https://github.com/schlessera/brain-kit/issues/2957)'s; this workflow
+holds no write permission.
+
 ## Refresh reviewed unit weights
 
 Use the separate explicit refresh command after choosing a successful exhaustive
@@ -156,7 +322,8 @@ bun scripts/refresh-unit-costs.ts <run-id> <attempt>
 It writes `scripts/test-shard-costs.json` in seconds and
 `scripts/unit-shard-measurement.json` with the run, attempt, actual checkout,
 immutable tree/parents, job/step durations, artifact IDs and archive digests.
-The command requires four successful unit jobs, one attributed archive per
+The command requires every planned partition as a successful unit job (four,
+or eight for a ready confirmation), one attributed archive per
 shard, complete matching JUnit/timing partitions, and exact source-discovery
 coverage. Failed, cancelled, partial or ambiguously attributed evidence is
 refused. A successful workflow summary alone does not qualify a run; duplicate
@@ -180,6 +347,9 @@ The report distinguishes three quantities:
   Initial queue is separately request-to-first-observed-job for first attempts.
   A rerun's original `created_at` is not its request time. Dependent-job queue
   eligibility, reservations, human review and ready-to-merge time are unknown.
+- **Runner-slot wait:** job creation to observed execution start, with explicit
+  unknown counts and a known-job denominator for waits over five minutes. See
+  [cohorts and schema versions](ci-throughput.md#runner-slot-wait).
 - **Check duration:** mean, median, nearest-rank p90 and sample count per
   event/category, named step and successful resource-command phase. Job/step
   samples include observed failed and cancelled execution. Means across
@@ -224,3 +394,50 @@ runner and runtime inputs, retaining the existing proof assertions and gates.
 See [testing](testing.md#required-proof-for-a-pr),
 [proof-domain reconciliation](proof-domains.md#resource-and-scheduling-reconciliation)
 and [the CI measurement policy](../decisions/ci-utility.md#measuring-the-critical-path).
+
+## Publish local coordination events
+
+From a trusted repository checkout with Git push access to `origin`, publish
+locally recorded work, wait and preemption events explicitly:
+
+```sh
+bun scripts/ci-timings.ts publish --repo odysseus/chronicle --out tmp/ci-events
+```
+
+Use the repository's own `owner/name` in place of the example. This internal
+measurement script prints JSON with `added`, `existing` and `head`; it is not
+the supported `brain --json` contract. Collection and report modes remain
+read-only. Publication grants no proof, selection or merge authority.
+
+The input directory holds `event-<id>.json` files from `record`. Each event
+uses schema version 1, an immutable ID, repository and UTC ISO timestamp.
+Allowed kinds are `work-started`, `work-finished`, `wait-started`,
+`wait-finished` and `preempted`. Worker/task IDs are required; `orchestrator`
+is optional. IDs contain only ASCII letters, digits, underscores and hyphens,
+up to 100 characters. Use opaque generated identifiers, never people's names
+or machine identifiers. Optional `pr` is a positive integer; optional `reason`
+is `reservation`, `ci`, `review`, `conflict` or `other` and is required for wait
+boundaries. Preemption remains neither pass nor failure. Event emission is the
+orchestrator's responsibility; this command does not read the host ledger.
+
+Each invocation accepts at most 100 events, 8 KiB per file and 256 KiB total.
+For a larger backlog, select smaller input directories while retaining each
+original event's ID and bytes. Non-event files are ignored; selected symlinks,
+unknown versions, arbitrary fields, hostname/path-like IDs and personal-string
+leakage are refused before contacting the remote. Incident/classification
+annotations are outside this publisher's local-event schema: select a directory
+containing only work, wait and preemption events.
+
+The publisher appends immutable `events/<id>.json` files to
+`refs/heads/brain-ci-metrics`, preserving the inspected tree's other files.
+These are the dedicated published-event inputs for daily compaction (#2955),
+which owns the monthly normalized archive. This command enables neither
+compaction nor scheduled report delivery. Repeating a batch is a no-op;
+an existing ID with different content is refused. Unknown event versions are
+refused rather than rewritten.
+
+Every commit is parented by the inspected remote head and pushed with exact
+`--force-with-lease`. A competing update causes a fresh read and merge, up to
+five attempts. Persistent contention or access failure exits nonzero, retaining
+all local inputs for a retry. Errors appear on stderr; preserve that diagnostic
+with the command exit status. No input is deleted, including after success.

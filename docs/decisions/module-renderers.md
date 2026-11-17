@@ -102,7 +102,7 @@ Rejected:
   `<img>`.** This was the first proposal. It cannot print white from the
   browser, it cannot theme on WebKit, and it cannot inherit the app's fonts:
   the raw-file CSP is `default-src 'none'` (`img-src 'self' data:`,
-  `packages/ui-server/src/routes/files.ts:160`) and an image may not fetch
+  `packages/ui-server/src/routes/files.ts:206`) and an image may not fetch
   fonts. It also leaves the figure an opaque, undiffable file beside markdown
   that is supposed to be the source of truth.
 - **Phase the work, files first and renderers later.** Rejected by the

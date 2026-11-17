@@ -22,10 +22,19 @@ of the [six-part #943 design](https://github.com/schlessera/brain-kit/issues/943
 (2026-10-04) with its four residual answers, R1–R4 (2026-10-05). Where
 those later rulings do not replace it, the supplied navigation and
 parallel-session designs still bind; §8 lists what carries over. The measured input is
-[`docs/plans/navigation-recovery.md`](../../plans/navigation-recovery.md)
+[`docs/plans/navigation-recovery.md`](https://github.com/schlessera/brain-kit/blob/5a0ce18fdcecf0a6c5b83487c865a3f73806d5d0/docs/plans/navigation-recovery.md)
 (#942). The row's adopted geometry is the
 [shared-row design](https://github.com/schlessera/brain-kit/issues/929#issuecomment-5998113323),
 which amends the #943 strip.
+
+> **2026-11-02 — The measured input left `docs/plans/` ([#2511](https://github.com/schlessera/brain-kit/issues/2511)).**
+> #942, #943, #964, #965, #910, #951 and #979 are closed, and the Sessions
+> destination, host-backed drafts and latest-turn recovery are in source
+> (`const destinations`, `packages/ui-react/src/components/layout/desktop-routes.ts`;
+> `packages/ui-server/src/drafts/`). The report held measurements and
+> follow-up ownership, not rulings; every ruling it fed is in this entry. Read
+> it unchanged at the pinned link above. Its probes stay in the tree at
+> `scripts/probes/navigation-recovery/`.
 
 **What this amends.** D37 §1's destinations and New chat placement; D22's
 ≥1280 list pane and the space between transcript and composer; and the
@@ -284,6 +293,15 @@ the summary's count drops, or the summary goes. A dropped follow-up
 popovers appear without a transition. D22's one ambient animation stays the
 filament.
 
+> **2026-11-03 — scoped amendment (#3281, maintainer ruling of 2026-11-02).**
+> The compact operation-status control,
+> [D58's `StatusIndicator`](components-and-interactions.md#2026-11-03--d58-compact-operation-status-is-one-presentational-control-3281),
+> may breathe in its `active` state only. The amendment covers that component
+> and its two selected consumers: the draft's indicator (#3155) and
+> deletion recovery in the Sessions header (#3231). It uses the shared
+> `breathe` keyframe, so reduced motion makes it static. No other tracker, row
+> or pane gains motion, and the rule above holds for everything else.
+
 <a id="4-trackers-under-recovery-a"></a>
 
 ### 4. Trackers under Recovery A
@@ -341,7 +359,7 @@ event deletes the whole set. Draft content never enters this record (§5).
   null, no time is printed.
 - **`lastActiveAt` and `lastTouched` are never read.** A newer
   `lastActiveAt` can mean that a new turn started
-  (`export interface ChatSession`, `packages/ui-sdk/src/protocol.ts:1576-1606`),
+  (`export interface ChatSession`, `packages/ui-sdk/src/protocol.ts:1753-1783`),
   and `lastTouched` is LRU bookkeeping for buffer eviction.
 
 **Merging snapshots and live frames.**
@@ -364,7 +382,7 @@ active; Chat is in the foreground with no panel or other view over it;
 `document.visibilityState` is `visible`; history has a message whose
 host-proven `turnId` equals `latest.turnId`; and that message's last line is
 in the viewport at the bottom, by the same `< 20px` test the transcript uses
-(`const handleScroll`, `packages/ui-react/src/components/chat/chat-page.tsx:318-322`),
+(`const handleScroll`, `packages/ui-react/src/components/chat/chat-page.tsx:319-323`),
 with the scroll disc not drawn. An older key never clears a newer tracker.
 Selecting the session, being scrolled up, a hidden tab, a background buffer
 and the bottom of a replay without the linked turn do not count.
@@ -417,6 +435,12 @@ kinds keep #910's rules and state footer, with no second indicator.
 >   announcements until it is.
 > - `Mark as seen` with no latest turn identity to store deletes the record,
 >   since there is nothing to acknowledge against.
+> - *(2026-11-03, #3406.)* An answer still being written is not the linked
+>   turn, even when it carries the turn its live frames named. History links
+>   a turn only once it has ended, so a replay strips that turn from a
+>   running answer. Before #3406, reopening a running session could beat its
+>   replay and record proof from the stale frame turn, and the tracker
+>   cleared before the turn ended.
 
 > **2026-10-06 — R3's read-only card and the shell's time, implemented by
 > #1072.** The rules are `packages/ui-react/src/lib/restored-approvals.ts`,
@@ -466,6 +490,12 @@ kinds keep #910's rules and state footer, with no second indicator.
 >   or made by leaving the session in view announces nothing then. Work that
 >   starts in a session nobody is watching announces its first settled view.
 >   Changes that arrive together are each announced.
+>   *(2026-11-11, #3973; also #3414.)* Once a tracker has a baseline,
+>   unavailable and unknown recovery observations do not replace it. Reading
+>   the same completion, failure or pending interaction again says nothing.
+>   A first settled view of `can't check` still establishes a baseline, so
+>   what the next successful read learns can announce. Work that moves on
+>   during a gap and new unwatched work keep their announcements.
 > - Opening a tracker moves focus once the session's replayed history is
 >   complete (a chunk has come and none has followed it for 150ms) and, for
 >   `needs you`, its card is drawn: 5 seconds at most, then with what is
@@ -526,6 +556,25 @@ Nothing is sent and no host session is created.
 
 Content is always kept locally and is never dropped to fit a limit. Nothing
 claims host durability for an unacknowledged save.
+
+> **2026-11-08 — scoped amendment (#3155, maintainer rulings of 2026-11-02:
+> compact status presentation and E1 A).** In the composer, the save state is
+> no longer a persistent line under the field. It is
+> [D58's `StatusIndicator`](components-and-interactions.md#2026-11-03--d58-compact-operation-status-is-one-presentational-control-3281)
+> beside Attach. The tooltip and details carry the summary and facts, and
+> Compare drafts and Open other version are detail actions. The authority
+> behind the states is unchanged. `saved` still needs the host's
+> acknowledgement of this exact revision, now with every original-file
+> binding and no upload still pending. Every other row above keeps its rule
+> as a distinct indicator state. The amendment adds rev 4 §1's queued,
+> offline, unconfirmed (with a read-only Check again), upload failed or
+> unconfirmed, and space-refused states. An empty draft hides the control
+> and keeps its slot. The `saving…` delay of 600ms no longer applies: an
+> unacknowledged edit shows the active glyph at once. Only that glyph
+> animates (the amendment above), and reduced motion keeps it still. The
+> line itself remains `DraftSaveLine` for the voice conversation strip,
+> which this amendment does not change. The record is
+> [chat attachments](../chat-attachments.md#what-3155-built-so-far).
 
 **Conflict.** `Compare drafts` shows this device's and the other device's
 version with their edit times, and offers `Keep this device's`,
@@ -640,6 +689,33 @@ question-answer rules are independent.
 > well. Browsers may skip the prompt on a page the user never interacted
 > with; Chromium under test automation asks regardless. The guard is
 > `guardLeaving` in `lib/draft-tracks.ts`.
+
+<a id="generic-attachment-originals-2026-11-02"></a>
+
+> **2026-11-02 — Generic attachment originals, maintainer amendment (#3150).**
+> Approved; the host side is implemented by #3153. For the new generic composer path, staged
+> files stop being tab-only. Every attachment, images included, is a
+> filesystem original owned by the exact acknowledged draft revision, then by
+> the conversation that accepted the send. A saved draft and its file bindings
+> survive reload, tab close and a normal host restart. `saved` still requires
+> the host to acknowledge that exact revision, file bindings included.
+> Unacknowledged or legacy data never reads as saved. Unresolved sends protect
+> their files. The per-draft envelope becomes 10 files, 25,000,000 bytes each
+> and 50,000,000 together, plus the separate 65,536-byte text allowance. The
+> 100-draft and 268,435,456-byte host limits stay, inside a configurable 1 GiB
+> attachment pool. The tab-only rules above (#1112, #1150) still govern the
+> legacy track path on a host without the new capability. Everything else in
+> this record is unchanged. The rulings are in
+> [chat-attachments.md](../chat-attachments.md), and the proposed schema and
+> lifecycle in [the design](../../plans/chat-attachments.md#6-admission-storage-and-ownership-3153).
+> #3153 built it this way: a save's `fileIds` bind originals to that exact
+> revision and its `outgoing` snapshot owns a held or unconfirmed send's
+> files, both in the host's operational database, so they survive a reload,
+> a closed tab and a restart. `Draft.files` lists only bound files that are
+> still stored, so nothing restores as saved that the host does not hold. An
+> accepted send gives the conversation its own reference before the revision
+> is consumed; newer revisions and other drafts are untouched. Nothing is
+> resent automatically. The composer that uses this is #3155's.
 
 > **2026-10-07 — Drafts kept on this device across a reload, implemented by
 > #1014.** Every draft in the root's store, with its images, and the work
@@ -825,12 +901,12 @@ Read from the source, not inferred from the drawings:
   `cost`. Those props are **new**, and chips get a 44px minimum under a
   coarse pointer (#945).
 - The scroll-to-bottom disc is a bare 32px button with only a `title`
-  (`{showScrollButton && (`, `packages/ui-react/src/components/chat/chat-page.tsx:809-817`).
+  (`{showScrollButton && (`, `packages/ui-react/src/components/chat/chat-page.tsx:812-820`).
   It has no 44px box and no accessible name, so it joins `DiscButton`.
 - **`DiscButton`** is a 32px paint in a 44px box, with `tone: ink | mute`
   and an optional label that expands leftward. It draws exactly three
   discs: the phone Search disc, New chat below 1280
-  (`{hasMessages && !wide && (`, `packages/ui-react/src/components/chat/chat-page.tsx:702-709`)
+  (`{hasMessages && !wide && (`, `packages/ui-react/src/components/chat/chat-page.tsx:703-710`)
   and scroll-to-latest. It is not used for rail rows, pills or chips. Both
   overlay boxes share one vertical range, so #628's resting spacer (`pt-10`
   below an 888px container, not the 880px in the drawings) still clears

@@ -75,7 +75,7 @@ export interface FileState {
   reset: () => void;
 }
 
-export type ViewMode = "preview" | "raw";
+type ViewMode = "preview" | "raw";
 
 export interface FileLoadFailure {
   kind: "unreachable" | "unauthenticated" | "forbidden" | "not-found" | "too-large" | "unknown";
@@ -516,7 +516,7 @@ export function isInternalRepoDir(href: string | undefined): href is string {
   return DIR_REF_RE.test(href);
 }
 
-export type RepoPathKind = "file" | "dir";
+type RepoPathKind = "file" | "dir";
 
 export function classifyRepoPath(
   href: string | undefined
@@ -544,7 +544,3 @@ export function scratchPath(href: string | undefined): string | null {
   return rel;
 }
 
-/** Normalize a directory ref by trimming the trailing slash. */
-export function normalizeDirPath(path: string): string {
-  return path.replace(/\/+$/, "");
-}

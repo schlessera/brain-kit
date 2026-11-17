@@ -36,6 +36,7 @@ export "." (./src/index.ts)
   type LocalCaptureStopReason
   type LocalCaptureSupport
   LocalRecordingSheet
+  type MarkupRequest
   type MaskRequest
   type MessageAttachment
   type Recording
@@ -116,6 +117,7 @@ signatures (every public export and the types it is made of)
         editable?: boolean;
         mirror?: boolean;
         focus?: boolean;
+        sentAsMessage?: boolean;
     }
   AnswerPayload (packages/ui-react/src/lib/answer-delivery/types.ts)
     export type AnswerPayload = {
@@ -160,6 +162,7 @@ signatures (every public export and the types it is made of)
     export interface AskUserExchange {
         requestId: string;
         terminal?: true;
+        endedBy?: "timeout";
         turnId?: string;
         questions: AskUserQuestion[];
         list?: AskUserListSpec;
@@ -281,6 +284,7 @@ signatures (every public export and the types it is made of)
         askUserExchanges?: AskUserExchange[];
         attachments?: MessageAttachment[];
         files?: SharedFileMeta[];
+        attachmentFiles?: AttachmentFile[];
         attachmentCount?: number;
         blocks?: MessageBlock[];
         journal?: TurnJournalSummary;
@@ -292,6 +296,8 @@ signatures (every public export and the types it is made of)
         failure?: TurnFailure;
         retryOfTurnId?: string;
         failureLive?: boolean;
+        runtimeNotice?: TurnNotice;
+        runtimeNoticeLive?: boolean;
         retry?: TurnRetry;
     }
   ChatPage (packages/ui-react/src/components/chat/chat-page.tsx)
@@ -348,10 +354,16 @@ signatures (every public export and the types it is made of)
         token: number;
         connection: "Connecting" | "Connected" | "Reconnecting" | "Speech lost";
         micOn: boolean;
+        capture: "idle" | "listening" | "muted" | "stopped";
         interaction: "Listening" | "Sending soon" | "Review before sending" | "Working" | "Speaking" | "Checking whether the reply stopped" | "Answering question";
         disclosureOpen: boolean;
         profile: ServerConversationOpened | null;
         conversationProfile: ConversationProfile | null;
+        conversationProfiles: ConversationProfile[];
+        liveDefault: LiveDefault | null;
+        serviceChoice: string | null;
+        personaChoice: ConversationPersonaRef | null;
+        livePersona: LivePersonaStatus | null;
         durableAvailable: boolean;
         sessionId: string | null;
         agentProviderId: string | null;
@@ -373,6 +385,12 @@ signatures (every public export and the types it is made of)
         dialogueNotice: string;
         dialogueRestoredThrough: Record<string, number>;
     }
+  ConversationFrame (packages/ui-react/src/hooks/websocket-handlers/types.ts)
+    export type ConversationFrame = Extract<ConsumerServerMessage, {
+        type: ConversationFrameType;
+    }>;
+  ConversationFrameType (packages/ui-react/src/hooks/websocket-handlers/types.ts)
+    type ConversationFrameType = "dialogue_history" | "tool_resolution" | "conversation_opened" | "conversation_closed" | "conversation_event" | "conversation_work" | "conversation_output" | "conversation_permission";
   ConversationRecognition (packages/ui-react/src/voice/conversation-client.ts)
     export type ConversationRecognition = Extract<ConversationWireEvent, {
         kind: "input_fragment" | "unassigned_input_fragment";
@@ -573,6 +591,18 @@ signatures (every public export and the types it is made of)
         onStop: () => Promise<void>;
         onDiscard: () => Promise<void>;
     }): import("react").JSX.Element | null;
+  MarkupRequest (packages/ui-react/src/stores/markup-state.ts)
+    export interface MarkupRequest {
+        requestId: string;
+        imagePath: string;
+        instruction?: string;
+        width: number;
+        height: number;
+        maxBytes: number;
+        uploadPath: string;
+        sourcePath: string;
+        turnId?: string;
+    }
   MaskRequest (packages/ui-react/src/stores/mask-state.ts)
     export interface MaskRequest {
         requestId: string;
@@ -709,7 +739,7 @@ signatures (every public export and the types it is made of)
         saveTranscript(partition: PartitionId, id: string, text: string): Promise<void>;
         accept(partition: PartitionId, id: string, draftId: string, sessionId: string | null, expectedTranscript?: string): Promise<void>;
         assign(id: string): Promise<void>;
-        transcribe(partition: PartitionId, id: string, progress: (percent: number) => void, retry?: string): Promise<void>;
+        transcribe(partition: PartitionId, id: string, progress: (percent: number) => void, retry?: string, provider?: string): Promise<void>;
         syncTranscriptions(): Promise<void>;
         busy(): boolean;
         subscribe(listener: () => void): () => void;
@@ -875,7 +905,7 @@ signatures (every public export and the types it is made of)
         output?: string;
         isError?: boolean;
         status: "streaming" | "pending_approval" | "approved" | "denied" | "complete";
-        approvalKind?: "tool" | "command" | "policy";
+        approvalKind?: "tool" | "command" | "policy" | "actor";
         approvalRememberable?: false;
         approvalDescription?: string;
         restored?: true;
@@ -888,6 +918,10 @@ signatures (every public export and the types it is made of)
     export interface TrackDisplay {
         view: TrackFileView;
         props: TrackMapProps;
+    }
+  TurnNotice (packages/ui-react/src/stores/chat-state.ts)
+    export interface TurnNotice {
+        cause: "timeout" | "aborted" | "unspecified";
     }
   UIShellState (packages/ui-react/src/stores/shell-stores.ts)
     export interface UIShellState {
@@ -954,6 +988,11 @@ signatures (every public export and the types it is made of)
         overriddenBy: string | null;
         appliesTo: string[];
         providers: WebSearchProvider[];
+        unavailable?: Array<{
+            id: string;
+            label: string;
+            kind: "deferred" | "excluded";
+        }>;
     }
   WebSearchProvider (packages/ui-react/src/lib/api-client.ts)
     export interface WebSearchProvider {
@@ -963,6 +1002,7 @@ signatures (every public export and the types it is made of)
         hasKeyField: boolean;
         keyConfigured: boolean;
         keyFromEnv: boolean;
+        keyIsCommand?: boolean;
         keyless: boolean;
         costNote: string;
         blurb: string;
@@ -991,8 +1031,8 @@ signatures (every public export and the types it is made of)
     }): ShareOption[];
   cancel (packages/ui-react/src/lib/answer-delivery/manager.ts)
     function cancel(requestId: string): Promise<void>;
-  checkRetryDelivery (packages/ui-react/src/connection.ts)
-    function checkRetryDelivery(sessionId: string): boolean;
+  checkDelivery (packages/ui-react/src/ws-client/turn-retry.ts)
+    function checkDelivery(sessionId: string): boolean;
   commit (packages/ui-react/src/voice/conversation-client.ts)
     function commit(own: number): boolean;
   configureBrainUi (packages/ui-react/src/config.ts)
@@ -1038,6 +1078,32 @@ signatures (every public export and the types it is made of)
         }>;
         activityStats: (days?: number) => Promise<ActivityRuntimeStats>;
         agentPolicy: (signal?: AbortSignal) => Promise<AgentPolicyRead>;
+        apify: (options?: {
+            refresh?: boolean;
+            session?: string;
+            signal?: AbortSignal;
+            turn?: string;
+        }) => Promise<ApifySettingsRead>;
+        apifyActorRevoke: (actor_id: string) => Promise<{
+            revoked: boolean;
+        }>;
+        apifyConfirmAccount: (accountId: string) => Promise<unknown>;
+        apifyPolicyDecide: (turnId: string, requestId: string, approve: boolean) => Promise<{
+            baseHash: null | string;
+            bodyChanged: boolean;
+            bodyDiff: string;
+            frontmatterDiff: string;
+            message: string;
+            path: "context/policies/governance.md";
+            proposedHash: string;
+            rationale: string;
+            requestId: string;
+            sections: string[];
+            state: "declined" | "invalid" | "pending" | "refused" | "stale" | "unknown" | "updated" | "writing";
+            turnId: string;
+            warnings: string[];
+        }>;
+        apifyPolicyPropose: (change: ApifyPolicyChange, baseHash: null | string) => Promise<ApifyPolicyProposalRead>;
         authMethods: () => Promise<{
             passkey: boolean;
             password: boolean;
@@ -1072,6 +1138,9 @@ signatures (every public export and the types it is made of)
             success: boolean;
         }>;
         checkWorkerHost: () => Promise<WorkerHostStatus>;
+        createLivePersona: (request: LivePersonaCreateRequest) => Promise<LivePersona>;
+        deleteLivePersona: (id: string, baseRevision: string) => Promise<void>;
+        dictationSettings: () => Promise<DictationSettings>;
         fileResolve: (path: string) => Promise<{
             ancestors: string[];
             exists: boolean;
@@ -1089,8 +1158,12 @@ signatures (every public export and the types it is made of)
         }>;
         hygieneCommand: (operation: HygieneReviewCommand["operation"]) => Promise<HygieneReviewRead>;
         hygieneDetails: (itemId: string) => Promise<HygieneWorktreeDetailsRead>;
-        hygienePreview: (request: HygienePreviewRequest) => Promise<InboxActionItem>;
+        hygieneMediaUndo: (journalId: string) => Promise<HygieneReviewRead>;
+        hygienePreview: (request: HygienePreviewRequest, signal?: AbortSignal) => Promise<HygienePreviewResponse>;
         hygieneReview: () => Promise<HygieneReviewRead>;
+        livePersona: (id: string) => Promise<LivePersona>;
+        livePersonas: () => Promise<LivePersonaListResponse>;
+        liveSettings: () => Promise<VoiceLiveSettings>;
         login: (password: string) => Promise<{
             ok: true;
         }>;
@@ -1192,6 +1265,305 @@ signatures (every public export and the types it is made of)
             timeZone: null | string;
         }>;
         refreshModels: () => Promise<ModelCatalogResponse>;
+        safetyCommit: (requestId: string, body: SafetyReviewBody, signal: AbortSignal) => Promise<{
+            code: "capacity" | "not_finalized" | "recording_failed" | "request_conflict" | "request_expired" | "resync_required" | "retired" | "stale_revision" | "unauthorized" | "unavailable";
+            currentProjection: null | {
+                coverage: {
+                    detectorVersion: 1;
+                    epochs: {
+                        acknowledged: string[];
+                        backendId: string;
+                        endSequence: null | string;
+                        id: string;
+                        mandatory: string[];
+                        reason: null | string;
+                        startSequence: string;
+                        status: "complete" | "incomplete" | "unknown";
+                    }[];
+                    exclusions: string[];
+                    state: "complete" | "incomplete" | "unknown";
+                };
+                earliestUnresolvedId: null | string;
+                evidenceRevision: string;
+                pendingCount: number;
+                reasons: ("capacity" | "coverage_unknown" | "recording_failed" | "recording_pending" | "unresolved")[];
+                restriction: "normal" | "restricted";
+                session: null | {
+                    historyGeneration: string;
+                    historyOwnerId: string;
+                    sessionId: string;
+                };
+                unresolvedCount: number;
+            };
+            reason: string;
+            receipt: {
+                occurrenceId: string;
+                operationId: null | string;
+                projection: null | {
+                    coverage: {
+                        detectorVersion: 1;
+                        epochs: {
+                            acknowledged: string[];
+                            backendId: string;
+                            endSequence: null | string;
+                            id: string;
+                            mandatory: string[];
+                            reason: null | string;
+                            startSequence: string;
+                            status: "complete" | "incomplete" | "unknown";
+                        }[];
+                        exclusions: string[];
+                        state: "complete" | "incomplete" | "unknown";
+                    };
+                    earliestUnresolvedId: null | string;
+                    evidenceRevision: string;
+                    pendingCount: number;
+                    reasons: ("capacity" | "coverage_unknown" | "recording_failed" | "recording_pending" | "unresolved")[];
+                    restriction: "normal" | "restricted";
+                    session: null | {
+                        historyGeneration: string;
+                        historyOwnerId: string;
+                        sessionId: string;
+                    };
+                    unresolvedCount: number;
+                };
+                reason: null | string;
+                requestId: null | string;
+                session: {
+                    historyGeneration: string;
+                    historyOwnerId: string;
+                    sessionId: string;
+                };
+                stage: "prepared" | "refused" | "verdict_committed";
+                verdict: "committed" | "unresolved";
+                version: 1;
+            };
+            retryable: false;
+            version: 1;
+        } | {
+            currentProjection: null | {
+                coverage: {
+                    detectorVersion: 1;
+                    epochs: {
+                        acknowledged: string[];
+                        backendId: string;
+                        endSequence: null | string;
+                        id: string;
+                        mandatory: string[];
+                        reason: null | string;
+                        startSequence: string;
+                        status: "complete" | "incomplete" | "unknown";
+                    }[];
+                    exclusions: string[];
+                    state: "complete" | "incomplete" | "unknown";
+                };
+                earliestUnresolvedId: null | string;
+                evidenceRevision: string;
+                pendingCount: number;
+                reasons: ("capacity" | "coverage_unknown" | "recording_failed" | "recording_pending" | "unresolved")[];
+                restriction: "normal" | "restricted";
+                session: null | {
+                    historyGeneration: string;
+                    historyOwnerId: string;
+                    sessionId: string;
+                };
+                unresolvedCount: number;
+            };
+            receipt: {
+                occurrenceId: string;
+                operationId: null | string;
+                projection: null | {
+                    coverage: {
+                        detectorVersion: 1;
+                        epochs: {
+                            acknowledged: string[];
+                            backendId: string;
+                            endSequence: null | string;
+                            id: string;
+                            mandatory: string[];
+                            reason: null | string;
+                            startSequence: string;
+                            status: "complete" | "incomplete" | "unknown";
+                        }[];
+                        exclusions: string[];
+                        state: "complete" | "incomplete" | "unknown";
+                    };
+                    earliestUnresolvedId: null | string;
+                    evidenceRevision: string;
+                    pendingCount: number;
+                    reasons: ("capacity" | "coverage_unknown" | "recording_failed" | "recording_pending" | "unresolved")[];
+                    restriction: "normal" | "restricted";
+                    session: null | {
+                        historyGeneration: string;
+                        historyOwnerId: string;
+                        sessionId: string;
+                    };
+                    unresolvedCount: number;
+                };
+                reason: null | string;
+                requestId: null | string;
+                session: {
+                    historyGeneration: string;
+                    historyOwnerId: string;
+                    sessionId: string;
+                };
+                stage: "prepared" | "refused" | "verdict_committed";
+                verdict: "committed" | "unresolved";
+                version: 1;
+            };
+            version: 1;
+        }>;
+        safetyPrepare: (body: SafetyReviewBody, signal: AbortSignal) => Promise<{
+            code: "capacity" | "not_finalized" | "recording_failed" | "request_conflict" | "request_expired" | "resync_required" | "retired" | "stale_revision" | "unauthorized" | "unavailable";
+            currentProjection: null | {
+                coverage: {
+                    detectorVersion: 1;
+                    epochs: {
+                        acknowledged: string[];
+                        backendId: string;
+                        endSequence: null | string;
+                        id: string;
+                        mandatory: string[];
+                        reason: null | string;
+                        startSequence: string;
+                        status: "complete" | "incomplete" | "unknown";
+                    }[];
+                    exclusions: string[];
+                    state: "complete" | "incomplete" | "unknown";
+                };
+                earliestUnresolvedId: null | string;
+                evidenceRevision: string;
+                pendingCount: number;
+                reasons: ("capacity" | "coverage_unknown" | "recording_failed" | "recording_pending" | "unresolved")[];
+                restriction: "normal" | "restricted";
+                session: null | {
+                    historyGeneration: string;
+                    historyOwnerId: string;
+                    sessionId: string;
+                };
+                unresolvedCount: number;
+            };
+            reason: string;
+            receipt: {
+                occurrenceId: string;
+                operationId: null | string;
+                projection: null | {
+                    coverage: {
+                        detectorVersion: 1;
+                        epochs: {
+                            acknowledged: string[];
+                            backendId: string;
+                            endSequence: null | string;
+                            id: string;
+                            mandatory: string[];
+                            reason: null | string;
+                            startSequence: string;
+                            status: "complete" | "incomplete" | "unknown";
+                        }[];
+                        exclusions: string[];
+                        state: "complete" | "incomplete" | "unknown";
+                    };
+                    earliestUnresolvedId: null | string;
+                    evidenceRevision: string;
+                    pendingCount: number;
+                    reasons: ("capacity" | "coverage_unknown" | "recording_failed" | "recording_pending" | "unresolved")[];
+                    restriction: "normal" | "restricted";
+                    session: null | {
+                        historyGeneration: string;
+                        historyOwnerId: string;
+                        sessionId: string;
+                    };
+                    unresolvedCount: number;
+                };
+                reason: null | string;
+                requestId: null | string;
+                session: {
+                    historyGeneration: string;
+                    historyOwnerId: string;
+                    sessionId: string;
+                };
+                stage: "prepared" | "refused" | "verdict_committed";
+                verdict: "committed" | "unresolved";
+                version: 1;
+            };
+            retryable: false;
+            version: 1;
+        } | {
+            currentProjection: null | {
+                coverage: {
+                    detectorVersion: 1;
+                    epochs: {
+                        acknowledged: string[];
+                        backendId: string;
+                        endSequence: null | string;
+                        id: string;
+                        mandatory: string[];
+                        reason: null | string;
+                        startSequence: string;
+                        status: "complete" | "incomplete" | "unknown";
+                    }[];
+                    exclusions: string[];
+                    state: "complete" | "incomplete" | "unknown";
+                };
+                earliestUnresolvedId: null | string;
+                evidenceRevision: string;
+                pendingCount: number;
+                reasons: ("capacity" | "coverage_unknown" | "recording_failed" | "recording_pending" | "unresolved")[];
+                restriction: "normal" | "restricted";
+                session: null | {
+                    historyGeneration: string;
+                    historyOwnerId: string;
+                    sessionId: string;
+                };
+                unresolvedCount: number;
+            };
+            receipt: {
+                occurrenceId: string;
+                operationId: null | string;
+                projection: null | {
+                    coverage: {
+                        detectorVersion: 1;
+                        epochs: {
+                            acknowledged: string[];
+                            backendId: string;
+                            endSequence: null | string;
+                            id: string;
+                            mandatory: string[];
+                            reason: null | string;
+                            startSequence: string;
+                            status: "complete" | "incomplete" | "unknown";
+                        }[];
+                        exclusions: string[];
+                        state: "complete" | "incomplete" | "unknown";
+                    };
+                    earliestUnresolvedId: null | string;
+                    evidenceRevision: string;
+                    pendingCount: number;
+                    reasons: ("capacity" | "coverage_unknown" | "recording_failed" | "recording_pending" | "unresolved")[];
+                    restriction: "normal" | "restricted";
+                    session: null | {
+                        historyGeneration: string;
+                        historyOwnerId: string;
+                        sessionId: string;
+                    };
+                    unresolvedCount: number;
+                };
+                reason: null | string;
+                requestId: null | string;
+                session: {
+                    historyGeneration: string;
+                    historyOwnerId: string;
+                    sessionId: string;
+                };
+                stage: "prepared" | "refused" | "verdict_committed";
+                verdict: "committed" | "unresolved";
+                version: 1;
+            };
+            version: 1;
+        }>;
+        saveDictationSettings: (settings: DictationSettings) => Promise<DictationSettings>;
+        saveLivePersonaSelection: (value: string, revision: number) => Promise<VoiceSettingsResponse>;
+        saveLiveSettings: (update: VoiceLiveSettingsUpdate) => Promise<VoiceLiveSettings>;
         sessionRecovery: (sessionId: string, opts?: {
             signal?: AbortSignal;
         }) => Promise<SessionRecoveryResult>;
@@ -1293,11 +1665,14 @@ signatures (every public export and the types it is made of)
         }>;
         turnRevertPlan: (sessionId: string, turnId: string, action?: "restore" | "revert", signal?: AbortSignal) => Promise<import("@schlessera/brain-ui-sdk").TurnRevertPlan>;
         turnRevertReceipt: (sessionId: string, turnId: string, operationId: string, signal?: AbortSignal) => Promise<import("@schlessera/brain-ui-sdk").TurnRevertReceipt>;
+        updateLivePersona: (id: string, request: LivePersonaUpdateRequest) => Promise<LivePersona>;
         voiceKeyterms: () => Promise<VoiceKeytermsResponse>;
         voiceOverrides: (signal?: AbortSignal) => Promise<{
             overrides: PronunciationOverride[];
         }>;
-        voiceSession: (signal?: AbortSignal) => Promise<VoiceSessionResponse>;
+        voiceProviders: () => Promise<VoiceProvidersResponse>;
+        voiceSession: (signal?: AbortSignal, selection?: VoiceSessionRequest) => Promise<VoiceSessionResponse>;
+        voiceSettings: () => Promise<VoiceSettingsResponse>;
         voiceToken: () => Promise<VoiceTokenResponse>;
         vpnCheck: () => Promise<{
             vpn: boolean;
@@ -1342,31 +1717,41 @@ signatures (every public export and the types it is made of)
         connect: () => () => void;
         conversation: {
             attachControls(): () => void;
+            choosePersona(ref: import("@schlessera/brain-ui-sdk").ConversationPersonaRef | null): void;
+            chooseService(providerId: null | string): void;
             commit: (own: number) => boolean;
             details(): void;
             discard(): void;
             dispose(): void;
             enter(): void;
-            frame: (message: ServerMessage) => ServerMessage | null;
+            frame: (message: import("@schlessera/brain-ui-sdk").ConsumerServerMessage) => import("@schlessera/brain-ui-sdk").ConsumerServerMessage | null;
             historyOwnerFor: (key: string) => string | undefined;
             leave: () => void;
+            levels: () => {
+                input: number;
+                output: number;
+            };
             loadDialogue: (key: string, older?: boolean) => void;
             mute(): void;
             permissions: {
                 clear(): void;
                 dispose(): void;
-                frame: (message: ServerMessage) => void;
+                frame: (message: import("@schlessera/brain-ui-sdk").ServerMessage) => void;
                 input: (event: Extract<import("@schlessera/brain-ui-sdk").ConversationWireEvent, {
                     kind: "input_fragment";
                 }>) => boolean;
                 lost(): void;
                 quiet: () => void;
                 refresh(): void;
+                resolution: (message: Extract<import("@schlessera/brain-ui-sdk").ServerMessage, {
+                    type: "tool_resolution";
+                }>) => void;
                 state: import("zustand").StoreApi<{
                     line: string;
                     records: import("./voice/conversation-permissions.js").VoicePermissionReceipt[];
                 }>;
             };
+            receive: (message: import("./hooks/websocket-handlers/types.js").ConversationFrame) => void;
             recoverOutput(): void;
             resume(): void;
             reviewUnassigned(): boolean;
@@ -1377,14 +1762,17 @@ signatures (every public export and the types it is made of)
         dispose(): void;
         drafts: {
             check: (requestId: string) => Promise<void>;
+            checkSave: (draftId: string) => Promise<"changed" | "none" | "not_saved" | "saved" | "unreachable">;
             edit: (requestId: string) => void;
             resend: (requestId: string) => boolean;
+            resendSnapshot: (requestId: string) => boolean;
+            sendPaused: (draftId: string, snapshotId: string) => void;
         };
         flushChatDeltas: () => void;
-        handleServerMessage: (msg: ServerMessage) => void;
+        handleServerMessage: (msg: import("@schlessera/brain-ui-sdk").ServerMessage) => void;
         reconnectNow: () => void;
         retryTurn: (failedTurnId: string) => "pending" | "refused" | "sent";
-        send: (msg: ClientMessage) => boolean;
+        send: (message: ClientMessage) => boolean;
     };
   detectLocalCaptureSupport (packages/ui-react/src/voice/local-capture.ts)
     export function detectLocalCaptureSupport(env?: LocalCaptureEnvironment & {
@@ -1397,13 +1785,11 @@ signatures (every public export and the types it is made of)
     function dismissed(requestId: string): void;
   edit (packages/ui-react/src/lib/answer-delivery/manager.ts)
     function edit(requestId: string): void;
-  flushChatDeltas (packages/ui-react/src/connection.ts)
-    function flushChatDeltas(): void;
   frame (packages/ui-react/src/voice/conversation-client.ts)
-    function frame(message: ServerMessage): ServerMessage | null;
+    function frame(message: ConsumerServerMessage): ConsumerServerMessage | null;
   frame (packages/ui-react/src/voice/conversation-permissions.ts)
     function frame(message: ServerMessage): void;
-  handleServerMessage (packages/ui-react/src/connection.ts)
+  handleServerMessage (packages/ui-react/src/ws-client/inbound.ts)
     function handleServerMessage(msg: ServerMessage): void;
   hasPendingShare (packages/ui-react/src/stores/share-state.ts)
     export function hasPendingShare(state: ShareShellState): boolean;
@@ -1427,8 +1813,8 @@ signatures (every public export and the types it is made of)
     function quiet(): void;
   receipt (packages/ui-react/src/lib/answer-delivery/manager.ts)
     function receipt(frame: ServerAskAnswerReceipt): void;
-  reconnectWebSocketNow (packages/ui-react/src/connection.ts)
-    function reconnectWebSocketNow(): void;
+  receive (packages/ui-react/src/voice/conversation-client.ts)
+    function receive(message: ConversationFrame): void;
   registerContentRendererPack (packages/ui-react/src/content-renderers/register.ts)
     export function registerContentRendererPack(pack: ContentRendererPack, module: {
         name: string;
@@ -1438,14 +1824,18 @@ signatures (every public export and the types it is made of)
     export function registerUpdateHold(root: BrainUiServices, hold: UpdateHold): () => void;
   renderBlockHtml (packages/ui-react/src/components/chat/share-document.tsx)
     export function renderBlockHtml(block: Block, trackDisplay?: TrackDisplay): Promise<string>;
+  resolution (packages/ui-react/src/voice/conversation-permissions.ts)
+    function resolution(message: Extract<ServerMessage, {
+        type: "tool_resolution";
+    }>): void;
   retry (packages/ui-react/src/lib/answer-delivery/manager.ts)
     function retry(requestId: string): Promise<void>;
-  retryTurn (packages/ui-react/src/connection.ts)
+  retryTurn (packages/ui-react/src/ws-client/turn-retry.ts)
     function retryTurn(failedTurnId: string): "sent" | "pending" | "refused";
   runStats (packages/ui-react/src/components/chat/use-chat-commands.ts)
     export function runStats(root: BrainUiRoot, sessionId: string | null): Promise<void>;
-  sendClientMessage (packages/ui-react/src/connection.ts)
-    function sendClientMessage(msg: ClientMessage): boolean;
+  send (packages/ui-react/src/connection.ts)
+    function send(message: ClientMessage): boolean;
   shareMarkdown (packages/ui-react/src/components/chat/share-document.tsx)
     export function shareMarkdown(message: Pick<ChatMessage, "content" | "parts" | "toolCalls" | "blocks">, deps: ShareDeps): Promise<string>;
   softwareDetails (packages/ui-react/src/lib/stats/software.ts)
@@ -1509,6 +1899,32 @@ signatures (every public export and the types it is made of)
         }>;
         activityStats: (days?: number) => Promise<import("@schlessera/brain-ui-sdk").ActivityRuntimeStats>;
         agentPolicy: (signal?: AbortSignal) => Promise<import("@schlessera/brain-ui-sdk").AgentPolicyRead>;
+        apify: (options?: {
+            refresh?: boolean;
+            session?: string;
+            signal?: AbortSignal;
+            turn?: string;
+        }) => Promise<import("@schlessera/brain-ui-sdk").ApifySettingsRead>;
+        apifyActorRevoke: (actor_id: string) => Promise<{
+            revoked: boolean;
+        }>;
+        apifyConfirmAccount: (accountId: string) => Promise<unknown>;
+        apifyPolicyDecide: (turnId: string, requestId: string, approve: boolean) => Promise<{
+            baseHash: null | string;
+            bodyChanged: boolean;
+            bodyDiff: string;
+            frontmatterDiff: string;
+            message: string;
+            path: "context/policies/governance.md";
+            proposedHash: string;
+            rationale: string;
+            requestId: string;
+            sections: string[];
+            state: "declined" | "invalid" | "pending" | "refused" | "stale" | "unknown" | "updated" | "writing";
+            turnId: string;
+            warnings: string[];
+        }>;
+        apifyPolicyPropose: (change: import("@schlessera/brain-ui-sdk").ApifyPolicyChange, baseHash: null | string) => Promise<import("@schlessera/brain-ui-sdk").ApifyPolicyProposalRead>;
         authMethods: () => Promise<{
             passkey: boolean;
             password: boolean;
@@ -1543,6 +1959,9 @@ signatures (every public export and the types it is made of)
             success: boolean;
         }>;
         checkWorkerHost: () => Promise<import("@schlessera/brain-ui-sdk").WorkerHostStatus>;
+        createLivePersona: (request: import("@schlessera/brain-ui-sdk").LivePersonaCreateRequest) => Promise<import("@schlessera/brain-ui-sdk").LivePersona>;
+        deleteLivePersona: (id: string, baseRevision: string) => Promise<void>;
+        dictationSettings: () => Promise<import("@schlessera/brain-ui-sdk").DictationSettings>;
         fileResolve: (path: string) => Promise<{
             ancestors: string[];
             exists: boolean;
@@ -1560,8 +1979,12 @@ signatures (every public export and the types it is made of)
         }>;
         hygieneCommand: (operation: import("@schlessera/brain-ui-sdk").HygieneReviewCommand["operation"]) => Promise<import("@schlessera/brain-ui-sdk").HygieneReviewRead>;
         hygieneDetails: (itemId: string) => Promise<import("@schlessera/brain-ui-sdk").HygieneWorktreeDetailsRead>;
-        hygienePreview: (request: import("@schlessera/brain-ui-sdk").HygienePreviewRequest) => Promise<import("@schlessera/brain-ui-sdk").InboxActionItem>;
+        hygieneMediaUndo: (journalId: string) => Promise<import("@schlessera/brain-ui-sdk").HygieneReviewRead>;
+        hygienePreview: (request: import("@schlessera/brain-ui-sdk").HygienePreviewRequest, signal?: AbortSignal) => Promise<import("@schlessera/brain-ui-sdk").HygienePreviewResponse>;
         hygieneReview: () => Promise<import("@schlessera/brain-ui-sdk").HygieneReviewRead>;
+        livePersona: (id: string) => Promise<import("@schlessera/brain-ui-sdk").LivePersona>;
+        livePersonas: () => Promise<import("@schlessera/brain-ui-sdk").LivePersonaListResponse>;
+        liveSettings: () => Promise<import("@schlessera/brain-ui-sdk").VoiceLiveSettings>;
         login: (password: string) => Promise<{
             ok: true;
         }>;
@@ -1663,6 +2086,305 @@ signatures (every public export and the types it is made of)
             timeZone: null | string;
         }>;
         refreshModels: () => Promise<import("@schlessera/brain-ui-sdk").ModelCatalogResponse>;
+        safetyCommit: (requestId: string, body: import("@schlessera/brain-ui-sdk").SafetyReviewBody, signal: AbortSignal) => Promise<{
+            code: "capacity" | "not_finalized" | "recording_failed" | "request_conflict" | "request_expired" | "resync_required" | "retired" | "stale_revision" | "unauthorized" | "unavailable";
+            currentProjection: null | {
+                coverage: {
+                    detectorVersion: 1;
+                    epochs: {
+                        acknowledged: string[];
+                        backendId: string;
+                        endSequence: null | string;
+                        id: string;
+                        mandatory: string[];
+                        reason: null | string;
+                        startSequence: string;
+                        status: "complete" | "incomplete" | "unknown";
+                    }[];
+                    exclusions: string[];
+                    state: "complete" | "incomplete" | "unknown";
+                };
+                earliestUnresolvedId: null | string;
+                evidenceRevision: string;
+                pendingCount: number;
+                reasons: ("capacity" | "coverage_unknown" | "recording_failed" | "recording_pending" | "unresolved")[];
+                restriction: "normal" | "restricted";
+                session: null | {
+                    historyGeneration: string;
+                    historyOwnerId: string;
+                    sessionId: string;
+                };
+                unresolvedCount: number;
+            };
+            reason: string;
+            receipt: {
+                occurrenceId: string;
+                operationId: null | string;
+                projection: null | {
+                    coverage: {
+                        detectorVersion: 1;
+                        epochs: {
+                            acknowledged: string[];
+                            backendId: string;
+                            endSequence: null | string;
+                            id: string;
+                            mandatory: string[];
+                            reason: null | string;
+                            startSequence: string;
+                            status: "complete" | "incomplete" | "unknown";
+                        }[];
+                        exclusions: string[];
+                        state: "complete" | "incomplete" | "unknown";
+                    };
+                    earliestUnresolvedId: null | string;
+                    evidenceRevision: string;
+                    pendingCount: number;
+                    reasons: ("capacity" | "coverage_unknown" | "recording_failed" | "recording_pending" | "unresolved")[];
+                    restriction: "normal" | "restricted";
+                    session: null | {
+                        historyGeneration: string;
+                        historyOwnerId: string;
+                        sessionId: string;
+                    };
+                    unresolvedCount: number;
+                };
+                reason: null | string;
+                requestId: null | string;
+                session: {
+                    historyGeneration: string;
+                    historyOwnerId: string;
+                    sessionId: string;
+                };
+                stage: "prepared" | "refused" | "verdict_committed";
+                verdict: "committed" | "unresolved";
+                version: 1;
+            };
+            retryable: false;
+            version: 1;
+        } | {
+            currentProjection: null | {
+                coverage: {
+                    detectorVersion: 1;
+                    epochs: {
+                        acknowledged: string[];
+                        backendId: string;
+                        endSequence: null | string;
+                        id: string;
+                        mandatory: string[];
+                        reason: null | string;
+                        startSequence: string;
+                        status: "complete" | "incomplete" | "unknown";
+                    }[];
+                    exclusions: string[];
+                    state: "complete" | "incomplete" | "unknown";
+                };
+                earliestUnresolvedId: null | string;
+                evidenceRevision: string;
+                pendingCount: number;
+                reasons: ("capacity" | "coverage_unknown" | "recording_failed" | "recording_pending" | "unresolved")[];
+                restriction: "normal" | "restricted";
+                session: null | {
+                    historyGeneration: string;
+                    historyOwnerId: string;
+                    sessionId: string;
+                };
+                unresolvedCount: number;
+            };
+            receipt: {
+                occurrenceId: string;
+                operationId: null | string;
+                projection: null | {
+                    coverage: {
+                        detectorVersion: 1;
+                        epochs: {
+                            acknowledged: string[];
+                            backendId: string;
+                            endSequence: null | string;
+                            id: string;
+                            mandatory: string[];
+                            reason: null | string;
+                            startSequence: string;
+                            status: "complete" | "incomplete" | "unknown";
+                        }[];
+                        exclusions: string[];
+                        state: "complete" | "incomplete" | "unknown";
+                    };
+                    earliestUnresolvedId: null | string;
+                    evidenceRevision: string;
+                    pendingCount: number;
+                    reasons: ("capacity" | "coverage_unknown" | "recording_failed" | "recording_pending" | "unresolved")[];
+                    restriction: "normal" | "restricted";
+                    session: null | {
+                        historyGeneration: string;
+                        historyOwnerId: string;
+                        sessionId: string;
+                    };
+                    unresolvedCount: number;
+                };
+                reason: null | string;
+                requestId: null | string;
+                session: {
+                    historyGeneration: string;
+                    historyOwnerId: string;
+                    sessionId: string;
+                };
+                stage: "prepared" | "refused" | "verdict_committed";
+                verdict: "committed" | "unresolved";
+                version: 1;
+            };
+            version: 1;
+        }>;
+        safetyPrepare: (body: import("@schlessera/brain-ui-sdk").SafetyReviewBody, signal: AbortSignal) => Promise<{
+            code: "capacity" | "not_finalized" | "recording_failed" | "request_conflict" | "request_expired" | "resync_required" | "retired" | "stale_revision" | "unauthorized" | "unavailable";
+            currentProjection: null | {
+                coverage: {
+                    detectorVersion: 1;
+                    epochs: {
+                        acknowledged: string[];
+                        backendId: string;
+                        endSequence: null | string;
+                        id: string;
+                        mandatory: string[];
+                        reason: null | string;
+                        startSequence: string;
+                        status: "complete" | "incomplete" | "unknown";
+                    }[];
+                    exclusions: string[];
+                    state: "complete" | "incomplete" | "unknown";
+                };
+                earliestUnresolvedId: null | string;
+                evidenceRevision: string;
+                pendingCount: number;
+                reasons: ("capacity" | "coverage_unknown" | "recording_failed" | "recording_pending" | "unresolved")[];
+                restriction: "normal" | "restricted";
+                session: null | {
+                    historyGeneration: string;
+                    historyOwnerId: string;
+                    sessionId: string;
+                };
+                unresolvedCount: number;
+            };
+            reason: string;
+            receipt: {
+                occurrenceId: string;
+                operationId: null | string;
+                projection: null | {
+                    coverage: {
+                        detectorVersion: 1;
+                        epochs: {
+                            acknowledged: string[];
+                            backendId: string;
+                            endSequence: null | string;
+                            id: string;
+                            mandatory: string[];
+                            reason: null | string;
+                            startSequence: string;
+                            status: "complete" | "incomplete" | "unknown";
+                        }[];
+                        exclusions: string[];
+                        state: "complete" | "incomplete" | "unknown";
+                    };
+                    earliestUnresolvedId: null | string;
+                    evidenceRevision: string;
+                    pendingCount: number;
+                    reasons: ("capacity" | "coverage_unknown" | "recording_failed" | "recording_pending" | "unresolved")[];
+                    restriction: "normal" | "restricted";
+                    session: null | {
+                        historyGeneration: string;
+                        historyOwnerId: string;
+                        sessionId: string;
+                    };
+                    unresolvedCount: number;
+                };
+                reason: null | string;
+                requestId: null | string;
+                session: {
+                    historyGeneration: string;
+                    historyOwnerId: string;
+                    sessionId: string;
+                };
+                stage: "prepared" | "refused" | "verdict_committed";
+                verdict: "committed" | "unresolved";
+                version: 1;
+            };
+            retryable: false;
+            version: 1;
+        } | {
+            currentProjection: null | {
+                coverage: {
+                    detectorVersion: 1;
+                    epochs: {
+                        acknowledged: string[];
+                        backendId: string;
+                        endSequence: null | string;
+                        id: string;
+                        mandatory: string[];
+                        reason: null | string;
+                        startSequence: string;
+                        status: "complete" | "incomplete" | "unknown";
+                    }[];
+                    exclusions: string[];
+                    state: "complete" | "incomplete" | "unknown";
+                };
+                earliestUnresolvedId: null | string;
+                evidenceRevision: string;
+                pendingCount: number;
+                reasons: ("capacity" | "coverage_unknown" | "recording_failed" | "recording_pending" | "unresolved")[];
+                restriction: "normal" | "restricted";
+                session: null | {
+                    historyGeneration: string;
+                    historyOwnerId: string;
+                    sessionId: string;
+                };
+                unresolvedCount: number;
+            };
+            receipt: {
+                occurrenceId: string;
+                operationId: null | string;
+                projection: null | {
+                    coverage: {
+                        detectorVersion: 1;
+                        epochs: {
+                            acknowledged: string[];
+                            backendId: string;
+                            endSequence: null | string;
+                            id: string;
+                            mandatory: string[];
+                            reason: null | string;
+                            startSequence: string;
+                            status: "complete" | "incomplete" | "unknown";
+                        }[];
+                        exclusions: string[];
+                        state: "complete" | "incomplete" | "unknown";
+                    };
+                    earliestUnresolvedId: null | string;
+                    evidenceRevision: string;
+                    pendingCount: number;
+                    reasons: ("capacity" | "coverage_unknown" | "recording_failed" | "recording_pending" | "unresolved")[];
+                    restriction: "normal" | "restricted";
+                    session: null | {
+                        historyGeneration: string;
+                        historyOwnerId: string;
+                        sessionId: string;
+                    };
+                    unresolvedCount: number;
+                };
+                reason: null | string;
+                requestId: null | string;
+                session: {
+                    historyGeneration: string;
+                    historyOwnerId: string;
+                    sessionId: string;
+                };
+                stage: "prepared" | "refused" | "verdict_committed";
+                verdict: "committed" | "unresolved";
+                version: 1;
+            };
+            version: 1;
+        }>;
+        saveDictationSettings: (settings: import("@schlessera/brain-ui-sdk").DictationSettings) => Promise<import("@schlessera/brain-ui-sdk").DictationSettings>;
+        saveLivePersonaSelection: (value: string, revision: number) => Promise<import("@schlessera/brain-ui-sdk").VoiceSettingsResponse>;
+        saveLiveSettings: (update: import("@schlessera/brain-ui-sdk").VoiceLiveSettingsUpdate) => Promise<import("@schlessera/brain-ui-sdk").VoiceLiveSettings>;
         sessionRecovery: (sessionId: string, opts?: {
             signal?: AbortSignal;
         }) => Promise<import("@schlessera/brain-ui-sdk").SessionRecoveryResult>;
@@ -1764,11 +2486,14 @@ signatures (every public export and the types it is made of)
         }>;
         turnRevertPlan: (sessionId: string, turnId: string, action?: "restore" | "revert", signal?: AbortSignal) => Promise<import("@schlessera/brain-ui-sdk").TurnRevertPlan>;
         turnRevertReceipt: (sessionId: string, turnId: string, operationId: string, signal?: AbortSignal) => Promise<import("@schlessera/brain-ui-sdk").TurnRevertReceipt>;
+        updateLivePersona: (id: string, request: import("@schlessera/brain-ui-sdk").LivePersonaUpdateRequest) => Promise<import("@schlessera/brain-ui-sdk").LivePersona>;
         voiceKeyterms: () => Promise<import("@schlessera/brain-ui-sdk").VoiceKeytermsResponse>;
         voiceOverrides: (signal?: AbortSignal) => Promise<{
             overrides: import("@schlessera/brain-ui-sdk").PronunciationOverride[];
         }>;
-        voiceSession: (signal?: AbortSignal) => Promise<import("@schlessera/brain-ui-sdk").VoiceSessionResponse>;
+        voiceProviders: () => Promise<import("@schlessera/brain-ui-sdk").VoiceProvidersResponse>;
+        voiceSession: (signal?: AbortSignal, selection?: import("@schlessera/brain-ui-sdk").VoiceSessionRequest) => Promise<import("@schlessera/brain-ui-sdk").VoiceSessionResponse>;
+        voiceSettings: () => Promise<import("@schlessera/brain-ui-sdk").VoiceSettingsResponse>;
         voiceToken: () => Promise<import("@schlessera/brain-ui-sdk").VoiceTokenResponse>;
         vpnCheck: () => Promise<{
             vpn: boolean;

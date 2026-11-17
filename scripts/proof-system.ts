@@ -33,7 +33,12 @@ const ROOT = join(import.meta.dir, "..");
 export const PATH_SET_FILE = join(ROOT, "scripts", "proof-system-paths.json");
 
 export function loadPathSet(file = PATH_SET_FILE): PathSet {
-  const raw = JSON.parse(readFileSync(file, "utf8"));
+  return parsePathSet(readFileSync(file, "utf8"), file);
+}
+
+/** Validates the text of a path-set file; `file` only labels errors. */
+export function parsePathSet(text: string, file: string): PathSet {
+  const raw = JSON.parse(text);
   const list = (value: unknown, field: string): string[] => {
     if (!Array.isArray(value) || value.length === 0 || !value.every(x => typeof x === "string" && x.length > 0)) {
       throw new Error(`${file}: \`${field}\` must be a non-empty list of globs`);

@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant and retained-journal/user-revert routes mounted by `createApp`: 159 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery, attachment-read, interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark, chat-deletion, individual safety-review, safety-recording recovery, GitHub detail-page, live-persona and markup-upload routes (whose `/api/settings/voice` also carries the live-service default) mounted by `createApp`: 191 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -87,11 +87,19 @@ client code has a gap. Source owners are listed after the table.
 | DELETE | `/api/drafts/:draftId` | S | Delete a draft, leaving a tombstone | Paired composer and independent clients (#979, D52); preserve revisions, receipts, tombstones, limits and the no-execution boundary. |
 | POST | `/api/drafts/:draftId/attachments` | S | Store one draft image | Paired composer and independent clients (#979, D52); preserve revisions, receipts, tombstones, limits and the no-execution boundary. |
 | POST | `/api/drafts/:draftId/bind` | S | Bind a draft to the session its accepted first message started | Paired composer and independent clients (#979, D52); preserve revisions, receipts, tombstones, limits and the no-execution boundary. |
+| GET | `/api/markup/:requestId/source` | S | Read the source an open `markup_request` bound | Markup editor (#3975); only the request's own principal and turn, while it is open and the source keeps its bound hash; the general file route's 10 MiB read bound is unchanged. |
+| POST | `/api/markup/:requestId` | S | Upload one drawn markup layer for an open `markup_request` | Markup editor (#3975); only the request's own principal and turn, inclusive 52,428,800-byte layer cap, streaming body bound; preserve the general frame and mask limits. |
+| POST | `/api/drafts/:draftId/files` | S | Store one composer file as a durable, read-only original | Composer file attachments (#3153); preserve streaming admission, idempotency receipts, draft and pool bounds and the no-execution boundary. |
+| GET | `/api/attachments/:fileId` | S | Read back one referenced composer original after checking its digest | Composer file attachments (#3153); preserve reference-only authorization, digest checking and the download headers. |
 | GET | `/api/files/content` | S | Read content metadata/text or raw bytes | Independent content clients and SDK service-worker policy; raw API media remains network-only. |
 | GET | `/api/files/html` | I | Serve an HTML file for the sandboxed, script-running preview | React file viewer iframe and "Open in new tab" link (#1084); browser-rendered UI transport. Its isolation headers are specified below. |
 | GET | `/api/files/resolve` | I | Resolve ancestor navigation and existence | React file browser; view/navigation helpers are paired UI transport. |
 | GET | `/api/files/tree` | I | List browsable directory entries | React file browser; view/navigation helpers are paired UI transport. |
 | GET | `/api/files/wikilinks` | I | Read or refresh cached slug-to-path map | React file browser; view/navigation helpers are paired UI transport. |
+| GET | `/api/files/untrusted` | I | Read one path's untrusted mark as this principal may see it | React Files toolbar (#2673); paired UI transport. Its authority and disclosure rules are specified below. |
+| PUT | `/api/files/untrusted` | I | Mark a readable file untrusted | React Files toolbar (#2673); paired UI transport. Its authority and disclosure rules are specified below. |
+| DELETE | `/api/files/untrusted` | I | Clear a present or retained mark (owner only) | React Files toolbar and `Marked untrusted` list (#2673); paired UI transport. Its authority rules are specified below. |
+| GET | `/api/files/untrusted/list` | I | List the marks this principal may see | React `Marked untrusted` list (#2673); paired UI transport. Its disclosure rules are specified below. |
 | GET | `/api/geo/coastline` | S | Read attributed map geometry for a bounding box | Independent map clients; preserve show_block map HTTP promise and graceful geometry degradation. |
 | GET | `/api/governance/roadblocks` | I | Retained roadblock rankings for the paired activity bridge | #1672; authenticated and local-only. The additive `query_activity` scope is the supported agent contract. |
 | GET | `/api/governance/events` | S | Read the governance events kept with session history | Independent diagnostics and the roadblock report; additive #1651 ([contract](integration-contract/http.md#governance-events-additive-1651)). Versioned per kind; never renders to the user. |
@@ -141,6 +149,8 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/sessions/:sessionId/turns/:turnId/revert/plan` | S | Review eligible and excluded history paths | Current human principal; exact session/turn; optional action revert/restore. |
 | GET | `/api/sessions/:sessionId/turns/:turnId/revert` | S | Read latest original history receipt | Bound to current principal/session/source turn; never retries effects. |
 | GET | `/api/sessions/:sessionId/turns/:turnId/revert/:operationId` | S | Reconcile one original operation | Same bound identity; missing receipt stays unavailable. |
+| POST | `/api/chat-deletions` | S | Delete the caller's own chat's local history | Authenticated owner only; stable caller operation identity; content-free per-store outcomes (#3230). |
+| GET | `/api/chat-deletions/:operationId` | S | Read one deletion operation's current receipt | Read-only and owner-scoped; one content-free `not_admitted` for every miss (#3455). |
 | POST | `/api/sessions/:sessionId/turns/:turnId/revert` | S | Start a user-only journaled revert or restoration | Stable caller operation identity; raw stale-state comparison; gate and shared server locks. |
 | GET | `/api/sessions/:sessionId/turns/:turnId/journal` | S | Read retained turn observations | Exact session/turn ownership; nullable unknown facts and explicit expiry. |
 | GET | `/api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview` | S | Read a bounded text preview | Raw UTF-8 bytes; explicit size/line/binary fallback, no coercion. |
@@ -148,6 +158,12 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/journal/configuration-coverage` | S | Read the brain's current untraced configuration-input set | Latest complete inventoried turn only; explicit `unknown`, never an empty list. |
 | GET | `/api/agent-policy` | I | Read shared admission policy and reported enforcing limits | Read-only Devices & agents facts; no editor or duplicate policy cache. |
 | GET | `/api/policy-proposals/:turnId/:requestId` | I | Read one principal-owned policy request receipt | Same-request reconciliation only; never writes or reactivates approval. |
+| GET | `/api/sessions/:id/safety` | S | Read bounded revisioned host safety evidence | Authenticated principal of the history owner's account (#3952); immutable records, snapshot aggregate/high-water, scoped cursor, explicit coverage/unavailable, no mutation (#3604). |
+| POST | `/api/sessions/:id/safety/reviews/prepare` | S | Prepare review of one finalized safety occurrence | Live password-mode human owner, exact Origin and bounded JSON; host-issued body/brain/principal/generation-bound handle (#3603). |
+| POST | `/api/sessions/:id/safety/reviews/:requestId/commit` | S | Commit or read back one individual safe verdict | Live owner rechecked on the acquired FULL transaction and final response; immutable receipt plus fresh aggregate, no bulk clear or standing rule (#3603). |
+| GET | `/api/sessions/:id/github/:owner/:repo/:number/:part` | I | Page one part of a GitHub object a session's GitHub tool result returned | Chat GitHub components (#3796, #3795); owner account only, display data never provider context, no compatibility guarantee. |
+| GET | `/api/sessions/:id/github/avatars/:login` | I | Serve the avatar of a login in a session's GitHub results from this origin | Chat GitHub components (#3796, #3795); owner account only, magic-byte image check, bounded in-memory cache, every failure 404. |
+| GET | `/api/sessions/:id/attachment-reads` | S | Read a session's recorded attachment reads, outcome and scope only | Sent-row read states (#3589, #3155); preserve the session and message-reference filters, no text and no provider path. |
 | GET | `/api/sessions/:id/recovery` | S | Read a session's latest accepted work and pending interactions | Trackers and independent session clients (#964, D52); preserve the revision ordering, Activity terminal proof, honest unknown and the no-execution boundary. |
 | POST | `/api/queue` | S | Queue authenticated CLI intake without filing content | CLI and independent intake clients; preserve explicit key, provenance and queue receipt. |
 | GET | `/api/schedules` | S | List stored scheduled tasks, cancelled ones included | CLI and independent schedule clients; preserve keys, receipts, operator approval and the no-execution boundary. |
@@ -167,11 +183,22 @@ client code has a gap. Source owners are listed after the table.
 | POST | `/api/skills/install/github` | I | Install skills from GitHub and sync | React skill settings; integration directories and UI editor transport are internal. CLI/module/skill formats retain their own guarantees. |
 | POST | `/api/skills/install/zip` | I | Install uploaded skill archive and sync | React skill settings; integration directories and UI editor transport are internal. CLI/module/skill formats retain their own guarantees. |
 | GET | `/api/status` | S | Read protected operational/runtime status | Independent monitoring and React status; preserve release/runtime/subscription promises. |
+| POST | `/api/status/safety-recording/recover` | S | Owner fallback: clear a latched safety recorder whose producers have stopped | Owner tooling when automatic recovery cannot run; additive #3810 ([contract](integration-contract/http.md#safety-recording-status-additive-3810)). Refuses with 409 `producers_open`, changing nothing, while any safety producer is open. |
 | POST | `/api/status/worker-host` | S | Re-run the agent worker host probe and return what it recorded | React "Check again" and independent monitoring; additive #1632 ([contract](integration-contract/http.md#worker-host-status-additive-1632)). Admits no turn. |
 | POST | `/api/track-upload` | I | Validate and stage composer track originals | Paired React composer transport; the published file-reference wire/block behavior remains its own contract. |
 | GET | `/api/tracks` | I | Resolve canonical imported-track evidence | Paired React track-block/export transport; no independent retrieval API selected. |
 | GET | `/api/tool-permissions` | I | List remembered always-allow grants | React approval settings; paired administrative transport. Permission behavior remains governed by its own contract. |
 | DELETE | `/api/tool-permissions/:tool` | I | Revoke one remembered grant | React approval settings; paired administrative transport. Permission behavior remains governed by its own contract. |
+| GET | `/api/voice/personas` | S | List live-conversation personas, Standard first, without instruction text | Human owner/ambient only; others get an empty 403. |
+| POST | `/api/voice/personas` | S | Create a persona file under `_voice/personas` | Human owner/ambient only; 409 `PERSONA_EXISTS`/`PERSONA_LIMIT`. |
+| GET | `/api/voice/personas/:id` | S | Read one persona with its plain-text instructions | Human owner/ambient only. |
+| PUT | `/api/voice/personas/:id` | S | Replace a persona at its current revision | Human owner/ambient only; stale writes return 409 `PERSONA_CHANGED` with `current`. |
+| DELETE | `/api/voice/personas/:id` | S | Delete a persona at its current revision | Human owner/ambient only; a selected persona's selection becomes Standard first. |
+| GET | `/api/settings/voice` | S | Read the live-service default and the live persona selection, each with its revision | Human owner/ambient only; independent of the model and dictation defaults. |
+| PUT | `/api/settings/voice` | S | Save the live-service default and/or the live persona selection at their revisions | Owner human session or ambient human only, 403 empty body otherwise; stale writes return 409 `LIVE_SETTINGS_CHANGED` or `LIVE_PERSONA_CHANGED`. |
+| GET | `/api/voice/providers` | S | Read registered dictation providers and effective selection; never mint | Authenticated discovery, no-store. |
+| GET | `/api/voice/dictation/settings` | S | Read brain-wide dictation choice, SMART mode and revision | Independent of live conversation settings. |
+| PUT | `/api/voice/dictation/settings` | S | Save dictation choice with If-Match revision | Human owner/ambient only; stale writes never overwrite. |
 | GET | `/api/voice/capabilities` | S | Read active-provider capabilities without minting a credential | Saved-audio discovery and independent clients; additive #1021 contract. |
 | GET | `/api/voice/recordings/:recordingId/transcription` | S | Read an account-owned durable transcription receipt | Saved-audio status recovery; never dispatches a provider. |
 | PUT | `/api/voice/recordings/:recordingId/transcription` | S | Explicitly upload or retry saved audio | Account ownership, verified hash, bounded body and durable claim protect idempotency. |
@@ -183,6 +210,11 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/vpn-check` | I | Probe authenticated reachability and name the account partition | React ConnectionGate probe; mode-independent {vpn:true} is UI transport, not a VPN assertion for integrations. Additive `accountKey` names the device-local account partition ([contract](integration-contract/http.md#account-partition-key-additive-1014)). |
 | GET | `/api/web-search` | I | Read backend web-search settings | Pi settings UI; backend-specific config editor rather than a query API. |
 | PUT | `/api/web-search` | I | Update provider routing/keys and invalidate cache | Pi settings UI; backend-specific config editor rather than a query API. |
+| GET | `/api/apify` | I | Read Apify provider state, policy and spend | Additively #3580: `actor_approvals: [{ actor_id, actor, approved_at }]` lists remembered Actor approvals, timestamp in Unix milliseconds.  Settings UI (#3159, #3163); live human owners only. Reports `disabled`, `authentication_required`, `configured` or `unavailable`; never a token. Contacts Apify only while the policy enables it. Additively since #3163 also `policy` (the effective `apify` block, each grant's `active`/`expired`/`other_account` status, the policy hash an edit names as its base) and `spend` (`ledger` `absent`/`read`/`unavailable`, today's account-wide and brain ledger scopes, and unsettled runs, never as $0). `?session=&turn=` adds that turn's scope; `?refresh=1` re-verifies the token and settles open runs first. |
+| POST | `/api/apify/actors/revoke` | I | Revoke one remembered Actor approval | Live human owners only. Strict `{ actor_id }`, immutable alphanumeric id. Returns `{ revoked: true }`; idempotent, scoped to brain, principal and bound account. |
+| POST | `/api/apify/account` | I | Confirm the token's changed Apify account | Settings UI (#3159); live human owners only. Starts a new authority generation; accepts no token. |
+| POST | `/api/apify/policy` | I | Propose one Apify setting through the policy-change review | Settings UI (#3163); live human owners only. `{ change, base_hash }` names exactly one of `enabled`, `discovery`, `actors` or `remove_grant` and the policy version it changes. Returns `{ turn_id, request_id, review }` with a pending `PolicyChangeReview` of the complete proposed `governance.md`; writes nothing. 409 when the policy changed since it was read; 422 when the file cannot be rewritten exactly. |
+| POST | `/api/apify/policy/:turnId/:requestId` | I | Answer that exact review | Settings UI (#3163); only the proposing owner. `{ approve }`; an approval lets the existing policy writer publish it inside a user journal window. A repeated or late answer returns the recorded receipt and never writes again; a lost answer is reconciled through `GET /api/policy-proposals/:turnId/:requestId`. |
 | POST | `/share-target` | S | Explain missing service worker without reading body | SDK share-target and custom PWA shells; preserve ShareIntakeResult and body-unread fallback. |
 | GET | `/ws` | S | Authenticate and admit WebSocket upgrade | SDK BrainUiClient; supported HTTP upgrade boundary, followed by the existing wire contract. |
 | GET | `/*` (conditional) | I | Serve configured SPA deep links | Custom shell with `staticRoot`; deployment asset transport, not an independent JSON API. |
@@ -192,7 +224,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 159 declared endpoints are mounted regardless of backend, renderer or
+All 191 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -207,7 +239,7 @@ Range. WebSocket upgrade requires an actual GET.
 `ALL /api/*` installs origin policy, configured CORS and authentication.
 With nonempty `ALLOWED_ORIGINS`, CORS middleware answers allowed **OPTIONS
 /api/** preflights with 204 before authentication, advertising GET, POST, PUT,
-DELETE, the `Content-Type`, `If-Match` and `Idempotency-Key` and `Content-SHA256` headers, and credentials. Origin policy runs first; a rejected
+DELETE, the `Content-Type`, `If-Match`, `Idempotency-Key`, `Content-SHA256` and `Speech-Provider` headers, and credentials. Origin policy runs first; a rejected
 origin gets 403. Without that configured middleware there is no universal
 OPTIONS endpoint: authentication/routing decide the response. These are
 transport behaviors, not independently supported OPTIONS resource operations.
@@ -328,13 +360,16 @@ universal Cache-Control header is promised.
 the app's SQLite schema. Healthy: 200
 `{ status: "healthy", uptime: number, timestamp: string }`, where uptime is
 milliseconds since the route module initialized and timestamp is ISO UTC.
+A failed secondary backend returns 200 with `status: "degraded"` and
+`reasons: ["backend_unavailable"]`, retaining uptime and timestamp. Error text
+and backend identities remain behind authentication on `/api/status`.
 An unreadable database yields 503 `{ status: "unhealthy" }`, without detail.
 It never exposes release, source commit, runtime, credentials or session state;
 healthy does not certify upstream model or brain CLI availability.
 
 **GET /api/status** is protected, accepts no inputs, and returns
-`{ healthy: true, uptime, version, software, cronJobs, activeSession, metrics,
-runtime?, subscription? }`. `version` is the configured source commit (default
+`{ healthy: boolean, uptime, version, software, cronJobs, activeSession, metrics,
+runtime?, subscription?, backendAvailability?, nativeRecovery? }`. `version` is the configured source commit (default
 `"dev"`), not a release; `software` is `{ release, sourceCommit }`. `cronJobs`
 contains `{ name, lastRunAt, lastStatus, lastDurationMs, lastError }`, nullable
 when a job has not run; it includes recorded jobs and configured in-process
@@ -343,6 +378,23 @@ jobs. `activeSession` means any active turn, not simply an open socket.
 series have name, kind (counter/updowncounter/histogram/gauge), numeric
 value and scalar attributes; histogram value is the observation count.
 Operational reads can fail with the common 500.
+
+`backendAvailability` contains `unavailable` (this boot's excluded backends) and
+`lastFailures` (the latest persisted failure per backend, retained after repair).
+Each record has `backendId`, `phase: "resolution" | "runtime"`, `errorClass`,
+`message`, `site` (the failed boot check) and ISO `at`. `healthy` is false while `unavailable` is nonempty.
+The default backend must pass boot validation; unavailable secondary backends
+are never constructed or routed to. Correct the package/runtime or host
+configuration and start again to revalidate. Prior records alone do not imply
+current degradation.
+
+`nativeRecovery`, when present, reports native intent quarantine at server boot:
+`{ quarantinedIntents, stagingChargedBytes, diagnosticsPath }`. A null charge
+means its bound could not be established; it never means zero, and `healthy` is
+false while that recovery restriction remains. A numeric zero means no stage
+storage can belong to the quarantined identities. The diagnostics
+path is host-private and appears only behind authentication, never on `/health`.
+Healthy identities remain usable within provably available staging capacity.
 
 `runtime.workerHost` is whether this host can run agent workers (#1632):
 `{ ordinary?, restricted? }`, each `{ available, checkedAt, trigger }` plus
@@ -353,6 +405,11 @@ re-records the mode it probed. It never admits or refuses a turn: each turn
 runs its own probe. **POST /api/status/worker-host** is protected, accepts no
 body, re-runs the boot's probes and returns the same `workerHost` object
 ([contract](integration-contract/http.md#worker-host-status-additive-1632)).
+For the owner only, `safetyRecording` reports the brain-wide safety recorder
+(#3810): `{ latched, since, reason, cause, retained, lastRecovery }`. A latch
+is normally cleared by the host itself (#3812); **POST
+/api/status/safety-recording/recover** is the owner's fallback
+([contract](integration-contract/http.md#safety-recording-status-additive-3810)).
 While the server runs as uid 0, `workerHost` also carries
 `rootServer: { warning }` (#1638): the boot log's warning that its workers can
 read root-owned files and connect to root-owned and abstract Unix sockets.
@@ -380,7 +437,12 @@ and the [sync reporting contract](integration-contract/wire.md#activity-stream-r
 `subscription` contains `tokenSet`, nullable ISO `mintedAt`, `expiresAt`,
 `lastProvenAt`, `provenBy: "turn" | "model_discovery" | null` and nullable
 `lastAuthFailure` (`errorClass`, ISO `at`, `action`, `source`, optional
-`runId`, `message`, `status`). It never returns the token. Optional monitoring
+`runId`, `message`, `status`). An invalid configured mint date leaves
+`mintedAt` and `expiresAt` null and adds `expiryWarning` with
+`reason: "invalid_mint_date"`, `message` starting "expiry unknown: invalid mint date",
+`errorClass` and ISO `at`. It warns at boot and retains the last cause in the
+operational settings store; it never refuses serving or changes authentication.
+It never returns the token. Optional monitoring
 fields reflect injected capabilities; they are not a liveness requirement.
 
 ## Login, passkeys and delegated credentials
@@ -472,7 +534,8 @@ itself.
   for that principal's live grants, oldest first; `created_at` is epoch
   milliseconds. An unknown, revoked, expired or non-cookie principal is 404.
 - **POST `/api/auth/principals/:id/reference-grants`**, JSON body
-  `{ repositoryPrefix: string, credential?: string | null }`. The prefix is an
+  `{ repositoryPrefix: string, credential?: string | null,
+  metadataCredentialRecipient?: "https://api.github.com" | null }`. The prefix is an
   HTTPS URL without user info, query or fragment, a loopback `http://` URL, or an
   absolute `file:///` path; it may be a bare HTTPS origin. Empty, `.` and `..`
   segments, whitespace, control characters, backslashes and percent-encoding
@@ -485,6 +548,17 @@ itself.
   is 201 with the grant object. Malformed or non-object JSON is 400; an unknown
   or unusable target principal is 404; an identical live grant is 409; 256 live
   grants is 503.
+  The optional `metadataCredentialRecipient` is independent owner permission
+  to send that named credential to the fixed GitHub identity metadata operation
+  (#3613). It requires a GitHub HTTPS prefix and a non-null named credential;
+  any other value or recipient is 400. Omitted or null grants no API recipient
+  permission, including on migrated records. When explicitly granted, the
+  response and list entry additionally carry
+  `metadata_credential_recipient: "https://api.github.com"`. The permission
+  shares the grant's brain, principal, repository scope and live revocation.
+  It grants neither generic HTTP access nor repository source trust.
+  Changing this permission uses revoke/recreate; duplicate matching keeps the
+  existing principal/prefix/credential identity and does not expand a grant.
 - **DELETE `/api/auth/principals/:id/reference-grants/:grantId`**, body
   ignored, revokes that principal's live grant and returns `{ ok: true }`.
   Revocation applies to the next authority check, including in-flight private
@@ -556,7 +630,7 @@ key or SSE resumption promise exists.
 All are protected; access is to the shared server record, not solely the
 calling principal's runs or sessions.
 
-**GET /api/sessions.** Optional `includeRetainedConversations=true` adds principal-owned host-only conversation metadata in `retainedConversations` (`id`, `created_at`), without fabricating backend sessions or tasks. At most 200 metadata rows are returned; `retainedAfter` is the exclusive ID cursor for the next page. Omit it for the first page. Dialogue itself uses the separately negotiated bounded WebSocket history protocol. Returns `{ sessions: ChatSession[],
+**GET /api/sessions.** Optional `includeRetainedConversations=true` adds the caller's account's host-only conversation metadata in `retainedConversations` (#3963) (`id`, `created_at`), without fabricating backend sessions or tasks. At most 200 metadata rows are returned; `retainedAfter` is the exclusive ID cursor for the next page. Omit it for the first page. Dialogue itself uses the separately negotiated bounded WebSocket history protocol. Returns `{ sessions: ChatSession[],
 unavailableBackends?: string[] }`, newest lastActiveAt first. Each session has
 id, nullable title, createdAt, lastActiveAt, totalCostUsd, numTurns and
 backendId. Stored nonzero accounting supplements a backend's zero figures.
@@ -577,6 +651,10 @@ optional list without discarding healthy backends; registry-level failure is
 Message shapes follow the SDK/wire history contract. An unknown/unavailable
 backend or history failure is 500 `{ error }`; the route does not translate
 missing sessions into a universal 404 or provide a separate history deadline.
+A chat deleted under [explicit chat deletion](#explicit-chat-deletion-additive-3230)
+(additive, #3230) is the one exception: before or after its history is read it
+answers 404 `{ error: "SESSION_NOT_FOUND", message }` with no messages, and it
+is absent from `GET /api/sessions`, including `retainedConversations`.
 
 <a id="retained-turn-journal"></a>
 
@@ -660,8 +738,8 @@ empty directory metadata is not invented.
 
 | Supported operation | Inputs/defaults | Success and observable behavior | Errors |
 | --- | --- | --- | --- |
-| GET `/api/activity/runs` | Optional origin/job/session/status strings; limit defaults 50, Number-converted and clamped 1–200 (zero/NaN → 50); before Number-converted, default now+1 (zero/NaN → default) | `{ live: ActivityRunSummary[], history: ActivityRunSummary[] }`. Live open roots match origin/job/session, are not limited/paginated or filtered by before/status. History is newest-first rollups strictly before before, with all filters and limit; live IDs excluded. SDK summary preserves unknown/null accounting. | Read failures 500 `{ error }`; filters are not enum-validated by the route. |
-| GET `/api/activity/runs/:runId` | Run ID; `include=payloads` opts into tool_input/tool_output events | `ActivityRunDetail`: retained `{ runId, detailPruned:false, spans, events, highWaterSeq, rollup? }`; after pruning `{ runId, detailPruned:true, rollup }`. Same wire mappers and accounting semantics as activity WS frames. | Never-existed run 404 `{ error: "Unknown run" }`; read failures 500 `{ error }`. Pruned detail is a successful resolution, not a missing run. |
+| GET `/api/activity/runs` | Optional origin/job/session/status strings; `activityCompute=1` declares the client parses `compute`-origin runs, which are omitted otherwise (#3108); limit defaults 50, Number-converted and clamped 1–200 (zero/NaN → 50); before Number-converted, default now+1 (zero/NaN → default) | `{ live: ActivityRunSummary[], history: ActivityRunSummary[] }`. Live open roots match origin/job/session, are not limited/paginated or filtered by before/status. History is newest-first rollups strictly before before, with all filters and limit; live IDs excluded. SDK summary preserves unknown/null accounting. | Read failures 500 `{ error }`; filters are not enum-validated by the route. |
+| GET `/api/activity/runs/:runId` | Run ID; `include=payloads` opts into tool_input/tool_output events; a `compute:` run needs `activityCompute=1` and is an unknown run without it (#3108) | `ActivityRunDetail`: retained `{ runId, detailPruned:false, spans, events, highWaterSeq, rollup? }`; after pruning `{ runId, detailPruned:true, rollup }`. Same wire mappers and accounting semantics as activity WS frames. | Never-existed run 404 `{ error: "Unknown run" }`; read failures 500 `{ error }`. Pruned detail is a successful resolution, not a missing run. |
 | GET `/api/activity/rollups` | days: truncate Number, zero/NaN/absent → 7, clamp 1–90 | `ActivityRollups`: `{ timeZone, days, jobs, sessions }`, aggregates over runs started at/after now−days. Days newest-first, in configured timezone (default UTC); invalid timezone grouping degrades to UTC. Root-only sums; unknown list cost is a floor, unknown effective cost is counted by unpricedRuns. | Read failures 500 `{ error }`. No upper bound is applied by this older aggregate route. Both cost axes round each completed group sum to four decimals at the response boundary; stored costs retain their original precision. |
 | GET `/api/activity/stats` | days: truncate Number, zero/NaN/absent → 30, clamp 1–90 | Full `ActivityRuntimeStats`, specified in the [runtime-stats contract](integration-contract/http.md#runtime-stats-get-apiactivitystats-additive-in-0370). Closed window, labeled coverage, raw sums, independent unpriced counters and nullable incomplete averages. | Read/computation failures 500 `{ error }`. Does not read brain.db. |
 
@@ -789,7 +867,7 @@ Visible profiles only; hidden profiles still resolve for pinned sessions.
 `providers` lists only profiles that can run now. `unavailable` (additive,
 #1044) lists visible profiles a backend is configured with but cannot run, each
 `{ id, label, reason, backendId }` with `reason` from the closed
-`ProfileUnavailableReason` enum (`needs-credentials`); it is absent when there
+`ProfileUnavailableReason` enum (`needs-credentials`, `unsupported-configuration`); it is absent when there
 are none, and its ids are never valid `providerId`s. Clients own the reason's
 copy and show an unknown reason generically.
 Each backend record contains id and declared capabilities. ProviderInfo has id/label,
@@ -824,7 +902,7 @@ SDK speech-session payloads rather than exposing long-lived provider keys:
 
 | Supported operation | Inputs/defaults | Success | Errors and behavior |
 | --- | --- | --- | --- |
-| POST `/api/voice/session` | No inputs; configured active speech provider, including `createApp({ speechProvider })` | `VoiceSessionResponse`: providerId, connection url, optional token/params, expiresAt and capabilities (streaming, interimResults, keyterms, endpointing, derived savedAudio) | 500 `{ error }` for unavailable provider/minting, invalid provider/session, or explicit provider/value mismatch; no fallback. Keyterms are included only when supported by the provider; browser/local sessions can omit token and use empty URL/zero expiry. |
+| POST `/api/voice/session` | Optional JSON `VoiceSessionRequest` `{ providerId?, smart? }`; absent body uses the effective provider | `VoiceSessionResponse`: providerId, connection url, optional token/params, expiresAt and capabilities (streaming, interimResults, keyterms, endpointing, derived savedAudio, optional smartTranscription) | An explicit unregistered provider gives 409 `speech_provider_unavailable` before minting; malformed/non-object JSON or wrong field types give 400 `voice_session_invalid`. No effective provider or mint/session validation failure gives 500 `{ error }`; no fallback. Gemini mint failures are always `{ error: "Gemini dictation session failed" }`, never Google's text. Keyterms are included only when supported by the provider; browser/local sessions can omit token and use empty URL/zero expiry. |
 | POST `/api/voice/token` | No inputs | `{ token, expiresAt }` | Deprecated Deepgram-specific alias retained for client migration; mints directly with 60-second requested TTL, 500 `{ error }` on failure. |
 | GET `/api/voice/keyterms` | `rebuild=1` forces cache rebuild; all other values read normal cache | `{ keyterms: string[], generatedAt, count }` | 500 `{ error }` on read/build failure, including a missing, corrupt, locked or unreadable index. Without a usable optional `@schlessera/brain` peer, or with an index version core cannot read, 200 with an empty vocabulary that is never cached ([optional core peer](integration-contract/package-api.md#ui-server-optional-core-peer-breaking-host-migration-697)). |
 | GET `/api/voice/overrides` | No inputs | `{ overrides: [{ match, replacement }] }` | Configured pronunciation replacements; 500 `{ error }` on cache read/build failure. |
@@ -980,7 +1058,8 @@ decoded bytes base64-encoded in `bytes`.
 
 **PUT /api/drafts/:draftId** takes `If-Match: <revision>` (`0` creates),
 `Idempotency-Key` and the JSON body `{ sessionId: string | null, text,
-attachmentIds: string[] }`, at most 512 KiB, and answers 200 `{ revision,
+attachmentIds: string[] }`, at most 4,390,912 bytes (the composer's text and
+ten snapshots' at JSON's six-byte escapes; 512 KiB before #3588), and answers 200 `{ revision,
 updatedAt }` only after the commit. A save cannot change `sessionId`; that
 is a conflict. An empty draft is deleted, not saved (400). **POST
 /api/drafts/:draftId/attachments** takes the raw image as the body, its type
@@ -1004,6 +1083,241 @@ each with `limit` and `bound`; 428 `DRAFT_PRECONDITION_REQUIRED` when
 `Content-Length` says. A refused or failed request leaves the committed
 draft unchanged.
 
+<a id="composer-file-attachments-additive-0450-3153"></a>
+
+## Composer file attachments (additive, 0.45.0, #3153)
+
+Advertised by `server_hello.capabilities.composerFiles`; the frame rules are
+in the [integration contract](integration-contract/wire.md#composer-file-attachments-additive-0450-3153).
+Both routes sit behind the same authentication and same-origin rules as the
+draft routes, and answer `Cache-Control: no-store`. The upload creates no
+inbox item, queue job or triage. `/share` and `/track-upload` are unchanged.
+
+### `POST /api/drafts/:draftId/files`
+
+The raw bytes of one file, streamed; nothing is buffered whole. Headers:
+`Idempotency-Key` (required, 1-128 of `A-Za-z0-9._:-`), `Content-Type` (a
+hint), `X-File-Name` (a hint, percent-encoded UTF-8, at most 1,024 bytes
+encoded) and `Content-Length` (optional, used for early refusal and as the
+pool reservation; without it the reservation is 25,000,000 bytes).
+
+The host reserves pool room, streams the bytes to a partial directory while
+counting and hashing them, detects the kind from the stored bytes and
+publishes the file read-only at `.brain-ui/attachments/<fileId>/<name>` by one
+atomic rename. Detection is by signature first (`%PDF-`; JPEG, PNG, GIF,
+WebP; HEIC/HEIF; ZIP, gzip, 7z, RAR), then strict UTF-8 text, then the shared
+track parser for text up to 20 MiB. Anything else is `binary`. A name or MIME
+type is only a hint: it never makes a file a track or a PDF.
+`trackRejected: true` says a track hint did not parse. Upload never claims the
+contents were read.
+
+`201` returns an `AttachmentFile`. Repeating a key with the same draft, name
+hint, media hint and bytes returns `200` with the same file, without storing a
+second copy.
+
+| Status | `error` | `bound` / meaning |
+| --- | --- | --- |
+| 413 | `ATTACHMENT_TOO_LARGE` | `file` (25,000,000), `draftFiles` (50,000,000), `draftCount` (10) |
+| 507 | `ATTACHMENT_CAPACITY` | `pool` (the configured `BRAIN_UI_ATTACHMENT_POOL_BYTES`) |
+| 410 | `DRAFT_DELETED` | the draft was deleted or sent |
+| 400 | `ATTACHMENT_INVALID` | an empty file, a malformed header, or an `X-` header claiming authority, a path or a kind |
+| 409 | `ATTACHMENT_KEY_REUSED` | the key named a different upload |
+| 503 | `busy` | three composer uploads are already running; retry |
+
+`draftCount` and `draftFiles` count everything the draft's current revision
+references, plus uploads for the same draft that no save has bound yet and
+that are under an hour old. Files its outgoing snapshots own are not counted
+(#3588): each snapshot is its own message, checked against the envelope when a
+save lists it, and the newer composer revision keeps a whole envelope. The pool counts every recorded
+original in any state, every live reservation and the legacy draft images.
+Reservations are taken in one immediate transaction, so concurrent uploads
+cannot multiply the cap. At capacity nothing is removed to make room.
+
+`PUT /api/drafts/:draftId` accepts `fileIds` (at most 10) and `outgoing`
+(`{ requestId, text, fileIds, state: "held" | "dispatched" }`, `null` to
+clear, absent to keep). A save binds exactly the listed files to the revision
+and the snapshot's files to the snapshot. Each listed file must be `stored`
+and minted for this draft, or the save is 400 `ATTACHMENT_INVALID`. At most
+10 attachments are listed, legacy images included, and at most 50,000,000
+original bytes together (413 `DRAFT_TOO_LARGE`, `bound` `draftCount` or
+`draftFiles`). The old `maxDraftBytes` ceiling bounds text and legacy images
+only. `GET` returns `files` (only files still stored) and `outgoing`.
+
+<a id="outgoing-snapshot-list-additive-0450-3588"></a>
+
+#### Outgoing snapshot list (additive, 0.45.0, #3588)
+
+A draft keeps a list of outgoing snapshots instead of one slot, under the
+maintainer's G1 A ruling on #3155. Each `DraftSnapshot` is `{ snapshotId,
+requestId, text, fileIds, state: "held" | "returned" | "dispatched", createdAt
+}`: a send that is held while its files upload, returned unsent, or dispatched
+and not yet confirmed. The client mints `snapshotId`; the host stamps
+`createdAt` at creation. `GET` returns them as `snapshots`, oldest first, and
+omits the field when there are none.
+
+`PUT` takes the whole list as `snapshots` (each item without `createdAt`);
+absent keeps it. Under the save's `If-Match` and `Idempotency-Key`:
+
+- **Create.** A `snapshotId` the draft does not hold creates a `held` or
+  `dispatched` snapshot; its `requestId` must be new to the draft. The save
+  counts every live snapshot of the chat — every live draft bound to the same
+  `sessionId`, whichever tab or device saved it, or this draft alone when it
+  has no session — in the same immediate transaction. If the result would
+  exceed `maxOutgoingSnapshots` (10, advertised in `SessionDraftLimits`), it
+  is 409 `{ error: "DRAFT_OUTGOING_FULL", message, limit }` and nothing is
+  stored. That save is the reservation: the client sends the message only
+  after it succeeds. An ordinary send with every file ready records a
+  `dispatched` snapshot the same way.
+- **Edit in place.** A listed snapshot may move `held` → `returned` (Cancel,
+  or a file failed), `held` → `dispatched` (dispatch) or `dispatched` →
+  `returned` (a recovery read showed it was not accepted). A `held` one may
+  change its `fileIds` as its uploads are admitted. Its `requestId` and `text`
+  never change. These saves never need a free slot, even at 10 of 10.
+- **Release.** Leaving a `returned` snapshot out deletes it: Edit, when its
+  text and files move into the composer revision of the same save, or
+  Delete…. Its files lose their snapshot reference, and those no longer
+  referenced start their seven-day clock. A `held` or `dispatched` snapshot
+  cannot be left out (400 `DRAFT_INVALID`); nothing is evicted, merged or
+  overwritten. Accepting the message whose `requestId` a snapshot carries
+  releases that snapshot alone, its files moving to the conversation in the
+  acceptance transaction. An acceptance that releases a snapshot always moves
+  the draft to a new revision, whether it consumes the draft or keeps it
+  (#3733). A save from a tab or device that read the draft before the
+  acceptance still lists the sent snapshot, so it is 409 `DRAFT_CONFLICT`
+  with `current`, which no longer holds that snapshot. It never recreates the
+  snapshot as a new one, holds a slot again or gives its files back to
+  `outgoing`. The single-slot `outgoing` write follows the same rule.
+
+Every snapshot's files stay referenced, charged to the draft sub-limit and the
+pool, and each snapshot is checked against the per-message envelope. When an
+acceptance consumes a draft that still holds other snapshots, the draft is not
+a tombstone: it stays at the next revision with an empty composer and those
+snapshots. `DELETE` of a draft holding a `held` or `dispatched` snapshot is
+409 `{ error: "DRAFT_OUTGOING_PENDING", message, current }`; its `returned`
+snapshots go with it.
+
+The single-slot fields of #3153 keep working. `Draft.outgoing` shows the
+newest `held` or `dispatched` snapshot in the old shape. A save's `outgoing`
+object creates the snapshot of its `requestId` (with that id as `snapshotId`)
+or edits it in place, and `null` removes the snapshot `outgoing` shows. A save
+naming both `outgoing` and `snapshots` is 400. A draft saved with a slot
+before migration 079 has that slot as its first snapshot.
+
+### `GET /api/attachments/:fileId`
+
+Streams one original up to 25,000,000 bytes, after checking its recorded size
+and SHA-256 through no link. Any live reference authorizes the read: a draft
+revision, an outgoing snapshot or a sent message. Answers carry
+`Content-Security-Policy: default-src 'none'`, `X-Content-Type-Options:
+nosniff`, and `Content-Disposition: attachment` for every kind except an image
+preview. `404 ATTACHMENT_NOT_FOUND` for an unknown, unreferenced or missing
+file; `409 ATTACHMENT_CHANGED` when the bytes no longer match, with none of
+them served. The raw file route keeps its 10,485,760-byte cap.
+
+<a id="attachment-reads-additive-0450-3589"></a>
+
+### `GET /api/sessions/:id/attachment-reads` (additive, 0.45.0, #3589)
+
+Advertised by `server_hello.capabilities.attachmentReads`; absent on a host
+without composer files, which a client reads as "show no read state". Behind
+the same authentication guard as the other session routes, with the same
+authority a history replay of the session has: a usable principal of this host,
+whose namespace every authenticated principal shares. A revoked or expired one
+gets the guard's `401 { error: "Authentication required", authRequired: true }`
+and nothing about the session.
+
+`200` returns `SessionAttachmentReadsResponse` `{ sessionId, reads }`, with
+`Cache-Control: no-store`. Each `AttachmentReadEntry` is `{ fileId, turnId,
+outcome, scope, at }`: one recorded `read_attachment` call that reached an
+original, oldest first. `outcome` is any outcome but `refused`, whose calls
+reach no original and are not recorded. `scope` is the pages or byte range
+the result covered, or `null` when nothing was read. Only reads recorded by
+this session's turns, of originals a message of this session still names, are
+returned. A session with none, or one the host does not know, answers an empty
+list. A retired chat is `404 SESSION_NOT_FOUND`. Text is never kept or
+returned, and nothing here reaches a provider.
+
+A read recorded during a live turn also reaches every connection that declared
+`attachmentReads` in its `client_hello`, as one
+[`attachment_read` frame](integration-contract/wire.md#attachment-reads-additive-0450-3589).
+
+### Lifetime
+
+An upload no save or message ever bound is removed an hour after upload. An
+original that was referenced is removed seven days after its last reference
+went; rebinding cancels that. A sweep runs at boot and every ten minutes. It
+marks eligible files in one transaction and only then unlinks them, so a
+rebind that loses the race is refused rather than binding a deleted file. At
+boot, reservations and partial uploads of an earlier process are discarded, a
+record whose directory is gone becomes `missing`, and a directory with no
+record is adopted, charged, with a fresh seven days. Clocks are the server's
+stored wall clock, never file times.
+
+<a id="markup-layer-upload-additive-0450-3975"></a>
+
+## Markup layer upload (additive, 0.45.0, #3975)
+
+### `POST /api/markup/:requestId`
+
+This answers one open [`markup_request`](integration-contract/wire.md#markup-requests-additive-0450-3975).
+A layer may be up to 52,428,800 bytes (50 MiB, the CLI's "50 MB"), so it is
+uploaded here rather than sent in a 12,000,000-byte socket frame. The route
+sits behind the same authentication and origin rules as the draft routes and
+answers `Cache-Control: no-store`. It creates no inbox item, queue job or draft.
+
+**Query.** `turnId` is required and must be the frame's `turnId`.
+
+**Body.** `multipart/form-data` with two parts:
+
+- `layer`: the PNG;
+- `summary`: JSON `{ marks: { pen, arrow, ellipse, text }, notes: string[] }`,
+  the drawing's own mark counts and note texts.
+
+At least one mark is required. The counts are whole numbers. `notes` holds
+exactly `text` single-line notes: at most 200, each at most 80 characters.
+
+**Bounds.** The body is counted as it streams, whatever `Content-Length`
+says, and is cut off past 52,690,944 bytes (`MARKUP_UPLOAD_MAX_BODY_BYTES`,
+the cap plus 256 KiB of framing). The `layer` part's cap is inclusive: exactly
+52,428,800 bytes is accepted and one byte more is refused. A deployment's
+`Bun.serve` `maxRequestBodySize` must leave that room; the reference recipe
+in the ui-server README does.
+
+**Success** is 202 `{ accepted: true, bytes }`. The waiting request then
+applies the layer under the [markup application rules](integration-contract/mcp.md#hosted-markup-layer-application-additive-0450-3975)
+and the tool's result reports what was written.
+
+**Failures** are `{ error, message, limit? }`, except 401, which is the
+guard's own `{ error: "Authentication required", authRequired: true }`. Every
+answer, 401 included, carries `Cache-Control: no-store`:
+
+- 401 without an authenticated principal;
+- 404 `markup_request_not_found`: an unknown id, another principal's request,
+  a missing, empty or different `turnId`, or a request already answered,
+  declined or cancelled;
+- 413 `markup_too_large`, with `limit: 52428800`;
+- 415 `unsupported_media_type`;
+- 400 `markup_invalid`.
+
+A refused upload leaves the request open, so the editor stays up with
+`message`. Once 202 is answered the request is consumed: a refusal by the
+application is the tool's error, and the editor closes.
+
+### `GET /api/markup/:requestId/source`
+
+The source image an open request bound, so the editor draws on exactly the
+image the layer is checked against. The general `/api/files/content` read
+stops at 10 MiB, and a markup source may be up to 134,217,728 bytes. The query
+and ownership rules are the upload's: `turnId` is required and must match.
+
+- **200:** the bytes, with `Content-Type` `image/png`, `image/jpeg` or
+  `image/webp` from their own header, and `Cache-Control: no-store`.
+- **404 `markup_request_not_found`:** the request is not open for this
+  principal and turn.
+- **409 `markup_source_unavailable`:** the file changed since the request
+  bound it, or is no longer a readable ordinary file.
+- **401:** as for the upload.
+
 ## Session recovery (additive, #964)
 
 **GET /api/sessions/:id/recovery** is protected and read-only: it never
@@ -1024,6 +1338,75 @@ true }`, disclosing nothing about the session. An unknown session is 404
 `{ error: "SESSION_NOT_FOUND", message }`. A storage failure, or a backend
 that failed or timed out when none had the session, is 500 `{ error: "SESSION_RECOVERY_FAILED", message }`, never a successful
 `unknown`.
+
+<a id="explicit-chat-deletion-additive-3230"></a>
+
+## Explicit chat deletion (additive, #3230)
+
+**POST /api/chat-deletions** deletes the authenticated owner's own chat's local
+history under the [approved policy](decisions/chat-history-deletion.md). It is
+mounted, and `server_hello.capabilities.chatDeletion: true` is sent, only by a
+host whose catalog can retire chats. The body is the SDK's `ChatDeletionRequest`:
+`operationId` (a client-minted key, at most 2048 characters), `target` naming
+exactly one of `{ sessionId }` or `{ historyOwnerId }`, and `expected: { backendId,
+generation }`, what the caller reviewed (a dialogue page's `generation`, or 1 for a
+chat with no host-retained dialogue). Any other shape is 400
+`{ error: "INVALID_CHAT_DELETION", message }`. Every response is
+`Cache-Control: no-store`.
+
+Before anything is retired, a refusal is `{ error: "CHAT_DELETION_REFUSED",
+reason, message }`: 403 `unauthorized` (not a usable owner principal: agents,
+ambient callers without an owner mapping and revoked principals), 404
+`unavailable` (absent, foreign, already retired under another key, or with no
+recorded owner; the same answer whichever), 409 `stale` (the backend or
+generation differs from `expected`), 409 `unsupported` (the chat's backend does
+not advertise and implement native removal) or 409 `busy` (a running or starting
+turn, queued follow-ups or unsettled live-conversation work; stop or finish it
+first). A chat's recorded owner is its dialogue owner, its voice conversation's
+principal or, since #3337 (additive), the authenticated principal whose typed
+request created its backend session. A typed chat whose session already existed
+before that binding (or that the host first saw on a resume) has no recorded
+owner and stays `unavailable`; none is backfilled. Otherwise the chat is
+retired and the answer is 200 with the SDK's
+`ChatDeletionReceipt`: `operationId`, the terminal `generation`, the overall
+`status`, each selected store's outcome (`native` for a backend session,
+`dialogue`, `tasks`, `projections`, `drafts`) and `retained`, which always lists
+`independent_content`, `effects_and_audit`, `provider_copies`, `backups` and
+`offline_devices`. `status` is `removed` only when every selected store confirmed
+removal; `pending`, `partial` and `unknown` say cleanup is not confirmed, and
+repeating the same `operationId` retries it. A host restart also resumes it.
+The handler re-checks the principal after its asynchronous steps and answers a
+revoked one with the guard's 401, disclosing nothing. A storage failure before a
+receipt exists is 500 `{ error: "CHAT_DELETION_FAILED", message }`, never a
+reported deletion. Receipts and errors carry no chat text, title, raw path or
+free-form failure. No success claims secure erasure, provider forgetting or an
+undone effect, and an older backup can restore deleted text.
+
+**GET /api/chat-deletions/:operationId** (additive, #3455) reads one operation's
+outcome without re-admitting it, so a client that lost a POST's reply can ask
+what happened. It only reads: it never admits a deletion, retries or resumes
+cleanup, and it adds no authority. For the authenticated caller it answers 200
+with the current `ChatDeletionReceipt` when a retirement is recorded under that
+`operationId` for that principal; `status` and `stores` reflect the latest
+recorded cleanup, so a read after a restart or a retry shows progress. Every
+other case is 404 with the SDK's `ChatDeletionNotAdmitted`, `{ error:
+"CHAT_DELETION_NOT_ADMITTED", reason: "not_admitted", message }`, byte-identical
+whether the operation is unknown, another principal's, a refused attempt (refusals
+are not recorded) or asked by a principal that cannot own one (an agent, or an
+ambient caller without an owner mapping). It never echoes a title, session id,
+history owner id or backend. `not_admitted` means nothing was retired under
+that operation at the moment of the read: a request still in transit can be
+admitted afterwards, and `chat_retired` then follows as usual. The read waits
+for committed catalog writes. An `operationId` longer than 2048 characters is
+400 `{ error: "INVALID_CHAT_DELETION", message }`; unauthenticated is 401; a
+principal revoked between the lookup and the response gets the guard's 401, not
+the receipt; a storage failure is 500 `{ error: "CHAT_DELETION_FAILED", message }`,
+which reports neither outcome. Every response is `Cache-Control: no-store`. A
+host without the route answers its ordinary not-found, which carries no
+`reason`, so a client can tell an older host from `not_admitted`.
+
+Draft routes refuse a draft bound to a deleted chat with 410
+`{ error: "DRAFT_CHAT_RETIRED", message }`, list omits it, and `GET` answers 404.
 
 ## Imported track UI transport (#526)
 
@@ -1073,6 +1456,235 @@ asserts the isolation and both accepted behaviours. In a split topology, where
 the client is served from another origin, `frame-ancestors 'self'` refuses the
 preview frame; the new-tab link is not subject to framing rules.
 
+<a id="github-detail-pages-internal-0450-3796"></a>
+
+## GitHub detail pages and avatars (internal, 0.45.0, #3796)
+
+Two internal routes let the chat's GitHub components load what a
+[host GitHub tool](integration-contract/mcp.md#host-github-tools-additive-0450-3797)
+result left out, without putting it in the model's context. Their raw paths
+and payloads carry no compatibility guarantee; their authority and disclosure
+rules are security properties pinned by
+`packages/ui-server/tests/github-details.test.ts` and
+`packages/ui-server/tests/ws-github-details.test.ts`. The paired client is
+`fetchGithubDetailPage` and `githubAvatarUrl` in `ui-react`
+(`packages/ui-react/src/lib/github-details.ts`).
+
+**Authority.** The caller must be the chat's owner account: any login of the
+principal the chat's ownership records name, by the safety route's
+same-account rule (#3952). A delegated agent, another account or a chat whose
+ownership is unknown gets 403 (`forbidden`, `not_owner`). The route then reads
+the session's recorded history from its owning backend and serves only an
+object (`owner/repo#number`, compared without case) that a successful
+`brain_github_*` result in it returned: an issue or pull request read, a search
+item, or a write's created object. Anything else, a retired chat included, is
+404 (`not_found`, `not_in_session`) and sends nothing to GitHub. It is not a
+GitHub proxy: each part maps to one fixed path under `https://api.github.com`,
+called with `BRAIN_UI_GITHUB_TOOLS_TOKEN` and never `GITHUB_TOKEN`.
+
+**Display data only.** A response is never added to the session's provider
+conversation, not journaled as turn input, and records no taint or other
+governance event. Reading details changes nothing the next turn sends.
+
+### `GET /api/sessions/:id/github/:owner/:repo/:number/:part?cursor=`
+
+`part` is one of `comments`, `reviews`, `review-comments`, `commits`, `files`
+or `checks`; anything else is 400 (`invalid_input`, `part`). Every part but
+`comments` belongs to a pull request; asked of an issue it is 404
+(`not_found`, `not_pull_request`). `cursor` is the previous page's
+`next_cursor`, opaque; a cursor this host did not issue is 400
+(`invalid_input`, `cursor`). `200` returns `GITHUB_DETAIL_PAGE_SCHEMA`
+`{ kind: "detail_page", repository, number, part, items, total_count,
+next_cursor, fetched_at }` with `Cache-Control: no-store`. A page holds at
+most `GITHUB_DETAIL_PAGE_SIZE` (30) items, oldest first, in the tools'
+contract types: `GithubComment`, `GithubReview`, `GithubReviewComment`,
+`GithubCommit`, `GithubChangedFile` (a summary, never a diff or content) and
+`GithubCheckRun` (check runs, then the head commit's statuses). Untrusted text
+is marked as in the tools' payloads. Every `html_url` is taken from GitHub and
+passes `githubDirectUrl` for its kind, the session's object and the item's own
+id or sha, or is `null`; the route never builds one.
+
+Failures are `{ error: { code, reason, message, reset_at } }`
+(`GITHUB_DETAIL_ERROR_RESPONSE_SCHEMA`), with the tools' codes: 503
+`unavailable` (`no_credential` or `credential_rejected`), 429 `rate_limited`
+with `reset_at` and `Retry-After` when GitHub names the reset, 404 or 403
+`not_found` / `forbidden` with reason `github` when GitHub no longer shows the
+object to the credential, and 502 `upstream_error`. A revoked or expired
+login gets the guard's 401.
+
+### `GET /api/sessions/:id/github/avatars/:login?size=`
+
+Serves the avatar of a login that appears in the session's GitHub results, or
+in a detail page served for that session, so the browser never contacts
+GitHub. The host fetches `https://avatars.githubusercontent.com/<login>` at the
+smallest of 32, 64, 128 or 256 pixels covering `size`, with no credential or
+cookie, following redirects only within that host. It accepts only PNG, JPEG,
+GIF or WebP judged by the bytes, not the upstream content type, up to 512 KiB
+and 1024 pixels a side, and answers them with their sniffed type,
+`X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src
+'none'; sandbox` and `Cache-Control: private, max-age=3600`. Images are kept
+in a bounded in-memory cache (256 entries, 8 MiB, six hours) that evicts its
+least recently used entry and never writes to disk, `brain.db` or the brain.
+Every failure, including a login not in the session and a caller who does not
+own it, is an empty 404, and the component shows initials.
+
+## Untrusted file marks (internal, #2673)
+
+The four `/api/files/untrusted` operations are protected, internal UI
+transport: their payloads carry no independent-client guarantee, but their
+authority and disclosure rules are security properties and are pinned by
+`packages/ui-server/tests/untrusted-marks.test.ts`.
+
+- A mark is a host record in the UI database keyed by the normalized
+  brain-relative path, never a `brain.db` row or frontmatter key, so it
+  survives a restart and `brain index --force`. A moved or deleted file keeps
+  its old-path record; nothing follows a rename.
+- `PUT` with JSON `{ path }` needs the read access `GET /api/files/content`
+  already grants and a regular file at the path: a missing path or directory
+  is 404 `not_found`, invalid path syntax 400 `invalid_path`. It answers
+  `{ status: "marked" | "already_marked", mark }`. Marking grants nothing else.
+- `DELETE ?path=` is the human owner's alone (an `owner` or `ambient`
+  principal, the storage routes' rule); any other principal gets 403
+  `owner_required`. It clears present and retained missing records and answers
+  `{ status: "cleared" | "already_cleared" }`. It never removes a session's
+  recorded taint.
+- `GET ?path=` answers `{ path, marked: false, canClear }` or
+  `{ path, marked: true, markedAt, missing, markedBy?, canClear }`. A reader
+  asking about a path with no readable file gets 404 `not_found`, whether or
+  not a record is retained there.
+- `GET /list` answers `{ marks, canClear }`, missing records first and then
+  newest first. The owner sees every record; any other principal sees only
+  records whose file it can currently read. Only the owner's rows and details
+  carry `markedBy: { label, you }`; other principals' responses omit the field.
+
+## Selectable dictation providers
+
+`GET /api/voice/providers` returns `VoiceProvidersResponse`: `providers[]`
+contains `{ id, label, destination?, capabilities }`; `dictation` contains
+`{ saved, savedUsable, host, effective, source, smart, revision }`. Ids absent
+from selection are `null`, `savedUsable` is false when nothing is saved, and
+`source` is `saved | host | only | none | unavailable`. Discovery is authenticated,
+`no-store`, and never mints credentials or probes providers. Labels default to
+ids; saved-audio support comes from the optional provider method.
+
+The registered set is fixed at construction. The saved choice wins if registered;
+if removed, it blocks dictation without fallback. With no saved choice, use the
+host default, otherwise the sole registered provider, otherwise none. Multiple
+providers without a default require a deliberate choice. `/voice/capabilities`
+keeps its response shape and reports this effective provider.
+
+`GET /api/voice/dictation/settings` returns `DictationSettings`
+`{ defaultProvider: string | null, smart: boolean, revision: string }` and a quoted
+revision `ETag`. Defaults are `{ defaultProvider: null, smart: true, revision: "0" }`.
+Corrupt/invalid operational KV `voice.dictation` rows use those defaults; storage
+uses a numeric revision. `PUT` accepts `{ defaultProvider, smart? }` (`smart`
+defaults true); `null` clears the saved choice. Send `If-Match: "<revision>"`
+(the unquoted revision is also accepted). Only human `owner`/`ambient` principals
+may write; others receive 403 `{ error: "owner_required" }`. Unknown providers
+return 400 `speech_provider_unknown`, invalid bodies 400 `dictation_settings_invalid`,
+missing If-Match 428 `dictation_settings_stale`, and stale writes 409
+`dictation_settings_stale` with `current`. A successful write returns 200 with the
+new settings/revision and ETag. Reads and writes are `no-store`; neither mints a
+session, changes a running take, nor touches conversation settings or history.
+
+`POST /api/voice/session` resolves a supplied `providerId` exactly, before minting,
+regardless of current defaults. It snapshots identity/capabilities for the response.
+`smart` overrides the saved mode for this request; only a provider declaring
+`smartTranscription` receives `mode: "smart" | "verbatim"`. Omitted mode uses the
+saved switch (initially true). A failed exact mint returns generic 500
+`{ error: "Voice session failed" }` without provider diagnostics or credentials.
+Bodyless legacy requests retain their previous response/error shape.
+
+## Live-conversation service default
+
+`/api/settings/voice` (below, under personas) also carries the saved brain-wide
+default live-conversation service (#3616) as top-level
+`{ defaultProvider: string | null, revision: number }` (`VoiceLiveSettings`),
+beside `persona` with its own revision. Nothing saved reads as
+`{ defaultProvider: null, revision: 0 }`; a corrupt or unknown
+`voice.live.defaultProvider` row in the ui-server settings store reads the same.
+A saved id the host no longer registers stays saved until changed here.
+
+`PUT` saves it from `{ defaultProvider: string | null, revision: number }`,
+where `revision` is the one last read and `null` clears the default; send it
+alone, or beside `persona` (the live default is then saved first). The route
+has its own owner-only write guard, checked before the body is read: only the
+brain owner's human session (password or passkey) or the ambient human
+principal passes, and any other principal gets 403 with an empty body. A
+malformed pair is 400 `{ error: "LIVE_SETTINGS_INVALID" }`; an id that is not
+registered is 400 `{ error: "LIVE_PROVIDER_UNKNOWN" }`; a stale revision is 409
+`{ error: "LIVE_SETTINGS_CHANGED", message, current }`. A successful write
+returns 200 with the whole settings body and sends `live_settings` on every open
+WebSocket connection ([wire](integration-contract/wire.md#live-service-selection-additive-3616)).
+
+Neither read nor write reports a credential, key presence or endpoint, opens a
+provider, captures audio or reads chat history. A save takes effect at the next
+explicit Start and never retargets a running conversation. The ordinary model
+default (`/api/models/default`) and the dictation choice
+(`/api/voice/dictation/settings`) are separate settings with their own routes
+and revisions.
+
+## Live-conversation personas
+
+Personas are Markdown files at `_voice/personas/<id>.md` in the brain, where
+`id` matches `[a-z0-9-]{1,48}` and never changes:
+
+```md
+---
+schema: 1
+name: "Ithaca steward"
+voices:
+  gemini-live: "Kore"
+  gpt-live: "marin"
+---
+Calm, brief, plain words. Speak like a ship's steward reporting to Odysseus.
+```
+
+`name` is 1–40 characters after trimming, without control characters. `voices`
+maps a live service id to that service's voice id; a missing key means the
+service default, and keys for services this host does not register are kept.
+The body is the instructions: plain text, line endings normalized to LF and
+trimmed, at most 6,000 UTF-8 bytes. A file over that, with unreadable front
+matter or with `schema` other than 1 is listed with `invalid` and cannot be
+selected; so are usable files beyond the 20th by name. Standard is built in,
+read-only and has no file. Core excludes `_voice` from the content index, so
+persona text never reaches search or agent context.
+
+Every route is `no-store` and needs a human session of the brain (owner or
+ambient); others receive `403` with an empty body.
+
+- `GET /api/voice/personas` returns `{ personas: LivePersonaSummary[] }`:
+  Standard first, then by name. Summaries carry `id`, `name`, `voices`,
+  `instructionBytes`, `revision` (sha-256 hex of the file), and `builtIn` or
+  `invalid` when they apply, never the instructions.
+- `GET /api/voice/personas/:id` returns `LivePersona` (the summary plus
+  `instructions`) or 404 `PERSONA_NOT_FOUND`.
+- `POST /api/voice/personas` takes `{ id?, name, voices, instructions }`. Without
+  `id` one is derived from `name`. It returns 201 with the persona, 400
+  `PERSONA_INVALID` with a `reason`, 409 `PERSONA_EXISTS` or 409 `PERSONA_LIMIT`.
+  A new persona is not selected.
+- `PUT /api/voice/personas/:id` takes `{ baseRevision, name, voices,
+  instructions }` and replaces the file atomically. A revision mismatch returns
+  409 `{ error: "PERSONA_CHANGED", current }`; Standard returns 409
+  `PERSONA_READ_ONLY`.
+- `DELETE /api/voice/personas/:id?baseRevision=<revision>` returns 204. When the
+  persona is selected, the selection is saved as Standard first and the file is
+  deleted only after that write succeeds.
+- `GET /api/settings/voice` returns `{ defaultProvider, revision, persona: { value, revision },
+  livePersona: LivePersonaStatus }` (the first pair is the
+  [live-service default](#live-conversation-service-default)). `PUT` takes `{ persona: { value, revision } }`;
+  a missing or invalid persona returns 400, a stale revision 409
+  `{ error: "LIVE_PERSONA_CHANGED", persona, livePersona }`. The selection is the
+  `voice.live.persona` server setting with its own revision; a corrupt row reads
+  as Standard at revision 0.
+
+Writes go through the brain's files with an atomic replace, inside a
+directory chain opened without following links; storage that is unavailable or
+redirected returns 503 `PERSONA_STORAGE`. An edit made directly to a file is
+equally valid and applies from the next Start. Nothing here opens a provider,
+the microphone or a running conversation, which keeps the persona frozen at its
+Start ([wire](integration-contract/wire.md#live-conversation-personas-additive-0450-3617)).
+
 ## Saved-audio transcription
 
 The protected `GET /api/voice/capabilities` returns `VoiceCapabilitiesResponse`
@@ -1106,7 +1718,14 @@ specifies the receipt fields, errors, retry decision and permanent retention.
 `PUT` responds 200 with the stored receipt, including provider failures; a
 failed plain replay gives 409. `?retry=<failed attemptId>` is the only retry
 request, with at most three user retries and no automatic provider calls.
-Unsupported providers return 501 `saved_audio_unsupported`.
+`Speech-Provider: <id>` binds upload admission to exactly the disclosed provider,
+before reading the audio and before claiming a receipt. An unknown id returns
+409 `speech_provider_unavailable`; a streaming-only provider returns 501
+`saved_audio_unsupported`. Neither claims or dispatches. Without this header,
+legacy uploads resolve the effective provider at request admission. A retry
+naming a different provider returns 409 `transcription_provider_mismatch` with
+its original receipt and never dispatches. Plain repeats, tombstones, unknown
+outcomes and the retry ceiling retain their existing semantics.
 `DELETE ?disposition=accepted|discarded` returns 200 with a `consumed` receipt;
 an invalid disposition gives 400. It removes text, retains the immutable id
 and hash, and inserts a hashless tombstone if no upload has claimed yet.
@@ -1132,7 +1751,10 @@ principal; it is `no-store`, reads only recorded facts and changes nothing. See
 [the owner-only details](integration-contract/package-api.md#owner-only-private-worktree-details-additive-0440-2734).
 
 `POST /api/hygiene/review/preview` accepts a stored `itemId`, `optionId`,
-`expectedVersion` and bounded handler `input`. Owner/ambient operation authority
+`expectedVersion`, bounded handler `input` and an optional `requestId`, which
+the response echoes. A media preview runs one scan per server: the same
+principal's newer preview aborts the older one, and another principal's gets
+the `preview-busy` refusal in a 200 body. Owner/ambient operation authority
 is rechecked against the durable principal. These routes run only deterministic
 CLI operations; confirmation uses the existing `inbox_resolve` WebSocket path.
 See [the wire shapes and error codes](integration-contract/package-api.md#human-started-hygiene-review-additive-1027).
@@ -1172,7 +1794,12 @@ in `brain.db` or the brain, and are kept with the session's catalog row rather
 than with the pruned Activity span detail: pruning span detail leaves them, and
 deleting a session deletes them. An event whose turn never named a session (a
 new conversation refused before it started, a crash before `session_info`) has
-`sessionId: null` and is kept for 90 days.
+`sessionId: null` and is kept for 90 days, except `taint` and
+`taint_exposure`: unresolved safety evidence has no time-based eviction. A
+content-free once-only turn/session binding survives catalog removal and
+refuses contradictory binding or late writes under a retired session identity.
+Explicit chat retirement retains governance under its existing independent
+audit owner; it does not claim those audit records were erased.
 
 Query parameters, each optional and combined with AND: `session` (one session
 id), `turn` (one turn id), `kind` (repeatable or comma-separated kinds from the
@@ -1209,6 +1836,28 @@ unknown kinds and unknown payload fields, and should read a payload only for a
 `schemaVersion` they know. Until a release emits a kind, its version 1 payload
 may still change.
 
+Collection metadata on new tool/proxy taint rows is a strict optional object:
+`{ id, epochId, operationId, signalId, exposureId, detector, exposure, provenance, admission? }`.
+IDs are host-minted opaque ASCII `[A-Za-z0-9_-]`, 1–128 bytes;
+`operationId` may be null. The detector names follow the version 1 inventory in
+[the reviewed plan](plans/reviewable-session-safety.md#detector-contract-and-coverage).
+`exposure` is `open`, `finalized` or `interrupted_unknown`. Verified proxy
+provenance is `{kind: web_origin, origin: {scheme, host, port}, verifiedBy:
+host_transport}` or `{kind: tunnel_authority, authority: {host, port}, verifiedBy:
+host_proxy}`; unverified tool/repository provenance is `null`. Admission records
+`{trusted: false, policyHash: <SHA-256>|null, trustRevision: "0"}`. Source trust
+is disabled. A separate terminal event records host-proven delivery completion;
+a display frame or opaque tunnel close cannot establish it.
+
+The host's durable projection includes all unresolved identities and explicit
+coverage/failure facts, independently of this paginated governance history.
+Legacy/no-row and unsupported histories are restricted. Collector metadata alone
+never proves complete coverage: a new host-bound session needs every mandatory
+versioned acknowledgement. Old rows remain readable as stored. No safety query,
+review/clearing endpoint or mutation capability is enabled by these additions.
+Provider dispatch refuses unsettled or failed input recording at the host relay,
+including when a runtime continues after a hook failure.
+
 ### Governance event kinds
 
 Counts and byte sizes are non-negative integers. Amounts are non-negative
@@ -1223,8 +1872,9 @@ read by any authenticated principal.
 
 | Kind | Version | Fields | Meaning |
 | --- | --- | --- | --- |
-| `egress_connection` | 1 | `host`, `port`, `method`, `path` (optional), `bytes`, `accounting`, `durationMs`, `outcome`, `inference` (optional), `reason` (optional) | A completed, denied, failed or cancelled proxy connection. HTTP has a path and conservative wire accounting; opaque CONNECT has no path or plaintext claim. Only the concrete inference relay sets `inference: true`. Headers, query strings and content are absent. |
-| `steering_change` | 1 | `path`, `sequence`, `beforeHash`, `afterHash`, `taintSourceEventId`, `overlappingTurnIds` | One observed steering change, attributed to its turn. Hashes identify retained regular-file versions or are `null`; the source is an existing prior taint event or `null`. Shared windows remain shared, not exclusive writer claims. |
+| `safety_admission_expired` | 1 | `toolUseId`, `evidenceRevision`, `trustRevision`, `authorityEpoch`, `reason` | A waiting or claimed safety-bound approval was withdrawn before dispatch. The server commits this terminal fact before settling the backend wait or publishing the coordinator's `expired` result. Revisions describe the card's original host snapshot; `reason` is `safety_changed`, `turn_ended` or `grant_storage_failed`. Storage failure stops the turn with an explicit failed terminal outcome, without claiming durable withdrawal. This grants no replay and changes no historical approval. |
+| `egress_connection` | 1 | `connectionId` (optional), `host`, `port`, `method`, `path` (optional), `bytes`, `accounting`, `durationMs`, `outcome`, `inference` (optional), `provider` (optional, #3246), `managedReference` (optional, #3613), `reason` (optional) | A completed, denied, failed or cancelled proxy connection. HTTP has a path and conservative wire accounting; opaque CONNECT has no path or plaintext claim. Only the concrete inference relay sets `inference: true`, only a validated provider-relay operation sets `provider: true`, and only the fixed host GitHub acquisition wire sets `managedReference: true`. Each operation supplies its own exclusive tag. These host records grant no contacted-host authority to a tainted session's worker traffic. Managed acquisition retains ordinary recipient restrictions and claims no model-content delivery or repository trust. Headers, query strings and content are absent. |
+| `steering_change` | 1 | `path`, `sequence`, `beforeHash`, `afterHash`, `taintSourceEventId`, `overlappingTurnIds`, `tainted` (optional) | One observed steering change, attributed to its turn. Hashes identify retained regular-file versions or are `null`; the source is the current unresolved taint event or `null`. New observations may carry `tainted: true` for effective restriction, including unknown coverage without an attributable source. Historical rows retain their original attribution. Shared windows remain shared, not exclusive writer claims. |
 | `policy_change` | 1 | `requestId`, `baseHash`, `proposedHash`, `sections`, `outcome` | Explicit user-approved policy publication. Actor is `user`; outcome is `updated`; hashes identify the exact reviewed and written bytes. |
 | `scratch_overage` | 1 | `bytes`, `pinnedFiles`, `pinnedBytes`, `overageBytes` | Scratch remains above its cap after a prune that preserved retained links. Counts are remaining bytes and pinned files/bytes; `overageBytes` is the excess. A background pass has actor `server` and no session or turn; unbound retention applies. |
 | `promotion` | 1 | `source`, `destination`, `bytes`, `originalLink`, `rewrittenLink` | A linked turn-temp file was copied into `.brain/scratch/turns/<turnId>/` and its link rewritten. `destination` is brain-relative. |
@@ -1240,11 +1890,12 @@ read by any authenticated principal.
 | `state_room_warning` | 1 | `usedBytes`, `allowanceBytes`, `observedAt` | A resumed conversation's measured state reached its existing 75% warning threshold. The numbers and Unix-millisecond timestamp are the same observation sent with its result and history. One quiet event per session, backend and allowance; it does not change admission or start a continuation. |
 | `budget_block` | 1 | `scope`, `unit`, `limit`, `observed`, `source`, `stage` | A block limit was reached. `stage` is `admission`, `mid_turn` or `sdk_backstop`. |
 | `scope_cap` | 1 | `cap`, `limit`, `observed`, `overshoot`, `frozen`, `outcome`, `source` | A per-turn cap was reached. `cap` is `files_changed`, `minutes`, `tool_calls`, `free_space_floor` or `turn_bytes`; `overshoot` is how far past the cap the turn went, in the cap's unit; `outcome` is `paused`, `continued`, `stopped`, `voice_stopped` or `turn_ended`. `paused` records the confirmed freeze before the user decides; retained turn scope receipts record its eventual decision or interruption. A free-space overshoot is the measured deficit below its floor. |
-| `egress_denial` | 1 | `host`, `port`, `method`, `reason`, `bytes` | The egress proxy refused a connection. `method` is set for plain HTTP; `reason` is `denied_host`, `not_allowlisted`, `byte_cap` or `taint_allowlist`. |
+| `egress_denial` | 1 | `host`, `port`, `method`, `reason`, `bytes` | The egress proxy refused a connection. `method` is set for plain HTTP; `reason` is `denied_host`, `not_allowlisted`, `byte_cap` or `taint_allowlist`; `taint_allowlist` includes a tainted destination the user declined (#3430). |
 | `strict_fallback` | 1 | `path`, `reason` | A turn ran under `strict` instead of `governed` because a protected path is a `symlink`, a `hardlink` or a `mount_point`. |
 | `revert_conflict` | 1 | `conflicts`, `restored` | A revert skipped paths that changed after the reverted turn. Each conflict is `{ path, state }`, with `state` one of `changed`, `deleted`, `created` or `type_changed`; `restored` counts the paths it did restore. |
-| `outward_action` | 1 | `tool`, `input`, `inputTruncated`, `action`, `target`, `historyRewrite`, `tainted`, `decision`, `rule` | An action outside the brain in the user's name, allowed or not. `action` is `git_push`, `gh_write`, `mcp_tool`, `http_write` or `outward_host_connect`; `decision` is `policy_allowed`, `approved`, `declined` or `refused`; `rule` is the matching `outward.allow` rule or `null`. |
-| `taint` | 1 | `source`, `tool`, `detail` | The untrusted input that tainted the session. `source` is `web_fetch`, `web_search`, `staged_share`, `workspace_read`, `mcp_document`, `user_marked`, `egress_connection`, `fetching_command` or `unclassified_command`. |
+| `outward_action` | 1 | `tool`, `input`, `inputTruncated`, `action`, `target`, `historyRewrite`, `tainted`, `decision`, `rule` | An action outside the brain in the user's name, allowed or not. `action` is `git_push`, `gh_write`, `mcp_tool`, `http_write`, `outward_host_connect` or `compute_run` (a hosted external compute job start, #3108, its `target` the instance id); `decision` is `policy_allowed`, `approved`, `declined` or `refused`; `rule` is the matching `outward.allow` rule or `null`. |
+| `taint` | 1 | `source`, `tool`, `detail`, `occurrence` (optional) | Each independent observed untrusted-input signal, including later signals while already restricted. A host identity deduplicates only exact delivery retries; changed-body reuse refuses. `legacy_unknown` denotes unknown search-result provenance. `source` is `web_fetch`, `web_search`, `staged_share`, `chat_attachment`, `workspace_read`, `mcp_document`, `user_marked`, `egress_connection`, `fetching_command`, `unclassified_command`, additively since #3162 `apify_result` (Apify catalog text or Actor results returned to a turn; `tool` names the `brain_apify_*` operation), additively since #3797 `github_result` (issue, pull request or search text a host GitHub tool returned; `tool` names the `brain_github_*` tool), or `compute_output` (a collected external compute job's output, #3108). Additively since #3685, Pi's host-owned `get_search_content` records `web_fetch` and `source_check` records `web_search`. |
+| `taint_exposure` | 1 | `occurrenceId`, `state` | A separate terminal observation for an open occurrence: `finalized` only after a completed bounded HTTP response, otherwise `interrupted_unknown`. Opaque CONNECT closure never establishes source finalization. This observation authorizes no safe verdict. |
 | `provider_unavailable` | 1 | `provider`, `capability`, `command`, `degradedTo` | A worker command needed a provider whose key the host withheld from the worker. Recorded from the token the CLI prints ([CLI contract](integration-contract/cli.md#withheld-provider-keys-additive-0440-1666)), one event per distinct token in a tool result and at most 20 per turn. `capability` is `embeddings`, `completions`, `reranking` or `image`; `command` is the shell command, or the tool's name for any other tool; `degradedTo` names the fallback used (`keyword_search`, `keyword_index`, `lifecycle_order`) or is `null`. The token is text in tool output, so the event is a diagnostic, not proof. |
 | `resource_limit` | 1 | `limits`, `fatal` | A worker hit a resource limit. Each limit is `{ limit, source, value, events }`: `limit` is `processes`, `memory`, `pids`, `file_size`, `data`, `cpu` or `open_files`; `source` is `rlimit` or `cgroup`; `value` is the configured limit; `events` counts the hits the source reported, or is `null`. `fatal` says whether the worker died of it. |
 | `roadblock` | 1 | `category`, `family`, `signature`, `failures`, `resolution`, `remedy`, `waste`, `eventIds` | One classified roadblock episode, written when its turn ends ([classification](decisions/governed-writable-workers.md#roadblocks)). An episode opens at a failed step and closes at the next successful call of the same `family`, or at turn end. `family` is the tool family: `shell:<program>` (with the subcommand for multi-command programs, such as `shell:git push`), `file_write`, `file_read`, `search`, `web`, `brain_write`, `subagent`, `mcp:<server>:<tool>` or `tool:<name>`; a governance event with no call has `budget`, `scope`, `network`, `policy` or `outward`. `category` is `tool_error`, `shell_nonzero`, `fs_denied`, `permission_denied`, `policy_block`, `budget`, `scope_cap`, `network_refused` or `retry`. It is `retry` when the episode repeated a near-identical failed input, and otherwise the first failure's category. `signature` is the grouping key `<family>\|<target>\|<category> <detail>` of the first failure, for example `file_write\|.brain/*\|fs_denied EROFS .brain/*`. The target is the command's program and, for multi-command programs, its subcommand (`<script>` for a program run by path); the directory a path sits in, by its last name, when that is one of the brain's structural or write areas (`<dir>` otherwise); or a URL's scheme (`https-url`). A signature therefore never carries file names, arguments, hosts, user-chosen directory names or absolute roots. The detail after the category is the error code and target area, `exit <code>`, or the deciding rule or limit, so equal signatures mean the same roadblock. Each failure is `{ toolCallId, signature, category }`, where `toolCallId` is `null` for a governance event with no call. `resolution` is `{ toolCallId, signature }` or `null`. `remedy` is `guidance` when a call the turn could already make resolved the episode. It is `abandoned` for exactly one unresolved failure with no retry followed by an eligible later success; repeated unresolved failures or turn-temp workarounds remain `capability`. `waste` is `{ tokens, costUsd, ms }`, measured from the first failed call's start to the resolving call's start; unresolved waste stops at the first successful call starting strictly after the last failure was known, otherwise at turn end. That accounting boundary does not create semantic resolution. Usage is sampled at that boundary; final usage cannot fill an earlier bound. Unknown tokens or cost are `null`, never 0. `eventIds` names the governance events the episode drew on. |
@@ -1582,3 +2233,132 @@ unknown is terminal for automatic retry. Three attempts per episode/subscription
 are the maximum, with one/five-minute delays only after known non-delivery.
 Restored episodes never regain notification authority. See
 [Storage history](storage-history.md) for sampling, recovery and physical costs.
+
+### Session safety sidecars
+
+`GET /api/sessions/:id/safety?limit=50&cursor=...` is an authenticated,
+read-only view of host evidence. `limit` is an integer 1–100; cursor is absent
+on the first page and opaque on subsequent pages. The query is at most 8192
+bytes. A successful `SafetyPage` has `version: 1`, canonical `identity`,
+`snapshotId`, input `cursor` (null initially), decimal-string `highWater`,
+`projection`, up to 100 immutable records, `nextCursor`, `snapshotComplete`
+and `detailPruned`. Responses are `Cache-Control: no-store` and at most 262144
+UTF-8 bytes. No request invokes a verdict, policy writer, backend turn or
+provider transcript write.
+
+Optional `entries=1` includes the host-owned `entry:{kind:"tool",toolUseId}`
+only where recorded. The same choice is required on every cursor page; its
+subscription inherits it. No other `entries` value is accepted. The default
+response retains the original strict version-1 record shape. Correlation
+requires both the exact host turn and tool identity; opaque network input and
+unknown legacy attribution remain separate named turn events. Minimal entry
+identity survives detail pruning; retirement removes it with the evidence.
+
+The live principal must belong to the retained history's account (#3952). A
+principal id always matches itself. Two different ids match only when both
+resolve to the same account partition in every auth mode, which today means
+two owner logins; a delegated, ambient or system principal matches only
+itself, and a missing or unresolvable principal matches no other id, unless
+the history recorded the owner account beside it when it was written: an owner
+login's history stays the owner's after that login is pruned (#3962). A cursor
+stays with the one login that read it: another login's cursor is refused as
+expired (409). The existing native-history and dialogue APIs keep their
+visibility rules.
+Unknown/unowned legacy safety collections return explicit unavailable; known
+legacy collection gaps never imply normal. Revoked/expired callers receive
+401, malformed queries 400, expired/generation-changed or membership-gap cursors 409, capacity
+503, and absent/retired/unavailable evidence 404. Safety refusals carry
+`{version:1,reason}` without records; pre-handler auth keeps its existing error
+envelope. An older host's absent route means unavailable, never normal.
+
+Each cursor is an unguessable server-side position bound to this host process,
+principal, exact target, canonical generation, snapshot, high-water and last
+sequence. Its lifetime is five minutes; restart invalidates it. Every page
+retains the first page's aggregate and high-water despite later verdicts or
+input. Adoption that changes pre-watermark collection membership invalidates
+the snapshot with `gap`, including at final delivery after an awaited read;
+the client obtains a fresh snapshot. Newly pending input or a local recording
+loss also fences final delivery of an older unqualified view, even when the
+durable failure notice rolls back without advancing the evidence revision.
+Fresh reads expose the restrictive local overlay. Detail pruning invalidates earlier cursors; a fresh snapshot returns
+explicit bounded stubs retaining occurrence IDs. The final page means that
+snapshot has been assembled, separately from detector completeness. Read
+[revisioned delivery](integration-contract/wire.md#session-safety-history-additive-3604)
+for reconnect, subscription and client rules.
+
+### Individual safety review
+
+`POST /api/sessions/:id/safety/reviews/prepare` prepares exactly one finalized
+occurrence. `POST /api/sessions/:id/safety/reviews/:requestId/commit` commits or
+reads back that host-issued handle. Both accept only this strict JSON body:
+
+```json
+{
+  "version": 1,
+  "session": {
+    "sessionId": "ithaca",
+    "historyOwnerId": "voyage",
+    "historyGeneration": "1"
+  },
+  "occurrenceId": "harbour-notice",
+  "expectedEvidenceRevision": "12",
+  "verdict": "safe"
+}
+```
+
+The path and body session must agree. IDs are 1–128 ASCII letters, digits,
+underscore or hyphen; revisions are canonical unsigned 64-bit decimal strings.
+Bodies are at most 16384 UTF-8 bytes. Query parameters, additional fields,
+caller principals/channels, ranges, arrays and standing rules are refused.
+An arbitrary caller-generated request ID never prepares a mutation.
+
+Only a live password-mode owner authenticated by password or passkey may
+mutate. A signed delegated cookie remains insufficient. Proxy, tailscale and
+local/no-auth identities remain read-only. These browser operations require
+`application/json` and a present exact matching HTTP(S) `Origin`; fetch metadata
+does not override a missing or foreign Origin. The host stamps the reviewer
+and channel and binds the prepared body to the served database, principal,
+authentication epoch, exact session generation and occurrence. The brain key
+uses the existing host-seeded canonical-root partition identity, so two roots
+sharing a UI database cannot commit or replay one another's prepared handles.
+Live authority
+is checked inside the acquired FULL writer transaction after queue/lock waits,
+including for receipt replay, and again at response delivery. Retirement and
+revocation take precedence over retry readback.
+
+Success is `200` with `{version:1,receipt,currentProjection}`. `receipt` is the
+immutable `SafetyReviewReceipt`: `version`, nullable `requestId`/`operationId`,
+exact `session`/`occurrenceId`, `stage: prepared|verdict_committed|refused`,
+`verdict: unresolved|committed`, nullable historical `projection` and nullable
+`reason`. Refused receipts carry no historical normal projection.
+`currentProjection` is a separate fresh aggregate, including local pending
+input and recorder failure. For example, retrying A's committed receipt after
+B and C arrive returns A's original fact alongside two unresolved occurrences;
+it never rewrites that fact or clears B/C. The expected evidence revision is
+the global history/review revision, separate from scoped admission revisions.
+
+Nonfinalized, already-resolved, stale, conflicting or expired handles return
+`409`; unknown/foreign/retired targets return non-disclosing `404`; authority
+refusals return `403`, capacity or recording-failure receipts `503`. Refusals
+include bounded `{code,reason,retryable:false}` beside the receipt response;
+before a receipt exists only that error envelope is returned. Oversized bodies
+return `413`, malformed bodies `400`, and non-JSON media types `415`. The
+existing auth middleware retains its unauthenticated/expired-cookie `401`
+envelope. Every route response is `Cache-Control: no-store`.
+
+Handles expire after 900000 ms; terminal receipts retain their original result
+for 86400000 ms after completion. Existing per-principal/brain request and
+prepaid verdict bounds apply. The transport additionally allows at most 32
+in-flight service requests per principal and 256 per brain. Canonical history
+membership includes durably adopted provisional collections, with the same
+principal, generation, finalized-exposure and permanent retirement fences in
+the writer and SQLite trigger. Resolving a known event cannot repair unknown
+detector coverage, recording loss or another unresolved event. No model/voice
+tool, WS mutation frame, Settings rule or provider transcript edit is added.
+
+
+The authenticated status response also includes `journalCleanup` (#3815):
+current retained-checkpoint counts and bytes, plus `lastFailure`, a durable
+historical cause even when cleanup failed before the first turn. The historical
+record survives successful cleanup; current retained charges are reported
+separately. It is never part of public `/health`.

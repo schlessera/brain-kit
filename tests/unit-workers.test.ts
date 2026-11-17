@@ -90,6 +90,23 @@ test("native queued unit processes own distinct dependencies and clean worktrees
 });
 
 
+test("a worker that exits zero without its report fails the complete unit tier", async () => {
+  const fixture = unitWorkerFixture({ dropReport: true });
+  const { root, files } = fixture;
+  const reports = mkdtempSync(join(root, "tmp/unit-worker-test-reports-"));
+  try {
+    // The same explicit-file mode and worker count option check:pr --full/--all passes.
+    await expect(runUnitWorkers(root, files, undefined, reports, { workers: 2 }), "MISSING_WORKER_REPORT_FAILS_RUN")
+      .rejects.toThrow(/ENOENT[\s\S]*unit-report\.xml/);
+    expect(existsSync(join(reports, "unit-report.xml")), "NO_MERGED_REPORT_WITHOUT_EVERY_WORKER").toBe(false);
+    const summary = JSON.parse(readFileSync(join(reports, "unit-worker-summary.json"), "utf8"));
+    expect(summary.proofPassed, "MISSING_REPORT_SUMMARY_NOT_PROOF").toBe(false);
+    expect(summary.workers).toBe(2);
+    for (const worker of workerCheckouts(reports)) expect(existsSync(join(root, worker.workspace))).toBe(false);
+  } finally { removeFixture(fixture, reports); }
+});
+
+
 test("failed private prebuild preserves its partial receipt before cleanup", async () => {
   const { root, files } = unitWorkerFixture({ failBuild: true });
   const reports = mkdtempSync(join(root, "tmp/unit-worker-test-reports-"));

@@ -3,12 +3,12 @@ import { createPortal } from "react-dom";
 import { Overlay, Button } from "@schlessera/brain-ui-kit";
 
 /** The public tracker every report goes to (D51). */
-export const REPORT_ISSUE_URL = "https://github.com/schlessera/brain-kit/issues/new";
+const REPORT_ISSUE_URL = "https://github.com/schlessera/brain-kit/issues/new";
 /** A prefilled issue link longer than this is refused, never truncated. */
-export const REPORT_URL_LIMIT = 8000;
+const REPORT_URL_LIMIT = 8000;
 
 /** The exact link `Open issue on GitHub` opens: nothing is added at send time. */
-export function reportIssueUrl(title: string, body: string): string {
+function reportIssueUrl(title: string, body: string): string {
   const url = new URL(REPORT_ISSUE_URL);
   url.searchParams.set("title", title);
   url.searchParams.set("body", body);
@@ -19,7 +19,7 @@ export function reportIssueUrl(title: string, body: string): string {
  * Reviewed text appended at the end of the body on an explicit tap. `build`
  * returns null when the source is absent, and the button does not render.
  */
-export interface ReviewInclusion {
+interface ReviewInclusion {
   id: string;
   label: string;
   build: () => string | null;
@@ -50,7 +50,7 @@ export const CHAT_REVIEW_COPY: ReviewCopy = {
   copyFailed: "Couldn't copy. Select the reviewed text and copy it manually.",
 };
 
-export interface DiagnosticReviewProps {
+interface DiagnosticReviewProps {
   mode: "copy" | "report";
   /**
    * The generated body. While the reader has not edited the field, a new
@@ -187,13 +187,13 @@ export function DiagnosticReview(p: DiagnosticReviewProps) {
       ) : null}
       <div className="my-3 text-xs text-muted-foreground">{copyText.footnote}</div>
       {p.note ? <p className="mb-3 text-xs text-muted-foreground">{p.note}</p> : null}
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-2 any-pointer-coarse:gap-y-4">
         {available.map(i => (
-          <Button key={i.id} label={i.label} disabled={used.has(i.id)} tone="ghost" onClick={() => include(i)} style={{ minHeight: 44 }} />
+          <Button key={i.id} label={i.label} disabled={used.has(i.id)} tone="ghost" onClick={() => include(i)} reach />
         ))}
-        {p.mode === "report" ? <Button label={opened ? "Open issue on GitHub again" : "Open issue on GitHub"} effect="opens browser" onClick={report} style={{ minHeight: 44 }} /> : null}
-        <Button label="Copy" onClick={() => void copy()} style={{ minHeight: 44 }} />
-        <Button label="Close review" tone="ghost" onClick={p.onClose} style={{ minHeight: 44 }} />
+        {p.mode === "report" ? <Button label={opened ? "Open issue on GitHub again" : "Open issue on GitHub"} effect="opens browser" onClick={report} reach /> : null}
+        <Button label="Copy" onClick={() => void copy()} reach />
+        <Button label="Close review" tone="ghost" onClick={p.onClose} reach />
       </div>
       {notice ? <p role="status" className="mt-3 text-xs text-muted-foreground">{notice}</p> : null}
     </Overlay>, document.body,

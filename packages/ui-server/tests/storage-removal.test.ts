@@ -21,7 +21,9 @@ test("exact removal retains original bytes, keeps references and history facts s
     expect(existsSync(join(f.brain,"attachments/chart.pdf"))).toBe(false);
     expect(readFileSync(join(f.brain,"voyage.md"),"utf8")).toContain("attachments/chart.pdf");
     expect(result.after?.attribution).toBe("concurrent-writers-possible");
-    expect(f.calls.filter(call=>call.purpose==="storage-removal-review").every(call=>call.publish===false && call.credentials===false)).toBe(true);
+    const reviews=f.calls.filter(call=>call.purpose==="storage-removal-review");
+    expect(reviews.length,"STORAGE_REMOVAL_REVIEW_RAN_THROUGH_BOUNDARY").toBeGreaterThan(0);
+    expect(reviews.map(call=>({publish:call.publish,credentials:call.credentials})),"STORAGE_REMOVAL_REVIEW_UNPUBLISHED_UNCREDENTIALED").toEqual(reviews.map(()=>({publish:false,credentials:false})));
     const db = createUiDb(f.dbPath), journal = createTurnJournal(db, {brainPath:f.brain,dbPath:f.dbPath,objectsRoot:join(f.root,"objects"),nativeManager:f.native.manager}), reopened = createStorageRemoval(db, {...f.options,journal,gate:createWriterGate(db,f.brain,{pollMs:1})});
     try {
       expect((await reopened.start("odysseus", id, review.review.fingerprint)).state, "STORAGE_REMOVAL_NO_REPLAY").toBe("complete");
@@ -64,7 +66,7 @@ test("ignored, protected, linked, executable and uncovered attachments never bec
     writeFileSync(join(f.brain,"attachments/exec.pdf"),"executable"); chmodSync(join(f.brain,"attachments/exec.pdf"),0o700);
     f.options.protectedPaths.push("attachments/private.pdf"); writeFileSync(join(f.brain,"attachments/private.pdf"),"protected");
     const review = await f.removal.review("odysseus","odysseus-protected-1",["attachments/chart.pdf","attachments/score.pdf","attachments/link.pdf","attachments/exec.pdf","attachments/private.pdf"]);
-    expect(review.review.files.every(file=>!file.eligible), "STORAGE_REMOVAL_PROTECTED_SELECTION").toBe(true);
+    expect(review.review.files.map(file=>[file.path,file.eligible]).sort(), "STORAGE_REMOVAL_PROTECTED_SELECTION").toEqual([["attachments/chart.pdf",false],["attachments/exec.pdf",false],["attachments/link.pdf",false],["attachments/private.pdf",false],["attachments/score.pdf",false]]);
     await expectRejection(f.removal.start("odysseus",review.review.id,review.review.fingerprint), "Refresh");
     expect(readFileSync(join(f.brain,"attachments/chart.pdf"))).toEqual(f.original);
   } finally { await f.close(); }

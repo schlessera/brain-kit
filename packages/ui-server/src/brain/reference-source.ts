@@ -299,7 +299,10 @@ export function createReferenceSources(options: {
     input = { ...input, grant };
     const credential = token(grant);
     const existing = row(domain, repository.canonical, revision);
-    const check = await transport.resolve({ repository, revision, token: credential, signal });
+    const check = await transport.resolve({ repository, revision, token: credential, signal }).catch((error: unknown) => {
+      if (error instanceof ReferenceTransportError && (error.reason === "invalid" || error.reason === "busy")) throw new ReferenceSourceError(error.reason, error.message);
+      throw error;
+    });
     signal.throwIfAborted();
     if (!check.ok) {
       const detail = check.detail;
@@ -321,7 +324,7 @@ export function createReferenceSources(options: {
       return { kind: "source", row: row(domain, repository.canonical, revision)!, stale: false, error: null };
     }
     try {
-      await acquire(signal, { ...input, credential, ref: check.ref, previous: existing });
+      await acquire(signal, { ...input, credential, ref: check.ref, expectedCommit: check.commit, previous: existing });
       return { kind: "source", row: row(domain, repository.canonical, revision)!, stale: false, error: null };
     } catch (error) {
       if (signal.aborted) throw error;
@@ -334,7 +337,8 @@ export function createReferenceSources(options: {
       }
       // The previous revision stays usable only inside its own still-valid authority.
       if (existing && usable(existing) && validationLive(existing)) return failed(existing, detail);
-      throw error instanceof ReferenceSourceError ? error : new ReferenceSourceError(error instanceof ReferenceTransportError && error.reason === "capacity" ? "capacity" : "unavailable", detail);
+      throw error instanceof ReferenceSourceError ? error
+        : new ReferenceSourceError(error instanceof ReferenceTransportError && (error.reason === "capacity" || error.reason === "busy") ? error.reason : "unavailable", detail);
     }
   }
   /** Record a failed refresh without advancing its successful refresh time. */
@@ -402,7 +406,7 @@ export function createReferenceSources(options: {
   }
 
   async function acquire(signal: AbortSignal, input: { domain: string; principalId: string | null; repository: ReferenceRepository; revision: string; grant: ReferenceGrant | null;
-    credential: string | null; ref: string; previous: SourceRow | null }) {
+    credential: string | null; ref: string; expectedCommit: string; previous: SourceRow | null }) {
     const { domain, repository, revision } = input, key = sourceKey(domain, repository.canonical, revision);
     const name = referenceSourceName(repository, revision), view = await viewFor(domain);
     const staging = { id: randomUUID() };
@@ -414,6 +418,7 @@ export function createReferenceSources(options: {
       const record = await create(staging, previousRoot, signal, key);
       recheck();
       const { commit } = await transport.fetch({ repository, ref: input.ref, token: input.credential, root: record.path!, signal });
+      if (commit !== input.expectedCommit) throw new ReferenceTransportError("unavailable", "The reference moved after resolution; request it again.");
       await transport.checkout({ root: record.path!, commit, signal });
       signal.throwIfAborted();
       recheck();
@@ -527,7 +532,8 @@ export function createReferenceSources(options: {
         const grant = principalId === null ? null : coveringReferenceGrant(db, { brain: options.brain, principalId, repository, now: now() });
         if (principalId !== null && !grant) return false;
         // Shared by every bind waiting on it, so no one binder's cancellation decides it.
-        const check = await transport.resolve({ repository, revision: source.revision, token: token(grant) });
+        // A bind never waits for busy maintenance (#4079): the source is withheld from it instead.
+        const check = await transport.resolve({ repository, revision: source.revision, token: token(grant), admissionWaitMs: 0 });
         if (!check.ok) {
           if (check.reason !== "unavailable") {
             if (source.domain === PUBLIC) notPublic.set(`${repository.canonical}\u0000${source.revision}`, now() + limits.validationMs);

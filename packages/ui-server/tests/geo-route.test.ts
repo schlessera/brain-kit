@@ -11,8 +11,9 @@
  * is what makes using Overpass at all defensible: one request per place, ever.
  */
 
-import { describe, expect, test } from "bun:test";
-import { mkdtemp, readdir, writeFile } from "node:fs/promises";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import * as fsPromises from "node:fs/promises";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -50,12 +51,19 @@ const EMPTY: CoastlineResult = {
   attribution: "© OpenStreetMap contributors",
 };
 
+const cacheDirs: string[] = [];
+afterEach(async () => {
+  for (const dir of cacheDirs.splice(0)) await rm(dir, { recursive: true, force: true });
+});
+
 async function config(): Promise<CoastlineConfig> {
+  const cacheDir = await mkdtemp(join(tmpdir(), "geo-cache-"));
+  cacheDirs.push(cacheDir);
   return {
     enabled: true,
     url: "https://overpass.invalid/api/interpreter",
     userAgent: "brain-kit-test/1.0",
-    cacheDir: await mkdtemp(join(tmpdir(), "geo-cache-")),
+    cacheDir,
   };
 }
 
@@ -183,6 +191,35 @@ describe("the route", () => {
       app.request(`/geo/coastline?bbox=${STRAIT}`),
     ]);
     expect(calls).toHaveLength(1);
+  });
+
+  test("a request whose cache read missed while another request finished still shares that fetch", async () => {
+    // The race behind a loaded runner's second fetch: the later request's cache
+    // read starts before the first request writes the cache, and resolves only
+    // after the first has finished and left the in-flight map.
+    const readFile = fsPromises.readFile;
+    let reads = 0, release!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const spy = spyOn(fsPromises, "readFile").mockImplementation((async (...args: Parameters<typeof readFile>) => {
+      if (++reads !== 2) return readFile(...args);
+      const missed = readFile(...args).then(value => ({ value }), error => ({ error }));
+      await held;
+      const outcome = await missed;
+      if ("error" in outcome) throw outcome.error;
+      return outcome.value;
+    }) as never);
+    try {
+      const { calls, fetchGeometry } = counting();
+      const app = createGeoRoutes({ config: await config(), fetchGeometry });
+      const first = app.request(`/geo/coastline?bbox=${STRAIT}`);
+      const second = app.request(`/geo/coastline?bbox=${STRAIT}`);
+      expect((await first).status).toBe(200);
+      release();
+      expect((await second).status).toBe(200);
+      expect(calls, "LATE_CACHE_MISS_SHARES_THE_FETCH").toHaveLength(1);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   test("an outage is not cached, so it does not become permanent", async () => {

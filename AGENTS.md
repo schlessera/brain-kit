@@ -85,6 +85,14 @@ on, links to or describes them.
   repo ([why](docs/plans/README.md#what-does-not-live-here)).
   `docs/decisions/` records why; `docs/plans/` holds design for work that is
   not built; GitHub holds everything that is open.
+- **Fail closed, proportionately.** A security or integrity guard restricts the
+  narrowest thing whose state is uncertain (a turn, a chat, a record, one
+  backend), runs restricted before it refuses, recovers by itself whenever
+  recovery needs no judgment, boots past a recoverable historical record, and
+  records its cause durably where the owner can see it. An unknown never
+  becomes clean; one local failure never makes the whole host unusable until a
+  restart or a hand-run script. A PR that adds or changes a guard answers the
+  checklist in [the rule](docs/decisions/proportionate-containment.md#checklist-for-a-new-or-changed-guard).
 - **Nothing that describes a real deployment goes in this repo.** Image layout,
   hosts, proxies, operator runbooks and production incidents belong in the
   private `brain-ui` repo, which is one person's running installation rather
@@ -121,16 +129,20 @@ on, links to or describes them.
   declared with `defineModule({ name, configSchema, setup })`. Run
   `brain module lint` before submitting one.
 - Cite code from docs and source comments as an anchor followed by its range:
-  (`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:200-229`),
-  starting on the anchor's line. **A PR that moves lines under a citation owns
-  that citation**, wherever it is recorded; find them with
-  `git grep -n '<file>.ts:' -- docs packages`. `tests/decision-citations.test.ts`
-  enforces this throughout `docs/`; the rules are in
+  (`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:289-330`),
+  starting on the anchor's line. A PR that moves lines under a citation should
+  fix it when it can (`git grep -n '<file>.ts:' -- docs packages`), but drift
+  never blocks a merge or turns main red: it is a **release check**.
+  `experiments/decision-citations.test.ts` fails the experiment tier, and so
+  the publish, until every citation under `docs/` holds; repair drift with
+  `bun scripts/check-citations.ts`. The rules are in
   [docs/decisions/README.md](docs/decisions/README.md#citing-code).
 
 ## Testing expectations
 
-[Full testing rules and incident context](docs/process/testing.md).
+[Full testing rules and incident context](docs/process/testing.md). How to
+write one, and which kind of test proves which claim:
+[docs/process/test-authoring.md](docs/process/test-authoring.md).
 
 - Every library keeps or gains unit tests; contract tests assert the `--json`
   envelopes. Integration tests run against `packages/core/fixtures/corpus/` —
@@ -158,7 +170,15 @@ on, links to or describes them.
   failing-first/mutation receipts. Default preflight runs lint/leakage, environment
   documentation, changeset checks and affected fast invariants; import-graph
   feedback is opt-in with `--import-graph`. Explicit ready-candidate CI supplies complete
-  affected proof; subsequent pushes need a new confirmation request; every selected job must pass, and
+  affected fast proof (types, packaging, unit/integration); heavy runtime, browser, layout,
+  capture and endurance proof runs on the squash's own main run
+  ([hybrid ruling](docs/decisions/ci-utility.md#hybrid-post-merge-heavy-proof)).
+  A PR touching none of `ui-react`, `ui-kit`, `ui-server` or `core` under `packages/` may take
+  the [fast lane](docs/decisions/ci-utility.md#fast-lane-outside-the-core-packages)
+  instead of ready confirmation. A PR touching any of them needs a
+  [recorded independent review](docs/decisions/ci-utility.md#recorded-independent-review-of-core-package-prs)
+  before `integrate.ts confirm` will proceed.
+  Subsequent pushes need a new confirmation request; every selected job must pass, and
   missing, cancelled or unexpectedly skipped jobs are not green. Policy:
   [the CI decision](docs/decisions/ci-utility.md) and
   [the PR proof rules](docs/process/testing.md#required-proof-for-a-pr).
@@ -217,6 +237,8 @@ In `.agents/skills/`, symlinked into `.claude/skills/`.
 | `gh-stack` | Creating or working in stacked branches/PRs, including rebasing, submitting and merging a stack. Apply the [project stack rules](docs/process/github.md#stacked-pull-requests) alongside it. |
 | `work-issue` | Taking one unassigned, highest-priority ready brain-kit issue through implementation and merge, or a blocked handoff. |
 | `triage-issues` | Preparing open brain-kit issues without `agent-ready`: resolve factual gaps, maintain prompts, and reconcile labels and epic membership. |
+| `test-health` | A recurring run that audits one batch of existing tests in depth, proves and lands the fixes, and records the metrics. |
+| `test-health-push` | One dedicated full pass of the suite: the `test-health` audit fanned out against an integration branch and landed as one pull request. |
 
 A skill records what works. Fix any incorrect command, limit or API shape
 in the same PR that found it.

@@ -117,6 +117,42 @@ test("pricing: embedding modalities, inline media without a split, and completio
   expect(priceProviderAttempt(attempt({ usage: null }), pricing)).toEqual({ costUsd: null, estimate: null, tokens: null });
 });
 
+test("a Gemini Files lifecycle attempt is known to cost nothing, so a relayed video turn is not unknown spend (#2738)", async () => {
+  expect(priceProviderAttempt(attempt({ operation: "files", model: null, usage: null }), pricing), "FILES_LIFECYCLE_FREE")
+    .toEqual({ costUsd: 0, estimate: false, tokens: null });
+  const f = fixture();
+  try {
+    await f.budgets.begin("athena", "ithaca", policy());
+    const before = f.budgets.receipt("athena").scopes[0]!;
+    for (const outcome of ["completed", "failed"] as const) {
+      await f.budgets.observeProvider("athena", attempt({ operation: "files", model: null, usage: null, outcome, status: outcome === "completed" ? 200 : 404 }));
+    }
+    const turn = f.budgets.receipt("athena").scopes[0]!;
+    expect(turn.unknownRuns, "FILES_LIFECYCLE_NOT_UNKNOWN_SPEND").toBe(before.unknownRuns);
+    expect(turn.costUsd, "FILES_LIFECYCLE_KNOWN_ZERO").toBe(0);
+  } finally { f.close(); }
+});
+
+test("a relayed jev reranking attempt is metered with its reported tokens, and its unknown price never reads as $0 (#3792)", async () => {
+  const reranking = (overrides: Partial<ProviderRelayReceipt> = {}) => attempt({ family: "typesafe", operation: "reranking",
+    origin: "https://api.typesafe.ai", key: "TYPESAFE_API_KEY", model: "jev-1.13.0", usage: { inputTokens: 700, outputTokens: 4 }, ...overrides });
+  expect(priceProviderAttempt(reranking(), pricing), "JEV_RERANKING_UNPRICED").toEqual({ costUsd: null, estimate: null, tokens: 704 });
+  const f = fixture();
+  try {
+    await f.budgets.begin("athena", "ithaca", policy());
+    const before = f.budgets.receipt("athena").scopes;
+    const result = (await f.budgets.observeProvider("athena", reranking()))!;
+    expect(result.receipt.scopes.map(scope => (scope.tokens ?? 0) - (before.find(prior => prior.scope === scope.scope)!.tokens ?? 0)),
+      "JEV_RERANKING_TOKENS_IN_EVERY_SCOPE").toEqual([704, 704, 704]);
+    expect(result.receipt.scopes.map(scope => scope.unknownRuns - before.find(prior => prior.scope === scope.scope)!.unknownRuns),
+      "JEV_RERANKING_UNKNOWN_SPEND_DISCLOSED").toEqual([1, 1, 1]);
+    expect(result.receipt.scopes.map(scope => scope.costUsd), "JEV_RERANKING_NEVER_ZERO").toEqual([null, null, null]);
+    // Without reported usage it is still disclosed, never counted as free.
+    await f.budgets.observeProvider("athena", reranking({ usage: null, outcome: "failed", status: 502 }));
+    expect(f.budgets.receipt("athena").scopes[0]!.unknownRuns - before[0]!.unknownRuns).toBe(2);
+  } finally { f.close(); }
+});
+
 test("a dispatched attempt is unknown spend until it settles, then counts once", async () => {
   const f = fixture();
   try {
@@ -142,5 +178,21 @@ test("an attempt that settles after midnight counts toward the day it settled in
     f.tick(2 * 60 * 1000);
     await f.budgets.observeProvider("athena", settled);
     expect((await f.budgets.providerAdmission(null, policy()))?.scope, "SETTLED_ATTEMPT_ON_ITS_SETTLEMENT_DAY").toBe("day");
+  } finally { f.close(); }
+});
+
+test("an admitted web provider request is unknown spend in every scope, never zero and never priced (#3687)", async () => {
+  const f = fixture();
+  try {
+    await f.budgets.begin("athena", "ithaca", policy());
+    const before = f.budgets.receipt("athena").scopes.map(scope => scope.unknownRuns);
+    const result = (await f.budgets.observeWebProvider("athena", { attemptId: "web:call-1:a", host: "api.exa.ai" }))!;
+    expect(result.receipt.scopes.map(scope => scope.unknownRuns), "WEB_PROVIDER_UNKNOWN_SPEND").toEqual(before.map(count => count + 1));
+    expect(result.receipt.scopes.map(scope => scope.costUsd), "WEB_PROVIDER_NOT_ZERO").toEqual([null, null, null]);
+    // The same attempt recorded twice still counts once.
+    expect(await f.budgets.observeWebProvider("athena", { attemptId: "web:call-1:a", host: "api.exa.ai" })).toBeUndefined();
+    expect(f.budgets.receipt("athena").scopes[0]!.unknownRuns).toBe(before[0]! + 1);
+    // Unknown spend never blocks by itself: the next request is admitted.
+    expect(await f.budgets.providerAdmission("athena", policy())).toBeUndefined();
   } finally { f.close(); }
 });

@@ -1,13 +1,17 @@
-/** Read-only CI timing archive. Logs are data; no candidate code is executed. */
+/** CI timing collection, explicit local-event publication and the durable archive. Logs are data; no candidate code is executed. */
+import { publishEvents } from "./ci-event-publish";
 import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { seconds, stats } from "./ci-timing-stats";
+import { percentage, seconds, stats } from "./ci-timing-stats";
 export { seconds, stats } from "./ci-timing-stats";
 import { collectPullObservation, summarizeThroughput, throughputMarkdown, validateWorkEvent,
   type PullObservation, type WorkEvent, type Scenario } from "./ci-throughput";
 import { collectReservationHistory, mergeLeaseObservations, type ReservationArchive } from "./ci-coordination";
 import { TimingClient, TimingBudgetStop } from "./ci-timing-api";
 import { seedTimings } from "./ci-timing-seed";
+import { gitEpochSource } from "./ci-epochs";
+import { collectCoordinatorRuns, collectRedMainHistory, RED_MAIN_ARCHIVE, redIntervals, redMainMarkdown, summarizeRedMain,
+  type CoordinatorObservation, type RedMainArchive } from "./ci-red-main";
 
 export interface TimingAPI { json(path: string): Promise<any>; log(job: number): Promise<string>; }
 interface RawRun {
@@ -19,12 +23,12 @@ interface RawRun {
 interface RawStep { name: string; number: number; status: string; conclusion: string | null; started_at?: string; completed_at?: string; }
 interface RawJob {
   id: number; run_id: number; run_attempt?: number; name: string; status: string;
-  conclusion: string | null; started_at?: string; completed_at?: string; labels?: string[]; steps?: RawStep[];
+  conclusion: string | null; created_at?: string; started_at?: string; completed_at?: string; labels?: string[]; steps?: RawStep[];
 }
 export interface TimingJob {
   id: number; name: string; category: string; conclusion: string | null; labels: string[];
   execution: "observed" | "excluded" | "retained" | "unobserved";
-  startedAt: string | null; completedAt: string | null; seconds: number | null;
+  createdAt?: string | null; startedAt: string | null; completedAt: string | null; seconds: number | null;
   steps: { number: number; name: string; conclusion: string | null; seconds: number | null }[];
   resource: Resource | null; resourceProblem: string | null;
 }
@@ -34,7 +38,7 @@ interface Resource {
   machine: { logicalCpus: number; totalBytes: number; activeCpuSeconds: number; sampledPeakUsedBytes: number };
 }
 export interface TimingSnapshot {
-  version: 1; repository: string; collectedAt: string;
+  version: 1 | 2; repository: string; collectedAt: string;
   run: { id: number; attempt: number; workflow: string; path: string; event: string; head: string;
     branch?: string; headRepository?: string;
     createdAt: string; startedAt: string | null; status: string; conclusion: string | null;
@@ -60,7 +64,7 @@ export function normalizeJob(job: RawJob): TimingJob {
     step.conclusion !== "skipped" && Number.isFinite(Date.parse(step.started_at ?? "")));
   const execution = job.conclusion === "skipped" ? "excluded" : observed ? "observed" : "unobserved";
   return { id: job.id, name: job.name, category: category(job.name), conclusion: job.conclusion,
-    labels: job.labels ?? [], execution, startedAt: job.started_at ?? null, completedAt: job.completed_at ?? null,
+    labels: job.labels ?? [], execution, createdAt: job.created_at ?? null, startedAt: job.started_at ?? null, completedAt: job.completed_at ?? null,
     seconds: execution === "observed" ? seconds(job.started_at, job.completed_at) : null,
     steps: (job.steps ?? []).map(step => ({ number: step.number, name: step.name, conclusion: step.conclusion,
       seconds: step.conclusion === "skipped" ? null : seconds(step.started_at, step.completed_at) })),
@@ -116,7 +120,7 @@ export async function collectAttempt(api: TimingAPI, repository: string, raw: Ra
   const run: RawRun = attempt === raw.run_attempt ? raw : await api.json(`actions/runs/${raw.id}/attempts/${attempt}`);
   if (run.id !== raw.id || run.run_attempt !== attempt || !SHA.test(run.head_sha) ||
     !WORKFLOWS.some(w => run.path === `.github/workflows/${w}`)) throw new Error("Run attempt identity mismatch");
-  const snapshot: TimingSnapshot = { version: 1, repository, collectedAt: now,
+  const snapshot: TimingSnapshot = { version: 2, repository, collectedAt: now,
     run: { id: run.id, attempt, workflow: run.name, path: run.path, event: run.event, head: run.head_sha,
       branch: run.head_branch, headRepository: run.head_repository?.full_name,
       createdAt: run.created_at, startedAt: run.run_started_at ?? null, status: run.status, conclusion: run.conclusion,
@@ -155,6 +159,7 @@ export async function collectAttempt(api: TimingAPI, repository: string, raw: Ra
         const rows = log.split("\n").filter(line => line.includes("BRAIN_SELECTED_PROOF_RECEIPT "));
         if (rows.length !== 1) throw new Error("Selected-proof timing metadata missing or ambiguous");
         const receipt = JSON.parse(rows[0]!.split("BRAIN_SELECTED_PROOF_RECEIPT ")[1]!);
+        // Always empty since proof retention was retired (#4107); archived runs before it could retain.
         if (!Array.isArray(receipt.retained) || receipt.retained.some((c: unknown) => c !== "browser" && c !== "layout") ||
           !CATEGORIES.every(c => ["true", "false"].includes(receipt.selections?.[c]))) throw new Error("Invalid selected-proof timing metadata");
         snapshot.selection = { selections: Object.fromEntries(CATEGORIES.map(c => [c, receipt.selections[c]])), retained: receipt.retained };
@@ -198,7 +203,7 @@ function end(snapshot: TimingSnapshot): string | null {
 export function deduplicate(snapshots: TimingSnapshot[]): TimingSnapshot[] {
   const result = new Map<string, TimingSnapshot>();
   for (const snapshot of snapshots) {
-    if (snapshot.version !== 1 || !/^[\w.-]+\/[\w.-]+$/.test(snapshot.repository) || !Number.isSafeInteger(snapshot.run?.id) || !Number.isSafeInteger(snapshot.run.attempt) || !Array.isArray(snapshot.jobs) || !Array.isArray(snapshot.problems)) throw new Error("Invalid timing snapshot");
+    if (![1, 2].includes(snapshot.version) || !/^[\w.-]+\/[\w.-]+$/.test(snapshot.repository) || !Number.isSafeInteger(snapshot.run?.id) || !Number.isSafeInteger(snapshot.run.attempt) || !Array.isArray(snapshot.jobs) || !Array.isArray(snapshot.problems)) throw new Error("Invalid timing snapshot");
     const key = `${snapshot.repository}/${snapshot.run.id}/${snapshot.run.attempt}`;
     const old = result.get(key);
     if (!old) { result.set(key, structuredClone(snapshot)); continue; }
@@ -214,12 +219,32 @@ export function deduplicate(snapshots: TimingSnapshot[]): TimingSnapshot[] {
     if (!merged.candidate && older.candidate) merged.candidate = older.candidate;
     for (const job of merged.jobs) {
       const previous = older.jobs.find(j => j.id === job.id);
+      if (!job.createdAt && previous?.createdAt) { job.createdAt = previous.createdAt; merged.version = 2; }
       if (!job.resource && previous?.resource) { job.resource = previous.resource; job.resourceProblem = null; }
       if (job.execution === "excluded" && merged.selection?.retained.includes(job.category)) job.execution = "retained";
     }
     result.set(key, merged);
   }
   return [...result.values()].sort((a, b) => a.run.id - b.run.id || a.run.attempt - b.run.attempt);
+}
+
+/** Creation-to-start is an observation, not a diagnosis of capacity pressure. */
+function runnerSlotWait(snapshots: TimingSnapshot[]) {
+  const rows = snapshots.flatMap(s => s.jobs.map(j => ({
+    workflow: s.run.path, category: j.category,
+    event: s.run.event === "pull_request" ? s.context?.cadence === "draft" ? "pull_request_draft" :
+      ["feedback", "confirmation"].includes(s.context?.cadence ?? "") ? "pull_request_ready" : "pull_request_unknown" :
+      s.run.event === "push" && s.run.branch === "main" ? "push_main" : s.run.event,
+    wait: j.execution === "observed" ? seconds(j.createdAt, j.startedAt) : null,
+  })));
+  const aggregate = (items: typeof rows) => {
+    const values = items.flatMap(r => r.wait === null ? [] : [r.wait]);
+    return { ...stats(values), max: values.length ? values.reduce((max, n) => Math.max(max, n), 0) : null,
+      unknown: items.length - values.length, overFiveMinutes: percentage(values.filter(n => n > 300).length, values.length) };
+  };
+  const group = (key: "workflow" | "category" | "event") => Object.fromEntries(
+    [...new Set(rows.map(r => r[key]))].sort().map(value => [value, aggregate(rows.filter(r => r[key] === value))]));
+  return { overall: aggregate(rows), byWorkflow: group("workflow"), byCategory: group("category"), byEvent: group("event") };
 }
 
 export function summarize(input: TimingSnapshot[]) {
@@ -253,7 +278,7 @@ export function summarize(input: TimingSnapshot[]) {
   const baselineStats = stats(baseline.map(executionSeconds));
   const baselineElapsed = stats(baseline.flatMap(s => { const n = seconds(s.run.startedAt, end(s)); return n === null ? [] : [n]; }));
   const paired = prs.filter(pr => pr.pairedInWindow);
-  return { version: 1, coverage: { runAttempts: snapshots.length, runs: new Set(snapshots.map(s => `${s.repository}/${s.run.id}`)).size,
+  return { version: 2, runnerSlotWait: runnerSlotWait(snapshots), coverage: { runAttempts: snapshots.length, runs: new Set(snapshots.map(s => `${s.repository}/${s.run.id}`)).size,
       prs: prs.length, pairedPRs: paired.length, incompleteAttempts: snapshots.filter(s => s.problems.length || s.run.status !== "completed").length,
       jobs: snapshots.reduce((n, s) => n + s.jobs.length, 0),
       unobservedJobs: snapshots.flatMap(s => s.jobs).filter(j => j.execution === "unobserved").length,
@@ -308,6 +333,14 @@ export function markdown(report: ReturnType<typeof summarize>): string {
     `Observed runner minutes: ${minutes(report.observedRunnerSeconds)}; cancelled attempts: ${minutes(report.cancelledAttemptRunnerSeconds)}; failed attempts: ${minutes(report.failedAttemptRunnerSeconds)}.`, "",
     "| Event / category | Jobs | Mean min | Median min | p90 min |", "| --- | ---: | ---: | ---: | ---: |",
     ...Object.entries(report.categories).map(([key, value]) => `| ${key.replaceAll("|", "\\|")} | ${value.n} | ${minutes(value.mean)} | ${minutes(value.median)} | ${minutes(value.p90)} |`), "",
+    "## Runner-slot wait", "", "Creation to observed execution start; absent, invalid and unexecuted intervals are unknown. Shares use known jobs only.", "",
+    "| Cohort | Known jobs | Unknown jobs | Median min | p90 min | Max min | >5 min / known | Share % |",
+    "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+    ...[["overall", report.runnerSlotWait.overall] as const,
+      ...Object.entries(report.runnerSlotWait.byWorkflow).map(([k, v]) => [`workflow/${k}`, v] as const),
+      ...Object.entries(report.runnerSlotWait.byCategory).map(([k, v]) => [`category/${k}`, v] as const),
+      ...Object.entries(report.runnerSlotWait.byEvent).map(([k, v]) => [`event/${k}`, v] as const)].map(([key, v]) =>
+      `| ${key.replaceAll("|", "\\|")} | ${v.n} | ${v.unknown} | ${minutes(v.median)} | ${minutes(v.p90)} | ${minutes(v.max)} | ${v.overFiveMinutes.numerator}/${v.overFiveMinutes.denominator} | ${v.overFiveMinutes.percent ?? "unknown"} |`), "",
     "## Approximate full-proof comparison", "", report.baseline.label + ".",
     "The two-run reference assumes a clean first pass; every-attempt costing is the opposite extreme. Use the explicit throughput scenario for a failure/rework assumption.",
     `Successful exhaustive samples: ${report.baseline.samples.length}; median runner minutes per full run: ${minutes(report.baseline.runnerSeconds.median)}.`,
@@ -369,30 +402,53 @@ interface LifecycleAcquisition {
   errors: { pr: number; problem: string }[];
 }
 async function readOperationalData(dir: string): Promise<{ pulls: PullObservation[]; events: WorkEvent[];
-  acquisitions: LifecycleAcquisition[]; reservations: ReservationArchive[] }> {
+  acquisitions: LifecycleAcquisition[]; reservations: ReservationArchive[]; redMain: RedMainArchive[]; coordinator: CoordinatorObservation[] }> {
   const pulls: PullObservation[] = [], events: WorkEvent[] = [];
   const acquisitions: LifecycleAcquisition[] = [], reservations: ReservationArchive[] = [];
+  const redMain: RedMainArchive[] = [], coordinator: CoordinatorObservation[] = [];
   for (const entry of await readdir(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) {
       const children = await readOperationalData(path);
       pulls.push(...children.pulls); events.push(...children.events);
       acquisitions.push(...children.acquisitions); reservations.push(...children.reservations);
+      redMain.push(...children.redMain); coordinator.push(...children.coordinator);
     }
     else if (/^pull-\d+\.json$/.test(entry.name)) pulls.push(await Bun.file(path).json());
     else if (/^event-[\w-]+\.json$/.test(entry.name)) events.push(validateWorkEvent(await Bun.file(path).json()));
     else if (entry.name === "enrichment.json") acquisitions.push(await Bun.file(path).json());
     else if (entry.name === "reservations.json") reservations.push(await Bun.file(path).json());
+    else if (entry.name === RED_MAIN_ARCHIVE) redMain.push(await Bun.file(path).json());
+    else if (COORDINATOR_FILE.test(entry.name)) coordinator.push(await Bun.file(path).json());
   }
+  return { pulls: newestPulls(pulls), events, acquisitions, reservations, redMain, coordinator };
+}
+function newestPulls(pulls: PullObservation[]): PullObservation[] {
   const unique = new Map<string, PullObservation>();
   for (const p of pulls) {
     const key = `${p.repository}/${p.number}`, old = unique.get(key);
     if (!old || p.collectedAt > old.collectedAt) unique.set(key, p);
   }
-  return { pulls: [...unique.values()], events, acquisitions, reservations };
+  return [...unique.values()];
 }
+/**
+ * Report inputs from the durable data ref on `remote` (#2955). With an explicit
+ * window, months from one before `since` through one after `until` are read, so
+ * a cohort's earlier PR attempts and later main proof stay in view.
+ */
+export async function archiveInputs(remote: string, repository: string, since?: string, until?: string, root = process.cwd()): Promise<ReportInputs & { head: string | null }> {
+  const { GitArchiveStore, readArchive } = await import("./ci-archive");
+  const shift = (at: string, months: number) => { const d = new Date(at); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() + months); return d.toISOString().slice(0, 7); };
+  const range = since && until ? [shift(since, -1), shift(until, 1)] as const : null;
+  const { head, rows } = await readArchive(new GitArchiveStore(root, remote), repository, range ? m => m >= range[0] && m <= range[1] : undefined);
+  if (!head) throw new Error("The archive ref does not exist on that remote");
+  return { head, snapshots: rows.run as TimingSnapshot[], collections: rows.collection, operational: {
+    pulls: newestPulls(rows.pull as PullObservation[]), events: rows.event as WorkEvent[], acquisitions: rows.enrichment as LifecycleAcquisition[],
+    reservations: rows.reservations as ReservationArchive[], redMain: rows["red-main"] as RedMainArchive[], coordinator: rows.coordinator as CoordinatorObservation[] } };
+}
+const COORDINATOR_FILE = /^coordinator-\d+-attempt-\d+\.json$/;
 
-function lifecycleCoverage(input: LifecycleAcquisition[], pulls: PullObservation[]) {
+export function lifecycleCoverage(input: LifecycleAcquisition[], pulls: PullObservation[]) {
   if (!input.length) return null;
   const scopes = [...new Map(input.map(s => [JSON.stringify(s), s])).values()]
     .sort((a, b) => Date.parse(a.collectedAt) - Date.parse(b.collectedAt));
@@ -415,7 +471,7 @@ function lifecycleCoverage(input: LifecycleAcquisition[], pulls: PullObservation
     missingPRs: expectedPRs.filter(pr => !pulls.some(p => p.number === pr)), scopes };
 }
 
-function reservationCoverage(input: ReservationArchive[]) {
+export function reservationCoverage(input: ReservationArchive[]) {
   if (!input.length) return null;
   const archives = [...new Map(input.map(s => [JSON.stringify(s), s])).values()]
     .sort((a, b) => Date.parse(a.collectedAt) - Date.parse(b.collectedAt));
@@ -427,8 +483,10 @@ function reservationCoverage(input: ReservationArchive[]) {
     complete: archives.every(a => a.error === undefined), observed: archives.some(a => a.error === undefined),
     leases: mergeLeaseObservations(archives.flatMap(a => a.leases)) };
 }
-async function writeReport(dir: string, scenario?: Scenario) {
-  const snapshots = await readSnapshots(dir), rawCollections = await readCollections(dir);
+/** Report inputs already loaded, as from the durable archive, instead of read from `dir`. */
+export interface ReportInputs { snapshots: TimingSnapshot[]; collections: any[]; operational: Awaited<ReturnType<typeof readOperationalData>> }
+async function writeReport(dir: string, history: string, scenario?: Scenario, inputs?: ReportInputs) {
+  const snapshots = inputs?.snapshots ?? await readSnapshots(dir), rawCollections = inputs?.collections ?? await readCollections(dir);
   const collections = [...new Map(rawCollections.map(c => [c.id ?? JSON.stringify(c), c])).values()];
   const observed = new Set(snapshots.map(s => `${s.repository}/${s.run.id}/${s.run.attempt}`));
   const missing = new Set<string>();
@@ -436,9 +494,9 @@ async function writeReport(dir: string, scenario?: Scenario) {
     const key = `${c.repository}/${r.run}/${attempt}`;
     if (!observed.has(key)) missing.add(key);
   }
-  const basic = summarize(snapshots), operational = await readOperationalData(dir);
+  const basic = summarize(snapshots), operational = inputs?.operational ?? await readOperationalData(dir);
   if (new Set([...snapshots, ...collections, ...operational.pulls, ...operational.events,
-    ...operational.acquisitions, ...operational.reservations].map(s => s.repository)).size > 1) throw new Error("Report one repository at a time");
+    ...operational.acquisitions, ...operational.reservations, ...operational.redMain, ...operational.coordinator].map(s => s.repository)).size > 1) throw new Error("Report one repository at a time");
   const analysisPath = join(dir, "analysis-window.json"), scenarioPath = join(dir, "scenario.json");
   const intervals = collections.filter(c => stampForWindow(c.since) && stampForWindow(c.until));
   const window = await Bun.file(analysisPath).exists() ? await Bun.file(analysisPath).json() : intervals.length ? {
@@ -446,8 +504,9 @@ async function writeReport(dir: string, scenario?: Scenario) {
   scenario ??= await Bun.file(scenarioPath).exists() ? await Bun.file(scenarioPath).json() : { failedPRFraction: .3, additionalPushes: 2, failedRunCostFraction: 1 };
   const lifecycleAcquisition = lifecycleCoverage(operational.acquisitions, operational.pulls);
   const reservationAcquisition = reservationCoverage(operational.reservations);
-  const report = { ...basic, lifecycleAcquisition, reservationAcquisition, throughput: window && operational.pulls.length ? summarizeThroughput(deduplicate(snapshots), operational.pulls, operational.events, window,
-    { runnerSeconds: basic.baseline.runnerSeconds.median, elapsedSeconds: basic.baseline.elapsedSeconds.median, samples: basic.baseline.samples.length }, scenario!, reservationAcquisition?.complete ? reservationAcquisition.leases : undefined) : null,
+  const redMain = summarizeRedMain({ archives: operational.redMain, coordinator: operational.coordinator, snapshots: deduplicate(snapshots), pulls: operational.pulls });
+  const report = { ...basic, lifecycleAcquisition, reservationAcquisition, redMain, throughput: window && operational.pulls.length ? summarizeThroughput(deduplicate(snapshots), operational.pulls, operational.events, window,
+    { runnerSeconds: basic.baseline.runnerSeconds.median, elapsedSeconds: basic.baseline.elapsedSeconds.median, samples: basic.baseline.samples.length }, scenario!, reservationAcquisition?.complete ? reservationAcquisition.leases : undefined, gitEpochSource(process.cwd(), history)) : null,
     collectionCoverage: { missingAttempts: [...missing],
     scopes: collections.map(c => ({ repository: c.repository, since: c.since, until: c.until, requestedRun: c.requestedRun,
       collectedAt: c.collectedAt, status: c.status, errors: c.errors, requestBudget: c.requestBudget, seed: c.seed })) } };
@@ -459,7 +518,7 @@ async function writeReport(dir: string, scenario?: Scenario) {
     (report.throughput ? "" : "\nPR lifecycle throughput is unknown until enrichment and an analysis window are available.\n") +
     `\nPartial collection scopes: ${collections.filter(c => c.status !== "completed").length}; budget stops: ${collections.filter(c => c.requestBudget?.stopped).length}; seed gaps: ${collections.filter(c => c.seed?.error).length}.\n` +
     `Reservation acquisition gaps: ${reservationAcquisition?.scopes.filter(s => s.error !== undefined).length ?? "unknown"}.\n` +
-    `\nMissing discovered attempts: ${missing.size}. See summary.json for collection windows and acquisition errors.\n`);
+    `\nMissing discovered attempts: ${missing.size}. See summary.json for collection windows and acquisition errors.\n` + redMainMarkdown(redMain));
   return report;
 }
 const stampForWindow = (s: unknown): s is string => typeof s === "string" && Number.isFinite(Date.parse(s));
@@ -509,15 +568,22 @@ if (import.meta.main) {
   try {
     const args = process.argv.slice(2), mode = args.shift();
     const options = new Map<string, string>();
-    let resources = false, reservations = false;
+    let resources = false, reservations = false, redMain = false;
     while (args.length) {
       const flag = args.shift()!;
       if (flag === "--resources") { resources = true; continue; }
       if (flag === "--reservations") { reservations = true; continue; }
-      if (!["--repo", "--since", "--until", "--run", "--out", "--event", "--scenario", "--seed", "--request-budget", "--reserve"].includes(flag) || !args.length || options.has(flag)) throw new Error("Invalid timing option");
+      if (flag === "--red-main") { redMain = true; continue; }
+      if (!["--repo", "--since", "--until", "--run", "--out", "--event", "--scenario", "--seed", "--request-budget", "--reserve", "--history", "--from-archive", "--dir", "--branch"].includes(flag) || !args.length || options.has(flag)) throw new Error("Invalid timing option");
       options.set(flag, args.shift()!);
     }
+    if (mode === "publish" && (resources || reservations || redMain || [...options.keys()].some(flag => !["--repo", "--out"].includes(flag)))) throw new Error("Publish accepts only --repo and --out");
+    if (mode === "archive" && (resources || reservations || redMain || [...options.keys()].some(flag => !["--repo", "--dir", "--branch", "--request-budget", "--reserve"].includes(flag)))) throw new Error("Archive accepts only --repo, --dir, --branch, --request-budget and --reserve");
+    if (options.has("--from-archive") && mode !== "report") throw new Error("--from-archive applies to report only");
+    if (["--dir", "--branch"].some(flag => options.has(flag)) && mode !== "archive") throw new Error("--dir and --branch apply to archive only");
     const dir = resolve(options.get("--out") ?? "tmp/ci-timings");
+    // Proof-policy epochs read this ref's first-parent history from the local checkout.
+    const history = options.get("--history") ?? "origin/main";
     await mkdir(dir, { recursive: true });
     const repository = options.get("--repo") ?? "schlessera/brain-kit";
     if (!/^[\w.-]+\/[\w.-]+$/.test(repository)) throw new Error("Invalid repository");
@@ -530,9 +596,30 @@ if (import.meta.main) {
         sourceRef: "refs/heads/brain-integration-reservation", sourceHead: null, leases: [], error: String(error) }; }
       await Bun.write(join(dir, "reservations.json"), JSON.stringify(archive, null, 2) + "\n");
     }
+    let redHistory: RedMainArchive | null = null;
+    if (redMain) {
+      if (!options.has("--since")) throw new Error("Red-main history requires --since");
+      try { redHistory = collectRedMainHistory(repository, options.get("--since")!); }
+      catch (error) { redHistory = { version: 1, repository, collectedAt: new Date().toISOString(), sourceRef: "refs/heads/brain-integration-reservation",
+        sourceHead: null, since: options.get("--since")!, incidents: [], flakes: [], error: String(error) }; }
+      await Bun.write(join(dir, RED_MAIN_ARCHIVE), JSON.stringify(redHistory, null, 2) + "\n");
+    }
     if (options.has("--scenario")) await Bun.write(join(dir, "scenario.json"), JSON.stringify(await Bun.file(options.get("--scenario")!).json(), null, 2));
     if (options.has("--since") && options.has("--until")) await Bun.write(join(dir, "analysis-window.json"), JSON.stringify({ since: options.get("--since"), until: options.get("--until"), source: "explicit analysis interval" }));
-    if (mode === "record") {
+    if (mode === "archive") {
+      // Writes only refs/heads/brain-ci-metrics on origin; inputs are screened before any push.
+      const archive = await import("./ci-archive"), store = new archive.GitArchiveStore(process.cwd());
+      let result;
+      if (options.has("--dir")) {
+        const batch = await archive.directoryBatch(resolve(options.get("--dir")!), repository), published = await archive.publishBatch(store, repository, batch);
+        result = { head: published.head, commits: published.committed ? 1 : 0, sources: 0, pending: 0, files: published.files, refused: published.refused, stopped: null };
+      } else result = await archive.compactArtifacts({ store, api, repository, branch: options.get("--branch") ?? "main" });
+      console.log(JSON.stringify(result));
+      // A refused record is excluded and named; everything else is already published.
+      if (result.refused.length) process.exitCode = 1;
+    } else if (mode === "publish") {
+      console.log(JSON.stringify(await publishEvents({ root: process.cwd(), dir, repository })));
+    } else if (mode === "record") {
       if (!options.has("--event")) throw new Error("Record requires --event JSON-file");
       const input = await Bun.file(options.get("--event")!).json();
       if (input.repository && input.repository !== repository) throw new Error("Event repository differs from --repo");
@@ -544,8 +631,12 @@ if (import.meta.main) {
         if (JSON.stringify(validateWorkEvent(await Bun.file(path).json())) !== JSON.stringify(event)) throw new Error("Event ID already exists with different content");
       }
       console.log(`Recorded ${event.id}`);
-    } else if (mode === "enrich") { if ((await enrich(dir, api, repository, resources)).some(e => !budgetProblem(e.problem))) process.exitCode = 1; await writeReport(dir); console.log(`Enriched ${dir}`); }
-    else if (mode === "report") { await writeReport(dir); console.log(`Report written to ${dir}`); }
+    } else if (mode === "enrich") { if ((await enrich(dir, api, repository, resources)).some(e => !budgetProblem(e.problem))) process.exitCode = 1; await writeReport(dir, history); console.log(`Enriched ${dir}`); }
+    else if (mode === "report") {
+      const inputs = options.has("--from-archive") ? await archiveInputs(options.get("--from-archive")!, repository, options.get("--since"), options.get("--until")) : undefined;
+      await writeReport(dir, history, undefined, inputs);
+      console.log(inputs ? `Report from archive ${inputs.head} written to ${dir}` : `Report written to ${dir}`);
+    }
     else if (mode === "collect") {
       const cutoff = options.get("--until") ?? new Date(Date.now() - 15 * 60000).toISOString();
       const since = options.get("--since");
@@ -624,17 +715,31 @@ if (import.meta.main) {
         s.run.prs = numbers!; s.run.attribution = numbers!.length ? "exact merged squash SHA" : "unresolved exact squash lookup";
         await Bun.write(join(dir, `run-${s.run.id}-attempt-${s.run.attempt}.json`), JSON.stringify(s, null, 2) + "\n");
       }
+      // Coordinator logs only for the hours main was red; a gap stays a red-main coverage gap, never zero cancellations.
+      if (redHistory && !redHistory.error) {
+        const intervals = redIntervals(redHistory, since ?? redHistory.since, cutoff);
+        redHistory.coordinatorScope = { intervals, status: "completed", error: null };
+        try {
+          const known = async (run: number, attempt: number) => {
+            const file = Bun.file(join(dir, `coordinator-${run}-attempt-${attempt}.json`));
+            return await file.exists() ? await file.json() as CoordinatorObservation : null;
+          };
+          for (const row of await collectCoordinatorRuns(api, repository, intervals, known))
+            await Bun.write(join(dir, `coordinator-${row.run}-attempt-${row.attempt}.json`), JSON.stringify(row, null, 2) + "\n");
+        } catch (error) { redHistory.coordinatorScope = { intervals, status: "partial", error: String(error) }; }
+        await Bun.write(join(dir, RED_MAIN_ARCHIVE), JSON.stringify(redHistory, null, 2) + "\n");
+      }
       const enrichmentErrors = await enrich(dir, api, repository, false, pulls);
       if (api.budget.stopped) errors.push({ run: 0, attempt: 0, error: String(new TimingBudgetStop(api.budget.stopped)) });
       const incomplete = (await readSnapshots(dir)).some(s => s.problems.length || s.run.status !== "completed");
       collection.status = errors.length || enrichmentErrors.length || incomplete ? "partial" : "completed";
       await Bun.write(join(dir, "collection.json"), JSON.stringify(collection, null, 2) + "\n");
       await Bun.write(collectionArchive, JSON.stringify(collection, null, 2) + "\n");
-      const report = await writeReport(dir);
+      const report = await writeReport(dir, history);
       console.log(JSON.stringify({ directory: dir, coverage: report.coverage, errors: errors.length }));
       if (errors.some(e => !budgetProblem(e.error)) || enrichmentErrors.some(e => !budgetProblem(e.problem)) ||
         (await readSnapshots(dir)).some(s => s.problems.some(p => !budgetProblem(p))) ||
         !api.budget.stopped && report.collectionCoverage.missingAttempts.length) process.exitCode = 1;
-    } else throw new Error("usage: bun scripts/ci-timings.ts collect|enrich|report|record [--since ISO --until ISO] [--run ID] [--resources] [--seed DEFAULT_BRANCH] [--request-budget N --reserve N] [--event JSON] [--scenario JSON] [--repo owner/repo] [--out DIR]");
+    } else throw new Error("usage: bun scripts/ci-timings.ts collect|enrich|report|record|publish|archive [--since ISO --until ISO] [--run ID] [--resources] [--seed DEFAULT_BRANCH] [--request-budget N --reserve N] [--reservations] [--red-main] [--event JSON] [--scenario JSON] [--history REF] [--from-archive REMOTE] [--dir DIR] [--branch DEFAULT_BRANCH] [--repo owner/repo] [--out DIR]");
   } catch (error) { console.error(error); process.exitCode = 1; }
 }

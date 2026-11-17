@@ -31,7 +31,8 @@ function send(socketPath: string, method: string, path: string, headers: Record<
   return new Promise((resolve, reject) => {
     const req = request({ socketPath, method, path, headers: { ...headers, ...(body ? { "content-length": Buffer.byteLength(body) } : {}) } }, res => {
       let text = "";
-      res.setEncoding("utf8").on("data", chunk => { text += chunk; }).on("end", () => resolve({ status: res.statusCode!, headers: res.headers, body: text }));
+      res.setEncoding("utf8").on("data", chunk => { text += chunk; }).on("end", () => resolve({ status: res.statusCode!, headers: res.headers, body: text }))
+        .on("aborted", () => reject(new Error("response socket closed mid-body"))).on("error", reject);
     });
     req.on("error", reject);
     req.end(body);
@@ -61,7 +62,7 @@ describe("inference relay", () => {
     expect((await send(r.socketPath, "POST", "/v1/messages", { authorization: "Bearer worker", "x-api-key": "worker" }, "{}")).status).toBe(200);
     expect(calls).toBe(2);
     expect(seen.map(item => item.headers.authorization)).toEqual(["Bearer odysseus-first-login", "Bearer odysseus-changed-login"]);
-    expect(seen.every(item => item.headers["x-api-key"] === undefined)).toBe(true);
+    expect(seen.map(item => item.headers["x-api-key"] as string | undefined)).toEqual([undefined, undefined]);
   });
 
   test("credential resolution failures and invalid headers never reach upstream or disclose host secrets", async () => {
@@ -139,6 +140,29 @@ describe("inference relay", () => {
     expect(res.status, "REDIRECT_REFUSED").toBe(502);
     expect(seen.map(s => s.path)).toEqual(["/v1/messages/count_tokens"]);
   });
+
+  test("a stream that idles longer than Bun's default idle timeout still arrives whole (#3441)", async () => {
+    // A model writing one large tool input can send nothing for over 10s.
+    // Kept real time: the timeout under test is Bun's native socket idle timer
+    // (10 s by default), which no JavaScript clock advances. 15 s outlasts it
+    // by 5 s.
+    const paused = Bun.serve({ hostname: "127.0.0.1", port: 0, idleTimeout: 0, fetch: () => {
+      let pulls = 0;
+      return new Response(new ReadableStream<Uint8Array>({ async pull(controller) {
+        if (pulls++ === 0) { controller.enqueue(new TextEncoder().encode("event: message_start\ndata: {}\n\n")); return; }
+        await Bun.sleep(15_000);
+        controller.enqueue(new TextEncoder().encode("event: message_stop\ndata: {}\n\n"));
+        controller.close();
+      } }), { headers: { "content-type": "text/event-stream" } });
+    } });
+    try {
+      const r = startInferenceRelay({ upstream: `http://127.0.0.1:${paused.port}`, routes: ANTHROPIC_INFERENCE_ROUTES, credentials: { "x-api-key": KEY } });
+      relays.push(r);
+      const res = await send(r.socketPath, "POST", "/v1/messages", {}, "{}");
+      expect(res.status).toBe(200);
+      expect(res.body, "RELAY_KEEPS_AN_IDLE_STREAM_OPEN").toBe("event: message_start\ndata: {}\n\nevent: message_stop\ndata: {}\n\n");
+    } finally { void paused.stop(true); }
+  }, 28_000);
 
   test("refuses an oversized body before forwarding", async () => {
     const r = relay();

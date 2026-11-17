@@ -4,7 +4,7 @@ import { Database } from "bun:sqlite";
 import { readFile } from "node:fs/promises";
 import { restoreInboxSnapshot, writeInboxSnapshot } from "../inbox/snapshot.js";
 
-export const USAGE = `usage: brain-ui-inbox export --db <ui.sqlite> --brain-root <directory> --file <backup.json> [--json]
+const USAGE = `usage: brain-ui-inbox export --db <ui.sqlite> --brain-root <directory> --file <backup.json> [--json]
        brain-ui-inbox restore --db <new-ui.sqlite> --brain-root <directory> --file <backup.json> [--json]`;
 
 const [command, ...args] = process.argv.slice(2), json = process.argv.slice(2).includes("--json");

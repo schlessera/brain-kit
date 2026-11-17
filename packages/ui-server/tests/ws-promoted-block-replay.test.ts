@@ -110,7 +110,7 @@ for (const order of ["classification-first", "promotion-first", "no-promotion"] 
       if (order === "no-promotion") expect(blocks).toEqual(live.blocks);
     } finally {
       releaseClassification();
-      host.coordinator.reset(); host.close(); db.close();
+      host.close(); db.close();
     }
   });
 }
@@ -187,6 +187,6 @@ test("delayed classification and promotion stay with their turn after queued slo
     expect(history.messages[2]!.blocks).toBeUndefined();
   } finally {
     releaseFirstTurn(); releaseFirstClassification();
-    host.coordinator.reset(); host.close(); db.close();
+    host.close(); db.close();
   }
 });

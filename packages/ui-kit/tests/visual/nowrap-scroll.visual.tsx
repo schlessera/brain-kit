@@ -23,7 +23,11 @@ function tailBounds(el: HTMLElement) {
   const node = el.firstChild!; const r = document.createRange(); const length = node.textContent!.length;
   r.setStart(node, length - 16); r.setEnd(node, length); return r.getBoundingClientRect();
 }
+// Storybook owns light and dark parity (docs/process/theme-parity.md); scrolling
+// and reach never read a colour, so each width runs in one theme, alternating.
+const widthTheme = (width: number) => ([320, 720].includes(width) ? "dark" : "light");
 for (const theme of ["dark", "light"]) for (const width of [320,390,720,1280]) {
+  if (widthTheme(width) !== theme) continue;
   test(`code keyboard reaches final argument ${theme} ${width}`, async () => {
     mount(width, theme, <CodeBlock code={code} wrap={false} />);
     const pre = host!.querySelector("pre")!;
@@ -62,7 +66,7 @@ for (const theme of ["dark", "light"]) for (const width of [320,390,720,1280]) {
 }
 
 // Native touch panning is checked independently of keyboard/focus scrolling.
-for (const theme of ["dark", "light"]) for (const kind of ["code", "chips"]) {
+for (const [theme, kind] of [["dark", "code"], ["light", "chips"]]) {
   test(`native touch pan reveals hidden ${kind} ${theme}`, async () => {
     mount(320, theme, kind === "code" ? <CodeBlock wrap={false} code={code} /> : <SuggestionChips wrap={false} items={Array.from({length:4},(_,i)=>({label:`Ithaca crossing ${i}: ${"voyage ".repeat(10)}`}))} />);
     const scroll = kind === "code" ? host!.querySelector("pre")! : host!.firstElementChild!.lastElementChild as HTMLElement;
@@ -75,7 +79,7 @@ for (const theme of ["dark", "light"]) for (const kind of ["code", "chips"]) {
   });
 }
 
-for (const theme of ["dark", "light"]) {
+for (const theme of ["light"]) {
   test(`no-wrap printed cost and disabled reason fit the chip ${theme}`, async () => {
     const click = vi.fn();
     mount(320, theme, <SuggestionChips wrap={false} items={[{

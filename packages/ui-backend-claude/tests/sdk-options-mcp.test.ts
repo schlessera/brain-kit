@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import * as worker from "@schlessera/brain-ui-sdk/internal";
-import { BRAIN_APPLICATION_TOOLS, BRIDGE_TOOL_POSTURE } from "@schlessera/brain-ui-sdk/server";
+import { APIFY_TOOL_NAMES, BRAIN_APPLICATION_TOOLS, BRIDGE_TOOL_POSTURE, GITHUB_READ_TOOL_NAMES, GITHUB_TOOL_CONTRACTS, GITHUB_TOOL_NAME_LIST, GITHUB_TOOL_NAMES, READ_ATTACHMENT_TOOL_NAME, toolInputJsonSchema } from "@schlessera/brain-ui-sdk/server";
 
 import { createClaudeSdkTurn } from "../src/sdk-options.js";
 
@@ -76,7 +76,7 @@ describe("the SDK options a turn is built with", () => {
       // The full roster, because a handler that silently failed to register
       // would leave a tool deferred by absence rather than by policy.
       expect(tools.map((tool) => tool.name).sort()).toEqual(
-        [...BRIDGE_TOOL_POSTURE.names, "propose_policy_change", "brain_read_base", ...Object.values(BRAIN_APPLICATION_TOOLS)].sort()
+        [...BRIDGE_TOOL_POSTURE.names, "propose_policy_change", "brain_read_base", ...Object.values(BRAIN_APPLICATION_TOOLS), ...Object.values(APIFY_TOOL_NAMES), READ_ATTACHMENT_TOOL_NAME, ...GITHUB_TOOL_NAME_LIST].sort()
       );
       for (const tool of tools) {
         expect(tool._meta?.["anthropic/alwaysLoad"]).toBe(true);
@@ -103,6 +103,50 @@ describe("the SDK options a turn is built with", () => {
       expect(names.includes("propose_policy_change")).toBe(mode !== "autonomous");
       expect(turn.options.allowedTools).not.toContain("mcp__brain-ui__propose_policy_change");
       expect(JSON.stringify(turn.options.systemPrompt).includes("propose_policy_change")).toBe(mode !== "autonomous");
+      await client.close();
+    } finally { await finish?.(); rmSync(brain, { recursive: true, force: true }); }
+  });
+
+  // #3797, #3798: all four GitHub tools, reads and writes, are in every
+  // interactive mode's roster in the contract's order, with or without a host
+  // handler, with the contract's exact schemas; never in an autonomous roster.
+  // Reads are auto-allowed wherever a handler exists; writes only in a typed
+  // turn with a grant surface, where the host asks on its own card.
+  const githubRosters = new Map<string, unknown>();
+  for (const mode of ["typed", "no-grant", "voice", "autonomous"] as const) for (const handler of [true, false]) test(`GitHub tools: ${mode} ${handler ? "with" : "without"} a host handler`, async () => {
+    const brain = mkdtempSync(join(tmpdir(), "github-roster-"));
+    let finish: (() => Promise<void>) | undefined;
+    try {
+      const bridge = handler ? { github: async () => { throw new Error("not invoked while enumerating"); } } : {};
+      const turn = turnFor(brain, bridge, mode === "no-grant" || mode === "voice", mode === "voice" ? "voice" : undefined,
+        mode === "autonomous" ? { allowedTools: [], systemPromptAppend: "Autonomous." } : undefined);
+      finish = turn.finishWorker;
+      const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+      const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+      const client = new Client({ name: "github-roster", version: "0.1.0" }, {});
+      await (turn.options.mcpServers!["brain-ui"] as { instance: { connect(t: unknown): Promise<void> } }).instance.connect(serverTransport);
+      await client.connect(clientTransport);
+      const tools = (await client.listTools()).tools;
+      const github = tools.filter(tool => tool.name.startsWith("brain_github_"));
+      if (mode === "autonomous") expect(github, "GITHUB_ABSENT_FROM_AUTONOMOUS_ROSTER").toEqual([]);
+      else {
+        expect(github.map(tool => tool.name), `GITHUB_STABLE_ROSTER_${mode}`).toEqual([...GITHUB_TOOL_NAME_LIST]);
+        // Byte-identical definitions in every interactive mode: posture, profile and handler never change them.
+        const definitions = JSON.stringify(github.map(tool => [tool.name, tool.description, tool.inputSchema]));
+        for (const previous of githubRosters.values()) expect(definitions, `GITHUB_ROSTER_IDENTICAL_${mode}`).toBe(previous as string);
+        githubRosters.set(`${mode}:${handler}`, definitions);
+        for (const contract of GITHUB_TOOL_CONTRACTS) {
+          const listed = github.find(tool => tool.name === contract.name)!;
+          expect(listed.description).toBe(contract.description);
+          const { $schema: _schema, ...schema } = listed.inputSchema as Record<string, unknown>;
+          expect(schema, `GITHUB_EXACT_SCHEMA_${contract.name}`).toEqual(toolInputJsonSchema(contract) as never);
+        }
+      }
+      const allowed = GITHUB_READ_TOOL_NAMES.map(name => `mcp__brain-ui__${name}`);
+      for (const name of allowed) expect(turn.options.allowedTools?.includes(name) ?? false, `GITHUB_AUTO_ALLOWED_${mode}`).toBe(handler && mode !== "autonomous");
+      for (const name of [GITHUB_TOOL_NAMES.create, GITHUB_TOOL_NAMES.comment].map(name => `mcp__brain-ui__${name}`))
+        expect(turn.options.allowedTools?.includes(name) ?? false, `GITHUB_WRITE_AUTO_ALLOWED_${mode}`).toBe(handler && mode === "typed");
       await client.close();
     } finally { await finish?.(); rmSync(brain, { recursive: true, force: true }); }
   });

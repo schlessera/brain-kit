@@ -39,7 +39,7 @@ export function handoffWhy(
   return `${backends.map(name).join(", ")} ${reason}`;
 }
 
-export interface HandoffEntry {
+interface HandoffEntry {
   /** Whether the entry belongs here at all: a stored session with a settled turn. */
   shown: boolean;
   /** Why it cannot run right now. Printed beside it, never a reason to hide it. */

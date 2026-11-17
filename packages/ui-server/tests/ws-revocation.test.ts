@@ -368,7 +368,7 @@ describe("principal revocation boundary", () => {
 
     bystanderHandlers.onClose({ code: 1000 } as CloseEvent, bystanderSocket.ws);
     handlers.onClose({ code: 1008 } as CloseEvent, socket.ws);
-    host.coordinator.reset();
+    host.coordinator.cancelAll("Test teardown");
   });
 
   test("revocation during asynchronous routing prevents startTurn", async () => {
@@ -524,7 +524,7 @@ describe("principal revocation boundary", () => {
     expect(lifecycle.hostEvents).toContainEqual(expect.objectContaining({kind:"turn_cancelled",principalId:"owner-b"}));
     expect(lifecycle.backendRunId).toBeNull();
     expect(store.snapshotRun(lifecycle.turnId)).toBeNull();
-    host.coordinator.reset();
+    host.coordinator.cancelAll("Test teardown");
   });
 
   test("revocation keeps a running turn, drops its sender's queued work, and runs another sender's", async () => {
@@ -909,8 +909,8 @@ describe("principal revocation boundary", () => {
       lastResult: null,
     };
     let decision: PermissionDecision | null = null;
-    host.coordinator.running.add(turn);
-    host.coordinator.pendingApprovals.set("tool-1", {
+    host.coordinator.registerTurn(turn);
+    host.coordinator.openApproval("tool-1", {
       turn,
       turnId: turn.turnId,
       request: { toolUseId: "tool-1", toolName: "Write", input: {} },
@@ -937,7 +937,7 @@ describe("principal revocation boundary", () => {
 
     expect(decision).toBeNull();
     expect(host.coordinator.pendingApprovals.has("tool-1")).toBe(true);
-    host.coordinator.reset();
+    host.coordinator.cancelAll("Test teardown");
     authorization.release();
   });
 });
@@ -968,7 +968,7 @@ describe("disconnect is not revocation, but it does end registration", () => {
     // Without the guard this is 1: the registry holds a closed socket forever,
     // and isWatched keeps the activity poller running for the process's life.
     expect(host.activity!.stream.subscriptionCount()).toBe(0);
-    host.coordinator.reset();
+    host.coordinator.cancelAll("Test teardown");
   });
 
   for (const fails of [false, true]) test(`snapshot-on-connect stays revocable while history settles, fails=${fails}`, async () => {
@@ -990,7 +990,7 @@ describe("disconnect is not revocation, but it does end registration", () => {
     const socket = fakeSocket();
 
     // One running turn puts onOpen on the snapshot-on-connect path.
-    host.coordinator.running.add({
+    const parked = {
       sessionId: "session-1",
       turnId: "turn-1",
       backend,
@@ -999,7 +999,8 @@ describe("disconnect is not revocation, but it does end registration", () => {
       cancelled: false,
       queue: [],
       lastResult: null,
-    } as never);
+    } as never;
+    host.coordinator.registerTurn(parked);
 
     const opening = handlers.onOpen({} as Event, socket.ws);
     await Promise.resolve();
@@ -1016,7 +1017,7 @@ describe("disconnect is not revocation, but it does end registration", () => {
       .map((raw) => JSON.parse(raw).type as string)
       .filter((type) => type === "session_history" || type === "error" || type === "status");
     expect(framesAfterRevocation).toEqual([]);
-    host.coordinator.running.clear();
-    host.coordinator.reset();
+    host.coordinator.unregisterTurn(parked);
+    host.coordinator.cancelAll("Test teardown");
   });
 });

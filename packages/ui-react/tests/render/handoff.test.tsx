@@ -332,6 +332,10 @@ describe("starting the new chat", () => {
     const { root, socket } = setup();
     open(root);
     await flush();
+    // A real Escape reaches the field that holds focus; focus it first, as
+    // typeInto does. Unfocused, happy-dom's change polyfill (tests/render/dom.ts)
+    // depends on whichever field an earlier test left it tracking.
+    act(() => textarea().focus());
     fireEvent.keyDown(textarea(), { key: "Escape" });
     expect(root.stores.handoff.getState().sheet).toBeNull();
     expect(socket.frames().filter((f) => f.type === "handoff_prepare_cancel")).toHaveLength(1);

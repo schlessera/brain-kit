@@ -4,7 +4,7 @@
  * config is needed.
  */
 
-import { expect } from "bun:test";
+import { afterEach, beforeEach, expect } from "bun:test";
 
 export function git(root: string, ...args: string[]): string {
   const proc = Bun.spawnSync(
@@ -70,4 +70,41 @@ export function expectBlobsIntact(root: string, blobs: { oid: string; content: s
 /** Every reflog entry of every ref, so a test can show none was expired. */
 export function reflogs(root: string): string[] {
   return git(root, "reflog", "show", "--all", "--format=%gd %H %gs").split("\n").filter(Boolean).sort();
+}
+
+/**
+ * `env` with commit and tag signing disabled at command scope, for a fixture
+ * whose product commands commit too. The entries go after any inherited
+ * `GIT_CONFIG_COUNT` ones, so they outrank global, repository and earlier
+ * environment configuration without touching the host's settings.
+ */
+export function withoutSigning(env: Record<string, string>): Record<string, string> {
+  const count = Number(env.GIT_CONFIG_COUNT ?? 0);
+  return {
+    ...env,
+    GIT_CONFIG_COUNT: String(count + 2),
+    [`GIT_CONFIG_KEY_${count}`]: "commit.gpgSign", [`GIT_CONFIG_VALUE_${count}`]: "false",
+    [`GIT_CONFIG_KEY_${count + 1}`]: "tag.gpgSign", [`GIT_CONFIG_VALUE_${count + 1}`]: "false",
+  };
+}
+
+/**
+ * Opt one test file into unsigned fixture and product commits, including
+ * in-process Git children. Unlike a preload override, this runs only where
+ * requested; signing-policy tests keep their original environment (#3485).
+ */
+export function withoutSigningForEach(): void {
+  let before: Record<string, string> = {};
+  beforeEach(() => {
+    before = Object.fromEntries(Object.entries(process.env).filter(
+      (entry): entry is [string, string] => entry[0].startsWith("GIT_CONFIG_") && entry[1] !== undefined,
+    ));
+    Object.assign(process.env, withoutSigning(before));
+  });
+  afterEach(() => {
+    for (const key of Object.keys(process.env)) {
+      if (key.startsWith("GIT_CONFIG_") && !(key in before)) delete process.env[key];
+    }
+    Object.assign(process.env, before);
+  });
 }

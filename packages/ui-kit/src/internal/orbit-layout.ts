@@ -1,14 +1,14 @@
 import type { OrbitAgent } from "../agents/AgentOrbit.js";
 
 export interface OrbitSize { width: number; height: number }
-export interface OrbitPlacement extends OrbitSize {
+interface OrbitPlacement extends OrbitSize {
   agent?: OrbitAgent;
   ring: 0 | 1 | 2;
   overflow: number;
   x: number;
   y: number;
 }
-export function agentRing(agent: OrbitAgent): 0 | 1 | 2 {
+function agentRing(agent: OrbitAgent): 0 | 1 | 2 {
   return agent.ring ?? (agent.state === "waiting" ? 0 : agent.state === "running" ? 1 : 2);
 }
 function overlaps(a: OrbitPlacement, b: OrbitPlacement, gap: number) {

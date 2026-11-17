@@ -1,7 +1,7 @@
-import type { DocumentType } from "../../lib/types.js";
 import { ingest } from "../../lib/ingestion.js";
 import { openDatabase } from "../../lib/db.js";
 import type { CoreCommand } from "../types.js";
+import { stringFlag } from "../flags.js";
 import { emit, parseArgs, UsageError } from "../io.js";
 import { runAgent } from "../agent.js";
 
@@ -32,18 +32,21 @@ export const addCommand: CoreCommand = {
       return;
     }
 
+    // Read before the database is opened: a flag without a value writes nothing.
+    const type = stringFlag(flags, "type");
+    const title = stringFlag(flags, "title");
+    const tagList = stringFlag(flags, "tags");
+    const tags = tagList ? tagList.split(",").map((t) => t.trim()) : undefined;
+
     const db = openDatabase(cli.brain.dbPath);
     try {
-      const tags = flags.tags
-        ? (flags.tags as string).split(",").map((t) => t.trim())
-        : undefined;
       // ingest() reindexes internally (incremental, no embeddings) via its
       // injected reindex → indexAll hook.
       const result = await ingest(
         {
           content,
-          type: flags.type as DocumentType | undefined,
-          title: flags.title as string | undefined,
+          type,
+          title,
           tags,
         },
         db,

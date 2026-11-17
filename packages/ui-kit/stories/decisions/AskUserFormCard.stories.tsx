@@ -56,7 +56,11 @@ const args = {
   onSubmit: fn(),
   onDismiss: fn(),
 };
-async function geometry(root: HTMLElement) {
+async function geometry(root: HTMLElement, shown: string[]) {
+  await expect(
+    [...root.querySelectorAll<HTMLElement>("[data-form-node]")].map((node) => node.dataset.formNode),
+    "the visible nodes",
+  ).toEqual(shown);
   await expect(overflowing(root)).toEqual([]);
   const card = root.querySelector<HTMLElement>(".bk-askform")!;
   await expect(card.getBoundingClientRect().width).toBeGreaterThan(200);
@@ -73,15 +77,15 @@ async function geometry(root: HTMLElement) {
 }
 export const FormSingle = meta.story({
   args: { ...args, answers: { evening: { value: "Walk" } } },
-  play: async ({ canvasElement }) => geometry(canvasElement),
+  play: async ({ canvasElement }) => geometry(canvasElement, ["evening", "walk"]),
 });
 export const FormMulti = meta.story({
   args: { ...args, answers: { evening: { value: "Tales" } } },
-  play: async ({ canvasElement }) => geometry(canvasElement),
+  play: async ({ canvasElement }) => geometry(canvasElement, ["evening", "tales"]),
 });
 export const FormRank = meta.story({
   args: { ...args, answers: { evening: { value: "Games" } } },
-  play: async ({ canvasElement }) => geometry(canvasElement),
+  play: async ({ canvasElement }) => geometry(canvasElement, ["evening", "games"]),
 });
 export const FormScale = meta.story({
   args: {
@@ -101,7 +105,7 @@ export const FormScale = meta.story({
       },
     ],
   },
-  play: async ({ canvasElement }) => geometry(canvasElement),
+  play: async ({ canvasElement }) => geometry(canvasElement, ["evening", "scale"]),
 });
 export const FormText = meta.story({
   args: {
@@ -127,7 +131,7 @@ export const FormText = meta.story({
       answers: { evening: { value: "Tales" }, text: "Remember the harbor." },
       visibleNodes: ["evening", "text"],
     });
-    await geometry(canvasElement);
+    await geometry(canvasElement, ["evening", "text"]);
   },
 });
 export const FormSwitchSetAside = meta.story({
@@ -177,7 +181,7 @@ export const FormSwitchSetAside = meta.story({
       canvasElement.querySelector("[data-form-actions] .bk-form-keys")
         ?.textContent,
     ).toContain("space pick up");
-    await geometry(canvasElement);
+    await geometry(canvasElement, ["evening", "games"]);
   },
 });
 const three: FormNode[] = [
@@ -205,7 +209,7 @@ export const FormThreeLevels = meta.story({
     nodes: three,
     answers: { evening: { value: "Games" }, gameKind: { value: "Journeys" } },
   },
-  play: async ({ canvasElement }) => geometry(canvasElement),
+  play: async ({ canvasElement }) => geometry(canvasElement, ["evening", "gameKind", "rank"]),
 });
 const deep: FormNode[] = [
   three[0]!,
@@ -234,7 +238,7 @@ export const FormFourLevels = meta.story({
     await expect(
       canvas.getByRole("button", { name: "Show full path to Journeys" }),
     ).toBeVisible();
-    await geometry(canvasElement);
+    await geometry(canvasElement, ["evening", "gameKind", "location", "rank"]);
   },
 });
 export const FormFlagged = meta.story({
@@ -246,7 +250,7 @@ export const FormFlagged = meta.story({
     await expect(
       canvasElement.querySelector('[aria-invalid="true"]'),
     ).not.toBeNull();
-    await geometry(canvasElement);
+    await geometry(canvasElement, ["evening"]);
   },
 });
 export const FormAnsweredTales = meta.story({
@@ -317,7 +321,7 @@ export const FormSixOptionScale = meta.story({
     ],
     answers: { evening: { value: "Walk" }, walk: { value: "Far" } },
   },
-  play: async ({ canvasElement }) => geometry(canvasElement),
+  play: async ({ canvasElement }) => geometry(canvasElement, ["evening", "walk", "route"]),
 });
 export const FormNodeLimit = meta.story({
   args: {
@@ -329,7 +333,7 @@ export const FormNodeLimit = meta.story({
       required: false,
     })),
   },
-  play: async ({ canvasElement }) => geometry(canvasElement),
+  play: async ({ canvasElement }) => geometry(canvasElement, Array.from({ length: 12 }, (_, i) => `note-${i}`)),
 });
 export const FormSixOptionScaleWide = FormSixOptionScale.extend({
   parameters: wide,

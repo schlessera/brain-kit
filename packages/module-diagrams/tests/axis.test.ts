@@ -6,7 +6,7 @@ describe("axis family",()=>{test("existing v1 sequence renders readable lifeline
 import { checkDiagram } from "../src/check.js";
 import { buildDiagram } from "../src/geometry.js";
 import { buildAxisDiagram } from "../src/axis-layout.js";
-import { diagramSvgModel } from "../src/svg-model.js";
+import { diagramSvgModel, parseDiagram } from "../src/svg-model.js";
 import { axisExamples } from "./fixtures/axis-examples.js";
 const check=(spec:unknown)=>checkDiagram(JSON.stringify(spec));
 for(const [kind,spec] of Object.entries(axisExamples))test(`${kind} canonical example and every theme render`,async()=>{
@@ -69,4 +69,34 @@ test("axis examples flow through the real CLI with unchanged pinned check envelo
    writeFileSync(join(root,"figure.diagram.yaml"),JSON.stringify(spec));const result=await runCli(root,["diagram","check","figure.diagram.yaml","--json"]);expect(result.code,result.stderr).toBe(0);expect(JSON.parse(result.stdout)).toEqual({schema_version:1,valid:true,type,errors:[],warnings:[]});
   }
  }finally{cleanup(root);}
+});
+
+describe("swimlane canvas (#3518)",()=>{
+ const voyage=()=>{const spec=structuredClone(axisExamples.swimlane);const labels=["Leave Troy","Ismaros raid","Lotus land","Cyclops cave","Aeolus bag","Circe hall","Sirens pass","Calypso isle","Reach Ithaca"];
+  spec.nodes=labels.map((label,i)=>({id:`stop-${i}`,label}));spec.edges=labels.slice(1).map((_,i)=>({from:`stop-${i}`,to:`stop-${i+1}`,label:"SAIL"}));
+  spec.axis.steps=spec.nodes.map((n,i)=>({node:n.id,lane:spec.axis.lanes[i%spec.axis.lanes.length]!.id}));return spec;};
+ test("a nine-step swimlane within the skill budget draws its full canvas, and only the narrow frame refuses",()=>{
+  const spec=voyage();expect(check(spec).errors,"NINE_STEPS_CHECK_VALID").toEqual([]);
+  const model=diagramSvgModel(spec);expect(model.tree.viewBox.width,"FULL_CANVAS_GROWS_TO_ITS_STEPS").toBeGreaterThanOrEqual(160+9*240+24);
+  let rects=0;for(const shape of buildDiagram(spec).elements){if(shape.kind!=="shape"||shape.shape!=="rect")continue;rects++;expect(shape.x+shape.width,"LANE_AND_STEP_INSIDE_CANVAS").toBeLessThanOrEqual(model.tree.viewBox.width);}
+  expect(rects,"LANES_AND_STEPS_CHECKED").toBeGreaterThanOrEqual(9+spec.axis.lanes.length);
+  expect(()=>buildAxisDiagram(spec,320)).toThrow("readable full canvas");
+ });
+ test("an axis layout refusal is a check error, never a valid spec the renderer cannot draw",()=>{
+  const spec=voyage();spec.nodes[8]!.label="Reach Ithaca after twenty long years at sea";
+  expect(()=>buildDiagram(spec)).toThrow("Step label");
+  const result=check(spec);expect(result.valid,"CHECK_REFUSES_UNDRAWABLE_AXIS").toBe(false);
+  expect(result.errors).toEqual([{path:"$",code:"layout",message:"Step label needs a shorter label or a wider detail diagram"}]);
+ });
+ test("every shipped example and fixture checks valid exactly when its default model draws",async()=>{
+  const {readdirSync}=await import("node:fs");
+  const dirs=[new URL("./fixtures/",import.meta.url),new URL("../skills/diagram/references/examples/",import.meta.url)];
+  let seen=0;
+  for(const dir of dirs)for(const name of readdirSync(dir).filter(f=>f.endsWith(".diagram.yaml"))){
+   const source=await Bun.file(new URL(name,dir)).text();let drew=true;
+   try{diagramSvgModel(parseDiagram(source));}catch{drew=false;}
+   expect(checkDiagram(source).valid,`${name}: valid must equal drawable`).toBe(drew);seen++;
+  }
+  expect(seen).toBeGreaterThan(10);
+ });
 });

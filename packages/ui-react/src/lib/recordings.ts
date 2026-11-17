@@ -7,7 +7,7 @@ import { registerUpdateHold } from "./update-holds.js";
 
 /** Limits from #578's retention ruling; the budget and warning are tuning defaults. */
 export const RECORDING_MAX_MS = 600_000;
-export const RECORDING_WALL_BACKSTOP_MS = 660_000;
+const RECORDING_WALL_BACKSTOP_MS = 660_000;
 const LIMIT_FLUSH_MARGIN_MS = 250;
 // Internal scheduler tolerance: modest callback jitter is not evidence of lost audio.
 const AUDIO_TIMER_LATENESS_MS = 1000;
@@ -78,7 +78,12 @@ export interface RecordingStore {
   /** @internal Stop this root and clear only the authorized sign-out partitions. */
   clearForSignOut(partition: PartitionId, alsoUnassigned: boolean, clearAccount?: () => Promise<void>): Promise<void>;
   /** Explicitly confirmed upload, coordinated across tabs by recording id. */
-  transcribe(partition: PartitionId, id: string, progress: (percent: number) => void, retry?: string): Promise<void>;
+  /**
+   * Uploads for transcription. `provider` is the service the confirmation
+   * named; it is sent as `Speech-Provider`, and the server transcribes with
+   * exactly that one or refuses. Without it the server's effective choice is used.
+   */
+  transcribe(partition: PartitionId, id: string, progress: (percent: number) => void, retry?: string, provider?: string): Promise<void>;
   /** Read-only recovery plus tombstones previously requested by accept/discard. Never uploads audio. */
   syncTranscriptions(): Promise<void>;
   busy(): boolean;
@@ -86,7 +91,7 @@ export interface RecordingStore {
   onEvent(listener: (event: RecordingEvent) => void): () => void;
   dispose(): void;
 }
-export interface RecordingStoreOptions {
+interface RecordingStoreOptions {
   partitions: LocalPartitions;
   heldAccountKey: () => string | null;
   root: BrainUiServices;
@@ -100,8 +105,10 @@ export function recordingTime(ms: number): string {
   const seconds = Math.floor(ms / 1000);
   return `${Math.floor(seconds / 60)}:${(seconds % 60).toString().padStart(2, "0")}`;
 }
+export const PROVIDER_MISMATCH = "This retry must use the service the failed attempt used, and that service wasn\u0027t chosen. Nothing was sent. The recording is kept.";
 export const RECORDING_UNAVAILABLE = "This recording is no longer available on this device.";
 export const TRANSCRIPT_CHANGED = "Transcript changed in another tab. Review it before adding it to your draft.";
+const STILL_CHECKING = "Recordings are still being checked. Try again in a moment.";
 const notEnough = "Not enough space on this device to record. Free space by transcribing or discarding recordings.";
 async function hash(blobs: Blob[]): Promise<string> {
   const bytes = await new Blob(blobs).arrayBuffer();
@@ -203,12 +210,22 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
     bytes = Math.max(0, bytes);
     return { bytes, canRecord: bytes >= MIN_BYTES, message: bytes >= MIN_BYTES ? null : notEnough };
   }
-  async function acquire(): Promise<() => Promise<void>> {
+  // Holds of the exclusive lock by this store for anything but capture: its
+  // own recovery, sync and mutations (#3326). While one is held, a refusal
+  // names this store's own check instead of another tab. A capture hold, and
+  // any holder outside this store, keeps the cross-tab message.
+  let maintaining = 0;
+  async function acquire(capture = false): Promise<() => Promise<void>> {
     if (!navigator.locks) throw new DOMException("This browser cannot coordinate recording tabs.", "NotSupportedError");
     return new Promise((resolve, reject) => {
       const requested = navigator.locks.request(LOCK, { ifAvailable: true }, async (lock) => {
-        if (!lock) { reject(new Error("Recording in another Brain tab")); return; }
-        await new Promise<void>((unlock) => resolve(async () => { unlock(); await requested; }));
+        if (!lock) { reject(new Error(maintaining > 0 ? STILL_CHECKING : "Recording in another Brain tab")); return; }
+        if (!capture) maintaining++;
+        await new Promise<void>((unlock) => resolve(async () => {
+          unlock();
+          // Count the hold until the native lock is actually released.
+          try { await requested; } finally { if (!capture) maintaining--; }
+        }));
       });
       void requested.catch(reject);
     });
@@ -279,7 +296,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
           if (!sameGeneration(partition, pending.generation)) throw new PartitionRefusedError(partition);
         };
         try {
-          release = preflight?.release ?? await acquire();
+          release = preflight?.release ?? await acquire(true);
           checkStart();
           const free = await budget();
           checkStart();
@@ -488,7 +505,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
         const partition = heldPartition();
         const generation = partitions.writerGeneration(partition);
         openingGeneration = generation;
-        release = await acquire();
+        release = await acquire(true);
         const free = await budget();
         if (!free.canRecord) { emit("refused", notEnough); throw new Error(notEnough); }
         signal.throwIfAborted();
@@ -717,7 +734,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
         await release();
       }
     },
-    async transcribe(partition, id, progress, retry) {
+    async transcribe(partition, id, progress, retry, provider) {
       if (partition === "unassigned" || !online()) throw new Error("Sign in and reconnect before transcribing.");
       if (!navigator.locks) throw new Error("This browser cannot coordinate transcription tabs.");
       await navigator.locks.request(`brain-ui:transcription:${id}`, { ifAvailable: true }, async lock => {
@@ -728,8 +745,12 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
         check();
         const row = await get(partition, id);
         if (!row || !row.chunkCount || row.state === "recording" || row.state === "accepted" || row.state === "transcript-ready") throw new Error(RECORDING_UNAVAILABLE);
-        const capabilities = await options.root.request(`${options.root.apiBase()}/voice/capabilities`, { credentials: "include", cache: "no-store" });
-        if (!capabilities.ok || !(await capabilities.json()).capabilities?.savedAudio) throw new Error("Saved-audio transcription is unavailable. The recording is kept.");
+        // A named provider is checked by the server before it claims anything;
+        // only the legacy unnamed upload asks for the effective provider first.
+        if (provider === undefined) {
+          const capabilities = await options.root.request(`${options.root.apiBase()}/voice/capabilities`, { credentials: "include", cache: "no-store" });
+          if (!capabilities.ok || !(await capabilities.json()).capabilities?.savedAudio) throw new Error("Saved-audio transcription is unavailable. The recording is kept.");
+        }
         check();
         const existing = await statusOf(id); check();
         if (existing) {
@@ -762,7 +783,7 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
           check();
           dispatched = true;
           const response = await options.root.request(`${transcriptionPath(id)}${retry ? `?retry=${encodeURIComponent(retry)}` : ""}`, {
-            method: "PUT", credentials: "include", headers: { "content-type": row.mime, "content-sha256": row.contentHash }, body: blob, signal: controller.signal,
+            method: "PUT", credentials: "include", headers: { "content-type": row.mime, "content-sha256": row.contentHash, ...(provider !== undefined ? { "speech-provider": provider } : {}) }, body: blob, signal: controller.signal,
             onUploadProgress(percent) { lastProgress = percent; uploaded ||= percent >= 100; progress(percent); },
           });
           checkMutation(partition, epoch);
@@ -771,11 +792,19 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
           const result = await response.json();
           received = response.ok;
           if (response.ok) await applyReceipt(partition, id, result);
-          else if (result.receipt) await applyReceipt(partition, id, result.receipt);
+          else if (result.receipt) {
+            await applyReceipt(partition, id, result.receipt);
+            // A retry must use the service its failed attempt used; nothing was sent to another.
+            if (result.error === "transcription_provider_mismatch") {
+              definitiveRejection = PROVIDER_MISMATCH;
+              throw new Error(PROVIDER_MISMATCH);
+            }
+          }
           else {
-            const preclaim: Record<string, number> = { recording_id_invalid: 400, recording_hash_invalid: 400, recording_empty: 400, recording_too_large: 413, recording_media_unsupported: 415, saved_audio_unsupported: 501, transcription_not_found: 404, transcription_retry_stale: 409 };
+            const preclaim: Record<string, number> = { recording_id_invalid: 400, recording_hash_invalid: 400, recording_empty: 400, recording_too_large: 413, recording_media_unsupported: 415, saved_audio_unsupported: 501, speech_provider_unavailable: 409, transcription_not_found: 404, transcription_retry_stale: 409 };
             if (preclaim[result.error] === response.status) definitiveRejection = typeof result.message === "string" ? result.message : "The recording was rejected before transcription. The recording is kept.";
-            throw new Error(result.message ?? "Could not transcribe. The recording is kept.");
+            // The code lets the caller react (a service the host no longer has); the message is for people.
+            throw Object.assign(new Error(result.message ?? "Could not transcribe. The recording is kept."), { code: typeof result.error === "string" ? result.error : undefined });
           }
         } catch (error) {
           const key = identity(partition, id);

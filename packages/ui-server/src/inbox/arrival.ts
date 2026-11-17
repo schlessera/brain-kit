@@ -3,6 +3,7 @@
  * digests the same read when a person's arrival is committed, so a later read
  * that differs is not the arrival intake recorded (#2741).
  */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { open, realpath } from "node:fs/promises";
@@ -20,7 +21,7 @@ const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v ===
 
 /** Read a bounded prefix through a non-symlink handle, inside this staging area. */
 async function stagedText(root: string, directory: string, path: string, cap: number) {
-  if (!path.startsWith(`${directory}/`) || path.slice(directory.length + 1).includes("/")) throw Error("Invalid staging child");
+  if (!isWithin(directory, path, { includeRoot: false }) || path.slice(directory.length + 1).includes("/")) throw Error("Invalid staging child");
   const base = await safeResolve(directory, root), resolved = await safeResolve(path, root);
   if (await realpath(resolved) !== `${base}/${path.slice(directory.length + 1)}`) throw Error("Redirected staging child");
   const file = await open(resolved, constants.O_RDONLY | constants.O_NOFOLLOW);

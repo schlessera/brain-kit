@@ -37,7 +37,18 @@ export function hostProviderCredentialNames(names: readonly string[]): string[] 
 export function hostProviderCredential(name: string): string | undefined {
   return readEnvVar(name);
 }
-export const DYNAMIC_ENV_READS = [{ source: "provider credential presence",
+/**
+ * One external compute credential the operator bound for hosted jobs
+ * (BRAIN_UI_COMPUTE_KEYS, #3108), read when the host admits or advances a
+ * job. The value goes to the provider call only; it never enters a worker,
+ * a job record, a tool result or an approval card.
+ */
+export function hostComputeCredential(name: string): string | undefined {
+  return readEnvVar(name);
+}
+export const DYNAMIC_ENV_READS = [{ source: "external compute credential",
+  description: "The value of a compute credential variable the operator bound in BRAIN_UI_COMPUTE_KEYS (or the default variable of a provider listed there), read on the host when a hosted compute job is admitted or advanced. Passed to the provider call only, never to a worker, record or result." },
+{ source: "provider credential presence",
   description: "Whether each provider credential in the subprocess descriptor is set on the server, so a governed or strict turn worker's BRAIN_WITHHELD_KEYS names the keys the host withheld. Names only; no value leaves the server." },
 { source: "provider relay credential",
   description: "The value of the provider key a relayed CLI request names, read when the CLI provider relay dispatches it: a built-in provider's own key variable, or one BRAIN_UI_CLI_PROVIDER_ORIGINS lists. Placed on the upstream request only, never returned to a worker." },

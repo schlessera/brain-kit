@@ -11,7 +11,7 @@ import { documentTitle, isFullDocument, prepareStaticDocument } from "@schlesser
 import { DOCUMENT_KINDS, readSkeleton, resolveKind } from "@schlessera/brain-render-template/kinds";
 
 import { collectModuleRenderers } from "../../lib/module-renderers.js";
-import { resolveWritable, writeFileSafely } from "../../lib/safe-path.js";
+import { brainRelativeArgument, resolveWritable, writeFileSafely } from "../../lib/safe-path.js";
 import {
   assertScratchWritable,
   isInScratch,
@@ -195,7 +195,7 @@ function runReference(pos: string[], flags: Record<string, string | boolean>, js
 export function validateRenderInput(args: string[], root: string): void {
   const { args: pos, flags } = parseArgs(args);
   if (flags.kind !== undefined || flags.blocks === true) return;
-  const input = pos[0];
+  const input = pos[0] && brainRelativeArgument(root, pos[0]);
   if (!input) throw new UsageError("Usage: brain render <path|-> [--format pdf|png|html] [--out <path>]");
   if (input === "-") return;
   const abs = resolveWritable(root, input);
@@ -213,7 +213,7 @@ export const renderCommand: CoreCommand = {
       return;
     }
     if (flags.scaffold === true) throw new UsageError("--scaffold needs --kind <kind>");
-    const input = pos[0];
+    const input = pos[0] && brainRelativeArgument(cli.brain.root, pos[0]);
     if (!input) {
       throw new UsageError("Usage: brain render <path|-> [--format pdf|png|html] [--out <path>]");
     }
@@ -257,7 +257,7 @@ export const renderCommand: CoreCommand = {
       (fromStdin ? undefined : sourceLabel);
 
     // --- resolve the output path
-    const outFlag = typeof flags.out === "string" ? flags.out : undefined;
+    const outFlag = typeof flags.out === "string" ? brainRelativeArgument(root, flags.out) : undefined;
     if (outFlag && flags.scratch === true) {
       throw new UsageError("--out and --scratch are exclusive");
     }

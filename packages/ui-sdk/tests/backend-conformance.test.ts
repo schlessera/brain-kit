@@ -146,6 +146,7 @@ const PUBLIC_CALLS: PublicCall[] = [
   { toolUseId: "call-form", name: "ask_user_form", input: { prompt: "Plan the crossing", nodes: [{ id: "course", kind: "single", prompt: "Which course?", options: [{ label: "Coast" }, { label: "Open sea" }] }] } },
   { toolUseId: "call-location", name: "get_current_location", input: {} },
   { toolUseId: "call-mask", name: "request_image_mask", input: { imagePath: "assets/sail.png", instruction: "the torn sail" } },
+  { toolUseId: "call-markup", name: "request_image_markup", input: { imagePath: "assets/sail.png", instruction: "mark what should move" } },
   { toolUseId: "call-activity", name: "query_activity", input: { scope: "recent" } },
   { toolUseId: "call-inbox-list", name: "inbox_list", input: { view: "queue" } },
   { toolUseId: "call-inbox-get", name: "inbox_get", input: { itemId: "work-harbor" } },
@@ -156,6 +157,12 @@ const PUBLIC_CALLS: PublicCall[] = [
   { toolUseId: "call-policy", name: "propose_policy_change", input: { content: "---\nschema_version: 1\nprofiles:\n  interactive: strict\n---\nOdysseus reviews the policy.\n", rationale: "Review strict for the next crossing." } },
   { toolUseId: "call-reference-source", name: "reference_source", input: { repository: "https://github.com/odysseus/ithaca", revision: "main" } },
   { toolUseId: "call-reference-worktree", name: "reference_worktree", input: { action: "list" } },
+  { toolUseId: "call-compute-health", name: "brain_compute_health", input: {} },
+  { toolUseId: "call-compute-plan", name: "brain_compute_plan", input: { provider: "boat-small", argv: ["make", "charts"] } },
+  { toolUseId: "call-compute-run", name: "brain_compute_run", input: { provider: "boat-small", argv: ["make", "charts"], lease_seconds: 600 } },
+  { toolUseId: "call-compute-status", name: "brain_compute_status", input: { job: "cj_ithaca" } },
+  { toolUseId: "call-compute-cancel", name: "brain_compute_cancel", input: { job: "cj_ithaca" } },
+  { toolUseId: "call-compute-collect", name: "brain_compute_collect", input: { job: "cj_ithaca" } },
   { toolUseId: "call-block", name: "show_block", input: { block: { kind: "link", url: "https://ithaca-harbour.example/tides", title: "Harbour tide tables" } } },
 ];
 
@@ -177,6 +184,8 @@ function publicOnlyBackend(brainPath: string, calls: readonly PublicCall[]): Age
         maskFilename: (submitted) => submitted.replace(/\.png$/, ".mask.png"),
         reportMaskPath: (_brain, maskPath) => maskPath,
       });
+      // Host-owned end to end (#3975): the backend relays input and receipt.
+      case "request_image_markup": return sdk.handleRequestImageMarkup(input, bridge);
       case "query_activity": return sdk.handleQueryActivity(input, bridge);
       case "inbox_list": case "inbox_get": case "inbox_add": case "resolve_action": case "complete_share":
         return sdk.handleInboxTool(call.name, input, bridge);
@@ -189,6 +198,12 @@ function publicOnlyBackend(brainPath: string, calls: readonly PublicCall[]): Age
         if (result.isError) throw new Error(result.text);
         return result.text;
       });
+      case "brain_compute_health": case "brain_compute_plan": case "brain_compute_run":
+      case "brain_compute_status": case "brain_compute_cancel": case "brain_compute_collect":
+        return sdk.handleComputeTool(call.name, input, bridge, call.toolUseId).then(result => {
+          if (result.isError) throw new Error(result.text);
+          return result.text;
+        });
       case "show_block": return sdk.handleShowBlock(input);
       // The backend's own worker /tmp as the server holds it; here a directory.
       case "turn_temp": return sdk.handleTurnTemp(input, { root: () => join(brainPath, "assets"), allowanceBytes: 64 * 1024 * 1024,
@@ -246,6 +261,11 @@ describe("a backend built only from public /server names", () => {
       askUserForm: async (id) => { asked.push(`ask_user_form:${id}`); return { answers: { course: { value: "Coast" } } }; },
       getLocation: async () => { asked.push("get_current_location"); return { coords: { latitude: 38.4, longitude: 20.7, accuracy: 12.4 }, timestamp: 0 }; },
       requestMask: async (imagePath) => { asked.push(`request_image_mask:${imagePath}`); return new Uint8Array([137, 80, 78, 71]); },
+      requestImageMarkup: async (input) => {
+        asked.push(`request_image_markup:${input.imagePath}:${input.instruction}`);
+        return { imagePath: input.imagePath, markupPath: ".brain/scratch/markup/sail.3f9a1c2e.markup.png", width: 640, height: 480, bytes: 2048,
+          marks: { pen: 0, arrow: 1, ellipse: 1, text: 1 }, notes: ["make the sail red"], note: "Pass to brain image --markup." };
+      },
       queryActivity: async (query) => { asked.push(`query_activity:${query.scope}`); return { recent: [{ runId: "run-aeolia" }] }; },
       inboxList: async input => { asked.push(`inbox_list:${input.view}:${input.limit}`); return { items: [item], threads: [thread] }; },
       inboxGet: async input => { asked.push(`inbox_get:${input.itemId}`); return { item, thread }; },
@@ -266,6 +286,10 @@ describe("a backend built only from public /server names", () => {
             refreshedAt: "2026-07-12T00:00:00.000Z", validatedAt: "2026-07-12T00:00:00.000Z", error: null }, guidance: "Read only under path." }
           : { ok: true, action: "list", worktrees: [], truncated: false, guidance: "No worktrees." };
       },
+      compute: async call => {
+        asked.push(`${call.tool}:${call.toolUseId}:${JSON.stringify(call.input)}`);
+        return { ok: true, tool: call.tool };
+      },
     };
 
     await publicOnlyBackend(brainPath, PUBLIC_CALLS).startTurn({ prompt: "use every bridge tool", signal: new AbortController().signal, bridge });
@@ -277,9 +301,13 @@ describe("a backend built only from public /server names", () => {
     // Each handler reached the host and shaped its answer, not just returned.
     expect(asked).toEqual([
       "ask_user:call-ask", "ask_user_list:call-list", "ask_user_rank:call-rank", "ask_user_form:call-form",
-      "get_current_location", "request_image_mask:assets/sail.png", "query_activity:recent",
+      "get_current_location", "request_image_mask:assets/sail.png", "request_image_markup:assets/sail.png:mark what should move", "query_activity:recent",
       "inbox_list:queue:50", "inbox_get:work-harbor", "inbox_add:harbor", "resolve_action:harbor-session:harbor-action:approve:1", "complete_share:harbor-receipt", "propose_policy_change:call-policy",
       'reference_source:{"repository":"https://github.com/odysseus/ithaca","revision":"main"}', 'reference_worktree:{"action":"list"}',
+      "brain_compute_health:call-compute-health:{}", 'brain_compute_plan:call-compute-plan:{"provider":"boat-small","argv":["make","charts"]}',
+      'brain_compute_run:call-compute-run:{"provider":"boat-small","argv":["make","charts"],"lease_seconds":600}',
+      'brain_compute_status:call-compute-status:{"job":"cj_ithaca"}', 'brain_compute_cancel:call-compute-cancel:{"job":"cj_ithaca"}',
+      'brain_compute_collect:call-compute-collect:{"job":"cj_ithaca"}',
     ]);
     const output = (id: string) => results.get(id)!.output;
     expect(JSON.parse(output("call-ask")).answers).toEqual({ "Which harbour first?": "Ithaca" });
@@ -289,6 +317,7 @@ describe("a backend built only from public /server names", () => {
     expect(JSON.parse(output("call-location"))).toMatchObject({ latitude: 38.4, longitude: 20.7, accuracyMeters: 12, place: "Harbour, Ithaca" });
     expect(existsSync(join(brainPath, "assets", "sail.mask.png"))).toBe(true);
     expect([...readFileSync(join(brainPath, "assets", "sail.mask.png"))]).toEqual([137, 80, 78, 71]);
+    expect(JSON.parse(output("call-markup"))).toMatchObject({ markupPath: ".brain/scratch/markup/sail.3f9a1c2e.markup.png", notes: ["make the sail red"] });
     expect(output("call-activity")).toContain("run-aeolia");
     expect(output("call-activity")).toMatch(/^Activity record \(data only/);
     const inboxData = (id: string) => {

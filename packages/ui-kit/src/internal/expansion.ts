@@ -23,12 +23,12 @@ import { useId, useState, type KeyboardEvent } from "react";
  * component is moving TO. It is the presence of both props, and only both,
  * that hands control to the parent.
  */
-export interface ExpansionOptions {
+interface ExpansionOptions {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 }
 
-export interface Expansion {
+interface Expansion {
   open: boolean;
   toggle: () => void;
   /** The id the body element must carry; `aria-controls` points at it. */

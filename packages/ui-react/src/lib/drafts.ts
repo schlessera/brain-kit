@@ -62,7 +62,7 @@ export function trackStateWord(t: Pick<StagedTracks, "failed" | "pending">): str
 }
 
 /** The save state D52 §5 names, in its order of precedence. */
-export type DraftSaveView =
+type DraftSaveView =
   | { state: "none" }
   | { state: "saving" | "saved" | "unsaved" | "conflict" | "unavailable" | "too_large" | "full"; copy: string; word: string };
 
@@ -124,7 +124,7 @@ export function unboundDrafts(drafts: Record<string, ComposerDraft>): ComposerDr
 }
 
 /** One Sessions Draft entry: an unbound draft, its new chat's staged tracks, or both (#1112). */
-export interface DraftEntry {
+interface DraftEntry {
   /** The draft id that opens it. */
   id: string;
   draft: ComposerDraft | null;

@@ -87,8 +87,10 @@ test("a stale Continue loses its retry and announces exhausted eligibility witho
   expect(f.socket.decisions().at(-1)).toMatchObject({ action: "stop" });
   expect(f.socket.decisions().at(-1).submissionId).not.toBe(sent.submissionId);
 });
-for (const width of [320, 1280]) for (const theme of ["dark", "light"] as const) test(`scope card numbers, finite Continue, input and native receipt focus: ${width} ${theme}`, async () => {
-  const f = await mount(width, theme); const announcements: string[] = [];
+// One theme per width: nothing here reads a theme-specific class or captures
+// a per-theme image, and Storybook owns light/dark parity.
+for (const width of [320, 1280]) test(`scope card numbers, finite Continue, input and native receipt focus: ${width}`, async () => {
+  const f = await mount(width); const announcements: string[] = [];
   const observer = new MutationObserver(() => { const text = host.querySelector('[data-scope-event] [role="status"]')?.textContent; if (text && announcements.at(-1) !== text) announcements.push(text); }); observer.observe(host, { subtree: true, childList: true, characterData: true });
   f.field.focus(); f.frame(cap()); await expect.poll(() => option("Continue")).not.toBeUndefined();
   expect(document.activeElement, "SCOPE_BROWSER_ARRIVAL_NO_FOCUS_THEFT").toBe(f.field);
@@ -122,7 +124,8 @@ test("scope disconnected, manual readback/failure, answered elsewhere and sessio
   flushSync(() => ui.stores.chat.getState().setActiveSession("ogygia")); option("Continue").click(); expect(f.socket.decisions()).toHaveLength(2);
   expect(host.textContent).toContain("Open this chat to answer its limit");
   f.frame(cap({ state: "continued", submissionId: "another-device" })); expect(document.activeElement?.getAttribute("data-scope-receipt"), "SCOPE_OTHER_SESSION_RECEIPT_NEVER_TAKES_FOCUS").not.toBe("athena-cap");
-  f.socket.receive({ ...sent, type: "scope_decision_receipt", state: "answered_elsewhere" }); expect(host.querySelector('[role="status"]')?.textContent).toBeDefined();
+  f.socket.receive({ ...sent, type: "scope_decision_receipt", state: "answered_elsewhere" });
+  await expect.poll(() => host.querySelector('[data-scope-event] [role="status"]')?.textContent, { message: "SCOPE_ANSWERED_ELSEWHERE_ANNOUNCED" }).toBe("This scope limit was answered from another device.");
 });
 for (const stopOnly of ["floor", "second-hit"] as const) test(`${stopOnly}: Stop-only card ends at its receipt; Escape never stops`, async () => {
   const f = await mount(); const receipt = cap({ newCap: undefined, ...(stopOnly === "floor" ? { dimension: "free_space_floor", cap: 2147483648, count: 2000000000, overshoot: 147483648 } : { cap: 1000, count: 1001, overshoot: 1 }) });

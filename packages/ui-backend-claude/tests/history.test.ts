@@ -8,6 +8,7 @@ import type {
   SDKSessionInfo,
   SessionMessage,
 } from "@anthropic-ai/claude-agent-sdk";
+import { sessionPromptContext } from "@schlessera/brain-ui-sdk/internal";
 import { createHistory } from "../src/history";
 
 const brain = mkdtempSync(join(tmpdir(), "claude-history-context-"));
@@ -135,6 +136,22 @@ describe("getHistory normalization", () => {
 });
 
 describe("listSessions normalization", () => {
+  test("first-prompt titles omit only a complete trailing host-context block", async () => {
+    const host = mkdtempSync(join(tmpdir(), "claude-title-host-"));
+    try {
+      const wire = sessionPromptContext(host, brain, "title-session").prepare("Continue", { sandbox: "Use the voyage scratch area." }).text;
+      const unmatched = wire.slice(0, wire.lastIndexOf("\n"));
+      const infos = [
+        { sessionId: "fallback", firstPrompt: wire },
+        { sessionId: "unmatched", firstPrompt: unmatched },
+        { sessionId: "summary", firstPrompt: wire, summary: "Voyage summary" },
+        { sessionId: "custom", firstPrompt: wire, summary: "Voyage summary", customTitle: "Ithaca" },
+      ].map(info => ({ ...info, lastModified: 200, fileSize: 1 })) as SDKSessionInfo[];
+      const history = createHistory({ brainPath: brain, listSessionsFn: sessionsFn(infos) });
+      expect((await history.listSessions()).map(s => s.title)).toEqual(["Continue", unmatched, "Voyage summary", "Ithaca"]);
+    } finally { rmSync(host, { recursive: true, force: true }); }
+  });
+
   test("maps SDK session info and filters automation sessions", async () => {
     const infos: SDKSessionInfo[] = [
       {

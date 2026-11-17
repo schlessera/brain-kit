@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, readFileSync } from "fs";
 import { join } from "path";
-import { safeResolve, writeFileSafely } from "@schlessera/brain/module";
+import { brainRelativeArgument, safeResolve, writeFileSafely } from "@schlessera/brain/module";
 import type { CommandContext, CommandModule } from "@schlessera/brain";
 import { readTravelCorpus } from "./content.js";
 import type { TravelConfig } from "./module.js";
@@ -97,7 +97,7 @@ const command: CommandModule<TravelConfig> = {
         }
         if (!files.length || to === undefined) throw new Error("Usage: brain travel photo <files> --to <dir> [--name <descriptor>] [--date YYYY-MM-DD] [--force-date] [--json]");
         const { preparePhotos } = await import("./photo.js");
-        const photo = await preparePhotos(ctx.root, files, to, { name, date, forceDate });
+        const photo = await preparePhotos(ctx.root, files, brainRelativeArgument(ctx.root, to), { name, date, forceDate });
         if (ctx.json) console.log(JSON.stringify({ photo }, null, 2));
         else {
           for (const file of photo.files) console.log(file.source + " → " + file.output + " (" + file.width + "×" + file.height + ")");

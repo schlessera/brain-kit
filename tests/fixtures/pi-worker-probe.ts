@@ -14,9 +14,15 @@ import { createPiBackend } from "../../packages/ui-backend-pi/src/backend.js";
 import { prepareWorkerSandbox, workerHostBoundary } from "../../packages/ui-sdk/src/server/worker-launcher.js";
 import { contentHash, createBrainApplication, readBrainApplicationBase } from "../../packages/ui-server/src/brain/application.js";
 import { createKeyedLock, type ServerMessage, type BrainApplicationResult } from "@schlessera/brain-ui-sdk/server";
+import { createHostWebTools } from "../../packages/ui-server/src/web-tools/host.js";
+import { fixtureTls } from "../../packages/ui-server/tests/fixtures/fixture-tls.js";
+import type { WebReceipt } from "../../packages/ui-server/src/web-tools/broker.js";
+import { createWebAccess } from "../../packages/ui-server/src/ws/bridge-capabilities/web.js";
+import * as piInternal from "../../packages/ui-backend-pi/src/internal.js";
 
 const [scenario, root] = process.argv.slice(2) as [string, string];
 const cachedPackageState = scenario.startsWith("cached-package-");
+const extensionOnly = scenario.startsWith("forge-") || scenario === "external-extension";
 const defaultHomeState = scenario === "default-home-state" || cachedPackageState;
 const brainPath = join(root, "brain"), agentDir = defaultHomeState ? "/root/.pi/agent" : join(root, "agent"), sessionDir = join(root, "sessions");
 cpSync(resolve("packages/core/fixtures/corpus"), brainPath, { recursive: true });
@@ -102,7 +108,45 @@ export default async function(pi) {
     return {content:[{type:"text",text:"late"}],details:null};
   }});
 }`;
-writeFileSync(join(extensionDir, "proof.ts"), extensionSource);
+// Only unsupported-configuration controls load external Pi factories. All
+// ordinary behavior below is driven by the installed curated tool inventory.
+if (extensionOnly) writeFileSync(join(extensionDir, "proof.ts"), extensionSource);
+// #3658: an installed extension under the default configuration stays inactive.
+const inactiveExtension = scenario === "inactive-extension";
+if (inactiveExtension) writeFileSync(join(extensionDir, "inactive.ts"), `export default function (pi) {
+  pi.registerTool({name:"inactive_voyage",label:"Inactive voyage",description:"Fictional inactive extension",parameters:{type:"object",properties:{}},
+    async execute() { return {content:[{type:"text",text:"The inactive extension ran."}],details:null}; }});
+}`);
+const inspectionPath = join(brainPath, "worker-inspection.ts");
+writeFileSync(inspectionPath, `import {writeFileSync,readFileSync,readdirSync,readlinkSync,statSync} from "node:fs";
+import {getAgentDir} from ${JSON.stringify(Bun.resolveSync("@earendil-works/pi-coding-agent", resolve("packages/ui-backend-pi")))};
+import {AuthStorage} from ${JSON.stringify(join(dirname(Bun.resolveSync("@earendil-works/pi-coding-agent", resolve("packages/ui-backend-pi"))), "core/auth-storage.js"))};
+const paths=${JSON.stringify(paths)},scratch="/tmp/brain-worker-scratch",attempted=[];
+for(const path of paths) {try {writeFileSync(path,"shell changed policy");attempted.push("wrote");} catch {attempted.push("denied");}}
+try {writeFileSync(${JSON.stringify(join(brainPath, "context/policies/new.md"))},"shell entry");} catch {}
+writeFileSync(scratch+"/shell-positive","Odysseus: curated bash ran in scratch.");
+writeFileSync(scratch+"/indirect.sh","echo indirect > "+JSON.stringify(paths[0]));
+// Inspect the actual Pi parent in this PID namespace, retaining the
+// bootstrap-descriptor assertion rather than confusing shell stdin with RPC.
+const workers=readdirSync("/proc").filter(name=>/^[0-9]+$/.test(name)).filter(pid=>{
+ try{const argv=readFileSync("/proc/"+pid+"/cmdline","utf8").split("\\0");return argv[0]===process.execPath&&argv.includes(${JSON.stringify(resolve("packages/ui-backend-pi/src/worker-entry.ts"))});}catch{return false;}
+});
+if(workers.length!==1)throw new Error("Expected exactly one actual Pi worker in the PID namespace");
+const workerPid=Number(workers[0]),descriptors=[];
+for(const name of readdirSync("/proc/"+workerPid+"/fd")) {try {const path="/proc/"+workerPid+"/fd/"+name;
+ descriptors.push({fd:Number(name),target:readlinkSync(path),pipe:statSync(path).isFIFO()});}catch{}}
+let state;
+if (${defaultHomeState}) {
+ let stateInitError,parentPrivateHidden=false,homeWriteDenied=false,copiedAuth=false;
+ try {await AuthStorage.create().modify("anthropic",()=>undefined);}catch(error){stateInitError=error.code??String(error);}
+ try {readFileSync("/root/parent-private");}catch{parentPrivateHidden=true;}
+ try {writeFileSync("/root/worker-home-write","forbidden");}catch{homeWriteDenied=true;}
+ const agentDir=getAgentDir();
+ try {copiedAuth=JSON.parse(readFileSync(agentDir+"/auth.json","utf8")).anthropic.key==="offline-parent-key";}catch{}
+ state={stateInitError,parentPrivateHidden,homeWriteDenied,copiedAuth,agentDir};
+}
+console.log(JSON.stringify({attempted,scratch:readFileSync(scratch+"/shell-positive","utf8"),descriptors,pid:process.pid,workerPid,state}));`);
+const inspect = {name:"bash",input:{command:`${process.execPath} '${inspectionPath}'`}};
 if (defaultHomeState) {
   process.env.HOME = "/root";
   delete process.env.PI_CODING_AGENT_DIR;
@@ -127,6 +171,7 @@ export default function(pi) { pi.registerTool({name:"probe_cached_extension",lab
   if (scenario === "cached-package-offline-missing") { rmSync(packageRoot, {recursive:true}); process.env.PI_OFFLINE="1"; }
 }
 let calls = 0;
+let firstTools: string[] | undefined;
 const applicationReceipts: BrainApplicationResult[] = [];
 const frames: ServerMessage[] = [];
 let approvals = 0;
@@ -150,15 +195,17 @@ function descendants(pid: number): void {
 let toolCalls: Array<{ name: string; input: unknown }> = [];
 let followUp: Array<{ name: string; input: unknown }> = [];
 if (scenario === "attacks") {
-  toolCalls = [{ name: "probe_worker", input: {} }];
+  // Pi 0.99.2 can execute a tool batch in parallel. Finish inspection and
+  // scratch-script preparation before issuing the dependent shell attacks.
+  toolCalls = [inspect];
   for (const path of ["context/policies/rule.md", "notes/../context/policies/rule.md", "notes/policy-symlink.md", "notes/policy-hardlink.md"]) {
-    toolCalls.push({ name: "write_file", input: { path, content: "tool changed policy", expectedBaseHash: contentHash(policy) } },
+    followUp.push({ name: "write_file", input: { path, content: "tool changed policy", expectedBaseHash: contentHash(policy) } },
       { name: "edit_file", input: { path, old_string: "Athena", new_string: "Poseidon", expectedBaseHash: contentHash(policy) } });
   }
-  toolCalls.push({ name: "bash", input: { command: paths.map(path => `echo shell > '${path}'`).join("; ") +
+  followUp.push({ name: "bash", input: { command: paths.map(path => `echo shell > '${path}'`).join("; ") +
     "; bash /tmp/brain-worker-scratch/indirect.sh; bash -c 'bash /tmp/brain-worker-scratch/indirect.sh'; " +
     `${process.execPath} '${resolve("packages/core/src/cli/brain.ts")}' add 'Odysseus needs a stronger mast' --json` } });
-  toolCalls.push({ name: "write_file", input: { path: "notes/worker-positive.md", content: "---\ntype: note\ntitle: Worker positive\n---\nOdysseus sails to Ithaca.\n", expectedBaseHash: null } });
+  followUp.push({ name: "write_file", input: { path: "notes/worker-positive.md", content: "---\ntype: note\ntitle: Worker positive\n---\nOdysseus sails to Ithaca.\n", expectedBaseHash: null } });
 } else if (scenario === "read-base-page" || scenario.startsWith("forge-readbase-")) {
   writeFileSync(join(brainPath, "notes/voyage-log.md"), "---\ntype: note\n---\nDay 1: Odysseus leaves Troy.\nDay 2: Athena counsels patience.\n");
   writeFileSync(join(brainPath, "notes/hidden-route.md"), "---\ntype: note\n---\nCalypso keeps the hidden route.\n");
@@ -180,13 +227,50 @@ else if (scenario === "mask-policy") toolCalls = ["context/policies/rule.md", "n
 else if (scenario.startsWith("mask-")) toolCalls = [{ name: "request_image_mask", input: { imagePath: "notes/raft.png", instruction: "Mask the sail" } }];
 else if (scenario === "cancel-application") toolCalls = [{ name: "write_file", input: {
   path: "notes/worker-positive.md", content: "---\ntype: note\n---\nOdysseus committed the raft note.\n", expectedBaseHash: null } }];
-else if (scenario === "cancel") toolCalls = [{ name: "linger_worker", input: {} }];
+else if (scenario === "cancel") toolCalls = [{ name: "bash", input: {command: "sleep 60 & wait; echo late"} }];
 else if (cachedPackageState) toolCalls = [{ name: "probe_cached_extension", input: {} }];
-else toolCalls = [{ name: "probe_worker", input: {} }];
+else if (scenario !== "host-web") toolCalls = [inspect];
+// #3686: the host-owned web tools on the trusted executor. The provider key
+// and the executor's private state exist only on the host; the actual worker
+// tries to read both after the executor has started.
+const hostWeb = scenario === "host-web";
+const webSentinel = "odysseus-host-web-sentinel";
+const webRoot = join(root, "host-web"), webHostConfig = join(webRoot, "web-search.json"), webExecutorRoot = join(webRoot, "executor");
+const webReceipts: WebReceipt[] = [], webProviderKeys: Array<string | null> = [];
+let webHostBytes: string | undefined;
+let webProvider: ReturnType<typeof Bun.serve> | undefined, webPages: ReturnType<typeof Bun.serve> | undefined;
+let webBroker: ReturnType<typeof createHostWebTools> | undefined;
+let webTls: ReturnType<typeof fixtureTls>;
+if (hostWeb) {
+  mkdirSync(webRoot, { recursive: true });
+  // The executor's only network is its egress route, which resolves these fictional names to the loopback servers (#3687).
+  webTls = fixtureTls(join(webRoot, "tls"), ["exa.odysseus.test"]);
+  webProvider = Bun.serve({ hostname: "127.0.0.1", port: 0, tls: { cert: webTls.cert, key: webTls.key }, async fetch(request) {
+    await request.json(); webProviderKeys.push(request.headers.get("x-api-key"));
+    return Response.json({ results: [{ title: "Ithaca harbour log", url: "https://ithaca.example/log", text: "The raft reaches Ithaca at dawn.", highlights: ["The raft reaches Ithaca at dawn."] }] });
+  } });
+  const article = Array.from({ length: 12 }, (_, index) => `<p>Watch ${index + 1}: Penelope keeps the loom while Telemachus watches the harbour of Ithaca for the raft at dawn.</p>`).join("");
+  webPages = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response(`<!doctype html><html><head><title>Harbour log</title></head><body><article><h1>Harbour log</h1>${article}</article></body></html>`,
+    { headers: { "content-type": "text/html; charset=utf-8" } }) });
+  writeFileSync(webHostConfig, JSON.stringify({ exaApiKey: webSentinel, exaBaseUrl: `https://exa.odysseus.test:${webProvider.port}`, searchRouting: { providers: ["exa"], fallbackOn: ["transient"] }, ssrf: { allowRanges: ["127.0.0.0/8"] } }));
+  webHostBytes = readFileSync(webHostConfig, "utf8");
+  webBroker = createHostWebTools({ module: piInternal, root: webExecutorRoot, hostConfigPath: () => webHostConfig, env: {}, runtime: process.execPath,
+    path: process.env.PATH!, onReceipt: receipt => webReceipts.push(receipt), caCertificates: webTls.ca, egressPorts: [webProvider!.port!, webPages!.port!],
+    lookup: async host => { if (!host.endsWith(".odysseus.test")) throw new Error(`ENOTFOUND ${host}`); return [{ address: "127.0.0.1", family: 4 }]; } });
+  toolCalls = [{ name: "web_search", input: { query: "Odysseus mast" } }, { name: "fetch_content", input: { url: `http://harbour.odysseus.test:${webPages.port}/ithaca/log` } },
+    { name: "source_check", input: { claim: "The raft reaches Ithaca at dawn" } }];
+}
+/** The host-web follow-up: page the stored search by its host handle, and probe the host's files from inside the worker. */
+const hostWebFollowUp = (messages: unknown) => {
+  const handle = /wr_[A-Za-z0-9_-]{20,}/.exec(JSON.stringify(messages))?.[0] ?? "wr_missing";
+  return [{ name: "get_search_content", input: { responseId: handle, queryIndex: 0 } },
+    { name: "bash", input: { command: `cat '${webHostConfig}'; ls -laR '${webExecutorRoot}'; cat '${webExecutorRoot}'/*/agent/web-search.json; env; echo WORKER_WEB_PROBE_DONE` } }];
+};
 const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
   calls++;
-  const body = await request.json() as { tools?: Array<{ name: string }> };
-  const chosen = calls === 1 ? toolCalls : calls === 2 ? followUp : [];
+  const body = await request.json() as { tools?: Array<{ name: string }>; messages?: unknown };
+  if (calls === 1) firstTools = body.tools?.map(t => t.name) ?? [];
+  const chosen = calls === 1 ? toolCalls : calls === 2 ? (hostWeb ? hostWebFollowUp(body.messages) : followUp) : [];
   for (const tool of chosen) if (!body.tools?.some(t => t.name === tool.name)) throw new Error(`Fixture did not reach installed ${tool.name}`);
   const events: unknown[] = [{ type: "message_start", message: { id: "msg_fixture", type: "message", role: "assistant",
     model: "claude-sonnet-4-6", content: [], stop_reason: null, stop_sequence: null,
@@ -201,8 +285,11 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
   return new Response(events.map(event => `event: ${(event as any).type}\ndata: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
 } });
 writeFileSync(join(agentDir, "models.json"), JSON.stringify({ providers: { anthropic: { baseUrl: server.url.origin, apiKey: "offline-fixture" } } }));
-const parentState = defaultHomeState ? ["auth.json", "models.json", "settings.json"].map(name => readFileSync(join(agentDir, name), "utf8")) : undefined;
-const backend = createPiBackend({ brainPath, sessionDir,
+const parentFiles = ["auth.json", "models.json", "settings.json", "npm/node_modules/odysseus-worker-extension/package.json",
+  "npm/node_modules/odysseus-worker-extension/index.js", "npm/node_modules/odysseus-worker-extension/worker-write"];
+const parentBytes = () => parentFiles.map(name => existsSync(join(agentDir, name)) ? readFileSync(join(agentDir, name), "utf8") : null);
+const parentState = parentBytes();
+const backend = createPiBackend({ brainPath, sessionDir, ...(inactiveExtension ? {} : { loadExtensions: extensionOnly || cachedPackageState }),
   ...(scenario === "forge-bridge" ? { allowedTools: ["forge_worker"] } : {}),
   profiles: [{ id: "fixture", label: "Fixture", vendor: "anthropic", model: "claude-sonnet-4-6", thinkingLevel: "off" }], confirmBashPatterns: [] });
 const db = createUiDb(":memory:");
@@ -215,7 +302,7 @@ const apply = createBrainApplication({ planner: nativeHost.applicationPlanner, r
   } });
 const bridge = { emit(frame: ServerMessage) {
   frames.push(frame);
-  if (scenario === "cancel" && frame.type === "tool_use_start" && frame.toolName === "linger_worker") {
+  if (scenario === "cancel" && frame.type === "tool_use_start" && frame.toolName === "bash") {
     setTimeout(() => { for (const pid of [...hostPids]) descendants(pid); controller.abort(); }, 200);
   }
   if (scenario === "forge-revoked" && frame.type === "tool_use_start") { authorized = false; controller.abort(); }
@@ -241,14 +328,17 @@ host.clients.add({ send(text) {
   if (scenario === "mask-stale") writeFileSync(join(brainPath, "notes/raft.png"), "concurrently changed image");
   pending.resolve(png);
 } }, "odysseus");
-const maskBridge = await makeBridge(host, maskTurn, "Odysseus worker proof", "pi", {
+const maskBridge = await makeBridge(host, maskTurn, { promptText: "Odysseus worker proof", backendId: "pi", recorder: {
   recordApplication(result: BrainApplicationResult) {
     applicationReceipts.push(result);
     if (scenario === "mask-cancel-commit" && result.ok) controller.abort();
   },
-} as TurnRecorder, undefined, undefined, undefined, backend.brainApplicationPolicy!({})!);
+} as TurnRecorder, applicationPolicy: backend.brainApplicationPolicy!({})! });
+const webAccess = webBroker ? createWebAccess({ host: { webTools: webBroker }, turn: { sessionId: "s-ithaca" }, turnId: "worker-turn", principalId: "odysseus",
+  signal: controller.signal, backendId: "pi", workerProfile: { origin: "interactive", actualProfile: "governed" }, current: () => !controller.signal.aborted,
+  recordingAvailable: () => true } as never, { collectedSessionId: "s-ithaca" }, { policy: { hash: "rev-odyssey", policy: { providers: [] } } } as never).webAccess : undefined;
 const activeBridge = scenario.startsWith("mask-") ? { ...bridge, requestMask: maskBridge.requestMask,
-  ...(scenario !== "mask-no-route" ? { applyImageMask: maskBridge.applyImageMask } : {}) } : bridge;
+  ...(scenario !== "mask-no-route" ? { applyImageMask: maskBridge.applyImageMask } : {}) } : webAccess ? { ...bridge, webAccess } : bridge;
 if (scenario === "failed-host") workerHostBoundary.probe = () => ({ ok: false, requirement: "fixture missing namespaces" });
 if (scenario === "pre-aborted") controller.abort();
 const deadline = setTimeout(() => controller.abort(), 15_000);
@@ -265,8 +355,15 @@ try {
     await startFixtureTurn(backend, brainPath, { sessionId: sessions[0].id, prompt: "Continue sailing", signal: new AbortController().signal, bridge,
       ...(stateSandbox ? { workerSandbox: stateSandbox } : {}) });
   }
-  console.log(JSON.stringify({ frames, calls, approvals, bridgeEffects, applicationReceipts, failure, sessions, histories,
-    parentStateUnchanged: parentState?.every((bytes, index) => bytes === readFileSync(join(agentDir, ["auth.json", "models.json", "settings.json"][index]!), "utf8")),
+  let web: unknown;
+  if (webBroker) {
+    await webBroker.close();
+    web = { receipts: webReceipts, providerKeys: webProviderKeys, sentinel: webSentinel, hostConfigUnchanged: readFileSync(webHostConfig, "utf8") === webHostBytes,
+      executorEntriesAfterClose: existsSync(webExecutorRoot) ? readdirSync(webExecutorRoot) : null,
+      parentAgentEntries: readdirSync(agentDir, { recursive: true }).map(String).sort() };
+  }
+  console.log(JSON.stringify({ web, frames, calls, firstTools, approvals, bridgeEffects, applicationReceipts, failure, sessions, histories,
+    parentStateUnchanged: JSON.stringify(parentState) === JSON.stringify(parentBytes()),
     parentHomeWriteExists: defaultHomeState ? existsSync("/root/worker-home-write") : undefined,
     resumedHistory: sessions[0] ? await backend.getHistory(sessions[0].id) : [],
     policyBytes: readFileSync(policyPath, "utf8"), policyMembers: readdirSync(join(brainPath, "context/policies")),
@@ -274,4 +371,4 @@ try {
     voyageLog: existsSync(join(brainPath, "notes/voyage-log.md")) ? readFileSync(join(brainPath, "notes/voyage-log.md"), "utf8") : null,
     mask: existsSync(join(brainPath, "notes/raft.mask.png")) ? [...readFileSync(join(brainPath, "notes/raft.mask.png"))] : null,
     running: [...hostPids].filter(pid => existsSync(`/proc/${pid}`)), hostPids: [...hostPids] }));
-} finally { clearTimeout(deadline); Bun.spawn = originalSpawn; server.stop(true); authorization.release(); await host.close(); await nativeHost.close(); db.close(); }
+} finally { clearTimeout(deadline); Bun.spawn = originalSpawn; server.stop(true); await webBroker?.close(); webProvider?.stop(true); webPages?.stop(true); authorization.release(); await host.close(); await nativeHost.close(); db.close(); }

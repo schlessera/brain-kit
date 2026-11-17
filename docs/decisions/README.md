@@ -11,8 +11,11 @@ somebody already learn the hard way?*
 
 | Record | What it decides |
 | --- | --- |
+| [apify-actor-approval.md](apify-actor-approval.md) | Actor-scoped approve once/always/deny, credential-extraction scanning, shared Apify/turn spending and module availability; supersedes qualified-build admission. |
 | [github-actions-ci.md](github-actions-ci.md) | GitHub Actions as the sole CI provider, with preserved automatic/local guarantees and safe fork execution. |
 | [ci-utility.md](ci-utility.md) | Complete affected hosted proof, cheap local feedback and concurrent ready-PR scheduling without removing tests or blocking unrelated merges. |
+| [ci-evidence.md](ci-evidence.md) | Permanent append-only CI measurements, monthly versioned records, pinned-issue delivery, daily/weekly cadence and job-scoped publication permissions. |
+| [test-health.md](test-health.md) | Why existing tests are kept in shape by a recurring scripted audit that lands unreviewed per-package batches behind mechanical proof, with its ledger on a separate ref and a full-pass wrapper that adds only scale. |
 | [isolated-ci-build.md](isolated-ci-build.md) | Dormant fixed CI build operation, explicit activation deferral and conservative ordinary-build fallback. |
 | [tag-aliases.md](tag-aliases.md) | No-go for the tested semantic alias pipeline: Jev recognizes the aliases, but candidate retrieval misses one found by the shipped audit skill. |
 | [example-corpus.md](example-corpus.md) | Odysseus as the sole example world across core, CLI, docs and presentation; separate technical representations and historical evidence. |
@@ -25,6 +28,7 @@ somebody already learn the hard way?*
 | [approval-capture-raster.md](approval-capture-raster.md) | The original one-channel underline mismatch, bounded native non-reproduction controls and why strict equality and causal limits remain. |
 | [feature-captures.md](feature-captures.md) | Why public feature assets use curated real sources, explicit crops and font/build provenance, with separate runtime evidence for behavior claims. |
 | [hardening.md](hardening.md) | The 2026-09-06 layer review's fixes: the origin policy, the sessions epoch, subprocess environment filtering, the shared bridge tools, self-describing backends, and why they shipped in that order. |
+| [proportionate-containment.md](proportionate-containment.md) | Why a fail-closed guard restricts only what is uncertain, runs restricted before refusing, recovers automatically when no judgment is needed and records its cause; the checklist every new guard answers. |
 | [container-privilege.md](https://github.com/schlessera/brain-hosting-template/blob/main/docs/decisions/container-privilege.md) (in brain-hosting-template) | How the server and the agent are separated in the deployment container, and the two measurements that decided it. Supersedes hardening.md's decision 8. Moved to the hosting template, which builds the container (#303). |
 | [session-handoff.md](session-handoff.md) | Why handoff to any available profile creates a new linked session seeded with a reviewed handoff, why preparation is a nonpersistent run on the source, and how a handoff key keeps an uncertain send from creating a second session. |
 | [answer-delivery.md](answer-delivery.md) | Why the four ask answers are saved on the device, sent with a submission id and shown as answered only on the host's receipt; one card per request, the tool_use id as its identity, and the foreground liveness probe (#910). |
@@ -43,19 +47,22 @@ somebody already learn the hard way?*
 | [managed-worktrees.md](managed-worktrees.md) | Why managed reference worktrees snapshot authorized source, reach a worker only through a covered generation of the same principal, renew only on explicit activity, survive expiry while their worker lives and record cleanup facts without deleting anything. |
 | [reference-worktrees.md](reference-worktrees.md) | Why read-only shared source and centrally managed governed worktrees use separate authority/freshness clocks, an actual-allocation Btrfs budget and preservation-aware cleanup. |
 | [governed-writable-workers.md](governed-writable-workers.md) | Why interactive and voice turns write the brain directly again inside the worker: the four guardrail classes, in-brain policy read-only to agents, protected paths with self-bound ancestors, the per-turn journal with revert, budgets, scope caps, egress, the three write areas and roadblock tracking. Supersedes parts of policy-write-boundary.md. |
+| [session-safety-reviews.md](session-safety-reviews.md) | The prospective G6 supersession: finalized individual owner verdicts, complete detector coverage, separate future source/recipient trust, bounded evidence, live revision checks and protected publication. |
 | [action-notifications.md](action-notifications.md) | Why Action notices use fixed cross-thread batches, client-local quiet/digest schedules, new waiting episodes and durable per-destination submission/coverage history. |
 | [hygiene-review.md](hygiene-review.md) | Why async hygiene review orders eligible findings by severity/known urgency, merges equivalent source reports and invalidates dispositions only on relevant evidence changes. |
 | [agent-observability.md](agent-observability.md) | Runs, spans, the Activity surface, the failure inbox and the digest. |
 | [sqlite-write-worker.md](sqlite-write-worker.md) | Why journal, Activity and native-lease commits run at `synchronous=FULL` on a per-database write worker thread, in submission order, while the event loop awaits them. |
 | [cost-tracking.md](cost-tracking.md) | List price versus effective cost, and why unknown cost is never rendered as zero. |
 | [apify-capability.md](apify-capability.md) | Explicit Apify activation and discovery consent, pinned upstream evidence, and the selected bounded execution contract. |
+| [external-compute.md](external-compute.md) | Why external compute is a public `ComputeProvider` seam with explicit provider instances, host-owned job lifecycle, finite leases, unknown-cost admission and Boat as a separate first package. |
 | [design-feedback.md](design-feedback.md) | The design defects building the kit found, the measurement behind each, and the ruling that settled it. Cited by section number from `packages/ui-kit` source. |
 | [geo-operations.md](geo-operations.md) | Why one independent concrete geo library owns shared operations, with strict travel compatibility and explicit recovered-track evidence. |
 | [map-geometry.md](map-geometry.md) | Why `MapView` draws committed OpenStreetMap geometry rather than fetching tiles, and how the `map` block draws places the model names on the same geometry. |
 | [voice-permission.md](voice-permission.md) | What a tool approval is in a spoken conversation: the voice tool posture, why voice may refuse but never grant, and what that shares with the restricted execution profile. |
-| [chat-history-deletion.md](chat-history-deletion.md) | Authenticated own-chat local deletion, permanent minimized replay fences, retained independent records and accepted backup limits; policy approved before runtime implementation. |
+| [chat-attachments.md](chat-attachments.md) | Generic composer attachments: one source-to-processing pipeline, filesystem originals owned by acknowledged drafts and conversations, the 10/25 MB/50 MB envelope inside a 1 GiB pool, one-hour and seven-day cleanup, and a shared local reader delivering PDF/text contents on demand; policy approved before implementation. |
+| [chat-history-deletion.md](chat-history-deletion.md) | Authenticated own-chat local deletion, permanent minimized replay fences, retained independent records and accepted backup limits; policy approved before runtime implementation. Typed chats record a content-free creation owner, distinct from the dialogue owner, with no legacy backfill (#3337). |
 | [live-conversation.md](live-conversation.md) | Why Gemini Live and OpenAI GPT-Live share one host-owned conversation interface; the October 29 continuous-capture and bounded audible-recovery direction supersedes routine Resume requirements without certifying runtime readiness. |
-| [dictation-speech.md](dictation-speech.md) | Why external dictation providers reach the real server by value, how explicit selection and matching client registration work, what conformance freezes at 1.0, and why saved audio uses explicit server-side transcription with permanent classified receipts. |
+| [dictation-speech.md](dictation-speech.md) | Why external dictation providers reach the real server by value, how explicit selection and matching client registration work, what conformance freezes at 1.0, why saved audio uses explicit server-side transcription with permanent classified receipts, and how several dictation providers (including Gemini Transcribe Live) are registered, chosen and frozen per take and upload. |
 | [public-export-boundary.md](public-export-boundary.md) | Why public exports were reduced before 1.0 instead of frozen, what ordinary and `/internal` entry points promise, how signature-reachable types are checked, and the migration for every removed or moved import. |
 | [backend-authoring-toolkit.md](backend-authoring-toolkit.md) | The supported permission toolkit, reachable types, internal policy inventory and migration under the Q1/Q2 rulings. |
 | [confirm-patterns.md](confirm-patterns.md) | Why a nonempty confirmation-pattern list with no valid regex rejects backend initialization, while explicit empty lists and mixed valid/invalid lists retain their meaning. |
@@ -66,6 +73,7 @@ somebody already learn the hard way?*
 | [audit-repair-suggestions.md](audit-repair-suggestions.md) | Why `audit --fix` suggestions should come from registered repair capabilities: the current completion prompt scored below the providerless text and never recognized a repairable finding. |
 | [candidate-extraction.md](candidate-extraction.md) | Why code plus Jev does not replace research extraction: it invents event-end field values and the calibrated floor drops announced contacts. |
 | [mechanical-hygiene.md](mechanical-hygiene.md) | Why conservative date and Status-table repairs belong in CLI code: the lean skill/code/Jev comparison, source-byte quality, vetoes and limits. |
+| [propagation-triage.md](propagation-triage.md) | Why Jev can filter propagation review on supplied source context in the authored comparison, with and without explicit diffs, while uncertainty labels and date-only acknowledgements remain separate. |
 | [smart-capture.md](smart-capture.md) | What the lean comparison supports for bounded capture routing, vocabulary tags and literal writes, and where the small authored sample stops. |
 | [routing-only-capture.md](routing-only-capture.md) | Why the routing-only smart-capture split is a no-go as frozen: code plus Jev made no wrong-target append but fell below the shipped skill on type and target, and the tool-less tag step over-tagged within the vocabulary. |
 | [import-enrichment.md](import-enrichment.md) | Why import Stage 3 retains the combined skill call: Jev's tag F1 and damaged-input safety gains do not offset lower type accuracy and accepted coverage at the measured input framing and floor. |
@@ -74,6 +82,7 @@ somebody already learn the hard way?*
 | [job-fit.md](job-fit.md) | Why the lean Jev job-fit candidate is not adopted: improved keyword scoring still permits unsupported eligibility and falsely excludes a quoted restriction. |
 | [canonical-conflicts.md](canonical-conflicts.md) | Why the tuning-calibrated Jev conflict pass is a no-go: it avoids false reports but loses Role/Status recall; the favorable unfiltered held-out answers do not license changing the floor. |
 | [interpreted-briefing.md](interpreted-briefing.md) | No-go for Jev-selected Haiku briefings: synthesis adds omissions, invented counts and clock confusion despite repeatable Choice labels. |
+| [bounded-multi-read.md](bounded-multi-read.md) | Why a bounded `brain_read_many` is a distinct tool justified by caps, versions and completeness rather than savings: same-content batches measured larger than parallel reads, the exact contract #3642 builds, and real-model usability left unmeasured. |
 | [measurement-archive.md](measurement-archive.md) | Why historical measurement outputs and spikes live on a commit-pinned archive branch while active fixtures and goldens stay in place, with the file-level inventory behind #1385. |
 | [experiment-tier.md](experiment-tier.md) | Why measurement-harness tests live under `experiments/`, outside product discovery, and run as a receipt-checked gate before each release, with the file- and assertion-level inventory behind #1386. |
 | [runtime-requirements.md](runtime-requirements.md) | Why package ranges and package/host runtime minimums compose, which loaded/executed identities are checked, how unknown versions and overrides behave, and why compatibility stays separate from measurement. |
@@ -83,6 +92,8 @@ somebody already learn the hard way?*
 | [reranker-activation.md](reranker-activation.md) | Why model judgment requires persistent opt-in across search entry points, why credentials and modes cannot enable it, and why the measured Jev provider and seam remain available. |
 | [gemini-agent-contract.md](gemini-agent-contract.md) | Why Gemini embeds the single installed contract, how migration preserves user text and refuses ambiguous markers, and why sync leaves exact root/nested instruction conflicts for judgment. |
 | [graph-ranking-signal.md](graph-ranking-signal.md) | Why the link graph does not move search results: a boost on the current-focus document's neighbours, measured on the keyless goldens, rewards structural hubs and leaves the class it was meant for unchanged. |
+| [multi-root-graph.md](multi-root-graph.md) | No-go for a multi-root `brain_graph`: measured shared work and duplicate content are small, provenance costs back most of the saving, and one shared output budget needs a fairness rule that independent parallel calls do not; the single-root gaps it found are separate candidates. |
+| [multi-query-search.md](multi-query-search.md) | No-go for a multi-query `brain_search`: parallel calls already group into the same provider requests, deduplication can fold only query-independent fields and grows disjoint answers, and one shared budget loses evidence that per-call budgets keep; path scope for single-query search is the separate candidate it found. |
 | [deterministic-sync.md](deterministic-sync.md) | Why `brain sync` runs without an agent: a pull that finishes pending merge state first (#328), deterministic merge strategies built from verbatim blocks, Jev for two fixed-answer judgments under D42's rules with an order-consistency check, keep-both as the unjudged default, and what stays with the agent. |
 | [html-preview-sandbox.md](html-preview-sandbox.md) | Why an HTML file's script runs in an opaque origin from a sandboxing CSP and iframe, why the browser rather than the cookie is the API barrier, and the two navigation risks accepted in #1084. |
 | [http-api-boundary.md](http-api-boundary.md) | Why independent HTTP APIs and supported SDK dependencies have explicit contracts while paired UI transports remain internal. |
@@ -182,7 +193,7 @@ it is told something confidently wrong. So name what you point at, and let the
 range follow it:
 
 ```md
-(`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:200-229`)
+(`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:289-330`)
 ```
 
 - **The anchor** is the code span immediately before the citation, joined to it
@@ -209,10 +220,18 @@ Before merging a change to a file, look for what cites it:
 git grep -n 'permission-hooks.ts:' -- docs packages
 ```
 
-`tests/decision-citations.test.ts` fails when a citation anywhere under `docs/` no
-longer starts on its anchor, names no anchor, or names a file it cannot find.
-`bun scripts/check-citations.ts` prints the same report on its own, including
-where each drifted anchor now is. What it does **not** check:
+**Citations are checked at release, not at merge** (maintainer ruling,
+2026-11-03). Any PR that moves lines in a cited file drifts other PRs'
+citations, so failing every merge on drift turned main red for documentation
+alone. `experiments/decision-citations.test.ts` fails when a citation anywhere
+under `docs/` no longer starts on its anchor, names no anchor, or names a file
+it cannot find. It runs in the experiment tier, which `bun run release`
+requires on the exact tree it publishes, so no release ships a drifted record.
+`tests/decision-citations.test.ts` still runs on every merge, but only for the
+checker's own rules and the one tree-wide rule that cannot drift: no citation
+into a private repository. `bun scripts/check-citations.ts` prints the full
+report on its own, including where each drifted anchor now is; run it before
+versioning and fix what it reports. What it does **not** check:
 
 - **The end of a range.** A range that grows or shrinks around its first line
   still passes.

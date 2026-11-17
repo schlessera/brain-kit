@@ -5,8 +5,8 @@ import { queryRoadblockReport, ROADBLOCK_REPORT_QUERY } from "../governance/road
 import type { AppEnv } from "../app-env.js";
 import { isGovernanceEventKind, queryGovernanceEvents, type GovernanceEventKind } from "../governance/events.js";
 
-export const GOVERNANCE_EVENTS_DEFAULT_LIMIT = 100;
-export const GOVERNANCE_EVENTS_MAX_LIMIT = 500;
+const GOVERNANCE_EVENTS_DEFAULT_LIMIT = 100;
+const GOVERNANCE_EVENTS_MAX_LIMIT = 500;
 const ID_MAX = 200;
 
 /**

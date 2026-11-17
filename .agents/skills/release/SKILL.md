@@ -12,7 +12,7 @@ once, and most were documented in prose before they happened again. A release
 that hits something new is not finished until that lands here or in a test — see
 [When the release hits something not in this skill](#when-the-release-hits-something-not-in-this-skill).
 
-All nineteen packages move in lockstep through a changesets `fixed` group. One
+All twenty packages move in lockstep through a changesets `fixed` group. One
 mistake therefore lands on the whole group at once.
 
 For a focused patch release, freeze a release branch at the recorded base and
@@ -163,7 +163,11 @@ bun run check:pr --all
 ## The experiment tier
 
 Tests that exercise only measurement and eval harnesses live under
-`experiments/`, outside `bun run test`, `check:pr` and hosted CI. Release
+`experiments/`, outside `bun run test`, `check:pr` and hosted CI. So does the
+release check that every code citation under `docs/` still starts on its
+anchor (`experiments/decision-citations.test.ts`): merges do not fail on
+citation drift, so run `bun scripts/check-citations.ts` before versioning and
+fix everything it reports in the release PR. Release
 preparation runs every one of them, on the post-version candidate:
 
 ```sh
@@ -195,9 +199,13 @@ from a direct `bun run test experiments/…`, about 34 native/paid-harness
 failures with "Installed dependency inode has external hardlinks")? Bun's
 default install hard-links `node_modules` to its global cache, and the offline
 harnesses refuse runtime bytes they do not own. Reinstall the same lock as
-copies and rerun: `rm -rf node_modules && bun install --frozen-lockfile
---backend=copyfile`. The lock is unchanged, so this does not invalidate
-anything; do not skip or edit the tests.
+copies using [dependency diagnostic preparation](../../../docs/process/diagnostic-installs.md):
+preserve evidence, move aside only the owned checkout's `node_modules`, then run
+`sh scripts/prepare-diagnostic-install.sh`. A fresh private cache avoids modified
+shared-cache bytes; copyfile alone does not verify provenance. Keep the lock unchanged,
+rebuild, and rerun. Retain the old failed receipt;
+a changed installation requires fresh proof, even with an unchanged lock. Do not
+skip or edit the tests.
 
 **An offline experiment app refuses with `Hosted workers require managed Btrfs
 storage`?** Measurement harnesses are outside the normal product tests and
@@ -354,7 +362,9 @@ bun run release        # build, publish, `changeset tag`, publish the template
   including every command and flag the server invokes. The `.brain-index/`
   index location needs 0.44.0: the 0.44.0 version PR raises the floor to
   `INDEX_DIRECTORY_CLI_VERSION`, and `tests/cli-inventory.test.ts` fails that
-  version bump until it does. Scratch pin input needs 0.42.0; hygiene review needs
+  version bump until it does. Media hygiene review (`hygiene next --defer`) needs
+  0.45.0: the 0.45.0 version PR raises the floor to `HYGIENE_MEDIA_CLI_VERSION`,
+  and the same test fails that bump until it does. Scratch pin input needs 0.42.0; hygiene review needs
   0.41.0; `stats --history` and module settings need 0.40.0. The original
   0.33.0 floor covered the `--` separator but did not cover those later calls.
   A CLI below the floor refuses server startup with the required version.

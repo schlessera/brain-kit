@@ -5,17 +5,21 @@
  * A rerun is only a triage probe: it never turns proof green or makes anything mergeable.
  */
 import { scanText } from "./check-leakage";
-import { addSuspect, attachIncident, CATEGORIES, classifyFailure, clearRed, coversRedSet, failureKey, junitFailures, openRed, refineFirstBad,
+import { addSuspect, attachIncident, CATEGORIES, classifyFailure, clearRed, coversRedSet, failureKey, gateDecision, junitFailures, openRed, postMergeOnly, refineFirstBad,
   reportLanded, settleSuspect, type Category, type FailureEvidence, type IncludedRedSet, type RedFailure, type RedMainRecord, type Signature } from "./red-main";
 
 export const PROBE_WORKFLOW = "red-main-probe.yml";
+/** The shard's merged JUnit report, or one per unit worker (`scripts/unit-workers.ts`). */
+export const UNIT_REPORT = /^unit-(?:worker-\d+-)?report\.xml$/;
 /** Bisect only bounded ranges; a wider range keeps the conservative first red. */
 export const MAX_BISECT = 10;
 const SETUP_STEP = /prerequisites|environment setup/i;
 
 export interface WorkflowRun {
   id: number; name: string; event: string; head_branch: string; head_sha: string; status: string; conclusion: string | null;
-  run_attempt: number; display_title: string; created_at: string; pull_requests?: { number: number }[];
+  run_attempt: number; display_title: string; created_at: string;
+  /** GitHub records each PR's base and head as they stood when the run was created. */
+  pull_requests?: { number: number; base?: { sha: string }; head?: { sha: string } }[];
 }
 export interface Job { id: number; name: string; conclusion: string | null; steps?: { name: string; conclusion: string | null }[]; }
 export interface Snapshot { oid: string | null; redMain: RedMainRecord; }
@@ -27,8 +31,8 @@ export interface CoordinatorIO {
   now(): Promise<number>;
   read(): Snapshot;
   publish(snapshot: Snapshot, record: RedMainRecord): boolean;
-  /** Text of every named file inside the run's artifacts matching the prefix. */
-  artifactFiles(run: number, prefix: string, file: string): Promise<string[]>;
+  /** Every file, at any depth inside the named artifact, whose base name matches. */
+  artifactFiles(run: number, artifact: string, file: RegExp): Promise<{ name: string; text: string }[]>;
   log(job: number): Promise<string>;
   /** Whether a failing test or category belongs to the commit's own affected closure; null when unknown. */
   inClosure(sha: string, failure: { test: string | null; category: Category }): boolean | null;
@@ -48,7 +52,7 @@ export const incidentMarker = (run: number) => `<!-- brain-red-main: run ${run} 
 export const flakeMarker = (key: string) => `<!-- brain-flake: ${key} -->`;
 
 /** Retries a compare-and-swap update of the shared record; an unchanged result writes nothing. */
-export async function updateRecord(io: CoordinatorIO, update: (record: RedMainRecord, now: number) => RedMainRecord): Promise<{ before: RedMainRecord; after: RedMainRecord }> {
+export async function updateRecord(io: Pick<CoordinatorIO, "read" | "publish" | "now">, update: (record: RedMainRecord, now: number) => RedMainRecord): Promise<{ before: RedMainRecord; after: RedMainRecord }> {
   for (let attempt = 0; attempt < 5; attempt++) {
     const snapshot = io.read(), after = update(snapshot.redMain, await io.now());
     if (after === snapshot.redMain) return { before: snapshot.redMain, after };
@@ -74,8 +78,11 @@ export async function runFailures(io: CoordinatorIO, run: WorkflowRun, jobs: Job
     const fallback: Signature = setup ? "setup" : job.conclusion === "timed_out" ? "timeout" : "unknown";
     if (category === "unit" && !setup) {
       const shard = /\((\d+)\)/.exec(job.name)?.[1];
-      const reports = shard ? await io.artifactFiles(run.id, `unit-proof-${shard}`, "unit-report.xml") : [];
-      const tests = reports.flatMap(junitFailures);
+      // The shard's merged report exists only once every worker's report
+      // reconciled; a failing shard may carry only its workers' own reports (#3324).
+      const files = shard ? await io.artifactFiles(run.id, `unit-proof-${shard}`, UNIT_REPORT) : [];
+      const merged = files.filter(file => file.name === "unit-report.xml");
+      const tests = (merged.length ? merged : files).flatMap(file => junitFailures(file.text));
       if (tests.length) {
         for (const { test, signature } of tests) out.push({ test, category, signature, inClosure: io.inClosure(run.head_sha, { test, category }) });
         continue;
@@ -114,7 +121,12 @@ export async function ensureIncident(io: CoordinatorIO, record: RedMainRecord): 
       "Failing tests and categories:",
       ...open.failures.map(f => `- \`${f.test ?? f.category}\` (${f.category}; ${f.reasons.join(", ")}; run ${runUrl(io, f.run)})`),
       "",
-      "Hosted proof whose merge ref contains this commit is refused or cancelled, and `integrate.ts` refuses ordinary confirmation and merges, until a main run that includes this failing set is green. Declare a fix PR with `bun scripts/integrate.ts declare-fix <pr>`; the first confirmed fix wins. Only a green main run that includes this failing set clears the record, so a failure that does not reproduce still needs a declared fix to land.",
+      postMergeOnly(open.failures)
+        ? "Every failure here is post-merge proof, which ready confirmation does not run, so ordinary confirmation and merges continue. Each main run includes this failing set until one is green."
+        : "Hosted proof whose merge ref contains this commit is refused or cancelled, and `integrate.ts` refuses ordinary confirmation and merges, until a main run that includes this failing set is green.",
+      "Declare a fix or targeted revert PR with `bun scripts/integrate.ts declare-fix <pr>`; the first confirmed fix wins. Only a green main run that includes this failing set clears the record, so a failure that does not reproduce still needs a declared fix to land.",
+      "",
+      "One orchestrator owns the fix: it claims it with `bun scripts/red-main-incident.ts claim --worker <id> --orchestrator <id>`, which writes the claim into the red-main record. After a quick assessment the claimant chooses a fix PR or a targeted revert PR from causal and current-tree evidence, and records that choice and its rationale here as `decision` evidence; a red check or the latest squash alone is not proof of cause. Every other orchestrator adds evidence here with `bun scripts/red-main-incident.ts evidence ...` instead of opening another issue.",
       ...(related.size ? ["", `Possibly related open issues: ${[...related].sort((a, b) => a - b).map(n => `#${n}`).join(", ")}.`] : []),
     ];
     const issue = await io.write("POST", `repos/${io.repository}/issues`, {
@@ -137,7 +149,11 @@ export async function noteFlake(io: CoordinatorIO, key: string, text: string, ex
   return issue.number as number;
 }
 
-/** Cancels in-progress PR proof created after the bad commit landed, except declared fixes. */
+/**
+ * Cancels queued and in-progress PR proof whose tested merge ref contains the bad
+ * commit, except declared fixes (#3321). The merge ref contains it when the PR's
+ * base or head at run creation descends from it; unknown ancestry leaves the run alone.
+ */
 export async function cancelDoomed(io: CoordinatorIO, record: RedMainRecord): Promise<number[]> {
   const open = record.open;
   if (!open) return [];
@@ -145,8 +161,19 @@ export async function cancelDoomed(io: CoordinatorIO, record: RedMainRecord): Pr
   for (const status of ["queued", "in_progress"]) {
     const runs = await io.json(`repos/${io.repository}/actions/workflows/ci.yml/runs?event=pull_request&status=${status}&per_page=100`);
     for (const run of (runs.workflow_runs ?? []) as WorkflowRun[]) {
-      const prs = (run.pull_requests ?? []).map(pr => pr.number);
-      if (!prs.length || prs.some(pr => open.fixes.includes(pr)) || Date.parse(run.created_at) < landed) continue;
+      const prs = run.pull_requests ?? [];
+      // A run created before the bad commit landed cannot test a merge ref containing it.
+      if (!prs.length || Date.parse(run.created_at) < landed) continue;
+      let doomed: boolean;
+      try {
+        // Without the recorded base the merge ref is unknown, so the run is not doomed.
+        doomed = prs.every(pr => gateDecision({ record, pr: pr.number,
+          contains: sha => pr.base?.sha !== undefined && (io.isAncestor(sha, pr.base.sha) || io.isAncestor(sha, run.head_sha)) }).refuse);
+      } catch (error) {
+        io.print(`left run ${run.id} alone: ancestry of ${short(open.firstBad)} unknown (${error instanceof Error ? error.message : String(error)})`);
+        continue;
+      }
+      if (!doomed) continue;
       await io.write("POST", `repos/${io.repository}/actions/runs/${run.id}/cancel`);
       cancelled.push(run.id);
     }
@@ -158,6 +185,8 @@ export async function cancelDoomed(io: CoordinatorIO, record: RedMainRecord): Pr
 export async function detectLanded(io: CoordinatorIO, record: RedMainRecord, run: WorkflowRun): Promise<boolean> {
   const open = record.open, sha = run.head_sha;
   if (!open || sha === open.firstBad || open.reported.includes(sha) || !io.isAncestor(open.firstBad, sha)) return false;
+  // Landing while only post-merge proof is red is the hybrid model's normal path, not a bypass.
+  if (postMergeOnly(open.failures)) return false;
   const pulls = await io.json(`repos/${io.repository}/commits/${sha}/pulls`);
   const pr = (pulls as { number: number; merged_at: string | null }[]).find(p => p.merged_at)?.number;
   if (!pr || open.fixes.includes(pr)) return false;
@@ -275,7 +304,9 @@ async function handleProbe(io: CoordinatorIO, run: WorkflowRun) {
   }
   if (!real.length) return;
   const { after } = await updateRecord(io, (current, now) => openRed(current, { firstBad: identity.sha, run: identity.source, failures: real }, now));
-  await cancelDoomed(io, await ensureIncident(io, after));
+  const withIncident = await ensureIncident(io, after), cancelled = await cancelDoomed(io, withIncident);
+  // The same line as a main run's, so the evidence collector (#2953) sees every cancellation.
+  io.print(`BRAIN_RED_MAIN ${JSON.stringify({ firstBad: withIncident.open?.firstBad, incident: withIncident.open?.incident, cancelled })}`);
 }
 
 export async function coordinate(io: CoordinatorIO, run: WorkflowRun) {

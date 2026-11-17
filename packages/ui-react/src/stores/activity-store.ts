@@ -9,6 +9,3 @@ export const useActivityStore = Object.assign(
   },
   defaultRoot.stores.activity,
 );
-
-export const loadSessionActivityHistory = defaultRoot.stores.activity.loadSessionActivityHistory;
-export const loadSpanPayloads = defaultRoot.stores.activity.loadSpanPayloads;

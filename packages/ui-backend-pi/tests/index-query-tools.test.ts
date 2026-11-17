@@ -132,7 +132,7 @@ describe("registered pi query tools match real core MCP on a populated CLI index
     expect(actual.edges).toContainEqual({ source: CENTER, target: CENTER, resolved: true });
     expect(actual.nodes.find(n => n.path === ISLAND)).toEqual({ path: ISLAND, title: "Ithaca", type: "project", summary: "Return to Ithaca", updated: "2026-01-03" });
     expect(actual.nodes.map(n => n.path)).toEqual([...actual.nodes.map(n => n.path)].sort());
-    expect(actual.nodes.some(n => n.path === "Absent Island" || n.path === "Unknown Harbour")).toBe(false);
+    expect(actual.nodes.filter(n => n.path === "Absent Island" || n.path === "Unknown Harbour")).toEqual([]);
     expect(await graph(call, { path: "notes/absent.md" })).toEqual({ edges: [], nodes: [] });
   });
 
@@ -150,8 +150,8 @@ describe("registered pi query tools match real core MCP on a populated CLI index
     expect(await list(call, { limit: 0 })).toHaveLength(1);
     const all = await list(call, { limit: 1000 });
     expect(all).toHaveLength(100);
-    expect(all.some(d => d.path === "notes/archive.md" || d.path === "notes/voyage-000.md")).toBe(false);
-    expect((await list(call, { type: "project" })).some(d => d.relevance === null && d.tags === null)).toBe(true);
+    expect(all.filter(d => d.path === "notes/archive.md" || d.path === "notes/voyage-000.md")).toEqual([]);
+    expect(await list(call, { type: "project" })).toContainEqual(expect.objectContaining({ relevance: null, tags: null }));
     expect(await list(call, { tag: "absent" })).toEqual([]);
   });
 });
@@ -253,7 +253,7 @@ describe("registered pi tools keep the core query snapshot and connection lifeti
     const dir = clone();
     const call = tools(dir);
     const before = await graph(call);
-    expect(before.nodes.some(n => n.path === ISLAND)).toBe(true);
+    expect(before.nodes.map(n => n.path)).toContain(ISLAND);
     const writer = new Database(join(dir, ".brain-index", "brain.db"));
     writer.exec("PRAGMA journal_mode=WAL");
     let committed = false;
@@ -267,7 +267,7 @@ describe("registered pi tools keep the core query snapshot and connection lifeti
       expect(committed).toBe(true);
       expect(actual, "edges and metadata must come from the pre-deletion snapshot").toEqual(before);
       const next = await graph(call);
-      expect(next.nodes.some(n => n.path === ISLAND)).toBe(false);
+      expect(next.nodes.map(n => n.path)).not.toContain(ISLAND);
       expect(next.edges).toContainEqual({ source: CENTER, target: "ithaca", resolved: false });
     } finally { writer.close(true); }
   });
@@ -303,17 +303,17 @@ describe("registered pi tools keep the core query snapshot and connection lifeti
     const call = tools(dir);
     const oldList = await list(call);
     const oldGraph = await graph(call);
-    expect(oldList.some(d => d.title !== "Replaced Ithaca")).toBe(true);
-    expect(oldGraph.nodes.some(d => d.title !== "Replaced Ithaca")).toBe(true);
+    expect(oldList.map(d => d.title)).not.toContain("Replaced Ithaca");
+    expect(oldGraph.nodes.map(d => d.title)).not.toContain("Replaced Ithaca");
     renameSync(join(replacement, ".brain-index", "brain.db"), join(dir, ".brain-index", "brain.db"));
     const nextList = await list(call);
     const nextGraph = await graph(call);
     expect(nextList.length).toBeGreaterThan(0);
     expect(nextGraph.nodes.length).toBeGreaterThan(0);
-    expect(nextList.every(d => d.title === "Replaced Ithaca")).toBe(true);
-    expect(nextGraph.nodes.every(d => d.title === "Replaced Ithaca")).toBe(true);
-    expect(oldList.some(d => d.title !== "Replaced Ithaca")).toBe(true);
-    expect(oldGraph.nodes.some(d => d.title !== "Replaced Ithaca")).toBe(true);
+    expect(nextList.filter(d => d.title !== "Replaced Ithaca")).toEqual([]);
+    expect(nextGraph.nodes.filter(d => d.title !== "Replaced Ithaca")).toEqual([]);
+    expect(oldList.map(d => d.title)).not.toContain("Replaced Ithaca");
+    expect(oldGraph.nodes.map(d => d.title)).not.toContain("Replaced Ithaca");
   });
 
   test("list and graph initialize no executable config and close each native read connection", async () => {

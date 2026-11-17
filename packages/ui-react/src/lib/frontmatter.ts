@@ -5,7 +5,16 @@
  * array (`tags: [a, b, c]`) and quoted string. We don't need a full YAML
  * parser — a small focused split keeps the bundle tiny and the behaviour
  * predictable.
+ *
+ * Where the block starts and ends is not decided here: `frontmatterBlock`
+ * (brain-common, through the ui-sdk) finds the fences by the rule the indexer
+ * reads documents by, so a byte order mark, CRLF and a closing fence at the
+ * end of the file read as they do everywhere else (#2507). One deliberate
+ * difference: a block that is never closed is shown as body, not swallowed as
+ * frontmatter, so a viewer never hides text it cannot delimit.
  */
+
+import { frontmatterBlock } from "@schlessera/brain-ui-sdk/internal/client";
 
 export interface FrontmatterField {
   key: string;
@@ -20,18 +29,11 @@ export interface FrontmatterSplit {
   body: string;
 }
 
-const OPEN = /^---\r?\n/;
-
 export function splitFrontmatter(md: string): FrontmatterSplit {
-  if (!OPEN.test(md)) return { fields: [], body: md };
-  // Find closing `---` on its own line after the opener.
-  const afterOpen = md.replace(OPEN, "");
-  const closeMatch = afterOpen.match(/\r?\n---\r?\n/);
-  if (!closeMatch || closeMatch.index === undefined) {
-    return { fields: [], body: md };
-  }
-  const rawFrontmatter = afterOpen.slice(0, closeMatch.index);
-  const body = afterOpen.slice(closeMatch.index + closeMatch[0].length);
+  const block = frontmatterBlock(md);
+  if (!block?.closed) return { fields: [], body: md };
+  const rawFrontmatter = md.slice(block.innerStart, block.innerEnd);
+  const body = md.slice(block.end);
 
   const fields: FrontmatterField[] = [];
   for (const line of rawFrontmatter.split(/\r?\n/)) {

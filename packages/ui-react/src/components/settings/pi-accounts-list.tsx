@@ -14,7 +14,7 @@ import type { PiAuthProviderStatus, PiLoginFlow } from "../../lib/api-client.js"
  * a link is what it is — and the settled flow is a teal or red `Callout`
  * with a dismiss.
  */
-export interface AccountsListProps {
+interface AccountsListProps {
   providers: PiAuthProviderStatus[];
   /** The provider whose connect or disconnect is in flight. */
   busy: string | null;

@@ -211,6 +211,29 @@ describe("always-allow grants over the ws bridge", () => {
     controls[0]!.finish();
   });
 
+  test("Actor always approval reaches its consent service without remembering the generic execution tool", async () => {
+    const { backend, controls } = permissionBackend();
+    setBackendForTests(backend);
+    const { tp, set } = memoryGrants(["Apify Actor run"]);
+    setToolPermissionsForTests(tp);
+    const { host, client } = await startTurn(controls);
+    let decision: PermissionDecision | null = null;
+    void controls[0]!.request({ toolName: "Apify Actor run", input: { actor: { id: "SeaCharts01" } }, kind: "actor" }, "actor-once").then(value => { decision = value; });
+    await waitFor(() => host.coordinator.pendingApprovals.size === 1);
+    expect(decision, "APIFY_NOT_AUTO_APPROVED_AS_GENERIC_TOOL").toBeNull();
+    const frame = client.sent.find(frame => frame.type === "tool_approval_request") as { turnId: string };
+    await handleClientMessage(client.ws, { type: "tool_approval", toolUseId: "actor-once", turnId: frame.turnId, always: true, channel: "card" });
+    await waitFor(() => decision !== null);
+    expect(decision, "APIFY_ALWAYS_CHOICE_REACHES_CONSENT").toMatchObject({ behavior: "allow", always: true });
+    expect([...set]).toEqual(["Apify Actor run"]);
+    set.delete("Apify Actor run");
+    void controls[0]!.request({ toolName: "Apify Actor run", input: { actor: { id: "SirenSong02" } }, kind: "actor" }, "actor-other");
+    await waitFor(() => host.coordinator.pendingApprovals.size === 1);
+    await handleClientMessage(client.ws, { type: "tool_approval", toolUseId: "actor-other", always: true, channel: "card" });
+    expect(set.size, "APIFY_NEVER_REMEMBERS_EXECUTION_TOOL").toBe(0);
+    controls[0]!.finish();
+  });
+
   test("always: true on a kind 'command' approval is NOT persisted", async () => {
     const { backend, controls } = permissionBackend();
     setBackendForTests(backend);

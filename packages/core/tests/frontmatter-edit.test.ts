@@ -4,7 +4,7 @@
  * quoting, flow sequences, key order and blank lines survive.
  */
 
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, setSystemTime, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
@@ -16,8 +16,12 @@ import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter"
 import { archiveDocument } from "../src/lib/archiver";
 import { editFrontmatter, updateDocument } from "../src/lib/frontmatter-edit";
 import { BRAIN_BIN, cleanup, keylessEnv, makeTempBrain, runCli } from "./cli-harness";
+import { writeHygieneClock } from "./hygiene-clock";
 
-const TODAY = new Date().toISOString().slice(0, 10);
+// The edits stamp `updated` from the clock: pin it, in process and in the MCP
+// child, so a run that crosses midnight cannot disagree with TODAY.
+const TODAY = "2026-07-12";
+const NOW = `${TODAY}T12:00:00Z`;
 
 // An inline comment, a standalone comment line, a quoted string, a flow
 // sequence, a block list and a blank line: everything a serializer rewrites.
@@ -67,7 +71,12 @@ test("archiving changes only the archive fields; every other line is byte-identi
   temps.push(root);
   mkdirSync(join(root, "notes"), { recursive: true });
   writeFileSync(join(root, "notes/demo.md"), SOURCE);
-  await archiveDocument(root, "notes/demo.md");
+  setSystemTime(new Date(NOW));
+  try {
+    await archiveDocument(root, "notes/demo.md");
+  } finally {
+    setSystemTime();
+  }
   expect(readFileSync(join(root, "notes/demo.md"), "utf8")).toBe(withLines({
     "status: active": "status: archived",
     "relevance: 'primary'": "relevance: 'historical'",
@@ -85,8 +94,11 @@ describe("brain_update over MCP", () => {
     mkdirSync(join(root, "notes"), { recursive: true });
     writeFileSync(join(root, "notes/demo.md"), SOURCE);
     expect((await runCli(root, ["index", "--json"])).code).toBe(0);
+    const clock = join(mkdtempSync(join(tmpdir(), "brain-fm-clock-")), "clock.ts");
+    temps.push(join(clock, ".."));
+    writeHygieneClock(clock, NOW);
     client = new Client({ name: "frontmatter-edit-test", version: "1.0.0" });
-    await client.connect(new StdioClientTransport({ command: "bun", args: [BRAIN_BIN, "mcp"], env: keylessEnv(root) }));
+    await client.connect(new StdioClientTransport({ command: "bun", args: ["--preload", clock, BRAIN_BIN, "mcp"], env: keylessEnv(root) }));
   });
 
   afterAll(async () => {

@@ -67,7 +67,7 @@ export function ControlsBody() {
 }
 
 /** The four colourings, in the design's order. */
-export const COLOUR_RULES: { value: DiscoveryColorBy; label: string }[] = [
+const COLOUR_RULES: { value: DiscoveryColorBy; label: string }[] = [
   { value: "topic", label: "Topic" },
   { value: "distance", label: "Distance" },
   { value: "folder", label: "Folder" },

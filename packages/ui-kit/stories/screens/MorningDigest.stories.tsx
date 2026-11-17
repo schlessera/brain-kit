@@ -1,5 +1,5 @@
 import preview from "#.storybook/preview";
-import { expect, fn } from "storybook/test";
+import { expect, fn, within } from "storybook/test";
 
 import { actions } from "../../fixtures/actions.js";
 import { digestFootnote, digestStats, overnight, overnightSpend, today } from "../../fixtures/events.js";
@@ -98,7 +98,7 @@ export const NothingEscapesTheFrame = MorningDigest.extend({
  * component's own stories, and still be the wrong screen.
  */
 export const FactsBeforeAnythingAsks = MorningDigest.extend({
-  play: async ({ canvas, canvasElement }) => {
+  play: async ({ canvas }) => {
     await expect(await canvas.findAllByText("Today")).toHaveLength(1);
     await expect(await canvas.findAllByText(today[0]!.meta!)).toHaveLength(1);
     for (const item of today[0]!.items) await expect(await canvas.findByText(item.title)).toBeVisible();
@@ -118,7 +118,14 @@ export const FactsBeforeAnythingAsks = MorningDigest.extend({
 
     // The only card on the screen is the kind that asks for nothing: no button,
     // no approve/deny pair, one chevron to somewhere else.
-    await expect(canvasElement.querySelectorAll('[role="button"]').length).toBeGreaterThan(0);
+    // The card is the FYI kind, and no card on the screen is a kind that asks.
+    // (A control nested inside the card is refused by the axe gate already.)
+    const card = (await canvas.findByText(fyi.title)).closest('[role="button"]') as HTMLElement | null;
+    await expect(card).not.toBeNull();
+    await expect(within(card!).getByText("FYI")).toBeVisible();
+    for (const kind of ["Approval", "Choose", "Dead letter", "Quarantined", "Premise unverified", "Suggestion"]) {
+      await expect(canvas.queryByText(kind)).toBeNull();
+    }
     await expect(await canvas.findByText(fyi.rightMeta!)).toBeTruthy();
   },
 });

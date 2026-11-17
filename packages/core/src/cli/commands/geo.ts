@@ -6,7 +6,7 @@ import { nearestTrackPoint, parseTrackGpx, routePoint, summarizeTrack, trackCove
 import { GeoClient, type GeoResult, type GeocodeCandidate, type PoiResult, type RoutingResult,
   type StaticMapInput, type StaticMapPin, type StaticMapResult } from "@schlessera/brain-geo/server";
 import { resolveGeoConfig } from "../../lib/geo-config.js";
-import { safeResolve, resolveWritable, writeFileSafely } from "../../lib/safe-path.js";
+import { brainRelativeArgument, safeResolve, resolveWritable, writeFileSafely } from "../../lib/safe-path.js";
 import { assertScratchWritable, isInScratch, isWriteRefusal, pruneScratch, writeScratchFile } from "../../lib/scratch.js";
 import { parseArgs, UsageError, type Flags } from "../io.js";
 import type { CliContext, CoreCommand } from "../types.js";
@@ -97,7 +97,7 @@ function usage<T>(fn: () => T): T {
   try { return fn(); } catch (error) { throw new UsageError((error as Error).message); }
 }
 async function readTrack(root: string, path: string): Promise<{ track: ParsedTrack; summary: TrackSummary }> {
-  const absolute = safeResolve(root, path);
+  const absolute = safeResolve(root, brainRelativeArgument(root, path));
   if (!absolute) throw new UsageError(`Track path must remain inside the brain: ${path}`);
   const file = Bun.file(absolute);
   if (!await file.exists()) throw new UsageError(`Track file does not exist: ${path}`);
@@ -207,7 +207,7 @@ export const geoCommand: CoreCommand = {
 
 async function runMap(args: string[], argv: string[], flags: Flags, cli: CliContext, geo: GeoClient): Promise<number> {
   if (cli.brain.configPath === null) throw new UsageError("Map refuses to write in an uninitialized directory; run brain init first.");
-  const root = realpathSync(cli.brain.root), out = option(flags, "out", true)!;
+  const root = realpathSync(cli.brain.root), out = brainRelativeArgument(cli.brain.root, option(flags, "out", true)!);
   if (extname(out).toLowerCase() !== ".png") throw new UsageError("Map --out must name a PNG file.");
   const absolute = resolveWritable(root, out);
   if (!absolute) throw new UsageError("Map output must remain inside the brain.");

@@ -80,7 +80,7 @@ describe("shared reference source", () => {
     const result = ok<Extract<ReferenceToolResult, { source: unknown }>>(await current.call(source(PUBLIC)));
     expect(result.source, "REFERENCE_TOOLS_SOURCE_REPORTS_BOUND_PATH").toMatchObject({ domain: "public", commit: "1".repeat(40), freshness: "fresh", error: null });
     const name = result.source.path!.slice("/tmp/brain-reference/public/".length);
-    expect(result.source.path!.startsWith("/tmp/brain-reference/public/")).toBe(true);
+    expect(result.source.path).toStartWith("/tmp/brain-reference/public/");
     // The worker path names the same entry the bound host view resolves.
     expect(readFileSync(join(current.views!.public, name, "odyssey.md"), "utf8")).toContain("Sing, Muse");
     expect([...pool.records.values()].some(record => record.view && join(pool.records.get(record.id)!.path!, "..") === current.views!.public)).toBe(true);
@@ -107,7 +107,7 @@ describe("shared reference source", () => {
     const issued = grant(penelope.id);
     const result = ok<Extract<ReferenceToolResult, { source: unknown }>>(await current.call(source(PRIVATE)));
     expect(result.source.domain).toBe("private");
-    expect(result.source.path!.startsWith("/tmp/brain-reference/private/")).toBe(true);
+    expect(result.source.path).toStartWith("/tmp/brain-reference/private/");
     // The bridge supplies the turn's principal; a mismatched caller holds nothing.
     expect(await current.call(source(PRIVATE), telemachus.id), "REFERENCE_TOOLS_PRINCIPAL_FROM_TURN").toMatchObject({ ok: false, code: "unavailable" });
     const theirs = await turn(telemachus.id);
@@ -141,6 +141,11 @@ describe("shared reference source", () => {
 
 /** What the public view holds: names and root identities alike. */
 const publicEntries = (views: { public: string } | null) => views ? readdirSync(views.public).sort() : null;
+/**
+ * The transport, the pool double and the reference writes are in memory, so one macrotask
+ * turn runs all pending work up to its next held barrier.
+ */
+const drain = () => new Promise<void>(resolve => setImmediate(resolve));
 const nameOf = (result: ReferenceToolResult) => ok<Extract<ReferenceToolResult, { source: unknown }>>(result).source.path!.split("/").at(-1)!;
 
 describe("binding a view is a new mount (#2432, option 1)", () => {
@@ -239,8 +244,10 @@ describe("binding a view is a new mount (#2432, option 1)", () => {
     while (state.resolves === resolves) await Bun.sleep(1);
     const controller = new AbortController();
     const binding = sources.bindable(telemachus.id, controller.signal).then(() => "bound", (error: Error) => error.message);
-    expect(await Promise.race([binding, Bun.sleep(20).then(() => "waiting")])).toBe("waiting");
+    // The pool and transport are in memory: one macrotask runs the bind up to the held acquisition.
+    expect(await Promise.race([binding, drain().then(() => "waiting")])).toBe("waiting");
     controller.abort(new Error("turn cancelled"));
+    // Failure maximum: on success the cancelled bind settles first and the 500 ms branch is never awaited.
     expect(await Promise.race([binding, Bun.sleep(500).then(() => "waiting")]), "REFERENCE_TOOLS_CANCELLED_BIND_RETURNS").toBe("turn cancelled");
     open();
     (await refreshing).release();
@@ -330,6 +337,7 @@ describe("admission (#2432 review)", () => {
     const binding = sources.bindable(telemachus.id, controller.signal).then(() => "bound", (error: Error) => error.message);
     while (!paused) await Bun.sleep(1);
     controller.abort(new Error("turn cancelled"));
+    // Failure maximum: on success the cancelled bind settles first and the 500 ms branch is never awaited.
     expect(await Promise.race([binding, Bun.sleep(500).then(() => "waiting")]), "REFERENCE_TOOLS_CANCELLED_BIND_DURING_SUSPENSION").toBe("turn cancelled");
     open();
   });
@@ -351,7 +359,8 @@ describe("exposure changes are serialized (#2432 review)", () => {
     const binding = sources.bindable(telemachus.id);
     while (!paused) await Bun.sleep(1);
     const lease = sources.request({ principalId: penelope.id, repository: PUBLIC, revision: "main" });
-    await Bun.sleep(5);
+    // The request runs until it waits behind the held suspension.
+    await drain();
     open();
     const views = await binding;
     const held = await lease;
@@ -435,7 +444,8 @@ describe("exposure changes are serialized (#2432 review)", () => {
     while (!paused) await Bun.sleep(1);
     let bound = false;
     const binding = sources.bindable(telemachus.id).then(views => { bound = true; return views; });
-    await Bun.sleep(20);
+    // Everything not held behind the paused publication has run after this turn.
+    await drain();
     expect(bound, "REFERENCE_TOOLS_BIND_WAITS_FOR_INITIAL_PUBLICATION").toBe(false);
     open();
     const held = await acquiring;
@@ -478,7 +488,8 @@ describe("exposure changes are serialized (#2432 review)", () => {
     while (!paused) await Bun.sleep(1);
     revokeReferenceGrant(db, { brain: BRAIN, principalId: penelope.id, id: issued.id, now: Date.now() });
     const revoking = sources.revoke({ grantIds: [issued.id], principalIds: [] });
-    await Bun.sleep(5);
+    // The revocation runs until it waits behind the held restoration.
+    await drain();
     open();
     await Promise.allSettled([restoring, revoking]);
     (await restoring.catch(() => null))?.release();

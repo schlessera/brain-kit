@@ -19,6 +19,7 @@ import { join } from "path";
 
 import { cleanup, keylessEnv, makeTempBrain, runCli } from "./cli-harness";
 import { installGitHooks } from "../src/cli/hooks-util";
+import { withoutSigning } from "./git-fixture";
 
 const temps: string[] = [];
 function tempBrain(opts: { empty?: boolean } = {}): string {
@@ -108,6 +109,22 @@ test("import --stamp adds frontmatter to bare markdown", async () => {
   expect(stamped.startsWith("---")).toBe(true);
   expect(stamped).toContain("title: My Imported Note");
   expect(stamped).toContain("status: draft");
+});
+
+test("import --stamp skips frontmatter after a byte order mark instead of stamping over it (#2507)", async () => {
+  const root = tempBrain();
+  const importDir = join(root, "import", "vault");
+  mkdirSync(importDir, { recursive: true });
+  const marked = "\uFEFF---\ntype: note\ntitle: Already\n---\nbody\n";
+  writeFileSync(join(importDir, "marked.md"), marked);
+  writeFileSync(join(importDir, "rule.md"), "----\n\nA rule, not a fence.\n");
+
+  const { stdout, code } = await runCli(root, ["import", "--stamp", "import/vault", "--json"]);
+  expect(code).toBe(0);
+  const out = JSON.parse(stdout);
+  expect(out.skipped).toEqual(["marked.md"]);
+  expect(out.stamped).toEqual(["rule.md"]);
+  expect(readFileSync(join(importDir, "marked.md"), "utf-8")).toBe(marked);
 });
 
 test("skills lint fails on a broken fixture skill", async () => {
@@ -326,7 +343,7 @@ test("doctor reports a dead MCP source-file registration", async () => {
 
 /**
  * /brain-init Stage 5 registers the MCP server only when `brain doctor
- * --json`'s `mcp` check (`checkMcp`, `packages/core/src/cli/commands/doctor.ts:464-503`)
+ * --json`'s `mcp` check (`checkMcp`, `packages/core/src/cli/commands/doctor.ts:474-513`)
  * does not pass. The template's `.mcp.json` already declares the server, so an
  * unconditional `claude mcp add` gave every new brain a second, local-scope
  * `brain` server beside the project one (#337).
@@ -465,8 +482,10 @@ function gitBrainWithHooks(): { root: string; shimDir: string } {
 }
 
 function commit(root: string, shimDir: string, message: string) {
+  // Signing is off per command (#3485): an environment-scoped
+  // GIT_CONFIG_COUNT outranks the repository-local setting above.
   const proc = Bun.spawnSync(["git", "-C", root, "commit", "-q", "-m", message], {
-    env: { ...process.env, PATH: `${shimDir}:${process.env.PATH}` },
+    env: withoutSigning({ ...(process.env as Record<string, string>), PATH: `${shimDir}:${process.env.PATH}` }),
   });
   return {
     code: proc.exitCode,

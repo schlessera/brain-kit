@@ -26,7 +26,7 @@ import { useFinePointer } from "../../hooks/use-fine-pointer.js";
  */
 const ALLOW_MOUNT = { flex: "1 1 auto", minWidth: 0, width: "auto" } as const;
 const DENY_MOUNT = { flex: "0 0 auto", minWidth: 96, minHeight: 44, width: "auto" } as const;
-export interface ApprovalCardProps {
+interface ApprovalCardProps {
   tool: ToolCall;
   /** Where it came from, for the foot line. */
   origin: string;
@@ -34,7 +34,7 @@ export interface ApprovalCardProps {
   onDecide: (approved: boolean, always?: boolean) => void;
 }
 
-export const APPROVAL_CARD = "[data-approval-card]";
+const APPROVAL_CARD = "[data-approval-card]";
 
 /**
  * What a decision on an Actions card prints and sends. The receipt follows

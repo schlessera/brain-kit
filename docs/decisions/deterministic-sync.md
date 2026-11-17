@@ -210,12 +210,12 @@ it from.
 
 What changes. With `--json`, or stdout not a TTY, bare sync prints
 `{ run, agent }` and nothing else on stdout (the bare branch, `if (!verb) {`,
-`packages/core/src/cli/commands/sync.ts:266-297`). `run` is `run`'s own
+`packages/core/src/cli/commands/sync.ts:263-293`). `run` is `run`'s own
 envelope. `agent` says whether the agent was invoked, and if not, why
 (`not-needed`, or `no-runner` when a run needed one and none was available).
 An invoked agent carries its runner, its outcome, its final text, and the
 runtime that run reported about itself (`SyncAgent`,
-`packages/core/src/cli/commands/sync.ts:205-208`). The agent runs quietly in
+`packages/core/src/cli/commands/sync.ts:206-209`). The agent runs quietly in
 this mode: its progress and text go into the result, not beside it.
 
 What does not change: the deterministic run comes first, the handoff rules of
@@ -231,7 +231,7 @@ version.
 - **The container cron wrapper reads a result only from its own sync job.**
   It parses stdout when the job is `sync` and its argv is exactly what the
   crontab emitter writes (`isSyncJob`,
-  `packages/ui-server/src/cron/emit.ts:79-85`), and passes every other job's
+  `packages/ui-server/src/cron/emit.ts:83-89`), and passes every other job's
   stdout through untouched. A new wrapper flag would have done the same, but
   the wrapper command is deployment configuration, and a wrapper that did not
   know the flag would have broken the nightly sync.

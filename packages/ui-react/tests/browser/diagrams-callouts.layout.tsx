@@ -205,7 +205,7 @@ for (const theme of ["light", "dark", "print"] as const) test(`semantic-only and
 for (const theme of ["light", "dark"] as const) test(`summary groups all source notes and semantic explanation ${theme}`, async () => {
   const spec = { ...calloutsSpec, callouts: [{ target: "odysseus", text: "Prepare provisions" }, { target: "ledger", text: "Read the ledger" }, { target: "odysseus", text: "Return to Ithaca" }] };
   mount(JSON.stringify(spec), 300, theme); await expect.poll(() => host.querySelector("[data-diagram-notes]")).not.toBeNull();
-  expect(host.querySelectorAll("[data-diagram-notes] section")).toHaveLength(2); const rows = [...host.querySelectorAll<HTMLLIElement>("[data-diagram-notes] li")]; expect(rows.map(row => row.value)).toEqual([1, 3, 2]); expect(rows.map(row => row.querySelector("[data-callout-text]")!.textContent)).toEqual(["Prepare provisions", "Return to Ithaca", "Read the ledger"]); expect([...host.querySelectorAll("button,[role=button]")].some(button => button.textContent === "Open diagram")).toBe(true);
+  expect(host.querySelectorAll("[data-diagram-notes] section")).toHaveLength(2); const rows = [...host.querySelectorAll<HTMLLIElement>("[data-diagram-notes] li")]; expect(rows.map(row => row.value)).toEqual([1, 3, 2]); expect(rows.map(row => row.querySelector("[data-callout-text]")!.textContent)).toEqual(["Prepare provisions", "Return to Ithaca", "Read the ledger"]); expect(host.querySelector('button[aria-label="Open diagram"]')).not.toBeNull();
   for(const row of rows){const index=row.querySelector<HTMLElement>("[data-callout-index]")!;expect(index.textContent).toBe(String(row.value));expect(index.getBoundingClientRect().width,"VISIBLE_SUMMARY_SOURCE_INDEX").toBeGreaterThan(0);expect(getComputedStyle(index).visibility).toBe("visible");}
   await commands.diagramCapture('[data-content-renderer="diagram"]', `callouts-summary-${theme}`);
 });
@@ -228,6 +228,7 @@ test("multi-digit shared keys reserve header space and remain attached to actual
   const keys=[...group.querySelectorAll<SVGGElement>("[data-callout-header-key]")],headers=[...group.querySelectorAll<SVGGElement>("[data-callout-group-heading]")];
   for(let i=0;i<keys.length;i++)expect(separated(keys[i]!.getBBox(),headers[i]!.getBBox(),4),"MULTIDIGIT_KEY_HEADER_CLEARANCE").toBe(true);
  }
+ expect(svg.querySelectorAll("[data-callout-header-key]"),"MULTIDIGIT_HEADER_KEYS_RENDERED").toHaveLength(100);
  await commands.diagramCapture('[data-content-renderer="diagram"]',"callouts-multidigit-keys");
 });
 test("narrow unbreakable text uses readable full summary and retains all 1024 source indices",async()=>{

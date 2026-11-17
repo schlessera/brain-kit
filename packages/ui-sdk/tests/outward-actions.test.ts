@@ -52,6 +52,7 @@ test("the capabilities note states the taint rules, the session's taint and wher
   expect(clean).not.toContain("This session is tainted");
   const tainted = workerOutwardNote(true, { eventId: 7, source: "web_fetch" });
   expect(tainted, "G6_NOTE_STATES_TAINT").toContain("This session is tainted (first recorded source: web_fetch).");
-  expect(tainted).toContain("as does any connection other than the inference relay");
-  expect(tainted).toContain("taint.egress.allow hosts, hosts this session already contacted, and the inference relay");
+  expect(tainted).toContain("as does any connection other than the host's inference and provider relays");
+  expect(tainted).toContain("taint.egress.allow hosts, hosts this session already contacted, and the host's inference and provider relays");
+  expect(tainted).toContain("still reaches its approved provider after untrusted input");
 });

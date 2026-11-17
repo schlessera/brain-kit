@@ -69,7 +69,7 @@ const KEY_PRECISION = 3;
  * megabytes of geometry nobody can read at any render width. */
 const MAX_SPAN_DEGREES = 5;
 
-export interface GeoRouteDeps {
+interface GeoRouteDeps {
   config: CoastlineConfig;
   log?: Logger;
   /** Injected in tests so no test ever reaches Overpass. */
@@ -105,7 +105,7 @@ export function createGeoRoutes(deps: GeoRouteDeps): Hono {
   const fetchGeometry = deps.fetchGeometry ?? fetchCoastline;
 
   /** In-flight requests, so a screen with three maps of one place fetches once. */
-  const inFlight = new Map<string, Promise<CoastlineResult>>();
+  const inFlight = new Map<string, Promise<{ result: CoastlineResult; cached: boolean }>>();
 
   async function readCache(file: string): Promise<CoastlineResult | null> {
     try {
@@ -146,17 +146,14 @@ export function createGeoRoutes(deps: GeoRouteDeps): Hono {
     const key = cacheKey(bbox, px, detail);
     const file = join(config.cacheDir, key);
 
-    const cached = await readCache(file);
-    if (cached) {
-      // Cached forever on purpose; see the note above. The header says so, so a
-      // PWA can hold it too and a place already looked at costs nothing.
-      c.header("Cache-Control", "public, max-age=31536000, immutable");
-      return c.json(cached);
-    }
-
+    // Join in-flight work before awaiting anything. A cache read awaited first
+    // could miss, then resolve after another request had fetched, written and
+    // left the map, and fetch the same geometry again.
     let pending = inFlight.get(key);
     if (!pending) {
-      pending = (async () => {
+      pending = (async (): Promise<{ result: CoastlineResult; cached: boolean }> => {
+        const cached = await readCache(file);
+        if (cached) return { result: cached, cached: true };
         try {
           const result = await fetchGeometry(
             { bbox, widthPx: px, detail },
@@ -174,7 +171,7 @@ export function createGeoRoutes(deps: GeoRouteDeps): Hono {
             !result.partial &&
             (result.coastline.length || result.roads.length || result.streets.length || result.land.length);
           if (worthKeeping) await writeCache(file, result);
-          return result;
+          return { result, cached: false };
         } catch (err) {
           // `fetchCoastline` already swallows its own failures, so this is the
           // boundary owning the guarantee rather than trusting it: this route
@@ -187,20 +184,27 @@ export function createGeoRoutes(deps: GeoRouteDeps): Hono {
             attributes: { error: err instanceof Error ? err.message : String(err) },
           });
           return {
-            coastline: [],
-            roads: [],
-            streets: [],
-            land: [],
-            detail,
-            partial: true,
-            toleranceM: 0,
-            attribution: OSM_ATTRIBUTION,
+            result: {
+              coastline: [],
+              roads: [],
+              streets: [],
+              land: [],
+              detail,
+              partial: true,
+              toleranceM: 0,
+              attribution: OSM_ATTRIBUTION,
+            },
+            cached: false,
           };
         }
       })().finally(() => inFlight.delete(key));
       inFlight.set(key, pending);
     }
 
-    return c.json(await pending);
+    const { result, cached } = await pending;
+    // Cached forever on purpose; see the note above. The header says so, so a
+    // PWA can hold it too and a place already looked at costs nothing.
+    if (cached) c.header("Cache-Control", "public, max-age=31536000, immutable");
+    return c.json(result);
   });
 }

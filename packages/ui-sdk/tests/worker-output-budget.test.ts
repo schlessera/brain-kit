@@ -1,6 +1,7 @@
 import { afterEach, expect, test, spyOn } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { finished } from "node:stream/promises";
 import { launchAgentWorker, prepareWorkerSandbox } from "../src/server/worker-launcher.js";
 import { prepareFixtureWorkerOutput as prepareWorkerOutput } from "./helpers/worker-startup-view-fixture.js";
 import { launchMaintenanceWorker, runMaintenanceWorkerSync } from "../src/server/maintenance-worker.js";
@@ -29,7 +30,10 @@ for (const profile of ["strict", "maintenance"] as const) test(`${profile} refus
   cleanup.push(() => worker.kill("SIGKILL"));
   let stdout = "", stderr = "";
   worker.stdout.on("data", data => { stdout += String(data); }); worker.stderr.on("data", data => { stderr += String(data); });
-  expect(await worker.exited, stderr).toBe(0);
+  // An exit does not mean the pipes are drained: wait for both streams to end
+  // before reading what they carried (#3583).
+  const [code] = await Promise.all([worker.exited, finished(worker.stdout), finished(worker.stderr)]);
+  expect(code, stderr).toBe(0);
   worker.turnTemp?.close();
   expect(stdout, "OUTPUT_STAGING_OVERFLOW_ENOSPC").toBe("ENOSPC\n1048576\n");
 });

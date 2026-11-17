@@ -137,7 +137,7 @@ describe("a pi provider failure ends the turn as a failure", () => {
 
   test("a partial answer before the failure is still streamed", async () => {
     const frames = await runTurn([textDelta("Half an "), assistantEnd("error", { errorMessage: "connection reset" })]);
-    expect(frames.some((frame) => frame.type === "text_delta" && frame.text === "Half an ")).toBe(true);
+    expect(frames.flatMap((frame) => (frame.type === "text_delta" ? [frame.text] : []))).toEqual(["Half an "]);
     const result = terminal(frames);
     // No status in the text: none is claimed.
     expect(result.failure).toEqual({ errorClass: "unknown", message: "connection reset" });

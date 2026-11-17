@@ -44,6 +44,12 @@ export interface TurnContext {
   turnId?: string;
   /** The worker's turn temp as the `turn_temp` tool reaches it, server side (#1703). */
   turnTemp?: TurnTempAccess;
+  /**
+   * The relayed turn's admitted model, which the host web executor may use
+   * for subscription and current-model search (#3688). Only a turn whose
+   * inference runs on the host relay has one.
+   */
+  webModel?: import("@schlessera/brain-ui-sdk/tool-contracts").WebModelAccess;
 }
 
 export function createTurnContext(): TurnContext {

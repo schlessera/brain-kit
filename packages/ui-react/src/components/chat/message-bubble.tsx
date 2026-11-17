@@ -1,10 +1,10 @@
 import { ConversationTaskContext } from "../voice/conversation-outputs.js";
 import type { TranscriptRange } from "../../lib/transcript-timeline.js";
 import { AttachmentRow } from "@schlessera/brain-ui-kit";
-import { trackRowProps } from "../../lib/track-attachment.js";
+import { attachmentRowProps, trackRowProps } from "../../lib/track-attachment.js";
 import { HandoffCard } from "./handoff-links.js";
 import { AskUserFormExchangeCard } from "./ask-user-form-card.js";
-import type { AskUserFormAnswers } from "@schlessera/brain-ui-sdk/protocol";
+import type { AskUserFormAnswers, AttachmentFile, AttachmentReadEntry } from "@schlessera/brain-ui-sdk/protocol";
 import { useBrainUiRoot } from "../../root-context.js";
 import { memo, useEffect, useRef, useState, type ReactNode } from "react";
 import { useStore } from "zustand";
@@ -40,10 +40,11 @@ import {
   UserTurn,
 } from "./transcript-turn.js";
 import { TurnError } from "./turn-error.js";
+import { TurnNotice } from "./turn-notice.js";
 import { AnswerDeliveryStatus } from "./answer-delivery-status.js";
 import { TurnJournal } from "./turn-journal.js";
 import { answerAsMessage, UNCONFIRMED_RECORD, withSubmittedAnswer } from "./answer-text.js";
-import { isRefusedAdmission } from "../../lib/answer-delivery/types.js";
+import { isRefusedAdmission, type AnswerPayload } from "../../lib/answer-delivery/types.js";
 import { useChatStore } from "../../stores/chat-store.js";
 
 /**
@@ -62,6 +63,27 @@ import { useChatStore } from "../../stores/chat-store.js";
  * user bubble, thinking disclosure, the streaming dot — is
  * `transcript-turn.tsx`, on the kit.
  */
+const NO_READS: Record<string, AttachmentReadEntry[]> = {};
+const NO_FILE_READS: AttachmentReadEntry[] = [];
+
+/**
+ * A sent message's composer originals (#3155), each with what the agent read
+ * of it. Reads are the host's records for the session in view (#3589); until
+ * they arrive, or on a host without them, the rows claim nothing about
+ * reading. Its own subscription, so a read re-renders only these rows.
+ */
+function SentFiles({ files }: { files: AttachmentFile[] }) {
+  const root = useBrainUiRoot();
+  const sessionId = useStore(root.stores.chat, (s) => s.activeSessionId);
+  const reads = useStore(root.stores.attachmentReads, (s) =>
+    s.supported && sessionId && s.loaded[sessionId] ? s.reads[sessionId] ?? NO_READS : null);
+  return (
+    <div className="grid gap-2" data-sent-files="">
+      {files.map((file) => <AttachmentRow key={file.fileId} {...attachmentRowProps(file, reads ? reads[file.fileId] ?? NO_FILE_READS : undefined)} />)}
+    </div>
+  );
+}
+
 export const MessageBubble = memo(function MessageBubble({
   message,
   onToolApproval,
@@ -113,6 +135,8 @@ export const MessageBubble = memo(function MessageBubble({
 }) {
   const root = useBrainUiRoot();
   const isUser = message.role === "user";
+  // Dictated or reviewed voice text came in by voice; its source survives replay.
+  const spoken = isUser && (message.source === "voice-dictate" || message.source === "voice-conversation");
   const reducedMotion = useReducedMotion();
   const shellStartedAt = useShellStartedAt(message);
 
@@ -127,7 +151,6 @@ export const MessageBubble = memo(function MessageBubble({
       <TurnHeader
         who={isUser ? message.source === "voice-context" ? "Conversation task" : "You" : root.config.assistantName}
         when={message.turnShell ? (shellStartedAt !== null ? formatTime(shellStartedAt) : undefined) : formatTime(message.timestamp)}
-        voice={isUser && (message.source === "voice-dictate" || message.source === "voice-conversation") ? message.source : undefined}
         effort={isUser && message.thinkingLevel !== undefined ? (
           message.effectiveThinkingLevel === undefined ? `effort ${message.thinkingLevel} requested` :
           message.effectiveThinkingLevel === message.thinkingLevel ? `effort ${message.thinkingLevel}` :
@@ -142,10 +165,12 @@ export const MessageBubble = memo(function MessageBubble({
       ) : isUser && message.source === "voice-context" ? (
         taskContext ?? <ConversationTaskContext message={message} />
       ) : isUser ? (
-        <UserTurn>
+        <UserTurn spoken={spoken}>
+          {spoken && message.content && <span className="chat-message-body whitespace-pre-wrap">{linkifyPaths(message.content)}</span>}
           <UserAttachments message={message} />
           {!!message.files?.length && <div className="grid gap-2">{message.files.map(file => <AttachmentRow key={file.path} {...trackRowProps(file)} />)}</div>}
-          {message.content && (
+          {!!message.attachmentFiles?.length && <SentFiles files={message.attachmentFiles} />}
+          {!spoken && message.content && (
             <div className="chat-message-body text-sm leading-relaxed text-foreground whitespace-pre-wrap">
               {linkifyPaths(message.content)}
             </div>
@@ -442,6 +467,7 @@ function AssistantContent({
               <ToolCallTimelineCell
                 key={`tool:${tool.id}`}
                 toolCalls={group.toolCalls}
+                turnId={message.turnId ?? message.streamTurnId}
                 toolIndex={toolIndex}
                 onApproval={onToolApproval}
                 live={!!message.isStreaming}
@@ -499,6 +525,10 @@ function AssistantContent({
       {/* The failure that ended the turn (#575), after whatever it answered
           first, live and on replay alike. */}
       {message.failure && !message.isStreaming ? <TurnError message={message} latest={latestTurn} /> : null}
+
+      {/* How the turn stopped, when no failure says so (#3356): a status
+          after its content, never the agent's words. */}
+      {message.runtimeNotice && !message.failure && !message.isStreaming ? <TurnNotice message={message} /> : null}
 
       {(message.isStreaming || approval?.restored) && (message.retry ? (
         <TurnStatus message={message} mode="retry" />
@@ -591,19 +621,49 @@ function DeliveredExchange({
   onAskUserRankSubmit?: (requestId: string, order: string[], unchanged: boolean) => void;
   onAskUserListSubmit: (requestId: string, answers: Record<string, string>, notes?: Record<string, string>) => void;
 }) {
+  const root = useBrainUiRoot();
+  const sessionId = useChatStore((s) => s.activeSessionId);
   const delivery = useChatStore((s) => s.deliveries[exchange.requestId]);
+  // A question its turn ended before anything was submitted (#3356). Its
+  // card stays the editable question, so a draft in progress survives, but
+  // no answer can reach the ended request: Submit keeps the answer on this
+  // card as Not delivered, and only the footer's explicit Send as message
+  // sends it, as a new chat message. Dismiss closes it here; the host has
+  // nothing left to cancel.
+  const [endedDismissed, setEndedDismissed] = useState(false);
+  const ended = exchange.terminal === true && !endedDismissed && (!delivery || isRefusedAdmission(delivery.state));
+  const endedBy = exchange.endedBy === "timeout" ? "timed out" : "ended";
+  const keep = (payload: AnswerPayload) => {
+    const at = Date.now();
+    root.stores.chat.getState().setDelivery(exchange.requestId, {
+      requestId: exchange.requestId, submissionId: "", sessionId, state: "closed", reason: "ended",
+      payload, submittedAt: at, settledAt: at, focus: true,
+    });
+  };
+  const submitAsk = ended ? (_: string, answers: Record<string, string>, annotations?: Record<string, AskUserAnnotation>) =>
+    keep({ kind: "ask_user", answers, ...(annotations ? { annotations } : {}) }) : onAskUserSubmit;
+  const submitList = ended ? (_: string, answers: Record<string, string>, notes?: Record<string, string>) =>
+    keep({ kind: "ask_user_list", answers, ...(notes ? { notes } : {}) }) : onAskUserListSubmit;
+  const submitRank = ended ? (_: string, order: string[], unchanged: boolean) =>
+    keep({ kind: "ask_user_rank", order, unchanged }) : onAskUserRankSubmit;
+  const submitForm = ended ? (_: string, answers: AskUserFormAnswers, visibleNodes: string[]) =>
+    keep({ kind: "ask_user_form", answers, visibleNodes }) : onAskUserFormSubmit;
+  const cancel = ended ? () => setEndedDismissed(true) : onAskUserCancel;
+  const endedPrompt = ended ? `The turn ${endedBy} before you answered · Submit keeps your answer here to send as a new message` : undefined;
+  const lapsedNote = exchange.terminal ? `no longer waiting · the turn ${endedBy}` : undefined;
   // While saving, or when nothing was admitted, the editable card stays
   // mounted with its draft; otherwise it shows the submitted answer.
   const shown = delivery && delivery.state !== "saving" && !isRefusedAdmission(delivery.state);
-  const ex = shown ? withSubmittedAnswer(exchange, delivery) : exchange;
+  const base = ended ? { ...exchange, cancelled: undefined } : exchange;
+  const ex = shown ? withSubmittedAnswer(base, delivery) : base;
   // A recorded answer the host has not confirmed must not read "Answered".
   const record = shown && delivery.state !== "answered" ? UNCONFIRMED_RECORD : undefined;
   const card = (
       ex.form ? (
-        <AskUserFormExchangeCard record={record} requestId={ex.requestId} form={ex.form} answers={ex.formAnswers} cancelled={ex.cancelled} lapsedNote={ex.terminal ? "no longer waiting · the turn ended" : undefined} answeredAt={ex.answeredAt} onSubmit={onAskUserFormSubmit} onCancel={onAskUserCancel} onReask={onAskUserReask} />
+        <AskUserFormExchangeCard record={record} requestId={ex.requestId} form={ex.form} answers={ex.formAnswers} cancelled={ex.cancelled} lapsedNote={lapsedNote} endedPrompt={endedPrompt} answeredAt={ex.answeredAt} onSubmit={submitForm} onCancel={cancel} onReask={onAskUserReask} />
       ) : ex.rank ? (
         <AskUserRankExchangeCard record={record} requestId={ex.requestId} rank={ex.rank} order={ex.order} unchanged={ex.unchanged}
-          cancelled={ex.cancelled} lapsedNote={ex.terminal ? "no longer waiting · the turn ended" : undefined} answeredAt={ex.answeredAt} onSubmit={onAskUserRankSubmit} onCancel={onAskUserCancel} onReask={onAskUserReask} />
+          cancelled={ex.cancelled} lapsedNote={lapsedNote} endedPrompt={endedPrompt} answeredAt={ex.answeredAt} onSubmit={submitRank} onCancel={cancel} onReask={onAskUserReask} />
       ) : ex.list ? (
         <AskUserListExchangeCard
           record={record}
@@ -611,10 +671,10 @@ function DeliveredExchange({
           list={ex.list}
           answered={ex.answers}
           notes={ex.notes}
-          cancelled={ex.cancelled} lapsedNote={ex.terminal ? "no longer waiting · the turn ended" : undefined}
+          cancelled={ex.cancelled} lapsedNote={lapsedNote} endedPrompt={endedPrompt}
           answeredAt={ex.answeredAt}
-          onSubmit={onAskUserListSubmit}
-          onCancel={onAskUserCancel}
+          onSubmit={submitList}
+          onCancel={cancel}
           onReask={onAskUserReask}
         />
       ) : (
@@ -623,11 +683,11 @@ function DeliveredExchange({
           requestId={ex.requestId}
           questions={ex.questions}
           answered={ex.answers}
-          cancelled={ex.cancelled} lapsedNote={ex.terminal ? "no longer waiting · the turn ended" : undefined}
+          cancelled={ex.cancelled} lapsedNote={lapsedNote} endedPrompt={endedPrompt}
           typed={ex.typed}
           answeredAt={ex.answeredAt}
-          onSubmit={onAskUserSubmit}
-          onCancel={onAskUserCancel}
+          onSubmit={submitAsk}
+          onCancel={cancel}
           onReask={onAskUserReask}
         />
       )
@@ -641,7 +701,7 @@ function DeliveredExchange({
   // new parent when its footer appeared would remount, and a refused
   // answer's draft would be lost with it.
   return (
-    <div data-ask-waiting={waiting ? "" : undefined}>
+    <div data-ask-waiting={waiting ? "" : undefined} data-ask-ended={ended ? "" : undefined}>
       {card}
       {delivery ? (
         <AnswerDeliveryStatus

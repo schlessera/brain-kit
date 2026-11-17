@@ -1,4 +1,5 @@
 /** Retained, authorized roots only. Recovery is best effort after owned-tree cleanup. */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { resolve } from "node:path";
 import { processStateLedger, type Reservation } from "./worker-state-budget.js";
 import { hostOutputStagingLimits } from "./worker-state-limits.js";
@@ -33,7 +34,7 @@ function authorized(path: string) {
   if (path.includes("\0") || path.split("/").slice(1).some(part => !part || part === "." || part === ".."))
     throw new Error("worker_identity_path_alias_refused");
   const normalized = resolve(path);
-  for (const [root, value] of roots) if (normalized === root || normalized.startsWith(root + "/"))
+  for (const [root, value] of roots) if (isWithin(root, normalized))
     return { ...value, held: value, path: normalized.slice(root.length + 1) };
   return undefined;
 }
@@ -105,7 +106,7 @@ export function recoveredWorkerFile(path: string, maxBytes: number): Buffer | un
 export function recoveredWorkerFiles(path: string): string[] | undefined {
   const held = authorized(path);
   if (!held) return undefined;
-  if (held.inventory !== undefined) return held.inventory.filter(name => !held.path || name.startsWith(held.path + "/")).map(name => held.path ? name.slice(held.path.length + 1) : name);
+  if (held.inventory !== undefined) return held.inventory.filter(name => !held.path || isWithin(held.path, name, { includeRoot: false })).map(name => held.path ? name.slice(held.path.length + 1) : name);
   const found: string[] = [];
   let visited = 0;
   function visit(suffix: string, depth: number) {

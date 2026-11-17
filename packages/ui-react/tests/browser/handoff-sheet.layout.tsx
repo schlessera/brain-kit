@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { BrainUiProvider } from "../../src/root-context.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
 import { ChatPage } from "../../src/components/chat/chat-page.js";
+import { touchFloor } from "./hit-reach.js";
 
 // The session handoff review (#61) in real Chromium: the real ChatPage
 // with a seeded source conversation, at the phone and desktop widths, in both
@@ -131,6 +132,9 @@ for (const c of cases) {
     for (const el of controls) {
       const rect = el.getBoundingClientRect();
       const label = el.getAttribute("aria-label") ?? el.textContent?.trim() ?? el.tagName;
+      // #3252: a reaching Button keeps its kit paint and reaches 44px past it
+      // under a coarse pointer, owning each edge of that target.
+      if (el.classList.contains("bk-hit")) { expect(touchFloor(el), `${label} meets the touch floor`).toBe("met"); continue; }
       const compact = el.classList.contains("bk-icon-btn") && el.dataset.size === "sm" && !matchMedia("(any-pointer: coarse)").matches;
       expect(rect.height, `${label} height`).toBeGreaterThanOrEqual(compact ? 28 : 44);
       if (el.matches("button, [role=button]")) expect(rect.width, `${label} width`).toBeGreaterThanOrEqual(compact ? 28 : 36);

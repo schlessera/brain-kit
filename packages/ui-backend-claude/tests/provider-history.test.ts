@@ -7,7 +7,7 @@ beforeAll(async () => { captures = await captureOffline(join(import.meta.dir, "f
 
 test("Claude captures three real resumed interactive turns and a tool result", () => {
   for (const [name, capture] of Object.entries(captures)) {
-    if (["reference", "renewal", "freshness"].includes(name)) continue;
+    if (["reference", "renewal", "freshness", "compute"].includes(name)) continue;
     expect(capture.sessions).toHaveLength(3);
     expect(new Set(capture.sessions).size).toBe(1);
     expect(main(capture).map(e => e.turn)).toEqual([0, 0, 1, 2]);
@@ -35,6 +35,15 @@ test("Claude stable system stays byte-identical on resume", () => {
 });
 test("Claude ordinary messages retain every previous request and scripted answer", () => {
   for (const name of ["control", "repository", "facts", "posture", "budget", "datatree"]) for (const [a, b] of pairs(captures[name]!)) history(a, b);
+});
+// The fixed system brief names the host GitHub tools on every request
+// (#3799); the identity guards above hold its bytes across turns.
+test("Claude fixed system names the host GitHub tools on every request", () => {
+  for (const name of ["control", "repository", "promotion", "datatree"]) for (const exchange of main(captures[name]!)) {
+    const text = JSON.stringify(system(exchange));
+    expect(text, `GITHUB_TOOLS_NOTE_IN_SYSTEM ${name}`).toContain("`mcp__brain-ui__brain_github_issue_read`");
+    expect(text, `GITHUB_TOOLS_NOTE_IN_SYSTEM ${name}`).toContain("GitHub goes through the host tools.");
+  }
 });
 test("Claude requests contain no internal budget notes at the backend boundary", () => {
   for (const [name, capture] of Object.entries(captures)) if (name !== "budget") noInternalNotes(capture);
@@ -136,3 +145,30 @@ for (const [name, tool, label] of [["renewal", "reference_worktree", "RENEWAL"],
     for (const next of rest) identical(first, next, `REFERENCE_${label}_CLAUDE_SYSTEM_OPTION_STABLE`);
   });
 }
+
+// #3108: external compute runs on the host. Across a typed turn with compute,
+// a voice turn whose host has none, and a typed turn whose job changed, the
+// tools, system prompt and earlier history stay byte-identical.
+test("Claude compute tools keep tools, system and history stable across enabled, disabled-voice and changing results", () => {
+  const capture = captures.compute!;
+  expect(capture.sessions).toHaveLength(3);
+  expect(new Set(capture.sessions).size).toBe(1);
+  expect(main(capture).map(e => e.turn), "COMPUTE_CLAUDE_EVERY_TURN_CALLS").toEqual([0, 0, 1, 1, 2, 2]);
+  expect(capture.calls, "COMPUTE_CLAUDE_HOST_RECEIVES_PARSED_INPUT").toEqual([
+    expect.objectContaining({ tool: "brain_compute_status", input: { job: "cj_ithaca" }, toolUseId: expect.stringContaining("toolu_odysseus_0") }),
+    expect.objectContaining({ tool: "brain_compute_status", input: { job: "cj_ithaca" }, toolUseId: expect.stringContaining("toolu_odysseus_2") })]);
+  expect(capture.rosters, "COMPUTE_CLAUDE_ASSEMBLED_ROSTER_STABLE").toEqual([capture.rosters![0], capture.rosters![0], capture.rosters![0]]);
+  const latest = main(capture).filter((_, index) => index % 2 === 1).map(exchange => JSON.stringify(messages(exchange).at(-1)));
+  expect(latest.map(text => text.includes('"is_error":true')), "COMPUTE_CLAUDE_DISABLED_TURN_REFUSES").toEqual([false, true, false]);
+  expect(latest.map(text => /\\"state\\":\\"(\w+)\\"/.exec(text)?.[1]), "COMPUTE_CLAUDE_RESULTS_CHANGE").toEqual(["running", undefined, "succeeded"]);
+  for (const [a, b] of pairs(capture)) {
+    identical(body(a).tools, body(b).tools, "COMPUTE_CLAUDE_TOOLS_STABLE");
+    identical(system(a), system(b), "COMPUTE_CLAUDE_SYSTEM_STABLE");
+    history(a, b);
+  }
+  const [first, ...rest] = capture.appends;
+  for (const next of rest) identical(first, next, "COMPUTE_CLAUDE_SYSTEM_OPTION_STABLE");
+  const names = body(main(capture)[0]!).tools.map((tool: { name: string }) => tool.name);
+  expect(names, "COMPUTE_CLAUDE_HOST_TOOLS_PRESENT").toEqual(expect.arrayContaining(["mcp__brain-ui__brain_compute_run", "mcp__brain-ui__brain_compute_collect"]));
+  expect(names.some((name: string) => name.startsWith("mcp__brain__brain_compute_")), "COMPUTE_CLAUDE_WORKER_TOOLS_ABSENT").toBe(false);
+});

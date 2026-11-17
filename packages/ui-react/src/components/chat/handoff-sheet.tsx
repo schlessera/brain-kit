@@ -398,10 +398,10 @@ function HandoffReview({ sourceSessionId, handoffId, awaitHistory, preferSourceP
         </div>
         {draftNote ? <p className="text-[11px] text-muted-foreground">{draftNote}</p> : null}
         {confirmReplace ? (
-          <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-border p-2 text-sm">
+          <div role="alert" className="flex flex-wrap items-center gap-2 any-pointer-coarse:gap-y-4 rounded-lg border border-border p-2 text-sm">
             <span className="flex-1">Replace your edits?</span>
-            <Button tone="ghost" size="sm" block={false} style={{ minHeight: 44 }} label="Keep mine" onClick={() => setConfirmReplace(null)} />
-            <Button tone="primary" size="sm" block={false} style={{ minHeight: 44 }} label="Replace" onClick={() => { setText(confirmReplace.text); setOrigin(confirmReplace.origin); setConfirmReplace(null); }} />
+            <Button tone="ghost" size="sm" block={false} reach label="Keep mine" onClick={() => setConfirmReplace(null)} />
+            <Button tone="primary" size="sm" block={false} reach label="Replace" onClick={() => { setText(confirmReplace.text); setOrigin(confirmReplace.origin); setConfirmReplace(null); }} />
           </div>
         ) : null}
         {snapshot?.running ? (
@@ -423,7 +423,7 @@ function HandoffReview({ sourceSessionId, handoffId, awaitHistory, preferSourceP
             const off = r.state === "missing" || r.state === "unreadable";
             const reason = r.state === "missing" ? "missing" : r.state === "unreadable" ? `not readable by ${destination?.backendId ?? "the destination"}` : r.state === "checking" ? "checking" : undefined;
             return (
-              <li key={r.path} className={cn("inline-flex min-h-11 items-center gap-1 rounded-md border border-border pl-2 font-mono text-[11px]", off ? "text-muted-foreground" : "text-foreground")}>
+              <li key={r.path} className={cn("inline-flex items-center gap-1 rounded-md border border-border pl-2 font-mono text-[11px]", off ? "text-muted-foreground" : "text-foreground")}>
                 <span className={off ? "line-through" : undefined}>{r.path}</span>
                 {reason ? <span className="font-sans text-[10px] text-muted-foreground">{reason}</span> : null}
                 <IconButton size="sm" name={`Remove reference ${r.path}`} icon="dismiss"
@@ -445,7 +445,7 @@ function HandoffReview({ sourceSessionId, handoffId, awaitHistory, preferSourceP
                   aria-label="Brain file path"
                   className="min-h-11 w-44 rounded-md border border-border bg-background px-2 font-mono text-xs"
                 />
-                <Button tone="ghost" size="sm" block={false} style={{ minHeight: 44 }} label="Add" onClick={submitReference} />
+                <Button tone="ghost" size="sm" block={false} reach label="Add" onClick={submitReference} />
               </form>
             )}
           </li>
@@ -478,18 +478,18 @@ function HandoffReview({ sourceSessionId, handoffId, awaitHistory, preferSourceP
         ) : phase.kind === "refused" ? (
           <div role="alert" className="flex flex-col gap-2 rounded-lg border border-destructive/50 p-3 text-sm">
             <p>Couldn't start the new chat: {phase.message} Your handoff is kept.</p>
-            <div className="flex flex-wrap gap-2">
-              <Button tone="primary" size="sm" block={false} style={{ minHeight: 44 }} label="Try again" onClick={start} disabled={Boolean(why)} />
-              <Button tone="ghost" size="sm" block={false} style={{ minHeight: 44 }} label="Back to edit" onClick={() => root.stores.handoff.getState().setPhase({ kind: "review" })} />
+            <div className="flex flex-wrap gap-2 any-pointer-coarse:gap-y-4">
+              <Button tone="primary" size="sm" block={false} reach label="Try again" onClick={start} disabled={Boolean(why)} />
+              <Button tone="ghost" size="sm" block={false} reach label="Back to edit" onClick={() => root.stores.handoff.getState().setPhase({ kind: "review" })} />
             </div>
           </div>
         ) : phase.kind === "uncertain" ? (
           <div role="alert" className="flex flex-col gap-2 rounded-lg border border-border p-3 text-sm">
             <p>Didn't hear back. The new chat may or may not exist. Checking again won't create a second one.</p>
             <p className="font-mono text-[11px] text-muted-foreground">handoff {handoffId.slice(0, 12)}…</p>
-            <div className="flex flex-wrap gap-2">
-              <Button tone="primary" size="sm" block={false} style={{ minHeight: 44 }} label="Check again" onClick={checkAgain} disabled={!connected} />
-              <Button tone="ghost" size="sm" block={false} style={{ minHeight: 44 }} label="Back to edit" onClick={() => root.stores.handoff.getState().setPhase({ kind: "review" })} />
+            <div className="flex flex-wrap gap-2 any-pointer-coarse:gap-y-4">
+              <Button tone="primary" size="sm" block={false} reach label="Check again" onClick={checkAgain} disabled={!connected} />
+              <Button tone="ghost" size="sm" block={false} reach label="Back to edit" onClick={() => root.stores.handoff.getState().setPhase({ kind: "review" })} />
             </div>
           </div>
         ) : null}
@@ -499,9 +499,9 @@ function HandoffReview({ sourceSessionId, handoffId, awaitHistory, preferSourceP
       <div className="mt-3 flex flex-col gap-2 border-t border-border pt-3">
         <p className="text-xs text-muted-foreground">Nothing is sent until you start it.{why && phase.kind === "review" ? ` · ${why}` : ""}</p>
         <div className="flex gap-2 tablet:justify-end">
-          <Button tone="ghost" size="md" block={false} style={{ minHeight: 44, flex: "1 1 0", width: "auto" }} label="Cancel" onClick={cancel} disabled={busy} />
+          <Button tone="ghost" size="md" block={false} reach style={{ flex: "1 1 0", width: "auto" }} label="Cancel" onClick={cancel} disabled={busy} />
           <Button tone="primary" size="md" block={false}
-            style={{ minHeight: 44, flex: "1 1 0", width: "auto" }} label="Start new chat"
+            reach style={{ flex: "1 1 0", width: "auto" }} label="Start new chat"
             onClick={start} disabled={Boolean(why) || busy || phase.kind !== "review"}
             ariaLabel={`Start new chat on ${destination?.label ?? "the selected profile"}`} />
         </div>

@@ -36,6 +36,7 @@ export "." (./src/index.ts)
   type LogQuery
   type LogReader
   type LogWriter
+  MARKUP_UPLOAD_MAX_BODY_BYTES
   MAX_ARCHIVE_BYTES
   MIN_BRAIN_CLI_VERSION
   MIN_BRAIN_SCHEMA_VERSION
@@ -160,7 +161,7 @@ signatures (every public export and the types it is made of)
     }
   ActivityStream (packages/ui-server/src/activity/stream.ts)
     export interface ActivityStream {
-        handleSubscribe(ws: WSContext, msg: ClientActivitySubscribe, principalId: string): void;
+        handleSubscribe(ws: WSContext, msg: ClientActivitySubscribe, principalId: string, compute?: boolean): void;
         handleUnsubscribe(ws: WSContext, msg: ClientActivityUnsubscribe): void;
         dropConnection(ws: WSContext): void;
         dropFor(principalId: string): void;
@@ -183,6 +184,7 @@ signatures (every public export and the types it is made of)
         defaultThinkingLevel?: ThinkingLevel;
         profilesJson: string | null;
         piProfilesJson: string | null;
+        piExtensions?: "curated" | "discover";
         modelDiscovery: boolean;
         modelTtlMs: number;
         workerStateBytes: number;
@@ -190,6 +192,8 @@ signatures (every public export and the types it is made of)
         turnTempBytes: number;
         turnTempBudgetBytes: number;
     }
+  ApifyLimits (packages/common/src/governance-policy.ts)
+    export type ApifyLimits = z.output<typeof apifyLimits>;
   AppRenderer (packages/ui-server/src/routes/render.ts)
     export interface AppRenderer {
         renderPng(options: {
@@ -239,6 +243,15 @@ signatures (every public export and the types it is made of)
     export type AwaitableActivityStore = Omit<ActivityStore, ActivityWriteMethod> & {
         [K in ActivityWriteMethod]: (...args: Parameters<ActivityStore[K]>) => Awaitable<ReturnType<ActivityStore[K]>>;
     };
+  BackendBootFailure (packages/ui-server/src/agent/backend.ts)
+    export interface BackendBootFailure {
+        backendId: string;
+        phase: "resolution" | "runtime";
+        site: "assertBackendResolvable" | "probeBackendRuntimes";
+        errorClass: string;
+        message: string;
+        at: string;
+    }
   BackendRegistry (packages/ui-server/src/agent/backend.ts)
     export interface BackendRegistry {
         getBackends(): Promise<AgentBackend[]>;
@@ -275,7 +288,9 @@ signatures (every public export and the types it is made of)
     }
   BrainClient (packages/ui-server/src/brain/client.ts)
     export interface BrainClient {
-        hygiene?(args: readonly string[]): Promise<unknown>;
+        hygiene?(args: readonly string[], opts?: {
+            signal?: AbortSignal;
+        }): Promise<unknown>;
         cliCommand(): string[];
         modules?(opts?: {
             signal?: AbortSignal;
@@ -435,6 +450,8 @@ signatures (every public export and the types it is made of)
         cancelActiveTurns(): boolean;
         close(): Promise<void>;
     }
+  CHAT_STORES (packages/ui-server/src/ws/chat-lifecycle.ts)
+    const CHAT_STORES: readonly ["native", "dialogue", "tasks", "projections", "drafts"];
   CapturedLog (packages/ui-server/src/observability/types.ts)
     export interface CapturedLog {
         scope: string;
@@ -443,6 +460,35 @@ signatures (every public export and the types it is made of)
         attributes: FlatAttributes;
         timestamp: number;
     }
+  ChatDeletion (packages/ui-server/src/ws/chat-deletion.ts)
+    export type ChatDeletion = ReturnType<typeof createChatDeletion>;
+  ChatDeletionDeps (packages/ui-server/src/ws/chat-deletion.ts)
+    export interface ChatDeletionDeps {
+        catalog: Pick<SessionCatalog, "retireChat" | "chatRetirement" | "recordChatCleanup" | "cleanChatStore" | "unfinishedChatRetirements">;
+        backends(): Promise<AgentBackend[]>;
+        busy(identities: RetiredChatIdentities): boolean;
+        retired(principalId: string, retirement: Retired): void;
+    }
+  ChatDeletionResult (packages/ui-server/src/ws/chat-deletion.ts)
+    export type ChatDeletionResult = {
+        status: "refused";
+        reason: RetireRefusal;
+    } | {
+        status: "retired";
+        receipt: ChatDeletionReceipt;
+    };
+  ChatRetirementStatus (packages/ui-server/src/ws/chat-lifecycle.ts)
+    export type ChatRetirementStatus = "pending" | "partial" | "unknown" | "removed";
+  ChatStore (packages/ui-server/src/ws/chat-lifecycle.ts)
+    export type ChatStore = (typeof CHAT_STORES)[number];
+  ChatStoreOutcome (packages/ui-server/src/ws/chat-lifecycle.ts)
+    export type ChatStoreOutcome = "pending" | "partial" | "unknown" | "removed";
+  ChatTarget (packages/ui-server/src/ws/chat-lifecycle.ts)
+    export type ChatTarget = {
+        sessionId: string;
+    } | {
+        ownerId: string;
+    };
   ClaudeUsageEvidence (packages/ui-server/src/ws/claude-usage-accounting.ts)
     export interface ClaudeUsageEvidence {
         title?: TitleEvidence;
@@ -476,7 +522,11 @@ signatures (every public export and the types it is made of)
         dbPath?: string;
         renderer?: AppRenderer;
         speechProvider?: SpeechProvider;
+        speechProviders?: SpeechProvider[];
+        defaultSpeechProviderId?: string;
         conversationProvider?: LiveConversationProvider;
+        conversationProviders?: LiveConversationProvider[];
+        defaultConversationProviderId?: string;
         labeller?: LabellerOptions;
         turnTimeoutMs?: number;
         registry?: BackendRegistry;
@@ -502,12 +552,18 @@ signatures (every public export and the types it is made of)
     }
   DialogueJournal (packages/ui-server/src/ws/dialogue.ts)
     export class DialogueJournal {
-        constructor(private readonly catalog: SessionCatalog, private readonly publish: (page: DialoguePage, principalId: string) => void, private readonly failed: (owner: DialogueOwner, cause: "queue_pressure" | "storage_error" | "storage_indeterminate", kind?: DialogueEvidence["kind"]) => void);
+        constructor(private readonly catalog: SessionCatalog, private readonly publish: (page: DialoguePage, principalId: string, owner?: DialogueOwner) => void, private readonly failed: (owner: DialogueOwner, cause: "queue_pressure" | "storage_error" | "storage_indeterminate", kind?: DialogueEvidence["kind"]) => void);
         open(input: DialogueOpen): Promise<DialogueOwner | undefined>;
         bind(conversationId: string, principalId: string, sessionId: string): void;
         voice(conversationId: string, evidence: Extract<DialogueEvidence, {
             kind: "voice";
         }>, after: (saved: boolean) => void): boolean;
+        interruption(conversationId: string, evidence: Extract<DialogueEvidence, {
+            kind: "voice_interruption";
+        }>, ordinal: number): boolean;
+        ended(conversationId: string, principalId: string, evidence: Extract<DialogueEvidence, {
+            kind: "voice_end";
+        }>): boolean;
         adoptTurn(turnId: string, ownerId: string, principalId: string): void;
         draftSource(turnId: string): string | undefined;
         retireTurn(turnId: string): void;
@@ -530,6 +586,7 @@ signatures (every public export and the types it is made of)
     export interface DialogueOwner {
         id: string;
         principal_id: string;
+        principal_account?: string | null;
         session_id: string | null;
         generation: number;
         coverage: DialoguePage["coverage"];
@@ -620,9 +677,11 @@ signatures (every public export and the types it is made of)
                     opaque_bytes: "opaque_bytes";
                 }>;
                 bytes: z.ZodNumber;
+                connectionId: z.ZodOptional<z.ZodString>;
                 durationMs: z.ZodNumber;
                 host: z.ZodString;
                 inference: z.ZodOptional<z.ZodLiteral<true>>;
+                managedReference: z.ZodOptional<z.ZodLiteral<true>>;
                 method: z.ZodString;
                 outcome: z.ZodEnum<{
                     cancelled: "cancelled";
@@ -632,6 +691,7 @@ signatures (every public export and the types it is made of)
                 }>;
                 path: z.ZodOptional<z.ZodString>;
                 port: z.ZodNumber;
+                provider: z.ZodOptional<z.ZodLiteral<true>>;
                 reason: z.ZodOptional<z.ZodString>;
             }, z.core.$strict>;
             version: number;
@@ -654,6 +714,7 @@ signatures (every public export and the types it is made of)
         readonly outward_action: {
             payload: z.ZodObject<{
                 action: z.ZodEnum<{
+                    compute_run: "compute_run";
                     gh_write: "gh_write";
                     git_push: "git_push";
                     http_write: "http_write";
@@ -927,6 +988,20 @@ signatures (every public export and the types it is made of)
             }, z.core.$strict>;
             version: number;
         };
+        readonly safety_admission_expired: {
+            payload: z.ZodObject<{
+                authorityEpoch: z.ZodString;
+                evidenceRevision: z.ZodString;
+                reason: z.ZodEnum<{
+                    grant_storage_failed: "grant_storage_failed";
+                    safety_changed: "safety_changed";
+                    turn_ended: "turn_ended";
+                }>;
+                toolUseId: z.ZodString;
+                trustRevision: z.ZodString;
+            }, z.core.$strict>;
+            version: number;
+        };
         readonly scope_cap: {
             payload: z.ZodObject<{
                 cap: z.ZodEnum<{
@@ -979,6 +1054,7 @@ signatures (every public export and the types it is made of)
                 path: z.ZodString;
                 sequence: z.ZodNumber;
                 taintSourceEventId: z.ZodNullable<z.ZodNumber>;
+                tainted: z.ZodOptional<z.ZodLiteral<true>>;
             }, z.core.$strict>;
             version: number;
         };
@@ -996,9 +1072,65 @@ signatures (every public export and the types it is made of)
         readonly taint: {
             payload: z.ZodObject<{
                 detail: z.ZodNullable<z.ZodString>;
+                occurrence: z.ZodOptional<z.ZodObject<{
+                    admission: z.ZodOptional<z.ZodObject<{
+                        policyHash: z.ZodNullable<z.ZodString>;
+                        trustRevision: z.ZodLiteral<"0">;
+                        trusted: z.ZodLiteral<false>;
+                    }, z.core.$strict>>;
+                    detector: z.ZodEnum<{
+                        attachment_input: "attachment_input";
+                        compute_input: "compute_input";
+                        explicit_untrusted_input: "explicit_untrusted_input";
+                        external_mcp_input: "external_mcp_input";
+                        proxy_input: "proxy_input";
+                        tool_file_input: "tool_file_input";
+                        tool_search_output: "tool_search_output";
+                        tool_web_input: "tool_web_input";
+                        unproxied_shell_input: "unproxied_shell_input";
+                    }>;
+                    entry: z.ZodOptional<z.ZodObject<{
+                        kind: z.ZodLiteral<"tool">;
+                        toolUseId: z.ZodString;
+                    }, z.core.$strict>>;
+                    epochId: z.ZodString;
+                    exposure: z.ZodEnum<{
+                        finalized: "finalized";
+                        interrupted_unknown: "interrupted_unknown";
+                        open: "open";
+                    }>;
+                    exposureId: z.ZodString;
+                    id: z.ZodString;
+                    operationId: z.ZodNullable<z.ZodString>;
+                    provenance: z.ZodUnion<readonly [z.ZodNull, z.ZodObject<{
+                        kind: z.ZodLiteral<"web_origin">;
+                        origin: z.ZodObject<{
+                            host: z.ZodString;
+                            port: z.ZodNumber;
+                            scheme: z.ZodEnum<{
+                                http: "http";
+                                https: "https";
+                            }>;
+                        }, z.core.$strict>;
+                        verifiedBy: z.ZodLiteral<"host_transport">;
+                    }, z.core.$strict>, z.ZodObject<{
+                        authority: z.ZodObject<{
+                            host: z.ZodString;
+                            port: z.ZodNumber;
+                        }, z.core.$strict>;
+                        kind: z.ZodLiteral<"tunnel_authority">;
+                        verifiedBy: z.ZodLiteral<"host_proxy">;
+                    }, z.core.$strict>]>;
+                    signalId: z.ZodString;
+                }, z.core.$strict>>;
                 source: z.ZodEnum<{
+                    apify_result: "apify_result";
+                    chat_attachment: "chat_attachment";
+                    compute_output: "compute_output";
                     egress_connection: "egress_connection";
                     fetching_command: "fetching_command";
+                    github_result: "github_result";
+                    legacy_unknown: "legacy_unknown";
                     mcp_document: "mcp_document";
                     staged_share: "staged_share";
                     unclassified_command: "unclassified_command";
@@ -1008,6 +1140,16 @@ signatures (every public export and the types it is made of)
                     workspace_read: "workspace_read";
                 }>;
                 tool: z.ZodNullable<z.ZodString>;
+            }, z.core.$strict>;
+            version: number;
+        };
+        readonly taint_exposure: {
+            payload: z.ZodObject<{
+                occurrenceId: z.ZodString;
+                state: z.ZodEnum<{
+                    finalized: "finalized";
+                    interrupted_unknown: "interrupted_unknown";
+                }>;
             }, z.core.$strict>;
             version: number;
         };
@@ -1045,6 +1187,43 @@ signatures (every public export and the types it is made of)
     export type GovernancePolicyInput = z.input<typeof GovernancePolicySchema>;
   GovernancePolicySchema (packages/common/src/governance-policy.ts)
     const GovernancePolicySchema: z.ZodObject<{
+        apify: z.ZodOptional<z.ZodObject<{
+            actor_grants: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                account_id: z.ZodString;
+                actor_id: z.ZodString;
+                build_number: z.ZodString;
+                expires_at: z.ZodPipe<z.ZodUnion<readonly [z.ZodISODateTime, z.ZodDate]>, z.ZodTransform<string, Date | string>>;
+                max_run_usd: z.ZodNumber;
+                origins: z.ZodArray<z.ZodString>;
+                pricing_sha256: z.ZodString;
+                profile_id: z.ZodString;
+                schema_sha256: z.ZodString;
+            }, z.core.$strict>>>;
+            actors: z.ZodOptional<z.ZodEnum<{
+                allow: "allow";
+                ask: "ask";
+                deny: "deny";
+            }>>;
+            discovery: z.ZodOptional<z.ZodEnum<{
+                allow: "allow";
+                ask: "ask";
+                deny: "deny";
+            }>>;
+            enabled: z.ZodOptional<z.ZodBoolean>;
+            limits: z.ZodOptional<z.ZodObject<{
+                day_usd: z.ZodNumber;
+                max_concurrent_runs: z.ZodNumber;
+                max_requests_per_turn: z.ZodNumber;
+                max_result_bytes: z.ZodNumber;
+                max_result_items: z.ZodNumber;
+                max_retention_seconds: z.ZodNumber;
+                max_runs_per_turn: z.ZodNumber;
+                max_runtime_seconds: z.ZodNumber;
+                run_usd: z.ZodNumber;
+                session_usd: z.ZodNumber;
+                turn_usd: z.ZodNumber;
+            }, z.core.$strict>>;
+        }, z.core.$strict>>;
         budgets: z.ZodOptional<z.ZodObject<{
             day: z.ZodOptional<z.ZodObject<{
                 block_tokens: z.ZodOptional<z.ZodNumber>;
@@ -1107,6 +1286,9 @@ signatures (every public export and the types it is made of)
                 command: string;
                 remotes: string[];
             }[]>>>;
+            github: z.ZodOptional<z.ZodObject<{
+                repositories: z.ZodOptional<z.ZodArray<z.ZodString>>;
+            }, z.core.$strict>>;
             hosts: z.ZodOptional<z.ZodArray<z.ZodString>>;
         }, z.core.$strict>>;
         profiles: z.ZodOptional<z.ZodObject<{
@@ -1142,9 +1324,50 @@ signatures (every public export and the types it is made of)
             max_tool_calls: z.ZodOptional<z.ZodNumber>;
         }, z.core.$strict>>;
         taint: z.ZodOptional<z.ZodObject<{
+            classifier: z.ZodOptional<z.ZodEnum<{
+                heuristics: "heuristics";
+                off: "off";
+            }>>;
             egress: z.ZodOptional<z.ZodObject<{
                 allow: z.ZodArray<z.ZodString>;
             }, z.core.$strict>>;
+            judge: z.ZodOptional<z.ZodObject<{
+                floor: z.ZodOptional<z.ZodNumber>;
+                mode: z.ZodOptional<z.ZodEnum<{
+                    jev: "jev";
+                    off: "off";
+                }>>;
+            }, z.core.$strict>>;
+            trusted_sources: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                id: z.ZodString;
+                incomingContent: z.ZodDefault<z.ZodBoolean>;
+                label: z.ZodString;
+                recipientWhileRestricted: z.ZodDefault<z.ZodBoolean>;
+                selector: z.ZodDiscriminatedUnion<[z.ZodObject<{
+                    host: z.ZodString;
+                    kind: z.ZodLiteral<"web_origin">;
+                    port: z.ZodNumber;
+                    scheme: z.ZodEnum<{
+                        http: "http";
+                        https: "https";
+                    }>;
+                }, z.core.$strict>, z.ZodObject<{
+                    host: z.ZodString;
+                    kind: z.ZodLiteral<"tunnel_authority">;
+                    port: z.ZodNumber;
+                }, z.core.$strict>, z.ZodObject<{
+                    host: z.ZodLiteral<"github.com">;
+                    kind: z.ZodLiteral<"github_repository">;
+                    owner: z.ZodString;
+                    repository: z.ZodString;
+                    repositoryId: z.ZodString;
+                }, z.core.$strict>, z.ZodObject<{
+                    host: z.ZodLiteral<"github.com">;
+                    kind: z.ZodLiteral<"github_owner">;
+                    owner: z.ZodString;
+                    ownerId: z.ZodString;
+                }, z.core.$strict>], "kind">;
+            }, z.core.$strict>>>;
         }, z.core.$strict>>;
     }, z.core.$strict>;
   GovernedTurnHold (packages/ui-server/src/brain/governed-turn.ts)
@@ -1166,7 +1389,7 @@ signatures (every public export and the types it is made of)
     }
   GovernedTurns (packages/ui-server/src/brain/governed-turn.ts)
     export interface GovernedTurns {
-        begin(turnId: string, signal: AbortSignal, origin?: "interactive" | "voice", preference?: "governed" | "strict", route?: GovernedTurnRoute): Promise<GovernedTurnHold>;
+        begin(turnId: string, signal: AbortSignal, origin?: "interactive" | "voice", preference?: "governed" | "strict", route?: GovernedTurnRoute, timing?: PhaseTimer): Promise<GovernedTurnHold>;
         bindSession(turnId: string, sessionId: string): Promise<void>;
         exposures(sessionIds: readonly string[]): Promise<ProviderExposure[]>;
         unprovenHistory(sessionId: string): Promise<boolean>;
@@ -1177,6 +1400,8 @@ signatures (every public export and the types it is made of)
         refresh(lock: KeyedLock): void;
         close(): Promise<void>;
     }
+  HostChatStore (packages/ui-server/src/ws/chat-store-cleanup.ts)
+    export type HostChatStore = Exclude<ChatStore, "native">;
   HostVersionRequirements (packages/ui-server/src/app.ts)
     export interface HostVersionRequirements {
         brainCli?: string;
@@ -1243,6 +1468,13 @@ signatures (every public export and the types it is made of)
         timeoutMs?: number;
         billing?: BillingMode;
     }
+  LiveProviderRegistry (packages/ui-server/src/voice/live-providers.ts)
+    export interface LiveProviderRegistry {
+        readonly providers: readonly LiveConversationProvider[];
+        readonly hostDefault: string | null;
+        get(id: string): LiveConversationProvider | undefined;
+        resolve(saved: string | null): LiveDefault;
+    }
   LocalExchangeRecord (packages/ui-server/src/ws/local-exchanges.ts)
     export interface LocalExchangeRecord extends LocalExchange {
         seq: number;
@@ -1267,6 +1499,8 @@ signatures (every public export and the types it is made of)
     export interface LogWriter {
         (severity: Severity, line: string): void;
     }
+  MARKUP_UPLOAD_MAX_BODY_BYTES (packages/ui-server/src/routes/markup.ts)
+    const MARKUP_UPLOAD_MAX_BODY_BYTES: number;
   MAX_ARCHIVE_BYTES (packages/ui-server/src/skills/install.ts)
     const MAX_ARCHIVE_BYTES: number;
   MIN_BRAIN_CLI_VERSION (packages/ui-server/src/brain/client.ts)
@@ -1289,6 +1523,10 @@ signatures (every public export and the types it is made of)
     export interface MaintenanceTempDomain {
         statePath: string;
     }
+  MessageAttachment (packages/ui-server/src/attachments/context.ts)
+    export type MessageAttachment = AttachmentFile & {
+        inline?: boolean;
+    };
   MetricPoint (packages/ui-server/src/observability/types.ts)
     export interface MetricPoint {
         name: string;
@@ -1368,6 +1606,12 @@ signatures (every public export and the types it is made of)
         statCheckpoint?: ReturnType<typeof createNativeBrainManagerClient>["statCheckpoint"];
         listCheckpoint?: ReturnType<typeof createNativeBrainManagerClient>["listCheckpoint"];
     }
+  NativeJournalReleaseAccounting (packages/ui-server/src/brain/native-journal-observer.ts)
+    export interface NativeJournalReleaseAccounting {
+        pending: number;
+        failed: number;
+        retainedBytes: number;
+    }
   NativeManagerReady (packages/ui-sdk/src/server/native-brain-manager-protocol.ts)
     export interface NativeManagerReady {
         brainPath: string;
@@ -1379,6 +1623,12 @@ signatures (every public export and the types it is made of)
         availableBytes: number;
         recoveryReserveBytes: number;
         reserveAllocatedBytes: number;
+        recovery?: {
+            quarantinedIntents: number;
+            stagingChargedBytes: number | null;
+            stagingRefusal?: string;
+            diagnosticsPath: string;
+        };
     }
   NativePoolAccess (packages/ui-sdk/src/server/native-brain-manager-protocol.ts)
     export interface NativePoolAccess {
@@ -1395,6 +1645,54 @@ signatures (every public export and the types it is made of)
     }
   NativePoolCreatePurpose (packages/ui-sdk/src/server/native-brain-manager-protocol.ts)
     export type NativePoolCreatePurpose = Exclude<NativePoolRecord["purpose"], "checkpoint">;
+  NativePoolGrowth (packages/ui-sdk/src/server/native-brain-manager-protocol.ts)
+    export interface NativePoolGrowth {
+        basis: "btrfs-space-info-disk-used+simple-quota-owner";
+        state: "available" | "unavailable";
+        reason: string | null;
+        generation: string | null;
+        thresholds: {
+            worktreeRatio: number;
+            refreshRatio: number;
+            retainedSources: number;
+        };
+        worktrees: NativePoolGrowthComparison[];
+        refreshes: NativePoolGrowthComparison[];
+        sources: NativePoolGrowthSources[];
+        flags: NativePoolGrowthFlag[];
+        omitted: number;
+    }
+  NativePoolGrowthComparison (packages/ui-sdk/src/server/native-brain-manager-protocol.ts)
+    export interface NativePoolGrowthComparison {
+        id: string;
+        from: string;
+        cold: string | null;
+        ownerBytes: number | null;
+        basisBytes: number | null;
+        thresholdBytes: number | null;
+        state: "available" | "unavailable";
+        flagged: boolean;
+    }
+  NativePoolGrowthFlag (packages/ui-sdk/src/server/native-brain-manager-protocol.ts)
+    export interface NativePoolGrowthFlag {
+        kind: "worktree" | "refresh" | "retained-sources";
+        subject: string;
+        observedBytes: number | null;
+        thresholdBytes: number | null;
+        threshold: number;
+        observedCount: number | null;
+    }
+  NativePoolGrowthSources (packages/ui-sdk/src/server/native-brain-manager-protocol.ts)
+    export interface NativePoolGrowthSources {
+        name: string;
+        roots: {
+            id: string;
+            view: string;
+            ownerBytes: number | null;
+        }[];
+        ownerBytes: number | null;
+        flagged: boolean;
+    }
   NativePoolRecord (packages/ui-sdk/src/server/native-brain-manager-protocol.ts)
     export interface NativePoolRecord {
         id: string;
@@ -1483,11 +1781,14 @@ signatures (every public export and the types it is made of)
         id: string;
         state: "creating" | "sealed" | "deleting" | "deleted";
         checkpoint?: NativeCheckpoint;
-        kind?: "stage";
+        kind?: "stage" | "tree";
         stage?: NativeStage;
         stageRequest?: {
             checkpointId: string;
             checkpointUuid: string;
+            allowanceBytes: number;
+        };
+        treeRequest?: {
             allowanceBytes: number;
         };
     }
@@ -1518,6 +1819,12 @@ signatures (every public export and the types it is made of)
         changes: AsyncIterable<NativeStageChange>;
         completed: NativeDeltaStream["completed"];
     }
+  NativeTurnTree (packages/ui-sdk/src/server/native-brain-manager-protocol.ts)
+    export interface NativeTurnTree {
+        id: string;
+        path: string;
+        allowanceBytes: number;
+    }
   Observability (packages/ui-server/src/observability/index.ts)
     export interface Observability {
         logger(scope: string): Logger;
@@ -1536,6 +1843,8 @@ signatures (every public export and the types it is made of)
     export interface OpenBrainDbOptions {
         minSchemaVersion?: number;
     }
+  PhaseTimer (packages/ui-server/src/activity/turn-lifecycle.ts)
+    export type PhaseTimer = (name: string) => () => void;
   Principal (packages/ui-server/src/db/principals.ts)
     export interface Principal {
         id: string;
@@ -1636,6 +1945,47 @@ signatures (every public export and the types it is made of)
         failureMessage: string;
         prompt: string;
     }
+  RetireChatInput (packages/ui-server/src/ws/chat-lifecycle.ts)
+    export interface RetireChatInput {
+        operationId: string;
+        principalId: string;
+        target: ChatTarget;
+        expected: {
+            backendId: string | null;
+            generation: number;
+        };
+        removableBackends: readonly string[];
+        at: number;
+    }
+  RetireChatResult (packages/ui-server/src/ws/chat-lifecycle.ts)
+    export type RetireChatResult = {
+        status: "refused";
+        reason: RetireRefusal;
+    } | {
+        status: "retired";
+        lifecycleId: string;
+        operationId: string;
+        generation: number;
+        identities: RetiredChatIdentities;
+        backendId: string | null;
+        cleanup: ChatRetirementStatus;
+        stores: Partial<Record<ChatStore, ChatStoreOutcome>>;
+    };
+  RetireRefusal (packages/ui-server/src/ws/chat-lifecycle.ts)
+    export type RetireRefusal = "unauthorized" | "unavailable" | "stale" | "unsupported" | "busy";
+  Retired (packages/ui-server/src/ws/chat-deletion.ts)
+    type Retired = Extract<RetireChatResult, {
+        status: "retired";
+    }>;
+  RetiredChatIdentities (packages/ui-server/src/ws/chat-lifecycle.ts)
+    export interface RetiredChatIdentities {
+        sessions: string[];
+        dialogueOwners: string[];
+        conversations: string[];
+        tasks: string[];
+        requests: string[];
+        nativeTasks: string[];
+    }
   RunRollupRow (packages/ui-server/src/activity/store.ts)
     export interface RunRollupRow {
         runId: string;
@@ -1676,6 +2026,11 @@ signatures (every public export and the types it is made of)
     const SPAN_OUTCOMES: readonly ["success", "error", "timeout", "cancelled", "denied", "interrupted"];
   ServerConfig (packages/ui-server/src/config/env.ts)
     export interface ServerConfig {
+        compute?: {
+            keys: Readonly<Record<string, readonly string[]>>;
+            stateDir: string | null;
+            workerEnvExtra: readonly string[];
+        };
         storage?: {
             backupRoots: readonly string[];
             gitRoots: readonly string[];
@@ -1713,6 +2068,7 @@ signatures (every public export and the types it is made of)
         sourceCommit: string;
         allowedOrigins: string[];
         maxConcurrentSessions: number;
+        attachmentPoolBytes: number;
         turnTimeoutMs: number | null;
         logLevel: Severity;
         wsRate: {
@@ -1740,11 +2096,20 @@ signatures (every public export and the types it is made of)
         dialogueOwnerForConversation?(conversationId: string, principalId: string): DialogueOwner | null;
         dialogueOwnerForId?(ownerId: string, principalId: string): DialogueOwner | null;
         dialogueOwnerForSession?(sessionId: string): DialogueOwner | null;
+        dialogueAudience?(owner: DialogueOwner, principalId: string): boolean;
         dialogueClose?(conversationId: string, principalId: string, epoch: number, partial: boolean): Promise<void>;
         dialogueOpen?(input: DialogueOpen): Promise<DialogueOwner>;
         dialogueAppend?(input: DialogueAppend): Promise<import("@schlessera/brain-ui-sdk/protocol").DialogueRecord>;
         dialogueBind?(conversationId: string, principalId: string, sessionId: string): Promise<DialogueOwner | null>;
         dialogueRead?(principalId: string, target: DialogueTarget): Promise<import("@schlessera/brain-ui-sdk/protocol").DialoguePage | null>;
+        retireChat?(input: RetireChatInput, busy: (identities: RetiredChatIdentities) => boolean): Promise<RetireChatResult>;
+        chatRetirement?(operationId: string, principalId: string): Promise<RetireChatResult | null>;
+        recordChatCleanup?(lifecycleId: string, store: ChatStore, outcome: Exclude<ChatStoreOutcome, "pending">): Promise<ChatRetirementStatus>;
+        cleanChatStore?(lifecycleId: string, store: HostChatStore): Promise<ChatRetirementStatus>;
+        unfinishedChatRetirements?(): Promise<ReturnType<typeof unfinishedChatRetirements>>;
+        chatRetired?(target: ChatTarget | {
+            conversationId: string;
+        }): boolean;
         saveConversationEpoch?(state: import("./conversation-storage.js").StoredConversationEpoch): Promise<void>;
         saveConversationTask?(principalId: string, receipt: import("@schlessera/brain-ui-sdk/protocol").ConversationWorkReceipt, facts?: string): Promise<void>;
         loadConversation?(id: string, principalId: string): Promise<import("./conversation-storage.js").StoredConversation | null>;
@@ -1778,12 +2143,13 @@ signatures (every public export and the types it is made of)
         retryReceipt?(sessionId: string, requestId: string, principalId: string): ServerRetryReceipt;
         attachRetryRequest?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
         getStoredBackendId(sessionId: string): string | null;
-        persistSessionStub(sessionId: string, promptText: string, providerId: string | null, backendId: string): void;
+        persistSessionStub(sessionId: string, promptText: string, providerId: string | null, backendId: string, ownerPrincipalId?: string, creatorTurnId?: string): void;
         persistSession(msg: ServerResultMessage, promptText: string, providerId: string | null, backendId: string): void;
         recordMessageSource?(sessionId: string, text: string, source: MessageSource, effort?: {
             thinkingLevel?: ThinkingLevel;
             turnId: string;
             files?: import("@schlessera/brain-ui-sdk/protocol").SharedFileMeta[];
+            attachmentFiles?: import("../attachments/context.js").MessageAttachment[];
         }): void;
         recordEffectiveThinkingLevel?(sessionId: string, turnId: string, level: ThinkingLevel): void;
         attachMessageSources?(sessionId: string, messages: SessionHistoryMessage[], strict?: boolean): SessionHistoryMessage[];
@@ -1815,7 +2181,7 @@ signatures (every public export and the types it is made of)
   SpanKind (packages/ui-server/src/activity/store.ts)
     export type SpanKind = "turn" | "tool" | "subagent" | "cron";
   SpanOrigin (packages/ui-server/src/activity/store.ts)
-    export type SpanOrigin = "session" | "cron" | "autonomous";
+    export type SpanOrigin = "session" | "cron" | "autonomous" | "compute";
   SpanOutcome (packages/ui-server/src/activity/store.ts)
     export type SpanOutcome = (typeof SPAN_OUTCOMES)[number];
   SpanRow (packages/ui-server/src/activity/store.ts)
@@ -1934,11 +2300,14 @@ signatures (every public export and the types it is made of)
         referencePool?: ReferenceWorktreeJournalPool;
         referenceCheckpoints?: ReferenceWorktreeCheckpointLedger;
         changed?: (turnId: string, sessionId: string, summary: TurnJournalSummary) => void;
+        idleObservationMs?: number;
+        log?: Logger;
     }
   VoiceConfig (packages/ui-server/src/config/env.ts)
     export interface VoiceConfig {
         provider: string | null;
         deepgramApiKey: string | null;
+        geminiApiKey?: string | null;
         keytermLimit: number;
         cacheDir: string;
     }
@@ -2057,6 +2426,7 @@ signatures (every public export and the types it is made of)
     }
   WsHost (packages/ui-server/src/ws/host.ts)
     export class WsHost {
+        chatDeletion?: import("./chat-deletion.js").ChatDeletion;
         readonly journal?: import("../brain/turn-journal.js").TurnJournal;
         readonly brainPath?: string;
         readonly governedTurns?: import("../brain/governed-turn.js").GovernedTurns;
@@ -2069,6 +2439,7 @@ signatures (every public export and the types it is made of)
         maxConcurrentSessions: () => number;
         readonly observability: Observability;
         readonly isPrincipalAuthorized: (principalId: string) => boolean;
+        readonly liveProviders: LiveProviderRegistry;
         readonly dialogue: DialogueJournal;
         constructor(options: WsHostOptions);
         close(): Promise<void>;
@@ -2094,9 +2465,37 @@ signatures (every public export and the types it is made of)
         isPrincipalValid?: (principal: Principal) => boolean;
         isPrincipalAuthorized?: (principalId: string) => boolean;
         conversationProvider?: LiveConversationProvider;
+        conversationProviders?: LiveConversationProvider[];
+        defaultConversationProviderId?: string;
     }
+  apifyActorGrant (packages/common/src/governance-policy.ts)
+    const apifyActorGrant: z.ZodObject<{
+        account_id: z.ZodString;
+        actor_id: z.ZodString;
+        build_number: z.ZodString;
+        expires_at: z.ZodPipe<z.ZodUnion<readonly [z.ZodISODateTime, z.ZodDate]>, z.ZodTransform<string, Date | string>>;
+        max_run_usd: z.ZodNumber;
+        origins: z.ZodArray<z.ZodString>;
+        pricing_sha256: z.ZodString;
+        profile_id: z.ZodString;
+        schema_sha256: z.ZodString;
+    }, z.core.$strict>;
+  apifyLimits (packages/common/src/governance-policy.ts)
+    const apifyLimits: z.ZodObject<{
+        day_usd: z.ZodNumber;
+        max_concurrent_runs: z.ZodNumber;
+        max_requests_per_turn: z.ZodNumber;
+        max_result_bytes: z.ZodNumber;
+        max_result_items: z.ZodNumber;
+        max_retention_seconds: z.ZodNumber;
+        max_runs_per_turn: z.ZodNumber;
+        max_runtime_seconds: z.ZodNumber;
+        run_usd: z.ZodNumber;
+        session_usd: z.ZodNumber;
+        turn_usd: z.ZodNumber;
+    }, z.core.$strict>;
   assertBackendResolvable (packages/ui-server/src/agent/backend.ts)
-    export function assertBackendResolvable(agent: AgentConfig, resolve?: (specifier: string) => void, load?: (specifier: string) => unknown): void;
+    export function assertBackendResolvable(agent: AgentConfig, resolve?: (specifier: string) => void, load?: (specifier: string) => unknown): BackendBootFailure[];
   attribution (packages/ui-server/src/governance/events.ts)
     const attribution: z.ZodObject<{
         actor: z.ZodEnum<{
@@ -2122,6 +2521,12 @@ signatures (every public export and the types it is made of)
     export function createApp(options?: CreateAppOptions): Promise<BrainUiApp>;
   createBrainClient (packages/ui-server/src/brain/client.ts)
     export function createBrainClient(opts: BrainClientOptions): BrainClient;
+  createChatDeletion (packages/ui-server/src/ws/chat-deletion.ts)
+    export function createChatDeletion(deps: ChatDeletionDeps): {
+        delete(input: Omit<RetireChatInput, "at" | "removableBackends">): Promise<ChatDeletionResult>;
+        read(operationId: string, principalId: string): Promise<ChatDeletionReceipt | null>;
+        reconcile(): Promise<void>;
+    };
   createConsoleLoggerProvider (packages/ui-server/src/observability/loggers.ts)
     export function createConsoleLoggerProvider(options?: ConsoleLoggerProviderOptions): LoggerProvider;
   createGeminiConversationProvider (packages/ui-server/src/voice/gemini-conversation.ts)
@@ -2161,6 +2566,7 @@ signatures (every public export and the types it is made of)
         poolCheckpoint: (id: string, from: string, signal?: AbortSignal) => Promise<NativePoolCheckpoint>;
         poolCreate: (id: string, purpose: NativePoolCreatePurpose, from: null | string, allowanceBytes: number, signal?: AbortSignal) => Promise<NativePoolRecord>;
         poolDelta: (from: string, to: string, signal?: AbortSignal) => Promise<NativeDeltaStream>;
+        poolGrowth: (signal?: AbortSignal) => Promise<NativePoolGrowth>;
         poolListCheckpoint: (id: string, path: string, expectedWorkerUid: number, signal?: AbortSignal) => Promise<NativeCheckpointMetadata[]>;
         poolPark: (id: string, signal?: AbortSignal) => Promise<NativePoolRecord>;
         poolPublish: (id: string, view: string, name: string, signal?: AbortSignal) => Promise<NativePoolRecord>;
@@ -2180,6 +2586,7 @@ signatures (every public export and the types it is made of)
         }>;
         poolWithdraw: (id: string, signal?: AbortSignal) => Promise<NativePoolRecord>;
         prepareStage: (id: string, checkpointId: string, allowanceBytes: number, signal?: AbortSignal) => Promise<NativeStage>;
+        prepareTurnTree: (id: string, allowanceBytes: number, signal?: AbortSignal) => Promise<NativeTurnTree>;
         readCheckpoint: (id: string, path: string, maximum: number, expectedWorkerUid: number, signal?: AbortSignal) => Promise<NativeCheckpointFile>;
         readStage: (id: string, path: string, maximum: number, expectedWorkerUid: number, signal?: AbortSignal) => Promise<NativeCheckpointFile>;
         ready: (signal?: AbortSignal) => Promise<NativeManagerReady>;
@@ -2188,6 +2595,10 @@ signatures (every public export and the types it is made of)
             state: "deleted";
         }>;
         releaseStage: (id: string, signal?: AbortSignal) => Promise<{
+            id: string;
+            state: "deleted";
+        }>;
+        releaseTurnTree: (id: string, signal?: AbortSignal) => Promise<{
             id: string;
             state: "deleted";
         }>;
@@ -2222,7 +2633,7 @@ signatures (every public export and the types it is made of)
             policyHash: null | string;
             profile: "governed" | "strict";
             sessionId: null | string;
-        }, stop: (error: Error) => void, signal?: AbortSignal): Promise<void>;
+        }, stop: (error: Error) => void, signal?: AbortSignal, timing?: PhaseTimer): Promise<void>;
         bindModel(turnId: string, sessionId: null | string, model: string): boolean;
         bindSession(turnId: string, sessionId: string): Promise<void>;
         claudeMemoryTarget(turnId: string, path: string): null | {
@@ -2230,6 +2641,10 @@ signatures (every public export and the types it is made of)
             directory: string;
             inode: string;
             note: string;
+        };
+        cleanupStatus(): {
+            lastFailure: unknown;
+            retained: import("./native-journal-observer.js").NativeJournalReleaseAccounting;
         };
         close(): Promise<void>;
         configurationCoverage(): ConfigurationCoverageRead;
@@ -2240,12 +2655,14 @@ signatures (every public export and the types it is made of)
         hasRetainedVersion(turnId: string, selected: JournalVersion): boolean;
         idle(): Promise<void>;
         isHeld(): boolean;
+        maintain: () => Promise<void>;
         observe(): Promise<void>;
         observeUserPolicy(turnId: string, approvedWrite: () => Promise<void> | void): Promise<void>;
         onObservation(observer: (turnId: string, facts: {
             changedPaths: number;
             observedBytes: number;
             partial: boolean;
+            workspacePaths: number;
         }) => void, periodic?: {
             after(completed: boolean): void;
             before(): void;
@@ -2264,6 +2681,7 @@ signatures (every public export and the types it is made of)
             inode: string;
             note: string;
         }, before: JournalVersion | null, after: JournalVersion | null): Promise<void>;
+        recoveryStatus(): JournalRecoveryStatus;
         releasesSettled(): Promise<void>;
         removalCoverage(paths: readonly string[], signal?: AbortSignal, absent?: boolean): Promise<boolean[]>;
         reserveRevert(turnId: string, sourceTurnId: string, versions: readonly (JournalVersion | null)[]): Promise<void>;
@@ -2285,12 +2703,21 @@ signatures (every public export and the types it is made of)
         worktrees(turnId: string): string[];
         writeOperation(statements: readonly JournalStatement[]): Promise<number[]>;
     };
+  maintain (packages/ui-server/src/brain/turn-journal.ts)
+    function maintain(): Promise<void>;
   normaliseLabel (packages/ui-server/src/labels/normalise.ts)
     export function normaliseLabel(raw: string): string | null;
   openBrainDb (packages/ui-server/src/db/brain-db.ts)
     export function openBrainDb(brainPath: string, options?: OpenBrainDbOptions): BrainDbHandle;
   resolveGovernancePolicy (packages/common/src/governance-policy.ts)
     export function resolveGovernancePolicy(policy: GovernancePolicyInput): {
+        apify: {
+            actor_grants: Array<z.output<typeof apifyActorGrant>>;
+            actors: "allow" | "ask" | "deny";
+            discovery: "allow" | "ask" | "deny";
+            enabled: boolean;
+            limits: ApifyLimits | null;
+        };
         budgets: {
             day: {
                 block_tokens: number;
@@ -2332,6 +2759,9 @@ signatures (every public export and the types it is made of)
                 command: string;
                 remotes: string[];
             }>;
+            github: {
+                repositories: string[];
+            };
             hosts: string[];
         };
         profiles: {
@@ -2353,15 +2783,53 @@ signatures (every public export and the types it is made of)
             max_tool_calls: number;
         };
         taint: {
+            classifier: "heuristics" | "off";
             egress: {
                 allow: string[];
             };
+            judge: {
+                floor: number;
+                mode: "jev" | "off";
+            };
+            trusted_sources: {
+                id: string;
+                incomingContent: boolean;
+                label: string;
+                recipientWhileRestricted: boolean;
+                selector: {
+                    host: "github.com";
+                    kind: "github_owner";
+                    owner: string;
+                    ownerId: string;
+                } | {
+                    host: "github.com";
+                    kind: "github_repository";
+                    owner: string;
+                    repository: string;
+                    repositoryId: string;
+                } | {
+                    host: string;
+                    kind: "tunnel_authority";
+                    port: number;
+                } | {
+                    host: string;
+                    kind: "web_origin";
+                    port: number;
+                    scheme: "http" | "https";
+                };
+            }[];
         };
     };
   resolveServerConfig (packages/ui-server/src/config/env.ts)
     export function resolveServerConfig(env?: EnvRecord): ServerConfig;
   summary (packages/ui-server/src/brain/turn-journal.ts)
     function summary(turnId: string): TurnJournalSummary;
+  unfinishedChatRetirements (packages/ui-server/src/ws/chat-lifecycle.ts)
+    export function unfinishedChatRetirements(db: Database): Array<Extract<RetireChatResult, {
+        status: "retired";
+    }> & {
+        principalId: string;
+    }>;
   websocket re-exported from hono
   withBrainDb (packages/ui-server/src/db/brain-db.ts)
     export function withBrainDb<T>(brainPath: string, options: OpenBrainDbOptions, fn: (db: Database, schemaVersion: number) => T): T;

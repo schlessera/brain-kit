@@ -1,4 +1,4 @@
-import { Button, IconButton, Callout, EmptyState, FilterRow, Placeholder } from "@schlessera/brain-ui-kit";
+import { Button, IconButton, EmptyState, FilterRow, Placeholder } from "@schlessera/brain-ui-kit";
 import { Check, Copy, ExternalLink, FolderOpen } from "lucide-react";
 import type { ReactNode } from "react";
 import type { FileLoadFailure } from "../../stores/file-state.js";
@@ -15,9 +15,9 @@ import type { FileLoadFailure } from "../../stores/file-state.js";
  * The reveal and copy controls use the kit IconButton. The HTML "Open in
  * new tab" link stays native, and the share menu arrives rendered.
  */
-export type ViewMode = "preview" | "raw";
+type ViewMode = "preview" | "raw";
 
-export interface ViewerToolbarProps {
+interface ViewerToolbarProps {
   fileName: string;
   fullPath: string;
   size?: number;
@@ -32,6 +32,10 @@ export interface ViewerToolbarProps {
    * tab (#1084). Absent for every other kind.
    */
   openInTab?: string;
+  /** The untrusted-mark control (#2673), between Copy path and Share; null when none applies. */
+  untrusted?: ReactNode;
+  /** The untrusted cue or lookup line under the path. */
+  untrustedCue?: ReactNode;
   onMode: (mode: ViewMode) => void;
   onCopyPath: () => void;
   onReveal: () => void;
@@ -39,7 +43,11 @@ export interface ViewerToolbarProps {
 
 export function ViewerToolbar(p: ViewerToolbarProps) {
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-3 border-b border-border bg-surface px-4 py-3">
+    // The 20px coarse row gap (#4086, ruled on #3531): a wrapped Preview/Raw
+    // line reaches 11.75px up. Every control on the line above is a 44px box
+    // today, which 12px already clears, so the gap is for a reaching control
+    // put there later (an `sm` Button reaches 7.8px down).
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-3 any-pointer-coarse:gap-y-5 border-b border-border bg-surface px-4 py-3">
       <IconButton size="md" name="Reveal in tree" glyph={<FolderOpen className="h-3.5 w-3.5" />} onClick={p.onReveal} />
       <div className="min-w-0 flex-1 basis-[140px]">
         {/* The reading pane's title: where a press of Files puts focus while
@@ -51,8 +59,10 @@ export function ViewerToolbar(p: ViewerToolbarProps) {
           {p.fullPath}
           {p.size !== undefined && <span className="ml-2">· {formatSize(p.size)}</span>}
         </div>
+        {p.untrustedCue}
       </div>
       <IconButton size="md" name="Copy path" glyph={p.copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />} onClick={p.onCopyPath} />
+      {p.untrusted}
       {p.openInTab && (
         <a
           href={p.openInTab}
@@ -67,7 +77,7 @@ export function ViewerToolbar(p: ViewerToolbarProps) {
       )}
       {p.share && <div className="[&_button]:min-h-[44px] [&_button]:min-w-[44px]">{p.share}</div>}
       {p.previewAvailable && (
-        <div className="w-auto shrink-0 [&_[role=tab]]:inline-flex [&_[role=tab]]:min-h-[44px] [&_[role=tab]]:min-w-[44px] [&_[role=tab]]:items-center [&_[role=tab]]:justify-center">
+        <div className="w-auto shrink-0">
           <FilterRow
             items={[
               { label: "Preview", onClick: () => p.onMode("preview") },
@@ -105,16 +115,8 @@ export function ViewerFailure({ failure, onRetry }: { failure: FileLoadFailure; 
   return <div className="px-6 py-6">
     <h3 className="text-base font-medium text-foreground [overflow-wrap:anywhere]">{title}</h3>
     {body && <p className="mt-2 text-sm text-muted-foreground [overflow-wrap:anywhere]">{body}</p>}
-    {retry && <div className="mt-5 w-full laptop:w-fit"><Button label="Try again" tone="ghost" size="md" block={false} style={{ minHeight: 44, minWidth: 44 }} onClick={onRetry} /></div>}
+    {retry && <div className="mt-5 w-full laptop:w-fit"><Button label="Try again" tone="ghost" size="md" block={false} reach onClick={onRetry} /></div>}
   </div>;
-}
-
-export function ViewerError({ message }: { message: string }) {
-  return (
-    <div className="m-4" role="alert">
-      <Callout tone="red" variant="banner" icon="failed" mono text={message} />
-    </div>
-  );
 }
 
 /**

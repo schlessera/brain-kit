@@ -34,8 +34,9 @@ const HELP = `brain sync [verb] — knowledge-aware brain synchronization
 
 With no verb, runs the whole sync (\`run\`) and prints its report; then, when
 an agent runner is configured, hands the agent (/sync skill) what the rules
-could not settle: a conflict no strategy resolves, a file nothing could
-classify, or media to ask about (interactive terminals only). With --json it
+could not settle: a conflict no strategy resolves, or a file nothing could
+classify. Media is never handed on: the report counts the files awaiting
+review (\`Media awaiting review: N\`) and hygiene review decides them. With --json it
 prints one result instead: the run's envelope and whether an agent was
 invoked, and if so which runtime it reported.
 
@@ -214,15 +215,11 @@ export interface SyncResult {
 
 /**
  * Whether bare `brain sync` hands on to the agent after `run`: a conflict
- * blocked the push, a file nothing classified, or media, which only a person
- * at a terminal can be asked about.
+ * blocked the push, or a file nothing classified. Media is never handed on:
+ * the report counts it and hygiene review decides it (#2780).
  */
-export function needsAgent(run: RunEnvelope, interactive: boolean): boolean {
-  return (
-    run.status === "needs-judgment" ||
-    run.leftovers.unknown.length > 0 ||
-    (run.leftovers.media.length > 0 && interactive)
-  );
+export function needsAgent(run: RunEnvelope): boolean {
+  return run.status === "needs-judgment" || run.leftovers.unknown.length > 0;
 }
 
 /**
@@ -274,8 +271,7 @@ export const syncCommand: CoreCommand = {
         console.log(JSON.stringify(body, null, 2));
       };
       if (!cli.json) console.log(result.report);
-      const interactive = !!process.stdin.isTTY && !!process.stdout.isTTY;
-      const wanted = needsAgent(result, interactive);
+      const wanted = needsAgent(result);
       if (!wanted || !cli.agentRunner) {
         if (cli.json) printResult({ invoked: false, reason: wanted ? "no-runner" : "not-needed" });
         // On stderr in both modes: in JSON mode stdout is the result alone.

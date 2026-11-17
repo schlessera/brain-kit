@@ -317,7 +317,7 @@ describe("opening never navigates or sends", () => {
     fireEvent.click(buttonIn(dialog()!, "Close review"));
     await waitFor(() => expect(dialog()).toBeNull());
     const during = calls.slice(before);
-    expect(during).toEqual([{ url: expect.stringMatching(/\/activity\/runs\/run-harbour$/), method: "GET" }]);
+    expect(during).toEqual([{ url: expect.stringMatching(/\/activity\/runs\/run-harbour\?activityCompute=1$/), method: "GET" }]);
     expect(during.every((c) => !/^https?:/.test(c.url) || new URL(c.url).origin === window.location.origin)).toBe(true);
     expect(opened).toEqual([]);
     expect(clipboard).toEqual([]);

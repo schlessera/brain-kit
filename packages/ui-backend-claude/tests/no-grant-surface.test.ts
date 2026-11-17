@@ -59,7 +59,7 @@ interface Harness {
 
 /**
  * Start one turn and capture the SDK options it built. `requestPermission`
- * mirrors what the real host does first (`packages/ui-server/src/ws/bridge.ts`):
+ * mirrors what the real host does first (`packages/ui-server/src/ws/bridge-capabilities/permissions.ts`):
  * it puts a `tool_approval_request` frame on the wire and then waits. That is
  * what makes "no frame was emitted" an assertion about the card rather than
  * about this stub — a request that reaches the bridge IS a card on the Actions

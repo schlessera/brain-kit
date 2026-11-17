@@ -5,7 +5,7 @@ import { geoConfigSchema } from "@schlessera/brain-geo";
 
 import { maintenanceConfigRoots, resolveEnv } from "../config/env.js";
 
-import type { AgentRunner, CompletionProvider, EmbeddingProvider, Reranker } from "./seams.js";
+import type { AgentRunner, CompletionProvider, ComputeProvider, EmbeddingProvider, Reranker } from "./seams.js";
 import { SCRATCH_DIR } from "./scratch.js";
 import { MERGE_STRATEGIES } from "./sync/types.js";
 
@@ -92,6 +92,8 @@ export const propagationRuleSchema = z
     /** Glob for derivative documents that must not lag behind the source. */
     derivatives: repoRelativePathSchema,
     severity: severitySchema.optional(),
+    /** Declared purpose/coverage of these derivatives, unless the document overrides it. */
+    scope: z.string().trim().min(1).max(4000).optional(),
   })
   .strict();
 
@@ -268,6 +270,42 @@ const agentRunnerValue = z.custom<AgentRunner>(
   { message: "expected an AgentRunner implementation" }
 );
 
+const computeProviderValue = z.custom<ComputeProvider>(
+  (v) => {
+    if (!v || typeof v !== "object") return false;
+    const p = v as Partial<Record<keyof ComputeProvider, unknown>>;
+    return (
+      typeof p.id === "string" &&
+      !!p.capabilities && typeof p.capabilities === "object" &&
+      (["health", "allocate", "exec", "poll", "kill", "release"] as const).every((m) => typeof p[m] === "function")
+    );
+  },
+  { message: "expected a ComputeProvider implementation" }
+);
+
+/** A `compute.providers` key: the instance id callers name. */
+export const COMPUTE_INSTANCE_ID = /^[a-z0-9][a-z0-9-]{0,62}$/;
+/** The longest lease config may allow: seven days. */
+export const COMPUTE_MAX_LEASE_SECONDS = 7 * 24 * 3600;
+
+const computeInstanceSchema = z
+  .object({
+    /** A built-in name (`boat`) or a ComputeProvider value. */
+    provider: z.union([z.string().min(1), computeProviderValue]),
+    /** The environment variable holding this instance's credential. Never the credential itself. */
+    apiKeyEnv: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, "must be an environment variable name").optional(),
+    /** Opaque to core; validated by the implementation's own configSchema. */
+    options: z.record(z.string(), z.unknown()).optional(),
+    lease: z.object({ maxSeconds: z.number().int().positive().max(COMPUTE_MAX_LEASE_SECONDS) }).strict(),
+    /** Concurrent jobs for this instance, including terminal ones whose cleanup is still pending. Absent means 1. */
+    maxConcurrent: z.number().int().positive().max(1000).optional(),
+    /** Optional hourly ceiling: admission reserves ceiling × lease. Absent admits with cost unknown. */
+    hourlyCeilingUsd: z.number().positive().finite().optional(),
+    /** Release with retained data for up to the provider's retention limit instead of discarding. */
+    retainOnRelease: z.boolean().optional(),
+  })
+  .strict();
+
 export const brainConfigSchema = z
   .object({
     profile: z
@@ -279,6 +317,20 @@ export const brainConfigSchema = z
       .strict()
       .optional(),
     taxonomy: taxonomyConfigSchema.optional(),
+    /** Owner-authorized propagation freshness review; credentials alone never enable it. */
+    hygiene: z.object({
+      propagation: z.object({
+        enabled: z.boolean().optional(),
+        profile: z.enum(["conservative", "balanced", "permissive"]).optional(),
+        minConfidence: z.number().min(0).max(1).optional(),
+        crossChecks: z.boolean().optional(),
+        maxFiles: z.number().int().min(1).max(100).optional(),
+        timeoutMs: z.number().int().min(100).max(30000).optional(),
+        budgetMs: z.number().int().min(100).max(60000).optional(),
+        maxInputChars: z.number().int().min(1000).max(80000).optional(),
+        exclude: z.array(repoRelativePathSchema).optional(),
+      }).strict().optional(),
+    }).strict().optional(),
     /** Concrete OSM operations; absent leaves every new service disabled. */
     geo: geoConfigSchema.extend({ cacheDir: repoRelativePathSchema.optional() }).optional(),
     exclude: excludeConfigSchema.optional(),
@@ -303,6 +355,20 @@ export const brainConfigSchema = z
       .strict()
       .optional(),
     agentRunner: z.union([z.string(), agentRunnerValue]).optional(),
+    /**
+     * External compute (docs/decisions/external-compute.md). Absent: no
+     * provider, no network access, and every compute operation except
+     * health refuses with `compute_disabled`. No instance is a default target.
+     */
+    compute: z
+      .object({
+        providers: z.record(
+          z.string().regex(COMPUTE_INSTANCE_ID, "instance id must be lowercase letters, digits and hyphens, at most 63"),
+          computeInstanceSchema
+        ),
+      })
+      .strict()
+      .optional(),
     /**
      * Search reranking. Model judgments require `enabled: true` (default off).
      * `provider`: "jev" (default; needs its key, else lifecycle ordering), "heuristic" (lifecycle factors
@@ -480,8 +546,11 @@ export const DEFAULT_EXCLUDE = {
   // it, and a note beside the set quoting its queries would answer them.
   // context/scheduled-tasks: host-managed schedule definitions (#914). They
   // are content in Git, never index documents; only the UI host parses them.
+  // _voice: live-conversation personas (#3617, P5). Their instructions shape
+  // how a voice service speaks, so search, briefings and agent context never
+  // see them; the files stay in Git and editable on disk.
   dirs: [".git", "node_modules", ".claude", ".agents", "scripts", "logs", "tmp", "workspaces", "okf-dist", SCRATCH_DIR, "evals",
-    "context/scheduled-tasks", "context/policies"],
+    "context/scheduled-tasks", "context/policies", "_voice"],
   files: ["CLAUDE.md", "README.md", "AGENTS.md", "GEMINI.md"],
   segments: [] as string[],
 };

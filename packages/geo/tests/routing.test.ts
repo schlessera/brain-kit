@@ -26,7 +26,12 @@ const footDemo="https://routing.openstreetmap.de/routed-foot/route/v1";
 const footUrls=[dataset("foot").url,footDemo].map(endpoint=>endpoint+
   "/driving/20.71,38.36;20.72,38.37?geometries=geojson&overview=full&steps=false&alternatives=false");
 
-/** Instance-local latency observation; retain the real fsync/rename writer. */
+/**
+ * Instance-local latency observation; retain the real fsync/rename writer.
+ * Kept real time (#3332): the second admission write runs after dispatch, while
+ * the transport's real deadline timer is armed, so the latency itself is the
+ * stimulus. A barrier would order the steps but spend none of that deadline.
+ */
 function delayAdmissionWrites(geo: GeoClient, delayMs: number, admissionDir: string) {
   const instrumented = (geo as unknown as {transport: {writeAtomic(path: string, value: unknown): Promise<void>}}).transport;
   const original = instrumented.writeAtomic;
@@ -78,7 +83,7 @@ describe("configured OSRM routing and explicit demo fallback",()=>{
     expect(result.source).toMatchObject({endpoint:"https://routing.openstreetmap.de/routed-bike/route/v1",dataset:{preparedMode:"bike",profile:"driving"},
       fallback:{used:true,reason:"http",primaryEndpoint:dataset("bike").url},transfer:{sent:true}});
     expect(result.attempts).toHaveLength(2);
-    expect(result.attribution.some(a=>a.url.endsWith("/fixthemap"))).toBe(true);
+    expect(result.attribution.map(a=>a.url)).toContainEqual(expect.stringMatching(/\/fixthemap$/));
     const cached=await geo.route(points,"bike");
     expect(cached.source).toMatchObject({fromCache:true,fallback:{used:true},dataset:{preparedMode:"bike"},transfer:{sent:false}});
     expect(cached.attempts.map(a=>a.requestSent)).toEqual([true,false]);

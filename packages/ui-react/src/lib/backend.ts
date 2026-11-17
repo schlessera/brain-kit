@@ -42,5 +42,3 @@ export function getBackendUrlFor(config: BrainUiConfig, path: string): string {
 // Existing consumers still address the default configuration. Root-owned
 // clients use the explicit helpers above, and keep their config in a closure.
 export function apiBase(): string { return apiBaseFor(uiConfig); }
-export function getWsUrl(): string { return getWsUrlFor(uiConfig); }
-export function getBackendUrl(path: string): string { return getBackendUrlFor(uiConfig, path); }

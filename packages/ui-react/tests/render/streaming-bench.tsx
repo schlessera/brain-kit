@@ -59,7 +59,8 @@ const { render, cleanup, act } = await import("@testing-library/react");
 const { ChatPage } = await import("../../src/components/chat/chat-page.js");
 const { useChatStore } = await import("../../src/stores/chat-store.js");
 const { useConnectionStore } = await import("../../src/stores/connection-store.js");
-const { handleServerMessage } = await import("../../src/hooks/use-websocket.js");
+const { defaultRoot } = await import("../../src/default-root.js");
+const { handleServerMessage } = defaultRoot.connection;
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 
 const BODY = `## Section heading

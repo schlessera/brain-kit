@@ -1,14 +1,15 @@
 import { FIRST_PARTY_FAILURE_CLASSES } from "@schlessera/brain-ui-sdk/protocol";
 import type { ServerMessageHandlerMap } from "./types.js";
 
-type ConnectionFrame =
+type ConnectionFrame = "safety_history" | "safety_update" | "safety_unavailable"
   | "dialogue_history" | "scope_decision_receipt"
   | "server_hello" | "location_request" | "error" | "inbox_snapshot" | "inbox_delta"
-  | "tool_resolution" | "session_queue" | "conversation_opened" | "conversation_closed"
-  | "conversation_event" | "conversation_work" | "conversation_output" | "conversation_permission";
+  | "tool_resolution" | "session_queue" | "conversation_opened" | "live_persona" | "conversation_closed"
+  | "conversation_event" | "conversation_work" | "conversation_output" | "conversation_permission" | "chat_retired"
+  | "attachment_read" | "live_settings";
 
 export const connectionFrameHandlers = {
-  dialogue_history: () => {},
+  safety_history: () => {}, safety_update: () => {}, safety_unavailable: () => {},
   scope_decision_receipt: (msg, context) => context.state.setScopeDecisionReceipt(msg),
   server_hello: (msg, context) => {
     context.stores.connection.getState().setSessionProfiles(msg.capabilities?.sessionProfiles === true);
@@ -39,17 +40,29 @@ export const connectionFrameHandlers = {
   inbox_delta: (msg, context) => {
     context.stores.inbox.getState().applyDelta(msg);
   },
-  // Root-owned conversation routing consumes permission outcomes before demux;
-  // ordinary chat progress keeps its existing handlers.
-  tool_resolution: () => {},
-  // Pending follow-ups (#1002) are consumed by the connection before demux.
-  session_queue: () => {},
-  conversation_opened: () => {},
-  conversation_closed: () => {},
-  conversation_event: () => {},
-  conversation_work: () => {},
-  conversation_output: () => {},
-  conversation_permission: () => {},
+  // Pending follow-ups (#1002): a connection-wide frame, never demultiplexed.
+  session_queue: (msg, context) => context.queueReport(msg),
+  // Browser invalidation is #3231's: this client does not declare
+  // `chatDeletion`, so the host never sends it this frame.
+  chat_retired: () => {},
+  // Sent-row read states (#3155): the account's read client takes the frame
+  // beside the demux, so nothing here touches a transcript.
+  attachment_read: () => {},
+  // The live-service default (#3616): the root conversation client reads it beside the demux.
+  live_settings: () => {},
+  // The conversation client reads the selected persona beside the demux (#3617).
+  live_persona: () => {},
+  // The voice conversation client owns these frames (#3389): durable voice
+  // history, permission outcomes and the live conversation itself. The map is
+  // their only router; nothing here touches a transcript.
+  dialogue_history: (msg, context) => context.conversation(msg),
+  tool_resolution: (msg, context) => context.conversation(msg),
+  conversation_opened: (msg, context) => context.conversation(msg),
+  conversation_closed: (msg, context) => context.conversation(msg),
+  conversation_event: (msg, context) => context.conversation(msg),
+  conversation_work: (msg, context) => context.conversation(msg),
+  conversation_output: (msg, context) => context.conversation(msg),
+  conversation_permission: (msg, context) => context.conversation(msg),
   location_request: (msg, context) => {
     context.requestBrowserLocation(msg);
   },

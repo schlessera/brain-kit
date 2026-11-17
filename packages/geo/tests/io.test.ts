@@ -94,7 +94,7 @@ describe("shared geo request admission and cache",()=>{
     const endpoints=["https://routing.openstreetmap.de/routed-foot/route/v1","https://overpass-api.de/api/interpreter","https://lz4.overpass-api.de/api/interpreter",
       "https://gall.openstreetmap.de/api/interpreter","https://lambert.openstreetmap.de/api/interpreter"];
     const results=await Promise.all(endpoints.map((url,i)=>io.request(i===0 ? "osrm" : "overpass",url,url,{},decode)));
-    expect(results.every(r=>r.error===null)).toBe(true);
+    expect(results.map(r=>r.error)).toEqual([null,null,null,null,null]);
     expect(starts).toHaveLength(5);
     expect(peak).toBe(1);
     for(let i=1;i<starts.length;i++) expect(starts[i]!-starts[i-1]!).toBeGreaterThanOrEqual(1_000);
@@ -161,7 +161,7 @@ describe("shared geo request admission and cache",()=>{
         expect(admission.nextStart).toBeGreaterThan(0);
         expect(admission.blockedUntil).toBe(0);
         expect((await readdir(join(root,"admission"))).filter(x=>x.endsWith(".lock"))).toEqual([]);
-        expect((await readdir(root)).includes("responses")).toBe(false);
+        expect(await readdir(root)).not.toContain("responses");
       });
     }
   }
@@ -242,7 +242,7 @@ describe("shared geo request admission and cache",()=>{
           expect(admission.nextStart).toBeGreaterThan(0);
           expect(admission.blockedUntil).toBe(0);
           expect((await readdir(join(root,"admission"))).filter(x=>x.endsWith(".lock"))).toHaveLength(failure==="persistence" ? 1 : 0);
-          expect((await readdir(root)).includes("responses")).toBe(false);
+          expect(await readdir(root)).not.toContain("responses");
         } finally {
           clearTimeout(watchdog);
           signal?.removeEventListener("abort",onAbort);
@@ -317,7 +317,7 @@ describe("shared geo request admission and cache",()=>{
       expect(result!==false && result.value).toBeNull();
       expect(result!==false && result.source).toMatchObject({requestSent:true,fromCache:false});
       expect((await readdir(join(root,"admission"))).filter(x=>x.endsWith(".lock"))).toEqual([]);
-      expect((await readdir(root)).includes("responses")).toBe(false);
+      expect(await readdir(root)).not.toContain("responses");
     } finally {
       nativeClear(watchdog);
       // Restore every global descriptor even if request cleanup itself fails.

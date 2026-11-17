@@ -68,9 +68,10 @@ test("the PR body carries one receipt; missing, empty markers and duplicates are
 });
 
 test("merge refusal names skipped, timed-out and preempted checks whose hosted category did not run", () => {
-  const selected = { selections: { verify: "true", browser: "true", layout: "true", unit: "false" }, results: { verify: "success", browser: "skipped", layout: "skipped" }, retained: ["layout"] };
+  const selected = { selections: { verify: "true", browser: "true", layout: "true", unit: "false" }, results: { verify: "success", browser: "skipped", layout: "skipped" } };
   const covered = coveredCategories(selected);
-  expect([...covered].sort()).toEqual(["changeset", "layout", "verify"]);
+  // A selected category that was skipped is never covered: retention is retired (#4107).
+  expect([...covered].sort()).toEqual(["changeset", "verify"]);
   const r = receipt([
     { name: "strict typecheck", categories: ["verify"], outcome: "timed-out" },
     { name: "complete pinned visual/accessibility/pointer suite", categories: ["browser"], outcome: "skipped" },
@@ -78,9 +79,9 @@ test("merge refusal names skipped, timed-out and preempted checks whose hosted c
     { name: "complete pinned layout/offline suite", categories: ["layout"], outcome: "skipped" },
     { name: "environment documentation", categories: ["changeset"], outcome: "failed" },
   ]);
-  expect(uncoveredChecks(r, covered).map(c => c.name)).toEqual(["complete pinned visual/accessibility/pointer suite", "complete unit and integration suite"]);
+  // The browser skip is post-merge proof (hybrid ruling); the unit gap still refuses.
+  expect(uncoveredChecks(r, covered).map(c => c.name)).toEqual(["complete unit and integration suite"]);
   const refusal = receiptRefusal(receiptBlock(r), covered)!;
-  expect(refusal).toContain("complete pinned visual/accessibility/pointer suite (skipped; needs browser)");
   expect(refusal).toContain("complete unit and integration suite (preempted; needs unit)");
   expect(receiptRefusal(receiptBlock(receipt([{ name: "strict typecheck", categories: ["verify"], outcome: "skipped" }])), covered)).toBeNull();
 });
@@ -90,7 +91,8 @@ test("check:pr CLI writes a receipt recording a forced timeout and prints the PR
   const owner = resolve(import.meta.dir, ".."), entry = join(dir, "scripts/check-pr.ts");
   mkdirSync(join(dir, "scripts")); mkdirSync(join(dir, "packages/ithaca"), { recursive: true });
   cpSync(join(owner, "scripts/check-pr.ts"), entry);
-  for (const helper of ["ci-plan", "ci-runner", "check-packages", "check-receipt"]) writeFileSync(join(dir, `scripts/${helper}.ts`), `export * from ${JSON.stringify(join(owner, `scripts/${helper}.ts`))};\n`);
+  for (const helper of ["ci-plan", "ci-runner", "check-packages", "check-receipt", "test-shards", "test", "unit-workers"]) writeFileSync(join(dir, `scripts/${helper}.ts`), `export * from ${JSON.stringify(join(owner, `scripts/${helper}.ts`))};\n`);
+  writeFileSync(join(dir, "scripts/host-admission.mjs"), `export * from ${JSON.stringify(join(owner, "scripts/host-admission.mjs"))};\n`);
   writeFileSync(join(dir, "package.json"), JSON.stringify({ private: true, workspaces: ["packages/*"] }));
   writeFileSync(join(dir, "packages/ithaca/package.json"), JSON.stringify({ name: "@odysseus/ithaca" }));
   writeFileSync(join(dir, ".gitignore"), "tmp/\n");
@@ -114,4 +116,17 @@ test("check:pr CLI writes a receipt recording a forced timeout and prints the PR
   expect(code, err).toBe(0);
   expect(err).toContain("Local preflight incomplete");
   expect(receiptFromBody(out)).toEqual(written);
+});
+
+test("local skips of post-merge-only checks are proved by the squash's main run, not refused before merge", () => {
+  const covered = coveredCategories({ selections: { verify: "true", unit: "true" }, results: { verify: "success", unit: "success" } });
+  const r = receipt([
+    { name: "workspace build for real browser checks", categories: ["browser", "layout", "endurance"], outcome: "skipped" },
+    { name: "complete pinned visual/accessibility/pointer suite", categories: ["browser"], outcome: "timed-out" },
+    { name: "native managed hosted admission", categories: ["runtime_host"], outcome: "preempted" },
+  ]);
+  expect(uncoveredChecks(r, covered), "POST_MERGE_SKIPS_COVERED_AFTER_MERGE").toEqual([]);
+  expect(receiptRefusal(receiptBlock(r), covered)).toBeNull();
+  const fast = receipt([{ name: "packed consumer checks", categories: ["pack"], outcome: "skipped" }, { name: "mystery check", categories: [], outcome: "skipped" }]);
+  expect(uncoveredChecks(fast, covered).map(c => c.name), "FAST_AND_UNMAPPED_SKIPS_STILL_REFUSED").toEqual(["packed consumer checks", "mystery check"]);
 });

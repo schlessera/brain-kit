@@ -43,10 +43,10 @@ tag-noise instructions must not become evidence of an implemented repair API.
 
 ## Category-to-handler inventory
 
-Core detection is in (`audit`, `packages/core/src/lib/auditor.ts:658-1040`).
+Core detection is in (`audit`, `packages/core/src/lib/auditor.ts:663-1050`).
 Module checks contribute arbitrary categories and a failed check yields
 `module-hygiene` (`auditWithModules`,
-`packages/core/src/lib/auditor.ts:1052-1107`). These are detection callbacks,
+`packages/core/src/lib/auditor.ts:1062-1117`). These are detection callbacks,
 not registered repair callbacks.
 
 | Finding | Existing bounded operation | Required reading and disposition |
@@ -74,7 +74,7 @@ Planning parses complete child metadata (`planRegistry`,
 `packages/core/src/lib/index-registry.ts:210-262`).
 
 Tag migration is real code (`applyTagChanges`,
-`packages/core/src/lib/tags-apply.ts:435-497`): configured alias chains and
+`packages/core/src/lib/tags-apply.ts:381-443`): configured alias chains and
 eligible variant groups determine the plan; raw tag entries are changed while
 other bytes, including `updated`, remain. The CLI opens its index before writes,
 then reindexes and accepts only the exact rewritten bytes. Literal configured
@@ -142,7 +142,7 @@ these controls.
 
 Preserve ordinary audit severities, grouped marker counts and must-fix versus
 informational totals (`auditTotals`,
-`packages/core/src/lib/auditor.ts:642-648`), and preserve `--fix` as suggestions
+`packages/core/src/lib/auditor.ts:647-653`), and preserve `--fix` as suggestions
 unless an explicit behavior/contract change is approved. Future availability
 metadata must name the handler, affected scope, required input, current premise,
 preview and actual post-check separately from authorization and successful repair.
@@ -150,8 +150,8 @@ Unsupported, missing, invalid and no-op cases stay manual/unavailable. Reindex
 after authoritative Markdown changes, then rerun the finding's actual check;
 partial repair or a failed check never becomes success.
 
-Reuse (`candidateFromAudit`, `packages/core/src/lib/hygiene.ts:338-378`) and
-(`hygieneId`, `packages/core/src/lib/hygiene.ts:172-175`) without inventing another
+Reuse (`candidateFromAudit`, `packages/core/src/lib/hygiene.ts:352-392`) and
+(`hygieneId`, `packages/core/src/lib/hygiene.ts:182-185`) without inventing another
 identity or disposition store. The [hygiene-review policy](../decisions/hygiene-review.md)
 binds #597's canonical equivalence, severity/known-urgency ordering and relevant
 evidence invalidation. This investigation chooses no mappings, review controls

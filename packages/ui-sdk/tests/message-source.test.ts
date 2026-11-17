@@ -36,6 +36,7 @@ describe("chat_message source", () => {
     for (const source of ["voice-telepathy", 7, null]) {
       const result = client({ type: "chat_message", text: "hi", source });
       expect(result.ok).toBe(true);
+      expect(result.ok && result.message.type).toBe("chat_message");
       if (result.ok && result.message.type === "chat_message") {
         expect(result.message.text).toBe("hi");
         expect(result.message.source).toBeUndefined();
@@ -55,6 +56,7 @@ describe("session_history source", () => {
   test("a source this build does not know drops the field, never the history", () => {
     const result = history({ role: "user", content: "hi", toolCalls: [], source: "voice-telepathy" });
     expect(result.ok).toBe(true);
+    expect(result.ok && result.message.type).toBe("session_history");
     if (result.ok && result.message.type === "session_history") {
       expect(result.message.messages[0]!.content).toBe("hi");
       expect(result.message.messages[0]!.source).toBeUndefined();

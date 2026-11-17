@@ -29,6 +29,8 @@ import { PasskeyList } from "../../src/components/settings/passkey-list.js";
 import type { PasskeySummary } from "@schlessera/brain-ui-sdk/protocol";
 import type { SkillEntry } from "../../src/lib/api-client.js";
 import { ModelsTab } from "../../src/components/settings/models-tab.js";
+import { ApifyView } from "../../src/components/settings/apify-view.js";
+import type { ApifySettingsRead } from "@schlessera/brain-ui-sdk/protocol";
 import { PiAccountsSection } from "../../src/components/settings/pi-accounts.js";
 import { SkillsTab } from "../../src/components/settings/skills-tab.js";
 import { SkillEditor, SkillsList } from "../../src/components/settings/skills-list.js";
@@ -4752,7 +4754,7 @@ describe("desktop panes (D37)", () => {
     const onClose = mock(() => {});
     const view = render(<SettingsPanel open onClose={onClose} />);
     const tabs = view.getAllByRole("tab").map((t) => t.getAttribute("aria-label") ?? t.textContent);
-    expect(tabs).toEqual(["Appearance & input", "Models", "Accounts", "Skills", "Modules", "Storage", "Security", "Devices & agents"]);
+    expect(tabs).toEqual(["Appearance & input", "Models", "Voice", "Accounts", "Skills", "Modules", "Storage", "Security", "Devices & agents"]);
     fireEvent.click(view.getByRole("tab", { name: "Appearance & input" }));
     expect(useUIStore.getState().settingsTab).toBe("appearance");
     expect(view.getByRole("radiogroup", { name: "Theme" })).toBeTruthy();
@@ -5789,8 +5791,8 @@ describe("ComposerView", () => {
     fireEvent.keyDown(field, { key: "Escape" });
     expect(h.onEscape).toHaveBeenCalledTimes(1);
     // The paperclip is a menu trigger (D37): the menu carries the capture choices.
-    expect(view.getByRole("button", { name: "Attach — photo, camera, file" }).getAttribute("aria-haspopup")).toBe("menu");
-    fireEvent.click(view.getByRole("button", { name: "Attach — photo, camera, file" }));
+    expect(view.getByRole("button", { name: "Attach — photo, camera, files" }).getAttribute("aria-haspopup")).toBe("menu");
+    fireEvent.click(view.getByRole("button", { name: "Attach — photo, camera, files" }));
     expect(h.onAttachToggle).toHaveBeenCalledTimes(1);
     fireEvent.click(view.getByRole("button", { name: /^Photo library/ }));
     fireEvent.click(view.getByRole("button", { name: /^Camera/ }));
@@ -5819,6 +5821,26 @@ describe("ComposerView", () => {
     streaming.unmount();
   });
 
+  test("the paperclip names its menu, and live conversation is the mic's hold, not a row (#3045, #3693)", () => {
+    const h = handlers();
+    const name = "Attach — photo, camera, files";
+    const view = render(<ComposerView {...base} value="" attachMenuOpen onPickTracks={mock(() => {})} micControl={<button type="button" aria-label="Dictate" data-caller-mic="" />} {...h} />);
+    const trigger = view.getByRole("button", { name });
+    // The tooltip paints the name itself, hidden from the accessibility tree so it is heard once.
+    expect(trigger.querySelector("[data-composer-tip]")?.textContent).toBe(name);
+    expect(trigger.querySelector("[data-composer-tip]")?.getAttribute("aria-hidden")).toBe("true");
+    expect(view.queryByRole("button", { name: /live conversation/i })).toBeNull();
+    // The caller's mic takes the kit's mic slot.
+    expect(view.container.querySelectorAll("[data-composer-mic] [data-caller-mic]")).toHaveLength(1);
+    view.unmount();
+
+    // Dictating: the trigger is inert, with no name and no tooltip.
+    const dictating = render(<ComposerView {...base} value="" state="dictating" {...h} />);
+    expect(dictating.queryByRole("button", { name: /^Attach/ })).toBeNull();
+    expect(dictating.container.querySelector("[data-composer-tip]")).toBeNull();
+    dictating.unmount();
+  });
+
   test("attachments, their errors and a lost connection", () => {
     const h = handlers();
     const view = render(<ComposerView {...base} value="" state="offline" placeholder="Connecting..." blockedWhy="needs the host · your draft is kept" attachments={[{ previewUrl: "blob:one", name: "one.png" }]} attachErrors={["big.png: too large"]} {...h} />);
@@ -5836,11 +5858,11 @@ describe("ComposerView", () => {
 });
 
 describe("transcript turn views", () => {
-  test("the header names who and when, and marks a voice turn", () => {
-    const view = render(<TurnHeader who="You" when="09:41" voice="voice-dictate" tone="user" />);
+  test("the header names who and when; a voice turn's mark is inline, not in the header", () => {
+    const view = render(<TurnHeader who="You" when="09:41" tone="user" />);
     expect(view.getByText("You")).toBeTruthy();
     expect(view.getByText("09:41")).toBeTruthy();
-    expect(view.getByRole("img", { name: "Voice dictation" })).toBeTruthy();
+    expect(view.queryByRole("img")).toBeNull();
     view.unmount();
     const brain = render(<TurnHeader who="Brain" when="09:42" tone="brain" />);
     expect(brain.queryByRole("img")).toBeNull();
@@ -5855,6 +5877,10 @@ describe("transcript turn views", () => {
     expect(bubble?.style.borderBottomRightRadius).toBe("5px");
     expect(bubble?.parentElement?.style.alignItems, "the user bubble aligns right").toBe("flex-end");
     view.unmount();
+    const spoken = render(<UserTurn spoken><span>hello</span></UserTurn>);
+    expect(spoken.getByRole("img", { name: "Spoken by you" }).parentElement?.className, "a spoken turn is the kit's spoken bubble").toBe("bk-spoken-bubble");
+    expect(spoken.getByText("hello").previousElementSibling?.className, "the mic leads the words").toBe("bk-spoken-mark");
+    spoken.unmount();
     const count = render(<AttachmentCount count={2} />);
     expect(count.getByText("2 images")).toBeTruthy();
     count.unmount();
@@ -7286,4 +7312,28 @@ test("actual history with a restored approval never uses replay time as elapsed"
     expect(view.container.querySelector('[data-kit-streaming-answer]') !== null).toBe(true);
     expect(view.container.querySelector('[data-stream-elapsed]') !== null).toBe(false);
   } finally { act(() => root.dispose()); }
+});
+
+
+test("Apify settings show scoped Actor approvals, revoke the selected Actor and describe estimated overhead", () => {
+  const revoke = mock((_id: string) => {});
+  const read: ApifySettingsRead = {
+    state: "configured", reason: null, account: { id: "IthacaHousehold01", username: "penelope" }, pending_account: null,
+    checked_at: "2026-07-12T09:00:00Z",
+    actor_approvals: [{ actor_id: "SeaCharts01", actor: "odysseus/sea-charts", approved_at: 0 }],
+    policy: { path: "context/policies/governance.md", hash: null, valid: true, enabled: true, discovery: "ask", actors: "ask",
+      grants: [], limits: null, budgets: { turn_usd: 4, session_usd: 20, day_usd: 40 } },
+    spend: { ledger: "read", observed_at: "2026-07-12T09:00:00Z", coverage: "Observed charges plus estimated platform requests, transfer and storage.",
+      day: { scope: "day", liability_usd: 0.04, charged_usd: 0.004, reserved_usd: 0.026, residual_usd: 0.01,
+        unknown_runs: 0, open_runs: 1, operator_resolved: 0, runs: 1, limit_usd: 4 }, brain_day: null, unresolved: [] },
+  };
+  const noop = () => {};
+  const view = render(<ApifyView read={read} edit={null} announcement="" stale={false} checking={false} headings={{}}
+    onRevokeActor={revoke} onTurn={noop} onMode={noop} onRevoke={noop} onCheck={noop} onConfirmAccount={noop}
+    onReview={noop} onOpenPolicy={noop} onOpenActivity={noop} onApprove={noop} onDecline={noop} onCheckProposal={noop} />);
+  expect(view.getByText("Approved Actors · 1")).toBeTruthy();
+  expect(view.container.textContent).toContain("estimated platform overhead held");
+  expect(view.container.textContent).toContain("across sessions for this account");
+  fireEvent.click(view.getByRole("button", { name: "Revoke odysseus/sea-charts" }));
+  expect(revoke).toHaveBeenCalledWith("SeaCharts01");
 });

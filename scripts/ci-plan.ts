@@ -5,7 +5,8 @@ import ts from "typescript";
 import { closureSelects, discoverBrowserClosures, type BrowserClosures } from "./browser-input-closure";
 import { addUnitImportConsumers, type UnitImportGraph } from "./unit-test-consumers";
 import { coordinationFiles, RESERVATION_REF } from "./integration-reservation";
-import { includeRedSet, type IncludedRedSet, type RedMainRecord } from "./red-main";
+import { includeRedSet, isPostMerge, type Category, type IncludedRedSet, type RedMainRecord } from "./red-main";
+import { unitPartitions } from "./proof-shards";
 
 export interface Workspace {
   dir: string;
@@ -25,9 +26,8 @@ export const FAST_TESTS: Readonly<Record<string, readonly string[]>> = {
     "tests/diagram-export-installation.test.ts", // 0.03s finite installed input controls.
     "tests/local-checks.test.ts", "tests/hosted-proof.test.ts", "tests/browser-shards.test.ts",
     "tests/candidate-proof.test.ts", "tests/proof-inventory.test.ts",
-    "tests/proof-reuse.test.ts", // 4.47s immutable source/input ownership controls (#1333).
     "tests/measurement-fixture-lifetime.test.ts", // 0.13s owner/exit regression (#1330).
-    "tests/ci-workflows.test.ts", "tests/release-manifest.test.ts", "tests/ci-pack.test.ts",
+    "tests/ci-workflows.test.ts", "tests/heavy-feedback.test.ts", "tests/release-manifest.test.ts", "tests/ci-pack.test.ts",
     "tests/lockfile.test.ts",
     "tests/changeset-gate.test.ts", "tests/contract-gate.test.ts",
     "tests/decision-citations.test.ts", "tests/dependency-edges.test.ts",
@@ -70,6 +70,7 @@ export const FAST_TESTS: Readonly<Record<string, readonly string[]>> = {
   "module-speaking": ["packages/module-speaking/tests/module.test.ts"],
   "module-jobs": ["packages/module-jobs/tests/jobs-dedup.test.ts"],
   "module-travel": ["packages/module-travel/tests/foundation.test.ts"],
+  "compute-boat": ["packages/compute-boat/tests/credential-free.test.ts", "packages/compute-boat/tests/secrets.test.ts"],
 };
 
 /** File reads and directory inventories that imports cannot express. Additive
@@ -77,10 +78,6 @@ export const FAST_TESTS: Readonly<Record<string, readonly string[]>> = {
  * Keep the input scopes beside their invariant, including non-Markdown inputs.
  */
 export const FILE_INPUT_TESTS: Readonly<Record<string, readonly RegExp[]>> = {
-  // The fixture copies these sources as bytes, so import discovery misses edits.
-  "tests/source-browser-dispatch.test.ts": [
-    /^packages\/ui-react\/src\/(?:connection\.ts|hooks\/use-websocket\.ts|hooks\/websocket-handlers\/[^/]+\.ts|lib\/stats\/context-text\.ts)$/,
-  ],
   // Links, path kinds and short citations can resolve to arbitrary repo targets.
   // New/deleted targets anywhere can break a doc without changing its Markdown.
   "tests/docs-paths.test.ts": [/.+/],
@@ -130,8 +127,6 @@ export const FILE_INPUT_TESTS: Readonly<Record<string, readonly RegExp[]>> = {
   "tests/candidate-admission.test.ts": [/^\.github\/workflows\/ci\.yml$/],
   "tests/project-sync-main.test.ts": [/^\.github\/workflows\/project-sync\.yml$/],
   "tests/ci-timings.test.ts": [/^\.github\/workflows\/ci-timings\.yml$/],
-  "tests/generated-build-inputs.test.ts": [/^\.github\/workflows\/ci\.yml$/],
-  "tests/generated-theme-inputs.test.ts": [/^\.github\/workflows\/ci\.yml$/],
 };
 
 export interface CheckPlan {
@@ -148,6 +143,8 @@ export interface CheckPlan {
   local: { fullTests: boolean; browser: boolean; layout: boolean; captures: boolean; runtime: boolean; endurance: boolean };
   /** Main pushes also prove the open red-main record's failures (#2942). */
   redMain?: IncludedRedSet;
+  /** Bun test files a pull request adds or modifies; each repeats under CPU load before merge (#4109). */
+  determinism?: string[];
 }
 
 export function workspaces(root: string): Workspace[] {
@@ -306,7 +303,22 @@ export function planChecks(changed: readonly string[], packages: readonly Worksp
   // Explicit roots identify a real harness; two-argument synthetic workspace diagnostics stay conservative.
   const explicitRoot = arguments.length >= 3;
   const plan = planBeforeBrowserClosures(changed, packages, root, enableConsumerSelection, explicitRoot);
-  return explicitRoot && !plan.global ? selectBrowserClosures(plan, discoverBrowserClosures(root)) : plan;
+  const selected = explicitRoot && !plan.global ? selectBrowserClosures(plan, discoverBrowserClosures(root)) : plan;
+  // Main pushes and their red-main replans pass enableConsumerSelection=false: repetition is pre-merge proof.
+  const determinism = explicitRoot && enableConsumerSelection ? determinismTests(root, changed) : [];
+  return determinism.length ? { ...selected, determinism } : selected;
+}
+
+/**
+ * The Bun test files among `changed` that exist in this checkout: what a
+ * change adds or modifies, never what it deletes (#4109). Same roots, name
+ * suffixes and directory exclusions as `discoverTests` (scripts/test-shards.ts).
+ */
+export function determinismTests(root: string, changed: readonly string[]): string[] {
+  return [...new Set(changed)].filter(path => /^(?:packages|tests)\//.test(path) &&
+    /(?:\.test|\.spec|_test|_spec)\.(?:[cm]?[jt]s|[jt]sx)$/i.test(basename(path)) &&
+    !path.split("/").slice(0, -1).some(part => part.startsWith(".") || part.toLowerCase() === "node_modules") &&
+    lstatSync(join(root, path), { throwIfNoEntry: false })?.isFile() === true).sort();
 }
 
 /**
@@ -388,17 +400,23 @@ export function selectBrowserClosures(plan: CheckPlan, closures: BrowserClosures
   return { ...plan, local };
 }
 
-/** Narrow inventories use fewer nonempty partitions; ordinary proof keeps four. */
+/** Narrow inventories use fewer nonempty partitions. The cap follows the plan's
+ * cadence: `UNIT_PARTITIONS` (`scripts/proof-shards.ts`) is its one owner (#4108). */
 export function unitShards(plan: CheckPlan): number[] {
-  const count = plan.unitTests?.length ?? 4;
-  if (!count) throw new Error("Empty selected unit inventory");
-  return Array.from({length: Math.min(4, count)}, (_, i) => i + 1);
+  return unitPartitions(plan.cadence, plan.unitTests?.length);
 }
 
-export type ProofCadence = "draft" | "feedback" | "confirmation" | "integrated" | "exhaustive";
+export type ProofCadence = "draft" | "feedback" | "feedback-heavy" | "confirmation" | "integrated" | "exhaustive";
 
-/** A request is an event, never a sticky label that can approve a later head. */
+/** A draft heavy feedback dispatch names its PR and head; ci.yml's bare dispatch declares no inputs. */
+export function heavyFeedbackDispatch(env: NodeJS.ProcessEnv, event: any): boolean {
+  return env.GITHUB_EVENT_NAME === "workflow_dispatch" && event?.inputs?.pr !== undefined && event?.inputs?.head_sha !== undefined;
+}
+
+/** A request is an event, never a sticky label that can approve a later head.
+ * `feedback-heavy` selects like confirmation but is never proof (#3272). */
 export function proofCadence(env: NodeJS.ProcessEnv, event: any): ProofCadence {
+  if (heavyFeedbackDispatch(env, event)) return "feedback-heavy";
   if (env.GITHUB_EVENT_NAME === "pull_request") {
     if (event.pull_request?.draft === true) return "draft";
     if (["opened", "reopened", "ready_for_review"].includes(event.action)) return "confirmation";
@@ -409,15 +427,22 @@ export function proofCadence(env: NodeJS.ProcessEnv, event: any): ProofCadence {
   throw new Error("Unknown proof event: confirmation cannot be inferred");
 }
 
-/** Explicit false outputs distinguish intentional exclusions from missing proof. */
+/** Explicit false outputs distinguish intentional exclusions from missing proof.
+ * Ready confirmation runs only the fast categories; post-merge categories run on
+ * every main squash (integrated), on exhaustive runs and on requested draft
+ * heavy feedback (the 2026-11-10 hybrid ruling). */
 export function proofSelections(plan: CheckPlan, draft = false): Record<string, boolean> {
   const feedback = plan.cadence === "feedback";
+  const confirmation = plan.cadence === "confirmation";
   draft ||= plan.cadence === "draft";
-  return Object.fromEntries(Object.entries({
+  // Changed Bun tests repeat under load at every pull-request cadence, drafts
+  // included, and in draft heavy feedback; never on main (2026-11-16 ruling, #4109).
+  const determinism = !["integrated", "exhaustive"].includes(plan.cadence ?? "") && (plan.determinism?.length ?? 0) > 0;
+  return { ...Object.fromEntries(Object.entries({
     verify: plan.typecheck || ((feedback || !plan.local.fullTests) && plan.tests.length > 0), pack: !feedback && plan.pack,
     unit: !feedback && plan.local.fullTests, browser: !feedback && plan.local.browser, layout: !feedback && plan.local.layout,
     captures: !feedback && plan.local.captures, runtime: !feedback && plan.local.runtime, runtime_host: !feedback && plan.local.runtime, endurance: !feedback && plan.local.endurance,
-  }).map(([name, selected]) => [name, !draft && selected]));
+  }).map(([name, selected]) => [name, !draft && !(confirmation && isPostMerge(name as Category)) && selected])), determinism };
 }
 
 function git(root: string, args: string[]): string {
@@ -441,8 +466,10 @@ export function changedFiles(root: string, base: string, head = "HEAD", mergeBas
 }
 
 export function planFromEnvironment(root: string, env: NodeJS.ProcessEnv, redMain: RedMainRecord | null = null): CheckPlan {
-  if (["api", "schedule", "workflow_dispatch"].includes(env.GITHUB_EVENT_NAME ?? "")) return planChecks(["package.json"], workspaces(root), root);
-  const pr = env.GITHUB_EVENT_NAME === "pull_request";
+  // Draft heavy feedback plans its PR's affected selection against the PR base (#3272).
+  const feedback = env.GITHUB_EVENT_NAME === "workflow_dispatch" && Boolean(env.FEEDBACK_PR);
+  if (!feedback && ["api", "schedule", "workflow_dispatch"].includes(env.GITHUB_EVENT_NAME ?? "")) return planChecks(["package.json"], workspaces(root), root);
+  const pr = feedback || env.GITHUB_EVENT_NAME === "pull_request";
   const base = pr ? env.BASE_SHA : env.BEFORE_SHA;
   if (!base || !env.HEAD_SHA) throw new Error("CI requires BASE_SHA/BEFORE_SHA and HEAD_SHA");
   const packages = workspaces(root), plan = planChecks(changedFiles(root, base, env.HEAD_SHA, pr), packages, root, pr);

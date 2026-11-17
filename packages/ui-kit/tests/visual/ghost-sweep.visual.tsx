@@ -40,6 +40,8 @@ for (const theme of ["dark", "light"]) {
     freeze(1300);
     for (const t of tracks) {
       expect(t.querySelectorAll(".bk-ghost-window")).toHaveLength(3);
+      // One snapshot per window, so the identity checks below cannot run on none.
+      expect(t.querySelectorAll(".bk-ghost-copy"), "one copy per window").toHaveLength(3);
       expect(t.hasAttribute("inert")).toBe(true);
       expect(t.getAttribute("aria-hidden")).toBe("true");
       expect(t.querySelector("button,input,select,textarea,a,img,iframe,[id],[tabindex],script")).toBeNull();

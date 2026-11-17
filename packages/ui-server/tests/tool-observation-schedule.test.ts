@@ -17,7 +17,7 @@ test("only a proven read skips its result's observation; unknown, bash and write
     ["get_current_location", "host_bridge", "read"],
     // Host handlers that write: observed, but their effects end with the result.
     ["inbox_add", "host_bridge", "write"], ["write_file", "host_bridge", "write"], ["brain_add", "host_bridge", "write"],
-    ["request_image_mask", "host_bridge", "write"], ["propose_policy_change", "host_bridge", "write"],
+    ["request_image_mask", "host_bridge", "write"], ["request_image_markup", "host_bridge", "write"], ["propose_policy_change", "host_bridge", "write"],
     // Host evidence for a call that started as another tool proves nothing about what it ran.
     ["brain_search", "host_bridge", "unproven"], ["bash", "host_bridge", "unproven"], ["odysseus_custom", "host_bridge", "unproven"],
     // First-party worker file tools.
@@ -27,6 +27,10 @@ test("only a proven read skips its result's observation; unknown, bash and write
     // A name or risk label alone is never evidence.
     ["read_file", undefined, "unproven"], ["brain_search", undefined, "unproven"], ["query_activity", undefined, "unproven"],
     ["bash", undefined, "unproven"], ["Read", undefined, "unproven"], ["mcp__brain-ui__query_activity", undefined, "unproven"], [null, "host_bridge", "unproven"],
+    // #2875: Claude calls have no proven path, so even reported evidence proves nothing for a Claude name.
+    ["Read", "worker_read", "unproven"], ["Grep", "worker_read", "unproven"], ["Glob", "worker_read", "unproven"], ["Write", "worker_write", "unproven"],
+    ["mcp__brain-ui__brain_read_base", "host_bridge", "unproven"], ["mcp__brain-ui__query_activity", "host_bridge", "unproven"],
+    ["mcp__brain__brain_search", "host_bridge", "unproven"], ["mcp__brain__brain_read", "worker_read", "unproven"],
   ];
   for (const [name, path, expected] of cases) expect([name, path, toolObservation(name, path)], "TOOL_OBSERVATION_CLASS").toEqual([name, path, expected]);
 });

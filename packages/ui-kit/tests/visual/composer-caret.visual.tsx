@@ -42,7 +42,7 @@ test("composer: the caret stays in view while typing at the cap", async () => {
   field.setSelectionRange(field.value.length, field.value.length);
   await userEvent.keyboard(" Go.");
 
-  expect(field.value.endsWith(" Go.")).toBe(true);
+  expect(field.value.slice(-4), "the typed keys landed at the end").toBe(" Go.");
   expect(field.getBoundingClientRect().height).toBe(96);
   // The field scrolled, and what is left below the fold is less than a line:
   // Chromium brings the caret's LINE into view, not the box's bottom edge, so

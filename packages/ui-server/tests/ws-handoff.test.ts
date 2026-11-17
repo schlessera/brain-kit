@@ -224,7 +224,7 @@ function rig(options: RigOptions = {}): Rig {
   });
   // One handler set per socket: each owns its connection state, like a real upgrade.
   const handlersFor = new Map<WSContext, ReturnType<typeof createWsHandlers>>();
-  teardown = () => { host.coordinator.reset(); host.close(); stream.close(); db.close(); rmSync(brain, { recursive: true, force: true }); };
+  teardown = () => { host.close(); stream.close(); db.close(); rmSync(brain, { recursive: true, force: true }); };
   return {
     host, db, store, stream, brain, scripts, starts,
     open() {

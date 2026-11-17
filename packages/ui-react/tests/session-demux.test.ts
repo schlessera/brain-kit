@@ -1,7 +1,10 @@
-import { describe, test, expect, beforeEach } from "bun:test";
+import { afterAll, describe, test, expect, beforeEach } from "bun:test";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { useChatStore, activeChat } from "../src/stores/chat-store";
-import { runStateForFrame, handleServerMessage, flushChatDeltas } from "../src/hooks/use-websocket";
+import { runStateForFrame } from "../src/hooks/use-websocket";
+import { defaultRoot } from "../src/default-root";
+
+const { handleServerMessage, flushChatDeltas } = defaultRoot.connection;
 
 function reset() {
   // Text deltas are coalesced into the next animation frame when one exists;
@@ -29,6 +32,9 @@ describe("runStateForFrame", () => {
 
 describe("session demux (handleServerMessage)", () => {
   beforeEach(reset);
+  // The default root outlives this file: leave no selected session or
+  // buffers behind for the next file in the process (#3720).
+  afterAll(reset);
 
   test("a pending draft binds only to its own announcement, never another session's result", () => {
     const store = useChatStore.getState();

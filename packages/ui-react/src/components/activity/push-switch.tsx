@@ -20,7 +20,7 @@ import { BellOff } from "lucide-react";
  */
 export type PushState = "unsupported" | "not-asked" | "blocked" | "subscribed" | "unsubscribed";
 
-export interface PushSwitchProps {
+interface PushSwitchProps {
   state: PushState;
   busy: boolean;
   onToggle: () => void;

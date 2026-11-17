@@ -20,6 +20,8 @@ import { failIndexedDbWrites, holdIndexedDbWrite } from "./offline/indexeddb-fau
 import { installFaultNetwork } from "./offline/fault-network.ts";
 import { installWavMicrophone, watchMicrophone } from "./offline/fake-microphone.ts";
 import { generateWav, AUDIO_FIXTURES } from "./offline/audio-fixtures.ts";
+import { describeHit, touchFloor } from "./hit-reach.js";
+import { deepgramDiscovery } from "../fixtures/dictation-discovery.js";
 
 const TEXT = "Ask Penelope whether the loom order arrived.";
 const wait = (ms = 0) => new Promise(resolve => setTimeout(resolve, ms));
@@ -145,6 +147,10 @@ for (const theme of ["dark", "light"]) for (const width of [320, 390, 900, 1280]
     expect(c.host.querySelector('[aria-label="Scroll to latest"]'), "reading mode disabled tailing").not.toBeNull();
     const anchor = [...c.host.querySelectorAll<HTMLElement>("[data-transcript-anchor]")].find(el => el.getBoundingClientRect().bottom > scroller.getBoundingClientRect().top)!;
     const top = anchor.getBoundingClientRect().top;
+    // The tray's Transcribe control waits on dictation discovery (#3709). Known
+    // up front, it renders with the tray, so this measures the tray appearing
+    // rather than a later discovery answer growing it.
+    c.root.stores.voice.setState({ discovery: { snapshot: deepgramDiscovery(false), at: Date.now() + 24 * 60 * 60_000 } });
     const requestsBefore = c.net.requests.length; const framesBefore = c.net.frames.length;
     const row = await c.seed("interrupted");
     const card = await c.seed("transcript-ready", TEXT, "2026-07-12T09:00:00");
@@ -171,7 +177,7 @@ for (const theme of ["dark", "light"]) for (const width of [320, 390, 900, 1280]
     const violations = (await axe.run(c.host.querySelector<HTMLElement>("[data-recordings-tray]")!, { rules: { region: { enabled: false } } })).violations;
     expect(violations.map(v => [v.id, v.nodes.map(n => n.failureSummary)]), "tray axe violations").toEqual([]);
     for (const el of c.host.querySelectorAll<HTMLElement>("[data-recordings-tray] button,[data-recordings-tray] [role=button]")) {
-      const rect = el.getBoundingClientRect(); expect(rect.height, "44px control height").toBeGreaterThanOrEqual(44); expect(rect.width).toBeGreaterThanOrEqual(44);
+      expect(touchFloor(el), `44px touch target: ${describeHit(el)}`).toBe("met");
     }
     await tap(button(c.host, "Keep"));
     await expect.poll(() => document.activeElement?.getAttribute("aria-label"), { message: "Keep restores row Discard focus" }).toContain("Discard recording");
@@ -182,7 +188,7 @@ for (const theme of ["dark", "light"]) for (const width of [320, 390, 900, 1280]
     await tap(button(cardNode, "Discard recording")); await settled(); await tap(button(cardNode, "Delete recording"));
     await expect.poll(() => c.host.querySelector("[data-recordings-tray]")).toBeNull();
     await expect.poll(() => document.activeElement?.matches("textarea[data-composer]")).toBe(true);
-    expect(c.net.requests.slice(requestsBefore).filter(r => !(r.method === "GET" && r.url.endsWith("/voice/capabilities"))), "local actions send no HTTP beyond read-only speech discovery").toEqual([]); expect(c.net.frames.slice(framesBefore), "local actions send no socket frames").toEqual([]);
+    expect(c.net.requests.slice(requestsBefore).filter(r => !(r.method === "GET" && /\/voice\/(capabilities|providers)$/.test(r.url))), "local actions send no HTTP beyond read-only speech discovery").toEqual([]); expect(c.net.frames.slice(framesBefore), "local actions send no socket frames").toEqual([]);
     expect(await c.root.recordings!.get(row.partition, row.id)).toBeUndefined();
     const a = await c.seed();
     await expect.poll(() => c.host.querySelector("[data-recordings-tray]")).toBeTruthy();
@@ -274,8 +280,7 @@ for (const theme of ["dark", "light"]) for (const width of [320, 390, 900, 1280]
   expect(box.left, "sheet stays inside the viewport").toBeGreaterThanOrEqual(0);
   expect(box.right, "sheet stays inside the viewport").toBeLessThanOrEqual(width);
   for (const control of c.host.querySelectorAll<HTMLElement>("button,[role=button]")) {
-    expect(control.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
-    expect(control.getBoundingClientRect().width).toBeGreaterThanOrEqual(44);
+    expect(touchFloor(control), `44px touch target: ${describeHit(control)}`).toBe("met");
   }
   const status = c.host.querySelector("[role=status]")!.textContent;
   await wait(1100); expect(c.host.querySelector("[role=status]")!.textContent, "timer never changes live text").toBe(status);
@@ -338,7 +343,7 @@ test("accept focuses the composer at the end without sending or answering a tool
   expect(field.value, "accepted text remains an unsent draft").toBe(`Check the harbour.\n${TEXT}`);
   expect(field.selectionStart, "caret follows accepted text").toBe(field.value.length);
   expect(field.selectionEnd).toBe(field.value.length);
-  expect(c.net.requests.slice(requests).filter(r => !(r.method === "GET" && r.url.endsWith("/voice/capabilities"))), "accept sends no HTTP beyond read-only speech discovery").toEqual([]);
+  expect(c.net.requests.slice(requests).filter(r => !(r.method === "GET" && /\/voice\/(capabilities|providers)$/.test(r.url))), "accept sends no HTTP beyond read-only speech discovery").toEqual([]);
   expect(c.net.frames.slice(frames), "accept sends no socket action or approval").toEqual([]);
   expect(c.root.stores.chat.getState().draft?.messages.flatMap(m => m.toolCalls ?? []).find(t => t.id === "loom-approval")?.status, "pending approval stays unanswered").toBe("pending_approval");
 });
@@ -480,7 +485,7 @@ test("accept stays on this device even when host draft autosave is supported", a
   const id = drafts.idFor(null); const before = c.net.requests.length;
   await c.root.recordings!.accept(row.partition, row.id, id, null);
   await wait(800);
-  expect(c.net.requests.slice(before).filter(r => !(r.method === "GET" && r.url.endsWith("/voice/capabilities"))), "acceptance never schedules an automatic host draft upload").toEqual([]);
+  expect(c.net.requests.slice(before).filter(r => !(r.method === "GET" && /\/voice\/(capabilities|providers)$/.test(r.url))), "acceptance never schedules an automatic host draft upload").toEqual([]);
   drafts.edit(id, null, { text: `${TEXT} Bring the wax tablet.` });
   await expect.poll(() => c.net.requests.slice(before).filter(r => r.method !== "GET").length, { message: "a later user edit resumes ordinary host draft save" }).toBeGreaterThan(0);
 });

@@ -145,10 +145,11 @@ async function loadPuppeteer() {
 export function createBrowserSession(options: BrowserSessionOptions = {}): BrowserSession {
   const pageBudgetMs = options.pageBudgetMs ?? DEFAULT_PAGE_BUDGET_MS;
   const idleCloseMs = options.idleCloseMs ?? DEFAULT_IDLE_CLOSE_MS;
+  const userAgent = options.userAgent ?? DEFAULT_USER_AGENT;
   const policy = {
-    robots: options.robots ?? new RobotsCache(),
+    robots: options.robots ?? new RobotsCache({ userAgent }),
     rateLimiter: options.rateLimiter ?? new RateLimiter(),
-    userAgent: options.userAgent ?? DEFAULT_USER_AGENT,
+    userAgent,
     // HTTP's process/client opt-out does not grant browser site permission.
     respectRobots: true,
   };

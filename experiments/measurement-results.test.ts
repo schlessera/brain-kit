@@ -76,7 +76,7 @@ test("a consumer rejects the real SDK result before reporting sees it; native no
   expect(turn.costUsd).toBe(.375);
   expect(turn.resultReceipts).toEqual([receipt]);
   expect([turn.inputTokens, turn.outputTokens, turn.cacheCreationTokens, turn.cacheReadTokens, turn.modelTurns]).toEqual([101, 37, 203, 307, 2]);
-  expect(turn.nativeProcesses.every(process => process.closed && process.stdoutFinished)).toBe(true);
+  expect(turn.nativeProcesses.map(process => [process.closed, process.stdoutFinished])).toEqual([[true, true]]);
   expect(costRows([turn]).join("\n")).toContain("unknown/not measured");
 }, 20_000);
 

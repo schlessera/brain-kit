@@ -1,7 +1,7 @@
 import type { Context } from "hono";
 
 /** Ordinary JSON control-plane requests never need to be large. */
-export const JSON_BODY_LIMIT_BYTES = 256 * 1024;
+const JSON_BODY_LIMIT_BYTES = 256 * 1024;
 
 /** Render requests may contain inlined images and SVG. */
 export const RENDER_BODY_LIMIT_BYTES = 5_000_000;

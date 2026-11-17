@@ -34,25 +34,25 @@ import { inboxItemSchema } from "@schlessera/brain-ui-sdk/schemas";
 import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
 import { inboxPriority } from "./state.js";
 
-export type { ActionDigestState, ActionDigestSummary } from "@schlessera/brain-ui-sdk/protocol";
+export type { ActionDigestSummary } from "@schlessera/brain-ui-sdk/protocol";
 
 /** Fixed batching window from the first eligible arrival. */
 export const ACTION_NOTICE_WINDOW_MS = 60_000;
 /** Inclusive push cutoff on the existing priority score with zero attempts. */
-export const ACTION_PUSH_CUTOFF = 12;
+const ACTION_PUSH_CUTOFF = 12;
 /** Strict local quiet interval [22:00, 08:00), retries included. */
-export const ACTION_QUIET_START_HOUR = 22;
-export const ACTION_QUIET_END_HOUR = 8;
+const ACTION_QUIET_START_HOUR = 22;
+const ACTION_QUIET_END_HOUR = 8;
 /** Local in-app digest refresh slots. */
-export const ACTION_DIGEST_HOURS = [9, 17] as const;
+const ACTION_DIGEST_HOURS = [9, 17] as const;
 /** The existing push retry discipline: three attempts, five-minute backoff. */
-export const ACTION_MAX_SEND_ATTEMPTS = 3;
-export const ACTION_SEND_RETRY_BACKOFF_MS = 5 * 60 * 1000;
+const ACTION_MAX_SEND_ATTEMPTS = 3;
+const ACTION_SEND_RETRY_BACKOFF_MS = 5 * 60 * 1000;
 /** An in-flight attempt older than this is treated as an ambiguous outcome. */
-export const ACTION_IN_FLIGHT_STALE_MS = 60_000;
+const ACTION_IN_FLIGHT_STALE_MS = 60_000;
 /** The Actions destination, the route the existing push contract uses. */
-export const ACTION_NOTICE_URL = "/#/activity";
-export const ACTION_NOTICE_TAG = "brain-actions";
+const ACTION_NOTICE_URL = "/#/activity";
+const ACTION_NOTICE_TAG = "brain-actions";
 
 
 export type ActionAttemptOutcome = "success" | "failed" | "ambiguous" | "gone";
@@ -146,7 +146,7 @@ export function localHour(zone: string, at: number): number {
   return new Date(wallClock(zone, at)).getUTCHours();
 }
 
-export function inQuietHours(zone: string, at: number): boolean {
+function inQuietHours(zone: string, at: number): boolean {
   const hour = localHour(zone, at);
   return hour >= ACTION_QUIET_START_HOUR || hour < ACTION_QUIET_END_HOUR;
 }
@@ -181,7 +181,7 @@ export function noticeDestination(endpoint: string): string {
   return createHash("sha256").update(endpoint).digest("hex");
 }
 
-export function actionNoticePayload(count: number): ActionNoticePayload {
+function actionNoticePayload(count: number): ActionNoticePayload {
   // Lock-screen minimization: a count and navigation, nothing from the thread.
   return {
     title: count === 1 ? "1 action waiting" : `${count} actions waiting`,

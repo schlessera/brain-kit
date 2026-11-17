@@ -133,4 +133,16 @@ describe("subprocess environment descriptor", () => {
     expect(parseSubprocessEnvExtra(undefined)).toEqual([]);
     expect(parseSubprocessEnvExtra("")).toEqual([]);
   });
+
+  test("a host-only secret reaches no audience, even when the escape hatch or a spawn names it", () => {
+    const sentinel = "apify_api_ODYSSEUS_SENTINEL_never_in_a_worker";
+    const env = { APIFY_TOKEN: sentinel, PATH: "/usr/bin", BRAIN_UI_SUBPROCESS_ENV_EXTRA: "APIFY_TOKEN,CUSTOM_TOKEN", CUSTOM_TOKEN: "ithaca" };
+    expect(parseSubprocessEnvExtra(env.BRAIN_UI_SUBPROCESS_ENV_EXTRA), "HOST_ONLY_SECRET_EXTRA_REFUSED").toEqual(["CUSTOM_TOKEN"]);
+    for (const audience of ["cron", "agent", "brainCli"] as const) {
+      const filtered = filterSubprocessEnv(env, audience, [...parseSubprocessEnvExtra(env.BRAIN_UI_SUBPROCESS_ENV_EXTRA), "APIFY_TOKEN"]);
+      expect(filtered, `HOST_ONLY_SECRET_WITHHELD: ${audience}`).toEqual({ PATH: "/usr/bin", CUSTOM_TOKEN: "ithaca" });
+      expect(JSON.stringify(filtered)).not.toContain(sentinel);
+    }
+    expect(SUBPROCESS_ENV.APIFY_TOKEN).toEqual([]);
+  });
 });

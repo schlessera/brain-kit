@@ -155,7 +155,7 @@ describe("private runtime-state tmpfs", () => {
       expect(() => workerCommand({ brainPath: f.brain, stateBytes: 0, env: {}, command: ["/bin/true"] })).toThrow("positive");
       mkdirSync(join(f.root, "tmp-state"));
       expect(() => workerCommand({ brainPath: f.brain, scratchPath: "/tmp", stateBytes: MiB, env: {}, command: ["/bin/true"] }))
-        .toThrow();
+        .toThrow("runtime state must be a separate location outside the brain and scratch");
     } finally { f.cleanup(); }
   });
 

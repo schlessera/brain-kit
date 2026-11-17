@@ -92,7 +92,7 @@ export interface TurnJournalChange {
   before: JournalVersion | null;
   after: JournalVersion | null;
   overlappingTurnIds: string[];
-  /** Present only when an existing same-session/turn taint event preceded this observation. */
+  /** Effective restriction at this observation; unknown coverage may have no source event. Historical attribution is unchanged. */
   tainted?: true;
   taintSourceEventId?: number;
   /** At least two distinct retained after-versions observed in one shared window. */
@@ -104,7 +104,8 @@ export interface JournalOutwardAction {
   id: number;
   at: number;
   tool: string;
-  action: "git_push" | "gh_write" | "mcp_tool" | "http_write" | "outward_host_connect";
+  /** `compute_run` (additive, #3108): an approved or refused external compute job start. */
+  action: "git_push" | "gh_write" | "mcp_tool" | "http_write" | "outward_host_connect" | "compute_run";
   target: string | null;
   decision: "policy_allowed" | "approved" | "declined" | "refused";
   historyRewrite: boolean;

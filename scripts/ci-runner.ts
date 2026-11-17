@@ -20,7 +20,7 @@ export function verificationCommands(plan: CheckPlan, root: string): Command[] {
     throw new Error(`Selected CI test is missing: ${file}`);
   }
   if (plan.typecheck) commands.push({ name: "strict typecheck", argv: [process.execPath, "run", "typecheck", "--extendedDiagnostics"],
-    env: { NODE_OPTIONS: "--max-old-space-size=4096" }, compilerRuntime: true });
+    env: { NODE_OPTIONS: "--max-old-space-size=6144" }, compilerRuntime: true });
   if (plan.tests.length && (!plan.local.fullTests || plan.cadence === "feedback")) {
     const batches = balanceTests(plan.tests, Math.min(2, plan.tests.length));
     for (const [index, files] of batches.entries()) commands.push({ name: `fast contract and integrity tests ${index + 1}/${batches.length}`,

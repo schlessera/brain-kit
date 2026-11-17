@@ -39,7 +39,11 @@ test("pending output remains distinguishable from a completed channel", async ()
   let complete = false;
   const observation = hook.child("package-build", { pid: 42, stdout: heldOutput,
     stderr: new ReadableStream({ start(controller) { controller.close(); } }), exited: Promise.resolve(0) }).then(() => { complete = true; });
-  await Bun.sleep(20);
+  // The exit and the closed stderr are observed, and one macrotask later the
+  // held stdout is the only thing the completion can still be waiting on.
+  // The test's own timeout bounds this condition.
+  while (!(records.some((r) => r.event === "exit") && records.some((r) => r.event === "stderr-complete"))) await Bun.sleep(1);
+  await new Promise((resolve) => setTimeout(resolve, 0));
   expect(records.some((r) => r.event === "exit")).toBe(true);
   expect(records.some((r) => r.event === "stderr-complete")).toBe(true);
   expect(records.some((r) => r.event === "stdout-complete")).toBe(false);
@@ -192,7 +196,10 @@ test("owned descendant observation distinguishes live identity, reused identity 
 test("an owned process disappearing after procfs open is stopped without hiding unexpected read errors", async () => {
   const root = await mkdtemp(join(tmpdir(), "odysseus-procfs-exit-"));
   const ready = join(root, "ready");
-  const child = Bun.spawn([process.execPath, "-e", 'require("node:fs").writeFileSync(process.argv[1],"Odysseus ready");setInterval(()=>{},1000)', ready], { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+  // writeFileSync creates the file before it writes the bytes, so a reader
+  // can see it empty. Renaming a complete sibling publishes it atomically:
+  // absent means not ready yet, and present means complete.
+  const child = Bun.spawn([process.execPath, "-e", 'const fs=require("node:fs"),partial=process.argv[1]+".partial";fs.writeFileSync(partial,"Odysseus ready");fs.renameSync(partial,process.argv[1]);setInterval(()=>{},1000)', ready], { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
   let held: Awaited<ReturnType<typeof open>> | undefined;
   const stdout = new Response(child.stdout).text();
   const stderr = new Response(child.stderr).text();

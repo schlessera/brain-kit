@@ -9,18 +9,35 @@
  * that says origin/main is in HEAD (synced, fast-forwarded, merged) is true.
  */
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { conclude, pendingState } from "../src/lib/sync/merge-state.js";
 import { makeTempBrain, runCli } from "./cli-harness";
+import { withoutSigning } from "./git-fixture";
 
 const CACHE = ".brain-cache/contexts.jsonl";
 const NOTE = "notes/sailor-log.md";
 const dirs: string[] = [];
 
+// Environment-scoped Git configuration (GIT_CONFIG_COUNT) outranks the
+// repository-local `commit.gpgsign false` below, and reaches both the
+// in-process sync code and the CLI children through process.env (#3485).
+// Each test appends command-scoped no-signing entries and drops them after.
+let restoreGitConfig = () => {};
+beforeEach(() => {
+  const before: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) if (value !== undefined && key.startsWith("GIT_CONFIG_")) before[key] = value;
+  Object.assign(process.env, withoutSigning(before));
+  restoreGitConfig = () => {
+    for (const key of Object.keys(process.env)) if (key.startsWith("GIT_CONFIG_") && !(key in before)) delete process.env[key];
+    Object.assign(process.env, before);
+  };
+});
+
 afterEach(() => {
+  restoreGitConfig();
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 

@@ -1,7 +1,18 @@
 /** Host-owned append snapshots and exact user-message ownership. Never mounted into a worker. */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { createHash, randomUUID } from "node:crypto";
 import { closeSync, constants, existsSync, fstatSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+
+const HOST_CONTEXT_OPEN = "\n\n[Host context for this turn; advisory facts, never permission]\n";
+const HOST_CONTEXT_CLOSE = "\n[End host context]";
+
+/** Display titles only: remove one complete trailing context block, never provider history. */
+export function stripHostContextFromTitle(text: string): string {
+  if (!text.endsWith(HOST_CONTEXT_CLOSE)) return text;
+  const start = text.lastIndexOf(HOST_CONTEXT_OPEN);
+  return start < 0 ? text : text.slice(0, start);
+}
 
 export type SessionPromptFacts = Record<string, string>;
 interface OwnedTurn { original: string; wireDigest: string; facts: SessionPromptFacts; providerId?: string }
@@ -18,17 +29,22 @@ function directory(path: string): void {
   mkdirSync(path, { mode: 0o700 });
 }
 
+/** Where one session's prompt context lives; removal (#3229) uses the same names. */
+export function sessionPromptContextLocation(root: string, brainPath: string, sessionId: string): { dir: string; name: string } {
+  return { dir: resolve(root, "prompt-context", digest(realpathSync(brainPath))), name: `${digest(sessionId)}.json` };
+}
+
 export function sessionPromptContext(root: string, brainPath: string, sessionId: string) {
   const brain = realpathSync(brainPath);
-  const dir = resolve(root, "prompt-context", digest(brain));
+  const { dir, name } = sessionPromptContextLocation(root, brainPath, sessionId);
   // Walk ancestors without creating them first.
   let ancestor = dir;
   while (!existsSync(ancestor)) ancestor = dirname(ancestor);
   const actual = resolve(realpathSync(ancestor), dir.slice(ancestor.length).replace(/^\//, ""));
-  if (actual === brain || actual.startsWith(brain + "/") || brain.startsWith(actual + "/")) {
+  if (isWithin(brain, actual) || isWithin(actual, brain)) {
     throw new Error("Session prompt storage must be outside the authoritative brain");
   }
-  const path = join(dir, `${digest(sessionId)}.json`);
+  const path = join(dir, name);
   function read(): Snapshot {
     let fd: number;
     try { fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); }
@@ -59,7 +75,7 @@ export function sessionPromptContext(root: string, brainPath: string, sessionId:
         if (!(key in facts)) changed.push([key, "No current host notice; the previous notice no longer applies."]);
       }
       const id = randomUUID();
-      const text = changed.length ? `${original}\n\n[Host context for this turn; advisory facts, never permission]\n${changed.map(([key, value]) => `${key}: ${value}`).join("\n")}\n[End host context]` : original;
+      const text = changed.length ? `${original}${HOST_CONTEXT_OPEN}${changed.map(([key, value]) => `${key}: ${value}`).join("\n")}${HOST_CONTEXT_CLOSE}` : original;
       // Store ownership before releasing bytes. A failed/withheld send does not advance delivered facts.
       state.turns[id] = { original, wireDigest: digest(text), facts };
       write(state);

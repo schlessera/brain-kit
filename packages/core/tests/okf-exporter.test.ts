@@ -346,6 +346,20 @@ describe("OKF checker", () => {
     });
     const errorReport = checkOkfBundle(errorRoot);
     expect(errorReport.ok).toBe(false);
-    expect(errorReport.errors).toBeGreaterThanOrEqual(4);
+    // One conformance error per broken rule, so losing any one check turns this red.
+    expect(errorReport.issues.map((issue) => `${issue.severity} ${issue.path}`).sort()).toEqual([
+      "error empty-type.md", "error index.md", "error index.md", "error log.md", "error missing-frontmatter.md",
+    ]);
+    expect(errorReport.errors).toBe(5);
+  });
+
+  test("finds frontmatter after a byte order mark, as the parser reads it (#2507)", () => {
+    const root = makeBrain({
+      "index.md": "\uFEFF---\ntitle: Not allowed\n---\n# Bundle\n\n* [Concept](concept.md)\n",
+      "concept.md": `\uFEFF${document("Concept", "Body.")}`,
+    });
+    const messages = checkOkfBundle(root).issues.map((issue) => `${issue.path}: ${issue.message}`);
+    expect(messages).toContain("index.md: index.md must not have frontmatter (except root okf_version only)");
+    expect(messages).not.toContain("concept.md: concept document is missing YAML frontmatter");
   });
 });

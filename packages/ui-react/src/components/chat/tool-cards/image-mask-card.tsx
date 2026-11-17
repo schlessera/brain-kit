@@ -32,7 +32,7 @@ import { useBrainUiRoot } from "../../../root-context.js";
 import { ClampedPre } from "../tool-views.js";
 
 /** A normalised rectangle over the source image: every value in 0..1. */
-export interface MaskRegion {
+interface MaskRegion {
   x: number;
   y: number;
   w: number;
@@ -55,7 +55,7 @@ function bytesLabel(bytes: number): string {
 }
 
 /** The mask file exists with content: the handler reports the PNG's byte length. */
-export function hasMaskBytes(payload: Pick<ImageMaskPayload, "bytes">): boolean {
+function hasMaskBytes(payload: Pick<ImageMaskPayload, "bytes">): boolean {
   return typeof payload.bytes === "number" && payload.bytes > 0;
 }
 
@@ -64,7 +64,7 @@ export function hasMaskBytes(payload: Pick<ImageMaskPayload, "bytes">): boolean 
  * the mask image over both when `maskUrl` is given. Exported for the view
  * test; the bound card computes `maskUrl` from the payload.
  */
-export function MaskThumb({
+function MaskThumb({
   region,
   label,
   maskUrl,

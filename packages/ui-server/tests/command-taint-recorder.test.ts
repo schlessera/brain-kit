@@ -4,7 +4,7 @@ import { createActivityStore } from "../src/activity/store";
 import { createUiDb } from "../src/db/client";
 import { queryGovernanceEvents, recordGovernanceEvent } from "../src/governance/events";
 
-test("real recorder persists first shell ingestion across turns, excludes denials and leaves safe sessions clean", () => {
+test("real recorder persists every shell ingestion across turns, excludes denials and leaves safe sessions clean", () => {
   const db = createUiDb(":memory:");
   const store = createActivityStore(db, { writer: "test" });
   const session = "odysseus-session";
@@ -32,14 +32,14 @@ test("real recorder persists first shell ingestion across turns, excludes denial
     first.finish("success");
     const second = recorder("odysseus-second");
     call(second, "opaque", "bash", "sh fetch.sh");
-    expect(events(), "G6_RECORDER_RETAINS_FIRST_SESSION_SOURCE").toHaveLength(1);
+    expect(events(), "G6_RECORDER_RETAINS_LATER_SESSION_SOURCE").toHaveLength(2);
     expect(events()[0]!.turnId).toBe("odysseus-first");
     second.finish("success");
     db.query("INSERT INTO sessions (id,title,created_at,last_active_at) VALUES ('telemachus-session', 'Voyage', 1, 1)").run();
     const autonomous = recorder("odysseus-autonomous", "autonomous", "telemachus-session");
     call(autonomous, "restricted", "Bash", "sh fetch.sh");
     autonomous.finish("success");
-    expect(events()).toHaveLength(1);
+    expect(events()).toHaveLength(2);
     expect(queryGovernanceEvents(db, { sessionId: "telemachus-session", kinds: ["taint"], limit: 100 })).toHaveLength(0);
   } finally { db.close(); }
 });
