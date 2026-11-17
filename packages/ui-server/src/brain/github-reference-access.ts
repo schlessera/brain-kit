@@ -76,6 +76,9 @@ export function createGitHubReferenceAccess(options: {
         let result = await wire.metadata(null);
         if (result.status === 401 || result.status === 404) {
           await input.withdrawPublic?.();
+          // That observation is already contained. A missing private grant
+          // is not a second metadata observation after the withdrawal waits.
+          openingMetadata = false;
           principal(input.principalId);
           grant = coveringReferenceGrant(options.db, { brain: options.brain, principalId: input.principalId, repository, now: now() });
           if (!grant?.credential || grant.metadataCredentialRecipient !== REFERENCE_METADATA_CREDENTIAL_RECIPIENT)
@@ -83,6 +86,7 @@ export function createGitHubReferenceAccess(options: {
           credential = options.credentials[grant.credential] ?? null;
           if (!credential) throw new ReferenceTransportError("unavailable", "the granted host credential is not configured");
           authorize("metadata", true);
+          openingMetadata = true;
           result = await wire.metadata(credential);
         }
         authorize("metadata", credential !== null);

@@ -1,7 +1,7 @@
 /** Reference catalog effects; acquisition and native pool calls stay with the caller (#2999). */
 import type { Database } from "bun:sqlite";
 import type { ReferenceAcquisition } from "./reference-acquisition.js";
-import { sourceAuthorityCurrent, type SourceAuthority } from "./reference-source-authority.js";
+import { authorityRepository, sourceAuthorityCurrent, type SourceAuthority } from "./reference-source-authority.js";
 
 export function sourceWrites(db: Database) {
   function sourceView(domain: string, id: string): { id: string; hostPath: string | null } {
@@ -13,8 +13,24 @@ export function sourceWrites(db: Database) {
   return {
     sourceView,
     sourceFence(domain: string, repository: string, revision: string, generation: string) {
-      db.query(`INSERT INTO reference_authority_fences (domain, repository, revision, generation) VALUES (?, ?, ?, ?)
-        ON CONFLICT (domain, repository, revision) DO UPDATE SET generation = excluded.generation`).run(domain, repository, revision, generation);
+      return db.transaction(() => {
+        db.query(`INSERT INTO reference_authority_fences (domain, repository, revision, generation) VALUES (?, ?, ?, ?)
+          ON CONFLICT (domain, repository, revision) DO UPDATE SET generation = excluded.generation`).run(domain, repository, revision, generation);
+        // A crash after this commit must not leave old positive validation
+        // available to startup recovery, including legacy GitHub casing aliases.
+        const matches = (source: { repository: string; revision: string }) => {
+          try { return (revision === "" || source.revision === revision) && authorityRepository(source.repository) === repository; }
+          catch { return false; }
+        };
+        for (const source of db.query("SELECT repository, revision FROM reference_sources WHERE domain = ?").all(domain) as { repository: string; revision: string }[]) {
+          if (matches(source))
+            db.query("UPDATE reference_sources SET validated_at = 0 WHERE domain = ? AND repository = ? AND revision = ?").run(domain, source.repository, source.revision);
+        }
+        // Cleanup affects exactly the identities invalidated at this commit,
+        // never a fresh acquisition that publishes while native hiding waits.
+        return (db.query("SELECT id, state, repository, revision FROM reference_roots WHERE domain = ?").all(domain) as
+          { id: string; state: string; repository: string; revision: string }[]).filter(matches);
+      }).immediate();
     },
     sourceTouch(at: number, domain: string, repository: string, revision: string) {
       db.query("UPDATE reference_sources SET last_used_at = ? WHERE domain = ? AND repository = ? AND revision = ?").run(at, domain, repository, revision);

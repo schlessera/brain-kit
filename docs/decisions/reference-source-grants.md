@@ -28,7 +28,7 @@ The maintainer selected **owner-managed grant records** on 2026-10-22
 ## The record
 
 A grant is one row of the UI database's `reference_grants` table
-(`createReferenceGrant`, `packages/ui-server/src/db/reference-grants.ts:129-157`).
+(`createReferenceGrant`, `packages/ui-server/src/db/reference-grants.ts:135-163`).
 The table holds the served brain's identity, the principal, the canonical
 repository prefix, the credential name or null, the granting owner and the
 revocation time. It stores no credential value. A grant is **live** while it
@@ -53,7 +53,7 @@ lowercases the origin and drops a trailing slash and one hosted `.git` clone
 suffix. A prefix covers itself and every path below it at a segment boundary, so
 `…/odysseus` never covers `…/odysseus-crew`. The longest covering live prefix
 wins, read at the moment of use
-(`coveringReferenceGrant`, `packages/ui-server/src/db/reference-grants.ts:177-188`).
+(`coveringReferenceGrant`, `packages/ui-server/src/db/reference-grants.ts:183-194`).
 
 GitHub HTTPS paths are normalized to lowercase, matching the qualified
 transport. Retained mixed-case prefixes are normalized for matching and

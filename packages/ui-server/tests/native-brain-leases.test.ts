@@ -178,6 +178,20 @@ test("unknown stage creation pins its lower root until confirmed stage deletion 
   } finally { await second.close(); await f.close(); }
 });
 
+test("source leases forward permanent withdrawal and refuse a keeper without its receipt", async () => {
+  const f = await fixture(); let supported = false;
+  f.native.client.poolCreate = async (id, purpose, from, allowanceBytes, _signal, permanentWithdrawal) => {
+    expect(permanentWithdrawal, "LEASE_OWNER_PRESERVES_PERMANENT_WITHDRAWAL").toBe(true);
+    return { id, purpose, from, allowanceBytes, state: "writable", root: null, path: null, ownerBytes: null, reason: null, view: null, access: null,
+      ...(supported ? { publicationRevoked: false } : {}) };
+  };
+  try {
+    await expectRejection(f.owner.client.poolCreate(ID, "source", null, 4096, undefined, true), "durable lease identity");
+    supported = true;
+    expect(await f.owner.client.poolCreate(ID, "source", null, 4096, undefined, true)).toMatchObject({ publicationRevoked: false });
+  } finally { await f.close(); }
+});
+
 test("reference pool roots are durable app leases that dead-owner recovery and close never delete", async () => {
   const f = await fixture(), calls: string[] = [];
   const record = (id: string, purpose: "source" | "worktree" | "staging" | "checkpoint", from: string | null, allowanceBytes: number, state: string) =>

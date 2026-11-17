@@ -496,7 +496,7 @@ describe("exposure changes are serialized (#2432 review)", () => {
     expect(readdirSync(first.views!.private), "REFERENCE_TOOLS_REVOCATION_WINS_OVER_RESTORE").toEqual([]);
   });
 
-  test("after recovery republishes everything, the next bind judges each source again", async () => {
+  test("recovery keeps suspended sources hidden until an explicit request validates them", async () => {
     const { turn, sources, tools, state } = host();
     const penelope = principal(), telemachus = principal("Telemachus");
     const first = await turn(penelope.id);
@@ -507,9 +507,12 @@ describe("exposure changes are serialized (#2432 review)", () => {
     const withheld = await turn(telemachus.id);
     expect(publicEntries(withheld.views)).toEqual([]);
     await sources.recover();
-    expect(publicEntries(withheld.views) ?? [], "REFERENCE_TOOLS_RECOVERY_REPUBLISHES").toContain(name);
+    expect(publicEntries(withheld.views), "REFERENCE_TOOLS_RECOVERY_CANNOT_REPUBLISH_UNVALIDATED_SOURCE").toEqual([]);
     state.failResolves = 1;
     expect(publicEntries((await turn(telemachus.id)).views), "REFERENCE_TOOLS_RECOVERY_THEN_BIND_SUSPENDS").toEqual([]);
+    state.failResolves = 0;
+    expect(nameOf(await withheld.call(source(PUBLIC)))).toBe(name);
+    expect(publicEntries(withheld.views), "REFERENCE_TOOLS_FRESH_REQUEST_RESTORES_SOURCE").toContain(name);
   });
 });
 

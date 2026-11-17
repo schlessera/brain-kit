@@ -337,7 +337,7 @@ until genuine settlement, rather than authorizing their replacement
 `close: () => closing ??= guardSqliteCleanup`, `packages/ui-server/src/app.ts:1474-1524`).
 The native lease manager retains its own pending operations and durable unknown
 root outcomes through close (`return { client, writer, recoverDeadOwners`,
-`packages/ui-server/src/brain/native-brain-leases.ts:319-332`). A caller deadline
+`packages/ui-server/src/brain/native-brain-leases.ts:320-333`). A caller deadline
 is not proof that native I/O stopped, cleanup succeeded or deletion completed.
 Keep the proposed partial/unknown outcome and identity fence while that cleanup
 remains owned; follow the existing [shutdown ownership contract](../decisions/sqlite-write-worker.md#bounded-caller-waits-retain-real-cleanup-ownership-3185).

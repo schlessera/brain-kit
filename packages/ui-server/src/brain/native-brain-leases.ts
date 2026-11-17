@@ -170,11 +170,12 @@ export async function createNativeBrainLeaseManager(raw: Client, options: {
       if (!mine(lease) && lease.state !== "deleting" && live(lease) !== false) throw new NativeBrainManagerError("unknown", "This turn tree is still held by another live app or cron owner.");
       return releaseOwned(lease, signal);
     }); },
-    poolCreate(id, purpose, from, allowanceBytes, signal) { return operation(async () => {
+    poolCreate(id, purpose, from, allowanceBytes, signal, permanentWithdrawal) { return operation(async () => {
       signal?.throwIfAborted();
       await leases.call("poolIntent", id, purpose, from, allowanceBytes);
-      const record = await raw.poolCreate(id, purpose, from, allowanceBytes, signal);
-      if (record.id !== id || record.purpose !== purpose || record.from !== from || record.allowanceBytes !== allowanceBytes || !["writable", "sealed"].includes(record.state))
+      const record = await raw.poolCreate(id, purpose, from, allowanceBytes, signal, permanentWithdrawal);
+      if (record.id !== id || record.purpose !== purpose || record.from !== from || record.allowanceBytes !== allowanceBytes || !["writable", "sealed"].includes(record.state)
+        || (permanentWithdrawal && record.publicationRevoked !== false))
         throw new NativeBrainManagerError("unknown", "Reference pool reply does not match its durable lease identity.");
       await run("UPDATE native_pool_leases SET state='held' WHERE id=? AND state='creating'", id);
       return record;

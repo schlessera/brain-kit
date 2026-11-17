@@ -227,7 +227,7 @@ export function createReferenceWorktrees(options: {
   async function authorize(row: Pick<WorktreeRow, "principal_id" | "repository" | "revision" | "domain">, signal?: AbortSignal, acquisition?: ReferenceAcquisitionContext) {
     covered(row);
     try {
-      const source = await options.sources.request({ principalId: row.principal_id, repository: row.repository, revision: row.revision, signal, acquisition });
+      const source = await options.sources.request({ principalId: row.principal_id, repositoryKey: row.repository, revision: row.revision, signal, acquisition });
       try {
         // A public starting snapshot cannot bypass the private authority the
         // current source check required. A private starting snapshot keeps its
@@ -243,7 +243,7 @@ export function createReferenceWorktrees(options: {
   }
   /** A private worktree's grant, read live; checked again after every await before a grant. */
   function covered(row: Pick<WorktreeRow, "principal_id" | "repository" | "domain">) {
-    if (row.domain !== "public" && !options.sources.covers({ principalId: row.principal_id, repository: row.repository }))
+    if (row.domain !== "public" && !options.sources.covers({ principalId: row.principal_id, repositoryKey: row.repository }))
       throw new ReferenceWorktreeError("unauthorized", "No live reference grant covers this private worktree's repository.");
   }
 

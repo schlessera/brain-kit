@@ -295,8 +295,8 @@ export function createNativeBrainManagerClient(input: { socketPath: string; time
     poolStatus: async (signal?: AbortSignal): Promise<NativePoolStatus> => control({ operation: "poolStatus" }, signal),
     /** Read-only residual-growth status (#3515); reports measured charges and thresholds only. */
     poolGrowth: async (signal?: AbortSignal): Promise<NativePoolGrowth> => control({ operation: "poolGrowth" }, signal),
-    poolCreate: async (id: string, purpose: NativePoolCreatePurpose, from: string | null, allowanceBytes: number, signal?: AbortSignal): Promise<NativePoolRecord> =>
-      control({ operation: "poolCreate", id, purpose, from, allowanceBytes }, signal),
+    poolCreate: async (id: string, purpose: NativePoolCreatePurpose, from: string | null, allowanceBytes: number, signal?: AbortSignal, permanentWithdrawal?: true): Promise<NativePoolRecord> =>
+      control({ operation: "poolCreate", id, purpose, from, allowanceBytes, ...(permanentWithdrawal ? { permanentWithdrawal } : {}) }, signal),
     poolSeal: async (id: string, signal?: AbortSignal): Promise<NativePoolRecord> => control({ operation: "poolSeal", id }, signal),
     poolRelease: async (id: string, signal?: AbortSignal): Promise<NativePoolRecord> => control({ operation: "poolRelease", id }, signal),
     listPoolRecovery: async (after: string | null = null, signal?: AbortSignal): Promise<{ records: NativePoolRecord[]; next: string | null }> =>

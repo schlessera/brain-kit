@@ -4517,6 +4517,21 @@ directories, and a sealed root's top directory becomes `0755 root:root`. The
 mechanism is recorded in the
 [pool decision](../decisions/reference-pool-accounting.md#publication-views-2429).
 
+Managed acquisition (#3613) opts a new source root into permanent withdrawal
+with `poolCreate(id, purpose, from, allowanceBytes, signal?, true)` (the native
+control request adds `permanentWithdrawal?: true`). Only `source` roots accept
+the option. Their records include `publicationRevoked: false` initially;
+`poolWithdraw` durably changes it to `true` under the publication mutation
+lock before hiding the root. Every later `poolPublish` of that identity
+refuses with `released`, even across restart. Interrupted withdrawal finishes
+before the keeper serves requests. Retained sealed bytes stay charged and
+may seed a newly authorized root with a different identity. An identity's
+withdrawal mode cannot change on a create retry. Legacy calls and version-1
+roots retain reversible withdrawal. Opted-in roots use version-2 durable
+intents, which older keepers refuse rather than ignoring the guard; older
+strict control schemas also reject the new option before creating a root.
+The managed host refuses missing support, without an unguarded fallback.
+
 ### Reference source acquisition (additive, #2429)
 
 `ServerConfig.referenceSource?` is `{ validationMs, refreshMs, operations }`.

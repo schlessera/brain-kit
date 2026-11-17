@@ -132,6 +132,26 @@ test("Unix park requests retain an optional native generation expectation", asyn
     expect(nativeManagerRequest.safeParse({ operation: "poolPark", id: ID, expectedAccess }).success, "NATIVE_PARK_EXPECTATION_IS_ONE_GENERATED_IDENTITY").toBe(false);
 });
 
+test("Unix source creation explicitly opts into permanent withdrawal without changing legacy calls", async () => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-native-withdrawal-")), socketPath = join(root, "manager.sock");
+  cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+  const requests: NativeManagerRequest[] = [];
+  const service = Bun.serve({ unix: socketPath, async fetch(request) {
+    const input = nativeManagerRequest.parse(await request.json()); requests.push(input);
+    return Response.json({ id: ID, ...(input.operation === "poolCreate" && input.permanentWithdrawal ? { publicationRevoked: false } : {}) });
+  } });
+  cleanups.push(() => service.stop(true));
+  const client = createNativeBrainManagerClient({ socketPath, timeoutMs: 1000, maxDeltaBytes: 64 });
+  expect(await client.poolCreate(ID, "source", null, 4096, undefined, true), "PERMANENT_WITHDRAWAL_RECEIPT_REACHES_CALLER").toMatchObject({ publicationRevoked: false });
+  await client.poolCreate(SECOND, "source", null, 4096);
+  expect(requests, "PERMANENT_WITHDRAWAL_OPTION_REACHES_NATIVE_KEEPER").toEqual([
+    { operation: "poolCreate", id: ID, purpose: "source", from: null, allowanceBytes: 4096, permanentWithdrawal: true },
+    { operation: "poolCreate", id: SECOND, purpose: "source", from: null, allowanceBytes: 4096 },
+  ]);
+  for (const permanentWithdrawal of [false, null, 1, "true"])
+    expect(nativeManagerRequest.safeParse({ operation: "poolCreate", id: ID, purpose: "source", from: null, allowanceBytes: 4096, permanentWithdrawal }).success).toBe(false);
+});
+
 test("lost Unix response is unknown and never an inferred absence or automatic retry", async () => {
   const root = mkdtempSync(join(tmpdir(), "odysseus-native-lost-")), socketPath = join(root, "manager.sock");
   cleanups.push(() => rmSync(root, { recursive: true, force: true }));

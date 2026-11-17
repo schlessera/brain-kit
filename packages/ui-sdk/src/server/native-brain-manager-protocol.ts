@@ -36,7 +36,7 @@ export const nativeManagerRequest = z.discriminatedUnion("operation", [
   // Read-only residual-growth status (#3515) over the same observation and owner charges.
   z.object({ operation: z.literal("poolGrowth") }).strict(),
   z.object({ operation: z.literal("poolCreate"), id: nativeCheckpointId, purpose: z.enum(["source", "worktree", "staging"]),
-    from: nativeCheckpointId.nullable(), allowanceBytes: z.number().int().positive() }).strict(),
+    from: nativeCheckpointId.nullable(), allowanceBytes: z.number().int().positive(), permanentWithdrawal: z.literal(true).optional() }).strict(),
   z.object({ operation: z.literal("poolSeal"), id: nativeCheckpointId }).strict(),
   z.object({ operation: z.literal("poolRelease"), id: nativeCheckpointId }).strict(),
   z.object({ operation: z.literal("listPoolRecovery"), after: nativeCheckpointId.nullable() }).strict(),
@@ -145,6 +145,8 @@ export interface NativePoolRootIdentity {
 }
 export interface NativePoolRecord {
   id: string;
+  /** Present only on opted-in source roots. Once true, publication is permanently refused. */
+  publicationRevoked?: boolean;
   /** `checkpoint` (#2430): a read-only snapshot of one writable worktree, created only by `poolCheckpoint`. */
   purpose: "source" | "worktree" | "staging" | "checkpoint";
   /** Pool root this one was snapshotted from (sealed, or the writable worktree of a checkpoint), or null for an empty root. */

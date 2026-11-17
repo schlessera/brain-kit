@@ -432,6 +432,38 @@ const shapes = await create("staging", 32 * MIB);
     "REFERENCE_VIEW_RELEASE_REMOVES_ITS_NAMES").toBe(false);
 }
 
+// Managed roots opt into irreversible withdrawal. Retained storage may seed
+// a fresh identity, but neither delayed RPCs nor restart can revive the old one.
+{
+  const VIEW = randomUUID(), id = randomUUID();
+  const first = await call<NativePoolRecord>({ operation: "poolCreate", id, purpose: "source", from: null, allowanceBytes: 4 * MIB, permanentWithdrawal: true });
+  expect(first.publicationRevoked, "REFERENCE_PERMANENT_WITHDRAWAL_OPT_IN").toBe(false);
+  writeFileSync(join(first.path!, "README.md"), "Odysseus charts Ithaca.\n");
+  await seal(id);
+  await call({ operation: "poolPublish", id, view: VIEW, name: "ithaca" });
+  // Crash after the durable revocation fence, before the root's move.
+  const path = join(POOL, ".reference-native/state", `${id}.json`);
+  const intent = JSON.parse(readFileSync(path, "utf8"));
+  writeFileSync(path, JSON.stringify({ ...intent, publicationRevoked: true }));
+  manager = await restart({});
+  expect(existsSync(join(POOL, "views", VIEW, id)), "REFERENCE_RESTART_COMPLETES_PERMANENT_WITHDRAWAL").toBe(false);
+  expect((await refusal({ operation: "poolPublish", id, view: VIEW, name: "ithaca" })).code,
+    "REFERENCE_NATIVE_REVOKED_ROOT_CANNOT_PUBLISH").toBe("released");
+  const freshId = randomUUID();
+  await call({ operation: "poolCreate", id: freshId, purpose: "source", from: id, allowanceBytes: 4 * MIB, permanentWithdrawal: true });
+  await seal(freshId);
+  await call({ operation: "poolPublish", id: freshId, view: VIEW, name: "ithaca" });
+  await call({ operation: "poolWithdraw", id });
+  expect(readFileSync(join(POOL, "views", VIEW, "ithaca", "README.md"), "utf8"), "OLD_WITHDRAWAL_PRESERVES_NEW_ROOT").toContain("Odysseus");
+  expect((await call<NativePoolRecord>({ operation: "poolWithdraw", id: freshId })).publicationRevoked).toBe(true);
+  expect((await refusal({ operation: "poolPublish", id: freshId, view: VIEW, name: "ithaca" })).code,
+    "REFERENCE_NATIVE_COMPLETED_WITHDRAWAL_IS_PERMANENT").toBe("released");
+  manager = await restart({});
+  expect((await call<NativePoolRecord>({ operation: "poolSeal", id: freshId })).publicationRevoked,
+    "REFERENCE_NATIVE_WITHDRAWAL_SURVIVES_RESTART").toBe(true);
+  await release(freshId); await release(id);
+}
+
 // 16. Acquisition (#2429): the real reference service and its real transport
 // workers fetch and check out a 1,200-file Odysseus repository into a
 // quota-limited pool root, publish it, and a sandbox bound to its view reads it.

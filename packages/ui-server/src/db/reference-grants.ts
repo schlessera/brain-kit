@@ -76,6 +76,12 @@ export function referenceRepository(input: unknown, options: { prefix?: boolean 
   return { canonical, url: location, origin, scheme, loopback };
 }
 
+/** Decode a stored authority key, preserving its literal suffix. Not raw clone input. */
+export function referenceRepositoryFromKey(input: unknown): ReferenceRepository {
+  const key = referenceRepository(input);
+  return key.scheme === "file" ? key : referenceRepository(`${key.url}.git`);
+}
+
 /** Exact match or a path-segment boundary: `…/odysseus` never covers `…/odysseus-crew`. */
 export const coversRepository = (prefix: string, repository: string) => repository === prefix || repository.startsWith(`${prefix}/`);
 

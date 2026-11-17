@@ -52,3 +52,18 @@ test("the validation transaction cannot renew a durably invalidated or replaced 
   expect(writes.sourceValidate(at + 1, at + 1, "refs/heads/main", "public", repository, "main", fresh, "telemachus-root"), "VALIDATION_COMMIT_RETAINS_ROOT_BINDING").toBe(false);
   expect(writes.sourceValidate(at + 1, at + 1, "refs/heads/main", "public", repository, "main", fresh, "odysseus-root")).toBe(true);
 });
+
+
+test("a committed fence atomically expires matching validation across aliases and revisions", () => {
+  const cases = [["public", repository, "main"], ["public", "https://github.com/Odysseus/Ithaca", "return-home"],
+    ["public", `${repository}.git`, "main"], ["private:penelope", repository, "main"]];
+  for (const [domain, key, revision] of cases) {
+    const id = `${domain}:${key}:${revision}`;
+    writes.sourceStage(id!, domain!, key!, revision!, at);
+    writes.sourcePublish("/srv/fixtures/view", domain!, key!, revision!, `${key}.git`, "ithaca", id, "a".repeat(40), `refs/heads/${revision}`, null, at);
+  }
+  writes.sourceFence("public", repository, "", "odysseus-crash-after-commit");
+  const rows = db.query("SELECT domain, repository, validated_at FROM reference_sources").all() as { domain: string; repository: string; validated_at: number }[];
+  for (const row of rows) expect(row.validated_at, "FENCE_COMMIT_CANNOT_LEAVE_OLD_POSITIVE_VALIDATION")
+    .toBe(row.domain === "public" && row.repository !== `${repository}.git` ? 0 : at);
+});

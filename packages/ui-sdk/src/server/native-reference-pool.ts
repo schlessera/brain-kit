@@ -19,7 +19,7 @@ import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { constants, closeSync, existsSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, renameSync,
   rmdirSync, statSync, symlinkSync, unlinkSync, writeFileSync, ftruncateSync, chownSync, chmodSync, realpathSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { dirname, isAbsolute, join } from "node:path";
+import { basename, dirname, isAbsolute, join } from "node:path";
 import { NativeBrainManagerError, nativeCheckpointId, nativePoolName, NATIVE_CONTROL_BYTES, REFERENCE_POOL_CHECKPOINT_BYTES, type NativePoolAccess, type NativePoolCheckpoint, type NativePoolRecord,
   type NativePoolGrowth, type NativePoolGrowthComparison, type NativePoolGrowthFlag, type NativePoolGrowthSources, type NativePoolSpace, type NativePoolState,
   type NativePoolStatus } from "./native-brain-manager-protocol.js";
@@ -134,7 +134,8 @@ export const reservePhysical = (bytes: number, factor: { numerator: number; deno
   bytes <= 0 ? 0 : Math.ceil(bytes * factor.numerator / factor.denominator);
 
 export interface PoolIntent extends NativePoolRecord {
-  version: 1;
+  /** Version 2 roots opt into permanent publication withdrawal; old keepers refuse them. */
+  version: 1 | 2;
   fsid: string;
   /** Filesystem generation at reservation; an adopted root must be created at or after it. */
   reservedGeneration: string;
@@ -504,7 +505,9 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
       // Roots sealed before the growth status (#3515) carry no seal-time charge.
       intent.sealedBytes ??= null;
       const root = intent.root;
-      if (intent.version !== 1 || intent.id !== id || intent.fsid !== pool.fsid || !STATES.includes(intent.state) || !PURPOSES.includes(intent.purpose)
+      if (!((intent.version === 1 && intent.publicationRevoked === undefined)
+        || (intent.version === 2 && intent.purpose === "source" && typeof intent.publicationRevoked === "boolean"))
+        || intent.id !== id || intent.fsid !== pool.fsid || !STATES.includes(intent.state) || !PURPOSES.includes(intent.purpose)
         || (intent.from !== null && !nativeCheckpointId.safeParse(intent.from).success) || !page(intent.allowanceBytes) || !digits(intent.reservedGeneration)
         || (root !== null && (!digits(root?.rootId) || !/^[0-9a-f]{32}$/.test(root?.uuid ?? "") || !digits(root?.otransid)))
         || (intent.ownerBytes !== null && !count(intent.ownerBytes)) || (intent.sealedBytes !== null && !count(intent.sealedBytes)) || (intent.reason !== null && typeof intent.reason !== "string")
@@ -574,6 +577,16 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
         if (!existsSync(path)) continue;
         const info = (await helper(["inspect", path])).value;
         if (info.rootId === intent.root?.rootId && info.uuid === intent.root?.uuid && !info.readOnly) await helper(["seal", path]);
+        if (intent.publicationRevoked && info.rootId === intent.root?.rootId && info.uuid === intent.root?.uuid) {
+          // Complete a withdrawal interrupted after its fence commit. Existing
+          // workers may already bind this view, so app recovery is too late.
+          const actualView = path === rootPath(intent.id) ? null : basename(dirname(path));
+          const actual = { ...intent, view: actualView };
+          await verifyRoot(actual);
+          if (intent.view) unlinkNames(intent.view, intent.id);
+          if (actualView) { unlinkNames(actualView, intent.id); await move(actual, null); }
+          else if (intent.view) await commit(actual, true);
+        }
       }
     }
   } catch (error) { index.close(); closeSync(stateFd); throw error; }
@@ -748,7 +761,7 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
   function publicRecord(intent: PoolIntent, owner?: number): NativePoolRecord {
     return { id: intent.id, purpose: intent.purpose, from: intent.from, allowanceBytes: intent.allowanceBytes, state: intent.state, root: intent.root,
       path: intent.state === "writable" || intent.state === "sealed" ? location(intent) : null, ownerBytes: owner ?? intent.ownerBytes, reason: intent.reason, view: intent.view,
-      access: intent.access };
+      access: intent.access, ...(intent.publicationRevoked === undefined ? {} : { publicationRevoked: intent.publicationRevoked }) };
   }
   async function verifyRoot(intent: PoolIntent, signal?: AbortSignal) {
     const info = (await helper(["inspect", location(intent)], signal)).value;
@@ -756,12 +769,14 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
       throw new NativeBrainManagerError("unknown", "Recorded reference pool root identity changed; no use or deletion is authorized.");
     return info as { readOnly: boolean; ctransid: string; parentUuid: string };
   }
-  async function create(request: { id: string; purpose: NativePoolRecord["purpose"]; from: string | null; allowanceBytes: number }, signal?: AbortSignal): Promise<NativePoolRecord> {
+  async function create(request: { id: string; purpose: NativePoolRecord["purpose"]; from: string | null; allowanceBytes: number; permanentWithdrawal?: true }, signal?: AbortSignal): Promise<NativePoolRecord> {
+    if (request.permanentWithdrawal && request.purpose !== "source") throw new NativeBrainManagerError("invalid", "Permanent publication withdrawal applies only to source roots.");
     if ((request.purpose as string) === "checkpoint") throw new NativeBrainManagerError("invalid", "Worktree checkpoints are created only from their writable worktree.");
     if (!page(request.allowanceBytes) || request.allowanceBytes > pool.operationLimitBytes)
       throw new NativeBrainManagerError("capacity", "Requested reference allowance exceeds the configured per-operation allowance; nothing ran.");
     const existing = intents.get(request.id);
-    if (existing && (existing.purpose !== request.purpose || existing.from !== request.from || existing.allowanceBytes !== request.allowanceBytes))
+    if (existing && (existing.purpose !== request.purpose || existing.from !== request.from || existing.allowanceBytes !== request.allowanceBytes
+      || (existing.publicationRevoked !== undefined) !== Boolean(request.permanentWithdrawal)))
       throw new NativeBrainManagerError("invalid", "An existing reference pool identity cannot change its purpose, source or allowance.");
     if (existing && ["deleting", "deleted", "reclaimed"].includes(existing.state)) throw new NativeBrainManagerError("released", "This reference pool identity was released; it cannot be recreated.");
     const measured = await measure(signal), refreshed = intents.get(request.id);
@@ -781,7 +796,8 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
       const needed = reservePhysical(request.allowanceBytes, measured.accounting.reservationFactor);
       if (needed > measured.accounting.availableBytes)
         throw new NativeBrainManagerError("capacity", `Reference pool combined allowance cannot reserve ${needed} physical bytes (${measured.accounting.availableBytes} available); nothing was admitted.`);
-      await commit({ version: 1, fsid: pool.fsid, id: request.id, purpose: request.purpose, from: request.from, allowanceBytes: request.allowanceBytes, state: "reserved",
+      await commit({ version: request.permanentWithdrawal ? 2 : 1, ...(request.permanentWithdrawal ? { publicationRevoked: false } : {}),
+        fsid: pool.fsid, id: request.id, purpose: request.purpose, from: request.from, allowanceBytes: request.allowanceBytes, state: "reserved",
         root: null, path: null, ownerBytes: null, reason: null, view: null, access: null, reservedGeneration: measured.observation.generation }, false);
     }
     const reserved = intents.get(request.id)!;
@@ -911,6 +927,7 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
     nativePoolName.parse(request.name);
     let intent = intents.get(request.id);
     if (!intent || intent.purpose !== "source") throw new NativeBrainManagerError("unknown", "Only a recorded reference source root can be published.");
+    if (intent.publicationRevoked) throw new NativeBrainManagerError("released", "This source root's publication authority was permanently withdrawn.");
     if (intent.state !== "sealed") throw new NativeBrainManagerError(["deleting", "deleted", "reclaimed"].includes(intent.state) ? "released" : "invalid", "Only a sealed reference source root can be published.");
     if (intent.view && intent.view !== request.view) throw new NativeBrainManagerError("invalid", "A published reference root belongs to exactly one view.");
     await verifyRoot(intent, signal);
@@ -1080,8 +1097,14 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
    * what they already hold; the root stays charged until released.
    */
   async function withdraw(id: string, signal?: AbortSignal): Promise<NativePoolRecord> {
-    const intent = intents.get(id);
+    let intent = intents.get(id);
     if (!intent || intent.purpose !== "source") throw new NativeBrainManagerError("unknown", "Only a recorded reference source root can be withdrawn.");
+    // The manager serializes this durable fence with every publication. A
+    // delayed RPC cannot re-expose the retained root after withdrawal returns.
+    if (intent.publicationRevoked === false) {
+      await commit({ ...intent, publicationRevoked: true }, true);
+      intent = intents.get(id)!;
+    }
     if (!intent.view) return publicRecord(intent);
     if (intent.state !== "sealed") throw new NativeBrainManagerError("released", "Only a sealed published root can be withdrawn; release it instead.");
     await verifyRoot(intent, signal);
