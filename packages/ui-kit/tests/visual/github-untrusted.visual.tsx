@@ -39,6 +39,7 @@ import { AVATARS } from "../../stories/github/_github.js";
 import * as detailStories from "../../stories/github/GitHubDetailSection.stories.js";
 import * as untrustedStories from "../../stories/evidence/UntrustedText.stories.js";
 import * as resultStories from "../../stories/github/GitHubResultList.stories.js";
+import * as prStories from "../../stories/github/GitHubPullRequest.stories.js";
 
 type Runnable = { run: (context?: unknown) => Promise<void> };
 
@@ -369,6 +370,24 @@ describe("targets", () => {
     const list = document.querySelector("[data-github-results]")!;
     await userEvent.click(list.querySelector<HTMLButtonElement>("li button")!);
     meetsTarget(list);
+  });
+
+  test("every PR tab is reachable at 320px: the strip scrolls, it does not clip", async () => {
+    await page.viewport(320, 900);
+    await (prStories.CommitsTabNarrow as unknown as Runnable).run();
+    const strip = document.querySelector<HTMLElement>("[data-github-tabs]")!;
+    const tabs = [...strip.querySelectorAll<HTMLElement>("[role='tab']")];
+    expect(strip.scrollWidth, "the tabs outgrow a phone's card").toBeGreaterThan(strip.clientWidth);
+    const last = tabs.at(-1)!;
+    last.focus();
+    const view = strip.getBoundingClientRect(), box = last.getBoundingClientRect();
+    expect(box.right, "the last tab scrolls fully into view").toBeLessThanOrEqual(view.right + 1);
+    expect(box.left).toBeGreaterThanOrEqual(view.left - 1);
+  });
+
+  test("a failed avatar reports failed, not loading", async () => {
+    const el = mount(createElement(GitHubIdentity, { login: "eurycleia", avatarSrc: "/__missing-avatar-for-test.svg" }));
+    await expect.poll(() => el.querySelector("[data-avatar-state]")?.getAttribute("data-avatar-state"), { timeout: 5000 }).toBe("failed");
   });
 
   test("the labels' +n and the interstitial's actions are targets", async () => {

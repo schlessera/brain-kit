@@ -31,6 +31,13 @@ export function Header(p: { state: GitHubState; kind: "pr" | "issue"; repo: stri
   );
 }
 
+/** The design's bound on one label: 50 characters, then an ellipsis. */
+export const LABEL_MAX = 50;
+function boundLabel(label: string): string {
+  const chars = Array.from(label);
+  return chars.length > LABEL_MAX ? `${chars.slice(0, LABEL_MAX - 1).join("")}…` : label;
+}
+
 /** Labels: three, then `+n`, which shows the rest in place. Always neutral: their colours are GitHub's, and their contrast is unknown. */
 export function Labels({ labels }: { labels: string[] }) {
   const [all, setAll] = useState(false);
@@ -40,7 +47,7 @@ export function Labels({ labels }: { labels: string[] }) {
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }} data-github-labels="">
       {shown.map((label, i) => (
-        <Chip key={`${label}-${i}`} label={label} variant="pill" mono={false} />
+        <Chip key={`${label}-${i}`} label={boundLabel(label)} variant="pill" mono={false} />
       ))}
       {rest > 0 ? (
         <button
@@ -86,6 +93,29 @@ export function Body(p: { body?: string | null; author: string; bodyLength?: num
         )
       }
     />
+  );
+}
+
+/**
+ * A tab strip that scrolls sideways when its tabs outgrow the card (the
+ * design's 320px PR tabs). Out of the card's minimum width, it never widens
+ * the card. FilterRow itself clips, so it sits in a max-content box inside a
+ * scrolling one. Block padding keeps the pills' 44px coarse-pointer reach
+ * inside the scroller, which would otherwise clip it vertically; the negative
+ * margin keeps the layout where it was.
+ */
+export function TabStrip({ children }: { children: ReactNode }) {
+  return (
+    <div
+      className="bk-gh-tabs"
+      style={{ width: 0, minWidth: "100%", overflowX: "auto", padding: "12px 0", margin: "-12px 0" }}
+      data-github-tabs=""
+      // FilterRow's own row is the nearest scroll container and needs no
+      // scroll, so focusing a tab does not reach this one: bring it into view.
+      onFocus={(event) => (event.target as HTMLElement).scrollIntoView?.({ block: "nearest", inline: "nearest" })}
+    >
+      <div style={{ width: "max-content", minWidth: "100%" }}>{children}</div>
+    </div>
   );
 }
 

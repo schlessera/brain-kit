@@ -40,6 +40,7 @@ function brainOriginAvatar(src: string | null | undefined): string | null {
 function GitHubAvatar({ person, size = 22 }: { person: GitHubPerson; size?: number }) {
   const src = person.login === null ? null : brainOriginAvatar(person.avatarSrc);
   const [loaded, setLoaded] = useState<string | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
   const radius = person.bot ? 6 : 999;
   const box: CSSProperties = {
     position: "relative",
@@ -58,7 +59,7 @@ function GitHubAvatar({ person, size = 22 }: { person: GitHubPerson; size?: numb
     color: color.inkDim,
   };
   return (
-    <span style={box} aria-hidden="true" data-avatar-state={person.login === null ? "ghost" : loaded === src && src ? "loaded" : src ? "pending" : "initials"}>
+    <span style={box} aria-hidden="true" data-avatar-state={person.login === null ? "ghost" : !src ? "initials" : loaded === src ? "loaded" : failed === src ? "failed" : "pending"}>
       {person.login === null ? null : initials(person.login)}
       {src ? (
         <img
@@ -70,7 +71,10 @@ function GitHubAvatar({ person, size = 22 }: { person: GitHubPerson; size?: numb
           referrerPolicy="no-referrer"
           decoding="async"
           onLoad={() => setLoaded(src)}
-          onError={() => setLoaded(null)}
+          onError={() => {
+            setLoaded(null);
+            setFailed(src);
+          }}
           // Hidden until it has loaded: the initials stay until then, and stay after a failure.
           style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", visibility: loaded === src ? "visible" : "hidden" }}
         />

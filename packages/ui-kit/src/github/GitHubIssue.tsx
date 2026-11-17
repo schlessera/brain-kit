@@ -5,7 +5,7 @@ import { Surface } from "../primitives/Surface.js";
 import { FilterRow } from "../rows/FilterRow.js";
 import { accent, color, font } from "../tokens.js";
 import { GitHubIdentity, GitHubParticipants, type GitHubParticipantsProps } from "./GitHubIdentity.js";
-import { Body, DRAFT_SOURCE, Header, Labels, Part } from "./object-parts.js";
+import { Body, DRAFT_SOURCE, Header, Labels, Part, TabStrip } from "./object-parts.js";
 import { BrainRead, META, type GitHubPerson } from "./shared.js";
 
 /**
@@ -82,9 +82,9 @@ export function GitHubIssue(p: GitHubIssueProps) {
 
         {preview ? (
           <Part>
-            <div style={{ width: 0, minWidth: "100%" }}>
+            <TabStrip>
               <FilterRow mono={false} active={exact ? 1 : 0} items={[{ label: "As shown", onClick: () => setExact(false) }, { label: "Exact text", onClick: () => setExact(true) }]} />
-            </div>
+            </TabStrip>
             <div role="tabpanel" aria-label={exact ? "Exact text" : "As shown"}>
               {exact ? (
                 <pre style={{ margin: 0, whiteSpace: "pre-wrap", overflowWrap: "anywhere", font: `400 11.5px/1.55 ${font.mono}`, color: color.ink }} data-github-exact="">

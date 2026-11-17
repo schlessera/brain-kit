@@ -245,3 +245,23 @@ describe("previews are drafts, not GitHub objects", () => {
   });
 
 });
+
+describe("bounds and summaries the design fixes", () => {
+  const pr = (extra: Partial<GitHubPullRequestProps>) =>
+    draw(<GitHubPullRequest state="open" repo="ithaca/hall" number={412} title="Restring the bow" author={{ login: "telemachus" }} headRef="a" baseRef="main" reviews={null} checks={null} {...extra} />);
+
+  test("a label is cut at 50 characters", () => {
+    const doc = pr({ labels: ["x".repeat(80)] });
+    const chip = doc.querySelector("[data-github-labels] span")!;
+    expect(Array.from(chip.textContent!)).toHaveLength(50);
+    expect(chip.textContent!.endsWith("…")).toBe(true);
+  });
+
+  test("skipped checks are reported, never as passing and never as none", () => {
+    const only = pr({ checks: { passed: 0, failed: 0, running: 0, skipped: 3 } }).querySelector("[data-github-fact='checks']")!;
+    expect(only.textContent).toBe("Checks— 3 skipped");
+    const mixed = pr({ checks: { passed: 5, failed: 0, running: 0, skipped: 2 } }).querySelector("[data-github-fact='checks']")!;
+    expect(mixed.textContent).toContain("5 passed");
+    expect(mixed.textContent).toContain("— 2 skipped");
+  });
+});

@@ -9,7 +9,7 @@ import {
 } from "./GitHubMergeEvent.js";
 import type { GitHubReviewState } from "./GitHubReview.js";
 import { GitHubStateChip } from "./GitHubStateChip.js";
-import { Body, Header, Labels, Part, count } from "./object-parts.js";
+import { Body, Header, Labels, Part, TabStrip, count } from "./object-parts.js";
 import { BrainRead, CAPS, Field, META, type GitHubPerson } from "./shared.js";
 
 /**
@@ -136,13 +136,23 @@ function Reviews({ reviews }: { reviews: GitHubPullRequestProps["reviews"] }) {
 function Checks({ checks }: { checks: GitHubPullRequestProps["checks"] }) {
   if (checks === null)
     return <GitHubStateChip state="none-reported" variant="inline" />;
+  const skipped = checks.skipped ?? 0;
+  // Skipped is neither passing nor failing: a neutral dash and the count.
+  const skippedLine =
+    skipped > 0 ? (
+      <span style={{ font: `400 11.5px/1.35 ${font.body}`, color: color.inkMute }} data-github-checks-skipped="">
+        — {count(skipped)} skipped
+      </span>
+    ) : null;
   if (checks.failed === 0 && checks.running === 0 && checks.passed === 0)
     return (
-      <span
-        style={{ font: `400 11.5px/1.35 ${font.body}`, color: color.inkMute }}
-      >
-        No checks ran
-      </span>
+      skippedLine ?? (
+        <span
+          style={{ font: `400 11.5px/1.35 ${font.body}`, color: color.inkMute }}
+        >
+          No checks ran
+        </span>
+      )
     );
   return (
     <>
@@ -167,6 +177,7 @@ function Checks({ checks }: { checks: GitHubPullRequestProps["checks"] }) {
           variant="inline"
         />
       ) : null}
+      {skippedLine}
     </>
   );
 }
@@ -284,8 +295,7 @@ export function GitHubPullRequest(p: GitHubPullRequestProps) {
 
         {p.tabs ? (
           <Part pad="4px 14px 12px">
-            {/* Out of the card's minimum width: the strip clips at 320 instead of widening the card. */}
-            <div style={{ width: 0, minWidth: "100%" }}>
+            <TabStrip>
               <FilterRow
                 mono={false}
                 active={p.tabs.active}
@@ -297,7 +307,7 @@ export function GitHubPullRequest(p: GitHubPullRequestProps) {
                   onClick: () => p.tabs!.onSelect(i),
                 }))}
               />
-            </div>
+            </TabStrip>
             <div
               role="tabpanel"
               aria-label={p.tabs.items[p.tabs.active]?.label}
