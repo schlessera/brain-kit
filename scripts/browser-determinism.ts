@@ -35,6 +35,8 @@ import { constants } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { listBrowserSpecs } from "./browser-input-closure";
 import { expandSpecs, pairKey, parsePairKey, planBrowserRepetitions, type BrowserRepetitionPlan, type PlanOptions, type SpecPair } from "./browser-determinism-plan";
+import { BROWSER_DETERMINISM_PARTITIONS } from "./proof-shards";
+import { parseDeadlineFactor } from "./test-deadlines";
 import { RESULT_KIND as PASSES_KIND } from "./browser-determinism-inside.mjs";
 import { browserDeterminismSpecs, changedFiles } from "./ci-plan";
 
@@ -46,16 +48,17 @@ const PLAN_PATH = "tmp/browser-determinism/plan.json", PASSES_PATH = "tmp/browse
 export interface Failure { file: string | null; project: string | null; repetition: number | null; test: string | null; reason: string; }
 export interface Pass { repetition: number; elapsedSeconds: number; ok: boolean; }
 export interface Report extends BrowserRepetitionPlan {
-  kind: typeof REPORT_KIND; version: 1; base: string | null; configRoot: string;
+  kind: typeof REPORT_KIND; version: 1; base: string | null; configRoot: string; deadlineFactor: number;
   outcome: "passed" | "failed" | "none-selected";
   failure: Failure | null; alsoFailed: SpecPair[]; passes: Pass[];
   load: { burners: number; cpus: number | null; inside: "pinned container" }; elapsedSeconds: number; exitCode: number;
 }
 
 /** What the container side runs: exactly these pairs, this many passes, this load. */
-export function passPlan(plan: BrowserRepetitionPlan, options: { configRoot?: string; burners?: number; cpuList?: string } = {}) {
+export function passPlan(plan: BrowserRepetitionPlan, options: { configRoot?: string; burners?: number; cpuList?: string; deadlineFactor?: number } = {}) {
   return { kind: PASSES_KIND, version: 1, root: options.configRoot ?? CONFIG_ROOT, result: PASSES_PATH,
     pairs: plan.pairs.map(({ project, file }) => ({ project, file })), repetitions: plan.repetitions,
+    deadlineFactor: parseDeadlineFactor(options.deadlineFactor ?? BROWSER_DETERMINISM_PARTITIONS.deadlineFactor),
     burners: options.burners ?? null, cpuList: options.cpuList ?? null };
 }
 
@@ -96,7 +99,7 @@ export function judge(plan: BrowserRepetitionPlan, result: PassesResult | undefi
 }
 
 export interface RunOptions extends PlanOptions {
-  root: string; pairs: readonly SpecPair[]; base?: string | null; configRoot?: string; burners?: number; cpuList?: string;
+  root: string; pairs: readonly SpecPair[]; base?: string | null; configRoot?: string; burners?: number; cpuList?: string; deadlineFactor?: number;
   env?: Record<string, string | undefined>; log?: (line: string) => void;
   /** Starts the launcher and resolves with its exit code; the default inherits this process's output. */
   launch?: (argv: string[], cwd: string, env: Record<string, string | undefined>) => Promise<number>;
@@ -129,12 +132,14 @@ async function launchInherited(argv: string[], cwd: string, env: Record<string, 
 export async function runBrowserDeterminism(options: RunOptions): Promise<Report> {
   const { root } = options, log = options.log ?? (line => console.error(line));
   const configRoot = options.configRoot ?? CONFIG_ROOT;
+  const deadlineFactor = parseDeadlineFactor(options.deadlineFactor ?? BROWSER_DETERMINISM_PARTITIONS.deadlineFactor);
   const plan = planBrowserRepetitions(options.pairs, options);
-  const base = { kind: REPORT_KIND as typeof REPORT_KIND, version: 1 as const, base: options.base ?? null, configRoot, ...plan };
+  const base = { kind: REPORT_KIND as typeof REPORT_KIND, version: 1 as const, base: options.base ?? null, configRoot, deadlineFactor, ...plan };
   if (!plan.pairs.length) {
     log("No added or modified browser, layout or story spec: nothing to repeat.");
     return { ...base, outcome: "none-selected", failure: null, alsoFailed: [], passes: [], load: { burners: 0, cpus: null, inside: "pinned container" }, elapsedSeconds: 0, exitCode: 0 };
   }
+  log(`Test and hook default deadlines and watchdogMs scale by ${deadlineFactor} under deliberate load.`);
   for (const line of describePlan(plan, options.burners)) log(line);
   mkdirSync(dirname(join(root, PLAN_PATH)), { recursive: true });
   rmSync(join(root, PASSES_PATH), { force: true });
@@ -162,7 +167,7 @@ export function summaryMarkdown(report: Report): string {
   if (report.outcome === "none-selected") return lines.concat("No added or modified browser, layout or story spec.", "").join("\n");
   lines.push(`${report.repetitions} of ${report.requested} requested repetitions per project/file pair, ${report.load.burners} burner(s) on ${report.load.cpus ?? "unknown"} CPU(s) inside the pinned container; ` +
     `${report.estimatedSeconds.toFixed(1)} weighted s estimated against a ${report.budgetSeconds} s budget${report.overBudget ? " (over budget at the floor)" : ""}; ` +
-    `${report.elapsedSeconds.toFixed(1)} s elapsed.`, "");
+    `${report.elapsedSeconds.toFixed(1)} s elapsed; deadline factor ${report.deadlineFactor}.`, "");
   const { failure } = report;
   if (failure) lines.push(`**Failed:** \`${failure.file ?? "unknown spec"}\` in project \`${failure.project ?? "unknown"}\`, repetition ${failure.repetition ?? "unknown"}` +
     `${failure.test ? `, case \`${failure.test.replaceAll("`", "'")}\`` : ""} (${failure.reason.replaceAll("`", "'")}).`, "");
@@ -172,9 +177,9 @@ export function summaryMarkdown(report: Report): string {
   return lines.concat("").join("\n");
 }
 
-const USAGE = "usage: bun scripts/browser-determinism.ts (--base <ref> | <project>::<spec file>...) [--json] [--report <path>] [--repetitions <n>] [--budget-seconds <n>] [--burners <n>] [--cpu-list <cpus>] [--config-root <dir>]";
+const USAGE = "usage: bun scripts/browser-determinism.ts (--base <ref> | <project>::<spec file>...) [--json] [--report <path>] [--repetitions <n>] [--budget-seconds <n>] [--burners <n>] [--cpu-list <cpus>] [--config-root <dir>] [--deadline-factor <n>]";
 
-export interface Arguments { base?: string; pairs: SpecPair[]; json: boolean; report?: string; repetitions?: number; budgetSeconds?: number; burners?: number; cpuList?: string; configRoot?: string; }
+export interface Arguments { base?: string; pairs: SpecPair[]; json: boolean; report?: string; repetitions?: number; budgetSeconds?: number; burners?: number; cpuList?: string; configRoot?: string; deadlineFactor?: number; }
 
 export function parseArguments(args: readonly string[]): Arguments {
   const parsed: Arguments = { pairs: [], json: false };
@@ -190,6 +195,7 @@ export function parseArguments(args: readonly string[]): Arguments {
     else if (flag === "--report") { parsed.report = value(); if (!parsed.report) throw new Error(`--report needs a path\n${USAGE}`); }
     else if (flag === "--repetitions") parsed.repetitions = integer(flag, value(), 2);
     else if (flag === "--budget-seconds") parsed.budgetSeconds = integer(flag, value(), 1);
+    else if (flag === "--deadline-factor") parsed.deadlineFactor = parseDeadlineFactor(value());
     // Zero burners is a diagnosis: the same passes without load.
     else if (flag === "--burners") parsed.burners = integer(flag, value(), 0);
     else if (flag === "--cpu-list") { parsed.cpuList = value(); if (!parsed.cpuList || !/^\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*$/.test(parsed.cpuList)) throw new Error(`--cpu-list needs CPUs such as 0-3\n${USAGE}`); }
@@ -212,7 +218,7 @@ if (import.meta.main) {
     }
     // The launcher takes the host admission slot and the workspace lease, as every browser run does.
     const report = await runBrowserDeterminism({ root, pairs, base: args.base ?? null, repetitions: args.repetitions, budgetSeconds: args.budgetSeconds,
-      burners: args.burners, cpuList: args.cpuList, configRoot: args.configRoot,
+      burners: args.burners, cpuList: args.cpuList, configRoot: args.configRoot, deadlineFactor: args.deadlineFactor,
       ...(args.json ? { launch: async (argv, cwd, env) => { const child = Bun.spawn(argv, { cwd, env, stdin: "ignore", stdout: 2, stderr: "inherit" }); return await child.exited; } } : {}) });
     if (args.report) {
       mkdirSync(dirname(resolve(root, args.report)), { recursive: true });
