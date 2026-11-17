@@ -40,6 +40,8 @@ END;
 -- consistent record matches its exact principal, and an owner record (its
 -- account is 'owner', or it has none and its principal row is an owner login)
 -- matches any owner login. Every other boundary of 087 is unchanged.
+-- Comparisons use IS: inside the dialogue owner's NOT EXISTS a NULL would
+-- skip the rejection and admit the verdict, so no term there may be NULL.
 DROP TRIGGER IF EXISTS safety_decision_identity;
 CREATE TRIGGER safety_decision_identity BEFORE INSERT ON safety_decisions
  WHEN NOT EXISTS (
@@ -47,15 +49,15 @@ CREATE TRIGGER safety_decision_identity BEFORE INSERT ON safety_decisions
  JOIN safety_sessions s ON s.session_id=NEW.session_id
  WHERE r.id=NEW.occurrence_id AND r.kind='occurrence'
  AND s.history_owner_id=NEW.history_owner_id AND s.generation=NEW.generation
- AND (s.principal_account IS NULL OR (s.principal_account='owner'
+ AND (s.principal_account IS NULL OR (s.principal_account IS 'owner'
    AND NOT EXISTS (SELECT 1 FROM principals WHERE id=s.principal_id AND kind<>'owner')))
  AND (s.principal_id=NEW.principal_id OR (
-   (s.principal_account='owner' OR EXISTS (SELECT 1 FROM principals WHERE id=s.principal_id AND kind='owner'))
+   (s.principal_account IS 'owner' OR EXISTS (SELECT 1 FROM principals WHERE id=s.principal_id AND kind='owner'))
    AND EXISTS (SELECT 1 FROM principals WHERE id=NEW.principal_id AND kind='owner')))
- AND (c.principal_account IS NULL OR (c.principal_account='owner'
+ AND (c.principal_account IS NULL OR (c.principal_account IS 'owner'
    AND NOT EXISTS (SELECT 1 FROM principals WHERE id=c.principal_id AND kind<>'owner')))
  AND (c.principal_id=NEW.principal_id OR (
-   (c.principal_account='owner' OR EXISTS (SELECT 1 FROM principals WHERE id=c.principal_id AND kind='owner'))
+   (c.principal_account IS 'owner' OR EXISTS (SELECT 1 FROM principals WHERE id=c.principal_id AND kind='owner'))
    AND EXISTS (SELECT 1 FROM principals WHERE id=NEW.principal_id AND kind='owner')))
  AND c.generation=s.generation
  AND (c.session_id=s.session_id OR (c.generation=s.generation AND (
@@ -69,11 +71,11 @@ CREATE TRIGGER safety_decision_identity BEFORE INSERT ON safety_decisions
    COALESCE((SELECT owner_id FROM dialogue_aliases WHERE id=s.history_owner_id),s.history_owner_id))
  AND NOT EXISTS (SELECT 1 FROM dialogue_owners d WHERE d.id=
    COALESCE((SELECT owner_id FROM dialogue_aliases WHERE id=s.history_owner_id),s.history_owner_id)
-   AND (CAST(d.generation AS TEXT)!=NEW.generation
-     OR NOT (d.principal_account IS NULL OR (d.principal_account='owner'
+   AND (CAST(d.generation AS TEXT) IS NOT NEW.generation
+     OR NOT (d.principal_account IS NULL OR (d.principal_account IS 'owner'
        AND NOT EXISTS (SELECT 1 FROM principals WHERE id=d.principal_id AND kind<>'owner')))
-     OR NOT (d.principal_id=NEW.principal_id OR (
-       (d.principal_account='owner' OR EXISTS (SELECT 1 FROM principals WHERE id=d.principal_id AND kind='owner'))
+     OR NOT (d.principal_id IS NEW.principal_id OR (
+       (d.principal_account IS 'owner' OR EXISTS (SELECT 1 FROM principals WHERE id=d.principal_id AND kind='owner'))
        AND EXISTS (SELECT 1 FROM principals WHERE id=NEW.principal_id AND kind='owner')))))
  AND COALESCE((SELECT x.state FROM safety_records x WHERE x.occurrence_id=r.id AND x.kind='exposure'
    ORDER BY length(x.sequence) DESC,x.sequence DESC LIMIT 1),r.state)='finalized'

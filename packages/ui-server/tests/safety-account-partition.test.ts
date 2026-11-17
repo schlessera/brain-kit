@@ -422,3 +422,22 @@ test("a stored account keeps an owner record matching other owner logins once it
     for (const [bound, principal, same] of pruned) expect(sameAccount(f.db, bound, principal), `pruned ${JSON.stringify(bound)} / ${principal}`).toBe(same);
   } finally { await f.close(); }
 });
+
+test("the decision trigger refuses a verdict when the chat's dialogue owner is another account or unknown, with no stored account", async () => {
+  for (const [name, owner] of [["foreign agent", "agent"], ["pruned unknown", "pruned-login"]] as const) {
+    const f = await fixture(); try {
+      const { first } = await f.start();
+      openDialogue(f.db, { conversationId: "argos-voice", principalId: f.ship.id, epoch: 1, providerId: "voice", sessionId: "ithaca" });
+      const { history_owner_id: ownerId } = f.session();
+      // The session and the collection are the owner's; only the dialogue owner is not.
+      f.db.query("UPDATE dialogue_owners SET principal_id=?,principal_account=NULL WHERE id=?").run(owner === "agent" ? f.agent.id : owner, ownerId);
+      let sequence = 998000;
+      const decide = () => f.db.query("INSERT INTO safety_decisions VALUES(?,?,?,?,?,?,?,?,?,?,?)").run(crypto.randomUUID(), first, "ithaca",
+        ownerId, "1", String(sequence++), f.home.id, crypto.randomUUID(), 1, "safe", "owner_history");
+      expect(decide, `SAFETY_DECISION_TRIGGER_REFUSES_NULL_ACCOUNT_DIALOGUE_OWNER: ${name}`).toThrow("safety decision identity or exposure mismatch");
+      // Control: the same verdict on the owner's dialogue owner is admitted.
+      f.db.query("UPDATE dialogue_owners SET principal_id=?,principal_account='owner' WHERE id=?").run(f.ship.id, ownerId);
+      decide();
+    } finally { await f.close(); }
+  }
+});
