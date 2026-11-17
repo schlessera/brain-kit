@@ -175,7 +175,9 @@ write one, and which kind of test proves which claim:
   ([hybrid ruling](docs/decisions/ci-utility.md#hybrid-post-merge-heavy-proof)).
   A PR touching none of `ui-react`, `ui-kit`, `ui-server` or `core` under `packages/` may take
   the [fast lane](docs/decisions/ci-utility.md#fast-lane-outside-the-core-packages)
-  instead of ready confirmation.
+  instead of ready confirmation. A PR touching any of them needs a
+  [recorded independent review](docs/decisions/ci-utility.md#recorded-independent-review-of-core-package-prs)
+  before `integrate.ts confirm` will proceed.
   Subsequent pushes need a new confirmation request; every selected job must pass, and
   missing, cancelled or unexpectedly skipped jobs are not green. Policy:
   [the CI decision](docs/decisions/ci-utility.md) and

@@ -6,6 +6,7 @@ import { closureSelects, discoverBrowserClosures, type BrowserClosures } from ".
 import { addUnitImportConsumers, type UnitImportGraph } from "./unit-test-consumers";
 import { coordinationFiles, RESERVATION_REF } from "./integration-reservation";
 import { includeRedSet, isPostMerge, type Category, type IncludedRedSet, type RedMainRecord } from "./red-main";
+import { unitPartitions } from "./proof-shards";
 
 export interface Workspace {
   dir: string;
@@ -389,11 +390,10 @@ export function selectBrowserClosures(plan: CheckPlan, closures: BrowserClosures
   return { ...plan, local };
 }
 
-/** Narrow inventories use fewer nonempty partitions; ordinary proof keeps four. */
+/** Narrow inventories use fewer nonempty partitions. The cap follows the plan's
+ * cadence: `UNIT_PARTITIONS` (`scripts/proof-shards.ts`) is its one owner (#4108). */
 export function unitShards(plan: CheckPlan): number[] {
-  const count = plan.unitTests?.length ?? 4;
-  if (!count) throw new Error("Empty selected unit inventory");
-  return Array.from({length: Math.min(4, count)}, (_, i) => i + 1);
+  return unitPartitions(plan.cadence, plan.unitTests?.length);
 }
 
 export type ProofCadence = "draft" | "feedback" | "feedback-heavy" | "confirmation" | "integrated" | "exhaustive";
