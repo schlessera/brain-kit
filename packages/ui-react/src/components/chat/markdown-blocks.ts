@@ -21,7 +21,10 @@
  * - never in a text holding a fence that is indented or inside a blockquote
  *   or list item. Only top-level fences are tracked, and a container fence
  *   can be closed or reopened at column 0 in ways only a full parse knows
- *   (a column-0 closer ends the list item and opens a new top-level fence).
+ *   (a column-0 closer ends the list item and opens a new top-level fence);
+ * - never in a text where a fence marker stands in a run of lines that began
+ *   with an HTML tag (`<details>`, `<div>`): such a line may belong to an
+ *   HTML block, which no fence opens or closes, until a blank line.
  */
 
 /**
@@ -38,6 +41,8 @@ const LONG_HTML = /^(?:[ \t]|>|[-*+][ \t]|\d{1,9}[.)][ \t])*<(?:script|pre|style
 const NESTED_FENCE = /^(?:[ \t]|>|[-*+][ \t]|\d{1,9}[.)][ \t])+(?:`{3,}|~{3,})/m;
 /** A top-level fence opener or closer: three or more backticks or tildes at column 0. */
 const FENCE = /^(`{3,}|~{3,})/;
+/** A line that may start an HTML block (types 6 and 7): a tag, open or closing, up to three spaces in. */
+const HTML_START = /^ {0,3}<\/?[A-Za-z]/;
 /** A blank line as CommonMark counts one: spaces and tabs only (not NBSP or other Unicode space). */
 const BLANK = /^[ \t]*$/;
 /** A line that would continue the block above a blank line instead of starting a new one. */
@@ -52,6 +57,8 @@ export function splitMarkdownBlocks(text: string): string[] {
   let fence: { char: string; length: number } | null = null;
   let blank = false;
   let content = false;
+  // In a run of lines that began with an HTML tag, until the next blank line.
+  let html = false;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
     const marker = FENCE.exec(line);
@@ -61,7 +68,10 @@ export function splitMarkdownBlocks(text: string): string[] {
       blank = false;
       continue;
     }
-    if (BLANK.test(line)) { blank = true; continue; }
+    if (BLANK.test(line)) { blank = true; html = false; continue; }
+    // A fence marker that may sit inside an HTML block: only a full parse knows.
+    if (marker && html) return [text];
+    if ((blank || !content) && HTML_START.test(line)) html = true;
     if (blank && content && !CONTINUES.test(line)) {
       // The blank lines between two blocks belong to neither: the block
       // before ends at its last non-blank line.

@@ -71,6 +71,8 @@ const CORPUS: Record<string, { text: string; splits: boolean; props?: { fileLink
   "a list-item fence closed at column 0": { text: "1. Install:\n\n   ```bash\n   npm i\n```\n\n2. Run it\n\nDone.", splits: false },
   "a fence indented at the top level": { text: "Before.\n\n  ```\ncode at column 0\n\nstill code\n  ```\n\nAfter.", splits: false },
   "a pre or comment block inside a list item": { text: "- <pre>\n\n  x\n\ny\n\n- <!--\n\n  z\n\nw", splits: false },
+  "a fence marker inside an HTML block": { text: "<details>\n```js\na\n\nb\n```\n</details>\n\nAfter.", splits: false },
+  "an HTML block before a separate fence": { text: "<div>\nraw\n</div>\n\n```js\nconst a = 1;\n\nconst b = 2;\n```\n\nAfter.", splits: true },
   "links, inline code and emphasis": { text: "Read **the [log](https://ithaca.example/log)** and `notes/raft.md`.\n\n_Then_ sail.", splits: true },
 };
 
