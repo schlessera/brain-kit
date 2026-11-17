@@ -57,9 +57,10 @@ proof of a successful candidate.
 
 The [evidence archive and delivery decision](../decisions/ci-evidence.md)
 records the permanent measurement ref, monthly schema rules, retention split,
-publication permissions and daily/weekly delivery cadence. That ruling is
-separate from the hourly artifact collection described here; this guide does
-not imply that durable compaction or scheduled report delivery is enabled.
+publication permissions and daily/weekly delivery cadence. Hourly collection,
+described here, uploads 90-day artifacts; the [durable archive](#durable-archive)
+compacts them into the permanent data ref daily. Scheduled report delivery is
+not part of either.
 
 `.github/workflows/ci-timings.yml` collects an overlapping two-day creation
 window hourly, with job/step timings, PR lifecycle, reservation history and
@@ -161,6 +162,84 @@ enrich one lease, preserving its immutable Git sources without duplicating
 occupancy. Mixed repositories and conflicting identities are refused.
 Measurement files are ignored local artifacts under `tmp/`; do not commit raw
 GitHub payloads or full logs.
+
+## Durable archive
+
+`.github/workflows/ci-evidence-archive.yml` runs daily at 02:17 UTC and on
+manual dispatch. It lists every retained `ci-timings` artifact uploaded by a
+scheduled or dispatched collector run on the default branch, skips those the
+archive already holds, and walks the rest oldest first:
+
+```sh
+bun scripts/ci-timings.ts archive --repo odysseus/chronicle --branch main \
+  --request-budget 120 --reserve 500
+```
+
+Normally that is the previous day's artifacts. After an outage, or until the
+initial backfill finishes, it also takes every earlier retained artifact not
+yet archived. The dispatch's `backfill` input raises the request budget to 450;
+dispatch it again until the job summary reports `pending: 0`. The command
+shares the collector's [API budget and reserve](#api-cost-and-expected-coverage-gaps):
+one listing call per 100 collector runs and per 100 artifacts, plus one
+download per artifact. A budget stop keeps
+what it committed and leaves the rest pending, with exit status 0.
+
+The data ref is `refs/heads/brain-ci-metrics`. Each record kind lives in
+`YYYY-MM/<kind>.json`, partitioned by UTC month, one record per line in
+timestamp and identity order. Monthly files hold `run`, `pull`, `coordinator`,
+`event`, `collection`, `enrichment`, `reservations`, `red-main` and `source`
+records, keyed by the [inventory's](ci-evidence.md#record-kinds-schemas-and-retention)
+identities and partitioned by the run, PR, coordinator or artifact creation
+time, the event time, or the collection time. `summary.json`, Markdown and
+analysis inputs are derived and are not archived. Coordination events the
+[publisher](#publish-local-coordination-events) appended under `events/` stay
+there and are also compacted into the month's `event.json`.
+
+Compaction applies the report's own joins. Overlapping run snapshots keep the
+richer receipts and exact squash attribution; at equal collection times the
+PR-attributed copy wins. The newest PR observation wins. Events, sources and
+other immutable identities must agree; a contradiction refuses the newcomer.
+Hourly collection manifests and reservation histories repeat a two-day window,
+so each identical expected attempt or lease observation is stored only in the
+month's earliest record carrying it. The report's joins are idempotent over
+identical entries, so nothing they read is lost. Every record keeps its own
+schema version; nothing is migrated.
+
+Every record passes the schema check and the tree's leakage screen before it
+is merged. A refused record is excluded, named with its kind, artifact path and
+reason in the JSON output and job summary, and makes the command exit 1 after
+publishing the rest. Each artifact gets a `source` record with its ID,
+collector run, creation time, SHA-256 digest and record/refusal counts.
+#2956 uses those to report missing collection hours and expired sources. An
+unreadable artifact is refused as a source and retried next time.
+
+Each commit is parented by the inspected remote head and pushed with exact
+`--force-with-lease`, using an isolated index; the caller's checkout and index
+never move. A competing writer causes a fresh read and merge, skipping the
+artifacts it already archived, for up to five attempts. Sources commit in
+batches of 50, so a timeout keeps earlier batches. A run that finds nothing new
+downloads nothing and commits nothing. A monthly file over 95 MiB stops the
+publication before the push, since GitHub refuses larger blobs.
+
+Explicit normalized directories, such as a budgeted `collect --since ... --until
+...` backfill, compact the same way, from a trusted checkout with push access:
+
+```sh
+bun scripts/ci-timings.ts archive --repo odysseus/chronicle --dir tmp/ci-timing-backfill
+```
+
+Report from the data ref instead of artifacts. `--from-archive` names the git
+remote holding it. With `--since` and `--until`, only the months from one
+before the interval to one after it are read:
+
+```sh
+bun scripts/ci-timings.ts report --repo odysseus/chronicle --from-archive origin \
+  --since 2026-07-05T00:00:00Z --until 2026-07-12T00:00:00Z --out tmp/ci-report
+```
+
+Readers refuse an unknown kind, an unknown schema version, another repository's
+record and a record outside its month partition. The archive is measurement
+only and never an input to proof, selection or merging.
 
 ## Refresh reviewed unit weights
 

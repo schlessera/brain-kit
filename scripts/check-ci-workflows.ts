@@ -144,7 +144,8 @@ export function checkCIWorkflows(root: string): string[] {
   if (files.includes("publish-pages.yml")) expected.push("publish-pages.yml");
   if (files.includes("ci-timings.yml")) expected.push("ci-timings.yml");
   if (files.includes("heavy-feedback.yml")) expected.push("heavy-feedback.yml");
-  if (JSON.stringify(files) !== JSON.stringify(expected.sort())) problems.push("GitHub must contain only authoritative CI, contract, project-sync, red-main coordination and optional Pages/timing/heavy-feedback workflows");
+  if (files.includes("ci-evidence-archive.yml")) expected.push("ci-evidence-archive.yml");
+  if (JSON.stringify(files) !== JSON.stringify(expected.sort())) problems.push("GitHub must contain only authoritative CI, contract, project-sync, red-main coordination and optional Pages/timing/archive/heavy-feedback workflows");
   // Every workflow, authoritative or not, runs only reviewed action commits (#4111).
   for (const file of files.filter(file => /\.ya?ml$/.test(file))) problems.push(...actionPinProblems(readFileSync(join(directory, file), "utf8"), file));
   const depot = join(root, ".depot/workflows");
@@ -160,7 +161,38 @@ export function checkCIWorkflows(root: string): string[] {
   if (existsSync(feedback) && existsSync(join(directory, "ci.yml"))) problems.push(...heavyFeedbackWorkflowProblems(readFileSync(feedback, "utf8"), readFileSync(join(directory, "ci.yml"), "utf8")));
   const timings = join(directory, "ci-timings.yml");
   if (existsSync(timings)) problems.push(...timingWorkflowProblems(readFileSync(timings, "utf8")));
+  const archive = join(directory, "ci-evidence-archive.yml");
+  if (existsSync(archive)) problems.push(...archiveWorkflowProblems(readFileSync(archive, "utf8")));
   return problems;
+}
+
+/**
+ * The evidence archive (#2955) is the one measurement job with write
+ * authority: `contents: write` on that job alone, for the data ref, as
+ * docs/decisions/ci-evidence.md rules. It runs trusted default-branch code.
+ */
+export function archiveWorkflowProblems(text: string): string[] {
+  const errors: string[] = [], fail = (message: string) => errors.push(`ci-evidence-archive.yml: ${message}`);
+  let workflow: Workflow;
+  try { workflow = Bun.YAML.parse(text) as Workflow; }
+  catch { return ["ci-evidence-archive.yml: invalid YAML"]; }
+  if (!workflow || typeof workflow !== "object") return ["ci-evidence-archive.yml: workflow must be a mapping"];
+  if (JSON.stringify(Object.keys(workflow.on ?? {}).sort()) !== JSON.stringify(["schedule", "workflow_dispatch"]) ||
+      /\bsecrets\.|\bpull_request(?:_target)?\b|\bworkflow_run\b/.test(text)) fail("archive must use scheduled/manual trusted execution only");
+  const schedule = workflow.on?.schedule as { cron?: string }[] | undefined;
+  if (!Array.isArray(schedule) || schedule.length !== 1 || !/^\d{1,2} \d{1,2} \* \* \*$/.test(schedule[0]?.cron ?? "")) fail("archive compaction must run once a day");
+  if (JSON.stringify(workflow.permissions) !== "{}") fail("workflow token must grant nothing; write authority belongs to the archive job alone");
+  if (JSON.stringify(Object.keys(workflow.jobs ?? {})) !== JSON.stringify(["archive"])) fail("archive workflow must contain only the archive job");
+  const job = workflow.jobs?.archive;
+  if (JSON.stringify(job?.permissions) !== JSON.stringify({ contents: "write", actions: "read" })) fail("archive job may only write contents (the data ref) and read actions");
+  if (job?.needs !== undefined || job?.["runs-on"] !== "ubuntu-24.04") fail("archive job must be independent on its declared hosted runner");
+  const steps = job?.steps ?? [], checkouts = steps.filter(s => s.uses?.startsWith("actions/checkout@"));
+  if (checkouts.length !== 1 || checkouts[0]?.with?.ref !== "${{ github.event.repository.default_branch }}" || checkouts[0]?.with?.repository !== undefined) fail("archive must check out trusted default-branch code");
+  const archive = steps.find(s => s.run?.includes("bun scripts/ci-timings.ts archive"));
+  if (!archive?.run?.includes('bun scripts/ci-timings.ts archive --repo "$ARCHIVE_REPO" --branch "$ARCHIVE_DEFAULT_BRANCH" --request-budget "$ARCHIVE_BUDGET" --reserve 500') ||
+    archive.env?.ARCHIVE_DEFAULT_BRANCH !== "${{ github.event.repository.default_branch }}") fail("archive requires the default branch's artifacts, a hard budget and the shared quota reserve");
+  for (const step of steps) if ((step.run ?? "").includes("${{") || /bun install/.test(step.run ?? "")) fail("archive scripts must not interpolate events or install dependencies");
+  return errors;
 }
 
 /** Draft heavy feedback (#3272): ci.yml's own category jobs, per-PR cancellation, never `proof`. */
