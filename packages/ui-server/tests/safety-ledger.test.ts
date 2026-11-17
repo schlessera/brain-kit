@@ -66,9 +66,11 @@ test("real upgrade classifies old sessions both with and without first-taint row
  for(const {name} of triggers)f.db.exec(`DROP TRIGGER ${name}`);
  const tables=f.db.query("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'safety_%'").all() as {name:string}[];
  for(const {name} of tables)f.db.exec(`DROP TABLE ${name}`);
- // 085 extends the safety tables 081 recreates, so it replays with them.
- f.db.query("DELETE FROM _migrations WHERE filename IN ('081_session_safety.sql','085_safety_recording_containment.sql')").run();
- f.db.exec("INSERT INTO sessions(id,created_at,last_active_at) VALUES('legacy-clean',0,0),('legacy-tainted',0,0); INSERT INTO dialogue_owners VALUES('legacy-provisional','odysseus',NULL,1,'complete',0)");
+ // 085 and 089 extend the safety tables 081 recreates, so they replay with
+ // them; 089's column on dialogue_owners goes too.
+ f.db.exec("ALTER TABLE dialogue_owners DROP COLUMN principal_account");
+ f.db.query("DELETE FROM _migrations WHERE filename IN ('081_session_safety.sql','085_safety_recording_containment.sql','089_safety_durable_account.sql')").run();
+ f.db.exec("INSERT INTO sessions(id,created_at,last_active_at) VALUES('legacy-clean',0,0),('legacy-tainted',0,0); INSERT INTO dialogue_owners(id,principal_id,session_id,generation,coverage,created_at) VALUES('legacy-provisional','odysseus',NULL,1,'complete',0)");
  f.db.query("INSERT INTO governance_events(session_id,turn_id,at,kind,schema_version,actor,payload) VALUES('legacy-tainted','old-turn',0,'taint',1,'interactive',?)")
  .run(JSON.stringify({source:"web_fetch",tool:"WebFetch",detail:null}));
  f.db.close();const restored=createUiDb(f.path),replayWriter=openSqliteWriter(restored),replayWrites=createGovernanceWrites(restored,replayWriter);
@@ -141,7 +143,7 @@ test("provisional retirement refuses null-session late callbacks even after priv
  const {createPrincipal}=await import("../src/db/principals"),{retireChat}=await import("../src/ws/chat-lifecycle");
  const {cleanChatStore}=await import("../src/ws/chat-store-cleanup");
  const principal=createPrincipal(f.db,{authMethod:"password",label:"Odysseus",ttlSeconds:60});
- f.db.query("INSERT INTO dialogue_owners VALUES('provisional',?,NULL,1,'complete',0)").run(principal.id);
+ f.db.query("INSERT INTO dialogue_owners(id,principal_id,session_id,generation,coverage,created_at) VALUES('provisional',?,NULL,1,'complete',0)").run(principal.id);
  await f.writes.safetyBegin({turnId:"provisional-turn",bindingId:crypto.randomUUID(),historyOwnerId:"provisional",principalId:principal.id,sessionId:null,backendId:"claude",at:0});
  await f.writes.firstTaint({kind:"taint",turnId:"provisional-turn",sessionId:null,actor:"interactive",model:null,profile:null,payload:{source:"web_fetch",tool:"WebFetch",detail:null}});
  const retired=retireChat(f.db,{operationId:"retire-provisional",principalId:principal.id,target:{ownerId:"provisional"},expected:{backendId:null,generation:1},removableBackends:[],at:Date.now()});
@@ -344,7 +346,7 @@ test("an unsupported recorder stops and persists a gap when input detection exce
 
 test("an imported provisional alias binds its actual owner and generation without inventing complete past coverage",async()=>{
  const f=fixture();try{
- f.db.exec("INSERT INTO dialogue_owners VALUES('canonical-owner','odysseus',NULL,9,'complete',0); INSERT INTO dialogue_aliases VALUES('native-alias','canonical-owner')");
+ f.db.exec("INSERT INTO dialogue_owners(id,principal_id,session_id,generation,coverage,created_at) VALUES('canonical-owner','odysseus',NULL,9,'complete',0); INSERT INTO dialogue_aliases VALUES('native-alias','canonical-owner')");
  const bindingId=crypto.randomUUID();await f.writes.safetyBegin({turnId:"adopt-import",bindingId,historyOwnerId:"native-alias",principalId:"odysseus",sessionId:null,backendId:"claude",at:1});
  f.db.exec("INSERT INTO sessions(id,created_at,last_active_at,backend_id) VALUES('adopted',0,0,'claude'); INSERT INTO chat_session_owners VALUES('adopted','odysseus',0); UPDATE dialogue_owners SET session_id='adopted' WHERE id='canonical-owner'");
  safetyCatalogCreated(f.db,"adopted","odysseus","adopt-import");await f.writes.bind("adopt-import","adopted");await f.writes.safetyReady("adopt-import","claude",1);
@@ -451,7 +453,7 @@ for(const mode of ["provisional-nine","typed-resume"] as const)test(`real emissi
  try{
  let expectedOwner:string=bindingId;
  if(mode==="provisional-nine"){
- f.db.exec("INSERT INTO dialogue_owners VALUES('canonical-nine','odysseus',NULL,9,'complete',0)");
+ f.db.exec("INSERT INTO dialogue_owners(id,principal_id,session_id,generation,coverage,created_at) VALUES('canonical-nine','odysseus',NULL,9,'complete',0)");
  await host.dialogue.open({conversationId:"voice-source",principalId:"odysseus",epoch:1,providerId:"odyssey",historyOwnerId:"canonical-nine"});
  host.dialogue.adoptTurn(turnId,"canonical-nine","odysseus");expectedOwner="canonical-nine";
  }

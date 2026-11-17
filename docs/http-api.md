@@ -2258,7 +2258,9 @@ The live principal must belong to the retained history's account (#3952). A
 principal id always matches itself. Two different ids match only when both
 resolve to the same account partition in every auth mode, which today means
 two owner logins; a delegated, ambient or system principal matches only
-itself, and a missing or unresolvable principal matches no other id. A cursor
+itself, and a missing or unresolvable principal matches no other id, unless
+the history recorded the owner account beside it when it was written: an owner
+login's history stays the owner's after that login is pruned (#3962). A cursor
 stays with the one login that read it: another login's cursor is refused as
 expired (409). The existing native-history and dialogue APIs keep their
 visibility rules.
