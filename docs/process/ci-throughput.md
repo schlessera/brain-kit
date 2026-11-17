@@ -113,8 +113,9 @@ hourly collector checks out full history for this reason.
 | `epochs.current` | The epoch holding the newest squash before the window end: `days` since its boundary and `firstMainGreen`, the two numeric inputs of the #2934 Phase B gate, plus `incidentAttribution`. |
 | `epochs.current.incidentAttribution` | Failed first-main attempts in the epoch and how many carry a `failure-classified` record. `unknown` when none do, `partial` when some do, `recorded` when all do. No record is unknown, not unattributed; incidents outside first-main runs are not observed. |
 
-The report states these inputs; it does not decide whether the gate is met.
-An `unknown` boundary on the current epoch means its days are counted from a
+This report states these inputs; it does not decide whether the gate is met.
+The [scheduled evidence reports](ci-timings.md#scheduled-evidence-reports)
+evaluate the gate from them every day. An `unknown` boundary on the current epoch means its days are counted from a
 squash that may not have changed policy, so they are not evidence of a stable
 epoch.
 

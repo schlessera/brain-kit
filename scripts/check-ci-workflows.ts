@@ -145,7 +145,8 @@ export function checkCIWorkflows(root: string): string[] {
   if (files.includes("ci-timings.yml")) expected.push("ci-timings.yml");
   if (files.includes("heavy-feedback.yml")) expected.push("heavy-feedback.yml");
   if (files.includes("ci-evidence-archive.yml")) expected.push("ci-evidence-archive.yml");
-  if (JSON.stringify(files) !== JSON.stringify(expected.sort())) problems.push("GitHub must contain only authoritative CI, contract, project-sync, red-main coordination and optional Pages/timing/archive/heavy-feedback workflows");
+  if (files.includes("ci-evidence-report.yml")) expected.push("ci-evidence-report.yml");
+  if (JSON.stringify(files) !== JSON.stringify(expected.sort())) problems.push("GitHub must contain only authoritative CI, contract, project-sync, red-main coordination and optional Pages/timing/archive/report/heavy-feedback workflows");
   // Every workflow, authoritative or not, runs only reviewed action commits (#4111).
   for (const file of files.filter(file => /\.ya?ml$/.test(file))) problems.push(...actionPinProblems(readFileSync(join(directory, file), "utf8"), file));
   const depot = join(root, ".depot/workflows");
@@ -163,6 +164,8 @@ export function checkCIWorkflows(root: string): string[] {
   if (existsSync(timings)) problems.push(...timingWorkflowProblems(readFileSync(timings, "utf8")));
   const archive = join(directory, "ci-evidence-archive.yml");
   if (existsSync(archive)) problems.push(...archiveWorkflowProblems(readFileSync(archive, "utf8")));
+  const report = join(directory, "ci-evidence-report.yml");
+  if (existsSync(report)) problems.push(...reportWorkflowProblems(readFileSync(report, "utf8")));
   return problems;
 }
 
@@ -192,6 +195,37 @@ export function archiveWorkflowProblems(text: string): string[] {
   if (!archive?.run?.includes('bun scripts/ci-timings.ts archive --repo "$ARCHIVE_REPO" --branch "$ARCHIVE_DEFAULT_BRANCH" --request-budget "$ARCHIVE_BUDGET" --reserve 500') ||
     archive.env?.ARCHIVE_DEFAULT_BRANCH !== "${{ github.event.repository.default_branch }}") fail("archive requires the default branch's artifacts, a hard budget and the shared quota reserve");
   for (const step of steps) if ((step.run ?? "").includes("${{") || /bun install/.test(step.run ?? "")) fail("archive scripts must not interpolate events or install dependencies");
+  return errors;
+}
+
+/**
+ * The scheduled evidence reports (#2956) read the data ref and main's history
+ * and write only their own artifacts: no write authority at all, trusted
+ * default-branch code, and an always-uploaded 90-day artifact
+ * (docs/decisions/ci-evidence.md). Posting them is a separate job's grant.
+ */
+export function reportWorkflowProblems(text: string): string[] {
+  const errors: string[] = [], fail = (message: string) => errors.push(`ci-evidence-report.yml: ${message}`);
+  let workflow: Workflow;
+  try { workflow = Bun.YAML.parse(text) as Workflow; }
+  catch { return ["ci-evidence-report.yml: invalid YAML"]; }
+  if (!workflow || typeof workflow !== "object") return ["ci-evidence-report.yml: workflow must be a mapping"];
+  if (JSON.stringify(Object.keys(workflow.on ?? {}).sort()) !== JSON.stringify(["schedule", "workflow_dispatch"]) ||
+      /\bsecrets\.|\bpull_request(?:_target)?\b|\bworkflow_run\b/.test(text)) fail("reports must use scheduled/manual trusted execution only");
+  const schedule = workflow.on?.schedule as { cron?: string }[] | undefined;
+  if (!Array.isArray(schedule) || schedule.length !== 1 || !/^\d{1,2} \d{1,2} \* \* \*$/.test(schedule[0]?.cron ?? "")) fail("reports must run once a day");
+  if (JSON.stringify(workflow.permissions) !== "{}") fail("workflow token must grant nothing");
+  if (JSON.stringify(Object.keys(workflow.jobs ?? {})) !== JSON.stringify(["report"])) fail("report workflow must contain only the report job");
+  const job = workflow.jobs?.report;
+  if (JSON.stringify(job?.permissions) !== JSON.stringify({ contents: "read" })) fail("the report job may only read contents");
+  const steps = job?.steps ?? [], checkouts = steps.filter(s => s.uses?.startsWith("actions/checkout@"));
+  if (checkouts.length !== 1 || checkouts[0]?.with?.ref !== "${{ github.event.repository.default_branch }}" || checkouts[0]?.with?.repository !== undefined ||
+    checkouts[0]?.with?.["fetch-depth"] !== 0 || checkouts[0]?.with?.["persist-credentials"] !== false) fail("reports must check out trusted default-branch code with full history");
+  if (!steps.some(s => s.run?.includes("bun scripts/ci-evidence-report.ts --cadence daily")) || !steps.some(s => s.run?.includes("bun scripts/ci-evidence-report.ts --cadence weekly")))
+    fail("reports must generate the daily digest and the weekly report");
+  if (!steps.some(s => s.uses === pinned("actions/upload-artifact@v7") && s.if === "always()" && s.with?.["retention-days"] === 90 && s.with?.path === "tmp/ci-evidence/"))
+    fail("the report artifacts must always be uploaded for 90 days");
+  for (const step of steps) if ((step.run ?? "").includes("${{") || /bun install/.test(step.run ?? "")) fail("report scripts must not interpolate events or install dependencies");
   return errors;
 }
 
