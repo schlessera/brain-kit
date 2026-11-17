@@ -34,13 +34,13 @@ test("Pi stable system stays byte-identical on resume and repository changes", (
 test("Pi ordinary messages retain every previous request and scripted answer", () => {
   for (const name of ["control", "repository", "facts", "budget", "datatree"]) for (const [a, b] of pairs(captures[name]!)) history(a, b);
 });
-// The outward note names the host GitHub tools in the fixed system on every
-// request (#3799); the identity guards above hold its bytes across turns.
+// The fixed system brief names the host GitHub tools on every request
+// (#3799); the identity guards above hold its bytes across turns.
 test("Pi fixed system names the host GitHub tools on every request", () => {
   for (const name of ["control", "repository", "promotion", "datatree"]) for (const exchange of main(captures[name]!)) {
     const text = JSON.stringify(system(exchange));
     expect(text, `GITHUB_TOOLS_NOTE_IN_SYSTEM ${name}`).toContain("`brain_github_issue_read`");
-    expect(text, `GITHUB_TOOLS_NOTE_IN_SYSTEM ${name}`).toContain("Do not fall back to gh, curl or WebFetch for GitHub.");
+    expect(text, `GITHUB_TOOLS_NOTE_IN_SYSTEM ${name}`).toContain("GitHub goes through the host tools.");
   }
 });
 test("Pi requests contain no internal budget notes at the backend boundary", () => {

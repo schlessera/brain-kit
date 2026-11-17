@@ -1618,10 +1618,11 @@ is never remembered.
   client that connects. Only the turn's own timeout bounds that wait.
 
 Voice turns have no grant surface and are refused without a card. Both
-backends' fixed outward note tells the model to use the GitHub tools and not
-`gh`, `curl` or WebFetch. When the tools are absent, or answer `unavailable`
-or `policy_denied`, the model is to tell the user what they said and stop. No
-wire shape changes.
+backends' fixed system brief, the append each interactive session retains
+once, tells the model to use the GitHub tools and not `gh`, `curl` or
+WebFetch. When the tools answer `unavailable` or `policy_denied`, the model is
+to tell the user what they said and stop. A session retained before #3799
+keeps its earlier append. No wire shape changes.
 
 ## Host-owned web tools (additive, 0.45.0, #3685)
 

@@ -344,7 +344,7 @@ function prepareSandboxNote(
   const turnTempLimits = resolveTurnTempLimits(backend.turnTemp ?? {});
   const sandboxNote = [workerSandboxNote(sandbox, { ...(options.identity ? { identity: options.identity } : {}), ...(options.hostInference ? { egress: true } : {}), providerKeys, hardTimeoutMs: req.turnBudgetMs, limits: [...workerNoteLimits(limits.status), workerStateLimit(stateLimits),
     turnTempLimit(turnTempLimits.allowanceBytes, turnTempTool ? TURN_TEMP_TOOL_NAME : undefined),
-    outputStagingLimit()] }), workerCommandPolicyNote(req.autonomous ? undefined : sandbox.commandPolicy, confirmPatterns), req.autonomous ? "" : workerOutwardNote(Boolean(options.hostInference), sandbox.commandPolicy?.taint?.(), "claude")].filter(Boolean).join("\n\n");
+    outputStagingLimit()] }), workerCommandPolicyNote(req.autonomous ? undefined : sandbox.commandPolicy, confirmPatterns), req.autonomous ? "" : workerOutwardNote(Boolean(options.hostInference), sandbox.commandPolicy?.taint?.())].filter(Boolean).join("\n\n");
   return { sandbox, limits, stateLimits, turnTempLimits, sandboxNote };
 }
 
@@ -379,6 +379,7 @@ export function assemblePromptContext(
       turnTemp: turnTempTool,
       reference: Boolean(req.bridge.referenceAccess),
       compute: Boolean(req.bridge.compute),
+      github: Boolean(req.bridge.github),
     },
     req.turnBudgetMs
   );
@@ -387,7 +388,7 @@ export function assemblePromptContext(
   const context = req.autonomous ? undefined : claudePromptContext(backend.brainPath, contextId);
   const append = context ? context.retainAppend([buildAppend(backend, undefined, {
     policyChange: true, askUser: true, askUserList: true, askUserRank: true, askUserForm: true,
-    location: true, mask: true, markup: true, activity: true, inbox: true, block: true, turnTemp: true, reference: true, compute: true,
+    location: true, mask: true, markup: true, activity: true, inbox: true, block: true, turnTemp: true, reference: true, compute: true, github: true,
   }, undefined), req.sessionBudgetLimits].filter(Boolean).join("\n\n"), req.sessionBudgetLimits ? { limits: req.sessionBudgetLimits } : {}) : candidate;
   const available = (name: string) => toolAvailabilityRefusal({ ...req, workerSandbox: sandbox }, name) === undefined;
   const owned = context?.prepare(req.prompt, {
@@ -685,6 +686,7 @@ function buildAppend(
     turnTemp: boolean;
     reference: boolean;
     compute: boolean;
+    github: boolean;
   },
   turnBudgetMs: number | undefined
 ): string {
@@ -695,6 +697,9 @@ function buildAppend(
     buildSystemPromptAppend({
       ...(client ? { client } : {}),
       ...(turnBudgetMs ? { turnBudgetMs } : {}),
+      // The host GitHub tools (#3797), in every interactive roster.
+      ...(tools.github ? { githubTools: { read: visibleToolName(GITHUB_TOOL_NAMES.read, "claude"), search: visibleToolName(GITHUB_TOOL_NAMES.search, "claude"),
+        create: visibleToolName(GITHUB_TOOL_NAMES.create, "claude"), comment: visibleToolName(GITHUB_TOOL_NAMES.comment, "claude") } } : {}),
       tools: {
         policyChange: tools.policyChange ? "mcp__brain-ui__propose_policy_change" : undefined,
         askUser: tools.askUser && ASK_USER_TOOL_NAME,

@@ -4209,13 +4209,15 @@ and a documented "no GitHub here" were both rejected. The rest of the ruling:
   No separate notification exists for a held card. A visible, classified
   read, such as `gh issue view` or a plain `curl` GET, still connects without
   a card under the exception above, but it reaches GitHub unauthenticated.
-- **The model is told.** Both backends' outward note names the four tools
-  under the backend's visible names. It says that `gh`, `curl` and WebFetch
-  cannot act as the user on GitHub. When the tools are absent, or answer
+- **The model is told.** Both backends' fixed system brief names the four
+  tools under the backend's visible names. It says that `gh`, `curl` and
+  WebFetch cannot act as the user on GitHub. When the tools answer
   `unavailable` or `policy_denied`, the model is to report what they said and
-  stop rather than fall back (`githubToolsRule`,
-  `packages/ui-sdk/src/server/outward-policy.ts:130-136`). The note is part of
-  each session's fixed system prompt and does not change between turns.
+  stop rather than fall back (`githubToolsLine`,
+  `packages/ui-sdk/src/server/system-prompt.ts:297-307`). The line lives in the
+  append each session retains once (the tools are in every interactive
+  roster), not in the per-turn sandbox note, so it never moves between turns.
+  A session retained before #3799 keeps its earlier append byte for byte.
 
 ### Untrusted input (G6)
 

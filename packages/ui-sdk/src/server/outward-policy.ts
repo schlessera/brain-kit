@@ -7,8 +7,6 @@ import { safetySnapshotRefusal, STALE_SAFETY_ADMISSION, type AdmissionSafety, ty
 import { bashCommand, type CompiledConfirmPattern } from "./confirm-patterns.js";
 import { runMaintenanceWorkerSync, type MaintenanceHost } from "./maintenance-worker.js";
 import { classifyOutwardCall, outwardTarget, type OutwardClassification, type VisibleOutwardAction } from "./outward-actions.js";
-import { visibleToolName, type ToolAdapter } from "../tool-contracts/contract.js";
-import { GITHUB_TOOL_NAMES } from "../tool-contracts/github.js";
 
 export interface WorkerOutwardRule { readonly command: string; readonly remotes: readonly string[]; readonly index: number }
 /** The first untrusted input the host recorded for the session (G6). */
@@ -115,24 +113,9 @@ export function observeOutwardPlan(plan: OutwardPlan, options: { bridge?: Pick<B
 }
 export const OUTWARD_VOICE_REFUSAL = "Voice cannot approve an outward action. Nothing ran; use an interactive turn to review it.";
 /** Actual syntax coverage; no opaque-script or third-party descriptor promise. */
-/**
- * `taint` is undefined when the host keeps no session taint record, so no
- * taint rule applies. `adapter` names the host GitHub tools as that backend's
- * model sees them. Every input is fixed for a session, so the note is too.
- */
-export function workerOutwardNote(egressActive = false, taint?: WorkerSessionTaint | null, adapter: ToolAdapter = "pi"): string {
-  return [...workerOutwardRules(egressActive), githubToolsRule(adapter), ...taint === undefined ? [] : ["", ...untrustedInputNote(egressActive, taint)]].join("\n");
-}
-/**
- * GitHub goes through the host tools (#3791): the worker never holds a GitHub
- * credential, and a raw API connection waits on the Network card (#3799).
- */
-function githubToolsRule(adapter: ToolAdapter): string {
-  const name = (tool: string) => `\`${visibleToolName(tool, adapter)}\``;
-  return `GitHub: this worker holds no GitHub credential, so gh, curl or a script calling api.github.com, and WebFetch of GitHub pages cannot act as the user, and a raw API connection waits on a Network card. `
-    + `Read and search issues and pull requests with ${name(GITHUB_TOOL_NAMES.read)} and ${name(GITHUB_TOOL_NAMES.search)}. `
-    + `File an issue or a comment with ${name(GITHUB_TOOL_NAMES.create)} or ${name(GITHUB_TOOL_NAMES.comment)}: each write needs the user's approval card and a repository that outward.github.repositories lists. `
-    + "If these tools are absent, or answer unavailable or policy_denied, tell the user what they said and stop. Do not fall back to gh, curl or WebFetch for GitHub.";
+/** `taint` is undefined when the host keeps no session taint record, so no taint rule applies. */
+export function workerOutwardNote(egressActive = false, taint?: WorkerSessionTaint | null): string {
+  return [...workerOutwardRules(egressActive), ...taint === undefined ? [] : ["", ...untrustedInputNote(egressActive, taint)]].join("\n");
 }
 function workerOutwardRules(egressActive: boolean): string[] {
   return ["# Outward actions", "Visible git pushes, GitHub writes and curl/wget non-GET or data requests require the existing per-use approval unless the admitted outward.allow rule matches the command and its known destination.",

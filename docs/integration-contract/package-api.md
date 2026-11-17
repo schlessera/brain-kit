@@ -5674,3 +5674,15 @@ before classifying its refusal. `JournalRecoveryStatus` and optional
 object reservations from boot. The journal host adds `recoveryStatus()` returning
 that summary. Fields and recovery semantics are in the
 [HTTP contract](http.md#staging-refusal-and-unresolved-journal-recovery-additive-3826).
+
+## GitHub tools system brief (additive, 0.45.0, #3799)
+
+`@schlessera/brain-ui-sdk/server` adds the `GithubToolsBrief` interface
+(`{ read, search, create, comment }`, the visible tool names), and
+`buildSystemPromptAppend` accepts optional `githubTools: GithubToolsBrief`.
+With it, the brief gains one fixed bullet that sends GitHub through those
+tools; without it, the output is unchanged. Both first-party backends pass it
+for every interactive session, so a new session's retained append contains
+the bullet. A session retained earlier keeps its append byte for byte. The
+same-commit API report records the additive types. See
+[the MCP component](mcp.md#raw-connections-to-githubs-api-0450-3799).
