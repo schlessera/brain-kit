@@ -167,13 +167,39 @@ decides it. A principal id always matches itself. Two different ids match
 only when both resolve to principals whose `accountScope` is the same
 partition in every auth mode, which today means two owner logins. An agent,
 ambient or system principal therefore matches only itself, and a missing or
-unresolvable principal (a pruned row, say) matches no other id. The decision
-trigger (`087_safety_account_partition.sql`) applies the same rule.
+unresolvable principal matches no other id, unless its record stored its
+account (#3962, below). The decision trigger
+(`089_safety_durable_account.sql`, replacing 087's) applies the same rule.
 
 Rows keep the principal that wrote them; nothing is rewritten. What belongs to
 one login stays exact: a turn's own collection, its catalog creation, read
 snapshots and cursors, review handles and their receipts, per-principal
 limits, and the principal a verdict names.
+
+### A chat's safety history outlives its login (#3962)
+
+Ruled by the maintainer on 2026-11-11 (option A). Principal rows do not last:
+cleanup deletes a login 30 days after it expires or is revoked, and the chat
+that login started would then refuse every later login. So the host stores
+the account with the safety history instead of keeping login rows longer.
+`safety_sessions`, `safety_collections` and `dialogue_owners` carry
+`principal_account` beside `principal_id`, written by the server from the
+principal's own row when the record is written (`principalAccount` in
+`account-partition.ts`): `owner` for an owner login, empty for a principal
+that is only itself. A request, a client or a model never supplies it.
+
+`sameAccount` reads a record's stored account only when its principal row is
+gone. A live row decides by itself, and a live row that disagrees with the
+stored account, or a stored value no host writes, makes the record match
+nobody, its own principal included; that refusal stays within the record's
+chat. The stored account is evidence, not a credential: the caller is passed
+as a bare id and proves its account by its own current row, so a pruned,
+expired or revoked login regains nothing. History written before 089 gained an
+account only where a principal row still proved it at upgrade; proof already
+deleted is not reconstructed, and that history stays unknown. Principal
+retention is unchanged, and nothing reaches the provider-facing conversation.
+The same stored account is the ownership evidence a voice conversation's
+dialogue owner carries.
 
 ## Human authority and policy publication
 

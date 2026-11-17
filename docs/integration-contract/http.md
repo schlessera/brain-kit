@@ -345,6 +345,24 @@ snapshots, review handles, receipts and the verdict's `principalId` stay bound
 to the exact principal. Nothing previously accepted is refused, and stored
 rows are not rewritten ([decision](../decisions/session-safety-reviews.md#a-chats-safety-history-belongs-to-its-account-3952)).
 
+<a id="durable-safety-account-additive-3962"></a>
+
+### A chat's safety history outlives the login that started it (additive, #3962)
+
+The same turn, safety read and owner review keep accepting another owner
+login after the login that wrote the history has been pruned. The host stores
+each safety record's account beside its principal when it writes it, from the
+principal's own row, so a pruned owner login's record still names the owner
+account. That stored account is never a credential: the caller is still a
+current, authorized login, and a pruned, expired or revoked principal gains
+nothing. A record written before this change, whose principal is already
+gone, stays unknown and refused. Stored evidence that is corrupt, or that a
+live principal row contradicts, matches no principal at all, its own
+included. Nothing previously accepted is refused except a record whose stored
+evidence is contradictory, which no released host writes, and attribution,
+records, verdicts, gaps and generations are not rewritten
+([decision](../decisions/session-safety-reviews.md#a-chats-safety-history-outlives-its-login-3962)).
+
 <a id="root-server-warning-additive-1638"></a>
 
 ### Root server warning (additive, #1638)
