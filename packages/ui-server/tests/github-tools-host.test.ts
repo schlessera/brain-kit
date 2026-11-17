@@ -2,18 +2,19 @@
  * The host GitHub read tools (#3797) against a loopback stand-in for the
  * GitHub API: the dedicated credential and nothing else, the contract's
  * payloads, direct links that pass the validator or are null, the taint
- * recorded before any text returns, and refusals that send nothing.
+ * recorded before any text returns, and refusals that send nothing,
+ * including data routing (G2, #4029) asked before any request.
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { GITHUB_RESULT_SCHEMAS, type GithubIssue, type GithubIssueSearchPayload, type GithubPullRequest, type GithubToolResult } from "@schlessera/brain-ui-sdk/tool-contracts";
-import { createGithubToolsHost, reviewDecisions, type GithubToolsHostOptions, type GithubToolsTurn } from "../src/github/host.js";
+import { GITHUB_RECIPIENT, createGithubToolsHost, reviewDecisions, type GithubRoutingRefusal, type GithubToolsHostOptions, type GithubToolsTurn } from "../src/github/host.js";
 import { githubToolsTokenSource } from "../src/config/env.js";
 import { COMMIT_SHAS, GENERIC_GITHUB_SENTINEL, GITHUB_TOOLS_SENTINEL, HEAD_SHA, fakeGithub, standInFetch, type FakeGithub, type FakeGithubOptions } from "./fixtures/github-host-fixture.js";
 
 const stops: FakeGithub[] = [];
 afterEach(() => { for (const fake of stops.splice(0)) fake.stop(); });
 
-const turn: GithubToolsTurn = { turnId: "turn-ithaca", principalId: "principal-penelope", sessionId: () => "sess-ithaca" };
+const turn: GithubToolsTurn = { turnId: "turn-ithaca", principalId: "principal-penelope", sessionId: () => "sess-ithaca", routing: async () => null };
 const NOW = Date.parse("2026-07-12T12:00:00Z");
 
 function host(options: FakeGithubOptions = {}, overrides: Partial<GithubToolsHostOptions> = {}) {
@@ -187,6 +188,41 @@ describe("refusals and taint", () => {
     expect(result, "GITHUB_TEXT_WITHHELD_WITHOUT_TAINT").toEqual({ ok: false, tool: "brain_github_issue_read", error: { code: "upstream_error", reason: null, message: "The GitHub read failed." } });
     expect(JSON.stringify(result)).not.toContain("Suitors");
     expect(order[0]).toBe("taint");
+  });
+});
+
+describe("data routing (G2, #4029)", () => {
+  const READS = [{ tool: "brain_github_issue_read", input: { repository: "odysseus/ithaca", number: 7 } },
+    { tool: "brain_github_issue_search", input: { repository: "odysseus/ithaca", query: "the suitors' feast", kind: "any", state: "any", limit: 10 } }] as const;
+  const routed = (answer: () => Promise<GithubRoutingRefusal | null>) => {
+    const asked: string[] = [];
+    return { asked, turn: { ...turn, routing: async (recipient: string) => { asked.push(recipient); return answer(); } } satisfies GithubToolsTurn };
+  };
+
+  for (const [label, reason, answer] of [["shown a folder kept from github", "recipient_restricted", async () => "recipient_restricted" as const],
+    ["exposure unknown", "recipient_unproven", async () => "recipient_unproven" as const],
+    ["routing threw", "recipient_unproven", async (): Promise<null> => { throw new Error("exposure store unreadable"); }]] as const) {
+    test(`a read or search the turn's routing refuses (${label}) sends GitHub nothing`, async () => {
+      const { fake, taints, github } = host();
+      const { asked, turn: refused } = routed(answer);
+      for (const call of READS) {
+        const result = parsed(await github.call(refused, call));
+        expect(result, `GITHUB_ROUTING_REFUSED_${call.tool}`).toMatchObject({ ok: false, error: { code: "policy_denied", reason } });
+        expect(JSON.stringify(result)).not.toContain("Suitors");
+      }
+      expect(asked, "GITHUB_ROUTING_NAMES_GITHUB").toEqual([GITHUB_RECIPIENT, GITHUB_RECIPIENT]);
+      expect(GITHUB_RECIPIENT).toBe("github");
+      expect(fake.seen, "GITHUB_ROUTING_NOTHING_SENT").toEqual([]);
+      expect(taints, "GITHUB_ROUTING_NOTHING_TAINTED").toEqual([]);
+    });
+  }
+
+  test("a turn its routing admits reads as before", async () => {
+    const { fake, github } = host();
+    const { asked, turn: admitted } = routed(async () => null);
+    for (const call of READS) expect((await github.call(admitted, call)).ok, `GITHUB_ROUTING_ADMITTED_${call.tool}`).toBe(true);
+    expect(asked).toEqual([GITHUB_RECIPIENT, GITHUB_RECIPIENT]);
+    expect(fake.seen.length).toBeGreaterThan(1);
   });
 });
 
