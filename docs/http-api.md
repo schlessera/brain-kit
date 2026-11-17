@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery, attachment-read, interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark, chat-deletion, individual safety-review, safety-recording recovery, GitHub detail-page and live-persona routes (whose `/api/settings/voice` also carries the live-service default) mounted by `createApp`: 189 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery, attachment-read, interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark, chat-deletion, individual safety-review, safety-recording recovery, GitHub detail-page, live-persona and markup-upload routes (whose `/api/settings/voice` also carries the live-service default) mounted by `createApp`: 191 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -87,6 +87,8 @@ client code has a gap. Source owners are listed after the table.
 | DELETE | `/api/drafts/:draftId` | S | Delete a draft, leaving a tombstone | Paired composer and independent clients (#979, D52); preserve revisions, receipts, tombstones, limits and the no-execution boundary. |
 | POST | `/api/drafts/:draftId/attachments` | S | Store one draft image | Paired composer and independent clients (#979, D52); preserve revisions, receipts, tombstones, limits and the no-execution boundary. |
 | POST | `/api/drafts/:draftId/bind` | S | Bind a draft to the session its accepted first message started | Paired composer and independent clients (#979, D52); preserve revisions, receipts, tombstones, limits and the no-execution boundary. |
+| GET | `/api/markup/:requestId/source` | S | Read the source an open `markup_request` bound | Markup editor (#3975); only the request's own principal and turn, while it is open and the source keeps its bound hash; the general file route's 10 MiB read bound is unchanged. |
+| POST | `/api/markup/:requestId` | S | Upload one drawn markup layer for an open `markup_request` | Markup editor (#3975); only the request's own principal and turn, inclusive 52,428,800-byte layer cap, streaming body bound; preserve the general frame and mask limits. |
 | POST | `/api/drafts/:draftId/files` | S | Store one composer file as a durable, read-only original | Composer file attachments (#3153); preserve streaming admission, idempotency receipts, draft and pool bounds and the no-execution boundary. |
 | GET | `/api/attachments/:fileId` | S | Read back one referenced composer original after checking its digest | Composer file attachments (#3153); preserve reference-only authorization, digest checking and the download headers. |
 | GET | `/api/files/content` | S | Read content metadata/text or raw bytes | Independent content clients and SDK service-worker policy; raw API media remains network-only. |
@@ -222,7 +224,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 189 declared endpoints are mounted regardless of backend, renderer or
+All 191 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -1250,6 +1252,71 @@ boot, reservations and partial uploads of an earlier process are discarded, a
 record whose directory is gone becomes `missing`, and a directory with no
 record is adopted, charged, with a fresh seven days. Clocks are the server's
 stored wall clock, never file times.
+
+<a id="markup-layer-upload-additive-0450-3975"></a>
+
+## Markup layer upload (additive, 0.45.0, #3975)
+
+### `POST /api/markup/:requestId`
+
+This answers one open [`markup_request`](integration-contract/wire.md#markup-requests-additive-0450-3975).
+A layer may be up to 52,428,800 bytes (50 MiB, the CLI's "50 MB"), so it is
+uploaded here rather than sent in a 12,000,000-byte socket frame. The route
+sits behind the same authentication and origin rules as the draft routes and
+answers `Cache-Control: no-store`. It creates no inbox item, queue job or draft.
+
+**Query.** `turnId` is required and must be the frame's `turnId`.
+
+**Body.** `multipart/form-data` with two parts:
+
+- `layer`: the PNG;
+- `summary`: JSON `{ marks: { pen, arrow, ellipse, text }, notes: string[] }`,
+  the drawing's own mark counts and note texts.
+
+At least one mark is required. The counts are whole numbers. `notes` holds
+exactly `text` single-line notes: at most 200, each at most 80 characters.
+
+**Bounds.** The body is counted as it streams, whatever `Content-Length`
+says, and is cut off past 52,690,944 bytes (`MARKUP_UPLOAD_MAX_BODY_BYTES`,
+the cap plus 256 KiB of framing). The `layer` part's cap is inclusive: exactly
+52,428,800 bytes is accepted and one byte more is refused. A deployment's
+`Bun.serve` `maxRequestBodySize` must leave that room; the reference recipe
+in the ui-server README does.
+
+**Success** is 202 `{ accepted: true, bytes }`. The waiting request then
+applies the layer under the [markup application rules](integration-contract/mcp.md#hosted-markup-layer-application-additive-0450-3975)
+and the tool's result reports what was written.
+
+**Failures** are `{ error, message, limit? }`, except 401, which is the
+guard's own `{ error: "Authentication required", authRequired: true }`. Every
+answer, 401 included, carries `Cache-Control: no-store`:
+
+- 401 without an authenticated principal;
+- 404 `markup_request_not_found`: an unknown id, another principal's request,
+  a missing, empty or different `turnId`, or a request already answered,
+  declined or cancelled;
+- 413 `markup_too_large`, with `limit: 52428800`;
+- 415 `unsupported_media_type`;
+- 400 `markup_invalid`.
+
+A refused upload leaves the request open, so the editor stays up with
+`message`. Once 202 is answered the request is consumed: a refusal by the
+application is the tool's error, and the editor closes.
+
+### `GET /api/markup/:requestId/source`
+
+The source image an open request bound, so the editor draws on exactly the
+image the layer is checked against. The general `/api/files/content` read
+stops at 10 MiB, and a markup source may be up to 134,217,728 bytes. The query
+and ownership rules are the upload's: `turnId` is required and must match.
+
+- **200:** the bytes, with `Content-Type` `image/png`, `image/jpeg` or
+  `image/webp` from their own header, and `Cache-Control: no-store`.
+- **404 `markup_request_not_found`:** the request is not open for this
+  principal and turn.
+- **409 `markup_source_unavailable`:** the file changed since the request
+  bound it, or is no longer a readable ordinary file.
+- **401:** as for the upload.
 
 ## Session recovery (additive, #964)
 

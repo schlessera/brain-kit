@@ -113,9 +113,10 @@ export const DEFAULT_ALLOWED_TOOLS = [
  * - `brain_archive`: the one visibility change, and one whose damage is
  *   invisible later. An archiving `brain_update` is denied as well, because it
  *   raises a per-use confirmation this turn cannot grant.
- * - `request_image_mask`: it needs someone to paint a region. The backend
- *   appends it outside any allowlist when the host offers an editor, so it is
- *   withheld by `noGrantSurface`, not by its absence here.
+ * - `request_image_mask` and `request_image_markup`: each needs someone to
+ *   paint or draw. The backend appends them outside any allowlist when the
+ *   host offers an editor, so they are withheld by `noGrantSurface`, not by
+ *   their absence here.
  *
  * @experimental
  */
@@ -150,7 +151,7 @@ export const VOICE_ALLOWED_TOOLS: readonly string[] = Object.freeze([
   // Read-only egress, kept with the exposure the decision record states.
   "WebSearch",
   "WebFetch",
-  // The bridge tools, minus the mask editor. None of them is a permission
+  // The bridge tools, minus the mask and markup editors. None of them is a permission
   // decision, and each is appended per turn only when the host offers it; they
   // are named here so the posture states its whole membership.
   ASK_USER_TOOL_NAME,

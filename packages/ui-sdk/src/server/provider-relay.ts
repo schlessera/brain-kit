@@ -80,8 +80,12 @@ const PLACEMENT: Readonly<Record<ProviderRelayFamily, (key: string) => Record<st
   typesafe: key => ({ authorization: `Bearer ${key}` }),
 };
 
-/** `files`: a Gemini Files lifecycle request (upload, poll, delete), which the Files API does not charge for. */
-export type ProviderOperation = "embeddings" | "completions" | "image" | "files" | "reranking";
+/**
+ * `files`: a Gemini Files lifecycle request (upload, poll, delete), which the Files API does not charge for.
+ * `extraction_judge`: the host's own Jev question about a tainted session's outgoing call (#4089). No worker
+ * request has it; the host meters that call beside the relayed ones, never through this relay's routes.
+ */
+export type ProviderOperation = "embeddings" | "completions" | "image" | "files" | "reranking" | "extraction_judge";
 /** The fixed routes of each family: the request the first-party CLI provider sends, and nothing else. */
 const ROUTES: Readonly<Record<ProviderRelayFamily, readonly { path: RegExp; operation: ProviderOperation }[]>> = {
   gemini: [

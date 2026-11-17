@@ -34,11 +34,12 @@ async function fixture(voice = false, backendId = "claude") {
   return { bridge, turn, revoke: () => { authorized = false; }, sent: () => sends,
     cleanup() { authorization.release(); host.close(); stream.close(); db.close(); rmSync(root, { recursive: true, force: true }); } };
 }
-test.each(["requestPermission", "askUser", "askUserList", "askUserRank", "askUserForm", "getLocation", "queryActivity", "requestMask"] as const)("parent %s rechecks server authority even when the worker skipped permission hooks", async name => {
+test.each(["requestPermission", "askUser", "askUserList", "askUserRank", "askUserForm", "getLocation", "queryActivity", "requestMask", "requestImageMarkup"] as const)("parent %s rechecks server authority even when the worker skipped permission hooks", async name => {
   const f = await fixture();
   try {
     f.revoke();
-    const args = name === "requestPermission" ? [{ toolUseId: "raft", toolName: "Write", input: {} }] : name === "requestMask" ? ["assets/raft.png"] : ["raft", []];
+    const args = name === "requestPermission" ? [{ toolUseId: "raft", toolName: "Write", input: {} }] : name === "requestMask" ? ["assets/raft.png"]
+      : name === "requestImageMarkup" ? [{ imagePath: "assets/raft.png" }] : ["raft", []];
     await expect((f.bridge[name] as (...args: unknown[]) => Promise<unknown>)(...args)).rejects.toThrow("current principal authority");
     expect(f.sent(), "refused parent effect never sends or prunes").toBe(0);
   } finally { f.cleanup(); }
@@ -46,7 +47,7 @@ test.each(["requestPermission", "askUser", "askUserList", "askUserRank", "askUse
 test("voice parent executors refuse visual cards and masks without widening membership", async () => {
   const f = await fixture(true);
   try {
-    for (const name of ["askUserList", "askUserRank", "askUserForm", "requestMask"] as const)
+    for (const name of ["askUserList", "askUserRank", "askUserForm", "requestMask", "requestImageMarkup"] as const)
       await expect((f.bridge[name] as (...args: unknown[]) => Promise<unknown>)("raft", [])).rejects.toThrow("outside the voice membership");
     expect(await f.bridge.requestPermission({ toolUseId: "raft", toolName: "Write", input: {} })).toEqual({ behavior: "deny", message: "Voice cannot grant tools." });
     expect(f.sent()).toBe(0); expect(f.bridge.pruneScratch).toBeUndefined();
@@ -61,7 +62,7 @@ test("a mask application needs the exact browser submission from this live turn"
 });
 
 // Pi shares these parent handlers, even when a forged worker skips tool hooks.
-test.each(["askUserList", "askUserRank", "askUserForm", "getLocation", "queryActivity", "requestMask"] as const)("pi parent %s independently rechecks current principal authority", async name => {
+test.each(["askUserList", "askUserRank", "askUserForm", "getLocation", "queryActivity", "requestMask", "requestImageMarkup"] as const)("pi parent %s independently rechecks current principal authority", async name => {
   const f = await fixture(false, "pi");
   try {
     f.revoke();

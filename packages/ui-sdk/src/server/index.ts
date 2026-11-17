@@ -163,6 +163,7 @@ export {
   handleReferenceTool,
   handleComputeTool,
   handleRequestImageMask,
+  handleRequestImageMarkup,
   handleShowBlock,
   handleTurnTemp,
   handleWebTool,
@@ -212,3 +213,12 @@ export { brainReadBaseInput, brainReadBaseResult, BRAIN_READ_BASE_DESCRIPTION, B
 export type { BrainReadBaseInput, BrainReadBaseResult, BrainReadBaseWhole, BrainReadBasePage } from "./brain-read-base.js";
 
 export { BRAIN_MASK_MAX_BYTES, type BrainMaskInput } from "./brain-mask.js";
+export {
+  BRAIN_MARKUP_CLOSED,
+  BRAIN_MARKUP_DIR,
+  BRAIN_MARKUP_MAX_BYTES,
+  BRAIN_MARKUP_MAX_NOTES,
+  BRAIN_MARKUP_MAX_PIXELS,
+  BRAIN_MARKUP_NOTE_MAX_CHARS,
+  BRAIN_MARKUP_SOURCE_MAX_BYTES,
+} from "./brain-markup.js";

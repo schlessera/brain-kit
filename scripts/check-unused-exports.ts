@@ -60,6 +60,7 @@ export const ALLOWLIST: AllowlistEntry[] = [
   { file: "packages/ui-react/src/stores/handoff-state.ts", name: "HandoffState", reason: INFERRED("useHandoffStore and createBrainStores") },
   { file: "packages/ui-react/src/stores/inbox-state.ts", name: "InboxState", reason: INFERRED("useInboxStore and createBrainStores") },
   { file: "packages/ui-react/src/stores/mask-state.ts", name: "MaskState", reason: INFERRED("useMaskStore and createBrainStores") },
+  { file: "packages/ui-react/src/stores/markup-state.ts", name: "MarkupState", reason: INFERRED("useMarkupStore and createBrainStores") },
   { file: "packages/ui-react/src/stores/principal-state.ts", name: "PrincipalState", reason: INFERRED("usePrincipalStore and createBrainStores") },
   { file: "packages/ui-react/src/stores/session-list-state.ts", name: "SessionListState", reason: INFERRED("createBrainStores") },
   { file: "packages/ui-react/src/stores/share-state.ts", name: "ShareIntakeState", reason: INFERRED("useShareStore and createBrainStores") },

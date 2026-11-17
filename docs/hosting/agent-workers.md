@@ -1686,7 +1686,10 @@ without a card. With `taint.classifier: heuristics` in the governance policy
 before it runs (#4088): a call that looks like it carries the session's
 notes out is refused, or asks with the reason on the card, even to a host
 the session already reached, and a clean read admits the hosts it names
-without the card while it runs. Refusals, including a declined card, are `egress_denial`
+without the card while it runs. Adding `taint.judge: { mode: jev }` (also
+off by default) puts the heuristics' ambiguous calls to Jev with the host's
+`TYPESAFE_API_KEY` instead of asking (#4089). Each such call is metered in the
+turn budgets, and without the key, an answer, or budget it asks as before. Refusals, including a declined card, are `egress_denial`
 events with reason `taint_allowlist`. Every refusal with a policy cause
 (taint, the deny or allow list, the byte ceiling, an unapproved outward host)
 answers with a status text and a body naming that cause, so `curl -v`, `git`

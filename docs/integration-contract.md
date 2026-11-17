@@ -29,6 +29,18 @@ See [the supported input](supported-inputs.md#governance-policy),
 [the package API](integration-contract/package-api.md#extraction-classifier-setting-additive-0450-4088).
 This ships in a minor; no breaking ruling is required.
 
+## Extraction judge setting and metered operation (additive, 0.45.0, #4089)
+
+The governance policy gains optional `taint.judge`, `{ mode: "off" | "jev", floor }`,
+resolved to `{ mode: "off", floor: 0.9 }`, and `brain policy check --json`
+reports it in `effective.taint`. With `mode: jev` beside
+`classifier: heuristics`, the host's judge calls are recorded in the turn
+budgets as relayed attempts of family `typesafe` with the new operation
+`extraction_judge`. See [the supported input](supported-inputs.md#governance-policy),
+[the CLI component](integration-contract/cli.md) and
+[the package API](integration-contract/package-api.md#extraction-judge-setting-additive-0450-4089).
+This ships in a minor; no breaking ruling is required.
+
 ## Reference pool growth status (additive, 0.45.0, #3515)
 
 The host-only `brain-native-store pool` projection gains a read-only `growth`

@@ -9,6 +9,7 @@ import {
   GET_CURRENT_LOCATION_CONTRACT,
   QUERY_ACTIVITY_CONTRACT,
   TURN_TEMP_CONTRACT,
+  REQUEST_IMAGE_MARKUP_CONTRACT,
   REQUEST_IMAGE_MASK_CONTRACT,
   SHOW_BLOCK_CONTRACT,
   toolBriefLines,
@@ -203,6 +204,8 @@ export interface SurfaceTools {
   location?: string | false;
   /** Name of the mask-painting tool, or false when absent. */
   mask?: string | false;
+  /** Name of the markup-drawing tool (#3975), or false when absent. */
+  markup?: string | false;
   /** Name of the activity-record query tool, or false when absent. */
   activity?: string | false;
   inboxList?: string | false;
@@ -240,6 +243,7 @@ const SURFACE_TOOL_KEYS: Record<BridgeToolName, keyof SurfaceTools> = {
   [ASK_USER_FORM_CONTRACT.name]: "askUserForm",
   [GET_CURRENT_LOCATION_CONTRACT.name]: "location",
   [REQUEST_IMAGE_MASK_CONTRACT.name]: "mask",
+  [REQUEST_IMAGE_MARKUP_CONTRACT.name]: "markup",
   [QUERY_ACTIVITY_CONTRACT.name]: "activity",
   [SHOW_BLOCK_CONTRACT.name]: "block",
   [TURN_TEMP_CONTRACT.name]: "turnTemp",
