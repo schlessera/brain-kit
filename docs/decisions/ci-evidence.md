@@ -100,3 +100,25 @@ service. Weekly delivery always provides a regular report, while daily
 comments are limited to the ruled changes. The 2026-11-08 ruling deliberately
 includes brief newly observed incidents instead of inventing a duration
 threshold or repeatedly notifying on unchanged incidents.
+
+## UTC-day run layout amendment — 2026-11-17
+
+The [maintainer's option B ruling on #4130](https://github.com/schlessera/brain-kit/issues/4130#issuecomment-6943090694)
+amends the monthly layout: new run records use `YYYY-MM/run/DD.json`,
+partitioned by `run.createdAt` converted to UTC, including late arrivals and
+repeated attempts. Other kinds retain `YYYY-MM/<kind>.json`. Collection and
+compaction time never choose a run's partition.
+
+Legacy `YYYY-MM/run.json` blobs remain readable and are neither rewritten nor
+deleted by compaction. When layouts coexist, readers join run/attempt identities
+with the same deterministic observation/conflict rules as the writer before
+reporting; a newer or richer legacy observation survives a replay into a daily
+file. All historical commits remain intact. Per-kind schema versions and record
+payloads are unchanged, and unknown versions still refuse reading.
+
+The 95 MiB limit applies separately to every output file: exactly the limit is
+allowed; any larger daily file refuses the complete publication before a push.
+There is no fallback partition or compression. Leakage screening and publication
+parented by the inspected head with an exact ref lease remain unchanged.
+Numbered monthly parts were rejected because late arrivals can reshuffle them;
+compression hides text diffs and only postpones the size ceiling.
