@@ -51,7 +51,9 @@ export function createReferenceReads(options: {
       used.add(toolCallId);
       let lease: Awaited<ReturnType<ReferenceSources["request"]>> | undefined;
       try {
-        lease = await options.sources.request({ principalId, repository: location.canonical, revision: request.revision, acquisition: context, signal });
+        // This API accepts a raw clone location, not an already-normalized
+        // authority key. Preserve real repository names ending in `.git`.
+        lease = await options.sources.request({ principalId, repository: location.cloneUrl, revision: request.revision, acquisition: context, signal });
         const assertAuthority = () => { live(); lease!.assertAuthority(); };
         assertAuthority();
         // Only the selected native sealed root and retained acquisition may

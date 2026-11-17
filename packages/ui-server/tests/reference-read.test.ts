@@ -38,14 +38,14 @@ async function fixture(worker = false) {
     { id: "ithaca-acquisition", brain: "ithaca-brain", principalId: principal.id, turnId: "acquiring-turn",
       identity: { ...githubReferenceRepository(repository), repositoryId: "101", ownerId: "201", private: false }, ref: "refs/heads/main",
       commit, tree, root: native.root!, grantId: null, networkBytes: 1500, at });
-  const state = { current: true, authorized: true, requests: 0, released: 0, reads: 0, seals: 0,
+  const state = { current: true, authorized: true, requests: 0, requested: [] as string[], released: 0, reads: 0, seals: 0,
     bytes: Buffer.from("Odysseus charts Ithaca."), afterRead: () => {}, afterSeal: () => {} };
   const lease: ReferenceSourceLease = { domain: "public", view: "ithaca-view", viewPath: "/sealed", name: "ithaca@main", repository,
     repositoryUrl: `${repository}.git`, revision: "main", commit, rootId: native.id, refreshedAt: at, validatedAt: at,
     stale: false, error: null, readGrantId: null, assertAuthority() {
       if (!state.authorized) throw new ReferenceSourceError("unauthorized", "Read authority was revoked.");
     }, release() { state.released++; } };
-  const sources = { async request() { state.requests++; return lease; } };
+  const sources = { async request(input: { repository?: unknown }) { state.requests++; state.requested.push(String(input.repository)); return lease; } };
   const pool = { async poolSeal() { state.seals++; state.afterSeal(); return native; } };
   const transport = { async readBlob(input: { offset: number; maximum: number }) {
     state.reads++;
@@ -85,6 +85,17 @@ test("binary and split UTF-8 ranges preserve bytes instead of inserting replacem
   expect(result).toMatchObject({ ok: true, read: { content: "/wDi", encoding: "base64", length: 3 } });
   const record = f.db.query("SELECT evidence FROM reference_reads").get() as { evidence: string };
   expect(JSON.parse(record.evidence).digest).toBe(sha256(f.state.bytes));
+});
+
+test("repository names ending in .git reenter acquisition as an unambiguous clone location", async () => {
+  const f = await fixture(), canonical = "https://github.com/odysseus/charts.git";
+  f.lease.repository = canonical;
+  f.db.query("UPDATE reference_acquisitions SET repository_name = 'charts.git'").run();
+  f.db.query("UPDATE reference_sources SET repository = ?").run(canonical);
+  f.db.query("UPDATE reference_roots SET repository = ?").run(canonical);
+  const result = await f.call({ request: { repository: `${canonical}.git`, revision: "main", path: "README.md", offset: 9, maximum: 6 } });
+  expect(result).toMatchObject({ ok: true, read: { repository: canonical, content: "charts" } });
+  expect(f.state.requested, "READ_REENTERS_ACQUISITION_WITH_UNAMBIGUOUS_CLONE_URL").toEqual([`${canonical}.git`]);
 });
 
 test("missing model identity and invalid paths refuse before acquisition; duplicate identity never reads twice", async () => {
