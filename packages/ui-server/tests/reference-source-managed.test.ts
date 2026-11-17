@@ -688,6 +688,41 @@ describe("live managed authority", () => {
     } finally { current?.release(); old?.release(); await f.close(); }
   });
 
+  for (const outcome of ["foreign-refusal", "lost-reply", "foreign-before-cleanup"] as const)
+    test(`failed worktree access cleans only its own native generation after ${outcome}`, async () => {
+      const f = await fixture();
+      const context = { turnId: "odysseus-competing-worktree", egress: f.egress, current: () => f.state.current };
+      const worktrees = createReferenceWorktrees({ db: f.db, pool: f.pool, sources: f.sources, coverage: async () => {} });
+      let first: Awaited<ReturnType<typeof worktrees.openGeneration>> | undefined, other: typeof first;
+      try {
+        const item = await worktrees.allocate({ principalId: f.owner.id, repository, revision: "main", acquisition: context });
+        first = await worktrees.openGeneration({ principalId: f.owner.id, turnId: context.turnId, profile: "governed" });
+        other = await worktrees.openGeneration({ principalId: f.owner.id, turnId: "odysseus-other-process", profile: "governed" });
+        const access = f.pool.poolAccess, park = f.pool.poolPark;
+        if (outcome === "foreign-refusal") {
+          await access(item.id, other.id);
+          expect(readFileSync(join(other.path, item.id, "README.md"), "utf8")).toContain("Odysseus");
+        } else {
+          f.pool.poolAccess = async (...args) => { await access(...args); throw Object.assign(new Error("The native reply was lost."), { code: "unavailable" }); };
+        }
+        if (outcome === "foreign-before-cleanup") {
+          let changed = false;
+          f.pool.poolPark = async (...args) => {
+            if (!changed) { changed = true; await park(item.id); await access(item.id, other!.id); }
+            return park(...args);
+          };
+        }
+        await expect(worktrees.access({ worktreeId: item.id, principalId: f.owner.id, generation: first.id, acquisition: context })).rejects.toMatchObject({ code: outcome === "foreign-refusal" ? "invalid" : "unavailable" });
+        if (outcome === "lost-reply") {
+          expect(f.pool.records.get(item.id)!.access, "LOST_NATIVE_REPLY_STILL_PARKS_OWN_GRANT").toBeNull();
+          expect(existsSync(join(first.path, item.id, "README.md")), "LOST_NATIVE_REPLY_HIDES_OWN_FILES").toBe(false);
+        } else {
+          expect(f.pool.records.get(item.id)!.access, "FAILED_ACCESS_CANNOT_PARK_FOREIGN_NATIVE_HOLDER").toBe(other.id);
+          expect(readFileSync(join(other.path, item.id, "README.md"), "utf8"), "FAILED_ACCESS_PRESERVES_OTHER_GENERATION_FILES").toContain("Odysseus");
+        }
+      } finally { if (first) await worktrees.closeGeneration(first.id); if (other) await worktrees.closeGeneration(other.id); await worktrees.close(); await f.close(); }
+    });
+
   for (const observation of ["private", "unknown"] as const)
   for (const wait of ["coverage", "native-grant", "held-refresh"] as const)
     test(`a public worktree cannot outlive newer ${observation} authority during ${wait}`, async () => {

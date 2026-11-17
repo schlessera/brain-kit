@@ -580,8 +580,12 @@ const shapes = await create("staging", 32 * MIB);
   const heldAfter = await heldCharge();
   expect({ code: heldRefusal.code, state: heldRecord?.state, access: heldRecord?.access, read: await ask("read"), charged: heldAfter },
     "REFERENCE_ACCESS_HELD_NOT_RELEASED").toEqual({ code: "invalid", state: "writable", access: ACCESS, read: "Telemachus returns", charged: heldBefore });
-  // Parking returns the worktree to the masked roots: the next lookup misses it.
-  expect((await call<NativePoolRecord>({ operation: "poolPark", id: tree.id })).access, "REFERENCE_ACCESS_PARKED_RECORD").toBeNull();
+  // Competing cleanup must compare the actual native holder atomically.
+  const retained = await call<NativePoolRecord>({ operation: "poolPark", id: tree.id, expectedAccess: SECOND_ACCESS });
+  expect(retained.access, "REFERENCE_ACCESS_FOREIGN_CLEANUP_RETAINS_NATIVE_HOLDER").toBe(ACCESS);
+  expect(await ask("read"), "REFERENCE_ACCESS_FOREIGN_CLEANUP_RETAINS_WORKER_READ").toBe("Telemachus returns");
+  // Parking our own grant returns it to masked roots: the next lookup misses it.
+  expect((await call<NativePoolRecord>({ operation: "poolPark", id: tree.id, expectedAccess: ACCESS })).access, "REFERENCE_ACCESS_PARKED_RECORD").toBeNull();
   expect(await ask("read"), "REFERENCE_ACCESS_PARKED_GONE").toBe("MISSING");
   // A grant interrupted after its rename, before its record: restart adopts the actual generation.
   renameSync(join(POOL, "roots", tree.id), join(opened.path, tree.id));

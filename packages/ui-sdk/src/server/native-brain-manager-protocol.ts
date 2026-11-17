@@ -60,7 +60,7 @@ export const nativeManagerRequest = z.discriminatedUnion("operation", [
   }).strict(),
   z.object({ operation: z.literal("poolAccessOpen"), access: nativeCheckpointId }).strict(),
   z.object({ operation: z.literal("poolAccess"), id: nativeCheckpointId, access: nativeCheckpointId }).strict(),
-  z.object({ operation: z.literal("poolPark"), id: nativeCheckpointId }).strict(),
+  z.object({ operation: z.literal("poolPark"), id: nativeCheckpointId, expectedAccess: nativeCheckpointId.optional() }).strict(),
   z.object({ operation: z.literal("poolAccessClose"), access: nativeCheckpointId }).strict(),
 ]);
 export type NativeManagerRequest = z.infer<typeof nativeManagerRequest>;

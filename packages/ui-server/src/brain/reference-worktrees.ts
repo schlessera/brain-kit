@@ -428,9 +428,13 @@ export function createReferenceWorktrees(options: {
     for (const { id } of open) await serial(id, () => settle(id, signal));
   }
   /** Return a worktree whose holder is provably gone to the masked roots, then forget the holder. */
-  async function recoverHolder(row: WorktreeRow, signal?: AbortSignal): Promise<WorktreeRow> {
-    await pool.poolPark(row.id, signal);
-    await write("recoverHolder", row.id, row.holder);
+  async function recoverHolder(row: WorktreeRow, signal?: AbortSignal, expectedHolder = row.holder): Promise<WorktreeRow> {
+    if (!expectedHolder) return row;
+    // The native grant can precede its database receipt in another process.
+    // Check and park under the manager's one mutation lock, never a stale read.
+    const parked = await pool.poolPark(row.id, signal, expectedHolder);
+    if (parked.access !== null) throw new ReferenceWorktreeError("busy", "Another worker generation holds this worktree; its access was retained.");
+    await write("recoverHolder", row.id, expectedHolder);
     return worktree(row.id)!;
   }
 
@@ -587,17 +591,14 @@ export function createReferenceWorktrees(options: {
           await pool.poolAccess(row.id, target.id, input.signal);
           acquiringAuthority(input, authority);
           // A removal admitted elsewhere while the grant awaited wins: the grant is withdrawn, never recorded.
-          if (cleanupOf(row.id)) {
-            await pool.poolPark(row.id).catch(error => warn("withdrawn worktree grant was not parked", error));
-            throw new ReferenceWorktreeError("released", "This worktree was released; request a new one.");
-          }
+          if (cleanupOf(row.id)) throw new ReferenceWorktreeError("released", "This worktree was released; request a new one.");
         }
         // Explicit access or resumption: the only events, with renewal, that move the clock.
         await write("grant", target.id, now(), row.id);
         acquiringAuthority(input, authority);
         return view(worktree(row.id)!);
       } catch (error) {
-        if (dispatched || row.holder === target.id) await recoverHolder(worktree(row.id) ?? row).catch(cleanup => warn("withdrawn managed worktree grant was not parked", cleanup));
+        if (dispatched || row.holder === target.id) await recoverHolder(worktree(row.id) ?? row, undefined, target.id).catch(cleanup => warn("withdrawn managed worktree grant was not parked", cleanup));
         throw error;
       }
     });

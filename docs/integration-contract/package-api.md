@@ -4514,6 +4514,15 @@ writable worktree, else `null`; earlier records read as `access: null`.
 `poolCreate` refuses the `checkpoint` purpose and a checkpoint as its source.
 `poolRelease` refuses a writable worktree whose record names an access
 generation with `invalid`, deleting nothing; park it first (#2729).
+The host client also accepts `poolPark(id, signal?, expectedAccess?)` (#3613).
+With a generated `expectedAccess` UUID, the manager parks only while its native
+record still names that generation, under the same mutation lock as grants.
+A mismatch returns the unchanged record, including its current `access`, and
+never moves the root. Omitting the argument retains unconditional parking.
+This optional internal control field is additive; an older strict manager
+refuses it, so failed cleanup stays explicit rather than falling back to an
+unconditional park.
+
 The lease owner checkpoints only a held worktree, reads and diffs only held
 checkpoints, and moves only held worktrees; its lease table migrates in place.
 No call accepts a host path, UID or mount. Worker masks now include the pool's

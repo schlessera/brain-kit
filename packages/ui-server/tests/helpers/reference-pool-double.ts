@@ -166,9 +166,10 @@ export function referencePoolDouble(root: string, options: { capacityRoots?: num
       record!.access = generation; record!.path = location(record!);
       return record!;
     },
-    async poolPark(id) {
+    async poolPark(id, _signal, expectedAccess) {
       const record = records.get(id);
       if (!record || record.purpose !== "worktree") fail("unknown", "Only a recorded worktree root can be parked.");
+      if (expectedAccess !== undefined && record!.access !== expectedAccess) return record!;
       if (!record!.access) return record!;
       note({ operation: "park", id });
       renameSync(location(record!), join(roots, id));

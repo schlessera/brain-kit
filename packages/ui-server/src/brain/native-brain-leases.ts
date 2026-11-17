@@ -225,9 +225,9 @@ export async function createNativeBrainLeaseManager(raw: Client, options: {
       if (poolRow(id)?.purpose !== "worktree" || poolRow(id)?.state !== "held") throw new NativeBrainManagerError("unknown", "Only this app's held worktree can be made accessible.");
       return raw.poolAccess(id, access, signal);
     }); },
-    poolPark(id, signal) { return operation(async () => {
+    poolPark(id, signal, expectedAccess) { return operation(async () => {
       if (poolRow(id)?.purpose !== "worktree" || poolRow(id)?.state !== "held") throw new NativeBrainManagerError("unknown", "Only this app's held worktree can be parked.");
-      return raw.poolPark(id, signal);
+      return raw.poolPark(id, signal, expectedAccess);
     }); },
     poolAccessOpen(access, signal) { return operation(() => raw.poolAccessOpen(access, signal)); },
     poolAccessClose(access, signal) { return operation(() => raw.poolAccessClose(access, signal)); },

@@ -2566,7 +2566,7 @@ signatures (every public export and the types it is made of)
         poolDelta: (from: string, to: string, signal?: AbortSignal) => Promise<NativeDeltaStream>;
         poolGrowth: (signal?: AbortSignal) => Promise<NativePoolGrowth>;
         poolListCheckpoint: (id: string, path: string, expectedWorkerUid: number, signal?: AbortSignal) => Promise<NativeCheckpointMetadata[]>;
-        poolPark: (id: string, signal?: AbortSignal) => Promise<NativePoolRecord>;
+        poolPark: (id: string, signal?: AbortSignal, expectedAccess?: string) => Promise<NativePoolRecord>;
         poolPublish: (id: string, view: string, name: string, signal?: AbortSignal) => Promise<NativePoolRecord>;
         poolReadCheckpoint: (id: string, path: string, maximum: number, expectedWorkerUid: number, signal?: AbortSignal) => Promise<NativeCheckpointFile>;
         poolRelease: (id: string, signal?: AbortSignal) => Promise<NativePoolRecord>;

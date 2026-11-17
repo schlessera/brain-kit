@@ -224,7 +224,7 @@ directory its intent records. Sealing also makes the root's top directory
 `roots/` and `views/` join the mandatory worker masks. A worker sees reference
 source only through a view bound for it, and other domains' views stay
 invisible. `poolView` (#2432) opens a view's directory before its first
-publication (`function viewOpen`, `packages/ui-sdk/src/server/native-reference-pool.ts:1095-1098`),
+publication (`function viewOpen`, `packages/ui-sdk/src/server/native-reference-pool.ts:1096-1099`),
 so a worker that binds it at its start sees the domain's first publication on a
 later lookup ([agent tools](managed-worktrees.md#agent-tools)).
 
@@ -268,6 +268,11 @@ release's check and its delete. The worker cannot create entries in the generati
 directory itself. `access/` joins the mandatory worker masks. Census accepts a
 writable worktree only in the directory its intent records, and measurement
 adopts a grant or park interrupted between its rename and its record.
+The optional `expectedAccess` on `poolPark(id, signal?, expectedAccess?)`
+compares the manager's current native holder under its serialized mutation
+lock. A different holder returns unchanged without relocation. Failed host
+grant cleanup uses this precondition rather than inferring native ownership
+from a database row whose receipt may still be pending (#3613).
 
 ## Background deduplication is rejected; residual growth is reported (#3515)
 

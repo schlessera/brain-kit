@@ -19,7 +19,7 @@ A request names the principal, a repository and a branch or tag, like a source
 request. The service asks the acquisition service for that source, so its
 authority, freshness and private boundary all apply, and then snapshots the
 sealed source root it was given
-(`async function allocate`, `packages/ui-server/src/brain/reference-worktrees.ts:452-484`).
+(`async function allocate`, `packages/ui-server/src/brain/reference-worktrees.ts:456-488`).
 The worktree's starting commit is the commit that source reported, and it never
 moves with the source. A read-only baseline checkpoint is taken at once. Each
 worktree gets the pool's per-operation allowance. A worktree belongs to one
@@ -39,6 +39,12 @@ originally public worktree cannot finish a wait using authority that a newer
 metadata observation refused. Authority lost during allocation discards its
 roots and record, including when the activation write completed before the
 final authority check; an access that dispatched is parked and its holder cleared.
+Cleanup supplies its requesting generation to native parking. The manager
+compares that expected holder under its mutation lock, so a refused or
+lost-reply grant cannot park another process's live generation during its
+native-grant/database-receipt gap. A native refusal still cleans a grant of
+this request whose reply was lost. Database holder clearing names only the
+expected generation; a mismatched native holder is retained.
 
 ## Worker generations and access
 
@@ -48,7 +54,7 @@ restricted (autonomous) turn holds no worktree. The generation records the
 owning process (PID, start time, boot and PID namespace).
 
 Access makes a worktree available to one open generation
-(`function access(input`, `packages/ui-server/src/brain/reference-worktrees.ts:549-559`):
+(`function access(input`, `packages/ui-server/src/brain/reference-worktrees.ts:553-563`):
 
 1. The generation must be open in this process for a running turn, and belong
    to the requesting principal.
@@ -93,7 +99,7 @@ such as an owner in another PID namespace, is **unknown**
 (`function live`, `packages/ui-server/src/brain/reference-worktrees.ts:207-213`).
 
 Reconciliation runs at startup and when a generation closes, never on a timer
-(`async function reconcile`, `packages/ui-server/src/brain/reference-worktrees.ts:636-663`).
+(`async function reconcile`, `packages/ui-server/src/brain/reference-worktrees.ts:637-664`).
 After three days without explicit activity, a worktree expires:
 
 - with a live holder it stays `active` and held, however long the turn runs;

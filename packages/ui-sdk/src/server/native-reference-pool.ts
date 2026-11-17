@@ -1041,10 +1041,11 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
     await verifyRoot(intent, signal);
     return publicRecord(await relocate(intent, request.access, signal));
   }
-  /** Return a worktree to the masked roots directory; its generation no longer reaches it by name or identity. */
-  async function park(id: string, signal?: AbortSignal): Promise<NativePoolRecord> {
+  /** Return a worktree to masked roots, optionally only if its serialized native holder still matches. */
+  async function park(id: string, signal?: AbortSignal, expectedAccess?: string): Promise<NativePoolRecord> {
     const intent = intents.get(id);
     if (!intent || intent.purpose !== "worktree") throw new NativeBrainManagerError("unknown", "Only a recorded worktree root can be parked.");
+    if (expectedAccess !== undefined && intent.access !== expectedAccess) return publicRecord(intent);
     if (!intent.access) return publicRecord(intent);
     await verifyRoot(intent, signal);
     return publicRecord(await relocate(intent, null, signal));

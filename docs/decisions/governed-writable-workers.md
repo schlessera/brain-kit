@@ -2047,7 +2047,7 @@ fresh globals per request, with the path as its only argument, and answers
 with the program's output, its exit status and the traceback a fresh launch
 printed, without the loop's own frame. The manager turns a failure into the
 same refusal a failed launch produced (`async function inspection`,
-`packages/ui-sdk/src/server/native-brain-manager.ts:189-193`). Every
+`packages/ui-sdk/src/server/native-brain-manager.ts:215-219`). Every
 `qualify` and `verifyOwned` still inspects the live path on every operation;
 nothing is cached between requests. An interrupted, timed-out, oversized or
 malformed exchange, or one with an interpreter that died, kills the
