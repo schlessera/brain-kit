@@ -41,18 +41,19 @@ export async function fetchGithubDetailPage(root: Pick<BrainUiServices, "apiBase
     response = await root.request(`${root.apiBase()}/sessions/${path}${query}`, { cache: "no-store",
       signal: input.signal ? AbortSignal.any([input.signal, timeout]) : timeout });
   } catch {
-    return failed("upstream_error", input.signal?.aborted ? "cancelled" : "network", "The host did not answer.");
+    // The host's own failures carry a `host_` reason, so no card reads them as GitHub's.
+    return failed("upstream_error", input.signal?.aborted ? "cancelled" : "host_no_answer", "The host did not answer.");
   }
   const json: unknown = await response.json().catch(() => undefined);
   if (response.ok) {
     const page = GITHUB_DETAIL_PAGE_SCHEMA.safeParse(json);
     if (page.success && page.data.part === input.part && page.data.number === input.number) return { ok: true, page: page.data };
-    return failed("upstream_error", "malformed", "The host answered with something that is not a detail page.");
+    return failed("upstream_error", "host_malformed", "The host answered with something that is not a detail page.");
   }
   const error = GITHUB_DETAIL_ERROR_RESPONSE_SCHEMA.safeParse(json);
   if (error.success) return { ok: false, error: error.data.error };
   if (response.status === 401) return failed("unavailable", "authentication", "Sign in again to load more.");
-  return failed("upstream_error", `http_${response.status}`, "The host could not load this.");
+  return failed("upstream_error", `host_http_${response.status}`, `The host could not load this (HTTP ${response.status}).`);
 }
 
 /**

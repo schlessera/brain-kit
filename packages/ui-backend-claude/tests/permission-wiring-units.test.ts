@@ -3,6 +3,7 @@
  * The whole-wiring behaviour stays pinned by characterization-permissions,
  * allowlist-enforcement, confirm-bash, confirm-archive and edited-approval.
  */
+import { createHash } from "node:crypto";
 import { describe, expect, test } from "bun:test";
 import type { PermissionRequest } from "@schlessera/brain-ui-sdk/server";
 
@@ -199,5 +200,26 @@ describe("admissions, refusals and the collector's last check", () => {
     expect(admitted, "CLAUDE_REUSED_ID_UNDER_ANOTHER_TOOL_IS_A_NEW_ADMISSION").toEqual(["oar-4", "oar-4"]);
     await shell; await common(...as("Bash", { command: "echo rafts", run_in_background: true }));
     expect(admitted, "CLAUDE_REUSED_ID_ADMISSION_IS_REPORTED_ONCE").toEqual(["oar-4", "oar-4"]);
+  });
+});
+
+describe("native edit versions", () => {
+  // The installed runtime applies an Edit literally (a function replacement),
+  // so the version the host remembers must hash the same literal bytes.
+  for (const replaceAll of [false, true]) test(`a native Edit${replaceAll ? " with replaceAll" : ""} whose newString has $ sequences remembers the literal result`, async () => {
+    const remembered: [string, string][] = [];
+    const options = {
+      req: { prompt: "Mend the loom", signal: new AbortController().signal, bridge: { emit: () => {} } } as never,
+      allowedTools: ["Edit"], confirmPatterns: [], brainPath: "/srv/odysseus-brain", childEnv: {}, log: () => {},
+      turnLock: { acquireForTool: async () => ({ ok: true }), releaseForTool() {} } as never,
+      observeFile: () => ({ key: "loom.md", version: { status: "unavailable" } }),
+      fileVersions: { remember: async (key: string, hash: string) => { remembered.push([key, hash]); }, finishWrite: async () => { throw new Error("the written bytes were known"); } } as never,
+    } as PermissionWiringOptions;
+    const { finishNativeFile } = createNativeFileGuards(options);
+    const originalFile = "Penelope weaves. Penelope waits.\n", newString = "Odysseus pays $$5 for $& and $' and $`";
+    await finishNativeFile({ hook_event_name: "PostToolUse", tool_name: "Edit", tool_use_id: "loom-1", tool_input: { file_path: "/srv/odysseus-brain/loom.md" },
+      tool_response: { originalFile, oldString: "Penelope", newString, replaceAll } } as never, undefined, { signal: new AbortController().signal });
+    const literal = replaceAll ? originalFile.split("Penelope").join(newString) : `${newString} weaves. Penelope waits.\n`;
+    expect(remembered).toEqual([["loom.md", createHash("sha256").update(literal, "utf8").digest("hex")]]);
   });
 });

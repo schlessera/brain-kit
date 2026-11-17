@@ -406,6 +406,12 @@ git fetch origin main
 
 It exits 1 when either moved. `unchanged` says which, and `baseGained` lists
 how many files the base gained and which of them this pull request also
+changes. GitHub lists at most 300 files of a comparison and 3000 of a pull
+request. When either list was cut short, `baseGained.overlapIncomplete` says
+which: `overlapsThisPr` is then a lower bound, and an empty one does not mean
+the base moved clear of this pull request. Read both lists from Git instead:
+`git diff --name-only "$verified_base" origin/main` for what the base gained,
+and `git diff --name-only origin/main...HEAD` for what the pull request
 changes.
 
 A head mismatch requires new inspection. A base mismatch requires assessment of

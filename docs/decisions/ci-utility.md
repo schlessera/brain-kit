@@ -1055,9 +1055,8 @@ mounts qualify the mount restriction.
 
 Only a successful, drained native process publishes its artifact identities into
 a fresh per-launch handoff directory. The browser validates the preparation
-session, checkout and all three artifact hashes, and the source, installation
-and runtime identities when a caller supplies expected ones (since #4105 none
-does). It writes those exact validated bytes into its private consumer view, then
+session, checkout and all three artifact hashes. It writes those exact
+validated bytes into its private consumer view, then
 retains the original SVG/reference zero-request replay and
 raster/font/PDF assertions. Different launches never share a prepared output root.
 The browser-side pinned font cache remains a separately owned browser input.
@@ -1086,14 +1085,16 @@ requalification rulings of 2026-11-02 (#2509/#3320) and 2026-11-11 (#3968).
 The container boundary above, the producer's own run-time checks and the
 browser's validation of the handoff session, checkout and artifact hashes are
 unchanged. The comparisons against an expected source, installation or
-runtime identity (`diagram-export-command.ts`, `prepare-diagram-export-source.mjs`,
-`ci-proof.ts`) took that identity from the retired binding, so they no longer
-run. Local proof is not a hosted baseline or permission to use a failed
+runtime identity took that identity from the retired binding, so no caller
+could supply one. They are removed, together with the environment variable
+that carried the identity to the browser runner
+([#4119](https://github.com/schlessera/brain-kit/issues/4119)).
+Local proof is not a hosted baseline or permission to use a failed
 workflow.
 
 
 Discovery has a fixed 30-second wall-clock maximum for the native child to exit
-and both output pipes to drain (`browserInventory`, `scripts/proof-inputs.ts:55-113`),
+and both output pipes to drain (`browserInventory`, `scripts/proof-inputs.ts:56-127`),
 in local preflight and hosted metadata. The maintainer selected
 option A under [#2380](https://github.com/schlessera/brain-kit/issues/2380) on
 2026-10-22: #2326's cold discovery sample took 14,811 ms in the pinned offline
@@ -1101,6 +1102,14 @@ image with two CPUs, so 30 seconds allows approximately twice that observed
 duration. Hosted metadata steps had completed in 6–11 seconds. This bounded
 margin does not guarantee completion under arbitrary CPU starvation; a stuck
 child can take up to 15 seconds longer to fail than under the previous maximum.
+A failure receipt records the discovery child's CPU time and involuntary
+context switches beside its wall time, with the runner's parallelism and load
+average, so a timeout names its phase: CPU near the deadline is slow discovery,
+CPU far below it is a runner that withheld CPU or I/O
+([#4149](https://github.com/schlessera/brain-kit/issues/4149)). The #4149
+timeout came before these fields and was a starved runner: its checkout and
+install also ran about five times slower than usual, and the same candidate
+tree discovered in about 5 seconds in the pinned image with two CPUs.
 Process controls inject a short deadline and assert the default separately;
 the integration test allows additional time for ownership scanning and cleanup.
 Discovery failure still rejects unsuccessful inventories: selection then keeps
