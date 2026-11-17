@@ -235,6 +235,17 @@ as a credential, so it cannot enable a provider. `buildSystemPromptAppend`
 accepts `webTools: true`, which adds the brief's line on what the web tools
 do not offer. This ships in a minor.
 
+## Retained voice history belongs to its account (additive, 0.45.0, #3963)
+
+Another owner login continues a chat's retained dialogue by voice, reads it
+and receives its live pages; a pruned starting login no longer strands it. A
+live conversation and its epochs stay with the login that opened them, and
+other accounts are refused as before. No field changes. See
+[wire](integration-contract/wire.md#retained-voice-history-belongs-to-its-account-additive-0450-3963),
+[HTTP](integration-contract/http.md#retained-conversations-account-additive-3963)
+and [the package API](integration-contract/package-api.md#retained-dialogue-data-3177).
+This ships in a minor; no breaking ruling is required.
+
 ## Retained barge-in and conversation end (additive, 0.45.0, #3729)
 
 `DialogueEvidence` gains `voice_interruption`, written when the host forwards

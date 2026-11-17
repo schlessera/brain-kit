@@ -5240,6 +5240,16 @@ meaning. No provider history-selection API is delivered by this slice.
 write path. The [wire amendment](wire.md#retained-barge-in-and-conversation-end-additive-0450-3729)
 defines when each is written and how the client draws them.
 
+For account-owned retained history (#3963, additive in 0.45.0),
+`DialogueOwner` gains optional `principal_account`, the stored account beside
+`principal_id`; `SessionCatalog` gains optional `dialogueAudience(owner,
+principalId)`, whether that login may receive the owner's pages; and the
+`DialogueJournal` publish callback receives the owner as an optional third
+argument after the unchanged page and `principalId`. Existing catalogs and
+callbacks keep compiling and behave as before. The
+[wire amendment](wire.md#retained-voice-history-belongs-to-its-account-additive-0450-3963)
+defines who may use the history.
+
 Failed-write live text exposes optional `ServerConversationEvent.retention` and
 `ServerError.historyOwnerId`, plus the existing client projection's explicit
 unsaved recognition/output fields (#3177). These are additive evidence and
