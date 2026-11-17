@@ -99,11 +99,15 @@ export const MAX_TAIL_LAG_MS = 200;
  * text renders urgently.
  *
  * `behindSince` is when a commit first showed the tail behind its text, or
- * `null` while the last commit showed it caught up. It comes from committed
- * renders only, so a render React discards cannot move it, and a pause in
- * the stream (no commits, but nothing behind either) does not count as lag.
+ * `null` while the last commit showed it caught up; `committed` is the text
+ * the last commit showed. Both come from committed renders only, so a render
+ * React discards cannot move them, and a pause in the stream (no commits,
+ * but nothing behind either) does not count as lag. The tail never shows
+ * less than it last committed: after the bound forced the current text, the
+ * deferred value can still be older, and the tail must not step back to it.
  */
-export function tailText(text: string, deferred: string | null, behindSince: number | null, now: number): string {
+export function tailText(text: string, deferred: string | null, committed: string | null, behindSince: number | null, now: number): string {
   if (deferred === null || deferred === text || !text.startsWith(deferred)) return text;
-  return behindSince !== null && now - behindSince > MAX_TAIL_LAG_MS ? text : deferred;
+  if (behindSince !== null && now - behindSince > MAX_TAIL_LAG_MS) return text;
+  return committed !== null && committed.length > deferred.length && text.startsWith(committed) ? committed : deferred;
 }

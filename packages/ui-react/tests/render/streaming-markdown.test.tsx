@@ -26,6 +26,7 @@ mock.module("react-markdown", () => ({
 }));
 
 const { BrainMarkdown } = await import("../../src/components/chat/brain-markdown.js");
+const { splitMarkdownBlocks } = await import("../../src/components/chat/markdown-blocks.js");
 const { BrainUiProvider } = await import("../../src/root-context.js");
 const { createBrainUiRoot } = await import("../../src/root.js");
 
@@ -52,10 +53,10 @@ const view = (content: string) => <BrainUiProvider root={root}><BrainMarkdown co
 test("appending to the last block of a 24 KB answer parses only that block", async () => {
   let text = answer(240);
   expect(text.length, "a 24 KB answer").toBeGreaterThan(24_000);
+  // The splitter's view of it, independent of the renderer under test.
+  expect(splitMarkdownBlocks(text).length, "the answer has many top-level blocks").toBeGreaterThan(100);
   const r = render(view(text));
   await settled();
-  const blocks = parsed.length;
-  expect(blocks, "the answer parses as many blocks").toBeGreaterThan(100);
   for (const word of [" and the wind", " turns west", " at dusk."]) {
     parsed.length = 0;
     text += word;

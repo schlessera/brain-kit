@@ -223,8 +223,11 @@ function StreamedBlock({ text, last, ...rest }: BlockProps & { last: boolean }) 
   // effect, so only committed renders count, never one React discards; a
   // commit that shows it caught up clears it.
   const behindSince = useRef<number | null>(null);
-  const shown = last ? tailText(text, deferred, behindSince.current, performance.now()) : text;
+  // The text the last commit showed: the tail never steps back behind it.
+  const committed = useRef<string | null>(null);
+  const shown = last ? tailText(text, deferred, committed.current, behindSince.current, performance.now()) : text;
   useEffect(() => {
+    committed.current = shown;
     if (shown === text) behindSince.current = null;
     else behindSince.current ??= performance.now();
   });

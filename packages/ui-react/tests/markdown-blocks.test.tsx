@@ -133,17 +133,21 @@ test("generated documents parse the same split and whole", () => {
 
 describe("tailText", () => {
   test("a tail that has just fallen behind shows its deferred text, however long the stream paused before", () => {
-    expect(tailText("abc", "ab", null, 1_000_000), "no commit has shown it behind yet").toBe("ab");
+    expect(tailText("abc", "ab", null, null, 1_000_000), "no commit has shown it behind yet").toBe("ab");
   });
   test("shows the deferred tail while it has been behind for no longer than the bound", () => {
-    expect(tailText("abcd", "ab", 1000, 1000 + MAX_TAIL_LAG_MS)).toBe("ab");
+    expect(tailText("abcd", "ab", "ab", 1000, 1000 + MAX_TAIL_LAG_MS)).toBe("ab");
   });
   test("renders the current tail once it has been behind for longer than the bound", () => {
-    expect(tailText("abcde", "ab", 1000, 1001 + MAX_TAIL_LAG_MS)).toBe("abcde");
+    expect(tailText("abcde", "ab", "ab", 1000, 1001 + MAX_TAIL_LAG_MS)).toBe("abcde");
+  });
+  test("never steps back behind what it last committed, though the deferred value is older", () => {
+    // The bound forced "abcde"; the deferred value is still "ab"; a new delta arrives.
+    expect(tailText("abcdef", "ab", "abcde", null, 2000)).toBe("abcde");
   });
   test("caught up, replaced or with no deferred text, shows the current text", () => {
-    expect(tailText("abc", "abc", 0, 5000)).toBe("abc");
-    expect(tailText("xyz", "ab", 1000, 1001)).toBe("xyz");
-    expect(tailText("abc", null, 1000, 1001)).toBe("abc");
+    expect(tailText("abc", "abc", "abc", null, 5000)).toBe("abc");
+    expect(tailText("xyz", "ab", "ab", 1000, 1001)).toBe("xyz");
+    expect(tailText("abc", null, null, 1000, 1001)).toBe("abc");
   });
 });
