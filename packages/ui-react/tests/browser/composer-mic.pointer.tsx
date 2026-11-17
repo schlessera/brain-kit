@@ -189,19 +189,26 @@ for (const kind of KINDS) for (const width of [320, 1280] as const) test(`leavin
     const s = await scene(ctx, width);
     const at = centre(s.mic()!);
     const before = s.traffic();
+    const pressed = performance.now();
     await press(kind, at);
     await expect.poll(() => s.mic()!.dataset.phase).toBe("holding");
     const away = { x: at.x - 120, y: at.y - 160 };
     await move(kind, away, 150);
     await expect.poll(() => s.mic()?.dataset.phase ?? "no mic: the hold completed", { message: `${kind}: leaving cancels` }).toBe("idle");
     expect(s.host.querySelector(".bk-voice-hint"), `${kind}: the hint goes with the hold`).toBe(null);
-    await wait(700);
-    // Back over the mic and released there: still not a tap, and not a hold.
-    await move(kind, at, 850);
-    await lift(kind, at, 900);
+    // Back over the mic and released there: still not a tap, and not a hold. The
+    // mic swallows the release's click for one second after the cancel, so the
+    // return and the release go in one command, straight after it. A sleep and
+    // two command round trips in between outlasted that second on a loaded
+    // runner, and the click then counted as a tap (#4170).
+    await commands.sheetInput(kind, [{ type: "move", ...at, t: 250 }, { type: "up", ...at, t: 300 }]);
     await wait(300);
-    expect(s.client.state.getState().disclosureOpen, `${kind}: a cancelled hold never opens Start`).toBe(false);
     expect(s.ui.stores.voice.getState().mode, `${kind}: a cancelled hold does not dictate`).toBe("idle");
+    // The cancelled hold never completes later either: wait past the hold's own
+    // duration from the press. Waiting longer only makes this stricter.
+    await wait(Math.max(0, pressed + 900 - performance.now()));
+    expect(s.client.state.getState().disclosureOpen, `${kind}: a cancelled hold never opens Start`).toBe(false);
+    expect(s.ui.stores.voice.getState().mode, `${kind}: a cancelled hold still does not dictate`).toBe("idle");
     expect(s.haptics).toEqual([]);
     expect(s.traffic(), `${kind}: CANCELLED_HOLD_CAPTURES_NOTHING`).toEqual(before);
     // The next tap is still a tap.
