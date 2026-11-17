@@ -16,7 +16,9 @@ import { registerBuiltinRenderers } from "../../src/components/chat/renderers/in
 import { ToolPermissionCard } from "../../src/components/chat/tool-permission-card.js";
 import { createBrainUiRoot } from "../../src/root.js";
 import { BrainUiProvider } from "../../src/root-context.js";
-import { HOSTILE_BODY, author, comment, envelope, issue, pull, refusal, search } from "../github-fixtures.js";
+import type { GithubPullRequest } from "@schlessera/brain-ui-sdk/tool-contracts";
+import { reviewerRows } from "../../src/components/chat/renderers/github-mapping.js";
+import { HOSTILE_BODY, author, comment, envelope, issue, pull, refusal, search, user } from "../github-fixtures.js";
 
 const roots: ReturnType<typeof createBrainUiRoot>[] = [];
 const requested: string[] = [];
@@ -254,6 +256,17 @@ describe("write views W1–W4", () => {
     expect(container.textContent).toContain("Not posted");
     expect(container.textContent).toContain("ithaca/hall #388");
     expect(container.textContent).toContain("Filed #401 for the key log.");
+    expect(container.textContent, "the approval names a number, not its kind").not.toMatch(/Issue ·|PR ·/);
+  });
+
+  test("a posted comment names its target's kind from its validated URL, and claims neither without one", () => {
+    const posted = (number: number, html_url: string) =>
+      output("comment", envelope("comment", { kind: "comment_created", repository: "ithaca/hall", number, comment_id: 7002, created_at: "2026-07-12T09:00:00Z", html_url }));
+    expect(posted(412, "https://github.com/ithaca/hall/pull/412#issuecomment-7002").container.textContent).toContain("PR · ithaca/hall #412");
+    expect(posted(388, "https://github.com/ithaca/hall/issues/388#issuecomment-7002").container.textContent).toContain("Issue · ithaca/hall #388");
+    const unchecked = posted(412, "https://github.com/ithaca/hall/pull/499#issuecomment-7002").container;
+    expect(unchecked.textContent).toContain("ithaca/hall #412");
+    expect(unchecked.textContent).not.toMatch(/Issue ·|PR ·/);
   });
 
   test("a write's original row shows no preview: only its approval row does", () => {
@@ -341,8 +354,20 @@ describe("on-demand detail", () => {
     expect(view.container.textContent).toContain("Swap gut string for sinew");
   });
 
-  test("a generic upstream failure is S4 with Try again, and a host refusal keeps a Try again of its own", async () => {
-    answer = () => Response.json({ error: { code: "upstream_error", reason: null, message: "The host could not load this.", reset_at: null } }, { status: 502 });
+  for (const [reason, message] of [[null, "The GitHub read failed."], ["malformed", "GitHub answered with something unreadable."], ["redirect", "GitHub redirected the read."]] as const) {
+    test(`an upstream_error/${reason} reads in the host's words with Try again, never S4's 'GitHub didn't answer'`, async () => {
+      answer = () => Response.json({ error: { code: "upstream_error", reason, message, reset_at: null } }, { status: 502 });
+      const view = output("read", envelope("read", pull()));
+      await act(async () => fireEvent.click(view.getByRole("tab", { name: /Files/ })));
+      await act(async () => {});
+      expect(view.container.textContent).toContain(message);
+      expect(view.container.textContent).not.toContain("didn't answer");
+      expect(within(view.container).getByRole("button", { name: /Try again/ })).toBeTruthy();
+    });
+  }
+
+  test("GitHub not answering is S4 with Try again, and a host refusal keeps a Try again of its own", async () => {
+    answer = () => Response.json({ error: { code: "upstream_error", reason: "timeout", message: "GitHub did not answer in time.", reset_at: null } }, { status: 504 });
     const view = output("read", envelope("read", pull()));
     await act(async () => fireEvent.click(view.getByRole("tab", { name: /Files/ })));
     await act(async () => {});
@@ -501,6 +526,13 @@ describe("write outcomes say what the host knows", () => {
 });
 
 describe("review states", () => {
+  test("a reviewer asked again after deciding reads as review requested, not as the old decision", () => {
+    const rows = reviewerRows(pull({ requested_reviewers: [user("eurycleia"), user("argos")] }) as GithubPullRequest, () => null);
+    expect(rows.map((r) => [r.person.login, r.state])).toEqual([["eurycleia", "review-requested"], ["argos", "review-requested"]]);
+    const settled = reviewerRows(pull() as GithubPullRequest, () => null);
+    expect(settled.map((r) => [r.person.login, r.state]), "without a re-request the decision stands").toEqual([["eurycleia", "changes-requested"], ["argos", "review-requested"]]);
+  });
+
   test("an unsubmitted (pending) review reads as not reported, never as a review request", () => {
     const pr = pull({ reviews: { items: [{ ...pull().reviews.items[0]!, state: "pending", body: null, body_length: 0 }], total_count: 1, has_more: false } });
     const { container } = output("read", envelope("read", pr));

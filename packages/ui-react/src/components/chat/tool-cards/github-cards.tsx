@@ -122,12 +122,13 @@ function detailErrorState(error: GithubDetailError | GithubError & { reset_at?: 
   // GitHub's own refusals carry no reason or "github"; the host's carry theirs.
   const fromGithub = error.reason === null || error.reason === "github";
   if ((error.code === "not_found" || error.code === "forbidden") && fromGithub) return { state: "gone" };
-  // The host's own failures (no answer, an unreadable answer, its own HTTP
-  // status) read in its words: S4 would say GitHub answered or didn't.
-  if (error.code === "upstream_error" && (error.reason?.startsWith("host_") || error.reason === "cancelled")) return { state: "error", refusal: error.message };
-  // Every other upstream failure is GitHub's, and S4 with Try again.
+  // S4 says "GitHub answered N" or "GitHub didn't answer", so only those two
+  // facts read as S4: GitHub's HTTP status, or no answer from GitHub. Every
+  // other failure (the host's own, its catch-all, an unreadable or redirected
+  // answer) reads in the host's words, with its own Try again.
   const status = error.reason?.match(/^http_(\d{3})$/)?.[1];
-  if (error.code === "upstream_error") return { state: "error", ...(status ? { errorStatus: Number(status) } : {}) };
+  if (error.code === "upstream_error" && status) return { state: "error", errorStatus: Number(status) };
+  if (error.code === "upstream_error" && (error.reason === "network" || error.reason === "timeout")) return { state: "error" };
   return { state: "error", refusal: error.message };
 }
 
@@ -573,11 +574,25 @@ export function GithubCommentCard(result: GithubToolResult) {
   if (result.tool !== "brain_github_issue_comment") return null;
   const posted = result.result;
   const scope = scopeOf(posted.repository, posted.number);
+  const htmlUrl = directLink(posted.html_url, scope, { kind: "comment", id: posted.comment_id });
+  // The comment tool posts on issues and pull requests alike; only the
+  // validated URL says which (`/pull/` or `/issues/`). Without one, the
+  // target is named without claiming either.
+  const kind = htmlUrl ? (new URL(htmlUrl).pathname.split("/")[3] === "pull" ? "pr" : "issue") : null;
   return (
     <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "4px 8px", minWidth: 0 }} data-github-comment-posted="">
       <GitHubStateChip state="posted" />
-      <GitHubRef kind="issue" repo={posted.repository} number={posted.number} htmlUrl={directLink(posted.html_url, scope, { kind: "comment", id: posted.comment_id })} />
+      {kind ? <GitHubRef kind={kind} repo={posted.repository} number={posted.number} htmlUrl={htmlUrl} /> : <Target repository={posted.repository} number={posted.number} />}
     </div>
+  );
+}
+
+/** A comment's target when its kind is unknown: `owner/repo #n`, claiming neither issue nor pull request. */
+function Target({ repository, number }: { repository: string; number: number }) {
+  return (
+    <span style={{ color: "var(--bk-color-ink-dim)", fontSize: 13, minWidth: 0, overflowWrap: "anywhere" }} data-github-target="">
+      {repository} #{number}
+    </span>
   );
 }
 
@@ -594,7 +609,8 @@ export function GithubCommentPreview({ input }: { input: GithubIssueCommentInput
     <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }} data-github-comment-preview="">
       <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "4px 8px", minWidth: 0 }}>
         <GitHubStateChip state="not-posted" />
-        <GitHubRef kind="issue" repo={input.repository} number={input.number} />
+        {/* The approval names a number, not whether it is an issue or a pull request (#4154). */}
+        <Target repository={input.repository} number={input.number} />
       </div>
       <UntrustedText text={input.body} source="this draft" sourcePhrase="in this draft" frame="rule" caption="Brain's draft · not posted" />
     </div>

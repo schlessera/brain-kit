@@ -127,12 +127,19 @@ export function reviewCounts(pr: GithubPullRequest): { changesRequested: number;
   };
 }
 
-/** One row per reviewer: the latest decision, then requested reviewers with no review yet. */
+/**
+ * One row per reviewer: each latest decision, then each requested reviewer.
+ * GitHub lists a reviewer as requested again after a re-request, so a
+ * requested reviewer reads as requested even with an earlier decision: that
+ * decision is no longer the pending answer.
+ */
 export function reviewerRows(pr: GithubPullRequest, avatarFor: AvatarFor) {
-  const decided = new Set(pr.review_decisions.map((d) => d.reviewer.login));
+  const requested = new Set(pr.requested_reviewers.map((r) => r.login));
   return [
-    ...pr.review_decisions.map((d) => ({ person: person(d.reviewer, avatarFor), state: reviewState(d.state), time: ago(d.submitted_at, pr.fetched_at) })),
-    ...pr.requested_reviewers.filter((r) => !decided.has(r.login)).map((r) => ({ person: person(r, avatarFor), state: "review-requested" as GitHubReviewState })),
+    ...pr.review_decisions
+      .filter((d) => d.reviewer.login === null || !requested.has(d.reviewer.login))
+      .map((d) => ({ person: person(d.reviewer, avatarFor), state: reviewState(d.state), time: ago(d.submitted_at, pr.fetched_at) })),
+    ...pr.requested_reviewers.map((r) => ({ person: person(r, avatarFor), state: "review-requested" as GitHubReviewState })),
   ];
 }
 
