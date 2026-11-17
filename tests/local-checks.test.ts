@@ -3,7 +3,7 @@ import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rm
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { checkPackages } from "../scripts/check-packages";
-import { determinismCommand, localChecks, localStages, localUnitInventory, newReceipt, requireLocalSandbox, requireRuntimeTools, runPreflight, type PreflightStep } from "../scripts/check-pr";
+import { browserDeterminismCommand, determinismCommand, localChecks, localStages, localUnitInventory, newReceipt, requireLocalSandbox, requireRuntimeTools, runPreflight, type PreflightStep } from "../scripts/check-pr";
 import { DEFAULT_ROOTS, testArgv } from "../scripts/test";
 import { planChecks, workspaces } from "../scripts/ci-plan";
 import { discoverTests } from "../scripts/test-shards";
@@ -384,6 +384,17 @@ test("check:pr names the repeated-run command for changed Bun tests and never ru
   }
   expect(determinismCommand(unchanged, "origin/main"), "NO_CHANGED_TEST_NO_COMMAND").toBeUndefined();
   expect(determinismCommand({ ...unchanged, determinism: [] }, "origin/main")).toBeUndefined();
+});
+
+test("check:pr names the repeated-run command for changed browser specs and never runs it locally (#4163)", () => {
+  const unchanged = planChecks(["package.json"], workspaces(join(import.meta.dir, "..")));
+  const plan = { ...unchanged, browserDeterminism: [{ project: "ui-react-layout", file: "packages/ui-react/tests/browser/argo.layout.tsx" }] };
+  expect(browserDeterminismCommand(plan, "origin/main"), "PLAN_NAMES_THE_COMMAND").toBe("bun scripts/browser-determinism.ts --base origin/main");
+  for (const commands of [localChecks(plan), localChecks(plan, true), localChecks(plan, false, "a".repeat(40), true)]) {
+    expect(commands.map(command => command.argv.join(" ")).join("\n"), "NO_LOCAL_BURN").not.toContain("scripts/browser-determinism.ts");
+  }
+  expect(browserDeterminismCommand(unchanged, "origin/main"), "NO_CHANGED_SPEC_NO_COMMAND").toBeUndefined();
+  expect(browserDeterminismCommand({ ...unchanged, browserDeterminism: [] }, "origin/main")).toBeUndefined();
 });
 
 test("default local feedback excludes import-graph tests even with a merge-base SHA", () => {
