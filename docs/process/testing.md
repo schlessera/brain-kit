@@ -297,6 +297,41 @@ Await it and assert on the result, or use `expectRejection`
 (`packages/ui-server/tests/helpers/expect-rejection.ts`)
 ([why](../decisions/sqlite-write-worker.md#testing-note)).
 
+## Changed tests repeat under load
+
+A Bun test file that a pull request adds or modifies runs several times under
+CPU load before it merges
+([the 2026-11-16 ruling](../decisions/ci-utility.md#changed-tests-repeat-under-load-before-merge)).
+Most red-main incidents in the two weeks before it were cleared by changing
+only a test that had passed once.
+
+```sh
+bun scripts/test-determinism.ts --base origin/main          # what the hosted job runs
+bun scripts/test-determinism.ts --base origin/main --json   # the report on stdout
+```
+
+- **Selection.** Files that `bun test` discovers under `packages/` and
+  `tests/`, added or modified against the merge base. Deleted files, the
+  experiment tier and Vitest specs are not selected.
+- **The run.** One invocation of `bun run test` with `--rerun-each` and
+  `--bail=1`, so the offline preload is active and a non-loopback connection
+  fails as it does in any test. One busy loop per CPU runs until the command
+  exits; each is stopped by PID and exits by itself if the command is killed.
+- **The bound.** Five repetitions, reduced uniformly to no fewer than two when
+  the reviewed weights in `scripts/test-shard-costs.json` exceed 600 seconds.
+  The report lists every selected file with the repetitions it got, and says
+  when the selection is over budget at the floor.
+- **A failure** names the file, the repetition and the case. Repetitions of a
+  file share one process, so state left on `globalThis`, in the environment or
+  on disk reaches the next run. Fix the test; do not raise its deadline.
+- **Where it runs.** The hosted `determinism` job, at every pull-request
+  cadence including draft, and in draft heavy feedback. `draft gates` and
+  `proof` require it when the change selects it. `check:pr` never runs it: it
+  occupies every CPU, and the host is shared. `check:pr --plan` prints the
+  command when it applies. A local run waits for
+  [host admission](#host-admission-for-heavy-local-commands);
+  `--burners <n>` lowers the load for a diagnosis.
+
 ## Tests that cannot fail
 
 A green test is evidence only if it could have been red. Each of these shapes
@@ -636,7 +671,10 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   release preparation runs instead of PR proof. Scheduled
   exhaustive CI is additional coverage, not a replacement for selected
   pre-merge proof.
-- Drafts run cheap gates. Ready `opened`, `reopened` and `ready_for_review`
+- Drafts run cheap gates, plus the `determinism` job when the change adds or
+  modifies a Bun test file
+  ([changed tests repeat under load](#changed-tests-repeat-under-load)).
+  Ready `opened`, `reopened` and `ready_for_review`
   events request full affected confirmation. Ready `synchronize` runs affected
   fast invariants and types only; `proof` remains nonpassing until the author
   converts to draft and marks ready after the final push. A push invalidates
@@ -713,13 +751,15 @@ action/runtime versions, pinned offline browser image and diagnostic
 artifacts. Independent selected categories run after metadata; the final proof
 aggregate rejects failures, cancellations, missing outputs and unexpected
 skips. Tests-only changes may intentionally skip packaging while complete
-affected tests run. Drafts run cheap gates only. Forks use ordinary
+affected tests run. Drafts run cheap gates only, with one exception: the
+`determinism` job repeats a change's added or modified Bun test files under
+CPU load at every pull-request cadence. Forks use ordinary
 `pull_request`, a read-only token (`contents: read`, plus `actions: read` /
 `checks: read` for bounded proof lookup), no secrets and nonpersisted checkout
 credentials. A fork run awaiting maintainer approval has not passed.
 
 Environment setup via `scripts/ci-runtime-setup.sh` has its own 12-minute
-step limit in `unit`, `runtime` and `runtime_host`. Proof retains a separate
+step limit in `unit`, `runtime`, `runtime_host` and `determinism`. Proof retains a separate
 30-minute unit allowance or 15-minute runtime allowance. The job caps are
 45 and 30 minutes respectively, including three minutes for the remaining
 steps. The [timeout basis](../decisions/ci-utility.md#separate-environment-setup-and-proof-budgets)
