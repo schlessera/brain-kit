@@ -98,14 +98,14 @@ async function runScenario(mode: string, owner: Scenario): Promise<ScenarioResul
   setup(root, "push", "origin", `${base}:refs/heads/main`, `${synthetic}:refs/heads/proof-fixture`, `${squash}:refs/heads/squash-fixture`);
   const candidate = { repository: "https://github.com/odysseus/brain-kit", pr: 7, head, base };
   const id = "1".repeat(32), store = new GitReservationStore(root), snapshot = store.read();
-  const state = mode === "missing" || mode === "acquire" || mode.startsWith("confirm-") ? emptyReservation() : reservationTransition(emptyReservation(), { kind: "acquire", candidate, id, ...(mode.startsWith("legacy-") ? {} : { token: TOKEN }) }, mode === "wrong-owner" ? 202 : 101, mode === "expired" ? NOW - 300_000 : NOW);
+  const state = mode === "missing" || mode.startsWith("acquire") || mode.startsWith("confirm-") ? emptyReservation() : reservationTransition(emptyReservation(), { kind: "acquire", candidate, id, ...(mode.startsWith("legacy-") ? {} : { token: TOKEN }) }, mode === "wrong-owner" ? 202 : 101, mode === "expired" ? NOW - 300_000 : NOW);
   expect(store.publish(snapshot, state)).toBe(true);
-  if (mode.startsWith("red-main") || mode.startsWith("expedite-")) {
+  if (mode.includes("red-main") || mode.startsWith("expedite-")) {
     const failure = { test: mode === "expedite-category" ? null : "tests/raft.test.ts", category: mode === "expedite-category" ? "browser" as const : "unit" as const,
       verdict: "real" as const, reasons: ["in-affected-closure"], run: 11, sha: base };
     // A sibling squash of the base is red on another line: the candidate's merge ref does not contain it.
     const red = openRed(emptyRedMain(), { firstBad: mode === "red-main-unrelated" ? squash : base, run: 11, failures: [failure] }, NOW);
-    expect(store.publishRedMain(store.read(), mode.startsWith("red-main-fix") ? declareFix(red, 7, NOW) : red)).toBe(true);
+    expect(store.publishRedMain(store.read(), mode.includes("red-main-fix") ? declareFix(red, 7, NOW) : red)).toBe(true);
   }
   const sentinel = join(dir, "merged"), apiState = join(dir, "api.json");
   writeFileSync(apiState, JSON.stringify({ mode, revoked: false, merged: false, now: NOW, requested: false, draft: false }));
@@ -263,7 +263,7 @@ fi`);
   const lifecycle = /^(?:legacy-)?(renew|release)-(holder|none|wrong)$/.exec(mode);
   const presented = (kind: string) => kind === "holder" ? ["--token", TOKEN] : kind === "wrong" ? ["--token", OTHER] : [];
   if (mode === "renew-push-fail") writeFileSync(failPush, "1");
-  const command = mode.startsWith("lane-") && mode.endsWith("-read") ? ["lane", "--json"] : mode === "acquire" ? ["acquire", "7"] : mode === "renew-push-fail" ? ["renew", id, "--token", TOKEN] : lifecycle ? [lifecycle[1]!, id, ...presented(lifecycle[2]!)]
+  const command = mode.startsWith("lane-") && mode.endsWith("-read") ? ["lane", "--json"] : mode.startsWith("acquire") ? ["acquire", "7"] : mode === "renew-push-fail" ? ["renew", id, "--token", TOKEN] : lifecycle ? [lifecycle[1]!, id, ...presented(lifecycle[2]!)]
     : [mode.startsWith("confirm-") ? "confirm" : "merge", "7", ...(mode.startsWith("confirm-") ? [] : ["--lease", mode === "wrong-id" ? "2".repeat(32) : id,
       ...presented(mode === "no-token" ? "none" : mode === "wrong-token" ? "wrong" : "holder")]), ...(delivered.length ? ["--issues", delivered.join(",")] : []),
     ...(mode.startsWith("expedite-") ? ["--fixes-main-run", "11"] : [])];
@@ -682,5 +682,28 @@ test("declared red-main fixes are exempt from the stability window and off-main 
     const fix = await scenario(mode);
     expect(fix.code, `DECLARED_FIX_EXEMPT:${mode}: ${fix.err}`).toBe(2);
     expect(fix.dispatched).toBe(true);
+  }
+});
+
+test("acquire enforces the proof-system lane before taking a reservation (#4178)", async () => {
+  for (const [mode, message] of [
+    ["acquire-lane-own-busy", "has no settled main run of its own yet"],
+    ["acquire-lane-open-unqualified", 'no "Off-main qualification" section'],
+  ] as const) {
+    const result = await scenario(mode);
+    expect(result.code, `ACQUIRE_REFUSES_PROOF_SYSTEM_CANDIDATE:${mode}: ${result.err}`).toBe(1);
+    expect(result.err).toContain("Proof-system candidate refused (scripts/ci-shards.ts)");
+    expect(result.err).toContain(message);
+    expect(result.state.last, `ACQUIRE_REFUSES_BEFORE_RESERVATION:${mode}`).toBeNull();
+    expect(result.requested).toBe(false);
+    expect(result.dispatched).toBe(false);
+  }
+  for (const mode of ["acquire-lane-open", "acquire-lane-own-red-unqualified-product", "acquire-red-main-fix-lane-own-red-unqualified"]) {
+    const result = await scenario(mode);
+    expect(result.code, `ACQUIRE_ACCEPTS:${mode}: ${result.err}`).toBe(0);
+    expect(result.state.active?.candidate.pr).toBe(7);
+    expect(JSON.parse(result.out).token).toMatch(/^[a-f0-9]{64}$/);
+    expect(result.requested).toBe(false);
+    expect(result.dispatched).toBe(false);
   }
 });
