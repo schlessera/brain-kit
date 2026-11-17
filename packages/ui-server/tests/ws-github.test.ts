@@ -7,7 +7,9 @@
  * the credential; with only `GITHUB_TOKEN` set the tools answer
  * `unavailable` and send nothing. Writes (#3798) take their allow-list from
  * the turn's admitted governance policy and their card from the turn's own
- * approval surface, and are recorded as `outward_action`.
+ * approval surface, and are recorded as `outward_action`. Reads and searches
+ * are routed (G2, #4029) under the turn's policy and the conversation's
+ * recorded exposures; writes are not, their card is the gate.
  *
  * Keyless and offline: the fixed API origin is routed to a loopback fake
  * after the network preload; the tokens are synthetic sentinels.
@@ -35,7 +37,7 @@ import { GENERIC_GITHUB_SENTINEL, GITHUB_TOOLS_SENTINEL, fakeGithub, routeGithub
 const SESSION = "sess-ithaca-github";
 
 async function hostedTurn(backendId: "pi" | "claude", env: Record<string, string>, script: (github: (tool: string, input: unknown) => Promise<GithubToolResult>) => Promise<void>,
-  options: { policy?: string; answer?: (request: Record<string, unknown>) => Record<string, unknown> } = {}) {
+  options: { policy?: string; answer?: (request: Record<string, unknown>) => Record<string, unknown>; exposure?: { visible: string; hidden: string } } = {}) {
   const root = await mkdtemp(resolve(tmpdir(), "odysseus-host-github-")), brain = resolve(root, "brain");
   await createFixtureBrain(resolve(import.meta.dir, "../../.."), brain);
   if (options.policy !== undefined) {
@@ -71,6 +73,9 @@ async function hostedTurn(backendId: "pi" | "claude", env: Record<string, string
     registry: createStaticBackendRegistry([backend], backend.id), observability: createRecordingObservability() });
   const sent: string[] = [];
   try {
+    // What an earlier turn of this conversation showed its recipient, as the governed turn records it.
+    if (options.exposure) app.db.query("INSERT INTO session_provider_exposure (turn_id, session_id, recipient, visible, hidden, recorded_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .run("turn-earlier", SESSION, "anthropic", options.exposure.visible, options.exposure.hidden, Date.now());
     const principal = createPrincipal(app.db, { authMethod: "password", label: "Odysseus GitHub", ttlSeconds: 60 });
     const handlers = createWsHandlers(app.wsHost, principal), ws = { send: (text: string) => { sent.push(text); }, close() {}, readyState: 1 } as WSContext;
     await handlers.onOpen(undefined as never, ws);
@@ -162,5 +167,50 @@ test("without a governance policy entry a write is refused before any card and s
     for (const result of results) expect(result, "GITHUB_APP_NO_LIST_REFUSED").toMatchObject({ ok: false, error: { code: "policy_denied", reason: "repository_not_allowed" } });
     expect(outcome.cards).toEqual([]);
     expect(outcome.fake.seen).toEqual([]);
+  } finally { await rm(outcome.root, { recursive: true, force: true }); }
+}, 60_000);
+
+// G2 (#4029): journal is kept from github; an earlier turn of this conversation showed it.
+const ROUTED_POLICY = `${POLICY}\nproviders: [{ paths: [journal/**], allow: [anthropic] }]`;
+const READS = [["brain_github_issue_read", { repository: "odysseus/ithaca", number: 7 }],
+  ["brain_github_issue_search", { repository: "odysseus/ithaca", query: "the suitors' feast", kind: "any", state: "any", limit: 10 }]] as const;
+
+test("a conversation shown a folder kept from github is refused every read and search, sends nothing, and still files a write through its card", async () => {
+  const results: GithubToolResult[] = [];
+  const outcome = await hostedTurn("claude", { BRAIN_UI_GITHUB_TOOLS_TOKEN: GITHUB_TOOLS_SENTINEL }, async github => {
+    for (const [tool, input] of READS) results.push(await github(tool, input));
+    results.push(await github("brain_github_issue_create", ISSUE));
+  }, { policy: ROUTED_POLICY, exposure: { visible: '["journal"]', hidden: "[]" }, answer: () => ({ type: "tool_approval" }) });
+  try {
+    for (const result of results.slice(0, 2)) expect(result, `GITHUB_APP_ROUTING_RESTRICTED ${result.tool}`).toMatchObject({ ok: false, error: { code: "policy_denied", reason: "recipient_restricted" } });
+    expect(outcome.taint, "GITHUB_APP_ROUTING_NOTHING_TAINTED").toEqual([]);
+    // The write is not routed: its card shows exactly what is sent, and only it reaches GitHub.
+    expect(results[2], "GITHUB_APP_WRITE_NOT_ROUTED").toMatchObject({ ok: true, result: { kind: "issue_created", repository: "odysseus/ithaca" } });
+    expect(outcome.cards.map(card => card.input), "GITHUB_APP_WRITE_CARD_UNDER_ROUTING").toEqual([ISSUE]);
+    expect(outcome.fake.seen.map(request => [request.method, request.path]), "GITHUB_APP_ROUTING_ONLY_THE_WRITE_SENT").toEqual([["POST", "/repos/odysseus/ithaca/issues"]]);
+  } finally { await rm(outcome.root, { recursive: true, force: true }); }
+}, 60_000);
+
+test("a conversation whose exposure cannot be judged under a policy restricting github is refused, and sends nothing", async () => {
+  const results: GithubToolResult[] = [];
+  // A record the server cannot read says nothing it could trust about what was shown.
+  const outcome = await hostedTurn("claude", { BRAIN_UI_GITHUB_TOOLS_TOKEN: GITHUB_TOOLS_SENTINEL }, async github => {
+    for (const [tool, input] of READS) results.push(await github(tool, input));
+  }, { policy: ROUTED_POLICY, exposure: { visible: "journal", hidden: "[]" } });
+  try {
+    for (const result of results) expect(result, `GITHUB_APP_ROUTING_UNPROVEN ${result.tool}`).toMatchObject({ ok: false, error: { code: "policy_denied", reason: "recipient_unproven" } });
+    expect(outcome.fake.seen, "GITHUB_APP_ROUTING_UNPROVEN_NOTHING_SENT").toEqual([]);
+    expect(outcome.taint).toEqual([]);
+  } finally { await rm(outcome.root, { recursive: true, force: true }); }
+}, 60_000);
+
+test("a conversation that showed github no restricted folder reads as before under the same policy", async () => {
+  const results: GithubToolResult[] = [];
+  const outcome = await hostedTurn("claude", { BRAIN_UI_GITHUB_TOOLS_TOKEN: GITHUB_TOOLS_SENTINEL }, async github => {
+    for (const [tool, input] of READS) results.push(await github(tool, input));
+  }, { policy: ROUTED_POLICY, exposure: { visible: '["journal"]', hidden: '["journal"]' } });
+  try {
+    expect(results.map(result => result.ok ? (result.result as { kind: string }).kind : result.error.reason), "GITHUB_APP_ROUTING_ADMITTED").toEqual(["issue", "search"]);
+    expect(outcome.fake.seen.length).toBeGreaterThan(1);
   } finally { await rm(outcome.root, { recursive: true, force: true }); }
 }, 60_000);
