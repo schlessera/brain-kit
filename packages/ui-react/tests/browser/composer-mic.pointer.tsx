@@ -13,7 +13,8 @@
  * its complete property descriptor when the test ends.
  *
  * The mic has two timings: a press held 0.6 s opens Start, and after a
- * completed or cancelled hold the release's click is swallowed for one second.
+ * cancelled hold the release's click is swallowed for one second. A completed
+ * hold stays guarded until its release, however long the press remains down.
  * Both run on a clock this file controls (`stopClock`). Input stays native;
  * time passes only when a test advances it, so a slow runner cannot stretch a
  * dwell between two inputs (#4170, #4184).
@@ -253,7 +254,7 @@ for (const kind of KINDS) for (const width of [320, 1280] as const) test(`a comp
     advance(1);
     expect(s.client.state.getState().disclosureOpen, `${kind}: the hold opens Start while the mic is still held`).toBe(true);
     expect(s.haptics, `${kind}: one light haptic while the mic is still held`).toEqual([10]);
-    // Released one millisecond before the click guard ends.
+    // Released after 999 ms; the completed hold is still guarded.
     advance(GUARD - 1);
     await release(kind, at, HOLD + GUARD - 1);
     // The release is not a tap: Start stays, and no dictation began.
@@ -266,6 +267,27 @@ for (const kind of KINDS) for (const width of [320, 1280] as const) test(`a comp
     await userEvent.click(page.getByRole("button", { name: "Cancel", exact: true }));
     expect(s.client.state.getState().active).toBe(false);
   }
+});
+
+for (const kind of KINDS) for (const width of [320, 1280] as const) test(`five seconds after Start opens the original release never presses Start ${kind} ${width}`, async ctx => {
+  premise();
+  const s = await scene(ctx, width);
+  const at = centre(s.mic()!);
+  const clock = stopClock(ctx);
+  await press(s, kind, at);
+  advance(HOLD);
+  expect(s.client.state.getState().disclosureOpen, "the hold opens Start before release").toBe(true);
+  advance(5_000);
+  await release(kind, at, HOLD + 5_000);
+  expect(s.network.socket()!.frames("conversation_start"), "the original release must not press Start").toHaveLength(0);
+  expect(s.client.state.getState().disclosureOpen, "Start stays open and unpressed").toBe(true);
+  expect(s.microphone, "the original release captures nothing").toEqual([]);
+  // A fresh native press is deliberate consent, even immediately after release.
+  const start = centre(page.getByRole("button", { name: "Start", exact: true }).element());
+  clock.restore();
+  await commands.sheetInput(kind, [{ type: "down", ...start, t: 0 }, { type: "up", ...start, t: 100 }]);
+  await delivered(100);
+  await expect.poll(() => s.network.socket()!.frames("conversation_start").length, { message: "a deliberate tap presses Start" }).toBe(1);
 });
 
 for (const kind of KINDS) for (const width of [320, 1280] as const) test(`an early release dictates, and never opens Start ${kind} ${width}`, async ctx => {
@@ -372,7 +394,7 @@ for (const kind of KINDS) for (const width of [320, 1280] as const) test(`withou
     expect(s.haptics, `${kind}: one light haptic while the mic is still held`).toEqual([10]);
     const ok = page.getByRole("button", { name: "OK", exact: true });
     expect(document.activeElement, `${kind}: the notice takes focus`).toBe(ok.element());
-    // Released one millisecond before the click guard ends.
+    // Released after 999 ms; the completed hold is still guarded.
     advance(GUARD - 1);
     await release(kind, at, HOLD + GUARD - 1);
     expect(s.client.state.getState().active, `${kind}: Start does not open`).toBe(false);
@@ -387,7 +409,7 @@ for (const kind of KINDS) for (const width of [320, 1280] as const) test(`withou
 });
 
 // The mic stays in place under S4, so the release's click lands on it for a mouse and for a touch.
-for (const kind of KINDS) for (const width of [320, 1280] as const) test(`one second after a completed hold the release is a tap again ${kind} ${width}`, async ctx => {
+for (const kind of KINDS) for (const width of [320, 1280] as const) test(`five seconds after S4 opens the original release is still swallowed ${kind} ${width}`, async ctx => {
   premise();
   {
     const s = await scene(ctx, width);
@@ -397,13 +419,46 @@ for (const kind of KINDS) for (const width of [320, 1280] as const) test(`one se
     await press(s, kind, at);
     advance(HOLD);
     expect(s.host.textContent, `${kind}: S4 replaces Start while the mic is still held`).toContain(S4);
-    // The case above releases one millisecond earlier, and is swallowed.
-    advance(GUARD);
-    await release(kind, at, HOLD + GUARD);
-    expect(s.ui.stores.voice.getState().mode, `${kind}: the click guard has ended, so the release dictates`).toBe("dictate");
+    advance(5_000);
+    await release(kind, at, HOLD + 5_000);
+    expect(s.ui.stores.voice.getState().mode, `${kind}: the original release does not dictate`).toBe("idle");
+    expect(s.host.textContent, "the release leaves S4 open").toContain(S4);
+    // The mic remains in place, and a new native tap still dictates.
+    await press(s, kind, at);
+    await release(kind, at, 100);
+    expect(s.ui.stores.voice.getState().mode, "a deliberate tap dictates").toBe("dictate");
     expect(s.client.state.getState().active, `${kind}: Start does not open`).toBe(false);
     expect(s.haptics).toEqual([10]);
   }
+});
+
+// Start replaces the mic, so a mouse release produces no click. Exercise each
+// way to end that surviving guard without letting its fallback timer expire.
+for (const ending of ["press", "key", "click"] as const) test(`after a completed hold with no release click a new ${ending} ends the guard`, async ctx => {
+  premise();
+  const s = await scene(ctx, 1280);
+  stopClock(ctx);
+  await press(s, "mouse", centre(s.mic()!));
+  advance(HOLD);
+  expect(s.client.state.getState().disclosureOpen).toBe(true);
+  const start = page.getByRole("button", { name: "Start", exact: true }).element() as HTMLButtonElement;
+  const at = centre(start);
+  await release("mouse", at, HOLD);
+  expect(s.network.socket()!.frames("conversation_start"), "a mouse release after replacement makes no click").toHaveLength(0);
+  if (ending === "press") {
+    await commands.sheetInput("mouse", [{ type: "down", ...at, t: 0 }, { type: "up", ...at, t: 100 }]);
+    await delivered(100);
+  } else if (ending === "key") {
+    start.focus();
+    await userEvent.keyboard("{Enter}");
+  } else {
+    // A click with no preceding press (assistive activation) consumes the guard.
+    start.click();
+    expect(s.network.socket()!.frames("conversation_start"), "the first unpaired click is swallowed").toHaveLength(0);
+    start.click();
+  }
+  await reached(() => s.network.socket()!.frames("conversation_start").length === 1, `a fresh ${ending} allows Start`);
+  expect(s.network.socket()!.frames("conversation_start"), "a later deliberate activation is never lost").toHaveLength(1);
 });
 
 test("the keyboard and a screen reader reach both modes", async ctx => {
