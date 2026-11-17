@@ -1094,7 +1094,7 @@ workflow.
 
 
 Discovery has a fixed 30-second wall-clock maximum for the native child to exit
-and both output pipes to drain (`browserInventory`, `scripts/proof-inputs.ts:55-113`),
+and both output pipes to drain (`browserInventory`, `scripts/proof-inputs.ts:56-127`),
 in local preflight and hosted metadata. The maintainer selected
 option A under [#2380](https://github.com/schlessera/brain-kit/issues/2380) on
 2026-10-22: #2326's cold discovery sample took 14,811 ms in the pinned offline
@@ -1102,6 +1102,14 @@ image with two CPUs, so 30 seconds allows approximately twice that observed
 duration. Hosted metadata steps had completed in 6–11 seconds. This bounded
 margin does not guarantee completion under arbitrary CPU starvation; a stuck
 child can take up to 15 seconds longer to fail than under the previous maximum.
+A failure receipt records the discovery child's CPU time and involuntary
+context switches beside its wall time, with the runner's parallelism and load
+average, so a timeout names its phase: CPU near the deadline is slow discovery,
+CPU far below it is a runner that withheld CPU or I/O
+([#4149](https://github.com/schlessera/brain-kit/issues/4149)). The #4149
+timeout came before these fields and was a starved runner: its checkout and
+install also ran about five times slower than usual, and the same candidate
+tree discovered in about 5 seconds in the pinned image with two CPUs.
 Process controls inject a short deadline and assert the default separately;
 the integration test allows additional time for ownership scanning and cleanup.
 Discovery failure still rejects unsuccessful inventories: selection then keeps
