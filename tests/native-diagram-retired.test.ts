@@ -20,11 +20,13 @@ const RETIRED = [
 
 test("no script or test pins the retired native diagram qualification", () => {
   // Two patterns: Bun's glob matches nothing when a brace alternative holds a `/`.
-  const files = ["{scripts,tests}/**/*.{ts,tsx,mjs,js}", "packages/*/{tests,scripts}/**/*.{ts,tsx,mjs,js}"]
+  // JSON too: an audit record or manifest can carry a pin as well as code can.
+  const files = ["{scripts,tests}/**/*.{ts,tsx,mjs,js,json}", "packages/*/{tests,scripts}/**/*.{ts,tsx,mjs,js,json}"]
     .flatMap((pattern) => [...new Bun.Glob(pattern).scanSync({ cwd: root, dot: false })])
     .filter((file) => !file.includes("node_modules") && file !== "tests/native-diagram-retired.test.ts");
   // The scan must see the files the binding lived in, or an empty glob passes vacuously.
   expect(files, "SCAN_COVERS_THE_PROOF_SCRIPTS").toContain("scripts/browser-input-closure.ts");
+  expect(files, "SCAN_COVERS_THE_AUDIT_RECORDS").toContain("scripts/browser-worker-audit.json");
   const pinned = files.flatMap((file) => RETIRED.filter((hash) => readFileSync(join(root, file), "utf8").includes(hash)).map((hash) => `${file}: ${hash.slice(0, 8)}`));
   expect(pinned, "NATIVE_DIAGRAM_QUALIFICATION_STAYS_RETIRED").toEqual([]);
 });
