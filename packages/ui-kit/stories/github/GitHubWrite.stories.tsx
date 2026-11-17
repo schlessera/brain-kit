@@ -1,5 +1,5 @@
 import preview from "#.storybook/preview";
-import { expect, fn } from "storybook/test";
+import { expect, fn, userEvent } from "storybook/test";
 
 import { brainBot } from "../../fixtures/github.js";
 import { ApprovalCard } from "../../src/decisions/ApprovalCard.js";
@@ -48,6 +48,29 @@ export const W1IssueApproval = meta.story({
   },
 });
 export const W1IssueApprovalNarrow = W1IssueApproval.extend({ ...narrow });
+
+/**
+ * W1 with a draft past the read bodies' 20,000-character bound (#4197): the
+ * card shows all of what is approved, in both panes, and never says
+ * "Truncated". The host posts up to 65,536 characters.
+ */
+const LONG_ISSUE_DRAFT = `${"The tally of the wine store, night by night. ".repeat(560)}The last line of the draft.`;
+export const W1LongDraft = meta.story({
+  ...desktop,
+  render: () => (
+    <ApprovalCard tool="Post to GitHub?" target="ithaca/hall" toolIcon="issue-open" badge="Can't be undone" diff="" risk="" wrapHeader allowLabel="Post issue" denyLabel="Don't post" onAllow={fn()} onDeny={fn()}>
+      <GitHubIssue state="open" repo="ithaca/hall" title="The wine store tally, night by night" body={LONG_ISSUE_DRAFT} posting={{ status: "preview" }} />
+    </ApprovalCard>
+  ),
+  play: async ({ canvas }) => {
+    await expect(Array.from(LONG_ISSUE_DRAFT).length).toBeGreaterThan(20_000);
+    await expect(canvas.queryByText(/Truncated/), "a draft is never shown cut").toBeNull();
+    await expect(canvas.getByText(/The last line of the draft\./), "As shown renders the whole draft").toBeVisible();
+    await userEvent.click(canvas.getByRole("tab", { name: "Exact text" }));
+    await expect(canvas.getByText(/The last line of the draft\.$/), "Exact text is the whole string").toBeVisible();
+  },
+});
+export const W1LongDraftNarrow = W1LongDraft.extend({ ...narrow });
 
 /** W2: the same slot, now the real object, posted. */
 export const W2Posted = meta.story({

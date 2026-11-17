@@ -396,7 +396,8 @@ if (import.meta.main) {
         if (lost) throw lost;
       } else {
         // Before any lease or candidate CI: a closed lane would refuse the merge anyway.
-        if (command === "confirm") { await refuseProofSystemLane(desired, fixesRun); await contractPassed(desired); }
+        await refuseProofSystemLane(desired, fixesRun);
+        if (command === "confirm") await contractPassed(desired);
         own = await acquire(desired);
         // Only an explicit acquire prints the holder token, once; confirm keeps it in memory.
         console.log(JSON.stringify(command === "acquire" ? { acquired: own, token } : { acquired: own }));

@@ -1,0 +1,54 @@
+{
+  "packages/ui-react/tests/association-signout-runtime.test.ts": {
+    "run": 44161515414,
+    "job": 134317060918,
+    "outcome": "passed",
+    "repetitions": 2,
+    "observed": 2,
+    "estimatedSeconds": 388.612,
+    "elapsedSeconds": 722.37,
+    "proofStepSeconds": 729.0,
+    "deadlineFactor": 8,
+    "burners": 4,
+    "cpus": 4
+  },
+  "packages/ui-react/tests/connection-continuity-runtime.test.ts": {
+    "run": 44161515414,
+    "job": 134317060892,
+    "outcome": "passed",
+    "repetitions": 2,
+    "observed": 2,
+    "estimatedSeconds": 290.866,
+    "elapsedSeconds": 511.711,
+    "proofStepSeconds": 525.0,
+    "deadlineFactor": 8,
+    "burners": 4,
+    "cpus": 4
+  },
+  "packages/ui-react/tests/parallel-sessions-runtime.test.ts": {
+    "run": 44161515414,
+    "job": 134317060865,
+    "outcome": "passed",
+    "repetitions": 2,
+    "observed": 2,
+    "estimatedSeconds": 874.69,
+    "elapsedSeconds": 1429.306,
+    "proofStepSeconds": 1433.0,
+    "deadlineFactor": 8,
+    "burners": 4,
+    "cpus": 4
+  },
+  "packages/ui-server/tests/hygiene-review.test.ts": {
+    "run": 44161515414,
+    "job": 134317060923,
+    "outcome": "passed",
+    "repetitions": 2,
+    "observed": 2,
+    "estimatedSeconds": 276.28,
+    "elapsedSeconds": 472.992,
+    "proofStepSeconds": 482.0,
+    "deadlineFactor": 8,
+    "burners": 4,
+    "cpus": 4
+  }
+}

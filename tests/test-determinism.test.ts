@@ -11,6 +11,8 @@ import {
 } from "../scripts/test-determinism";
 import { planPartitions, selectPartition } from "../scripts/determinism-plan";
 import { DETERMINISM_PARTITIONS } from "../scripts/proof-shards";
+import { FILE_COST_SECONDS } from "../scripts/test-shards";
+import singleFileRuns from "./fixtures/determinism-single-file-runs.json";
 
 const ROOT = join(import.meta.dir, "..");
 // The wrapper, its preload and what they import, as tests/experiment-tier.test.ts copies them.
@@ -26,6 +28,31 @@ async function gone(pid: number, withinMs: number): Promise<boolean> {
   for (const deadline = Date.now() + withinMs; Date.now() < deadline; await Bun.sleep(20)) if (!alive(pid)) return true;
   return !alive(pid);
 }
+
+describe("oversized single-file hosted coverage (#4156)", () => {
+  test("every reviewed file above the two-pass capacity has a hosted measurement inside the step limit", () => {
+    const oversized = Object.entries(FILE_COST_SECONDS)
+      .filter(([, weight]) => weight * FLOOR_REPETITIONS > DETERMINISM_PARTITIONS.capacitySeconds)
+      .map(([file]) => file).sort();
+    expect(oversized.filter(file => !Object.hasOwn(singleFileRuns, file)), "NEW_OVERSIZED_FILES_NEED_HOSTED_MEASUREMENT_OR_A_RECORDED_REMEDY")
+      .toEqual([]);
+    const records = singleFileRuns as Record<string, { run: number; job: number; outcome: string; repetitions: number; observed: number; elapsedSeconds: number;
+      estimatedSeconds: number; proofStepSeconds: number; deadlineFactor: number; burners: number; cpus: number }>;
+    for (const [file, measured] of Object.entries(records)) {
+      expect(measured.run, file).toBeGreaterThan(0);
+      expect(measured.job, file).toBeGreaterThan(0);
+      expect(measured.outcome, file).toBe("passed");
+      expect([measured.repetitions, measured.observed], file).toEqual([FLOOR_REPETITIONS, FLOOR_REPETITIONS]);
+      expect(measured.deadlineFactor, file).toBe(DETERMINISM_PARTITIONS.deadlineFactor);
+      expect([measured.burners, measured.cpus], file).toEqual([4, 4]);
+      expect(measured.estimatedSeconds, file).toBeGreaterThan(0);
+      expect(measured.elapsedSeconds, file).toBeGreaterThan(0);
+      expect(measured.elapsedSeconds, file).toBeLessThan(DETERMINISM_PARTITIONS.stepMinutes * 60);
+      expect(measured.proofStepSeconds, file).toBeGreaterThanOrEqual(measured.elapsedSeconds);
+      expect(measured.proofStepSeconds, file).toBeLessThan(DETERMINISM_PARTITIONS.stepMinutes * 60);
+    }
+  });
+});
 
 describe("repetition budget", () => {
   const costs = { "tests/argo.test.ts": 20, "tests/ithaca.test.ts": 30 };
@@ -383,6 +410,31 @@ async function determinismUnder(env: Record<string, string | undefined>, dir: st
 }
 
 describe("the command, through the real offline wrapper", () => {
+  test("an oversized file is named in the job summary before its first repetition starts", async () => {
+    const f = checkout({ "tests/cyclops.test.ts": 160 });
+    f.write("tests/cyclops.test.ts", `import { expect, test } from "bun:test";
+import { existsSync, readFileSync } from "node:fs";
+test("the crew sees the oversized passage before setting sail", () => {
+  const path = process.env.GITHUB_STEP_SUMMARY!;
+  const summary = existsSync(path) ? readFileSync(path, "utf8") : "";
+  expect(summary).toContain("Single file exceeds partition capacity");
+  expect(summary).toContain("tests/cyclops.test.ts");
+  expect(summary).toContain("320.0 weighted s");
+  expect(summary).toContain("300 s capacity");
+  expect(summary).toContain("${DETERMINISM_PARTITIONS.stepMinutes}-minute proof step");
+});
+`);
+    f.commit("an oversized passage");
+    const run = await determinism(f.dir, "--base", f.base);
+    expect(run.code, run.output).toBe(0);
+    expect(run.report.files).toEqual([{ file: "tests/cyclops.test.ts", weightSeconds: 160, weighted: true, repetitions: 2, observed: 2 }]);
+    expect(run.summary).toContain("cannot be split across partitions");
+    // A normal file produces only the ordinary completion summary.
+    const normal = await determinism(f.dir, "tests/harbour.test.ts");
+    expect(normal.code, normal.output).toBe(0);
+    expect(normal.summary).not.toContain("Single file exceeds partition capacity");
+  });
+
   test.each(Object.keys(REPORTERS) as (keyof typeof REPORTERS)[])("under the %s reporter the racy fixture's failure still names its file and repetition", async reporter => {
     const f = checkout(); f.write("tests/landing.test.ts", RACY); f.commit("a race against the tide");
     const run = await determinismUnder(reporterEnv(f.dir, reporter), f.dir, "--base", f.base);

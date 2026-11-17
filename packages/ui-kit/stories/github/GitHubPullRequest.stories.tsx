@@ -1,6 +1,6 @@
 import preview from "#.storybook/preview";
 import { useState } from "react";
-import { expect, within } from "storybook/test";
+import { expect, userEvent, within } from "storybook/test";
 
 import { argos, commits, eurycleia, penelope, pr, prThread, telemachus } from "../../fixtures/github.js";
 import { GitHubCommitRow } from "../../src/github/GitHubCommitRow.js";
@@ -168,3 +168,22 @@ export const Preview = meta.story({
   },
 });
 export const PreviewNarrow = Preview.extend({ ...narrow });
+
+/**
+ * A preview shows its whole draft (#4197): the read bodies' 20,000-character
+ * bound does not cut what is approved. The 8-line clamp stays, and its
+ * expand control names the whole length.
+ */
+const LONG_PR_DRAFT = `${"The key log gains a second signature per opening. ".repeat(500)}The last line of the draft.`;
+export const PreviewLongDraft = meta.story({
+  args: { preview: true, body: LONG_PR_DRAFT, bodyLength: undefined, bodyTruncated: false },
+  ...desktop,
+  play: async ({ canvas }) => {
+    await expect(canvas.queryByText(/Truncated/), "a draft is never shown cut").toBeNull();
+    const length = Array.from(LONG_PR_DRAFT).length;
+    await expect(length).toBeGreaterThan(20_000);
+    await userEvent.click(canvas.getByRole("button", { name: `Show full description · ${length.toLocaleString("en-US")} characters` }));
+    await expect(canvas.getByText(/The last line of the draft\./)).toBeVisible();
+  },
+});
+export const PreviewLongDraftNarrow = PreviewLongDraft.extend({ ...narrow });

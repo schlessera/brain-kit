@@ -1365,8 +1365,8 @@ Each implementation task is tracked separately:
 
 #### Lane and qualification gates
 
-`bun scripts/integrate.ts confirm` and `merge` classify the candidate from
-its merge base with the exact base to its exact head, using `classify` from
+`bun scripts/integrate.ts acquire`, `confirm` and `merge` classify the
+candidate from its merge base with the exact base to its exact head, using `classify` from
 `scripts/proof-system.ts`, and hold only a proof-system candidate. Both gates
 and `lane --json` live in `scripts/proof-system-lane.ts`; neither lists a
 glob.
@@ -1393,8 +1393,8 @@ glob.
   the run found at each squash it read, and says `1 more green main run
   required`. `bun scripts/integrate.ts lane --json` prints the same decision
   (`state`, `ownGreen`, `required`, `window`, `decisive`) with that refusal,
-  or `null` when the lane is open. `confirm` checks before it takes the
-  reservation or requests candidate CI, and the merge checks again, because a
+  or `null` when the lane is open. `acquire` and `confirm` check before taking the
+  reservation or requesting candidate CI, and the merge checks again, because a
   main run may fail while the candidate is proved.
 - **Off-main qualification** ([#3271](https://github.com/schlessera/brain-kit/issues/3271),
   answer 3). The PR body needs an `Off-main qualification` heading whose
@@ -1862,6 +1862,9 @@ PRs below.
     changesets and affected fast invariants);
   - main is not red;
   - it holds the merge lease, so that it does not race a confirmation.
+    `integrate.ts acquire` enforces the proof-system stability window and
+    off-main qualification before taking that lease, with the same declared
+    red-main fix exemption as `confirm`. The fast lane skips neither gate.
 - **What it relies on.** Draft CI runs only the metadata gates, so a
   fast-lane PR reaches main with no hosted unit run before the merge. Its
   local receipt and the squash's own main run, which proves every affected
@@ -2123,14 +2126,14 @@ two. Of those eight, six are split (five into two or three partitions, the
 migration into nine) and two are a single file. An oversized selection costs
 up to ten runners for its two repetitions.
 
-**Known limit.** All eight contain a real-browser runtime test whose two
-repetitions alone exceed the capacity; the heaviest weighs 349.7 seconds per
-pass. Sharding cannot help a single file. It runs alone, at the floor, and no
-hosted run has yet measured whether it finishes inside the step limit
-([#4156](https://github.com/schlessera/brain-kit/issues/4156)). The five
-calibration runs are all tooling and backend tests; a refreshed weight table
-or a different mix of tests changes the ratio, and the capacity is to be
-recalibrated from the reports then.
+**Single-file capacity.** In that historical replay, all eight contain a
+real-browser runtime test whose two repetitions alone exceed the capacity;
+the heaviest then weighed 349.7 seconds per pass. Sharding cannot help a
+single file: it runs alone, at the floor. The later
+[single-file measurements](#single-files-above-capacity-are-measured-under-load)
+cover the four files identified by #4156, using refreshed weights and the
+scaled watchdogs. A refreshed weight table or a different mix of tests changes
+the ratio, and the capacity is to be recalibrated from the reports then.
 
 **Known limits.** Repetitions of one file share a process. Bun 1.4.2 evaluates
 the module again for each run, but `globalThis` and process state persist, so a
@@ -2138,6 +2141,60 @@ file that leaks state into its next run fails too. Vitest browser, layout and
 story specs run in the pinned container and have
 [their own gate](#changed-browser-specs-repeat-under-load-before-merge); the
 one endurance spec is not repeated.
+
+### Single files above capacity are measured under load
+
+Measured on 2026-11-17 for [#4156](https://github.com/schlessera/brain-kit/issues/4156),
+in [run 44161515414, attempt 1](https://github.com/schlessera/brain-kit/actions/runs/44161515414)
+on the throwaway draft [#4232](https://github.com/schlessera/brain-kit/pull/4232).
+Comment-only edits selected all four originally identified files. The planner
+split them into four jobs, one file per job, each repeated **twice** under
+four CPU burners on four CPUs. The existing [#4191 watchdog policy](#test-watchdogs-are-a-worst-case-catch-all)
+was active: factor **8**, with a 240-second default per-test cap. No test,
+deadline or repetition count was changed for the measurement, and no job was
+retried.
+
+The #4155 weight refresh had already changed the two-pass estimates: only
+parallel-sessions and association-signout still exceeded the 300-second
+capacity. Connection-continuity and hygiene-review were measured as well,
+as required by the original issue. Each `determinism-proof-<n>` artifact
+contains `determinism-report.json` and `determinism-junit.xml`; both show
+exactly two repetitions and no failures or skips. Report elapsed time includes
+the offline wrapper and the setup/builds inside repetition; the full proof
+step also includes the job command's preparation.
+
+| File | Two-pass estimate (s) | Report elapsed (s) | Proof step (s) | Hosted job |
+| --- | --- | --- | --- | --- |
+| `packages/ui-react/tests/parallel-sessions-runtime.test.ts` | 874.690 | 1429.3 | 1433 | [job 134317060865](https://github.com/schlessera/brain-kit/actions/runs/44161515414/job/134317060865) |
+| `packages/ui-react/tests/association-signout-runtime.test.ts` | 388.612 | 722.4 | 729 | [job 134317060918](https://github.com/schlessera/brain-kit/actions/runs/44161515414/job/134317060918) |
+| `packages/ui-react/tests/connection-continuity-runtime.test.ts` | 290.866 | 511.7 | 525 | [job 134317060892](https://github.com/schlessera/brain-kit/actions/runs/44161515414/job/134317060892) |
+| `packages/ui-server/tests/hygiene-review.test.ts` | 276.280 | 473.0 | 482 | [job 134317060923](https://github.com/schlessera/brain-kit/actions/runs/44161515414/job/134317060923) |
+
+Every job's checkout log and `proof-checkout.json` names synthetic merge
+`7e4008a99199f708b0f71ae01f4d19b615248312`, tree
+`6eafef9615efcf86ef47ff7172d9105b0057cd58`, with parents main
+`0aeb62a7acaef51deabe6a6bc84d3b7b1b72e286` and measurement head
+`33485434a248168db55d423199f3ff06cbe9fe89`. The immutable commit API and local
+Git object agree. These are sizing observations of that tree, not proof for a
+later candidate. The draft was closed without merging and its branch deleted
+after collecting the artifacts.
+
+**Decision: retain the 40-minute step.** The heaviest single file completed
+in 1,429.3 seconds; its full step took 1,433 seconds, leaving 967 seconds of
+headroom. A larger step or a file split is unnecessary on this evidence.
+The capacity, partition maximum, floor of two and factor of eight stay as
+ruled. One hosted observation per file does not guarantee every future run
+fits, and the tooling/backend calibration ratio is not a per-file bound.
+
+The checked-in measurement inventory in
+[`tests/fixtures/determinism-single-file-runs.json`](../../tests/fixtures/determinism-single-file-runs.json)
+is checked against the reviewed weights: a newly oversized file needs hosted
+evidence or an explicit recorded remedy before its coverage test can pass.
+The job writes its oversized-file warning **before** starting the wrapper
+(`const oversized`, `scripts/test-determinism.ts:197-205`), naming the file,
+repetition estimate, capacity and step limit. A step timeout therefore leaves
+the known unsplittable case in the summary even when no completion report can
+be written.
 
 ## Changed browser specs repeat under load before merge
 
@@ -2184,7 +2241,7 @@ and 9 of 16 with burners inside it. A further pass cost the spec's own time,
   suite's. Inside, `scripts/browser-determinism-inside.mjs` starts Vitest once
   through `vitest/node` and calls `runTestSpecifications` with exactly the
   selected pairs for every pass (`runPasses`,
-  `scripts/browser-determinism-inside.mjs:109-143`). Vitest 4.1.11 then opens a new
+  `scripts/browser-determinism-inside.mjs:110-146`). Vitest 4.1.11 then opens a new
   tester iframe for each file: a new document, the module evaluated again,
   `beforeAll` rerun. What carries over between passes is the browser process,
   its context and orchestrator page, cookies, `localStorage`, `sessionStorage`
@@ -2226,7 +2283,7 @@ and 9 of 16 with burners inside it. A further pass cost the spec's own time,
   refreshed table (7.9 seconds) and below its mean (12.1). Every spec a change
   adds is unweighted until the next refresh.
 - **Partitions.** One owner (`BROWSER_DETERMINISM_PARTITIONS`,
-  `scripts/proof-shards.ts:58`) holds one job's capacity of 300 weighted seconds,
+  `scripts/proof-shards.ts:68`) holds one job's capacity of 300 weighted seconds,
   the maximum of 15 partitions, the 20-minute step limit, the load ratio and
   the unweighted default. Counting and partitioning are the Bun gate's
   functions applied to pairs
@@ -2263,7 +2320,8 @@ and 9 of 16 with burners inside it. A further pass cost the spec's own time,
   slot through the launcher, and `--cpu-list` confines the container's work
   and its burners to a few CPUs of a shared host.
 
-**What does not change.** No spec, deadline or baseline changes. No failure is
+**What does not change.** No spec or baseline changes. Default watchdogs scale under deliberate load
+([the watchdog ruling](#test-watchdogs-are-a-worst-case-catch-all)). No failure is
 retried into a pass: the first failing repetition fails the job, which names
 the spec, the project, the repetition and the case. Unchanged specs are not
 repeated.
@@ -2366,8 +2424,8 @@ fit under it.
 
 Under the `determinism` job every test deadline the job can reach is
 multiplied by one factor, **8**, owned beside the job's other numbers
-(`DETERMINISM_PARTITIONS`, `scripts/proof-shards.ts:52`). No other job scales
-anything.
+(`DETERMINISM_PARTITIONS`, `scripts/proof-shards.ts:52`). The browser repetition job applies its own factor, described below. Other
+jobs retain their written durations.
 
 - **Bun's per-test cap.** The command reads the cap from the root `test`
   script, which owns it (`testCapMs`, `scripts/test-determinism.ts:74-79`),
@@ -2377,10 +2435,10 @@ anything.
 - **Explicit test and hook timeouts.** A second preload, loaded only by this
   command, replaces `bun:test` for the invocation with a copy whose `test`,
   `it`, hooks and `setDefaultTimeout` multiply the timeout they are given
-  (`scaledTestModule`, `scripts/test-deadlines.ts:103-112`;
+  (`scaledTestModule`, `scripts/test-deadlines.ts:110-119`;
   `scripts/test-deadline-preload.ts`). No test is edited.
 - **In-test watchdogs.** A test's own timer reads the helper
-  (`watchdogMs`, `scripts/test-deadlines.ts:41-44`), which multiplies by the
+  (`watchdogMs`, `scripts/test-deadlines.ts:48-51`), which multiplies by the
   factor the command sets in `BRAIN_TEST_DEADLINE_FACTOR` and by one
   everywhere else. The 27-second watchdog is the first to read it
   (`watchdogMs(27_000)`, `tests/integration-command.test.ts:29`).
@@ -2436,14 +2494,62 @@ ratio with its margin.
   it can exceed what is left of the step, and then the step limit, not Bun,
   ends a hang in it.
 - The job's 12-minute setup limit and 40-minute step limit.
-- Every other job: `unit`, the runtime and browser domains and local runs
+- Other ordinary jobs: `unit`, runtime and ordinary browser domains and local runs
   keep the written durations. `bun scripts/test-determinism.ts` scales
   wherever it runs, and `--deadline-factor 1` turns the scaling off for a
   comparison.
-- Vitest specs. The browser repetition job
-  ([#4163](https://github.com/schlessera/brain-kit/issues/4163)) is not on
-  main; scaling Vitest's test and hook timeouts inside it is
-  [#4192](https://github.com/schlessera/brain-kit/issues/4192).
+- Explicit Vitest test/suite timeout options and hook timeout arguments. In
+  Vitest 4.1.11 these take precedence over `testTimeout`/`hookTimeout`; raising
+  the project defaults does not multiply them. `expect.poll` defaults to its
+  own 1,000 ms or `expect.poll.timeout` configuration, and `vi.waitFor` to its
+  own 1,000 ms. Their explicit timeout options are also independent. A watchdog
+  in any of these can opt in with `watchdogMs(n)`. Poll intervals stay unchanged.
+- Ordinary Vitest runs: only the browser repetition command scales defaults,
+  wherever it runs. `--deadline-factor 1` disables scaling for diagnosis.
+
+### The browser repetition job scales its own defaults
+
+The same 2026-11-17 ruling covers `browser_determinism`
+([#4192](https://github.com/schlessera/brain-kit/issues/4192)). Its factor is
+**3**, owned by `BROWSER_DETERMINISM_PARTITIONS.deadlineFactor` in
+`scripts/proof-shards.ts`: the smallest integer at least 15% above its own
+measured load ratio, 1.8. It does not inherit the Bun job's factor of 8.
+The basis is the [#4116 hosted measurement](https://github.com/schlessera/brain-kit/issues/4116#issuecomment-6943920511),
+runs [44049769708](https://github.com/schlessera/brain-kit/actions/runs/44049769708)
+and [44051630821](https://github.com/schlessera/brain-kit/actions/runs/44051630821).
+Inside-container burners slowed the four measured specs 1.27 to 1.79 times,
+rounded up to 1.8 by the partition owner. The later local mixed selection
+measured about 1.3, as recorded above; it is not substituted for hosted evidence.
+
+After `createVitest` resolves projects and before `standalone` opens browser
+servers, the repetition runner multiplies each project's resolved
+`testTimeout` and `hookTimeout`. Vitest 4.1.11 browser defaults are 15,000 ms
+and 30,000 ms, so the loaded defaults are 45,000 ms and 90,000 ms. A project's
+custom values scale from those values; a disabled timeout (zero) stays disabled.
+No other Vitest configuration is changed. Each project receives
+`BRAIN_TEST_DEADLINE_FACTOR` through `test.env`; Vitest exposes it as
+`import.meta.env` in browser specs. `watchdogMs` reads it without requiring
+Node globals, so the helper has the same contract in Bun and a real browser.
+The runner logs each project's factor and resulting caps, and the host report
+and job summary also name the factor.
+
+Verified against the installed, lockfile-pinned Vitest **4.1.11**: the runner's
+collection chooses an explicit timeout before the configured default, and its
+hook registration, `expect.poll` and `vi.waitFor` likewise keep their own
+explicit limits. The browser fixture exercises the injected factor, both
+scaled defaults, explicit test options and product timing on a controlled
+clock. Separate fixture projects exercise fixed CPU work and a truly unresolved
+promise through the actual repetition command in the pinned container.
+
+The unchanged 20-minute step still bounds the job. Full capacity at the
+measured ratio is 300 × 1.8 = 540 seconds; one hang at the larger default
+(a hook) adds 90 and the measured setup/start-up adds 135, for 765 seconds
+inside 1,200. A test
+asserts this bound and the factor's margin from the owner's numbers. The first
+failing pass ends the command. Several hangs in the same file or a very large
+explicit timeout can instead reach the outer step limit, which remains the
+worst-case catch-all. Product timings and all the independent waits listed
+above remain unscaled.
 
 ### The proof-system check follows the direction
 

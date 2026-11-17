@@ -317,6 +317,15 @@ bun scripts/test-determinism.ts --base origin/main --json   # the report on stdo
   `--bail=1`, so the offline preload is active and a non-loopback connection
   fails as it does in any test. One busy loop per CPU runs until the command
   exits; each is stopped by PID and exits by itself if the command is killed.
+- **Watchdogs under load.** The job multiplies each Vitest project's
+  `testTimeout` and `hookTimeout` by three (45 s and 90 s for the browser
+  defaults), and sets `BRAIN_TEST_DEADLINE_FACTOR` for browser-side
+  `watchdogMs(n)`. `BROWSER_DETERMINISM_PARTITIONS.deadlineFactor` owns the
+  number. `--deadline-factor 1` disables it for a comparison. Explicit test,
+  suite and hook timeout options, `expect.poll` and `vi.waitFor` timeouts and
+  polling intervals keep their own values; a hang-catching bound there can
+  opt in with `watchdogMs(n)`. Product timing assertions use controlled clocks
+  and never scale. The 20-minute step limit is unchanged.
 - **The bound.** Five repetitions, reduced uniformly to no fewer than two when
   the reviewed weights in `scripts/test-shard-costs.json` exceed 300 seconds.
   Ready confirmation runs two, because the merge lease is held while it runs
@@ -385,6 +394,15 @@ packages' built output.
   Node-side state of browser commands and the Vite server are kept, as they
   are between two files of an ordinary run. One busy loop per CPU runs inside
   the container until the command exits.
+- **Watchdogs under load.** The job multiplies each Vitest project's
+  `testTimeout` and `hookTimeout` by three (45 s and 90 s for the browser
+  defaults), and sets `BRAIN_TEST_DEADLINE_FACTOR` for browser-side
+  `watchdogMs(n)`. `BROWSER_DETERMINISM_PARTITIONS.deadlineFactor` owns the
+  number. `--deadline-factor 1` disables it for a comparison. Explicit test,
+  suite and hook timeout options, `expect.poll` and `vi.waitFor` timeouts and
+  polling intervals keep their own values; a hang-catching bound there can
+  opt in with `watchdogMs(n)`. Product timing assertions use controlled clocks
+  and never scale. The 20-minute step limit is unchanged.
 - **The bound.** Five repetitions, reduced uniformly to no fewer than two when
   the reviewed weights in `scripts/browser-shard-costs.json` exceed 300
   seconds. Ready confirmation runs two. A pair with no reviewed weight, which
@@ -400,8 +418,9 @@ packages' built output.
   Failure screenshots are written under `__screenshots__/` beside the spec, as
   in any browser run, and the hosted job uploads them. Fix the spec: wait for
   the state it asserts ([test waits](test-waits.md)), and do not leave state
-  in storage that its next pass will read. A longer deadline or a retry is not
-  a fix.
+  in storage that its next pass will read. If only a hang-catching deadline
+  tripped under load, raise it or use `watchdogMs`; see [the watchdog rule](#watchdogs-and-product-timings).
+  Never retry a failing repetition into a pass.
 - **Where it runs.** The hosted `browser_determinism` job, at every
   pull-request cadence including draft, and in draft heavy feedback. `draft
   gates` and `proof` require it when the change selects it. Never on main.
@@ -439,10 +458,14 @@ import { watchdogMs } from "../scripts/test-deadlines";
 const watchdog = setTimeout(stopChildren, watchdogMs(27_000));
 ```
 
-`watchdogMs` multiplies by `BRAIN_TEST_DEADLINE_FACTOR`, which
+`watchdogMs` works in Bun and Vitest browser specs. It multiplies by
+`BRAIN_TEST_DEADLINE_FACTOR`, which
 `scripts/test-determinism.ts` sets to the gate's factor of eight
 (`DETERMINISM_PARTITIONS.deadlineFactor`, `scripts/proof-shards.ts`) for the
-tests it repeats. Everywhere else the variable is unset and the duration is
+tests it repeats. The browser repetition runner sets its own factor of three
+(`BROWSER_DETERMINISM_PARTITIONS.deadlineFactor`) in each project's `test.env`,
+which Vitest exposes as `import.meta.env` in a spec. In ordinary runs the
+variable is unset and the duration is
 the one written. A malformed value fails the test instead of being read as
 one. Never pass a product timing through the helper.
 

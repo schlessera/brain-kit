@@ -71,7 +71,7 @@ const repositoryPath = value => typeof value === "string" && PATH.test(value) &&
 /** The host's plan for this container, validated: nothing here is trusted because a script wrote it. */
 export function readPassPlan(value) {
   if (!value || typeof value !== "object" || value.kind !== RESULT_KIND || value.version !== 1) throw new Error("Not a browser repetition plan");
-  const { root, pairs, repetitions, burners, cpuList, result } = value;
+  const { root, pairs, repetitions, burners, cpuList, result, deadlineFactor } = value;
   if (!repositoryPath(root) || !repositoryPath(result) || !result.startsWith("tmp/")) throw new Error("The plan's configuration root and result path must be repository paths");
   if (!Array.isArray(pairs) || !pairs.length || pairs.some(pair => !pair || !PROJECT.test(pair.project ?? "") || !repositoryPath(pair.file))) throw new Error("The plan must name at least one project/file pair");
   const keys = pairs.map(pair => `${pair.project}::${pair.file}`);
@@ -79,7 +79,8 @@ export function readPassPlan(value) {
   if (!Number.isSafeInteger(repetitions) || repetitions < 2 || repetitions > 100) throw new Error("Repetitions must be an integer of at least two: one run proves nothing about the next");
   if (burners !== null && (!Number.isSafeInteger(burners) || burners < 0 || burners > 1024)) throw new Error("Burners must be null (one per CPU) or a non-negative integer");
   if (cpuList !== null && (typeof cpuList !== "string" || !/^\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*$/.test(cpuList))) throw new Error("The CPU list must look like 0-3 or 0,2,4");
-  return { root, result, pairs: pairs.map(pair => ({ project: pair.project, file: pair.file })), repetitions, burners, cpuList };
+  if (!Number.isSafeInteger(deadlineFactor) || deadlineFactor < 1 || deadlineFactor > 100) throw new Error("The deadline factor must be a whole number from 1 to 100");
+  return { root, result, deadlineFactor, pairs: pairs.map(pair => ({ project: pair.project, file: pair.file })), repetitions, burners, cpuList };
 }
 
 /** Collects the modules Vitest reports as ended, so a repetition is judged on what ran in it and never on an earlier result. */
@@ -142,6 +143,22 @@ export async function runPasses({ vitest, collector, pairs, repetitions, repo = 
   return { passes, failure: null, alsoFailed: [] };
 }
 
+/**
+ * Apply once after createVitest resolves projects and before standalone opens
+ * browser servers. Use each resolved project's own defaults, including overrides.
+ * Vitest 4.1.11 serializes these values afresh for every pass; test.env is also
+ * exposed as import.meta.env to browser specs. Explicit per-test/hook options,
+ * expect.poll and vi.waitFor own their deadlines and are intentionally untouched.
+ */
+export function scaleVitestDeadlines(vitest, factor, log = () => {}) {
+  for (const project of vitest.projects) {
+    project.config.testTimeout *= factor;
+    project.config.hookTimeout *= factor;
+    project.config.env = { ...project.config.env, BRAIN_TEST_DEADLINE_FACTOR: String(factor) };
+    log(`Deadline factor ${factor}: ${project.name}; testTimeout=${project.config.testTimeout} ms, hookTimeout=${project.config.hookTimeout} ms; BRAIN_TEST_DEADLINE_FACTOR=${factor}.`);
+  }
+}
+
 async function main(argv) {
   if (argv.length !== 1) throw new Error("usage: node scripts/browser-determinism-inside.mjs <plan.json under the repository>");
   const plan = readPassPlan(JSON.parse(readFileSync(resolve(REPO, argv[0]), "utf8")));
@@ -169,6 +186,7 @@ async function main(argv) {
     const collector = passCollector();
     vitest = await createVitest("test", { watch: false, project: [...new Set(plan.pairs.map(pair => pair.project))],
       browser: { fileParallelism: false }, reporters: ["default", collector.reporter] });
+    scaleVitestDeadlines(vitest, plan.deadlineFactor, log);
     await vitest.standalone();
     outcome = await runPasses({ vitest, collector, pairs: plan.pairs, repetitions: plan.repetitions, log });
   } catch (error) {

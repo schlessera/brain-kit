@@ -173,7 +173,28 @@ export function review(value: Json, scope: GithubLinkScope): GithubReview | null
   const id = integer(value.id), reviewState = REVIEW_STATES[String(value.state)];
   if (!id || !reviewState) return null;
   return { id, author: author(value.user, value.author_association), state: reviewState, submitted_at: time(value.submitted_at),
-    ...body(value.body, GITHUB_LIMITS.commentBodyChars), html_url: githubDirectUrl(value.html_url, scope, { kind: "review", id }) };
+    ...body(value.body, GITHUB_LIMITS.commentBodyChars), html_url: githubDirectUrl(value.html_url, scope, { kind: "review", id }), line_comments: null };
+}
+
+/**
+ * Each review's line-comment count (#4147), from one page of a pull request's
+ * review comments: the review id to its total, or null (every count unknown).
+ * Exact only when that page is the whole collection, every comment validates
+ * and names its review, and GitHub's own total, when it gives one, agrees. A
+ * page cut short, a comment without a review, a malformed one or a mismatch
+ * gives no partial total and no invented zero.
+ */
+function lineCommentCounts(json: unknown, hasNext: boolean, reported: number | null): Map<number, number> | null {
+  if (hasNext || !Array.isArray(json) || json.length > GITHUB_LIMITS.reviewComments) return null;
+  if (reported !== null && reported !== json.length) return null;
+  const counts = new Map<number, number>(), ids = new Set<number>();
+  for (const raw of json) {
+    const item = record(raw), id = integer(item?.id), reviewId = integer(item?.pull_request_review_id);
+    if (!id || !reviewId || ids.has(id)) return null;
+    ids.add(id);
+    counts.set(reviewId, (counts.get(reviewId) ?? 0) + 1);
+  }
+  return counts;
 }
 
 /**
@@ -324,6 +345,17 @@ export function createGithubToolsHost(options: GithubToolsHostOptions): GithubTo
     return reported ? counts : null;
   }
 
+  /** {@link lineCommentCounts} over one bounded request; a credential that cannot read review comments leaves every count unknown. */
+  async function reviewCommentCounts(token: string, repo: string, number: number, reported: number | null, signal?: AbortSignal) {
+    try {
+      const { json, response } = await get(token, `/repos/${repo}/pulls/${number}/comments?per_page=${GITHUB_LIMITS.reviewComments}`, signal);
+      return lineCommentCounts(json, nextLink(response) !== null, reported);
+    } catch (error) {
+      if (error instanceof GithubRefusal && ["forbidden", "not_found"].includes(error.code)) return null;
+      throw error;
+    }
+  }
+
   async function read(token: string, input: GithubIssueReadInput, signal?: AbortSignal): Promise<GithubIssue | GithubPullRequest> {
     const { owner, repo } = parseGithubRepository(input.repository)!;
     const name = `${owner}/${repo}`, base = `/repos/${name}/issues/${input.number}`;
@@ -348,6 +380,8 @@ export function createGithubToolsHost(options: GithubToolsHostOptions): GithubTo
     const reviews = array(reviewPage.json).map(record).filter((item): item is Json => item !== null).map(item => review(item, scope))
       .filter((item): item is GithubReview => item !== null);
     const reviewsMore = nextLink(reviewPage.response) !== null;
+    const counts = reviews.length ? await reviewCommentCounts(token, name, input.number, integer(pull.review_comments), signal) : null;
+    for (const item of reviews) item.line_comments = counts ? counts.get(item.id) ?? 0 : null;
     const commitPage = await get(token, `/repos/${name}/pulls/${input.number}/commits?per_page=${GITHUB_LIMITS.commits}`, signal);
     const commits = array(commitPage.json).map(record).filter((item): item is Json => item !== null).map(item => commit(item, scope))
       .filter((item): item is GithubCommit => item !== null);

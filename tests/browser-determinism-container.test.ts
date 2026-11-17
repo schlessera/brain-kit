@@ -24,12 +24,12 @@ const owned: string[] = [];
 afterEach(() => { for (const dir of owned.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 
 /** Runs the container side on `pairs` and returns what it wrote, said and exited with. */
-async function repeatInContainer(pairs: { project: string; file: string }[], repetitions: number) {
+async function repeatInContainer(pairs: { project: string; file: string }[], repetitions: number, configRoot = FIXTURES) {
   const scratch = mkdtempSync(join(tmpdir(), "browser-determinism-container-")); owned.push(scratch);
   // The result is read from the checkout's ignored tmp/, where the container writes it through its one mount.
   const run = `tmp/browser-determinism-container/${process.pid}-${owned.length}`;
   mkdirSync(join(ROOT, run), { recursive: true }); owned.push(join(ROOT, run));
-  writeFileSync(join(ROOT, run, "plan.json"), JSON.stringify({ kind: RESULT_KIND, version: 1, root: FIXTURES, result: `${run}/passes.json`, pairs, repetitions, burners: 1, cpuList: null }));
+  writeFileSync(join(ROOT, run, "plan.json"), JSON.stringify({ kind: RESULT_KIND, version: 1, root: configRoot, result: `${run}/passes.json`, pairs, repetitions, deadlineFactor: 3, burners: 1, cpuList: null }));
   // Rootless Docker maps the container's user to a subordinate one: it needs the plan readable, these two
   // directories open, and an open umask inside so this process can remove what the container wrote. Rootful
   // Docker runs as this user and needs none of it.
@@ -65,3 +65,20 @@ test("the same spec made deterministic passes every repetition in both of its pr
   expect([code, result.pairs, result.repetitions]).toEqual([0, pairs, 5]);
   expect(out).toContain("[browser-determinism] Passed: 2 project/file pair(s), 5 repetition(s) each.");
 });
+
+test("real Vitest defaults scale for hooks and still stop hangs, while explicit hook arguments stay unscaled", async () => {
+  const hook = await repeatInContainer([{ project: "harbour", file: "tests/fixtures/browser-deadlines/deadline-hook.repeat.js" }], 2, "tests/fixtures/browser-deadlines");
+  expect(hook.result.failure, hook.out).toBeNull();
+  expect(hook.code).toBe(0);
+  expect(hook.out).toContain("testTimeout=3000 ms, hookTimeout=2100 ms; BRAIN_TEST_DEADLINE_FACTOR=3");
+
+  const hang = await repeatInContainer([{ project: "harbour", file: "tests/fixtures/browser-deadlines/deadline-hang.repeat.js" }], 2, "tests/fixtures/browser-deadlines");
+  expect(hang.code).toBe(1);
+  expect(hang.result.failure).toMatchObject({ repetition: 1, test: "the missing crew never arrives" });
+  expect(hang.result.failure.reason, "HANG_FAILS_AT_SCALED_CAP").toContain("Test timed out in 3000ms");
+  expect(hang.result.passes.map((pass: { ok: boolean }) => pass.ok)).toEqual([false]);
+
+  const explicit = await repeatInContainer([{ project: "harbour", file: "tests/fixtures/browser-deadlines/deadline-explicit-hook.repeat.js" }], 2, "tests/fixtures/browser-deadlines");
+  expect(explicit.code).toBe(1);
+  expect(explicit.result.failure.reason, "EXPLICIT_HOOK_TIMEOUT_IS_UNSCALED").toContain("Hook timed out in 80ms");
+}, 60_000);
