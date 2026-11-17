@@ -2,7 +2,7 @@
 import { planFromEnvironment, proofCadence, proofSelections, redMainSnapshot } from "./ci-plan";
 import type { RedMainRecord } from "./red-main";
 import { checkout, type Checkout } from "./proof-inputs";
-import { GitHubProofAPI, type API } from "./proof-reuse";
+import { GitHubProofAPI, type API } from "./proof-api";
 
 const CONFIRMATION_REQUIRED = "Candidate confirmation required: convert this PR to draft, then mark ready for review after the final push.";
 

@@ -68,9 +68,10 @@ test("the PR body carries one receipt; missing, empty markers and duplicates are
 });
 
 test("merge refusal names skipped, timed-out and preempted checks whose hosted category did not run", () => {
-  const selected = { selections: { verify: "true", browser: "true", layout: "true", unit: "false" }, results: { verify: "success", browser: "skipped", layout: "skipped" }, retained: ["layout"] };
+  const selected = { selections: { verify: "true", browser: "true", layout: "true", unit: "false" }, results: { verify: "success", browser: "skipped", layout: "skipped" } };
   const covered = coveredCategories(selected);
-  expect([...covered].sort()).toEqual(["changeset", "layout", "verify"]);
+  // A selected category that was skipped is never covered: retention is retired (#4107).
+  expect([...covered].sort()).toEqual(["changeset", "verify"]);
   const r = receipt([
     { name: "strict typecheck", categories: ["verify"], outcome: "timed-out" },
     { name: "complete pinned visual/accessibility/pointer suite", categories: ["browser"], outcome: "skipped" },
@@ -118,7 +119,7 @@ test("check:pr CLI writes a receipt recording a forced timeout and prints the PR
 });
 
 test("local skips of post-merge-only checks are proved by the squash's main run, not refused before merge", () => {
-  const covered = coveredCategories({ selections: { verify: "true", unit: "true" }, results: { verify: "success", unit: "success" }, retained: [] });
+  const covered = coveredCategories({ selections: { verify: "true", unit: "true" }, results: { verify: "success", unit: "success" } });
   const r = receipt([
     { name: "workspace build for real browser checks", categories: ["browser", "layout", "endurance"], outcome: "skipped" },
     { name: "complete pinned visual/accessibility/pointer suite", categories: ["browser"], outcome: "timed-out" },

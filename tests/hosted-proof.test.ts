@@ -6,7 +6,6 @@ import { categoryCommands, proofProblems, PROOF_JOBS, unitFiles } from "../scrip
 import { planChecks, proofSelections, workspaces, type Workspace } from "../scripts/ci-plan";
 import { discoverTests } from "../scripts/test-shards";
 import { localChecks } from "../scripts/check-pr";
-import { checkout } from "../scripts/proof-inputs";
 
 const ROOT = resolve(import.meta.dir, "..");
 const directories: string[] = [];
@@ -25,7 +24,7 @@ test("only hosted single-workspace pack and browser builds opt into two compiler
 });
 afterEach(() => { for (const dir of directories.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 function receipt(selected = true): { changeset: { result: string; outputs: Record<string, string> } } & Record<string, { result: string; outputs?: Record<string, string> }> {
-  return { changeset: { result: "success", outputs: { ...Object.fromEntries(PROOF_JOBS.map(name => [name, String(selected)])), reuse: JSON.stringify({ version: 1, checkout: checkout(ROOT), retained: {} }) } },
+  return { changeset: { result: "success", outputs: Object.fromEntries(PROOF_JOBS.map(name => [name, String(selected)])) },
     ...Object.fromEntries(PROOF_JOBS.map(name => [name, { result: selected ? "success" : "skipped" }])) };
 }
 
@@ -39,6 +38,13 @@ test("aggregate accepts actual selected passes and intentional exclusions only",
   }
   const missing = receipt(); delete missing.unit;
   expect(proofProblems(missing)).toContain("unit: selected proof did not pass (missing)");
+  // Retention is retired (#4107): nothing excuses a selected browser or layout job that did not run.
+  for (const name of ["browser", "layout"] as const) {
+    const dropped = receipt(); delete dropped[name];
+    expect(proofProblems(dropped), `DROPPED_SELECTED_JOB_FAILS:${name}`).toEqual([`${name}: selected proof did not pass (missing)`]);
+    const skipped = receipt(); skipped[name] = { result: "skipped" };
+    expect(proofProblems(skipped), `SKIPPED_SELECTED_JOB_FAILS:${name}`).toEqual([`${name}: selected proof did not pass (skipped)`]);
+  }
   const invalid = receipt(); delete invalid.changeset.outputs.runtime;
   expect(proofProblems(invalid)).toContain("runtime: selection output is missing or invalid");
   for (const state of ["failure", "cancelled", "skipped"]) {
@@ -49,14 +55,14 @@ test("aggregate accepts actual selected passes and intentional exclusions only",
   expect(proofProblems(unexpected)).toContain("browser: unselected job must be intentionally skipped (success)");
 });
 
-test("emitted aggregate executable fails a cancelled selected job and accepts its corrected receipt", async () => {
-  for (const result of ["cancelled", "success"]) {
+test("emitted aggregate executable fails a cancelled or skipped selected job and accepts its corrected receipt", async () => {
+  for (const result of ["cancelled", "skipped", "success"]) {
     const needs = receipt(); needs.layout.result = result;
     const child = Bun.spawn([process.execPath, "scripts/ci-proof.ts", "aggregate"], { cwd: ROOT,
       env: { ...process.env, GITHUB_ACTIONS: "false", GITHUB_EVENT_PATH: "", PROOF_NEEDS: JSON.stringify(needs) }, stdout: "pipe", stderr: "pipe" });
     const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     expect(code, err).toBe(result === "success" ? 0 : 1);
-    if (result === "cancelled") expect(err).toContain("layout: selected proof did not pass (cancelled)");
+    if (result !== "success") expect(err).toContain(`layout: selected proof did not pass (${result})`);
     else {
       expect(out).toContain("All selected hosted proof passed");
       const line = out.split("\n").find(line => line.startsWith("BRAIN_SELECTED_PROOF_RECEIPT "));

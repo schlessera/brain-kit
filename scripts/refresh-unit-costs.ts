@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { API } from "./proof-reuse";
+import type { API } from "./proof-api";
 import type { Checkout } from "./proof-inputs";
 
 export interface UnitEvidenceAPI extends API {
