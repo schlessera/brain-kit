@@ -23,10 +23,10 @@
  * A link reference or footnote definition, `[label]: …` or `[^note]: …`,
  * anywhere a definition can stand: after any indentation and any blockquote
  * (`>`) or list-item (`-`, `*`, `+`, `1.`, `1)`) prefixes, with escaped
- * brackets in the label. Deliberately broad: a false match only means the
+ * brackets in the label and a label that wraps across lines. Deliberately broad: a false match only means the
  * text parses whole.
  */
-const DEFINITION = /^(?:[ \t]|>|[-*+][ \t]|\d{1,9}[.)][ \t])*\[(?:[^\]\\\n]|\\.)+\]:/m;
+const DEFINITION = /^(?:[ \t]|>|[-*+][ \t]|\d{1,9}[.)][ \t])*\[(?:[^\]\\]|\\.)+\]:/m;
 /** CommonMark HTML blocks of types 1 to 5, whose end is not a blank line. */
 const LONG_HTML = /^ {0,3}<(?:script|pre|style|textarea|!--|\?|![A-Za-z]|!\[CDATA\[)/im;
 /** A fence opener or closer: up to three spaces, then three or more backticks or tildes. */

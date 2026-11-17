@@ -98,3 +98,15 @@ test("when a definition arrives and the text must parse whole, the first commit 
   await act(async () => { reactRoot.unmount(); });
   host.remove();
 });
+
+test("replaced content (another document) shows at once, not the previous document's last block", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const reactRoot = createRoot(host);
+  await act(async () => { reactRoot.render(view("Penelope weaves by day.\n\nShe unpicks it by night.")); });
+  flushSync(() => reactRoot.render(view("Telemachus sails to Pylos.\n\nNestor receives him.")));
+  expect(host.textContent, "the new document in the urgent commit").toContain("Nestor receives him.");
+  expect(host.textContent, "nothing of the old one").not.toContain("unpicks");
+  await act(async () => { reactRoot.unmount(); });
+  host.remove();
+});

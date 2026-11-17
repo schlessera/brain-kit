@@ -42,8 +42,7 @@ test("pack chunk is requested only when its matching fence first appears", async
   expect(importerStarts, "unmatched content must not initiate the renderer importer").toBe(0);
   expect((await commands.requestLog()).filter(url=>url.includes("renderer-demo-chunk"))).toEqual([]);
   render("```demo\nThe homecoming relay\n```");
-  // The growing last block's re-parse is deferred behind input (#2588): it lands on the next render.
-  await expect.poll(()=>host.querySelector('[data-kit-code-block]')?.textContent).toContain("The homecoming relay");
+  expect(host.querySelector('[data-kit-code-block]')?.textContent).toContain("The homecoming relay");
   await expect.poll(()=>host.querySelector("figure")?.textContent).toBe("The homecoming relay");
   expect(importerStarts, "first matching fence initiates the renderer importer once").toBe(1);
   const chunkRequests=(await commands.requestLog()).filter(url=>url.includes("renderer-demo-chunk"));expect(chunkRequests.length).toBeGreaterThan(0);

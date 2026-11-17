@@ -63,6 +63,7 @@ const CORPUS: Record<string, { text: string; splits: boolean; props?: { fileLink
   "entity tags": { text: "Met <person>Penelope</person> at the loom.\n\nThen <place>Ithaca</place>.", splits: true, props: { fileLinks: true, entityTags: true } },
   "share blocks": { text: "Here it is:\n\n```share md \"Voyage log\"\n# Day one\n\nCalm seas.\n```\n\nThat is the log.\n\nAnd more.", splits: true },
   "definitions inside a blockquote and a list item": { text: "Odysseus kept [a log][log].[^1]\n\nThe crew read it.\n\n> [log]: https://ithaca.example/log\n\n- [^1]: Written at Ogygia.", splits: false },
+  "a definition whose label wraps across lines": { text: "See [the raft][long\nlabel].\n\nIt floats.\n\n[long\nlabel]: https://ithaca.example/raft", splits: false },
   "a definition with an escaped bracket": { text: "See [the raft\\]][r].\n\nIt floats.\n\n[the raft\\]]: https://ithaca.example/raft", splits: false },
   "links, inline code and emphasis": { text: "Read **the [log](https://ithaca.example/log)** and `notes/raft.md`.\n\n_Then_ sail.", splits: true },
 };
