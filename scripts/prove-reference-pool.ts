@@ -4,10 +4,8 @@ import { basename, dirname, join, resolve } from "node:path";
 import { NATIVE_PROOF_IMAGE } from "./prove-native-host.js";
 
 /** `integrated` runs the app-level proof of #2751 on the same owned volumes, for the named backends. */
-export function referencePoolDockerArgs(root: string, artifact: string, apparmor: boolean, bun: string, integrated?: { backends: string[] }, candidate?: string, breach?: string): string[] {
+export function referencePoolDockerArgs(root: string, artifact: string, apparmor: boolean, bun: string, integrated?: { backends: string[] }, candidate?: string): string[] {
   return ["docker", "run", "--rm", "--pull=never", "--network=none", "--cap-drop=ALL",
-    // TEMPORARY (#3513) mutation round: a breach override for the integrated cell's tolerances.
-    ...(breach ? [`--env=BRAIN_INTEGRATED_TOLERANCE_BREACH=${breach}`] : []),
     // The efficiency report (#3513) names the exact candidate it measured.
     ...(candidate ? [`--env=BRAIN_PROOF_CANDIDATE=${candidate}`] : []),
     ...(integrated ? [`--env=BRAIN_REFERENCE_INTEGRATION_BACKENDS=${integrated.backends.join(",")}`] : []),
@@ -39,48 +37,19 @@ if (import.meta.main) {
     const security = Bun.spawnSync(["docker", "info", "--format", "{{json .SecurityOptions}}"], { stdout: "pipe", stderr: "pipe" });
     if (security.exitCode !== 0) throw Error("Cannot inspect Docker runtime security prerequisites.");
     const apparmor = (JSON.parse(new TextDecoder().decode(security.stdout)) as string[]).some(value => value.startsWith("name=apparmor"));
-    // TEMPORARY (#3513) hosted mutation round, reverted before the PR is ready: the hosted runtime_host cell runs this
-    // script without arguments, and the integrated cell has no hosted cell of its own. Each backend's integrated cell runs
-    // once with its measured INTEGRATED_TOLERANCES, which must pass, and once with one bound set below its measured value,
-    // which must fail on that bound's named assertion and on nothing earlier.
-    type Cell = { integrated?: { backends: string[] }; breach?: { bounds: Record<string, unknown>; fails: string } };
-    const cells: Cell[] = selected.length ? [{ integrated }] : [
-      { integrated: { backends: ["claude"] } }, { integrated: { backends: ["pi"] } },
-      { integrated: { backends: ["claude"] }, breach: { bounds: { coldSourceMs: 100 }, fails: "INTEGRATED_CLAUDE_COLD_SOURCE_ELAPSED" } },
-      { integrated: { backends: ["pi"] }, breach: { bounds: { wsP95Ms: 0.1 }, fails: "INTEGRATED_PI_WS_LATENCY" } },
-    ];
-    const failures: string[] = [];
-    for (const { integrated, breach } of cells) {
-      try {
-        const root = resolve(import.meta.dir, ".."), output = join(root, "tmp", "reference-pool-proof");
-        mkdirSync(output, { recursive: true });
-        const artifact = mkdtempSync(join(output, integrated ? (breach ? "run-breach-" : "run-integrated-") : "run-pool-")); chmodSync(artifact, 0o755);
-        console.log(`Reference pool proof artifacts: ${artifact}`);
-        const head = Bun.spawnSync(["git", "-C", root, "rev-parse", "HEAD"], { stdout: "pipe", stderr: "ignore" }).stdout.toString().trim();
-        const dirty = Bun.spawnSync(["git", "-C", root, "status", "--porcelain", "--untracked-files=no"], { stdout: "pipe", stderr: "ignore" }).stdout.toString().trim() !== "";
-        const candidate = /^[0-9a-f]{40}$/.test(head) ? `${head}${dirty ? "+dirty" : ""}` : undefined;
-        const child = Bun.spawn(referencePoolDockerArgs(root, artifact, apparmor, realpathSync(process.execPath), integrated, candidate, breach ? JSON.stringify(breach.bounds) : undefined),
-          { stdin: "ignore", stdout: breach ? "pipe" : "inherit", stderr: breach ? "pipe" : "inherit" });
-        const forward = (signal: NodeJS.Signals) => child.kill(signal);
-        for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, forward);
-        const captured = breach ? await Promise.all([new Response(child.stdout as ReadableStream).text(), new Response(child.stderr as ReadableStream).text()]) : [];
-        const code = await child.exited;
-        for (const signal of ["SIGINT", "SIGTERM"] as const) process.off(signal, forward);
-        if (breach) {
-          const text = captured.join("\n");
-          process.stdout.write(text);
-          // The fixture prints the cell's output tail as JSON, so its newlines may be escaped.
-          const first = /error: (INTEGRATED_[A-Z_]+)/.exec(text)?.[1];
-          const receipt = { breach: breach.bounds, expected: breach.fails, exit: code, firstFailure: first ?? null };
-          console.log(`MUTATION RECEIPT ${JSON.stringify(receipt)}`);
-          if (code === 0 || first !== breach.fails) throw Error(`Tolerance breach ${JSON.stringify(breach.bounds)} did not fail ${breach.fails} first: ${JSON.stringify(receipt)}`);
-          console.log(`Tolerance breach failed ${breach.fails} as intended.`);
-          continue;
-        }
-        if (code !== 0) throw Error(`Reference pool proof failed with exit ${code}; inspect ${artifact}.`);
-        console.log(integrated ? `Integrated reference proof passed (${integrated.backends.join(", ")}).` : "Reference pool proof passed.");
-      } catch (error) { failures.push(String(error instanceof Error ? error.message : error)); }
-    }
-    if (failures.length) throw Error(failures.join("\n"));
+    const root = resolve(import.meta.dir, ".."), output = join(root, "tmp", "reference-pool-proof");
+    mkdirSync(output, { recursive: true });
+    const artifact = mkdtempSync(join(output, integrated ? "run-integrated-" : "run-pool-")); chmodSync(artifact, 0o755);
+    console.log(`Reference pool proof artifacts: ${artifact}`);
+    const head = Bun.spawnSync(["git", "-C", root, "rev-parse", "HEAD"], { stdout: "pipe", stderr: "ignore" }).stdout.toString().trim();
+    const dirty = Bun.spawnSync(["git", "-C", root, "status", "--porcelain", "--untracked-files=no"], { stdout: "pipe", stderr: "ignore" }).stdout.toString().trim() !== "";
+    const candidate = /^[0-9a-f]{40}$/.test(head) ? `${head}${dirty ? "+dirty" : ""}` : undefined;
+    const child = Bun.spawn(referencePoolDockerArgs(root, artifact, apparmor, realpathSync(process.execPath), integrated, candidate), { stdin: "ignore", stdout: "inherit", stderr: "inherit" });
+    const forward = (signal: NodeJS.Signals) => child.kill(signal);
+    for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, forward);
+    const code = await child.exited;
+    for (const signal of ["SIGINT", "SIGTERM"] as const) process.off(signal, forward);
+    if (code !== 0) throw Error(`Reference pool proof failed with exit ${code}; inspect ${artifact}.`);
+    console.log(integrated ? `Integrated reference proof passed (${integrated.backends.join(", ")}).` : "Reference pool proof passed.");
   } catch (error) { console.error(String(error instanceof Error ? error.message : error)); process.exitCode = 1; }
 }
