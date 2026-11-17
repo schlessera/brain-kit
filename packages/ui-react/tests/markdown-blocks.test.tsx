@@ -44,6 +44,10 @@ describe("splitMarkdownBlocks", () => {
     expect(realSplit("<pre>\na\n\nb\n</pre>\n\nAfter.")).toHaveLength(1);
     expect(realSplit("<!-- note\n\nstill note -->\n\nAfter.")).toHaveLength(1);
   });
+  test("finds definitions inside blockquotes and list items, and with escaped brackets", () => {
+    for (const text of ["See [the log][l].\n\n> [l]: https://ithaca.example/log", "A claim.[^1]\n\nMore.\n\n> [^1]: The source.", "See [x].\n\n>> [x]: /u", "See [the log][l].\n\n- [l]: https://ithaca.example/log", "See [a\\]b].\n\n[a\\]b]: https://ithaca.example/"])
+      expect(realSplit(text), text).toHaveLength(1);
+  });
   test("leading blank lines start no empty block", () => {
     expect(realSplit("\n\nFirst.\n\nSecond.")).toEqual(["\n\nFirst.", "Second."]);
   });
@@ -58,6 +62,8 @@ const CORPUS: Record<string, { text: string; splits: boolean; props?: { fileLink
   "blockquotes, tables, setext headings, HTML blocks": { text: "Athena\n======\n\n> Go home.\n>\n> Now.\n\nVoyage\n------\n\n| Day | Port |\n| --- | --- |\n| 1 | Troy |\n\n<div>\n<b>raw</b>\n</div>\n\nAfter the div.", splits: true },
   "entity tags": { text: "Met <person>Penelope</person> at the loom.\n\nThen <place>Ithaca</place>.", splits: true, props: { fileLinks: true, entityTags: true } },
   "share blocks": { text: "Here it is:\n\n```share md \"Voyage log\"\n# Day one\n\nCalm seas.\n```\n\nThat is the log.\n\nAnd more.", splits: true },
+  "definitions inside a blockquote and a list item": { text: "Odysseus kept [a log][log].[^1]\n\nThe crew read it.\n\n> [log]: https://ithaca.example/log\n\n- [^1]: Written at Ogygia.", splits: false },
+  "a definition with an escaped bracket": { text: "See [the raft\\]][r].\n\nIt floats.\n\n[the raft\\]]: https://ithaca.example/raft", splits: false },
   "links, inline code and emphasis": { text: "Read **the [log](https://ithaca.example/log)** and `notes/raft.md`.\n\n_Then_ sail.", splits: true },
 };
 

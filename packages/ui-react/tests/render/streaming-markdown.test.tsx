@@ -11,6 +11,8 @@ registerStreamingMarkdownDom();
 
 import { afterAll, afterEach, expect, mock, test } from "bun:test";
 import { act, cleanup, render } from "@testing-library/react";
+import { flushSync } from "react-dom";
+import { createRoot } from "react-dom/client";
 import RealMarkdown from "react-markdown";
 
 const parsed: string[] = [];
@@ -80,4 +82,19 @@ test("a new block below leaves the earlier ones parsed once and their elements i
     expect(parsed.some((source) => source.includes("mermaid")), "the diagram's block is not parsed again").toBe(false);
     expect(r.container.querySelector(".brain-prose")!.firstElementChild, "its element is the same node: nothing remounted").toBe(first);
   }
+});
+
+test("when a definition arrives and the text must parse whole, the first commit shows the whole text", async () => {
+  // The split collapses to one block, so block 0 becomes the last one. Its
+  // deferred value must not paint block 0's old text alone for a commit.
+  const host = document.createElement("div");
+  document.body.append(host);
+  const reactRoot = createRoot(host);
+  const split = "First para.[^1]\n\nSecond para.\n\nThird para.";
+  await act(async () => { reactRoot.render(view(split)); });
+  expect(host.textContent).toContain("Third para.");
+  flushSync(() => reactRoot.render(view(split + "\n\n[^1]: Source.")));
+  expect(host.textContent, "the urgent commit holds every block, not block 0 alone").toContain("Third para.");
+  await act(async () => { reactRoot.unmount(); });
+  host.remove();
 });

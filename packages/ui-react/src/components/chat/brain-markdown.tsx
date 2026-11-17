@@ -211,9 +211,13 @@ const MarkdownBlock = memo(function MarkdownBlock({ text, rehypePlugins, compone
  * so input and scrolling outrank re-parsing the growing tail.
  */
 function StreamedBlock({ text, last, ...rest }: BlockProps & { last: boolean }) {
-  const deferred = useDeferredValue(text);
+  // Deferred only while it stays the last block: a block that has just become
+  // the last one (the text now parses whole, because a definition arrived)
+  // has no deferred text of its own yet, so it shows its current text rather
+  // than a stale earlier one.
+  const deferred = useDeferredValue(last ? text : null);
   return <>
-    <MarkdownBlock text={last ? deferred : text} {...rest} />
+    <MarkdownBlock text={last ? deferred ?? text : text} {...rest} />
     {/* react-markdown separates top-level blocks with a newline; keep it between ours. */}
     {last ? null : "\n"}
   </>;
