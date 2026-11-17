@@ -9,12 +9,14 @@ import {
   BUDGET_SECONDS, burnerSource, DEFAULT_REPETITIONS, firstFailure, FLOOR_REPETITIONS, observedRepetitions, parseArguments,
   planRepetitions, repetitionArgv, REPORT_KIND, startBurners, summaryMarkdown, type Report,
 } from "../scripts/test-determinism";
+import { planPartitions, selectPartition } from "../scripts/determinism-plan";
+import { DETERMINISM_PARTITIONS } from "../scripts/proof-shards";
 
 const ROOT = join(import.meta.dir, "..");
 // The wrapper, its preload and what they import, as tests/experiment-tier.test.ts copies them.
 const SCRIPTS = ["test.ts", "runtime-test-builds.ts", "test-invocation.ts", "test-invocation-child.ts", "publishable-packages.ts", "test-shards.ts",
   "test-network-preload.ts", "test-home.ts", "test-network-guard.ts", "test-network-child-preload.ts", "workspace-lease.mjs", "host-admission.mjs",
-  "test-determinism.ts"];
+  "test-determinism.ts", "determinism-plan.ts", "proof-shards.ts"];
 
 const scratch: string[] = [];
 afterEach(() => { for (const dir of scratch.splice(0)) rmSync(dir, { recursive: true, force: true }); });
@@ -30,7 +32,8 @@ describe("repetition budget", () => {
 
   test("a selection inside the budget gets the default five repetitions for every file", () => {
     const plan = planRepetitions(Object.keys(costs), { costs, budgetSeconds: 250 });
-    expect([DEFAULT_REPETITIONS, FLOOR_REPETITIONS, BUDGET_SECONDS]).toEqual([5, 2, 600]);
+    // The budget is one partition's capacity, so a selection is split only at the floor (#4117).
+    expect([DEFAULT_REPETITIONS, FLOOR_REPETITIONS, BUDGET_SECONDS]).toEqual([5, 2, DETERMINISM_PARTITIONS.capacitySeconds]);
     expect(plan).toMatchObject({ requested: 5, repetitions: 5, reduced: false, overBudget: false, weightSeconds: 50, estimatedSeconds: 250 });
     expect(plan.files).toEqual([
       { file: "tests/argo.test.ts", weightSeconds: 20, weighted: true, repetitions: 5 },
@@ -68,6 +71,93 @@ describe("repetition budget", () => {
     const argv = repetitionArgv(["tests/argo.test.ts", "packages/core/tests/ithaca.test.ts"], 4);
     expect(argv.slice(1)).toEqual(["run", "test", "--rerun-each=4", "--bail=1", "--reporter=junit", "--reporter-outfile=tmp/determinism-junit.xml",
       "./tests/argo.test.ts", "./packages/core/tests/ithaca.test.ts"]);
+  });
+});
+
+describe("hosted partitions by reviewed weight (#4117)", () => {
+  const { capacitySeconds, max } = DETERMINISM_PARTITIONS;
+  /** A fleet of `count` files whose pass weighs `passSeconds` in all, none heavy enough to need a partition alone. */
+  const fleet = (count: number, passSeconds: number) => Object.fromEntries(Array.from({ length: count }, (_, index) =>
+    [`tests/fleet/ship-${String(index).padStart(3, "0")}.test.ts`, Number((passSeconds / count * (index % 2 ? 1.5 : 0.5)).toFixed(3))]));
+  const sum = (values: readonly number[]) => values.reduce((total, value) => total + value, 0);
+
+  test("the calibrated numbers have one owner, and its capacity fits the step limit at the measured load ratio", () => {
+    expect(DETERMINISM_PARTITIONS).toEqual({ capacitySeconds: 300, max: 10, stepMinutes: 40, loadRatio: 6.84 });
+    expect(capacitySeconds * DETERMINISM_PARTITIONS.loadRatio, "CAPACITY_FITS_THE_STEP_LIMIT").toBeLessThanOrEqual(DETERMINISM_PARTITIONS.stepMinutes * 60);
+  });
+
+  test("a selection the size of the largest observed plans several partitions, each within capacity, covering every file once", () => {
+    // The 388-file fixture migration: about 1,327 weighted seconds per pass, 2,654 at the floor of two.
+    const costs = fleet(388, 1327), files = Object.keys(costs);
+    for (const cadence of ["draft", "confirmation", "feedback-heavy"]) {
+      const plan = planPartitions(files, { cadence, costs });
+      expect(plan, cadence).toMatchObject({ repetitions: 2, floor: 2, capacitySeconds, maxPartitions: max, overBudget: true });
+      expect(plan.estimatedSeconds, "THE_OBSERVED_SIZE").toBeCloseTo(2654, 0);
+      expect(plan.partitions.length, `SEVERAL_PARTITIONS:${cadence}`).toBe(9);
+      for (const partition of plan.partitions) {
+        expect(partition.estimatedSeconds, "EACH_WITHIN_CAPACITY").toBeLessThanOrEqual(capacitySeconds);
+        expect(partition.estimatedSeconds, "AT_THE_SELECTION_COUNT").toBeCloseTo(sum(partition.files.map(file => costs[file]!)) * 2, 6);
+        expect(partition.files.length).toBeGreaterThan(0);
+      }
+      expect(plan.partitions.flatMap(partition => partition.files).sort(), "EVERY_FILE_EXACTLY_ONCE").toEqual([...files].sort());
+      expect(plan.files.map(entry => entry.repetitions), "NO_FILE_BELOW_THE_FLOOR").toEqual(files.map(() => 2));
+    }
+  });
+
+  test("a selection within one job's capacity stays one partition holding every file", () => {
+    const costs = { "tests/argo.test.ts": 20, "tests/ithaca.test.ts": 30 }, files = ["tests/ithaca.test.ts", "tests/argo.test.ts"];
+    const five = planPartitions(files, { cadence: "draft", costs });
+    expect(five.partitions, "FIVE_REPETITIONS_ONE_JOB").toEqual([{ files: ["tests/argo.test.ts", "tests/ithaca.test.ts"], weightSeconds: 50, estimatedSeconds: 250 }]);
+    expect(five).toMatchObject({ repetitions: 5, reduced: false, overBudget: false });
+    // Exactly at capacity is still one job; one weighted second more is two.
+    expect(planPartitions(files, { cadence: "draft", costs: { ...costs, "tests/ithaca.test.ts": 130 } }), "AT_CAPACITY").toMatchObject({ repetitions: 2, estimatedSeconds: 300, partitions: [{ estimatedSeconds: 300 }] });
+    expect(planPartitions(files, { cadence: "draft", costs: { ...costs, "tests/ithaca.test.ts": 131 } }).partitions.map(partition => partition.files), "OVER_CAPACITY_SPLITS")
+      .toEqual([["tests/ithaca.test.ts"], ["tests/argo.test.ts"]]);
+  });
+
+  test("the count is decided first, over the whole selection, and the partitions are made for that count", () => {
+    const costs = fleet(40, 100), files = Object.keys(costs);
+    // 100 weighted s per pass: three repetitions fit one job on a draft, and ready confirmation asks for two (#4137).
+    expect(planPartitions(files, { cadence: "draft", costs })).toMatchObject({ requested: 5, repetitions: 3, partitions: [{ estimatedSeconds: 300 }] });
+    expect(planPartitions(files, { cadence: "confirmation", costs })).toMatchObject({ requested: 2, repetitions: 2, partitions: [{ estimatedSeconds: 200 }] });
+    // 200 per pass cannot fit even two: both cadences split at the floor, never at a count a lighter partition could afford.
+    const heavy = fleet(40, 200);
+    for (const cadence of ["draft", "confirmation"]) {
+      const plan = planPartitions(Object.keys(heavy), { cadence, costs: heavy });
+      expect(plan.repetitions, cadence).toBe(2);
+      expect(plan.partitions.map(partition => Math.round(partition.estimatedSeconds)), cadence).toEqual([200, 200]);
+    }
+  });
+
+  test("a file whose repetitions alone exceed the capacity runs in a partition by itself", () => {
+    const costs = { "tests/cyclops.test.ts": 340, "tests/argo.test.ts": 100, "tests/ithaca.test.ts": 40 };
+    const plan = planPartitions(Object.keys(costs), { costs });
+    expect(plan.partitions.map(partition => [partition.files, partition.estimatedSeconds]), "UNSPLITTABLE_FILE_ALONE")
+      .toEqual([[["tests/cyclops.test.ts"], 680], [["tests/argo.test.ts", "tests/ithaca.test.ts"], 280]]);
+    expect(planPartitions(["tests/cyclops.test.ts"], { costs }).partitions).toEqual([{ files: ["tests/cyclops.test.ts"], weightSeconds: 340, estimatedSeconds: 680 }]);
+  });
+
+  test("a selection beyond the maximum partition count is refused, naming its weight and the limit", () => {
+    const costs = fleet(400, 1600), files = Object.keys(costs);
+    expect(planPartitions(files, { costs, maxPartitions: 11 }).partitions.length, "ELEVEN_WOULD_HOLD_IT").toBe(11);
+    expect(() => planPartitions(files, { costs })).toThrow(
+      "Repeated-run proof refused before it ran: 400 changed Bun test file(s) weigh 1600.0 weighted s per pass, 3200.0 s at the floor of 2 repetitions. " +
+      "That needs more than the limit of 10 partitions of 300 weighted s each (DETERMINISM_PARTITIONS, scripts/proof-shards.ts). " +
+      "No file is skipped and the count stays at the floor: split the change.");
+    // More files than the maximum, each unsplittable: still refused, never run short.
+    const giants = Object.fromEntries(Array.from({ length: 11 }, (_, index) => [`tests/giant-${index}.test.ts`, 200]));
+    expect(() => planPartitions(Object.keys(giants), { costs: giants })).toThrow("needs more than the limit of 10 partitions");
+    expect(() => planPartitions([], { costs })).toThrow("Repeated-run proof was not selected");
+    expect(() => planPartitions(files, { costs, maxPartitions: 0 })).toThrow("positive integer");
+  });
+
+  test("a partition is read only with the planned count as its divisor", () => {
+    const costs = fleet(40, 200), plan = planPartitions(Object.keys(costs), { costs });
+    expect(selectPartition(plan, "2/2")).toBe(plan.partitions[1]!);
+    for (const [shard, refusal] of [["1/1", "Repeated-run partition 1/1 is not in the planned set of 2"], ["1/3", "Repeated-run partition 1/3 is not in the planned set of 2"],
+      ["3/2", "Invalid proof shard"], ["0/2", "Expected proof --shard=M/N"], ["2", "Expected proof --shard=M/N"]] as const) {
+      expect(() => selectPartition(plan, shard), shard).toThrow(refusal);
+    }
   });
 });
 

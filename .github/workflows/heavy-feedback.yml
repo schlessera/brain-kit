@@ -51,6 +51,7 @@ jobs:
       verify: "${{ steps.plan.outputs.verify }}"
       pack: "${{ steps.plan.outputs.pack }}"
       determinism: "${{ steps.plan.outputs.determinism }}"
+      determinism_shards: "${{ steps.plan.outputs.determinism_shards }}"
       red_main_oid: "${{ steps.plan.outputs.red_main_oid }}"
       base_sha: "${{ steps.admit.outputs.base_sha }}"
     steps:
@@ -444,6 +445,10 @@ jobs:
     if: "${{ !cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push') && needs.changeset.outputs.determinism == 'true' }}"
     runs-on: ubuntu-24.04
     timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: "${{ fromJSON(needs.changeset.outputs.determinism_shards) }}"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -467,7 +472,9 @@ jobs:
       - name: Repeat changed Bun test files under CPU load
         id: runtime_proof
         timeout-minutes: 40
-        run: bun scripts/ci-proof.ts determinism
+        env:
+          DETERMINISM_SHARDS: "${{ strategy.job-total }}"
+        run: "bun scripts/ci-proof.ts determinism --shard=${{ matrix.shard }}/\"$DETERMINISM_SHARDS\""
       - name: Environment setup and proof outcomes
         if: always()
         env:
@@ -478,7 +485,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: determinism-proof
+          name: "determinism-proof-${{ matrix.shard }}"
           path: "tmp/determinism-report.json\ntmp/determinism-junit.xml\ntmp/proof-checkout.json\ntmp/proof-resources.json\ntmp/runner-disk.json\n"
           include-hidden-files: true
           if-no-files-found: warn
