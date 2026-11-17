@@ -4,7 +4,7 @@ import { MicButton, type MicPhase } from "@schlessera/brain-ui-kit";
 /** V1 (#3690): a hold this long opens Start; an earlier release is a tap. */
 const HOLD_MS = 600;
 
-/** How long a stray click after a hold or a cancelled hold is swallowed. */
+/** How long to wait for a stray click after release, or a cancelled hold. */
 const SWALLOW_MS = 1000;
 
 interface ComposerMicProps {
@@ -54,17 +54,32 @@ export function ComposerMic(p: ComposerMicProps) {
    * click (on the mic, or on whatever replaced it). That click is not a tap.
    * The next press of any kind ends the guard, so a later tap is never lost.
    */
-  function swallowNextClick() {
+  function swallowNextClick(pointerId?: number) {
     swallow.current?.();
+    let expiry: ReturnType<typeof setTimeout> | undefined;
+    // A completed hold can stay down indefinitely, including after unmount.
+    // Only its release starts the fallback cleanup for browsers with no click.
+    const released = (event: globalThis.PointerEvent) => {
+      if (event.pointerId !== pointerId) return;
+      window.removeEventListener("pointerup", released, true);
+      window.removeEventListener("pointercancel", released, true);
+      expiry = setTimeout(end, SWALLOW_MS);
+    };
     const click = (event: MouseEvent) => { event.preventDefault(); event.stopPropagation(); end(); };
     const end = () => {
       window.removeEventListener("click", click, true);
       window.removeEventListener("pointerdown", end, true);
       window.removeEventListener("keydown", end, true);
+      window.removeEventListener("pointerup", released, true);
+      window.removeEventListener("pointercancel", released, true);
       clearTimeout(expiry);
       if (swallow.current === end) swallow.current = null;
     };
-    const expiry = setTimeout(end, SWALLOW_MS);
+    if (pointerId === undefined) expiry = setTimeout(end, SWALLOW_MS);
+    else {
+      window.addEventListener("pointerup", released, true);
+      window.addEventListener("pointercancel", released, true);
+    }
     window.addEventListener("click", click, true);
     window.addEventListener("pointerdown", end, true);
     window.addEventListener("keydown", end, true);
@@ -109,7 +124,7 @@ export function ComposerMic(p: ComposerMicProps) {
       holding.current = false;
       setPhase("complete");
       setProgress(1);
-      swallowNextClick();
+      swallowNextClick(event.pointerId);
       try { navigator.vibrate?.(10); } catch { /* No haptic on this device. */ }
       latest.current.onTalkLive?.();
     }, HOLD_MS);
