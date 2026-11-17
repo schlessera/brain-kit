@@ -132,10 +132,13 @@ test("generated documents parse the same split and whole", () => {
 }, 60_000);
 
 describe("tailText", () => {
-  test("shows the deferred tail while it is what the text extends and the last catch-up is recent", () => {
-    expect(tailText("abc", "ab", 1000, 1000 + MAX_TAIL_LAG_MS)).toBe("ab");
+  test("a tail that has just fallen behind shows its deferred text, however long the stream paused before", () => {
+    expect(tailText("abc", "ab", null, 1_000_000), "no commit has shown it behind yet").toBe("ab");
   });
-  test("renders the current tail once the last catch-up is older than the bound", () => {
+  test("shows the deferred tail while it has been behind for no longer than the bound", () => {
+    expect(tailText("abcd", "ab", 1000, 1000 + MAX_TAIL_LAG_MS)).toBe("ab");
+  });
+  test("renders the current tail once it has been behind for longer than the bound", () => {
     expect(tailText("abcde", "ab", 1000, 1001 + MAX_TAIL_LAG_MS)).toBe("abcde");
   });
   test("caught up, replaced or with no deferred text, shows the current text", () => {

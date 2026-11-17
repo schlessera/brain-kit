@@ -219,11 +219,15 @@ function StreamedBlock({ text, last, ...rest }: BlockProps & { last: boolean }) 
   // A deferred tail that has lagged too long renders its current text
   // urgently (`tailText`), so a slow parse under fast deltas still updates.
   const deferred = useDeferredValue(last ? text : null);
-  // When a commit last showed the current text: written in an effect, so
-  // only committed renders count, never one React starts and throws away.
-  const caughtUpAt = useRef(performance.now());
-  const shown = last ? tailText(text, deferred, caughtUpAt.current, performance.now()) : text;
-  useEffect(() => { if (shown === text) caughtUpAt.current = performance.now(); });
+  // When a commit first showed this tail behind its text: written in an
+  // effect, so only committed renders count, never one React discards; a
+  // commit that shows it caught up clears it.
+  const behindSince = useRef<number | null>(null);
+  const shown = last ? tailText(text, deferred, behindSince.current, performance.now()) : text;
+  useEffect(() => {
+    if (shown === text) behindSince.current = null;
+    else behindSince.current ??= performance.now();
+  });
   return <>
     <MarkdownBlock text={shown} {...rest} />
     {/* react-markdown separates top-level blocks with a newline; keep it between ours. */}
