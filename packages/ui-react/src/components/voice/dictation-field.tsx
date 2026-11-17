@@ -1,5 +1,5 @@
 import { VoiceControlButton, VoiceField, VoiceNotice, VoiceText } from "@schlessera/brain-ui-kit";
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 import { dictationNoticeForm } from "../../voice/dictation-failure.js";
 import { providerAudioPolicy, providerMeta, providerRecipient, savedServiceName } from "../../voice/dictation-providers.js";
 import { useVoiceStore } from "../../voice/voice-store.js";
