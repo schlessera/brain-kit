@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { proofCadence, planChecks, proofSelections } from "../scripts/ci-plan";
 import { requireCandidate, validateCandidate } from "../scripts/candidate-proof";
-import type { API } from "../scripts/proof-reuse";
+import type { API } from "../scripts/proof-api";
 
 const actual = { sha: "a".repeat(40), tree: "b".repeat(40), parents: ["c".repeat(40), "d".repeat(40)] };
 const event = { action: "ready_for_review", pull_request: { number: 7, draft: false,
@@ -26,14 +26,16 @@ test("events distinguish cheap drafts, fast pushes, explicit final requests and 
   expect(() => proofCadence({ GITHUB_EVENT_NAME: "unknown" }, {})).toThrow("Unknown proof event");
   const plan = planChecks(["package.json"], [{ dir: "ui-react", name: "@fixture/ui-react", dependencies: [], files: ["src"] }]);
   plan.cadence = "feedback";
-  expect(proofSelections(plan)).toEqual({ verify: true, pack: false, unit: false, browser: false, layout: false, captures: false, runtime: false, runtime_host: false, endurance: false });
+  expect(proofSelections(plan)).toEqual({ verify: true, pack: false, unit: false, browser: false, layout: false, captures: false, runtime: false, runtime_host: false, endurance: false, determinism: false });
   plan.cadence = "confirmation";
   // Hybrid ruling: ready confirmation runs the fast categories; heavy categories run on main.
-  expect(proofSelections(plan), "CONFIRMATION_RUNS_FAST_CATEGORIES_ONLY").toEqual({ verify: true, pack: true, unit: true, browser: false, layout: false, captures: false, runtime: false, runtime_host: false, endurance: false });
+  expect(proofSelections(plan), "CONFIRMATION_RUNS_FAST_CATEGORIES_ONLY").toEqual({ verify: true, pack: true, unit: true, browser: false, layout: false, captures: false, runtime: false, runtime_host: false, endurance: false, determinism: false });
+  // Repeating changed tests is pre-merge proof; main and exhaustive runs never select it (#4109).
+  const exceptRepetition = () => { const { determinism, ...rest } = proofSelections(plan); expect(determinism, "NO_REPETITION_AFTER_MERGE").toBe(false); return Object.values(rest); };
   plan.cadence = "integrated";
-  expect(Object.values(proofSelections(plan)).every(Boolean), "MAIN_RUNS_EVERY_SELECTED_CATEGORY").toBe(true);
+  expect(exceptRepetition().every(Boolean), "MAIN_RUNS_EVERY_SELECTED_CATEGORY").toBe(true);
   plan.cadence = "exhaustive";
-  expect(Object.values(proofSelections(plan)).every(Boolean)).toBe(true);
+  expect(exceptRepetition().every(Boolean)).toBe(true);
 });
 
 test("intermediate green feedback cannot satisfy final candidate confirmation", async () => {

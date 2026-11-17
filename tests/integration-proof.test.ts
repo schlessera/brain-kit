@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
+import { PROOF_JOBS } from "../scripts/ci-proof";
 import { verifyIntegrationProof } from "../scripts/integration-proof";
 import { scanText } from "../scripts/check-leakage";
-import type { API } from "../scripts/proof-reuse";
+import type { API } from "../scripts/proof-api";
 
 const candidate = { repository: "https://github.com/odysseus/brain-kit", pr: 7, head: "a".repeat(40), base: "b".repeat(40) };
 const job = { id: 19, name: "changeset", status: "completed", conclusion: "success", run_id: 17, head_sha: candidate.head };
@@ -127,7 +128,8 @@ for (const [label, malformed] of [
 
 /** A ready confirmation as the merge path reads it: the aggregate's receipts plus the run's actual job inventory. */
 async function confirmationOutcome(published: unknown, ran: readonly number[]): Promise<string> {
-  const categories = ["verify", "pack", "unit", "browser", "layout", "captures", "runtime", "runtime_host", "endurance"];
+  // Every hosted proof job, so a category added later (determinism, #4109) is part of the inventory.
+  const categories: readonly string[] = PROOF_JOBS;
   const fast = (name: string) => ["verify", "pack", "unit"].includes(name);
   const checkout = { sha: "d".repeat(40), tree: "e".repeat(40), parents: [candidate.base, candidate.head] };
   const selected = { selections: Object.fromEntries(categories.map(name => [name, String(fast(name))])),

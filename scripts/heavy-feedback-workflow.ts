@@ -13,7 +13,7 @@ import { annotateActionPins } from "./action-pins";
 import { join, resolve } from "node:path";
 import { FEEDBACK_AGGREGATE } from "./heavy-feedback";
 
-export const CATEGORY_JOBS = ["verify", "pack", "unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance"] as const;
+export const CATEGORY_JOBS = ["verify", "pack", "unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance", "determinism"] as const;
 export const FEEDBACK_GROUP = "heavy-feedback-${{ github.event.pull_request.number || inputs.pr }}";
 const HEAD = "${{ inputs.head_sha }}";
 const DISPATCH = "github.event_name == 'workflow_dispatch'";
@@ -51,7 +51,6 @@ export function renderHeavyFeedbackWorkflow(ciText: string): string {
   if (!redMain) throw new Error("ci.yml changeset job lost its red-main gate");
   const request = { FEEDBACK_PR: "${{ inputs.pr }}", FEEDBACK_HEAD_SHA: HEAD, GH_TOKEN: "${{ github.token }}" };
   const outputs = { ...clone(metadata.outputs), base_sha: "${{ steps.admit.outputs.base_sha }}" };
-  delete outputs.reuse; // Feedback never retains or records proof.
   const workflow = {
     name: "Draft heavy feedback",
     on: {
@@ -62,7 +61,7 @@ export function renderHeavyFeedbackWorkflow(ciText: string): string {
       // A push, a ready transition or closing the PR cancels its in-flight feedback run.
       pull_request: { types: ["synchronize", "ready_for_review", "closed"] },
     },
-    permissions: { contents: "read", actions: "read", checks: "read" },
+    permissions: { contents: "read", actions: "read" },
     concurrency: { group: FEEDBACK_GROUP, "cancel-in-progress": true },
     jobs: {
       supersede: {
@@ -86,7 +85,6 @@ export function renderHeavyFeedbackWorkflow(ciText: string): string {
           { name: redMain.name, env: { PR_NUMBER: "${{ inputs.pr }}" }, run: redMain.run },
           { name: "Plan the PR's affected selection with feedback-heavy cadence", id: "plan",
             env: { BASE_SHA: "${{ steps.admit.outputs.base_sha }}", HEAD_SHA: HEAD, FEEDBACK_PR: "${{ inputs.pr }}" }, run: "bun scripts/ci-plan.ts" },
-          { name: "Select fresh browser and layout execution", id: "reuse", run: "bun scripts/proof-reuse.ts" },
         ],
       },
       ...Object.fromEntries(CATEGORY_JOBS.map(name => [name, categoryJob(ci.jobs[name]!)])),
