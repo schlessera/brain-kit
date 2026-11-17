@@ -151,6 +151,15 @@ test("the date field shows the parsed date and refuses an unparseable one", asyn
   discovers. Prevents `skipped`, `conditional-skip`, `retry`, `only` and
   `undiscovered`.
 
+A Bun test file that a pull request adds or modifies is checked against these
+rules before it merges: the hosted `determinism` job runs it five times in a
+row under CPU load and fails on the first failing repetition
+([the gate](testing.md#changed-tests-repeat-under-load)). A test that waits for
+a while, reads the wall clock or keeps state from its previous run fails
+there, not on someone else's merge. Reproduce a failure with
+`bun scripts/test-determinism.ts --base origin/main`, and fix the test under
+the rule it broke. A longer deadline or a retry is not a fix.
+
 ## Cost
 
 - **C1. Know the budget of the tier.** Most unit files finish in under a

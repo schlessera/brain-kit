@@ -9,7 +9,7 @@ import { isAncestor } from "./red-main-cli";
 import { expeditedProblems, expeditedTests, fixProbeTitle, probeReceipt, type FeedbackEvidence, type ProbeEvidence } from "./red-main-expedite";
 import { receiptFromBody, receiptRefusal } from "./check-receipt";
 import { reviewGate } from "./review-receipt";
-import type { API } from "./proof-reuse";
+import type { API } from "./proof-api";
 
 /**
  * A refusal no retry can cure: the candidate changed or the reservation no longer

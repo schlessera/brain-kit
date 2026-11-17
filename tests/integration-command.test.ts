@@ -137,12 +137,14 @@ fi`); chmodSync(shim, 0o755);
     const candidate=${JSON.stringify(candidate)}, actual=${JSON.stringify(actual)}, root=${JSON.stringify(root)}, remote=${JSON.stringify(remote)};
     const refs=${JSON.stringify(refs)}, body=${JSON.stringify(body)}, probes=${JSON.stringify({ 401: probeLog(401), 402: probeLog(402) })};s.reads??=[];
     const repo="odysseus/brain-kit", base=candidate.base, head=candidate.head, squash=${JSON.stringify(squash)};
-    const categories=["verify","pack","unit","browser","layout","captures","runtime","runtime_host","endurance"];
+    const categories=["verify","pack","unit","browser","layout","captures","runtime","runtime_host","endurance","determinism"];
     const selected={selections:Object.fromEntries(categories.map(x=>[x,"false"])),results:Object.fromEntries(categories.map(x=>[x,"skipped"])),retained:[],unitShards:null};
     if(s.mode.startsWith("browser-")){selected.selections.browser="true";selected.results.browser="success";}
     if(s.mode==="receipt-uncovered"){selected.selections.unit="false";}
     if(s.mode==="missing-selection")delete selected.selections.endurance;
     if(s.mode==="unexpected-skip"){selected.selections.endurance="true";selected.results.endurance="success";}
+    if(s.mode==="repetition-skipped")selected.selections.determinism="true";
+    if(s.mode==="retained-receipt"){selected.selections.browser="true";selected.results.browser="skipped";selected.retained=["browser"];}
     const job=(id,name,conclusion="success")=>({id,name,status:"completed",conclusion,run_id:91,head_sha:head});
     const jobs=[job(1,"changeset"),job(2,"proof"),...categories.flatMap((name,index)=>name==="browser"&&s.mode.startsWith("browser-")
       ?[1,2,3].filter(shard=>s.mode!=="browser-missing-third"||shard!==3).map(shard=>job(20+shard,"browser ("+shard+")"))
@@ -255,12 +257,12 @@ fi`);
 }
 
 test("shared merge executable rejects missing, stale, wrong-owner and changed-candidate authority before merge", async () => {
-  for (const mode of ["missing", "wrong-id", "wrong-owner", "wrong-token", "no-token", "expired", "changed-base", "proof-failure", "wrong-checkout", "wrong-milestone", "revoked-during-proof", "changed-head", "missing-selection", "unexpected-skip"]) {
+  for (const mode of ["missing", "wrong-id", "wrong-owner", "wrong-token", "no-token", "expired", "changed-base", "proof-failure", "wrong-checkout", "wrong-milestone", "revoked-during-proof", "changed-head", "missing-selection", "unexpected-skip", "repetition-skipped"]) {
     const result = await scenario(mode);
     expect(result.dispatched, `NO_MERGE_WITH_INVALID_AUTHORITY:${mode}`).toBe(false);
     expect(result.code, result.err).toBe(1);
     const expected = mode === "changed-base" ? "ordinary exact-main candidate" : mode === "proof-failure" ? "Complete current-candidate CI and contract proof required"
-      : mode === "changed-head" ? "mismatched candidate reservation" : mode === "missing-selection" ? "aggregate policy" : mode === "unexpected-skip" ? "Actual selected job inventory differs" : mode === "wrong-checkout" ? "Selected job ran a different checkout" : mode === "wrong-milestone" ? "Release milestone mismatch" : mode === "no-token" ? "merge --lease needs --token" : "Missing, expired, superseded";
+      : mode === "changed-head" ? "mismatched candidate reservation" : mode === "missing-selection" || mode === "repetition-skipped" ? "aggregate policy" : mode === "unexpected-skip" ? "Actual selected job inventory differs" : mode === "wrong-checkout" ? "Selected job ran a different checkout" : mode === "wrong-milestone" ? "Release milestone mismatch" : mode === "no-token" ? "merge --lease needs --token" : "Missing, expired, superseded";
     expect(result.err).toContain(expected);
   }
 });
@@ -440,6 +442,11 @@ test("shared merge executable requires all three delivered browser shards", asyn
   expect(missing.dispatched, "NO_MERGE_WITH_MISSING_THIRD_BROWSER_SHARD").toBe(false);
   expect(missing.code).toBe(1);
   expect(missing.err).toContain("Actual selected job inventory differs");
+  // Retention is retired (#4107): a receipt excusing a skipped selected browser job is not proof.
+  const retained = await scenario("retained-receipt");
+  expect(retained.dispatched, "NO_MERGE_ON_RETAINED_BROWSER_PROOF").toBe(false);
+  expect(retained.code).toBe(1);
+  expect(retained.err).toContain("Retained proof is retired");
 });
 
 test("delivered issues accepts 22 and the finite boundary with every milestone read back", async () => {
