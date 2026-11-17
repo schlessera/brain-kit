@@ -70,7 +70,7 @@ export function createGitHubReferenceAccess(options: {
             throw new ReferenceTransportError("denied", "the selected host credential changed");
         } else if (credentialed) throw new ReferenceTransportError("denied", "anonymous acquisition cannot dispatch a credential");
       };
-      const wire = await createGitHubReferenceWire({ ...input, repository: location.canonical, ...options.wireTransport, authorize });
+      const wire = await createGitHubReferenceWire({ ...input, repository: location.cloneUrl, ...options.wireTransport, authorize });
       let openingMetadata = true;
       try {
         let result = await wire.metadata(null);
@@ -87,7 +87,7 @@ export function createGitHubReferenceAccess(options: {
         }
         authorize("metadata", credential !== null);
         if (result.status !== 200) throw new ReferenceTransportError([401, 403, 404].includes(result.status) ? "denied" : "unavailable", "GitHub repository identity is unavailable");
-        const identity: GitHubReferenceIdentity = parseGitHubReferenceMetadata(location.canonical, result.value);
+        const identity: GitHubReferenceIdentity = parseGitHubReferenceMetadata(location.cloneUrl, result.value);
         if (!grant && identity.private) throw new ReferenceTransportError("denied", "anonymous metadata cannot establish public source access");
         openingMetadata = false;
         // Source/worktree effects outlive wire shutdown, but not this authority.
@@ -131,7 +131,7 @@ export function createGitHubReferenceAccess(options: {
               assertCurrent();
               const result = await wire.metadata(credential);
               assertCurrent();
-              if (result.status !== 200 || !sameGitHubReferenceIdentity(identity, parseGitHubReferenceMetadata(location.canonical, result.value)))
+              if (result.status !== 200 || !sameGitHubReferenceIdentity(identity, parseGitHubReferenceMetadata(location.cloneUrl, result.value)))
                 throw new ReferenceTransportError("denied", "GitHub repository identity changed during acquisition");
             } catch (error) {
               const interrupted = input.signal?.aborted || (input.current && !input.current());

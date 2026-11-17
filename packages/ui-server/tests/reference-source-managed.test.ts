@@ -777,6 +777,92 @@ describe("live managed authority", () => {
       } finally { if (first) await worktrees.closeGeneration(first.id); if (other) await worktrees.closeGeneration(other.id); await worktrees.close(); await f.close(); }
     });
 
+  for (const observation of ["private", "unknown"] as const)
+  for (const revision of ["main", "return-home"])
+    test(`another source service fences a first ${revision} publication after ${observation} metadata`, async () => {
+      const f = await fixture(), otherDb = createUiDb(f.databasePath), otherSources = f.restart(otherDb);
+      const arrived = Promise.withResolvers<void>(), resume = Promise.withResolvers<void>(), publish = f.pool.poolPublish;
+      let path = "", paused = false;
+      f.pool.poolPublish = async (...args) => {
+        const result = await publish(...args);
+        if (!paused) { paused = true; path = join(result.path!, "README.md"); arrived.resolve(); await resume.promise; }
+        return result;
+      };
+      const older = f.sources.request({ principalId: f.owner.id, repository, revision,
+        acquisition: { turnId: "odysseus-first-publication", egress: f.egress, current: () => true } })
+        .then(lease => ({ lease, error: undefined }), error => ({ lease: undefined, error }));
+      try {
+        await arrived.promise;
+        expect(readFileSync(path, "utf8")).toContain("Odysseus");
+        expect(f.db.query("SELECT 1 FROM reference_sources").get()).toBeNull();
+        if (observation === "private") f.state.private = true; else f.state.status = 503;
+        await expect(otherSources.request({ principalId: f.other.id, repository, revision: "main",
+          acquisition: { turnId: "telemachus-newer-metadata", egress: f.secondEgress, current: () => true } }))
+          .rejects.toMatchObject({ code: observation === "private" ? "unauthorized" : "unavailable" });
+        expect(existsSync(path), "OTHER_SERVICE_HIDES_PENDING_FIRST_PUBLICATION").toBe(false);
+        resume.resolve();
+        const result = await older;
+        expect(result.lease, "DURABLE_FENCE_REFUSES_OLDER_FIRST_PUBLICATION").toBeUndefined();
+        expect(result.error).toMatchObject({ code: "unauthorized" });
+        expect(f.db.query("SELECT 1 FROM reference_sources WHERE root_id IS NOT NULL").get(), "OLDER_PUBLICATION_CANNOT_RECREATE_CATALOG").toBeNull();
+      } finally {
+        resume.resolve(); (await older).lease?.release(); await otherSources.close(); otherDb.close(); await f.close();
+      }
+    });
+
+  test("another source owner retires a sealed staging identity before its delayed native publication", async () => {
+    const f = await fixture(), otherDb = createUiDb(f.databasePath), otherSources = f.restart(otherDb);
+    const arrived = Promise.withResolvers<void>(), resume = Promise.withResolvers<void>(), publish = f.pool.poolPublish;
+    let exposed = false, id = "";
+    f.pool.poolPublish = async (...args) => { id = args[0]; arrived.resolve(); await resume.promise; const result = await publish(...args); exposed = true; return result; };
+    const older = f.request().then(lease => ({ lease, error: undefined }), error => ({ lease: undefined, error }));
+    try {
+      await arrived.promise; f.state.status = 503;
+      await expect(otherSources.request({ principalId: f.other.id, repository, revision: "main",
+        acquisition: { turnId: "telemachus-delayed-native-observation", egress: f.secondEgress, current: () => true } })).rejects.toMatchObject({ code: "unavailable" });
+      expect(f.pool.records.get(id)?.state, "INVALIDATED_SEALED_STAGING_IDENTITY_IS_RETIRED").toBe("reclaimed");
+      resume.resolve(); const result = await older;
+      expect(result.lease).toBeUndefined(); expect(result.error).toBeDefined();
+      expect(exposed, "DELAYED_NATIVE_PUBLICATION_CANNOT_EXPOSE_INVALIDATED_ROOT").toBe(false);
+    } finally { resume.resolve(); (await older).lease?.release(); await otherSources.close(); otherDb.close(); await f.close(); }
+  });
+
+  test("an older fenced publisher cannot hide another service's fresh replacement", async () => {
+    const f = await fixture(), otherDb = createUiDb(f.databasePath), otherSources = f.restart(otherDb);
+    const arrived = Promise.withResolvers<void>(), resume = Promise.withResolvers<void>(), publish = f.pool.poolPublish;
+    let paused = false, current: Awaited<ReturnType<typeof f.request>> | undefined;
+    f.pool.poolPublish = async (...args) => { const result = await publish(...args); if (!paused) { paused = true; arrived.resolve(); await resume.promise; } return result; };
+    const older = f.request().then(lease => ({ lease, error: undefined }), error => ({ lease: undefined, error }));
+    try {
+      await arrived.promise; f.state.status = 503;
+      await expect(otherSources.request({ principalId: f.other.id, repository, revision: "main",
+        acquisition: { turnId: "telemachus-unknown-observation", egress: f.secondEgress, current: () => true } })).rejects.toMatchObject({ code: "unavailable" });
+      f.state.status = 200;
+      current = await otherSources.request({ principalId: f.other.id, repository, revision: "main",
+        acquisition: { turnId: "telemachus-new-valid-publication", egress: f.secondEgress, current: () => true } });
+      resume.resolve(); const result = await older;
+      expect(result.error).toMatchObject({ code: "unauthorized" });
+      expect(existsSync(join(current.viewPath, current.name, "README.md")), "OLDER_FENCED_PUBLISHER_PRESERVES_OTHER_SERVICE_PUBLICATION").toBe(true);
+      expect(readFileSync(join(current.viewPath, current.name, "README.md"), "utf8")).toContain("Odysseus");
+      expect(() => current!.assertAuthority(), "OLDER_CLEANUP_CANNOT_REVOKE_NEW_PUBLICATION").not.toThrow();
+    } finally { resume.resolve(); (await older).lease?.release(); current?.release(); await otherSources.close(); otherDb.close(); await f.close(); }
+  });
+
+  test("fresh validation cannot revive another service's invalidated older lease", async () => {
+    const f = await fixture(), otherDb = createUiDb(f.databasePath), otherSources = f.restart(otherDb);
+    let held: Awaited<ReturnType<typeof f.request>> | undefined, current: typeof held;
+    const request = () => otherSources.request({ principalId: f.other.id, repository, revision: "main",
+      acquisition: { turnId: "telemachus-shared-validation", egress: f.secondEgress, current: () => true } });
+    try {
+      held = await f.request(); f.state.status = 503;
+      await expect(request()).rejects.toMatchObject({ code: "unavailable" });
+      f.state.status = 200; current = await request();
+      expect(current.rootId).toBe(held.rootId);
+      expect(() => held!.assertAuthority(), "DURABLE_GENERATION_CANNOT_REVIVE_INVALIDATED_LEASE").toThrow();
+      expect(() => current!.assertAuthority(), "NEW_DURABLE_GENERATION_RETAINS_VALID_LEASE").not.toThrow();
+    } finally { current?.release(); held?.release(); await otherSources.close(); otherDb.close(); await f.close(); }
+  });
+
   for (const observation of ["private", "unknown", "replacement"] as const)
   for (const wait of ["coverage", "native-grant", "held-refresh"] as const)
     test(`another source service's ${observation} observation fences a worktree during ${wait}`, async () => {

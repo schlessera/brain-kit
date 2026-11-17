@@ -1,6 +1,7 @@
 /** Reference catalog effects; acquisition and native pool calls stay with the caller (#2999). */
 import type { Database } from "bun:sqlite";
 import type { ReferenceAcquisition } from "./reference-acquisition.js";
+import { sourceAuthorityCurrent, type SourceAuthority } from "./reference-source-authority.js";
 
 export function sourceWrites(db: Database) {
   function sourceView(domain: string, id: string): { id: string; hostPath: string | null } {
@@ -11,6 +12,10 @@ export function sourceWrites(db: Database) {
   }
   return {
     sourceView,
+    sourceFence(domain: string, repository: string, revision: string, generation: string) {
+      db.query(`INSERT INTO reference_authority_fences (domain, repository, revision, generation) VALUES (?, ?, ?, ?)
+        ON CONFLICT (domain, repository, revision) DO UPDATE SET generation = excluded.generation`).run(domain, repository, revision, generation);
+    },
     sourceTouch(at: number, domain: string, repository: string, revision: string) {
       db.query("UPDATE reference_sources SET last_used_at = ? WHERE domain = ? AND repository = ? AND revision = ?").run(at, domain, repository, revision);
     },
@@ -20,8 +25,21 @@ export function sourceWrites(db: Database) {
     sourceReleaseRoot(id: string) {
       db.query("DELETE FROM reference_roots WHERE id = ?").run(id);
     },
-    sourceValidate(at: number, refreshedAt: number, ref: string, domain: string, repository: string, revision: string) {
-      db.query("UPDATE reference_sources SET validated_at = ?, refreshed_at = ?, last_error = NULL, ref = ? WHERE domain = ? AND repository = ? AND revision = ?").run(at, refreshedAt, ref, domain, repository, revision);
+    sourceDiscard(id: string) {
+      return db.transaction(() => {
+        const root = db.query("SELECT id, state FROM reference_roots WHERE id = ?").get(id) as { id: string; state: string } | null;
+        db.query("UPDATE reference_sources SET root_id = NULL WHERE root_id = ?").run(id);
+        db.query("UPDATE reference_roots SET state = 'superseded' WHERE id = ? AND state = 'published'").run(id);
+        return root;
+      }).immediate();
+    },
+    sourceValidate(at: number, refreshedAt: number, ref: string, domain: string, repository: string, revision: string, expected?: SourceAuthority, rootId?: string) {
+      return db.transaction(() => {
+        if (expected && !sourceAuthorityCurrent(db, expected)) return false;
+        return db.query(`UPDATE reference_sources SET validated_at = ?, refreshed_at = ?, last_error = NULL, ref = ?
+          WHERE domain = ? AND repository = ? AND revision = ? AND (? IS NULL OR root_id = ?)`)
+          .run(at, refreshedAt, ref, domain, repository, revision, rootId ?? null, rootId ?? null).changes === 1;
+      }).immediate();
     },
     sourceSuspend(domain: string, repository: string, revision: string) {
       db.query("UPDATE reference_sources SET validated_at = 0 WHERE domain = ? AND repository = ? AND revision = ?").run(domain, repository, revision);
@@ -40,13 +58,14 @@ export function sourceWrites(db: Database) {
     },
     sourceWithdraw(domain: string, repository: string, revision: string, viewId: string) {
       db.query("UPDATE reference_sources SET root_id = NULL WHERE domain = ? AND repository = ? AND revision = ?").run(domain, repository, revision);
-      const roots = db.query("SELECT id FROM reference_roots WHERE domain = ? AND repository = ? AND revision = ? AND state != 'staging'").all(domain, repository, revision) as { id: string }[];
+      const roots = db.query("SELECT id, state FROM reference_roots WHERE domain = ? AND repository = ? AND revision = ?").all(domain, repository, revision) as { id: string; state: string }[];
       db.query("UPDATE reference_roots SET state = 'superseded' WHERE domain = ? AND repository = ? AND revision = ? AND state = 'published'").run(domain, repository, revision);
       const view = sourceView(domain, viewId);
       return { roots, view };
     },
-    sourcePublish(path: string, domain: string, repository: string, revision: string, url: string, name: string, id: string, commit: string, ref: string, grantId: string | null, at: number, acquisition?: ReferenceAcquisition) {
-      db.transaction(() => {
+    sourcePublish(path: string, domain: string, repository: string, revision: string, url: string, name: string, id: string, commit: string, ref: string, grantId: string | null, at: number, acquisition?: ReferenceAcquisition, expected?: SourceAuthority) {
+      return db.transaction(() => {
+        if (expected && !sourceAuthorityCurrent(db, expected)) return false;
         if (acquisition) db.query(`INSERT INTO reference_acquisitions
           (root_id, acquisition_id, brain, principal_id, turn_id, repository_id, owner_id, owner, repository_name, ref, commit_id, tree_id,
             native_root_id, native_uuid, native_generation, grant_id, network_bytes, acquired_at)
@@ -62,6 +81,7 @@ export function sourceWrites(db: Database) {
           ON CONFLICT (domain, repository, revision) DO UPDATE SET url = excluded.url, name = excluded.name, root_id = excluded.root_id, commit_id = excluded.commit_id,
             ref = excluded.ref, grant_id = excluded.grant_id, refreshed_at = excluded.refreshed_at, validated_at = excluded.validated_at, last_error = NULL`)
           .run(domain, repository, revision, url, name, id, commit, ref, grantId, at, at, at);
+        return true;
       }).immediate();
     },
   };
