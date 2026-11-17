@@ -52,8 +52,8 @@ export function worktreeWrites(db: Database) {
     activate(at: number, id: string) {
       db.query("UPDATE reference_worktrees SET state = 'active', accessed_at = ? WHERE id = ?").run(at, id);
     },
-    discard(id: string) {
-      db.query("DELETE FROM reference_worktrees WHERE id = ? AND state = 'creating'").run(id);
+    discard(id: string, activating = false) {
+      db.query("DELETE FROM reference_worktrees WHERE id = ? AND (state = 'creating' OR (? AND state = 'active' AND holder IS NULL))").run(id, activating);
     },
     openGeneration(id: string, principalId: string, turnId: string, profile: string, path: string, pid: number, start: string, boot: string, pidNamespace: string, at: number) {
       db.query(`INSERT INTO reference_worktree_generations (id, principal_id, turn_id, profile, path, owner_pid, owner_start, owner_boot, owner_pid_namespace, opened_at)

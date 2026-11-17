@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
@@ -29,12 +29,13 @@ async function fixture(options: { private?: boolean; worker?: boolean } = {}) {
   const writer = options.worker ? openSqliteWriter(db) : undefined;
   if (writer) registerReferenceWrites(db, writer);
   const metadata: string[] = [], git: unknown[] = [];
-  const state = { current: true, ownerId: 201, clock: Date.now(), fetches: 0 };
+  const state = { current: true, ownerId: 201, clock: Date.now(), fetches: 0, private: options.private ?? false, status: 200 };
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, tls: { cert: tls.cert, key: tls.key }, fetch(request) {
     metadata.push(request.headers.get("authorization") ?? "anonymous");
-    if (options.private && !request.headers.has("authorization")) return new Response(null, { status: 404 });
+    if (state.status !== 200) return new Response(null, { status: state.status });
+    if (state.private && !request.headers.has("authorization")) return new Response(null, { status: 404 });
     return Response.json({ id: 101, owner: { id: state.ownerId, login: "Odysseus" }, name: "Ithaca", full_name: "Odysseus/Ithaca",
-      clone_url: `${repository}.git`, url: "https://api.github.com/repos/odysseus/ithaca", private: options.private ?? false });
+      clone_url: `${repository}.git`, url: "https://api.github.com/repos/odysseus/ithaca", private: state.private });
   } });
   const records: unknown[] = [];
   const egress = await startEgressProxy({ mode: "record", allow: [], deny: [], outwardHosts: [], maxBytes: 4 * 1048576, observe(value) { records.push(value); } });
@@ -266,3 +267,126 @@ for (const wait of ["coverage", "native-grant"] as const)
       expect(f.pool.records.get(item.id)!.access, "REFERENCE_WORKTREE_STALE_GRANT_PARKED").toBeNull();
     } finally { if (generation) await worktrees.closeGeneration(generation.id); await worktrees.close(); await f.close(); }
   });
+describe("live managed authority", () => {
+  for (const refusal of ["metadata", "git-denial", "missing-ref"] as const)
+    test(`a known public source is hidden from another principal after ${refusal} refuses it`, async () => {
+      const f = await fixture();
+      let held: Awaited<ReturnType<typeof f.request>> | undefined;
+      try {
+        held = await f.request();
+        const path = join(held.viewPath, held.name, "README.md");
+        expect(readFileSync(path, "utf8"), "PUBLIC_SOURCE_WAS_PUBLISHED_BEFORE_REFUSAL").toContain("Odysseus");
+        if (refusal === "metadata") f.state.private = true;
+        else f.transport.resolve = async () => ({ ok: false, reason: refusal === "git-denial" ? "denied" : "missing", detail: "The published source is no longer available anonymously." });
+        await expect(f.request(), "MANAGED_PUBLIC_AUTHORITY_REFUSAL_IS_REPORTED").rejects.toMatchObject({ code: refusal === "missing-ref" ? "missing" : "unauthorized" });
+        const views = await f.sources.bindable(f.other.id);
+        expect(existsSync(join(views.public, held.name, "README.md")), "MANAGED_PUBLIC_REFUSAL_FENCES_OTHER_PRINCIPALS").toBe(false);
+        expect(existsSync(path), "MANAGED_PUBLIC_REFUSAL_WITHDRAWS_NAME_WITH_A_HELD_LEASE").toBe(false);
+      } finally { held?.release(); await f.close(); }
+    });
+
+  for (const status of [401, 403, 404])
+    test(`a private cached source is hidden after metadata returns ${status}`, async () => {
+      const f = await fixture({ private: true }); f.grant();
+      let held: Awaited<ReturnType<typeof f.request>> | undefined;
+      try {
+        held = await f.request();
+        expect(readFileSync(join(held.viewPath, held.name, "README.md"), "utf8")).toContain("Odysseus");
+        f.state.status = status;
+        await expect(f.request(), "MANAGED_PRIVATE_METADATA_REFUSAL_IS_AUTHORITY_LOSS").rejects.toMatchObject({ code: "unauthorized" });
+        const views = await f.sources.bindable(f.owner.id);
+        expect(existsSync(join(views.private, held.name, "README.md")), "MANAGED_PRIVATE_METADATA_REFUSAL_WITHDRAWS_COPY").toBe(false);
+      } finally { held?.release(); await f.close(); }
+    });
+
+  test("a revoked private grant during wire shutdown refuses and hides the cached source", async () => {
+    const f = await fixture({ private: true }), issued = f.grant();
+    let held: Awaited<ReturnType<typeof f.request>> | undefined;
+    try {
+      held = await f.request();
+      const open = f.github.open;
+      f.github.open = async input => {
+        const access = await open(input);
+        return Object.freeze({ ...access, async close() {
+          await access.close();
+          revokeReferenceGrant(f.db, { brain, principalId: f.owner.id, id: issued.id, now: Date.now() });
+        } });
+      };
+      await expect(f.request(), "MANAGED_PRIVATE_SHUTDOWN_RECHECKS_AUTHORITY").rejects.toMatchObject({ code: "unauthorized" });
+      expect(existsSync(join(held.viewPath, held.name, "README.md")), "MANAGED_PRIVATE_SHUTDOWN_WITHDRAWS_COPY").toBe(false);
+    } finally { held?.release(); await f.close(); }
+  });
+
+  test("a newly private acquisition removes the prior public copy before returning private access", async () => {
+    const f = await fixture();
+    let old: Awaited<ReturnType<typeof f.request>> | undefined, current: Awaited<ReturnType<typeof f.request>> | undefined;
+    try {
+      old = await f.request();
+      expect(existsSync(join(old.viewPath, old.name, "README.md"))).toBe(true);
+      f.state.private = true; f.grant();
+      current = await f.request();
+      expect(current.domain, "PRIVATE_TRANSITION_USES_ITS_OWN_GRANTED_DOMAIN").toBe("private");
+      expect(readFileSync(join(current.viewPath, current.name, "README.md"), "utf8")).toContain("Odysseus");
+      const views = await f.sources.bindable(f.other.id);
+      expect(existsSync(join(views.public, old.name, "README.md")), "MANAGED_PRIVATE_TRANSITION_WITHDRAWS_PUBLIC_COPY").toBe(false);
+    } finally { current?.release(); old?.release(); await f.close(); }
+  });
+
+  for (const wait of ["coverage", "native-grant", "grant-write", "held-refresh", "held-write"] as const)
+    test(`a private worktree loses mounted access when its grant is revoked during ${wait}`, async () => {
+      const f = await fixture({ private: true }), issued = f.grant();
+      const revoke = () => { expect(revokeReferenceGrant(f.db, { brain, principalId: f.owner.id, id: issued.id, now: Date.now() })).not.toBeNull(); };
+      const context = { turnId: "odysseus-private-worktree", egress: f.egress, current: () => f.state.current };
+      const worktrees = createReferenceWorktrees({ db: f.db, pool: f.pool, sources: f.sources,
+        coverage: async () => { if (wait === "coverage") revoke(); } });
+      let generation: Awaited<ReturnType<typeof worktrees.openGeneration>> | undefined;
+      try {
+        const item = await worktrees.allocate({ principalId: f.owner.id, repository, revision: "main", acquisition: context });
+        generation = await worktrees.openGeneration({ principalId: f.owner.id, turnId: context.turnId, profile: "governed" });
+        if (wait.startsWith("held-")) {
+          await worktrees.access({ worktreeId: item.id, principalId: f.owner.id, generation: generation.id, acquisition: context });
+          expect(existsSync(join(generation.path, item.id, "README.md")), "PRIVATE_WORKTREE_WAS_GRANTED_BEFORE_REVOCATION").toBe(true);
+        }
+        if (wait.endsWith("write")) f.db.exec(`CREATE TRIGGER odysseus_revoke_during_worktree_grant AFTER UPDATE OF holder ON reference_worktrees
+          WHEN NEW.holder IS NOT NULL BEGIN UPDATE reference_grants SET revoked_at = 1 WHERE revoked_at IS NULL; END`);
+        if (wait === "native-grant") {
+          const access = f.pool.poolAccess;
+          f.pool.poolAccess = async (...args) => { const result = await access(...args); revoke(); return result; };
+        }
+        if (wait === "held-refresh") {
+          const request = f.sources.request;
+          f.sources.request = async input => { const result = await request(input); revoke(); return result; };
+        }
+        await expect(worktrees.access({ worktreeId: item.id, principalId: f.owner.id, generation: generation.id, acquisition: context }),
+          "MANAGED_PRIVATE_WORKTREE_RECHECKS_POST_WAIT_GRANT").rejects.toMatchObject({ code: "unauthorized" });
+        expect(f.pool.records.get(item.id)!.access, "MANAGED_PRIVATE_WORKTREE_REVOKED_MOUNT_IS_PARKED").toBeNull();
+        expect(existsSync(join(generation.path, item.id, "README.md")), "MANAGED_PRIVATE_WORKTREE_REVOKED_FILES_ARE_HIDDEN").toBe(false);
+        expect(worktrees.get({ worktreeId: item.id, principalId: f.owner.id }).generation, "MANAGED_PRIVATE_WORKTREE_REVOKED_HOLDER_IS_CLEARED").toBeNull();
+      } finally { if (generation) await worktrees.closeGeneration(generation.id); await worktrees.close(); await f.close(); }
+    });
+
+  for (const wait of ["native-create", "checkpoint", "activation-write"] as const)
+    test(`a private allocation is discarded when its grant is revoked during ${wait}`, async () => {
+      const f = await fixture({ private: true }), issued = f.grant();
+      const context = { turnId: "odysseus-private-allocation", egress: f.egress, current: () => f.state.current };
+      const worktrees = createReferenceWorktrees({ db: f.db, pool: f.pool, sources: f.sources, coverage: async () => {} });
+      const revoke = () => { expect(revokeReferenceGrant(f.db, { brain, principalId: f.owner.id, id: issued.id, now: Date.now() })).not.toBeNull(); };
+      try {
+        if (wait === "native-create") {
+          const create = f.pool.poolCreate;
+          f.pool.poolCreate = async (...args) => { const result = await create(...args); if (args[1] === "worktree") revoke(); return result; };
+        }
+        if (wait === "checkpoint") {
+          const checkpoint = f.pool.poolCheckpoint;
+          f.pool.poolCheckpoint = async (...args) => { const result = await checkpoint(...args); revoke(); return result; };
+        }
+        if (wait === "activation-write") f.db.exec(`CREATE TRIGGER odysseus_revoke_at_worktree_activation AFTER UPDATE OF state ON reference_worktrees
+          WHEN NEW.state = 'active' BEGIN UPDATE reference_grants SET revoked_at = 1 WHERE revoked_at IS NULL; END`);
+        await expect(worktrees.allocate({ principalId: f.owner.id, repository, revision: "main", acquisition: context }),
+          "MANAGED_PRIVATE_ALLOCATION_RECHECKS_POST_WAIT_GRANT").rejects.toMatchObject({ code: "unauthorized" });
+        expect(worktrees.list(f.owner.id), "MANAGED_PRIVATE_REVOKED_ALLOCATION_IS_DISCARDED").toEqual([]);
+        expect([...f.pool.records.values()].filter(record => record.purpose === "worktree" && record.state !== "reclaimed"),
+          "MANAGED_PRIVATE_REVOKED_ALLOCATION_LEAVES_NO_ROOT").toEqual([]);
+      } finally { await worktrees.close(); await f.close(); }
+    });
+});

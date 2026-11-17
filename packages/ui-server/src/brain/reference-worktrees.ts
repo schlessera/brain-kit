@@ -429,6 +429,10 @@ export function createReferenceWorktrees(options: {
     input.signal?.throwIfAborted();
     if (input.acquisition && !input.acquisition.current()) throw new ReferenceWorktreeError("unavailable", "The acquiring turn is no longer available.");
   }
+  function acquiringAuthority(input: { signal?: AbortSignal; acquisition?: ReferenceAcquisitionContext }, row: Pick<WorktreeRow, "principal_id" | "repository" | "domain">): void {
+    acquiringTurn(input);
+    covered(row);
+  }
 
   async function allocate(input: { principalId: string; repository: unknown; revision: unknown; signal?: AbortSignal; acquisition?: ReferenceAcquisitionContext }): Promise<ReferenceWorktree> {
     if (closed) throw new ReferenceWorktreeError("unavailable", "Managed worktrees are closed.");
@@ -439,39 +443,44 @@ export function createReferenceWorktrees(options: {
       throw error;
     }
     const id = randomUUID(), at = now();
+    const authority = { principal_id: input.principalId, domain: lease.domain, repository: lease.repository };
     try {
+      acquiringAuthority(input, authority);
       const allowance = (await pool.poolStatus(input.signal)).limits.operationBytes;
-      acquiringTurn(input);
+      acquiringAuthority(input, authority);
       // Recorded before the pool sees it: recovery and eviction protection both start here.
       await write("allocate", id, input.principalId, lease.domain === "public" ? "public" : `private:${input.principalId}`, lease.repository, lease.revision, lease.commit, lease.rootId, allowance, at, at);
+      let activating = false;
       try {
-        acquiringTurn(input);
+        acquiringAuthority(input, authority);
         const created = await pool.poolCreate(id, "worktree", lease.rootId, allowance, input.signal);
         await write("recordRoot", created.root?.uuid ?? null, id);
-        acquiringTurn(input);
+        acquiringAuthority(input, authority);
         const baseline = randomUUID();
         await write("recordBaseline", baseline, id);
-        acquiringTurn(input);
+        acquiringAuthority(input, authority);
         await pool.poolCheckpoint(baseline, id, input.signal);
-        acquiringTurn(input);
+        acquiringAuthority(input, authority);
         // Allocation is an explicit access: the inactivity clock starts now.
+        activating = true;
         await write("activate", now(), id);
-        acquiringTurn(input);
+        acquiringAuthority(input, authority);
         return view(worktree(id)!);
       } catch (error) {
-        await discard(id).catch(cleanup => warn("unfinished worktree was not released; startup recovery retries it", cleanup));
+        await discard(id, activating).catch(cleanup => warn("unfinished worktree was not released; startup recovery retries it", cleanup));
+        if (error instanceof ReferenceWorktreeError) throw error;
         const code = (error as { code?: string }).code;
         throw new ReferenceWorktreeError(code === "capacity" ? "capacity" : "unavailable", `The worktree could not be created: ${error instanceof Error ? error.message : String(error)}`);
       }
     } finally { lease.release(); }
   }
   /** Release an unfinished allocation's roots; its record goes only once the pool confirms. */
-  async function discard(id: string) {
+  async function discard(id: string, activating = false) {
     const row = worktree(id);
     if (!row) return;
     if (row.baseline) await pool.poolRelease(row.baseline);
     await pool.poolRelease(id);
-    await write("discard", id);
+    await write("discard", id, activating);
   }
 
   /** Open one worker generation of a running turn: an empty directory its workers bind whole. */
@@ -553,16 +562,15 @@ export function createReferenceWorktrees(options: {
       let dispatched = false;
       try {
         await authorize(row, input.signal, input.acquisition);
-        acquiringTurn(input);
+        acquiringAuthority(input, row);
         if (row.holder !== target.id) {
           // Coverage first: no worker reaches a worktree its journal does not observe.
           await options.coverage({ turnId: target.turn_id, worktreeId: row.id }, input.signal);
           // Authority may have ended while revalidation or coverage awaited.
-          covered(row);
-          acquiringTurn(input);
+          acquiringAuthority(input, row);
           dispatched = true;
           await pool.poolAccess(row.id, target.id, input.signal);
-          acquiringTurn(input);
+          acquiringAuthority(input, row);
           // A removal admitted elsewhere while the grant awaited wins: the grant is withdrawn, never recorded.
           if (cleanupOf(row.id)) {
             await pool.poolPark(row.id).catch(error => warn("withdrawn worktree grant was not parked", error));
@@ -571,10 +579,10 @@ export function createReferenceWorktrees(options: {
         }
         // Explicit access or resumption: the only events, with renewal, that move the clock.
         await write("grant", target.id, now(), row.id);
-        acquiringTurn(input);
+        acquiringAuthority(input, row);
         return view(worktree(row.id)!);
       } catch (error) {
-        if (input.acquisition && dispatched) await recoverHolder(worktree(row.id) ?? row).catch(cleanup => warn("withdrawn managed worktree grant was not parked", cleanup));
+        if (dispatched || row.holder === target.id) await recoverHolder(worktree(row.id) ?? row).catch(cleanup => warn("withdrawn managed worktree grant was not parked", cleanup));
         throw error;
       }
     });

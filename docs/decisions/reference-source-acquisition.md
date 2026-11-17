@@ -7,7 +7,7 @@ over the [reference pool](reference-pool-accounting.md). It uses the
 [owner-managed grants](reference-source-grants.md) as its only private
 authority. This record names the concrete choices the rulings left to
 implementation. The service is `createReferenceSources`
-(`createReferenceSources`, `packages/ui-server/src/brain/reference-source.ts:95-790`),
+(`createReferenceSources`, `packages/ui-server/src/brain/reference-source.ts:95-816`),
 created at host start when the native manager reports a reference pool, and
 closed with the app. The agent tool that requests source arrived with
 [#2432](https://github.com/schlessera/brain-kit/issues/2432)
@@ -76,6 +76,13 @@ default to five minutes and are configured separately
   outage, so no stale copy survives it. A public-to-private transition
   therefore never leaves the old copy under public authority; the principal
   needs a grant and gets a private copy.
+- Managed metadata or Git authority refusal withdraws known public and
+  requesting-principal private copies, including while a reader holds a lease.
+  A successful private metadata check also withdraws the prior public copy.
+  An incomplete metadata check withholds cached roots until acquisition can
+  establish authority again. Private metadata responses of 401, 403 or 404
+  are authority refusals; the selected private grant is checked once more
+  after the acquisition wire finishes shutting down.
 - A public check that gets no answer proves nothing. Only a principal with a
   covering grant goes on to the private path; anyone else is refused as
   `unavailable`.
@@ -220,14 +227,14 @@ removes the name and moves every one of those roots out of the view
 (`poolWithdraw`), so no reader reaches them by name or identity. Storage is
 released once readers finish. An acquisition of the same source waits for the
 withdrawal to finish
-(`revoke`, `packages/ui-server/src/brain/reference-source.ts:777-797`).
+(`revoke`, `packages/ui-server/src/brain/reference-source.ts:803-823`).
 
 The catalog lives in the UI database and is disposable bookkeeping. At start, a
 recorded source survives only if its sealed root still exists, its name can be
 published again (which repairs a publication whose reply was lost) and, when
 private, a live grant still covers it. Every other owned source root is
 released: interrupted staging, superseded or withdrawn roots, roots the
-catalog lost, and deletions interrupted in `deleting` (`recover`, `packages/ui-server/src/brain/reference-source.ts:800-844`).
+catalog lost, and deletions interrupted in `deleting` (`recover`, `packages/ui-server/src/brain/reference-source.ts:826-870`).
 
 ## Evidence
 

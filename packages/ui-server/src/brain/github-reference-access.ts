@@ -75,7 +75,7 @@ export function createGitHubReferenceAccess(options: {
           result = await wire.metadata(credential);
         }
         authorize("metadata", credential !== null);
-        if (result.status !== 200) throw new ReferenceTransportError("unavailable", "GitHub repository identity is unavailable");
+        if (result.status !== 200) throw new ReferenceTransportError([401, 403, 404].includes(result.status) ? "denied" : "unavailable", "GitHub repository identity is unavailable");
         const identity: GitHubReferenceIdentity = parseGitHubReferenceMetadata(location.canonical, result.value);
         if (!grant && identity.private) throw new ReferenceTransportError("denied", "anonymous metadata cannot establish public source access");
         const assertCurrent = () => {

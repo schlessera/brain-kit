@@ -520,6 +520,8 @@ export function createReferenceSources(options: {
         assertCurrent();
         const domain = access.domain === "public" ? PUBLIC : privateDomain(input.principalId);
         Object.assign(operation, { domain, grantId: access.grantId, key: sourceKey(domain, repository.canonical, revision) });
+        // Private metadata cannot renew a previously shared public copy.
+        if (domain !== PUBLIC) await withdraw(PUBLIC, repository.canonical, revision);
         await withdrawals.get(operation.key);
         assertCurrent();
         const check = await access.resolve();
@@ -554,13 +556,37 @@ export function createReferenceSources(options: {
         return { kind: "source", row: current, stale: false, error: null };
       } catch (error) {
         result?.release(); result = undefined;
+        const refusal = error instanceof ReferenceTransportError ? error.reason : error instanceof ReferenceSourceError ? error.code : null;
+        if (refusal === "denied" || refusal === "unauthorized" || refusal === "missing") {
+          // Opening metadata may fail before it selects a domain. Fence both
+          // known copies; neither the public cache nor this principal's cache
+          // may outlive an explicit authority refusal.
+          await Promise.all([PUBLIC, privateDomain(input.principalId)].map(domain => withdraw(domain, repository.canonical, revision)));
+        } else if (!access) {
+          // An incomplete metadata check may already have refused anonymous
+          // access. Preserve the cached roots, but withhold them until a live
+          // acquisition establishes authority again.
+          await Promise.all([PUBLIC, privateDomain(input.principalId)].map(domain => suspendSource(domain, repository.canonical, revision)));
+        }
         if (error instanceof ReferenceTransportError) throw new ReferenceSourceError(error.reason === "denied" ? "unauthorized" : error.reason, error.message);
         throw error;
       } finally { try { await access?.close(); } finally { done(); } }
     })();
     operations.set(id, operation);
-    try { await operation.promise; assertTurn(); return result!; }
-    catch (error) { result?.release(); throw error; }
+    try {
+      await operation.promise;
+      assertTurn();
+      // Closing the wire also awaits: its original private grant must still
+      // authorize the lease after shutdown, without inheriting a new grant.
+      if (operation.domain !== PUBLIC && authorize(operation.domain, input.principalId, repository)?.id !== operation.grantId)
+        throw new ReferenceSourceError("unauthorized", "The selected reference grant changed before acquisition completed.");
+      return result!;
+    } catch (error) {
+      const held = result;
+      held?.release();
+      if (held && error instanceof ReferenceSourceError && error.code === "unauthorized") await withdraw(operation.domain, repository.canonical, revision);
+      throw error;
+    }
     finally { operations.delete(id); void settle(...splitKey(operation.key)).catch(error => warn("managed source settle failed", error)); }
   }
 

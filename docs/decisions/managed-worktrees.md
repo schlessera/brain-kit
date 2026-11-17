@@ -7,7 +7,7 @@ commit. It builds on the [acquisition service](reference-source-acquisition.md)
 and the pool's [checkpoints and access generations](reference-pool-accounting.md#worktree-checkpoints-and-access-generations-2430).
 This record names the concrete choices the rulings left to implementation. The
 service is `createReferenceWorktrees`
-(`createReferenceWorktrees`, `packages/ui-server/src/brain/reference-worktrees.ts:151-695`),
+(`createReferenceWorktrees`, `packages/ui-server/src/brain/reference-worktrees.ts:151-703`),
 created with the acquisition service. The agent tools that call it arrived with
 [#2432](https://github.com/schlessera/brain-kit/issues/2432) ([agent tools](#agent-tools)). Hygiene findings,
 review and cleanup arrived with [#2431](https://github.com/schlessera/brain-kit/issues/2431)
@@ -19,7 +19,7 @@ A request names the principal, a repository and a branch or tag, like a source
 request. The service asks the acquisition service for that source, so its
 authority, freshness and private boundary all apply, and then snapshots the
 sealed source root it was given
-(`async function allocate`, `packages/ui-server/src/brain/reference-worktrees.ts:433-461`).
+(`async function allocate`, `packages/ui-server/src/brain/reference-worktrees.ts:437-469`).
 The worktree's starting commit is the commit that source reported, and it never
 moves with the source. A read-only baseline checkpoint is taken at once. Each
 worktree gets the pool's per-operation allowance. A worktree belongs to one
@@ -31,6 +31,10 @@ record. While any worktree record names a source root, capacity eviction and
 startup recovery keep that root: a snapshot keeps its source's extents and
 owner charge, so releasing the source would free nothing.
 
+The acquiring turn and live private grant are checked after pool and database
+waits. Authority lost during allocation discards its roots and record, including
+when the activation write completed before the final authority check.
+
 ## Worker generations and access
 
 A worker generation is one access generation in the pool, opened for one
@@ -39,7 +43,7 @@ restricted (autonomous) turn holds no worktree. The generation records the
 owning process (PID, start time, boot and PID namespace).
 
 Access makes a worktree available to one open generation
-(`function access(input`, `packages/ui-server/src/brain/reference-worktrees.ts:525-535`):
+(`function access(input`, `packages/ui-server/src/brain/reference-worktrees.ts:534-544`):
 
 1. The generation must be open in this process for a running turn, and belong
    to the requesting principal.
@@ -50,9 +54,11 @@ Access makes a worktree available to one open generation
    worktree of private source needs a live grant covering its repository at
    every access, even if its branch has since become public. The repository's
    revision is then validated through the acquisition service under its own
-   clocks, and the grant is read again after that and after coverage, just
-   before the move. A revoked grant, or an expired validation that cannot be
-   renewed, refuses.
+   clocks, and the grant is read again after revalidation, coverage, the native
+   move and the database grant write. A revoked grant, or an expired validation
+   that cannot be renewed, refuses. Failed access parks a newly dispatched
+   mount or one already held by this generation and clears its database holder;
+   another live generation's mount remains busy.
 5. Journal coverage is established for the turn before the pool moves the
    worktree into the generation. Without coverage the service refuses access,
    so no worker reaches a worktree that is not journaled.
@@ -80,7 +86,7 @@ such as an owner in another PID namespace, is **unknown**
 (`function live`, `packages/ui-server/src/brain/reference-worktrees.ts:206-212`).
 
 Reconciliation runs at startup and when a generation closes, never on a timer
-(`async function reconcile`, `packages/ui-server/src/brain/reference-worktrees.ts:613-640`).
+(`async function reconcile`, `packages/ui-server/src/brain/reference-worktrees.ts:621-648`).
 After three days without explicit activity, a worktree expires:
 
 - with a live holder it stays `active` and held, however long the turn runs;
@@ -215,7 +221,7 @@ public view and their principal's private view whole and read-only at
 (`// Shared reference source (#2432)`, `packages/ui-sdk/src/server/worker-launcher.ts:898-909`).
 A view the domain has not published to yet is opened empty first, so the turn
 sees its own first acquisition
-(`async bindable(principalId: string`, `packages/ui-server/src/brain/reference-source.ts:870-901`).
+(`async bindable(principalId: string`, `packages/ui-server/src/brain/reference-source.ts:896-927`).
 A refresh renames the name a later lookup resolves, so reads stay live and
 nothing pins a revision. A view is the domain's authorized cache: its names are
 published under that domain's authority and withdrawn when the authority is
@@ -258,7 +264,7 @@ source. Managed GitHub sources are withheld without network access: their
 validation needs an explicit request on the new turn's proxy and budget.
 These rules cover sources a running turn reads; a running reader keeps its
 existing mount
-(`async function settleView`, `packages/ui-server/src/brain/reference-source.ts:679-717`):
+(`async function settleView`, `packages/ui-server/src/brain/reference-source.ts:705-743`):
 
 - a source with less than the bind margin of validation left counts as
   lapsed: a minute, or half of a shorter configured lifetime, so it does not
@@ -272,7 +278,7 @@ existing mount
   one kept only for a worktree or staging whose publication reply was lost.
 
 Withholding takes a source's name and roots out of the view
-(`function suspendSource`, `packages/ui-server/src/brain/reference-source.ts:611-622`).
+(`function suspendSource`, `packages/ui-server/src/brain/reference-source.ts:637-648`).
 Its cache and charge stay, and the next request that validates it publishes it
 again. A running reader keeps its bind of the view and the files it has open;
 its later lookups of a withheld name fail until a request validates the source.
@@ -291,7 +297,7 @@ withheld rather than checked again; withholding takes only short pool calls,
 so the bind converges whatever the cache size. A bind that still cannot be
 admitted, because a pool change stays unconfirmed, refuses, and the turn runs
 without shared source views
-(`function admissible`, `packages/ui-server/src/brain/reference-source.ts:723-732`).
+(`function admissible`, `packages/ui-server/src/brain/reference-source.ts:749-758`).
 The margin covers the moments between admission and the workers' mounts.
 
 Suspension, restoration, withdrawal and publication of one source run one at a
