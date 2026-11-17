@@ -11,7 +11,7 @@ pieces through `createApp()`.
 ## Usage
 
 ```ts
-import { createApp, MAX_ARCHIVE_BYTES } from "@schlessera/brain-ui-server";
+import { createApp, MAX_ARCHIVE_BYTES, MARKUP_UPLOAD_MAX_BODY_BYTES } from "@schlessera/brain-ui-server";
 import { SHARE_MAX_TOTAL_BYTES } from "@schlessera/brain-ui-sdk/protocol";
 import { MAX_CLIENT_FRAME_BYTES } from "@schlessera/brain-ui-sdk/schemas";
 import { renderPng, renderPdf, shutdownRenderer } from "./renderer.js";
@@ -37,9 +37,10 @@ Bun.serve({
   port: 3000,
   hostname: "0.0.0.0",
   // Leave multipart framing room above the largest upload accepted by any
-  // route: currently skill archives (100 MiB), ahead of shares (50 MB).
+  // route: currently skill archives (100 MiB), ahead of shares (50 MB) and
+  // markup layers (50 MiB plus their own framing).
   maxRequestBodySize:
-    Math.max(MAX_ARCHIVE_BYTES, SHARE_MAX_TOTAL_BYTES) +
+    Math.max(MAX_ARCHIVE_BYTES, SHARE_MAX_TOTAL_BYTES, MARKUP_UPLOAD_MAX_BODY_BYTES) +
     MULTIPART_HEADROOM_BYTES,
   // SSE sync streams may be quiet while nested processes work. This
   // is Bun's maximum idle timeout.

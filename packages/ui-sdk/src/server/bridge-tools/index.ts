@@ -23,6 +23,8 @@ export {
 } from "./mask.js";
 export type { ImageMaskHandlerOptions } from "./mask.js";
 
+export { handleRequestImageMarkup } from "./markup.js";
+
 export { handleQueryActivity, wrapUntrustedData } from "./activity.js";
 
 export { handleShowBlock } from "./show-block.js";

@@ -87,6 +87,10 @@ describe("markup model", () => {
     expect(overCapMessage(MARKUP_MAX_BYTES + 5 * 1024 * 1024)).toBe(
       "This markup is 55 MB; the limit is 50 MB. Remove some freehand marks.",
     );
+    // One byte over would round to the limit's own size: the bytes are stated instead.
+    expect(overCapMessage(MARKUP_MAX_BYTES + 1)).toBe(
+      "This markup is 52,428,801 bytes; the limit is 52,428,800 bytes (50 MB). Remove some freehand marks.",
+    );
   });
 });
 

@@ -107,6 +107,7 @@ export interface BrainToolDeps {
     activity?: boolean;
     inbox?: boolean;
     mask?: boolean;
+    markup?: boolean;
     policyChange?: boolean;
     turnTemp?: boolean;
     reference?: boolean;
@@ -163,6 +164,9 @@ export const TOOL_RISK: Record<string, RiskClass> = {
   // Writes a mask PNG next to its image, but the approval is the mask editor
   // itself — nothing happens unless the user paints and confirms.
   request_image_mask: "mutate",
+  // The host writes a markup layer under .brain/scratch/markup/ (#3975), and
+  // only once the user draws and sends it: the editor is the approval.
+  request_image_markup: "mutate",
   write_file: "mutate",
   edit_file: "mutate",
   bash: "mutate",

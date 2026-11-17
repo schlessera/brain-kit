@@ -787,6 +787,30 @@ describe("bridge-capability tool registration", () => {
     }
   });
 
+  test("request_image_markup relays the host's receipt, refuses without the host operation, and refuses a no-grant turn (#3975)", async () => {
+    const brain = makeEmptyBrain();
+    try {
+      const turn = createTurnContext();
+      turn.bridge = makeMockBridge().bridge;
+      const tools = toolMap(createBrainTools({ brain: createBrainAccess(brain.root), turn, lock: toolLockFromKeyed(createKeyedLock()), capabilities: { markup: true } }));
+      expect(tools.request_image_markup).toBeDefined();
+      const input = { imagePath: "photos/raft-at-ithaca.jpg", instruction: "mark what should move" };
+      await expect(tools.request_image_markup!.execute("k1", input, undefined, undefined, CTX)).rejects.toThrow("does not support request_image_markup");
+      const asked: unknown[] = [];
+      const receipt = { imagePath: input.imagePath, markupPath: ".brain/scratch/markup/raft-at-ithaca.3f9a1c2e.markup.png", width: 3024, height: 4032,
+        bytes: 2048, marks: { pen: 0, arrow: 2, ellipse: 1, text: 1 }, notes: ["move the raft here"], note: "Pass this layer to brain image --markup." };
+      (turn.bridge as { requestImageMarkup?: unknown }).requestImageMarkup = async (call: unknown) => { asked.push(call); return receipt; };
+      const result = await tools.request_image_markup!.execute("k2", input, undefined, undefined, CTX);
+      expect(asked).toEqual([input]);
+      expect(JSON.parse((result.content[0] as { text: string }).text)).toEqual(receipt);
+      turn.noGrantSurface = true;
+      await expect(tools.request_image_markup!.execute("k3", input, undefined, undefined, CTX)).rejects.toThrow(/no way to show anyone an image/);
+      expect(asked).toHaveLength(1);
+    } finally {
+      brain.cleanup();
+    }
+  });
+
   test("the list card refuses a turn with no grant surface instead of blocking on it", async () => {
     const brain = makeEmptyBrain();
     try {
@@ -856,7 +880,7 @@ describe("bridge-capability tool registration", () => {
         turn,
         lock: toolLockFromKeyed(createKeyedLock()),
         // Every capability the toolkit accepts: a new one fails to typecheck here until it is enabled.
-        capabilities: { location: true, activity: true, mask: true, inbox: true, policyChange: true, turnTemp: true, reference: true, compute: true, apify: true, attachments: true, web: true, github: true } satisfies Required<NonNullable<BrainToolDeps["capabilities"]>>,
+        capabilities: { location: true, activity: true, mask: true, markup: true, inbox: true, policyChange: true, turnTemp: true, reference: true, compute: true, apify: true, attachments: true, web: true, github: true } satisfies Required<NonNullable<BrainToolDeps["capabilities"]>>,
       });
       expect(tools.length).toBeGreaterThan(0);
       for (const t of tools) {

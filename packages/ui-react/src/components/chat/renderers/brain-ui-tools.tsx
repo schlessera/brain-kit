@@ -10,13 +10,15 @@
 import type { RendererPack } from "@schlessera/brain-ui-sdk/client";
 import {
   GET_CURRENT_LOCATION_CONTRACT,
+  REQUEST_IMAGE_MARKUP_CONTRACT,
   REQUEST_IMAGE_MASK_CONTRACT,
   SHOW_BLOCK_CONTRACT,
 } from "@schlessera/brain-ui-sdk/client";
-import { LayoutGrid, MapPin, Scissors } from "lucide-react";
+import { LayoutGrid, MapPin, PenLine, Scissors } from "lucide-react";
 import { BlockCard, blockSummary } from "../tool-cards/block-card.js";
 import { LocationResultCard } from "../tool-cards/location-card.js";
 import { ImageMaskResultCard, ImageMaskFallback } from "../tool-cards/image-mask-card.js";
+import { ImageMarkupCard, ImageMarkupFallback } from "../tool-cards/image-markup-card.js";
 import { ClampedPre } from "../tool-views.js";
 import { bind } from "./bind.js";
 
@@ -40,6 +42,14 @@ export const brainUiToolPack: RendererPack = {
       // A declined mask is an error with a message, not a payload. The fact
       // belongs in the transcript in red, from the result's own words.
       Fallback: ImageMaskFallback,
+    }),
+    ...bind(REQUEST_IMAGE_MARKUP_CONTRACT, ImageMarkupCard, {
+      icon: PenLine,
+      label: "Markup",
+      summary: (payload) => payload.imagePath,
+      meta: (payload) => `markup ${payload.markupPath}`,
+      // A closed editor or a refused layer is an error with a message.
+      Fallback: ImageMarkupFallback,
     }),
     // Rendered inline at the call's position by the transcript, not in the
     // timeline; this binding is what the timeline uses when the payload does
