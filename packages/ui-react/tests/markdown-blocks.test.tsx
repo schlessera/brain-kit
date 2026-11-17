@@ -77,6 +77,7 @@ const CORPUS: Record<string, { text: string; splits: boolean; props?: { fileLink
   "a fence marker inside an HTML block": { text: "<details>\n```js\na\n\nb\n```\n</details>\n\nAfter.", splits: false },
   "an HTML block before a separate fence": { text: "<div>\nraw\n</div>\n\n```js\nconst a = 1;\n\nconst b = 2;\n```\n\nAfter.", splits: false },
   "an HTML line continuing a list item": { text: " \n* item\n</pre>\n\n```\n\n```js\n\n", splits: false },
+  "a fence opened after a bare carriage return": { text: "Para\r```\ncode\n\nmore code\n```\n\nAfter.", splits: false },
   "links, inline code and emphasis": { text: "Read **the [log](https://ithaca.example/log)** and `notes/raft.md`.\n\n_Then_ sail.", splits: true },
 };
 

@@ -21,7 +21,9 @@
  * - never in a text holding a fence that is indented or inside a blockquote
  *   or list item. Only top-level fences are tracked, and a container fence
  *   can be closed or reopened at column 0 in ways only a full parse knows
- *   (a column-0 closer ends the list item and opens a new top-level fence).
+ *   (a column-0 closer ends the list item and opens a new top-level fence);
+ * - never in a text holding a carriage return, which CommonMark also takes
+ *   as a line ending while this scan reads lines at `\n` alone.
  */
 
 /**
@@ -45,7 +47,7 @@ const CONTINUES = /^(?:[-*+](?:\s|$)|\d{1,9}[.)](?:\s|$)|>|\||\s)/;
 
 /** The text's top-level blocks, in order; `[text]` when it cannot be split safely. */
 export function splitMarkdownBlocks(text: string): string[] {
-  if (DEFINITION.test(text) || HTML_LINE.test(text) || NESTED_FENCE.test(text)) return [text];
+  if (text.includes("\r") || DEFINITION.test(text) || HTML_LINE.test(text) || NESTED_FENCE.test(text)) return [text];
   const lines = text.split("\n");
   const blocks: string[] = [];
   let start = 0;
