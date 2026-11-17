@@ -82,7 +82,13 @@ function Row({ result }: { result: GitHubResult }) {
             <Field>{result.title}</Field>
           </span>
           <span style={META}>
-            {[ref, ROW_STATE[result.state], ...(result.facts ?? [])].join(" · ")}
+            {ref} · {ROW_STATE[result.state]}
+            {(result.facts ?? []).map((fact, i) => (
+              <span key={i}>
+                {" · "}
+                <Field>{fact}</Field>
+              </span>
+            ))}
           </span>
         </span>
         <span aria-hidden="true" style={{ display: "inline-flex", paddingTop: 2, color: color.inkMute }}>

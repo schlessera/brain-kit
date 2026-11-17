@@ -156,6 +156,19 @@ describe("UntrustedText: links ask first", () => {
     }
   });
 
+  test("a link clipped out of a clamped field expands it when it takes focus", async () => {
+    const text = `${"The bow has hung unstrung for twenty years. ".repeat(20)}\n\nSee [the armoury notes](https://notes.ithaca.example/a).`;
+    const el = mount(createElement(UntrustedText, { text, source: "GitHub", lines: 3, expandLabel: "Show full description" }), 320);
+    const field = el.querySelector<HTMLElement>(".bk-ut")!;
+    expect(field.classList.contains("bk-ut-clamp"), "the field starts clamped").toBe(true);
+    const button = el.querySelector<HTMLButtonElement>("button[data-untrusted-link]")!;
+    button.focus();
+    expect(document.activeElement, "the clipped link takes focus").toBe(button);
+    await expect.poll(() => field.classList.contains("bk-ut-clamp"), { timeout: 2000 }).toBe(false);
+    const link = el.querySelector<HTMLButtonElement>("button[data-untrusted-link]")!.getBoundingClientRect();
+    expect(link.bottom, "the focused link is inside the field").toBeLessThanOrEqual(field.getBoundingClientRect().bottom + 1);
+  });
+
   test("Escape closes the interstitial and returns focus to the link", async () => {
     const el = mount(createElement(UntrustedText, { text: ASK, source: "GitHub" }));
     const link = el.querySelector<HTMLButtonElement>("button[data-untrusted-link]")!;
@@ -237,6 +250,7 @@ describe("bidi cannot reorder the chrome", () => {
           caption: false,
           frame: "none",
         }),
+        createElement(GitHubResultList, { key: "list", repo: "ithaca/hall", query: "bow", total: 1, results: [{ kind: "issue", number: 409, state: "open", title: "Bow string frays", facts: ["\u202Ewob", "3 comments"] }] }),
         // One inline run of chrome and untrusted words: the branch name sits mid-sentence.
         createElement(GitHubMergeEvent, { key: "merge", by: { login: "penelope" }, into: "\u202Eniam", sha: "a3f9c21", time: "1 d ago" }),
       ]),
@@ -247,6 +261,10 @@ describe("bidi cannot reorder the chrome", () => {
     const reason = el.querySelector("[data-untrusted-link-reason]")!.getBoundingClientRect();
     const kool = [...el.querySelectorAll("bdi")].find((b) => b.textContent === "\u202Ekool")!.getBoundingClientRect();
     expect(reason.left, "the reason stays after its words").toBeGreaterThanOrEqual(kool.right - 1);
+    const row = el.querySelector("[data-github-result] button")!;
+    const fact = [...row.querySelectorAll("[data-untrusted-field]")].find((b) => b.textContent === "\u202Ewob")!.getBoundingClientRect();
+    const tail = [...row.querySelectorAll("span")].find((node) => node.textContent === " · 3 comments")!.getBoundingClientRect();
+    expect(tail.left, "the next fact stays after a label in a result row").toBeGreaterThanOrEqual(fact.right - 1);
     const merge = el.querySelector("[data-github-merge]")!;
     const branch = [...merge.querySelectorAll("[data-untrusted-field]")].find((b) => b.textContent === "\u202Eniam")!.getBoundingClientRect();
     const sha = [...merge.querySelectorAll("span")].find((node) => node.textContent === " · a3f9c21")!.getBoundingClientRect();

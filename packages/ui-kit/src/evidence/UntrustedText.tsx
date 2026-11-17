@@ -533,8 +533,24 @@ export function UntrustedText(p: UntrustedTextProps) {
       ) : null}
       <div
         ref={body}
+        // A clamped field clips its overflow, but a link or code block below the
+        // fold still takes focus. Expanding when focus lands there keeps every
+        // focused control, and its ring, visible.
+        onFocus={(event) => {
+          const el = body.current;
+          if (!clamped || !overflows || !el) return;
+          // Focusing inside an overflow-hidden box scrolls the box itself, so
+          // measure the target within the content, then undo that scroll.
+          const target = (event.target as HTMLElement).getBoundingClientRect();
+          const bottom = target.bottom - el.getBoundingClientRect().top + el.scrollTop;
+          if (bottom > el.clientHeight + 1 || el.scrollTop > 0) {
+            el.scrollTop = 0;
+            setExpanded(true);
+          }
+        }}
         dir="auto"
         className={clamped ? "bk-ut bk-ut-clamp" : "bk-ut"}
+        data-cut={clamped && overflows ? "" : undefined}
         style={{
           ...(clamped
             ? ({

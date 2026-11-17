@@ -59,15 +59,21 @@ export const StatesNarrow = States.extend({ ...narrow });
 
 /**
  * The moment before the image arrives: the initials show at once, with no
- * shimmer. It renders exactly as a failed or absent avatar does.
+ * shimmer, exactly as a failed or absent avatar does. The avatar is a
+ * same-origin request the Storybook server holds open, so the story stays in
+ * that state.
  */
 export const AvatarLoading = meta.story({
-  args: withAvatar(penelope, "penelope"),
+  args: { ...penelope, avatarSrc: "/__held-avatar.svg" },
   ...desktop,
   play: async ({ canvasElement }) => {
-    await expect(canvasElement.textContent).toContain("PE");
+    const avatar = canvasElement.querySelector("[data-avatar-state]")!;
+    await expect(avatar.getAttribute("data-avatar-state")).toBe("pending");
+    await expect(getComputedStyle(canvasElement.querySelector("img")!).visibility).toBe("hidden");
+    await expect(avatar.textContent).toBe("PE");
   },
 });
+export const AvatarLoadingNarrow = AvatarLoading.extend({ ...narrow });
 
 /** Participants: up to four faces, then +n, and the count in words. */
 export const Participants = meta.story({

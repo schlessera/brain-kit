@@ -112,7 +112,7 @@ export function GitHubDetailSection(p: GitHubDetailSectionProps) {
   const showRows = hasRows && (p.state === "loaded" || p.state === "loading" || p.state === "error" || p.state === "rate-limited");
 
   return (
-    <section style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }} aria-label={p.noun} aria-busy={p.state === "loading" || undefined} data-github-detail={p.state}>
+    <div role="group" style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }} aria-label={p.noun} aria-busy={p.state === "loading" || undefined} data-github-detail={p.state}>
       <div role="status" className="bk-sr-only">
         {announcement}
       </div>
@@ -178,6 +178,6 @@ export function GitHubDetailSection(p: GitHubDetailSectionProps) {
           GitHub no longer shows this {p.object} to this brain (removed, or access changed).
         </Notice>
       ) : null}
-    </section>
+    </div>
   );
 }

@@ -164,3 +164,13 @@ export const InterstitialOpenNarrow = InterstitialOpen.extend({ ...narrow });
  * `prefers-reduced-motion: reduce` emulated and asserts that nothing animates.
  */
 export const InterstitialReducedMotion = InterstitialOpen.extend({});
+
+// The same states at 320px.
+export const LookalikeNarrow = Lookalike.extend({ ...narrow });
+export const InternationalDomainNarrow = InternationalDomain.extend({ ...narrow });
+export const InertLinksNarrow = InertLinks.extend({ ...narrow });
+export const BidiRefusedNarrow = BidiRefused.extend({ ...narrow });
+export const BidiNarrow = Bidi.extend({ ...narrow });
+export const InertContentNarrow = InertContent.extend({ ...narrow });
+export const HardTruncatedNarrow = HardTruncated.extend({ ...narrow });
+export const InterstitialReducedMotionNarrow = InterstitialOpenNarrow.extend({});

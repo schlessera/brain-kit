@@ -3116,14 +3116,18 @@ label.bk-live-service-row {
 .bk-ut { unicode-bidi: isolate; overflow-wrap: anywhere; min-width: 0; }
 .bk-ut > * + * { margin-top: 8px; }
 .bk-ut-p { margin: 0; white-space: pre-line; }
+/* Clamped by height, not -webkit-line-clamp: line clamping a field of several
+ * block children truncates the first and draws the rest over each other. The
+ * last line fades, so a cut reads as a cut; a control below the fold expands
+ * the field when it takes focus (UntrustedText). */
 .bk-ut-clamp {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: var(--ut-lines);
+  max-height: calc(var(--ut-lines) * 1.7em);
   overflow: hidden;
 }
+/* Only a field that is actually cut fades: a complete one keeps its last line. */
+.bk-ut-clamp[data-cut] { mask-image: linear-gradient(to bottom, black calc(100% - 1.7em), transparent); }
 @media (max-width: 479px) {
-  .bk-ut-clamp { -webkit-line-clamp: var(--ut-lines-narrow); }
+  .bk-ut-clamp { max-height: calc(var(--ut-lines-narrow) * 1.7em); }
 }
 .bk-ut-code {
   font: 400 0.9em/1 "JetBrains Mono", ui-monospace, monospace;
