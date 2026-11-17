@@ -123,7 +123,7 @@ function watchHold(s: Awaited<ReturnType<typeof scene>>, noticed: () => boolean 
   const quiet = JSON.stringify(s.traffic());
   /** Times are the page's own clock. `noticed` is the first frame the caller's predicate held. */
   const seen = { pressed: null as number | null, released: null as number | null, opened: null as number | null,
-    completed: null as number | null, noticed: null as number | null,
+    completed: null as number | null, noticed: null as number | null, buzzed: null as number | null,
     frames: [] as { at: number; phase: string | undefined; progress: number; hint: string | undefined; quiet: boolean }[] };
   const down = () => { seen.pressed ??= performance.now(); };
   const up = () => { seen.released ??= performance.now(); };
@@ -136,6 +136,7 @@ function watchHold(s: Awaited<ReturnType<typeof scene>>, noticed: () => boolean 
     const mic = s.mic(), at = performance.now();
     if (mic?.dataset.phase === "complete") seen.completed ??= at;
     if (noticed()) seen.noticed ??= at;
+    if (s.haptics.length) seen.buzzed ??= at;
     if (mic) seen.frames.push({ at, phase: mic.dataset.phase,
       progress: Number(mic.querySelector(".bk-voice-ring")?.getAttribute("data-progress")),
       hint: s.host.querySelector(".bk-voice-hint")?.textContent ?? undefined, quiet: JSON.stringify(s.traffic()) === quiet });
@@ -163,9 +164,9 @@ function gesture(kind: Kind, at: { x: number; y: number }, steps: Step[]) {
   onTestFinished(() => commands.sheetInput(kind, [{ type: "up", ...at, t: 0 }]));
   return commands.sheetInput(kind, steps);
 }
-/** A tap: the press and the release together. */
+/** A tap: pressed, then released `held` ms later, part-way through the 0.6 s hold. */
 const tap = (kind: Kind, at: { x: number; y: number }, held: number) =>
-  gesture(kind, at, [{ type: "down", ...at, t: 0 }, { type: "up", ...at, t: held }]);
+  gesture(kind, at, [{ type: "down", ...at, t: 0 }, { type: "up", ...at, t: held, wait: held }]);
 /** A hold past 0.6 s, released one second after the press: 0.4 s after the hold completes, inside its click guard. */
 const hold = (kind: Kind, at: { x: number; y: number }) =>
   gesture(kind, at, [{ type: "down", ...at, t: 0 }, { type: "up", ...at, t: 1000, wait: 1000 }]);
@@ -192,6 +193,7 @@ for (const kind of KINDS) for (const width of [320, 1280] as const) test(`a comp
     await expect.poll(() => s.client.state.getState().disclosureOpen, { message: `${kind}: the hold opens Start` }).toBe(true);
     expect(s.haptics, `${kind}: one light haptic`).toEqual([10]);
     expect(seen.opened!, `${kind}: Start opens while the mic is still held, not on release`).toBeLessThan(seen.released!);
+    expect(seen.buzzed!, `${kind}: the haptic comes while the mic is still held, not on release`).toBeLessThan(seen.released!);
     // Mid-hold, from the page's own frames before Start opened: the ring fills
     // and the hint explains, and nothing has started.
     const mid = seen.frames.filter(frame => frame.at < seen.opened! && frame.progress > 0 && frame.progress < 1);
@@ -217,8 +219,12 @@ for (const kind of KINDS) for (const width of [320, 1280] as const) test(`an ear
   {
     const s = await scene(ctx, width);
     const at = centre(s.mic()!);
-    await tap(kind, at, 250);
+    const seen = watchHold(s);
+    await tap(kind, at, 350);
     await expect.poll(() => s.ui.stores.voice.getState().mode, { message: `${kind}: the tap dictates` }).toBe("dictate");
+    // The release came part-way through the hold: the page had drawn the ring filling before it.
+    expect(seen.frames.some(frame => frame.at < seen.released! && frame.phase === "holding" && frame.progress > 0 && frame.progress < 1),
+      `${kind}: released part-way through the hold`).toBe(true);
     await wait(600);
     expect(s.client.state.getState().disclosureOpen, `${kind}: EARLY_RELEASE_NEVER_OPENS_START`).toBe(false);
     expect(s.client.state.getState().active).toBe(false);
@@ -284,6 +290,7 @@ for (const kind of KINDS) for (const width of [320, 1280] as const) test(`withou
     await expect.poll(() => s.host.textContent, { message: `${kind}: S4 replaces Start` }).toContain(S4);
     expect(s.haptics).toEqual([10]);
     expect(seen.noticed!, `${kind}: S4 appears while the mic is still held, not on release`).toBeLessThan(seen.released!);
+    expect(seen.buzzed!, `${kind}: the haptic comes while the mic is still held, not on release`).toBeLessThan(seen.released!);
     expect(seen.frames.some(frame => frame.phase === "holding" && frame.progress > 0 && frame.progress < 1), `${kind}: the ring still fills (V4)`).toBe(true);
     await wait(150);
     expect(s.client.state.getState().active, `${kind}: Start does not open`).toBe(false);
