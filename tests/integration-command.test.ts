@@ -7,6 +7,7 @@ import { declareFix, emptyRedMain, openRed } from "../scripts/red-main";
 import { receiptBlock, type CheckReceipt } from "../scripts/check-receipt";
 import { reviewComment, type ReviewFinding } from "../scripts/review-receipt";
 import { invocationChild } from "../scripts/test-invocation-child";
+import { watchdogMs } from "../scripts/test-deadlines";
 import { processIdentity } from "../scripts/workspace-lease.mjs";
 
 const dirs: string[] = [];
@@ -17,13 +18,15 @@ const scenarios = new Set<Scenario>();
 let deadline: ReturnType<typeof setTimeout>, overdue = false, deadlineCleanup: Promise<void> | undefined;
 beforeEach(() => {
   overdue = false; deadlineCleanup = undefined;
-  // Bun kills dangling children before afterEach on timeout. Reserve three
-  // seconds inside its unchanged 30-second cap for the owned group/output join.
+  // Bun kills dangling children before afterEach on timeout. Reserve a tenth
+  // of its per-test cap, three of 30 seconds, for the owned group/output join.
+  // This is a watchdog for a hung child, not a budget for the work: a run that
+  // applies load on purpose scales it with the cap (#4191).
   deadline = setTimeout(() => {
     overdue = true;
     deadlineCleanup = stopScenarios();
     void deadlineCleanup.catch(() => {}); // afterEach observes cleanup errors.
-  }, 27_000);
+  }, watchdogMs(27_000));
 });
 async function stopScenarios() {
   const active = [...scenarios];
@@ -54,7 +57,7 @@ function startScenario(mode: string, beforeRead?: () => Promise<void>) {
 }
 function scenario(mode: string) { return startScenario(mode).work; }
 async function runScenario(mode: string, owner: Scenario): Promise<ScenarioResult> {
-  if (overdue) throw new Error("Integration fixture work deadline exceeded; owned cleanup joined inside the 30-second test cap");
+  if (overdue) throw new Error("Integration fixture work deadline exceeded; owned cleanup joined inside the per-test cap");
   const dir = mkdtempSync(join(tmpdir(), "odysseus-integration-command-")); dirs.push(dir);
   owner.dir = dir;
   const root = join(dir, "client"), remote = join(dir, "remote.git"), bin = join(dir, "bin");
@@ -276,7 +279,7 @@ fi`);
     await child.ready;
     const [code, out, err] = await output;
     await child.finish();
-    if (overdue) throw new Error("Integration fixture work deadline exceeded; owned cleanup joined inside the 30-second test cap");
+    if (overdue) throw new Error("Integration fixture work deadline exceeded; owned cleanup joined inside the per-test cap");
     await owner.beforeRead?.();
     const eventDir = join(root, "tmp/ci-timings");
     const events = existsSync(eventDir) ? readdirSync(eventDir).filter(name => name.startsWith("event-")).map(name => JSON.parse(readFileSync(join(eventDir, name), "utf8"))) : [];

@@ -25,7 +25,19 @@
  * hosted CI splits a selection too heavy for one job across partitions (#4117),
  * and each partition runs this command with its own files. A local `--base`
  * run repeats the whole selection in one invocation.
- * Policy: docs/decisions/ci-utility.md, "Changed tests repeat under load before merge".
+ *
+ * Watchdogs scale with the load (#4191). The burners slow every test, and a
+ * timeout that exists to stop a hang is a catch-all for the worst case, so the
+ * run multiplies test deadlines by one factor
+ * (`DETERMINISM_PARTITIONS.deadlineFactor`, scripts/proof-shards.ts): Bun's
+ * per-test cap through a later `--timeout`, explicit test and hook timeouts
+ * through a second preload (scripts/test-deadline-preload.ts), and in-test
+ * watchdogs that read `watchdogMs` (scripts/test-deadlines.ts) through the
+ * environment. Verified against Bun 1.4.2: the last `--timeout` on the command
+ * line wins, and neither it nor `setDefaultTimeout` changes a timeout a test
+ * names itself. A wait a test bounds any other way is not scaled.
+ * Policy: docs/decisions/ci-utility.md, "Changed tests repeat under load before merge"
+ * and "Test watchdogs are a worst-case catch-all".
  */
 import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { availableParallelism, constants } from "node:os";
@@ -33,6 +45,8 @@ import { dirname, join, resolve } from "node:path";
 import { changedFiles, determinismTests } from "./ci-plan";
 import { ensureHostAdmission } from "./host-admission.mjs";
 import { planRepetitions, type RepetitionPlan } from "./determinism-plan";
+import { DETERMINISM_PARTITIONS } from "./proof-shards";
+import { DEADLINE_FACTOR_ENV, parseDeadlineFactor } from "./test-deadlines";
 import { discoverTests } from "./test-shards";
 
 export { BUDGET_SECONDS, DEFAULT_REPETITIONS, FLOOR_REPETITIONS, planRepetitions, repetitionsFor, type FileRepetitions, type RepetitionPlan } from "./determinism-plan";
@@ -41,18 +55,38 @@ export { BUDGET_SECONDS, DEFAULT_REPETITIONS, FLOOR_REPETITIONS, planRepetitions
 const BURNER_LIFETIME_MS = 2 * 60 * 60_000, BURNER_SLICE_MS = 200;
 export const REPORT_KIND = "brain-test-determinism";
 const JUNIT_PATH = "tmp/determinism-junit.xml";
+const DEADLINE_PRELOAD = "scripts/test-deadline-preload.ts";
 
 export interface Failure { file: string | null; repetition: number | null; test: string | null; reason: string; }
 export interface Report extends RepetitionPlan {
   kind: typeof REPORT_KIND; version: 1; base: string | null;
   outcome: "passed" | "failed" | "none-selected";
-  failure: Failure | null; load: { burners: number; cpus: number }; elapsedSeconds: number; exitCode: number;
+  failure: Failure | null; load: { burners: number; cpus: number };
+  /** The factor test deadlines were multiplied by, and Bun's per-test cap after it. */
+  deadlines: { factor: number; testCapMs: number };
+  elapsedSeconds: number; exitCode: number;
 }
 
-/** The wrapper's argv: one invocation, so preparation builds once for every repetition. */
-export function repetitionArgv(files: readonly string[], repetitions: number): string[] {
+/**
+ * Bun's per-test cap for `bun run test`, read from the root script that owns
+ * it. A script that names none is refused: an unknown cap cannot be scaled.
+ */
+export function testCapMs(root: string): number {
+  const script: unknown = JSON.parse(readFileSync(join(root, "package.json"), "utf8"))?.scripts?.test;
+  const cap = typeof script === "string" ? /(?:^|\s)--timeout[=\s](\d+)(?=\s|$)/.exec(script)?.[1] : undefined;
+  if (!cap || Number(cap) <= 0) throw new Error("The root test script names no --timeout, so the per-test cap cannot be scaled under load");
+  return Number(cap);
+}
+
+/**
+ * The wrapper's argv: one invocation, so preparation builds once for every
+ * repetition. `deadlines` adds the scaled per-test cap after the script's own
+ * `--timeout`, and the preload that scales explicit timeouts.
+ */
+export function repetitionArgv(files: readonly string[], repetitions: number, deadlines?: { capMs: number; preload: string }): string[] {
   return [process.execPath, "run", "test", `--rerun-each=${repetitions}`, "--bail=1",
-    "--reporter=junit", `--reporter-outfile=${JUNIT_PATH}`, ...files.map(file => `./${file}`)];
+    "--reporter=junit", `--reporter-outfile=${JUNIT_PATH}`,
+    ...(deadlines ? [`--timeout=${deadlines.capMs}`, `--preload=${deadlines.preload}`] : []), ...files.map(file => `./${file}`)];
 }
 
 const plain = (text: string) => text.replace(/\x1b\[[0-9;]*m/g, "");
@@ -121,6 +155,8 @@ export function startBurners(count: number, lifetimeMs = BURNER_LIFETIME_MS): Bu
 
 export interface RunOptions {
   root: string; files: readonly string[]; base?: string | null; repetitions?: number; budgetSeconds?: number; burners?: number;
+  /** Multiplies test deadlines for the run; the gate's own factor unless named. One leaves every deadline as written. */
+  deadlineFactor?: number;
   costs?: Readonly<Record<string, number>>; env?: Record<string, string | undefined>; log?: (line: string) => void;
   /** Receives the wrapper's output as it arrives. */
   relay?: (chunk: Uint8Array, channel: "stdout" | "stderr") => void;
@@ -148,12 +184,15 @@ export async function runDeterminism(options: RunOptions): Promise<Report> {
   const unknown = options.files.filter(file => !discovered.has(file));
   if (unknown.length) throw new Error(`Not a Bun test file under packages/ or tests/: ${unknown.join(", ")}`);
   const plan = planRepetitions([...options.files].sort(), options);
-  const base = { kind: REPORT_KIND as typeof REPORT_KIND, version: 1 as const, base: options.base ?? null, ...plan, load: { burners: burnerCount, cpus } };
+  const factor = parseDeadlineFactor(options.deadlineFactor ?? DETERMINISM_PARTITIONS.deadlineFactor);
+  const deadlines = { factor, testCapMs: testCapMs(root) * factor };
+  const base = { kind: REPORT_KIND as typeof REPORT_KIND, version: 1 as const, base: options.base ?? null, ...plan, load: { burners: burnerCount, cpus }, deadlines };
   if (!plan.files.length) {
     log("No added or modified Bun test file: nothing to repeat.");
     return { ...base, load: { burners: 0, cpus }, outcome: "none-selected", failure: null, elapsedSeconds: 0, exitCode: 0 };
   }
   for (const line of describePlan(plan, burnerCount)) log(line);
+  if (factor > 1) log(`Test deadlines scaled by ${factor} under load: Bun's per-test cap is ${deadlines.testCapMs} ms, and explicit test and hook timeouts and watchdogMs() watchdogs are multiplied the same way.`);
   const files = plan.files.map(entry => entry.file), started = performance.now();
   mkdirSync(dirname(join(root, JUNIT_PATH)), { recursive: true });
   rmSync(join(root, JUNIT_PATH), { force: true });
@@ -169,8 +208,9 @@ export async function runDeterminism(options: RunOptions): Promise<Report> {
     burners = startBurners(burnerCount);
     log(`CPU burners started (PIDs ${burners.pids.join(", ")}).`);
     if (!cancelled) {
-      child = Bun.spawn(repetitionArgv(files, plan.repetitions), { cwd: root, stdin: "ignore", stdout: "pipe", stderr: "pipe",
-        env: { ...process.env, ...options.env } });
+      // The factor is always named, so a run asked for one never inherits another run's.
+      child = Bun.spawn(repetitionArgv(files, plan.repetitions, factor > 1 ? { capMs: deadlines.testCapMs, preload: join(root, DEADLINE_PRELOAD) } : undefined),
+        { cwd: root, stdin: "ignore", stdout: "pipe", stderr: "pipe", env: { ...process.env, ...options.env, [DEADLINE_FACTOR_ENV]: String(factor) } });
       const decoder = new TextDecoder();
       const read = async (stream: ReadableStream<Uint8Array>, channel: "stdout" | "stderr") => {
         for await (const chunk of stream) {
@@ -221,6 +261,7 @@ export function summaryMarkdown(report: Report): string {
   lines.push(`${report.repetitions} of ${report.requested} requested repetitions per file, ${report.load.burners} burner(s) on ${report.load.cpus} CPU(s); ` +
     `${report.estimatedSeconds.toFixed(1)} weighted s estimated against a ${report.budgetSeconds} s budget${report.overBudget ? " (over budget at the floor)" : ""}; ` +
     `${report.elapsedSeconds.toFixed(1)} s elapsed.`, "");
+  if (report.deadlines.factor > 1) lines.push(`Test deadlines scaled by ${report.deadlines.factor} (per-test cap ${report.deadlines.testCapMs / 1000} s).`, "");
   if (report.failure) lines.push(`**Failed:** \`${report.failure.file ?? "unknown file"}\`, repetition ${report.failure.repetition ?? "unknown"}` +
     `${report.failure.test ? `, case \`${report.failure.test.replaceAll("`", "'")}\`` : ""} (${report.failure.reason}).`, "");
   lines.push("| File | Reviewed weight (s) | Repetitions |", "| --- | --- | --- |");
@@ -228,9 +269,9 @@ export function summaryMarkdown(report: Report): string {
   return lines.concat("").join("\n");
 }
 
-const USAGE = "usage: bun scripts/test-determinism.ts (--base <ref> | <test file>...) [--json] [--report <path>] [--repetitions <n>] [--budget-seconds <n>] [--burners <n>]";
+const USAGE = "usage: bun scripts/test-determinism.ts (--base <ref> | <test file>...) [--json] [--report <path>] [--repetitions <n>] [--budget-seconds <n>] [--burners <n>] [--deadline-factor <n>]";
 
-export interface Arguments { base?: string; files: string[]; json: boolean; report?: string; repetitions?: number; budgetSeconds?: number; burners?: number; }
+export interface Arguments { base?: string; files: string[]; json: boolean; report?: string; repetitions?: number; budgetSeconds?: number; burners?: number; deadlineFactor?: number; }
 
 export function parseArguments(args: readonly string[]): Arguments {
   const parsed: Arguments = { files: [], json: false };
@@ -247,6 +288,7 @@ export function parseArguments(args: readonly string[]): Arguments {
     else if (flag === "--repetitions") parsed.repetitions = positive(flag, value());
     else if (flag === "--budget-seconds") parsed.budgetSeconds = positive(flag, value());
     else if (flag === "--burners") parsed.burners = positive(flag, value());
+    else if (flag === "--deadline-factor") parsed.deadlineFactor = parseDeadlineFactor(positive(flag, value()));
     else if (flag.startsWith("-")) throw new Error(`Unknown option ${flag}\n${USAGE}`);
     else parsed.files.push(flag.replace(/^\.\//, ""));
   }
@@ -265,7 +307,7 @@ if (import.meta.main) {
       if (admitted !== undefined) process.exit(admitted);
     }
     const report = await runDeterminism({ root, files, base: args.base ?? null, repetitions: args.repetitions,
-      budgetSeconds: args.budgetSeconds, burners: args.burners,
+      budgetSeconds: args.budgetSeconds, burners: args.burners, deadlineFactor: args.deadlineFactor,
       relay: (chunk, channel) => { process[args.json ? "stderr" : channel].write(chunk); } });
     if (args.report) {
       mkdirSync(dirname(resolve(root, args.report)), { recursive: true });

@@ -40,5 +40,13 @@ export function unitPartitions(cadence: string | undefined, files?: number): num
  * seconds; capacity times that ratio must fit the step limit. The planner's
  * `determinism_shards` output, each partition's command, both aggregates, the
  * merge path and the workflow guard read this table. Measured basis:
- * docs/decisions/ci-utility.md, "Changed tests repeat under load before merge". */
-export const DETERMINISM_PARTITIONS = { capacitySeconds: 300, max: 10, stepMinutes: 40, loadRatio: 6.84 } as const;
+ * docs/decisions/ci-utility.md, "Changed tests repeat under load before merge".
+ *
+ * `deadlineFactor` multiplies test deadlines inside the job (#4191): Bun's
+ * per-test cap, explicit test and hook timeouts and `watchdogMs` watchdogs
+ * (scripts/test-deadlines.ts). It is the smallest whole number at least 15%
+ * above `loadRatio`, the largest slowdown measured under the job's own load,
+ * so a watchdog trips on a hang and not on the load. One hung test waiting out
+ * its scaled cap after a full capacity must still fit the step limit. Basis:
+ * docs/decisions/ci-utility.md, "Test watchdogs are a worst-case catch-all". */
+export const DETERMINISM_PARTITIONS = { capacitySeconds: 300, max: 10, stepMinutes: 40, loadRatio: 6.84, deadlineFactor: 8 } as const;
