@@ -132,7 +132,8 @@ Drafts run cheap gates only, and tests-only changes may intentionally skip
 packaging while complete affected tests run. One job is the exception: when a
 PR adds or modifies a Bun test file, `determinism` repeats those files under
 CPU load at every cadence, drafts included, and `draft gates` and `proof`
-require it. A failing repetition is fixed in the test, never rerun
+require it. The job is `determinism (1)`; a selection too heavy for one job
+runs as several numbered partitions, and all of them must pass. A failing repetition is fixed in the test, never rerun
 ([the gate](../../../../docs/process/testing.md#changed-tests-repeat-under-load)). Read actual GitHub checks
 and logs for the current head, never an old Depot receipt or latest-main run.
 GitHub checks/statuses may include additional gates. No rows,
@@ -405,6 +406,12 @@ git fetch origin main
 
 It exits 1 when either moved. `unchanged` says which, and `baseGained` lists
 how many files the base gained and which of them this pull request also
+changes. GitHub lists at most 300 files of a comparison and 3000 of a pull
+request. When either list was cut short, `baseGained.overlapIncomplete` says
+which: `overlapsThisPr` is then a lower bound, and an empty one does not mean
+the base moved clear of this pull request. Read both lists from Git instead:
+`git diff --name-only "$verified_base" origin/main` for what the base gained,
+and `git diff --name-only origin/main...HEAD` for what the pull request
 changes.
 
 A head mismatch requires new inspection. A base mismatch requires assessment of

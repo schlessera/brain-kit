@@ -16,10 +16,12 @@ unknown, never zero. A successful hourly workflow can contain partial data.
 The following names identify normalized kinds, independent of individual file
 IDs. Every versioned kind below has integer `version: 1`, except `run`, which
 is v1 or v2 ([runner-slot wait](ci-throughput.md#runner-slot-wait)). The durable
-layout is `YYYY-MM/<record-kind>.json` on `refs/heads/brain-ci-metrics`, with
-per-record versions preserved. The daily writer and backfill
-([#2955](https://github.com/schlessera/brain-kit/issues/2955)) are described in
-the [durable archive guide](ci-timings.md#durable-archive). Unknown versions
+layout is `YYYY-MM/run/DD.json` for new runs, by UTC `run.createdAt` day,
+and `YYYY-MM/<record-kind>.json` for other kinds on `refs/heads/brain-ci-metrics`, with
+per-record versions preserved. Legacy monthly run files remain readable and unchanged; readers merge duplicate
+run/attempt identities across layouts before counting them. The daily writer
+and backfill ([#2955](https://github.com/schlessera/brain-kit/issues/2955))
+are described in the [durable archive guide](ci-timings.md#durable-archive). Unknown versions
 are refused; future schemas append rather than rewrite history.
 
 | Kind (file) | Schema source and identity | Acquisition cadence | Raw-source retention |

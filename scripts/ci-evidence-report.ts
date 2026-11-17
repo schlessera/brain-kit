@@ -383,6 +383,7 @@ if (import.meta.main) {
     if (!/^[\w.-]+\/[\w.-]+$/.test(repository)) throw new Error("Invalid repository");
     const now = new Date().toISOString(), until = options.get("--until") ?? iso(Math.floor(Date.parse(now) / DAY) * DAY);
     reportWindow(cadence, until);
+    // Shared archive loading joins legacy monthly and daily run attempts once.
     const inputs = await archiveInputs(options.get("--from-archive")!, repository, archiveSince(until), until);
     const report = evidenceReport(inputs, { cadence, until, now, archiveHead: inputs.head,
       epochSource: gitEpochSource(process.cwd(), options.get("--history") ?? "origin/main") });
