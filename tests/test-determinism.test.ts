@@ -2,7 +2,7 @@
 // parts are tested directly; the receipts run the real command through the real
 // offline wrapper in a scratch Git checkout, with one burner for a few seconds.
 import { afterEach, describe, expect, test } from "bun:test";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
@@ -201,7 +201,7 @@ function checkout(weights: Record<string, number> = {}) {
   cpSync(join(ROOT, "packages/core/tests/cli-harness.ts"), join(dir, "packages/core/tests/cli-harness.ts"), { recursive: true });
   write("package.json", JSON.stringify({ name: "odysseus-determinism", private: true, scripts: { test: "bun scripts/test.ts --timeout 30000" } }));
   write("bun.lock", "{ \"lockfileVersion\": 1 }\n");
-  write(".gitignore", "tmp/\nnode_modules/\n*.count\nprobe-runtime\n");
+  write(".gitignore", "tmp/\nnode_modules/\n*.count\nprobe-runtime\nstep-summary.md\n");
   write("tests/harbour.test.ts", PASSING("the harbour is calm"));
   write("tests/retired.test.ts", PASSING("the old route"));
   const commit = (message: string) => { sh(dir, "git", "add", "-A"); sh(dir, "git", "-c", "commit.gpgsign=false", "commit", "-q", "-m", message); return sh(dir, "git", "rev-parse", "HEAD"); };
@@ -222,12 +222,18 @@ function unguardedRuntime(dir: string): string {
   return runtime;
 }
 
-async function determinism(dir: string, ...args: string[]): Promise<{ code: number; report: Report; output: string }> {
-  const proc = Bun.spawn([unguardedRuntime(dir), join(dir, "scripts/test-determinism.ts"), "--json", "--burners", "1", ...args], { cwd: dir, stdout: "pipe", stderr: "pipe" });
+/** The fixture's own job summary: a hosted job's real summary must never receive a fixture's table. */
+const summaryPath = (dir: string) => join(dir, "step-summary.md");
+const scratchEnv = (dir: string) => ({ ...process.env, GITHUB_STEP_SUMMARY: summaryPath(dir) });
+
+async function determinism(dir: string, ...args: string[]): Promise<{ code: number; report: Report; output: string; summary: string }> {
+  rmSync(summaryPath(dir), { force: true });
+  const proc = Bun.spawn([unguardedRuntime(dir), join(dir, "scripts/test-determinism.ts"), "--json", "--burners", "1", ...args],
+    { cwd: dir, stdout: "pipe", stderr: "pipe", env: scratchEnv(dir) });
   const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
   let report: Report;
   try { report = JSON.parse(out.trim().split("\n").at(-1)!); } catch { throw new Error(`No report (exit ${code}):\n${out}\n${err}`); }
-  return { code, report, output: out + err };
+  return { code, report, output: out + err, summary: existsSync(summaryPath(dir)) ? readFileSync(summaryPath(dir), "utf8") : "" };
 }
 
 describe("the command, through the real offline wrapper", () => {
@@ -240,6 +246,7 @@ describe("the command, through the real offline wrapper", () => {
       test: "the crew is aboard before the tide turns", reason: "a test case failed" });
     expect(run.report.files).toEqual([{ file: "tests/landing.test.ts", weightSeconds: 0.1, weighted: false, repetitions: 5 }]);
     expect(run.output).toContain('FAILED: tests/landing.test.ts, repetition 3 of 5: "the crew is aboard before the tide turns"');
+    expect(run.summary, "JOB_SUMMARY_NAMES_THE_FAILURE").toContain("**Failed:** `tests/landing.test.ts`, repetition 3, case `the crew is aboard before the tide turns`");
   }, 60_000);
 
   test("the same fixture made deterministic passes all five repetitions, and the report shows each one ran", async () => {
@@ -248,6 +255,7 @@ describe("the command, through the real offline wrapper", () => {
     expect(run.code, run.output).toBe(0);
     expect(run.report).toMatchObject({ kind: REPORT_KIND, outcome: "passed", failure: null, repetitions: 5, reduced: false, load: { burners: 1 } });
     expect(run.report.files, "EVERY_REPETITION_OBSERVED").toEqual([{ file: "tests/landing.test.ts", weightSeconds: 0.1, weighted: false, repetitions: 5, observed: 5 }]);
+    expect(run.summary, "JOB_SUMMARY_LISTS_EACH_FILE").toContain("| `tests/landing.test.ts` | none | 5 |");
   }, 60_000);
 
   test("only added and modified Bun test files are selected; a deleted one and other files are not", async () => {
@@ -292,7 +300,9 @@ describe("the command, through the real offline wrapper", () => {
     expect(none.code, none.output).toBe(0);
     expect(none.report).toMatchObject({ outcome: "none-selected", files: [], load: { burners: 0 } });
     expect(none.output).not.toContain("CPU burners started");
-    const unknown = Bun.spawnSync([join(f.dir, "probe-runtime"), join(f.dir, "scripts/test-determinism.ts"), "--burners", "1", "docs/voyage.md"], { cwd: f.dir, stdout: "pipe", stderr: "pipe" });
+    expect(none.summary).toContain("No added or modified Bun test file.");
+    const unknown = Bun.spawnSync([join(f.dir, "probe-runtime"), join(f.dir, "scripts/test-determinism.ts"), "--burners", "1", "docs/voyage.md"],
+      { cwd: f.dir, stdout: "pipe", stderr: "pipe", env: scratchEnv(f.dir) });
     expect(unknown.exitCode).toBe(1);
     expect(unknown.stderr.toString()).toContain("Not a Bun test file under packages/ or tests/: docs/voyage.md");
   }, 60_000);
