@@ -7,7 +7,7 @@ commit. It builds on the [acquisition service](reference-source-acquisition.md)
 and the pool's [checkpoints and access generations](reference-pool-accounting.md#worktree-checkpoints-and-access-generations-2430).
 This record names the concrete choices the rulings left to implementation. The
 service is `createReferenceWorktrees`
-(`createReferenceWorktrees`, `packages/ui-server/src/brain/reference-worktrees.ts:151-703`),
+(`createReferenceWorktrees`, `packages/ui-server/src/brain/reference-worktrees.ts:151-711`),
 created with the acquisition service. The agent tools that call it arrived with
 [#2432](https://github.com/schlessera/brain-kit/issues/2432) ([agent tools](#agent-tools)). Hygiene findings,
 review and cleanup arrived with [#2431](https://github.com/schlessera/brain-kit/issues/2431)
@@ -19,7 +19,7 @@ A request names the principal, a repository and a branch or tag, like a source
 request. The service asks the acquisition service for that source, so its
 authority, freshness and private boundary all apply, and then snapshots the
 sealed source root it was given
-(`async function allocate`, `packages/ui-server/src/brain/reference-worktrees.ts:437-469`).
+(`async function allocate`, `packages/ui-server/src/brain/reference-worktrees.ts:445-477`).
 The worktree's starting commit is the commit that source reported, and it never
 moves with the source. A read-only baseline checkpoint is taken at once. Each
 worktree gets the pool's per-operation allowance. A worktree belongs to one
@@ -43,7 +43,7 @@ restricted (autonomous) turn holds no worktree. The generation records the
 owning process (PID, start time, boot and PID namespace).
 
 Access makes a worktree available to one open generation
-(`function access(input`, `packages/ui-server/src/brain/reference-worktrees.ts:534-544`):
+(`function access(input`, `packages/ui-server/src/brain/reference-worktrees.ts:542-552`):
 
 1. The generation must be open in this process for a running turn, and belong
    to the requesting principal.
@@ -58,7 +58,9 @@ Access makes a worktree available to one open generation
    move and the database grant write. A revoked grant, or an expired validation
    that cannot be renewed, refuses. Failed access parks a newly dispatched
    mount or one already held by this generation and clears its database holder;
-   another live generation's mount remains busy.
+   another live generation's mount remains busy. A public starting snapshot
+   also needs the live private grant whenever the current source check requires
+   private access; its original public domain cannot bypass that requirement.
 5. Journal coverage is established for the turn before the pool moves the
    worktree into the generation. Without coverage the service refuses access,
    so no worker reaches a worktree that is not journaled.
@@ -86,7 +88,7 @@ such as an owner in another PID namespace, is **unknown**
 (`function live`, `packages/ui-server/src/brain/reference-worktrees.ts:206-212`).
 
 Reconciliation runs at startup and when a generation closes, never on a timer
-(`async function reconcile`, `packages/ui-server/src/brain/reference-worktrees.ts:621-648`).
+(`async function reconcile`, `packages/ui-server/src/brain/reference-worktrees.ts:629-656`).
 After three days without explicit activity, a worktree expires:
 
 - with a live holder it stays `active` and held, however long the turn runs;
@@ -171,7 +173,7 @@ arrive only in the results that grant access.
 ## Cleanup eligibility facts
 
 Release and expiry record durable facts for hygiene review
-(`async function assessWork`, `packages/ui-server/src/brain/reference-worktrees.ts:242-285`):
+(`async function assessWork`, `packages/ui-server/src/brain/reference-worktrees.ts:250-293`):
 the reason, the holder (`none`, `live` or `unknown`) and whether work remains
 (`none`, `unpreserved` or `unknown`). Work is read from a fresh read-only
 checkpoint and a metadata delta against the baseline. Nothing of the worktree
@@ -429,7 +431,7 @@ atomically with grants
 [pool accounting](reference-pool-accounting.md)), so a grant that lands between
 the last check and the release fails the removal instead of losing the grant. The worktree
 service is the only executor, through one effect
-(`async function removeWorktree`, `packages/ui-server/src/brain/reference-worktrees.ts:334-371`).
+(`async function removeWorktree`, `packages/ui-server/src/brain/reference-worktrees.ts:342-379`).
 Immediately before it, with no await between the last check and submission of the receipt:
 
 1. the worktree is released or expired, and no removal of it was already
@@ -465,13 +467,13 @@ without another release, which would fail or leave a tombstone identity. The
 lease owner holds a release's lease again when the pool never committed it (the
 root is still writable or sealed), so a failed removal stays assessable; it never
 does so over a newer release of the same identity
-(`async function settle(`, `packages/ui-server/src/brain/reference-worktrees.ts:378-413`).
+(`async function settle(`, `packages/ui-server/src/brain/reference-worktrees.ts:386-421`).
 Capacity is credited only when the pool reports the worktree `reclaimed`:
 until then its source root stays protected from eviction.
 
 **Automatic removal.** Release, expiry and the close of a holding generation
 remove a worktree only when its fresh assessment shows no holder and no work
-(`function removeClean`, `packages/ui-server/src/brain/reference-worktrees.ts:303-306`).
+(`function removeClean`, `packages/ui-server/src/brain/reference-worktrees.ts:311-314`).
 Reconciliation retries a clean worktree whose removal could not run. Nothing is
 archived or purged speculatively, and a worktree whose work or owner is
 unknown is never removed automatically. Arbitrary repositories and shared

@@ -225,7 +225,15 @@ export function createReferenceWorktrees(options: {
    */
   async function authorize(row: Pick<WorktreeRow, "principal_id" | "repository" | "revision" | "domain">, signal?: AbortSignal, acquisition?: ReferenceAcquisitionContext) {
     covered(row);
-    try { (await options.sources.request({ principalId: row.principal_id, repository: row.repository, revision: row.revision, signal, acquisition })).release(); }
+    try {
+      const source = await options.sources.request({ principalId: row.principal_id, repository: row.repository, revision: row.revision, signal, acquisition });
+      try {
+        // A public starting snapshot cannot bypass the private authority the
+        // current source check required. A private starting snapshot keeps its
+        // original grant requirement even if the repository is public now.
+        return { ...row, domain: row.domain !== "public" || source.domain !== "public" ? "private" : "public" };
+      } finally { source.release(); }
+    }
     catch (error) {
       if (error instanceof ReferenceSourceError) throw new ReferenceWorktreeError(error.code === "cancelled" || error.code === "busy" ? "unavailable"
         : error.code === "missing" || error.code === "invalid" ? "unauthorized" : error.code, `Worktree authority could not be confirmed: ${error.message}`);
@@ -561,16 +569,16 @@ export function createReferenceWorktrees(options: {
       }
       let dispatched = false;
       try {
-        await authorize(row, input.signal, input.acquisition);
-        acquiringAuthority(input, row);
+        const authority = await authorize(row, input.signal, input.acquisition);
+        acquiringAuthority(input, authority);
         if (row.holder !== target.id) {
           // Coverage first: no worker reaches a worktree its journal does not observe.
           await options.coverage({ turnId: target.turn_id, worktreeId: row.id }, input.signal);
           // Authority may have ended while revalidation or coverage awaited.
-          acquiringAuthority(input, row);
+          acquiringAuthority(input, authority);
           dispatched = true;
           await pool.poolAccess(row.id, target.id, input.signal);
-          acquiringAuthority(input, row);
+          acquiringAuthority(input, authority);
           // A removal admitted elsewhere while the grant awaited wins: the grant is withdrawn, never recorded.
           if (cleanupOf(row.id)) {
             await pool.poolPark(row.id).catch(error => warn("withdrawn worktree grant was not parked", error));
@@ -579,7 +587,7 @@ export function createReferenceWorktrees(options: {
         }
         // Explicit access or resumption: the only events, with renewal, that move the clock.
         await write("grant", target.id, now(), row.id);
-        acquiringAuthority(input, row);
+        acquiringAuthority(input, authority);
         return view(worktree(row.id)!);
       } catch (error) {
         if (dispatched || row.holder === target.id) await recoverHolder(worktree(row.id) ?? row).catch(cleanup => warn("withdrawn managed worktree grant was not parked", cleanup));

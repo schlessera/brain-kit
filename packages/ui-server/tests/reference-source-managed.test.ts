@@ -332,9 +332,10 @@ describe("live managed authority", () => {
     } finally { current?.release(); old?.release(); await f.close(); }
   });
 
+  for (const initialPrivate of [true, false])
   for (const wait of ["coverage", "native-grant", "grant-write", "held-refresh", "held-write"] as const)
-    test(`a private worktree loses mounted access when its grant is revoked during ${wait}`, async () => {
-      const f = await fixture({ private: true }), issued = f.grant();
+    test(`a ${initialPrivate ? "private" : "public-to-private"} worktree loses mounted access when its grant is revoked during ${wait}`, async () => {
+      const f = await fixture({ private: initialPrivate }), issued = f.grant();
       const revoke = () => { expect(revokeReferenceGrant(f.db, { brain, principalId: f.owner.id, id: issued.id, now: Date.now() })).not.toBeNull(); };
       const context = { turnId: "odysseus-private-worktree", egress: f.egress, current: () => f.state.current };
       const worktrees = createReferenceWorktrees({ db: f.db, pool: f.pool, sources: f.sources,
@@ -347,6 +348,7 @@ describe("live managed authority", () => {
           await worktrees.access({ worktreeId: item.id, principalId: f.owner.id, generation: generation.id, acquisition: context });
           expect(existsSync(join(generation.path, item.id, "README.md")), "PRIVATE_WORKTREE_WAS_GRANTED_BEFORE_REVOCATION").toBe(true);
         }
+        f.state.private = true;
         if (wait.endsWith("write")) f.db.exec(`CREATE TRIGGER odysseus_revoke_during_worktree_grant AFTER UPDATE OF holder ON reference_worktrees
           WHEN NEW.holder IS NOT NULL BEGIN UPDATE reference_grants SET revoked_at = 1 WHERE revoked_at IS NULL; END`);
         if (wait === "native-grant") {
@@ -364,6 +366,21 @@ describe("live managed authority", () => {
         expect(worktrees.get({ worktreeId: item.id, principalId: f.owner.id }).generation, "MANAGED_PRIVATE_WORKTREE_REVOKED_HOLDER_IS_CLEARED").toBeNull();
       } finally { if (generation) await worktrees.closeGeneration(generation.id); await worktrees.close(); await f.close(); }
     });
+
+  test("a public-to-private worktree can still be accessed while its private grant remains live", async () => {
+    const f = await fixture(); f.grant();
+    const context = { turnId: "odysseus-transition-worktree", egress: f.egress, current: () => f.state.current };
+    const worktrees = createReferenceWorktrees({ db: f.db, pool: f.pool, sources: f.sources, coverage: async () => {} });
+    let generation: Awaited<ReturnType<typeof worktrees.openGeneration>> | undefined;
+    try {
+      const item = await worktrees.allocate({ principalId: f.owner.id, repository, revision: "main", acquisition: context });
+      f.state.private = true;
+      generation = await worktrees.openGeneration({ principalId: f.owner.id, turnId: context.turnId, profile: "governed" });
+      const accessed = await worktrees.access({ worktreeId: item.id, principalId: f.owner.id, generation: generation.id, acquisition: context });
+      expect(accessed.generation).toBe(generation.id);
+      expect(readFileSync(join(generation.path, item.id, "README.md"), "utf8")).toContain("Odysseus");
+    } finally { if (generation) await worktrees.closeGeneration(generation.id); await worktrees.close(); await f.close(); }
+  });
 
   for (const wait of ["native-create", "checkpoint", "activation-write"] as const)
     test(`a private allocation is discarded when its grant is revoked during ${wait}`, async () => {
