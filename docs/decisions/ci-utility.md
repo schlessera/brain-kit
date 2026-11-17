@@ -1326,6 +1326,12 @@ and [for the window and bundling](https://github.com/schlessera/brain-kit/issues
 11. **Phase B gate of #2934.** Seven consecutive days within one proof-policy
     epoch, first-main green at or above 80%, and every red incident attributed.
 
+Answers 3 and 5 are amended by
+[the 2026-11-17 watchdog ruling](#test-watchdogs-are-a-worst-case-catch-all):
+raising a test timeout or deadline is neither a proof-system change nor a
+test optimization that needs off-main qualification. Lowering, removing or
+adding one still is.
+
 Answers 6, 8 and 10 restate the
 [2026-10-25 red-main and coordination decisions](https://github.com/schlessera/brain-kit/issues/2934#issuecomment-6402400614).
 That decision also covers strict flake handling, cooperative merge blocking with
@@ -1341,10 +1347,12 @@ Each implementation task is tracked separately:
   The globs live only in `scripts/proof-system-paths.json`;
   `bun scripts/proof-system.ts classify --base <sha> --head <sha> [--json]`
   and its exported `classify` report the decision with its reasons. The
-  timeout check flags a changed, added or removed timeout or deadline value
+  timeout check flags a lowered, added or removed timeout or deadline value
   where a hunk rewrites existing test lines, and a `setDefaultTimeout` added to
-  or removed from an existing test file. A new test or test file that sets its
-  own timeout changes no existing budget and is not flagged;
+  or removed from an existing test file. A value raised in place is not
+  flagged ([#4191](#the-proof-system-check-follows-the-direction)). A new test
+  or test file that sets its own timeout changes no existing budget and is not
+  flagged;
 - lane and stability window: [#3269](https://github.com/schlessera/brain-kit/issues/3269);
 - automatic epochs: [#3270](https://github.com/schlessera/brain-kit/issues/3270).
   `scripts/ci-epochs.ts` classifies each first-parent squash of main against
@@ -1947,10 +1955,10 @@ test more than once before it merged.
   modifies against its merge base (`determinismTests`,
   `scripts/ci-plan.ts:318-323`). It runs them in one invocation of the offline
   wrapper with Bun's `--rerun-each=<n> --bail=1` (`repetitionArgv`,
-  `scripts/test-determinism.ts:53-56`), so the offline preload applies and
+  `scripts/test-determinism.ts:86-90`), so the offline preload applies and
   preparation builds once. One busy loop per CPU runs for the duration. Each
   is killed by PID on every exit path, and exits by itself if its parent dies
-  (`startBurners`, `scripts/test-determinism.ts:105-120`). The first failing
+  (`startBurners`, `scripts/test-determinism.ts:139-154`). The first failing
   repetition fails the command, which names the file, the repetition and the
   case. A passing run must also show every repetition in Bun's test report.
 - **Bounded.** Five repetitions by default, within a budget of 300 seconds of
@@ -1991,9 +1999,12 @@ test more than once before it merged.
   A deliberate local run takes a
   [host admission](../process/testing.md#host-admission-for-heavy-local-commands) slot.
 
-**What does not change.** No test deadline changes. No failure is retried
-into a pass: a failing repetition is a failed job, and the remedy is fixing
-the test or what it exposes. Unchanged tests are not repeated.
+**What does not change.** No failure is retried into a pass: a failing
+repetition is a failed job, and the remedy is fixing the test or what it
+exposes. Unchanged tests are not repeated. As ruled, no test deadline changed
+either; since [#4191](#test-watchdogs-are-a-worst-case-catch-all) the job
+multiplies watchdogs by a fixed factor, and a watchdog that trips on a slow
+run is raised rather than treated as a failed proof.
 
 **First hosted run.** The job's first run, on the PR that added it, repeated
 seven changed files five times and then failed in the gate's own test: under
@@ -2021,7 +2032,7 @@ about 1,327 seconds per pass, 2,654 at the floor of two. Such a selection
 could only fail by timeout, and the pull request had no way through the gate
 except splitting the change.
 
-- **One owner.** The table (`DETERMINISM_PARTITIONS`, `scripts/proof-shards.ts:44`) holds
+- **One owner.** The table (`DETERMINISM_PARTITIONS`, `scripts/proof-shards.ts:52`) holds
   one job's capacity (300 weighted seconds at the selection's repetition
   count), the maximum of ten partitions, the 40-minute step limit and the
   measured load ratio. The repetition budget is that capacity
@@ -2112,6 +2123,174 @@ the module again for each run, but `globalThis` and process state persist, so a
 file that leaks state into its next run fails too. Vitest browser, layout,
 endurance and story specs run in the pinned container and are not covered
 ([#4116](https://github.com/schlessera/brain-kit/issues/4116)).
+
+## Test watchdogs are a worst-case catch-all
+
+The maintainer ruled on 2026-11-17
+([#4191](https://github.com/schlessera/brain-kit/issues/4191)) that a watchdog
+is a catch-all for the worst case, and not friction or flakiness in the
+average case. Two things follow. The `determinism` job, which applies CPU load
+on purpose, multiplies test deadlines by a fixed factor. And a deadline that
+only detects a hang may be raised freely: only a deadline that asserts a
+product timing counts as proof.
+
+**What this supersedes.** The practice of treating every test deadline as
+proof that must not move. Three statements carried it and are amended here:
+"No test deadline changes" in
+[the repeated-run ruling](#changed-tests-repeat-under-load-before-merge),
+answers 3 and 5 of the [proof-system lane](#proof-system-lane) where they
+count any changed timeout as a proof-system change, and rule C4 of
+[the authoring guide](../process/test-authoring.md#cost), "never raise a time
+budget to make a test pass". What those protected is kept by the second kind
+of number below.
+
+**Why.** `tests/integration-command.test.ts` stops its child processes 27
+seconds into each test: Bun's 30-second per-test cap minus three seconds for
+the join. It exists to catch a hung child. In run 44104941268 one of its
+tests took 26.9 seconds in one repetition and 27.2 in the next under the
+gate's load, and failed. The same test takes 8.3 seconds in the `unit` job.
+Nothing was wrong except that the watchdog sat a few seconds above the work.
+Such numbers stayed tight for three reasons. One 30-second cap covered every
+Bun test, from a one-millisecond unit test to one that starts twelve
+processes. The gate slows a test several times over, so a test that normally
+used more than about a fifth of its deadline could not pass it. And moving
+the number was a proof-system change with its own lane and off-main
+qualification, so squeezing the work under it was cheaper than moving it.
+
+### Two kinds of number
+
+| | A watchdog | A product timing |
+| --- | --- | --- |
+| What it is | A timeout that exists to stop a hang and clean up | A time the product promises |
+| Examples | Bun's per-test cap, a test's own timeout argument, a timer that stops a test's child processes, the upper bound of a polling loop | The composer microphone's 0.6-second hold, a one-second guard, a five-second readiness limit |
+| What a pass says about it | Nothing: a passing test never reached it | That the product kept the promise |
+| How it is asserted | It is not asserted. It ends the test when something hangs | On measured or controlled time: a clock the test advances, or a measured duration compared with the promised one |
+| When it trips on a slow run | It was too tight. Raise it, or let the loaded run scale it | The product was too slow. That is a finding |
+| Changing it | Raise it freely. No lane, no off-main qualification | A change to what the product promises, reviewed as one |
+
+To tell which kind a number is, ask what a user would notice if it doubled.
+Nothing, for a watchdog: the test only takes longer to give up on a hang. A
+different product, for a product timing. A test timeout is never the right
+place for a product timing, because a slow host fails it and a fast host
+proves nothing beyond "under the cap". A number that serves as both is split:
+the promise is asserted on measured or controlled time, and the watchdog
+above it is sized for the worst case.
+
+**Sizing a watchdog.** Well above the test's normal duration, so that only a
+real hang trips it: about ten times is a reasonable start, and the per-test
+cap is enough for almost every test. A tripped watchdog on a slow run is
+raised or scaled. It is not a failed proof, and the work is not squeezed to
+fit under it.
+
+### The gate scales deadlines by a fixed factor
+
+Under the `determinism` job every test deadline the job can reach is
+multiplied by one factor, **8**, owned beside the job's other numbers
+(`DETERMINISM_PARTITIONS`, `scripts/proof-shards.ts:52`). No other job scales
+anything.
+
+- **Bun's per-test cap.** The command reads the cap from the root `test`
+  script, which owns it (`testCapMs`, `scripts/test-determinism.ts:74-79`),
+  and passes the scaled value as a later `--timeout`
+  (`repetitionArgv`, `scripts/test-determinism.ts:86-90`): 240 seconds for
+  the script's 30. Hooks follow the same cap.
+- **Explicit test and hook timeouts.** A second preload, loaded only by this
+  command, replaces `bun:test` for the invocation with a copy whose `test`,
+  `it`, hooks and `setDefaultTimeout` multiply the timeout they are given
+  (`scaledTestModule`, `scripts/test-deadlines.ts:103-112`;
+  `scripts/test-deadline-preload.ts`). No test is edited.
+- **In-test watchdogs.** A test's own timer reads the helper
+  (`watchdogMs`, `scripts/test-deadlines.ts:41-44`), which multiplies by the
+  factor the command sets in `BRAIN_TEST_DEADLINE_FACTOR` and by one
+  everywhere else. The 27-second watchdog is the first to read it
+  (`watchdogMs(27_000)`, `tests/integration-command.test.ts:29`).
+
+Verified against Bun 1.4.2, the version CI pins. The last `--timeout` on the
+command line wins, so the scaled cap follows the script's own. Neither
+`--timeout` nor `setDefaultTimeout` changes a timeout a test names itself,
+and Bun has no flag that does, so scaling those needs the replacement. Bun's
+own `mock.module` makes it: the copy reaches every later import and the
+runner's globals, in every file and every repetition, although the offline
+preload has already imported `bun:test`, and a test's `mock.restore()` does
+not undo it. Assigning to the object `require("bun:test")` returns does not
+work once anything has imported the module. The preload checks that the
+replacement took and stops the run if it did not, so a later Bun cannot leave
+the timeouts silently unscaled.
+
+**The factor and the runs behind it.** The largest slowdown measured under
+the job's own load is 6.84 elapsed seconds per weighted second, in run
+44039499653, the highest of the five calibration runs in
+[the partition ruling](#an-oversized-selection-is-split-by-reviewed-weight)
+(43989701310, 43991629934, 44017250694, 44020374567 and 44039499653, between
+3.59 and 6.84). The factor is the smallest whole number at least 15% above
+it. Per test the slowdown is smaller. The `determinism` jobs of 33 hosted
+runs on 2026-11-17 ran 140 test cases that take at least one second in the
+`unit` job of main run 44107659969, 1,137 times in all: the median case took
+1.94 times its `unit` duration, the 99th percentile 3.40 times and the
+slowest 3.83 times. The whole-job ratio is higher because it also carries stale
+weights and per-file start-up, so the factor leaves about twice the largest
+per-test slowdown. The test that prompted the ruling ran 3.3 times slower in
+the failing run, and 2.3 to 2.8 times slower in runs 44064090479 and
+44104948265, where it passed at 19.3 to 23.4 seconds.
+
+**The step limit still bounds the job.** Scaling changes how long a hang
+takes to be reported, not how long a passing test runs. `--bail=1` ends the
+run at the first failure, so at most one test waits out its cap. A full
+capacity at the measured ratio takes 2,052 seconds, one hung test under the
+scaled cap adds 240, and 2,292 fits the 40-minute step. A test asserts that
+sum against the owner's numbers, and that the factor covers the measured
+ratio with its margin.
+
+**What stays unscaled.**
+
+- A wait a test bounds any other way: a polling loop's `Date.now() + n`, a
+  helper's own `timeout` option, an `AbortSignal.timeout`. It scales once it
+  reads `watchdogMs`. The test files that carry an explicit timeout or
+  deadline, 372 when this was ruled, change that way: when one trips, or when
+  its file is next edited. Nothing is raised in bulk.
+- Timeouts inside the product, and inside a child process a test starts. A
+  child `bun test` that a test runs does not load the scaling preload; it
+  inherits the environment, so `watchdogMs` scales there too.
+- Product timings, by the rule above.
+- A test whose explicit timeout is already minutes long. Multiplied by eight
+  it can exceed what is left of the step, and then the step limit, not Bun,
+  ends a hang in it.
+- The job's 12-minute setup limit and 40-minute step limit.
+- Every other job: `unit`, the runtime and browser domains and local runs
+  keep the written durations. `bun scripts/test-determinism.ts` scales
+  wherever it runs, and `--deadline-factor 1` turns the scaling off for a
+  comparison.
+- Vitest specs. The browser repetition job
+  ([#4163](https://github.com/schlessera/brain-kit/issues/4163)) is not on
+  main; scaling Vitest's test and hook timeouts inside it is
+  [#4192](https://github.com/schlessera/brain-kit/issues/4192).
+
+### The proof-system check follows the direction
+
+The timeout check reads which way a value moved
+(`raisedOrEqual`, `scripts/proof-system.ts:99-104`). A timeout or deadline
+rewritten in place to the same or a larger number, or to the same expression
+with no number made smaller, is a raised watchdog and is not a proof-system
+change. A duration inside `watchdogMs(...)` is read as that duration, so
+adopting the helper is not a change either.
+
+Still a proof-system change:
+
+- a lowered timeout or deadline, and one that stops reading `watchdogMs`;
+- a removed one;
+- an added one on an existing test, and a `setDefaultTimeout` added to an
+  existing file: the check does not know which default applied before, so it
+  cannot tell a raise from a lowering;
+- a change whose direction it cannot read, such as a conditional or a call
+  with arguments;
+- a value that leaves one hunk while a larger one appears in another. Only a
+  rewrite in place is read as a raise
+  (`timeoutChanges`, `scripts/proof-system.ts:171-202`).
+
+The check is syntactic and reads names, not intent: it cannot tell a watchdog
+from a product timing kept in a constant called `...Deadline`. Loosening a
+product timing was never something it could see when the number sat in an
+assertion, and it stays a review question either way.
 
 ## Historical measurement and upstream guidance
 
