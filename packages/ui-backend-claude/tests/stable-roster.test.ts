@@ -8,8 +8,8 @@ import { createClaudeSdkTurn } from "../src/sdk-options.js";
 import { createPermissionWiring } from "../src/permission-hooks.js";
 import { APIFY_TOOL_NAMES } from "@schlessera/brain-ui-sdk/server";
 
-const refused = ["request_image_mask", "ask_user_list", "ask_user_rank", "ask_user_form", "propose_policy_change", "inbox_add", "resolve_action", "complete_share"];
-const bridge = () => Object.fromEntries(["askUser", "askUserList", "askUserRank", "askUserForm", "requestMask", "proposePolicyChange", "inboxList", "inboxGet", "inboxAdd", "resolveAction", "completeShare", "queryActivity", "getLocation", "applyBrain", "readBrainBase", "compute"].map(name => [name, async () => { throw new Error("PRIVILEGED_HANDLER_EXECUTED"); }]));
+const refused = ["request_image_mask", "request_image_markup", "ask_user_list", "ask_user_rank", "ask_user_form", "propose_policy_change", "inbox_add", "resolve_action", "complete_share"];
+const bridge = () => Object.fromEntries(["askUser", "askUserList", "askUserRank", "askUserForm", "requestMask", "requestImageMarkup", "proposePolicyChange", "inboxList", "inboxGet", "inboxAdd", "resolveAction", "completeShare", "queryActivity", "getLocation", "applyBrain", "readBrainBase", "compute"].map(name => [name, async () => { throw new Error("PRIVILEGED_HANDLER_EXECUTED"); }]));
 // The in-worker core server's copies of every fixed Apify operation (#3788), derived from the contract so a new operation is covered.
 const inWorkerApify = Object.values(APIFY_TOOL_NAMES).map(name => `mcp__brain__${name}`);
 

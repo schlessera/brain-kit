@@ -12,6 +12,7 @@ import { commands, page, userEvent } from "vitest/browser";
 import { MarkupCanvas } from "../../src/images/MarkupCanvas.js";
 import { MarkupEditor, type MarkupEditorProps } from "../../src/images/MarkupEditor.js";
 import { MARKUP_COLORS, exportMarkupPng, type Mark, type MarkupExport, type MarkupTool } from "../../src/images/markup.js";
+import { imageHeader } from "../../../common/src/image-header.js";
 import "../../src/styles.css";
 
 /** A 600 × 800 portrait stand-in for the raft photo: opaque everywhere. */
@@ -433,4 +434,45 @@ test("undo and redo by keyboard, and tool shortcuts", async () => {
   await userEvent.keyboard("a");
   expect(document.querySelector('[aria-label="Arrow"]')!.getAttribute("aria-pressed")).toBe("true");
   expect(stage().dataset.tool).toBe("arrow");
+});
+
+test("an EXIF orientation 6 photo is drawn upright and exported at the size the server reads (#3975)", async () => {
+  // A real JPEG, stored landscape 320 × 240, with an EXIF orientation 6 segment
+  // spliced in after SOI: displayed portrait, 240 × 320.
+  const canvas = new OffscreenCanvas(320, 240);
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "#2f6f8f"; ctx.fillRect(0, 0, 320, 240);
+  ctx.fillStyle = "#9b7448"; ctx.fillRect(0, 0, 80, 240);
+  const stored = new Uint8Array(await (await canvas.convertToBlob({ type: "image/jpeg", quality: 0.9 })).arrayBuffer());
+  const tiff = [0x4d, 0x4d, 0, 42, 0, 0, 0, 8, 0, 1, 0x01, 0x12, 0, 3, 0, 0, 0, 1, 0, 6, 0, 0, 0, 0, 0, 0];
+  const exif = [0x45, 0x78, 0x69, 0x66, 0, 0, ...tiff];
+  const app1 = [0xff, 0xe1, (exif.length + 2) >> 8, (exif.length + 2) & 0xff, ...exif];
+  const jpeg = new Uint8Array([...stored.subarray(0, 2), ...app1, ...stored.subarray(2)]);
+  // The server's reader, the one `markupProblem` uses, says portrait.
+  const header = imageHeader(jpeg)!;
+  expect([header.width, header.height]).toEqual([240, 320]);
+  const src = URL.createObjectURL(new Blob([jpeg], { type: "image/jpeg" }));
+  try {
+    // And so does the browser that draws it.
+    const img = new Image(); img.src = src; await img.decode();
+    expect([img.naturalWidth, img.naturalHeight], "the browser honours the orientation").toEqual([240, 320]);
+    const onSubmit = vi.fn();
+    await mount(<MarkupEditor open src={src} imagePath="photos/raft-portrait.jpg" size={{ width: 240, height: 320 }} onSubmit={onSubmit} onDismiss={() => {}} />, 390, 844);
+    await ready();
+    const rect = view().getBoundingClientRect();
+    expect(rect.height / rect.width, "the stage shows the photo upright").toBeCloseTo(320 / 240, 1);
+    const at = (x: number, y: number) => ({ x: rect.left + (x / 240) * rect.width, y: rect.top + (y / 320) * rect.height });
+    drag([at(40, 40), at(200, 280)]);
+    await expect.poll(summary).toBe("1 mark: 1 stroke");
+    const send = [...document.querySelectorAll<HTMLElement>("[data-bk-button]")].find(b => b.textContent === "Send markup")!;
+    await userEvent.click(send);
+    await expect.poll(() => onSubmit.mock.calls.length).toBe(1);
+    const layer = onSubmit.mock.calls[0][0] as MarkupExport;
+    expect([layer.width, layer.height]).toEqual([240, 320]);
+    const bytes = new Uint8Array(await layer.png.arrayBuffer());
+    const written = imageHeader(bytes)!;
+    expect([written.format, written.width, written.height, written.alpha]).toEqual(["png", 240, 320, true]);
+    const png = await decode(layer);
+    expect(png.at(10, 300)[3], "transparent away from the stroke, never the photo").toBe(0);
+  } finally { URL.revokeObjectURL(src); }
 });

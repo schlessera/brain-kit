@@ -36,6 +36,7 @@ export "." (./src/index.ts)
   type LogQuery
   type LogReader
   type LogWriter
+  MARKUP_UPLOAD_MAX_BODY_BYTES
   MAX_ARCHIVE_BYTES
   MIN_BRAIN_CLI_VERSION
   MIN_BRAIN_SCHEMA_VERSION
@@ -1497,6 +1498,8 @@ signatures (every public export and the types it is made of)
     export interface LogWriter {
         (severity: Severity, line: string): void;
     }
+  MARKUP_UPLOAD_MAX_BODY_BYTES (packages/ui-server/src/routes/markup.ts)
+    const MARKUP_UPLOAD_MAX_BODY_BYTES: number;
   MAX_ARCHIVE_BYTES (packages/ui-server/src/skills/install.ts)
     const MAX_ARCHIVE_BYTES: number;
   MIN_BRAIN_CLI_VERSION (packages/ui-server/src/brain/client.ts)

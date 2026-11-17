@@ -53,6 +53,7 @@ export {
   type MessageAttachment,
 } from "./stores/chat-state.js";
 export { type MaskRequest } from "./stores/mask-state.js";
+export { type MarkupRequest } from "./stores/markup-state.js";
 export { type ActiveView } from "./stores/ui-state.js";
 export { type GraphMode } from "./stores/graph-state.js";
 

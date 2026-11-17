@@ -9,6 +9,7 @@ import { createActivity, guardMaskedRecords, openInbox } from "./bridge-capabili
 import { createPermissions } from "./bridge-capabilities/permissions.js";
 import { createAsks } from "./bridge-capabilities/asks.js";
 import { createLocationAndMask, createMaskApplicationSlice } from "./bridge-capabilities/location-mask.js";
+import { createMarkupSlice } from "./bridge-capabilities/markup.js";
 import { createPolicyProposal } from "./bridge-capabilities/policy-proposal.js";
 import { createApplication } from "./bridge-capabilities/application.js";
 import { createScratch } from "./bridge-capabilities/scratch.js";
@@ -65,6 +66,9 @@ export async function makeBridge(host: WsHost, turn: RunningTurn, options: MakeB
     Object.assign(bridge, application.slice);
     if (ctx.backendId === "claude" || ctx.backendId === "pi") {
       Object.assign(bridge, createMaskApplicationSlice(ctx, host.brainPath, applicationPolicy, bridge.requestMask!, options));
+      // Markup (#3975) exists only here: the server applies it end to end, so
+      // a host without the application route has no markup to offer.
+      Object.assign(bridge, createMarkupSlice(ctx, host.brainPath, applicationPolicy, options));
       // Hosted scratch pruning is part of the mask operation, including its
       // exact removals. No second, unrecorded prune callback is handed out.
       delete bridge.pruneScratch;
@@ -186,7 +190,7 @@ export function applyIndexReads(ctx: Pick<BridgeContext, "host" | "signal">, bri
  */
 export function applyLiveAuthority(ctx: Pick<BridgeContext, "work" | "afterHolds" | "assertAuthority">, bridge: BackendBridge): void {
   const { work, afterHolds, assertAuthority } = ctx;
-  for (const name of ["requestPermission", "askUser", "askUserList", "askUserRank", "askUserForm", "getLocation", "queryActivity", "requestMask", "pruneScratch", "inboxList", "inboxGet", "inboxAdd", "resolveAction", "completeShare", "referenceAccess", "compute", "apify", "github", "readAttachment", "webAccess"] as const) {
+  for (const name of ["requestPermission", "askUser", "askUserList", "askUserRank", "askUserForm", "getLocation", "queryActivity", "requestMask", "requestImageMarkup", "pruneScratch", "inboxList", "inboxGet", "inboxAdd", "resolveAction", "completeShare", "referenceAccess", "compute", "apify", "github", "readAttachment", "webAccess"] as const) {
     const original = bridge[name];
     if (!original) continue;
     (bridge as unknown as Record<string, unknown>)[name] = async (...args: unknown[]) => {
@@ -194,7 +198,7 @@ export function applyLiveAuthority(ctx: Pick<BridgeContext, "work" | "afterHolds
       try {
         return await afterHolds(() => {
           assertAuthority();
-          if (work?.posture === "voice" && ["askUserList", "askUserRank", "askUserForm", "requestMask", "pruneScratch"].includes(name))
+          if (work?.posture === "voice" && ["askUserList", "askUserRank", "askUserForm", "requestMask", "requestImageMarkup", "pruneScratch"].includes(name))
             throw new Error("This capability is outside the voice membership.");
           return (original as (...input: unknown[]) => unknown)(...args);
         });
