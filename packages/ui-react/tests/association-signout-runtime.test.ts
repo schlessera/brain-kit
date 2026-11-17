@@ -1,3 +1,4 @@
+// Hosted two-repetition measurement for #4156; assertions unchanged.
 import { runtimePackageBuild } from "./fixtures/runtime-package-build";
 import { runtimeHookPhases } from "./fixtures/runtime-hook-phases.ts";
 import { afterAll, beforeAll, expect, test } from "bun:test";
