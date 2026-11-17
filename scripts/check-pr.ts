@@ -77,6 +77,15 @@ export function determinismCommand(plan: CheckPlan, base: string): string | unde
   return plan.determinism?.length ? `bun scripts/test-determinism.ts --base ${base}` : undefined;
 }
 
+/**
+ * The same for a plan that changes Vitest browser, layout or story specs
+ * (#4163): the hosted `browser_determinism` job repeats them in the pinned
+ * container, with every CPU of that container occupied.
+ */
+export function browserDeterminismCommand(plan: CheckPlan, base: string): string | undefined {
+  return plan.browserDeterminism?.length ? `bun scripts/browser-determinism.ts --base ${base}` : undefined;
+}
+
 class SandboxSetupTimeout extends Error {}
 
 /** The fastest of three sandbox setup probes must take less than this. */
@@ -277,7 +286,9 @@ if (import.meta.main) {
     console.log(JSON.stringify({ ...plan, commands: plannedCommands.map(command => command.name), commandDetails: plannedCommands,
       importGraphFeedback, packedConsumerChecks: full && plan.pack, hostedProofRequired: plan.local,
       ...(determinismCommand(plan, base) ? { determinismCommand: determinismCommand(plan, base),
-        determinismNote: "not run locally: it occupies every CPU; the hosted determinism job repeats these files under load" } : {}) }, null, 2));
+        determinismNote: "not run locally: it occupies every CPU; the hosted determinism job repeats these files under load" } : {}),
+      ...(browserDeterminismCommand(plan, base) ? { browserDeterminismCommand: browserDeterminismCommand(plan, base),
+        browserDeterminismNote: "not run locally: it occupies every CPU of the pinned container; the hosted browser_determinism job repeats these specs under load" } : {}) }, null, 2));
     if (print) process.exit(0);
     const chromeStep: Command = { name: "first real Chrome launch and render", argv: [] };
     const steps: PreflightStep[] = [...commands.slice(0, 3).map(command => [command]), [contributionChangeset],

@@ -1365,12 +1365,20 @@ recorded owner; the same answer whichever), 409 `stale` (the backend or
 generation differs from `expected`), 409 `unsupported` (the chat's backend does
 not advertise and implement native removal) or 409 `busy` (a running or starting
 turn, queued follow-ups or unsettled live-conversation work; stop or finish it
-first). A chat's recorded owner is its dialogue owner, its voice conversation's
-principal or, since #3337 (additive), the authenticated principal whose typed
-request created its backend session. A typed chat whose session already existed
-before that binding (or that the host first saw on a resume) has no recorded
-owner and stays `unavailable`; none is backfilled. Otherwise the chat is
-retired and the answer is 200 with the SDK's
+first). A chat's recorded owners are its dialogue owner, each voice
+conversation's principal and, since #3337 (additive), the authenticated
+principal whose typed request created its backend session. A typed chat whose
+session already existed before that binding (or that the host first saw on a
+resume) has no recorded owner and stays `unavailable`; none is backfilled.
+Since #4138, any usable owner login is admitted when **every** recorded owner
+is the same owner account: the caller's own login, or another owner login
+proven by its current principal row or by the durable account the server stored
+beside that record when it wrote it, which outlives the login's pruning. A
+record of another account (an agent, an ambient or a system principal), a
+pruned login with no stored account, or corrupt or contradictory evidence is
+`unavailable`, for that chat only. Stored evidence never authorizes the caller,
+which is still checked from its own current row at admission and again at
+commit. Otherwise the chat is retired and the answer is 200 with the SDK's
 `ChatDeletionReceipt`: `operationId`, the terminal `generation`, the overall
 `status`, each selected store's outcome (`native` for a backend session,
 `dialogue`, `tasks`, `projections`, `drafts`) and `retained`, which always lists
@@ -1378,6 +1386,8 @@ retired and the answer is 200 with the SDK's
 `offline_devices`. `status` is `removed` only when every selected store confirmed
 removal; `pending`, `partial` and `unknown` say cleanup is not confirmed, and
 repeating the same `operationId` retries it. A host restart also resumes it.
+The operation stays the initiating login's: another login of the same account
+that sends its `operationId` gets 404 `unavailable` and retries nothing.
 The handler re-checks the principal after its asynchronous steps and answers a
 revoked one with the guard's 401, disclosing nothing. A storage failure before a
 receipt exists is 500 `{ error: "CHAT_DELETION_FAILED", message }`, never a

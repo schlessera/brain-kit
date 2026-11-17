@@ -28,10 +28,14 @@ export function draftProfile(db: Database, principalId: string, id: string) {
   return db.query("SELECT preference FROM draft_worker_profiles WHERE principal_id = ? AND draft_id = ?").get(principalId, id) as { preference: Profile } | null;
 }
 
-/** A new session takes its draft's preference; the draft is consumed. */
+/**
+ * A new session takes its draft's preference; the draft is consumed. `now`
+ * was stamped before the request waited for the writer, so the login is
+ * checked against the clock here instead (#4176); `now` records `updated_at`.
+ */
 export function bindDraftProfile(db: Database, principalId: string, draftId: string, sessionId: string, now: number) {
   db.transaction(() => {
-    authorizeProfile(db, principalId, now);
+    authorizeProfile(db, principalId, Date.now());
     if (!db.query("SELECT 1 FROM sessions WHERE id = ?").get(sessionId)) throw new SessionProfileError(404, "This chat is not known to the host.");
     const row = draftProfile(db, principalId, draftId);
     if (!row) throw new SessionProfileError(409, "This draft preference is unavailable.");
@@ -51,12 +55,14 @@ export function recordSessionProfile(db: Database, sessionId: string, origin: "i
 /**
  * A principal's saved preference for a session or a draft, checked and
  * stored in one transaction. `policyProfiles` is the brain's policy profile
- * for each origin, resolved where the request arrived.
+ * for each origin, resolved where the request arrived. The login is checked
+ * against the clock inside the transaction (#4176); `now`, stamped before the
+ * wait for the writer, records `updated_at` and drives the draft cleanup.
  */
 export function saveProfile(db: Database, principalId: string, kind: "session" | "draft", id: string, preference: Profile,
   policyProfiles: Record<"interactive" | "voice", Profile>, now: number) {
   db.transaction(() => {
-    authorizeProfile(db, principalId, now);
+    authorizeProfile(db, principalId, Date.now());
     let origin: "interactive" | "voice" = "interactive";
     if (kind === "session") {
       if (!db.query("SELECT 1 FROM sessions WHERE id = ?").get(id)) throw new SessionProfileError(404, "This chat is not known to the host.");

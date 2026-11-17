@@ -47,9 +47,8 @@ import { createApifyRoutes } from "./routes/apify.js";
 import { createApifyHost } from "./apify/host.js";
 import { createGithubToolsHost } from "./github/host.js";
 import { createGithubDetails } from "./github/details.js";
-import { resolveChat } from "./ws/chat-lifecycle.js";
+import { chatOwnedBy, resolveChat } from "./ws/chat-lifecycle.js";
 import { createGithubDetailRoutes } from "./routes/github-details.js";
-import { sameAccount } from "./middleware/account-partition.js";
 import { createApifyPolicyEdits } from "./apify/settings.js";
 import { apifyBudgetSource } from "./apify/budget-liability.js";
 import { declaredContentRenderers } from "./brain/content-renderers.js";
@@ -1191,7 +1190,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // data under the tools' dedicated credential, never provider context.
   app.route("/api", createGithubDetailRoutes({ details: createGithubDetails({ token: githubToolsTokenSource() }),
     principalValid: principal => host.isPrincipalValid(principal),
-    owns: (principal, sessionId) => { const chat = resolveChat(db, { sessionId }); return !("refused" in chat) && sameAccount(db, chat.principalId, principal.id); },
+    owns: (principal, sessionId) => { const chat = resolveChat(db, { sessionId }); return !("refused" in chat) && chatOwnedBy(db, chat, principal.id); },
     retired: sessionId => host.catalog.chatRetired?.({ sessionId }) === true,
     history: async sessionId => {
       const stored = db.query("SELECT backend_id AS backendId FROM sessions WHERE id = ?").get(sessionId) as { backendId: string | null } | null;

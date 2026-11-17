@@ -232,8 +232,34 @@ export function closureSelects(changed: readonly string[], closure: InputClosure
 }
 
 export type BrowserClosures = Record<BrowserCategory, InputClosure>;
+const LISTING_FAILURES = ["Installed Vitest discovery failed", "Unknown browser project selection", "Incomplete browser project discovery"];
+/**
+ * The installed runner's own file listing as project/file pairs, complete over
+ * every project `scripts/visual.mjs` runs. Throws when it cannot be
+ * established: category selection then stays broad, and a planner that needs
+ * the pairs (scripts/ci-plan.ts, #4163) fails instead of guessing them.
+ */
+export function listBrowserSpecs(root: string): Spec[] {
+  const output = join(root, "tmp", `browser-selection-${process.pid}.json`);
+  mkdirSync(dirname(output), { recursive: true });
+  rmSync(output, { force: true });
+  try {
+    // File discovery must not retain the child for unawaited Storybook telemetry retries.
+    const command = Bun.spawnSync(["node", "../../node_modules/vitest/vitest.mjs", "list", "--filesOnly", `--json=${output}`], {
+      cwd: join(root, "packages/ui-kit"), env: { ...process.env, CI: "true", STORYBOOK_DISABLE_TELEMETRY: "1" }, stdout: "pipe", stderr: "pipe", timeout: 15000,
+    });
+    if (command.exitCode !== 0) throw new Error(LISTING_FAILURES[0]);
+    const specs = normalizeInventory(JSON.parse(readFileSync(output, "utf8")), root);
+    const declaration = /const projects = projectArgs\.length \?[^\n]+ : (\[[^\n]+\]);/.exec(readFileSync(join(root, "scripts/visual.mjs"), "utf8"));
+    if (!declaration) throw new Error(LISTING_FAILURES[1]);
+    const expected = [...JSON.parse(declaration[1]!), "ui-react-layout", "ui-react-endurance"].sort();
+    const actual = [...new Set(specs.map(spec => spec.project))].sort();
+    if (new Set(expected).size !== expected.length || JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error(LISTING_FAILURES[2]);
+    return specs;
+  } finally { rmSync(output, { force: true }); }
+}
 /** Use the installed runner's actual file discovery; a failure leaves every category broad. */
-export function discoverBrowserClosures(root: string): BrowserClosures {
+export function discoverBrowserClosures(root: string, list: (root: string) => Spec[] = listBrowserSpecs): BrowserClosures {
   const declarations = (file: string): InputDeclaration[] => {
     const data = JSON.parse(readFileSync(join(root, file), "utf8"));
     if (!Array.isArray(data)) throw new Error("Invalid indirect-input declarations");
@@ -244,26 +270,11 @@ export function discoverBrowserClosures(root: string): BrowserClosures {
   let captures: InputClosure;
   try { captures = discoverInputClosure(root, ["scripts/capture.ts", "scripts/captures", "docs/process/feature-captures.md", ...cssConfig], [...declarations("scripts/captures/proof-inputs.json"), ...cssDeclarations()]); }
   catch { captures = { files: [], unresolved: ["Cannot establish capture input ownership"] }; }
-  const output = join(root, "tmp", `browser-selection-${process.pid}.json`);
-  mkdirSync(dirname(output), { recursive: true });
-  rmSync(output, { force: true });
   const failed = (message: string): BrowserClosures => Object.fromEntries(
     ["browser", "layout", "endurance", "captures"].map(category => [category, category === "captures" ? captures : { files: [], unresolved: [message] }])) as unknown as BrowserClosures;
   let specs: Spec[];
-  try {
-    // File discovery must not retain the child for unawaited Storybook telemetry retries.
-    const command = Bun.spawnSync(["node", "../../node_modules/vitest/vitest.mjs", "list", "--filesOnly", `--json=${output}`], {
-      cwd: join(root, "packages/ui-kit"), env: { ...process.env, CI: "true", STORYBOOK_DISABLE_TELEMETRY: "1" }, stdout: "pipe", stderr: "pipe", timeout: 15000,
-    });
-    if (command.exitCode !== 0) return failed("Installed Vitest discovery failed");
-    specs = normalizeInventory(JSON.parse(readFileSync(output, "utf8")), root);
-    const declaration = /const projects = projectArgs\.length \?[^\n]+ : (\[[^\n]+\]);/.exec(readFileSync(join(root, "scripts/visual.mjs"), "utf8"));
-    if (!declaration) return failed("Unknown browser project selection");
-    const expected = [...JSON.parse(declaration[1]!), "ui-react-layout", "ui-react-endurance"].sort();
-    const actual = [...new Set(specs.map(spec => spec.project))].sort();
-    if (new Set(expected).size !== expected.length || JSON.stringify(actual) !== JSON.stringify(expected)) return failed("Incomplete browser project discovery");
-  } catch { return failed("Installed Vitest discovery unavailable"); }
-  finally { rmSync(output, { force: true }); }
+  try { specs = list(root); }
+  catch (error) { return failed(error instanceof Error && LISTING_FAILURES.includes(error.message) ? error.message : "Installed Vitest discovery unavailable"); }
   try {
     const visualDeclarations = [...declarations("packages/ui-kit/tests/proof-inputs.json"), ...cssDeclarations()];
     const config = [...cssConfig, "packages/ui-kit/tests/proof-inputs.json", "packages/ui-kit/vitest.config.ts", "packages/ui-kit/vite.config.ts", "packages/ui-kit/.storybook/main.ts", "packages/ui-kit/.storybook/preview.ts"];

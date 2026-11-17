@@ -343,6 +343,64 @@ bun scripts/test-determinism.ts --base origin/main --json   # the report on stdo
   [host admission](#host-admission-for-heavy-local-commands);
   `--burners <n>` lowers the load for a diagnosis.
 
+## Changed browser specs repeat under load
+
+A Vitest browser, layout or story spec that a pull request adds or modifies
+runs several times under CPU load, in the pinned container, before it merges
+([the 2026-11-17 ruling](../decisions/ci-utility.md#changed-browser-specs-repeat-under-load-before-merge)).
+Without this gate such a spec first ran on a runner after it merged.
+
+```sh
+bun scripts/browser-determinism.ts --base origin/main                    # what the hosted job runs
+bun scripts/browser-determinism.ts --base origin/main --cpu-list 0-3     # on a shared host: four CPUs only
+bun scripts/browser-determinism.ts --base origin/main --burners 0        # the same passes without load
+bun scripts/browser-determinism.ts rail-fine::packages/ui-react/tests/browser/<name>.pointer.tsx   # one project/file pair
+```
+
+Run `bun run build` first, as for any browser run: the container resolves the
+packages' built output.
+
+- **Selection.** `*.visual.tsx` under `packages/ui-kit/tests/visual/`,
+  `*.stories.tsx` under `packages/ui-kit/stories/`, and `*.pointer.tsx`,
+  `*.layout.tsx` and `*.offline.tsx` under `packages/ui-react/tests/browser/`,
+  added or modified against the merge base. Deleted specs, the endurance spec
+  and helpers are not selected: changing a helper repeats nothing.
+- **Pairs.** A spec runs once in every Vitest project that includes it, so it
+  is repeated as project/file pairs from Vitest's own file listing: a pointer
+  spec in three `rail-*` projects, a story in both themes. A changed spec that
+  no project lists fails the plan, because nothing would ever run it.
+- **The run.** Vitest starts once in the container and runs exactly the
+  selected pairs, pass after pass, one project at a time. Each pass opens a
+  new page for the file and evaluates its module again. The browser, its
+  storage (cookies, `localStorage`, `sessionStorage`, IndexedDB), the
+  Node-side state of browser commands and the Vite server are kept, as they
+  are between two files of an ordinary run. One busy loop per CPU runs inside
+  the container until the command exits.
+- **The bound.** Five repetitions, reduced uniformly to no fewer than two when
+  the reviewed weights in `scripts/browser-shard-costs.json` exceed 300
+  seconds. Ready confirmation runs two. A pair with no reviewed weight, which
+  every added spec is, costs 10 seconds and the report names it.
+- **Partitions.** A selection too heavy for one job at two repetitions is
+  split by reviewed weight into `browser_determinism (1)` to at most
+  `browser_determinism (15)`, each within 300 weighted seconds. Every pair
+  runs twice in exactly one partition. A selection that needs more than
+  fifteen fails in the metadata job before anything runs, naming its weight
+  and the limit: split the change. `BROWSER_DETERMINISM_PARTITIONS` in
+  `scripts/proof-shards.ts` owns the numbers.
+- **A failure** names the spec, the project, the repetition and the case.
+  Failure screenshots are written under `__screenshots__/` beside the spec, as
+  in any browser run, and the hosted job uploads them. Fix the spec: wait for
+  the state it asserts ([test waits](test-waits.md)), and do not leave state
+  in storage that its next pass will read. A longer deadline or a retry is not
+  a fix.
+- **Where it runs.** The hosted `browser_determinism` job, at every
+  pull-request cadence including draft, and in draft heavy feedback. `draft
+  gates` and `proof` require it when the change selects it. Never on main.
+  `check:pr` never runs it; `check:pr --plan` prints the command when it
+  applies. A local run waits for
+  [host admission](#host-admission-for-heavy-local-commands) like any browser
+  run.
+
 ## Tests that cannot fail
 
 A green test is evidence only if it could have been red. Each of these shapes
@@ -695,7 +753,10 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   pre-merge proof.
 - Drafts run cheap gates, plus the `determinism` job when the change adds or
   modifies a Bun test file
-  ([changed tests repeat under load](#changed-tests-repeat-under-load)).
+  ([changed tests repeat under load](#changed-tests-repeat-under-load)) and the
+  `browser_determinism` job when it adds or modifies a browser, layout or
+  story spec
+  ([changed browser specs repeat under load](#changed-browser-specs-repeat-under-load)).
   Ready `opened`, `reopened` and `ready_for_review`
   events request full affected confirmation. Ready `synchronize` runs affected
   fast invariants and types only; `proof` remains nonpassing until the author
@@ -770,9 +831,11 @@ action/runtime versions, pinned offline browser image and diagnostic
 artifacts. Independent selected categories run after metadata; the final proof
 aggregate rejects failures, cancellations, missing outputs and unexpected
 skips. Tests-only changes may intentionally skip packaging while complete
-affected tests run. Drafts run cheap gates only, with one exception: the
-`determinism` job repeats a change's added or modified Bun test files under
-CPU load at every pull-request cadence. Forks use ordinary
+affected tests run. Drafts run cheap gates only, with two exceptions that run
+at every pull-request cadence: the `determinism` job repeats a change's added
+or modified Bun test files under CPU load, and the `browser_determinism` job
+repeats its added or modified browser, layout and story specs in the pinned
+container. Forks use ordinary
 `pull_request`, a read-only token (`contents: read`, plus `actions: read` /
 `checks: read` for bounded proof lookup), no secrets and nonpersisted checkout
 credentials. A fork run awaiting maintainer approval has not passed.

@@ -98,12 +98,15 @@ test("the request script reads the live head, dispatches it from the default bra
 });
 
 test("the feedback aggregate requires its own cadence and every selected category", () => {
-  const outputs = { cadence: "feedback-heavy", verify: "true", pack: "false", unit: "true", browser: "false", layout: "false", captures: "false", runtime: "false", runtime_host: "false", endurance: "false", determinism: "true" };
+  const outputs = { cadence: "feedback-heavy", verify: "true", pack: "false", unit: "true", browser: "false", layout: "false", captures: "false", runtime: "false", runtime_host: "false", endurance: "false", determinism: "true", browser_determinism: "true" };
   const needs: Record<string, { result: string; outputs?: Record<string, string> }> = { changeset: { result: "success", outputs },
-    verify: { result: "success" }, unit: { result: "success" }, determinism: { result: "success" }, ...Object.fromEntries(["pack", "browser", "layout", "captures", "runtime", "runtime_host", "endurance"].map(name => [name, { result: "skipped" }])) };
+    verify: { result: "success" }, unit: { result: "success" }, determinism: { result: "success" }, browser_determinism: { result: "success" }, ...Object.fromEntries(["pack", "browser", "layout", "captures", "runtime", "runtime_host", "endurance"].map(name => [name, { result: "skipped" }])) };
   expect(feedbackProblems(needs)).toEqual([]);
   // Draft heavy feedback repeats the changed Bun tests too (#4109).
   expect(feedbackProblems({ ...needs, determinism: { result: "skipped" } }), "FEEDBACK_REQUIRES_SELECTED_DETERMINISM").toEqual(["determinism: selected proof did not pass (skipped)"]);
+  // And its changed browser, layout and story specs, in the pinned container (#4163).
+  expect(feedbackProblems({ ...needs, browser_determinism: { result: "skipped" } }), "FEEDBACK_REQUIRES_SELECTED_BROWSER_REPETITION").toEqual(["browser_determinism: selected proof did not pass (skipped)"]);
+  expect(feedbackProblems({ ...needs, browser_determinism: { result: "failure" } })).toEqual(["browser_determinism: selected proof did not pass (failure)"]);
   expect(feedbackProblems({ ...needs, unit: { result: "failure" } })).toEqual(["unit: selected proof did not pass (failure)"]);
   expect(feedbackProblems({ ...needs, changeset: { result: "success", outputs: { ...outputs, cadence: "confirmation" } } })).toEqual(["admission did not plan a feedback-heavy selection"]);
 });

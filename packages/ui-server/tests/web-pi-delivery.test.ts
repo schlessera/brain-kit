@@ -56,7 +56,7 @@ test("installed Pi records a forwarded web result before the next provider reque
   try {
     const bindingId = crypto.randomUUID();
     await writes.safetyBegin({ turnId: "voyage", bindingId, sessionId: null, principalId: "odysseus", backendId: "pi", at: 0 });
-    db.exec("INSERT INTO sessions(id,created_at,last_active_at,backend_id) VALUES('ithaca',0,0,'pi'); INSERT INTO chat_session_owners VALUES('ithaca','odysseus',0)");
+    db.exec("INSERT INTO sessions(id,created_at,last_active_at,backend_id) VALUES('ithaca',0,0,'pi'); INSERT INTO chat_session_owners(session_id,principal_id,created_at) VALUES('ithaca','odysseus',0)");
     safetyCatalogCreated(db, "ithaca", "odysseus", "voyage"); await writes.bind("voyage", "ithaca");
     const collector = createSafetyCollector(db, writes, { turnId: "voyage", bindingId, sessionId: () => "ithaca", backendId: "pi", brainPath: root,
       shellProxied: () => false, signal: controller.signal, stop: () => controller.abort() });
