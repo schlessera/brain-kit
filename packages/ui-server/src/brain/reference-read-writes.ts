@@ -3,7 +3,7 @@ import type { Database } from "bun:sqlite";
 import { isLiveReferenceGrant } from "../db/reference-grants.js";
 import { sourceAuthorityCurrent, type SourceAuthority } from "./reference-source-authority.js";
 
-export interface ReferenceReadRecord {
+interface ReferenceReadRecord {
   id: string;
   turnId: string;
   toolCallId: string;
