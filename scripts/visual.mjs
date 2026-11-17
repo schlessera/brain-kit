@@ -36,6 +36,7 @@
  *   node scripts/visual.mjs --update           # rewrite the baselines
  *   node scripts/visual.mjs --shard=1/2        # half the files of every project (CI)
  *   node scripts/visual.mjs --inside …         # already in the image (CI)
+ *   node scripts/visual.mjs --project=… --repeat-plan=tmp/…json # repeated passes under load; written by scripts/browser-determinism.ts
  *   node scripts/visual.mjs --browser.fileParallelism=true  # diagnostic override
  */
 import { execFileSync, spawnSync } from "node:child_process";
@@ -71,6 +72,17 @@ if (schedulingArgs.length > 1 || schedulingArgs.some((a) => !/^--browser\.filePa
   process.exit(1);
 }
 const schedulingArg = schedulingArgs[0] ?? "--browser.fileParallelism=false";
+// Changed specs repeated under CPU load (#4163): the same container, mounts and
+// network as any run of the selected projects, entered by a different inner
+// command. The plan names the exact project/file pairs, so nothing else that
+// chooses files applies.
+const repeatPlans = argv.filter((a) => a.startsWith("--repeat-plan="));
+const repeatPlan = repeatPlans[0]?.slice("--repeat-plan=".length);
+if (repeatPlans.length > 1 || (repeatPlan !== undefined && (!/^tmp\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*\.json$/.test(repeatPlan) || repeatPlan.split("/").includes("..") ||
+    !projectArgs.length || update || shardArg || filters.length || schedulingArgs.length || argv.includes("--proof-report")))) {
+  console.error("use --repeat-plan=tmp/<plan>.json once, with --project and no --update, --shard, --filter, --proof-report or scheduling override");
+  process.exit(1);
+}
 const gitCheckout = () => {
   const [sha, tree, ...parents] = execFileSync("git", ["show", "-s", "--format=%H %T %P", "HEAD"], { cwd: REPO, encoding: "utf8" }).trim().split(" ");
   return JSON.stringify({ sha, tree, parents });
@@ -93,6 +105,8 @@ if (inside) {
   // separate locks. Exclusive access also preserves project scheduling/captures.
   const coordinated = await ensureWorkspaceLease(REPO, "write");
   if (coordinated !== undefined) process.exit(coordinated);
+  // Repeated passes run Vitest in-process, with their CPU burners beside it in this container.
+  if (repeatPlan) process.exit(run(process.execPath, [resolve(REPO, "scripts/browser-determinism-inside.mjs"), repeatPlan], { cwd: resolve(REPO, KIT) }));
   // Already in the image. Vitest is invoked through its own entry rather than
   // through a package script, because a package script would need bun.
   //
