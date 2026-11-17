@@ -5677,9 +5677,10 @@ that summary. Fields and recovery semantics are in the
 
 ## GitHub tools system brief (additive, 0.45.0, #3799)
 
-`@schlessera/brain-ui-sdk/server` adds the `GithubToolsBrief` interface
-(`{ read, search, create, comment }`, the visible tool names), and
-`buildSystemPromptAppend` accepts optional `githubTools: GithubToolsBrief`.
+`buildSystemPromptAppend` in `@schlessera/brain-ui-sdk/server` accepts
+optional `githubTools`, of the type `GithubToolsBrief`
+(`{ read, search, create, comment }`, the visible tool names) that its
+signature reaches.
 With it, the brief gains one fixed bullet that sends GitHub through those
 tools; without it, the output is unchanged. Both first-party backends pass it
 for every interactive session, so a new session's retained append contains

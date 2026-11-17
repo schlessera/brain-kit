@@ -1,9 +1,10 @@
 /** The fixed system brief sends GitHub through the host tools (#3791, #3799). */
 import { expect, test } from "bun:test";
 import { buildSystemPromptAppend, GITHUB_TOOL_NAMES } from "../src/server/index.js";
+import type { GithubToolsBrief } from "../src/server/system-prompt.js";
 
-const PI = { read: GITHUB_TOOL_NAMES.read, search: GITHUB_TOOL_NAMES.search, create: GITHUB_TOOL_NAMES.create, comment: GITHUB_TOOL_NAMES.comment };
-const CLAUDE = Object.fromEntries(Object.entries(PI).map(([key, name]) => [key, `mcp__brain-ui__${name}`])) as typeof PI;
+const PI: GithubToolsBrief = { read: GITHUB_TOOL_NAMES.read, search: GITHUB_TOOL_NAMES.search, create: GITHUB_TOOL_NAMES.create, comment: GITHUB_TOOL_NAMES.comment };
+const CLAUDE = Object.fromEntries(Object.entries(PI).map(([key, name]) => [key, `mcp__brain-ui__${name}`])) as unknown as GithubToolsBrief;
 
 test("the brief names the host GitHub tools under the backend's visible names and says not to fall back", () => {
   for (const [label, tools] of [["claude", CLAUDE], ["pi", PI]] as const) {
