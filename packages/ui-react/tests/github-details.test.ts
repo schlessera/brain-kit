@@ -29,7 +29,11 @@ describe("fetchGithubDetailPage", () => {
     expect(await fetchGithubDetailPage(root(() => Response.json({ error: limited }, { status: 429 })).root,
       { sessionId: "s", repository: "odysseus/ithaca", number: 7, part: "comments" }), "GITHUB_CLIENT_TYPED_ERROR").toEqual({ ok: false, error: limited });
     const garbled = await fetchGithubDetailPage(root(() => new Response("<html>", { status: 200 })).root, { sessionId: "s", repository: "odysseus/ithaca", number: 7, part: "comments" });
-    expect(garbled).toMatchObject({ ok: false, error: { code: "upstream_error", reason: "malformed" } });
+    expect(garbled).toMatchObject({ ok: false, error: { code: "upstream_error", reason: "host_malformed" } });
+    const proxied = await fetchGithubDetailPage(root(() => new Response("<html>", { status: 504 })).root, { sessionId: "s", repository: "odysseus/ithaca", number: 7, part: "comments" });
+    expect(proxied, "the host's own status is never GitHub's").toMatchObject({ ok: false, error: { code: "upstream_error", reason: "host_http_504" } });
+    const silent = await fetchGithubDetailPage({ apiBase: () => "/api", request: async () => { throw new TypeError("offline"); } }, { sessionId: "s", repository: "odysseus/ithaca", number: 7, part: "comments" });
+    expect(silent).toMatchObject({ ok: false, error: { code: "upstream_error", reason: "host_no_answer" } });
     const refused = root(() => Response.json(page));
     expect(await fetchGithubDetailPage(refused.root, { sessionId: "s", repository: "../ithaca", number: 7, part: "comments" })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
     expect(refused.urls, "GITHUB_CLIENT_INVALID_SENDS_NOTHING").toEqual([]);
