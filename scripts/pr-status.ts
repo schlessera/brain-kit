@@ -12,13 +12,17 @@
  * 1 when either moved, listing the files the base gained and which of them
  * the pull request also changes. `--failures` names each failed job and step;
  * with `--logs` it saves each failed job's log and prints only its failing
- * lines. This reads; it never reruns, merges or edits anything, and it does
+ * lines. `reviewRecord` is the newest recorded independent review among the
+ * comments (`scripts/review-receipt.ts`); whether the head needs one, and
+ * whether that record covers it, is `bun scripts/review-receipt.ts check <pr>`.
+ * This reads; it never reruns, merges or edits anything, and it does
  * not replace the proof checks of `scripts/integrate.ts`.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DEFAULT_REPO, type Gh } from "./issue-queue";
 import { RECEIPT_START } from "./check-receipt";
+import { commentBodies, newestReview, undisposed } from "./review-receipt";
 import { EXPECTED_FAILURE_PREFIX } from "./expected-failure-log";
 
 const realGh: Gh = args => {
@@ -127,9 +131,15 @@ export async function main(argv: readonly string[], io: StatusIo): Promise<numbe
     mergeRef = { sha: mergeSha.stdout.trim(), parents, current: parents.length === 2 && parents[0] === liveBase && parents[1] === pr.headRefOid };
   }
   const { total, proof, ...checks } = summarizeChecks(pr.statusCheckRollup ?? []);
+  // The newest review record, or why it cannot be read: the merge path refuses an unreadable one.
+  let reviewRecord: { head: string; reviewer: string; findings: number; undisposed: number } | { unreadable: string } | null;
+  try {
+    const record = newestReview(commentBodies(gh, repo, number));
+    reviewRecord = record && { head: record.head, reviewer: record.reviewer, findings: record.findings.length, undisposed: undisposed(record).length };
+  } catch (error) { reviewRecord = { unreadable: error instanceof Error ? error.message : String(error) }; }
   const status: Record<string, unknown> = { pr: number, state: pr.state, draft: pr.isDraft, head: pr.headRefOid, baseRef: pr.baseRefName, liveBase,
     mergeable: pr.mergeable, mergeState: pr.mergeStateStatus, review: pr.reviewDecision || null, mergeRef,
-    receipt: pr.body.includes(RECEIPT_START), proof, checks: { total, ...checks }, runs };
+    receipt: pr.body.includes(RECEIPT_START), reviewRecord, proof, checks: { total, ...checks }, runs };
 
   const [expectHead, expectBase] = [text("expect-head"), text("expect-base")];
   let moved = false;
