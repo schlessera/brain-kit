@@ -2849,7 +2849,8 @@ What stays exact:
 
 - A live conversation and its epochs belong to the login that opened them.
   Another login of the account starts a new conversation on the history; it
-  cannot resume, reopen or close another login's conversation or epoch.
+  cannot resume, reopen or close another login's conversation or epoch, or
+  write voice, interruption or end evidence into it.
   Migration `090_dialogue_conversation_principal.sql` records the opening
   login on each conversation, and fills it for existing rows from their owner,
   which before this change was always the opening login.

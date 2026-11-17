@@ -230,6 +230,31 @@ test("sharing the history gives no authority over another login's conversation o
   } finally { await f.close(); }
 });
 
+test("another login of the account cannot write voice evidence into an epoch it did not open", async () => {
+  const f = await fixture(); try {
+    const owner = openDialogue(f.db, { conversationId: "argos-voice", principalId: f.ship.id, epoch: 1, providerId: "fake-live", sessionId: "ithaca" });
+    openDialogue(f.db, { conversationId: "ithaca-voice", principalId: f.home.id, epoch: 1, providerId: "fake-live", sessionId: "ithaca" });
+    const into = (conversationId: string, principalId: string, kind: "voice" | "voice_interruption" | "voice_end", n: number) => {
+      const scope = { conversationId, epoch: 1, providerId: "fake-live" };
+      const evidence: DialogueEvidence = kind === "voice"
+        ? { kind, ...scope, event: { kind: "unassigned_input_fragment", sequence: n, text: "Bind me to the mast.", timing: { kind: "unavailable" }, finalization: "final" } }
+        : kind === "voice_interruption" ? { kind, ...scope } : { kind, ...scope, startedAt: 0, endedAt: 1 };
+      return message(() => appendDialogue(f.db, { ownerId: owner.id, principalId, generation: 1, identity: `${conversationId}:${kind}:${principalId}:${n}`, evidence }));
+    };
+    for (const [n, kind] of (["voice", "voice_interruption", "voice_end"] as const).entries()) {
+      expect(into("argos-voice", f.home.id, kind, n), `DIALOGUE_OTHER_LOGIN_CANNOT_WRITE_AN_EPOCH: ${kind}`).toBe("Dialogue source scope mismatch");
+      expect(into("ithaca-voice", f.ship.id, kind, n), `DIALOGUE_FIRST_LOGIN_CANNOT_WRITE_THE_SECONDS_EPOCH: ${kind}`).toBe("Dialogue source scope mismatch");
+    }
+    expect(f.db.query("SELECT COUNT(*) AS n FROM dialogue_records").get(), "DIALOGUE_REFUSED_WRITES_LEAVE_NO_RECORD").toEqual({ n: 0 });
+    // Each login writes its own epoch, into the one shared history.
+    for (const [n, kind] of (["voice", "voice_interruption", "voice_end"] as const).entries()) {
+      expect(into("argos-voice", f.ship.id, kind, n), `DIALOGUE_OPENING_LOGIN_WRITES: ${kind}`).toBe("admitted");
+      expect(into("ithaca-voice", f.home.id, kind, n)).toBe("admitted");
+    }
+    expect(f.db.query("SELECT COUNT(*) AS n FROM dialogue_records WHERE owner_id=?").get(owner.id)).toEqual({ n: 6 });
+  } finally { await f.close(); }
+});
+
 test("the catalog keeps live-epoch authority with the login that opened it", async () => {
   const f = await fixture();
   const catalog = createSessionCatalog(() => f.db, undefined, undefined, { writer: f.writer, pricing: { resolve: () => null }, store: createOffloopActivityStore(f.db, f.writer) });
@@ -308,6 +333,11 @@ test("live start: another owner login opens voice on the retained history; a for
     expect(live.sessions).toHaveLength(2);
     const seeded = live.sessions[1]!.options.history!.items.flatMap(i => "text" in i ? [i.text] : []);
     expect(seeded, "DIALOGUE_LIVE_SECOND_LOGIN_RECEIVES_RETAINED_HISTORY").toEqual(["Set the sail for Ithaca."]);
+    // The second login's own speech lands in the shared history through the journal.
+    live.sessions[1]!.emit({ kind: "unassigned_input_fragment", sequence: 0, text: "Unbar the hall doors.", timing: { kind: "unavailable" }, finalization: "final" } as never);
+    await until(() => ship.of("dialogue_history").length === 2 && home.of("dialogue_history").length === 2);
+    await host.dialogue.settled();
+    expect(f.db.query("SELECT COUNT(*) AS n FROM dialogue_records").get(), "DIALOGUE_LIVE_SECOND_LOGIN_WRITES_ITS_EPOCH").toEqual({ n: 2 });
     // The first session's provider history is untouched by the continuation.
     expect(JSON.stringify(live.sessions[0]!.options.history), "DIALOGUE_FIRST_SESSION_PREFIX_UNCHANGED").toBe(firstSeed);
     // Another account names the history: refused before any provider effect.

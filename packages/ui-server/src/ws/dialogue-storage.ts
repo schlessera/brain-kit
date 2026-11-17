@@ -266,6 +266,7 @@ export function bindDialogue(
 }
 export interface DialogueAppend {
   ownerId: string;
+  /** The writing login. For voice-sourced evidence, the login that opened its conversation. */
   principalId: string;
   generation: number;
   identity: string;
@@ -300,16 +301,20 @@ export function appendDialogue(
       if (sourced) {
         const c = db
           .query(
-            "SELECT owner_id,epoch,provider_id FROM dialogue_conversations WHERE id=?"
+            "SELECT owner_id,principal_id,epoch,provider_id FROM dialogue_conversations WHERE id=?"
           )
           .get(sourced.conversationId) as {
           owner_id: string;
+          principal_id: string | null;
           epoch: number;
           provider_id: string;
         } | null;
+        // The history is the account's, the epoch only its opening login's
+        // (#3963): another login writes no voice evidence into it.
         if (
           !c ||
           c.owner_id !== owner.id ||
+          c.principal_id !== input.principalId ||
           c.epoch !== sourced.epoch ||
           c.provider_id !== sourced.providerId
         )

@@ -132,7 +132,7 @@ export class DialogueJournal {
         : null,
       e.sequence,
     ]);
-    this.append(owner, identity, evidence, after);
+    this.append(owner, identity, evidence, after, this.opener(conversationId, owner));
     return true;
   }
   /**
@@ -143,7 +143,7 @@ export class DialogueJournal {
   interruption(conversationId: string, evidence: Extract<DialogueEvidence, { kind: "voice_interruption" }>, ordinal: number): boolean {
     const owner = this.conversations.get(conversationId);
     if (!owner) return false;
-    this.append(owner, JSON.stringify([conversationId, evidence.epoch, "interrupted", evidence.outputId ?? null, ordinal]), evidence);
+    this.append(owner, JSON.stringify([conversationId, evidence.epoch, "interrupted", evidence.outputId ?? null, ordinal]), evidence, undefined, this.opener(conversationId, owner));
     return true;
   }
   /**
@@ -155,7 +155,7 @@ export class DialogueJournal {
     const owner = this.ownerForConversation(conversationId, principalId);
     // An owner whose writes failed since it opened is not written to again.
     if (!owner || !this.historyOwner(owner, principalId) || this.failedOwners.has(owner.id)) return false;
-    this.append(owner, JSON.stringify([conversationId, "ended", evidence.startedAt]), evidence);
+    this.append(owner, JSON.stringify([conversationId, "ended", evidence.startedAt]), evidence, undefined, principalId);
     return true;
   }
   adoptTurn(turnId: string, ownerId: string, principalId: string): void {
@@ -259,11 +259,20 @@ export class DialogueJournal {
     this.track(done);
   }
 
+  /**
+   * The login that opened a live conversation: it alone writes that epoch's
+   * voice evidence, whoever started the shared history (#3963).
+   */
+  private opener(conversationId: string, owner: DialogueOwner): string {
+    return this.scopes.get(conversationId)?.principalId ?? owner.principal_id;
+  }
   private append(
     owner: DialogueOwner,
     identity: string,
     evidence: DialogueEvidence,
-    after?: (saved: boolean) => void
+    after?: (saved: boolean) => void,
+    /** The writing login; backend evidence is written as the history owner. */
+    principalId: string = owner.principal_id
   ): void {
     if (!this.catalog.dialogueAppend) return;
     // Adoption mutates the canonical ID; pending callbacks retain this owner.
@@ -295,7 +304,7 @@ export class DialogueJournal {
     const done = this.catalog
       .dialogueAppend({
         ownerId: owner.id,
-        principalId: owner.principal_id,
+        principalId,
         generation: owner.generation,
         identity,
         evidence,
