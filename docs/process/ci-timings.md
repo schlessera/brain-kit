@@ -252,7 +252,8 @@ bun scripts/refresh-unit-costs.ts <run-id> <attempt>
 It writes `scripts/test-shard-costs.json` in seconds and
 `scripts/unit-shard-measurement.json` with the run, attempt, actual checkout,
 immutable tree/parents, job/step durations, artifact IDs and archive digests.
-The command requires four successful unit jobs, one attributed archive per
+The command requires every planned partition as a successful unit job (four,
+or eight for a ready confirmation), one attributed archive per
 shard, complete matching JUnit/timing partitions, and exact source-discovery
 coverage. Failed, cancelled, partial or ambiguously attributed evidence is
 refused. A successful workflow summary alone does not qualify a run; duplicate

@@ -101,7 +101,8 @@ synthetic merge commit has exactly that base and that head as its parents;
 `false` is the stale-base case described below. `checks.total` of zero means
 CI has not started on this head, which is not green; `proof` is `passed` only
 for a successful `proof` check on this head; `receipt` says whether the body
-carries a `check:pr` receipt. When you need a single check's details, the
+carries a `check:pr` receipt; `reviewRecord` summarizes the newest recorded
+independent review, or is null. When you need a single check's details, the
 underlying reads are `gh pr view <pr> --json statusCheckRollup` and
 `gh api 'repos/schlessera/brain-kit/commits/<head-sha>/check-runs'`.
 
@@ -296,6 +297,27 @@ proof did not run, naming each. Rerun the check locally and paste the new
 receipt, or get the category selected; never edit a receipt by hand
 ([local check receipts](../../../../docs/decisions/ci-utility.md#local-check-receipts)).
 
+The merge path also reads the recorded independent review of a PR that touches
+`packages/ui-react/`, `packages/ui-kit/`, `packages/ui-server/` or
+`packages/core/`
+([ruling](../../../../docs/decisions/ci-utility.md#recorded-independent-review-of-core-package-prs)).
+`confirm` refuses before it takes the reservation, and the merge checks again.
+`bun scripts/review-receipt.ts check <pr>` prints the same decision without
+changing anything. Each refusal has one remedy:
+
+| Refusal | Remedy |
+| --- | --- |
+| No review record | Get the review and post its record: the skill's [Independent review](../SKILL.md#independent-review). |
+| A finding without a disposition | Answer it as fixed, filed or rejected and post the record again. |
+| Fixed in a commit the head does not contain | Name the commit on this branch that fixes it. |
+| The head contains commits the reviewed head does not | Get a review of the current head. Merges of the base never cause this; a new commit, a rebase or an amend does. |
+| A merge commit that is not a clean merge | Get a review of the current head. A merge that resolved a conflict, carries an edit of its own or has more than two parents is content the reviewer did not read. |
+| The reviewed head can be neither read nor fetched | Get a review of the current head. |
+
+Refresh a reviewed branch by merging `origin/main` and pushing. A rebase
+rewrites the reviewed commits and discards the record's coverage. A refresh
+that needed a conflict resolution also needs a new review.
+
 While main is red, a declared fix for the open record, forward fix or
 targeted revert alike, may use `bun scripts/integrate.ts confirm <pr>
 --fixes-main-run <run-id> --issues owner/repo#N,...`. It dispatches fix probes
@@ -323,10 +345,12 @@ A PR whose diff touches nothing under `packages/ui-react/`, `packages/ui-kit/`,
 Check the paths against the PR's actual base, not your local branch:
 
 ```sh
-gh pr diff <pr> --name-only | grep -E '^packages/(ui-react|ui-kit|ui-server|core)/' && echo "full lane"
+gh pr diff <pr> --name-only | bun scripts/fast-lane.ts
 ```
 
-If any path matches, use `integrate.ts confirm` as above. Otherwise:
+It prints `"lane":"full"` with the core-package paths, or `"lane":"fast"`.
+The same predicate decides which PRs need a recorded independent review. On
+the full lane, use `integrate.ts confirm` as above. Otherwise:
 
 1. Paste the `check:pr` receipt and set the milestones, exactly as for any
    other merge.
