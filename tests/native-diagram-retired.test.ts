@@ -13,8 +13,8 @@ const RETIRED = [
   "e8502b6ffb3c575f2e9a1c93dea8dbf5ceda93ece367da9d542cb10b1c9ac32b", // frozen #2293 source
   "ea866695f2a83f9da2fcf18e75e95e936668ecb28e1449845a2584aa1025b728", // last qualified installation
   "e724696a55955e9f32d396b2031214600086533c3f9b8baabcc1c6bb7311f1db", // pinned ui-kit vitest config
-  // The diagram export command's own hash (`f7c3d14c…`) is not listed: the
-  // bound-browser-documents audit pins that file independently.
+  // The diagram export command's own hash is not listed: no script pins a
+  // current source file any more, which tests/first-party-source-pins.test.ts holds.
   "c58de06eba788b6b892416ddda3abb28fa1e8e908f25c0800482fbe05e0de678", // pinned ci-proof
 ];
 
