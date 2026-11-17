@@ -18,7 +18,7 @@ import type { StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
 import type { AppEnv } from "../src/app-env.js";
 import { createStaticBackendRegistry } from "../src/agent/backend.js";
 import { createUiDb } from "../src/db/client.js";
-import { createPrincipal, isUsablePrincipal, resolvePrincipal } from "../src/db/principals.js";
+import { createPrincipal, isUsablePrincipal, resolveAmbientPrincipal, resolvePrincipal } from "../src/db/principals.js";
 import { openSqliteWriter } from "../src/db/write-worker.js";
 import { createOffloopActivityStore } from "../src/activity/store-writes.js";
 import type { WSContext } from "../src/ws/clients.js";
@@ -62,7 +62,9 @@ function world() {
   const host = new WsHost({ registry: createStaticBackendRegistry([backend], backend.id), catalog, isPrincipalValid: () => true,
     isPrincipalAuthorized: id => { const current = resolvePrincipal(db, id); return !!current && isUsablePrincipal(current, Date.now()); } });
   const owner = resolvePrincipal(db, createPrincipal(db, { authMethod: "password", label: "Odysseus phone", ttlSeconds: 86_400 }).id)!;
-  const other = createPrincipal(db, { authMethod: "passkey", label: "Penelope tablet", ttlSeconds: 86_400 }).id;
+  // Every owner sign-in is the one owner account (#4138); another person is another account.
+  const second = createPrincipal(db, { authMethod: "passkey", label: "Odysseus tablet", ttlSeconds: 86_400 }).id;
+  const other = resolveAmbientPrincipal(db, "proxy", "penelope", "Penelope").id;
   const agent = createPrincipal(db, { authMethod: "delegated", label: "Mentor agent", createdBy: owner.id, ttlSeconds: 86_400 }).id;
   host.chatDeletion = createChatDeletion({ catalog, backends: async () => [backend], busy: identities => host.chatBusy(identities),
     retired: (principalId, retirement) => host.chatRetired(principalId, retirement) });
@@ -74,7 +76,7 @@ function world() {
   app.route("/api", createChatDeletionRoutes({ deletion: host.chatDeletion, principalValid: p => { const current = resolvePrincipal(db, p.id); return !!current && isUsablePrincipal(current, Date.now()); } }));
   cleanups.push(async () => { await host.close(); await catalog.settled!(); await writer.close(); db.close(); rmSync(root, { recursive: true, force: true }); });
   return {
-    db, catalog, owner, other, agent,
+    db, catalog, owner, second, other, agent,
     /** One typed request, through dispatch and the run loop, settled on the writer. */
     async type(text: string, sessionId?: string) {
       const before = finished;
@@ -125,30 +127,33 @@ test("a typed chat created now is deletable by its owner; one created before the
   expect(w.db.query("SELECT id FROM chat_lifecycles").all(), "LEGACY_CHATS_NOT_RETIRED").toEqual([{ id: "voyage" }]);
 });
 
-test("other principals refuse a bound typed chat exactly as they refuse one that does not exist", async () => {
+test("other accounts refuse a bound typed chat, and a chat they share refuses exactly as one that does not exist", async () => {
   const w = world();
   await w.type(`Plan the voyage home. ${MARKER}`);
   await w.type("Steer between Scylla and Charybdis");
   expect(bindings(w.db)).toEqual([{ sessionId: "scylla", principalId: w.owner.id }, { sessionId: "voyage", principalId: w.owner.id }]);
 
+  // Another person is another account, with no owner authority at all.
   const foreign = await w.remove(w.other, "voyage");
-  const missing = await w.remove(w.other, "nowhere");
-  const foreignBody = await foreign.json(), missingBody = await missing.json();
-  expect(foreign.status, "FOREIGN_OWNER_UNAVAILABLE").toBe(404);
-  expect(foreignBody, "FOREIGN_REFUSAL_LEAKS_NOTHING").toEqual(missingBody);
-  expect([missing.status, missingBody.reason]).toEqual([404, "unavailable"]);
+  expect([foreign.status, (await foreign.json()).reason], "ANOTHER_ACCOUNT_CANNOT_DELETE").toEqual([403, "unauthorized"]);
   // An agent the owner created holds no owner authority over its chats.
   const agent = await w.remove(w.agent, "voyage");
   expect([agent.status, (await agent.json()).reason], "AGENT_CANNOT_DELETE").toEqual([403, "unauthorized"]);
   expect(w.db.query("SELECT COUNT(*) AS n FROM chat_lifecycles").get(), "NOTHING_RETIRED_BY_OTHERS").toEqual({ n: 0 });
 
-  // A binding naming a different principal than a recorded voice owner is ambiguous, never resolved for either.
+  // A binding beside a voice owner of another account is unknown ownership for every owner login.
   await w.catalog.saveConversationEpoch!({ id: "sirens", principalId: w.other, epoch: 1, sessionId: "scylla" });
   await w.catalog.settled!();
-  for (const principal of [w.owner.id, w.other]) {
-    const conflict = await w.remove(principal, "scylla");
-    expect([conflict.status, (await conflict.json()).reason], "CONFLICTING_OWNERS_UNAVAILABLE").toEqual([404, "unavailable"]);
+  const missing = await w.remove(w.owner.id, "nowhere"), missingBody = await missing.json();
+  expect([missing.status, missingBody.reason]).toEqual([404, "unavailable"]);
+  for (const principal of [w.owner.id, w.second]) {
+    const conflict = await w.remove(principal, "scylla"), body = await conflict.json();
+    expect([conflict.status, body.reason], "CONFLICTING_ACCOUNTS_UNAVAILABLE").toEqual([404, "unavailable"]);
+    expect(body, "FOREIGN_REFUSAL_LEAKS_NOTHING").toEqual(missingBody);
   }
 
-  expect((await w.remove(w.owner.id, "voyage")).status, "OWNER_STILL_DELETES").toBe(200);
+  // Another login of the owner account deletes the owner's typed chat; the record keeps its creator.
+  expect((await w.remove(w.second, "voyage")).status, "ACCOUNTS_OTHER_LOGIN_DELETES").toBe(200);
+  expect(bindings(w.db), "CREATOR_ATTRIBUTION_KEPT").toEqual([{ sessionId: "scylla", principalId: w.owner.id }, { sessionId: "voyage", principalId: w.owner.id }]);
+  expect(w.db.query("SELECT principal_id AS principalId FROM chat_lifecycles WHERE id='voyage'").get(), "OPERATION_IS_THE_DELETERS").toEqual({ principalId: w.second });
 });

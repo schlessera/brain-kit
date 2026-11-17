@@ -29,7 +29,7 @@ import {
 
 import { loadConversation } from "./conversation-storage.js";
 import type { HostChatStore } from "./chat-store-cleanup.js";
-import { authorizedOwner, chatRetirement, isRetired, resolveChat, unfinishedChatRetirements, type ChatRetirementStatus, type ChatStore, type ChatStoreOutcome, type ChatTarget, type RetireChatInput, type RetireChatResult, type RetiredChatIdentities } from "./chat-lifecycle.js";
+import { authorizedOwner, chatOwnedBy, chatRetirement, isRetired, resolveChat, unfinishedChatRetirements, type ChatRetirementStatus, type ChatStore, type ChatStoreOutcome, type ChatTarget, type RetireChatInput, type RetireChatResult, type RetiredChatIdentities } from "./chat-lifecycle.js";
 import * as retries from "./retry-requests.js";
 import * as work from "./session-work.js";
 import { attachTurnFailures, type RecordedTurnFailure } from "./turn-failures.js";
@@ -322,7 +322,7 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
       await tail;
       if (!authorizedOwner(db(), input.principalId, input.at)) return { status: "refused", reason: "unauthorized" };
       const preview = resolveChat(db(), input.target);
-      if ("refused" in preview || preview.principalId !== input.principalId) return submit<RetireChatResult>("retireChat", input);
+      if ("refused" in preview || !chatOwnedBy(db(), preview, input.principalId)) return submit<RetireChatResult>("retireChat", input);
       if (busy(preview.identities)) return { status: "refused", reason: "busy" };
       const result = await submit<RetireChatResult>("retireChat", input);
       if (result.status === "retired") {

@@ -16,8 +16,9 @@ import { openSqliteWriter } from "../src/db/write-worker";
 import { createGovernanceWrites } from "../src/governance/event-writes";
 import { safetyCatalogCreated } from "../src/governance/safety-store";
 import { appendDialogue, bindDialogue, closeDialogue, dialogueOwner, hasUnretainedVoice, openDialogue, readDialogue } from "../src/ws/dialogue-storage";
-import { resolveChat } from "../src/ws/chat-lifecycle";
-import { createSessionCatalog } from "../src/ws/session-catalog";
+import { resolveChat, type RetireChatResult } from "../src/ws/chat-lifecycle";
+import { principalAccount } from "../src/middleware/account-partition";
+import { createSessionCatalog, type SessionCatalog } from "../src/ws/session-catalog";
 import { createOffloopActivityStore } from "../src/activity/store-writes";
 import { createStaticBackendRegistry } from "../src/agent/backend";
 import { WsHost } from "../src/ws/host";
@@ -52,7 +53,8 @@ async function fixture() {
     const bindingId = crypto.randomUUID();
     await writes.safetyBegin({ turnId: "voyage", bindingId, sessionId: null, principalId, backendId: "claude", at: 0 });
     db.query("INSERT INTO sessions(id,created_at,last_active_at,backend_id) VALUES('ithaca',0,0,'claude')").run();
-    db.query("INSERT INTO chat_session_owners VALUES('ithaca',?,0)").run(principalId);
+    // As the write worker binds it: the creator's durable account from its own row.
+    db.query("INSERT INTO chat_session_owners(session_id,principal_id,principal_account,created_at) VALUES('ithaca',?,?,0)").run(principalId, principalAccount(db, principalId));
     safetyCatalogCreated(db, "ithaca", principalId, "voyage"); await writes.bind("voyage", "ithaca");
     await writes.safetyEnd("voyage");
     return (db.query("SELECT history_owner_id FROM safety_sessions WHERE session_id='ithaca'").get() as { history_owner_id: string }).history_owner_id;
@@ -223,11 +225,133 @@ test("sharing the history gives no authority over another login's conversation o
     expect(f.owners()).toMatchObject([{ coverage: "complete" }]);
     closeDialogue(f.db, "argos-voice", f.ship.id, 1);
     expect(f.conversations()).toMatchObject([{ closed: 1 }]);
-    // Deletion keeps its exact-principal rule: the second login is refused as before.
-    openDialogue(f.db, { conversationId: "ithaca-voice", principalId: f.home.id, epoch: 1, providerId: "fake-live", sessionId: "ithaca" });
-    f.db.query("INSERT INTO conversation_epochs(id,principal_id,epoch,session_id,updated_at) VALUES('argos-voice',?,1,'ithaca',0),('ithaca-voice',?,1,'ithaca',0)").run(f.ship.id, f.home.id);
-    expect(resolveChat(f.db, { sessionId: "ithaca" }), "DIALOGUE_DELETION_STAYS_EXACT").toEqual({ refused: "unavailable" });
   } finally { await f.close(); }
+});
+
+/** The real deletion path (#4138): admission on the catalog, commit on the fixture's write worker. */
+const catalogOf = (f: Awaited<ReturnType<typeof fixture>>) =>
+  createSessionCatalog(() => f.db, undefined, undefined, { writer: f.writer, pricing: { resolve: () => null }, store: createOffloopActivityStore(f.db, f.writer) });
+const retire = (catalog: SessionCatalog, principalId: string, operationId: string, sessionId = "ithaca"): Promise<RetireChatResult> =>
+  catalog.retireChat!({ operationId, principalId, target: { sessionId }, expected: { backendId: "claude", generation: 1 }, removableBackends: ["claude"], at: Date.now() }, () => false);
+const retireProvisional = (catalog: SessionCatalog, principalId: string, operationId: string, ownerId: string): Promise<RetireChatResult> =>
+  catalog.retireChat!({ operationId, principalId, target: { ownerId }, expected: { backendId: null, generation: 1 }, removableBackends: [], at: Date.now() }, () => false);
+const UNAVAILABLE = { status: "refused", reason: "unavailable" }, UNAUTHORIZED = { status: "refused", reason: "unauthorized" };
+const settle = (p: Promise<unknown>) => p.then(() => "written", (e: Error) => e.message);
+/**
+ * The chat `ithaca`, typed on the ship, then continued by voice from the ship
+ * and from home: every ownership record a deletion consults, written by the
+ * real catalog writers. Two logins of one account, and no other.
+ */
+async function sharedChat(f: Awaited<ReturnType<typeof fixture>>, catalog: SessionCatalog) {
+  await f.typed();
+  for (const [conversationId, principal] of [["argos-voice", f.ship], ["ithaca-voice", f.home]] as const) {
+    await catalog.dialogueOpen!({ conversationId, principalId: principal.id, epoch: 1, providerId: "fake-live", sessionId: "ithaca" });
+    await catalog.saveConversationEpoch!({ id: conversationId, principalId: principal.id, epoch: 1, sessionId: "ithaca" });
+    await catalog.dialogueClose!(conversationId, principal.id, 1, false);
+  }
+  await catalog.settled!();
+}
+/** Another chat of the account, from the home login alone: a refusal elsewhere must not reach it. */
+async function unrelatedChat(f: Awaited<ReturnType<typeof fixture>>, catalog: SessionCatalog) {
+  catalog.persistSessionStub("pylos", "Ask Nestor for news", null, "claude", f.home.id);
+  await catalog.dialogueOpen!({ conversationId: "pylos-voice", principalId: f.home.id, epoch: 1, providerId: "fake-live", sessionId: "pylos" });
+  await catalog.saveConversationEpoch!({ id: "pylos-voice", principalId: f.home.id, epoch: 1, sessionId: "pylos" });
+  await catalog.settled!();
+}
+const evidence = (db: Awaited<ReturnType<typeof fixture>>["db"]) => ({
+  owners: db.query("SELECT id,principal_id,principal_account FROM dialogue_owners ORDER BY id").all(),
+  epochs: db.query("SELECT id,principal_id,principal_account FROM conversation_epochs ORDER BY id").all(),
+  creators: db.query("SELECT session_id,principal_id,principal_account FROM chat_session_owners ORDER BY session_id").all(),
+});
+const lifecycles = (db: Awaited<ReturnType<typeof fixture>>["db"]) => db.query("SELECT id,principal_id,operation_id FROM chat_lifecycles ORDER BY id").all();
+
+for (const deleter of ["ship", "home", "a third login"] as const) test(`a chat two owner logins used by voice is deleted by ${deleter}, under its own operation`, async () => {
+  const f = await fixture(); const catalog = catalogOf(f); try {
+    await sharedChat(f, catalog);
+    // The real writers stored each record's durable account beside its login.
+    expect(evidence(f.db), "DELETION_RECORDS_CARRY_DURABLE_ACCOUNTS").toEqual({
+      owners: [{ id: expect.any(String), principal_id: f.ship.id, principal_account: "owner" }],
+      epochs: [{ id: "argos-voice", principal_id: f.ship.id, principal_account: "owner" }, { id: "ithaca-voice", principal_id: f.home.id, principal_account: "owner" }],
+      creators: [{ session_id: "ithaca", principal_id: f.ship.id, principal_account: "owner" }] });
+    const before = evidence(f.db);
+    const third = createPrincipal(f.db, { authMethod: "passkey", label: "Odysseus in the hall", ttlSeconds: 7200 });
+    const caller = deleter === "ship" ? f.ship : deleter === "home" ? f.home : third;
+    const bystander = caller === f.home ? f.ship : f.home;
+    const result = await retire(catalog, caller.id, "retire-ithaca");
+    expect(result, `DELETION_ADMITS_THE_ACCOUNTS_LOGIN: ${deleter}`).toMatchObject({ status: "retired", lifecycleId: "ithaca", operationId: "retire-ithaca", generation: 2,
+      identities: { sessions: ["ithaca"], conversations: ["argos-voice", "ithaca-voice"] } });
+    // The operation belongs to the login that asked; no record is reassigned.
+    expect(lifecycles(f.db), "DELETION_OPERATION_IS_THE_CALLERS").toEqual([{ id: "ithaca", principal_id: caller.id, operation_id: "retire-ithaca" }]);
+    expect(evidence(f.db), "DELETION_KEEPS_ORIGINAL_ATTRIBUTION").toEqual(before);
+    expect(await catalog.chatRetirement!("retire-ithaca", caller.id), "DELETION_RECEIPT_READS_FOR_ITS_INITIATOR").toMatchObject({ status: "retired" });
+    expect(await catalog.chatRetirement!("retire-ithaca", bystander.id), "DELETION_RECEIPT_IS_NOT_ANOTHER_LOGINS").toBeNull();
+    expect(await retire(catalog, bystander.id, "retire-ithaca"), "DELETION_HANDLE_IS_NOT_ANOTHER_LOGINS").toEqual(UNAVAILABLE);
+    // The fences hold for every login of the account.
+    expect(await retire(catalog, bystander.id, "retire-ithaca-again"), "DELETION_RETIRED_CHAT_STAYS_RETIRED").toEqual(UNAVAILABLE);
+    expect(await settle(catalog.dialogueOpen!({ conversationId: "late-voice", principalId: bystander.id, epoch: 1, providerId: "fake-live", sessionId: "ithaca" })),
+      "DELETION_FENCE_REFUSES_THE_OTHER_LOGIN").toContain("retired");
+    expect(await settle(catalog.saveConversationEpoch!({ id: "ithaca-voice", principalId: f.home.id, epoch: 2, sessionId: "ithaca" })), "DELETION_EPOCH_NEVER_REOPENS").toContain("retired");
+    expect(lifecycles(f.db)).toHaveLength(1);
+  } finally { await catalog.settled!(); await f.close(); }
+});
+
+for (const how of ["revoked", "expired"] as const) test(`the remaining login deletes the shared chat once the other is ${how} and pruned`, async () => {
+  const f = await fixture(); const catalog = catalogOf(f); try {
+    await sharedChat(f, catalog);
+    f.prune(how);
+    // The pruned login proves its records' account only through what was stored.
+    expect(await retire(catalog, f.ship.id, "retire-by-the-pruned"), "DELETION_PRUNED_CALLER_GAINS_NOTHING").toEqual(UNAUTHORIZED);
+    expect(await retire(catalog, f.home.id, "retire-ithaca"), "DELETION_DURABLE_EVIDENCE_OUTLIVES_PRUNING").toMatchObject({ status: "retired", generation: 2 });
+    expect(lifecycles(f.db)).toEqual([{ id: "ithaca", principal_id: f.home.id, operation_id: "retire-ithaca" }]);
+  } finally { await catalog.settled!(); await f.close(); }
+});
+
+test("a caller that is not a current owner login is refused, whatever the chat's records say", async () => {
+  const f = await fixture(); const catalog = catalogOf(f); try {
+    await sharedChat(f, catalog);
+    for (const [name, principalId] of f.foreign)
+      expect(await retire(catalog, principalId, `retire-by-${name}`), `DELETION_REFUSES_CALLER: ${name}`).toEqual(UNAUTHORIZED);
+    revokePrincipal(f.db, f.home.id, Date.now());
+    expect(await retire(catalog, f.home.id, "retire-by-revoked"), "DELETION_REFUSES_CALLER: revoked").toEqual(UNAUTHORIZED);
+    // Its login lapsed, but retention has not pruned its row yet.
+    f.db.query("UPDATE principals SET expires_at=? WHERE id=?").run(Date.now() - 1, f.ship.id);
+    expect([f.authorized(f.ship), resolvePrincipal(f.db, f.ship.id) !== null]).toEqual([false, true]);
+    expect(await retire(catalog, f.ship.id, "retire-by-expired"), "DELETION_REFUSES_CALLER: expired").toEqual(UNAUTHORIZED);
+    expect(lifecycles(f.db), "DELETION_NOTHING_RETIRED").toEqual([]);
+  } finally { await catalog.settled!(); await f.close(); }
+});
+
+/**
+ * Each case leaves one ownership record of the shared chat unproven. The
+ * caller is a current owner login every time; only the evidence differs.
+ */
+const UNPROVEN: [string, (f: Awaited<ReturnType<typeof fixture>>) => void][] = [
+  ["a pruned voice epoch with no stored account", f => { f.db.query("UPDATE conversation_epochs SET principal_account=NULL WHERE id='argos-voice'").run(); f.prune("revoked"); }],
+  ["a pruned creation binding with no stored account", f => { f.db.query("UPDATE chat_session_owners SET principal_account=NULL WHERE session_id='ithaca'").run(); f.prune("revoked"); }],
+  ["a pruned dialogue owner with no stored account", f => { f.db.query("UPDATE dialogue_owners SET principal_account=NULL WHERE session_id='ithaca'").run(); f.prune("expired"); }],
+  ["a corrupt voice epoch account", f => { f.db.query("UPDATE conversation_epochs SET principal_account='admiral' WHERE id='ithaca-voice'").run(); }],
+  ["a corrupt creation binding account", f => { f.db.query("UPDATE chat_session_owners SET principal_account='admiral' WHERE session_id='ithaca'").run(); }],
+  ["a corrupt dialogue owner account", f => { f.db.query("UPDATE dialogue_owners SET principal_account='admiral' WHERE session_id='ithaca'").run(); }],
+  ["an agent epoch claiming the owner account", f => { f.db.query("INSERT INTO conversation_epochs(id,principal_id,principal_account,epoch,session_id,updated_at) VALUES('mentor-voice',?,'owner',1,'ithaca',0)").run(f.agent.id); }],
+  ["an agent's voice epoch", f => { f.db.query("INSERT INTO conversation_epochs(id,principal_id,principal_account,epoch,session_id,updated_at) VALUES('mentor-voice',?,NULL,1,'ithaca',0)").run(f.agent.id); }],
+  ["an ambient principal's voice epoch", f => { f.db.query("INSERT INTO conversation_epochs(id,principal_id,principal_account,epoch,session_id,updated_at) VALUES('penelope-voice',?,NULL,1,'ithaca',0)").run(f.penelope.id); }],
+  ["a system principal's voice epoch", f => { f.db.query("INSERT INTO conversation_epochs(id,principal_id,principal_account,epoch,session_id,updated_at) VALUES('watch-voice',?,NULL,1,'ithaca',0)").run(f.system.id); }],
+  ["an unknown principal's voice epoch", f => { f.db.query("INSERT INTO conversation_epochs(id,principal_id,principal_account,epoch,session_id,updated_at) VALUES('cyclops-voice','polyphemus',NULL,1,'ithaca',0)").run(); }],
+  ["an unknown principal claiming the owner account", f => { f.db.query("INSERT INTO conversation_epochs(id,principal_id,principal_account,epoch,session_id,updated_at) VALUES('cyclops-voice','polyphemus','admiral',1,'ithaca',0)").run(); }],
+];
+for (const [name, unprove] of UNPROVEN) test(`deletion refuses within the chat for ${name}, and moves nothing`, async () => {
+  const f = await fixture(); const catalog = catalogOf(f); try {
+    await sharedChat(f, catalog);
+    await unrelatedChat(f, catalog);
+    unprove(f);
+    const before = evidence(f.db);
+    for (const caller of [f.home, f.ship].filter(f.authorized))
+      expect(await retire(catalog, caller.id, `retire-ithaca-${caller.id}`), `DELETION_UNPROVEN_OWNERSHIP_REFUSES: ${name}`).toEqual(UNAVAILABLE);
+    expect(lifecycles(f.db), `DELETION_UNPROVEN_RETIRES_NOTHING: ${name}`).toEqual([]);
+    expect(evidence(f.db), `DELETION_UNPROVEN_REWRITES_NOTHING: ${name}`).toEqual(before);
+    // The refusal is that chat's: the account's other chat is still deleted.
+    expect(await retire(catalog, f.home.id, "retire-pylos", "pylos"), `DELETION_UNRELATED_CHAT_USABLE: ${name}`).toMatchObject({ status: "retired", lifecycleId: "pylos" });
+  } finally { await catalog.settled!(); await f.close(); }
 });
 
 test("another login of the account cannot write voice evidence into an epoch it did not open", async () => {
@@ -386,4 +510,80 @@ test("live start: another owner login opens voice on the retained history; a for
     // Ownership metadata never enters the provider-facing history.
     expect(JSON.stringify(live.sessions[1]!.options), "DIALOGUE_NO_OWNERSHIP_METADATA_TO_PROVIDER").not.toMatch(/principal|owner_account|"owner"/);
   } finally { await host.close(); await catalog.settled!(); await f.close(); }
+});
+
+for (const third of ["the account's", "an agent's", "an ambient principal's"] as const) test(`a provisional chat both logins typed into, with ${third} turn beside them`, async () => {
+  const f = await fixture(); const catalog = catalogOf(f); try {
+    // Typed turns before any backend session exists: the history owner is the first turn's binding.
+    const first = crypto.randomUUID();
+    const turn = async (turnId: string, bindingId: string, principalId: string) => {
+      await f.writes.safetyBegin({ turnId, bindingId, sessionId: null, principalId, historyOwnerId: first, backendId: "claude", at: 0 });
+      await f.writes.safetyEnd(turnId);
+    };
+    await turn("voyage", first, f.ship.id);
+    await turn("return", crypto.randomUUID(), f.home.id);
+    const extra = third === "the account's" ? null : third === "an agent's" ? f.agent.id : f.penelope.id;
+    if (extra) await turn("stowaway", crypto.randomUUID(), extra);
+    const chat = resolveChat(f.db, { ownerId: first });
+    expect("refused" in chat ? chat : chat.owners.length, "PROVISIONAL_RECORDS_EACH_LOGIN").toBe(extra ? 3 : 2);
+    const result = await retireProvisional(catalog, f.home.id, "retire-provisional", first);
+    if (extra) {
+      expect(result, `PROVISIONAL_MIXED_ACCOUNT_REFUSES: ${third}`).toEqual(UNAVAILABLE);
+      expect(await retireProvisional(catalog, f.ship.id, "retire-provisional-ship", first)).toEqual(UNAVAILABLE);
+      expect(lifecycles(f.db)).toEqual([]);
+    } else {
+      expect(result, "PROVISIONAL_SHARED_BY_THE_ACCOUNT_RETIRES").toMatchObject({ status: "retired", lifecycleId: first, generation: 2, backendId: null });
+      expect(lifecycles(f.db)).toEqual([{ id: first, principal_id: f.home.id, operation_id: "retire-provisional" }]);
+    }
+  } finally { await catalog.settled!(); await f.close(); }
+});
+
+test("the write worker's typed-creation binding keeps its account, so the chat outlives its creator's login", async () => {
+  const f = await fixture(); const catalog = catalogOf(f); try {
+    // The ship's typed request creates the session; home continues it by voice.
+    catalog.persistSessionStub("pylos", "Ask Nestor for news", null, "claude", f.ship.id);
+    catalog.persistSessionStub("mentor", "Carry the message", null, "claude", f.agent.id);
+    await catalog.dialogueOpen!({ conversationId: "pylos-voice", principalId: f.home.id, epoch: 1, providerId: "fake-live", sessionId: "pylos" });
+    await catalog.saveConversationEpoch!({ id: "pylos-voice", principalId: f.home.id, epoch: 1, sessionId: "pylos" });
+    await catalog.settled!();
+    expect(f.db.query("SELECT session_id,principal_id,principal_account FROM chat_session_owners ORDER BY session_id").all(), "CREATION_BINDING_STORES_ITS_ACCOUNT").toEqual([
+      { session_id: "mentor", principal_id: f.agent.id, principal_account: null }, { session_id: "pylos", principal_id: f.ship.id, principal_account: "owner" }]);
+    f.prune("revoked");
+    expect(await retire(catalog, f.home.id, "retire-pylos", "pylos"), "CREATION_BINDING_OUTLIVES_PRUNING").toMatchObject({ status: "retired", lifecycleId: "pylos" });
+    // An agent's typed chat is the agent's alone: no owner login deletes it.
+    expect(await retire(catalog, f.home.id, "retire-mentor", "mentor"), "AGENT_CREATION_BINDING_STAYS_THE_AGENTS").toEqual(UNAVAILABLE);
+  } finally { await catalog.settled!(); await f.close(); }
+});
+
+test("upgrading gives legacy epochs and creation bindings an account only where a principal row still proves it", async () => {
+  const f = await fixture(); const catalog = catalogOf(f);
+  let db = f.db, writer = f.writer;
+  try {
+    await sharedChat(f, catalog);
+    await unrelatedChat(f, catalog);
+    f.db.query("INSERT INTO conversation_epochs(id,principal_id,epoch,session_id,updated_at) VALUES('mentor-voice',?,1,'mentor',0)").run(f.agent.id);
+    await catalog.settled!();
+    // The tables as they stood before 091, with the ship's login pruned before the upgrade.
+    f.db.exec(`ALTER TABLE conversation_epochs DROP COLUMN principal_account; ALTER TABLE chat_session_owners DROP COLUMN principal_account;
+      DELETE FROM _migrations WHERE filename='091_chat_ownership_account.sql'`);
+    f.prune("revoked");
+    await f.writer.close(); f.db.close();
+    db = createUiDb(join(f.root, "ui.db")); writer = openSqliteWriter(db);
+    expect(db.query("SELECT id,principal_id,principal_account FROM conversation_epochs ORDER BY id").all(), "UPGRADE_EPOCH_ACCOUNTS").toEqual([
+      { id: "argos-voice", principal_id: f.ship.id, principal_account: null },
+      { id: "ithaca-voice", principal_id: f.home.id, principal_account: "owner" },
+      { id: "mentor-voice", principal_id: f.agent.id, principal_account: null },
+      { id: "pylos-voice", principal_id: f.home.id, principal_account: "owner" },
+    ]);
+    expect(db.query("SELECT session_id,principal_id,principal_account FROM chat_session_owners ORDER BY session_id").all(), "UPGRADE_CREATION_ACCOUNTS").toEqual([
+      { session_id: "ithaca", principal_id: f.ship.id, principal_account: null },
+      { session_id: "pylos", principal_id: f.home.id, principal_account: "owner" },
+    ]);
+    // The lost proof stays unknown: the shared chat refuses, the home login's own chat does not.
+    const upgraded = createSessionCatalog(() => db, undefined, undefined, { writer, pricing: { resolve: () => null }, store: createOffloopActivityStore(db, writer) });
+    try {
+      expect(await retire(upgraded, f.home.id, "retire-ithaca"), "UPGRADE_UNPROVEN_LEGACY_REFUSES").toEqual(UNAVAILABLE);
+      expect(await retire(upgraded, f.home.id, "retire-pylos", "pylos"), "UPGRADE_PROVEN_LEGACY_DELETES").toMatchObject({ status: "retired", lifecycleId: "pylos" });
+    } finally { await upgraded.settled!(); }
+  } finally { await writer.close(); db.close(); rmSync(f.root, { recursive: true, force: true }); }
 });

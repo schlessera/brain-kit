@@ -41,7 +41,7 @@ export async function safetyHistoryFixture(bound=true,review=false,mode:AuthMode
   const bindingId=crypto.randomUUID();
   await writes.safetyBegin({turnId:"voyage",bindingId,sessionId:null,principalId:principal.id,backendId:"claude",at:0});await writes.safetyReady("voyage","claude",1);
   const bind=async()=>{db.query("INSERT INTO sessions(id,created_at,last_active_at,backend_id) VALUES('ithaca',0,0,'claude')").run();
-    db.query("INSERT INTO chat_session_owners VALUES('ithaca',?,0)").run(principal.id);safetyCatalogCreated(db,"ithaca",principal.id,"voyage");await writes.bind("voyage","ithaca");};
+    db.query("INSERT INTO chat_session_owners(session_id,principal_id,created_at) VALUES('ithaca',?,0)").run(principal.id);safetyCatalogCreated(db,"ithaca",principal.id,"voyage");await writes.bind("voyage","ithaca");};
   if(bound)await bind();
   const secret="odysseus-safety-history-loopback-secret";
   const auth={host:"127.0.0.1",mode,passwordHash:"unused",cookieSecret:secret,trustProxy:mode==="proxy"||mode==="tailscale",trustProxyHops:1,proxyAuthHeader:"x-user"} as AuthRuntime;

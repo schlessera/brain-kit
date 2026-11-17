@@ -32,7 +32,7 @@ async function chat(f: F, turnId: string, sessionId: string) {
   const bindingId = crypto.randomUUID();
   await f.writes.safetyBegin({ turnId, bindingId, sessionId: null, principalId: "odysseus", backendId: "pi", at: 0 });
   f.db.query("INSERT INTO sessions(id,created_at,last_active_at) VALUES(?,0,0)").run(sessionId);
-  f.db.query("INSERT INTO chat_session_owners VALUES(?,'odysseus',0)").run(sessionId);
+  f.db.query("INSERT INTO chat_session_owners(session_id,principal_id,created_at) VALUES(?,'odysseus',0)").run(sessionId);
   safetyCatalogCreated(f.db, sessionId, "odysseus", turnId); await f.writes.bind(turnId, sessionId);
   const controller = new AbortController();
   const collector = createSafetyCollector(f.db, f.writes, { turnId, bindingId, sessionId: () => sessionId, backendId: "pi",
@@ -477,7 +477,7 @@ test("room for turns not yet in a chat is spent for good only when nothing can f
     expect(waiting, "SAFETY_UNBOUND_CEILING_REFUSES").toBeInstanceOf(SafetyRecordingUnavailable);
     expect(waiting, "SAFETY_UNBOUND_ROOM_A_RUNNING_TURN_FREES_IS_RETRYABLE").toMatchObject({ capacity: true, full: null });
     // That turn joins its chat; the same retry now starts, with no limit raised.
-    f.db.exec("INSERT INTO sessions(id,created_at,last_active_at) VALUES('ithaca',0,0); INSERT INTO chat_session_owners VALUES('ithaca','odysseus',0)");
+    f.db.exec("INSERT INTO sessions(id,created_at,last_active_at) VALUES('ithaca',0,0); INSERT INTO chat_session_owners(session_id,principal_id,created_at) VALUES('ithaca','odysseus',0)");
     safetyCatalogCreated(f.db, "ithaca", "odysseus", "landfall"); await f.writes.bind("landfall", "ithaca");
     expect(await begin("waiting"), "SAFETY_UNBOUND_RETRY_STARTS_ONCE_ROOM_FREES").toBeNull();
     // Once only ended unbound collections remain, retrying can never help.
@@ -501,7 +501,7 @@ test("unbound byte room a running first turn holds is retryable; ballast that en
     const begin = (turnId: string) => f.writes.safetyBegin({ turnId, bindingId: crypto.randomUUID(), sessionId: null, principalId: "odysseus", backendId: "pi", at: 1 })
       .then(() => null, error => error as SafetyRecordingUnavailable);
     expect(await begin("waiting"), "SAFETY_UNBOUND_BYTES_A_RUNNING_TURN_HOLDS_ARE_RETRYABLE").toMatchObject({ capacity: true, full: null });
-    f.db.exec("INSERT INTO sessions(id,created_at,last_active_at) VALUES('ithaca',0,0); INSERT INTO chat_session_owners VALUES('ithaca','odysseus',0)");
+    f.db.exec("INSERT INTO sessions(id,created_at,last_active_at) VALUES('ithaca',0,0); INSERT INTO chat_session_owners(session_id,principal_id,created_at) VALUES('ithaca','odysseus',0)");
     safetyCatalogCreated(f.db, "ithaca", "odysseus", "landfall"); await f.writes.bind("landfall", "ithaca");
     expect(await begin("waiting"), "SAFETY_UNBOUND_BYTE_RETRY_STARTS_ONCE_ROOM_FREES").toBeNull();
     // Ended ballast alone leaves no room: retrying can never help.
