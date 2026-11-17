@@ -332,9 +332,18 @@ bun scripts/test-determinism.ts --base origin/main --json   # the report on stdo
   numbers
   ([basis](../decisions/ci-utility.md#an-oversized-selection-is-split-by-reviewed-weight)).
   A local `--base` run repeats the whole selection in one invocation.
+- **Deadlines are scaled.** The burners slow every test, so the run multiplies
+  watchdogs by eight: Bun's per-test cap (240 seconds for the script's 30),
+  every explicit test and hook timeout, and in-test watchdogs written as
+  `watchdogMs(n)`. A wait bounded any other way is not scaled. The report and
+  the job summary name the factor; `--deadline-factor 1` turns it off for a
+  comparison ([watchdogs and product timings](#watchdogs-and-product-timings)).
 - **A failure** names the file, the repetition and the case. Repetitions of a
   file share one process, so state left on `globalThis`, in the environment or
-  on disk reaches the next run. Fix the test; do not raise its deadline.
+  on disk reaches the next run. Fix the test. If what tripped was a watchdog
+  the run could not scale, a polling loop's own deadline for example, raise it
+  or make it read `watchdogMs`: that is a too-tight watchdog, not a failed
+  proof.
 - **Where it runs.** The hosted `determinism` job, at every pull-request
   cadence including draft, and in draft heavy feedback. `draft gates` and
   `proof` require it when the change selects it. `check:pr` never runs it: it
@@ -400,6 +409,59 @@ packages' built output.
   applies. A local run waits for
   [host admission](#host-admission-for-heavy-local-commands) like any browser
   run.
+
+## Watchdogs and product timings
+
+A test carries two kinds of time limit, and they are handled in opposite ways
+([the 2026-11-17 ruling](../decisions/ci-utility.md#test-watchdogs-are-a-worst-case-catch-all)).
+
+- **A watchdog** stops a hang and cleans up: Bun's per-test cap, the timeout a
+  test names as its third argument, a timer that stops a test's child
+  processes, the upper bound of a polling loop. A passing test never reaches
+  it, so it proves nothing and may be raised freely.
+- **A product timing** is a time the product promises: the composer
+  microphone's 0.6-second hold, a one-second guard, a five-second readiness
+  limit. It is proof, and it is asserted on measured or controlled time
+  ([the clock rules](test-waits.md)), never through a test timeout.
+
+To decide which one a number is, ask what a user would notice if it doubled.
+For a watchdog, nothing. For a product timing, a different product.
+
+**Sizing a watchdog.** Put it well above the test's normal duration, so that
+only a real hang trips it. About ten times is a reasonable start, and the
+30-second cap `bun run test` supplies is enough for almost every test. A
+watchdog a few seconds above the work is a flake waiting for a loaded host.
+An in-test watchdog reads the helper, so a run under deliberate load scales
+it with everything else:
+
+```ts
+import { watchdogMs } from "../scripts/test-deadlines";
+const watchdog = setTimeout(stopChildren, watchdogMs(27_000));
+```
+
+`watchdogMs` multiplies by `BRAIN_TEST_DEADLINE_FACTOR`, which
+`scripts/test-determinism.ts` sets to the gate's factor of eight
+(`DETERMINISM_PARTITIONS.deadlineFactor`, `scripts/proof-shards.ts`) for the
+tests it repeats. Everywhere else the variable is unset and the duration is
+the one written. A malformed value fails the test instead of being read as
+one. Never pass a product timing through the helper.
+
+**When a watchdog trips.** First find out whether the test hung or was only
+slow: the failure names the case and its duration.
+
+- *It hung.* That is what the watchdog is for. Fix the hang.
+- *It was slow, on a loaded run.* Raise the watchdog, or make it read
+  `watchdogMs`. This is not a failed proof and needs no proof-system lane:
+  `bun scripts/proof-system.ts classify` does not flag a timeout or deadline
+  that is only raised. Do not shrink the work to fit the number, and do not
+  rerun.
+- *It is slow everywhere.* The watchdog is fine and the test is too expensive
+  for its tier ([cost rules](test-authoring.md#cost)).
+
+Lowering or removing a timeout, adding one to an existing test, and a change
+whose direction the check cannot read are still proof-system changes. So is
+loosening a product timing, whatever the classifier says: it changes what
+the product promises, and review decides it.
 
 ## Tests that cannot fail
 
@@ -577,8 +639,9 @@ Local long suites are for debugging a specific failure only (#2939); they run
 through a host-wide admission ledger, `scripts/host-admission.mjs` (#2943).
 Separate worktrees on one machine share its slots, so a heavy command that
 would exceed the limit waits, printing the holders and its queue position,
-instead of starting and timing out. Test deadlines are never raised to absorb
-contention.
+instead of starting and timing out. Admission, not a longer deadline, is how
+local contention is absorbed; a watchdog that still trips on a slow run is
+[raised](#watchdogs-and-product-timings).
 
 Heavy commands are the integrated default `bun run test` suite, runtime-host
 and native test selections, any selected file whose measured cost in
