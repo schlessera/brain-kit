@@ -177,7 +177,11 @@ describe.skipIf(!executablePath)("mounted on-demand attachment read", () => {
       expect(turn!.reply, "CONTENT_DEPENDENT_REPLY").toBe(`The permit says: “${PERMIT_FACT}”`);
       expect(turn!.reads.map((r) => r.isError)).toEqual([false]);
       expect(JSON.parse(turn!.reads[0]!.text.split("\n", 1)[0]!)).toMatchObject({ id: fileId, kind: "pdf", outcome: "read", scope: { pages: [2, 2], pageCount: 3 } });
-      expect(await page.evaluate(() => (window as unknown as { __drafts: { lastAssistant(): string | null } }).__drafts.lastAssistant())).toBe(turn!.reply);
+      // The server's turn settles before its last frames reach the page, and the wait
+      // above is already satisfied by the reply's empty placeholder. Wait for the
+      // store to hold the text, then assert it, so a missing reply shows as a diff (#4125).
+      await until(`f.lastAssistant() === ${JSON.stringify(turn!.reply)}`).catch(() => {});
+      expect(await page.evaluate(() => (window as unknown as { __drafts: { lastAssistant(): string | null } }).__drafts.lastAssistant()), "REPLY_REACHED_THE_STORE").toBe(turn!.reply);
       // The reply is painted in the transcript, not only held in the store.
       await page.getByText(turn!.reply, { exact: true }).waitFor();
       // Provider history: the read was appended at the tail; the first message is unchanged.
