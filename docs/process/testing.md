@@ -66,9 +66,15 @@ children finish, the launcher compares the invoking home's sentinel tree with
 its original path membership and metadata, including nanosecond change times.
 This detects retained creations and same-size overwrites without patching
 filesystem functions or observing unrelated sessions' storage activity.
-The preload restores both environment descriptors and removes its storage
-after all test files finish. Turns must await owned observation saves before
-settling so teardown cannot race storage writes.
+The launcher owns the working-home tree, shared CLI utilities and private
+admission ledger until the test process group drains, including all
+`--rerun-each` repetitions, failure and handled cancellation. Bun repeats the
+preload's `afterAll` on the last file, so that hook only asserts the network
+guard for launched tests. Nested `installTestHome` fixtures still restore both
+environment descriptors when explicitly disposed. Raw `bun test` retains its
+preload cleanup fallback; use `bun run test` for repeated or cancellable runs.
+Turns must await owned observation saves before settling so teardown cannot
+race storage writes.
 
 ### Deliberate offline commands on Linux
 
@@ -681,7 +687,8 @@ pair with reason `other` through `scripts/ci-timings.ts record`
 | Variable | Meaning |
 | --- | --- |
 | `BRAIN_HOST_ADMISSION_LIMIT` | Concurrent heavy commands admitted on this host. Defaults to one per four CPUs, at least 1; anything but a positive integer is refused. |
-| `BRAIN_HOST_ADMISSION_DIR` | Ledger directory. Defaults to `brain-host-admission-<uid>` under the system temporary directory. The test preload gives each test process a private ledger, which its descendants also find through their ancestry; a test exercising the host ledger names its own. |
+| `BRAIN_TEST_RESOURCE_ROOT` | Internal, one-generation launcher/preload handoff for process-lifetime test storage. The preload consumes and removes it before tests run; the launcher deletes the tree after the child group drains. |
+| `BRAIN_HOST_ADMISSION_DIR` | Ledger directory. Defaults to `brain-host-admission-<uid>` under the system temporary directory. The test launcher (or standalone preload) gives each invocation a private ledger, which its descendants also find through their ancestry; a test exercising the host ledger names its own. |
 | `BRAIN_WORKER_ID`, `BRAIN_ORCHESTRATOR_ID` | Opaque worker and orchestrator IDs recorded with each slot. Without them a worker is `host-<pid>` and has no orchestrator; it still gets the admission limit. |
 | `BRAIN_RED_MAIN_FIX` | The PR number of a declared red-main fix. Its commands are admitted ahead of every queued ordinary command; they do not preempt running ones. Equivalent to `run --red-main-fix <pr>`. |
 | `BRAIN_HOST_ADMISSION` | Internal: the slot an admitted command's descendants inherit. Never set it by hand. |

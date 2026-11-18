@@ -21,9 +21,9 @@ export function claudeHomeSnapshot(home: string): string {
   return JSON.stringify(entries);
 }
 
-export function installTestHome() {
+export function installTestHome(parent = tmpdir()) {
   const descriptors = new Map(["HOME", "CLAUDE_CONFIG_DIR"].map(name => [name, Object.getOwnPropertyDescriptor(process.env, name)]));
-  const root = mkdtempSync(join(tmpdir(), "brain-test-home-"));
+  const root = mkdtempSync(join(parent, "brain-test-home-"));
   const home = join(root, "home");
   mkdirSync(home);
   process.env.HOME = home;
@@ -49,10 +49,12 @@ export function createInvokingTestHome() {
   const root = mkdtempSync(join(tmpdir(), "brain-test-invoking-home-"));
   const home = join(root, "home"), config = join(home, ".claude");
   mkdirSync(config, { recursive: true });
+  const resources = join(root, "resources");
+  mkdirSync(resources);
   writeFileSync(join(config, "sentinel"), "Odysseus: invoking storage stays untouched.\n");
   const baseline = claudeHomeSnapshot(home);
   return {
-    root, home, config,
+    root, home, config, resources,
     assertUnchanged() {
       if (claudeHomeSnapshot(home) !== baseline)
         throw new Error("TEST_WROTE_INVOKING_CLAUDE_HOME: a test changed the invoking Claude storage");

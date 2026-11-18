@@ -18,13 +18,13 @@
 
 import { constants } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
-import { realpathSync } from "node:fs";
+import { mkdirSync, realpathSync, rmSync } from "node:fs";
 import { invocationChild } from "./test-invocation-child";
 import { createInvokingTestHome } from "./test-home";
 import { runtimeBuildSelection } from "./runtime-test-builds";
 import { acceptsSpeechDelegation, clearInvocation, prepareCopiedInvocation, prepareInvocation, takePreparedTree } from "./test-invocation";
-import { ensureWorkspaceLease, workspaceTestAccess } from "./workspace-lease.mjs";
-import { ensureHostAdmission } from "./host-admission.mjs";
+import { ensureWorkspaceLease, processIdentity, workspaceTestAccess } from "./workspace-lease.mjs";
+import { ensureHostAdmission, testLedgerFor } from "./host-admission.mjs";
 import { FILE_COST_SECONDS } from "./test-shards";
 
 /** What runs when the caller names no path. */
@@ -221,6 +221,7 @@ if (import.meta.main) {
   signals.forEach((signal, index) => process.on(signal, listeners[index]!));
   let dispose = () => {};
   let invokingHome: ReturnType<typeof createInvokingTestHome> | undefined;
+  let privateAdmission: string | undefined;
   let result = 1;
   try {
     const paths = testPaths(argv);
@@ -239,7 +240,9 @@ if (import.meta.main) {
       const beforeTests = performance.now();
       console.error(JSON.stringify({ kind: "test-invocation", event: "tests-start", pid: process.pid, at: Date.now() }));
       invokingHome = createInvokingTestHome();
-      const tests = invocationChild([process.execPath, "test", "--preload", join(import.meta.dir, "test-network-preload.ts"), ...argv], { stdin: "inherit", env: { ...process.env, HOME: invokingHome.home, CLAUDE_CONFIG_DIR: invokingHome.config } });
+      privateAdmission = testLedgerFor(process.pid, processIdentity(process.pid)?.start ?? "0");
+      mkdirSync(privateAdmission, { mode: 0o700 });
+      const tests = invocationChild([process.execPath, "test", "--preload", join(import.meta.dir, "test-network-preload.ts"), ...argv], { stdin: "inherit", env: { ...process.env, HOME: invokingHome.home, CLAUDE_CONFIG_DIR: invokingHome.config, BRAIN_TEST_RESOURCE_ROOT: invokingHome.resources, BRAIN_HOST_ADMISSION_DIR: privateAdmission } });
       started(tests);
       await tests.ready;
       const relay = async (stream: ReadableStream<Uint8Array>, channel: "stdout" | "stderr") => { for await (const chunk of stream) process[channel].write(chunk); };
@@ -256,7 +259,10 @@ if (import.meta.main) {
   finally {
     const stopped = await Promise.allSettled(stopping);
     if (stopped.some(item => item.status === "rejected")) { console.error("Invocation child cleanup failed", stopped); result = result || 1; }
-    try { dispose(); } finally { invokingHome?.dispose(); }
+    try { dispose(); } finally {
+      try { if (privateAdmission) rmSync(privateAdmission, { recursive: true, force: true }); }
+      finally { invokingHome?.dispose(); }
+    }
     signals.forEach((signal, index) => process.off(signal, listeners[index]!));
   }
   process.exit(cancelled ? 128 + (constants.signals[cancelled] ?? 0) : result);

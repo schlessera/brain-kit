@@ -74,3 +74,66 @@ test("home isolation leaves filesystem originals and descriptors available to fi
     for (const path of created) rmSync(path, { recursive: true, force: true });
   }
 });
+
+for (const outcome of ["success", "failure", "cancel"] as const) test(`the launcher retains repeated-file resources until ${outcome}`, async () => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-home-repetition-"));
+  let child: ReturnType<typeof Bun.spawn> | undefined;
+  try {
+    const report = join(root, "report.jsonl");
+    const harness = join(import.meta.dir, "../packages/core/tests/cli-harness.ts");
+    for (const name of ["first", "last"]) {
+      writeFileSync(join(root, `${name}.test.ts`), `
+import { expect, test } from "bun:test";
+import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { keylessEnv } from ${JSON.stringify(harness)};
+const state = globalThis as typeof globalThis & { odysseusHome?: string; odysseusUtility?: string };
+state.odysseusHome ??= process.env.HOME;
+state.odysseusUtility ??= keylessEnv("/odysseus").HOME;
+test("every repetition retains owned storage", async () => {
+  expect(process.env.HOME, "TEST_HOME_SURVIVES_REPETITION").toBe(state.odysseusHome);
+  expect(existsSync(process.env.HOME!)).toBe(true);
+  expect(existsSync(state.odysseusUtility!), "CLI_UTILITY_SURVIVES_REPETITION").toBe(true);
+  expect(existsSync(process.env.BRAIN_HOST_ADMISSION_DIR!), "ADMISSION_SURVIVES_REPETITION").toBe(true);
+  mkdirSync(process.env.CLAUDE_CONFIG_DIR!, { recursive: true });
+  writeFileSync(join(process.env.CLAUDE_CONFIG_DIR!, "prompt-context"), "Ithaca");
+  appendFileSync(${JSON.stringify(report)}, JSON.stringify({ home: process.env.HOME, utility: state.odysseusUtility, admission: process.env.BRAIN_HOST_ADMISSION_DIR, bin: keylessEnv("/odysseus").XDG_BIN_HOME, path: keylessEnv("/odysseus").PATH }) + "\\n");
+  if (${JSON.stringify(outcome)} === "failure") throw new Error("ODYSSEUS_EXPECTED_FAILURE");
+  if (${JSON.stringify(outcome)} === "cancel") await Bun.sleep(60_000);
+});`);
+    }
+    child = Bun.spawn([process.execPath, join(import.meta.dir, "../scripts/test.ts"), "--rerun-each=4", "--bail=1", join(root, "first.test.ts"), join(root, "last.test.ts")], {
+      stdout: "pipe", stderr: "pipe",
+    });
+    const output = Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    if (outcome === "cancel") {
+      const deadline = Date.now() + 10_000;
+      while (!existsSync(report) && Date.now() < deadline && child.exitCode === null) await Bun.sleep(10);
+      expect(existsSync(report), "CANCELLATION_REACHED_TEST_BODY").toBe(true);
+      child.kill("SIGTERM");
+    }
+    const [stdout, stderr, code] = await output;
+    if (outcome === "success") expect(code, stdout + stderr).toBe(0);
+    else expect(code, stdout + stderr).not.toBe(0);
+    if (outcome === "failure") expect(stderr).toContain("ODYSSEUS_EXPECTED_FAILURE");
+    const records = readFileSync(report, "utf8").trim().split("\n").map(line => JSON.parse(line));
+    expect(records).toHaveLength(outcome === "success" ? 8 : 1);
+    expect(new Set(records.map(record => record.home)).size).toBe(1);
+    for (const record of records) for (const path of Object.values(record)) expect(existsSync(path as string)).toBe(false);
+  } finally {
+    if (child?.exitCode === null) { child.kill("SIGTERM"); await child.exited; }
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("nested home disposal restores the live outer home's descriptors", () => {
+  const outer = installTestHome();
+  try {
+    const before = ["HOME", "CLAUDE_CONFIG_DIR"].map(name => Object.getOwnPropertyDescriptor(process.env, name));
+    const inner = installTestHome(outer.root);
+    inner.dispose();
+    expect(existsSync(inner.root)).toBe(false);
+    expect(existsSync(outer.root)).toBe(true);
+    expect(["HOME", "CLAUDE_CONFIG_DIR"].map(name => Object.getOwnPropertyDescriptor(process.env, name))).toEqual(before);
+  } finally { outer.dispose(); }
+});
