@@ -35,7 +35,8 @@ test("before highlighting and after a real lazy-module failure, streamed fences 
     flushSync(() => renderer!.render(<BrainUiProvider root={root!}><BrainMarkdown content={'```bash\n'+complete+'\n```'}/></BrainUiProvider>));
     expect(host.querySelector('[data-kit-code-block]'),"streaming preserves the component").toBe(card);
     expect(host.querySelectorAll('[class*="hljs-"]')).toHaveLength(0);
-    const pre=card.querySelector('pre')!; expect(pre.textContent?.trimEnd()).toBe(complete); expect(pre.scrollWidth).toBeLessThanOrEqual(pre.clientWidth+1);
+    // The growing last block's re-parse is deferred behind input (#2588): it lands on the next render.
+    const pre=card.querySelector('pre')!; await expect.poll(() => card.querySelector('pre')!.textContent?.trimEnd()).toBe(complete); expect(card.querySelector('pre')).toBe(pre); expect(pre.scrollWidth).toBeLessThanOrEqual(pre.clientWidth+1);
     await userEvent.click(card.querySelector('button')!); expect(writes.at(-1)).toBe(complete);
   }
 });

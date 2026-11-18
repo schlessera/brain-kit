@@ -1,7 +1,8 @@
 import { MarkdownRangeContext, rehypeMarkdownRange } from "./markdown-range.js";
 import { useBrainUiRoot } from "../../root-context.js";
-import React, { memo, useContext, useEffect, useMemo } from "react";
+import React, { memo, useContext, useDeferredValue, useEffect, useMemo, useRef } from "react";
 import Markdown from "react-markdown";
+import { splitMarkdownBlocks, tailText } from "./markdown-blocks.js";
 
 import {
   classifyRepoPath,
@@ -175,15 +176,64 @@ const BrainMarkdownInner = memo(function BrainMarkdownInner({ content, className
     };
   }, [entityTags, fileLinks, root]);
 
+  // A projected range maps offsets into the whole text, so it parses whole.
+  // Otherwise each top-level block parses on its own (#2588): a streaming
+  // answer grows only at its end, so its finished blocks keep their text and
+  // `MarkdownBlock`'s memo skips them, and only the last one re-parses.
+  const blocks = useMemo(() => range ? [processed] : splitMarkdownBlocks(processed), [processed, range]);
   return (
     <div className={className ?? "brain-prose"}>
-      <MarkdownRangeContext.Provider value={null}><Markdown
-        remarkPlugins={REMARK_PLUGINS}
-        rehypePlugins={projectedPlugins}
-        components={components}
-      >
-        {processed}
-      </Markdown></MarkdownRangeContext.Provider>
+      <MarkdownRangeContext.Provider value={null}>
+        {blocks.map((text, i) => (
+          <StreamedBlock key={i} text={text} last={i === blocks.length - 1} rehypePlugins={projectedPlugins} components={components} />
+        ))}
+      </MarkdownRangeContext.Provider>
     </div>
   );
 });
+
+type BlockProps = { text: string; rehypePlugins: React.ComponentProps<typeof Markdown>["rehypePlugins"]; components: React.ComponentProps<typeof Markdown>["components"] };
+
+/**
+ * One top-level block's parse. Memoized on its text and the (memoized)
+ * plugins and components, so a finished block is not re-parsed while the
+ * answer streams on, and its elements (a rendered Mermaid diagram) keep
+ * their state: its key is its index, which a growing text never changes.
+ */
+const MarkdownBlock = memo(function MarkdownBlock({ text, rehypePlugins, components }: BlockProps) {
+  return <Markdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={rehypePlugins} components={components}>{text}</Markdown>;
+});
+
+/**
+ * A block in its place. Every block is this one component type, so the last
+ * block becoming an earlier one (a new block starts below it) changes no
+ * element type and remounts nothing. Only the last block's text is deferred,
+ * so input and scrolling outrank re-parsing the growing tail.
+ */
+function StreamedBlock({ text, last, ...rest }: BlockProps & { last: boolean }) {
+  // Deferred only while it grows as the last block: the deferred text must
+  // be what this text extends. A block that has just become the last one (a
+  // definition arrived and the text now parses whole) has none of its own,
+  // and replaced content (another file, a new briefing) does not extend it,
+  // so both show their current text at once instead of a stale one.
+  // A deferred tail that has lagged too long renders its current text
+  // urgently (`tailText`), so a slow parse under fast deltas still updates.
+  const deferred = useDeferredValue(last ? text : null);
+  // When a commit first showed this tail behind its text: written in an
+  // effect, so only committed renders count, never one React discards; a
+  // commit that shows it caught up clears it.
+  const behindSince = useRef<number | null>(null);
+  // The text the last commit showed: the tail never steps back behind it.
+  const committed = useRef<string | null>(null);
+  const shown = last ? tailText(text, deferred, committed.current, behindSince.current, performance.now()) : text;
+  useEffect(() => {
+    committed.current = shown;
+    if (shown === text) behindSince.current = null;
+    else behindSince.current ??= performance.now();
+  });
+  return <>
+    <MarkdownBlock text={shown} {...rest} />
+    {/* react-markdown separates top-level blocks with a newline; keep it between ours. */}
+    {last ? null : "\n"}
+  </>;
+}
