@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { Readable } from "node:stream";
 import type { NativePoolRecord } from "@schlessera/brain-ui-sdk/internal";
 import { createUiDb } from "../src/db/client";
 import { createPrincipal } from "../src/db/principals";
@@ -22,6 +23,7 @@ import { holdSafetyRecovery } from "./helpers/hold-safety-recovery";
 import { createPiWorkerRpcDispatcher, type PiWorkerRpcContext, type PiWorkerRpc } from "../../ui-backend-pi/src/worker-rpc";
 import { createPermissionWiring } from "../../ui-backend-claude/src/permission-hooks";
 import { safetyResultInput } from "../../ui-backend-pi/src/worker-protocol";
+import { readPiWorkerProtocol, type PiWorkerReader } from "../../ui-backend-pi/src/worker-reader";
 import { installPiToolSafety } from "../../ui-backend-pi/src/tool-safety";
 import { Agent, runToolCall, type AgentTool, type AfterToolCallResult } from "@earendil-works/pi-agent-core";
 import { Type } from "typebox";
@@ -272,6 +274,47 @@ test("a lost Pi report before read preparation cannot become observed later", as
     .toEqual({ delivery: "unknown" });
   expect(deliveries, "EARLY_LOSS_NEVER_PUBLISHES_A_TRANSIENT_OBSERVED_READ").not.toContain("observed");
 });
+
+for (const malformed of ["extra-field", "rpc-id", "input-shape", "missing-input", "changed-tool", "missing-tool", "invalid-tool",
+  "missing-type", "invalid-type", "completed-turn"]) {
+  test(`the Pi reader invalidates an identifiable ${malformed} read report before refusing it`, async () => {
+    const f = await collectedFixture("pi"), { collector, tool } = f, dispatch = piSafetyDispatcher(collector);
+    const input = { repository, revision: "main", path: "README.md" };
+    let original = "";
+    for (const id of ["read-1", "read-2"]) {
+      await collector.begin(id, tool, input);
+      const text = JSON.stringify(await f.call({ toolCallId: id }));
+      if (id === "read-1") original = text;
+      await collector.result(id, tool, text, true, [text]);
+    }
+    const raw: Record<string, unknown> = { type: "rpc", id: 3, method: "safetyResult", toolCallId: "read-1", toolName: tool,
+      input: { output: "Circe replaces the chart.", segments: ["Circe replaces the chart."] } };
+    if (malformed === "extra-field" || malformed === "changed-tool") raw.extra = true;
+    if (malformed === "rpc-id") raw.id = "3";
+    if (malformed === "input-shape") raw.input = [];
+    if (malformed === "missing-input") delete raw.input;
+    if (malformed === "changed-tool") raw.toolName = "bash";
+    if (malformed === "missing-tool") delete raw.toolName;
+    if (malformed === "invalid-tool") raw.toolName = 1;
+    if (malformed === "missing-type") delete raw.type;
+    if (malformed === "invalid-type") raw.type = "event";
+    let dispatched = 0;
+    const failed = await readPiWorkerProtocol({
+      child: { stdout: Readable.from([JSON.stringify(raw) + "\n"]) },
+      state: { active: true, ended: malformed === "completed-turn" }, turnContext: { bridge: { inputSafety: collector } },
+      dispatch: async (message: PiWorkerRpc) => { dispatched++; return dispatch(message); },
+    } as unknown as PiWorkerReader).then(() => null, error => error);
+    expect(failed).toBeInstanceOf(Error);
+    expect(dispatched, "PI_INVALID_OUTER_FRAME_NEVER_REACHES_DISPATCH").toBe(0);
+    const expected = [{ tool_call_id: "read-1", delivery: "unknown" }, { tool_call_id: "read-2", delivery: "observed" }];
+    expect(f.db.query("SELECT tool_call_id, delivery FROM reference_reads ORDER BY tool_call_id").all(), "PI_READER_REJECTION_INVALIDATES_ONLY_ITS_READ")
+      .toEqual(expected);
+    expect(f.stopped, "PI_READER_INVALIDATION_COMMITS_BEFORE_CONTAINMENT").toEqual([expected]);
+    // An identical late result cannot restore the call the reader made unknown.
+    await collector.result("read-1", tool, original, true, [original]);
+    expect(f.db.query("SELECT delivery FROM reference_reads WHERE tool_call_id = 'read-1'").get()).toEqual({ delivery: "unknown" });
+  });
+}
 
 for (const extra of ["none", "false-error", "image", "resource", "structured", "error"]) test(`the Claude result hook handles ${extra} immutable-read content honestly`, async () => {
   const f = await collectedFixture("claude"), { collector, tool } = f, controller = new AbortController();
