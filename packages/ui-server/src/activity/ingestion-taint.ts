@@ -104,6 +104,7 @@ export function inputTaintSource(tool: string, input: unknown, brainPath?: strin
   // A collected external compute job returns a remote machine's output (#3108).
   if (COMPUTE_OUTPUT_TOOLS.has(tool)) return "compute_output";
   if (ATTACHMENT_READ_TOOLS.has(tool)) return "chat_attachment";
+  if (tool === "reference_read" || tool === "mcp__brain-ui__reference_read") return "workspace_read";
   const server = /^mcp__(.+?)__/.exec(tool)?.[1];
   if (server !== undefined && !BRAIN_MCP_SERVERS.has(server)) return "mcp_document";
   // brain-kit's own document readers can still name a file in an untrusted area.
@@ -134,7 +135,7 @@ export interface IngestionSignal {
 export const INGESTION_DETECTOR_MANIFEST = {
   version: 1,
   web: WEB_TOOLS, webInputKeys: { WebFetch:["url"],WebSearch:["query"],fetch_content:["url","urls"],web_search:["query","queries"],get_search_content:["url"],source_check:["claim","queries"] }, files: FILE_TOOLS, search: [...SEARCH_TOOLS], attachments: [...ATTACHMENT_READ_TOOLS],
-  compute: [...COMPUTE_OUTPUT_TOOLS], hostRemotePages:["brain_apify_discover","brain_apify_inspect","brain_apify_results","brain_github_issue_read","brain_github_issue_search"], externalMcp: "mcp__<server>__<tool> except brain and brain-ui",
+  compute: [...COMPUTE_OUTPUT_TOOLS], referenceReads:["reference_read","mcp__brain-ui__reference_read"], hostRemotePages:["brain_apify_discover","brain_apify_inspect","brain_apify_results","brain_github_issue_read","brain_github_issue_search"], externalMcp: "mcp__<server>__<tool> except brain and brain-ui",
   shell: ["Bash", "bash"],
   exclusions: ["proxied_shell_local_read", "opaque_tunnel_inner_protocol", "uninstrumented_backend_input", "missing_historical_signals"],
 } as const;
@@ -154,6 +155,7 @@ function fileSignals(path: string, brainPath: string | undefined, marked: Marked
 export function inputTaintSignals(tool: string, input: unknown, brainPath?: string, marked?: MarkedLookup,
   shellProxied = false): IngestionSignal[] {
   const source = inputTaintSource(tool, input, brainPath, undefined, shellProxied);
+  if (tool === "reference_read" || tool === "mcp__brain-ui__reference_read") return [{ source: "workspace_read", detector: "tool_file_input", key: "managed_reference" }];
   const key = FILE_TOOLS[tool.replace(/^mcp__brain(?:-ui)?__/, "")];
   const path = key && input && typeof input === "object" ? (input as Record<string, unknown>)[key] : undefined;
   if (typeof path === "string") return fileSignals(path, brainPath, marked, "tool_file_input");

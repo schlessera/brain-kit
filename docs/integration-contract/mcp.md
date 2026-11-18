@@ -1297,6 +1297,38 @@ conversation. Cancellation selects nothing. This is agent orchestration, not a
 new admission mechanism: selecting an Actor neither approves a run nor creates
 a remembered approval.
 
+## Immutable reference read (additive, 0.45.0, #3613)
+
+`reference_read` (`mcp__brain-ui__reference_read` on Claude) is always registered
+alongside the existing reference tools. A host without immutable reading
+returns an executable refusal; capability or repository changes do not alter
+the roster during a conversation.
+
+Its strict input is `{repository, revision, path, offset?, maximum?}`. Repository
+is one canonical GitHub owner/repository or its HTTPS URL, revision is one
+short ordinary branch/tag, and path is a literal repository-relative regular
+file. The host refuses traversal, `.git`, symlinks, directories, submodule
+gitlinks and unsupported transports/refs. Offset defaults to zero (integer
+0–4194304); maximum defaults to 65536 (integer 1–65536). The full file must fit
+within 4 MiB; EOF returns an empty range and beyond EOF refuses.
+
+Success is `{ok:true, read:{repository, revision, commit, path, offset, length,
+totalBytes, encoding, content}, guidance}`. `encoding` is `utf8` only when the
+range round-trips without replacement bytes; otherwise `content` is exact
+base64. Each call freshly resolves the branch/tag and names its selected
+commit. A later call can select a newer commit. The existing bounded
+`{ok:false, code, message}` refusal envelope applies.
+
+The backend supplies its actual tool-call identity outside model input. The
+host refuses an unavailable/duplicate identity, checks the native acquisition
+and live authority across waits, and records range/digest evidence before
+returning content. A separately awaited final-result hook can observe the
+exact result; prepared, missing, altered, mixed or unfinished output is not
+proof of that observation. These host records never enter provider history.
+This tool remains workspace input, with no source-trust, private-access,
+recipient or Git execution exemption. Ordinary marked-file signals remain
+independent and unchanged.
+
 ## Reference source and managed worktree tools (additive, 0.44.0, #2432)
 
 Both first-party backends attach `reference_source` and `reference_worktree`

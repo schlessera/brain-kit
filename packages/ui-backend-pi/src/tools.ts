@@ -140,7 +140,7 @@ export const TOOL_RISK: Record<string, RiskClass> = {
   query_activity: "read",
   inbox_list: "read", inbox_get: "read", inbox_add: "mutate", resolve_action: "mutate", complete_share: "mutate",
   // Shared source is read-only; a worktree request, access, renewal or release changes host state (#2432).
-  reference_source: "read", reference_worktree: "mutate",
+  reference_source: "read", reference_worktree: "mutate", reference_read: "read",
   // External compute (#3108): a run starts paid remote work and a cancel
   // releases it; health, plan, status and collect change nothing the agent owns.
   brain_compute_health: "read", brain_compute_plan: "read", brain_compute_run: "mutate",

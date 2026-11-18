@@ -358,8 +358,8 @@ export function createPiBridgeTools(options: PiBridgeToolOptions): ToolDefinitio
   // The host binds principal, turn and generation; a refusal is a tool error.
   if (capabilities?.reference) for (const contract of REFERENCE_TOOL_CONTRACTS) tools.push({
     name: contract.name, label: contract.name, description: contract.description, parameters: toPiParameters(contract),
-    async execute(_id: string, input: unknown) {
-      const result = await handleReferenceTool(contract.name, input, turn.bridge ?? {});
+    async execute(id: string, input: unknown) {
+      const result = await handleReferenceTool(contract.name, input, turn.bridge ?? {}, id);
       if (result.isError) throw new Error(result.text);
       return textResult(result.text);
     },

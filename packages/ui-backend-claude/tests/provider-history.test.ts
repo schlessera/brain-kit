@@ -7,7 +7,7 @@ beforeAll(async () => { captures = await captureOffline(join(import.meta.dir, "f
 
 test("Claude captures three real resumed interactive turns and a tool result", () => {
   for (const [name, capture] of Object.entries(captures)) {
-    if (["reference", "renewal", "freshness", "compute"].includes(name)) continue;
+    if (["reference", "renewal", "freshness", "immutable", "compute"].includes(name)) continue;
     expect(capture.sessions).toHaveLength(3);
     expect(new Set(capture.sessions).size).toBe(1);
     expect(main(capture).map(e => e.turn)).toEqual([0, 0, 1, 2]);
@@ -171,4 +171,23 @@ test("Claude compute tools keep tools, system and history stable across enabled,
   const names = body(main(capture)[0]!).tools.map((tool: { name: string }) => tool.name);
   expect(names, "COMPUTE_CLAUDE_HOST_TOOLS_PRESENT").toEqual(expect.arrayContaining(["mcp__brain-ui__brain_compute_run", "mcp__brain-ui__brain_compute_collect"]));
   expect(names.some((name: string) => name.startsWith("mcp__brain__brain_compute_")), "COMPUTE_CLAUDE_WORKER_TOOLS_ABSENT").toBe(false);
+});
+
+// Actual installed runtime: the host receives the backend's model-call id,
+// while read content changes without rewriting tools, system or prior input.
+test("Claude immutable reference reads carry actual call identity and preserve provider history", () => {
+  const capture = captures.immutable!;
+  expect(main(capture).map(e => e.turn)).toEqual([0, 0, 1, 1, 2, 2]);
+  expect(capture.calls).toEqual([0, 1, 2].map(turn => expect.objectContaining({
+    tool: "reference_read", toolCallId: expect.stringContaining(`toolu_odysseus_${turn}`),
+    input: { repository: "https://github.com/odysseus/ithaca", revision: "main", path: "README.md", offset: 0, maximum: 64 },
+  })));
+  for (const [a, b] of pairs(capture)) {
+    identical(body(a).tools, body(b).tools, "IMMUTABLE_READ_TOOLS_STABLE");
+    identical(system(a), system(b), "IMMUTABLE_READ_SYSTEM_STABLE");
+    history(a, b);
+  }
+  const results = main(capture).filter((_, index) => index % 2 === 1);
+  for (const [index, name] of ["Odysseus", "Penelope", "Telemachus"].entries()) expect(results[index]!.raw).toContain(name);
+  for (const exchange of main(capture)) { expect(exchange.raw).not.toContain("responseDigest"); expect(exchange.raw).not.toContain("acquisitionId"); }
 });

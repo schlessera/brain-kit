@@ -10,6 +10,7 @@ import { defineToolContract } from "./contract.js";
 
 export const REFERENCE_SOURCE_TOOL_NAME = "reference_source";
 export const REFERENCE_WORKTREE_TOOL_NAME = "reference_worktree";
+export const REFERENCE_READ_TOOL_NAME = "reference_read";
 /** Worktrees one `list` result names; `truncated` says when there are more. */
 export const REFERENCE_WORKTREE_LIST_LIMIT = 20;
 
@@ -21,6 +22,27 @@ const worktreeId = z.string().trim().min(1).max(64).describe("Worktree identity 
 
 export const REFERENCE_SOURCE_INPUT_SCHEMA = z.strictObject({ repository, revision });
 export type ReferenceSourceInput = z.infer<typeof REFERENCE_SOURCE_INPUT_SCHEMA>;
+
+export const REFERENCE_READ_INPUT_SCHEMA = z.strictObject({
+  repository: repository.describe("Canonical GitHub owner/repository or its HTTPS URL. Other Git transports are unavailable for immutable reads."), revision,
+  path: z.string().min(1).max(4096).describe("Literal repository-relative path of a regular file. No traversal, symlink, directory or submodule."),
+  offset: z.number().int().min(0).max(4 * 1024 * 1024).default(0).describe("Starting byte offset, including EOF."),
+  maximum: z.number().int().min(1).max(65_536).default(65_536).describe("Maximum returned bytes. The whole file must fit within 4 MiB."),
+});
+export type ReferenceReadInput = z.infer<typeof REFERENCE_READ_INPUT_SCHEMA>;
+
+/** Content and pagination only. Acquisition, digests and delivery receipts stay on the host. */
+export interface ReferenceReadView {
+  repository: string;
+  revision: string;
+  commit: string;
+  path: string;
+  offset: number;
+  length: number;
+  totalBytes: number;
+  encoding: "utf8" | "base64";
+  content: string;
+}
 
 export const REFERENCE_WORKTREE_ACTIONS = ["request", "access", "renew", "release", "list"] as const;
 export type ReferenceWorktreeAction = (typeof REFERENCE_WORKTREE_ACTIONS)[number];
@@ -81,6 +103,7 @@ export type ReferenceToolRefusalCode = "unavailable" | "unauthorized" | "missing
 
 export type ReferenceToolResult =
   | { ok: true; source: ReferenceSourceView; guidance: string }
+  | { ok: true; read: ReferenceReadView; guidance: string }
   | { ok: true; action: Exclude<ReferenceWorktreeAction, "list">; worktree: ReferenceWorktreeView; guidance: string }
   | { ok: true; action: "list"; worktrees: ReferenceWorktreeView[]; truncated: boolean; guidance: string }
   | { ok: false; code: ReferenceToolRefusalCode; message: string };
@@ -88,7 +111,8 @@ export type ReferenceToolResult =
 /** What a backend hands the host: the tool and its parsed input, nothing else. */
 export type ReferenceToolCall =
   | { tool: typeof REFERENCE_SOURCE_TOOL_NAME; input: ReferenceSourceInput }
-  | { tool: typeof REFERENCE_WORKTREE_TOOL_NAME; input: ReferenceWorktreeInput };
+  | { tool: typeof REFERENCE_WORKTREE_TOOL_NAME; input: ReferenceWorktreeInput }
+  | { tool: typeof REFERENCE_READ_TOOL_NAME; input: ReferenceReadInput; toolCallId?: string };
 
 export const REFERENCE_SOURCE_CONTRACT = defineToolContract({
   name: REFERENCE_SOURCE_TOOL_NAME,
@@ -104,4 +128,11 @@ export const REFERENCE_WORKTREE_CONTRACT = defineToolContract({
   brief: name => `- **Edit reference source only in a managed worktree.** Use \`${name}\` to request, access, renew, release or list one; work only under the path it returns, and release it when you are done.`,
 });
 
-export const REFERENCE_TOOL_CONTRACTS = [REFERENCE_SOURCE_CONTRACT, REFERENCE_WORKTREE_CONTRACT] as const;
+export const REFERENCE_READ_CONTRACT = defineToolContract({
+  name: REFERENCE_READ_TOOL_NAME,
+  input: REFERENCE_READ_INPUT_SCHEMA,
+  description: "Read a bounded byte range of one regular file from a managed GitHub repository's branch or tag, under your live reference grants. The host resolves the current revision and reads immutable Git objects, not editable checkout files. The result identifies its commit and byte range; a later call may resolve a newer commit. UTF-8 ranges return text; other ranges return base64. Maximum file size is 4 MiB and maximum returned range is 64 KiB. This does not grant source trust or permission to run Git yourself. A refusal says why.",
+  brief: name => `- **Read immutable reference bytes.** Use \`${name}\` for one repository-relative regular file and a bounded byte range. Its returned commit identifies that read.`,
+});
+
+export const REFERENCE_TOOL_CONTRACTS = [REFERENCE_SOURCE_CONTRACT, REFERENCE_WORKTREE_CONTRACT, REFERENCE_READ_CONTRACT] as const;
