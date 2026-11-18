@@ -92,6 +92,17 @@ before the proxy exists, so expired GitHub source is withheld without network
 until an explicit turn request validates it. Other legacy repository transports
 remain unqualified for repository trust.
 
+The same internal access service provides owner-only repository metadata
+lookup without a Git revision, acquisition, agent turn or Git channel. It
+reuses the anonymous-first and live private-grant/API-recipient checks above;
+owner namespace lookup remains anonymous-only. Both operations snapshot the
+principal, target, cancellation and operation-authority callback before waits,
+recheck them after waits including shutdown, and return fresh fixed-endpoint
+identity data. They return no credential, relay capability, approved-owner
+boundary or source-trust flag. The Settings publisher still supplies its
+independent password-mode human authority and must revalidate identity before
+publishing. A lookup at review time is not permanent identity approval.
+
 Migration 089 records a retained source acquisition's host-issued identity,
 brain/principal/turn, stable repository and owner identities, resolved ref,
 commit/tree, sealed native root ID/UUID/creation generation, selected grant and
