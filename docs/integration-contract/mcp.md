@@ -1591,7 +1591,9 @@ A refused call sends GitHub nothing, returns no GitHub text and taints
 nothing. The writes are not routed (maintainer ruling on #4029): each write's
 gate is its per-use card, which shows exactly what is sent, and
 `outward.github.repositories`. A write in a conversation whose reads are
-refused still reaches its card unchanged.
+refused still reaches its card unchanged; only the comment card's
+display-only target lookup (#4154) is routed, and a refusal leaves the
+target's kind unknown.
 
 ### GitHub writes (additive, 0.45.0, #3798)
 
@@ -1619,6 +1621,21 @@ the last step:
    with an absent field neither shown nor sent. Its description says the
    write is sent once, in the user's name, and cannot be undone, and notes a
    session that has read untrusted input. The card is never remembered.
+   A comment card also carries display-only facts beside its input
+   ([the wire component](wire.md#approval-display-facts-additive-0450-4154),
+   #4154): `poster`, the account `GET /user` names for the same credential
+   the write would use, and `target`, whether `GET /repos/{repository}/issues/{number}`
+   is an issue or a pull request, accepted only when GitHub's answer names
+   that same repository and number. The target lookup sends the
+   model-chosen repository and number before the card, so it asks the
+   turn's data routing first, as a read does; the write itself is not
+   routed. A verified poster is reused for that credential for ten
+   minutes, and a failed lookup is not repeated for it for one minute;
+   another credential never reads it, and a credential GitHub rejects on a
+   write keeps none. Both lookups share a three-second limit. Any failure,
+   refusal, rate limit, timeout or mismatch makes that fact `null`, and the
+   write continues unchanged. Neither fact reaches the tool's result or the
+   `outward_action` record.
 5. **Answer.** A denial is `approval_declined`, `reason: "declined"`. An
    approval that comes back with a changed input is `approval_declined`,
    `reason: "edited"`, and sends nothing; the model must make the call again,

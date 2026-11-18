@@ -20,11 +20,11 @@ import {
   GitHubThread,
   GitHubWriteNotice,
   ListRow,
-  UntrustedText,
   type GitHubDetailState,
   type GitHubReviewProps,
   type GitHubThreadItem,
 } from "@schlessera/brain-ui-kit";
+import type { ApprovalDisplay } from "@schlessera/brain-ui-sdk/protocol";
 import { GITHUB_DETAIL_PAGE_SIZE, GITHUB_LIMITS } from "@schlessera/brain-ui-sdk/tool-contracts";
 import type {
   GithubChangedFile,
@@ -677,22 +677,13 @@ export function GithubCommentCard(result: GithubToolResult) {
   const htmlUrl = directLink(posted.html_url, scope, { kind: "comment", id: posted.comment_id });
   // The comment tool posts on issues and pull requests alike; only the
   // validated URL says which (`/pull/` or `/issues/`). Without one, the
-  // target is named without claiming either.
+  // kit's unknown kind names the target without claiming either.
   const kind = htmlUrl ? (new URL(htmlUrl).pathname.split("/")[3] === "pull" ? "pr" : "issue") : null;
   return (
     <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "4px 8px", minWidth: 0 }} data-github-comment-posted="">
       <GitHubStateChip state="posted" />
-      {kind ? <GitHubRef kind={kind} repo={posted.repository} number={posted.number} htmlUrl={htmlUrl} /> : <Target repository={posted.repository} number={posted.number} />}
+      <GitHubRef kind={kind} repo={posted.repository} number={posted.number} htmlUrl={htmlUrl} />
     </div>
-  );
-}
-
-/** A comment's target when its kind is unknown: `owner/repo #n`, claiming neither issue nor pull request. */
-function Target({ repository, number }: { repository: string; number: number }) {
-  return (
-    <span style={{ color: "var(--bk-color-ink-dim)", fontSize: 13, minWidth: 0, overflowWrap: "anywhere" }} data-github-target="">
-      {repository} #{number}
-    </span>
   );
 }
 
@@ -703,16 +694,29 @@ export function GithubCreatePreview({ input }: { input: GithubIssueCreateInput }
   );
 }
 
-/** W4: the target and the comment Brain asks to post, as it will read. */
-export function GithubCommentPreview({ input }: { input: GithubIssueCommentInput }) {
+/**
+ * W4: the target row above the comment Brain asks to post, as it will read.
+ *
+ * Who would post it and what the target is come only from the host's
+ * display facts (#4154), never from the model's input: an unverified poster
+ * is the kit's "host's GitHub account", an unverified kind its neutral
+ * `repository #number`, each independent of the other. The target's link
+ * passes the contract's validator for this repository and number, or is
+ * absent. The poster asks for no avatar: the avatar route serves only
+ * logins a tool result named.
+ */
+export function GithubCommentPreview({ input, display }: { input: GithubIssueCommentInput; display?: ApprovalDisplay }) {
+  const facts = display?.github;
+  const target = facts?.target ?? null;
+  const kind = target ? (target.kind === "pull_request" ? "pr" : "issue") : null;
+  const htmlUrl = target ? directLink(target.html_url, scopeOf(input.repository, input.number), { kind: target.kind }) : null;
+  const poster = facts?.poster ? { login: facts.poster.login, bot: facts.poster.is_bot, association: null, avatarSrc: null } : null;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }} data-github-comment-preview="">
-      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "4px 8px", minWidth: 0 }}>
-        <GitHubStateChip state="not-posted" />
-        {/* The approval names a number, not whether it is an issue or a pull request (#4154). */}
-        <Target repository={input.repository} number={input.number} />
+      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "4px 8px", minWidth: 0 }} data-github-target="">
+        <GitHubRef kind={kind} repo={input.repository} number={input.number} htmlUrl={htmlUrl} />
       </div>
-      <UntrustedText text={input.body} source="this draft" sourcePhrase="in this draft" frame="rule" caption="Brain's draft · not posted" />
+      {poster ? <GitHubComment author={poster} body={input.body} preview /> : <GitHubComment body={input.body} preview />}
     </div>
   );
 }

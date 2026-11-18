@@ -2447,6 +2447,36 @@ same-request read are specified in the [HTTP reference](../http-api.md#policy-pr
 No client field grants authority or activates policy. Approval writes only the
 reviewed server-held bytes; changed input requires a new proposal.
 
+<a id="approval-display-facts-additive-0450-4154"></a>
+
+### Approval display facts (additive, 0.45.0, #4154)
+
+`tool_approval_request` optionally carries `display: ApprovalDisplay`, facts
+the host verified for the card and nothing else. Today it has one member,
+`github`, on a `brain_github_issue_comment` card:
+`{ poster: { login, is_bot } | null, target: { kind: "issue" | "pull_request", html_url } | null }`
+(`GithubApprovalDisplay`, `packages/ui-sdk/src/protocol.ts:1324-1327`).
+`poster` is the account the host's GitHub tools credential posts as, resolved
+for that same credential; `target` is the kind of the object at the card's own
+repository and number, read from GitHub for exactly that repository and
+number, with its `html_url` validated by the contract or `null`.
+
+- **Display only.** `input` stays exactly what is approved and sent; the answer
+  is compared with it alone, and a client never sends `display` back. The
+  facts grant no authority and never enter a tool input or result, the system
+  prompt or provider-facing history.
+- **Unknown is neutral.** An absent `display`, an absent `github` or a `null`
+  fact is unknown. A client shows its neutral state ("The host's GitHub
+  account"; `repository #number` with no kind and no link) and the approval
+  works as before. Clients validate the shape
+  (`approvalDisplaySchema`, `packages/ui-sdk/src/schemas.ts:1386-1391`);
+  a fact that fails it reads as `null`, never as a refused card.
+- **Re-delivery.** A pending card re-delivered after a reconnect carries the
+  host's facts for it again; a client replaces what it had.
+
+How the host resolves the facts, and when each is `null`, is in
+[the MCP component](mcp.md#github-writes-additive-0450-3798).
+
 ### Claude title-helper accounting (#2052)
 
 No WebSocket field changes. Root result/live usage remains completed main/child

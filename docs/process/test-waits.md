@@ -231,8 +231,8 @@ case observes that later effect through its retained native window.
 The history and queue receiving observer is only a barrier for the current
 synchronous production handlers, not a generic asynchronous-handler completion
 claim: `session_history` and scoped `status` update the chat store synchronously
-(`session_history`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:442-462`;
-`status`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:463-488`), while
+(`session_history`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:443-463`;
+`status`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:464-489`), while
 queue adoption updates the follow-up/draft stores synchronously
 (`function queueReport(`, `packages/ui-react/src/ws-client/follow-ups.ts:85-94`). Native protocol
 completion, committed store state and the retained observation window serve

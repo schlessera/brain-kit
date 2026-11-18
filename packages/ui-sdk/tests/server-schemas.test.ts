@@ -424,6 +424,36 @@ test("policy approval and live/replay receipts survive the validated additive bo
   expect(parse({ ...frames[1], policyChange: { ...policyChange, baseHash: undefined } }).ok).toBe(false);
 });
 
+describe("approval display facts (#4154)", () => {
+  const card = { type: "tool_approval_request", toolUseId: "github-1", toolName: "brain_github_issue_comment", kind: "command",
+    input: { repository: "odysseus/ithaca", number: 7, body: "Counted." }, sessionId: "s1", turnId: "turn-1" } as const;
+  const display = { github: { poster: { login: "ithaca-brain", is_bot: false }, target: { kind: "pull_request", html_url: "https://github.com/odysseus/ithaca/pull/7" } } };
+
+  test("verified facts and unknown ones survive the boundary as sent", () => {
+    for (const frame of [{ ...card, display }, { ...card, display: { github: { poster: null, target: null } } }, card]) {
+      const result = parse(frame);
+      expect(result.ok, "APPROVAL_DISPLAY_PARSES").toBe(true);
+      if (result.ok) expect(result.message).toEqual(frame as ServerMessage);
+    }
+  });
+
+  test("a fact that fails its shape reads as unknown, and the card itself still arrives", () => {
+    for (const [label, broken, expected] of [
+      ["an invalid login", { github: { ...display.github, poster: { login: "not a login", is_bot: false } } }, { github: { poster: null, target: display.github.target } }],
+      ["an unknown kind", { github: { ...display.github, target: { kind: "discussion", html_url: null } } }, { github: { poster: display.github.poster, target: null } }],
+      ["a github entry that is not an object", { github: "Issue" }, {}],
+      ["display that is not an object", "PR", undefined],
+    ] as const) {
+      const result = parse({ ...card, display: broken });
+      expect(result.ok, `APPROVAL_DISPLAY_NEVER_DROPS_THE_CARD ${label}`).toBe(true);
+      if (result.ok && result.message.type === "tool_approval_request") {
+        expect(result.message.display, `APPROVAL_DISPLAY_BROKEN_IS_UNKNOWN ${label}`).toEqual(expected as never);
+        expect(result.message.input, label).toEqual(card.input);
+      }
+    }
+  });
+});
+
 describe("live-service roster (#3616)", () => {
   const profile = (providerId: string) => ({ providerId, capabilities: { nonblockingWork: "supported", manualEndpoint: "supported", finalTranscript: "unproven", remoteOutputCancelAck: "unproven", exactPermissionSpeech: "unproven", echoIsolatedInput: "unproven", outputWordAlignment: "unproven" },
     disclosure: { voiceService: `Fictional ${providerId}`, destinations: ["Microphone audio goes to the fictional voice service."] } });

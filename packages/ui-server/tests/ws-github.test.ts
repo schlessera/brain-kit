@@ -32,7 +32,7 @@ import type { WSContext } from "../src/ws/clients.js";
 import { makeFakeBackend } from "./helpers/fake-backend.js";
 import { createPrincipal } from "../src/db/principals.js";
 import { GOVERNANCE_EVENT_SCHEMAS, queryGovernanceEvents } from "../src/governance/events.js";
-import { GENERIC_GITHUB_SENTINEL, GITHUB_TOOLS_SENTINEL, fakeGithub, routeGithubApi } from "./fixtures/github-host-fixture.js";
+import { GENERIC_GITHUB_SENTINEL, GITHUB_TOOLS_POSTER, GITHUB_TOOLS_SENTINEL, fakeGithub, routeGithubApi } from "./fixtures/github-host-fixture.js";
 
 const SESSION = "sess-ithaca-github";
 
@@ -154,6 +154,27 @@ for (const backendId of ["pi", "claude"] as const) test(`a ${backendId} turn fil
     expect(outcome.outward.map(event => ({ session: event.sessionId, action: event.payload.action, target: event.payload.target, decision: event.payload.decision })), "GITHUB_APP_OUTWARD_RECORDED").toEqual([
       { session: SESSION, action: "gh_write", target: "circe/aiaia", decision: "refused" }, { session: SESSION, action: "gh_write", target: "odysseus/ithaca", decision: "approved" }]);
     for (const event of outcome.outward) GOVERNANCE_EVENT_SCHEMAS.outward_action.payload.parse(event.payload);
+  } finally { await rm(outcome.root, { recursive: true, force: true }); }
+}, 60_000);
+
+for (const backendId of ["pi", "claude"] as const) test(`a ${backendId} comment card carries the host's verified poster and target kind, and nothing the model receives does (#4154)`, async () => {
+  const results: GithubToolResult[] = [];
+  const comment = { repository: "odysseus/ithaca", number: 8, body: "The bow is strung." };
+  const outcome = await hostedTurn(backendId, { BRAIN_UI_GITHUB_TOOLS_TOKEN: GITHUB_TOOLS_SENTINEL }, async github => {
+    results.push(await github("brain_github_issue_comment", comment));
+  }, { policy: POLICY, answer: () => ({ type: "tool_approval" }) });
+  try {
+    expect(results[0], "GITHUB_APP_COMMENT_POSTED").toMatchObject({ ok: true, result: { kind: "comment_created", number: 8 } });
+    expect(outcome.cards.map(card => [card.input, card.display]), "GITHUB_APP_COMMENT_DISPLAY").toEqual([[comment,
+      { github: { poster: { login: GITHUB_TOOLS_POSTER, is_bot: false }, target: { kind: "pull_request", html_url: "https://github.com/odysseus/ithaca/pull/8" } } }]]);
+    expect(JSON.stringify(results), "GITHUB_APP_DISPLAY_NOT_RETURNED").not.toContain(GITHUB_TOOLS_POSTER);
+    const elsewhere = outcome.sent.filter(text => (JSON.parse(text) as { type: string }).type !== "tool_approval_request");
+    expect(elsewhere.filter(text => text.includes(GITHUB_TOOLS_POSTER)), "GITHUB_APP_DISPLAY_ONLY_ON_THE_CARD").toEqual([]);
+    expect(outcome.outward.map(event => JSON.parse(String(event.payload.input))), "GITHUB_APP_DISPLAY_NOT_RECORDED").toEqual([comment]);
+    // The two lookups run together, so their order is not a fact; the one write follows both.
+    const requests = outcome.fake.seen.map(request => `${request.method} ${request.path}`);
+    expect([...requests.slice(0, 2)].sort(), "GITHUB_APP_DISPLAY_LOOKUPS").toEqual(["GET /repos/odysseus/ithaca/issues/8", "GET /user"]);
+    expect(requests.slice(2), "GITHUB_APP_THEN_ONE_WRITE").toEqual(["POST /repos/odysseus/ithaca/issues/8/comments"]);
   } finally { await rm(outcome.root, { recursive: true, force: true }); }
 }, 60_000);
 

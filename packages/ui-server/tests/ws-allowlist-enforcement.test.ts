@@ -257,7 +257,7 @@ describe("the approval frame says whether a grant can be kept", () => {
     closeDb();
   });
 
-  type Card = { toolUseId?: string; rememberable?: boolean; turnId?: string };
+  type Card = { toolUseId?: string; rememberable?: boolean; turnId?: string; input?: unknown; display?: unknown };
   const cardsIn = (sent: ServerMessage[]) =>
     sent.filter((f) => f.type === "tool_approval_request") as Card[];
 
@@ -316,6 +316,27 @@ describe("the approval frame says whether a grant can be kept", () => {
     expect(cardsIn(reconnected.sent)).toHaveLength(1);
     for (const card of [...cardsIn(client.sent), ...cardsIn(reconnected.sent)]) {
       expect("rememberable" in card).toBe(false);
+      expect("display" in card, "no display facts unless the host verified some").toBe(false);
+    }
+    controls[0]!.finish();
+  });
+
+  test("a card's display facts (#4154) ride its frame, first time and re-delivered, beside an unchanged input", async () => {
+    const { backend, controls } = permissionBackend();
+    setBackendForTests(backend);
+    setToolPermissionsForTests(memoryGrants().tp);
+    const { host, client } = await startTurn(controls);
+    const display = { github: { poster: { login: "ithaca-brain", is_bot: false }, target: { kind: "issue" as const, html_url: "https://github.com/odysseus/ithaca/issues/7" } } };
+    const input = { repository: "odysseus/ithaca", number: 7, body: "Counted." };
+    void controls[0]!.request({ toolName: "mcp_proxy_tool", input, kind: "command", display }, "t23");
+    await waitFor(() => host.coordinator.pendingApprovals.size === 1);
+    const reconnected = fakeClient();
+    await createWsHandlers(host, testPrincipal()).onOpen(openEvt, reconnected.ws);
+    const cards = [...cardsIn(client.sent), ...cardsIn(reconnected.sent)];
+    expect(cards, "APPROVAL_DISPLAY_FIRST_AND_REDELIVERED").toHaveLength(2);
+    for (const card of cards) {
+      expect(card.display, "APPROVAL_DISPLAY_ON_FRAME").toEqual(display);
+      expect(card.input, "APPROVAL_DISPLAY_NOT_IN_INPUT").toEqual(input);
     }
     controls[0]!.finish();
   });

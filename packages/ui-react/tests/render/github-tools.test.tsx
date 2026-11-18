@@ -10,6 +10,7 @@ import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { act, cleanup, fireEvent, render as mount, within } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { visibleToolName, type ToolCallView } from "@schlessera/brain-ui-sdk/client";
+import type { ApprovalDisplay } from "@schlessera/brain-ui-sdk/protocol";
 import { GITHUB_TOOL_NAMES } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { resetToolRenderers, resolveToolRenderer } from "../../../ui-sdk/src/client/renderers.js";
 import { registerBuiltinRenderers } from "../../src/components/chat/renderers/index.js";
@@ -220,12 +221,13 @@ describe("untrusted text, end to end through a tool result", () => {
 });
 
 describe("write views W1–W4", () => {
-  function approval(tool: "create" | "comment", input: Record<string, unknown>) {
+  function approval(tool: "create" | "comment", input: Record<string, unknown>, approvalDisplay?: ApprovalDisplay) {
     registerBuiltinRenderers();
     const name = visibleToolName(GITHUB_TOOL_NAMES[tool], "claude");
     const renderer = resolveToolRenderer(call(name, undefined), "claude")!;
     const Input = renderer.Input!;
-    return render(<Input tool={call(name, undefined, { input, status: "pending_approval" })} />);
+    const tool_ = { ...call(name, undefined, { input, status: "pending_approval" }), ...(approvalDisplay ? { approvalDisplay } : {}) } as ToolCallView;
+    return render(<Input tool={tool_} />);
   }
 
   test("W1: the issue approval shows exactly what will be posted, not posted, with no link", () => {
@@ -257,6 +259,67 @@ describe("write views W1–W4", () => {
     expect(container.textContent).toContain("ithaca/hall #388");
     expect(container.textContent).toContain("Filed #401 for the key log.");
     expect(container.textContent, "the approval names a number, not its kind").not.toMatch(/Issue ·|PR ·/);
+    // With no host facts at all, both neutral states (#4154).
+    expect(container.textContent, "W4_NO_FACTS_HOST_ACCOUNT").toContain("The host's GitHub account");
+    expect(container.textContent, "W4_NO_FACTS_NEVER_GHOST").not.toContain("@ghost");
+    expect(container.querySelector("a"), "W4_NO_FACTS_NO_LINK").toBeNull();
+  });
+
+  describe("W4 names only what the host verified (#4154)", () => {
+    const input = { repository: "ithaca/hall", number: 388, body: "Filed #401 for the key log." };
+    const poster = { login: "ithaca-brain", is_bot: false };
+    const targets = {
+      issue: { kind: "issue", html_url: "https://github.com/ithaca/hall/issues/388" },
+      pr: { kind: "pull_request", html_url: "https://github.com/ithaca/hall/pull/388" },
+      unknown: null,
+    } as const;
+    for (const known of [true, false]) {
+      for (const [label, target] of Object.entries(targets)) {
+        test(`${known ? "a verified" : "an unknown"} poster on ${label === "unknown" ? "an unverified target" : `a verified ${label}`}`, () => {
+          const { container, getByRole } = approval("comment", input, { github: { poster: known ? poster : null, target } });
+          const comment = getByRole("article");
+          expect(comment.getAttribute("aria-label"), `W4_POSTER ${known} ${label}`).toBe(known ? "Comment not posted by @ithaca-brain" : "Comment not posted by the host's GitHub account");
+          expect(container.textContent, `W4_NEVER_GHOST ${known} ${label}`).not.toContain("@ghost");
+          expect(comment.querySelector("img"), "the poster asks for no avatar").toBeNull();
+          const ref = container.querySelector("[data-github-target] [data-github-ref]")!;
+          const links = [...container.querySelectorAll("a")].map((a) => a.getAttribute("href"));
+          if (target) {
+            const word = target.kind === "pull_request" ? "PR" : "Issue";
+            expect(ref.textContent, `W4_KIND ${known} ${label}`).toBe(`${word} · ithaca/hall #388`);
+            expect(links, `W4_TARGET_LINK ${known} ${label}`).toEqual([target.html_url]);
+          } else {
+            expect(ref.textContent, `W4_UNKNOWN_KIND ${known} ${label}`).toBe("ithaca/hall #388");
+            expect(links, `W4_UNKNOWN_KIND_NO_LINK ${known}`).toEqual([]);
+          }
+          expect(container.textContent).toContain("Not posted");
+          expect(container.textContent, `W4_DRAFT_PROVENANCE ${known} ${label}`).toContain("Brain's draft · not posted");
+          expect(container.textContent).toContain("Filed #401 for the key log.");
+        });
+      }
+    }
+
+    test("a target link that does not point at this repository and number renders nowhere, and the kind stays", () => {
+      for (const html_url of ["https://github.com/ithaca/hall/issues/389", "https://github.com/circe/aiaia/issues/388", "https://github.com.evil.example/ithaca/hall/issues/388"]) {
+        const { container, unmount } = approval("comment", input, { github: { poster, target: { kind: "issue", html_url } } });
+        expect(container.querySelector("a"), `W4_TARGET_LINK_VALIDATED ${html_url}`).toBeNull();
+        expect(container.querySelector("[data-github-ref]")!.textContent).toBe("Issue · ithaca/hall #388");
+        unmount();
+      }
+    });
+
+    test("the model's input never supplies the facts: a poster or kind in it is ignored", () => {
+      const { container } = approval("comment", { ...input, poster: "penelope", kind: "pull_request" } as Record<string, unknown>);
+      expect(container.textContent).not.toContain("penelope");
+      expect(container.textContent, "W4_INPUT_NOT_FACTS").not.toMatch(/Issue ·|PR ·/);
+    });
+
+    test("the whole draft shows, past the posted comments' 10,000-character bound", () => {
+      const body = `${"The tally of the wine store. ".repeat(400)}The last line.`;
+      // The clamp is layout (the kit's story proves it in a browser); what is rendered is the whole draft.
+      const { container } = approval("comment", { ...input, body }, { github: { poster, target: targets.issue } });
+      expect(container.textContent, "W4_EXACT_BODY").toContain("The last line.");
+      expect(container.textContent).not.toContain("Truncated");
+    });
   });
 
   test("a posted comment names its target's kind from its validated URL, and claims neither without one", () => {
