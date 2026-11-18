@@ -196,6 +196,11 @@ try {
     });
     const view = activeView = manager ? await prepareNativeWorkerStartupView(brainPath, manager) : undefined;
     const beforeRunnerListeners = new Set(tracked);
+    // The diff below lists the temp directory, which is this probe's own:
+    // native-route-qualification starts it under bwrap with a fresh tmpfs on
+    // /tmp, and the identity proof starts it in a container of its own, one
+    // step at a time. A launcher that shares /tmp with other test processes
+    // must give it a private TMPDIR first (#4252).
     const relayDirectories = readdirSync(tmpdir()).filter(name => name.startsWith("brain-inference-"));
     try {
       await runner.startTurn({ prompt: turn ? "Continue the Ithaca plan." : "Plan the return to Ithaca.",
