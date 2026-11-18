@@ -74,7 +74,11 @@ guard for launched tests. Nested `installTestHome` fixtures still restore both
 environment descriptors when explicitly disposed. The preload keeps the ledger
 named for the Bun test process's PID/start identity, so descendants with replaced
 environments still discover that process's private ledger; it records the identity
-in the owned tree for launcher cleanup. Raw `bun test` retains its
+in the owned tree for launcher cleanup. Bun watch reloads restore the launcher handoff
+and reattach to that tree. A pre-existing ledger
+must be a real directory owned by the current user with a matching process-owner
+marker; foreign/replaced entries are refused and retained. Parent cleanup also
+checks the recorded device/inode before removal. Raw `bun test` retains its
 preload cleanup fallback; use `bun run test` for repeated or cancellable runs.
 Turns must await owned observation saves before settling so teardown cannot
 race storage writes.

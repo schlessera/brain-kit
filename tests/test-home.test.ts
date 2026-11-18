@@ -1,8 +1,8 @@
 import { expect, spyOn, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { claudeHomeSnapshot, createInvokingTestHome, installTestHome } from "../scripts/test-home";
+import { claudeHomeSnapshot, createInvokingTestHome, installTestAdmission, installTestHome } from "../scripts/test-home";
 
 for (const configPresent of [false, true]) {
   test(`test home restores environment descriptors with config ${configPresent ? "set" : "absent"} and snapshots detect host overwrites`, () => {
@@ -148,4 +148,57 @@ test("nested home disposal restores the live outer home's descriptors", () => {
     expect(existsSync(outer.root)).toBe(true);
     expect(["HOME", "CLAUDE_CONFIG_DIR"].map(name => Object.getOwnPropertyDescriptor(process.env, name))).toEqual(before);
   } finally { outer.dispose(); }
+});
+
+
+test("same-identity admission reuse preserves its live directory and launcher cleanup", () => {
+  const invoking = createInvokingTestHome();
+  const identity = { pid: process.pid, start: String(Date.now()) };
+  const ledger = installTestAdmission(identity, invoking.resources);
+  try {
+    const inode = statSync(ledger).ino;
+    writeFileSync(join(ledger, "sentinel"), "Ithaca");
+    expect(installTestAdmission(identity, invoking.resources)).toBe(ledger);
+    expect(statSync(ledger).ino).toBe(inode);
+    expect(readFileSync(join(ledger, "sentinel"), "utf8")).toBe("Ithaca");
+  } finally { invoking.dispose(); }
+  expect(existsSync(ledger)).toBe(false);
+});
+
+for (const damage of ["foreign-owner", "file", "symlink"] as const) test(`admission reuse refuses ${damage} without deleting it`, () => {
+  const identity = { pid: process.pid, start: String(Date.now()) };
+  const ledger = installTestAdmission(identity);
+  const other = mkdtempSync(join(tmpdir(), "odysseus-ledger-owner-"));
+  let unaffected: string | undefined;
+  try {
+    writeFileSync(join(other, "sentinel"), "Penelope retains this entry.");
+    if (damage === "foreign-owner") writeFileSync(join(ledger, "test-owner.json"), JSON.stringify({ ...identity, pid: process.pid + 1 }));
+    else {
+      rmSync(ledger, { recursive: true });
+      if (damage === "file") writeFileSync(ledger, "Penelope retains this entry.");
+      else symlinkSync(other, ledger, "dir");
+    }
+    expect(() => installTestAdmission(identity)).toThrow("TEST_ADMISSION_OWNERSHIP_CHANGED");
+    expect(existsSync(ledger)).toBe(true);
+    unaffected = installTestAdmission({ ...identity, start: identity.start + "1" });
+    expect(existsSync(unaffected), "FOREIGN_LEDGER_DOES_NOT_BLOCK_ANOTHER_IDENTITY").toBe(true);
+    expect(readFileSync(join(other, "sentinel"), "utf8")).toBe("Penelope retains this entry.");
+    if (damage === "foreign-owner") expect(JSON.parse(readFileSync(join(ledger, "test-owner.json"), "utf8")).pid).toBe(process.pid + 1);
+    if (damage === "file") expect(readFileSync(ledger, "utf8")).toBe("Penelope retains this entry.");
+  } finally { rmSync(ledger, { recursive: true, force: true }); rmSync(other, { recursive: true, force: true }); if (unaffected) rmSync(unaffected, { recursive: true, force: true }); }
+});
+
+test("launcher cleanup retains a ledger whose directory was replaced", () => {
+  const invoking = createInvokingTestHome();
+  const identity = { pid: process.pid, start: String(Date.now()) };
+  const ledger = installTestAdmission(identity, invoking.resources);
+  const retained = ledger + ".owned";
+  try {
+    renameSync(ledger, retained);
+    mkdirSync(ledger);
+    writeFileSync(join(ledger, "sentinel"), "Penelope retains this entry.");
+    expect(() => invoking.dispose()).toThrow("TEST_ADMISSION_OWNERSHIP_CHANGED");
+    expect(readFileSync(join(ledger, "sentinel"), "utf8")).toBe("Penelope retains this entry.");
+    expect(existsSync(retained)).toBe(true);
+  } finally { rmSync(ledger, { recursive: true, force: true }); rmSync(retained, { recursive: true, force: true }); invoking.dispose(); }
 });
