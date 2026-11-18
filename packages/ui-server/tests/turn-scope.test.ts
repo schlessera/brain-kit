@@ -83,24 +83,26 @@ test("shared snapshots count ignored scratch, workspace bytes and repeated obser
 });
 
 test("files_changed leaves out a reference clone under workspaces/ but counts every path outside it (#3793)", async () => {
-  const f = scopeFixture({ max_files_changed: 1000 }); let child: ReturnType<typeof f.worker> | undefined;
+  // The cap is small so the file volume stays small: a 30 s hang limit on a
+  // loaded worker is no budget for writing thousands of files (#4249).
+  const f = scopeFixture({ max_files_changed: 20 }); let child: ReturnType<typeof f.worker> | undefined;
   try {
     await f.begin(); child = f.worker('while :; do sleep 1; done');
-    // A fetch and checkout of a mid-sized repository, and nothing in the brain.
+    // A checkout far larger than the cap, and nothing in the brain.
     mkdirSync(join(f.brain, "workspaces/argo/src"), { recursive: true });
-    for (let index = 0; index < 1500; index++) writeFileSync(join(f.brain, "workspaces/argo/src", `oar-${index}.ts`), `export const oar = ${index};\n`);
+    for (let index = 0; index < 150; index++) writeFileSync(join(f.brain, "workspaces/argo/src", `oar-${index}.ts`), `export const oar = ${index};\n`);
     await f.journal.observe();
     const scope = () => f.journal.summary("voyage").scope!;
     expect(scope().receipts, "WORKSPACE_CLONE_DOES_NOT_PAUSE_FILES_CHANGED").toEqual([]);
-    expect(scope().changedPaths, "SUMMARY_STILL_DISCLOSES_WORKSPACE_PATHS").toBeGreaterThanOrEqual(1500);
-    for (let index = 0; index < 999; index++) writeFileSync(join(f.brain, `ithaca-${index}.md`), `Day ${index}\n`);
+    expect(scope().changedPaths, "SUMMARY_STILL_DISCLOSES_WORKSPACE_PATHS").toBeGreaterThanOrEqual(150);
+    for (let index = 0; index < 19; index++) writeFileSync(join(f.brain, `ithaca-${index}.md`), `Day ${index}\n`);
     await f.journal.observe();
     expect(scope().receipts, "BRAIN_PATHS_BELOW_THE_CAP_DO_NOT_PAUSE").toEqual([]);
     // A sibling sharing the prefix is outside workspaces/ and counts.
     mkdirSync(join(f.brain, "workspaces-old")); writeFileSync(join(f.brain, "workspaces-old/x.md"), "Old raft\n");
-    writeFileSync(join(f.brain, "ithaca-999.md"), "Day 999\n");
+    writeFileSync(join(f.brain, "ithaca-19.md"), "Day 19\n");
     await f.journal.observe();
-    expect(f.receipt(), "BRAIN_PATHS_PAST_THE_CAP_STILL_PAUSE").toMatchObject({ dimension: "files_changed", count: 1001, cap: 1000, state: "paused", frozen: true });
+    expect(f.receipt(), "BRAIN_PATHS_PAST_THE_CAP_STILL_PAUSE").toMatchObject({ dimension: "files_changed", count: 21, cap: 20, state: "paused", frozen: true });
     await f.scope.decide(f.message("stop"), true); await child.exited;
   } finally { child?.kill("SIGKILL"); if (child) await child.exited; await f.close(); }
 });
