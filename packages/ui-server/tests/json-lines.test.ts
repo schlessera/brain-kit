@@ -1,14 +1,14 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { completeJsonLines } from "./helpers/json-lines.js";
 
-let dir = "";
-afterEach(() => { if (dir) rmSync(dir, { recursive: true, force: true }); dir = ""; });
+let dir = "", files = 0;
+beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "odysseus-json-lines-")); });
+afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
 const file = (text?: string) => {
-  dir = mkdtempSync(join(tmpdir(), "odysseus-json-lines-"));
-  const path = join(dir, "calls.jsonl");
+  const path = join(dir, `calls-${++files}.jsonl`);
   if (text !== undefined) writeFileSync(path, text);
   return path;
 };
