@@ -22,6 +22,9 @@ import { holdSafetyRecovery } from "./helpers/hold-safety-recovery";
 import { createPiWorkerRpcDispatcher, type PiWorkerRpcContext, type PiWorkerRpc } from "../../ui-backend-pi/src/worker-rpc";
 import { createPermissionWiring } from "../../ui-backend-claude/src/permission-hooks";
 import { safetyResultInput } from "../../ui-backend-pi/src/worker-protocol";
+import { installPiToolSafety } from "../../ui-backend-pi/src/tool-safety";
+import { Agent, runToolCall, type AgentTool, type AfterToolCallResult } from "@earendil-works/pi-agent-core";
+import { Type } from "typebox";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); });
@@ -301,6 +304,55 @@ for (const extra of ["none", "image", "resource"]) test(`the Pi safety wire reta
   expect(f.db.query("SELECT delivery FROM reference_reads").get(), "PI_WIRE_CANNOT_HIDE_NON_TEXT_READ_CONTENT")
     .toEqual({ delivery: extra === "none" ? "observed" : "unknown" });
 });
+
+for (const mode of ["plain", "after-throws", "tool-error", "after-error", "tool-structured", "after-structured",
+  "changed", "replaced", "drops-structured", "clears-error", "keeps-structured"]) {
+  test(`the installed Pi tool runner records ${mode} final read delivery honestly`, async () => {
+    const f = await collectedFixture("pi"), { collector, tool } = f, dispatch = piSafetyDispatcher(collector);
+    let text = "", stopped = 0;
+    const agent = new Agent({ streamFn: () => { throw new Error("This tool fixture never requests inference."); },
+      afterToolCall: async (): Promise<AfterToolCallResult | undefined> => {
+        if (mode === "after-throws") throw new Error("Ithaca after-tool hook failed.");
+        if (mode === "after-error") return { isError: true };
+        if (mode === "clears-error") return { isError: false };
+        if (mode === "after-structured") return { structuredContent: { chart: "Circe changes the chart." } };
+        if (["changed", "replaced", "drops-structured", "keeps-structured"].includes(mode))
+          return { content: [{ type: "text", text: text + (mode === "changed" ? " " : "") }],
+            ...(mode === "keeps-structured" ? { structuredContent: { chart: "Circe changes the chart." } } : {}) };
+      } });
+    installPiToolSafety(agent, {
+      permission: async (name, id, input) => { await collector.begin(id, name, input); return { behavior: "allow" }; },
+      result: async (name, id, content, complete) => { await dispatch({ type: "rpc", id: 1, method: "safetyResult",
+        toolCallId: id, toolName: name, input: safetyResultInput(name, content, complete) }); },
+      stop: () => { stopped++; },
+    }, () => false);
+    const input = { repository, revision: "main", path: "README.md" };
+    const call = { type: "toolCall" as const, id: "read-1", name: tool, arguments: input };
+    const tools: AgentTool[] = [{ name: tool, label: "Ithaca reference", description: "Read the immutable chart.",
+      parameters: Type.Object({ repository: Type.String(), revision: Type.String(), path: Type.String() }),
+      execute: async () => {
+        text = JSON.stringify(await f.call());
+        return { content: [{ type: "text", text: mode === "replaced" ? "Circe changes the chart." : text }], details: {},
+          ...(["tool-error", "clears-error"].includes(mode) ? { isError: true } : {}),
+          ...(["tool-structured", "drops-structured", "keeps-structured"].includes(mode)
+            ? { structuredContent: { chart: "Circe changes the chart." } } : {}) };
+      } }];
+    const outcome = await runToolCall(call, { tools, context: { messages: [], tools },
+      assistantMessage: { role: "assistant", content: [call], api: "openai-responses", provider: "openai", model: "voyage",
+        stopReason: "toolUse", timestamp: 0, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } },
+      beforeToolCall: agent.beforeToolCall, afterToolCall: agent.afterToolCall });
+    expect(outcome.isError, "INSTALLED_PI_RUNNER_FINAL_ERROR_STATE").toBe(["after-throws", "tool-error", "after-error"].includes(mode));
+    expect(outcome.result.content).toEqual([{ type: "text", text: mode === "after-throws" ? "Ithaca after-tool hook failed."
+      : text + (mode === "changed" ? " " : "") }]);
+    expect(outcome.result.structuredContent !== undefined).toBe(["tool-structured", "after-structured", "keeps-structured"].includes(mode));
+    expect(stopped).toBe(mode === "after-throws" ? 1 : 0);
+    expect(f.db.query("SELECT delivery FROM reference_reads").get(), "PI_FINAL_RESULT_STATE_GOVERNS_READ_OBSERVATION")
+      .toEqual({ delivery: ["plain", "replaced", "drops-structured", "clears-error"].includes(mode) ? "observed" : "unknown" });
+    expect(safetyRecords(f.db, "ithaca").filter(record => record.kind === "occurrence"), "PI_FINAL_RESULT_REMAINS_WORKSPACE_INPUT")
+      .toHaveLength(1);
+  });
+}
 
 test("both managed read names remain workspace input; ordinary explicit marks remain independent", () => {
   for (const tool of ["reference_read", "mcp__brain-ui__reference_read"])
