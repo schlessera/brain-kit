@@ -1,7 +1,14 @@
-import { expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
+import { installTestHome } from "../../../scripts/test-home";
 
 import expected from "./fixtures/sdk-options-snapshot.json" with { type: "json" };
 import { SNAPSHOT_MODES, sdkOptionsSnapshot } from "./helpers/sdk-options-snapshot.js";
+
+// Assembly persists prompt context. Each invocation owns its storage even
+// when the shared preload has already cleaned up an earlier repetition (#4244).
+let testHome: ReturnType<typeof installTestHome> | undefined;
+beforeEach(() => { testHome = installTestHome(); });
+afterEach(() => { testHome?.dispose(); testHome = undefined; });
 
 /**
  * #2519 splits `assembleClaudeSdkTurn` and `createPermissionWiring`. Neither
@@ -31,6 +38,9 @@ import { SNAPSHOT_MODES, sdkOptionsSnapshot } from "./helpers/sdk-options-snapsh
  * allowlists and autonomous modes stay byte-identical.
  * #3799 inserts the host GitHub tools' bullet in the retained append of those
  * four modes, after the tool briefs; everything else stays byte-identical.
+ * #3613 adds reference_read to the four interactive rosters and retained
+ * briefs, and to the allowlist where reference access is available. The two
+ * autonomous modes and all unrelated options remain byte-identical.
  * Regenerate it only for a reviewed, intended change to
  * the roster, allowlist or system prompt, and say so in the PR.
  */

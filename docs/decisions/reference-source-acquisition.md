@@ -294,13 +294,49 @@ that durable acquisition/read correlation and approved-owner matching remain
 necessary for a source-trust decision. Ordinary file reads keep their existing
 workspace restrictions, and no directory, credential or hostname grants trust.
 
+### Turn-bound content delivery
+
+The `reference_read` tool composes the fixed reader with a fresh managed
+acquisition request. Its repository/ref/path/range are model input; principal,
+turn, network budget and actual backend tool-call identity are independent host
+context. Missing or reused call identity refuses. The selected lease pins the
+source while native sealing and immutable reading wait, and the service checks
+both native root generation and live authority after those waits.
+
+Before returning content, the shared SQLite writer records an acquisition
+snapshot and regular blob/path/range/digest, detector version, the selected
+read grant and digest of the exact content result. The transaction rechecks
+the acquisition mapping, durable authority fence and current private grant.
+The caller checks live turn/principal/source authority again after the writer
+returns. These records remain outside source files and provider history and
+survive eviction of the acquisition. The selected grant for a new read may
+differ from the original acquisition's grant; both facts retain their own
+meaning.
+
+The awaited input-safety result hook observes a read only when one finalized
+text segment exactly matches its prepared result at that turn/call identity.
+An absent hook leaves `prepared`, and altered, mixed or unfinished results
+become sticky `unknown`. Observation is evidence of that backend result,
+not proof of a later provider request. Every read still records workspace
+input; ordinary file marks keep their independent signals. Approved-owner
+matching and the full qualified source-trust route remain separate work.
+
+Observation compares the complete plain-text result or the fixed tool's
+single-text MCP envelope with that segment. Extra content, structured payloads
+and error envelopes cannot borrow a matching text part. Pi omits qualified
+segments for a mixed reference result instead of filtering away its non-text
+parts. Reports lost before the collector's result method, including malformed
+or replayed worker RPCs, invalidate that call before failure containment.
+An earlier loss also fences a read prepared afterward; another call's known
+observation remains independent.
+
 ## Admission
 
 At most `BRAIN_UI_REFERENCE_ACQUISITIONS` (default two) acquisitions or
 refreshes run across the host
 (`admit`, `packages/ui-server/src/brain/reference-source.ts:326-341`). Requests
 for the same legacy source in the same domain join one operation
-(`function join`, `packages/ui-server/src/brain/reference-source.ts:344-369`).
+(`function join`, `packages/ui-server/src/brain/reference-source.ts:346-371`).
 Each principal's private source is its own domain, so two principals requesting
 the same private repository at once run two operations, each with its own
 credential and view. Admitted operations finish independently: a stalled one

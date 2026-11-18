@@ -11,6 +11,8 @@ import { createPrincipal } from "../../packages/ui-server/src/db/principals.js";
 import { createReferenceGrant, revokeReferenceGrant } from "../../packages/ui-server/src/db/reference-grants.js";
 import { createReferenceSources } from "../../packages/ui-server/src/brain/reference-source.js";
 import { createReferenceTransport } from "../../packages/ui-server/src/brain/reference-transport.js";
+import { createReferenceReads } from "../../packages/ui-server/src/brain/reference-read.js";
+import { createReferenceTools } from "../../packages/ui-server/src/brain/reference-tools.js";
 import { createGitHubReferenceAccess } from "../../packages/ui-server/src/brain/github-reference-access.js";
 import { fixtureTls } from "../../packages/ui-server/tests/fixtures/fixture-tls.js";
 
@@ -108,6 +110,22 @@ export async function proveManagedReferenceSource(client: ReturnType<typeof crea
       const blob = await transport.readBlob!({ root: record.path!, commit, tree, path: "README.md", offset: 9, maximum: 13 });
       lease.assertAuthority();
       expect(Buffer.from(blob.bytes).toString(), "MANAGED_NATIVE_IMMUTABLE_OBJECT_RANGE").toBe("charts Ithaca");
+      const reads = createReferenceReads({ db, brain: servedBrain, sources, pool: client, transport });
+      const tools = createReferenceTools({ sources, reads }), turnId = "odysseus-native-read";
+      await tools.begin(turnId, { principalId: principal.id, posture: "interactive", generation: null });
+      tools.attachEgress(turnId, principal.id, { egress, current: () => true });
+      try {
+        const result = await tools.call(turnId, principal.id, { tool: "reference_read", toolCallId: "native_ithaca_read",
+          input: { repository, revision: "main", path: "README.md", offset: 9, maximum: 13 } });
+        expect(result, "MANAGED_NATIVE_HOST_TOOL_READS_EXACT_IMMUTABLE_BYTES").toMatchObject({ ok: true, read: { content: "charts Ithaca", commit, offset: 9, length: 13 } });
+        const prepared = db.query("SELECT acquisition, evidence, delivery FROM reference_reads WHERE turn_id = ?").get(turnId) as { acquisition: string; evidence: string; delivery: string };
+        expect(prepared.delivery, "MANAGED_NATIVE_PREPARED_IS_NOT_BACKEND_DELIVERY").toBe("prepared");
+        const evidence = JSON.parse(prepared.evidence);
+        expect(evidence).toMatchObject({ blob: blob.blob, digest: blob.digest, offset: 9, length: 13, trusted: false });
+        expect(JSON.parse(prepared.acquisition)).toMatchObject({ commit_id: commit, tree_id: tree, native_generation: record.root!.otransid });
+        note("managed-source-native-host-read", { commit, tree, blob: evidence.blob, digest: evidence.digest, offset: 9, length: 13,
+          actualMaintenanceWorker: true, hostToolEntry: true, delivery: prepared.delivery, backendEquivalence: false, readTrustExemption: false });
+      } finally { tools.end(turnId); }
       expect(blob).toMatchObject({ tree, mode: "100644", offset: 9, length: 13, totalBytes: 38 });
       note("managed-source-native-blob", { commit, tree, root: record.root, path: "README.md", blob: blob.blob, mode: blob.mode, offset: blob.offset,
         length: blob.length, totalBytes: blob.totalBytes, digest: blob.digest, actualMaintenanceWorker: true,

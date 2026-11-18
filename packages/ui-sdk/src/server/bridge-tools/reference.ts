@@ -11,11 +11,12 @@ export type ReferenceToolName = (typeof REFERENCE_TOOL_CONTRACTS)[number]["name"
  * input crosses: the host binds principal, turn and worker generation itself.
  * @experimental Backend toolkit; may change before 1.0.
  */
-export async function handleReferenceTool(name: ReferenceToolName, input: unknown, bridge: Pick<BackendBridge, "referenceAccess">): Promise<{ text: string; isError: boolean }> {
+export async function handleReferenceTool(name: ReferenceToolName, input: unknown, bridge: Pick<BackendBridge, "referenceAccess">, toolCallId?: string): Promise<{ text: string; isError: boolean }> {
   const contract = REFERENCE_TOOL_CONTRACTS.find(contract => contract.name === name)!;
   const parsed = contract.input.safeParse(input);
   if (!parsed.success) return { isError: true, text: JSON.stringify({ ok: false, code: "invalid", message: bounded(parsed.error.issues.map(issue => issue.message).join("; ")) }) };
   if (!bridge.referenceAccess) return { isError: true, text: JSON.stringify({ ok: false, code: "unavailable", message: "This host has no managed reference source." }) };
-  const result: ReferenceToolResult = await bridge.referenceAccess({ tool: name, input: parsed.data } as ReferenceToolCall);
+  const result: ReferenceToolResult = await bridge.referenceAccess({ tool: name, input: parsed.data,
+    ...(name === "reference_read" && toolCallId !== undefined ? { toolCallId } : {}) } as ReferenceToolCall);
   return { isError: !result.ok, text: JSON.stringify(result) };
 }

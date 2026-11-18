@@ -22,7 +22,7 @@ const REFERENCE_ACTIONS = [{ action: "request", repository: "https://github.com/
 const SOURCE_FRESHNESS = [{ commit: "1".repeat(40), freshness: "fresh", hour: 0, error: null }, { commit: "2".repeat(40), freshness: "fresh", hour: 1, error: null },
   { commit: "2".repeat(40), freshness: "stale", hour: 1, error: "The Ithaca remote did not answer." }] as const;
 /** Scenarios whose every turn calls a reference tool: `reference` withholds the handler on turn 1, the others answer every turn. */
-const REFERENCE_SCENARIOS = ["reference", "renewal", "freshness"];
+const REFERENCE_SCENARIOS = ["reference", "renewal", "freshness", "immutable"];
 /**
  * External compute (#3108): every turn asks the host for one job's status. Turn 1
  * has no host handler (compute disabled and the turn is voice), and the host's answer changes
@@ -42,6 +42,8 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
   if (main) turnOpen = false;
   const content = tool ? [scenario === "compute"
     ? { type: "tool_use", id: `toolu_odysseus_${turnIndex}`, name: "mcp__brain-ui__brain_compute_status", input: { job: "cj_ithaca" } }
+    : scenario === "immutable"
+    ? { type: "tool_use", id: `toolu_odysseus_${turnIndex}`, name: "mcp__brain-ui__reference_read", input: { repository: "https://github.com/odysseus/ithaca", revision: "main", path: "README.md", offset: 0, maximum: 64 } }
     : scenario === "freshness"
     ? { type: "tool_use", id: `toolu_odysseus_${turnIndex}`, name: "mcp__brain-ui__reference_source", input: { repository: "https://github.com/odysseus/ithaca", revision: "main" } }
     : REFERENCE_SCENARIOS.includes(scenario)
@@ -61,7 +63,7 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
 } });
 const restore = replaceNativeStartupAcquisitionForFixture();
 try {
-  for (scenario of ["control", "repository", "facts", "posture", "promotion", "title", "reference", "renewal", "freshness", "datatree", "compute"]) {
+  for (scenario of ["control", "repository", "facts", "posture", "promotion", "title", "reference", "renewal", "freshness", "immutable", "datatree", "compute"]) {
     brain = fixtureBrain(scratch, scenario);
     capture = captures[scenario] = { sessions: [], exchanges: [], appends: [] };
     const home = join(scratch, `home-${scenario}`);
@@ -95,6 +97,11 @@ try {
           // The second turn has no host handler: the tool refuses, and the roster must not change.
           ...(REFERENCE_SCENARIOS.includes(scenario) && (scenario !== "reference" || turnIndex !== 1) ? { async referenceAccess(call: ReferenceToolCall) {
             (capture.calls ??= []).push(call);
+            if (scenario === "immutable") {
+              const content = ["Odysseus charts Ithaca.", "Penelope checks the chart.", "Telemachus stores the chart."][turnIndex]!;
+              return { ok: true as const, guidance: "Fixture immutable read.", read: { repository: "https://github.com/odysseus/ithaca", revision: "main", commit: String(turnIndex + 1).repeat(40),
+                path: "README.md", offset: 0, length: Buffer.byteLength(content), totalBytes: Buffer.byteLength(content), encoding: "utf8" as const, content } };
+            }
             if (scenario === "freshness") {
               const step = SOURCE_FRESHNESS[turnIndex]!;
               return { ok: true as const, guidance: "Fixture source step.", source: { repository: "https://github.com/odysseus/ithaca", revision: "main", domain: "public" as const,

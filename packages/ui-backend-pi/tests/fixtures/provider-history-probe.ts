@@ -21,7 +21,7 @@ const REFERENCE_ACTIONS = [{ action: "request", repository: "https://github.com/
 const SOURCE_FRESHNESS = [{ commit: "1".repeat(40), freshness: "fresh", hour: 0, error: null }, { commit: "2".repeat(40), freshness: "fresh", hour: 1, error: null },
   { commit: "2".repeat(40), freshness: "stale", hour: 1, error: "The Ithaca remote did not answer." }] as const;
 /** Scenarios whose every turn calls a reference tool: `reference` withholds the handler on turn 1, the others answer every turn. */
-const REFERENCE_SCENARIOS = ["reference", "renewal", "freshness"];
+const REFERENCE_SCENARIOS = ["reference", "renewal", "freshness", "immutable"];
 /**
  * External compute (#3108): every turn asks the host for one job's status. Turn 1
  * has no host handler (compute disabled), and the host's answer changes
@@ -39,8 +39,8 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
   sequence++; turnOpen = false;
   const id = `msg_odysseus_${sequence}`;
   const answer = tool ? { type: "function_call", id: "fc_odysseus", call_id: `call_odysseus_${turnIndex}`,
-    name: scenario === "compute" ? "brain_compute_status" : scenario === "freshness" ? "reference_source" : REFERENCE_SCENARIOS.includes(scenario) ? "reference_worktree" : scenario === "promotion" ? "bash" : "read_file",
-    arguments: JSON.stringify(scenario === "compute" ? { job: "cj_ithaca" } : scenario === "freshness" ? { repository: "https://github.com/odysseus/ithaca", revision: "main" }
+    name: scenario === "compute" ? "brain_compute_status" : scenario === "immutable" ? "reference_read" : scenario === "freshness" ? "reference_source" : REFERENCE_SCENARIOS.includes(scenario) ? "reference_worktree" : scenario === "promotion" ? "bash" : "read_file",
+    arguments: JSON.stringify(scenario === "compute" ? { job: "cj_ithaca" } : scenario === "immutable" ? { repository: "https://github.com/odysseus/ithaca", revision: "main", path: "README.md", offset: 0, maximum: 64 } : scenario === "freshness" ? { repository: "https://github.com/odysseus/ithaca", revision: "main" }
       : REFERENCE_SCENARIOS.includes(scenario) ? REFERENCE_ACTIONS[turnIndex] : scenario === "promotion" ? { command: "printf 'Odysseus raft plan' > /tmp/raft.txt" } : { path: "notes/raft.md" }) }
     : { type: "message", role: "assistant", content: [{ type: "output_text", text: scenario === "promotion" ? "[Raft plan](/tmp/raft.txt)" : "Odysseus checks the mast.", annotations: [] }], status: "completed", id };
   capture.exchanges.push({ turn: turnIndex, path, raw, main: true, answer });
@@ -63,7 +63,7 @@ writeFileSync(join(process.env.PI_CODING_AGENT_DIR!, "models.json"), JSON.string
 // credential only to an origin the operator lists for it: here, the loopback stub.
 process.env.BRAIN_UI_PI_CREDENTIAL_ORIGINS = `openai=${server.url.origin}`;
 try {
-  for (scenario of ["control", "repository", "facts", "promotion", "reference", "renewal", "freshness", "datatree", "compute"]) {
+  for (scenario of ["control", "repository", "facts", "promotion", "reference", "renewal", "freshness", "immutable", "datatree", "compute"]) {
     brain = fixtureBrain(scratch, scenario);
     capture = captures[scenario] = { sessions: [], exchanges: [], appends: [] };
     const backend = createPiBackend({ brainPath: brain, sessionDir: join(scratch, `sessions-${scenario}`), loadExtensions: false,
@@ -93,7 +93,12 @@ try {
             // The second turn has no host handler: the tool refuses, and the roster must not change.
             ...(REFERENCE_SCENARIOS.includes(scenario) && (scenario !== "reference" || turnIndex !== 1) ? { async referenceAccess(call: ReferenceToolCall) {
               (capture.calls ??= []).push(call);
-              if (scenario === "freshness") {
+              if (scenario === "immutable") {
+              const content = ["Odysseus charts Ithaca.", "Penelope checks the chart.", "Telemachus stores the chart."][turnIndex]!;
+              return { ok: true as const, guidance: "Fixture immutable read.", read: { repository: "https://github.com/odysseus/ithaca", revision: "main", commit: String(turnIndex + 1).repeat(40),
+                path: "README.md", offset: 0, length: Buffer.byteLength(content), totalBytes: Buffer.byteLength(content), encoding: "utf8" as const, content } };
+            }
+            if (scenario === "freshness") {
                 const step = SOURCE_FRESHNESS[turnIndex]!;
                 return { ok: true as const, guidance: "Fixture source step.", source: { repository: "https://github.com/odysseus/ithaca", revision: "main", domain: "public" as const,
                   commit: step.commit, path: "/tmp/brain-reference/public/ithaca", freshness: step.freshness, refreshedAt: new Date(Date.UTC(2026, 6, 12, step.hour)).toISOString(),

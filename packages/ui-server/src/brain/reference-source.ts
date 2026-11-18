@@ -75,6 +75,8 @@ export interface ReferenceSourceLease {
   error: string | null;
   /** Host-only lifetime check for effects awaiting after this acquisition; never a source trust capability. */
   assertAuthority(): void;
+  /** The exact live grant selected for this managed request; null for anonymous access. Host-only. */
+  readGrantId?: string | null;
   /** Ends this reader's protection against capacity eviction. Idempotent. */
   release(): void;
 }
@@ -779,6 +781,7 @@ export function createReferenceSources(options: {
         result = await lease(current, false, null, () => {
           assertTurn(); currentAccess.assertAuthority();
         });
+        result.readGrantId = currentAccess.grantId;
         assertCurrent();
         return { kind: "source", row: current, stale: false, error: null };
       } catch (error) {

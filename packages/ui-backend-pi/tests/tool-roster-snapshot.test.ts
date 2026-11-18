@@ -21,6 +21,8 @@ const FIXTURE = join(import.meta.dir, "fixtures", "pi-tool-roster.json");
 
 const VARIANTS: Record<string, Partial<BrainToolDeps>> = {
   default: {},
+  // reference_read (#3613) joins this variant's reference tools; every
+  // pre-existing definition and the other variants stay byte-identical.
   directWorkerData: { directWrites: true, shellCwd: WORKER_DATA_ROOT,
     capabilities: { location: true, activity: true, inbox: true, mask: true, policyChange: true, turnTemp: true, reference: true } },
   scratchShell: { shellCwd: "/worker/scratch", capabilities: { mask: true } },

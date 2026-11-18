@@ -1,12 +1,13 @@
 import type { z } from "zod";
 import { tool, type createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
 import { REFERENCE_TOOL_CONTRACTS, handleReferenceTool, type BackendBridge } from "@schlessera/brain-ui-sdk/server";
+import { modelToolUseId } from "./tool-use-id.js";
 
 /** Shared reference source and managed worktrees (#2432); the host binds principal, turn and generation. */
 export function createReferenceTools(bridge: Pick<BackendBridge, "referenceAccess">) {
-  return REFERENCE_TOOL_CONTRACTS.map(contract => tool(contract.name, contract.description, contract.input.shape, async input => {
+  return REFERENCE_TOOL_CONTRACTS.map(contract => tool(contract.name, contract.description, contract.input.shape, async (input, extra) => {
     try {
-      const result = await handleReferenceTool(contract.name, input, bridge);
+      const result = await handleReferenceTool(contract.name, input, bridge, modelToolUseId(extra));
       return { ...(result.isError ? { isError: true } : {}), content: [{ type: "text" as const, text: result.text }] };
     } catch (error) { return { isError: true, content: [{ type: "text" as const, text: error instanceof Error ? error.message : "Reference tool refused" }] }; }
   }));

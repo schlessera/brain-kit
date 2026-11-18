@@ -56,7 +56,7 @@ Claude Code sends `_meta["claudecode/toolUseId"]` on every MCP `tools/call`,
 and the Agent SDK's in-process server hands a request's `_meta` to the tool
 handler as `extra._meta`. The SDK types that argument as `unknown`, so the
 field is read defensively, with a minted id as the fallback (`askRequestId`,
-`packages/ui-backend-claude/src/tool-use-id.ts:20-25`). This was measured
+`packages/ui-backend-claude/src/tool-use-id.ts:28-33`). This was measured
 before anything was built on it: a keyless run of the bundled CLI 2.1.283
 against a scripted model on loopback delivered exactly the scripted
 `tool_use` id. `packages/ui-backend-claude/tests/ask-tool-request-id.test.ts`
