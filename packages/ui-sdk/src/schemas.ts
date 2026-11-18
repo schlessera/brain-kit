@@ -110,6 +110,7 @@ import type {
   ServerTextDelta,
   ServerThinkingDelta,
   ServerToolApprovalRequest,
+  ApprovalDisplay,
   ServerToolInputDelta,
   ServerToolResult,
   ServerToolUseComplete,
@@ -1377,6 +1378,18 @@ export const serverToolResultSchema = z.looseObject({
   ...sessionScoped,
 }) satisfies z.ZodType<ServerToolResult>;
 
+/**
+ * Display-only facts on an approval (#4154). A fact that fails this shape is
+ * dropped, never the card: unknown display reads as the neutral state, and
+ * the approval itself is unaffected.
+ */
+export const approvalDisplaySchema = z.looseObject({
+  github: z.looseObject({
+    poster: z.looseObject({ login: z.string().regex(/^[A-Za-z0-9-]{1,39}(?:\[bot\])?$/), is_bot: z.boolean() }).nullable().catch(null),
+    target: z.looseObject({ kind: z.enum(["issue", "pull_request"]), html_url: z.string().max(2048).nullable() }).nullable().catch(null),
+  }).optional().catch(undefined),
+}) satisfies z.ZodType<ApprovalDisplay>;
+
 export const serverToolApprovalRequestSchema = z.looseObject({
   type: z.literal("tool_approval_request"),
   toolUseId: z.string().max(MAX_ID_CHARS),
@@ -1385,6 +1398,7 @@ export const serverToolApprovalRequestSchema = z.looseObject({
   description: z.string().optional(),
   kind: z.enum(["tool", "command", "policy", "actor"]).optional(),
   rememberable: z.boolean().optional(),
+  display: approvalDisplaySchema.optional().catch(undefined),
   ...sessionScoped,
 }) satisfies z.ZodType<ServerToolApprovalRequest>;
 

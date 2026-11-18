@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import type { ClientMessage, ServerMessage, SessionRecovery, SessionRecoveryLatest, SessionRecoveryPending } from "@schlessera/brain-ui-sdk/protocol";
 import { createBrainUiRoot, type BrainUiRoot } from "../src/root.js";
 import { pendingApprovals, type ToolCall } from "../src/stores/chat-state.js";
+import { replyToToolApproval } from "../src/lib/tool-approval.js";
 import { trackerViews } from "../src/stores/tracker-state.js";
 
 // A restored approval card follows the host's recovery envelope (#1072,
@@ -346,5 +347,33 @@ describe("without the capability", () => {
     frame(r, { type: "tool_result", sessionId: A, turnId: "turn-2", toolUseId: "tool-wax", output: "sealed", isError: false });
     expect(card(r, A).status).toBe("complete");
     expect(card(r, A).readOnly).toBeUndefined();
+  });
+});
+
+describe("an approval's display facts (#4154)", () => {
+  const comment = { repository: "odysseus/ithaca", number: 7, body: "The stores are counted again." };
+  const github = (login: string | null) => ({ github: { poster: login ? { login, is_bot: false } : null, target: { kind: "issue" as const, html_url: "https://github.com/odysseus/ithaca/issues/7" } } });
+  const raise = (r: BrainUiRoot, display?: Record<string, unknown>) => frame(r, {
+    type: "tool_approval_request", sessionId: A, turnId: "turn-2", toolUseId: "github-1", toolName: "brain_github_issue_comment",
+    input: comment, kind: "command", ...(display ? { display } : {}),
+  });
+
+  test("ride the card beside its unchanged input, and a re-delivery carries the host's current facts", async () => {
+    const r = root();
+    hello(r, false);
+    r.stores.chat.getState().setActiveSession(A);
+    frame(r, { type: "session_history", sessionId: A, messages: [{ role: "user", content: "Tell the hall the stores are counted", toolCalls: [] }] });
+    raise(r, github("ithaca-brain"));
+    expect(card(r, A, "brain_github_issue_comment").approvalDisplay, "APPROVAL_DISPLAY_STORED").toEqual(github("ithaca-brain"));
+    expect(card(r, A, "brain_github_issue_comment").input, "APPROVAL_DISPLAY_NOT_IN_INPUT").toEqual(comment);
+    // A reconnect after the host's credential changed: the old poster is not kept.
+    raise(r, github(null));
+    expect(card(r, A, "brain_github_issue_comment").approvalDisplay, "APPROVAL_DISPLAY_REDELIVERED").toEqual(github(null));
+    raise(r);
+    expect(card(r, A, "brain_github_issue_comment").approvalDisplay, "APPROVAL_DISPLAY_ABSENT_IS_UNKNOWN").toBeUndefined();
+    raise(r, github("ithaca-brain"));
+    const answers: ClientMessage[] = [];
+    expect(replyToToolApproval(r, A, (message) => { answers.push(message); return true; }, "github-1", true), "positive control: the card is answered").toBe(true);
+    expect(answers, "APPROVAL_DISPLAY_NEVER_SENT_BACK").toEqual([{ type: "tool_approval", toolUseId: "github-1", channel: "card" }]);
   });
 });

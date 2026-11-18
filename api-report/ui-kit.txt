@@ -1332,15 +1332,21 @@ signatures (every public export and the types it is made of)
     }
   GitHubComment (packages/ui-kit/src/github/GitHubComment.tsx)
     export function GitHubComment(p: GitHubCommentProps): import("react").JSX.Element;
-  GitHubCommentProps (packages/ui-kit/src/github/GitHubComment.tsx)
-    export interface GitHubCommentProps {
-        author: GitHubPerson;
+  GitHubCommentBase (packages/ui-kit/src/github/GitHubComment.tsx)
+    interface GitHubCommentBase {
         time?: string;
         body: string;
         htmlUrl?: string | null;
         bodyTruncated?: boolean;
-        preview?: boolean;
     }
+  GitHubCommentProps (packages/ui-kit/src/github/GitHubComment.tsx)
+    export type GitHubCommentProps = GitHubCommentBase & ({
+        author: GitHubPerson;
+        preview?: boolean;
+    } | {
+        author?: null;
+        preview: true;
+    });
   GitHubCommitRow (packages/ui-kit/src/github/GitHubCommitRow.tsx)
     export function GitHubCommitRow(p: GitHubCommitRowProps): import("react").JSX.Element;
   GitHubCommitRowProps (packages/ui-kit/src/github/GitHubCommitRow.tsx)
@@ -1482,7 +1488,7 @@ signatures (every public export and the types it is made of)
     export function GitHubRef(p: GitHubRefProps): import("react").JSX.Element;
   GitHubRefProps (packages/ui-kit/src/github/GitHubRef.tsx)
     export interface GitHubRefProps {
-        kind: "pr" | "issue";
+        kind: "pr" | "issue" | null;
         repo: string;
         number?: number | null;
         htmlUrl?: string | null;
