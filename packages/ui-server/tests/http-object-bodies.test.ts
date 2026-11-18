@@ -8,6 +8,7 @@ import { resetVerificationReservations } from "../src/middleware/auth";
 import { createRecordingObservability } from "../src/observability";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { createTestApp, type TestApp } from "./helpers/test-app";
+import { completeJsonLines } from "./helpers/json-lines.js";
 
 const PASSWORD = "odyssey-fixture-password";
 const SECRET = "fixture-cookie-secret-0123456789abcdef";
@@ -20,8 +21,7 @@ let callsPath: string;
 let contentPath: string;
 
 function addCalls(): string[][] {
-  return readFileSync(callsPath, "utf8").trim().split("\n")
-    .filter(Boolean).map((line) => JSON.parse(line) as string[])
+  return completeJsonLines<string[]>(callsPath)
     .filter((args) => args[0] === "add");
 }
 

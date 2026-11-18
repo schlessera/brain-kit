@@ -12,6 +12,7 @@ import { closeHttpMountFixture, createHttpMountPool, httpMountAgentKey } from ".
 import { observeMountTimers } from "./helpers/http-mount-timers";
 import { mountLifetimes } from "./helpers/http-mount-lifetimes";
 import { documentedRoutes, httpCoverageMatrix } from "./helpers/http-spec";
+import { completeJsonLines } from "./helpers/json-lines.js";
 
 const SECRET = "http-contract-fixture-secret-0123456789";
 const json = (method: string, body: unknown): RequestInit => ({ method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -218,7 +219,7 @@ async function checkHandler(operation: string, check: Check, t: HttpContractApp,
   await check.verify?.(response, t);
   if (operation.includes("/api/brain/") && operation !== "POST /api/brain/sync") {
     const command = operation.split("/").at(-1)!;
-    const args = readFileSync(join(t.brainPath, CLI_LOG), "utf8").trim().split("\n").map((l) => JSON.parse(l) as string[]);
+    const args = completeJsonLines<string[]>(join(t.brainPath, CLI_LOG));
     expect(args.some((a) => a[0] === (command === "history" ? "stats" : command))).toBe(true);
   }
 }

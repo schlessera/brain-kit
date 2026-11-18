@@ -14,6 +14,7 @@ import { WEB_SEARCH_PROVIDERS } from "@schlessera/brain-ui-sdk/internal";
 import { WEB_TOOL_PROVIDERS } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { createWebBroker, type WebBroker, type WebBrokerLimits, type WebCallScope, type WebReceipt } from "../src/web-tools/broker.js";
 import { createChildWebExecutor } from "../src/web-tools/child-executor.js";
+import { completeJsonLines } from "./helpers/json-lines.js";
 
 let dir: string, broker: WebBroker, receipts: WebReceipt[];
 const FIXTURE = join(import.meta.dir, "fixtures/web-executor.ts");
@@ -34,8 +35,7 @@ const scope = (sessionId = "s-ithaca", principalId = "p-penelope", turnId = "t-v
 function call(at: WebCallScope, tool: WebToolCall["tool"], input: Record<string, unknown>, options: { signal?: AbortSignal; current?: () => boolean } = {}): Promise<WebToolEnvelope> {
   return broker.call(at, { tool, input, toolCallId: at.toolCallId }, options.signal ?? new AbortController().signal, options.current ?? (() => true));
 }
-const calls = () => existsSync(join(dir, "calls.jsonl"))
-  ? readFileSync(join(dir, "calls.jsonl"), "utf8").trim().split("\n").map(line => JSON.parse(line)) : [];
+const calls = () => completeJsonLines<any>(join(dir, "calls.jsonl"));
 const executorReceipts = () => receipts.filter((receipt): receipt is Extract<WebReceipt, { kind: "executor" }> => receipt.kind === "executor");
 const groupGone = (pid: number) => { try { process.kill(pid, 0); return false; } catch { return true; } };
 async function until(condition: () => boolean, label = "condition not met", ms = 3_000) {
