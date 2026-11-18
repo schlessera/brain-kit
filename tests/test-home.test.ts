@@ -93,6 +93,7 @@ state.odysseusUtility ??= keylessEnv("/odysseus").HOME;
 test("every repetition retains owned storage", async () => {
   expect(process.env.HOME, "TEST_HOME_SURVIVES_REPETITION").toBe(state.odysseusHome);
   expect(existsSync(process.env.HOME!)).toBe(true);
+  expect(process.env.CLAUDE_CONFIG_DIR).toBe(join(state.odysseusHome!, ".claude"));
   expect(existsSync(state.odysseusUtility!), "CLI_UTILITY_SURVIVES_REPETITION").toBe(true);
   expect(existsSync(process.env.BRAIN_HOST_ADMISSION_DIR!), "ADMISSION_SURVIVES_REPETITION").toBe(true);
   mkdirSync(process.env.CLAUDE_CONFIG_DIR!, { recursive: true });
@@ -102,10 +103,11 @@ test("every repetition retains owned storage", async () => {
   if (${JSON.stringify(outcome)} === "cancel") await Bun.sleep(60_000);
 });`);
     }
-    child = Bun.spawn([process.execPath, join(import.meta.dir, "../scripts/test.ts"), "--rerun-each=4", "--bail=1", join(root, "first.test.ts"), join(root, "last.test.ts")], {
+    const launched = Bun.spawn([process.execPath, join(import.meta.dir, "../scripts/test.ts"), "--rerun-each=4", "--bail=1", join(root, "first.test.ts"), join(root, "last.test.ts")], {
       stdout: "pipe", stderr: "pipe",
     });
-    const output = Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    child = launched;
+    const output = Promise.all([new Response(launched.stdout).text(), new Response(launched.stderr).text(), launched.exited]);
     if (outcome === "cancel") {
       const deadline = Date.now() + 10_000;
       while (!existsSync(report) && Date.now() < deadline && child.exitCode === null) await Bun.sleep(10);
