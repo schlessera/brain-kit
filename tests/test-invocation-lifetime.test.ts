@@ -171,22 +171,41 @@ expect((await output).join('')).not.toContain("NESTED_TESTS_STARTED");`);
 for (const entry of ["wrapper", "direct"] as const) test(`${entry} watch reruns rebuild instead of borrowing live outer authority`, async () => {
   const { root, write } = fixture();
   write("expected", "1");
-  const watched = consumerProbe + `import {test} from "bun:test";test("watch consumer",async()=>{expect(invocationBuild(root,["ithaca"]),"WATCH_NEVER_BORROWS_AUTHORITY").toBeUndefined();await hook();const marker=consume();expect(marker,"WATCH_RERUN_FRESH_CONSUMER").toBe(Number(readFileSync("expected","utf8")));console.log("WATCH_CONSUMER",marker);});`;
+  const watched = consumerProbe + `import {test} from "bun:test";
+import {appendFileSync,existsSync,statSync} from "node:fs";
+import {processIdentity} from "./scripts/workspace-lease.mjs";
+import {testLedgerFor} from "./scripts/host-admission.mjs";
+test("watch consumer",async()=>{
+const ledger=testLedgerFor(process.pid,processIdentity(process.pid).start);
+expect(process.env.BRAIN_HOST_ADMISSION_DIR,"WATCH_OWNS_PROCESS_LEDGER").toBe(ledger);
+expect(existsSync(ledger),"WATCH_LEDGER_LIVE").toBe(true);
+expect(existsSync(process.env.HOME),"WATCH_HOME_LIVE").toBe(true);
+if(${JSON.stringify(entry)}==="wrapper"&&existsSync("watch-resources.jsonl"))for(const line of readFileSync("watch-resources.jsonl","utf8").trim().split("\\n"))expect(existsSync(JSON.parse(line).home),"WATCH_PRIOR_HOME_LIVE_UNTIL_INVOCATION_END").toBe(true);
+appendFileSync("watch-resources.jsonl",JSON.stringify({home:process.env.HOME,ledger,inode:statSync(ledger).ino})+"\\n");expect(invocationBuild(root,["ithaca"]),"WATCH_NEVER_BORROWS_AUTHORITY").toBeUndefined();await hook();const marker=consume();expect(marker,"WATCH_RERUN_FRESH_CONSUMER").toBe(Number(readFileSync("expected","utf8")));console.log("WATCH_CONSUMER",marker);});`;
   write("watched.test.ts", watched);
   const args = entry === "wrapper" ? ["run", "test", "--watch", "watched.test.ts"] : ["test", "--watch", "--preload", join(root, "scripts/test-network-preload.ts"), "watched.test.ts"];
   write("probe.ts", `import {existsSync} from "node:fs";
 const child=Bun.spawn([process.execPath,...${JSON.stringify(args)}],{stdout:"inherit",stderr:"inherit"});const end=Date.now()+15000;while(!existsSync("tmp/stop-watch")&&Date.now()<end)await Bun.sleep(10);child.kill("SIGTERM");await child.exited;`);
   const running = start(root);
   try {
-    // Edit only after the first watch run has finished. Bun prints the summary
-    // after the file's teardown, so the edit cannot land inside that run, and
-    // the rerun it starts is the only one this test waits for.
-    await until(() => /WATCH_CONSUMER 1[\s\S]*Ran 1 test across 1 file/.test(running.output()), () => "FIRST_WATCH_RUN_COMPLETE: " + running.output());
-    write("expected", "2"); write("packages/ithaca/src/index.ts", "export const cargo = 2;\n");
-    write("watched.test.ts", watched + "\n// Odysseus prepares another voyage.\n");
-    await until(() => running.output().includes("WATCH_CONSUMER 2"), () => "SECOND_WATCH_CONSUMER: " + running.output());
+    // Wait for each summary (after teardown) before editing. Three runs prove
+    // the second reload did not prematurely remove the process-owned ledger.
+    for (const marker of [2, 3]) {
+      await until(() => new RegExp(`WATCH_CONSUMER ${marker - 1}[\\s\\S]*Ran 1 test across 1 file`).test(running.output()), () => "WATCH_RUN_COMPLETE: " + running.output());
+      write("expected", String(marker)); write("packages/ithaca/src/index.ts", `export const cargo = ${marker};\n`);
+      write("watched.test.ts", watched + `\n// Odysseus prepares voyage ${marker}.\n`);
+      await until(() => running.output().includes(`WATCH_CONSUMER ${marker}`), () => "SECOND_WATCH_CONSUMER: " + running.output());
+    }
     write("tmp/stop-watch", "stop");
     const result = await running.done; expect(result.code, result.output).toBe(0); expect(result.output).not.toContain("(fail)");
+    const records = readFileSync(join(root, "watch-resources.jsonl"), "utf8").trim().split("\n").map(line => JSON.parse(line) as { home: string; ledger: string; inode: number });
+    expect(records.length).toBeGreaterThanOrEqual(3);
+    expect(new Set(records.map(record => record.ledger)).size).toBe(1);
+    if (entry === "wrapper") expect(new Set(records.map(record => record.inode)).size, "WATCH_REUSES_OWNED_LEDGER_INODE").toBe(1);
+    for (const record of records) {
+      expect(existsSync(record.home), "WATCH_HOME_REMOVED_AFTER_LAST_CONSUMER").toBe(false);
+      expect(existsSync(record.ledger), "WATCH_LEDGER_REMOVED_AFTER_LAST_CONSUMER").toBe(false);
+    }
   } finally { write("tmp/stop-watch", "stop"); running.child.kill(); await running.done; }
 });
 

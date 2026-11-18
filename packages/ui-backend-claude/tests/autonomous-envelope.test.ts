@@ -3,8 +3,8 @@
  * proof is `tests/autonomous-containment.test.ts`; this pins the assembly the
  * proof exercises, including the refusals that never reach a worker.
  */
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { chmodSync, existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { INFERENCE_PLACEHOLDER, WORKER_INFERENCE_SOCKET } from "@schlessera/brain-ui-sdk/internal";
@@ -14,6 +14,20 @@ const brains: string[] = [];
 const finishers: Array<() => Promise<void>> = [];
 const credentialKeys = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"] as const;
 const previousCredentials = new Map<string, string | undefined>();
+// The relay-directory assertions diff the temp directory before and after a
+// turn. Other test processes create relays in the shared one at the same
+// time, so this file gets a temp directory of its own (#4250).
+const sharedTmpdir = process.env.TMPDIR;
+let privateTmpdir = "";
+beforeAll(() => {
+  privateTmpdir = mkdtempSync(join(tmpdir(), "claude-autonomous-tmp-"));
+  chmodSync(privateTmpdir, 0o755);
+  process.env.TMPDIR = privateTmpdir;
+});
+afterAll(() => {
+  if (sharedTmpdir === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = sharedTmpdir;
+  rmSync(privateTmpdir, { recursive: true, force: true });
+});
 beforeEach(() => {
   for (const key of credentialKeys) previousCredentials.set(key, process.env[key]);
 });
@@ -116,7 +130,10 @@ describe("autonomous Claude envelope", () => {
     expect(env.ANTHROPIC_API_KEY).toBe("");
   });
 
-  const relayDirs = () => new Set(readdirSync(tmpdir()).filter(name => name.startsWith("brain-inference-")));
+  const relayDirs = () => {
+    expect(tmpdir(), "relays are counted in this file's own temp directory").toBe(privateTmpdir);
+    return new Set(readdirSync(tmpdir()).filter(name => name.startsWith("brain-inference-")));
+  };
 
   test.each(["none", ...credentialKeys])("an API profile without a credential refuses before a relay or worker exists (ambient %s)", key => {
     ambientCredential(key);
