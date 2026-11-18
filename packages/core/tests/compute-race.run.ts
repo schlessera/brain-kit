@@ -4,7 +4,8 @@
  * process, and assert its exit. It installs the repository network guard
  * itself, since a plain `bun` child does not run the test preload.
  *
- *   race <spec>   wait for a barrier file, then run one job; print the result
+ *   race <spec>   print "ready", wait for a barrier file, then run one job;
+ *                 print the result
  *   hold <path>   take a compute lock, print "held", and keep it until killed
  *   crash <spec>  run a job on the local-process provider and SIGKILL this
  *                 process at a named point, leaving the record mid-lifecycle
@@ -57,6 +58,8 @@ if (mode === "race") {
     budget: fileBudget(spec.ledger, spec.cap),
     config: { compute: { providers: { ithaca: { provider: memory.provider, lease: { maxSeconds: 600 }, maxConcurrent: spec.maxConcurrent, hourlyCeilingUsd: spec.ceiling } } } },
   });
+  // Every racer reports "ready" here; the test writes the barrier only once all have.
+  console.log("ready");
   while (!existsSync(spec.barrier)) await Bun.sleep(2);
   const result = await svc.run(PENELOPE, { instance: "ithaca", argv: ["sleep", "3600"] });
   console.log(JSON.stringify(result.ok ? { ok: true, id: result.job.id } : { ok: false, code: result.code }));

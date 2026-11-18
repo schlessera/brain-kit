@@ -237,6 +237,13 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
     if (generation !== pauseGeneration) return;
     await write<void>("select", now(), principalId, resumeRetired, paused, next, finding, options);
   }
+  /** The counts the pass's next selection would store, read with its deferrals, without selecting. */
+  async function recount(principalId: string) {
+    const deferred = state().deferred ?? [];
+    const next = nextSchema.parse(await cli(deferred.length > 0 ? ["next", "--defer", deferred.map(d => `${d.findingId}=${d.fingerprint}`).join(",")] : ["next"]));
+    authority(principalId);
+    await write<void>("counts", now(), principalId, next);
+  }
   async function ensureNext(principalId?: string, resumeRetired = false) {
     if (!preparing) preparing = select(principalId, resumeRetired).finally(() => { preparing = null; });
     await preparing;
@@ -268,6 +275,8 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
     await write<void>("mediaUndo", now(), principalId, item.id, journalId, receipt, receipt.outcome === "refused" ? media.receipt(journalId, principalId) : null);
     // The finding is pending again; an active review with no card selects it in order.
     if (receipt.outcome === "undone" && state().status === "active" && !state().pendingActionId) await ensureNext(principalId);
+    // Otherwise nothing selects now, and the stored count must not keep the effect's (#2783).
+    else if (receipt.outcome === "undone") await recount(principalId);
     return { ...read(), mediaUndo: receipt };
   }
   /**

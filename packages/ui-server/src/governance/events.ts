@@ -63,6 +63,14 @@ function kind<T extends z.ZodType>(version: number, payload: T) {
  * docs/http-api.md ("Governance events"); keep the two in step.
  */
 export const GOVERNANCE_EVENT_SCHEMAS = {
+  /** Durable withdrawal of a pending card, before its operation can retry. */
+  safety_admission_expired: kind(1, z.strictObject({
+    toolUseId: z.string().min(1).max(200),
+    evidenceRevision: z.string().regex(/^(0|[1-9][0-9]{0,19})$/),
+    trustRevision: z.string().regex(/^(0|[1-9][0-9]{0,19})$/),
+    authorityEpoch: z.string().regex(/^(0|[1-9][0-9]{0,19})$/),
+    reason: z.enum(["safety_changed", "turn_ended", "grant_storage_failed"]),
+  })),
   /** Completed or refused connection, using the proxy's actual visibility. */
   egress_connection: kind(1, z.strictObject({
     connectionId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/).optional(),
@@ -70,9 +78,10 @@ export const GOVERNANCE_EVENT_SCHEMAS = {
     method: z.string().min(1).max(20), path: z.string().max(16384).optional(), bytes: count,
     accounting: z.enum(["http_wire_bound", "opaque_bytes"]), durationMs: amount,
     outcome: z.enum(["completed", "denied", "failed", "cancelled"]),
-    inference: z.literal(true).optional(), provider: z.literal(true).optional(), reason: z.string().max(200).optional(),
+    inference: z.literal(true).optional(), provider: z.literal(true).optional(), managedReference: z.literal(true).optional(), reason: z.string().max(200).optional(),
   })),
   steering_change: kind(1, z.strictObject({ path, sequence: count,
+    tainted: z.literal(true).optional(),
     beforeHash: policyHash, afterHash: policyHash, taintSourceEventId: z.number().int().positive().nullable(),
     overlappingTurnIds: z.array(z.string().min(1).max(200)).max(1000) })),
   policy_change: kind(1, z.strictObject({ requestId: z.string().min(1).max(200),
@@ -216,7 +225,9 @@ export const GOVERNANCE_EVENT_SCHEMAS = {
       "egress_connection", "fetching_command", "unclassified_command",
       // Additive (#3108): a collected external compute job's output, text from a remote machine.
       "compute_output",
-      "apify_result", "legacy_unknown"]),
+      "apify_result",
+      // Additive (#3797): issue and pull request text a host GitHub tool returned.
+      "github_result", "legacy_unknown"]),
     tool: z.string().min(1).max(200).nullable(),
     detail: text.nullable(),
     occurrence: OccurrenceSchema.optional(),

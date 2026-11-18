@@ -26,6 +26,18 @@ escaping or unsupported inputs retain the previous broad selection. Exact source
 matching detects a changed call site; it does not prove an arbitrary runtime target
 is bounded. Do not declare an owner as its own target to conceal unknown inputs.
 
+Identical indirect expressions can name exact lexical function scopes; stale,
+ambiguous or shadowed bindings remain unresolved. A declaration can instead
+name the one runner observation class, which admits only literal Linux boot
+identity, self status and self PID-namespace queries through unshadowed
+imported filesystem readers. Those values are runner observations, never Git
+blobs or repository payloads.
+
+No script resolves an edge by pinning source bytes. The audited bindings that
+did were [retired with proof retention](#retaining-complete-browser-domains)
+(#4107): an edge the walk cannot follow leaves the category unresolved, and it
+keeps the broad rule.
+
 Runtime-selected configuration/modules and backend imports can prevent a closed
 category. That is a conservative result, not permission to discard an edge. The
 shared Vitest config imports the dispatch command; its real application fixture
@@ -82,7 +94,7 @@ the [testing guidance](../process/testing.md#deliberate-offline-commands-on-linu
 documents prerequisites and the `--keep-caps`/bubblewrap trap. Generic test,
 hosted-worker and existing preflight-probe launch paths are unchanged.
 
-CI supplies authoritative complete repeatable proof on explicit ready-candidate requests. Complete
+CI supplies authoritative complete repeatable proof: fast categories on explicit ready-candidate requests, and heavy categories on the squash's own main run under the [hybrid ruling](#hybrid-post-merge-heavy-proof). Complete
 unit/integration discovery normally includes affected workspaces and every reverse
 manifest dependant, plus root tooling tests. Under the maintainer's
 [2026-10-20 option B ruling](https://github.com/schlessera/brain-kit/issues/2404#issuecomment-6286701867),
@@ -149,6 +161,17 @@ Complete local commands remain available: `check:pr --full` runs the affected
 full inventory and `check:pr --all` runs every category for releases or diagnosis.
 Neither is mandatory for an ordinary contribution with complete passing hosted
 proof. They are not substitutes for automatic event/checkout evidence.
+
+Both run their complete unit tier through the existing unit workers
+([#3238](https://github.com/schlessera/brain-kit/issues/3238)): the same files
+a serial `bun run test` would receive (the selected consumers, otherwise its
+default discovery), partitioned by `balanceTests` across
+`localUnitWorkerCount` private-build workers, with every worker report and the
+merged report validated by `validateUnitReports`. A failed worker, or one that
+exits zero without its report, fails the stage. Strict types run beside that
+tier; the workspace build, browser, capture and native stages stay serialized
+because they write the type check's resolved outputs or share Docker, Chrome
+or the native loop and storage fixtures.
 
 > **2026-10-10 — Implementation context (complete default discovery above).**
 > Under the maintainer's 2026-10-09 ruling on
@@ -498,7 +521,9 @@ one PR share a cancellable group. Different PRs never cancel one another.
 
 After cheap gates, packaging, strict verification, unit shards, runtime probes,
 browser shards, layout shards, a separate endurance job and captures start independently.
-There are four measured-cost unit partitions, three browser and two layout partitions
+There are four measured-cost unit partitions
+([eight on ready confirmation and draft heavy feedback](#eight-unit-partitions-for-ready-confirmation)),
+three browser and two layout partitions
 (`PROOF_SHARDS`, `scripts/proof-shards.ts`, which the workflow guard matches against the matrices),
 with full coverage assertions and original per-browser file concurrency bounds.
 The first two-unit-partition hosted run reached its 20-minute budgets while
@@ -527,8 +552,8 @@ with `bun scripts/refresh-browser-costs.ts <run-id> <attempt> [browser|layout]`
 (the default remains browser). Each domain retains its own run/attempt/job,
 checkout/tree/parent and pinned-image provenance. Refresh requires fresh
 successful jobs from every shard of a successful CI run, matching actual checkouts, complete
-reported project/file coverage and source/image attribution; cancelled,
-partial or retained-only proof supplies no measurements. Refreshing one domain
+reported project/file coverage and source/image attribution; cancelled or
+partial proof supplies no measurements. Refreshing one domain
 preserves the other's costs and provenance. Reviewed CI reports are measurement
 inputs, never runtime dependencies. Layout refresh admits ordinary
 `ui-react-layout` measurements; `ui-react-endurance` remains a separate mandatory
@@ -555,12 +580,14 @@ describe the 6 min 32 s attempt; they are not independent measurements.
 
 Every workflow call to `ci-runtime-setup.sh` now has a 12-minute step limit.
 This leaves 3 min 8 s above the longest reported setup, bounding mirror stalls
-without spending the proof allowance. The proof steps explicitly retain the
+without spending the proof allowance. The proof steps retained the
 former job ceilings: 15 minutes for `runtime` and `runtime_host`, and 30 minutes
-for each `unit` partition under #1485. Job limits are the sum of setup and
+for each `unit` partition under #1485. `runtime_host` proof now has 45 minutes
+([a step limit is a watchdog](#a-job-step-limit-is-a-watchdog-too), #4242).
+Job limits are the sum of setup and
 proof plus three minutes for checkout, dependency install, planning, tracing,
-summaries and artifact upload: 30 minutes for either runtime job and 45 minutes
-for unit. In the supplied successful and slow logs, checkout/install/planning
+summaries and artifact upload: 30 minutes for `runtime`, 60 minutes for
+`runtime_host` and 45 minutes for unit. In the supplied successful and slow logs, checkout/install/planning
 plus trace startup took less than 30 seconds, so this reserve has margin;
 it is finite, not a guarantee against arbitrarily stalled unrelated steps.
 
@@ -657,9 +684,7 @@ outcome never establishes a definite timeout cause. A
 successful proof step without affirmative completion evidence fails summary
 validation. A forced whole-job cancellation can prevent the summary itself;
 absence is unknown/nonpassing, never a promise of completion. These controls
-preserve aggregate refusal and all offline and proof-reuse rules. Changing
-the audited coordinator invalidates optional generated-build binding until a
-separate post-merge re-audit under #2408; this repair does not repin it.
+preserve aggregate refusal and all offline rules.
 
 Hosted unit partitions use a queue capped at two serial Bun test processes
 (`scripts/unit-workers.ts`), or one when only one file is selected. Native
@@ -838,8 +863,9 @@ unavailable; process maximum RSS does not establish aggregate headroom. The
 measurement workflow remains an evidence vehicle and is not merged.
 
 Unit weights have the same explicit reviewed path:
-`bun scripts/refresh-unit-costs.ts <run-id> <attempt>`. It requires all four
-successful exhaustive unit jobs and binds actual checkout logs, immutable
+`bun scripts/refresh-unit-costs.ts <run-id> <attempt>`. It requires every planned
+partition of an exhaustive run as a successful unit job (four, or eight on a
+ready confirmation) and binds actual checkout logs, immutable
 source discovery, complete JUnit/timing partitions and downloaded archive
 digests. `scripts/unit-shard-measurement.json` records that provenance; the
 refresh names any observed unweighted file exceeding 30 seconds. Timings
@@ -914,130 +940,96 @@ commit/tree/parents to the requested head/base and live PR readiness/head plus
 an independently queried base ref. A changed base requires a new confirmation
 request, even when a reviewer considers that base change unrelated. This is a
 conservative identity rule: no rebase is required solely to request a new
-combined checkout, and admitted equivalent browser/layout domains can still be
-retained. It supersedes the earlier permission to merge after only a manual
-unrelated-base assessment. Endurance and Git-sensitive domains remain fresh. Reuse is justified only
-when the complete suite inputs, dependency closure, fixtures and harness are
-unchanged and recorded evidence establishes that fact; unknown/global changes
-require fresh proof. There is no generic passing-result cache. The earlier run
-still names its own tree, not a later combined checkout. Required branch rules
+combined checkout. It supersedes the earlier permission to merge after only a manual
+unrelated-base assessment. Every selected category runs fresh on the new
+combined checkout: there is no passing-result cache, and
+[browser proof retention is retired](#retaining-complete-browser-domains).
+An earlier run still names its own tree, not a later combined checkout. Required branch rules
 and actual merge-result parent/tree validation remain binding.
 
 ### Retaining complete browser domains
 
-Under #1333, ready-PR metadata can retain every shard of a complete browser or
-layout domain from up to three recent successful automatic runs of that same
-contribution. Unit, types, packaging, native runtime and editorial checks remain
-fresh: their Git-sensitive or broader process inputs do not have an admitted
-independent domain. Main pushes and scheduled/manual runs execute fresh proof.
-There are no chains through previously retained/skipped jobs.
+**Retired (maintainer, 2026-11-16,
+[#4107](https://github.com/schlessera/brain-kit/issues/4107)).** Every selected
+`browser` and `layout` job runs fresh. This supersedes #1333 (retention), #2126
+(its hosted demonstration) and the #2408 re-audit rulings of 2026-10-18 and
+2026-11-04, and follows #4105, which retired the native diagram pin for the
+same reason. The last re-audit under that procedure was
+[#4057](https://github.com/schlessera/brain-kit/pull/4057), for
+[#3233](https://github.com/schlessera/brain-kit/issues/3233); its record left
+this document with the procedure and remains on that pull request.
 
-Vitest's installed `list --filesOnly --json=<path>` discovers actual project/file
-ownership without collecting suites. Browser and layout each fingerprint their
-complete applicable static-import and validated indirect-input closure from
-#2125, including CSS scan roots and assets. Unknown runtime/computed inputs,
-unavailable discovery and invalid declarations require fresh execution.
-Directory ownership includes added descendants; missing and symbolic inputs
-remain conservative failures until fully supported.
+**What it was.** Under #1333, a ready PR could skip every shard of a complete
+browser or layout domain when an earlier successful run of the same
+contribution had run it on equivalent inputs. Equivalence was a fingerprint
+over the domain's complete input closure. To call a closure complete, each
+runtime edge the static walk could not follow was resolved by an *audited
+binding*: a script that named the exact call site and pinned the SHA-256 of
+every source file involved. The aggregate revalidated a ledger of retained
+categories before accepting their skip.
 
-Identical indirect expressions can name exact lexical function scopes; stale,
-ambiguous or shadowed bindings remain unresolved. A narrow runner observation
-class admits literal Linux boot identity, self status and self PID-namespace
-queries through unshadowed imported filesystem readers. It rejects descriptor
-paths, dynamic PID/path expressions, arbitrary files and non-reader constructs.
-Those values are runner observations, never Git blobs or provider/repository
-payloads. Other process/filesystem inputs still need supported ownership.
+**Why it is retired.**
 
-Generated fixture roots additionally require the root-redirect environment
-variables `BRAIN_ROOT`, `BRAIN_WORKER_DATA_ROOT` and `BRAIN_WORKER_CONFIG_ROOT`
-to be absent, including empty overrides. The versioned runner condition is
-checked when making fresh receipts and revalidating current/source evidence.
-A verified literal producer in an owned temporary root alone does not bind a
-consumer reached through CLI arguments, cwd or configuration redirection.
+- **No event reaches it.** Retention applied only to a ready PR that selected
+  `browser` or `layout`. Under the [hybrid ruling](#hybrid-post-merge-heavy-proof),
+  ready confirmation no longer selects either, and ready feedback never did.
+  Main and exhaustive runs were always fresh.
+- **It rarely worked before that.** #2126 recorded no retained category in 57
+  PR runs. Its one controlled hit saved runner seconds and was slower end to
+  end (1,253 s against 1,220 s).
+- **Its pins failed product PRs.** A pin is a hash of first-party source, and
+  its self-test read the live file. A product change to a pinned file, such as
+  `packages/ui-react/src/ws-client/inbound.ts`, turned `unit` red until the
+  changing PR recomputed the hash. Twenty PRs edited that one file.
 
-A bounded command-activation audit covers seven dormant server, Mermaid and scene
-callbacks. Registration in a selected project is allowed only when the complete
-selected call inventory proves the callback is never invoked. It checks the
-complete selected spec inventory, inherited setup/global hooks and their static
-imports; actual invocation, callback escapes, dynamic loaders and aliased
-command invocation retain fresh execution. Admission additionally requires exact
-audited runner, configuration, callback and imported-helper source identities.
-An edit requires a new audit rather than general TypeScript partial evaluation.
-Only a proven inactive arrow body defers its runtime inputs. Its module and
-static imports still execute and retain ordinary input checks, including any
-top-level initializer or side effect. Dormant declared targets and their static
-imports remain fingerprinted source bytes. This bounded support does not close
-unrelated generated assets or provenance inputs.
-The audited configuration, selected specs and inherited setup/global hooks are
-also ordinary runtime closure roots; inspecting their command calls cannot
-substitute for hashing their sources and resolving their executed input reads.
+**What was removed.**
 
-Generated consumer stylesheet imports bind the exact `ui-kit`/`ui-react`
-`dist/styles.css` output and byte-copied theme/token exports to their source stylesheets, recursive CSS inputs and
-tracked producer. The audited build cleans package output, uses the frozen
-Tailwind dependency and completes successfully before browser execution and its
-fresh receipt. Three audited command readers additionally bind the runner's
-`packages/ui-kit` cwd. Producer, command or execution-path drift makes that
-binding unavailable. Current `dist` bytes never substitute for source inputs.
-Other generated artifacts, external assets and temporary readers remain unknown
-until their own bindings are validated.
+- The retained-proof lookup, its ledger, the aggregate's revalidation and the
+  fresh-execution receipt each shard printed for it. The metadata job has no
+  retention step and sets no `run_browser`, `run_layout` or `reuse` output.
+  `checks: read`, which only that lookup used, is gone from the token.
+- The inclusion fingerprint and its immutable-tree snapshot.
+- Every audited binding, with its frozen positive fixtures and self-tests:
+  command activation, document and replay producers, runtime readers, dispatch
+  registries, literal payloads, locked installed assets, generated CSS and the
+  dictation theme, screenshot baselines, and the Worker capability audit
+  manifest.
 
-Generated CSS/theme and inclusion self-tests use raw Git blobs from the
-independently pinned audited revision for their positive producer controls.
-They test actual current producer bytes separately: legitimate audit drift
-requires fresh proof and does not redefine the positive fixture. The locked
-offline compiler and installed-asset byte/mode controls remain runtime proof.
+**What stays.**
 
-Browser document, inactive-command and worker-boundary self-tests follow the
-same ownership rule. Their positive config, callers, producers and binary font
-fixtures come from independently pinned raw Git blobs, including frozen directory
-membership (`const owner`, `tests/frozen-browser-source.ts:8-22`). Actual candidate
-bytes are checked separately against that owner
-(`test.each([...reviewedBrowserDocuments])`, `tests/bound-browser-documents.test.ts:142-155`);
-changed enforcement cannot qualify by recomputing its manifest. These fixtures
-exercise the existing audit and never refresh production pins or authorize
-retained proof for the candidate.
+- **Selection** ([browser proof input ownership](#browser-proof-input-ownership)).
+  The static walk and the declared inputs still build each category's closure.
+  An edge a binding used to resolve is now unresolved, so the category keeps
+  the planner's broad rule for it. Removing a binding can only widen
+  selection. The qualification replay found no narrowing: over the archived
+  100-PR set (#1741–#2071) and over the 100 most recent merges at the time
+  (#3837–#4101), the rule after the removal selected every category the rule
+  before it selected, in all four browser categories. The ten build and CI
+  scripts that left the closures each make a plan global on their own, which
+  selects everything.
+- **The aggregate.** A selected job that is missing, skipped, cancelled or
+  failed cannot pass, and nothing excuses a skip. `integrate.ts merge` refuses
+  a selected-proof receipt that names a retained category. The receipt keeps an
+  always-empty `retained` list so that a checkout predating the retirement and
+  the timing collector still parse it.
+- **The zero-Worker boundary.** The selected browser projects install it before
+  product imports (`installWorkerBoundary`, `scripts/browser-worker-boundary.ts:2-21`).
+  It records and refuses every Worker construction, checks after test hooks and
+  again in the outer `aroundAll` after returned and file-fixture cleanup, then
+  restores the original descriptor. Catching the construction error in the
+  product cannot make the proof pass. Layout, endurance and the real PDF-worker
+  runtime categories run unrestricted.
+- **Every runtime assertion in the browser suites**, including the
+  zero-request replay guards and the native producer's checks below.
 
-Only a reviewed re-audit moves the audited revision
-([#2408](https://github.com/schlessera/brain-kit/issues/2408), maintainer ruling 2026-10-18):
+**The guard against a return.** `tests/first-party-source-pins.test.ts` refuses
+a script or test that holds the SHA-256 of a first-party source file. It also
+changes the bytes of two formerly pinned product files in a copy of the tree,
+and requires planning and the root tests the planner selects for them to pass.
+If retention is wanted again, its qualification is designed afresh, without
+source pins that a product change can break.
 
-- **Trigger.** A legitimate change to any file in the audited producer table
-  (`const auditedProducer`, `scripts/generated-build-inputs.ts`) lands on main.
-  That merge leaves the binding unavailable, so proof runs fresh. A separate
-  follow-up PR restores it. Drift is not batched indefinitely.
-- **Owner.** The audited revision (`const owner`, `tests/frozen-generated-source.ts`)
-  must be a delivered main commit. CI reads its blobs offline from full history,
-  and a squash merge discards the changing PR's own commits, so that PR cannot
-  name itself as the owner.
-- **Audit.** The re-audit reviews each changed producer and the combined set's
-  guarantees: cleaned package output, the frozen Tailwind dependency, the build
-  finishing before browser execution, checked exits and the fresh receipt. It
-  records the owner, the changed paths and digests, and the rationale.
-  Recomputing a digest is not an audit.
-- **Update.** One PR moves the owner, refreshes every matching production digest
-  and updates the positive-fixture provenance together. It records two mutation
-  receipts, then completes local and hosted proof:
-  - a producer-digest bypass fails its negative control;
-  - corrupt positive ownership fails its positive control.
-- **Drift during review.** A producer that changes again before the re-audit
-  merges needs renewed review, or stays unqualified and keeps fresh proof.
-  Automatic pin refreshes and per-file ownership are not part of this
-  procedure.
-- **Audited readers.** The same rule covers the audited command readers
-  (`const readers`, `scripts/locked-browser-assets.ts:6-9`;
-  `const auditedReaders`, `scripts/generated-build-inputs.ts:37-41`)
-  ([#2408](https://github.com/schlessera/brain-kit/issues/2408), maintainer
-  ruling 2026-11-04). A legitimate change to a reader makes its asset binding
-  unknown, so proof runs fresh; it never fails a test, and the changing PR does
-  not refresh the reader's pin. The reader's self-test holds the repository's
-  actual reader to whichever side of its pin its bytes are on: matching bytes
-  must yield the installed receipt and drifted bytes must yield no receipt
-  (`test("the repo reader`, `tests/locked-browser-assets.test.ts:26-33`). Its
-  positive control reads the reader from the frozen owner. The post-merge
-  re-audit moves that owner and refreshes the reader's pins in both maps
-  together.
-
-The native diagram SVG/PNG/PDF fixture has a separate finite operation binding.
+The native diagram SVG/PNG/PDF fixture runs behind a container boundary.
 The host launches each engine's native producer in a separate network-disabled,
 read-only-root Docker container, using the existing pinned Playwright image's
 actual immutable manifest reference. The only host mounts are the private six-workspace
@@ -1045,12 +1037,10 @@ source view (read-only), a private external-package installation (read-only), th
 captured installed Bun bytes (read-only), and an initially empty owned output
 directory. Its HOME/temp and shared-memory filesystems are fresh container state;
 neither the original checkout nor host temporary directories or browser font
-cache are mounted. Image and Bun identities join the browser input fingerprint.
+cache are mounted.
 Execution bootstrap provisions the exact manifest digest and verifies its
 RepoDigest before either producer or browser consumption. Acquisition stays
-outside the offline producer and proof lookup.
-Metadata lookup projects the explicit manifest reference without requiring a Docker image
-on the metadata runner; actual execution requires that exact manifest reference with no pull.
+outside the offline producer; execution requires that exact manifest reference with no pull.
 The kernel mount boundary applies to imported initialization and shared library
 helpers as well as the fixed entry; their inactivity is not assumed.
 
@@ -1067,194 +1057,65 @@ mounts qualify the mount restriction.
 
 Only a successful, drained native process publishes its artifact identities into
 a fresh per-launch handoff directory. The browser validates the preparation
-session, checkout, source/installation/runtime identities and all three artifact
-hashes, writes those exact validated bytes into its private consumer view, then
+session, checkout and all three artifact hashes. It writes those exact
+validated bytes into its private consumer view, then
 retains the original SVG/reference zero-request replay and
 raster/font/PDF assertions. Different launches never share a prepared output root.
 The browser-side pinned font cache remains a separately owned browser input.
 
-Qualification is tied to the exact operation, source and installed identities;
-unknown readers, drift or missing inputs retain complete fresh proof. The fresh
-shard independently passes its computed identity to host preparation and checks
-installation/runtime identity again before emitting its existing receipt. Both
-shards, independent immutable source/current validation and whole-workflow
-successful eligibility retain the existing complete-domain protocol. Local proof
-is not a hosted baseline, retention hit or permission to use a failed workflow.
+**The frozen qualification is retired (maintainer, 2026-11-16,
+[#4105](https://github.com/schlessera/brain-kit/issues/4105)).** #2293 pinned the
+producer's source (`e8502b6f…`, the frozen #2293 snapshot), its installation
+(a hash over every package, file, byte and mode in `node_modules`) and three
+source files. That let a ready PR retain browser proof from an earlier green
+run. The pin no longer protected anything live:
 
-Two audited fixture readers consume the literal installed `axe-core/axe.min.js`
-asset. Its explicit resource identity records package name/version, relative
-asset name, SHA-256 and mode in addition to the matching manifest/lockfile and
-frozen-install conditions. Missing, symbolic, escaped or changed reader inputs
-remain fresh; a changed reader stays fresh until its post-merge re-audit. This is exact-file validation, not a scan of `node_modules` or a
-claim that arbitrary installed files belong to a domain.
+- Under the [hybrid ruling](#hybrid-post-merge-heavy-proof), ready confirmation
+  no longer runs browser proof, and the squash's main run is always fresh.
+- All three pinned source files had drifted, so the binding could not qualify
+  on the current tree in any case.
+- Any dependency change moved the installation hash and turned `unit` red. That
+  needed a manual requalification run on a Docker host and a second merge
+  cycle. Two requalifications ran (#3320, #3968), and the frozen producer's
+  SVG and PNG came out byte-identical both times; #4102 was the third
+  dependency change, blocked until this retirement.
 
-Two exact source-owned literal payloads—the rectangle SVG fixture and the
-black/white pixel probe—have no resource loads or executable content. Their
-complete owner and call identities validate the actual Playwright sink and
-lexical binding. Interpolated HTML and other payloads remain unresolved; this
-support cannot certify arbitrary generated documents.
+The binding (`scripts/native-diagram-inputs.ts`) and its self-test are
+removed, and the browser input closure no longer binds the producer's reads.
+The browser domain therefore always runs fresh. This supersedes the
+requalification rulings of 2026-11-02 (#2509/#3320) and 2026-11-11 (#3968).
+The container boundary above, the producer's own run-time checks and the
+browser's validation of the handoff session, checkout and artifact hashes are
+unchanged. The comparisons against an expected source, installation or
+runtime identity took that identity from the retired binding, so no caller
+could supply one. They are removed, together with the environment variable
+that carried the identity to the browser runner
+([#4119](https://github.com/schlessera/brain-kit/issues/4119)).
+Local proof is not a hosted baseline or permission to use a failed
+workflow.
 
-The complete activation-audited import inventory also seals two bounded reader
-flows. The exact browser sequencer calls the cost reader without an override,
-so its default is the module-relative cost JSON. The exact font command fixes
-the repository and lock-hash cache roots, verifies every length/checksum before
-use and replaces the pinned stylesheet URLs with those verified bytes. Reader,
-caller and font JSON/CSS/head identities must match their audit; additional
-imports, reexports or loaders into either reader require fresh execution. These
-bindings name only the exact consumed repository bytes. They do not bless
-arbitrary file parameters, changed font data or unverified cached content.
 
-Two finite private dispatch registries admit their exact indexed calls while
-every handler and imported helper retains normal runtime input traversal. The
-source audit verifies literal function entries, copied handler maps and private
-non-escaping registries. The complete importer inventory rejects additional
-map consumers; two exact consumers of a different chat helper are separately
-audited. Changed source, escaping maps or new consumers require fresh execution.
-
-The dictation theme command has a separate temporary-output producer binding.
-Its exact source owns a new temporary directory, invokes the locked Tailwind
-CLI with constant input/output arguments, awaits successful completion, reads
-only that output and removes the directory. The binding includes the compiler
-asset identity, checked build producer and recursively resolved CSS entry,
-theme, tokens and explicit source scan. Its precise `promisify` and
-`createRequire` uses do not permit other aliases. The runner registration and
-complete importer inventory seal the command's caller; source or input drift
-requires a new audit. This support does not admit arbitrary subprocess outputs.
-
-One interpolated HTML fixture is separately bound to its exact producer and
-complete selected command-call inventory. The destination-press spec supplies
-only the source-owned paragraph document plus an explicit reporting/scroll
-script; its other call removes the route. Exact configuration, command owner
-and caller bytes seal the argument origins. Additional direct, renamed or
-await-import command callers, escaping command aliases or direct owner imports
-require fresh execution. This is a producer binding, not an assertion that
-HTML containing a script is inert.
-
-The argument-free ghost replay has a distinct self-contained-document binding.
-Its sole exact caller first renders the literal Performance story, then copies
-that scene's DOM and the loaded CSS rules. The preview, inherited font setup,
-checksum-verifying font producer, lock/CSS/head inputs and replay guard are
-source-audited; all imported component and CSS dependencies retain their normal
-closure traversal. Verified font bytes are inline data URLs. The replay page
-aborts and records every HTTP/websocket attempt, also records request events
-that could bypass routing, and asserts no attempts after document/font loading
-and before/after tracing. Loopback resources receive no exemption. A resource
-attempt fails the actual proof; source, caller, guard or producer drift requires
-a new audit. The scene, visual assertions and trace remain unchanged.
-
-Diagram capture binds all six exact renderer, axis, positional, node-link,
-callout and scene-bounds callers and their complete call-site inventories,
-closed SVG primitive producers,
-literal adopted fixture, generated consumer CSS and locked inline-font inputs.
-Its additional replay page contains that source-owned document, aborts and records
-HTTP/websocket requests, and checks the zero-request invariant after document and
-font loading and after capture. Unknown DOM or resource origins remain unresolved;
-source or producer drift requires fresh execution and a new audit. The
-scene-bounds caller owns one literal origin-group fixture and two literal
-annotation variants. Its client/static/flattened renderers share the closed
-primitive producer; the fixture, flattening dependency and changed geometry,
-annotation and painter sources are pinned explicitly. This audit does not
-qualify native retention or replace complete fresh runtime proof.
-
-The selected browser capability additionally requires a complete audited
-input-domain identity and an enforced zero-Worker boundary. The native,
-forwarding diagnostic established no intended Worker execution in that
-selection; its observation ended at `afterAll`, so it does not claim returned
-cleanup coverage. Enforcement installs before product imports, records and
-refuses every construction attempt, checks after test hooks and checks again
-in the earliest outer `aroundAll` finally after returned/file-fixture cleanup.
-Catching a construction error in the product cannot make its proof pass. The
-original descriptor is restored completely after checking. Real PDF-worker
-runtime categories and the layout/endurance projects retain fresh unrestricted
-execution; no product constructor or configuration default changes.
-
-Admission validates exact known enforcement/configuration sources independently
-of the audit manifest, then joins every selected source/data path, blob/mode,
-directory membership, resource identity and inventory entry to that bounded
-audit. Any relevant source, caller, realm, hook, guard or data edit executes
-fresh until re-audited. A constructor hidden by a new alias cannot bypass this
-mandatory browser capability check merely by disappearing from syntax
-discovery. Unknown external resources still prevent admission. The manifest's
-own bytes are ordinary shared fingerprint inputs; it is never self-hashed.
-Version 2 separates current source-audit admission from historical diagnostic
-observations. Historical case counts and their cleanup gap remain attributed to
-the old selection; adding projects does not fabricate a whole-domain observation.
-Old or missing admission metadata stays fresh. Its metadata cannot replace
-complete successful guarded fresh jobs or the
-independent retained-proof validator. This bounds the existing PDF constructor
-to no consumed Worker resource; it does not authorize an arbitrary worker URL.
-
-Vitest screenshot references are inputs too. The pinned installed resolver's
-verified defaults locate them under each selected spec's own
-`__screenshots__/<spec basename>` directory. Eligible immutable tracked paths,
-bytes and modes join the closure and capability identity, including added,
-deleted and renamed baselines. A tracked file/symlink at a baseline directory
-cannot hide an external reference. Custom screenshot directories/resolvers,
-matcher aliases and unresolved option objects stay fresh; only closed literal
-comparison settings are supported. The framework asset identity joins the
-locked installed resources. No current output or untracked image enters this
-snapshot, and baseline changes cannot inherit old passing comparisons.
-
-The inclusion fingerprint binds relevant immutable Git paths, blob identities
-and modes, selected discovery ownership/order, the domain's measured partitions (`PROOF_SHARDS`) and
-runner identity. It also includes every proof/tooling script and workflow,
-root/package manifests and lockfiles, compiler configuration and expanded build
-source inventories. These conservative shared harness inputs can invalidate
-retention even when only one domain executes them. Unrelated prose is not an
-input merely because it is tracked; imported or declared prose remains included.
-
-Source/current closure discovery uses separate raw-Git-blob snapshots. Workspace
-package links resolve inside their own snapshot, while external dependency
-resolution uses the frozen install only after source/current algorithm,
-configuration, manifests and lockfiles match. Current generated/dist artifacts,
-working-tree bytes and Git archive substitutions cannot stand in for immutable
-source content. A helper or dependency identity mismatch executes fresh.
-
-The implemented fingerprint is only a necessary condition for retention. A
-bounded browser admission still needs the complete guarded fresh baseline and
-real retained-proof validation; unsupported layout/runtime inputs continue
-fresh execution. Neither a synthetic closed fixture nor a graph
-structure hash establishes a real hosted retention hit. #2126 remains open until
-its controlled same-PR hosted demonstration and independent aggregate evidence
-are complete.
-
-Each source shard must have an actual successful fresh execution step, a
-matching GitHub Actions check, one post-success receipt, and a checkout log
-for the same PR. Run/attempt/job/check IDs and immutable commit/tree/parents
-are verified against the [read-only GitHub job/check APIs](https://docs.github.com/en/rest/actions/workflow-jobs).
-Both source and current Git
-trees are recomputed; artifact or PR metadata claims alone cannot authorize
-retention. The source workflow must be identical. The current-head aggregate
-independently repeats receipt validation before accepting a selected domain's
-intentional skip, retaining the original evidence's identity in the ledger.
-Missing, failed, cancelled, held, malformed or mismatched evidence cannot pass.
-
-CI adds only `actions: read` and `checks: read` for those APIs; ordinary fork execution retains
-its read-only token, no secrets and nonpersisted checkout credentials. Lookup
-is limited to three runs, 32 API requests with a 45-second API budget, bounded response sizes and
-finite logs; unavailable evidence falls back to fresh execution. The aggregate
-fails closed if previously admitted retention is no longer verifiable.
-The escaped ledger output stays below 90 KB, leaving room for the aggregate's
-other outputs under the native per-environment-string limit; larger receipts
-execute fresh.
-Record actual retained runner time and lookup/aggregate costs on a controlled
-base advancement. This preserves runner consumption without claiming that
-unchanged browser proof removes a remaining long native critical path.
 Discovery has a fixed 30-second wall-clock maximum for the native child to exit
-and both output pipes to drain (`browserInventory`, `scripts/proof-inputs.ts:81-139`),
-in local preflight and hosted metadata,
-fingerprinting, reuse lookup and aggregate validation. The maintainer selected
+and both output pipes to drain (`browserInventory`, `scripts/proof-inputs.ts:56-127`),
+in local preflight and hosted metadata. The maintainer selected
 option A under [#2380](https://github.com/schlessera/brain-kit/issues/2380) on
 2026-10-22: #2326's cold discovery sample took 14,811 ms in the pinned offline
 image with two CPUs, so 30 seconds allows approximately twice that observed
 duration. Hosted metadata steps had completed in 6–11 seconds. This bounded
 margin does not guarantee completion under arbitrary CPU starvation; a stuck
 child can take up to 15 seconds longer to fail than under the previous maximum.
+A failure receipt records the discovery child's CPU time and involuntary
+context switches beside its wall time, with the runner's parallelism and load
+average, so a timeout names its phase: CPU near the deadline is slow discovery,
+CPU far below it is a runner that withheld CPU or I/O
+([#4149](https://github.com/schlessera/brain-kit/issues/4149)). The #4149
+timeout came before these fields and was a starved runner: its checkout and
+install also ran about five times slower than usual, and the same candidate
+tree discovered in about 5 seconds in the pinned image with two CPUs.
 Process controls inject a short deadline and assert the default separately;
 the integration test allows additional time for ownership scanning and cleanup.
-Discovery failure still rejects unsuccessful inventories and retains the
-caller's existing fresh-execution or fail-closed behavior.
-A missing immutable Git object has an eight-second bounded fetch.
+Discovery failure still rejects unsuccessful inventories: selection then keeps
+the broad rule for every browser category, and the scenario inventory fails closed.
 Runner image context comes from the image's
 [recorded environment](https://github.com/actions/runner-images/blob/main/images/ubuntu/scripts/build/configure-environment.sh).
 
@@ -1361,7 +1222,15 @@ three attempts with bounded backoff. There is no persistent or FIFO queue.
 
 Use `confirm <pr> --issues owner/repo#N,...` before requesting costly ordinary
 candidate proof. The command acquires, requests draft-to-ready confirmation,
-renews while waiting, and calls its shared merge path after success. Nonowners
+renews while waiting, and calls its shared merge path after success. Before
+it acquires, it reads the newest contract run for the exact head
+([#3573](https://github.com/schlessera/brain-kit/issues/3573)). The merge path
+accepts contract proof only from that run, and the ready transition does not
+start one. So a missing, cancelled or failed newest run refuses confirmation
+before any candidate CI is requested, naming the remedy: a fresh contract run,
+started by a body edit or a label change. An older passing run never stands in
+for a newer one, because the gate reads the current title and labels. A
+pending run is waited for, without a reservation, for at most ten minutes. Nonowners
 may code and run fast feedback but must hold competing confirmation and merges.
 `confirm` keeps the holder token in memory only. For a separately managed
 proof window, `acquire <pr>` prints the explicit lease ID and, once, its holder
@@ -1459,6 +1328,12 @@ and [for the window and bundling](https://github.com/schlessera/brain-kit/issues
 11. **Phase B gate of #2934.** Seven consecutive days within one proof-policy
     epoch, first-main green at or above 80%, and every red incident attributed.
 
+Answers 3 and 5 are amended by
+[the 2026-11-17 watchdog ruling](#test-watchdogs-are-a-worst-case-catch-all):
+raising a test timeout or deadline is neither a proof-system change nor a
+test optimization that needs off-main qualification. Lowering, removing or
+adding one still is.
+
 Answers 6, 8 and 10 restate the
 [2026-10-25 red-main and coordination decisions](https://github.com/schlessera/brain-kit/issues/2934#issuecomment-6402400614).
 That decision also covers strict flake handling, cooperative merge blocking with
@@ -1474,10 +1349,12 @@ Each implementation task is tracked separately:
   The globs live only in `scripts/proof-system-paths.json`;
   `bun scripts/proof-system.ts classify --base <sha> --head <sha> [--json]`
   and its exported `classify` report the decision with its reasons. The
-  timeout check flags a changed, added or removed timeout or deadline value
+  timeout check flags a lowered, added or removed timeout or deadline value
   where a hunk rewrites existing test lines, and a `setDefaultTimeout` added to
-  or removed from an existing test file. A new test or test file that sets its
-  own timeout changes no existing budget and is not flagged;
+  or removed from an existing test file. A value raised in place is not
+  flagged ([#4191](#the-proof-system-check-follows-the-direction)). A new test
+  or test file that sets its own timeout changes no existing budget and is not
+  flagged;
 - lane and stability window: [#3269](https://github.com/schlessera/brain-kit/issues/3269);
 - automatic epochs: [#3270](https://github.com/schlessera/brain-kit/issues/3270).
   `scripts/ci-epochs.ts` classifies each first-parent squash of main against
@@ -1487,6 +1364,51 @@ Each implementation task is tracked separately:
   epoch with an `unknown` boundary
   ([fields](../process/ci-throughput.md#proof-policy-epochs));
 - off-main qualification evidence: [#3271](https://github.com/schlessera/brain-kit/issues/3271).
+
+#### Lane and qualification gates
+
+`bun scripts/integrate.ts acquire`, `confirm` and `merge` classify the
+candidate from its merge base with the exact base to its exact head, using `classify` from
+`scripts/proof-system.ts`, and hold only a proof-system candidate. Both gates
+and `lane --json` live in `scripts/proof-system-lane.ts`; neither lists a
+glob.
+
+- **Stability window** ([#3269](https://github.com/schlessera/brain-kit/issues/3269),
+  answers 1 and 2, as
+  [amended to a single run](https://github.com/schlessera/brain-kit/issues/2938#issuecomment-6580707195)).
+  The last proof-system squash is the newest first-parent main commit, within
+  200, whose diff to its parent classifies as one. Each squash's run is the
+  newest main-push `ci.yml` run at that SHA. A run has settled once it has
+  completed, and a squash with no run has settled once a later squash exists,
+  because it never gets one; a queued or in-progress run, or no run yet at the
+  newest squash, has not. The squash's own run must settle first. The lane is
+  then open when the newest settled run from that squash on is green, and
+  closed when it failed, was cancelled or timed out, or never existed. So the
+  own green run opens the lane without waiting for later runs, and after any
+  failure the next green main run reopens it. That includes a failed own run:
+  a rerun at a squash that broke main would stay red, and the decision is
+  "if a main run fails, the lane reopens at the next green main run". No
+  rerun or revoke is needed. The check reads the own run, then later squashes
+  newest first, and stops at the first settled one: at most ten main runs. If
+  all nine later runs it reads are unsettled and older squashes were not read,
+  the lane is `unknown` and refused. The refusal names the blocking squash and
+  the run found at each squash it read, and says `1 more green main run
+  required`. `bun scripts/integrate.ts lane --json` prints the same decision
+  (`state`, `ownGreen`, `required`, `window`, `decisive`) with that refusal,
+  or `null` when the lane is open. `acquire` and `confirm` check before taking the
+  reservation or requesting candidate CI, and the merge checks again, because a
+  main run may fail while the candidate is proved.
+- **Off-main qualification** ([#3271](https://github.com/schlessera/brain-kit/issues/3271),
+  answer 3). The PR body needs an `Off-main qualification` heading whose
+  section, outside HTML comments, links a GitHub Actions run of this
+  repository that completed with conclusion `success` and whose head SHA is
+  the candidate head, or an ancestor of it whose
+  diff to the head is not a proof-system change. At most five linked runs are
+  read. Whether the evidence is sufficient stays a review question.
+- **Exemption.** A declared red-main fix skips both gates: one merged with
+  `--fixes-main-run`, and one declared on the open record and confirmed
+  ordinarily because its failures are category-level. A fix that had to
+  wait for the window it repairs could never land.
 
 ### Red-main record and coordinator
 
@@ -1549,7 +1471,7 @@ GitHub did not record, or whose ancestry cannot be determined, is left alone.
 So proof for a PR against an integration or release branch forked before the
 bad commit keeps running. `integrate.ts` applies the same rule to the
 candidate's base and head before confirming or merging, and refuses when
-ancestry is unknown (`refuseWhileRed`, `scripts/integrate.ts:85-89`). A non-fix squash
+ancestry is unknown (`refuseWhileRed`, `scripts/integrate.ts:88-92`). A non-fix squash
 that lands while red is reported once on its PR and on the incident, and
 recorded as an `incident` event through `scripts/ci-timings.ts record` in the
 coordinator's `red-main-events` artifact.
@@ -1627,7 +1549,8 @@ a run killed from outside still leaves an honest receipt.
 `integrate.ts merge` maps each skipped, timed-out or preempted check to its
 hosted categories and refuses the candidate when none of them ran successfully
 in the exact-head selected proof, naming every such check and the categories it
-needs. A category retained by validated proof reuse counts as run. The metadata
+needs. Only a category that ran counts: nothing is retained from an earlier
+run. The metadata
 gate always runs, so lint, leakage and changeset checks are always covered; an
 unknown check maps to no category and can never be covered.
 
@@ -1756,7 +1679,7 @@ branch, so the request always runs main's admission code.
 - **Red main.** The refusal while main is red is the red-main gate from
   [#2942](https://github.com/schlessera/brain-kit/issues/2942). The admission
   job runs it on the requested head after admission
-  (`redMain.name`, `scripts/heavy-feedback-workflow.ts:85`), so feedback is
+  (`redMain.name`, `scripts/heavy-feedback-workflow.ts:84`), so feedback is
   refused only when that head contains the bad commit and the PR is not a
   declared fix ([#3321](https://github.com/schlessera/brain-kit/issues/3321)).
 
@@ -1784,6 +1707,895 @@ This is a policy direction, not a finding that any gate is met. Until a
 qualified rollout, the exact-base confirmation and the single exact-candidate
 reservation above still apply. Before any implementation, this record and the
 concrete child task briefs on #2934 are updated.
+
+## Hybrid post-merge heavy proof
+
+The [2026-11-10 maintainer ruling on #2934](https://github.com/schlessera/brain-kit/issues/2934#issuecomment-6763098096)
+splits proof by cost and determinism
+([#3831](https://github.com/schlessera/brain-kit/issues/3831)). Fast categories
+stay pre-merge; heavy categories move to the squash's own main run.
+
+- **Ready confirmation** runs the `changeset` gates, `verify`, `pack` and
+  `unit` (complete affected unit/integration discovery, unchanged). It no
+  longer runs `runtime`, `runtime_host`, `browser`, `layout`, `captures` or
+  `endurance`. The exclusion lives in one place:
+  `proofSelections` (`scripts/ci-plan.ts:490-505`) applies
+  `POST_MERGE_CATEGORIES` (`scripts/red-main.ts:20-25`). Candidate admission,
+  the aggregate and the merge path validate that same selection, so none of
+  them can require a post-merge category.
+- **Main squashes** keep complete affected proof in every category, never
+  cancel each other and include the open red set. Scheduled and manual runs
+  stay exhaustive. A draft may still request the post-merge categories as
+  [hosted heavy feedback](#hosted-heavy-feedback-on-draft-heads); it remains
+  feedback, never proof.
+- **Red main is held per family.** A record whose failures all sit in
+  post-merge categories dooms no pre-merge proof. The hosted gate, doomed-run
+  cancellation and `integrate.ts` admit candidates
+  (`gateDecision`, `scripts/red-main.ts:234-244`), and the coordinator does not
+  report such a landing as a bypass (`detectLanded`,
+  `scripts/red-main-coordinator.ts:185-189`). A failure in any fast category
+  keeps the global refusal described under
+  [red-main record](#red-main-record-and-coordinator), and so does an empty
+  set. Recovery is unchanged: one incident, an assessed fix or revert PR
+  through normal proof, and a record cleared only by a green main run that
+  included the set.
+- **Local receipts.** A skipped, timed-out or preempted local check mapped only
+  to post-merge categories is not a merge refusal, because the squash's main
+  run proves it (`uncoveredChecks`, `scripts/check-receipt.ts:118-122`).
+  Fast-category and unmapped checks still refuse.
+
+**Why.** The #2937 escape audit found no selection misses: the selected fast
+proof covered every real regression in the October cohort. The red main that
+remains is mostly latent timing, browser and runtime failures, which pre-merge
+proof rarely prevents and which made heavy confirmation the slowest step.
+
+**Amended 2026-11-17: one pre-merge browser job.** The maintainer ruled on
+[#4163](https://github.com/schlessera/brain-kit/issues/4163) that the browser,
+layout and story specs a pull request adds or modifies repeat under CPU load
+in the pinned container before it merges
+([the gate](#changed-browser-specs-repeat-under-load-before-merge)). The new
+`browser_determinism` job is a fast category: ready confirmation, draft and
+ready feedback run it when the plan selects it. It runs only the changed
+specs. The complete `browser`, `layout`, `captures` and `endurance` suites
+stay post-merge, so the reason for the split is unchanged: a suite's latent
+timing failure is still found by main, and a changed spec's own race is now
+looked for before it gets there.
+
+**What does not change.** No test, assertion, offline boundary, pinned image or
+category is removed. Main proves every selected category on the combined tree,
+and a faster merge with unfinished main proof is still not a successful
+delivery. The exact-candidate reservation, exact-head fast confirmation, the
+red-main controller, the incident workflow and releases from a green main are
+unchanged. The [conditional concurrency direction](#conditional-concurrency-direction)
+and its gates are unaffected.
+
+**Known costs.** A family that is already red cannot show a second break in
+itself until it is green again. Category-level heavy failures cannot use the
+[expedited path](#expedited-red-main-fixes): a declared fix merges by ordinary
+confirmation and is proved by its own main run.
+
+**Trial and stop criteria.** The model runs as a seven-day observation from
+the first main squash that contains it. The maintainer reverts to full
+pre-merge confirmation if any of these holds:
+
+- median time to recover a red family exceeds 2 hours;
+- first-pass green deliveries fall below 14.0 per day (the October 30 to
+  November 6 frozen week);
+- unresolved first-main failures grow by more than ten in the week;
+- red main blocks a release for more than 24 hours.
+
+## Eight unit partitions for ready confirmation
+
+Maintainer decision, 2026-11-16
+([#4108](https://github.com/schlessera/brain-kit/issues/4108)): shorten the
+merge lease hold by running ready confirmation's unit tier in more partitions.
+Proof content does not change.
+
+- **Ready confirmation and draft heavy feedback** run the unit tier in up to
+  eight partitions. **Main pushes and exhaustive runs** keep four, so a main
+  run needs no more runners than before.
+- **One owner.** One table holds both caps (`UNIT_PARTITIONS`,
+  `scripts/proof-shards.ts:17`). The planner reads it by cadence (`unitShards`,
+  `scripts/ci-plan.ts:443-445`) and publishes the partition numbers as
+  `unit_shards`. The `unit` matrix is that output, and each partition's divisor
+  is the matrix size. The hosted aggregate plans again and refuses a published
+  set that differs from the plan (`selections.unit`,
+  `scripts/candidate-proof.ts:68`). The merge path accepts only a job inventory
+  that matches the confirmed set, bounded by the confirmation cap
+  (`unitPartitionLimit("confirmation")`, `scripts/integration-proof.ts:142-143`).
+  `bun run lint` refuses a literal matrix, a second matrix dimension or a
+  literal divisor (`The unit partition count has one owner`,
+  `scripts/check-ci-workflows.ts:100-108`). The weight refresh takes its job
+  count from the same table.
+- **Fewer files than partitions.** A selected inventory smaller than the cap
+  gets one partition per file. No partition is empty and no file runs twice
+  (`unitPartitions`, `scripts/proof-shards.ts:28-32`).
+
+**Why.** One repository-wide lease serializes ready confirmation and merge.
+#4108 records that on 2026-11-16 the lease was acquired 53 times and held for
+75% of the day, with a median hold of 26 minutes. That hold is the `unit` job:
+over the 100 most recent successful PR runs it took a median 19.1 minutes (p90
+23.8), against 2.6 for `pack` and 1.9 for `verify`. The
+[hybrid ruling](#hybrid-post-merge-heavy-proof) moved the browser categories
+after merge and did not shorten the hold.
+
+**Four-partition baseline.** In run 43974750583 the four `Complete unit proof`
+steps took 857, 862, 1,027 and 1,334 seconds, after 43 to 160 seconds of
+runtime setup. The slowest `unit` job took 1,433 seconds. The reviewed weights
+in `scripts/test-shard-costs.json` balance to an estimated 1,098 seconds per
+partition at four and 549 at eight, and the largest single file is 350
+seconds. The estimate uses weights measured under four partitions. It is not
+a measurement of eight.
+
+**What does not change.** Every selected file still runs exactly once. The
+two-process queue inside a partition, the 12-minute setup, 30-minute proof and
+45-minute job limits, every per-test deadline, the browser and layout shard
+counts and the weight table are unchanged. No test leaves the pre-merge unit
+tier.
+
+**Known costs.** A confirmation uses eight unit runners instead of four, and
+each pays its own checkout, install and runtime setup. Summed runner time per
+confirmation rises while the slowest job shortens. A confirmation lists up to
+18 jobs, under the merge path's 30-job inventory bound. The weights were
+measured at four partitions, so the balance at eight may be uneven; a weight
+refresh is separate work.
+
+## Fast lane outside the core packages
+
+The maintainer ruled on 2026-11-16 that the fast lane allowed on 2026-11-03
+still applies, and that it is recorded here. The 2026-11-03 ruling reduced
+proof to clear the main queue faster. The same day, after five main
+regressions and red main #3511 on the reduced path, it was narrowed to the
+PRs below.
+
+- **Who qualifies.** A PR whose diff against its base touches nothing under
+  `packages/ui-react/`, `packages/ui-kit/`, `packages/ui-server/` or
+  `packages/core/`. Every other PR, and every epic landing, keeps
+  [ready confirmation](#hybrid-post-merge-heavy-proof) through
+  `integrate.ts confirm`. The path rule has one owner in code
+  (`touchesCorePackages`, `scripts/fast-lane.ts:19-21`), which the
+  [review requirement](#recorded-independent-review-of-core-package-prs) also
+  reads.
+- **What it skips.** The explicit ready-candidate run (`verify`, `pack`,
+  `unit`). A qualifying PR merges on its exact head once these hold:
+  - its newest CI run on that head has no failed or cancelled job, apart from
+    the feedback `proof` job;
+  - its PR body carries a passing `check:pr` receipt (local lint, leakage,
+    changesets and affected fast invariants);
+  - main is not red;
+  - it holds the merge lease, so that it does not race a confirmation.
+    `integrate.ts acquire` enforces the proof-system stability window and
+    off-main qualification before taking that lease, with the same declared
+    red-main fix exemption as `confirm`. The fast lane skips neither gate.
+- **What it relies on.** Draft CI runs only the metadata gates, so a
+  fast-lane PR reaches main with no hosted unit run before the merge. Its
+  local receipt and the squash's own main run, which proves every affected
+  category, are the proof. The squash's main run must be watched until it is
+  green. A red result opens the ordinary
+  [red-main incident](#red-main-record-and-coordinator), and its fix or revert
+  goes through normal proof.
+
+**Why.** Most queued 0.45.0 PRs change only CI scripts, tests, experiments or
+docs, and confirmation serializes them at about 30–40 minutes each. The
+regressions that led to the 2026-11-03 narrowing came from the four product
+packages, which keep full pre-merge proof.
+
+**What does not change.** Milestones, the check receipt, the single merge
+lease, red-main refusal, main's complete affected proof and releases from a
+green main all still apply. A fast-lane merge is not a successful delivery
+until its main run is green.
+
+## Recorded independent review of core-package PRs
+
+The maintainer decided on 2026-11-16 that a PR which touches the core packages
+needs a recorded independent review before it is confirmed
+([#4110](https://github.com/schlessera/brain-kit/issues/4110)). None of the
+382 PRs merged to `main` between 2026-10-26 and 2026-11-16 carried a review.
+The median PR changed 271 lines and merged 2.2 hours after it opened, and 37%
+of the merged PRs were fixes. The author's own agent was the only reader of
+most changes before they landed.
+
+- **Who.** The complement of the
+  [fast lane](#fast-lane-outside-the-core-packages): a PR whose diff against
+  its base touches `packages/ui-react/`, `packages/ui-kit/`,
+  `packages/ui-server/` or `packages/core/`. The same predicate decides both
+  (`touchesCorePackages`, `scripts/fast-lane.ts:19-21`). A fast-lane PR is
+  never asked, and its comments are not read
+  (`reviewGate`, `scripts/review-receipt.ts:218-221`).
+- **What counts as independent.** A reviewer that did not write the change and
+  is given only the PR and its issue, never the author's summary or reasoning.
+  In practice that is a fresh agent context or a human.
+- **The record.** One PR comment carrying a fixed block, written and posted by
+  `bun scripts/review-receipt.ts post`. It names the reviewed head, the base,
+  and the reviewer as `agent` or `human` and nothing more: an unknown field
+  refuses. Each finding has exactly one disposition: `fixed` naming the commit,
+  `filed` naming the issue or `rejected` with the reason. A review with no
+  findings says so explicitly. The comment passes the leakage gate before it is
+  posted. Only the newest record counts, and an unreadable newest record
+  refuses (`newestReview`, `scripts/review-receipt.ts:123-128`).
+- **The gate.** `integrate.ts confirm` and `merge` refuse a core-package
+  candidate (`reviewRefusal`, `scripts/review-receipt.ts:192-212`) when:
+  - no record exists;
+  - the newest record has a finding without a disposition, or answers one as
+    `fixed` in a commit the candidate head does not contain;
+  - the candidate head contains a non-merge commit, not reachable from the
+    base, that the reviewed head does not contain
+    (`unreviewedCommits`, `scripts/review-receipt.ts:159-161`);
+  - the candidate head contains a merge commit, in neither the base nor the
+    reviewed head, that is not a clean merge
+    (`alteredMerges`, `scripts/review-receipt.ts:173-183`).
+
+  `confirm` checks before it takes the reservation or requests candidate CI,
+  like the check receipt, and the merge reads the record again.
+- **What keeps a record valid.** Merging the base into the branch adds only a
+  merge commit and commits the base already has, so a branch refreshed that
+  way, however often, keeps its record. A new commit, a rebase or an amend
+  needs a new review of the new head. That includes a commit that fixes a
+  finding.
+- **What a merge commit may carry.** Nothing of its own
+  ([#4121](https://github.com/schlessera/brain-kit/issues/4121), maintainer
+  decision 2026-11-17). A merge keeps the record only when it has exactly two
+  parents and its tree is the one Git's automatic merge of those parents
+  writes (`git merge-tree --write-tree`). A conflict resolved by hand, an edit
+  added while merging and a merge of more than two parents are content no
+  reviewer read, so each needs a new review of the current head. A merge that
+  cannot be recomputed is refused as well: unknown is not clean.
+- **Exempt.** An [expedited red-main fix](#expedited-red-main-fixes)
+  (`--fixes-main-run`), as it is from the check receipt. The next main run is
+  the backstop.
+
+**What it is not.** This is cooperative procedure, like the lease. It adds no
+repository ruleset or branch protection, it does not review fast-lane PRs, and
+it does not automate the reviewer.
+
+**Known cost.** The clean-merge check recomputes each merge with the local
+Git and its configuration. A merge that another Git or another rename setting
+would have written differently reads as altered and costs one more review; it
+never passes unread.
+
+## Changed tests repeat under load before merge
+
+The maintainer ruled on 2026-11-16
+([#4109](https://github.com/schlessera/brain-kit/issues/4109)) that a Bun test
+file a pull request adds or modifies must pass repeated runs under CPU load
+before it merges.
+
+**Why.** Main went red 25 times between 2026-11-02 and 2026-11-16. About 18 of
+those incidents were cleared by changing only a test: a wait, a pinned clock,
+a readiness signal, a deadline a loaded shard could meet. About six were
+product defects. The first-main failure rate was about the same for PRs under
+100 lines (19%) as for PRs over 2,000 lines (22%). These are tests that pass
+once and fail later on someone else's merge, and nothing ran a new or changed
+test more than once before it merged.
+
+- **What runs.** `bun scripts/test-determinism.ts --base <ref>` selects the
+  Bun test files under `packages/` and `tests/` that the change adds or
+  modifies against its merge base (`determinismTests`,
+  `scripts/ci-plan.ts:355-360`). It runs them in one invocation of the offline
+  wrapper with Bun's `--rerun-each=<n> --bail=1` (`repetitionArgv`,
+  `scripts/test-determinism.ts:86-90`), so the offline preload applies and
+  preparation builds once. One busy loop per CPU runs for the duration. Each
+  is killed by PID on every exit path, and exits by itself if its parent dies
+  (`startBurners`, `scripts/test-determinism.ts:139-154`). The first failing
+  repetition fails the command, which names the file, the repetition and the
+  case. A passing run must also show every repetition in Bun's test report.
+- **Bounded.** Five repetitions by default, within a budget of 300 seconds of
+  the reviewed weights in `scripts/test-shard-costs.json`. When five do not
+  fit, every file gets the same reduced count, down to a floor of two
+  (`planRepetitions`, `scripts/determinism-plan.ts:45-65`). No selected file
+  is skipped; the report lists each one with the repetitions it got. The
+  budget is one job's capacity, so a selection too heavy for the floor is
+  [split across partitions](#an-oversized-selection-is-split-by-reviewed-weight).
+- **Two repetitions at ready confirmation.** The maintainer ruled on
+  2026-11-17 ([#4137](https://github.com/schlessera/brain-kit/issues/4137))
+  that ready confirmation runs the floor of two, and every other cadence keeps
+  five (`repetitionsFor`, `scripts/determinism-plan.ts:22-24`). The merge lease
+  is held while confirmation runs. In run 44017250694 the job took 1,236
+  seconds at five repetitions, against 979 for the slowest of eight `unit`
+  partitions, and the lease was held about 25 minutes. The draft head has
+  normally run the same files five times already, so confirmation re-checks the
+  tree that merges at lower cost. The accepted cost is a weaker check on the
+  exact head that merges. Splitting the selection across runners and reusing
+  the draft result were considered and declined: the first costs runners and
+  code, the second brings back an input-reuse rule of the kind #4107 retired.
+- **Where it is required.** The hosted `determinism` job is selected whenever
+  the plan lists such a file, at every pull-request cadence: draft, ready
+  `synchronize` feedback and ready confirmation. Draft heavy feedback runs it
+  too (`proofSelections`, `scripts/ci-plan.ts:490-505`). This amends "drafts
+  run cheap gates only" for this one job, so the
+  [fast lane](#fast-lane-outside-the-core-packages)'s newest run includes it.
+  `draft gates`, `proof` and the merge path require it when selected and
+  require its intentional skip otherwise. It is a fast category under the
+  [hybrid split](#hybrid-post-merge-heavy-proof): it is not in
+  `POST_MERGE_CATEGORIES`. The job has the `unit` job's runtime prerequisites,
+  because a changed file may drive real Chrome.
+- **Not on main.** A main push never selects it. The squash's files were
+  repeated before they merged, and the main run already runs each of them once
+  in `unit`.
+- **Not local.** `check:pr` never runs it, because it occupies every CPU of a
+  shared host. `check:pr --plan` names the command when the change selects it.
+  A deliberate local run takes a
+  [host admission](../process/testing.md#host-admission-for-heavy-local-commands) slot.
+
+**What does not change.** No failure is retried into a pass: a failing
+repetition is a failed job, and the remedy is fixing the test or what it
+exposes. Unchanged tests are not repeated. As ruled, no test deadline changed
+either; since [#4191](#test-watchdogs-are-a-worst-case-catch-all) the job
+multiplies watchdogs by a fixed factor, and a watchdog that trips on a slow
+run is raised rather than treated as a failed proof.
+
+**First hosted run.** The job's first run, on the PR that added it, repeated
+seven changed files five times and then failed in the gate's own test: under
+GitHub Actions Bun prints each run's header as a `::group::` annotation, which
+the failure parser did not read, so the failure was reported without its file
+and repetition. The parser reads both forms now. That run took 552 seconds
+for about 174 weighted seconds, a ratio of about 3.2 under four burners on
+four CPUs. One run was not a calibration:
+[the later runs](#an-oversized-selection-is-split-by-reviewed-weight) measured
+up to 6.84, and the budget was lowered from 600 to 300 seconds.
+
+### An oversized selection is split by reviewed weight
+
+The maintainer ruled on 2026-11-17
+([#4117](https://github.com/schlessera/brain-kit/issues/4117)) that a
+selection too heavy for one job is sharded by reviewed weight, as `unit` is.
+Running workers inside one job and an exception path for large migrations
+were declined: the first shares the job's CPUs with the burners, the second
+weakens a gate that is otherwise the same for every pull request.
+
+**Why.** The job ran the whole selection in one invocation under a 40-minute
+step limit. Over the 150 merges before the gate, four selections weighed more
+than 600 seconds per pass. The largest was a 388-file fixture migration of
+about 1,327 seconds per pass, 2,654 at the floor of two. Such a selection
+could only fail by timeout, and the pull request had no way through the gate
+except splitting the change.
+
+- **One owner.** The table (`DETERMINISM_PARTITIONS`, `scripts/proof-shards.ts:52`) holds
+  one job's capacity (300 weighted seconds at the selection's repetition
+  count), the maximum of ten partitions, the 40-minute step limit and the
+  measured load ratio. The repetition budget is that capacity
+  (`BUDGET_SECONDS`, `scripts/determinism-plan.ts:29`).
+- **Count first, then partitions.** The count is decided over the whole
+  selection, as before. A selection that fits one job at that count stays one
+  job, and its command and report are unchanged. Otherwise the planner takes
+  the fewest partitions, balanced longest file first, in which every partition
+  fits the capacity (`planPartitions`, `scripts/determinism-plan.ts:83-105`).
+  Because the budget is the capacity, a selection is only ever split at the
+  floor of two, and each partition is told that count. Every file is in
+  exactly one partition.
+- **A file cannot be split.** A file whose two repetitions alone exceed the
+  capacity runs in a partition by itself.
+- **Beyond the maximum.** A selection that needs more than ten partitions is
+  refused by the planner, in the metadata job, before any partition starts.
+  The message names the selection's weight and the limit. Nothing is skipped
+  and the count is never reduced below the floor: the change has to be split.
+- **Wiring.** The planner publishes the partition numbers as
+  `determinism_shards` (`determinismShards`, `scripts/ci-plan.ts:452-455`).
+  The `determinism` matrix is that output, and each partition's divisor is the
+  matrix's own job total, so neither is written in the workflow. Each
+  partition's command reads its files from the same plan and refuses a divisor
+  that is not the planned count (`determinismPartition`,
+  `scripts/ci-proof.ts:27-31`). The hosted aggregate refuses a published set
+  that differs from the planned one (`validateSelections`,
+  `scripts/candidate-proof.ts:54-71`). The merge path requires one successful
+  `determinism (n)` job for every published number and no other
+  (`name in PLANNED_MATRICES`, `scripts/integration-proof.ts:144-149`). `bun run lint` refuses a literal
+  matrix, a literal divisor, a shared artifact name or a step limit other
+  than the owner's.
+
+**Calibration.** The job's own reports give elapsed seconds under load against
+estimated weighted seconds. Between its first run and this ruling, 35 hosted
+jobs produced a report, all on 2026-11-17, all with four burners on four
+CPUs: 32 passed and 3 failed. Five passing jobs repeated at least 90 weighted
+seconds, enough for the weights to dominate the result:
+
+| Run | Pull request | Cadence | Files | Count | Estimated (s) | Elapsed (s) | Ratio |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 43989701310 | #4134 | draft | 8 | 5 | 174.2 | 624.8 | 3.59 |
+| 43991629934 | #4134 | draft | 16 | 5 | 194.0 | 1,048.2 | 5.40 |
+| 44017250694 | #4134 | confirmation | 14 | 5 | 193.0 | 1,142.1 | 5.92 |
+| 44020374567 | #4132 | confirmation | 7 | 5 | 221.3 | 888.7 | 4.02 |
+| 44039499653 | #4145 | draft | 2 | 5 | 94.4 | 645.9 | 6.84 |
+
+The first run, 43986946575, failed in its last file after 552 seconds for the
+same 174.2 estimated seconds (3.17). The first confirmation at two
+repetitions, run 44036241499 on #4143, took 20.8 seconds for 11.4 estimated
+(1.82). The other 26 passing jobs estimated 7.1 seconds or less; there a new
+file without a reviewed weight decides the time. Seven runs of #4002
+estimated 2.0 to 3.1 seconds and took 226 to 400, because each new file cost
+22 to 34 seconds per pass and weighs the 0.1-second default.
+
+Per file the ratio is not constant. Across these reports a file with a
+reviewed weight of at least one second ran between 1.1 times its weight (a
+test that mostly waits) and 6.9 times (`tests/integration-command.test.ts`,
+18.8 weighted seconds, 129 seconds per pass under load).
+
+**The numbers.** The largest whole-job ratio, 6.84, sets the capacity: 300
+weighted seconds take 2,052 seconds at that ratio, 34 of the 40 minutes, and
+27 minutes at the median of 5.40. The earlier 600-second budget needed 68
+minutes at 6.84 and 54 at the median, so it never fitted its own step limit;
+the step limit stays at 40 minutes and the budget drops to the capacity. A
+test asserts that capacity times the recorded ratio fits the step limit. Ten
+partitions hold 3,000 weighted seconds at the floor. The largest observed
+selection plans nine. The merge path bounds a run's job inventory by every
+proof job at its widest matrix (`MAX_RUN_JOBS`, `scripts/integration-proof.ts:22`),
+so the maximum here and that bound cannot drift apart.
+
+**Accepted cost.** Five repetitions now fit only while one pass weighs at most
+60 seconds, down from 120. Replaying the same 150 merges with today's weights,
+111 select a file: 100 run five repetitions, 3 run three or four, and 8 run
+two. Of those eight, six are split (five into two or three partitions, the
+migration into nine) and two are a single file. An oversized selection costs
+up to ten runners for its two repetitions.
+
+**Single-file capacity.** In that historical replay, all eight contain a
+real-browser runtime test whose two repetitions alone exceed the capacity;
+the heaviest then weighed 349.7 seconds per pass. Sharding cannot help a
+single file: it runs alone, at the floor. The later
+[single-file measurements](#single-files-above-capacity-are-measured-under-load)
+cover the four files identified by #4156, using refreshed weights and the
+scaled watchdogs. A refreshed weight table or a different mix of tests changes
+the ratio, and the capacity is to be recalibrated from the reports then.
+
+**Known limits.** Repetitions of one file share a process. Bun 1.4.2 evaluates
+the module again for each run, but `globalThis` and process state persist, so a
+file that leaks state into its next run fails too. Vitest browser, layout and
+story specs run in the pinned container and have
+[their own gate](#changed-browser-specs-repeat-under-load-before-merge); the
+one endurance spec is not repeated.
+
+### Single files above capacity are measured under load
+
+Measured on 2026-11-17 for [#4156](https://github.com/schlessera/brain-kit/issues/4156),
+in [run 44161515414, attempt 1](https://github.com/schlessera/brain-kit/actions/runs/44161515414)
+on the throwaway draft [#4232](https://github.com/schlessera/brain-kit/pull/4232).
+Comment-only edits selected all four originally identified files. The planner
+split them into four jobs, one file per job, each repeated **twice** under
+four CPU burners on four CPUs. The existing [#4191 watchdog policy](#test-watchdogs-are-a-worst-case-catch-all)
+was active: factor **8**, with a 240-second default per-test cap. No test,
+deadline or repetition count was changed for the measurement, and no job was
+retried.
+
+The #4155 weight refresh had already changed the two-pass estimates: only
+parallel-sessions and association-signout still exceeded the 300-second
+capacity. Connection-continuity and hygiene-review were measured as well,
+as required by the original issue. Each `determinism-proof-<n>` artifact
+contains `determinism-report.json` and `determinism-junit.xml`; both show
+exactly two repetitions and no failures or skips. Report elapsed time includes
+the offline wrapper and the setup/builds inside repetition; the full proof
+step also includes the job command's preparation.
+
+| File | Two-pass estimate (s) | Report elapsed (s) | Proof step (s) | Hosted job |
+| --- | --- | --- | --- | --- |
+| `packages/ui-react/tests/parallel-sessions-runtime.test.ts` | 874.690 | 1429.3 | 1433 | [job 134317060865](https://github.com/schlessera/brain-kit/actions/runs/44161515414/job/134317060865) |
+| `packages/ui-react/tests/association-signout-runtime.test.ts` | 388.612 | 722.4 | 729 | [job 134317060918](https://github.com/schlessera/brain-kit/actions/runs/44161515414/job/134317060918) |
+| `packages/ui-react/tests/connection-continuity-runtime.test.ts` | 290.866 | 511.7 | 525 | [job 134317060892](https://github.com/schlessera/brain-kit/actions/runs/44161515414/job/134317060892) |
+| `packages/ui-server/tests/hygiene-review.test.ts` | 276.280 | 473.0 | 482 | [job 134317060923](https://github.com/schlessera/brain-kit/actions/runs/44161515414/job/134317060923) |
+
+Every job's checkout log and `proof-checkout.json` names synthetic merge
+`7e4008a99199f708b0f71ae01f4d19b615248312`, tree
+`6eafef9615efcf86ef47ff7172d9105b0057cd58`, with parents main
+`0aeb62a7acaef51deabe6a6bc84d3b7b1b72e286` and measurement head
+`33485434a248168db55d423199f3ff06cbe9fe89`. The immutable commit API and local
+Git object agree. These are sizing observations of that tree, not proof for a
+later candidate. The draft was closed without merging and its branch deleted
+after collecting the artifacts.
+
+**Decision: retain the 40-minute step.** The heaviest single file completed
+in 1,429.3 seconds; its full step took 1,433 seconds, leaving 967 seconds of
+headroom. A larger step or a file split is unnecessary on this evidence.
+The capacity, partition maximum, floor of two and factor of eight stay as
+ruled. One hosted observation per file does not guarantee every future run
+fits, and the tooling/backend calibration ratio is not a per-file bound.
+
+The checked-in measurement inventory in
+[`tests/fixtures/determinism-single-file-runs.json`](../../tests/fixtures/determinism-single-file-runs.json)
+is checked against the reviewed weights: a newly oversized file needs hosted
+evidence or an explicit recorded remedy before its coverage test can pass.
+The job writes its oversized-file warning **before** starting the wrapper
+(`const oversized`, `scripts/test-determinism.ts:197-205`), naming the file,
+repetition estimate, capacity and step limit. A step timeout therefore leaves
+the known unsplittable case in the summary even when no completion report can
+be written.
+
+## Changed browser specs repeat under load before merge
+
+The maintainer ruled on 2026-11-17
+([#4163](https://github.com/schlessera/brain-kit/issues/4163)) that a Vitest
+browser, layout or story spec a pull request adds or modifies must pass
+repeated passes under CPU load, in the pinned container, before it merges. The
+ruling follows the
+[#4116 measurement spike](https://github.com/schlessera/brain-kit/issues/4116#issuecomment-6943920511)
+with one change: a selection too heavy for one job is split across runners by
+reviewed weight, as the Bun gate's is. It is not skipped.
+
+**Why.** Seven of the 14 red-main incidents opened between 2026-11-09 and
+2026-11-17 were in `browser` or `layout`, and six of those were cleared by
+changing only a test. Under the [hybrid split](#hybrid-post-merge-heavy-proof)
+such a spec first ran on a runner after it merged. The spike repeated a spec
+with a known race (#3953, its fix reverted in a copy) on a hosted runner: 0 of
+8 passes failed without load, 2 of 8 with CPU burners outside the container
+and 9 of 16 with burners inside it. A further pass cost the spec's own time,
+1.6 to 10.8 seconds, after about 2 minutes 15 seconds of job start-up.
+
+- **What is selected.** Spec files the change adds or modifies against its
+  merge base: `*.visual.tsx` under `packages/ui-kit/tests/visual/`,
+  `*.stories.tsx` under `packages/ui-kit/stories/`, and `*.pointer.tsx`,
+  `*.layout.tsx` and `*.offline.tsx` under `packages/ui-react/tests/browser/`
+  (`SPEC_PATTERNS`, `scripts/browser-determinism-plan.ts:32-36`). The one
+  `*.endurance.tsx` spec stays out: it is real-time media proof with its own
+  job. A changed helper selects nothing. In the spike's window 21 merges
+  changed a helper under the spec directories; selecting specs through their
+  imports would have added none in 15 of them and at most five in the rest,
+  while one change to the most imported helper would select 27 specs.
+- **Pairs, not files.** Vitest runs a file once in every project that includes
+  it, so each selected file expands to the project/file pairs Vitest's own
+  file listing reports: three `rail-*` projects for a pointer spec, both
+  themes for a story, Chromium and WebKit for a diagram spec (`expandSpecs`,
+  `scripts/browser-determinism-plan.ts:45-54`). The planner reads that listing once
+  per plan and shares it with category selection (`listBrowserSpecs`,
+  `scripts/browser-input-closure.ts:242-260`). A changed spec that no project lists,
+  or a listing that cannot be read, fails the plan: it never becomes an empty
+  selection.
+- **Mechanism: further passes in one Vitest process.**
+  `bun scripts/browser-determinism.ts` enters the container through
+  `scripts/visual.mjs`, so the image, mounts and network are the browser
+  suite's. Inside, `scripts/browser-determinism-inside.mjs` starts Vitest once
+  through `vitest/node` and calls `runTestSpecifications` with exactly the
+  selected pairs for every pass (`runPasses`,
+  `scripts/browser-determinism-inside.mjs:110-146`). Vitest 4.1.11 then opens a new
+  tester iframe for each file: a new document, the module evaluated again,
+  `beforeAll` rerun. What carries over between passes is the browser process,
+  its context and orchestrator page, cookies, `localStorage`, `sessionStorage`
+  and IndexedDB, the Node-side state of browser commands and the Vite server.
+  That is what two consecutive files of an ordinary run already share. A spec
+  that leaves state in storage therefore meets it on its next pass, as a Bun
+  test meets its own `globalThis`.
+  - **Not `repeats`.** Vitest's `repeats` option reruns a single test inside
+    one page with every piece of state kept, and the file never reruns as a
+    unit. A spec that is not idempotent in its own document would fail for a
+    reason that is not a race.
+  - **Not a loop of `vitest run`.** Separate invocations give a new browser
+    each time, at 5 to 6.5 seconds more per repetition by the spike's
+    derivation, which was never timed. The catch rate and the false-failure
+    sample were both measured with in-process passes, and only in-process
+    passes can run exactly the selected pairs: a command line names projects
+    and files and runs their cross product.
+- **One project at a time.** Within a pass the selected projects run one after
+  another. The spike measured one project per invocation. This gate's first
+  run of a mixed selection started six projects at once beside four burners,
+  and a green visual spec failed its first pass with "Could not capture a
+  stable screenshot within 5000ms". The same selection, one project at a time,
+  passed five of five passes. One browser beside the burners is the measured
+  load; every project at once is a heavier one that nothing has measured.
+- **Load.** One busy loop per CPU, started inside the container before Vitest
+  and stopped by PID on every exit path; each exits by itself if its parent
+  dies (`startBurners`, `scripts/browser-determinism-inside.mjs:47-66`). Inside, not
+  beside: on a hosted runner the job's processes and the container are two
+  sibling cgroups of equal weight, so the kernel leaves the container half the
+  CPUs however many burners run outside it. Burners outside slowed the spike's
+  four specs 1.25 to 1.37 times and reproduced the #3953 race in 2 of 8
+  passes; burners inside slowed them 1.27 to 1.79 times and reproduced it in 9
+  of 16.
+- **Bounded.** Five repetitions, and two at ready confirmation while the merge
+  lease is held: the Bun gate's counts. The count is reduced uniformly to no
+  fewer than two inside a budget of 300 seconds of the reviewed weights in
+  `scripts/browser-shard-costs.json`. A pair without a weight costs 10 seconds
+  and the report says so; it is never free. Ten is above three quarters of the
+  refreshed table (7.9 seconds) and below its mean (12.1). Every spec a change
+  adds is unweighted until the next refresh.
+- **Partitions.** One owner (`BROWSER_DETERMINISM_PARTITIONS`,
+  `scripts/proof-shards.ts:68`) holds one job's capacity of 300 weighted seconds,
+  the maximum of 15 partitions, the 20-minute step limit, the load ratio and
+  the unweighted default. Counting and partitioning are the Bun gate's
+  functions applied to pairs
+  ([the pattern](#an-oversized-selection-is-split-by-reviewed-weight)): the
+  count is decided over the whole selection, a selection over capacity at two
+  repetitions takes the fewest partitions in which every partition fits, each
+  pair is in exactly one partition, and a pair that cannot fit runs alone. A
+  selection that needs more than 15 is refused by the planner in the metadata
+  job, naming its weight and the limit. Fifteen holds 2,250 weighted seconds
+  per pass. Of the 38 spec-changing merges in the spike's window, five were
+  over one job's capacity at two repetitions by the spike's estimate: 178,
+  390, 444 and 450 weighted seconds per pass plan two or three partitions, and
+  the largest, an 89-file change estimated at 1,993, plans 14.
+- **Wiring.** The planner publishes `browser_determinism` and
+  `browser_determinism_shards`. The job's matrix is that output and each
+  partition's divisor is the matrix's own job total. Each partition's command
+  reads its pairs from the same plan (`browserDeterminismPartition`,
+  `scripts/ci-proof.ts:41-45`), the hosted aggregate refuses a published set that
+  differs from the planned one (`validateSelections`,
+  `scripts/candidate-proof.ts:54-73`), and the merge path requires one successful
+  `browser_determinism (n)` job for every published number and no other.
+  `bun run lint` refuses a literal matrix, a literal divisor, a shared
+  artifact name or a step limit other than the owner's.
+- **Where it is required.** At every pull-request cadence that selects it
+  (draft, ready `synchronize` feedback and ready confirmation) and in draft
+  heavy feedback. `draft gates`, `proof` and the merge path require it when
+  selected and require its intentional skip otherwise. It is a fast category:
+  it is not in `POST_MERGE_CATEGORIES`.
+- **Not on main.** A main push never selects it. The squash's specs were
+  repeated before they merged, and the main run runs each of them once in
+  `browser` or `layout`.
+- **Not local.** `check:pr` never runs it; `check:pr --plan` names the command
+  when the change selects it. A deliberate local run takes a host admission
+  slot through the launcher, and `--cpu-list` confines the container's work
+  and its burners to a few CPUs of a shared host.
+
+**What does not change.** No spec or baseline changes. Default watchdogs scale under deliberate load
+([the watchdog ruling](#test-watchdogs-are-a-worst-case-catch-all)). No failure is
+retried into a pass: the first failing repetition fails the job, which names
+the spec, the project, the repetition and the case. Unchanged specs are not
+repeated.
+
+**Expected cost.** At the spike's load ratio of 1.8, 300 weighted seconds are
+about 9 minutes of passes and about 12 minutes for the job, with its measured
+start-up: install 16 seconds, workspace build 94, image pull 17. The median
+selection weighed 13 seconds per pass. In three ready confirmations the
+slowest job was a `unit` partition at 879 to 981 seconds, so a job capped near
+12 minutes should not set the merge lease. The 20-minute step limit leaves
+room for a pass that runs slower than its weight.
+
+**False failures: what was measured.** A gate that fails green specs is worse
+than none, so this is the number that matters most and the one known least.
+
+- The spike repeated 31 project/file pairs from the fourteen most recent
+  spec-changing merges, two passes each and four more once, under four burners
+  inside the container: 66 passes on one shared development host, none failed.
+- This gate's own local runs, on the same kind of host with the container
+  pinned to four CPUs, repeated seven pairs (a visual spec, a pointer spec in
+  three projects, a layout spec and a story in two themes) five times: 35
+  passes, none failed. Further passes took 66 to 69 seconds for 52.9 weighted
+  seconds, a ratio of about 1.3; the first took 103 seconds.
+- The one false failure seen is the concurrent-projects run described above,
+  and it changed the design.
+
+**Unknown.**
+
+- The false-failure rate across all specs and on a hosted runner. The two
+  samples above are about a tenth of the specs, on one kind of host.
+- Whether repetition would have caught the other five incidents in the
+  spike's window. Only #3953 was tried.
+- The load ratio on a hosted runner with the refreshed weights. The 1.8 is
+  the spike's largest ratio for a further pass of one spec; a first pass
+  carries Vite's cold transforms and ran at 1.9 locally.
+- WebKit and the `diagrams-*` projects: no diagram spec was repeated, and
+  their native artifact preparation adds start-up that was not timed.
+- Peak memory, run-to-run variance and whether the runner's cgroup layout is
+  stable: each was read once or not at all.
+
+## Test watchdogs are a worst-case catch-all
+
+The maintainer ruled on 2026-11-17
+([#4191](https://github.com/schlessera/brain-kit/issues/4191)) that a watchdog
+is a catch-all for the worst case, and not friction or flakiness in the
+average case. Two things follow. The `determinism` job, which applies CPU load
+on purpose, multiplies test deadlines by a fixed factor. And a deadline that
+only detects a hang may be raised freely: only a deadline that asserts a
+product timing counts as proof.
+
+**What this supersedes.** The practice of treating every test deadline as
+proof that must not move. Three statements carried it and are amended here:
+"No test deadline changes" in
+[the repeated-run ruling](#changed-tests-repeat-under-load-before-merge),
+answers 3 and 5 of the [proof-system lane](#proof-system-lane) where they
+count any changed timeout as a proof-system change, and rule C4 of
+[the authoring guide](../process/test-authoring.md#cost), "never raise a time
+budget to make a test pass". What those protected is kept by the second kind
+of number below.
+
+**Why.** `tests/integration-command.test.ts` stops its child processes 27
+seconds into each test: Bun's 30-second per-test cap minus three seconds for
+the join. It exists to catch a hung child. In run 44104941268 one of its
+tests took 26.9 seconds in one repetition and 27.2 in the next under the
+gate's load, and failed. The same test takes 8.3 seconds in the `unit` job.
+Nothing was wrong except that the watchdog sat a few seconds above the work.
+Such numbers stayed tight for three reasons. One 30-second cap covered every
+Bun test, from a one-millisecond unit test to one that starts twelve
+processes. The gate slows a test several times over, so a test that normally
+used more than about a fifth of its deadline could not pass it. And moving
+the number was a proof-system change with its own lane and off-main
+qualification, so squeezing the work under it was cheaper than moving it.
+
+### Two kinds of number
+
+| | A watchdog | A product timing |
+| --- | --- | --- |
+| What it is | A timeout that exists to stop a hang and clean up | A time the product promises |
+| Examples | Bun's per-test cap, a test's own timeout argument, a timer that stops a test's child processes, the upper bound of a polling loop | The composer microphone's 0.6-second hold, a one-second guard, a five-second readiness limit |
+| What a pass says about it | Nothing: a passing test never reached it | That the product kept the promise |
+| How it is asserted | It is not asserted. It ends the test when something hangs | On measured or controlled time: a clock the test advances, or a measured duration compared with the promised one |
+| When it trips on a slow run | It was too tight. Raise it, or let the loaded run scale it | The product was too slow. That is a finding |
+| Changing it | Raise it freely. No lane, no off-main qualification | A change to what the product promises, reviewed as one |
+
+To tell which kind a number is, ask what a user would notice if it doubled.
+Nothing, for a watchdog: the test only takes longer to give up on a hang. A
+different product, for a product timing. A test timeout is never the right
+place for a product timing, because a slow host fails it and a fast host
+proves nothing beyond "under the cap". A number that serves as both is split:
+the promise is asserted on measured or controlled time, and the watchdog
+above it is sized for the worst case.
+
+**Sizing a watchdog.** Well above the test's normal duration, so that only a
+real hang trips it: about ten times is a reasonable start, and the per-test
+cap is enough for almost every test. A tripped watchdog on a slow run is
+raised or scaled. It is not a failed proof, and the work is not squeezed to
+fit under it.
+
+### A job step limit is a watchdog too
+
+A workflow step's `timeout-minutes` is the same kind of number: it stops a
+hung job, and a pass says nothing about it. It is sized the same way.
+
+`runtime_host` proof had 15 minutes. Over the 37 green main runs before
+2026-11-17 22:52 UTC its proof step took 596 to 810 seconds, median 617: the
+slowest used 90% of the limit. Main run
+[44184262171](https://github.com/schlessera/brain-kit/actions/runs/44184262171)
+hit it at the third of its three commands
+([#4242](https://github.com/schlessera/brain-kit/issues/4242)). The run was
+slow throughout, not stuck. Its first two commands took 549 and 290 seconds,
+against 360 to 444 and 199 to 244 in green runs, and the third was still
+printing progress when the limit stopped it. The step now has 45 minutes,
+about 3.3 times the slowest green run, and the job 60. `runtime` proof, at
+117 to 208 seconds over 38 runs, keeps its 15.
+
+### The gate scales deadlines by a fixed factor
+
+Under the `determinism` job every test deadline the job can reach is
+multiplied by one factor, **8**, owned beside the job's other numbers
+(`DETERMINISM_PARTITIONS`, `scripts/proof-shards.ts:52`). The browser repetition job applies its own factor, described below. Other
+jobs retain their written durations.
+
+- **Bun's per-test cap.** The command reads the cap from the root `test`
+  script, which owns it (`testCapMs`, `scripts/test-determinism.ts:74-79`),
+  and passes the scaled value as a later `--timeout`
+  (`repetitionArgv`, `scripts/test-determinism.ts:86-90`): 240 seconds for
+  the script's 30. Hooks follow the same cap.
+- **Explicit test and hook timeouts.** A second preload, loaded only by this
+  command, replaces `bun:test` for the invocation with a copy whose `test`,
+  `it`, hooks and `setDefaultTimeout` multiply the timeout they are given
+  (`scaledTestModule`, `scripts/test-deadlines.ts:110-119`;
+  `scripts/test-deadline-preload.ts`). No test is edited.
+- **In-test watchdogs.** A test's own timer reads the helper
+  (`watchdogMs`, `scripts/test-deadlines.ts:48-51`), which multiplies by the
+  factor the command sets in `BRAIN_TEST_DEADLINE_FACTOR` and by one
+  everywhere else. The 27-second watchdog is the first to read it
+  (`watchdogMs(27_000)`, `tests/integration-command.test.ts:29`).
+
+Verified against Bun 1.4.2, the version CI pins. The last `--timeout` on the
+command line wins, so the scaled cap follows the script's own. Neither
+`--timeout` nor `setDefaultTimeout` changes a timeout a test names itself,
+and Bun has no flag that does, so scaling those needs the replacement. Bun's
+own `mock.module` makes it: the copy reaches every later import and the
+runner's globals, in every file and every repetition, although the offline
+preload has already imported `bun:test`, and a test's `mock.restore()` does
+not undo it. Assigning to the object `require("bun:test")` returns does not
+work once anything has imported the module. The preload checks that the
+replacement took and stops the run if it did not, so a later Bun cannot leave
+the timeouts silently unscaled.
+
+**The factor and the runs behind it.** The largest slowdown measured under
+the job's own load is 6.84 elapsed seconds per weighted second, in run
+44039499653, the highest of the five calibration runs in
+[the partition ruling](#an-oversized-selection-is-split-by-reviewed-weight)
+(43989701310, 43991629934, 44017250694, 44020374567 and 44039499653, between
+3.59 and 6.84). The factor is the smallest whole number at least 15% above
+it. Per test the slowdown is smaller. The `determinism` jobs of 33 hosted
+runs on 2026-11-17 ran 140 test cases that take at least one second in the
+`unit` job of main run 44107659969, 1,137 times in all: the median case took
+1.94 times its `unit` duration, the 99th percentile 3.40 times and the
+slowest 3.83 times. The whole-job ratio is higher because it also carries stale
+weights and per-file start-up, so the factor leaves about twice the largest
+per-test slowdown. The test that prompted the ruling ran 3.3 times slower in
+the failing run, and 2.3 to 2.8 times slower in runs 44064090479 and
+44104948265, where it passed at 19.3 to 23.4 seconds.
+
+**The step limit still bounds the job.** Scaling changes how long a hang
+takes to be reported, not how long a passing test runs. `--bail=1` ends the
+run at the first failure, so at most one test waits out its cap. A full
+capacity at the measured ratio takes 2,052 seconds, one hung test under the
+scaled cap adds 240, and 2,292 fits the 40-minute step. A test asserts that
+sum against the owner's numbers, and that the factor covers the measured
+ratio with its margin.
+
+**What stays unscaled.**
+
+- A wait a test bounds any other way: a polling loop's `Date.now() + n`, a
+  helper's own `timeout` option, an `AbortSignal.timeout`. It scales once it
+  reads `watchdogMs`. The test files that carry an explicit timeout or
+  deadline, 372 when this was ruled, change that way: when one trips, or when
+  its file is next edited. Nothing is raised in bulk.
+- Timeouts inside the product, and inside a child process a test starts. A
+  child `bun test` that a test runs does not load the scaling preload; it
+  inherits the environment, so `watchdogMs` scales there too.
+- Product timings, by the rule above.
+- A test whose explicit timeout is already minutes long. Multiplied by eight
+  it can exceed what is left of the step, and then the step limit, not Bun,
+  ends a hang in it.
+- The job's 12-minute setup limit and 40-minute step limit.
+- Other ordinary jobs: `unit`, runtime and ordinary browser domains and local runs
+  keep the written durations. `bun scripts/test-determinism.ts` scales
+  wherever it runs, and `--deadline-factor 1` turns the scaling off for a
+  comparison.
+- Explicit Vitest test/suite timeout options and hook timeout arguments. In
+  Vitest 4.1.11 these take precedence over `testTimeout`/`hookTimeout`; raising
+  the project defaults does not multiply them. `expect.poll` defaults to its
+  own 1,000 ms or `expect.poll.timeout` configuration, and `vi.waitFor` to its
+  own 1,000 ms. Their explicit timeout options are also independent. A watchdog
+  in any of these can opt in with `watchdogMs(n)`. Poll intervals stay unchanged.
+- Ordinary Vitest runs: only the browser repetition command scales defaults,
+  wherever it runs. `--deadline-factor 1` disables scaling for diagnosis.
+
+### The browser repetition job scales its own defaults
+
+The same 2026-11-17 ruling covers `browser_determinism`
+([#4192](https://github.com/schlessera/brain-kit/issues/4192)). Its factor is
+**3**, owned by `BROWSER_DETERMINISM_PARTITIONS.deadlineFactor` in
+`scripts/proof-shards.ts`: the smallest integer at least 15% above its own
+measured load ratio, 1.8. It does not inherit the Bun job's factor of 8.
+The basis is the [#4116 hosted measurement](https://github.com/schlessera/brain-kit/issues/4116#issuecomment-6943920511),
+runs [44049769708](https://github.com/schlessera/brain-kit/actions/runs/44049769708)
+and [44051630821](https://github.com/schlessera/brain-kit/actions/runs/44051630821).
+Inside-container burners slowed the four measured specs 1.27 to 1.79 times,
+rounded up to 1.8 by the partition owner. The later local mixed selection
+measured about 1.3, as recorded above; it is not substituted for hosted evidence.
+
+After `createVitest` resolves projects and before `standalone` opens browser
+servers, the repetition runner multiplies each project's resolved
+`testTimeout` and `hookTimeout`. Vitest 4.1.11 browser defaults are 15,000 ms
+and 30,000 ms, so the loaded defaults are 45,000 ms and 90,000 ms. A project's
+custom values scale from those values; a disabled timeout (zero) stays disabled.
+No other Vitest configuration is changed. Each project receives
+`BRAIN_TEST_DEADLINE_FACTOR` through `test.env`; Vitest exposes it as
+`import.meta.env` in browser specs. `watchdogMs` reads it without requiring
+Node globals, so the helper has the same contract in Bun and a real browser.
+The runner logs each project's factor and resulting caps, and the host report
+and job summary also name the factor.
+
+Verified against the installed, lockfile-pinned Vitest **4.1.11**: the runner's
+collection chooses an explicit timeout before the configured default, and its
+hook registration, `expect.poll` and `vi.waitFor` likewise keep their own
+explicit limits. The browser fixture exercises the injected factor, both
+scaled defaults, explicit test options and product timing on a controlled
+clock. Separate fixture projects exercise fixed CPU work and a truly unresolved
+promise through the actual repetition command in the pinned container.
+
+The unchanged 20-minute step still bounds the job. Full capacity at the
+measured ratio is 300 × 1.8 = 540 seconds; one hang at the larger default
+(a hook) adds 90 and the measured setup/start-up adds 135, for 765 seconds
+inside 1,200. A test
+asserts this bound and the factor's margin from the owner's numbers. The first
+failing pass ends the command. Several hangs in the same file or a very large
+explicit timeout can instead reach the outer step limit, which remains the
+worst-case catch-all. Product timings and all the independent waits listed
+above remain unscaled.
+
+### The proof-system check follows the direction
+
+The timeout check reads which way a value moved
+(`raisedOrEqual`, `scripts/proof-system.ts:99-104`). A timeout or deadline
+rewritten in place to the same or a larger number, or to the same expression
+with no number made smaller, is a raised watchdog and is not a proof-system
+change. A duration inside `watchdogMs(...)` is read as that duration, so
+adopting the helper is not a change either.
+
+Still a proof-system change:
+
+- a lowered timeout or deadline, and one that stops reading `watchdogMs`;
+- a removed one;
+- an added one on an existing test, and a `setDefaultTimeout` added to an
+  existing file: the check does not know which default applied before, so it
+  cannot tell a raise from a lowering;
+- a change whose direction it cannot read, such as a conditional or a call
+  with arguments;
+- a value that leaves one hunk while a larger one appears in another. Only a
+  rewrite in place is read as a raise
+  (`timeoutChanges`, `scripts/proof-system.ts:171-202`).
+
+The check is syntactic and reads names, not intent: it cannot tell a watchdog
+from a product timing kept in a constant called `...Deadline`. Loosening a
+product timing was never something it could see when the number sat in an
+assertion, and it stays a review question either way.
 
 ## Historical measurement and upstream guidance
 
@@ -1847,7 +2659,8 @@ or deleted tests, unknown inputs and unavailable scans retain ordinary selection
 Main pushes and exhaustive runs retain complete affected/default discovery.
 
 The exact unit inventory is validated against default Bun discovery. It includes
-owning fast tests once, and uses at most the existing four partitions, reduced
+owning fast tests once, and uses at most its cadence's partition cap (four, or
+eight on ready confirmation and draft heavy feedback), reduced
 only when fewer files exist; no empty partition or duplicate execution substitutes
 for coverage. Selected categories remain required by the unchanged aggregate.
 
@@ -1884,7 +2697,7 @@ this narrowly scoped collector while retaining the existing CI/provider gates.
 The [collection guide](../process/ci-timings.md) defines interval/attempt
 accounting, missing evidence, cancellation costs, PR attribution and the
 historical exhaustive-run proxy. Estimates remain distinct from same-source
-paired measurements. Timing metadata never authorizes proof retention or merge.
+paired measurements. Timing metadata never authorizes a skipped category or a merge.
 
 The expanded [issue #2476](https://github.com/schlessera/brain-kit/issues/2476)
 objective is reliable parallel agent throughput. Collection

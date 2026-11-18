@@ -17,6 +17,9 @@ export interface VoicePermissionReceipt {
   postureDenied?: true;
 }
 
+/** The strip line while this turn's approvals wait for a tap; the live field draws its own copy for it (#3699). */
+export const PERMISSION_PENDING_LINE = "Use Deny on screen · voice can’t approve or refuse with this service";
+
 /** Concrete permission routing. Exact-copy speech is absent, so only a local earcon is queued. */
 export function createConversationPermissions(root: BrainUiServices, send: (message: ClientMessage) => boolean,
   selected: () => { active: boolean; sessionId: string | null; micOn: boolean; quiet: boolean; isolated: boolean }, earcon: () => void, overflow: () => void) {
@@ -41,7 +44,7 @@ export function createConversationPermissions(root: BrainUiServices, send: (mess
   // not prove user attribution; keep the scoped input guard and direct decisions
   // to the screen until a separately qualified capability can support this copy.
   function publish() {
-    state.setState({ records: [...records.values()], line: full ? "Use Deny on screen; the voice request limit was reached." : pending().length ? "Use Deny on screen · voice can’t approve or refuse with this service" : "" });
+    state.setState({ records: [...records.values()], line: full ? "Use Deny on screen; the voice request limit was reached." : pending().length ? PERMISSION_PENDING_LINE : "" });
     apply();
   }
   function put(receipt: VoicePermissionReceipt) {
@@ -85,26 +88,30 @@ export function createConversationPermissions(root: BrainUiServices, send: (mess
       if (!previous) put({ sessionId, turnId, toolUseId: message.toolUseId, label, phase: "pending", announced: false, ambiguous: false, byVoice: false, script: "", word: "" });
       else if (previous.phase === "unknown") put({ ...previous, phase: "pending", word: "Refusal unconfirmed · request still waiting" });
       publish(); quiet();
-    } else if (message.type === "tool_resolution") {
-      const key = identity(sessionId, turnId, message.toolUseId);
-      const previous = records.get(key);
-      const phase = message.outcome === "granted" ? "granted" : message.outcome === "expired" ? "expired" : message.outcome === "denied" ? "denied" : "unknown";
-      // A posture denial can have an outcome without ever having a grant card.
-      const byVoice = phase === "unknown" ? previous?.byVoice === true : previous?.heardAt !== undefined && message.channel === "voice";
-      const word = phase === "granted" ? previous?.heardAt ? "The screen decision was already accepted." : "Approved on screen" : phase === "expired" ? "Expired · denied · no answer before the turn ended"
-        : phase === "unknown" ? "Couldn't confirm the refusal" : byVoice ? previous?.ambiguous ? "Denied · by voice · heard unclearly · taken as refusal" : "Denied · by voice"
-        : message.reason === "voice_posture" ? "not done · denied by voice posture · no card" : "Denied on screen";
-      put({ sessionId, turnId, toolUseId: message.toolUseId, announced: previous?.announced ?? false, ambiguous: previous?.ambiguous ?? false, byVoice,
-        ...(previous?.heardAt ? { heardAt: previous.heardAt } : {}), ...(message.reason === "voice_posture" ? { postureDenied: true as const } : {}), label: previous?.label, phase, word,
-        script: phase === "denied" && byVoice ? previous?.ambiguous ? "I couldn't hear that clearly, so I took it as a refusal. The action was denied." : "I took that as a refusal. The action was denied."
-          : phase === "expired" ? "I stopped without doing it. Ask me again when you can look at a screen." : word });
-      publish();
     } else if (message.type === "result" || message.type === "status" && (message.status === "idle" || message.status === "cancelled")) {
       for (const receipt of records.values()) if (receipt.sessionId === sessionId && receipt.turnId === turnId && ["pending", "sent"].includes(receipt.phase)) {
         put({ ...receipt, phase: "expired", word: message.type === "status" && message.status === "cancelled" ? "Cancelled · not done" : "Expired · denied · no answer before the turn ended", script: "I stopped without doing it. Ask me again when you can look at a screen." });
       }
       publish();
     }
+  }
+  /** A permission's settled outcome (#957), from its handler-map entry (#3389). */
+  function resolution(message: Extract<ServerMessage, { type: "tool_resolution" }>) {
+    const { sessionId, turnId } = message;
+    if (!sessionId || !turnId) return;
+    const key = identity(sessionId, turnId, message.toolUseId);
+    const previous = records.get(key);
+    const phase = message.outcome === "granted" ? "granted" : message.outcome === "expired" ? "expired" : message.outcome === "denied" ? "denied" : "unknown";
+    // A posture denial can have an outcome without ever having a grant card.
+    const byVoice = phase === "unknown" ? previous?.byVoice === true : previous?.heardAt !== undefined && message.channel === "voice";
+    const word = phase === "granted" ? previous?.heardAt ? "The screen decision was already accepted." : "Approved on screen" : phase === "expired" ? "Expired · denied · no answer before the turn ended"
+      : phase === "unknown" ? "Couldn't confirm the refusal" : byVoice ? previous?.ambiguous ? "Denied · by voice · heard unclearly · taken as refusal" : "Denied · by voice"
+      : message.reason === "voice_posture" ? "not done · denied by voice posture · no card" : "Denied on screen";
+    put({ sessionId, turnId, toolUseId: message.toolUseId, announced: previous?.announced ?? false, ambiguous: previous?.ambiguous ?? false, byVoice,
+      ...(previous?.heardAt ? { heardAt: previous.heardAt } : {}), ...(message.reason === "voice_posture" ? { postureDenied: true as const } : {}), label: previous?.label, phase, word,
+      script: phase === "denied" && byVoice ? previous?.ambiguous ? "I couldn't hear that clearly, so I took it as a refusal. The action was denied." : "I took that as a refusal. The action was denied."
+        : phase === "expired" ? "I stopped without doing it. Ask me again when you can look at a screen." : word });
+    publish();
   }
   function input(event: Extract<ConversationWireEvent, { kind: "input_fragment" }>) {
     // Unknown attribution is never a user decision. Neither an assistant
@@ -121,7 +128,7 @@ export function createConversationPermissions(root: BrainUiServices, send: (mess
     return true;
   }
   const unsubscribe = root.stores.chat.subscribe(apply);
-  return { state, frame, input, quiet, refresh() { publish(); quiet(); },
+  return { state, frame, resolution, input, quiet, refresh() { publish(); quiet(); },
     lost() { for (const receipt of records.values()) if (receipt.phase === "sent") put({ ...receipt, phase: "unknown", word: "Couldn't confirm the refusal" }); publish(); },
     clear() { records.clear(); turns.clear(); announced.clear(); full = false; publish(); },
     dispose() { unsubscribe(); records.clear(); turns.clear(); announced.clear(); },

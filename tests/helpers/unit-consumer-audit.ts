@@ -89,6 +89,8 @@ export function auditUnitConsumers(root: string, browserEntrypoints: readonly st
     "packages/ui-backend-pi/scripts/measure-startup.ts",
     "packages/ui-react/tests/render/streaming-bench.tsx",
     "packages/ui-react/tests/block-contract.test-d.ts",
+    // Type-only handler-map assertions (#3389), checked by the root `tsc --noEmit`.
+    "packages/ui-react/tests/handler-map-frames.test-d.ts",
     "packages/ui-server/tests/maintenance-temp-shared-uid-proof.ts"];
   return records.map(record => {
     const closure = owners(record.importer);

@@ -30,16 +30,18 @@ test("session storage refuses a filesystem-root brain before creating state dire
   expect(existsSync(dir), "a filesystem-root brain has no external state directory").toBe(false);
   expect(failure?.message).toContain("outside the brain");
 });
-test.each(["symlink", "hardlink"])("transcript %s alias cannot truncate policy bytes", kind => {
+// The refusal names the alias guard that fired, so an earlier refusal cannot stand in for it.
+const ALIAS_REFUSAL = { symlink: /ELOOP/, hardlink: /must be an unaliased regular file/ } as const;
+test.each(["symlink", "hardlink"] as const)("transcript %s alias cannot truncate policy bytes", kind => {
   const f = fixture(), id = randomUUID();
   (kind === "symlink" ? symlinkSync : linkSync)(f.policy, join(f.state, `${id}.jsonl`));
-  expect(() => savePiSession(f.state, id, [{ type: "session", id }])).toThrow();
+  expect(() => savePiSession(f.state, id, [{ type: "session", id }])).toThrow(ALIAS_REFUSAL[kind]);
   expect(readFileSync(f.policy, "utf8")).toBe("Athena owns policy.\n");
 });
-test.each(["symlink", "hardlink"])("native credential %s alias cannot write policy bytes", kind => {
+test.each(["symlink", "hardlink"] as const)("native credential %s alias cannot write policy bytes", kind => {
   const f = fixture();
   (kind === "symlink" ? symlinkSync : linkSync)(f.policy, join(f.state, "auth.json"));
-  expect(() => syncPiAuth(f.state, "Athena owns policy.\n", "{}")).toThrow();
+  expect(() => syncPiAuth(f.state, "Athena owns policy.\n", "{}")).toThrow(ALIAS_REFUSAL[kind]);
   expect(readFileSync(f.policy, "utf8")).toBe("Athena owns policy.\n");
 });
 test("native credential synchronization refuses stale input and stores exact refreshed bytes", () => {

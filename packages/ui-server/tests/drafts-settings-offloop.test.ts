@@ -1,3 +1,4 @@
+import { createSpeechProviderRegistry } from "../src/voice/speech-providers";
 import { expect, test } from "bun:test";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -129,7 +130,7 @@ test("a transcription claim commits at FULL before provider dispatch; duplicates
     };
     const app = new Hono<AppEnv>();
     app.use("*", async (c, next) => { c.set("principal", f.owner); await next(); });
-    app.route("/", createTranscriptionRoutes({ store, speechProvider, voice: { provider: speechProvider.id, deepgramApiKey: null, keytermLimit: 0, cacheDir: f.root }, keyterms: { brainPath: f.root, cacheDir: f.root, limit: 0 } }));
+    app.route("/", createTranscriptionRoutes({ store, db: f.db, speechProviders: createSpeechProviderRegistry({ provider: speechProvider.id, deepgramApiKey: null, keytermLimit: 0, cacheDir: f.root }, { speechProvider }), keyterms: { brainPath: f.root, cacheDir: f.root, limit: 0 } }));
     const id = randomUUID(), audio = new Uint8Array([1, 2, 3]);
     const hash = createHash("sha256").update(audio).digest("hex");
     const path = `/voice/recordings/${id}/transcription`;

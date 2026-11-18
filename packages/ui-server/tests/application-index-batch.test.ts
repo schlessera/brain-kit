@@ -102,7 +102,7 @@ describe("deferred application indexing (#2835)", () => {
     batch.queue(["notes/a.md"]);
     await batch.barrier();
     expect(calls).toEqual([{ op: "index", paths: ["notes/a.md", "notes/b.md"] }]);
-    for (const name of ["mcp__brain__brain_search", "mcp__brain__brain_graph", "mcp__brain__module_tool", "brain_search", "brain_context", "brain_list", "brain_graph", "brain_read", "bash", "Bash"])
+    for (const name of ["mcp__brain__brain_search", "mcp__brain__brain_graph", "mcp__brain__module_tool", "brain_search", "brain_context", "brain_list", "brain_graph", "brain_read", "brain_read_many", "mcp__brain__brain_read_many", "bash", "Bash"])
       expect(readsIndex(name), name).toBe(true);
     for (const name of ["Read", "Grep", "Glob", "read_file", "write_file", "mcp__brain-ui__write_file", "mcp__brain-ui__brain_read_base", "brain_read_base"])
       expect(readsIndex(name), name).toBe(false);

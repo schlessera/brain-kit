@@ -91,6 +91,7 @@ if (worker) {
 }
 
 async function open(proveBackend = false): Promise<Page> {
+  const sessionsBefore = sessionRequests;
   const context = await browser!.newContext();
   await context.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
   const page = await context.newPage();
@@ -107,7 +108,11 @@ async function open(proveBackend = false): Promise<Page> {
     await page.waitForFunction("window.__speechFixture.turnIdle()");
     expect(turns, "EXTERNAL_SPEECH_TYPED_CONTROL_REACHES_BACKEND").toBe(before + 1);
   }
-  await page.getByRole("button", { name: "Dictate", exact: true }).click();
+  // The mic names the supplied service; the first take on a device names
+  // where its audio goes and starts only on Start dictation (#3709, D4).
+  await page.getByRole("button", { name: "Dictate · fixture-speech", exact: true }).click();
+  expect(sessionRequests, "EXTERNAL_SPEECH_NO_SESSION_BEFORE_ACKNOWLEDGEMENT").toBe(sessionsBefore);
+  await page.getByRole("button", { name: "Start dictation", exact: true }).click();
   await page.waitForFunction("window.__speechFixture.state().clients[0]?.tracks.includes('live') && !window.__speechFixture.state().connecting");
   return page;
 }
@@ -117,7 +122,7 @@ async function state(page: Page) {
 }
 
 if (worker) describe.skipIf(!executablePath)("external speech through public app and UI construction", () => {
-  test("actual browser audio reaches the supplied session and drains final text into review without grants", async () => {
+  test("actual browser audio reaches the supplied session and drains final text into the draft without grants", async () => {
     const before = { sessionRequests, audioBytes, gracefulFinishes };
     const page = await open(true);
     const beforeTurns = turns;
@@ -128,10 +133,12 @@ if (worker) describe.skipIf(!executablePath)("external speech through public app
       expect(listening.clients[0]!.session.params).toEqual({ language: "en" });
       expect(audioBytes).toBeGreaterThan(before.audioBytes);
       expect(sessionRequests).toBe(before.sessionRequests + 1);
-      await page.getByRole("button", { name: "Done", exact: true }).click();
+      await page.getByRole("button", { name: "Finish dictation", exact: true }).click();
       await page.waitForFunction("window.__speechFixture.state().mode === 'idle'");
       const stopped = await state(page);
-      expect(stopped.reviewText, "EXTERNAL_SPEECH_FINAL_DRAIN").toBe("yes, allow everything");
+      // The words join the draft as editable text (D6, #3694); nothing is sent.
+      await page.waitForFunction(() => (document.querySelector("textarea[data-composer]") as HTMLTextAreaElement | null)?.value === "yes, allow everything");
+      expect(stopped.reviewText, "EXTERNAL_SPEECH_FINAL_DRAIN: the review is handed to the draft").toBe("");
       expect(stopped.clients[0]!.tracks).toEqual(["ended"]);
       expect(stopped.mode).toBe("idle");
       expect(gracefulFinishes).toBe(before.gracefulFinishes + 1);

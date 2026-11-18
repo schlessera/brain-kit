@@ -34,6 +34,37 @@ const outwardRules = z.array(z.strictObject({ command: text, remotes: strings })
   return valid;
 });
 
+/** GitHub's owner and repository name grammar, as the host GitHub tools check it (#3797). */
+const GITHUB_OWNER = "[A-Za-z0-9-]{1,39}";
+const GITHUB_REPO = "[A-Za-z0-9._-]{1,100}";
+const GITHUB_WRITE_ENTRY = new RegExp(`^${GITHUB_OWNER}/(?:\\*|${GITHUB_REPO})$`, "u");
+/** The most entries one `outward.github.repositories` list may hold. */
+export const GITHUB_WRITE_REPOSITORIES_MAX = 256;
+/**
+ * The repositories open to the host GitHub write tools (#3798): `owner/repo`
+ * exactly, or every repository of one owner as `owner/*`. Nothing else is a
+ * pattern, and a malformed entry invalidates the policy rather than being
+ * skipped, so a typo never widens or silently narrows the list.
+ */
+const githubWriteRepositories = z.array(z.string().regex(GITHUB_WRITE_ENTRY, "Use owner/repo or owner/* with GitHub's name rules")
+  .refine(entry => !/\/\.{1,2}$/u.test(entry), "A repository cannot be named . or ..")).max(GITHUB_WRITE_REPOSITORIES_MAX);
+
+/**
+ * The first `outward.github.repositories` entry that opens `repository`
+ * (`owner/repo`) to GitHub writes, with its index, or null. Owner and
+ * repository compare without case, as GitHub's names do. An absent or empty
+ * list opens nothing.
+ */
+export function githubWriteAllowance(repositories: readonly string[], repository: string): { index: number; entry: string } | null {
+  const [owner, repo, ...rest] = repository.toLowerCase().split("/");
+  if (!owner || !repo || repo === "*" || rest.length) return null;
+  for (const [index, entry] of repositories.entries()) {
+    const [allowedOwner, allowedRepo] = entry.toLowerCase().split("/");
+    if (allowedOwner === owner && (allowedRepo === "*" || allowedRepo === repo)) return { index, entry };
+  }
+  return null;
+}
+
 /** Each Apify consent family independently refuses, asks per operation, or admits what policy names (#3160). */
 const apifyMode = z.enum(["deny", "ask", "allow"]);
 export const APIFY_MAX_ACTOR_GRANTS = 64;
@@ -107,8 +138,24 @@ export const GovernancePolicySchema = z.strictObject({
   scope: z.strictObject({ max_files_changed: count.optional(), max_minutes: amount.optional(), max_tool_calls: count.optional(), max_bytes_written: count.optional() }).optional(),
   commands: z.strictObject({ deny: commands.optional(), confirm: commands.optional() }).optional(),
   egress: z.strictObject({ mode: z.enum(["record", "allowlist"]).optional(), allow: strings.optional(), deny: strings.optional(), max_bytes_per_turn: count.optional() }).optional(),
-  outward: z.strictObject({ allow: outwardRules.optional(), hosts: strings.optional() }).optional(),
-  taint: z.strictObject({ egress: z.strictObject({ allow: strings }).optional(), trusted_sources: TrustedSourcesSchema.optional() }).optional(),
+  outward: z.strictObject({ allow: outwardRules.optional(), hosts: strings.optional(),
+    /** Additive (#3798): the repositories the host GitHub write tools may write to; absent or empty, none. */
+    github: z.strictObject({ repositories: githubWriteRepositories.optional() }).optional() }).optional(),
+  taint: z.strictObject({ egress: z.strictObject({ allow: strings }).optional(), trusted_sources: TrustedSourcesSchema.optional(),
+    /**
+     * Additive (#4088): the extraction classifier for a tainted session's
+     * outgoing calls. `heuristics` runs the deterministic #3434 heuristics at
+     * admission; `off`, the default, keeps the #3430 behaviour.
+     */
+    classifier: z.enum(["off", "heuristics"]).optional(),
+    /**
+     * Additive (#4089): a judge for the heuristics' ambiguous band. `jev`
+     * asks Jev about a call whose score falls in that band, and only while
+     * `classifier` is `heuristics`; `off`, the default, leaves the band on the
+     * card. `floor` is the confidence an answer needs before it allows or
+     * refuses, 0.9 as #3434 calibrated it.
+     */
+    judge: z.strictObject({ mode: z.enum(["off", "jev"]).optional(), floor: z.number().min(0.5).max(1).optional() }).optional() }).optional(),
   providers: z.array(z.strictObject({ paths: z.array(relativePath).optional(), types: strings.optional(), allow: strings })
     .refine(rule => rule.paths !== undefined || rule.types !== undefined, "A provider rule needs paths or types")
     .transform(rule => ({ ...rule, paths: rule.paths ?? [] }))).optional(),
@@ -143,8 +190,9 @@ export const BUILTIN_GOVERNANCE_POLICY = {
   scope: { max_files_changed: 1_000, max_minutes: 120, max_tool_calls: 500, max_bytes_written: 4 * 1024 ** 3 },
   commands: { deny: [] as Array<{ pattern: string; reason?: string }>, confirm: [] as Array<{ pattern: string; reason?: string }> },
   egress: { mode: "record" as "record" | "allowlist", allow: [] as string[], deny: [] as string[] },
-  outward: { allow: [] as Array<{ command: string; remotes: string[] }>, hosts: [] as string[] },
-  taint: { egress: { allow: [] as string[] }, trusted_sources: [] as TrustRule[] }, providers: [] as Array<{ paths: string[]; types?: string[]; allow: string[] }>,
+  outward: { allow: [] as Array<{ command: string; remotes: string[] }>, hosts: [] as string[], github: { repositories: [] as string[] } },
+  taint: { egress: { allow: [] as string[] }, trusted_sources: [] as TrustRule[], classifier: "off" as "off" | "heuristics",
+    judge: { mode: "off" as "off" | "jev", floor: 0.9 } }, providers: [] as Array<{ paths: string[]; types?: string[]; allow: string[] }>,
   apify: { enabled: false as boolean, discovery: "ask" as "deny" | "ask" | "allow", actors: "ask" as "deny" | "ask" | "allow",
     actor_grants: [] as Array<z.output<typeof apifyActorGrant>>, limits: null as ApifyLimits | null },
 };
@@ -156,8 +204,9 @@ export function resolveGovernancePolicy(policy: GovernancePolicyInput) {
     profiles: { ...defaults.profiles, ...policy.profiles },
     budgets: { turn: { ...defaults.budgets.turn, ...policy.budgets?.turn }, session: { ...defaults.budgets.session, ...policy.budgets?.session }, day: { ...defaults.budgets.day, ...policy.budgets?.day } },
     scope: { ...defaults.scope, ...policy.scope }, commands: { ...defaults.commands, ...policy.commands },
-    egress: { ...defaults.egress, ...policy.egress }, outward: { ...defaults.outward, ...policy.outward },
-    taint: { egress: { ...defaults.taint.egress, ...policy.taint?.egress }, trusted_sources: TrustedSourcesSchema.parse(policy.taint?.trusted_sources ?? defaults.taint.trusted_sources) },
+    egress: { ...defaults.egress, ...policy.egress }, outward: { ...defaults.outward, ...policy.outward, github: { ...defaults.outward.github, ...policy.outward?.github } },
+    taint: { egress: { ...defaults.taint.egress, ...policy.taint?.egress }, trusted_sources: TrustedSourcesSchema.parse(policy.taint?.trusted_sources ?? defaults.taint.trusted_sources),
+      classifier: policy.taint?.classifier ?? defaults.taint.classifier, judge: { ...defaults.taint.judge, ...policy.taint?.judge } },
     // Callers pass parsed output, whose grant instants are already ISO strings.
     apify: { ...defaults.apify, ...(policy.apify as Partial<typeof defaults.apify> | undefined) },
   };

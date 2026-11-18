@@ -19,7 +19,7 @@ type ApprovalsSliceSlice = Pick<ChatState,
 export function createApprovalsSlice(ctx: ChatSliceContext): ApprovalsSliceSlice {
   const { set, get, nextId, mutateBuffer, mutateToolHolder } = ctx;
   return {
-    requestToolApproval: (key, toolUseId, toolName, input, description, kind, rememberable, turnId) =>
+    requestToolApproval: (key, toolUseId, toolName, input, description, kind, rememberable, turnId, display) =>
       mutateBuffer(key, (chat) => {
         const msgs = [...chat.messages];
         const request = (previous: ToolCall | undefined, restored: boolean): ToolCall => ({
@@ -32,6 +32,8 @@ export function createApprovalsSlice(ctx: ChatSliceContext): ApprovalsSliceSlice
           ...(kind === "policy" && POLICY_CHANGE_REVIEW_SCHEMA.safeParse(input.policyReview).success ? { policyChange: POLICY_CHANGE_REVIEW_SCHEMA.parse(input.policyReview) } : {}),
           ...(rememberable === false ? { approvalRememberable: false } : {}),
           ...(description ? { approvalDescription: description } : {}),
+          // Display only (#4154): a re-delivery carries the host's facts again, so they are never older than the card.
+          ...(display ? { approvalDisplay: display } : {}),
           // A card already pending keeps what it was; anything else is
           // restored when it lands on a message no live turn is streaming.
           ...((previous?.status === "pending_approval" ? previous.restored : restored)

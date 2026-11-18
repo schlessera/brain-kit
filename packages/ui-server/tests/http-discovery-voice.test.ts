@@ -87,7 +87,7 @@ test("mounted voice session and legacy token use only short-lived injected grant
       } else { expect(Object.keys(body).sort()).toEqual(["expiresAt", "token"]); }
     }
     expect(calls).toHaveLength(2);
-    expect(calls.every((c) => c.authorization === "Token fixture-only-deepgram-key")).toBe(true);
+    expect(calls.map((c) => c.authorization)).toEqual(["Token fixture-only-deepgram-key", "Token fixture-only-deepgram-key"]);
     expect(calls.map((c) => c.body)).toEqual([{ ttl_seconds: 60 }, { ttl_seconds: 60 }]);
     refuse = true;
     for (const path of ["/api/voice/session", "/api/voice/token"]) {

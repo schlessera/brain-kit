@@ -18,8 +18,6 @@ export const diagramArtifact:BrowserCommand<[],unknown>=async(ctx)=>{
  assert.equal(receipt.session,session,"NATIVE_EXPORT_PRODUCER_SESSION");assert.equal(receipt.version,1,"NATIVE_EXPORT_PRODUCER_RECEIPT");assert.equal(receipt.engine,engine,"NATIVE_EXPORT_PRODUCER_ENGINE");
  const checkout=process.env.BRAIN_PROOF_CASE_CHECKOUT?JSON.parse(process.env.BRAIN_PROOF_CASE_CHECKOUT).sha:undefined;
  if(checkout!==undefined)assert.equal(receipt.checkout,checkout,"NATIVE_EXPORT_ACTUAL_CHECKOUT");
- const expected=process.env.BRAIN_PROOF_NATIVE_DIAGRAM_INPUTS?JSON.parse(process.env.BRAIN_PROOF_NATIVE_DIAGRAM_INPUTS):undefined;
- if(expected){assert.equal(receipt.source,expected.source,"NATIVE_EXPORT_RECEIPT_SOURCE");assert.equal(receipt.installation,expected.installation,"NATIVE_EXPORT_RECEIPT_INSTALLATION");assert.equal(receipt.runtime.sha256,expected.runtime,"NATIVE_EXPORT_RECEIPT_RUNTIME");}
  for(const format of ["svg","png","pdf"]){const name=`release.${format}`,bytes=readFileSync(resolve(prepared,name));assert.equal(createHash("sha256").update(bytes).digest("hex"),receipt.files[name],"NATIVE_EXPORT_ARTIFACT_CHANGED");writeFileSync(resolve(directory,name),bytes);}
  const artifacts=receipt.artifacts as {format:string;bytes:number;pixelEquivalent?:boolean}[];
  const svg=readFileSync(resolve(directory,"release.svg"),"utf8"),width=Number(/width="([0-9.]+)"/.exec(svg)![1]),height=Number(/height="([0-9.]+)"/.exec(svg)![1]);

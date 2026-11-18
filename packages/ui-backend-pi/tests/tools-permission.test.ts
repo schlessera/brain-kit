@@ -80,6 +80,39 @@ describe("approval policy (approvalReason)", () => {
 });
 
 describe("tool_call permission gate", () => {
+  test("a call the gate blocks is refused at the collector as its own denial, and every tool_call is one admission", async () => {
+    // A block is the gate's own denial before the call runs: it refuses the
+    // id, and for the id's only admission, never let through, the collector
+    // discharges the call on it (#3812).
+    const refused: [string, boolean | undefined][] = [], admitted: string[] = [];
+    const turn = createTurnContext();
+    const mock = makeMockBridge({ decision: { behavior: "deny", message: "Penelope declines" } });
+    turn.bridge = { ...mock.bridge, inputSafety: { ready: async () => {}, begin: async () => {}, result: async () => {},
+      admitting: (id: string, tool?: string) => { admitted.push(`${tool}:${id}`); }, refused: async (id: string, denied?: boolean) => { refused.push([id, denied]); } } };
+    const handler = gateHandler({ turn, allowedTools: ALLOWED, confirmPatterns: CONFIRM });
+    expect(await handler({ toolName: "write_file", toolCallId: "allowed", input: { path: "a.md", content: "x" } })).toBeUndefined();
+    expect(await handler({ toolName: "brain_archive", toolCallId: "declined", input: { path: "notes/suitors.md" } })).toMatchObject({ block: true });
+    expect(refused, "PI_GATE_BLOCK_REFUSES_THE_CALL").toEqual([["declined", true]]);
+    expect(admitted, "PI_GATE_EVERY_TOOL_CALL_IS_AN_ADMISSION").toEqual(["write_file:allowed", "brain_archive:declined"]);
+  });
+
+  test("a call the gate lets through is checked by the collector first, and one the check refuses is blocked", async () => {
+    // The collector's last check: a call whose id was refused, or whose
+    // latest admission did not complete, must not run at all (#3812).
+    const refused: string[] = [], allowed: string[] = [];
+    const turn = createTurnContext();
+    const mock = makeMockBridge({ decision: { behavior: "allow" } });
+    turn.bridge = { ...mock.bridge, inputSafety: { ready: async () => {}, begin: async () => {}, result: async () => {},
+      refused: async (id: string, denied?: boolean) => { if (denied) refused.push(id); },
+      allowed: async (id: string) => { if (id === "unchecked") throw new Error("Safety operation was refused or not admitted; the call does not run"); allowed.push(id); } } };
+    const handler = gateHandler({ turn, allowedTools: ALLOWED, confirmPatterns: CONFIRM });
+    expect(await handler({ toolName: "write_file", toolCallId: "checked", input: { path: "a.md", content: "x" } }), "PI_GATE_CHECKED_CALL_RUNS").toBeUndefined();
+    expect(await handler({ toolName: "write_file", toolCallId: "unchecked", input: { path: "b.md", content: "y" } }), "PI_GATE_REFUSED_CHECK_BLOCKS_THE_CALL")
+      .toMatchObject({ block: true, reason: expect.stringContaining("does not run") });
+    expect(allowed, "PI_GATE_ALLOW_IS_CHECKED").toEqual(["checked"]);
+    expect(refused, "PI_GATE_BLOCKED_CALL_IS_REFUSED").toEqual(["unchecked"]);
+  });
+
   test("default brain_read_base executes in-process without an approval card", async () => {
     const brain = makeEmptyBrain();
     try {
@@ -754,6 +787,30 @@ describe("bridge-capability tool registration", () => {
     }
   });
 
+  test("request_image_markup relays the host's receipt, refuses without the host operation, and refuses a no-grant turn (#3975)", async () => {
+    const brain = makeEmptyBrain();
+    try {
+      const turn = createTurnContext();
+      turn.bridge = makeMockBridge().bridge;
+      const tools = toolMap(createBrainTools({ brain: createBrainAccess(brain.root), turn, lock: toolLockFromKeyed(createKeyedLock()), capabilities: { markup: true } }));
+      expect(tools.request_image_markup).toBeDefined();
+      const input = { imagePath: "photos/raft-at-ithaca.jpg", instruction: "mark what should move" };
+      await expect(tools.request_image_markup!.execute("k1", input, undefined, undefined, CTX)).rejects.toThrow("does not support request_image_markup");
+      const asked: unknown[] = [];
+      const receipt = { imagePath: input.imagePath, markupPath: ".brain/scratch/markup/raft-at-ithaca.3f9a1c2e.markup.png", width: 3024, height: 4032,
+        bytes: 2048, marks: { pen: 0, arrow: 2, ellipse: 1, text: 1 }, notes: ["move the raft here"], note: "Pass this layer to brain image --markup." };
+      (turn.bridge as { requestImageMarkup?: unknown }).requestImageMarkup = async (call: unknown) => { asked.push(call); return receipt; };
+      const result = await tools.request_image_markup!.execute("k2", input, undefined, undefined, CTX);
+      expect(asked).toEqual([input]);
+      expect(JSON.parse((result.content[0] as { text: string }).text)).toEqual(receipt);
+      turn.noGrantSurface = true;
+      await expect(tools.request_image_markup!.execute("k3", input, undefined, undefined, CTX)).rejects.toThrow(/no way to show anyone an image/);
+      expect(asked).toHaveLength(1);
+    } finally {
+      brain.cleanup();
+    }
+  });
+
   test("the list card refuses a turn with no grant surface instead of blocking on it", async () => {
     const brain = makeEmptyBrain();
     try {
@@ -823,7 +880,7 @@ describe("bridge-capability tool registration", () => {
         turn,
         lock: toolLockFromKeyed(createKeyedLock()),
         // Every capability the toolkit accepts: a new one fails to typecheck here until it is enabled.
-        capabilities: { location: true, activity: true, mask: true, inbox: true, policyChange: true, turnTemp: true, reference: true, compute: true, apify: true, attachments: true } satisfies Required<NonNullable<BrainToolDeps["capabilities"]>>,
+        capabilities: { location: true, activity: true, mask: true, markup: true, inbox: true, policyChange: true, turnTemp: true, reference: true, compute: true, apify: true, attachments: true, web: true, github: true } satisfies Required<NonNullable<BrainToolDeps["capabilities"]>>,
       });
       expect(tools.length).toBeGreaterThan(0);
       for (const t of tools) {

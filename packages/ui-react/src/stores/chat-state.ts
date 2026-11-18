@@ -3,6 +3,7 @@ import type { PolicyChangeReview } from "@schlessera/brain-ui-sdk/tool-contracts
 import { createStore } from "zustand/vanilla";
 import type {
   SharedFileMeta,
+  AttachmentFile,
   LocalExchange,
   MessageBlock,
   MessageLink,
@@ -19,6 +20,7 @@ import type {
   ThinkingLevel,
   StateRoomObservation,
   TurnJournalSummary,
+  ApprovalDisplay,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { StoreApi } from "zustand/vanilla";
 import type { StatsSection } from "../lib/stats/compose-stats.js";
@@ -67,6 +69,8 @@ export interface ChatMessage {
    */
   attachments?: MessageAttachment[];
   files?: SharedFileMeta[];
+  /** Composer originals the message named (#3155). Stored is not read: no read state is implied. */
+  attachmentFiles?: AttachmentFile[];
   /** Attachment count for history-loaded messages without preview data. */
   attachmentCount?: number;
   /**
@@ -186,6 +190,13 @@ export interface ToolCall {
    * runtime's own text and is not drawn.
    */
   approvalDescription?: string;
+  /**
+   * Facts the host verified for this card's display only (#4154): who a
+   * GitHub comment would be posted as, and the kind of its target. Never
+   * part of `input`, never sent back with the answer, never shown to the
+   * model. Absent means unknown, and the card shows its neutral state.
+   */
+  approvalDisplay?: ApprovalDisplay;
   /**
    * The host re-delivered this pending approval after the transcript was
    * rebuilt from history (#964, D52 §4 R3): it is the original request,
@@ -431,7 +442,8 @@ export interface ChatState {
     source?: MessageSource,
     attachments?: MessageAttachment[],
     effort?: { requestId: string; thinkingLevel?: ThinkingLevel },
-    files?: SharedFileMeta[]
+    files?: SharedFileMeta[],
+    attachmentFiles?: AttachmentFile[]
   ) => void;
   startAssistantMessage: (key: ChatKey, turnId?: string, requestId?: string) => void;
   appendText: (key: ChatKey, text: string) => void;
@@ -466,7 +478,9 @@ export interface ChatState {
     kind?: "tool" | "command" | "policy" | "actor",
     rememberable?: boolean,
     /** The host turn the request belongs to, from the frame. */
-    turnId?: string
+    turnId?: string,
+    /** Display-only facts the host verified for the card (#4154). */
+    display?: ApprovalDisplay
   ) => void;
   applyVoicePermission: (receipt: VoicePermissionReceipt) => void;
   resolveToolApproval: (key: ChatKey, toolUseId: string, approved: boolean) => void;

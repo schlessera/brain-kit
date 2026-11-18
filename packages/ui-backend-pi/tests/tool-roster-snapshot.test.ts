@@ -21,9 +21,15 @@ const FIXTURE = join(import.meta.dir, "fixtures", "pi-tool-roster.json");
 
 const VARIANTS: Record<string, Partial<BrainToolDeps>> = {
   default: {},
+  // reference_read (#3613) joins this variant's reference tools; every
+  // pre-existing definition and the other variants stay byte-identical.
   directWorkerData: { directWrites: true, shellCwd: WORKER_DATA_ROOT,
     capabilities: { location: true, activity: true, inbox: true, mask: true, policyChange: true, turnTemp: true, reference: true } },
   scratchShell: { shellCwd: "/worker/scratch", capabilities: { mask: true } },
+  // The host-owned web tools (#3685) join the bridge tools; nothing else moves.
+  web: { capabilities: { web: true } },
+  // The host-owned markup tool (#3975) follows the mask tool; nothing else moves.
+  markup: { capabilities: { mask: true, markup: true } },
 };
 
 function roster(): string {

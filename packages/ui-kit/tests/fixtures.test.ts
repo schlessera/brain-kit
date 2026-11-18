@@ -260,9 +260,9 @@ describe("cross-references", () => {
       projects.goal.path,
     ]);
     const doc = notes.viewerDocument;
-    expect(known.has(doc.note.path)).toBe(true);
+    expect([...known]).toContain(doc.note.path);
     for (const para of doc.paragraphs) {
-      if (para.link) expect(known.has(para.link)).toBe(true);
+      if (para.link) expect([...known]).toContain(para.link);
     }
     for (const q of doc.questions) expect(q.state).toBe("todo");
 
@@ -285,7 +285,7 @@ describe("cross-references", () => {
   test("every note tag is in the world's tag vocabulary", () => {
     expect(notes.notes.flatMap(note => note.tags).length).toBeGreaterThan(0);
     const vocabulary = new Set<string>(notes.tags);
-    for (const n of notes.notes) for (const t of n.tags) expect(vocabulary.has(t)).toBe(true);
+    for (const n of notes.notes) for (const t of n.tags) expect([...vocabulary]).toContain(t);
   });
 });
 
@@ -404,12 +404,14 @@ describe("reserved identifiers only", () => {
     (await fixtureSources()).map(([, text]) => text).join("\n");
 
   test("every phone number is in the 555-01xx block", () => {
+    expect(people.people.filter((p) => p.phone !== null).length, "some person has a phone").toBeGreaterThan(0);
     for (const p of people.people) {
       if (p.phone !== null) expect(p.phone).toMatch(/^555-01\d\d$/);
     }
   });
 
   test("every email is on example.com", () => {
+    expect(people.people.filter((p) => p.email !== null).length, "some person has an email").toBeGreaterThan(0);
     for (const p of people.people) {
       if (p.email !== null) expect(p.email).toMatch(/@example\.com$/);
     }
@@ -466,9 +468,13 @@ describe("DataTable column widths are pixels, not percentages", () => {
 
     test(`${name}: widths do not sum to 100 with every column pinned`, () => {
       const pinned = columns.filter((c) => c.w !== undefined);
-      if (pinned.length !== columns.length) return;
       const total = pinned.reduce((a, c) => a + (c.w ?? 0), 0);
-      expect(total, `${name} widths sum to 100 — these look like percentages`).not.toBe(100);
+      // A partly pinned table cannot be the percentage mistake, so only a fully
+      // pinned one may not sum to 100; the assertion runs either way.
+      expect(
+        { everyColumnPinned: pinned.length === columns.length, total },
+        `${name} widths sum to 100 — these look like percentages`,
+      ).not.toEqual({ everyColumnPinned: true, total: 100 });
     });
   }
 });

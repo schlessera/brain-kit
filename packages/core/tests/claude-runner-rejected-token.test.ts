@@ -78,6 +78,6 @@ describe("the Claude runner on a rejected token", () => {
     expect(outcome.ok).toBe(false);
     expect(seen.length).toBeGreaterThan(0);
     expect(seen.filter((request) => request.xApiKey !== null)).toEqual([]);
-    expect(seen.every((request) => request.authorization === `Bearer ${OAUTH}`)).toBe(true);
+    expect(seen.map((request) => request.authorization)).toEqual(seen.map(() => `Bearer ${OAUTH}`));
   }, 60_000);
 });

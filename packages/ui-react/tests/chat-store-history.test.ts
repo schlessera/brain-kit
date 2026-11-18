@@ -1,9 +1,12 @@
-import { describe, test, expect, beforeEach } from "bun:test";
+import { afterAll, beforeAll, describe, test, expect, beforeEach } from "bun:test";
+import { useChatStore, type ChatMessage } from "../src/stores/chat-store";
 
 // Bun's test env has no DOM localStorage; the store guards against that, but
-// these tests assert the persistence path, so install an in-memory stub.
+// these tests assert the persistence path, so install an in-memory stub for
+// this file only and put back whatever was there before, so no later file in
+// the same process inherits the stub or its keys.
 const backing = new Map<string, string>();
-(globalThis as unknown as { localStorage: Storage }).localStorage = {
+const stub = {
   getItem: (k: string) => backing.get(k) ?? null,
   setItem: (k: string, v: string) => void backing.set(k, v),
   removeItem: (k: string) => void backing.delete(k),
@@ -11,8 +14,14 @@ const backing = new Map<string, string>();
   key: () => null,
   length: 0,
 } as Storage;
-
-import { useChatStore, type ChatMessage } from "../src/stores/chat-store";
+const original = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+beforeAll(() => {
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, writable: true, value: stub });
+});
+afterAll(() => {
+  if (original) Object.defineProperty(globalThis, "localStorage", original);
+  else Reflect.deleteProperty(globalThis, "localStorage");
+});
 
 function msg(id: string, content: string): ChatMessage {
   return {

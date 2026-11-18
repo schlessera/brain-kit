@@ -145,6 +145,9 @@ for (const [status, kind, terminal] of [
   ["not_detected", "commit", "resolved"],
   ["dismissed", "dismiss", "dismissed"],
   ["snoozed", "later", "snoozed"],
+  // Media review (#2782): a kept copy resolves; Leave pending is an untimed snooze.
+  ["kept", "commit", "resolved"],
+  ["deferred", "later", "snoozed"],
 ] as const) {
   for (const attribution of ["local", "elsewhere", "ambiguous"] as const) {
     test(`hygiene ${status} preserves ${attribution} attribution across successful pending and terminal deltas`, () => {
@@ -156,7 +159,7 @@ for (const [status, kind, terminal] of [
       const delta = (version: number, outcomeStatus: NonNullable<NonNullable<InboxActionItem["hygiene"]>["outcome"]>["status"], actionStatus: InboxActionItem["status"] = "pending") => {
         s.getState().applyDelta({ type: "inbox_delta", view: "actions", change: { changeId: version + 4, threadId: "t", seq: version + 4, kind: "upsert_item", itemId: "h", item: {
           ...item, version, status: actionStatus,
-          ...(actionStatus === "snoozed" ? { waitUntil: T + 3_600_000 } : {}),
+          ...(actionStatus === "snoozed" && status !== "deferred" ? { waitUntil: T + 3_600_000 } : {}),
           hygiene: { ...item.hygiene!, outcome: { version: 1, status: outcomeStatus } },
         } } });
       };
@@ -171,7 +174,7 @@ for (const [status, kind, terminal] of [
       expect(s.getState().inFlight.h).toBeUndefined();
       const receipt = s.getState().outcomes.h;
       expect(receipt && "text" in receipt ? receipt.text : undefined).toBe(attribution === "local" ? "Confirmed disposition" : undefined);
-      if (terminal === "snoozed") expect(receipt).toMatchObject({ waitUntil: T + 3_600_000 });
+      if (terminal === "snoozed" && status !== "deferred") expect(receipt).toMatchObject({ waitUntil: T + 3_600_000 });
     });
   }
 }

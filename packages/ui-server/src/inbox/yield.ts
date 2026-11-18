@@ -12,7 +12,7 @@ const digest = (...parts: string[]) => createHash("sha256").update(JSON.stringif
 // prove the absence of effects. This is replay restriction, never admission.
 const READS = new Set([
   "Read", "Glob", "Grep", "WebSearch", "WebFetch", "ToolSearch",
-  "read_file", "grep", "brain_search", "brain_context", "brain_read", "brain_list", "brain_graph",
+  "read_file", "grep", "brain_search", "brain_context", "brain_read", "brain_list", "brain_graph", "brain_read_many",
   "web_search", "fetch_content", "jobs_review",
 ]);
 

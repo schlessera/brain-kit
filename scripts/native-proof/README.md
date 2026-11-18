@@ -10,6 +10,16 @@ prerequisites. Preparation can download dependencies; the proof uses
 `--network=none`, `--pull=never`, the normal test network guards and loopback
 HTTP/WebSocket clients. Missing prerequisites fail the selected runtime job.
 
+The Claude UID 1000 cell of a default run then runs the media review flow's
+worker scenario (#2783) in the same container:
+`packages/ui-server/tests/media-review-flow.test.ts -t "in maintenance workers"`.
+Its server, CLI and Git run as the app UID (`BRAIN_MEDIA_FLOW_UID`), as the
+hosted app does. It runs every brain command the review server issues in a maintenance worker,
+with that suite's test-only copied checkpoints rather than this Btrfs volume.
+It applies Keep a permanent copy and undoes it, and holds the server, the CLI
+and `brain sync` to one count. The fixture records the command and its exit
+code in `native-fixture.json`.
+
 `--apply-timing` adds one strict conversation after the cancellation checks
 (#2835), once the earlier turns' index refresh has finished. Claude calls its
 turn's `brain-ui` MCP `write_file` handler 20 times and `edit_file` 20 times,
@@ -22,7 +32,11 @@ barrier is timed at the bridge, and the copy and seed of the turn's data tree
 at admission, with the host load before and after, in `apply-timing.json`. The
 run fails unless both medians are at most 300 ms, the in-worker search sees all
 20 edited notes, Claude's MCP server reads the data tree and pi's reader and
-shell see the edits. It is a measurement, not part of the default
+shell see the edits. Each mounted tree's Btrfs allocation (`btrfs filesystem
+du`: total, exclusive and shared bytes) is recorded once seeded and again when
+the turn closes it (#2911). The run fails unless every seeded tree's exclusive
+bytes are below a tenth of its total, the proof that it shares the
+checkpoint's extents. It is a measurement, not part of the default
 qualification.
 
 `--observation-timing` measures the turn journal's per-call cost (#2834). For
@@ -44,6 +58,22 @@ phases and steps per scenario, and the host load before and after are in
 `observation-timing.json`. It is a measurement, not part of the default
 qualification.
 
+Its `phases` section (#2915) attributes each observed writer's worker hold and
+each harbour turn's journal begin and finish to their steps: the queue for the
+journal, the wait for room behind earlier releases, checkpoint, delta,
+metadata reads, capture, each turn's record, publication and facts query, the
+commit and, for finish, its end record, object collection and publication. The
+app child stamps the journal's internal observation trace, and the fixture's
+manager stamps each request's lock wait (with the operation it waited behind)
+and its steps, both with `performance.timeOrigin + performance.now()`. A
+checkpoint or delta step is broken down by the one manager request that arrived
+inside it; the run fails unless every such step pairs with exactly one request
+and each checkpoint answered before its step ended, which is the proof that
+the two processes' clocks agree. Per-phase medians count an absent phase as
+zero; coverage is attributed time over the independently measured hold or
+journal call. `observation-traces.json` keeps the raw traces and manager spans
+(`scripts/native-proof/observation-phases.ts`).
+
 `bun scripts/prove-worker-identity.ts` is a separate required runtime cell for
 the host identity protocol. It compiles the test-only helper on the host without
 setuid permissions, then installs it as root-owned setuid only inside its owned,
@@ -54,7 +84,10 @@ for the short helper's entry into the authenticated manager stage mount
 namespace; dropping it makes the actual managed-stage launch refuse. The same
 cell reuses the owned 4 GiB Btrfs fixture for sealed stage authority and private
 checkpoint capture, and runs the fixed reader's descriptor/bounds/cancellation
-controls. Its outer container permits the
+controls. Its strict provider-index turn places its data tree on the managed
+volume (#2911): the separate-UID worker reads its own tree, gets `EROFS`
+writing it, and can neither read a peer turn's tree nor list the manager's
+`trees/` area, and the manager has removed the tree once the turn ends. Its outer container permits the
 fixture helper's UID transition; the actual worker must still prove
 `NoNewPrivs=1` and zero effective capabilities. The other native cells retain
 their existing outer `no-new-privileges` setting. No helper is installed on the
@@ -267,6 +300,21 @@ expected failure with `qualification: false`; it does not turn the failing
 invocation into a healthy fifth matrix cell. The selected hosted runtime job
 therefore exercises the reproduction under its enforced AppArmor profile too.
 
+So every `runtime_host` log, green or red, holds a Pi UID 0 invocation that
+fails `NATIVE_AUTOMATIC_INDEX_COMPLETED: NativeBrainManagerError: Native manager
+outcome is unknown … AbortError` and then `Native hosted proof failed (1)`.
+That is the control failing as designed. The parent prints each of its lines
+behind `expected-failure control | ` (`scripts/expected-failure-log.ts`), and
+`bun scripts/pr-status.ts <pr> --failures --logs <dir>` counts them instead of
+listing them. The plain lines after them are the verdict.
+`Verified expected automatic-index failure …` means the control passed. A
+thrown `NATIVE_INDEX_RELEASE_REPRO_<fact>` means it did not fail as designed:
+it failed somewhere else, or its evidence is incomplete. Every other failure in
+the job belongs to the phase that `BRAIN_RESOURCE_RECEIPT` records with
+`"success":false`. #2921 traced six recorded "automatic-index aborts" to this
+control. Each of those jobs had failed for a different, separately owned
+reason.
+
 ## Reference pool allocation
 
 `bun scripts/prove-reference-pool.ts` is the reference pool's required runtime
@@ -294,11 +342,31 @@ its transport workers against the pool: it fetches and checks out a
 its view. The container therefore also has `SETUID`, `SETGID` and `SETFCAP`
 and unconfined system paths, like the native host proof, so the transport
 workers can map their user namespace and mount their own `/proc`.
+
+The managed GitHub case (#3613) uses real TLS and Git through the bounded host
+wire, actual production maintenance workers and native sealed publication.
+The image installs OpenSSL and the system CA bundle during dependency setup,
+before offline execution; certificate generation never installs a package.
+Only fixed DNS/TCP and a fixture CA replace the remote service; the disposable
+network-none container's system CA bundle is restored in cleanup. It verifies
+commit/tree and actual native root/generation mapping, a credential-free
+offline worker read, the kernel's `EROFS` refusal, turn byte charges and grant
+revocation after native sealing. It enables no repository read-trust exemption
+and does not claim both-backend equivalence for the managed path.
 A managed-worktree case ([#2430](https://github.com/schlessera/brain-kit/issues/2430))
 edits a writable snapshot of sealed source, diffs two of its read-only
 checkpoints and grants it to a running non-root bubblewrap worker through an
 access generation, then parks it, adopts an interrupted grant on restart and
 closes the generation.
+A growth case ([#3515](https://github.com/schlessera/brain-kit/issues/3515))
+acquires a generated Odysseus repository cold into two views. It adds a
+worktree and a changed refresh, both within the ruled thresholds, and expects
+`poolGrowth` to report no flag. Then it grows the worktree past 25 % of its
+cold acquisition, refreshes with new data past 0.75x, and publishes a third
+copy. It expects exactly those three flags, unchanged recovery records and the
+same result from `brain-native-store pool growth`. Names planted in a view
+that escape it or resolve to an unpublished root or a worktree make the status
+unavailable.
 
 Case 18's S7 allocations use `createFixtureWorktrees`: at most three allocation
 attempts (the initial allocation plus two fresh identities). Only an
@@ -320,6 +388,85 @@ result, which fails `REFERENCE_TOOLS_NATIVE_RESULTS`. Receipt order distinguishe
 exhaustion (`worktree-allocation-cleanup-proven` with no subsequent
 `worktree-allocation-deferred`) from failed cleanup (`worktree-allocation-refused`
 only).
+
+### Repository efficiency
+
+Case 19 ([#3513](https://github.com/schlessera/brain-kit/issues/3513),
+`reference-efficiency.ts`) measures what repository acquisition and managed
+worktrees actually allocate. The workload is a generated Odysseus
+repository: 2,000 short files, three incompressible 2 MiB charts, a submodule
+gitlink and an LFS-style pointer, then changed commits. The real reference
+service, transport workers and worktree service run against the
+pool through the served manager. Each step writes one row to
+`reference-efficiency.json`, which names the kernel, btrfs-progs, Git, Bun and
+candidate (`BRAIN_PROOF_CANDIDATE`, the host checkout's `HEAD`, with `+dirty`
+appended for a modified tree).
+
+Every row records the pool's own accounting basis. `chargedBytes` is the
+unique physical allocation across data, metadata and system, replication
+included. Each sealed root's `ownerBytes` is its simple-quota first-owner
+charge. Writable worktrees and staging roots have no owner charge until they
+are sealed, so their comparisons use the census's exclusive extents.
+`pendingBytes` and `availableBytes` are the admission reservations. A
+`btrfs filesystem du` census reports total, exclusive and shared extents per
+path. Git's `count-objects` is recorded as logical object size only; no
+logical size or sum of `st_blocks` is reported as unique usage. Every row also
+carries `io`: the pool loop device's block reads and writes from
+`/proc/diskstats`, and this process's own I/O with its reaped transport
+workers from `/proc/self/io`, both since the previous row and after a `sync`.
+Cold, warm and refresh rows add `peak`, the highest combined charge and
+reservation sampled every 50 ms while the step ran. The run checks:
+
+- **Reuse.** A repeat read inside the refresh window, and an unchanged
+  refresh after it, reuse the one source root and allocate at most 256 KiB.
+  Four concurrent readers of a changed revision join one refresh, which
+  creates exactly one root.
+- **Sharing.** Two managed worktrees from one source add less than a tenth of
+  the source's charge, and most of their extents stay shared. An edit and a
+  local commit charge only the edited worktree, and the release keeps the
+  commit as unpreserved work.
+- **Refresh.** A changed refresh snapshots the previous root, so it charges
+  the new objects and changed checkout. That is less than half a cold
+  acquisition, never a re-clone.
+- **Copy paths.** A same-filesystem `--reflink=always` copy charges under a
+  quarter of a `--reflink=never` copy. A reflink onto another filesystem
+  fails, and the automatic fallback allocates every byte. The turn data tree's
+  best-effort `COPYFILE_FICLONE` copies fall back the same way.
+- **Sharing loss.** `git repack -a -d -f` in a worktree, or a linked
+  `git worktree add` inside one, allocates its objects or checkout as new
+  extents charged to that worktree alone.
+- **Write-time EDQUOT.** A worktree writing past its allowance is refused by
+  `write()` with `EDQUOT`, charging neither its sibling nor its source. A
+  commit larger than one operation's allowance is refused inside the refresh
+  fetch, with Git's quota error. Past the refresh window the previous commit's
+  validation has also lapsed, so no stale copy may be served: the request
+  rejects as `capacity`, the previous root is neither served nor withdrawn,
+  and the staging root is released and reclaimed.
+- **Cancellation.** A refresh whose only requester leaves once its staging
+  root is writable rejects as `cancelled`, publishes nothing, and its staging
+  root is released and reclaimed.
+- **Crash and restart.** A second app instance on the same database
+  (`reference-efficiency-crash-child.ts`) is killed with `SIGKILL` while its
+  staging root is writable. The manager keeps that root writable and charged.
+  The next instance's startup `recover()` releases it, retains nothing and
+  keeps the previous source, and the space is observed reclaimed. The changed
+  refresh then runs on that restarted instance.
+
+Repository features, as the transport handles them:
+
+| Feature | Behaviour |
+| --- | --- |
+| Clone depth and partial clone | Every fetch is the complete history of one ref: no `--depth`, `--filter` or `--reference` object borrowing, so no lifetime depends on another repository. |
+| Submodules | Not fetched. A gitlink checks out as an empty directory. |
+| Git LFS | Not fetched. No LFS filter is configured, so pointers stay text. |
+| Linked Git worktrees | Possible inside a writable worktree. They share its object store but not its checkout extents. |
+| Repack and GC | `gc.auto = 0` in every reference repository, so nothing repacks automatically. A manual repack loses extent sharing with the source. |
+| Retained owners | Simple quotas charge shared extents to their first owner. A snapshot's inherited extents stay charged to the source root until both are deleted and the space is observed reclaimed. |
+
+The assertions combine structural ratios, which a full copy or an avoidable
+checkout would break, with absolute tolerances in `EFFICIENCY_TOLERANCES`.
+The tolerances were set from the first hosted baseline, with its measured values
+beside each. They bound growth; they are not promises of zero metadata cost.
 
 ### Integrated app proof
 
@@ -348,6 +495,29 @@ must be left untouched. For Pi it holds every provider request's tools, system
 and earlier messages byte-identical. For Claude it holds the system-prompt
 option and the assembled MCP roster. It is not part of the default runtime
 cell.
+
+The repository carries three incompressible 2 MiB charts beside its books, so
+Git objects and checkout both hold real data
+([#3513](https://github.com/schlessera/brain-kit/issues/3513)). The first turn
+ends with a warm read of the same source. Throughout every turn, from its
+message to its settled idle status, the parent samples `GET /api/health`
+every 100 ms and a WebSocket `ping`/`pong` every 200 ms. It also samples the
+pool's peak physical allocation every 100 ms, from the data, metadata and
+system `disk_used` in `/sys/fs/btrfs/<fsid>/allocation` rather than through the
+manager, so the sampling never queues behind the app's own pool calls. It
+reads the pool device's block I/O per turn. The child times each reference tool call at the model
+boundary: one in-process MCP call for Claude, and for Pi the span from the
+scripted answer naming the step to the request carrying its result.
+`reference-integration-latency.json` records the samples' p50, p95 and maximum,
+the elapsed times and the kernel, btrfs-progs, Git, Bun and candidate
+identities. Every health probe must answer and every ping must return its
+pong. The warm read must add no source root and be faster than the cold one.
+Latencies, elapsed times and the first turn's peak are held to
+`INTEGRATED_TOLERANCES` in `reference-integration.native.ts`. Those bounds
+come from a hosted `runtime_host` baseline of two cells per backend, and the
+worst measured value is recorded beside each bound. Pi's warm-read bound is
+wider than Claude's. Pi's time includes its agent loop's round trip through
+the offline provider, while Claude's is the MCP call alone.
 
 The container has no network, `no-new-privileges` and only `SYS_ADMIN`,
 `MKNOD`, `DAC_OVERRIDE`, `FOWNER`, `CHOWN`, `KILL`, `SETUID`, `SETGID` and

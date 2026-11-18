@@ -95,6 +95,11 @@ export function WebSearchChain(p: WebSearchChainProps) {
 
         {p.error && <p className="mt-2 text-xs text-destructive">{p.error}</p>}
       </div>
+      {config.unavailable && config.unavailable.length > 0 && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Not available on this host: {config.unavailable.map((feature) => feature.label).join("; ")}.
+        </p>
+      )}
     </div>
   );
 }
@@ -167,7 +172,8 @@ function ProviderRow({
   onSaveKey: () => void;
   onClearKey: () => void;
 }) {
-  const hasCredential = provider.keyless || provider.keyConfigured || provider.keyFromEnv;
+  // A credential command is stored but never run on this host (#3686).
+  const hasCredential = provider.keyless || (provider.keyConfigured && !provider.keyIsCommand) || provider.keyFromEnv;
   const switchable = provider.enabled || hasCredential;
   return (
     <li className="rounded-lg border border-border-subtle bg-background p-2.5">
@@ -192,7 +198,7 @@ function ProviderRow({
           <div className="flex items-start justify-between gap-2">
             <p className="text-sm text-foreground">{provider.label}</p>
             {provider.hasKeyField && (
-              <TextButton tone="meta" expanded={keyOpen} onClick={onToggleKey} label={provider.keyConfigured ? "Key stored" : provider.keyFromEnv ? "Key from env" : "Needs key"} style={{ flexShrink: 0 }} />
+              <TextButton tone="meta" expanded={keyOpen} onClick={onToggleKey} label={provider.keyIsCommand ? "Key command not run" : provider.keyConfigured ? "Key stored" : provider.keyFromEnv ? "Key from env" : "Needs key"} style={{ flexShrink: 0 }} />
             )}
           </div>
           {/* Not truncated: in a narrow settings panel a clipped "Paid —

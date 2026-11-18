@@ -1,9 +1,10 @@
-import { Suspense, useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { Button, Overlay, TextButton, Label, Receipt, ScreenHeader } from "@schlessera/brain-ui-kit";
 import type { ReceiptRow } from "@schlessera/brain-ui-kit";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useFileStore } from "../../stores/file-store.js";
 import { singleKey } from "../../lib/single-key.js";
+import { useCloseRequest } from "../../lib/use-close-request.js";
 import { useUIStore } from "../../stores/ui-store.js";
 import { useFinePointer } from "../../hooks/use-fine-pointer.js";
 import { useMediaQuery } from "../../hooks/use-media-query.js";
@@ -73,16 +74,13 @@ export function FilePanel({ open, onClose }: { open: boolean; onClose: () => voi
     wasOpen.current = open;
   }, [open, panes, root, closeFile]);
 
-  useEffect(() => {
-    if (!open || !panes) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented || openModal()) return;
-      event.preventDefault();
-      dismiss();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [open, panes, dismiss]);
+  // The panes are no dialog: Escape and Android back reach them through the
+  // kit's close-request helper (#2577). The phone drawer is an Overlay.
+  useCloseRequest(open && panes, () => {
+    if (openModal()) return false;
+    dismiss();
+    return true;
+  });
 
   // Sync hash route to current file. When the panel closes, strip the
   // `#/files*` segment entirely so a reload doesn't reopen it.
@@ -189,7 +187,8 @@ function MarksTreeArea({ tree, onListShown }: { tree: ReactNode; onListShown?: (
   const [list, setList] = useState(false);
   const [note, setNote] = useState(false);
   const entry = useRef<HTMLButtonElement>(null);
-  useEffect(() => { onListShown?.(list); }, [list, onListShown]);
+  // A layout effect: the hint must leave in the same paint the list arrives in.
+  useLayoutEffect(() => { onListShown?.(list); }, [list, onListShown]);
   const back = (withNote: boolean) => { setList(false); setNote(withNote); requestAnimationFrame(() => entry.current?.focus({ preventScroll: true })); };
   if (list) return <div className="min-h-0 flex-1 overflow-y-auto"><MarkedUntrustedList onAllFiles={() => back(false)} onFind={() => back(true)} /></div>;
   return (

@@ -13,12 +13,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { audit, auditTotals, isoDay } from "../src/lib/auditor";
+import { audit, auditTotals } from "../src/lib/auditor";
 import { openDatabase, SCHEMA_VERSION } from "../src/lib/db";
 import { buildTaxonomy } from "../src/lib/taxonomy";
 import { brainConfigSchema } from "../src/lib/config";
 import type { AuditIssue } from "../src/lib/types";
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
+import { hygieneCliClock } from "./hygiene-clock";
 
 const NOW = new Date("2026-07-01T00:00:00Z");
 const taxonomy = buildTaxonomy({ user: brainConfigSchema.parse({}) });
@@ -140,7 +141,12 @@ test("auditTotals: must-fix is errors plus warnings, informational is infos", ()
 
 describe("over a real indexed brain", () => {
   let root: string;
-  const today = isoDay(Date.now());
+  // The audit reads the clock: "today" and the child's clock are pinned
+  // together, so a run that crosses midnight cannot make review-today overdue.
+  const today = "2026-07-12";
+  const NOW_CLI = `${today}T12:00:00Z`;
+  const clockScratch = makeTempBrain({ empty: true });
+  const runAt = hygieneCliClock(clockScratch);
   const doc = (title: string, body: string, extra = "") =>
     `---\ntype: note\ntitle: ${title}\ncreated: 2026-01-01\nupdated: ${today}\ntags: [t]\nstatus: active\nrelevance: secondary\n${extra}---\n\n${body}\n`;
 
@@ -172,12 +178,15 @@ describe("over a real indexed brain", () => {
       doc("Review archived", "See [[target]].", "next_review: 2026-01-02\n").replace("status: active", "status: archived")
     );
     expect((await runCli(root, ["index", "--json"])).code).toBe(0);
-    const { stdout, code } = await runCli(root, ["audit", "--json"]);
+    const { stdout, code } = await runAt(root, ["audit", "--json"], NOW_CLI);
     expect(code).toBe(0);
     audited = JSON.parse(stdout);
   });
 
-  afterAll(() => cleanup(root));
+  afterAll(() => {
+    cleanup(root);
+    cleanup(clockScratch);
+  });
 
   test("the index stores the declaration, and only where it is set", () => {
     const db = openDatabase(join(root, ".brain-index", "brain.db"), { readonly: true });
@@ -281,10 +290,10 @@ describe("over a real indexed brain", () => {
   });
 
   test("maintain reports the same counts with must-fix and informational totals", async () => {
-    const { stdout } = await runCli(root, ["maintain", "--json", "--no-git"]);
+    const { stdout } = await runAt(root, ["maintain", "--json", "--no-git"], NOW_CLI);
     const step = (JSON.parse(stdout) as { step: string; result: string }[]).find((s) => s.step === "audit");
     // maintain reindexes first; nothing changed, so the audit is the same one.
-    const again = JSON.parse((await runCli(root, ["audit", "--json"])).stdout) as AuditOut;
+    const again = JSON.parse((await runAt(root, ["audit", "--json"], NOW_CLI)).stdout) as AuditOut;
     expect(step?.result).toBe(
       `${again.errors} error(s), ${again.warnings} warning(s), ${again.infos} info(s); ` +
         `${again.errors + again.warnings} must-fix, ${again.infos} informational`

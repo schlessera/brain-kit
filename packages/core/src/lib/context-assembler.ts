@@ -5,6 +5,7 @@ import { resolve } from "path";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 
 import type { BrainContext } from "./context.js";
+import { parseContextScope, type ContextScope, type ContextScopeInput } from "./context-scope.js";
 import type { EmbeddingProvider } from "./seams.js";
 import { topLevelBlocks } from "./document-parts.js";
 import { chunkMatchLine, hybridSearch } from "./search-engine.js";
@@ -31,6 +32,109 @@ export interface AssembleOptions {
   /** When given, filled with the paths the output includes, per section, so
    * a caller (`brain eval --context`) need not parse the markdown back. */
   report?: AssembleReport;
+  /**
+   * The caller's path scope (#3644; `context-scope.ts` has the rules). Every
+   * lane honours it before a source file is opened: the identity and
+   * current-focus documents, the search pool and its section expansion, and
+   * the related neighbours. Absent or empty, assembly is unscoped and
+   * unchanged. An invalid scope throws before anything is read.
+   */
+  scope?: ContextScopeInput;
+  /**
+   * When given with a scope, filled with what the briefing covers and what it
+   * left out ({@link ContextCoverage}). Left untouched for an unscoped call.
+   */
+  coverage?: ContextCoverage;
+}
+
+/** Where an excerpt came from: the canonical slot, the ranked search, or `### Related`. */
+export type ContextLane = "identity" | "focus" | "search" | "related";
+/**
+ * How much of its source an excerpt holds: `whole` (a canonical document's
+ * whole body), `cut` (cut at a block boundary, with a read pointer),
+ * `section` (a hit's whole matching section or lead), `snippet` (a hit's
+ * header and one-line snippet) or `summary` (a related line).
+ */
+export type ContextExcerptForm = "whole" | "cut" | "section" | "snippet" | "summary";
+
+/** One excerpt in a scoped briefing, in output order. */
+export interface ContextExcerpt {
+  path: string;
+  lane: ContextLane;
+  form: ContextExcerptForm;
+}
+
+/**
+ * A path a scoped briefing does not hold: `budget` (an in-scope candidate the
+ * budget had no room for), `unavailable` (named or canonical, but not indexed,
+ * missing, unreadable or resolving outside the root), `not_ranked` (an
+ * exactly included path the query did not select) or `excluded` (an exactly
+ * included path that an exclusion also covers).
+ */
+export interface ContextOmission {
+  path: string;
+  reason: "budget" | "unavailable" | "not_ranked" | "excluded";
+}
+
+/** The most omissions a coverage record lists; the rest are counted. */
+export const MAX_COVERAGE_OMISSIONS = 64;
+
+/**
+ * What a scoped briefing covers. A briefing is ranked and budgeted, never an
+ * inventory: `exhaustive` is always false, and a path in scope that is in
+ * neither list was simply not selected.
+ */
+export interface ContextCoverage {
+  exhaustive: false;
+  /** The include entries, or null when every path not excluded is in scope. */
+  include: string[] | null;
+  exclude: string[];
+  excerpts: ContextExcerpt[];
+  omitted: ContextOmission[];
+  /** Omissions past {@link MAX_COVERAGE_OMISSIONS}, counted but not listed. */
+  omittedMore: number;
+  /** True when an in-scope candidate was cut or left out for lack of budget. */
+  budgetExhausted: boolean;
+}
+
+/** An empty coverage record, for callers that pass `coverage`. */
+export function emptyContextCoverage(): ContextCoverage {
+  return { exhaustive: false, include: null, exclude: [], excerpts: [], omitted: [], omittedMore: 0, budgetExhausted: false };
+}
+
+/** The most omissions {@link coverageNote} names; the rest are counted. */
+const NOTE_OMISSIONS = 20;
+
+/**
+ * A scoped briefing's coverage as a short markdown note, for the text
+ * surfaces (`brain context`, MCP's extra content block, pi's tool result). It
+ * follows the briefing, outside its token budget, and is bounded: at most
+ * {@link NOTE_OMISSIONS} partial excerpts and as many omissions are named.
+ */
+export function coverageNote(coverage: ContextCoverage): string {
+  const lines = ["### Coverage", "Scoped briefing: ranked excerpts within a budget, not an inventory of the scope."];
+  const scope = [
+    coverage.include ? `include ${coverage.include.map(oneLine).join(", ")}` : "include everything",
+    ...(coverage.exclude.length > 0 ? [`exclude ${coverage.exclude.map(oneLine).join(", ")}`] : []),
+  ];
+  lines.push(`- Scope: ${scope.join("; ")}`);
+  lines.push(`- Excerpts: ${coverage.excerpts.length}`);
+  // A snippet or a cut holds only part of its source: name it, so a reader
+  // knows which file to read in full.
+  const partial = coverage.excerpts.filter((e) => e.form === "snippet" || e.form === "cut");
+  if (partial.length > 0) {
+    const named = partial.slice(0, NOTE_OMISSIONS).map((e) => `${oneLine(e.path)} (${e.form})`);
+    const more = partial.length - named.length;
+    lines.push(`- Partial (read in full for the rest): ${named.join(", ")}${more > 0 ? `, and ${more} more` : ""}`);
+  }
+  if (coverage.budgetExhausted) lines.push("- Budget exhausted: some in-scope material was cut or left out");
+  const total = coverage.omitted.length + coverage.omittedMore;
+  if (total > 0) {
+    const named = coverage.omitted.slice(0, NOTE_OMISSIONS).map((o) => `${oneLine(o.path)} (${o.reason.replace("_", " ")})`);
+    const more = total - named.length;
+    lines.push(`- Omitted: ${named.join(", ")}${more > 0 ? `, and ${more} more` : ""}`);
+  }
+  return lines.join("\n");
 }
 
 /** Which documents an assembled context includes, and where. */
@@ -129,6 +233,9 @@ function hitHeader(result: SearchResult): string {
   return `### ${oneLine(result.title)} ${facts.join(" · ")}${summary}`;
 }
 
+/** Reads one source file's body and summary, or null when it cannot (or, under a scope, may not). */
+type SourceReader = (relativePath: string) => { body: string; summary: string | null } | null;
+
 /**
  * Read a markdown file and extract the content after frontmatter.
  * Returns null if the file doesn't exist.
@@ -187,8 +294,8 @@ interface Canonical {
 const CANONICAL_HEADINGS = { identity: "## Identity", focus: "## Current Focus" } as const;
 
 /** A canonical document, or null when its path is unset, the file is missing, or it has no text. */
-function loadCanonical(root: string, slot: Canonical["slot"], path: string | null): Canonical | null {
-  const doc = path ? readMarkdownContent(root, path) : null;
+function loadCanonical(read: SourceReader, slot: Canonical["slot"], path: string | null): Canonical | null {
+  const doc = path ? read(path) : null;
   if (!path || !doc) return null;
   const heading = CANONICAL_HEADINGS[slot];
   // The summary leads whether or not the rest fits.
@@ -241,10 +348,28 @@ export async function assembleContext(
   ctx: BrainContext,
   opts: AssembleOptions
 ): Promise<string> {
+  // An invalid scope throws here, before anything is read.
+  const scope = parseContextScope(opts.scope);
   const maxTokens = opts.maxTokens ?? 4000;
   let budget = maxTokens;
   const parts: string[] = [];
   const included = new Set<string>();
+
+  // Unscoped, a source is read as it always was. Scoped, a file is opened only
+  // when it and its real path are in scope (`admitFile`).
+  const read: SourceReader = scope
+    ? (path) => (scope.admitFile(ctx.root, path) === "ok" ? readMarkdownContent(ctx.root, path) : null)
+    : (path) => readMarkdownContent(ctx.root, path);
+  const admits = (path: string) => !scope || scope.admitFile(ctx.root, path) === "ok";
+
+  // What a scoped briefing covers, recorded as parts are placed.
+  const lanes = new Map<number, ContextExcerpt>();
+  const related: ContextExcerpt[] = [];
+  const omitted = new Map<string, ContextOmission["reason"]>();
+  const omit = (path: string, reason: ContextOmission["reason"]) => {
+    if (scope && !omitted.has(path)) omitted.set(path, reason);
+  };
+  let budgetShort = false;
 
   // The separator before a section is part of its cost, so the joined output
   // stays within the budget by estimateTokens.
@@ -257,9 +382,19 @@ export async function assembleContext(
     return true;
   };
 
+  // A canonical slot out of scope is never read.
+  const canonicalSlot = (slot: Canonical["slot"], path: string | null): Canonical | null => {
+    if (!path) return null;
+    if (scope && !scope.allows(path)) return null;
+    const doc = loadCanonical(read, slot, path);
+    // In scope as spelled but not loaded: missing, empty, unreadable, outside
+    // the root, or (by its real path) excluded.
+    if (!doc && scope) omit(path, scope.admitFile(ctx.root, path) === "excluded" ? "excluded" : "unavailable");
+    return doc;
+  };
   const canonicals = [
-    opts.includeIdentity !== false ? loadCanonical(ctx.root, "identity", ctx.taxonomy.canonicalPath("identity")) : null,
-    opts.includeCurrentFocus !== false ? loadCanonical(ctx.root, "focus", ctx.taxonomy.canonicalPath("currentFocus")) : null,
+    opts.includeIdentity !== false ? canonicalSlot("identity", ctx.taxonomy.canonicalPath("identity")) : null,
+    opts.includeCurrentFocus !== false ? canonicalSlot("focus", ctx.taxonomy.canonicalPath("currentFocus")) : null,
   ].filter((doc): doc is Canonical => doc !== null);
 
   // Monotone in the budget (#518): search hits are placed against what is
@@ -276,7 +411,10 @@ export async function assembleContext(
     if (form !== null && push(form)) {
       included.add(doc.path);
       placed.push({ doc, index: parts.length - 1 });
+      lanes.set(parts.length - 1, { path: doc.path, lane: doc.slot, form: "cut" });
       if (opts.report) opts.report[doc.slot] = doc.path;
+    } else {
+      omit(doc.path, "budget");
     }
   }
 
@@ -299,15 +437,29 @@ export async function assembleContext(
   };
 
   // Search results: a pool sized to the budget, filled greedily — a hit that
-  // does not fit is skipped and the next one tried.
-  if (opts.query && minimalFits && budget > BUDGET_FLOOR) {
-    const { results, warnings } = await hybridSearch(
+  // does not fit is skipped and the next one tried. Under a scope the pool is
+  // drawn from the scope's indexed paths, so nothing outside it can take a
+  // place in the pool, let alone fill spare budget.
+  const searched = !!opts.query && minimalFits && budget > BUDGET_FLOOR;
+  if (opts.query && !searched) budgetShort = true;
+  if (searched) {
+    const { results: found, warnings } = await hybridSearch(
       db,
-      { query: opts.query, limit: Math.min(Math.ceil(maxTokens / TOKENS_PER_HIT), CONTEXT_SEARCH_CAP), now: opts.now, chunks: true, rerank: opts.rerank?.rerank },
+      {
+        query: opts.query,
+        limit: Math.min(Math.ceil(maxTokens / TOKENS_PER_HIT), CONTEXT_SEARCH_CAP),
+        now: opts.now,
+        chunks: true,
+        rerank: opts.rerank?.rerank,
+        ...(scope ? { paths: scopedPaths(db, scope) } : {}),
+      },
       { embeddings: opts.embeddings, taxonomy: ctx.taxonomy, ...opts.rerank?.deps }
     );
     if (opts.rerank?.warning) opts.warnings?.push(opts.rerank.warning);
     opts.warnings?.push(...warnings);
+    // The pool holds only paths in scope as indexed; a hit whose file links
+    // to an excluded or outside path is dropped here, before it is placed.
+    const results = scope ? found.filter((result) => admits(result.path)) : found;
 
     const hits: string[] = [];
     // One hit may take this much of the budget, as a snippet or a section, so
@@ -320,15 +472,21 @@ export async function assembleContext(
     // would fit a larger budget therefore never pushes out a later hit.
     const placedHits: Array<{ result: SearchResult; index: number }> = [];
     for (const result of results) {
-      if (budget < BUDGET_FLOOR) break;
       if (included.has(result.path)) continue;
+      if (budget < BUDGET_FLOOR) {
+        omit(result.path, "budget");
+        continue;
+      }
       const body = cleanSnippet(result.snippet ?? "");
       const snippet = body ? `${hitHeader(result)}\n${body}` : hitHeader(result);
       if (estimateTokens(snippet) <= hitCap && push(snippet)) {
         included.add(result.path);
         hits.push(result.path);
         placedHits.push({ result, index: parts.length - 1 });
+        lanes.set(parts.length - 1, { path: result.path, lane: "search", form: "snippet" });
         opts.report?.results.push(result.path);
+      } else {
+        omit(result.path, "budget");
       }
     }
     for (const { result, index } of placedHits) {
@@ -338,10 +496,11 @@ export async function assembleContext(
       const current = parts[index]!;
       // Within the cap and what is left, with this hit's snippet given back.
       const room = Math.min(hitCap, budget + cost(current) - (index > 0 ? estimateTokens(SEPARATOR) : 0));
-      const section = hitSection(result, best, chunkMatchLine(db, opts.query, result.path, best.chunk_index), ctx.root, room);
-      if (section === null || cost(section) - cost(current) > budget) continue;
-      budget -= cost(section) - cost(current);
-      parts[index] = section;
+      const section = hitSection(result, best, chunkMatchLine(db, opts.query, result.path, best.chunk_index), read, room);
+      if (section === null || cost(section.text) - cost(current) > budget) continue;
+      budget -= cost(section.text) - cost(current);
+      parts[index] = section.text;
+      lanes.set(index, { path: result.path, lane: "search", form: section.cut ? "cut" : "section" });
     }
 
     growCanonicals();
@@ -352,22 +511,70 @@ export async function assembleContext(
     if (hits.length > 0) {
       const lines: string[] = [];
       const relatedPaths: string[] = [];
-      for (const doc of neighbours(db, hits.slice(0, TOP_HITS_FOR_NEIGHBOURS), included)) {
+      const offered = neighbours(db, hits.slice(0, TOP_HITS_FOR_NEIGHBOURS), included, scope ? admits : undefined);
+      for (const [i, doc] of offered.entries()) {
         const next = `${RELATED_HEADING}\n${[...lines, neighbourLine(doc)].join("\n")}`;
-        if (costOf(next) > budget) break;
+        if (costOf(next) > budget) {
+          for (const left of offered.slice(i)) omit(left.path, "budget");
+          break;
+        }
         lines.push(neighbourLine(doc));
         relatedPaths.push(doc.path);
         included.add(doc.path);
       }
       if (lines.length > 0 && push(`${RELATED_HEADING}\n${lines.join("\n")}`)) {
         opts.report?.related.push(...relatedPaths);
+        for (const path of relatedPaths) related.push({ path, lane: "related", form: "summary" });
+      } else {
+        for (const path of relatedPaths) omit(path, "budget");
       }
     }
   }
 
   growCanonicals();
 
+  if (scope && opts.coverage) {
+    for (const { doc, index } of placed) {
+      lanes.set(index, { path: doc.path, lane: doc.slot, form: parts[index] === doc.whole ? "whole" : "cut" });
+    }
+    // Placed parts in output order, then the related lines in theirs.
+    const excerpts = [...[...lanes.entries()].sort(([a], [b]) => a - b).map(([, excerpt]) => excerpt), ...related];
+    // Every exactly included path the briefing does not hold says why.
+    const held = new Set(excerpts.map((excerpt) => excerpt.path));
+    const indexed = db.prepare("SELECT 1 FROM documents WHERE path = ?");
+    for (const path of scope.exactIncludes) {
+      if (held.has(path) || omitted.has(path)) continue;
+      if (scope.excludes(path)) omit(path, "excluded");
+      else if (!indexed.get(path)) omit(path, "unavailable");
+      else {
+        const admitted = scope.admitFile(ctx.root, path);
+        omit(path, admitted !== "ok" ? admitted : searched ? "not_ranked" : "budget");
+      }
+    }
+    const omissions = [...omitted.entries()].map(([path, reason]) => ({ path, reason }));
+    Object.assign(opts.coverage, {
+      exhaustive: false,
+      include: scope.include ? [...scope.include] : null,
+      exclude: [...scope.exclude],
+      excerpts,
+      omitted: omissions.slice(0, MAX_COVERAGE_OMISSIONS),
+      omittedMore: Math.max(0, omissions.length - MAX_COVERAGE_OMISSIONS),
+      budgetExhausted: budgetShort || omissions.some((o) => o.reason === "budget") || excerpts.some((e) => e.form === "cut"),
+    } satisfies ContextCoverage);
+  }
+
   return parts.join(SEPARATOR);
+}
+
+/**
+ * The indexed paths a scoped search may return: those the include list
+ * covers less the excluded ones, or, without an include list, the excluded
+ * ones to leave out. Matching runs here, under the scope's own rules, so the
+ * search lanes filter on exact paths.
+ */
+function scopedPaths(db: Database, scope: ContextScope): { allow?: string[]; deny?: string[] } {
+  const paths = (db.prepare("SELECT path FROM documents").all() as Array<{ path: string }>).map((row) => row.path);
+  return scope.include ? { allow: paths.filter((path) => scope.allows(path)) } : { deny: paths.filter((path) => scope.excludes(path)) };
 }
 
 /** The largest share of the budget one hit's section may take. */
@@ -512,21 +719,27 @@ function sourcePart(body: string, chunk: ChunkMatch, matchLine: string | null): 
  * when not even the header fits, or when no block but a heading survives the
  * cut.
  */
-function hitSection(result: SearchResult, best: ChunkMatch, matchLine: string | null, root: string, cap: number): string | null {
-  const doc = readMarkdownContent(root, result.path);
+function hitSection(
+  result: SearchResult,
+  best: ChunkMatch,
+  matchLine: string | null,
+  read: SourceReader,
+  cap: number
+): { text: string; cut: boolean } | null {
+  const doc = read(result.path);
   const part = doc ? sourcePart(doc.body, best, matchLine) : null;
   if (!part || !part.text) return null;
   const text = closeOpenConstructs(demoteHeadings(part.text));
   const named = part.name ? `\n#### ${oneLine(part.name)}` : "";
   const head = `${hitHeader(result)}${named}`;
   const whole = `${head}\n${text}`;
-  if (estimateTokens(whole) <= cap) return whole;
+  if (estimateTokens(whole) <= cap) return { text: whole, cut: false };
   const marker = `(truncated — brain read ${result.path})`;
   const cut = truncateAtBoundary(head, text, marker, cap);
   if (cut === null) return null;
   // A cut that keeps no block but headings says nothing the snippet does not.
   const kept = cut.slice(head.length + 1, cut.length - marker.length);
-  return topLevelBlocks(kept).some((block) => block.type !== "heading") ? cut : null;
+  return topLevelBlocks(kept).some((block) => block.type !== "heading") ? { text: cut, cut: true } : null;
 }
 
 interface NeighbourDoc {
@@ -554,7 +767,7 @@ function neighbourLine(doc: NeighbourDoc): string {
  * more hits link first, then by path. A document already in `exclude` or
  * archived is never offered, and none is offered twice.
  */
-function neighbours(db: Database, hits: string[], exclude: Set<string>): NeighbourDoc[] {
+function neighbours(db: Database, hits: string[], exclude: Set<string>, admit: (path: string) => boolean = () => true): NeighbourDoc[] {
   const byPath = db.prepare("SELECT path, title, summary, status FROM documents WHERE path = ?");
   const linked = db.prepare(
     `SELECT d.path, d.title, d.summary, d.status FROM links l
@@ -581,6 +794,8 @@ function neighbours(db: Database, hits: string[], exclude: Set<string>): Neighbo
       if (index === hit) continue;
       const doc = byPath.get(index) as NeighbourDoc | null;
       if (!doc) continue;
+      // An index out of scope is passed over for the next one up.
+      if (!admit(doc.path)) continue;
       offer(doc);
       break;
     }
@@ -597,6 +812,6 @@ function neighbours(db: Database, hits: string[], exclude: Set<string>): Neighbo
   const ranked = [...counts.values()].sort(
     (a, b) => b.hits - a.hits || (a.doc.path < b.doc.path ? -1 : a.doc.path > b.doc.path ? 1 : 0)
   );
-  for (const { doc } of ranked) offer(doc);
+  for (const { doc } of ranked) if (admit(doc.path)) offer(doc);
   return offered;
 }

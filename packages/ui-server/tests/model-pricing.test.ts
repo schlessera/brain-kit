@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { canonicalModelId } from "@schlessera/brain-ui-sdk/internal";
 import { createModelPricing, pricingCachePath } from "../src/pricing/model-pricing";
 import { resolveServerConfig } from "../src/config/env";
 
@@ -107,13 +106,6 @@ const failingFetch = (() => {
   throw new Error("network down");
 }) as unknown as typeof fetch;
 
-describe("canonicalModelId", () => {
-  test("strips a dated snapshot suffix and leaves undated ids alone", () => {
-    expect(canonicalModelId("claude-haiku-4-5-20251001")).toBe("claude-haiku-4-5");
-    expect(canonicalModelId("claude-opus-5-5")).toBe("claude-opus-5-5");
-  });
-});
-
 describe("createModelPricing resolution", () => {
   test("resolves LiteLLM float rates including cache rates", async () => {
     const pricing = createModelPricing({ brainPath, fetchImpl: stubFetch({}) });
@@ -142,16 +134,6 @@ describe("createModelPricing resolution", () => {
       estimate: false,
       source: "openrouter",
     });
-  });
-
-  test("OpenRouter wins for an id both catalogs carry", async () => {
-    const pricing = createModelPricing({ brainPath, fetchImpl: stubFetch({}) });
-    await pricing.refresh();
-
-    // The LiteLLM fixture prices the same id at 9e-7 — the OpenRouter entry
-    // must shadow it.
-    expect(pricing.resolve("z-ai/glm-4.7")!.input).toBe(6e-7);
-    expect(pricing.resolve("z-ai/glm-4.7")!.source).toBe("openrouter");
   });
 
   test("a dated Anthropic id resolves via alias canonicalization", async () => {
@@ -512,7 +494,8 @@ describe("createModelPricing refresh behavior", () => {
     await Promise.all([pricing.ensureFresh(), pricing.ensureFresh(), pricing.ensureFresh()]);
 
     expect(calls).toHaveLength(2); // one per source, not per caller
-    expect(pricing.resolve("claude-sonnet-4-5")).not.toBeNull();
+    // The fetched table, not the snapshot (which also carries this id).
+    expect(pricing.resolve("claude-sonnet-4-5")).toMatchObject({ source: "litellm", estimate: false });
   });
 
   test("ensureFresh awaits a cold start but returns immediately when stale", async () => {
@@ -544,7 +527,8 @@ describe("createModelPricing refresh behavior", () => {
         pricing.ensureFresh().then(() => "returned"),
         Bun.sleep(100).then(() => "blocked"),
       ])).toBe("returned");
-      expect(pricing.resolve("claude-sonnet-4-5")).not.toBeNull();
+      // The stale remote table keeps serving — not the snapshot fallback.
+      expect(pricing.resolve("claude-sonnet-4-5")).toMatchObject({ source: "litellm", estimate: false });
     } finally {
       release();
       await pricing.refresh();

@@ -50,7 +50,10 @@ const TMPFS_MAGIC = 0x01021994;
  * Closed stdin or any other line ends the worker unstarted. Only the
  * absolute shell and its builtins run here, never a PATH lookup. Reads are
  * byte-sized, so nothing past the gate line is consumed. Live status launches
- * use START_GATE on fd 4 instead, preserving payload stdin.
+ * use START_GATE on fd 4 instead, preserving payload stdin. Every
+ * separate-identity launch keeps this gate behind its coordinator's
+ * --block-fd, which opens on the coordinator's death (#3402): see
+ * `identityStartGate`.
  */
 const STATE_GATE = ["/bin/sh", "-c", 'IFS= read -r go && [ "$go" = go ] || exit 125; exec "$@"', "brain-worker-state-gate"];
 /**
@@ -64,6 +67,19 @@ const STATE_GATE = ["/bin/sh", "-c", 'IFS= read -r go && [ "$go" = go ] || exit 
  * descriptor. Only the shell and its builtins run, never a PATH lookup.
  */
 const START_GATE = ["/bin/sh", "-c", 'IFS= read -r go <&4 && [ "$go" = go ] || exit 125; exec 4<&-; exec "$@"', "brain-worker-start-gate"];
+/**
+ * A separate-identity payload's own start gate (#3402). The helper protocol
+ * gates bubblewrap with `--block-fd` on a pipe whose only writer is the
+ * same-UID coordinator, and bubblewrap starts the sandbox on that pipe's
+ * end-of-file, so a coordinator that dies before release would start the
+ * payload. STATE_GATE in front of every such payload needs one complete `go`
+ * line on stdin as well, which only the server writes, and only after the
+ * coordinator has confirmed its release. The helper protocol is unchanged: it
+ * never constrains the command after `--`.
+ */
+function identityStartGate(argv: string[], payload: readonly string[], input: Pick<WorkerLaunch, "stateBytes" | "turnTempBytes">): void {
+  if (!gated(input)) argv.splice(argv.length - payload.length, 0, ...STATE_GATE);
+}
 /** What the server writes to open the gate. */
 const STATE_GATE_OPEN = "go\n";
 /** How long a launch waits for bubblewrap to report and mount, like the probe's bound. */
@@ -1371,6 +1387,8 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
   let status: ReturnType<typeof createWorkerStatusPipe> | undefined;
   let identityBroker: ReturnType<typeof prepareWorkerIdentity> | undefined;
   let identityFinished = false, identityReferences = 0;
+  /** A setup timeout's last recorded supervisor step, read before close removes it (#3664). */
+  let setupProgress = "";
   let completeMaintenanceSetup: (() => void) | undefined;
   let failMaintenanceSetup: ((error: unknown) => void) | undefined;
   const identityHandles: WorkerStateHandle[] = [];
@@ -1425,7 +1443,7 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
     const boot = workerBootstrap(bootInput, cgroup?.path, status);
     if (helper) {
       const payload = JSON.parse(boot.env.BRAIN_WORKER_LAUNCH!) as { argv: string[]; cgroup?: string };
-      if (gated(input)) payload.argv.splice(payload.argv.length - payloadCommand(input).length - STATE_GATE.length, STATE_GATE.length);
+      identityStartGate(payload.argv, payloadCommand(input), input);
       identityBroker = prepareWorkerIdentity(helper, payload.argv, [
         ...(input.stateBytes === undefined ? [] : [{ name: "state" as const, path: WORKER_STATE, bytes: input.stateBytes }]),
         ...(input.turnTempBytes === undefined ? [] : [{ name: "temp" as const, path: TURN_TEMP_ROOT, bytes: input.turnTempBytes }]),
@@ -1444,7 +1462,11 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
     let pid: number;
     let identityReady: ReturnType<NonNullable<typeof identityBroker>["ready"]> | undefined;
     try { identityReady = identityBroker ? yield* identityBroker.readySteps(child.pid, deadline) : undefined; }
-    catch (error) { throw new WorkerHostError(error instanceof Error ? error.message : String(error)); }
+    catch (error) {
+      const requirement = error instanceof Error ? error.message : String(error);
+      if (requirement === "worker_identity_setup_timed_out") setupProgress = identityBroker!.setupProgress(deadline - STATE_SETUP_MS);
+      throw new WorkerHostError(requirement);
+    }
     try { pid = identityReady?.worker.pid ?? (yield* status!.childPidSteps(child.pid, deadline)); }
     catch (error) { throw new WorkerHostError(error instanceof Error ? error.message : String(error)); }
     status?.closeWriter();
@@ -1486,7 +1508,9 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
       yield* verifyWorkerFolderMountsSteps(brain, input.sandbox.protection, input.sandbox.retainedFolders, pid, deadline, input.sandbox.providerMasks,
         identityBroker?.brainView());
     // Release the gate: the worker's command starts only now.
-    if (identityBroker) yield* identityBroker.requestSteps("release"); else status!.release();
+    // A separate identity opens both keys: the coordinator's gate, then STATE_GATE's line.
+    if (identityBroker) { yield* identityBroker.requestSteps("release"); writeSync(pipes.parent[0], STATE_GATE_OPEN); }
+    else status!.release();
     stateFd = tempFd = undefined;
     const streams = pipes.streams();
     let killed = false;
@@ -1581,12 +1605,25 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
     child?.kill("SIGKILL");
     if (stateFd !== undefined) closeSync(stateFd);
     if (tempFd !== undefined) closeSync(tempFd);
-    const detail = error instanceof WorkerHostError && pipes ? launchDiagnostics(pipes.parent[2]) : "";
+    const diagnostics = error instanceof WorkerHostError && pipes ? launchDiagnostics(pipes.parent[2]) : "";
+    // The recorded step leads: a supervisor's own failure line may follow it, and need not name one.
+    const detail = [setupProgress, diagnostics].filter(Boolean).join("; ").slice(0, 400);
     pipes?.cleanup();
     if (cleanupFailure) {
       // Keep native ownership/recovery intent and admission held: cleanup
       // was not verified, so no publication or successful release is implied.
-      const failure = new WorkerIdentityCleanupError(`worker_identity_setup_cleanup_unconfirmed: ${String(cleanupFailure)}; original failure: ${String(error)}${detail ? ` (${detail})` : ""}`);
+      let closing: Promise<void> | undefined;
+      const close = (): Promise<void> => closing ??= (async () => {
+        // This is the failed launch's original broker, with its authenticated
+        // launch identity. A signal or supervisor exit is not confirmation.
+        if (child) await runWorkerStepsAsync(closeIdentitySteps());
+        else identityBroker?.discard();
+        await child?.exited;
+        cgroup?.remove();
+        await areaOutput?.cleanup();
+        if (!input.preparedOutput) await startupView?.cleanup();
+      })().catch((failure: unknown) => { closing = undefined; throw failure; });
+      const failure = new WorkerIdentityCleanupError(`worker_identity_setup_cleanup_unconfirmed: ${String(cleanupFailure)}; original failure: ${String(error)}${detail ? ` (${detail})` : ""}`, close);
       failMaintenanceSetup?.(failure);
       throw failure;
     }
@@ -1595,8 +1632,8 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
     if (child) void child.exited.finally(async () => { try { await areaOutput?.cleanup(); } finally { if (!input.preparedOutput) await startupView?.cleanup(); } }).catch(() => { /* Native broker retains unresolved release intent for recovery. */ });
     else { void Promise.resolve(areaOutput?.cleanup()).finally(() => input.preparedOutput ? undefined : startupView?.cleanup()).catch(() => { /* No child ran; durable ownership retains unresolved release intent. */ }); }
     if (detail) {
-      throw new WorkerHostError(NO_TMPFS_SIZE.test(detail)
-        ? `bubblewrap 0.7 or later, for the worker's size-limited tmpfs mounts (${detail})`
+      throw new WorkerHostError(NO_TMPFS_SIZE.test(diagnostics)
+        ? `bubblewrap 0.7 or later, for the worker's size-limited tmpfs mounts (${diagnostics})`
         : `${(error as WorkerHostError).requirement} (${detail})`);
     }
     throw error;
@@ -1828,7 +1865,7 @@ function* probeWorkerHostSteps(brainPath: string, options: WorkerHostProbeOption
           if (separator < 0 || !relayDir) throw new WorkerHostError("worker_identity_relay_probe_invalid");
           payload.argv.splice(separator, 0, "--ro-bind", relayDir, relayDir);
         }
-        if (gated(options)) payload.argv.splice(payload.argv.length - probeCommand.length - STATE_GATE.length, STATE_GATE.length);
+        identityStartGate(payload.argv, probeCommand, options);
         broker = prepareWorkerIdentity(identityHelper, payload.argv, [
           ...(options.stateBytes === undefined ? [] : [{ name: "state" as const, path: WORKER_STATE, bytes: options.stateBytes }]),
           ...(options.turnTempBytes === undefined ? [] : [{ name: "temp" as const, path: TURN_TEMP_ROOT, bytes: options.turnTempBytes }]),
@@ -1837,6 +1874,7 @@ function* probeWorkerHostSteps(brainPath: string, options: WorkerHostProbeOption
         const supervisor = Bun.spawn(boot.command, { env: boot.env, stdin: pipes.child[0], stdout: pipes.child[1], stderr: pipes.child[2] });
         const deadline = Date.now() + 10_000;
         verifiedWorkerUid = (yield* broker.readySteps(supervisor.pid, deadline)).workerUid; yield* broker.requestSteps("release");
+        writeSync(pipes.parent[0], STATE_GATE_OPEN);
         for (;;) {
           const result = yield* broker.requestSteps<{ exited: boolean; code: number | null; failure?: string }>("status");
           if (result.failure) throw new WorkerHostError(`worker_identity_supervision_failed: ${result.failure}`);

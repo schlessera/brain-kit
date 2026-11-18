@@ -13,6 +13,7 @@ import { createActivityStore } from "../src/activity/store";
 import { prepareTurnEgress } from "../src/brain/turn-egress";
 import {connectedSafetySession} from "./helpers/connected-safety";
 import { createUiDb } from "../src/db/client";
+import { beginSafetyCollection, acknowledgeSafety } from "../src/governance/safety-store";
 import { queryGovernanceEvents, recordGovernanceEvent } from "../src/governance/events";
 
 const BRAIN = "/srv/ithaca";
@@ -26,6 +27,10 @@ function fixture() {
       if(connected)connectedSafetySession(db,sessionId,`${sessionId}-birth`);
       else db.query("INSERT INTO sessions (id,title,created_at,last_active_at) VALUES (?, 'Voyage', 1, 1)").run(sessionId);
       sessions.add(sessionId);
+    }
+    if (connected) {
+      beginSafetyCollection(db, { turnId: `${sessionId}-turn`, bindingId: crypto.randomUUID(), sessionId, principalId: "odysseus", backendId: "claude", at: 0 });
+      acknowledgeSafety(db, `${sessionId}-turn`, "claude", 1);
     }
     const value = createTurnRecorder({ store, governanceDb: db, brainPath: BRAIN, governance: event => { recordGovernanceEvent(db, event); } },
       { turnId: `${sessionId}-turn`, sessionId, profile: "governed" });

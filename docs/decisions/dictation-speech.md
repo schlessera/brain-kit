@@ -33,21 +33,26 @@ or bypass the host's permission and turn machinery.
 `createApp({ speechProvider })` supplies an implementation by value. It wins
 over automatic Deepgram discovery. An explicit `config.voice.provider` must
 match its id; a mismatch fails instead of choosing either implementation
-(`pickSpeechProvider`, `packages/ui-server/src/voice/speech-providers.ts:127-155`).
+(`createSpeechProviderRegistry`, `packages/ui-server/src/voice/speech-providers.ts:174-242`).
 Without the value, existing selection remains: explicit built-ins, automatic
 Deepgram only when its key is present, otherwise failure. Browser speech is an
 explicit opt-in; it never becomes a fallback after a missing key or provider
 failure.
 
-Provider validation and session validation happen inside the mounted session
-route's existing error boundary. A provider id is nonempty, trimmed and
+Legacy configuration errors stay inside the mounted session route's existing
+error boundary: an invalid by-value `speechProvider`, a `VOICE_PROVIDER` that
+mismatches it, or a `VOICE_PROVIDER` naming an unregistered provider still lets
+the server start and answers the voice routes with the existing 500 `{ error }`.
+Only misuse of the additive #3707 options (`speechProviders` together with
+`speechProvider`, an invalid or duplicate list entry, an unregistered
+`defaultSpeechProviderId`) fails construction. A provider id is nonempty, trimmed and
 lowercase, matching environment resolution. All four capabilities are boolean;
 `createSession` is callable. Sessions carry a string URL, finite nonnegative
 expiry and optional string token/string-record params. Empty URL and zero
-expiry remain valid for browser/local implementations. Unknown configuration,
-mismatch, invalid implementations/results and minting failures return the
-existing 500 `{ error }` envelope. Authentication and the deprecated
-Deepgram-specific token route keep their existing meanings.
+expiry remain valid for browser/local implementations. Invalid session results
+and legacy minting failures retain the existing 500 `{ error }` envelope.
+Authentication and the deprecated Deepgram-specific token route keep their
+existing meanings.
 
 Keyterms are built only for a provider declaring support. The route snapshots
 identity/capabilities before minting; the matching client receives the minted
@@ -124,10 +129,10 @@ path through the brain server under these rulings: recognition of playback via
 a live track remains a browser path, and on-device recognition is outside the
 baseline. Thus Deepgram is the only built-in saved-audio implementation;
 external providers may omit the optional method on the existing seam
-(`transcribeRecording?`, `packages/ui-sdk/src/server/speech.ts:38-43`).
+(`transcribeRecording?`, `packages/ui-sdk/src/server/speech.ts:40-45`).
 The server derives the advertised capability from that method, rather than
 trusting a flag disconnected from its executor
-(`speechCapabilities`, `packages/ui-server/src/voice/speech-providers.ts:180-182`).
+(`speechCapabilities`, `packages/ui-server/src/voice/speech-providers.ts:153-155`).
 An absent capability keeps playback, typing and retention available, with the
 tray's explicit unavailable explanation.
 
@@ -168,13 +173,13 @@ transient/capacity rejection: provider errors, rate limits and definitive
 provider timeouts. Unknown outcomes stay terminal. Audio/media, parameter,
 validation and authentication failures do not offer Retry. Classification and
 attempt counts belong to the receipt, not an automatic client retry loop
-(`transcriptionFailure`, `packages/ui-server/src/routes/transcriptions.ts:21-36`).
+(`transcriptionFailure`, `packages/ui-server/src/routes/transcriptions.ts:22-37`).
 This qualified rule supersedes an unqualified promise of one call even after
 an explicit retry. Plain repeats and uncertain outcomes never redispatch.
 
 The upload budget is **10,041,155 bytes**, a derived policy value rather than a
 duration check (`MAX_TRANSCRIPTION_BYTES`,
-`packages/ui-server/src/routes/transcriptions.ts:14-18`). The
+`packages/ui-server/src/routes/transcriptions.ts:15-19`). The
 [October 8 bitrate finding](https://github.com/schlessera/brain-kit/issues/1021#issuecomment-6055498109)
 reran the V1 probe's track-ended case three times per desktop engine, with
 Chromium 153.0.8010.12 and Firefox 155.0 in Playwright 1.63.0's Ubuntu 24.04.4
@@ -215,3 +220,66 @@ announced twice. Dismiss, a new dictation/local capture or review Send/Edit/Disc
 clears the failure notice. Typing and session changes keep it; no timer applies.
 Nothing restarts the microphone, retries, sends or uploads automatically.
 Neutral clean-end explanations remain the separate [#1258](https://github.com/schlessera/brain-kit/issues/1258).
+
+## 2026-11-08 — Selectable dictation providers and Gemini Transcribe Live (#3706)
+
+[#3705](https://github.com/schlessera/brain-kit/issues/3705) asks for several
+configured dictation providers, chosen independently of the live-conversation
+service and the chat model, with Google's dedicated streaming
+`gemini-3.5-transcribe-live` model and its SMART mode among them. The
+[selectable-dictation plan](../plans/selectable-dictation.md) holds the schemas,
+states and proof split. This section records what binds.
+
+The maintainer ruled on 2026-11-08 in
+[#3706](https://github.com/schlessera/brain-kit/issues/3706):
+
+- **D1.** SMART transcription is on by default. A brain-wide **Clean up as I
+  speak** switch turns it off. The switch is shown only when the effective
+  provider declares the capability, and a change applies from the next take.
+- **D2.** The dictation provider is switched in the Settings **Voice** pane
+  only. The capture sheet names the destination but offers no per-take Change.
+- **D3.** A configured `GEMINI_API_KEY` registers Gemini as a selectable
+  dictation provider. A key never makes a provider the default. Gemini is used
+  without a saved choice only when it is the only one registered.
+- **D4.** The first take to a provider this device has not acknowledged shows
+  the destination with an explicit **Start dictation**, before any session
+  request or microphone access. Later takes start immediately.
+
+These rulings bind together with what follows from the existing decisions:
+
+- **Selection stays deliberate.** The registered set is fixed when the server
+  is constructed. A legacy by-value `speechProvider` still replaces every
+  built-in. A new `speechProviders` list adds to them, and a duplicate id is
+  a construction error. Browser speech stays opt-in through
+  `VOICE_PROVIDER=webspeech`.
+- **Precedence.** The saved brain-wide default wins, then the host default
+  (`defaultSpeechProviderId`, `VOICE_PROVIDER`, or Deepgram when its key is
+  present), then the only registered provider. When a saved default is
+  unavailable, dictation is blocked until the user explicitly picks another
+  provider, as #3616 L2 requires for conversation. It never falls back.
+- **Freezing.** A take sends the provider id it disclosed. The server mints for
+  exactly that id or refuses. Nothing changes the provider of a running take.
+  A saved-audio upload names the provider its confirmation disclosed, and a
+  retry must name the same provider its receipt recorded. A default change
+  therefore cannot redirect a capture, an upload or a receipt.
+- **Credentials.** The Gemini key stays on the server. The browser receives
+  only a single-use constrained ephemeral token, locked to the model, the TEXT
+  modality and the transcription configuration. Discovery and Settings never
+  mint a token or open the microphone.
+- **Saved recordings.** Gemini declares no saved-audio capability, and live
+  replay stays rejected. When another registered provider can transcribe saved
+  audio, the tray offers it as an explicit choice for that recording.
+- **Authority.** SMART text, including its corrections, applies to the current
+  unsent draft only. It carries no command authority. It never rewrites
+  earlier text, sent messages or provider-facing history.
+
+The plan separates Google's documented claims from what still needs the
+authorized real-provider qualification in
+[#3710](https://github.com/schlessera/brain-kit/issues/3710). One divergence is
+already known. The token guide says `v1beta`, while the installed SDK uses the
+v1alpha `BidiGenerateContentConstrained` endpoint for ephemeral tokens. The
+server mints the URL, so qualification can correct it without a client change.
+
+All the surfaces involved are additive. Each lands as a `CONTRACT:` change with
+its authoritative documentation and a minor changeset. Recording this decision
+neither releases anything nor authorizes paid calls.

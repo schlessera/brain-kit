@@ -40,12 +40,51 @@ A supplied value takes precedence over automatic Deepgram key detection. If
 `config.voice.provider` is set (including by `VOICE_PROVIDER`), it must equal
 the supplied id. Ids are nonempty, trimmed and lowercase. Without a value,
 `deepgram`/`webspeech` keep their existing selection rules; absent credentials
-never select browser speech. A mismatch or provider failure returns 500
-`{ error }` from the existing protected `POST /api/voice/session`, without
-trying another service. Validation occurs on that request, before calling an
-invalid provider or publishing an invalid session.
+never select browser speech. A mismatch, an invalid legacy value, session
+validation and provider failures return 500 `{ error }` from the protected
+`POST /api/voice/session`, without trying another service.
 
-The four streaming capabilities are boolean. Optional `savedAudio` is derived from a callable `transcribeRecording`; a contradictory explicit declaration is rejected. `streaming` describes streaming recognition,
+To offer several services, pass `createApp({ speechProviders: [first, second],
+defaultSpeechProviderId: first.id })`. The list adds to configured built-ins;
+duplicate ids (including built-in collisions), supplying both registration options,
+and an unregistered `defaultSpeechProviderId` fail construction. Browser speech remains opt-in.
+The legacy single value replaces built-ins. A saved dictation choice overrides
+the host default; a removed saved choice blocks dictation until explicitly changed.
+Registration snapshots metadata, capabilities and bound methods; changing a supplied
+object afterward does not alter the registered set or running operations.
+
+Optional `label` and `destination` describe the service to users. Keep credentials
+out of both. Declare `smartTranscription: true` only if `createSession` honors
+`mode: "smart" | "verbatim"`; the server passes mode only for that capability.
+The saved switch starts true. Existing implementations need no new fields.
+Use `voiceProviders()` for discovery (no mint), then send the disclosed id in
+`voiceSession(signal, { providerId, smart })`. Saved recordings send
+`Speech-Provider` with the confirmed id; a retry must retain the receipt's provider.
+See the [HTTP specification](../http-api.md#selectable-dictation-providers) for
+settings revisions, exact selection errors and the no-fallback rule. Gemini's
+built-in factory is implemented separately in #3708; no placeholder is registered.
+
+The shipped app does exactly that. Settings › Voice lists every registered
+provider by its `label` (an id without one is shown as is) and saves the choice
+brain-wide. The mic names the next take's provider. The first take to a provider
+on a device shows its `destination` text and waits for **Start dictation**
+before requesting a session or the microphone, so write `destination` as the
+sentence a user should read before speaking ("Microphone audio streams from this
+browser to …"). Changing that text asks every device again. A provider without
+`destination` is described generically. The saved-recordings tray uses the
+effective provider when it implements `transcribeRecording`, and otherwise
+offers the registered providers that do. See the
+[ui-react guide](../../packages/ui-react/README.md#choosing-the-dictation-service).
+The [selection Chrome proof](../../packages/ui-react/tests/dictation-selection-runtime.test.ts)
+registers two keyless providers this way and checks which one each take reached.
+
+The four streaming capabilities are boolean. Optional `savedAudio` is derived from a callable `transcribeRecording`; a contradictory explicit declaration is rejected.
+Optional `smartTranscription` is boolean when supplied: it declares that
+`createSession` honours its optional `mode` option, `"smart"` for cleaned-up
+text or `"verbatim"` for text as spoken. Absent `mode` means the provider's
+default; providers without the capability ignore it. Optional `label` and
+`destination` are nonempty strings naming the service and saying where
+microphone audio goes. `streaming` describes streaming recognition,
 `interimResults` controls partial display, `keyterms` controls domain-term
 building, and `endpointing` distinguishes automatic utterance-end evidence from
 manual Done. Capabilities do not confer permissions or confidence/provenance
@@ -228,6 +267,67 @@ bytes, content type, keyterms and returned text; it is required when this method
 is implemented. The [saved-audio tests](../../packages/ui-server/tests/saved-transcription.test.ts)
 exercise a fake provider through the real mounted routes without service keys.
 
+## Built-in Gemini 3.5 Transcribe Live dictation
+
+Setting `GEMINI_API_KEY` registers Google's dedicated streaming transcription
+model, `gemini-3.5-transcribe-live`, as the built-in `gemini` dictation
+provider. `VOICE_PROVIDER=gemini` selects it explicitly. Without
+`VOICE_PROVIDER` it is used only when `DEEPGRAM_API_KEY` is unset, so a host
+that already has a Gemini key for chat models keeps dictating to Deepgram.
+Microphone audio then streams from the browser straight to Google, and the
+voice field says so ("to Google Gemini").
+
+The key stays on the server. For each take the server sends one
+`POST https://generativelanguage.googleapis.com/v1beta/auth_tokens` with the
+key in `x-goog-api-key` and receives a single-use ephemeral token: `uses: 1`,
+60 seconds to connect (`newSessionExpireTime`, also the session's
+`expiresAt`), 11 minutes overall (`expireTime`). Its `bidiGenerateContentSetup`
+carries the model, the `TEXT` response modality and the transcription config,
+and its `fieldMask` names exactly those fields, so they are locked and the
+token cannot open any other Live session. (`liveConnectConstraints` and
+`lockAdditionalFields` are the `@google/genai` option names; the REST body is
+what that SDK serializes them to.) The browser's `setup` frame repeats the
+locked setup field for field. The transcription config is
+`mode: "SMART"` unless `createSession` receives `mode: "verbatim"`, plus the
+brain's existing keyterms as `customVocabulary`: at most 100 terms of at most
+64 UTF-8 bytes, in order. No chat, history, screen or corpus context is sent.
+Language is detected automatically. Every mint failure returns the session
+route's 500 `{ "error": "Gemini dictation session failed" }`; neither the key
+nor Google's response text appears in a response, log or error, and no other
+provider is tried. Capabilities are `streaming`, `interimResults`, `keyterms`
+and `smartTranscription`; `endpointing` is false, so the sheet keeps a manual
+Done. There is no saved-recording transcription, so `savedAudio` is false.
+
+The session URL is Google's constrained Live endpoint
+(`…v1alpha.GenerativeService.BidiGenerateContentConstrained`, the path the
+installed `@google/genai` 2.24.0 uses; Google's token guide says `v1beta`, and
+[#3710](https://github.com/schlessera/brain-kit/issues/3710) qualifies which
+one Google accepts). The browser client `GeminiAsrClient`, registered as
+`gemini` by `registerAsrClients`, appends `?access_token=<token>`, sends the
+same model and transcription config as its setup, and streams mono PCM16 LE at
+16 kHz in 100 ms frames (3,200 bytes) as base64 `realtimeInput.audio`. Its
+AudioWorklet captures at the hardware rate and resamples; it never assumes a
+16 kHz context. Up to 5 seconds of audio wait for `setupComplete`; more than
+that, a 10-second handshake, a socket error or an upload backlog above
+256 KiB ends the take with a connection failure rather than dropping audio.
+`interimInputTranscription` text replaces the partial; each
+`inputTranscription` text is one final (`endsTurn` from `finished`, true when
+absent). Done stops the microphone, sends the last partial frame and
+`audioStreamEnd`, and waits up to 3 seconds for a `finished` final or
+`turnComplete`. A hard stop, cancel or unmount releases the tracks,
+AudioContext, worklet, timers, queue and socket. There is no session
+resumption: Google ends a session after 10 minutes, and the take then ends as
+provider-ended, with the words heard kept for review.
+
+The keyless [server proof](../../packages/ui-server/tests/gemini-speech.test.ts)
+runs the published provider conformance and the mounted routes against a
+loopback `auth_tokens` double. The [client proof](../../packages/ui-react/tests/asr-gemini.test.ts)
+runs the published client conformance and the wire bounds, and the
+[Chromium proof](../../packages/ui-react/tests/browser/dictation-gemini.offline.tsx)
+dictates through the real ChatPage, worklet and 44.1/48 kHz contexts against
+an offline socket. They show protocol and resource behaviour, not that Google
+accepts the token or how accurate or fast it is; that is #3710.
+
 ## Live conversation with Gemini
 
 Conversation is separate from dictation. Register the fixed Gemini adapter
@@ -262,7 +362,8 @@ and [qualification plan](../investigations/live-conversation-investigation.md#bo
 `createGptLiveConversationProvider(serverOwnedApiKey)` from
 `@schlessera/brain-ui-server` supplies the separately registered
 `CreateAppOptions.conversationProvider`. The server retains the credential;
-the adapter fixes `gpt-live-1`, Live v1 primary WebSocket, PCM16/24 kHz, marin,
+the adapter fixes `gpt-live-1`, Live v1 primary WebSocket, PCM16/24 kHz, marin
+(or a persona's voice from its 38 declared voices, #3617),
 client delegation and `store:false`. The host's independently selected backend
 continues streaming chat progress, tool activity and interactive cards while
 voice input/output and asynchronous delegated work remain active.
@@ -279,6 +380,43 @@ promise zero retention. The
 [conversation contract](../integration-contract/wire.md#live-conversation-additive-957)
 describes the guarded correlation, bounded result appends and close receipts.
 
+## Registering both live services
+
+A host may register both adapters and let the brain's owner choose between
+them in Settings › Voice (#3616). `conversationProviders` replaces the single
+`conversationProvider` (which still means a list of one; passing both fails
+startup), and `defaultConversationProviderId` names the host's default:
+
+```ts
+const app = await createApp({
+  // Supply the remaining host options as usual.
+  conversationProviders: [
+    createGeminiConversationProvider(geminiKey),
+    createGptLiveConversationProvider(openAiKey),
+  ],
+  defaultConversationProviderId: "gemini-live",
+});
+```
+
+Startup also fails on duplicate ids or a default that names no registered
+service. Registration is discovery, not proof the key works: "usable" means
+registered at boot, and a key that fails later ends that conversation with the
+ordinary provider error and never selects another service.
+
+A new Start uses, in order: a one-time pick made before Start (it is never
+saved); the saved brain-wide default from Settings › Voice, only if it is still
+registered; the host default, only when nothing is saved; the single registered
+service, only when nothing is saved. A saved default that is no longer
+registered stops there: each Start asks for an explicit pick until the default
+is changed in Settings, and the host default is not substituted. Several
+services with nothing saved and no host default also need a pick. A saved
+default applies from the next explicit Start; a running conversation, and any
+reconnect of it, keeps the service it started with. Saving opens no provider,
+captures no audio and reads no history. A client that only reads the legacy
+`conversationProfile` sees live conversation as unavailable whenever no service
+is effective. See [the wire contract](../integration-contract/wire.md#live-service-selection-additive-3616)
+and [the HTTP route](../http-api.md#live-conversation-service-default).
+
 ## Live conversation in Chat
 
 The shipped conversation client uses the separately registered
@@ -288,9 +426,21 @@ capability limits, then select **Start**. With either built-in service, use
 **Send now** to commit recognized text. The ordinary transcript, tools and
 question/permission controls remain available while host work runs asynchronously.
 
-Mute ends microphone capture until Unmute; Leave returns to the composer with
-retained review text in its original draft. Stop reply cuts local audio while
-capture and host work continue. Ordinary interruption retains initiating PCM and
+While the conversation runs, the composer becomes the tall voice field. Its
+colour, meter, icon and one word say who has the floor (Listening, Thinking,
+Working, Speaking, Needs your tap, Muted, Reconnecting), with the service and
+the connected time beside it. Mute ends microphone capture until Unmute; brain
+may finish its current sentence. End returns to the composer with retained
+review text in its original draft. Interrupt, enabled only while a reply
+plays, cuts local audio while capture and host work continue. A failure that
+withdraws capture shows "Live conversation stopped" with its reason; Start
+again reopens the disclosure. Nothing stacks above the field: its body holds
+one message at a time, in the order draft, refusal ("Tap Allow or Deny on the
+card"), reply audio off, then the client's notice. A held draft reads "Draft ·
+not sent yet" with **Send now** and **Discard draft** in the controls row, where
+it takes Interrupt's place unless brain is speaking. Incomplete startup context
+is an inline notice in the chat at the start of the live section, with Details.
+Ordinary interruption retains initiating PCM and
 uses bounded local output recovery; timeout exposes Recover reply audio without
 muting the microphone. Delayed old audio can occasionally play after recovery.
 Recoverable hide/disconnect/resync retain consent in the same disclosed scope and

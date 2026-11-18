@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CLI_LOG, httpContractApp } from "./helpers/http-contract-app";
+import { completeJsonLines } from "./helpers/json-lines.js";
 
 test("mounted capture rejects incorrect JSON media, oversized bytes and missing content without invoking add", async () => {
   const t = await httpContractApp();
@@ -18,13 +18,13 @@ test("mounted capture rejects incorrect JSON media, oversized bytes and missing 
     expect(await limit.json()).toEqual({ error: "Request body too large" });
     const empty = await t.fetch("/api/brain/add", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
     expect(empty.status).toBe(400);
-    const calls = existsSync(join(t.brainPath, CLI_LOG))
-      ? readFileSync(join(t.brainPath, CLI_LOG), "utf8").trim().split("\n").map((l) => JSON.parse(l)) : [];
-    expect(calls.some((a: string[]) => a[0] === "add")).toBe(false);
+    expect(await empty.json()).toEqual({ error: "Field 'content' is required" });
+    const calls = completeJsonLines<string[]>(join(t.brainPath, CLI_LOG));
+    expect(calls.map((a: string[]) => a[0])).not.toContain("add");
     const admitted = await t.fetch("/api/brain/add", { method: "POST", headers: { "content-type": "application/json; charset=utf-8" }, body: valid });
     expect(admitted.status).toBe(200);
     expect(await admitted.json()).toMatchObject({ success: true, indexed: false });
-    expect(readFileSync(join(t.brainPath, CLI_LOG), "utf8").trim().split("\n").map(l => JSON.parse(l)[0])).toContain("add");
+    expect(completeJsonLines<string[]>(join(t.brainPath, CLI_LOG)).map(args => args[0])).toContain("add");
   } finally { await t.close(); }
 });
 
@@ -33,7 +33,7 @@ test("mounted input validation returns route-specific errors for corpus, files, 
   try {
     const search = await t.fetch("/api/brain/search");
     expect(search.status).toBe(400);
-    expect((await search.json()).error).toBeString();
+    expect(await search.json()).toEqual({ error: "Query parameter 'q' is required" });
     for (const [path, error] of [["/api/files/content", "missing_path"], ["/api/files/content?path=../outside.md", "invalid_path"], ["/api/geo/coastline?bbox=0,0,90,90", "invalid_bbox"]]) {
       const response = await t.fetch(path!);
       expect(response.status).toBe(400);
@@ -69,7 +69,7 @@ test("mounted renderer validates input and returns configured PNG/PDF bytes with
       expect(await response.text()).toBe(`fixture-${format}`);
     }
     expect(calls.map((c) => c.format)).toEqual(["png", "pdf"]);
-    expect(calls.every((c) => c.html.includes("Odysseus reaches the harbor."))).toBe(true);
+    expect(calls.map((c) => c.html)).toEqual([expect.stringContaining("Odysseus reaches the harbor."), expect.stringContaining("Odysseus reaches the harbor.")]);
     fail = true;
     const failed = await t.fetch("/api/render", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ content: "# Arrival", contentType: "markdown", format: "png" }) });
     expect(failed.status).toBe(500);

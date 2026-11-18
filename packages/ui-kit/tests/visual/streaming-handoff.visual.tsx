@@ -1,4 +1,4 @@
-/** The separate first-token story's real-browser clock controls (#1185, #3417). */
+/** The separate first-token story's real-browser clock controls (#1185, #3417, #3425). */
 import { expect, test, vi } from "vitest";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
@@ -23,7 +23,11 @@ async function withStream(theme: string, run: (host: HTMLElement) => Promise<voi
   }
 }
 
-/** Block the main thread, as a loaded runner does, without touching the component. */
+/**
+ * Block the main thread, as a loaded runner does, without touching the
+ * component. Kept real time: the stall is the stimulus. It must also delay the
+ * browser's own animation ends and frames, which a fake clock cannot hold back.
+ */
 function stallAfter(delay: number, ms: number) {
   setTimeout(() => {
     const start = performance.now();
@@ -31,7 +35,14 @@ function stallAfter(delay: number, ms: number) {
   }, delay);
 }
 
-async function drive(host: HTMLElement, beforeInput = 0, afterInput = 0, stall?: { at: number; ms: number }) {
+/** A long task in the arrival's own task, after React has committed it and
+ * before the browser can render the frame that starts its fades (#3425). */
+function stallNow(ms: number) {
+  const start = performance.now();
+  while (performance.now() - start < ms) { /* a long task */ }
+}
+
+async function drive(host: HTMLElement, beforeInput = 0, afterInput = 0, stall?: { at: number; ms: number }, commitStall = 0) {
   const trace: { started: number; input?: number; arrived?: number; removed?: number } = { started: performance.now() };
   const observe = () => {
     const now = performance.now();
@@ -53,6 +64,7 @@ async function drive(host: HTMLElement, beforeInput = 0, afterInput = 0, stall?:
         if (first && beforeInput) await new Promise(resolve => setTimeout(resolve, beforeInput));
         if (first) trace.input = performance.now();
         (element as HTMLElement).click();
+        if (first && commitStall) stallNow(commitStall);
         if (first && stall) stallAfter(stall.at, stall.ms);
         await new Promise(resolve => setTimeout(resolve, first ? afterInput : 0));
       } },
@@ -64,7 +76,7 @@ async function drive(host: HTMLElement, beforeInput = 0, afterInput = 0, stall?:
     expect(host.querySelectorAll(".bk-ghost, .bk-ghost-out")).toHaveLength(0);
   } finally {
     console.log("STREAM_HANDOFF_CONTROL", JSON.stringify({
-      beforeInput, afterInput, stall: stall ?? null,
+      beforeInput, afterInput, stall: stall ?? null, commitStall,
       inputMs: trace.input === undefined ? null : trace.input - trace.started,
       arrivalMs: trace.arrived === undefined ? null : trace.arrived - trace.started,
       handoffMs: trace.arrived === undefined || trace.removed === undefined ? null : trace.removed - trace.arrived,
@@ -74,40 +86,49 @@ async function drive(host: HTMLElement, beforeInput = 0, afterInput = 0, stall?:
   }
 }
 
+// Storybook owns light and dark parity (docs/process/theme-parity.md). The
+// handoff timing never reads a colour, so each case runs in one theme.
 for (const theme of ["dark", "light"]) {
-  test(`${theme}: input orchestration before the first token is outside its arrival budget`, async () => {
+  if (theme === "dark") test(`${theme}: input orchestration before the first token is outside its arrival budget`, async () => {
     await withStream(theme, host => drive(host, 180));
   });
 
-  test(`${theme}: final observation after ghost removal is outside its arrival budget`, async () => {
+  if (theme === "light") test(`${theme}: final observation after ghost removal is outside its arrival budget`, async () => {
     await withStream(theme, host => drive(host, 0, 900));
   });
 
   // #3417: a long task spanning the fade's end delays the removal timer, the
   // fade's own end and every frame alike. Wall time grows by the stall; the
   // frames rendered with a faded ghost do not.
-  test(`${theme}: a main-thread stall across the fade's end is outside the handoff budget`, async () => {
+  if (theme === "dark") test(`${theme}: a main-thread stall across the fade's end is outside the handoff budget`, async () => {
     await withStream(theme, host => drive(host, 0, 0, { at: 590, ms: 150 }));
   });
 
-  test(`${theme}: a first-token ghost held 200ms past its fade still fails`, async () => {
+  // #3425: the fades start on the first frame after the commit. A long task
+  // right after the first token's commit makes that frame late; the ghost must
+  // still fade to its end, rather than be cut at 600ms from the commit.
+  test(`${theme}: a long task right after the first token delays the fade, and the ghost still fades to its end`, async () => {
+    await withStream(theme, host => drive(host, 0, 0, undefined, 300));
+  });
+
+  if (theme === "light") test(`${theme}: a first-token ghost held 400ms past its fade still fails`, async () => {
     await withStream(theme, async host => {
-      const nativeTimeout = globalThis.setTimeout;
-      let handoffTimers = 0;
-      const timer = vi.spyOn(globalThis, "setTimeout").mockImplementation(((...args: unknown[]) => {
-        if (args[1] === 600) { handoffTimers++; args[1] = 800; }
-        return Reflect.apply(nativeTimeout, globalThis, args);
-      }) as typeof nativeTimeout);
+      // The handoff ends when both of its fades have. Hold the incoming fade
+      // 400ms longer, so the outgoing ghost outlives its own fade. 400ms, not
+      // 200: a CPU-starved browser renders a 200ms hold in as few as three
+      // frames, inside the allowance.
+      const hold = document.createElement("style");
+      hold.textContent = ".bk-ghost-in { animation-duration: 1000ms !important; }";
+      document.head.append(hold);
       try {
         await expect(drive(host)).rejects.toThrow(/frames rendered with the ghost after its fade ended/);
-        expect(handoffTimers, "a real first-token handoff was held past its fade").toBe(1);
       } finally {
-        timer.mockRestore();
+        hold.remove();
       }
     });
   });
 
-  test(`${theme}: a fade slowed to 900ms still fails on its own animation clock`, async () => {
+  if (theme === "dark") test(`${theme}: a fade slowed to 900ms still fails on its own animation clock`, async () => {
     await withStream(theme, async host => {
       const nativeTimeout = globalThis.setTimeout;
       const slow = document.createElement("style");
@@ -115,12 +136,14 @@ for (const theme of ["dark", "light"]) {
       document.head.append(slow);
       let handoffTimers = 0;
       const timer = vi.spyOn(globalThis, "setTimeout").mockImplementation(((...args: unknown[]) => {
-        if (args[1] === 600) { handoffTimers++; args[1] = 900; }
+        if (args[1] === 600) handoffTimers++;
         return Reflect.apply(nativeTimeout, globalThis, args);
       }) as typeof nativeTimeout);
       try {
+        // The component waits for the slowed fade itself (#3425); the clock
+        // still rejects a fade longer than D53's 600ms.
         await expect(drive(host)).rejects.toThrow(/the outgoing ghost's fade, in animation time/);
-        expect(handoffTimers, "the slowed handoff was the real first-token one").toBe(1);
+        expect(handoffTimers, "a running fade ends the handoff, not a 600ms timer").toBe(0);
       } finally {
         timer.mockRestore();
         slow.remove();

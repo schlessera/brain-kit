@@ -6,7 +6,7 @@ import {PiInputSafetyUnavailableError} from "./worker-protocol.js";
 type Content = import("@earendil-works/pi-agent-core").AfterToolCallContext["result"]["content"];
 export interface PiToolSafety {
   permission(name:string,id:string,input:Record<string,unknown>):Promise<PermissionDecision>;
-  result(name:string,id:string,content:Content):Promise<void>;
+  result(name:string,id:string,content:Content,complete?:boolean):Promise<void>;
   unavailable?():Promise<void>;
   stop():void;
 }
@@ -46,7 +46,7 @@ export function installPiToolSafety(agent:Agent,safety:PiToolSafety,hasUnqualifi
     // Pi skips afterToolCall for a blocked call. Its extension-authored reason
     // is itself the final result, so record it before allowing delivery.
     await safety.permission(context.toolCall.name,context.toolCall.id,context.args as Record<string,unknown>);
-    await safety.result(context.toolCall.name,context.toolCall.id,[{type:"text",text:prior.reason || "Tool execution was blocked"}]);
+    await safety.result(context.toolCall.name,context.toolCall.id,[{type:"text",text:prior.reason || "Tool execution was blocked"}],false);
     return prior;
    }
    if(signal?.aborted)return {block:true,terminate:true,reason:"Turn cancelled"};
@@ -61,10 +61,18 @@ export function installPiToolSafety(agent:Agent,safety:PiToolSafety,hasUnqualifi
   }catch(error){stop();throw error;}
  };
  agent.afterToolCall=async(context,signal)=>{
-  try{
-   const final=await after?.(context,signal);
-   await safety.result(context.toolCall.name,context.toolCall.id,final?.content??context.result.content);
-   return final;
-  }catch(error){stop();throw error;}
+  // The tool already ran: its result is reported even when the session's own
+  // hook failed, so the host records it or keeps its chat's gap (#3812).
+  let final:Awaited<ReturnType<NonNullable<typeof after>>>,failure:{error:unknown}|undefined;
+  try{final=await after?.(context,signal);}catch(error){failure={error};}
+  // Mirror the installed runner's replacement semantics. A failed hook will
+  // replace this content with an error; do not qualify the original read.
+  // Structured payloads are programmatic output, outside this text-only wire.
+  const structured=final?.structuredContent??(final?.content?undefined:context.result.structuredContent);
+  const complete=!failure&&!(final?.isError??context.isError)&&structured===undefined;
+  try{await safety.result(context.toolCall.name,context.toolCall.id,final?.content??context.result.content,complete);}
+  catch(error){stop();throw error;}
+  if(failure){stop();throw failure.error;}
+  return final;
  };
 }

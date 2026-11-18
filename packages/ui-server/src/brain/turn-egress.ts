@@ -7,6 +7,11 @@ import { occurrence, type Occurrence } from "../governance/occurrence.js";
 import type { GovernanceEventInput } from "../governance/events.js";
 import { contactedHosts, recordFirstTaint, sessionTaint, type TaintSource } from "../governance/session-taint.js";
 import type { GovernanceWrites } from "../governance/event-writes.js";
+import { safetyProjection } from "../governance/safety-store.js";
+import { settleTurnSessionBinding } from "../ws/bridge-session-binding.js";
+import { isMarkedUntrusted } from "../files/untrusted-marks.js";
+import { createTurnExtraction } from "./turn-extraction.js";
+import type { ExtractionJudge } from "../governance/extraction-judge.js";
 
 type Classification = Extract<BackendActivityEvent, { kind: "outward_classification" }>["classification"];
 const GITHUB_API_HOSTS = ["api.github.com", "uploads.github.com"] as const;
@@ -26,7 +31,7 @@ const TAINT_SOURCE_WORDING: Readonly<Record<TaintSource, string>> = {
   workspace_read: "read a file under workspaces/", mcp_document: "read a document from an external MCP server",
   user_marked: "read a file marked untrusted", egress_connection: "received data from another site",
   fetching_command: "ran a command that fetches content", unclassified_command: "ran a command that may have fetched content",
-  chat_attachment: "opened a chat attachment", apify_result: "received Apify results", compute_output: "collected an external compute job's output",
+  chat_attachment: "opened a chat attachment", apify_result: "received Apify results", github_result: "read GitHub issues or pull requests", compute_output: "collected an external compute job's output",
 };
 
 /**
@@ -96,7 +101,15 @@ export async function prepareTurnEgress(options: {
    * before that commit lands (#2850). Absent: the taint commits on
    * `governanceDb` through `record`.
    */
-  governanceWrites?: Pick<GovernanceWrites, "firstTaint" | "taint"> & Partial<Pick<GovernanceWrites,"recordingAvailable">>;
+  governanceWrites?: Pick<GovernanceWrites, "firstTaint" | "taint"> & Partial<Pick<GovernanceWrites,"recordingAvailable" | "safety">>;
+  /** The brain's host path, for the extraction classifier's read files and named paths (#4088). */
+  brainPath?: string;
+  /**
+   * The judge for the classifier's ambiguous band (#4089), routed, metered
+   * and budgeted by the caller. Used only while the policy sets
+   * `taint.judge.mode: jev` beside `taint.classifier: heuristics`.
+   */
+  extractionJudge?: ExtractionJudge;
 }) {
   const calls = createOutwardCalls();
   let recordingFailure: Error | undefined;
@@ -112,6 +125,7 @@ export async function prepareTurnEgress(options: {
   const contacted = new Set(db ? contactedHosts(db, options.sessionId()) : []);
   const collectionEpoch = (db?.query("SELECT id FROM safety_collections WHERE turn_id=?").get(options.turnId) as {id:string}|null)?.id??crypto.randomUUID();
   const exposures = new Map<string, Occurrence>();
+  const normalBefore = new Set<string>();
   const base = () => ({ turnId: options.turnId, sessionId: options.sessionId(), model: options.model(),
     actor: options.origin, profile: options.profile });
   const fail = () => {
@@ -130,6 +144,7 @@ export async function prepareTurnEgress(options: {
       const exposure = record.connectionId ? exposures.get(record.connectionId) : undefined;
       if (exposure) {
         exposures.delete(record.connectionId!);
+        normalBefore.delete(record.connectionId!);
         // A clean HTTP completion proves bounded input ended. A tunnel close
         // or cancellation alone cannot prove all opaque delivery completed.
         track(options.record({ ...base(), kind: "taint_exposure", dedupeKey: exposure.id,
@@ -173,10 +188,29 @@ export async function prepareTurnEgress(options: {
     const allowed = await pending;
     return allowed && !signal.aborted;
   };
+  // The extraction classifier (#4088), off unless the policy turns it on. It
+  // needs the session's taint record, so a host that keeps none never runs it.
+  const extraction = db && options.policy.taint.classifier === "heuristics" ? createTurnExtraction({ bridge: options.bridge, origin: options.origin,
+    sessionId: options.sessionId, tainted: () => firstTaint() !== null, contacted, brainPath: options.brainPath,
+    cause: () => { const source = firstTaint()?.source; return source ? TAINT_SOURCE_WORDING[source] : null; },
+    marked: path => isMarkedUntrusted(db, path),
+    ...(options.policy.taint.judge.mode === "jev" && options.extractionJudge ? { judge: options.extractionJudge } : {}) }) : null;
   const taint = db ? {
     allow: options.policy.taint.egress.allow,
-    tainted: () => firstTaint() !== null,
-    contacted: (host: string) => contacted.has(host),
+    tainted: (connectionId?: string) => {
+      if (connectionId && normalBefore.has(connectionId)) {
+        const projection = options.governanceWrites?.safety?.(options.turnId, options.sessionId()) ?? safetyProjection(db, options.turnId, options.sessionId());
+        // Only this request's own newly recorded input may be excluded from
+        // its first-byte check. A second connection gets no such authority.
+        if (projection.coverage.state === "complete" && projection.unresolvedCount === 1 &&
+          projection.earliestUnresolvedId === exposures.get(connectionId)?.id &&
+          projection.reasons.every(reason => reason === "unresolved")) return false;
+      }
+      return firstTaint() !== null;
+    },
+    // An `allow` from the extraction classifier relaxes this check, and only
+    // this one, while the readable call naming the host is in progress.
+    contacted: (host: string) => contacted.has(host) || extraction?.relaxes(host) === true,
     // A refusal names what tainted the session, as the card does (#3431).
     cause: () => { const source = firstTaint()?.source; return source ? TAINT_SOURCE_WORDING[source] : null; },
     // Voice has no grant surface; it keeps refusing without a card (#3430).
@@ -187,14 +221,16 @@ export async function prepareTurnEgress(options: {
    * has committed by then. It is in force for every later admission from the
    * moment it is submitted.
    */
-  const admitted = async (destination: { host: string; port: number; method: string; inference: boolean; provider: boolean; connectionId: string; protocol?:string }): Promise<void> => {
+  const admitted = async (destination: { host: string; port: number; method: string; inference: boolean; provider: boolean; managedReference: boolean; connectionId: string; protocol?:string }): Promise<void> => {
     // A host relay's operation neither taints the session nor makes its host
     // one the worker's own traffic may reach once tainted (G6, #3246).
-    if (destination.inference || destination.provider) {
+    // A managed acquisition has not delivered source content to the model.
+    // Its immutable read must establish independent input evidence later.
+    if (destination.inference || destination.provider || destination.managedReference) {
       if(writes?.recordingAvailable&&!writes.recordingAvailable(options.turnId,options.sessionId())){fail();throw new Error("Input recording unavailable before provider dispatch");}
       return;
     }
-    contacted.add(destination.host);
+    if (firstTaint() === null) normalBefore.add(destination.connectionId);
     if (!writes) return;
     const exposure = occurrence(collectionEpoch, "proxy_input", destination.connectionId, "open");
     exposure.admission={trusted:false,policyHash:options.policyHash??null,trustRevision:"0"};
@@ -211,10 +247,12 @@ export async function prepareTurnEgress(options: {
   /** Settles once every record submitted so far has committed or failed; `recordingFailure()` is final after it. */
   const settled = async () => { while (recording.size) await Promise.all([...recording]); };
   const proxy = await startEgressProxy({ mode: options.policy.egress.mode, allow: options.policy.egress.allow,
+    ...(options.bridge.admissionSafety ? { admissionSafety: options.bridge.admissionSafety } : {}),
     deny: options.policy.egress.deny, maxBytes: options.policy.egress.max_bytes_per_turn ?? Number.MAX_SAFE_INTEGER,
     outwardHosts: [...new Set([...GITHUB_API_HOSTS, ...MAIL_SUBMISSION_HOSTS, ...options.policy.outward.hosts])],
     outwardPorts: MAIL_SUBMISSION_PORTS,
-    signal: options.controller.signal, observe: report, admitted, ...(taint ? { taint } : {}),
+    signal: options.controller.signal, observe: report, admitted,
+    committed: destination => { if (!destination.inference && !destination.provider && !destination.managedReference) contacted.add(destination.host); }, ...(taint ? { taint } : {}),
     approveOutward: async (destination, signal) => {
       if (calls.covers(destination.host)) return !signal.aborted;
       const decision = await requestToolPermission(options.bridge, { toolUseId: crypto.randomUUID(), toolName: "Network",
@@ -227,8 +265,45 @@ export async function prepareTurnEgress(options: {
   const original = options.bridge;
   /** The bridge the backend receives, so its classifications and results open and close each call. */
   const bridge: BackendBridge = { ...original,
-    emit(message) { calls.emitted(message); original.emit(message); },
+    emit(message) { calls.emitted(message); extraction?.emitted(message); original.emit(message); },
     activity(event) { calls.activity(event); original.activity?.(event); },
   };
-  return { ...proxy, bridge, recordingFailure: () => recordingFailure, settled };
+  if (extraction) {
+    // Read at each call, not here: the host installs its admission collector
+    // on the bridge it handed this turn, possibly after this proxy started.
+    let wrapped: { from: BackendBridge["inputSafety"]; to: BackendBridge["inputSafety"] } | undefined;
+    Object.defineProperty(bridge, "inputSafety", { enumerable: true, configurable: true,
+      get: () => {
+        if (!wrapped || wrapped.from !== original.inputSafety) wrapped = { from: original.inputSafety, to: extraction.inputSafety(original.inputSafety) };
+        return wrapped.to;
+      },
+      set: (value: BackendBridge["inputSafety"]) => { original.inputSafety = value; } });
+  }
+  const relayOperation = (kind: "inference" | "relayed", method: string, target: URL, signal: AbortSignal) => {
+    const operation = proxy[kind](method, target, signal);
+    return settleOperation(operation);
+  };
+  const settleOperation = (operation: ReturnType<typeof proxy.managedReference>) => {
+    return { ...operation, async admit() {
+      // Join this proxy's terminal records and this bridge's announced
+      // session binding before the new snapshot. A concurrent FULL binding
+      // must not change a healthy scope underneath its first admission.
+      // Independent pending input still refuses in the unchanged final fences.
+      if (operation.signal.aborted) return false;
+      let abort: (() => void) | undefined;
+      try {
+        const ready = await Promise.race([settled().then(() => settleTurnSessionBinding(original, operation.signal)).catch(() => false), new Promise<false>(resolve => {
+          abort = () => resolve(false);
+          operation.signal.addEventListener("abort", abort, { once: true });
+          if (operation.signal.aborted) resolve(false);
+        })]);
+        if (!ready) { operation.finish("denied", "session_binding_unavailable"); return false; }
+        return !operation.signal.aborted && await operation.admit();
+      } finally { if (abort) operation.signal.removeEventListener("abort", abort); }
+    } };
+  };
+  return { ...proxy, bridge, recordingFailure: () => recordingFailure, settled,
+    inference: (method: string, target: URL, signal: AbortSignal) => relayOperation("inference", method, target, signal),
+    relayed: (method: string, target: URL, signal: AbortSignal) => relayOperation("relayed", method, target, signal),
+    managedReference: (target: URL, signal: AbortSignal) => settleOperation(proxy.managedReference(target, signal)) };
 }

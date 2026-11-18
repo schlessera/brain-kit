@@ -1,8 +1,9 @@
 import { followDraftTarget } from "./draft-target.js";
 import { createStore, type StoreApi } from "zustand/vanilla";
-import type { SharedFileMeta } from "@schlessera/brain-ui-sdk/protocol";
+import type { AttachmentFile, SharedFileMeta } from "@schlessera/brain-ui-sdk/protocol";
+import { attachmentFileSchema } from "@schlessera/brain-ui-sdk/schemas";
 import type { BrainStores } from "../stores/create-stores.js";
-import { hasContent, type ComposerDraft, type LocalDraft } from "../stores/draft-state.js";
+import { hasContent, type ComposerDraft, type DraftFile, type LocalDraft } from "../stores/draft-state.js";
 import { mintDraftId } from "./drafts.js";
 import type { PendingAttachment } from "./image-attachments.js";
 import { PartitionRefusedError, accountPartition, type LocalPartitions, type PartitionHandle, type PartitionWrite } from "./local-partitions.js";
@@ -41,6 +42,11 @@ interface WorkContext {
   tracks: SharedFileMeta[];
   /** Uploaded references in inactive staged views, kept for warm reauthentication only. */
   stagedTracks?: Array<{ key: string; tracks: SharedFileMeta[] }>;
+  /**
+   * Composer files still uploading, by the draft they were for (#3155):
+   * names only, never bytes. A reload cannot finish them, so it names them.
+   */
+  uploading?: Array<{ draftId: string; sessionId: string | null; names: string[] }>;
 }
 
 /** What a view reports at the moment a snapshot is taken. */
@@ -51,6 +57,12 @@ export interface WorkRestore {
   selection: { draftId: string; start: number; end: number } | null;
   focusId: string | null;
   scroll: { sessionId: string | null; anchor: string; offset: number; fingerprint?: string } | null;
+  /**
+   * Files that were still uploading when the page closed, per draft
+   * (#3155): their chips are gone, and the composer of that draft says so
+   * until dismissed. Only after a cold restore; optional for older callers.
+   */
+  uploads?: Array<{ draftId: string; sessionId: string | null; names: string[] }>;
 }
 
 export interface LocalWorkStatus {
@@ -125,7 +137,8 @@ function serializedDraft(value: unknown): string | undefined {
   const { deviceRevision: _revision, ...content } = value as StoredDraft;
   return JSON.stringify(content);
 }
-const sameContent = (a: StoredDraft, b: StoredDraft): boolean => a.sessionId === b.sessionId && a.text === b.text && JSON.stringify(a.attachments) === JSON.stringify(b.attachments);
+const sameContent = (a: StoredDraft, b: StoredDraft): boolean => a.sessionId === b.sessionId && a.text === b.text && JSON.stringify(a.attachments) === JSON.stringify(b.attachments)
+  && JSON.stringify(a.files ?? []) === JSON.stringify(b.files ?? []);
 type StoredContext = WorkContext & { v: 1 };
 
 const isStr = (v: unknown): v is string => typeof v === "string";
@@ -141,6 +154,13 @@ export function parseDraft(raw: unknown): LocalDraft | null {
     if (!a || !isStr(a.data) || !isStr(a.mediaType) || !a.mediaType.startsWith("image/") || !isNum(a.bytes) || !isStr(a.name)) return null;
     attachments.push({ attachment: { data: a.data, mediaType: a.mediaType as PendingAttachment["attachment"]["mediaType"] }, previewUrl: `data:${a.mediaType};base64,${a.data}`, bytes: a.bytes, name: a.name });
   }
+  // Originals are host references (#3155). One that does not parse is
+  // dropped on its own; the host's copy of the draft still lists it.
+  const files: DraftFile[] = [];
+  for (const f of Array.isArray(r.files) ? r.files : []) {
+    const parsed = f && isStr(f.lineage) ? attachmentFileSchema.safeParse(f.file) : null;
+    if (parsed?.success) files.push({ file: parsed.data as AttachmentFile, lineage: f.lineage });
+  }
   const h = r.host;
   const host = h && isNum(h.revision) && isStrOrNull(h.sessionId ?? null) && isNum(h.updatedAt) && typeof h.clean === "boolean"
     ? { revision: h.revision, sessionId: h.sessionId ?? null, updatedAt: h.updatedAt, clean: h.clean } : null;
@@ -148,7 +168,7 @@ export function parseDraft(raw: unknown): LocalDraft | null {
   // A malformed bind is dropped on its own, never the whole draft.
   const b = r.bind;
   const bind = b && isStr(b.sessionId) && isStr(b.requestId) ? { sessionId: b.sessionId, requestId: b.requestId } : null;
-  return { draftId: r.draftId, sessionId: r.sessionId ?? null, text: r.text, attachments, editedAt: r.editedAt, host, deviceOnly: r.deviceOnly === true, ...(r.deviceConflict && isStr(r.deviceConflict.otherId) && isStrOrNull(r.deviceConflict.sessionId) ? { deviceConflict: r.deviceConflict } : {}),
+  return { draftId: r.draftId, sessionId: r.sessionId ?? null, text: r.text, attachments, ...(files.length ? { files } : {}), editedAt: r.editedAt, host, deviceOnly: r.deviceOnly === true, ...(r.deviceConflict && isStr(r.deviceConflict.otherId) && isStrOrNull(r.deviceConflict.sessionId) ? { deviceConflict: r.deviceConflict } : {}),
     ...(r.uncertain === true ? { uncertain: true } : {}), ...(bind ? { bind } : {}) };
 }
 
@@ -168,6 +188,9 @@ function parseContext(raw: unknown): WorkContext | null {
     reviewText: r.reviewText ?? "",
     tracks: Array.isArray(r.tracks) ? r.tracks : [],
     stagedTracks: Array.isArray(r.stagedTracks) ? r.stagedTracks.filter((v) => v && isStr(v.key) && /^(session|draft):.+/.test(v.key) && Array.isArray(v.tracks)) : undefined,
+    uploading: Array.isArray(r.uploading)
+      ? r.uploading.flatMap((v) => v && isStr(v.draftId) && Array.isArray(v.names) ? [{ draftId: v.draftId, sessionId: isStr(v.sessionId) ? v.sessionId : null, names: v.names.filter(isStr).slice(0, 10) }] : []).filter((v) => v.names.length > 0)
+      : undefined,
   };
 }
 
@@ -179,6 +202,7 @@ export function storeDraft(d: ComposerDraft): StoredDraft {
     sessionId: d.sessionId,
     text: d.text,
     attachments: d.attachments.map((a) => ({ data: a.attachment.data, mediaType: a.attachment.mediaType, bytes: a.bytes, name: a.name })),
+    ...(d.files?.length ? { files: d.files.map((f) => ({ file: f.file, lineage: f.lineage })) } : {}),
     editedAt: d.editedAt,
     deviceOnly: d.deviceOnly === true,
     ...(d.deviceConflict ? { deviceConflict: d.deviceConflict } : {}),
@@ -206,6 +230,10 @@ interface LocalWorkOptions {
   restoreTracks?: (sessionId: string | null, draftId: string, tracks: SharedFileMeta[]) => void;
   allTracks?: () => NonNullable<WorkContext["stagedTracks"]>;
   restoreAllTracks?: (views: NonNullable<WorkContext["stagedTracks"]>) => void;
+  /** Composer files still uploading, by draft (#3155): names only. */
+  uploading?: () => NonNullable<WorkContext["uploading"]>;
+  /** Calls back on every change to the root's upload queues. */
+  watchUploads?: (fn: () => void) => () => void;
   /**
    * The client holds another account than the one this page restored for:
    * the first account's drafts are in this page's stores, so the page must
@@ -259,7 +287,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
       claim();
     }) : Promise.resolve();
   const status = createStore<LocalWorkStatus>(() => ({ failed: false, pending: false }));
-  const restore = createStore<WorkRestore>(() => ({ selection: null, focusId: null, scroll: null }));
+  const restore = createStore<WorkRestore>(() => ({ selection: null, focusId: null, scroll: null, uploads: [] }));
   const probes = new Set<WorkProbe>();
   /** The account this page restored for and writes to; another account is never written. */
   let bound: string | null = null;
@@ -314,6 +342,8 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
       tracks: options.tracks(sessionId, drafts.originOf(draftId)),
       stagedTracks: options.allTracks?.(),
     };
+    const uploading = options.uploading?.();
+    if (uploading?.length) ctx.uploading = uploading;
     for (const probe of probes) Object.assign(ctx, probe());
     return ctx;
   }
@@ -612,6 +642,12 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
         }
       }
       if (ctx.reviewText && !stores.voice.getState().reviewText) stores.voice.getState().setReviewText(ctx.reviewText);
+      // A cold page has no queue: what was uploading is gone, and the
+      // composer names it (rev 5 §1). A warm restore keeps its queue.
+      if (!warm && ctx.uploading?.length) {
+        const ids = stores.drafts.getState();
+        restore.setState({ uploads: ctx.uploading.map((u) => ({ draftId: ids.resolveId(u.draftId), sessionId: u.sessionId, names: u.names })) });
+      }
     }
     partition = handle;
     bound = key;
@@ -644,6 +680,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
     stores.voice.subscribe((s, prev) => { if (s.reviewText !== prev.reviewText) changed(); }),
     stores.chat.subscribe((s, prev) => { if (s.activeSessionId !== prev.activeSessionId) changed(); }),
     options.watchTracks(changed),
+    ...(options.watchUploads ? [options.watchUploads(changed)] : []),
   ];
   const onDom = () => changed();
   if (typeof document !== "undefined") {
@@ -723,7 +760,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
           const current = state.drafts[targetId];
           const before = current?.text ?? "";
           const base: ComposerDraft = current ?? {
-            draftId: targetId, sessionId: owner, text: "", attachments: [], editedAt: Date.now(), edit: 0, host: null,
+            draftId: targetId, sessionId: owner, text: "", attachments: [], files: [], editedAt: Date.now(), edit: 0, host: null,
             uploads: new Map(), failure: null, savingSince: null, conflict: null, uncertain: false, bind: null,
           };
           const draft: ComposerDraft = { ...base, text: before ? `${before}\n${text}` : text, edit: base.edit + 1, deviceOnly: true };
@@ -784,7 +821,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
       locked = true;
       if (timer !== null) { clearTimeout(timer); timer = null; }
       bound = null; partition = null; written.clear(); committed.clear(); versions.clear(); retained.clear(); writtenContext = "";
-      restore.setState({ selection: null, focusId: null, scroll: null });
+      restore.setState({ selection: null, focusId: null, scroll: null, uploads: [] });
       status.setState({ pending: false });
     },
     async quiesce() {

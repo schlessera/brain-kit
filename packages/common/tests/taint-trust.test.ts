@@ -128,14 +128,15 @@ test("strict policy defaults, duplicate identities and UTF-8/record bounds", () 
   expect(TRUST_LIMITS).toEqual({ rules: 256, selectorBytes: 1024, sectionBytes: 262144, labelBytes: 128 });
 });
 test("prospective match audit survives rule deletion and retains immutable admission facts", () => {
+  // A private copy: mutating the shared fixture would leak into every later test if an assertion failed first.
   const rules = [structuredClone(source)];
-  const audit = match(rules, webProof)!;
+  const proof = structuredClone(webProof);
+  const audit = match(rules, proof)!;
   expect(audit).toEqual({ ruleId: source.id, capability: "incomingContent", trustRevision: "3", collectionRevision: "9", policyHash: "a".repeat(64), provenance: webProof });
-  rules.splice(0); webProof.origin.port = 8443;
-  expect(match(rules, webProof)).toBeNull();
+  rules.splice(0); proof.origin.port = 8443;
+  expect(match(rules, proof)).toBeNull();
   expect(audit.provenance).toEqual({ ...webProof, origin: { ...origin, port: 443 } });
   expect(audit).toMatchObject({ trustRevision: "3", collectionRevision: "9", policyHash: "a".repeat(64) });
-  webProof.origin.port = 443;
   for (const bad of [{ ...admission, phase: "historical" }, { ...admission, trustRevision: "oops" }, { ...admission, trustRevision: "1.5" }, { ...admission, trustRevision: "1".repeat(200) }, { ...admission, trustRevision: "03" }, { ...admission, trustRevision: "18446744073709551616" }, { ...admission, collectionRevision: "-1" }, { ...admission, policyHash: "" }])
     expect(matchTrustRules([source], webProof, "incomingContent", bad as typeof admission, verified)).toBeNull();
 });
@@ -143,7 +144,7 @@ test("frontmatter parser reports trust defaults and invalid-policy fallback with
   const bytes = (data: unknown) => new TextEncoder().encode(`---\n${JSON.stringify(data)}\n---\nOdysseus policy.\n`);
   const valid = parseGovernancePolicy(bytes({ schema_version: 1, taint: { trusted_sources: [source] } }));
   expect(valid.ok).toBe(true);
-  expect(valid.effective.taint).toEqual({ egress: { allow: [] }, trusted_sources: [source] });
+  expect(valid.effective.taint).toEqual({ egress: { allow: [] }, trusted_sources: [source], classifier: "off", judge: { mode: "off", floor: 0.9 } });
   const invalid = parseGovernancePolicy(bytes({ schema_version: 1, taint: { trusted_sources: [source, source] } }));
   expect(invalid.ok).toBe(false);
   expect(invalid.errors.join(" ")).toContain("Duplicate trust");

@@ -216,7 +216,7 @@ runtime authority or a public plugin seam. Both candidates need them:
 
 Current source confirms why a bridge is needed: ordinary initialization copies
 only auth/models/settings (`const init`,
-`packages/ui-backend-pi/src/worker-launch.ts:114-116`), then selects private Pi
+`packages/ui-backend-pi/src/worker-launch.ts:115-117`), then selects private Pi
 state. The worker RPC schema has an existing bounded, grant-checked bridge but
 no search method (`export const piWorkerMessage`,
 `packages/ui-backend-pi/src/worker-protocol.ts:71-82`). Resource discovery remains

@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ConversationWorkReceipt, DialogueEvidence } from "@schlessera/brain-ui-sdk/protocol";
 import { createUiDb } from "../src/db/client.js";
-import { createPrincipal, revokePrincipal } from "../src/db/principals.js";
+import { createPrincipal, resolveAmbientPrincipal, revokePrincipal } from "../src/db/principals.js";
 import { openSqliteWriter } from "../src/db/write-worker.js";
 import { createOffloopActivityStore } from "../src/activity/store-writes.js";
 import { createSessionCatalog, type SessionCatalog } from "../src/ws/session-catalog.js";
@@ -79,11 +79,13 @@ async function fixture() {
   const path = join(root, "ui.db");
   const host = open(path);
   const owner = createPrincipal(host.db, { authMethod: "password", label: "Odysseus phone", ttlSeconds: 86_400 }).id;
-  const other = createPrincipal(host.db, { authMethod: "passkey", label: "Penelope tablet", ttlSeconds: 86_400 }).id;
+  // Every owner sign-in is the one owner account (#4138); another person is another account.
+  const second = createPrincipal(host.db, { authMethod: "passkey", label: "Odysseus tablet", ttlSeconds: 86_400 }).id;
+  const other = resolveAmbientPrincipal(host.db, "proxy", "penelope", "Penelope").id;
   const agent = createPrincipal(host.db, { authMethod: "delegated", label: "Mentor agent", createdBy: owner, ttlSeconds: 86_400 }).id;
   await seedChat(host.catalog, owner, "voyage", "ithaca", MARKER);
   await seedChat(host.catalog, other, "aeaea", "circe", CONTROL);
-  return { root, path, host, owner, other, agent };
+  return { root, path, host, owner, second, other, agent };
 }
 async function seedChat(catalog: SessionCatalog, principalId: string, sessionId: string, conversationId: string, text: string) {
   catalog.persistSessionStub(sessionId, "Plan the voyage home", null, "claude");
@@ -113,11 +115,12 @@ test("unauthorized, foreign, unknown, stale, unsupported and busy chats refuse b
     let consulted = 0;
     const busyProbe = (identities: RetiredChatIdentities) => { consulted++; return identities.conversations.includes("ithaca"); };
     expect(await catalog.retireChat!(request(f.agent), idle), "AGENT_CANNOT_RETIRE").toEqual({ status: "refused", reason: "unauthorized" });
-    // A foreign owner and a target that does not exist receive the same answer.
-    const foreign = await catalog.retireChat!(request(f.other), busyProbe);
-    const missing = await catalog.retireChat!(request(f.other, { target: { sessionId: "nowhere" } }), busyProbe);
+    // Another account's chat and a target that does not exist receive the same answer.
+    const foreign = await catalog.retireChat!(request(f.owner, { target: { sessionId: "aeaea" } }), busyProbe);
+    const missing = await catalog.retireChat!(request(f.owner, { target: { sessionId: "nowhere" } }), busyProbe);
     expect(foreign, "FOREIGN_REFUSAL_LEAKS_NOTHING").toEqual({ status: "refused", reason: "unavailable" });
     expect(missing).toEqual(foreign);
+    expect(await catalog.retireChat!(request(f.other), busyProbe), "ANOTHER_ACCOUNT_CANNOT_RETIRE").toEqual({ status: "refused", reason: "unauthorized" });
     expect(consulted, "BUSY_NOT_ASKED_FOR_FOREIGN_CHAT").toBe(0);
     // A typed native-only chat with no recorded owner: ownership is never guessed.
     catalog.persistSessionStub("scheria", "Ask the Phaeacians for a ship", null, "claude");
@@ -149,6 +152,64 @@ test("revocation while admission waits on the writer refuses at commit", async (
     try { revokePrincipal(other, f.owner, Date.now()); } finally { other.close(); }
     f.host.release();
     expect(await pending, "COMMIT_RECHECKS_AUTHORITY").toEqual({ status: "refused", reason: "unauthorized" });
+    expect(fences(f.host.db)).toBe(0);
+  } finally { await f.host.close(); }
+});
+
+for (const change of ["revocation", "foreign epoch", "corrupt evidence"] as const) test(`another owner login's admission rechecks ${change} at commit`, async () => {
+  const f = await fixture();
+  try {
+    const { catalog } = f.host;
+    // The second login continued the chat by voice: two logins of one account own its records (#4138).
+    await catalog.saveConversationEpoch!({ id: "telemachus", principalId: f.second, epoch: 1, sessionId: "voyage" });
+    await catalog.settled!();
+    expect(await catalog.retireChat!(request(f.second), () => true), "SECOND_LOGIN_BUSY_REFUSES").toEqual({ status: "refused", reason: "busy" });
+    await f.host.hold();
+    const submitted = posted("retireChat");
+    const pending = catalog.retireChat!(request(f.second), idle);
+    // The preflight admitted it; the change lands before the writer takes its turn.
+    await submitted;
+    const other = new Database(f.path); other.exec("PRAGMA busy_timeout = 5000");
+    try {
+      if (change === "revocation") revokePrincipal(other, f.second, Date.now());
+      else if (change === "foreign epoch") other.query("INSERT INTO conversation_epochs(id,principal_id,principal_account,epoch,session_id,updated_at) VALUES('mentor',?,NULL,1,'voyage',0)").run(f.agent);
+      else other.query("UPDATE conversation_epochs SET principal_account='admiral' WHERE id='telemachus'").run();
+    } finally { other.close(); }
+    f.host.release();
+    expect(await pending, `COMMIT_RECHECKS_${change.toUpperCase().replace(" ", "_")}`).toEqual({ status: "refused", reason: change === "revocation" ? "unauthorized" : "unavailable" });
+    expect(fences(f.host.db)).toBe(0);
+    expect(await readable(catalog, f.owner, "voyage")).toEqual([MARKER]);
+  } finally { await f.host.close(); }
+});
+
+for (const stage of ["preflight", "commit"] as const) test(`a login that expires after the request was stamped is refused at the ${stage} by the current time`, async () => {
+  const f = await fixture();
+  try {
+    const { catalog } = f.host;
+    const input = request(f.second, { at: Date.now() });
+    await catalog.saveConversationEpoch!({ id: "telemachus", principalId: f.second, epoch: 1, sessionId: "voyage" });
+    await catalog.settled!();
+    let consulted = 0;
+    const busy = () => { consulted++; return false; };
+    // Usable at the request's stamp, expired by the time authority is checked.
+    const expire = (db: Database) => db.query("UPDATE principals SET expires_at=? WHERE id=?").run(input.at + 1, f.second);
+    let pending: Promise<unknown>;
+    if (stage === "preflight") {
+      expire(f.host.db); await Bun.sleep(5);
+      pending = catalog.retireChat!(input, busy);
+    } else {
+      await f.host.hold();
+      const submitted = posted("retireChat");
+      pending = catalog.retireChat!(input, busy);
+      await submitted;
+      expect(consulted, "PREFLIGHT_PASSED_BEFORE_EXPIRY").toBe(1);
+      const other = new Database(f.path); other.exec("PRAGMA busy_timeout = 5000");
+      try { expire(other); } finally { other.close(); }
+      await Bun.sleep(5);
+      f.host.release();
+    }
+    expect(await pending, `EXPIRY_CHECKED_AT_${stage.toUpperCase()}_BY_CURRENT_TIME`).toEqual({ status: "refused", reason: "unauthorized" });
+    if (stage === "preflight") expect(consulted, "EXPIRED_CALLER_NEVER_REACHES_BUSY").toBe(0);
     expect(fences(f.host.db)).toBe(0);
   } finally { await f.host.close(); }
 });
@@ -198,10 +259,11 @@ test("retirement fences every identity, refuses late writes and keeps unrelated 
     expect(db.query("SELECT id,total_cost_usd,num_turns FROM sessions ORDER BY id").all(), "ACCOUNTING_UNCHANGED").toEqual(cost);
     // Retirement is not deletion: content stays for its owners to remove, and nothing claims completion.
     expect(db.query("SELECT COUNT(*) AS n FROM dialogue_records WHERE payload LIKE ?").get(`%${MARKER}%`)).toEqual({ n: 1 });
-    // The same key is the same operation; a new key or another principal learns nothing.
+    // The same key is the same operation; a new key or another login of the account learns nothing.
     expect(await catalog.retireChat!(request(f.owner), idle)).toEqual(result);
     expect(await catalog.retireChat!(request(f.owner, { operationId: "retire-again" }), idle)).toEqual({ status: "refused", reason: "unavailable" });
-    expect(await catalog.retireChat!(request(f.other), idle)).toEqual({ status: "refused", reason: "unavailable" });
+    expect(await catalog.retireChat!(request(f.second), idle), "OPERATION_STAYS_ITS_INITIATORS").toEqual({ status: "refused", reason: "unavailable" });
+    expect(await catalog.chatRetirement!("retire-voyage", f.second)).toBeNull();
     expect(await catalog.chatRetirement!("retire-voyage", f.other)).toBeNull();
     // Cleanup outcomes are durable and honest: only every store confirming removal completes.
     expect(await catalog.recordChatCleanup!("voyage", "native", "partial")).toBe("partial");
@@ -216,7 +278,8 @@ test("retirement fences every identity, refuses late writes and keeps unrelated 
 
 test("fences survive content cascades and restart; consumed identities never execute again", async () => {
   const f = await fixture();
-  {
+  let host: ReturnType<typeof open> | undefined;
+  try {
     expect((await f.host.catalog.retireChat!(request(f.owner), idle)).status).toBe("retired");
     // What later content owners may remove, including the cascading task ledger.
     f.host.db.exec(`DELETE FROM conversation_epochs WHERE id='ithaca';
@@ -224,8 +287,8 @@ test("fences survive content cascades and restart; consumed identities never exe
       DELETE FROM dialogue_owners WHERE id='ithaca'; DELETE FROM sessions WHERE id='voyage'`);
     expect(f.host.db.query("SELECT COUNT(*) AS n FROM conversation_tasks WHERE conversation_id='ithaca'").get()).toEqual({ n: 0 });
     await f.host.close();
-    const host = open(f.path);
-    try {
+    host = open(f.path);
+    {
       const { catalog } = host;
       // Without the fence each of these would succeed against the scrubbed rows.
       await catalog.saveConversationEpoch!({ id: "odyssey-new", principalId: f.owner, epoch: 1 });
@@ -246,8 +309,8 @@ test("fences survive content cascades and restart; consumed identities never exe
       expect(host.db.query("SELECT COUNT(*) AS n FROM sessions WHERE id='voyage'").get(), "RETIRED_SESSION_ROW_NOT_RECREATED").toEqual({ n: 0 });
       expect(await readable(catalog, f.other, "aeaea")).toEqual([CONTROL]);
       expect(await catalog.chatRetirement!("retire-voyage", f.owner)).toMatchObject({ status: "retired", generation: 2, cleanup: "pending" });
-    } finally { await host.close(); }
-  }
+    }
+  } finally { await (host ?? f.host).close(); }
 });
 
 for (const order of ["adoption-first", "retirement-first"] as const) test(`racing adoption is decided on one side of the retirement (${order})`, async () => {
@@ -298,12 +361,16 @@ test("a provisional chat retires by its owner identity without a native store", 
     expect(await settle(catalog.recordChatCleanup!("ogygia", "native", "removed"))).toContain("not selected");
     expect(await settle(catalog.dialogueBind!("ogygia", f.owner, "voyage"))).toContain("retired");
     expect(await catalog.dialogueRead!(f.owner, { ownerId: "ogygia" })).toBeNull();
-    // An adopted provisional ID is now the session's chat: the reviewed target is stale, for its owner only.
+    // An adopted provisional ID is now the session's chat: the reviewed target is stale, for its owner account only.
     await catalog.dialogueOpen!({ conversationId: "calypso", principalId: f.owner, epoch: 1, providerId: "gemini-live" });
     await catalog.dialogueBind!("calypso", f.owner, "voyage");
     const adopted = request(f.owner, { operationId: "retire-calypso", target: { ownerId: "calypso" }, expected: { backendId: null, generation: 1 } });
     expect(await catalog.retireChat!(adopted, idle)).toEqual({ status: "refused", reason: "stale" });
-    expect(await catalog.retireChat!({ ...adopted, principalId: f.other }, idle)).toEqual({ status: "refused", reason: "unavailable" });
+    expect(await catalog.retireChat!({ ...adopted, principalId: f.second }, idle), "STALE_FOR_THE_ACCOUNTS_OTHER_LOGIN").toEqual({ status: "refused", reason: "stale" });
+    // A provisional owner of another account is unavailable to an owner login, never stale.
+    await catalog.dialogueOpen!({ conversationId: "scylla", principalId: f.other, epoch: 1, providerId: "gemini-live" });
+    await catalog.dialogueBind!("scylla", f.other, "aeaea");
+    expect(await catalog.retireChat!({ ...adopted, operationId: "retire-scylla", target: { ownerId: "scylla" } }, idle), "STALE_NEVER_REVEALS_ANOTHER_ACCOUNT").toEqual({ status: "refused", reason: "unavailable" });
   } finally { await f.host.close(); }
 });
 

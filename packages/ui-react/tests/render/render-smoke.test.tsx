@@ -3538,6 +3538,24 @@ describe("authentication and passkey root ownership", () => {
     } finally { view.unmount(); reload.mockRestore(); a.root.dispose(); b.root.dispose(); }
   });
 
+  // Conditional UI attaches to the password field's `webauthn` autofill; with
+  // no field it would spend a login-options token for nothing (#2555).
+  for (const [methods, expected] of [[{ passkey: true, password: false }, 0], [{ passkey: true, password: true }, 1]] as const) {
+    test(`conditional UI asks for login options ${expected === 0 ? "never on a passkey-only screen" : "once beside the password field"}`, async () => {
+      const platform = browser(async () => true); const a = transport("alpha");
+      const warn = spyOn(console, "warn").mockImplementation(() => {});
+      const view = render(login(a.root));
+      try {
+        await reply(a.requests[0], methods);
+        await act(async () => { await flushPromises(); });
+        expect(a.matching("/auth/passkey/login-options", "POST")).toHaveLength(expected);
+        expect(view.queryByPlaceholderText("Password") !== null, "the webauthn field renders exactly when the ceremony starts").toBe(expected === 1);
+        expect(view.getByRole("button", { name: /passkey/i }), "the explicit passkey button stays").toBeTruthy();
+        expect(warn.mock.calls.filter((call) => String(call[0]).startsWith("[passkeys]"))).toEqual([]);
+      } finally { warn.mockRestore(); view.unmount(); platform.restore(); a.root.dispose(); }
+    });
+  }
+
   test("late autofill support cannot start a ceremony after switching roots", async () => {
     const support = deferred<boolean>(); const platform = browser(() => support.promise);
     const a = transport("alpha"); const b = transport("beta");
@@ -4754,7 +4772,7 @@ describe("desktop panes (D37)", () => {
     const onClose = mock(() => {});
     const view = render(<SettingsPanel open onClose={onClose} />);
     const tabs = view.getAllByRole("tab").map((t) => t.getAttribute("aria-label") ?? t.textContent);
-    expect(tabs).toEqual(["Appearance & input", "Models", "Accounts", "Skills", "Modules", "Storage", "Security", "Devices & agents"]);
+    expect(tabs).toEqual(["Appearance & input", "Models", "Voice", "Accounts", "Skills", "Modules", "Storage", "Security", "Devices & agents"]);
     fireEvent.click(view.getByRole("tab", { name: "Appearance & input" }));
     expect(useUIStore.getState().settingsTab).toBe("appearance");
     expect(view.getByRole("radiogroup", { name: "Theme" })).toBeTruthy();
@@ -5821,24 +5839,21 @@ describe("ComposerView", () => {
     streaming.unmount();
   });
 
-  test("the paperclip names live conversation whenever its menu offers it (#3045)", () => {
+  test("the paperclip names its menu, and live conversation is the mic's hold, not a row (#3045, #3693)", () => {
     const h = handlers();
-    const live = "Attach — live conversation, photo, camera, files";
-    const view = render(<ComposerView {...base} value="" attachMenuOpen onConversation={mock(() => {})} onPickTracks={mock(() => {})} {...h} />);
-    const trigger = view.getByRole("button", { name: live });
+    const name = "Attach — photo, camera, files";
+    const view = render(<ComposerView {...base} value="" attachMenuOpen onPickTracks={mock(() => {})} micControl={<button type="button" aria-label="Dictate" data-caller-mic="" />} {...h} />);
+    const trigger = view.getByRole("button", { name });
     // The tooltip paints the name itself, hidden from the accessibility tree so it is heard once.
-    expect(trigger.querySelector("[data-composer-tip]")?.textContent).toBe(live);
+    expect(trigger.querySelector("[data-composer-tip]")?.textContent).toBe(name);
     expect(trigger.querySelector("[data-composer-tip]")?.getAttribute("aria-hidden")).toBe("true");
-    expect(view.getByRole("button", { name: /^Live conversation/ })).toBeTruthy();
+    expect(view.queryByRole("button", { name: /live conversation/i })).toBeNull();
+    // The caller's mic takes the kit's mic slot.
+    expect(view.container.querySelectorAll("[data-composer-mic] [data-caller-mic]")).toHaveLength(1);
     view.unmount();
 
-    const without = render(<ComposerView {...base} value="" attachMenuOpen {...h} />);
-    expect(without.getByRole("button", { name: "Attach — photo, camera, files" })).toBeTruthy();
-    expect(without.queryByRole("button", { name: /live conversation/i })).toBeNull();
-    without.unmount();
-
     // Dictating: the trigger is inert, with no name and no tooltip.
-    const dictating = render(<ComposerView {...base} value="" state="dictating" onConversation={mock(() => {})} {...h} />);
+    const dictating = render(<ComposerView {...base} value="" state="dictating" {...h} />);
     expect(dictating.queryByRole("button", { name: /^Attach/ })).toBeNull();
     expect(dictating.container.querySelector("[data-composer-tip]")).toBeNull();
     dictating.unmount();
@@ -5861,11 +5876,11 @@ describe("ComposerView", () => {
 });
 
 describe("transcript turn views", () => {
-  test("the header names who and when, and marks a voice turn", () => {
-    const view = render(<TurnHeader who="You" when="09:41" voice="voice-dictate" tone="user" />);
+  test("the header names who and when; a voice turn's mark is inline, not in the header", () => {
+    const view = render(<TurnHeader who="You" when="09:41" tone="user" />);
     expect(view.getByText("You")).toBeTruthy();
     expect(view.getByText("09:41")).toBeTruthy();
-    expect(view.getByRole("img", { name: "Voice dictation" })).toBeTruthy();
+    expect(view.queryByRole("img")).toBeNull();
     view.unmount();
     const brain = render(<TurnHeader who="Brain" when="09:42" tone="brain" />);
     expect(brain.queryByRole("img")).toBeNull();
@@ -5880,6 +5895,10 @@ describe("transcript turn views", () => {
     expect(bubble?.style.borderBottomRightRadius).toBe("5px");
     expect(bubble?.parentElement?.style.alignItems, "the user bubble aligns right").toBe("flex-end");
     view.unmount();
+    const spoken = render(<UserTurn spoken><span>hello</span></UserTurn>);
+    expect(spoken.getByRole("img", { name: "Spoken by you" }).parentElement?.className, "a spoken turn is the kit's spoken bubble").toBe("bk-spoken-bubble");
+    expect(spoken.getByText("hello").previousElementSibling?.className, "the mic leads the words").toBe("bk-spoken-mark");
+    spoken.unmount();
     const count = render(<AttachmentCount count={2} />);
     expect(count.getByText("2 images")).toBeTruthy();
     count.unmount();

@@ -25,17 +25,25 @@ export const nativeManagerRequest = z.discriminatedUnion("operation", [
     maximum: z.number().int().nonnegative(),
   }).strict(),
   z.object({ operation: z.literal("cancelCheckpointRead"), id: nativeCheckpointId }).strict(),
+  // Turn data trees (#2911): one app-owned directory per turn on the managed
+  // volume, outside the live brain and every checkpoint. The manager alone
+  // chooses its path and removes it; the allowance is its admission charge.
+  z.object({ operation: z.literal("prepareTurnTree"), id: nativeCheckpointId, allowanceBytes: z.number().int().positive() }).strict(),
+  z.object({ operation: z.literal("releaseTurnTree"), id: nativeCheckpointId }).strict(),
   // Reference pool (#2428). Identities are caller-generated UUIDs; the manager
   // alone chooses paths, qgroups and limits within its configured allowance.
   z.object({ operation: z.literal("poolStatus") }).strict(),
+  // Read-only residual-growth status (#3515) over the same observation and owner charges.
+  z.object({ operation: z.literal("poolGrowth") }).strict(),
   z.object({ operation: z.literal("poolCreate"), id: nativeCheckpointId, purpose: z.enum(["source", "worktree", "staging"]),
-    from: nativeCheckpointId.nullable(), allowanceBytes: z.number().int().positive() }).strict(),
+    from: nativeCheckpointId.nullable(), allowanceBytes: z.number().int().positive(), permanentWithdrawal: z.literal(true).optional() }).strict(),
   z.object({ operation: z.literal("poolSeal"), id: nativeCheckpointId }).strict(),
   z.object({ operation: z.literal("poolRelease"), id: nativeCheckpointId }).strict(),
   z.object({ operation: z.literal("listPoolRecovery"), after: nativeCheckpointId.nullable() }).strict(),
   // Reference publication (#2429). A view is one caller-generated sharing
   // domain; the manager owns its directory and swaps one name atomically.
-  z.object({ operation: z.literal("poolPublish"), id: nativeCheckpointId, view: nativeCheckpointId, name: nativePoolName }).strict(),
+  z.object({ operation: z.literal("poolPublish"), id: nativeCheckpointId, view: nativeCheckpointId, name: nativePoolName,
+    expectedRoots: z.array(nativeCheckpointId.nullable()).min(1).max(2).optional() }).strict(),
   z.object({ operation: z.literal("poolUnpublish"), view: nativeCheckpointId, name: nativePoolName }).strict(),
   // A view's directory, opened before its first publication so a worker can bind it (#2432).
   z.object({ operation: z.literal("poolView"), view: nativeCheckpointId }).strict(),
@@ -53,7 +61,7 @@ export const nativeManagerRequest = z.discriminatedUnion("operation", [
   }).strict(),
   z.object({ operation: z.literal("poolAccessOpen"), access: nativeCheckpointId }).strict(),
   z.object({ operation: z.literal("poolAccess"), id: nativeCheckpointId, access: nativeCheckpointId }).strict(),
-  z.object({ operation: z.literal("poolPark"), id: nativeCheckpointId }).strict(),
+  z.object({ operation: z.literal("poolPark"), id: nativeCheckpointId, expectedAccess: nativeCheckpointId.optional() }).strict(),
   z.object({ operation: z.literal("poolAccessClose"), access: nativeCheckpointId }).strict(),
 ]);
 export type NativeManagerRequest = z.infer<typeof nativeManagerRequest>;
@@ -86,14 +94,31 @@ export interface NativeManagerReady {
   availableBytes: number;
   recoveryReserveBytes: number;
   reserveAllocatedBytes: number;
+  /** Historical unreadable receipts stay fenced and conservatively charged. */
+  recovery?: { quarantinedIntents: number; stagingChargedBytes: number | null; stagingRefusal?: string; diagnosticsPath: string };
 }
 export interface NativeRecoveryRecord {
   id: string;
   state: "creating" | "sealed" | "deleting" | "deleted";
   checkpoint?: NativeCheckpoint;
-  kind?: "stage";
+  kind?: "stage" | "tree";
   stage?: NativeStage;
   stageRequest?: { checkpointId: string; checkpointUuid: string; allowanceBytes: number };
+  /** A turn data tree's admission charge (#2911). */
+  treeRequest?: { allowanceBytes: number };
+}
+/**
+ * A turn's data-tree directory on the managed volume (#2911): created by the
+ * manager for the fixed app identity, outside the live brain and every
+ * checkpoint, so a copy from a checkpoint into it can share the checkpoint's
+ * extents. `allowanceBytes` stays charged against the volume until the
+ * manager has removed the directory and observed the filesystem commit.
+ */
+export interface NativeTurnTree {
+  id: string;
+  /** Host-created directory; never supplied by the requester. */
+  path: string;
+  allowanceBytes: number;
 }
 export interface NativeStage {
   id: string;
@@ -121,6 +146,8 @@ export interface NativePoolRootIdentity {
 }
 export interface NativePoolRecord {
   id: string;
+  /** Present only on opted-in source roots. Once true, publication is permanently refused. */
+  publicationRevoked?: boolean;
   /** `checkpoint` (#2430): a read-only snapshot of one writable worktree, created only by `poolCheckpoint`. */
   purpose: "source" | "worktree" | "staging" | "checkpoint";
   /** Pool root this one was snapshotted from (sealed, or the writable worktree of a checkpoint), or null for an empty root. */
@@ -190,6 +217,65 @@ export interface NativePoolStatus {
   } | null;
   counts: Record<NativePoolState, number>;
   identities: number;
+}
+/**
+ * One measured comparison of the residual-growth status (#3515). `basisBytes`
+ * is the charge recorded when the chain's cold acquisition was sealed; null
+ * means the accounting needed for it is missing, never that it is zero.
+ */
+export interface NativePoolGrowthComparison {
+  id: string;
+  /** Sealed source this root was snapshotted from. */
+  from: string;
+  /** Cold acquisition at the root of `from`'s chain: the one with no source. */
+  cold: string | null;
+  /** The root's owner charge; null when the accounting has no charge for it, never zero. */
+  ownerBytes: number | null;
+  basisBytes: number | null;
+  /** `basisBytes` times the ratio threshold; null when the basis is unavailable. */
+  thresholdBytes: number | null;
+  state: "available" | "unavailable";
+  flagged: boolean;
+}
+/** Retained sources published under one name (one repository and revision) across views. */
+export interface NativePoolGrowthSources {
+  name: string;
+  /** `ownerBytes` is null when the accounting has no charge for that root, never zero. */
+  roots: { id: string; view: string; ownerBytes: number | null }[];
+  /** Summed charge; null when any root's charge is missing. */
+  ownerBytes: number | null;
+  flagged: boolean;
+}
+export interface NativePoolGrowthFlag {
+  kind: "worktree" | "refresh" | "retained-sources";
+  /** Root identity, or the publication name for retained sources. */
+  subject: string;
+  /** Measured charge; null only for a retained-sources count whose summed charge is unknown. */
+  observedBytes: number | null;
+  /** Byte threshold for a ratio flag; null for the count flag. */
+  thresholdBytes: number | null;
+  /** The ruled threshold: a ratio, or the retained-source count. */
+  threshold: number;
+  /** Retained-source count; null for a ratio flag. */
+  observedCount: number | null;
+}
+/**
+ * Read-only residual-growth status (#3515). It reports measured owner charges
+ * and the ruled thresholds only: never forecast savings or freed capacity.
+ */
+export interface NativePoolGrowth {
+  basis: "btrfs-space-info-disk-used+simple-quota-owner";
+  state: "available" | "unavailable";
+  /** Why the whole status is unavailable; comparisons and flags are then empty. */
+  reason: string | null;
+  generation: string | null;
+  thresholds: { worktreeRatio: number; refreshRatio: number; retainedSources: number };
+  worktrees: NativePoolGrowthComparison[];
+  refreshes: NativePoolGrowthComparison[];
+  sources: NativePoolGrowthSources[];
+  flags: NativePoolGrowthFlag[];
+  /** Comparisons and source groups left out to stay within the control bound, unflagged ones first. */
+  omitted: number;
 }
 /** The privileged helper inspects only its bounded upper layer after the worker exits. */
 export interface NativeStageChange { pathHex: string; kind: "entry" | "whiteout" | "opaque" }

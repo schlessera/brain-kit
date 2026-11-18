@@ -16,6 +16,7 @@ import { watchMicrophone } from "./offline/fake-microphone.ts";
 import { ConnectionGate } from "../../src/components/connectivity/connection-gate.js";
 import { ChatPage } from "../../src/components/chat/chat-page.js";
 import { installFaultNetwork, type FaultNetwork } from "./offline/fault-network.ts";
+import { primeDictation } from "../fixtures/dictation-discovery.js";
 
 const ITHACA = "odysseus-ithaca";
 const SPEECH = "wss://speech.invalid/v1/listen";
@@ -63,6 +64,7 @@ async function mount(ctx: TestContext, providerId: "deepgram" | "webspeech", loc
   host.style.cssText = "position:fixed;inset:0;width:390px;height:780px";
   document.body.append(host);
   const ui = createBrainUiRoot({ storage: null, request: net.request, localCapture: local ? {sink:()=>({chunk(){},end(){}}),timesliceMs:200} : null });
+  primeDictation(ui, providerId);
   let finish!: () => void;
   const commit = new Promise<void>((yes) => { finish = yes; });
   const snapshot = { entered: false, finish };
@@ -88,7 +90,7 @@ async function mount(ctx: TestContext, providerId: "deepgram" | "webspeech", loc
   return { ui, host, net, snapshot };
 }
 
-const dictate = (s: Scene) => s.host.querySelector<HTMLElement>('[data-composer] [role="button"][aria-label="Dictate"]');
+const dictate = (s: Scene) => s.host.querySelector<HTMLElement>('[data-composer] :is(button,[role="button"])[aria-label^="Dictate"]');
 
 /** Taps Dictate and waits for the provider's client to be listening. */
 async function startDictating(s: Scene) {
@@ -138,7 +140,7 @@ test("transport drop keeps local capture and protected views mounted; auth expir
  s.net.drop();
  await expect.poll(()=>s.ui.stores.connection.getState().wsStatus).toBe("disconnected");
  await settle();
- const local=()=>s.host.querySelector<HTMLElement>('[data-composer] [role="button"][aria-label="Record on this device"]');
+ const local=()=>s.host.querySelector<HTMLElement>('[data-composer] :is(button,[role="button"])[aria-label="Record on this device"]');
  await expect.poll(local).not.toBeNull(); await userEvent.click(local()!);
  await expect.poll(()=>s.ui.stores.voice.getState().local).toBe("recording");
  expect(mic.streams.length).toBeGreaterThan(0);
@@ -162,8 +164,8 @@ test("auth expiry interrupts a Done already draining and closes its real microph
  await expect.poll(()=>s.net.frames.filter(f=>f.url.startsWith(SPEECH)&&f.data instanceof Blob).length).toBeGreaterThan(0);
  s.net.socket(SPEECH)!.deliver({type:"Results",is_final:true,speech_final:false,channel:{alternatives:[{transcript:"Ask Nestor about the ships"}]}});
  await expect.poll(()=>s.ui.stores.voice.getState().finalText).toBe("Ask Nestor about the ships");
- const done=s.host.querySelector<HTMLElement>('[aria-label="Done"]') ?? [...s.host.querySelectorAll<HTMLElement>('button,[role="button"]')].find(el=>el.textContent?.trim()==="Done");
- expect(done,"dictation has Done").toBeDefined(); await userEvent.click(done!);
+ const done=s.host.querySelector<HTMLElement>('[aria-label="Finish dictation"]');
+ expect(done,"dictation has Finish").not.toBeNull(); await userEvent.click(done!);
  await expect.poll(()=>s.ui.stores.voice.getState().draining,{message:"Done is awaiting provider tail"}).toBe(true);
  expect(mic.streams.length).toBeGreaterThan(0);
  expireHost(s); await expect.poll(()=>s.snapshot.entered).toBe(true);

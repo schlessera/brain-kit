@@ -3,6 +3,7 @@ export const WORKER_IDENTITY_SUPERVISOR = String.raw`
 import array, errno, json, os, select, signal, socket, stat, struct, subprocess, sys, time
 
 MAX_PACKET = 65536
+STARTED = time.monotonic()
 cfg = json.loads(sys.argv[1])
 server_uid = os.getuid()
 if server_uid == 0:
@@ -10,9 +11,20 @@ if server_uid == 0:
 def identity(pid):
     text = open('/proc/%s/stat' % pid).read().rsplit(') ', 1)[1].split()
     return {'pid': pid, 'start': text[19]}
+def progress(step):
+    # Diagnostic only (#3664): the last setup step reached, for a host readiness
+    # timeout. One private 0600 record in the server's 0700 directory, never the worker's.
+    path = cfg['ready'] + '.progress'
+    try:
+        fd = os.open(path + '.tmp', os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+        try: os.write(fd, json.dumps({'step': step, 'ms': int((time.monotonic() - STARTED) * 1000), 'wallMs': int(time.time() * 1000)}, separators=(',', ':')).encode())
+        finally: os.close(fd)
+        os.rename(path + '.tmp', path)
+    except OSError: pass
 server = dict(cfg['server'], uid=server_uid)
 if identity(server['pid'])['start'] != server['start']:
     raise RuntimeError('worker_identity_server_changed')
+progress('started')
 supervisor = identity(os.getpid())
 base = {'version': 1, 'launch': cfg['launch'], 'server': server, 'supervisor': supervisor}
 held = {}
@@ -104,6 +116,7 @@ def cleanup_owned():
 
 listener = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
 listener.bind(cfg['socket']); os.chmod(cfg['socket'], 0o600); listener.listen(4)
+progress('listening')
 status_read, status_write = os.pipe()
 gate_read, gate_write = os.pipe()
 launch_local, launch_remote = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
@@ -127,9 +140,11 @@ try:
     launch_local.sendmsg([json.dumps(dict(base, argv=argv, statusFd=status_write, gateFd=gate_read,
         roots=cfg['roots'], keeper=cfg.get('stage', {}).get('keeper'), cgroup=cfg.get('cgroup'),
         **({'view': cfg['view']} if cfg.get('view') else {}))).encode()], authority)
+    progress('launch-sent')
     ack, fds = packet(launch_local)
     for fd in fds: os.close(fd)
     if fds: raise RuntimeError('worker_identity_unexpected_launch_handles')
+    progress('launch-acked')
     if stage_ticket is not None: os.close(stage_ticket); stage_ticket = None
     os.close(status_write); os.close(gate_read)
     status = b''; deadline = time.monotonic() + 5
@@ -142,10 +157,12 @@ try:
             status += chunk
         if len(status) > 4096: raise RuntimeError('worker_identity_malformed_status')
     reported = json.loads(status.split(b'\n', 1)[0]).get('child-pid')
+    progress('status-read')
     if type(reported) is not int or reported <= 1: raise RuntimeError('worker_identity_malformed_status')
     worker = identity(reported)
     answer, descriptors = helper('mounts', {'worker': worker, 'roots': cfg['roots']})
     pending = descriptors
+    progress('mounts-acked')
     if len(descriptors) != len(cfg['roots']) or len(answer.get('roots', [])) != len(descriptors):
         raise RuntimeError('worker_identity_unexpected_mount_handles')
     if type(answer.get('workerUid')) is not int or not 0 < answer['workerUid'] < 0xffffffff or answer['workerUid'] == server_uid:

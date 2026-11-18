@@ -3,10 +3,11 @@ import { Database } from "bun:sqlite";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { MaintenanceTempBusyError, reserveMaintenanceTemp, type MaintenanceTempReservation } from "../src/server/maintenance-temp-budget";
-import { prepareWorkerSandboxAsync } from "../src/server/worker-launcher";
+import { prepareWorkerSandbox, prepareWorkerSandboxAsync } from "../src/server/worker-launcher";
 import { FIRST_PARTY_FAILURE_CLASSES } from "../src/protocol";
+import { createFixtureMaintenanceHost } from "./helpers/worker-startup-view-fixture.js";
 
 // #3461: production limits (one 256 MiB allowance in a 256 MiB budget) on a
 // private shared-state domain, so no other test's ledger is involved.
@@ -14,6 +15,7 @@ const LIMITS = { allowanceBytes: 268435456, budgetBytes: 268435456 };
 let root: string;
 let domain: { statePath: string };
 const held: MaintenanceTempReservation[] = [];
+const cleanups: (() => void)[] = [];
 beforeEach(() => {
   root = realpathSync(mkdtempSync(join(tmpdir(), "odysseus-maintenance-holders-")));
   mkdirSync(join(root, "state"));
@@ -21,6 +23,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   for (const reservation of held.splice(0)) reservation.release();
+  for (const cleanup of cleanups.splice(0)) cleanup();
   rmSync(root, { recursive: true, force: true });
 });
 const hold = (kind: Parameters<typeof reserveMaintenanceTemp>[2]) => {
@@ -41,8 +44,8 @@ test("a busy refusal names its holders by kind, without paths or identities", ()
   expect(error.message, "MAINTENANCE_BUSY_MESSAGE_NAMES_HOLDER_KIND").toBe("Maintenance temporary storage is busy: this command needs 256 MiB, "
     + "1 maintenance reservations hold 256 MiB of the separate 256 MiB budget (held by: scratch query). "
     + "Nothing ran. Retry after a maintenance command finishes; no agent runtime state was lost.");
-  expect(error.message.includes(root), "MAINTENANCE_BUSY_MESSAGE_HAS_NO_PATH").toBe(false);
-  expect(error.message.includes(String(process.pid)), "MAINTENANCE_BUSY_MESSAGE_HAS_NO_PROCESS_IDENTITY").toBe(false);
+  expect(error.message, "MAINTENANCE_BUSY_MESSAGE_HAS_NO_PATH").not.toContain(root);
+  expect(error.message, "MAINTENANCE_BUSY_MESSAGE_HAS_NO_PROCESS_IDENTITY").not.toContain(String(process.pid));
 });
 
 test("several holders are counted per kind", () => {
@@ -92,11 +95,61 @@ test("freed() settles on an in-process release and rejects with its signal's rea
   await expect(waiting, "MAINTENANCE_FREED_ENDS_WITH_ITS_SIGNAL").rejects.toBe(reason);
 });
 
-test("opposite order: a turn's scratch check refused while an index holds the budget stays read-only and names the index", async () => {
+test("freedWithin() reports a release inside its bound, false past it, and rejects with its signal's reason (#4079)", async () => {
+  const holder = hold("scratch_query");
+  const error = refusal() as MaintenanceTempBusyError;
+  setTimeout(() => holder.release(), 50);
+  expect(await error.freedWithin(5_000), "MAINTENANCE_FREED_WITHIN_SEES_A_RELEASE").toBe(true);
+
+  hold("scratch_query");
+  const again = refusal() as MaintenanceTempBusyError;
+  const started = performance.now();
+  expect(await again.freedWithin(150), "MAINTENANCE_FREED_WITHIN_ENDS_FALSE_AT_ITS_BOUND").toBe(false);
+  expect(performance.now() - started, "MAINTENANCE_FREED_WITHIN_WAITS_ITS_BOUND").toBeGreaterThanOrEqual(140);
+  const ending = new AbortController(), reason = new Error("Server shutting down");
+  const waiting = again.freedWithin(5_000, ending.signal);
+  ending.abort(reason);
+  await expect(waiting, "MAINTENANCE_FREED_WITHIN_ENDS_WITH_ITS_SIGNAL").rejects.toBe(reason);
+});
+
+test("a turn's scratch check that starts while a reference Git command holds the budget waits for it, and scratch stays writable (#4079)", async () => {
+  // As the writable-area tests run a real maintenance worker: the brain and
+  // its ledger state sit in the repository's gitignored tmp/, outside the
+  // worker's own /tmp, and the worker reads a prepared fixture input lease.
+  const repo = resolve(import.meta.dir, "../../..");
+  mkdirSync(join(repo, "tmp"), { recursive: true });
+  const fixture = mkdtempSync(join(repo, "tmp/odysseus-scratch-admission-"));
+  cleanups.push(() => rmSync(fixture, { recursive: true, force: true }));
+  const brain = join(fixture, "brain"), state = join(fixture, "state");
+  mkdirSync(brain); mkdirSync(state);
+  const maintenance = createFixtureMaintenanceHost(brain, { tempLimits: LIMITS, tempDomain: { statePath: join(state, "ui.db") }, maskPaths: [state] });
+  cleanups.unshift(() => maintenance.cleanup());
+  // The turn's first reference_source call is running its short ls-remote.
+  const reference = reserveMaintenanceTemp(LIMITS, maintenance.tempDomain, "git"); held.push(reference);
+  setTimeout(() => reference.release(), 250);
+  const sandbox = await prepareWorkerSandboxAsync(brain, { areas: ["scratch"], maintenance });
+  const scratch = sandbox.areas.find(area => area.name === "scratch");
+  const reason = scratch?.mount.writable === false ? scratch.mount.reason : "";
+  expect(reason, "TURN_SCRATCH_CHECK_IS_NOT_REFUSED_BY_A_SHORT_REFERENCE_COMMAND").not.toContain("Maintenance temporary storage is busy");
+  expect(scratch?.mount, "TURN_SCRATCH_STAYS_WRITABLE_AFTER_A_SHORT_REFERENCE_COMMAND").toMatchObject({ writable: true });
+});
+
+test("a synchronous scratch check still refuses at once while maintenance holds the budget (#4079)", () => {
+  const brain = join(root, "brain");
+  mkdirSync(brain);
+  hold("git");
+  const started = performance.now();
+  const sandbox = prepareWorkerSandbox(brain, { areas: ["scratch"], maintenance: { tempLimits: LIMITS, tempDomain: domain } });
+  const scratch = sandbox.areas.find(area => area.name === "scratch");
+  expect(scratch?.mount.writable === false ? scratch.mount.reason : "", "SYNC_SCRATCH_CHECK_KEEPS_ITS_BUSY_OUTCOME").toContain("(held by: git)");
+  expect(performance.now() - started, "SYNC_SCRATCH_CHECK_NEVER_WAITS").toBeLessThan(2_000);
+});
+
+test("opposite order: a turn's scratch check refused while an index holds the budget past its wait stays read-only and names the index", async () => {
   const brain = join(root, "brain");
   mkdirSync(brain);
   hold("index");
-  const sandbox = await prepareWorkerSandboxAsync(brain, { areas: ["scratch"], maintenance: { tempLimits: LIMITS, tempDomain: domain } });
+  const sandbox = await prepareWorkerSandboxAsync(brain, { areas: ["scratch"], maintenance: { tempLimits: LIMITS, tempDomain: domain, admissionWaitMs: 200 } });
   const scratch = sandbox.areas.find(area => area.name === "scratch");
   expect(scratch?.mount.writable, "TURN_SCRATCH_CHECK_LOSES_TO_HELD_INDEX").toBe(false);
   const reason = scratch?.mount.writable === false ? scratch.mount.reason : "";

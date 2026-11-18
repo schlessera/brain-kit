@@ -2,9 +2,10 @@
  * The web-search provider catalog — one source of truth for the Settings API,
  * the pi backend's system-prompt brief, and the client's types.
  *
- * Searching itself is the `pi-web-access` extension's job; brain-kit only owns
- * the config file it reads (`web-search.json` in the pi config dir). That file
- * is the entire interface: nothing here calls a search API.
+ * Searching itself is the pinned `pi-web-access` extension's job, run by the
+ * host web executor (#3686); brain-kit owns the config file it reads
+ * (`web-search.json` in the pi config dir), and the executor reads a
+ * sanitized copy of it. Nothing here calls a search API.
  *
  * Two of the extension's knobs matter, and they are mutually exclusive:
  *
@@ -192,10 +193,26 @@ export function resolveWebSearchConfigPath(env: EnvRecord): string {
 }
 
 /**
- * True when the extension would find a credential for this provider — from
- * the config file OR the environment. Checking only the file would wrongly
- * report a key-in-env provider as unusable; the extension runs in this
- * process, so its env is ours.
+ * What a provider's configured key value is. Upstream reads `!command` as a
+ * credential command and `$NAME` as an environment reference; the host web
+ * executor runs no credential command (credential exclusion A, 2026-10-15 on
+ * #1863), so such a key is `command`: present, but never used.
+ */
+export function webSearchKeySource(value: unknown, env: EnvRecord): "literal" | "env" | "command" | "missing" {
+  if (typeof value !== "string" || value.trim() === "") return "missing";
+  const trimmed = value.trim();
+  if (trimmed.startsWith("!")) return "command";
+  const reference = /^\$(?:([A-Za-z_][A-Za-z0-9_]*)|\{([A-Za-z_][A-Za-z0-9_]*)\})$/.exec(trimmed);
+  if (reference) return (env[reference[1] ?? reference[2]!] ?? "").trim() !== "" ? "env" : "missing";
+  return "literal";
+}
+
+/**
+ * True when the host web executor would find a credential for this provider
+ * — from the config file OR the environment. Checking only the file would
+ * wrongly report a key-in-env provider as unusable; the executor is given the
+ * catalog's environment variables. A credential command is not a credential
+ * here.
  */
 export function hasWebSearchCredential(
   spec: WebSearchProviderSpec,
@@ -203,11 +220,37 @@ export function hasWebSearchCredential(
   env: EnvRecord
 ): boolean {
   if (spec.keyless) return true;
-  if (spec.keyField && typeof config[spec.keyField] === "string") {
-    if ((config[spec.keyField] as string).trim() !== "") return true;
-  }
+  const source = spec.keyField ? webSearchKeySource(config[spec.keyField], env) : "missing";
+  if (source === "literal" || source === "env") return true;
   return Boolean(spec.envVar && (env[spec.envVar] ?? "").trim() !== "");
 }
+
+/** A pi-web-access feature the host web tools do not offer, and why. */
+export interface WebToolUnavailableFeature {
+  id: string;
+  /** Lower-case noun phrase, for "… is not available". */
+  label: string;
+  /**
+   * `deferred`: a workflow the rulings of 2026-10-15 on #1863 leave for later
+   * work. `excluded`: a credential mode those rulings rule out.
+   */
+  kind: "deferred" | "excluded";
+}
+
+/**
+ * The one list the Settings card, the system-prompt brief and the executor's
+ * configuration agree on (#3686). A call that asks for one answers
+ * `unsupported`; the executor's copy of `web-search.json` turns each off.
+ */
+export const WEB_TOOL_UNAVAILABLE_FEATURES: readonly WebToolUnavailableFeature[] = Object.freeze([
+  { id: "workflows", label: "curator review and automatic summaries", kind: "deferred" },
+  { id: "answer-mode", label: "page answers (fetch_content answer mode)", kind: "deferred" },
+  { id: "media", label: "image, video and YouTube analysis", kind: "deferred" },
+  { id: "github-clone", label: "GitHub repository cloning", kind: "deferred" },
+  { id: "commands", label: "the extension's commands and shortcuts", kind: "deferred" },
+  { id: "browser-cookies", label: "browser-cookie, browser-profile and keyring sign-in", kind: "excluded" },
+  { id: "credential-commands", label: "credential commands (a key written as `!command`)", kind: "excluded" },
+] as const satisfies readonly WebToolUnavailableFeature[]);
 
 /** The ordered chain currently written in a parsed config, if any. */
 export function readWebSearchRouting(config: Record<string, unknown>): string[] {

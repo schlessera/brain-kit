@@ -1,4 +1,3 @@
-import {logWorkerAuditDiagnostic} from "./browser-worker-audit";
 /** Complete affected hosted proof. Reuses the opt-in local command inventory. */
 import { requireCandidate, validateSelections } from "./candidate-proof";
 import { cpus, freemem, totalmem } from "node:os";
@@ -8,27 +7,58 @@ import { localChecks, requireRuntimeTools } from "./check-pr";
 import { runCommands, type Command } from "./ci-runner";
 import type { CheckPlan } from "./ci-plan";
 import { balanceTests, discoverTests } from "./test-shards";
+import { planPartitions, repetitionsFor, selectPartition, type DeterminismPartition, type PartitionPlan } from "./determinism-plan";
+import { browserRepetitionsFor, pairKey, planBrowserPartitions, selectBrowserPartition, type BrowserPartition, type BrowserPartitionPlan } from "./browser-determinism-plan";
 import { resolveBrowserPin } from "./captures/provenance";
-import { diagramInstallationIdentity } from "./diagram-export-installation.mjs";
-import { diagramProducerRuntime } from "./diagram-export-producer.mjs";
 import { startUnitMemorySampler } from "./unit-memory";
 import { diskSampler, floorProblem } from "./ci-disk";
-import { browserInventory, checkout, git, proofInputs, runnerIdentity, type Reusable, type Inputs } from "./proof-inputs";
-import { contextFromEvent, GitHubProofAPI, RECEIPT_MARKER, retainedCategories } from "./proof-reuse";
 
-export const PROOF_JOBS = ["verify", "pack", "unit", "browser", "layout", "captures", "runtime", "runtime_host", "endurance"] as const;
-export type ProofCategory = "unit" | "browser" | "layout" | "captures" | "runtime" | "runtime_host" | "endurance";
+export const PROOF_JOBS = ["verify", "pack", "unit", "browser", "layout", "captures", "runtime", "runtime_host", "endurance", "determinism", "browser_determinism"] as const;
+export const PROOF_CATEGORIES = ["unit", "browser", "layout", "captures", "runtime", "runtime_host", "endurance", "determinism", "browser_determinism"] as const;
+export type ProofCategory = typeof PROOF_CATEGORIES[number];
+export const DETERMINISM_REPORT = "tmp/determinism-report.json";
+export const BROWSER_DETERMINISM_REPORT = "tmp/browser-determinism-report.json";
+/** Bun tests that start the pinned image with `--pull=never`: a partition holding one pulls the image first. */
+export const PINNED_IMAGE_TESTS = ["tests/workspace-lease.test.ts", "tests/browser-determinism-container.test.ts"] as const;
 
-/** Aggregate requires passed selected jobs; missing/false-looking output is not proof. */
-export function proofProblems(needs: Record<string, { result?: string; outputs?: Record<string, string> }>, retained: ReadonlySet<string> = new Set()): string[] {
+/** One partition of the planner's added or modified Bun test files, at the count decided over the
+ * whole selection (#4117). An empty selection is never a job (#4109), and a shard divisor that is
+ * not the planned partition count is refused: a partition of some other split proves nothing. */
+export function determinismPartition(plan: CheckPlan, shard = "1/1"): { selection: PartitionPlan; partition: DeterminismPartition } {
+  if (!plan.determinism?.length) throw new Error("Repeated-run proof was not selected");
+  const selection = planPartitions(plan.determinism, { cadence: plan.cadence });
+  return { selection, partition: selectPartition(selection, shard) };
+}
+
+/** The files partition `shard` repeats: every selected file is in exactly one planned partition. */
+export function determinismFiles(plan: CheckPlan, shard?: string): string[] {
+  return [...determinismPartition(plan, shard).partition.files];
+}
+
+/** One partition of the planner's changed browser, layout and story spec pairs, at the count decided
+ * over the whole selection (#4163). The Bun gate's rules: an empty selection is never a job, and a
+ * shard divisor that is not the planned partition count is refused. */
+export function browserDeterminismPartition(plan: CheckPlan, shard = "1/1"): { selection: BrowserPartitionPlan; partition: BrowserPartition } {
+  if (!plan.browserDeterminism?.length) throw new Error("Repeated browser proof was not selected");
+  const selection = planBrowserPartitions(plan.browserDeterminism, { cadence: plan.cadence });
+  return { selection, partition: selectBrowserPartition(selection, shard) };
+}
+
+/** The `project::file` pairs partition `shard` repeats: every selected pair is in exactly one planned partition. */
+export function browserDeterminismPairs(plan: CheckPlan, shard?: string): string[] {
+  return browserDeterminismPartition(plan, shard).partition.pairs.map(pairKey);
+}
+
+/** Aggregate requires passed selected jobs; missing/false-looking output is not proof.
+ * Every selected category runs fresh: a skipped selected job never passes (#4107). */
+export function proofProblems(needs: Record<string, { result?: string; outputs?: Record<string, string> }>): string[] {
   const problems: string[] = [];
   if (needs.changeset?.result !== "success") problems.push("metadata did not pass");
   for (const name of PROOF_JOBS) {
     const selected = needs.changeset?.outputs?.[name];
     const result = needs[name]?.result;
     if (selected !== "true" && selected !== "false") problems.push(`${name}: selection output is missing or invalid`);
-    else if (selected === "true" && retained.has(name) && result !== "skipped") problems.push(`${name}: retained proof must skip fresh execution (${result ?? "missing"})`);
-    else if (selected === "true" && result !== "success" && !(result === "skipped" && retained.has(name))) problems.push(`${name}: selected proof did not pass (${result ?? "missing"})`);
+    else if (selected === "true" && result !== "success") problems.push(`${name}: selected proof did not pass (${result ?? "missing"})`);
     else if (selected === "false" && result !== "skipped") problems.push(`${name}: unselected job must be intentionally skipped (${result ?? "missing"})`);
   }
   return problems;
@@ -56,7 +86,28 @@ export function categoryCommands(category: ProofCategory, plan: CheckPlan, root:
     : [process.execPath, "run", "test", ...unitFiles(plan, root, shard).map(file => join(root, file)),
       "--reporter=junit", "--reporter-outfile=tmp/unit-report.xml", "--timings=tmp/unit-timings.json", "--update-timings"],
     env: { BRAIN_REQUIRE_CHROME: "1" } }];
-  const names: Record<Exclude<ProofCategory, "unit">, string[]> = {
+  // The unit job's serial form, repeated: changed files may drive real Chrome too.
+  if (category === "determinism") {
+    const { selection, partition } = determinismPartition(plan, shard);
+    // An unsplit selection keeps its command. A partition of a split one names the selection's
+    // count: the runner would otherwise plan its lighter subset for more repetitions (#4117).
+    const repetitions = selection.partitions.length > 1 ? selection.repetitions : repetitionsFor(plan.cadence);
+    return [{ name: "changed Bun test files repeated under CPU load",
+      argv: [process.execPath, join(root, "scripts/test-determinism.ts"), `--report=${DETERMINISM_REPORT}`,
+        ...(repetitions === undefined ? [] : [`--repetitions=${repetitions}`]), ...partition.files],
+      env: { BRAIN_REQUIRE_CHROME: "1" } }];
+  }
+  // The pinned container, entered as `browser` and `layout` enter it. As for the Bun gate, an unsplit
+  // selection keeps its command and a partition of a split one names the selection's count.
+  if (category === "browser_determinism") {
+    const { selection, partition } = browserDeterminismPartition(plan, shard);
+    const repetitions = selection.partitions.length > 1 ? selection.repetitions : browserRepetitionsFor(plan.cadence);
+    return [{ name: "workspace build for real browser checks", argv: [process.execPath, "run", "build", "--jobs=2"] },
+      { name: "changed Vitest specs repeated under CPU load in the pinned container",
+        argv: [process.execPath, join(root, "scripts/browser-determinism.ts"), `--report=${BROWSER_DETERMINISM_REPORT}`,
+          ...(repetitions === undefined ? [] : [`--repetitions=${repetitions}`]), ...partition.pairs.map(pairKey)] }];
+  }
+  const names: Record<Exclude<ProofCategory, "unit" | "determinism" | "browser_determinism">, string[]> = {
     browser: ["workspace build for real browser checks", "complete pinned visual/accessibility/pointer suite"],
     layout: ["workspace build for real browser checks", "complete pinned layout/offline suite"],
     endurance: ["workspace build for real browser checks", "complete pinned endurance suite"],
@@ -83,21 +134,17 @@ if (import.meta.main) {
       const event = process.env.GITHUB_EVENT_PATH ? await Bun.file(process.env.GITHUB_EVENT_PATH).json() : {};
       await requireCandidate(root, event, process.env);
       if (process.env.GITHUB_ACTIONS === "true") validateSelections(root, event, process.env, needs?.changeset?.outputs);
-      const context = contextFromEvent(event, process.env);
-      const value = needs?.changeset?.outputs?.reuse;
-      const retained = value ? await retainedCategories(root, JSON.parse(value), context,
-        context && process.env.GH_TOKEN ? new GitHubProofAPI(context.repository, process.env.GH_TOKEN) : undefined) : new Set<string>();
-      if (process.env.GITHUB_ACTIONS === "true" && !value) throw new Error("Missing current-head proof ledger");
-      for (const category of retained) if (needs?.changeset?.outputs?.[category] !== "true") throw new Error("Retained proof was not selected");
-      const problems = proofProblems(needs, retained);
+      const problems = proofProblems(needs);
       if (problems.length) throw new Error(problems.join("\n"));
-      for (const category of retained) console.log(`Validated equivalent ${category} proof; original run/job/checkout identity remains in the ledger.`);
-      console.log(`BRAIN_SELECTED_PROOF_RECEIPT ${JSON.stringify({ selections: Object.fromEntries(PROOF_JOBS.map(name => [name, needs.changeset.outputs[name]])), results: Object.fromEntries(PROOF_JOBS.map(name => [name, needs[name]?.result])), retained: [...retained], unitShards: needs.changeset.outputs.unit_shards ?? null })}`);
+      // `retained` is always empty since proof retention was retired (#4107). The field stays so
+      // a checkout that predates the retirement, and the timing collector reading older runs,
+      // still parse this receipt.
+      console.log(`BRAIN_SELECTED_PROOF_RECEIPT ${JSON.stringify({ selections: Object.fromEntries(PROOF_JOBS.map(name => [name, needs.changeset.outputs[name]])), results: Object.fromEntries(PROOF_JOBS.map(name => [name, needs[name]?.result])), retained: [], unitShards: needs.changeset.outputs.unit_shards ?? null, determinismShards: needs.changeset.outputs.determinism_shards ?? null, browserDeterminismShards: needs.changeset.outputs.browser_determinism_shards ?? null })}`);
       console.log("All selected hosted proof passed; remaining skips are planner-intended.");
     } else {
       const root = resolve(import.meta.dir, "..");
       const category = process.argv[2] as ProofCategory;
-      if (!["unit", "browser", "layout", "captures", "runtime", "runtime_host", "endurance"].includes(category)) throw new Error("Unknown proof category");
+      if (!PROOF_CATEGORIES.includes(category)) throw new Error("Unknown proof category");
       const args = process.argv.slice(3);
       const shardArg = args.find(arg => arg.startsWith("--shard="));
       const workersArg = args.find(arg => arg.startsWith("--workers="));
@@ -106,32 +153,42 @@ if (import.meta.main) {
       const shard = shardArg?.slice("--shard=".length);
       const unitWorkers = workersArg ? Number(workersArg.slice("--workers=".length)) : 2;
       const plan = await Bun.file(process.env.CI_PLAN_PATH ?? join(root, "tmp/ci-plan.json")).json() as CheckPlan;
-      let inputs:Inputs|undefined;
-      if (category === "browser" || category === "layout") {
-        try {
-          if (git(root, "diff", "HEAD", "--").trim()) throw new Error("Dirty tracked inputs");
-          inputs = proofInputs(root, category as Reusable, await browserInventory(root), runnerIdentity());
-        } catch (error) { logWorkerAuditDiagnostic(error); console.log(`Fresh execution remains required: reusable input inventory is unavailable: ${String(error)}`); }
-      }
       const identity = Bun.spawnSync(["git", "show", "-s", "--format=%H %T %P", "HEAD"], { cwd: root, stdout: "pipe", stderr: "pipe" });
       if (identity.exitCode !== 0) throw new Error("Cannot record actual proof checkout");
       const [sha, tree, ...parents] = new TextDecoder().decode(identity.stdout).trim().split(" ");
       await Bun.write(join(root, "tmp/proof-checkout.json"), JSON.stringify({ category, shard,
-        checkout: { sha, tree, parents }, plan, inputs, files: category === "unit" ? unitFiles(plan, root, shard) : undefined }, null, 2));
-      const native = category === "unit" || category === "runtime" || category === "runtime_host";
+        checkout: { sha, tree, parents }, plan, files: category === "unit" ? unitFiles(plan, root, shard) : category === "determinism" ? determinismFiles(plan, shard) :
+          category === "browser_determinism" ? browserDeterminismPairs(plan, shard) : undefined }, null, 2));
+      const native = category === "unit" || category === "runtime" || category === "runtime_host" || category === "determinism";
       const chrome = requireRuntimeTools({ ...plan, local: { ...plan.local, fullTests: native,
         browser: !native, layout: !native, captures: !native } });
-      if (chrome && category === "unit") await runCommands([{ name: "first real Chrome launch and render",
+      if (chrome && (category === "unit" || category === "determinism")) await runCommands([{ name: "first real Chrome launch and render",
         argv: [process.execPath, "packages/ui-render-puppeteer/tests/cold-start.ts", chrome] }], root);
       const commands = categoryCommands(category, plan, root, shard, unitWorkers).map(command => ({ ...command,
-        env: { ...(chrome ? { PUPPETEER_EXECUTABLE_PATH: chrome } : {}), ...command.env, ...(inputs?.nativeDiagram?{BRAIN_PROOF_NATIVE_DIAGRAM_INPUTS:JSON.stringify(inputs.nativeDiagram)}:{}) } }));
+        env: { ...(chrome ? { PUPPETEER_EXECUTABLE_PATH: chrome } : {}), ...command.env } }));
       // The host/container lease regression deliberately uses --pull=never
       // under the offline test harness. Prepare its actual pinned image once,
       // only on the partition that discovers that test, before entering tests.
-      if (category === "unit" && unitFiles(plan, root, shard).includes("tests/workspace-lease.test.ts")) {
-        if (!Bun.which("docker")) throw new Error("The native workspace lease test requires Docker");
+      // The browser repetition gate's own container test starts the same image the same way (#4163).
+      const selectedFiles = category === "unit" ? unitFiles(plan, root, shard) : category === "determinism" ? determinismFiles(plan, shard) : [];
+      if (PINNED_IMAGE_TESTS.some(file => selectedFiles.includes(file))) {
+        if (!Bun.which("docker")) throw new Error("The pinned-container tests require Docker");
         const { image } = await resolveBrowserPin(root);
         commands.unshift({ name: "pinned offline workspace lease container prerequisite", argv: ["docker", "pull", image], env: {} });
+      }
+      if (category === "determinism") {
+        const { selection, partition } = determinismPartition(plan, shard);
+        if (selection.partitions.length > 1) console.log(`Partition ${shard} of a selection split by reviewed weight: ${selection.files.length} file(s), ` +
+          `${selection.weightSeconds.toFixed(1)} weighted s per pass, ${selection.repetitions} repetition(s) each (${selection.requested} requested); ` +
+          `this partition repeats ${partition.files.length} file(s), ${partition.estimatedSeconds.toFixed(1)} s estimated against a capacity of ${selection.capacitySeconds} s` +
+          `${partition.estimatedSeconds > selection.capacitySeconds ? " (one file that cannot be split)" : ""}.`);
+      }
+      if (category === "browser_determinism") {
+        const { selection, partition } = browserDeterminismPartition(plan, shard);
+        if (selection.partitions.length > 1) console.log(`Partition ${shard} of a selection split by reviewed weight: ${selection.pairs.length} project/file pair(s), ` +
+          `${selection.weightSeconds.toFixed(1)} weighted s per pass, ${selection.repetitions} repetition(s) each (${selection.requested} requested); ` +
+          `this partition repeats ${partition.pairs.length} pair(s), ${partition.estimatedSeconds.toFixed(1)} s estimated against a capacity of ${selection.capacitySeconds} s` +
+          `${partition.estimatedSeconds > selection.capacitySeconds ? " (one pair that cannot be split)" : ""}.`);
       }
       const started = performance.now();
       const cpu = () => cpus().reduce((sum, core) => sum + core.times.user + core.times.nice + core.times.sys + core.times.irq, 0) / 1000;
@@ -175,11 +232,6 @@ if (import.meta.main) {
         const report = validateUnitReports(unitFiles(plan, root, shard),
           await Bun.file(join(root, "tmp/unit-report.xml")).text(), await Bun.file(join(root, "tmp/unit-timings.json")).json());
         await Bun.write(join(root, "tmp/unit-report-summary.json"), JSON.stringify({ checkout: { sha, tree, parents }, shard, unitWorkers, ...report }, null, 2));
-      }
-      if (inputs) {
-        if(inputs.nativeDiagram&&(diagramInstallationIdentity(root).sha256!==inputs.nativeDiagram.installation||diagramProducerRuntime().sha256!==inputs.nativeDiagram.runtime))throw Error("Native diagram installed or runtime inputs changed during reusable execution");
-        if (git(root, "diff", "HEAD", "--").trim()) throw new Error("Reusable execution changed tracked inputs");
-        console.log(RECEIPT_MARKER + JSON.stringify({ version: 1, category, shard, checkout: checkout(root), inputs }));
       }
     }
   } catch (error) { console.error(error); process.exit(1); }

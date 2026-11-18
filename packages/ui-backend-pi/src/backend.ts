@@ -47,6 +47,7 @@ import {
   toolLockFromWriteLock,
 } from "./tools.js";
 import { createPiTurnRunner, toImages } from "./turn-runner.js";
+import { discoversPiExtensions } from "./extension-inspection.js";
 import { piInferenceOrigin } from "./worker-session.js";
 
 export const PI_BACKEND_ID = "pi";
@@ -112,7 +113,9 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
     lock,
     allowedTools,
     confirmPatterns,
-    loadExtensions: options.loadExtensions ?? true,
+    // Curated tools by default (#3658): managed collection refuses every
+    // loaded extension, so discovery is an explicit opt-in.
+    loadExtensions: discoversPiExtensions(options),
   });
   const runtime = createSessionRuntime({ backend: options, sessionDir, resources });
   const pool = createSessionPool(runtime, Boolean(options.sessionFactory), options.log);

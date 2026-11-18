@@ -1,5 +1,9 @@
 import { createTrustSettings } from "./brain/trust-settings.js";
 import { createTrustSettingsRoutes } from "./routes/trust-settings.js";
+import { SafetyHistory } from "./governance/safety-history.js";
+import { createSessionSafetyRoutes } from "./routes/session-safety.js";
+import { createOwnerSafetyReviewRoutes } from "./routes/owner-safety-review.js";
+import { OwnerSafetyReviews } from "./governance/owner-safety-reviews.js";
 import { occurrence } from "./governance/occurrence.js";
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { STORAGE_SETTLEMENT_MS } from "./db/settlement.js";
@@ -24,7 +28,7 @@ import { createPolicyProposalRoutes } from "./routes/policy-proposals.js";
 import { createTurnBudgets } from "./brain/turn-budgets.js";
 import { maintenanceProviderMeter } from "./brain/provider-meter.js";
 import { createTrackRoutes } from "./routes/tracks.js";
-import { createAccountPartitionKeys } from "./middleware/account-partition.js";
+import { createAccountPartitionKeys, deriveAccountPartitionKey } from "./middleware/account-partition.js";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type { Database } from "bun:sqlite";
@@ -38,18 +42,23 @@ import { createTurnJournal } from "./brain/turn-journal.js";
 import { createJournalRoutes } from "./routes/journal.js";
 import { createTurnReverts } from "./brain/turn-revert.js";
 import { createTurnRevertRoutes } from "./routes/turn-revert.js";
-import { ambientExecConfig, apifyLedgerPath, apifyTokenSource, referenceCredentialValues, resolveComputeConfig, resolveServerConfig, subprocessEnv, type ServerConfig } from "./config/env.js";
+import { ambientExecConfig, apifyLedgerPath, apifyTokenSource, githubToolsTokenSource, referenceCredentialValues, resolveComputeConfig, resolveServerConfig, resolveWebSearchEnv, subprocessEnv, type ServerConfig } from "./config/env.js";
+import { createHostWebTools } from "./web-tools/host.js";
 import { APIFY_AUTHORITY_SETTING, apifyBrainId, createApifyAuthority, governanceApifyPolicy, openApifyLedger, type ApifyLedger } from "@schlessera/brain-common/internal/apify";
 import { createApifyRoutes } from "./routes/apify.js";
 import { createApifyHost } from "./apify/host.js";
+import { createGithubToolsHost } from "./github/host.js";
+import { createGithubDetails } from "./github/details.js";
+import { chatOwnedBy, resolveChat } from "./ws/chat-lifecycle.js";
+import { createGithubDetailRoutes } from "./routes/github-details.js";
 import { createApifyPolicyEdits } from "./apify/settings.js";
 import { apifyBudgetSource } from "./apify/budget-liability.js";
 import { declaredContentRenderers } from "./brain/content-renderers.js";
 import { createHealthRoutes, createStatusRoutes } from "./routes/health.js";
-import { createSubscriptionMonitor, parseMintedAt } from "./agent/subscription.js";
+import { createSubscriptionMonitor } from "./agent/subscription.js";
 import { probeWorkerHostRecorded, probeWorkerHostRecordedAsync, ROOT_SERVER_WARNING, serverRunsAsRoot } from "./agent/worker-host.js";
 import type { WorkerHostMode } from "./activity/runtime-status.js";
-import { createNativeBrainManagerClient, PROVIDER_CACHE_FILES, workerLimitsStatus, type WorkerHostProbe } from "@schlessera/brain-ui-sdk/internal";
+import { createNativeBrainManagerClient, PROVIDER_CACHE_FILES, resolveWebSearchConfigPath, workerLimitsStatus, type WorkerHostProbe } from "@schlessera/brain-ui-sdk/internal";
 import type { WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
 import { createBrainRoutes } from "./routes/brain.js";
 import { createSessionProfiles } from "./ws/session-profiles.js";
@@ -58,10 +67,12 @@ import { createSessionRoutes } from "./routes/sessions.js";
 import { createChatDeletionRoutes } from "./routes/chat-deletions.js";
 import { createChatDeletion } from "./ws/chat-deletion.js";
 import { createDraftRoutes } from "./routes/drafts.js";
+import { createMarkupRoutes } from "./routes/markup.js";
 import { createSessionRecoveryRoutes } from "./routes/session-recovery.js";
 import { supportsSessionRecovery } from "./ws/recovery.js";
 import { createDraftStore } from "./drafts/store.js";
 import { createAttachmentRoutes } from "./attachments/routes.js";
+import { createAttachmentReadRoutes } from "./routes/attachment-reads.js";
 import { ATTACHMENT_SWEEP_INTERVAL_MS, reconcileAttachments, sweepAttachments } from "./attachments/sweep.js";
 import { ATTACHMENT_MAX_FILES, ATTACHMENT_MAX_FILE_BYTES, ATTACHMENT_MAX_TOTAL_BYTES } from "@schlessera/brain-ui-sdk/protocol";
 import { createActivityRoutes } from "./routes/activity.js";
@@ -69,7 +80,10 @@ import { createGovernanceRoutes } from "./routes/governance.js";
 import { createTranscriptionRoutes } from "./routes/transcriptions.js";
 import { createTranscriptionWrites } from "./voice/transcription-writes.js";
 import { createSettingsWrites } from "./db/settings-writes.js";
+import { createSpeechProviderRegistry } from "./voice/speech-providers.js";
 import { createVoiceRoutes } from "./routes/voice.js";
+import { createVoicePersonaRoutes } from "./routes/voice-personas.js";
+import { createLivePersonaService } from "./voice/personas.js";
 import { createFilesRoutes, HTML_PREVIEW_CSP, HTML_PREVIEW_PATH } from "./routes/files.js";
 import { createInboxIntake } from "./inbox/intake.js";
 import { createQueueRoutes } from "./routes/queue.js";
@@ -126,7 +140,9 @@ import {
   getCustomOpenRouterModels,
   getDefaultModelId,
   getHiddenModelIds,
+  getLiveDefaultProvider,
   getSetting,
+  setSetting,
   getThinkingOverrides,
 } from "./db/settings.js";
 import { createActivityRuntime } from "./activity/runtime.js";
@@ -145,6 +161,7 @@ import {
   probeBackendRuntimes,
   createBackendRegistry,
   validateBackendVersionRequirements,
+  loadBackendInternal,
   type BackendRegistry,
 } from "./agent/backend.js";
 import { createBrainClient, probeBrainCliVersion, requeueWhenBusy } from "./brain/client.js";
@@ -173,7 +190,9 @@ import type { AppEnv } from "./app-env.js";
 import { createNativeBrainLeaseManager } from "./brain/native-brain-leases.js";
 import { registerReferenceWrites } from "./brain/reference-writes.js";
 import { createReferenceSources } from "./brain/reference-source.js";
+import { createGitHubReferenceAccess } from "./brain/github-reference-access.js";
 import { createReferenceTools } from "./brain/reference-tools.js";
+import { createReferenceReads } from "./brain/reference-read.js";
 import { createComputeHost, readHostedComputeConfig } from "./brain/compute-host.js";
 import { createReferenceTransport } from "./brain/reference-transport.js";
 import { createReferenceWorktreeHygiene } from "./brain/reference-worktree-hygiene.js";
@@ -198,6 +217,8 @@ export interface CreateAppOptions {
   computeOverrides?: Partial<Pick<import("./brain/compute-host.js").ComputeHostOptions, "readConfig" | "core" | "serviceOptions" | "driver" | "credential" | "clock" | "workerEnvExtra">>;
   /** Tighten ordinary hosted turns to the read-only brain profile. Default: governed. */
   workerProfile?: "governed" | "strict";
+  /** @internal `false` starts no host web executor even where pi is configured (#3686). */
+  webTools?: false;
   /** Full SemVer minima composed with package requirements; unknown explicit identities refuse startup. */
   versionRequirements?: HostVersionRequirements;
   /**
@@ -235,6 +256,10 @@ export interface CreateAppOptions {
    * @experimental Part of the SpeechProvider seam until 1.0.
    */
   speechProvider?: SpeechProvider;
+  /** Additional by-value dictation providers, fixed at construction. */
+  speechProviders?: SpeechProvider[];
+  /** Must name a registered dictation provider. */
+  defaultSpeechProviderId?: string;
   /**
    * Live-conversation provider (#957), registered separately from dictation.
    * Absent: the host does not advertise `liveConversation` and refuses the
@@ -242,6 +267,19 @@ export interface CreateAppOptions {
    * @experimental Part of the LiveConversationProvider seam until 1.0.
    */
   conversationProvider?: LiveConversationProvider;
+  /**
+   * Several live-conversation providers, fixed at construction (#3616).
+   * Exclusive with `conversationProvider`, which means a list of one. Startup
+   * fails on both options, duplicate ids or an invalid provider. Registration
+   * is discovery only, never proof that a provider's key works.
+   * @experimental Part of the LiveConversationProvider seam until 1.0.
+   */
+  conversationProviders?: LiveConversationProvider[];
+  /**
+   * The host's default live service when nothing is saved in Settings › Voice
+   * (#3616). Must name a registered provider, or startup fails.
+   */
+  defaultConversationProviderId?: string;
   /**
    * The small, fast model that labels working-session and pending follow-up
    * pills with a few words (#1004): any value of core's `CompletionProvider`
@@ -338,6 +376,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     ...(options.dbPath !== undefined ? { dbPath: options.dbPath } : {}),
     exec: resolved.exec ?? ambientExecConfig(),
   };
+  const speechProviders = createSpeechProviderRegistry(config.voice, options);
   // First thing built, because everything below may want to report — including
   // the auth validation that can refuse to boot and the migration runner.
   const observability =
@@ -355,6 +394,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const privateStatePaths = config.inbox?.pokeTokenFile
     ? [{ setting: "BRAIN_UI_INBOX_POKE_TOKEN_FILE", path: config.inbox.pokeTokenFile }] : [];
   privateStatePaths.push({ setting: "Storage transfer cache", path: storageCacheRoot }, { setting: "turn journal", path: journalRoot }, { setting: "BRAIN_UI_NATIVE_BRAIN_LEASE_PATH", path: nativeLeasePath });
+  // The host web executor's per-session private directories (#3686): host
+  // operational state beside the journal, refused inside the brain and masked
+  // from workers like the rest.
+  const webExecutorRoot = `${journalRoot}.web-executor`;
+  privateStatePaths.push({ setting: "web executor state", path: webExecutorRoot });
   // Hosted external compute state (#3108, ruling R5): host operational state
   // beside the database, refused inside the brain and masked from workers.
   // An ephemeral database has no durable place for it, so compute is off.
@@ -413,22 +457,12 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   if (options.registry && Object.keys(backendRequirements ?? {}).length > 0) {
     throw new Error(`Cannot verify host versionRequirements.backends during startup through an injected registry: detected identities unknown; declarations ${JSON.stringify(backendRequirements)}. Use the descriptor-backed default registry, or omit explicit backend requirements.`);
   }
-  // A missing (or unrecognized) agent backend refuses to boot HERE, not on the
-  // first turn — otherwise /api/health reports healthy while every turn is
-  // guaranteed to fail. Descriptor loading and profile validation happen here;
-  // backend construction and model discovery remain lazy.
-  // Skipped when the embedder injects its own registry.
-  if (!options.registry) assertBackendResolvable(config.agent);
-  // An unparseable token mint date refuses here, before anything is opened
-  // (#254): ignoring it would silently switch the expiry warning off.
-  parseMintedAt(config.subscription.mintedAt);
-  // The runtime every active backend would spawn, probed now (#211): a
-  // missing or unstartable binary refuses the boot here instead of failing
-  // the first turn — and before anything is opened, so a refused boot leaves
-  // nothing behind. Skipped with an injected registry, like the check above.
+  // The default must work. A secondary package/runtime failure removes only
+  // that backend; the same exclusion reaches lazy registry construction.
+  const unavailableBackends = options.registry ? [] : assertBackendResolvable(config.agent);
   const runtimeProbes = options.registry
     ? []
-    : await probeBackendRuntimes(config.agent, config.brainPath, observability.logger("agent"), undefined, backendRequirements, config.exec);
+    : await probeBackendRuntimes(config.agent, config.brainPath, observability.logger("agent"), undefined, backendRequirements, config.exec, unavailableBackends);
 
   // Per-instance state: the app's own database, the brain CLI wrapper, the
   // backend registry, and the WebSocket host. No module-level singletons —
@@ -507,9 +541,12 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   reconciled(hostExecution.attach(db, writer));
   // Shared reference source (#2429) runs only where the native manager owns a reference pool.
   const referencePoolConfigured = await nativeManager.poolStatus().then(() => true, () => false);
-  const referenceSources = referencePoolConfigured ? createReferenceSources({ db, pool: nativeManager, brain: nativeReady.brainUuid, credentials: referenceCredentialValues(),
-    transport: createReferenceTransport({ brainPath: config.brainPath, ...(config.maintenanceTemp ? { tempLimits: config.maintenanceTemp } : {}),
-      ...(config.dbPath && config.dbPath !== ":memory:" ? { tempDomain: { statePath: resolve(config.dbPath) } } : {}) }), ...(config.referenceSource ? { limits: config.referenceSource } : {}), log: brainLog,
+  const referenceCredentials = referenceCredentialValues();
+  const referenceTransport = createReferenceTransport({ brainPath: config.brainPath, ...(config.maintenanceTemp ? { tempLimits: config.maintenanceTemp } : {}),
+    ...(config.dbPath && config.dbPath !== ":memory:" ? { tempDomain: { statePath: resolve(config.dbPath) } } : {}) });
+  const referenceSources = referencePoolConfigured ? createReferenceSources({ db, pool: nativeManager, brain: nativeReady.brainUuid, credentials: referenceCredentials,
+    transport: referenceTransport, github: createGitHubReferenceAccess({ db, brain: nativeReady.brainUuid, credentials: referenceCredentials, transport: referenceTransport }),
+    ...(config.referenceSource ? { limits: config.referenceSource } : {}), log: brainLog,
     // Managed worktrees (#2430) keep the source roots they were snapshotted from.
     dependents: rootId => referenceWorktreeDependents(db, rootId) }) : undefined;
   // Worktree lifecycle (#2430); every grant is covered by the turn journal first.
@@ -523,6 +560,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   }
   // The agent tools (#2432) reach both services only through the turn's own access.
   const referenceTools = referenceSources ? createReferenceTools({ sources: referenceSources, ...(referenceWorktrees ? { worktrees: referenceWorktrees } : {}),
+    reads: createReferenceReads({ db, brain: nativeReady.brainUuid, sources: referenceSources, pool: nativeManager, transport: referenceTransport }),
     log: brainLog }) : undefined;
   if (referenceWorktrees) {
     bootCleanup.push(() => referenceWorktrees.close());
@@ -530,6 +568,21 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     if (recovered.retained.length) brainLog.emit({ severityText: "WARN", body: `Managed worktree recovery retained ${recovered.retained.length} unresolved worktree or generation record(s).` });
   }
   assertInboxRecoveryReady(db);
+  const storedBackendFailures = getSetting<typeof unavailableBackends>(db, "boot.backendFailures", []);
+  // Diagnostics cannot turn a malformed historical setting into a new boot gate.
+  const lastBackendFailures = Array.isArray(storedBackendFailures) ? storedBackendFailures.filter(entry => entry
+    && ["claude", "pi"].includes(entry.backendId) && ["resolution", "runtime"].includes(entry.phase)
+    && ["assertBackendResolvable", "probeBackendRuntimes"].includes(entry.site)
+    && typeof entry.message === "string" && typeof entry.errorClass === "string" && typeof entry.at === "string") : [];
+  for (const failure of unavailableBackends) {
+    const previous = lastBackendFailures.findIndex(entry => entry.backendId === failure.backendId);
+    if (previous < 0) lastBackendFailures.push(failure); else lastBackendFailures[previous] = failure;
+    observability.logger("agent").emit({ severityText: "WARN", body: `Backend ${failure.backendId} unavailable: ${failure.message}`,
+      attributes: { "backend.id": failure.backendId, "boot.phase": failure.phase, "boot.site": failure.site, "error.type": failure.errorClass,
+        "boot.at": failure.at, "boot.scope": "backend" } });
+  }
+  if (unavailableBackends.length) setSetting(db, "boot.backendFailures", lastBackendFailures);
+  const backendAvailability = { unavailable: unavailableBackends, lastFailures: lastBackendFailures };
   // One package-local pricing instance, shared by admission and Activity.
   // Refresh warms in the background; resolve() is synchronous and rollups
   // never wait on the network.
@@ -598,6 +651,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // Activity record: span store + live stream + notifications + lifecycle
   // sweeps, owned by the runtime (see activity/runtime.ts).
   const settingsWrites = createSettingsWrites(db, writer, dbLog);
+  // Persona Markdown lives in the brain; the selection in the settings store (#3617).
+  const livePersonas = createLivePersonaService({ brainPath: config.brainPath, db, settingsWrites,
+    providers: () => options.conversationProviders ?? (options.conversationProvider ? [options.conversationProvider] : []) });
   const activity = createActivityRuntime(db, {
     settingsWrites,
     log: observability.logger("activity"),
@@ -619,6 +675,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       exec: config.exec,
       maintenance: boundary.maintenance,
       versionRequirements: backendRequirements,
+      unavailableBackends,
       brainPath: config.brainPath,
       agent: config.agent,
       getHiddenModelIds: () => getHiddenModelIds(db, dbLog),
@@ -701,7 +758,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const sessionProfiles = createSessionProfiles(db, governedTurns, budgets, { hardTimeoutMs: () => host.turnTimeoutMs }, { writer, catalog });
   // Idle passes keep the observer initialized and current, and expire old
   // turns, off the next admission's path (#3355).
-  const journal = createTurnJournal(db, { nativeManager, brainPath: config.brainPath, dbPath: config.dbPath, objectsRoot: journalRoot, writer, idleObservationMs: 60_000,
+  const journal = createTurnJournal(db, { nativeManager, brainPath: config.brainPath, dbPath: config.dbPath, objectsRoot: journalRoot, writer, idleObservationMs: 60_000, log: brainLog,
     ...(referencePoolConfigured ? { referencePool: nativeManager, referenceCheckpoints: (() => {
       const owner = referenceWorktreeOwner();
       return { record: (id: string, worktreeId: string) => recordReferenceWorktreeCheckpoint(db, owner, id, worktreeId), forget: (id: string) => forgetReferenceWorktreeCheckpoint(db, id) };
@@ -752,8 +809,52 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     report: message => brainLog.emit({ severityText: "WARN", body: message }) });
   // Settle, time out and clean up open runs now and periodically; a no-op until a ledger exists.
   const stopApifyReconciler = apifyHost.startReconciler();
+  // Host GitHub tools (#3797): the dedicated credential only, never GITHUB_TOKEN.
+  // The session's G6 taint commits before any GitHub text reaches a turn.
+  const githubTools = createGithubToolsHost({ token: githubToolsTokenSource(),
+    untrusted: async (turn, event) => {
+      const collection=db.query("SELECT id,policy_hash FROM safety_collections WHERE turn_id=?").get(turn.turnId) as {id:string;policy_hash:string|null}|null;
+      const observed=occurrence(collection?.id??crypto.randomUUID(),"compute_input",null,"finalized");
+      observed.admission={trusted:false,policyHash:collection?.policy_hash??null,trustRevision:"0"};
+      await activity.governanceWrites.firstTaint({ kind: "taint", payload: { source: "github_result", tool: event.tool, detail: event.detail.slice(0, 200), occurrence: observed },
+        sessionId: turn.sessionId(), turnId: turn.turnId, actor: "interactive", model: null, profile: null });
+    },
+    report: message => brainLog.emit({ severityText: "WARN", body: message }) });
   bootCleanup.push(() => { stopApifyReconciler(); apifyHost.close(); apifyLedger?.close(); apifyLedger = undefined; });
+  const safetyHistory = new SafetyHistory(db, principal => { const current=resolvePrincipal(db,principal.id); return !!current && isUsablePrincipal(current,Date.now()); }, () => writer.idle());
+  const accountSeed = await accountWrites(db).partitionSeed();
+  const accountKeys = createAccountPartitionKeys(db, config.brainPath, authMode, accountSeed);
+  const ownerSafetyReviews = new OwnerSafetyReviews(db, activity.governanceWrites, authMode,
+    deriveAccountPartitionKey(accountSeed,realpathSync(config.brainPath),"owner"));
+  // The host-owned web tools (#3686): the broker over the trusted Pi
+  // executor, wherever the pi backend is configured and available. Without
+  // it the four tools stay listed and are refused before they run.
+  let webTools: import("./web-tools/broker.js").WebBroker | undefined;
+  const piUsable = (Boolean(config.agent.piProfilesJson) || (config.agent.backend || "claude") === "pi")
+    && !unavailableBackends.some(failure => failure.backendId === "pi");
+  if (piUsable && options.webTools !== false) {
+    const webLog = observability.logger("web");
+    try {
+      const module = (await loadBackendInternal("pi")) as import("./web-tools/host.js").PiWebExecutorModule;
+      const webEnv = resolveWebSearchEnv();
+      webTools = createHostWebTools({ module, root: webExecutorRoot, hostConfigPath: () => resolveWebSearchConfigPath(webEnv), env: webEnv,
+        runtime: process.execPath, path: subprocessEnv("brainCli").PATH ?? "/usr/bin:/bin",
+        // Refused connections are worth an owner's look; the rest is routine. Host, port and reason only.
+        onEgress: record => { if (record.outcome === "denied") webLog.emit({ severityText: "WARN", body: `web executor connection refused: ${record.reason ?? "denied"}`,
+          attributes: { "web.egress.host": record.host, "web.egress.port": record.port, "web.egress.reason": record.reason ?? "denied" } }); },
+        onPrepared: removed => { if (removed.length) webLog.emit({ severityText: "INFO", body: `web executor configuration: turned off or removed ${removed.join(", ")}` }); },
+        onReceipt: receipt => { if (receipt.kind === "executor") webLog.emit({ severityText: receipt.exit.exited && receipt.exit.cleaned !== false ? "INFO" : "WARN",
+          body: `web executor session ended: ${receipt.exit.reason}`, attributes: { "web.calls": receipt.calls, "web.exit_code": receipt.exit.code ?? -1,
+            "web.exited": receipt.exit.exited, "web.cleaned": receipt.exit.cleaned ?? true } }); } });
+      bootCleanup.push(() => webTools?.close());
+    } catch (error) {
+      webLog.emit({ severityText: "WARN", body: `Pi web tools are unavailable on this host: ${error instanceof Error ? error.message : String(error)}` });
+    }
+  }
   const host = new WsHost({
+    ...(webTools ? { webTools } : {}),
+    safetyHistory,
+    ownerSafetyReviews,
     turnReverts: reverts,
     workerLock,
     computeTools: computeHost,
@@ -765,6 +866,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     ...(referenceWorktrees ? { referenceWorktrees, referenceWorktreeAccess: true } : {}),
     ...(referenceTools ? { referenceTools } : {}),
     apify: apifyHost,
+    githubTools,
     sessionProfiles,
     maintenance: boundary.maintenance,
     budgets,
@@ -783,6 +885,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     inbox: createInboxStream(createInboxStore(db), db, observability.logger("inbox"),
       hygieneReview.resolver),
     classifier,
+    // The extraction judge's own client (#4089): one request per call, no
+    // retry, its usage and answering model read for the meter and the pin.
+    extractionJudge: createJevClient({ apiKey: config.classification.apiKey, log: observability.logger("extraction-judge"), production: true }),
     labeller: createLabeller({
       options: options.labeller ?? null,
       log: observability.logger("labels"),
@@ -790,7 +895,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       activity: { store: activity.store, onWrite: () => activity.stream.pump() },
     }),
     scratchPrune: () => scratchPrune.tick(),
-    ...(options.conversationProvider ? { conversationProvider: options.conversationProvider } : {}),
+    ...(options.conversationProvider !== undefined ? { conversationProvider: options.conversationProvider } : {}),
+    ...(options.conversationProviders !== undefined ? { conversationProviders: options.conversationProviders } : {}),
+    ...(options.defaultConversationProviderId !== undefined ? { defaultConversationProviderId: options.defaultConversationProviderId } : {}),
+    liveDefaultProvider: () => getLiveDefaultProvider(db).defaultProvider,
+    ...(options.conversationProvider !== undefined || options.conversationProviders !== undefined ? { livePersonas } : {}),
     ...(options.appName ? { appName: options.appName } : {}),
     // Explicit option wins; then the env-resolved config; then the host default.
     ...(options.turnTimeoutMs ?? config.turnTimeoutMs
@@ -983,7 +1092,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
         origin: allowedOrigins,
         allowMethods: ["GET", "POST", "PUT", "DELETE"],
         // If-Match and Idempotency-Key carry draft revisions and receipts (#979).
-        allowHeaders: ["Content-Type", "If-Match", "Idempotency-Key", "Content-SHA256"],
+        allowHeaders: ["Content-Type", "If-Match", "Idempotency-Key", "Content-SHA256", "Speech-Provider"],
         credentials: true,
       })
     );
@@ -993,7 +1102,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // probe and the login/logout routes are reachable without a session.
   // /api/status is intentionally NOT here — it leaks the git SHA, cron errors,
   // and a session oracle, so it lives behind the guard below.
-  app.route("/api", createHealthRoutes({ db }));
+  app.route("/api", createHealthRoutes({ db, degradedReasons: () => unavailableBackends.length ? ["backend_unavailable"] : [] }));
   // Not under /api, and not behind the guard: this is where a system share
   // lands when no service worker was around to intercept it. See the route.
   app.route("/", shareTargetFallbackRoutes);
@@ -1017,7 +1126,6 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   app.use("/api/*", authGuard(authMode, auth, db));
   // The account partition key rides on the probe every client already makes
   // before it mounts anything (#1014): an agent principal gets none.
-  const accountKeys = createAccountPartitionKeys(db, config.brainPath, authMode, await accountWrites(db).partitionSeed());
   app.get("/api/vpn-check", (c) => {
     const accountKey = accountKeys(c.get("principal"));
     return c.json(accountKey ? { vpn: true, accountKey } : { vpn: true });
@@ -1040,7 +1148,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   app.route(
     "/api",
     createStatusRoutes({
+      getJournalRecovery: () => journal.recoveryStatus(),
+      getJournalCleanup: () => journal.cleanupStatus(),
       sourceCommit: config.sourceCommit,
+      getBackendAvailability: () => backendAvailability,
+      getNativeRecovery: () => nativeReady.recovery,
       getContentRenderers: async signal => brain.modules ? declaredContentRenderers((await brain.modules({ signal })).enabled) : undefined,
       getCronStatus: () => cron.getCronStatus(),
       isTurnActive: () => host.coordinator.isTurnActive(),
@@ -1065,6 +1177,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
         activity.runtime.recordGoverned(boundary.status());
         return activity.runtime.snapshot().workerHost ?? {};
       },
+      getSafetyRecording: () => activity.governanceWrites.recordingStatus(),
+      recoverSafetyRecording: actor => activity.governanceWrites.recoverRecording(actor),
     })
   );
   // Host readers of the index wait for application updates queued before them (#2835).
@@ -1076,6 +1190,17 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   app.route("/api", createSessionProfileRoutes(sessionProfiles));
   app.route("/api", createSessionRoutes({ registry, db, labels: host.labels !== null, prepareHistory: (id, messages) => host.prepareHistory(id, messages),
     settled: () => host.historySettled(), retired: target => host.catalog.chatRetired?.(target) === true }));
+  // GitHub detail pages and avatars for the chat components (#3796): display
+  // data under the tools' dedicated credential, never provider context.
+  app.route("/api", createGithubDetailRoutes({ details: createGithubDetails({ token: githubToolsTokenSource() }),
+    principalValid: principal => host.isPrincipalValid(principal),
+    owns: (principal, sessionId) => { const chat = resolveChat(db, { sessionId }); return !("refused" in chat) && chatOwnedBy(db, chat, principal.id); },
+    retired: sessionId => host.catalog.chatRetired?.({ sessionId }) === true,
+    history: async sessionId => {
+      const stored = db.query("SELECT backend_id AS backendId FROM sessions WHERE id = ?").get(sessionId) as { backendId: string | null } | null;
+      return (await registry.getBackendForSession(stored?.backendId ?? null)).getHistory(sessionId);
+    },
+    settled: () => host.historySettled() }));
   // Explicit local chat deletion (#3230), on a catalog that can retire chats.
   if (host.catalog.retireChat && host.catalog.cleanChatStore) {
     const chatDeletion = host.chatDeletion = createChatDeletion({ catalog: host.catalog, backends: () => registry.getBackends(),
@@ -1160,17 +1285,26 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // Only where server_hello advertises it: elsewhere the route is absent,
   // which a client reads as a host too old to answer (#964).
   if (supportsSessionRecovery(host)) app.route("/api", createSessionRecoveryRoutes(host));
+  app.route("/api", createSessionSafetyRoutes(safetyHistory,principal=>host.isPrincipalValid(principal)));
+  app.route("/api", createOwnerSafetyReviewRoutes(ownerSafetyReviews,auth.trustProxy));
   app.route("/api", createPolicyProposalRoutes(host));
   app.route("/api", createAgentPolicyRoutes(host, () => activity.runtime.snapshot().workerHost?.limits ?? null));
   app.route("/api", createDraftRoutes(drafts));
+  // The markup layer's own bounded upload (#3975): too large for a socket frame.
+  app.route("/api", createMarkupRoutes(host.coordinator));
   app.route("/api", createAttachmentRoutes({ brainRoot: config.brainPath, store: drafts, instanceId: attachmentInstanceId }));
+  // Only where server_hello advertises attachmentReads (#3589).
+  if (host.attachmentLimits) app.route("/api", createAttachmentReadRoutes(host));
   // Behind the guard by mount position, like /api/status: the activity
   // record leaks strictly more (session activity, errors, spend).
   app.route("/api", createActivityRoutes({ db, settingsWrites, store: activity.store, notifier: activity.notifier, actionNotices: activity.actionNotices }));
   app.route("/api", createPushRoutes({ sender: activity.pushSender, notices: activity.actionNotices }));
-  app.route("/api", createVoiceRoutes({ voice: config.voice, keyterms, speechProvider: options.speechProvider }));
+  app.route("/api", createVoiceRoutes({ voice: config.voice, keyterms, speechProviders, db, settingsWrites }));
+  app.route("/api", createVoicePersonaRoutes(livePersonas, { read: () => getLiveDefaultProvider(db),
+    save: (revision, id) => settingsWrites.saveLiveDefaultProvider(revision, id), known: (id) => host.liveProviders.get(id) !== undefined,
+    changed: () => host.conversations?.broadcastSettings() }));
   const transcriptions = createTranscriptionWrites(db, { brainPath: config.brainPath, authMode }, writer);
-  app.route("/api", createTranscriptionRoutes({ store: transcriptions, voice: config.voice, keyterms, speechProvider: options.speechProvider }));
+  app.route("/api", createTranscriptionRoutes({ store: transcriptions, keyterms, speechProviders, db }));
   app.route(
     "/api",
     createFilesRoutes({ brainRoot: config.brainPath, log: observability.logger("files"), marks: { db, writer } })
@@ -1194,8 +1328,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     "/api",
     createModelRoutes({ registry, db, settingsWrites, pricing, log: observability.logger("models") })
   );
-  app.route("/api", createPiAuthRoutes({ agent: config.agent }));
-  app.route("/api", createWebSearchRoutes({ agent: config.agent }));
+  // A backend excluded at boot never executes, including its auth and extension services (#3817).
+  const piExcluded = () => unavailableBackends.some(failure => failure.backendId === "pi");
+  app.route("/api", createPiAuthRoutes({ agent: config.agent, excluded: piExcluded }));
+  app.route("/api", createWebSearchRoutes({ agent: config.agent, excluded: piExcluded }));
   const trustSettings = createTrustSettings({ root: config.brainPath, db, writer, lock: workerLock,
     authority: id => {
       if (authMode !== "password") return null;

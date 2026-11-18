@@ -94,7 +94,7 @@ describe("API client URL building", () => {
         status: 500,
         headers: { "Content-Type": "application/json" },
       })) as unknown as typeof fetch;
-    expect(api.brainSearch("test")).rejects.toThrow("Search failed");
+    await expect(api.brainSearch("test")).rejects.toThrow("Search failed");
   });
 });
 
@@ -140,7 +140,7 @@ describe("billing overrides and pricing state", () => {
         status: 404,
         headers: { "Content-Type": "application/json" },
       })) as unknown as typeof fetch;
-    expect(api.pricingState()).rejects.toThrow();
+    await expect(api.pricingState()).rejects.toMatchObject({ status: 404, message: "Not found" });
   });
 });
 
@@ -240,4 +240,19 @@ test("retained session listing opts in and encodes its exclusive cursor without 
  const cap=captureUrl(fixture),response=await api.sessions("ithaca /?&");
  expect(cap.urls).toEqual(["/api/sessions?includeRetainedConversations=true&retainedAfter=ithaca%20%2F%3F%26"]);
  expect(response).toEqual(fixture);
+});
+
+
+test("dictation selection client preserves legacy requests and sends exact provider and revision", async () => {
+  const cap = captureUrl({});
+  const signal = new AbortController().signal;
+  await api.voiceSession(signal);
+  expect(cap.inits[0]?.body).toBeUndefined(); expect(cap.inits[0]?.signal).toBe(signal);
+  await api.voiceSession(signal, { providerId: "beta", smart: false });
+  expect(JSON.parse(String(cap.inits[1]?.body))).toEqual({ providerId: "beta", smart: false });
+  await api.voiceProviders(); await api.dictationSettings();
+  await api.saveDictationSettings({ defaultProvider: "alpha", smart: true, revision: "4" });
+  expect(cap.urls).toEqual(["/api/voice/session", "/api/voice/session", "/api/voice/providers", "/api/voice/dictation/settings", "/api/voice/dictation/settings"]);
+  expect(new Headers(cap.inits[4]?.headers).get("If-Match")).toBe('"4"');
+  expect(JSON.parse(String(cap.inits[4]?.body))).toEqual({ defaultProvider: "alpha", smart: true });
 });

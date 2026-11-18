@@ -178,11 +178,12 @@ describe("command and file errors", () => {
     await provider.stage!(sandbox, { files: [{ path: "notes/voyage.md", sha256: sha, bytes: data.byteLength, read: async () => data }], hash: sha }, contextFor(fake, { now }));
     const command = String(JSON.parse(fake.requests.filter((r) => r.route === "exec").at(-1)!.body).command);
     const tar = /tar -xf '([^']+)'/.exec(command)?.[1];
-    expect(tar).toBeDefined();
+    // Named by the bundle hash, so a run still in flight and its repeat read the same archive.
+    expect(tar).toBe(`/tmp/brain-kit/${sha}.tar`);
     expect(command).not.toContain(`rm -f '${tar}'`);
     expect(command).toContain("mktemp -d");
     expect(command).not.toMatch(/-C work\b/);
-    expect(fake.sandboxes.get(sandbox.id)!.files.has(tar!)).toBe(true);
+    expect([...fake.sandboxes.get(sandbox.id)!.files.keys()]).toContain(tar!);
   });
 
   test("a lost process Boat's probe still finds running is running, never exited; one it finds ended is a provider error", async () => {

@@ -29,5 +29,5 @@ test("Pi Apify tools reach the host and keep tools, instructions and history sta
   }
   const names = body(main(capture)[0]!).tools.map((tool: { name: string }) => tool.name).filter((name: string) => name.startsWith("brain_apify_"));
   expect(names, "APIFY_PI_FIXED_NAMES_IN_ORDER").toEqual(APIFY_OPERATIONS.map(operation => APIFY_TOOL_NAMES[operation]));
-  for (const exchange of capture.exchanges) expect(exchange.raw.includes(SENTINEL), "APIFY_PI_TOKEN_NEVER_IN_PROVIDER_REQUESTS").toBe(false);
+  for (const exchange of capture.exchanges) expect(exchange.raw, "APIFY_PI_TOKEN_NEVER_IN_PROVIDER_REQUESTS").not.toContain(SENTINEL);
 });

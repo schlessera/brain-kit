@@ -117,5 +117,5 @@ test("a released gate starts the payload once, with no gate descriptor and its s
   expect(exit, out + err).toBe(0);
   expect(readFileSync(join(brain, "payload-started.md"), "utf8"), "RELEASED_PAYLOAD_STARTS_ONCE").toBe("Odysseus");
   expect(out.trim().split("\n"), "PAYLOAD_HOLDS_NO_GATE_DESCRIPTOR").toEqual(["0", "1", "2"]);
-  expect(readFileSync(join(brain, "payload-stdin.md")).equals(input), "PAYLOAD_STDIN_BYTE_IDENTICAL").toBe(true);
+  expect(readFileSync(join(brain, "payload-stdin.md")), "PAYLOAD_STDIN_BYTE_IDENTICAL").toEqual(input);
 }, 30_000);

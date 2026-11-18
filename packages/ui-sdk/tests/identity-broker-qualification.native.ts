@@ -1,5 +1,6 @@
 /** Explicit disposable-container proof; never installs a helper on the host. */
-import { expect } from "bun:test";
+import { expect, spyOn } from "bun:test";
+import * as identity from "../src/server/worker-identity.js";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createConnection } from "node:net";
@@ -227,6 +228,58 @@ print(json.dumps(dict(uid=os.getuid(),value=value)))`, {sandbox:{brain,profile:"
         expect(existsSync(marker), `MALFORMED_HELPER_${fault}_MUST_KEEP_GATE_CLOSED`).toBe(false);
         await until(() => workerPids().length === 0, `MALFORMED_HELPER_${fault}_LEFT_WORKER`);
       }
+    } finally { if (configured !== undefined) process.env.BRAIN_UI_WORKER_IDENTITY_HELPER = configured; }
+  });
+  await check("a failed launch retains the real broker until a retry confirms its owned cleanup", async () => {
+    const prepare = identity.prepareWorkerIdentity;
+    let attempts = 0;
+    const seam = spyOn(identity, "prepareWorkerIdentity").mockImplementation((...args) => {
+      const broker = prepare(...args);
+      return { ...broker, *closeSteps() {
+        if (++attempts === 1) {
+          // Refuse at the cleanup boundary, after the real broker has stopped
+          // its worker, as closeSteps does before requesting deletion.
+          broker.terminate();
+          throw new Error("fixture cleanup acknowledgement withheld");
+        }
+        yield* broker.closeSteps();
+      } };
+    });
+    const marker = join(brain, "failed-launch-payload");
+    let failure: unknown;
+    try {
+      failure = await launchAgentWorkerAsync({ brainPath: brain,
+        sandbox: { brain, profile: "governed", restricted: false, areas: [], scratchAliasesRemoved: [] },
+        stateBytes: MIB, turnTempBytes: MIB, env: { HOME: WORKER_STATE },
+        command: ["/usr/bin/python3", "-I", "-S", "-c", `open('${marker}','w').write('unexpected')`],
+        populateState() { throw new Error("fixture population refused after acquiring real identity root"); },
+      }).then(() => undefined, error => error);
+      expect(identity.workerCleanupUnconfirmed(failure), "NATIVE_FAILED_LAUNCH_RETAINS_CLEANUP").toBe(true);
+      if (!identity.workerCleanupUnconfirmed(failure) || !failure.close) throw new Error("native failed launch lost its close");
+      await Promise.all([failure.close(), failure.close()]);
+      expect(attempts, "NATIVE_FAILED_LAUNCH_RETRY_USES_REAL_BROKER_ONCE").toBe(2);
+      await failure.close(); expect(attempts).toBe(2);
+      expect(existsSync(marker), "NATIVE_FAILED_LAUNCH_NEVER_RELEASES_PAYLOAD_GATE").toBe(false);
+      await until(() => workerPids().length === 0, "NATIVE_FAILED_LAUNCH_RETRY_LEFT_WORKER");
+    } finally {
+      seam.mockRestore();
+      if (identity.workerCleanupUnconfirmed(failure)) await failure.close?.();
+    }
+  });
+  await check("a helper that never acknowledges launch times out naming launch-sent, and its cleanup is confirmed", async () => {
+    const configured = process.env.BRAIN_UI_WORKER_IDENTITY_HELPER;
+    process.env.BRAIN_UI_WORKER_IDENTITY_HELPER = "/usr/local/bin/identity-helper-fault-no-launch-ack";
+    const marker = join(brain, "no-launch-ack-payload");
+    try {
+      let refusal: { requirement?: string; errorClass?: string; message?: string } | undefined;
+      try { launch(`open('${marker}','w').write('unexpected')`); } catch (error) { refusal = error as typeof refusal; }
+      console.log(JSON.stringify({ setupTimeout: { requirement: refusal?.requirement, errorClass: refusal?.errorClass } }));
+      // An unconfirmed cleanup would refuse as WorkerIdentityCleanupError, with no requirement.
+      expect(refusal?.errorClass, "NO_LAUNCH_ACK_REFUSES_AS_HOST_UNSUPPORTED").toBe("worker_host_unsupported");
+      expect(refusal?.requirement, "NO_LAUNCH_ACK_NAMES_LAUNCH_SENT")
+        .toMatch(/^worker_identity_setup_timed_out \(step: launch-sent, ms: \d+, sinceSpawnMs: -?\d+(;|\)$)/);
+      expect(existsSync(marker), "NO_LAUNCH_ACK_KEEPS_GATE_CLOSED").toBe(false);
+      await until(() => workerPids().length === 0, "NO_LAUNCH_ACK_LEFT_WORKER");
     } finally { if (configured !== undefined) process.env.BRAIN_UI_WORKER_IDENTITY_HELPER = configured; }
   });
   await check("helper final exec resets inherited ignored signals and pipelines stay quiet", async () => {

@@ -2,8 +2,9 @@
  * The metered host relay for the `brain` CLI's paid providers (#1673).
  *
  * A governed or strict turn worker, and a relayed maintenance worker, holds no
- * provider key. A built-in Gemini, Anthropic or OpenAI image provider in it
- * sends its native request to this Unix socket instead, naming its request
+ * provider key. A built-in Gemini, Anthropic or OpenAI image provider, or the
+ * `jev` reranker (#3792), in it sends its native request to this Unix socket
+ * instead, naming its request
  * family, the key variable and the origin it would have called
  * (`@schlessera/brain-common/internal/provider-relay`). The relay:
  *
@@ -69,15 +70,22 @@ export const FIRST_PARTY_PROVIDER_RECIPIENTS: Readonly<Record<ProviderRelayFamil
   gemini: { key: "GEMINI_API_KEY", origin: "https://generativelanguage.googleapis.com" },
   anthropic: { key: "ANTHROPIC_API_KEY", origin: "https://api.anthropic.com" },
   openai: { key: "OPENAI_API_KEY", origin: "https://api.openai.com" },
+  // TypeSafe's System One API, which the `jev` reranker calls (#3792).
+  typesafe: { key: "TYPESAFE_API_KEY", origin: "https://api.typesafe.ai" },
 });
 const PLACEMENT: Readonly<Record<ProviderRelayFamily, (key: string) => Record<string, string>>> = {
   gemini: key => ({ "x-goog-api-key": key }),
   anthropic: key => ({ "x-api-key": key }),
   openai: key => ({ authorization: `Bearer ${key}` }),
+  typesafe: key => ({ authorization: `Bearer ${key}` }),
 };
 
-/** `files`: a Gemini Files lifecycle request (upload, poll, delete), which the Files API does not charge for. */
-export type ProviderOperation = "embeddings" | "completions" | "image" | "files";
+/**
+ * `files`: a Gemini Files lifecycle request (upload, poll, delete), which the Files API does not charge for.
+ * `extraction_judge`: the host's own Jev question about a tainted session's outgoing call (#4089). No worker
+ * request has it; the host meters that call beside the relayed ones, never through this relay's routes.
+ */
+export type ProviderOperation = "embeddings" | "completions" | "image" | "files" | "reranking" | "extraction_judge";
 /** The fixed routes of each family: the request the first-party CLI provider sends, and nothing else. */
 const ROUTES: Readonly<Record<ProviderRelayFamily, readonly { path: RegExp; operation: ProviderOperation }[]>> = {
   gemini: [
@@ -87,6 +95,8 @@ const ROUTES: Readonly<Record<ProviderRelayFamily, readonly { path: RegExp; oper
   ],
   anthropic: [{ path: /^\/v1\/messages$/, operation: "completions" }],
   openai: [{ path: /^\/v1\/images\/(?:generations|edits)$/, operation: "image" }],
+  // The one request the `jev` reranker sends: a Choice question over the candidates (#3792).
+  typesafe: [{ path: /^\/v1\/systemone$/, operation: "reranking" }],
 };
 
 /** A step of the Gemini Files lifecycle (#2738). */
@@ -503,6 +513,7 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       operation?.finish("denied", "budget_exceeded");
       return refuse(403, "budget_exceeded", now.message);
     }
+    if (operation && !operation.commit()) return denied("provider_admission_refused");
     const attemptId = crypto.randomUUID();
     let reported = false;
     const observe = (outcome: ProviderRelayReceipt["outcome"], status: number, usage: ProviderUsage | null): void => {
@@ -674,6 +685,7 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       catch { /* The host's own accounting reports its failure. */ }
     };
     observe("dispatched", 0);
+    if (operation && !operation.commit()) return;
     try {
       const response = await fetch(target, { method: "DELETE", headers, redirect: "manual", signal });
       await response.body?.cancel().catch(() => {});

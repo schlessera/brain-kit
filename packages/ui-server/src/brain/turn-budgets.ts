@@ -449,6 +449,21 @@ export function createTurnBudgets(db: Database, pricing: RollupPricing, clock: (
         { costUsd: priced.costUsd, estimate: priced.estimate, tokens: priced.tokens }, now, turn ? apifyReading(turnId, now) : null);
     },
     /**
+     * One admitted web provider request (#3687): a search, extraction fallback
+     * or nested model call the host web executor sent for this turn. Its price
+     * is never reported, so it is recorded as a dispatched relayed attempt
+     * with no usage: unknown spend in the turn, its session and its day,
+     * never zero, and never settled into a price.
+     */
+    observeWebProvider(turnId: string, attempt: { attemptId: string; host: string }): Promise<BudgetObservationResult | undefined> {
+      const turn = active.get(turnId);
+      const now = clock();
+      const recorded = { attemptId: attempt.attemptId, family: "web", operation: "web", origin: `https://${attempt.host}`, model: null,
+        outcome: "dispatched", status: 0, usage: null, inlineMedia: false };
+      return call<BudgetObservationResult | undefined>("observeProvider", turnId, turn?.policy ?? null, recorded,
+        { costUsd: null, estimate: null, tokens: null }, now, turn ? apifyReading(turnId, now) : null);
+    },
+    /**
      * Hosted external compute (#3108). `reserve` runs under core's admission
      * lock, after every budget write submitted before it, against the turn's
      * frozen policy; it throws when the turn has no frozen admission or its

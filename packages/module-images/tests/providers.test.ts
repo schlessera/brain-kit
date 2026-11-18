@@ -11,6 +11,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { geminiProvider } from "../src/providers/gemini";
 import { estimateOpenAiOutputCost, openAiCostFromUsage, openaiProvider } from "../src/providers/openai";
 import { ImageProviderError, type ImageInput } from "../src/types";
+import { png } from "./image-bytes";
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -30,8 +31,8 @@ function stub(response: unknown, init: { status?: number } = {}) {
   return calls;
 }
 
-const SUNBURST = "gpt-image-2.5-sunburst";
-const FLARE = "gpt-image-2.5-flare";
+const SUNBURST = "gpt-image-2.6-sunburst";
+const FLARE = "gpt-image-2.6-flare";
 const PNG_B64 = Buffer.from("fake-png-bytes").toString("base64");
 const ref = (): ImageInput => ({ data: new Uint8Array([1, 2, 3]), mime: "image/png", label: "a.png" });
 
@@ -60,7 +61,7 @@ describe("capability tables agree with the evidence", () => {
 
   test("no model inherits the text-rendering lead measured on retired gpt-image-2", () => {
     // The arena lead was measured on gpt-image-2. A successor's name is not a
-    // measurement, so no 2.5 model — and no Gemini model — claims it.
+    // measurement, so no 2.5 or 2.6 model — and no Gemini model — claims it.
     expect(ALL.filter((m) => m.strongTextRendering).map((m) => m.id)).toEqual([]);
   });
 
@@ -68,9 +69,8 @@ describe("capability tables agree with the evidence", () => {
     for (const m of ALL) expect(m.summary).not.toMatch(/gpt-image-1\.5|gpt-image-2\b(?!\.)/);
   });
 
-  test("the 2.5 models carry no borrowed per-image price", () => {
-    // Billed per token, and OpenAI's calculator does not estimate 2.5 token
-    // use: the retired per-image table must not stand in for them.
+  test("the 2.5 and 2.6 models carry no borrowed per-image price", () => {
+    // Billed per token: the retired per-image table must not stand in for them.
     for (const m of openaiProvider.models) expect(m.approxCostUsd1K).toBeNull();
   });
 });
@@ -248,12 +248,91 @@ describe("openai provider", () => {
   });
 });
 
-describe("GPT Image 2.5 output-token estimate", () => {
-  const SUNBURST = "gpt-image-2.5-sunburst";
-  const FLARE = "gpt-image-2.5-flare";
+describe("openai provider — 2.6 quality and complexity defaults (#3782)", () => {
+  test("a direct generation without quality or complexity sends max and high to 2.6", async () => {
+    const calls = stub({ data: [{ b64_json: PNG_B64 }] });
+    await openaiProvider.generate("gpt-image-2.6-flare", { prompt: "x" }, "k");
+    expect(JSON.parse(calls[0].init.body as string)).toMatchObject({ quality: "max", complexity: "high" });
+  });
 
-  test("reproduces the guide's calculator example for both models: low at 1024x1024 is $0.00588", () => {
-    for (const model of [SUNBURST, FLARE]) expect(estimateOpenAiOutputCost(model, "low", "1024x1024")).toBeCloseTo(0.00588, 10);
+  test("a direct call with complexity on a 2.5 model refuses before fetch", async () => {
+    const calls = stub({ data: [{ b64_json: PNG_B64 }] });
+    await expect(
+      openaiProvider.generate("gpt-image-2.5-sunburst", { prompt: "x", complexity: "low" }, "k")
+    ).rejects.toThrow(/complexity/);
+    expect(calls).toHaveLength(0);
+  });
+});
+
+describe("openai provider — animated GIF (#3783)", () => {
+  test("only the 2.6 pair lists gif among its formats", () => {
+    const gif = openaiProvider.models.filter((m) => m.outputFormats.includes("gif")).map((m) => m.id);
+    expect(gif).toEqual([SUNBURST, FLARE]);
+  });
+
+  test("a GIF response is decoded as image/gif", async () => {
+    stub({ data: [{ b64_json: PNG_B64 }] });
+    const result = await openaiProvider.generate(SUNBURST, { prompt: "x", format: "gif", frames: 4 }, "k");
+    expect(result.images[0].mime).toBe("image/gif");
+  });
+
+  const refusals: [string, Parameters<typeof openaiProvider.generate>[1], string, RegExp][] = [
+    ["GIF on a 2.5 model", { prompt: "x", format: "gif" }, "gpt-image-2.5-flare", /GIF/],
+    ["GIF with a mask", { prompt: "x", format: "gif", references: [ref()], mask: ref() }, SUNBURST, /mask/],
+    ["GIF with transparency", { prompt: "x", format: "gif", transparent: true }, SUNBURST, /transparent/],
+    ["frames without GIF", { prompt: "x", format: "png", frames: 4 }, SUNBURST, /GIF output only/],
+  ];
+  for (const [label, req, model, message] of refusals) {
+    test(`a direct call with ${label} refuses before fetch`, async () => {
+      const calls = stub({ data: [{ b64_json: PNG_B64 }] });
+      await expect(openaiProvider.generate(model, req, "k")).rejects.toThrow(message);
+      expect(calls).toHaveLength(0);
+    });
+  }
+});
+
+describe("openai provider — static SVG (#3784)", () => {
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1"/></svg>';
+
+  test("only the 2.6 pair lists svg among its formats", () => {
+    expect(openaiProvider.models.filter((m) => m.outputFormats.includes("svg")).map((m) => m.id)).toEqual([SUNBURST, FLARE]);
+  });
+
+  test("an SVG response is decoded as image/svg+xml with its cost unknown", async () => {
+    stub({ data: [{ b64_json: Buffer.from(svg).toString("base64") }], usage: { output_tokens: 1, input_tokens_details: { text_tokens: 1, image_tokens: 0 } } });
+    const result = await openaiProvider.generate(SUNBURST, { prompt: "x", format: "svg" }, "k");
+    expect(result.images[0].mime).toBe("image/svg+xml");
+    expect(new TextDecoder().decode(result.images[0].data)).toBe(svg);
+    expect(result.costUsd).toBeUndefined();
+  });
+
+  const refusals: [string, Parameters<typeof openaiProvider.generate>[1], string][] = [
+    ["SVG on a 2.5 model", { prompt: "x", format: "svg" }, "gpt-image-2.5-sunburst"],
+    ["SVG as an edit", { prompt: "x", format: "svg", references: [ref()] }, SUNBURST],
+    ["SVG with transparency", { prompt: "x", format: "svg", transparent: true }, SUNBURST],
+    ["SVG with n above 1", { prompt: "x", format: "svg", n: 2 }, SUNBURST],
+  ];
+  for (const [label, req, model] of refusals) {
+    test(`a direct call with ${label} refuses before fetch`, async () => {
+      const calls = stub({ data: [{ b64_json: PNG_B64 }] });
+      await expect(openaiProvider.generate(model, req, "k")).rejects.toThrow(/SVG/);
+      expect(calls).toHaveLength(0);
+    });
+  }
+
+  test("a direct call that gets active SVG back throws instead of returning it", async () => {
+    stub({ data: [{ b64_json: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script/></svg>').toString("base64") }] });
+    await expect(openaiProvider.generate(SUNBURST, { prompt: "x", format: "svg" }, "k")).rejects.toThrow(/script/);
+  });
+});
+
+describe("GPT Image 2.5 and 2.6 output-token estimate", () => {
+  // The guide's one calculator covers both generations (checked 2026-11-09).
+  const SUNBURST = "gpt-image-2.6-sunburst";
+  const EVERY = ["gpt-image-2.6-sunburst", "gpt-image-2.6-flare", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare"];
+
+  test("reproduces the guide's calculator example for every model: low at 1024x1024 is $0.00588", () => {
+    for (const model of EVERY) expect(estimateOpenAiOutputCost(model, "low", "1024x1024")).toBeCloseTo(0.00588, 10);
   });
 
   test("follows quality and shape by the published formula", () => {
@@ -338,5 +417,50 @@ describe("gemini provider", () => {
     await expect(
       geminiProvider.generate("gemini-3.1-flash-image", { prompt: "x" }, "k")
     ).rejects.toMatchObject({ opts: { retryable: true } });
+  });
+});
+
+describe("providers — markup layer guards for a direct caller (#3785)", () => {
+  const layer = (data = png(64, 64)): ImageInput => ({ data, mime: "image/png", label: "notes.png" });
+  const base = (): ImageInput => ({ data: png(64, 64), mime: "image/png", label: "ithaca.png" });
+
+  test("OpenAI sends the markup part beside the first image", async () => {
+    const calls = stub({ data: [{ b64_json: PNG_B64 }] });
+    await openaiProvider.generate(SUNBURST, { prompt: "x", references: [base()], markup: layer() }, "k");
+    const form = calls[0].init.body as FormData;
+    expect(form.get("markup"), "IMAGE_MARKUP_PROVIDER_PART").toBeInstanceOf(Blob);
+    expect(form.get("mask")).toBeNull();
+  });
+
+  const refused: [string, Parameters<typeof openaiProvider.generate>[1], RegExp][] = [
+    ["a mask", { prompt: "x", references: [base()], markup: layer(), mask: layer() }, /exclusive/],
+    ["mismatched dimensions", { prompt: "x", references: [base()], markup: layer(png(64, 32)) }, /must match/],
+    [
+      "a layer over 50 MB",
+      (() => {
+        const big = new Uint8Array(50 * 1024 * 1024 + 1);
+        big.set(png(64, 64));
+        return { prompt: "x", references: [base()], markup: layer(big) };
+      })(),
+      /50 MB/,
+    ],
+  ];
+  for (const [label, req, said] of refused) {
+    test(`OpenAI refuses markup with ${label} without a request`, async () => {
+      const calls = stub({ data: [{ b64_json: PNG_B64 }] });
+      const err = await openaiProvider.generate(SUNBURST, req, "k").catch((e) => e);
+      expect(err).toBeInstanceOf(ImageProviderError);
+      expect((err as Error).message).toMatch(said);
+      expect(calls, "IMAGE_MARKUP_PROVIDER_REFUSED").toHaveLength(0);
+    });
+  }
+
+  test("Gemini refuses a markup layer instead of ignoring it", async () => {
+    const calls = stub({});
+    const err = await geminiProvider
+      .generate("gemini-3-pro-image", { prompt: "x", references: [base()], markup: layer() }, "k")
+      .catch((e) => e);
+    expect(err).toBeInstanceOf(ImageProviderError);
+    expect(calls, "IMAGE_MARKUP_GEMINI_PROVIDER").toHaveLength(0);
   });
 });

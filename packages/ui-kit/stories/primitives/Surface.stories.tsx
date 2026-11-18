@@ -176,6 +176,9 @@ export const OperableToned = Operable.extend({
 export const StrongButStatic = Default.extend({
   args: { emphasis: "strong", label: "Route home" },
   play: async ({ canvas, canvasElement }) => {
+    // The surface is there, label and body painted; only the role is withheld.
+    await expect(await canvas.findByText("Route home")).toBeVisible();
+    await expect(await canvas.findByText("9 days / 20")).toBeVisible();
     await expect(canvas.queryByRole("button")).toBeNull();
     await expect(canvasElement.querySelector("[tabindex]")).toBeNull();
     await expect(canvasElement.querySelector(".bk-row, .bk-control")).toBeNull();

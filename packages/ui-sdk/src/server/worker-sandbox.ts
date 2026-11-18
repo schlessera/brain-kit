@@ -20,7 +20,8 @@ import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, open
 import { join, relative } from "node:path";
 import { BRAIN_SCRATCH_DIR, BRAIN_WORKSPACES_DIR, linkRule, READ_ONLY_BRAIN_RULE, TURN_TEMP_RULE } from "@schlessera/brain-common/internal/worker-areas";
 import { brainGitSteps } from "./maintenance-worker.js";
-import { runWorkerStepsSync, type WorkerSteps } from "./worker-steps.js";
+import { MaintenanceTempBusyError } from "./maintenance-temp-budget.js";
+import { runWorkerStepsSync, workerStep, type WorkerSteps } from "./worker-steps.js";
 import { WORKER_XDG_HOME } from "./worker-xdg.js";
 
 /**
@@ -410,18 +411,45 @@ function unlinkScanned(dir: string, alias: ScannedAlias): void {
 function* scratchIgnoredByGit(brain: string, maintenance?: import("./maintenance-worker.js").MaintenanceHost): WorkerSteps<true | { refused: string }> {
   const git = Bun.which("git");
   const own = Boolean(lstatSync(join(brain, ".git"), { throwIfNoEntry: false }));
+  const deadline = Date.now() + (maintenance?.admissionWaitMs ?? SCRATCH_ADMISSION_WAIT_MS);
   if (!own) {
     if (!git) return true;
-    const inRepo = yield* brainGitSteps(brain, ["rev-parse", "--git-dir"], { ...maintenance, tempKind: "scratch_query" });
+    const inRepo = yield* admittedGitSteps(brain, ["rev-parse", "--git-dir"], deadline, maintenance);
     if (inRepo === 127) return { refused: "git could not run to confirm .brain/scratch/ is gitignored" };
     if (inRepo !== 0) return true;
   }
   if (!git) return { refused: "git is not available to confirm .brain/scratch/ is gitignored" };
-  const exitCode = yield* brainGitSteps(brain, ["check-ignore", "-q", "--no-index", "--", BRAIN_SCRATCH_DIR], { ...maintenance, tempKind: "scratch_query" });
+  const exitCode = yield* admittedGitSteps(brain, ["check-ignore", "-q", "--no-index", "--", BRAIN_SCRATCH_DIR], deadline, maintenance);
   if (exitCode === 0) return true;
   return { refused: exitCode === 1
     ? ".brain/scratch/ is not gitignored, so a file written there could be committed; run `brain doctor --fix` outside a hosted turn"
     : "git could not confirm .brain/scratch/ is gitignored" };
+}
+
+/**
+ * How long an awaited scratch check waits for a busy maintenance budget
+ * (#4079). A turn's own short maintenance commands, such as a reference
+ * resolution or another turn's check, finish well inside it; a long holder,
+ * such as an index, still leaves scratch read-only after it rather than
+ * holding the turn's start.
+ */
+export const SCRATCH_ADMISSION_WAIT_MS = 3_000;
+
+/**
+ * One scratch-check Git query, admitted by `deadline`. An awaited runner
+ * waits for the budget to free and tries again; a synchronous one refuses
+ * at once, as before.
+ */
+function* admittedGitSteps(brain: string, args: readonly string[], deadline: number, maintenance?: import("./maintenance-worker.js").MaintenanceHost): WorkerSteps<number> {
+  const { admissionWaitMs: _wait, ...host } = maintenance ?? {};
+  for (;;) {
+    try { return yield* brainGitSteps(brain, args, { ...host, tempKind: "scratch_query" }); }
+    catch (error) {
+      if (!(error instanceof MaintenanceTempBusyError) || Date.now() >= deadline) throw error;
+      const freed = yield* workerStep<boolean>(() => { throw error; }, () => error.freedWithin(deadline - Date.now()));
+      if (!freed) throw error;
+    }
+  }
 }
 
 /** Repo-relative path for a server log line or the note; never an absolute host path. */
@@ -538,7 +566,7 @@ export interface WorkerNoteFacts {
 /** What the worker can read of the brain's secrets and the host's provider keys (#1666). */
 const secretsNote = (kept: readonly string[], relayed: boolean) => `**Secrets.** The brain's \`.env*\` files cannot be read here, and this worker holds no provider keys${kept.length ? ` except ${kept.map(name => `\`${name}\``).join(", ")}` : ""}. ${relayed ? RELAY_NOTE : `A \`brain\` command that needs ${kept.length ? "another" : "an"} embedding, completion, reranking or image provider key reports the provider as unavailable (\`provider_unavailable\`), and \`brain search\` then falls back to keyword results.`} Do not look for keys elsewhere; say which provider was unavailable.`;
 /** What the CLI provider relay meters (#1673). Fixed text: it names no live fact. */
-const RELAY_NOTE = "The `brain` CLI's Gemini embeddings and completions, Anthropic completions, and OpenAI and Gemini images go through the host's metered provider relay: the host adds their keys, records their usage on this turn and counts it toward its budgets, and refuses a request with `budget_exceeded` once a budget is blocked. Video and the JeV reranker are not relayed and report `provider_unavailable`, and `brain search` falls back to keyword results when its provider is unavailable.";
+const RELAY_NOTE = "The `brain` CLI's Gemini embeddings and completions (video included), Anthropic completions, OpenAI and Gemini images, and the JeV reranker go through the host's metered provider relay: the host adds their keys, records their usage on this turn and counts it toward its budgets, and refuses a request with `budget_exceeded` once a budget is blocked. `brain search` falls back to keyword results when its embedding provider is unavailable, and to lifecycle order when its reranker is.";
 
 const SHARED_UID_NOTE = "The worker shares the server's uid; server state is protected by masks only. A read-only brain does not prevent access to other host paths available to that uid.";
 

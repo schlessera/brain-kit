@@ -15,7 +15,7 @@ console.log("FIXTURE_LIFETIME " + JSON.stringify({ brain, files: readdirSync(bra
   const receipts = stdout.split("\n").filter(line => line.startsWith("FIXTURE_LIFETIME "));
   expect(receipts).toHaveLength(1);
   const { brain, files } = JSON.parse(receipts[0]!.slice("FIXTURE_LIFETIME ".length)) as { brain: string; files: string[] };
-  expect(brain.startsWith(resolve(tmpdir(), "show-block-brain-"))).toBe(true);
+  expect(brain).toStartWith(resolve(tmpdir(), "show-block-brain-"));
   try {
     expect(files.length).toBeGreaterThan(0);
     expect(files).toContain(".claude");

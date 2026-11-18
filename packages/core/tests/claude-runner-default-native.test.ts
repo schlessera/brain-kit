@@ -20,7 +20,7 @@ test("actual core default allows Bash Read Write while operator denied Write rem
  const toolResults=arm.physical.flatMap((c:any)=>c.request.messages??[]).flatMap((m:any)=>Array.isArray(m.content)?m.content:[]).filter((b:any)=>b.type==="tool_result");
  expect(toolResults.length).toBeGreaterThan(0);
  if(arm===allow){const read=toolResults.find((b:any)=>b.tool_use_id==="tool_allow_1");expect(JSON.stringify(read.content)).toContain("Odysseus inspects the raft");expect(read.is_error??false).toBe(false);}
- else expect(toolResults.some((b:any)=>b.is_error===true)).toBe(true);
+ else expect(toolResults).toContainEqual(expect.objectContaining({is_error:true}));
  }
  }finally{rmSync(parent,{recursive:true,force:true});}
 },90000);

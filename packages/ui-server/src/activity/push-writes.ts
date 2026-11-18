@@ -18,13 +18,17 @@ export function setup(db: Database) {
         .run(generated.publicKey, generated.privateKey, Date.now());
       return readKeys()!;
     },
+    /**
+     * `now` was stamped before the request waited for the writer and records
+     * `created_at`; the login is checked against the clock here (#4176).
+     */
     subscribe(sub: Subscription, principalId: string, label: string | undefined, now: number) {
       return db.query(`INSERT INTO push_subscriptions (endpoint, p256dh, auth, label, created_at, principal_id)
         SELECT ?, ?, ?, ?, ?, id FROM principals WHERE id = ? AND revoked_at IS NULL
           AND typeof(expires_at) = 'integer' AND expires_at > ?
         ON CONFLICT(endpoint) DO UPDATE SET p256dh = excluded.p256dh, auth = excluded.auth,
           label = excluded.label, principal_id = excluded.principal_id`)
-        .run(sub.endpoint, sub.keys.p256dh, sub.keys.auth, label ?? null, now, principalId, now).changes > 0;
+        .run(sub.endpoint, sub.keys.p256dh, sub.keys.auth, label ?? null, now, principalId, Date.now()).changes > 0;
     },
     unsubscribe(endpoint: string, principalId: string) {
       return db.query("DELETE FROM push_subscriptions WHERE endpoint = ? AND principal_id = ?").run(endpoint, principalId).changes > 0;

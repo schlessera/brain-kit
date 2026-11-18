@@ -81,7 +81,9 @@ for (const width of [320, 1280]) {
       expect(kept.map((a) => a.getAttribute("href"))).toEqual(["#/files/notes/raft-reference.md"]);
       expect(host.querySelector("img")).toBeNull();
 
-      for (const label of host.querySelectorAll<HTMLElement>(".brain-expired-label")) {
+      const labels = [...host.querySelectorAll<HTMLElement>(".brain-expired-label")];
+      expect(labels, "EXPIRED_LABELS_RENDERED").toHaveLength(3);
+      for (const label of labels) {
         const fg = parse(getComputedStyle(label).color), bg = parse(getComputedStyle(host).backgroundColor);
         expect(contrast(fg.rgb, bg.rgb), `${theme} expired label contrast`).toBeGreaterThanOrEqual(4.5);
       }

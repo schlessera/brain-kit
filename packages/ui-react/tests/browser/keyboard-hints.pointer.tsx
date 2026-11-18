@@ -90,6 +90,11 @@ for (const width of live ? [1280] : [320, 600, 1280]) {
     }
     expect(composerHint.getBoundingClientRect().height > 0 && composerHint.innerText.includes("⏎"), "composer keys").toBe(fine);
     await expect.poll(() => ui!.stores.ui.getState().filePanelOpen).toBe(true);
+    // The open panel has started the real lazy tree load (#3285). Awaiting it
+    // states the dependency; the wait below does not need it, because
+    // `expect.element` without a timeout gets the test's remaining time, not
+    // `expect.poll`'s 1000 ms. A tree module held for 5 s still passed there.
+    await import("../../src/components/files/file-tree.js");
     const tree = page.getByRole("treeitem", { name: /return.md/ });
     await expect.element(tree).toBeVisible();
     if (width >= 900) {

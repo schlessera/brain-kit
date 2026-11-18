@@ -21,6 +21,7 @@ import { resolveServerConfig } from "../src/config/env";
 import { resolveAmbientPrincipal } from "../src/db/principals";
 import type { WSContext } from "../src/ws/clients";
 import { createWsHandlers } from "../src/ws/connection";
+import { requireTurnFreeSpace } from "./helpers/turn-free-space.js";
 
 // Obviously fake: the shape Claude Code accepts, the bytes of no real token.
 const FIRST_TOKEN = `sk-ant-oat01-${"a".repeat(95)}AA`;
@@ -108,6 +109,8 @@ async function deploy(token: string, mintedAt: string): Promise<BrainUiApp> {
 
 /** Send one turn and return every frame the client got. */
 async function sendTurn(app: BrainUiApp): Promise<Array<Record<string, unknown>>> {
+  // A real turn needs the scope free-space floor; say so instead of failing on it (#2551).
+  requireTurnFreeSpace(app.config.brainPath);
   const sent: string[] = [];
   const ws = { send: (data: string) => sent.push(data), close: () => {}, readyState: 1 } as unknown as WSContext;
   const principal = resolveAmbientPrincipal(app.db, "none", "No authentication", "No authentication");
@@ -179,6 +182,6 @@ describe("a rejected subscription token", () => {
     }
     expect(seen.length).toBeGreaterThan(0);
     expect(seen.filter((request) => request.xApiKey !== null)).toEqual([]);
-    expect(seen.every((request) => request.authorization === `Bearer ${FIRST_TOKEN}`)).toBe(true);
+    expect(new Set(seen.map((request) => request.authorization))).toEqual(new Set([`Bearer ${FIRST_TOKEN}`]));
   }, 120_000);
 });

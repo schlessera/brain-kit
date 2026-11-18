@@ -38,6 +38,15 @@ bun run check:pr --base origin/main
      tested parent/head/checkout and selected proof; see
      docs/process/github.md#stacked-pull-requests. -->
 
+<!-- Proof-system PRs only (bun scripts/proof-system.ts classify): keep the
+     next heading and fill it in; otherwise delete it. Name the replay or
+     dispatch run URLs, the head SHA they ran on and the comparison they
+     establish. The merge path refuses a proof-system PR without a linked run
+     on the head, or on an ancestor with no proof-system change after it;
+     declared red-main fixes are exempt
+     (docs/decisions/ci-utility.md#lane-and-qualification-gates). -->
+### Off-main qualification
+
 <!-- check:pr prints its receipt block at the end of every run. Replace the
      two markers below with that block, keeping one receipt only. The merge
      path refuses a PR with no receipt, and refuses one whose skipped,
@@ -50,11 +59,13 @@ bun run check:pr --base origin/main
 
 - [ ] Focused local preflight/behavioral receipts and complete selected hosted proof passed; actual head/base/job checkout evidence is in Proof.
 - [ ] Acceptance criteria from the issue are all met, or the gap is named below.
+- [ ] A PR touching `packages/ui-react/`, `packages/ui-kit/`, `packages/ui-server/` or `packages/core/` carries a recorded independent review of its head (`bun scripts/review-receipt.ts check <pr>`), or it touches none of them.
 - [ ] The PR and completed/advanced issues have verified release milestones under docs/process/github.md.
 - [ ] A changeset is included, or this changes nothing a consumer can see.
 - [ ] No personal data anywhere in the diff — the leakage gate covers the whole tree.
 - [ ] The integration contract index or relevant component is updated in this same commit, or nothing in the machine surface moved.
 - [ ] Docs under `docs/` reflect the change, or nothing documented moved.
+- [ ] A fail-closed guard added or changed answers the [proportionate-containment checklist](docs/decisions/proportionate-containment.md#checklist-for-a-new-or-changed-guard) in this body, or no guard changed.
 - [ ] Provider history stays append-only (`docs/decisions/provider-history.md`): the provider-history guard passes, or nothing on a turn's path changed.
 
 ## Anything left open

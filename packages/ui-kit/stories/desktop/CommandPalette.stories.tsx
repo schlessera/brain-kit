@@ -115,7 +115,7 @@ export const EveryWriteShowsItsEffect = meta.story({
 
     for (const write of writes) {
       // In the row, visibly.
-      await expect(await canvas.findByText(write.effect!)).toBeTruthy();
+      await expect(await canvas.findByText(write.effect!)).toBeVisible();
       // And in the name a screen reader is given.
       const row = options.find((o) => o.textContent?.includes(write.label))!;
       await expect(row).toHaveAccessibleName(`${write.label}, ${write.effect}`);
@@ -253,8 +253,8 @@ export const Static = meta.story({
     await expect(canvas.queryByRole("option")).toBeNull();
     await expect(canvasElement.querySelector("[tabindex]")).toBeNull();
     await expect(canvasElement.querySelector(".bk-row")).toBeNull();
-    await expect(await canvas.findByText("enqueue")).toBeTruthy();
-    await expect(await canvas.findByText("reindex")).toBeTruthy();
+    await expect(await canvas.findByText("enqueue")).toBeVisible();
+    await expect(await canvas.findByText("reindex")).toBeVisible();
     // The query is still a real input — read-only rather than fake, as the
     // composer's is — so it still focuses and still announces itself.
     const input = await canvas.findByRole<HTMLInputElement>("combobox");

@@ -23,7 +23,7 @@ beforeAll(() => {
 afterAll(() => upstream.stop(true));
 
 const KEYS: Record<string, string> = { ANTHROPIC_API_KEY: "odysseus-host-anthropic", GEMINI_API_KEY: "odysseus-host-gemini",
-  OPENAI_API_KEY: "odysseus-host-openai", ITHACA_GATEWAY_KEY: "odysseus-host-gateway" };
+  OPENAI_API_KEY: "odysseus-host-openai", TYPESAFE_API_KEY: "odysseus-host-typesafe", ITHACA_GATEWAY_KEY: "odysseus-host-gateway" };
 
 async function relayed(options: Partial<ProviderRelayOptions>, request: { path: string; family?: string; key?: string; origin?: string;
   method?: string; headers?: Record<string, string>; body?: string | Uint8Array }) {
@@ -88,6 +88,7 @@ describe("recipient authority", () => {
       gemini: { key: "GEMINI_API_KEY", origin: "https://generativelanguage.googleapis.com" },
       anthropic: { key: "ANTHROPIC_API_KEY", origin: "https://api.anthropic.com" },
       openai: { key: "OPENAI_API_KEY", origin: "https://api.openai.com" },
+      typesafe: { key: "TYPESAFE_API_KEY", origin: "https://api.typesafe.ai" },
     });
     // Gemini's key toward Anthropic's first-party origin is not a default pair.
     const crossed = await relayed({ origins: new Map() }, { path: "/v1/messages", key: "GEMINI_API_KEY", origin: "https://api.anthropic.com" });
@@ -143,6 +144,55 @@ describe("routes", () => {
       expect(result.receipts).toMatchObject([{ family: "openai", operation: "image", model: "gpt-image-2.5-flare",
         usage: { inputTokens: 100, outputTokens: 1000 } }]);
     } finally { reply = () => Response.json({ usage: { input_tokens: 7, output_tokens: 3 } }); }
+  });
+});
+
+describe("jev reranking (#3792)", () => {
+  const jev = (request: { path?: string; key?: string; origin?: string; method?: string } = {}) => ({ path: "/v1/systemone", family: "typesafe",
+    key: "TYPESAFE_API_KEY", body: JSON.stringify({ model: "jev-1.13.0", state: { query: "Ithaca", candidates: [] }, questions: {} }), ...request });
+  const answer = () => Response.json({ model: "jev-1.13.0", answers: { ranking: { type: "choice" } }, usage: { input_tokens: 700, output_tokens: 4 } });
+
+  test("the reranking request reaches its recipient with the host's key as a bearer token, metered", async () => {
+    reply = answer;
+    try {
+      const result = await relayed({ origins: new Map([["TYPESAFE_API_KEY", [upstream.url.origin]]]) },
+        { ...jev(), headers: { authorization: "Bearer brain-provider-relay-placeholder", "x-api-key": "odysseus-worker-key" } });
+      expect(result.status).toBe(200);
+      expect(result.upstream.map(request => request.path)).toEqual(["/v1/systemone"]);
+      const headers = result.upstream[0]!.headers;
+      expect(headers.authorization, "JEV_RELAY_PLACES_HOST_KEY").toBe(`Bearer ${KEYS.TYPESAFE_API_KEY}`);
+      expect(["x-api-key", "x-brain-provider", "x-brain-provider-key", "x-brain-provider-origin"].filter(name => headers[name] !== undefined),
+        "JEV_RELAY_STRIPS_WORKER_CREDENTIALS").toEqual([]);
+      expect(result.receipts, "JEV_RELAY_METERED").toMatchObject([{ family: "typesafe", operation: "reranking", model: "jev-1.13.0",
+        origin: upstream.url.origin, key: "TYPESAFE_API_KEY", outcome: "completed", status: 200, usage: { inputTokens: 700, outputTokens: 4 } }]);
+    } finally { reply = () => Response.json({ usage: { input_tokens: 7, output_tokens: 3 } }); }
+  });
+
+  test.each([
+    ["another path", { path: "/v1/systemtwo" }, "route_not_allowed"],
+    ["a path below the route", { path: "/v1/systemone/batch" }, "route_not_allowed"],
+    ["a query string", { path: "/v1/systemone?debug=1" }, "route_not_allowed"],
+    ["another family's route", { path: "/v1/messages" }, "route_not_allowed"],
+    ["a GET", { method: "GET" }, "method_not_allowed"],
+    ["a DELETE", { method: "DELETE" }, "method_not_allowed"],
+    ["an unlisted origin", { origin: "https://sirens.example" }, "recipient_not_authorized"],
+    ["the key toward another provider's first-party origin", { origin: "https://api.anthropic.com" }, "recipient_not_authorized"],
+    ["another key toward the Jev origin", { key: "ANTHROPIC_API_KEY", origin: "https://api.typesafe.ai" }, "recipient_not_authorized"],
+  ] as const)("%s under the typesafe family is refused before contact", async (_, request, reason) => {
+    const result = await relayed({ origins: new Map([["TYPESAFE_API_KEY", [upstream.url.origin]]]) },
+      jev({ origin: upstream.url.origin, ...request }));
+    expect(result.status).toBeGreaterThanOrEqual(400);
+    expect(result.refusals, "JEV_RELAY_REFUSES_OTHER_REQUESTS").toMatchObject([{ family: "typesafe", reason }]);
+    expect(result.upstream).toEqual([]);
+    expect(result.receipts).toEqual([]);
+  });
+
+  test("a blocked budget refuses the reranking request before contact", async () => {
+    const result = await relayed({ origins: new Map([["TYPESAFE_API_KEY", [upstream.url.origin]]]),
+      admit: () => ({ allowed: false, message: "Turn inference budget reached." }) }, jev({ origin: upstream.url.origin }));
+    expect(result.status).toBe(403);
+    expect(result.refusals, "JEV_RELAY_BUDGET_REFUSAL").toMatchObject([{ family: "typesafe", reason: "budget_exceeded" }]);
+    expect(result.upstream).toEqual([]);
   });
 });
 
@@ -214,7 +264,7 @@ describe("review hardening", () => {
     try {
       const result = await relayed({}, { path: "/v1/messages" });
       expect(result.status).toBe(200);
-      expect(result.body.includes(KEYS.ANTHROPIC_API_KEY!), "RELAY_SCRUBS_ECHOED_KEY").toBe(false);
+      expect(result.body, "RELAY_SCRUBS_ECHOED_KEY").not.toContain(KEYS.ANTHROPIC_API_KEY!);
       expect(JSON.parse(result.body).echo).toBe("[redacted]");
       expect(result.receipts, "SCRUBBED_RESPONSE_STILL_METERED").toMatchObject([{ usage: { inputTokens: 1, outputTokens: 1 } }]);
     } finally { reply = () => Response.json({ usage: { input_tokens: 7, output_tokens: 3 } }); }
@@ -273,7 +323,7 @@ describe("review hardening", () => {
       const stopped = relay.stop();
       await stopped;
       expect(receipts.length, "RELAY_STOP_SETTLES_INFLIGHT").toBe(MAX_PROVIDER_CONCURRENT_REQUESTS);
-      expect(receipts.every(receipt => receipt.outcome === "cancelled" && receipt.usage === null)).toBe(true);
+      expect(receipts.map(receipt => [receipt.outcome, receipt.usage])).toEqual(Array(MAX_PROVIDER_CONCURRENT_REQUESTS).fill(["cancelled", null]));
       release();
       await Promise.all(inflight);
     } finally { release(); await relay.stop(); reply = () => Response.json({ usage: { input_tokens: 7, output_tokens: 3 } }); seen.length = 0; }
@@ -296,6 +346,8 @@ describe("second review", () => {
 
   test("a response body that idles longer than Bun's default idle timeout still arrives whole (#3441)", async () => {
     // Bun closes a started response that sends nothing for 10s unless the server disables idleTimeout.
+    // Kept real time: that idle timer is native, so no JavaScript clock advances
+    // it. 15 s outlasts it by 5 s.
     reply = () => new Response(new ReadableStream<Uint8Array>({ async start(controller) {
       controller.enqueue(new TextEncoder().encode('{"usage":'));
       await Bun.sleep(15_000);
@@ -324,7 +376,7 @@ describe("second review", () => {
     try {
       const result = await relayed({ credential: name => name === "ANTHROPIC_API_KEY" ? padded : undefined }, { path: "/v1/messages" });
       expect(result.upstream[0]!.headers["x-api-key"]).toBe(KEYS.ANTHROPIC_API_KEY);
-      expect(result.body.includes(KEYS.ANTHROPIC_API_KEY!), "TRIMMED_KEY_REDACTED").toBe(false);
+      expect(result.body, "TRIMMED_KEY_REDACTED").not.toContain(KEYS.ANTHROPIC_API_KEY!);
     } finally { reply = () => Response.json({ usage: { input_tokens: 7, output_tokens: 3 } }); }
   });
 });

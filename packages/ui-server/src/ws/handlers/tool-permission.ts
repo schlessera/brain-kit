@@ -67,7 +67,8 @@ export const handleToolApproval: ClientMessageHandler<"tool_approval"> = async (
     );
     return;
   }
-  coordinator.claimApproval(msg.toolUseId);
+  const claimed = coordinator.claimApproval(msg.toolUseId, p => p === pending);
+  if (!claimed) return;
   // Remember-on-approve. Kind "command" never persists (the client
   // hides the option, but the wire is not trusted to enforce policy).
   // Neither does an approval given under an enforced allowlist that
@@ -89,7 +90,15 @@ export const handleToolApproval: ClientMessageHandler<"tool_approval"> = async (
     !pending.request.outsideEnforcedAllowlist;
   const actorAlways = pending.request.kind === "actor" && !pending.request.outsideEnforcedAllowlist && msg.always === true;
   if (msg.always && remembers) {
-    await store.add(pending.request.toolName);
+    try { await store.add(pending.request.toolName); }
+    catch (error) {
+      host.log.emit({ severityText: "ERROR", body: "tool grant storage failed",
+        attributes: { "tool.name": pending.request.toolName, "toolUse.id": msg.toolUseId,
+          error: error instanceof Error ? error.message : String(error) } });
+      coordinator.expireApproval(msg.toolUseId, "The tool grant could not be retained. Nothing ran; request a fresh decision.",
+        "grant_storage_failed", p => p === claimed);
+      return;
+    }
   } else if (msg.always && !actorAlways) {
     // The user asked for something the host will not do. Recorded for
     // the same reason the bridge records a grant it declines to apply:

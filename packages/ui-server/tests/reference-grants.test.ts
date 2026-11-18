@@ -1,21 +1,30 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { Hono } from "hono";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { generateSignedCookie } from "hono/cookie";
 
 import type { AppEnv } from "../src/app-env";
 import { resolveServerConfig } from "../src/config/env";
+import { accountWrites, registerAccountWrites } from "../src/db/account-writes";
 import { createUiDb } from "../src/db/client";
+import { openSqliteWriter } from "../src/db/write-worker";
 import { createPrincipal, revokePrincipal, type Principal } from "../src/db/principals";
 import {
   coveringReferenceGrant,
   createReferenceGrant,
   isLiveReferenceGrant,
   MAX_LIVE_REFERENCE_GRANTS,
+  REFERENCE_GRANT_RETENTION_MS,
+  ReferenceGrantPrincipalError,
   referenceRepository,
   revokeReferenceGrant,
 } from "../src/db/reference-grants";
 import { authGuard, type AuthRuntime } from "../src/middleware/auth";
 import { principalManagementRoutes } from "../src/middleware/principals";
+import * as controls from "./helpers/dialogue-test-writes";
 
 const SECRET = "test-cookie-secret-0123456789abcdef";
 const BRAIN = "ithaca-brain";
@@ -54,6 +63,74 @@ describe("reference repository locations", () => {
 });
 
 describe("reference grant records", () => {
+  test("GitHub grant prefixes normalize case while other repository paths stay exact", () => {
+    const penelope = owner();
+    const github = grant(penelope.id, penelope.id, "https://github.com/Odysseus/Ithaca.GIT", "GITHUB_TOKEN");
+    expect(github.repositoryPrefix, "GITHUB_GRANT_PREFIX_CANONICAL_CASE").toBe("https://github.com/odysseus/ithaca");
+    expect(covering(penelope.id, "https://github.com/ODYSSEUS/ITHACA")?.id).toBe(github.id);
+    expect(covering(penelope.id, "https://github.com/odysseus/ithaca-crew")).toBeNull();
+    const local = grant(penelope.id, penelope.id, "file:///srv/fixtures/Ithaca");
+    expect(covering(penelope.id, "file:///srv/fixtures/Ithaca/records")?.id).toBe(local.id);
+    expect(covering(penelope.id, "file:///srv/fixtures/ithaca/records"), "FILE_GRANT_PATH_CASE_REMAINS_SIGNIFICANT").toBeNull();
+    const other = grant(penelope.id, penelope.id, "https://forge.example/Odysseus");
+    expect(covering(penelope.id, "https://forge.example/odysseus/ithaca"), "OTHER_HOST_GRANT_PATH_CASE_REMAINS_SIGNIFICANT").toBeNull();
+    expect(covering(penelope.id, "https://forge.example/Odysseus/ithaca")?.id).toBe(other.id);
+  });
+
+  test("retained GitHub prefix aliases match and cannot create duplicate live grants", () => {
+    const penelope = owner(), existing = grant(penelope.id, penelope.id, "https://github.com/odysseus/ithaca", "GITHUB_TOKEN");
+    db.query("UPDATE reference_grants SET repository_prefix = ? WHERE id = ?").run("https://github.com/Odysseus/Ithaca", existing.id);
+    expect(covering(penelope.id, "https://github.com/odysseus/ithaca")?.id, "RETAINED_GITHUB_PREFIX_ALIAS_MATCHES").toBe(existing.id);
+    expect(() => grant(penelope.id, penelope.id, "https://github.com/ODYSSEUS/ITHACA", "GITHUB_TOKEN"), "RETAINED_GITHUB_ALIAS_PREVENTS_DUPLICATE_GRANTS").toThrow("identical live reference grant");
+  });
+
+  test("canonical prefix specificity preserves the narrower API permission boundary", () => {
+    const penelope = owner(), narrow = grant(penelope.id, penelope.id, "https://github.com/odysseus/x", "GITHUB_TOKEN");
+    const broad = createReferenceGrant(db, { brain: BRAIN, principalId: penelope.id, createdBy: penelope.id,
+      repositoryPrefix: "https://github.com/odysseus", credential: "GITHUB_TOKEN", now: narrow.createdAt + 1,
+      metadataCredentialRecipient: "https://api.github.com" });
+    db.query("UPDATE reference_grants SET repository_prefix = ? WHERE id = ?").run("https://github.com/Odysseus", broad.id);
+    const selected = covering(penelope.id, "https://github.com/odysseus/x");
+    expect(selected?.id, "NORMALIZED_LONGEST_PREFIX_RETAINS_PERMISSION_BOUNDARY").toBe(narrow.id);
+    expect(selected?.metadataCredentialRecipient).toBeUndefined();
+  });
+
+  for (const prefix of ["http://127.0.0.1:8418/odysseus/ithaca.git.git", "https://github.com/Odysseus/Ithaca.git.git", "https://forge.example/Odysseus/Ithaca.git.git"])
+    test(`stored grant suffix preserves the intended repository boundary for ${prefix}`, () => {
+      const penelope = owner(), credential = prefix.startsWith("https://forge.example") ? null : "GITHUB_TOKEN";
+      const record = grant(penelope.id, penelope.id, prefix, credential), neighbor = prefix.slice(0, -8);
+      expect(covering(penelope.id, neighbor), "STORED_PREFIX_CANNOT_STRIP_ANOTHER_CLONE_SUFFIX").toBeNull();
+      expect(covering(penelope.id, prefix)?.id, "CANONICAL_SUFFIX_GRANT_COVERS_INTENDED_REPOSITORY").toBe(record.id);
+      const distinct = grant(penelope.id, penelope.id, neighbor, credential);
+      expect(distinct.id).not.toBe(record.id);
+      expect(covering(penelope.id, neighbor)?.id).toBe(distinct.id);
+      expect(covering(penelope.id, prefix)?.id).toBe(record.id);
+    });
+
+  for (const prefix of ["http://127.0.0.1:8418/odysseus/ithaca.git.git", "https://github.com/Odysseus/Ithaca.git.git", "https://forge.example/Odysseus/Ithaca.git.git"])
+    test(`a stored canonical suffix still rejects an identical grant for ${prefix}`, () => {
+      const penelope = owner(), credential = prefix.startsWith("https://forge.example") ? null : "GITHUB_TOKEN";
+      grant(penelope.id, penelope.id, prefix, credential);
+      expect(() => grant(penelope.id, penelope.id, prefix, credential), "CANONICAL_SUFFIX_CANNOT_BYPASS_DUPLICATE_GRANT_CHECK").toThrow("identical live reference grant");
+    });
+
+  test("a retained mixed-case literal GitHub suffix cannot authorize its neighbor", () => {
+    const penelope = owner(), record = grant(penelope.id, penelope.id, "https://github.com/odysseus/ithaca.git.git", "GITHUB_TOKEN");
+    db.query("UPDATE reference_grants SET repository_prefix = ? WHERE id = ?").run("https://github.com/Odysseus/Ithaca.GIT", record.id);
+    expect(covering(penelope.id, "https://github.com/odysseus/ithaca"), "RETAINED_CANONICAL_SUFFIX_STAYS_LITERAL").toBeNull();
+    expect(covering(penelope.id, "https://github.com/odysseus/ithaca.git.git")?.id).toBe(record.id);
+  });
+
+  test("a canonical suffix keeps the narrower API permission boundary", () => {
+    const penelope = owner();
+    createReferenceGrant(db, { brain: BRAIN, principalId: penelope.id, createdBy: penelope.id,
+      repositoryPrefix: "https://github.com/odysseus", credential: "GITHUB_TOKEN", now: Date.now(), metadataCredentialRecipient: "https://api.github.com" });
+    const narrow = grant(penelope.id, penelope.id, "https://github.com/odysseus/ithaca.git.git", "GITHUB_TOKEN");
+    const selected = covering(penelope.id, "https://github.com/odysseus/ithaca.git.git");
+    expect(selected?.id, "CANONICAL_SUFFIX_RETAINS_NARROW_API_PERMISSION_SCOPE").toBe(narrow.id);
+    expect(selected?.metadataCredentialRecipient).toBeUndefined();
+  });
+
   test("a live covering grant authorizes only its own brain, principal and path-segment prefix", () => {
     const penelope = owner(), telemachus = agent(penelope.id);
     const record = grant(telemachus.id, penelope.id, "https://github.com/odysseus", "BRAIN_UI_SYNC_GITHUB_TOKEN");
@@ -66,11 +143,57 @@ describe("reference grant records", () => {
     expect(covering(telemachus.id, "https://github.com/odysseus/ithaca", "another-brain"), "REFERENCE_GRANT_BRAIN_SUBSTITUTION").toBeNull();
   });
 
+  test("API credential permission is explicit, durable and scoped to a live repository grant", () => {
+    const penelope = owner(), telemachus = agent(penelope.id);
+    const legacy = grant(telemachus.id, penelope.id, "https://github.com/odysseus", "GITHUB_TOKEN");
+    expect(legacy).not.toHaveProperty("metadataCredentialRecipient");
+    expect(covering(telemachus.id, "https://github.com/odysseus/ithaca")).not.toHaveProperty("metadataCredentialRecipient");
+    const record = createReferenceGrant(db, { brain: BRAIN, principalId: telemachus.id, createdBy: penelope.id,
+      repositoryPrefix: "https://github.com/odysseus/ithaca", credential: "GITHUB_TOKEN", now: Date.now(),
+      metadataCredentialRecipient: "https://api.github.com" });
+    expect(covering(telemachus.id, "https://github.com/odysseus/ithaca"), "REFERENCE_API_RECIPIENT_EXPLICITLY_PERSISTED")
+      .toHaveProperty("metadataCredentialRecipient", "https://api.github.com");
+    expect(covering(penelope.id, "https://github.com/odysseus/ithaca"), "REFERENCE_API_PERMISSION_PRINCIPAL_BOUND").toBeNull();
+    revokeReferenceGrant(db, { brain: BRAIN, principalId: telemachus.id, id: record.id, now: Date.now() });
+    expect(covering(telemachus.id, "https://github.com/odysseus/ithaca")).not.toHaveProperty("metadataCredentialRecipient");
+  });
+
+  test("API credential permission never accepts another recipient, a credentialless grant or another repository host", () => {
+    const penelope = owner();
+    for (const [repositoryPrefix, credential, metadataCredentialRecipient] of [
+      ["https://github.com/odysseus", "GITHUB_TOKEN", "https://github.com"],
+      ["https://github.com/odysseus", "GITHUB_TOKEN", "https://api.github.com.evil.example"],
+      ["https://github.com/odysseus", "GITHUB_TOKEN", true],
+      ["https://github.com/odysseus", null, "https://api.github.com"],
+      ["http://127.0.0.1:8418/odysseus", "GITHUB_TOKEN", "https://api.github.com"],
+    ]) expect(() => createReferenceGrant(db, { brain: BRAIN, principalId: penelope.id, createdBy: penelope.id,
+      repositoryPrefix, credential, metadataCredentialRecipient, now: Date.now() }), "REFERENCE_API_RECIPIENT_BOUNDARY").toThrow();
+  });
+
   test("the longest covering prefix wins", () => {
     const penelope = owner();
     grant(penelope.id, penelope.id, "https://github.com/odysseus", "GITHUB_TOKEN");
     const narrow = grant(penelope.id, penelope.id, "https://github.com/odysseus/ithaca", "BRAIN_UI_SYNC_GITHUB_TOKEN");
     expect(covering(penelope.id, "https://github.com/odysseus/ithaca")?.credential).toBe(narrow.credential);
+  });
+
+  test("upgrading legacy grants and reopening preserves only explicitly granted API permission", () => {
+    const root = mkdtempSync(join(tmpdir(), "odysseus-reference-grants-")), path = join(root, "ui.db");
+    let disk = createUiDb(path);
+    try {
+      const principal = createPrincipal(disk, { authMethod: "password", label: "Penelope", ttlSeconds: 3600 });
+      const input = { brain: BRAIN, principalId: principal.id, createdBy: principal.id, repositoryPrefix: "https://github.com/odysseus",
+        credential: "GITHUB_TOKEN", now: Date.now() };
+      createReferenceGrant(disk, input);
+      disk.exec("ALTER TABLE reference_grants DROP COLUMN metadata_credential_recipient; DELETE FROM _migrations WHERE filename = '088_reference_metadata_recipient.sql'");
+      disk.close(); disk = createUiDb(path);
+      const read = () => coveringReferenceGrant(disk, { brain: BRAIN, principalId: principal.id,
+        repository: referenceRepository("https://github.com/odysseus/ithaca"), now: Date.now() });
+      expect(read(), "REFERENCE_LEGACY_UPGRADE_DOES_NOT_GRANT_API_RECIPIENT").not.toHaveProperty("metadataCredentialRecipient");
+      createReferenceGrant(disk, { ...input, repositoryPrefix: "https://github.com/odysseus/ithaca", metadataCredentialRecipient: "https://api.github.com" });
+      disk.close(); disk = createUiDb(path);
+      expect(read(), "REFERENCE_API_RECIPIENT_SURVIVES_RESTART").toHaveProperty("metadataCredentialRecipient", "https://api.github.com");
+    } finally { disk.close(); rmSync(root, { recursive: true, force: true }); }
   });
 
   test("revoking the grant or its principal removes authority immediately", () => {
@@ -112,6 +235,94 @@ describe("reference grant records", () => {
   });
 });
 
+describe("reference grant creation behind a held writer", () => {
+  const restores: (() => void)[] = [];
+  afterEach(() => { for (const restore of restores.splice(0)) restore(); });
+
+  /** Resolves once `name` has been posted to the real write worker, where it queues behind the hold. */
+  function posted(name: string): Promise<void> {
+    const descriptor = Object.getOwnPropertyDescriptor(Worker.prototype, "postMessage")!, send = Worker.prototype.postMessage;
+    let seen!: () => void;
+    const sent = new Promise<void>(resolve => { seen = resolve; });
+    const spy = spyOn(Worker.prototype, "postMessage").mockImplementation(function (this: Worker, ...args: [message: unknown, options?: StructuredSerializeOptions | Transferable[]]) {
+      const message = args[0] as { kind?: string; name?: string };
+      if (message.kind === "call" && message.name === name) seen();
+      return Reflect.apply(send, this, args);
+    });
+    restores.push(() => { spy.mockRestore(); Object.defineProperty(Worker.prototype, "postMessage", descriptor); });
+    return sent;
+  }
+
+  async function hosted() {
+    const root = mkdtempSync(join(tmpdir(), "odysseus-grant-writer-")), path = join(root, "ui.db");
+    const disk = createUiDb(path), writer = openSqliteWriter(disk);
+    registerAccountWrites(disk, writer);
+    const control = writer.channel({ url: controls.url, setup: controls.setup }, {});
+    const gate = new Int32Array(new SharedArrayBuffer(8));
+    let held: Promise<unknown> | undefined;
+    const release = () => { Atomics.store(gate, 0, 1); Atomics.notify(gate, 0); };
+    const penelope = createPrincipal(disk, { authMethod: "password", label: "Penelope's loom", ttlSeconds: DAY });
+    const telemachus = createPrincipal(disk, { authMethod: "delegated", label: "Telemachus", createdBy: penelope.id, ttlSeconds: DAY });
+    return { path, disk, penelope, telemachus, release,
+      async hold() {
+        held = control.call("holdUntilReleased", gate);
+        const deadline = Date.now() + 2000;
+        while (!Atomics.load(gate, 1)) { if (Date.now() > deadline) throw Error("Ithaca writer did not hold"); await Bun.sleep(1); }
+      },
+      /** Change a principal from another connection while the writer is held, as a concurrent request would. */
+      elsewhere(change: (other: Database) => void) {
+        const other = new Database(path); other.exec("PRAGMA busy_timeout = 5000");
+        try { change(other); } finally { other.close(); }
+      },
+      async close() {
+        release(); await held; await control.close(); await writer.close(); disk.close();
+        rmSync(root, { recursive: true, force: true });
+      },
+    };
+  }
+
+  for (const login of ["target", "creator"] as const) test(`a ${login} login that expires while the request waits for the writer is refused by the current time`, async () => {
+    const f = await hosted();
+    try {
+      await f.hold();
+      const submitted = posted("createGrant");
+      // Stamped as the route stamps it, before the wait for the writer.
+      const now = Date.now();
+      const pending = accountWrites(f.disk).createGrant({ brain: BRAIN, principalId: f.telemachus.id, createdBy: f.penelope.id,
+        repositoryPrefix: "file:///srv/fixtures/ithaca", credential: null, now });
+      await submitted;
+      // Usable at the request's stamp, expired before the writer takes its turn.
+      const id = login === "target" ? f.telemachus.id : f.penelope.id;
+      f.elsewhere(other => other.query("UPDATE principals SET expires_at = ? WHERE id = ?").run(now + 1, id));
+      await Bun.sleep(5);
+      f.release();
+      const outcome = await pending.then(() => "created", (error: unknown) => error);
+      expect(outcome, `REFERENCE_GRANT_${login.toUpperCase()}_EXPIRY_CHECKED_AT_COMMIT`).toBeInstanceOf(ReferenceGrantPrincipalError);
+      expect(f.disk.query("SELECT COUNT(*) AS n FROM reference_grants").get(), "NO_GRANT_RECORDED").toEqual({ n: 0 });
+    } finally { await f.close(); }
+  });
+
+  test("the stamped time still records the grant and drives retention after the wait", async () => {
+    const f = await hosted();
+    try {
+      // An older stamp than the commit: a revoked grant inside retention by the stamp, outside it by the clock.
+      const now = Date.now() - 60_000, kept = now - REFERENCE_GRANT_RETENTION_MS + 30_000;
+      f.disk.query("INSERT INTO reference_grants (id, brain, principal_id, repository_prefix, credential, created_by, created_at, revoked_at) VALUES ('argos', ?, ?, 'file:///srv/fixtures/argos', NULL, ?, ?, ?)")
+        .run(BRAIN, f.telemachus.id, f.penelope.id, kept - 1, kept);
+      await f.hold();
+      const submitted = posted("createGrant");
+      const pending = accountWrites(f.disk).createGrant({ brain: BRAIN, principalId: f.telemachus.id, createdBy: f.penelope.id,
+        repositoryPrefix: "file:///srv/fixtures/ithaca", credential: null, now });
+      await submitted;
+      f.release();
+      const created = await pending;
+      expect(created.createdAt, "REFERENCE_GRANT_CREATED_AT_IS_THE_STAMP").toBe(now);
+      expect(f.disk.query("SELECT created_at AS at FROM reference_grants WHERE id = ?").get(created.id)).toEqual({ at: now });
+      expect(f.disk.query("SELECT id FROM reference_grants WHERE id = 'argos'").get(), "REFERENCE_GRANT_RETENTION_USES_THE_STAMP").toEqual({ id: "argos" });
+    } finally { await f.close(); }
+  });
+});
+
 describe("owner-only reference grant routes", () => {
   async function cookie(id: string) {
     const serialized = await generateSignedCookie("brain_ui_session", id, SECRET);
@@ -130,7 +341,7 @@ describe("owner-only reference grant routes", () => {
   test("an owner creates, lists and revokes a principal's grants", async () => {
     const penelope = owner(), telemachus = agent(penelope.id), header = await cookie(penelope.id), instance = app();
     const created = await instance.request(`/api/auth/principals/${telemachus.id}/reference-grants`, json("POST", header,
-      { repositoryPrefix: "https://github.com/odysseus/ithaca.git", credential: "BRAIN_UI_SYNC_GITHUB_TOKEN" }));
+      { repositoryPrefix: "https://github.com/Odysseus/Ithaca.GIT", credential: "BRAIN_UI_SYNC_GITHUB_TOKEN" }));
     expect(created.status).toBe(201);
     const body = await created.json() as { id: string };
     expect(body).toMatchObject({ principal_id: telemachus.id, repository_prefix: "https://github.com/odysseus/ithaca", credential: "BRAIN_UI_SYNC_GITHUB_TOKEN", created_by: penelope.id });
@@ -148,6 +359,18 @@ describe("owner-only reference grant routes", () => {
     const penelope = owner(), telemachus = agent(penelope.id), header = await cookie(penelope.id);
     expect((await app().request(`/api/auth/principals/${telemachus.id}`, json("DELETE", header))).status).toBe(200);
     expect(revoked).toEqual([{ grantIds: [], principalIds: [telemachus.id] }]);
+  });
+
+  test("only an owner can create explicit API permission and its receipt lists the fixed recipient", async () => {
+    const penelope = owner(), telemachus = agent(penelope.id), header = await cookie(penelope.id), instance = app();
+    const body = { repositoryPrefix: "https://github.com/odysseus/ithaca", credential: "GITHUB_TOKEN", metadataCredentialRecipient: "https://api.github.com" };
+    expect((await instance.request(`/api/auth/principals/${telemachus.id}/reference-grants`, json("POST", await cookie(telemachus.id), body))).status,
+      "REFERENCE_API_RECIPIENT_OWNER_ONLY").toBe(403);
+    const response = await instance.request(`/api/auth/principals/${telemachus.id}/reference-grants`, json("POST", header, body));
+    expect(response.status).toBe(201);
+    expect(await response.json(), "REFERENCE_API_RECIPIENT_OWNER_RECEIPT").toHaveProperty("metadata_credential_recipient", "https://api.github.com");
+    const listed = await instance.request(`/api/auth/principals/${telemachus.id}/reference-grants`, { headers: { cookie: header } });
+    expect((await listed.json() as { grants: unknown[] }).grants[0], "REFERENCE_API_RECIPIENT_OWNER_LIST").toHaveProperty("metadata_credential_recipient", "https://api.github.com");
   });
 
   test("validation, unknown principals, duplicates and non-owners refuse", async () => {

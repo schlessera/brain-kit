@@ -121,17 +121,21 @@ describe("resolving compute instances", () => {
     box = sandbox();
     const memory = memoryCompute();
     (globalThis as { __ogygiaProvider?: unknown }).__ogygiaProvider = memory.provider;
-    const module = join(box.base, "brain-compute-ogygia.ts");
-    writeFileSync(module, "export const computeProvider = (globalThis as any).__ogygiaProvider;\nexport const defaultKeyEnv = \"OGYGIA_API_KEY\";\n");
-    const registry: Record<string, ComputeBuiltin> = {
-      ogygia: { load: () => loadComputePackage(module) },
-      absent: { load: () => loadComputePackage(join(box!.base, "no-such-package.ts")) },
-    };
-    const loaded = await resolveComputeInstance("o", { provider: "ogygia", lease: { maxSeconds: 60 } }, { env: { OGYGIA_API_KEY: "k" }, registry });
-    expect(loaded.ok && [loaded.instance.provider === memory.provider, loaded.instance.keyEnv, loaded.instance.secret]).toEqual([true, "OGYGIA_API_KEY", "k"]);
-    const absent = await resolveComputeInstance("a", { provider: "absent", lease: { maxSeconds: 60 } }, { env: {}, registry });
-    expect(absent.ok ? "resolved" : absent.code).toBe("provider_unavailable");
-    delete (globalThis as { __ogygiaProvider?: unknown }).__ogygiaProvider;
+    try {
+      const module = join(box.base, "brain-compute-ogygia.ts");
+      writeFileSync(module, "export const computeProvider = (globalThis as any).__ogygiaProvider;\nexport const defaultKeyEnv = \"OGYGIA_API_KEY\";\n");
+      const registry: Record<string, ComputeBuiltin> = {
+        ogygia: { load: () => loadComputePackage(module) },
+        absent: { load: () => loadComputePackage(join(box!.base, "no-such-package.ts")) },
+      };
+      const loaded = await resolveComputeInstance("o", { provider: "ogygia", lease: { maxSeconds: 60 } }, { env: { OGYGIA_API_KEY: "k" }, registry });
+      expect(loaded.ok && [loaded.instance.provider === memory.provider, loaded.instance.keyEnv, loaded.instance.secret]).toEqual([true, "OGYGIA_API_KEY", "k"]);
+      const absent = await resolveComputeInstance("a", { provider: "absent", lease: { maxSeconds: 60 } }, { env: {}, registry });
+      expect(absent.ok ? "resolved" : absent.code).toBe("provider_unavailable");
+    } finally {
+      // Removed even when an assertion fails, so no later file sees the stand-in.
+      delete (globalThis as { __ogygiaProvider?: unknown }).__ogygiaProvider;
+    }
   });
 
   test("an unknown built-in is provider_unknown and invalid options are provider_unavailable", async () => {

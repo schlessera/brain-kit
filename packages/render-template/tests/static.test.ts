@@ -17,8 +17,10 @@ test("throwing and unsafe entries retain source with named diagnostics", async (
   }
 });
 test("unknown and browser-only entries stay code without executing", async () => {
-  const result = await prepareStaticDocument(opts, { rendererFor: () => ({ needsBrowser: true, async toStatic() { throw new Error("must not execute"); } }) });
-  expect(result.html).toContain("language-relay"); expect(result.warnings).toEqual([]);
+  const unknown = await prepareStaticDocument(opts, { rendererFor: () => null });
+  expect(unknown.html).toContain("language-relay"); expect(unknown.warnings).toEqual([]);
+  const browserOnly = await prepareStaticDocument(opts, { rendererFor: () => ({ needsBrowser: true, async toStatic() { throw new Error("must not execute"); } }) });
+  expect(browserOnly.html).toContain("language-relay"); expect(browserOnly.warnings).toEqual([]);
 });
 test("nested fences and inline code preserve markdown semantics", async () => {
   const result = await prepareStaticDocument({ ...opts, content: "> ```relay\n> Raft ready\n> ```\n\n`relay`" }, { rendererFor: () => ({ needsBrowser: false, async toStatic() { return "<svg><text>Ready</text></svg>"; } }) });

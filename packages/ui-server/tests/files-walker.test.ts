@@ -2,7 +2,6 @@ import { describe, test, expect, beforeAll, afterAll, spyOn } from "bun:test";
 import * as fsp from "node:fs/promises";
 import { mkdir, writeFile, symlink, rm, realpath } from "node:fs/promises";
 import { join, win32 } from "node:path";
-import { tmpdir } from "node:os";
 import {
   listDirectory,
   readFileContent,
@@ -20,6 +19,7 @@ import { FILE_SIZE_CAP_BYTES } from "@schlessera/brain-ui-sdk/protocol";
 import { createFilesRoutes } from "../src/routes/files";
 
 let root: string;
+let outside: string;
 
 beforeAll(async () => {
   root = await Bun.$`mktemp -d`.text().then((s) => s.trim());
@@ -53,14 +53,14 @@ beforeAll(async () => {
   await writeFile(join(root, ".brain-index", "brain.db"), "x");
 
   // Symlink escaping the root
-  const outside = join(tmpdir(), `brain-ui-outside-${process.pid}-${Date.now()}`);
-  await mkdir(outside, { recursive: true });
+  outside = await Bun.$`mktemp -d`.text().then((s) => s.trim());
   await writeFile(join(outside, "secret.md"), "outside");
   await symlink(outside, join(root, "escape-link"));
 });
 
 afterAll(async () => {
   if (root) await rm(root, { recursive: true, force: true });
+  if (outside) await rm(outside, { recursive: true, force: true });
 });
 
 describe("safeResolve", () => {
@@ -114,10 +114,10 @@ describe("safeResolve", () => {
     }
   });
   test("accepts repo-relative path", async () => {
-    await expect(safeResolve("notes/foo.md", root)).resolves.toBeTruthy();
+    await expect(safeResolve("notes/foo.md", root)).resolves.toBe(join(await realpath(root), "notes/foo.md"));
   });
   test("accepts empty string (root)", async () => {
-    await expect(safeResolve("", root)).resolves.toBeTruthy();
+    await expect(safeResolve("", root)).resolves.toBe(await realpath(root));
   });
   test("never follows a link under the agent-writable scratch area (#1626)", async () => {
     const scratch = join(root, ".brain/scratch");
@@ -134,7 +134,7 @@ describe("safeResolve", () => {
       expect((await listDirectory(".brain/scratch", root)).map((e) => e.name), "SCRATCH_LISTING").toEqual(["real", "render.pdf"]);
       // Outside scratch an in-brain link still resolves as before.
       await symlink(join(root, "notes/foo.md"), join(root, "notes/foo-link.md"));
-      await expect(safeResolve("notes/foo-link.md", root)).resolves.toBeTruthy();
+      await expect(safeResolve("notes/foo-link.md", root)).resolves.toBe(join(await realpath(root), "notes/foo-link.md"));
     } finally {
       await rm(join(root, ".brain"), { recursive: true, force: true });
       await rm(join(root, "notes/foo-link.md"), { force: true });
@@ -237,9 +237,8 @@ describe("listDirectory", () => {
     const names = entries.map((e) => e.name);
     // Fixture has `.gitignore`; should not be listed
     expect(names).not.toContain(".gitignore");
-    for (const n of names) {
-      expect(n.startsWith(".")).toBe(false);
-    }
+    expect(names).toContain("README.md");
+    expect(names.filter((n) => n.startsWith("."))).toEqual([]);
   });
 
   test("excludes build/dependency manifests by name", async () => {
@@ -253,20 +252,23 @@ describe("listDirectory", () => {
     ]) {
       await fs.writeFile(join(root, name), "{}");
     }
-    const entries = await listDirectory("", root);
-    const names = entries.map((e) => e.name);
-    expect(names).not.toContain("package.json");
-    expect(names).not.toContain("package-lock.json");
-    expect(names).not.toContain("bun.lock");
-    expect(names).not.toContain("skills-lock.json");
-    // Cleanup so subsequent tests aren't affected
-    for (const name of [
-      "package.json",
-      "package-lock.json",
-      "bun.lock",
-      "skills-lock.json",
-    ]) {
-      await fs.rm(join(root, name));
+    try {
+      const entries = await listDirectory("", root);
+      const names = entries.map((e) => e.name);
+      expect(names).not.toContain("package.json");
+      expect(names).not.toContain("package-lock.json");
+      expect(names).not.toContain("bun.lock");
+      expect(names).not.toContain("skills-lock.json");
+    } finally {
+      // Cleanup so subsequent tests aren't affected
+      for (const name of [
+        "package.json",
+        "package-lock.json",
+        "bun.lock",
+        "skills-lock.json",
+      ]) {
+        await fs.rm(join(root, name), { force: true });
+      }
     }
   });
 
@@ -335,8 +337,11 @@ describe("readFileContent", () => {
   test("rejects file_too_large", async () => {
     const big = join(root, "big.txt");
     await writeFile(big, Buffer.alloc(FILE_SIZE_CAP_BYTES + 1, 65));
-    await expect(readFileContent("big.txt", root)).rejects.toBeInstanceOf(TooLargeError);
-    await rm(big);
+    try {
+      await expect(readFileContent("big.txt", root)).rejects.toBeInstanceOf(TooLargeError);
+    } finally {
+      await rm(big, { force: true });
+    }
   });
 
   test("rejects path escape", async () => {
@@ -398,14 +403,19 @@ describe("the brain's scratch area (#310)", () => {
     // What a chat link to `brain render --scratch` output resolves to.
     await mkdir(join(root, ".brain/scratch"), { recursive: true });
     await writeFile(join(root, ".brain/scratch/trip.pdf"), "%PDF-1.7 scratch");
-    const response = await createFilesRoutes({ brainRoot: root }).request(
-      `/files/content?path=${encodeURIComponent(".brain/scratch/trip.pdf")}&raw=1`
-    );
-    expect(response.status).toBe(200);
-    expect(response.headers.get("content-type")).toBe("application/pdf");
-    expect(await response.text()).toBe("%PDF-1.7 scratch");
-    const top = await listDirectory("", root);
-    expect(top.map((e) => e.name)).not.toContain(".brain");
+    try {
+      const response = await createFilesRoutes({ brainRoot: root }).request(
+        `/files/content?path=${encodeURIComponent(".brain/scratch/trip.pdf")}&raw=1`
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toBe("application/pdf");
+      expect(await response.text()).toBe("%PDF-1.7 scratch");
+      const top = await listDirectory("", root);
+      expect(top.map((e) => e.name)).not.toContain(".brain");
+    } finally {
+      // The scratch-link test lists .brain/scratch exactly; leave nothing for it.
+      await rm(join(root, ".brain"), { recursive: true, force: true });
+    }
   });
 });
 
@@ -460,9 +470,14 @@ describe("buildWikilinkMap", () => {
 
   test("first sorted match wins on slug collisions", async () => {
     await writeFile(join(root, "notes/README.md"), "A second README in the same tree.");
-    const map = await buildWikilinkMap(root);
-    // The sorted walk visits notes/ before README.md at the root.
-    expect(map["readme"]).toBe("notes/README.md");
+    try {
+      const map = await buildWikilinkMap(root);
+      // The sorted walk visits notes/ before README.md at the root.
+      expect(map["readme"]).toBe("notes/README.md");
+    } finally {
+      // Left behind, it takes the "readme" slug from every later map.
+      await rm(join(root, "notes/README.md"), { force: true });
+    }
   });
 });
 
@@ -518,8 +533,9 @@ test("browsing parses its ignore snapshot despite an unrelated FIFO", async () =
   expect(made.exitCode, made.stderr.toString()).toBe(0);
   try {
     const listing = await listDirectory("", root);
-    expect(listing.some(entry => entry.name === "README.md"), "IGNORE_DATA_SNAPSHOT_ONLY").toBe(true);
-    expect(listing.some(entry => entry.name === "secret")).toBe(false);
+    const names = listing.map(entry => entry.name);
+    expect(names, "IGNORE_DATA_SNAPSHOT_ONLY").toContain("README.md");
+    expect(names).not.toContain("secret");
   } finally { await rm(fifo, { force: true }); }
 });
 

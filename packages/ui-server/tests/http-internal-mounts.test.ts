@@ -6,7 +6,7 @@ import { documentedRoutes } from "./helpers/http-spec";
 // their presentation/configuration payloads to independent HTTP contracts.
 for (const path of ["/api/governance/roadblocks", "/api/pi-auth/providers", "/api/web-search", "/api/apify", "/api/tool-permissions", "/api/skills", "/api/graph/meta", "/api/vpn-check"]) {
   test(`mounted internal router: GET ${path}`, async () => {
-    expect(documentedRoutes.some((r) => r.method === "GET" && r.path === path && r.classification === "I")).toBe(true);
+    expect(documentedRoutes.filter((r) => r.path === path).map((r) => [r.method, r.classification])).toContainEqual(["GET", "I"]);
     const t = await httpContractApp();
     try {
       const response = await t.fetch(path);
@@ -23,7 +23,7 @@ import { join } from "node:path";
 
 for (const operation of ["POST /api/track-upload", "GET /api/tracks"]) test(`mounted internal track handler: ${operation}`, async () => {
   const [method, path] = operation.split(" ");
-  expect(documentedRoutes.some(route => route.method === method && route.path === path && route.classification === "I")).toBe(true);
+  expect(documentedRoutes.filter(route => route.path === path).map(route => [route.method, route.classification])).toContainEqual([method, "I"]);
   const t = await httpContractApp();
   const source = '<gpx version="1.1"><trk><trkseg><trkpt lat="2" lon="3"/><trkpt lat="2" lon="3.001"/></trkseg></trk></gpx>';
   try {
@@ -49,7 +49,7 @@ import { createPrincipal } from "../src/db/principals";
 // marker if anything ran them.
 test("retired POST /api/brain/whatsup is absent behind authentication and runs no repo-local script", async () => {
   const secret = "http-retired-fixture-secret-0123456789";
-  expect(documentedRoutes.some((r) => r.path === "/api/brain/whatsup")).toBe(false);
+  expect(documentedRoutes.filter((r) => r.path === "/api/brain/whatsup")).toEqual([]);
   const t = await httpContractApp({ env: { AUTH_MODE: "password", BRAIN_UI_PASSWORD_HASH: "unused-fixture-hash", COOKIE_SECRET: secret, BRAIN_UI_ALLOW_LOOPBACK_ORIGIN: "1" } });
   try {
     const marker = join(t.root, "whatsup-ran");
@@ -70,7 +70,7 @@ test("retired POST /api/brain/whatsup is absent behind authentication and runs n
     const retired = await t.fetch("/api/brain/whatsup", { method: "POST", headers });
     expect(retired.status).toBe(404);
     expect(retired.headers.get("content-type") ?? "").not.toContain("text/event-stream");
-    expect(t.routes.some((r) => r.path === "/api/brain/whatsup")).toBe(false);
+    expect(t.routes.filter((r) => r.path === "/api/brain/whatsup")).toEqual([]);
     await new Promise((resolve) => setTimeout(resolve, 200));
     expect(existsSync(marker)).toBe(false);
   } finally { await t.close(); }

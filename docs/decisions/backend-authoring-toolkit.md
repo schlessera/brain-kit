@@ -62,11 +62,11 @@ by the package-wide inventory in [the public export boundary](public-export-boun
 sharing a server entry point with the toolkit does not classify them implicitly.
 
 The public permission implementation is the gate (`decideToolPermission`,
-`packages/ui-sdk/src/server/permission-gate.ts:62-96`), request construction
-(`createToolPermissionRequest`, `packages/ui-sdk/src/server/permission-gate.ts:205-219`),
-bridge operation (`requestToolPermission`, `packages/ui-sdk/src/server/permission-gate.ts:254-292`)
+`packages/ui-sdk/src/server/permission-gate.ts:63-97`), request construction
+(`createToolPermissionRequest`, `packages/ui-sdk/src/server/permission-gate.ts:206-220`),
+bridge operation (`requestToolPermission`, `packages/ui-sdk/src/server/permission-gate.ts:255-298`)
 and edited-input check (`checkEditedApproval`,
-`packages/ui-sdk/src/server/permission-gate.ts:148-180`). Pattern compilation is
+`packages/ui-sdk/src/server/permission-gate.ts:149-181`). Pattern compilation is
 shared (`compileConfirmPatterns`, `packages/ui-sdk/src/server/confirm-patterns.ts:97-134`).
 
 ## Mask fallback containment

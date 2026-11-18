@@ -3,7 +3,9 @@ import { POLICY_CHANGE_REVIEW_SCHEMA } from "@schlessera/brain-ui-sdk/tool-contr
 import { apiBase } from "./backend.js";
 import { readSyncResult } from "./sync-stream.js";
 import { classifySessionRecoveryResponse } from "@schlessera/brain-ui-sdk/schemas";
-import type { HygieneReviewRead, HygieneReviewCommand, HygienePreviewRequest, HygieneWorktreeDetailsRead, InboxActionItem, SessionRecoveryResult, WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
+import { safetyReviewResponseSchema } from "@schlessera/brain-ui-sdk/schemas";
+import type { SafetyReviewBody } from "@schlessera/brain-ui-sdk/protocol";
+import type { HygieneReviewRead, HygieneReviewCommand, HygienePreviewRequest, HygienePreviewResponse, HygieneWorktreeDetailsRead, SessionRecoveryResult, WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
 import type { ContentRendererDeclaration, ConfiguredModule, ModuleSettingsSnapshot, ModuleSettingsMigrationPreview } from "@schlessera/brain-ui-sdk";
 
 export class ApiRequestError extends Error {
@@ -16,6 +18,16 @@ import type {
   VoiceKeytermsResponse,
   VoiceTokenResponse,
   VoiceSessionResponse,
+  VoiceSessionRequest,
+  VoiceProvidersResponse,
+  DictationSettings,
+  VoiceLiveSettings,
+  VoiceLiveSettingsUpdate,
+  LivePersona,
+  LivePersonaCreateRequest,
+  LivePersonaListResponse,
+  LivePersonaUpdateRequest,
+  VoiceSettingsResponse,
   PronunciationOverride,
   ProviderInfo,
   UnavailableProfileInfo,
@@ -282,6 +294,8 @@ export interface WebSearchProvider {
   keyConfigured: boolean;
   /** Its key comes from the environment instead — not editable here. */
   keyFromEnv: boolean;
+  /** The stored key is a credential command, which the host never runs (#3686). */
+  keyIsCommand?: boolean;
   /** True when the provider works without any credential. */
   keyless: boolean;
   /** Qualitative cost note, e.g. "Free tier, rate-limited". */
@@ -308,6 +322,8 @@ export interface WebSearchConfig {
    */
   appliesTo: string[];
   providers: WebSearchProvider[];
+  /** What the host's web tools do not offer, whatever the config says (#3686). */
+  unavailable?: Array<{ id: string; label: string; kind: "deferred" | "excluded" }>;
 }
 
 /**
@@ -339,7 +355,17 @@ export function createBrainApi(
     return (await fetchResponse(path, init)).json();
   }
 
+  async function safetyReview(body:SafetyReviewBody,requestId:string|null,signal:AbortSignal) {
+    const path=`/sessions/${encodeURIComponent(body.session.sessionId)}/safety/reviews/${requestId===null?"prepare":`${encodeURIComponent(requestId)}/commit`}`;
+    const res=await request(`${getBase()}${path}`,{method:"POST",cache:"no-store",headers:{"Content-Type":"application/json"},body:JSON.stringify(body),signal});
+    const value=await res.json(),parsed=safetyReviewResponseSchema.safeParse(value);
+    if(!parsed.success)throw new ApiRequestError(typeof value?.reason==="string"?value.reason:"Safety review unavailable",res.status);
+    return parsed.data;
+  }
+
   return {
+    safetyPrepare: (body:SafetyReviewBody,signal:AbortSignal)=>safetyReview(body,null,signal),
+    safetyCommit: (requestId:string,body:SafetyReviewBody,signal:AbortSignal)=>safetyReview(body,requestId,signal),
     turnJournal: (sessionId: string, turnId: string, signal?: AbortSignal) => fetchJson<import("@schlessera/brain-ui-sdk/protocol").TurnJournalDetails>(`/sessions/${encodeURIComponent(sessionId)}/turns/${encodeURIComponent(turnId)}/journal`, { signal }),
     turnJournalPreview: (sessionId: string, turnId: string, sequence: number, signal?: AbortSignal) => fetchJson<{ inline: boolean; before?: string; after?: string; reason?: string; beforeBytes?: number; afterBytes?: number }>(`/sessions/${encodeURIComponent(sessionId)}/turns/${encodeURIComponent(turnId)}/journal/${sequence}/preview`, { signal }),
     agentPolicy: (signal?: AbortSignal) => fetchJson<AgentPolicyRead>("/agent-policy", { cache: "no-store", ...(signal ? { signal } : {}) }),
@@ -351,7 +377,17 @@ export function createBrainApi(
     turnRevertReceipt: (sessionId: string, turnId: string, operationId: string, signal?: AbortSignal) => fetchJson<import("@schlessera/brain-ui-sdk/protocol").TurnRevertReceipt>(`/sessions/${encodeURIComponent(sessionId)}/turns/${encodeURIComponent(turnId)}/revert/${encodeURIComponent(operationId)}`, { signal }),
     hygieneReview: () => fetchJson<HygieneReviewRead>("/hygiene/review"),
     hygieneCommand: (operation: HygieneReviewCommand["operation"]) => fetchJson<HygieneReviewRead>("/hygiene/review", { method: "POST", body: JSON.stringify({ operation }) }),
-    hygienePreview: (request: HygienePreviewRequest) => fetchJson<InboxActionItem>("/hygiene/review/preview", { method: "POST", body: JSON.stringify(request) }),
+    /**
+     * Undo a confirmed media effect from its resolved card (#2782): the
+     * response carries `mediaUndo`, the Undo's own receipt.
+     */
+    hygieneMediaUndo: (journalId: string) => fetchJson<HygieneReviewRead>("/hygiene/review", { method: "POST", body: JSON.stringify({ operation: "undo-media", journalId }) }),
+    /**
+     * A preview's 200 body: the pending Action plus `requestId`, named
+     * `refusals` and, for a media option, `media` (#2782). `signal` aborts only
+     * this device's wait; the server aborts its own superseded scan.
+     */
+    hygienePreview: (request: HygienePreviewRequest, signal?: AbortSignal) => fetchJson<HygienePreviewResponse>("/hygiene/review/preview", { method: "POST", body: JSON.stringify(request), ...(signal ? { signal } : {}) }),
     /** The owner-only recorded facts behind a private managed-worktree card (#2734); never cached. */
     hygieneDetails: (itemId: string) => fetchJson<HygieneWorktreeDetailsRead>(`/hygiene/review/details/${encodeURIComponent(itemId)}`, { cache: "no-store" }),
 
@@ -495,8 +531,35 @@ export function createBrainApi(
       ),
 
     /** Mint a dictation session for the active speech provider. */
-    voiceSession: (signal?: AbortSignal) =>
-      fetchJson<VoiceSessionResponse>("/voice/session", { method: "POST", signal }),
+    voiceSession: (signal?: AbortSignal, selection?: VoiceSessionRequest) =>
+      fetchJson<VoiceSessionResponse>("/voice/session", { method: "POST", signal, ...(selection !== undefined ? { body: JSON.stringify(selection) } : {}) }),
+
+    voiceProviders: () => fetchJson<VoiceProvidersResponse>("/voice/providers"),
+    dictationSettings: () => fetchJson<DictationSettings>("/voice/dictation/settings"),
+    saveDictationSettings: (settings: DictationSettings) =>
+      fetchJson<DictationSettings>("/voice/dictation/settings", { method: "PUT", headers: { "If-Match": `"${settings.revision}"` },
+        body: JSON.stringify({ defaultProvider: settings.defaultProvider, smart: settings.smart }) }),
+
+    /** The saved default live-conversation service and its revision (#3616). Never opens a provider. */
+    liveSettings: () => fetchJson<VoiceLiveSettings>("/settings/voice", { cache: "no-store" }),
+    saveLiveSettings: (update: VoiceLiveSettingsUpdate) =>
+      fetchJson<VoiceLiveSettings>("/settings/voice", { method: "PUT", body: JSON.stringify({ defaultProvider: update.defaultProvider, revision: update.revision }) }),
+    /** Live-conversation personas (#3617): Standard first, then by name. Never instruction text. */
+    livePersonas: () => fetchJson<LivePersonaListResponse>("/voice/personas", { cache: "no-store" }),
+    /** One persona with its plain-text instructions. */
+    livePersona: (id: string) => fetchJson<LivePersona>(`/voice/personas/${encodeURIComponent(id)}`, { cache: "no-store" }),
+    createLivePersona: (request: LivePersonaCreateRequest) =>
+      fetchJson<LivePersona>("/voice/personas", { method: "POST", body: JSON.stringify(request) }),
+    /** 409 `PERSONA_CHANGED` when `baseRevision` is no longer the file's revision. */
+    updateLivePersona: (id: string, request: LivePersonaUpdateRequest) =>
+      fetchJson<LivePersona>(`/voice/personas/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(request) }),
+    deleteLivePersona: async (id: string, baseRevision: string) => {
+      await fetchResponse(`/voice/personas/${encodeURIComponent(id)}?baseRevision=${encodeURIComponent(baseRevision)}`, { method: "DELETE" });
+    },
+    voiceSettings: () => fetchJson<VoiceSettingsResponse>("/settings/voice", { cache: "no-store" }),
+    /** 409 `LIVE_PERSONA_CHANGED` when the selection's revision moved on. */
+    saveLivePersonaSelection: (value: string, revision: number) =>
+      fetchJson<VoiceSettingsResponse>("/settings/voice", { method: "PUT", body: JSON.stringify({ persona: { value, revision } }) }),
 
     /** @deprecated use voiceSession(); kept during client transition. */
     voiceToken: () =>

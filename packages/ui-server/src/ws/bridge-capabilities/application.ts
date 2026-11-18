@@ -18,9 +18,10 @@ function operationToolNames(backendId: string) {
  */
 export function createApplication(ctx: BridgeContext, self: () => BackendBridge, root: string, applicationPolicy: BrainApplicationPolicy,
   options: Pick<MakeBridgeOptions, "protectedPaths" | "turnData">): { slice: BridgeSlice<"readBrainBase" | "applyBrain"> & Partial<BridgeSlice<"completeShare">>; indexBatch: IndexBatch } {
-  const { host, turn, turnId, principalId, authorization, signal, work, backendId, recorder, maskGuard, toolName, isAuthorized, hold, afterHolds, current } = ctx;
+  const { host, turn, turnId, principalId, authorization, signal, work, backendId, recorder, maskGuard, toolName, isAuthorized, recordingAvailable, hold, afterHolds, current } = ctx;
   const { protectedPaths, turnData } = options;
   const operationTools = operationToolNames(backendId);
+  const effectCurrent = () => current() && recordingAvailable();
   const apply = createBrainApplication({
     root, principalId, turnId, signal, policy: applicationPolicy,
     protectedPaths,
@@ -50,11 +51,11 @@ export function createApplication(ctx: BridgeContext, self: () => BackendBridge,
     // The application waits for holds itself, so its refusals are recorded.
     applyBrain: input => afterHolds(() => {
       const execute = () => apply({ principalId, turnId, input });
-      return host.inboxTools?.shares ? host.inboxTools.shares.apply(principalId, turnId, turn.sessionId ?? undefined, current, input, execute) : execute();
+      return host.inboxTools?.shares ? host.inboxTools.shares.apply(principalId, turnId, turn.sessionId ?? undefined, effectCurrent, input, execute) : execute();
     }, false),
   };
   if (host.inboxTools?.shares && work?.posture !== "voice") slice.completeShare = input => afterHolds(() => {
-    return host.inboxTools!.shares!.complete(principalId, turnId, turn.sessionId ?? undefined, current, input, async () => {
+    return host.inboxTools!.shares!.complete(principalId, turnId, turn.sessionId ?? undefined, effectCurrent, input, async () => {
       const decision = await self().requestPermission({ toolUseId: `share-completion-${crypto.randomUUID()}`, toolName: toolName("complete_share"), input, kind: "command", description: "Complete this share and discard only these exact originals after verified filing." });
       return decision.behavior === "allow" && decision.updatedInput === undefined;
     }, applicationPolicy.lock, maskGuard ? paths => maskGuard.assert(toolName("complete_share"), paths) : undefined);

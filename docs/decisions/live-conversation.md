@@ -25,6 +25,97 @@ no-replay fences remain in force. The
 [additive contract](../integration-contract/package-api.md#live-brain-orientation-and-task-status-additive-3623)
 does not qualify the separate #3131/#961 real-provider/device behavior.
 
+## Proactive discovery and observed index map — 2026-11-05 (#3630)
+
+The missing-context guidance above is refined: routine requested retrieval and
+repository discovery go to the host without asking the caller to supply paths
+or confirm the lookup again. Configurable taxonomy and per-directory
+`_index.md` purpose/registry navigation guide ordinary host exploration. Real
+semantic/recognition ambiguity, missing capture consent and required effects
+or permissions retain their clarification and screen-control boundaries.
+Each exact accepted task gets one brief acknowledgement naming its pending
+work; running does not renew it or establish backend/tool entry.
+
+Startup additionally supplies an **OBSERVED partial content map** from existing
+root/top-level index leads, as data rather than effective runtime taxonomy.
+TypeScript config presence cannot suppress the map, and nothing evaluates
+config/imports/skills or automatically starts host work. Enumeration and reads
+must share the existing policy-held root descriptor: listing a mutable root
+path under another root's policy could disclose replacement directory names
+even when later source reads are anchored. Platforms without anchored
+enumeration withhold this supplemental map. Policy, authorization and root
+identity changes preserve the existing withholding boundary. Bounded source
+selection and whole-row omissions retain the 3,200-byte orientation and total
+startup ceilings; whole selected guidance keeps priority. Limits and source
+mapping remain in [the guidance reference](../live-conversation-guidance.md).
+This is source/serialization proof, not model obedience or listening proof.
+
+## Eleven Realtime as a third engine: not adopted — 2026-11-04 (#3100)
+
+Eleven Realtime v1 Max was evaluated, from documentation only, as a third
+engine behind the existing provider seam (`LiveConversationProvider`,
+`packages/ui-sdk/src/server/conversation.ts:234-239`). The maintainer closed
+#3100 on 2026-11-04 without running the prepared live probe. **No production
+adapter is approved.** The outcome is unresolved, not unsuitable: no live
+session showed a failure.
+
+**API choice, if it is ever revisited.** Use the ElevenAgents native WebSocket
+(`/v1/convai/conversation`), opened by the server through a signed URL, with an
+agent in Realtime voice mode and exactly one client tool. The browser keeps
+talking only to the host, and client tools keep execution in the host: a
+`client_tool_call` carries a `tool_call_id`, and the host answers with
+`client_tool_result` for that ID. Webhook tools, MCP servers and system tools
+would let the provider act on its own and are excluded. The standalone
+OpenAI-compatible Realtime endpoint was rejected for four reasons:
+
+- its guide documents only a browser holding a client secret;
+- it speaks OpenAI's Realtime protocol, not the Live v1 protocol the GPT-Live
+  adapter uses;
+- its session schema accepts provider-called MCP tools;
+- it documents no tool execution semantics.
+
+**The unresolved question.** The contextual-task path needs a tool call that
+does not block the dialogue and whose exact result, returned minutes later, is
+spoken in a later reply. The documentation offers two behaviours, and each
+misses half of that:
+
+- `expects_response: true` returns an exact result but blocks the conversation.
+- `execution_mode: async` keeps talking but is described as fire-and-forget,
+  with no statement that a late result is used.
+
+Four things are undocumented:
+
+1. Whether the two can be combined.
+2. Whether a late `client_tool_result` is accepted and spoken.
+3. What a pending call does on timeout, interruption or close.
+4. How a duplicate or stale result for the same ID is treated.
+
+Three stand-ins would look like success and do not meet the requirement:
+
+- `contextual_update`: it has no native ID, and its supersession rewrites
+  provider-held history, which conflicts with
+  [append-only provider history](provider-history.md).
+- A synthetic `user_message`.
+- Filler speech.
+
+**Reconsider only** if new documentation or evidence shows continued dialogue
+while work is pending, plus exact delayed result return and its spoken
+incorporation. Any adoption would also need rulings on three points:
+
+- Brain owning and verifying the vendor-stored agent definition.
+- Disclosing the default two-year transcript and audio retention.
+- Opening an epoch with prior chat while keeping history append-only.
+
+The full evaluation is kept at a pinned commit, including:
+
+- the seam mapping against the documented protocol;
+- model, residency and pricing facts as checked on 2026-11-02;
+- the prepared probe, with its caps and steps.
+
+It is in
+[the retired plan](https://github.com/schlessera/brain-kit/blob/b77987afb85740fa36b7ab79b123f54edea1a7bf/docs/plans/eleven-realtime-evaluation.md).
+Nothing in it qualifies a live behaviour.
+
 ## Selected architecture — 2026-10-04
 
 2026-10-04. The maintainer's [October 3 ruling on #317](https://github.com/schlessera/brain-kit/issues/317#issuecomment-5973820627)
@@ -57,7 +148,7 @@ tool admission and execution, permissions, cancellation, terminal state and
 resynchronization. Engine task requests are advisory until mapped to committed
 user input. No native search, code-execution or alternate permission loop is
 enabled. Both adapters can delegate through the existing `AgentBackend`
-(`export interface AgentBackend`, `packages/ui-sdk/src/server/backend.ts:778-821`);
+(`export interface AgentBackend`, `packages/ui-sdk/src/server/backend.ts:826-882`);
 the host serializes work in a session and uses capability-checked follow-ups.
 
 The [voice-permission decision](voice-permission.md) binds this interface.
@@ -67,7 +158,7 @@ posture. A speech provider cannot reinterpret a visual grant, widen an
 allowlist, or settle an approval because it generated an answer.
 
 The host resolves pending exchanges when a turn ends
-(`drainPendingForTurn`, `packages/ui-server/src/ws/turns.ts:711-745`). The
+(`drainPendingForTurn`, `packages/ui-server/src/ws/turns.ts:1064-1085`). The
 conversation integration must also reconcile client cards and audible claims;
 that server method is not proof of a client receipt. Completion requires host
 terminal state plus local playback drained or discarded. Provider generation
@@ -212,6 +303,34 @@ and exact delegation_id on bounded thinking/commentary appends. Acceptance and
 playback remain distinct; neither a socket send nor an append acknowledgement
 proves audible output. Source configuration and keyless fixtures do not qualify
 a live account, microphone, interruption, or device.
+
+Contextual recognition remains readable discussion, including after Leave; it
+is not an unsent manual task draft. Only genuine reviewed-mode candidates
+produce the unsent-fragment notice or move into composer review. Recent context
+and retained review have independent finite bounds. Moving recognition is not
+submission or resolution of work requested without an input association, so
+that separate notice remains truthful.
+Unknown-work notices stay with their originating chat or stable draft origin,
+including retained-device versions, ordinary accepted composer sends,
+retained-dialogue canonicalization and admitted-session adoption; reviewing text does
+not resolve them or transfer them to another chat. Their volatile origin
+metadata retains at most 128 entries and is cleared at principal/auth
+boundaries. The public count projects the selected chat only, without adding
+provider input, task admission or durable work state.
+A known task's late session identity can bind its notice after Leave without
+selecting a chat or authorizing work. Reviewed requests follow notice ownership
+into retained aliases before acceptance; their first native binding remains
+final even if history is unavailable or returns a canonical owner. A separate
+bounded cache keeps the last 128 already-known contextual task identities
+across Leave and later entries, without retaining their recognition/submitted
+payloads. Only exact conversation/epoch/task/native/request identities can
+acquire a late turn and session; unknown inactive receipts cannot introduce
+an identity. Principal/auth boundaries and disposal clear this cache.
+Ordinary sends transfer the exact accepted draft's origin before consumption
+or rotation, regardless of current selection. Correlated owner-history reads
+can return a canonical owner, while native-history reads retain their exact
+requested session. Stale unsolicited pages cannot change selection or notice
+ownership.
 
 Source verification on October 28 used the installed OpenAI Live v1
 `DelegationCreatedEvent`, `ThinkingAppendEvent`, `CommentaryAppendEvent` and
@@ -519,3 +638,32 @@ it neither authenticates typed dialogue nor blocks the rest of the chat. Native
 assistant text remains historical assistant data. Missing or evicted contextual
 receipts cannot classify a user. Actual source read errors and contradictory
 positive source/retained receipt identities refuse startup before provider open.
+
+## Choosing the service in Settings — 2026-11-08 (#3616)
+
+A host may register both adapters, so the brain's owner chooses the default
+live service in Settings › Voice instead of at host registration. The
+maintainer's rulings on #3616 bind it:
+
+- **L1.** The Start screen offers a one-time **Change** when two or more
+  services are usable. It applies to that conversation only and is never saved.
+- **L2.** A saved default the host no longer registers requires an explicit
+  pick at Start. The host default is never substituted, even with a notice;
+  the saved value stays until it is changed in Settings.
+- **L3.** The shared pane is named **Voice**; the live service is a group
+  beside Dictation, with its own route and revision.
+- **R1.** A client that reads only `conversationProfile` sees live conversation
+  as unavailable on a multi-service host with nothing effective. There is no
+  deterministic legacy fallback, which would contradict L2.
+
+The default is brain-wide and server-side, and it takes effect at the next
+explicit Start. A save never retargets a running conversation, and a reconnect
+keeps the service the conversation opened with: the destination a user agreed
+to is the one their audio and history reach. "Usable" means registered at boot,
+with no credential probing, so discovery never costs a provider call and a key
+that fails later is an ordinary provider error that selects nothing else.
+Writing has its own owner-only guard rather than inheriting the Models route's:
+the owner's human session or the ambient human, never a delegated principal.
+The [wire](../integration-contract/wire.md#live-service-selection-additive-3616)
+and [HTTP](../http-api.md#live-conversation-service-default) contracts give
+the exact shapes.

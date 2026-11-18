@@ -85,14 +85,34 @@ test("wall clock, CPU and memory bounds stop the child, and the rest of the host
 test("cancelling the turn kills a running child and drops a queued one", async () => {
   const single = createExtractor({ concurrency: 1 }, { worker: MISBEHAVING });
   const controller = new AbortController();
-  const running = single.extract(new Uint8Array(8), request(1, 1, 10_000), controller.signal);
-  const queued = single.extract(new Uint8Array(8), request(1, 1, 10_000), controller.signal);
-  await Bun.sleep(200);
-  const at = Date.now();
-  controller.abort();
-  expect(await running, "EXTRACT_CANCEL_RUNNING").toEqual({ outcome: "cancelled" });
-  expect(await queued, "EXTRACT_CANCEL_QUEUED").toEqual({ outcome: "cancelled" });
-  expect(Date.now() - at).toBeLessThan(2_000);
+  // Observe the first child's spawn. The extractor arms its abort listener in
+  // the same synchronous step, so once the spawn has returned the child is
+  // running and cancellable, and the second read is waiting for its slot.
+  const descriptor = Object.getOwnPropertyDescriptor(Bun, "spawn")!;
+  const spawned = Promise.withResolvers<void>();
+  Object.defineProperty(Bun, "spawn", { ...descriptor, value: (...args: Parameters<typeof Bun.spawn>) => {
+    const child = (descriptor.value as typeof Bun.spawn)(...args);
+    spawned.resolve();
+    return child;
+  } });
+  try {
+    const running = single.extract(new Uint8Array(8), request(1, 1, 10_000), controller.signal);
+    const queued = single.extract(new Uint8Array(8), request(1, 1, 10_000), controller.signal);
+    // Bounded, so a read that settles without spawning, or never spawns, fails
+    // here and the finally below still restores Bun.spawn.
+    let bound: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([spawned.promise,
+        running.then(result => { throw new Error(`EXTRACT_SETTLED_BEFORE_SPAWN: ${JSON.stringify(result)}`); }),
+        new Promise<never>((_, reject) => { bound = setTimeout(() => reject(new Error("EXTRACT_NEVER_SPAWNED")), 10_000); })]);
+    } finally { clearTimeout(bound); }
+    const at = Date.now();
+    controller.abort();
+    expect(await running, "EXTRACT_CANCEL_RUNNING").toEqual({ outcome: "cancelled" });
+    expect(await queued, "EXTRACT_CANCEL_QUEUED").toEqual({ outcome: "cancelled" });
+    expect(Date.now() - at).toBeLessThan(2_000);
+  } finally { Object.defineProperty(Bun, "spawn", descriptor); }
+  expect(Object.getOwnPropertyDescriptor(Bun, "spawn"), "EXTRACT_SPAWN_DESCRIPTOR_RESTORED").toEqual(descriptor);
   // The slot is free again afterwards.
   expect(await single.extract(new Uint8Array(8), request(1, 1, 10), live())).toEqual({ outcome: "malformed" });
 });

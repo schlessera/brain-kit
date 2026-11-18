@@ -60,19 +60,15 @@ export const ALLOWLIST: AllowlistEntry[] = [
   { file: "packages/ui-react/src/stores/handoff-state.ts", name: "HandoffState", reason: INFERRED("useHandoffStore and createBrainStores") },
   { file: "packages/ui-react/src/stores/inbox-state.ts", name: "InboxState", reason: INFERRED("useInboxStore and createBrainStores") },
   { file: "packages/ui-react/src/stores/mask-state.ts", name: "MaskState", reason: INFERRED("useMaskStore and createBrainStores") },
+  { file: "packages/ui-react/src/stores/markup-state.ts", name: "MarkupState", reason: INFERRED("useMarkupStore and createBrainStores") },
   { file: "packages/ui-react/src/stores/principal-state.ts", name: "PrincipalState", reason: INFERRED("usePrincipalStore and createBrainStores") },
   { file: "packages/ui-react/src/stores/session-list-state.ts", name: "SessionListState", reason: INFERRED("createBrainStores") },
   { file: "packages/ui-react/src/stores/share-state.ts", name: "ShareIntakeState", reason: INFERRED("useShareStore and createBrainStores") },
   { file: "packages/ui-react/src/stores/tracker-state.ts", name: "TrackerStoreState", reason: INFERRED("createBrainStores") },
-  { file: "packages/ui-server/src/brain/native-journal-observer.ts", name: "NativeJournalReleaseAccounting", reason: INFERRED("createNativeJournalCapture") },
   { file: "packages/ui-server/src/inbox/cleanup.ts", name: "CleanupReport", reason: INFERRED("createInboxRuntime") },
   { file: "packages/ui-server/src/inbox/cleanup.ts", name: "CleanupRequest", reason: INFERRED("createInboxRuntime") },
   // Readers of source text rather than importers.
   { file: "packages/ui-server/src/bin/brain-ui-cron.ts", name: "USAGE", reason: "tests/release-manifest.test.ts reads the subcommand list from the `export const USAGE` source text" },
-  ...["listSpecFromInput", "formSpecFromInput", "rankSpecFromInput"].map(name => ({
-    file: "packages/ui-react/src/hooks/websocket-handlers/chat.ts", name,
-    reason: "scripts/source-browser-dispatch.ts pins this file's sha256; an edit needs a reviewed re-pin there",
-  })),
 ];
 
 export interface Finding { file: string; line: number; name: string; kind: "declaration" | "re-export" }

@@ -11,11 +11,13 @@ import {
   INBOX_TOOL_CONTRACTS,
   GET_CURRENT_LOCATION_CONTRACT,
   QUERY_ACTIVITY_CONTRACT,
+  REQUEST_IMAGE_MARKUP_CONTRACT,
   REQUEST_IMAGE_MASK_CONTRACT,
   SHOW_BLOCK_CONTRACT,
   TURN_TEMP_CONTRACT,
   REFERENCE_SOURCE_CONTRACT,
   REFERENCE_WORKTREE_CONTRACT,
+  REFERENCE_READ_CONTRACT,
   COMPUTE_TOOL_CONTRACTS,
   bridgeContractForToolName,
   parseToolPayload,
@@ -55,12 +57,14 @@ describe("the contract list is the single source", () => {
         askUserForm: ASK_USER_FORM_CONTRACT.name,
         location: GET_CURRENT_LOCATION_CONTRACT.name,
         mask: REQUEST_IMAGE_MASK_CONTRACT.name,
+        markup: REQUEST_IMAGE_MARKUP_CONTRACT.name,
         activity: QUERY_ACTIVITY_CONTRACT.name,
         inboxList: "inbox_list", inboxGet: "inbox_get", inboxAdd: "inbox_add", resolveAction: "resolve_action", completeShare: "complete_share",
         block: SHOW_BLOCK_CONTRACT.name,
         turnTemp: TURN_TEMP_CONTRACT.name,
         referenceSource: REFERENCE_SOURCE_CONTRACT.name,
         referenceWorktree: REFERENCE_WORKTREE_CONTRACT.name,
+        referenceRead: REFERENCE_READ_CONTRACT.name,
         computeHealth: "brain_compute_health", computePlan: "brain_compute_plan", computeRun: "brain_compute_run",
         computeStatus: "brain_compute_status", computeCancel: "brain_compute_cancel", computeCollect: "brain_compute_collect",
       },
@@ -82,6 +86,7 @@ describe("the contract list is the single source", () => {
     expect(prompt).not.toContain("ask_user_list");
     expect(prompt).not.toContain("get_current_location");
     expect(prompt).not.toContain("request_image_mask");
+    expect(prompt).not.toContain("request_image_markup");
     expect(prompt).not.toContain("show_block");
   });
 
@@ -98,10 +103,12 @@ describe("the contract list is the single source", () => {
       ASK_USER_FORM_CONTRACT.brief(ASK_USER_FORM_CONTRACT.name),
       GET_CURRENT_LOCATION_CONTRACT.brief(GET_CURRENT_LOCATION_CONTRACT.name),
       REQUEST_IMAGE_MASK_CONTRACT.brief(REQUEST_IMAGE_MASK_CONTRACT.name),
+      REQUEST_IMAGE_MARKUP_CONTRACT.brief(REQUEST_IMAGE_MARKUP_CONTRACT.name),
       SHOW_BLOCK_CONTRACT.brief(SHOW_BLOCK_CONTRACT.name),
       TURN_TEMP_CONTRACT.brief(TURN_TEMP_CONTRACT.name),
       REFERENCE_SOURCE_CONTRACT.brief(REFERENCE_SOURCE_CONTRACT.name),
       REFERENCE_WORKTREE_CONTRACT.brief(REFERENCE_WORKTREE_CONTRACT.name),
+      REFERENCE_READ_CONTRACT.brief(REFERENCE_READ_CONTRACT.name),
       ...COMPUTE_TOOL_CONTRACTS.map(contract => contract.brief(contract.name)),
     ]);
   });

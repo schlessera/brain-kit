@@ -59,11 +59,22 @@ test("hover, focus, click, Enter, Space and tap expose the same summary; activat
   expect(control.getAttribute("aria-label")).toBe("Raft list: Raft list active. Details.");
   expect(control.hasAttribute("title"), "no native title tooltip").toBe(false);
 
-  // Hover: nothing before 300ms, the summary after.
-  await userEvent.hover(control);
-  await pause(150);
-  expect(tooltip(), "hover waits for the 300ms delay").toBeNull();
-  await expect.poll(() => tooltip()?.textContent).toBe("Saving Odysseus's raft list to the brain.");
+  // Hover: nothing before 300ms, the summary after. The delay is measured from
+  // the pointer's arrival, seen in the capture phase before React's handler
+  // starts the timer, to the tooltip's insertion, so a slow runner only
+  // lengthens it; a fixed sleep inside the window raced the timer under load (#3829).
+  let enteredAt: number | undefined;
+  let shownAt: number | undefined;
+  const arrive = (event: PointerEvent) => { if (enteredAt === undefined && control.contains(event.target as Node)) enteredAt = performance.now(); };
+  document.addEventListener("pointerover", arrive, { capture: true });
+  const shown = new MutationObserver(() => { if (shownAt === undefined && tooltip()) shownAt = performance.now(); });
+  shown.observe(document.body, { subtree: true, childList: true, attributes: true });
+  try {
+    await userEvent.hover(control);
+    await expect.poll(() => tooltip()?.textContent).toBe("Saving Odysseus's raft list to the brain.");
+  } finally { shown.disconnect(); document.removeEventListener("pointerover", arrive, { capture: true }); }
+  expect(enteredAt, "the pointer's arrival was observed").toBeTypeOf("number");
+  expect(shownAt! - enteredAt!, "hover waits for the 300ms delay").toBeGreaterThanOrEqual(300);
   expect(control.getAttribute("aria-describedby")).toBe(tooltip()!.id);
   await userEvent.unhover(control);
   await userEvent.hover(host!.querySelector("[data-outside]")!);

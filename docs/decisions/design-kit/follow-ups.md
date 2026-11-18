@@ -45,7 +45,7 @@ does a replayed session show?
    last call that parses is lifted to the answer's closing row, after the text
    and the share menu. At its call position `groupParts` draws nothing
    (`payload?.block.kind === "suggestions"`,
-   `packages/ui-react/src/components/chat/message-bubble.tsx:293`), and shares
+   `packages/ui-react/src/components/chat/message-bubble.tsx:317`), and shares
    and prints leave it out. This also amends D37 §8's "chips while live,
    `FeedbackRow` later": #41 closed as not planned, so the closing row is
    suggestions or nothing.
@@ -149,6 +149,10 @@ After #635's two `additionalProperties: false` declarations, the same
 keyless listing on 2026-10-02 adds **866** flat-schema characters and **709**
 after the definitions transform; the description remains **336** characters.
 These updated counts do not supply the live measurements reserved for #550.
+
+Rechecked on 2026-11-15: after #3525 (2026-11-03) moved the suggestions call
+before the answer's final sentence, the shipped description line adds **426
+JSON characters**; the earlier **336** counts above describe the historical rule.
 
 The maintainer's 2026-10-07 ruling pins new comparisons to
 `claude-sonnet-5-5`. Earlier observations on `claude-sonnet-5` keep their

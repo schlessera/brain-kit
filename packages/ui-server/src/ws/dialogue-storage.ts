@@ -10,10 +10,19 @@ import {
   dialogueRecordSchema,
 } from "@schlessera/brain-ui-sdk/schemas";
 import { assertLive, isRetired } from "./chat-lifecycle.js";
+import { principalAccount, sameAccount, type AccountRecord } from "../middleware/account-partition.js";
+import { resolvePrincipal } from "../db/principals.js";
 
+/**
+ * A chat's retained dialogue owner. `principal_id` is the login that started
+ * it and is never rewritten; `principal_account` is the durable account the
+ * server stored beside it (#3962). The history belongs to that account, so
+ * another login of the same owner continues it (#3963).
+ */
 export interface DialogueOwner {
   id: string;
   principal_id: string;
+  principal_account?: string | null;
   session_id: string | null;
   generation: number;
   coverage: DialoguePage["coverage"];
@@ -35,6 +44,15 @@ export interface DialogueTarget {
   before?: number;
 }
 const MAX_PAGE_BYTES = 128 * 1024;
+/** The owner row as stored account evidence for `sameAccount`. */
+export function ownerRecord(owner: Pick<DialogueOwner, "principal_id" | "principal_account">): AccountRecord {
+  return { principalId: owner.principal_id, account: owner.principal_account ?? null };
+}
+/**
+ * The retained history owner `principalId` may use: its own, or one its
+ * account owns (#3963). This is history access only. It is never authority
+ * over another login's live conversation or epoch, which stays exact.
+ */
 export function dialogueOwner(
   db: Database,
   target: DialogueTarget,
@@ -51,21 +69,28 @@ export function dialogueOwner(
         .get(target.ownerId ?? "", target.ownerId ?? "");
   if (!row) return null;
   const owner = row as DialogueOwner;
-  if (owner.principal_id !== principalId)
+  if (!sameAccount(db, ownerRecord(owner), principalId))
     throw new Error("Dialogue ownership mismatch");
   if (target.generation !== undefined && owner.generation !== target.generation)
     throw new Error("Dialogue generation changed");
   return owner;
 }
-/** Retained native voice recovery is evidence; an ordinary session ID is not. */
+/**
+ * Retained native voice recovery is evidence; an ordinary session ID is not.
+ * Any login of the caller's account counts (#3963), and so does a login whose
+ * row is gone: its account is unknown, and coverage never claims more than
+ * the evidence proves. Another account's recovery never counts.
+ */
 export function hasUnretainedVoice(db: Database, principalId: string, sessionId: string): boolean {
-  return !!db.query(`SELECT 1 FROM conversation_epochs e
-    WHERE e.principal_id=? AND e.session_id=?
-    AND NOT EXISTS (SELECT 1 FROM dialogue_conversations c WHERE c.id=e.id) LIMIT 1`).get(principalId, sessionId);
+  const rows = db.query(`SELECT DISTINCT e.principal_id FROM conversation_epochs e
+    WHERE e.session_id=? AND NOT EXISTS (SELECT 1 FROM dialogue_conversations c WHERE c.id=e.id)`).all(sessionId) as { principal_id: string }[];
+  return rows.some(row => sameAccount(db, row.principal_id, principalId) || !resolvePrincipal(db, row.principal_id));
 }
 export interface ActiveDialogueEpoch {
   owner: DialogueOwner;
   epoch: number;
+  /** The login that opened this epoch: its authority, separate from the history owner's attribution. */
+  principalId: string;
 }
 /** Host-submitted open not yet acknowledged by the worker; never supplied by a wire target. */
 export interface PendingDialogueEpoch {
@@ -78,7 +103,9 @@ function pendingEpochFor(db:Database, owner:DialogueOwner, row:{id:string;epoch:
   return pending.some(scope=>{
     const input=scope.input;
     if(input.conversationId!==row.id || input.epoch!==row.epoch || input.providerId!==row.provider_id
-      || input.epoch <= (scope.previousEpoch ?? 0) || input.principalId!==owner.principal_id || scope.generation!==owner.generation) return false;
+      || input.epoch <= (scope.previousEpoch ?? 0) || scope.generation!==owner.generation) return false;
+    // Liveness of a login of the owner's account, never authority over it.
+    if(!sameAccount(db,ownerRecord(owner),input.principalId)) return false;
     // A pending submission is liveness only for the exact row its successful
     // earlier transaction could have opened, under the same durable owner.
     if(input.sessionId && input.sessionId!==owner.session_id) return false;
@@ -89,12 +116,16 @@ function pendingEpochFor(db:Database, owner:DialogueOwner, row:{id:string;epoch:
     return input.sessionId || input.historyOwnerId ? true : dialogueOwner(db,{ownerId:input.conversationId},input.principalId)?.id===owner.id;
   });
 }
-function activeEpochFor(db:Database, owner:DialogueOwner, principalId:string, row:{id:string;epoch:number}, activeEpochs?:ReadonlyMap<string,ActiveDialogueEpoch>):ActiveDialogueEpoch|undefined {
+function activeEpochFor(db:Database, owner:DialogueOwner, row:{id:string;epoch:number}, activeEpochs?:ReadonlyMap<string,ActiveDialogueEpoch>):ActiveDialogueEpoch|undefined {
   const active=activeEpochs?.get(row.id);
-  if(!active || active.epoch!==row.epoch || active.owner.principal_id!==principalId || active.owner.generation!==owner.generation) return;
+  // Liveness only: the exact epoch, owner attribution and generation this
+  // catalog opened, by a login of the owner's account (#3963). Whoever asks,
+  // it grants nobody authority over that epoch.
+  if(!active || active.epoch!==row.epoch || active.owner.principal_id!==owner.principal_id || active.owner.generation!==owner.generation
+    || !sameAccount(db,ownerRecord(owner),active.principalId)) return;
   // Adoption may commit before the catalog receives its acknowledgement.
   // Resolve only the durable alias; never infer a new generation or principal.
-  return active.owner.id===owner.id || dialogueOwner(db,{ownerId:active.owner.id},principalId)?.id===owner.id ? active : undefined;
+  return active.owner.id===owner.id || dialogueOwner(db,{ownerId:active.owner.id},active.principalId)?.id===owner.id ? active : undefined;
 }
 export function openDialogue(db: Database, input: DialogueOpen, activeEpochs?:ReadonlyMap<string,ActiveDialogueEpoch>, pending:readonly PendingDialogueEpoch[]=[]): DialogueOwner {
   return db
@@ -105,10 +136,15 @@ export function openDialogue(db: Database, input: DialogueOpen, activeEpochs?:Re
         .query("SELECT * FROM dialogue_conversations WHERE id=?")
         .get(input.conversationId) as {
         owner_id: string;
+        principal_id: string | null;
         epoch: number;
         provider_id: string;
         closed: number;
       } | null;
+      // A live conversation is its opening login's, even when the history it
+      // writes belongs to the account (#3963): no other login reopens it.
+      if (known && known.principal_id !== input.principalId)
+        throw new Error("Dialogue conversation principal mismatch");
       if (
         known &&
         (input.epoch <= known.epoch || input.providerId !== known.provider_id)
@@ -138,14 +174,20 @@ export function openDialogue(db: Database, input: DialogueOpen, activeEpochs?:Re
       if (owner) assertLive(db, [["dialogue_owner", owner.id]]);
       if (!owner) {
         // A typed first turn already has a once-bound host safety owner. Reuse
-        // that identity when its first retained dialogue opens later.
-        const safety=input.sessionId?db.query("SELECT history_owner_id FROM safety_sessions WHERE session_id=? AND principal_id=? AND classification='new'").get(input.sessionId,input.principalId) as {history_owner_id:string}|null:null;
+        // that identity when its first retained dialogue opens later, from
+        // any login of its account (#3963). Another account's, or one whose
+        // evidence is unknown or contradictory, is refused, never forked.
+        const safety=input.sessionId?db.query("SELECT history_owner_id,principal_id,principal_account FROM safety_sessions WHERE session_id=? AND classification='new'").get(input.sessionId) as {history_owner_id:string;principal_id:string|null;principal_account:string|null}|null:null;
+        if (safety && !sameAccount(db, { principalId: safety.principal_id, account: safety.principal_account }, input.principalId))
+          throw new Error("Dialogue ownership mismatch");
         const id = safety?.history_owner_id ?? input.conversationId;
         db.prepare(
-          "INSERT INTO dialogue_owners(id,principal_id,session_id,coverage,created_at) VALUES(?,?,?,?,?)"
+          "INSERT INTO dialogue_owners(id,principal_id,principal_account,session_id,coverage,created_at) VALUES(?,?,?,?,?,?)"
         ).run(
           id,
           input.principalId,
+          // The durable account of the owner, from its own row (#3962).
+          principalAccount(db, input.principalId),
           input.sessionId ?? null,
           input.sessionId && hasUnretainedVoice(db, input.principalId, input.sessionId) ? "legacy" : "complete",
           Date.now()
@@ -153,7 +195,7 @@ export function openDialogue(db: Database, input: DialogueOpen, activeEpochs?:Re
         owner = dialogueOwner(db, { ownerId: id }, input.principalId)!;
       }
       const unfinished = (db.query("SELECT id,epoch,provider_id FROM dialogue_conversations WHERE owner_id=? AND closed=0 LIMIT ?").all(owner.id,(activeEpochs?.size ?? 0)+pending.length+1) as Array<{id:string;epoch:number;provider_id:string}>).some(row=>{
-        const active=activeEpochFor(db,owner!,input.principalId,row,activeEpochs);
+        const active=activeEpochFor(db,owner!,row,activeEpochs);
         // The same native ID must have a real close-before-open boundary.
         // Other exact healthy live IDs are not evidence of interruption.
         return row.id===input.conversationId || (active ? active.owner.coverage === "partial" : !pendingEpochFor(db,owner!,row,pending));
@@ -166,9 +208,11 @@ export function openDialogue(db: Database, input: DialogueOpen, activeEpochs?:Re
       }
       if (input.sessionId && owner.session_id !== input.sessionId)
         throw new Error("Dialogue session mismatch");
+      // The opening login is the conversation's own attribution and is never
+      // rewritten; the history owner it writes to may be another login's.
       db.prepare(
-        "INSERT INTO dialogue_conversations(id,owner_id,epoch,provider_id) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET epoch=excluded.epoch,closed=0"
-      ).run(input.conversationId, owner.id, input.epoch, input.providerId);
+        "INSERT INTO dialogue_conversations(id,owner_id,epoch,provider_id,principal_id) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET epoch=excluded.epoch,closed=0"
+      ).run(input.conversationId, owner.id, input.epoch, input.providerId, input.principalId);
       return owner;
     })
     .immediate();
@@ -222,6 +266,7 @@ export function bindDialogue(
 }
 export interface DialogueAppend {
   ownerId: string;
+  /** The writing login. For voice-sourced evidence, the login that opened its conversation. */
   principalId: string;
   generation: number;
   identity: string;
@@ -250,22 +295,28 @@ export function appendDialogue(
       assertLive(db, [["dialogue_owner", input.ownerId]]);
       const owner = dialogueOwner(db, input, input.principalId);
       if (!owner) throw new Error("Dialogue owner unavailable");
-      assertLive(db, [["dialogue_owner", owner.id], ["session", owner.session_id], ["conversation", evidence.kind === "voice" ? evidence.conversationId : undefined]]);
-      if (evidence.kind === "voice") {
+      // Every voice-sourced kind carries the same conversation scope.
+      const sourced = evidence.kind === "voice" || evidence.kind === "voice_interruption" || evidence.kind === "voice_end" ? evidence : undefined;
+      assertLive(db, [["dialogue_owner", owner.id], ["session", owner.session_id], ["conversation", sourced?.conversationId]]);
+      if (sourced) {
         const c = db
           .query(
-            "SELECT owner_id,epoch,provider_id FROM dialogue_conversations WHERE id=?"
+            "SELECT owner_id,principal_id,epoch,provider_id FROM dialogue_conversations WHERE id=?"
           )
-          .get(evidence.conversationId) as {
+          .get(sourced.conversationId) as {
           owner_id: string;
+          principal_id: string | null;
           epoch: number;
           provider_id: string;
         } | null;
+        // The history is the account's, the epoch only its opening login's
+        // (#3963): another login writes no voice evidence into it.
         if (
           !c ||
           c.owner_id !== owner.id ||
-          c.epoch !== evidence.epoch ||
-          c.provider_id !== evidence.providerId
+          c.principal_id !== input.principalId ||
+          c.epoch !== sourced.epoch ||
+          c.provider_id !== sourced.providerId
         )
           throw new Error("Dialogue source scope mismatch");
       }
@@ -373,7 +424,7 @@ export function readDialogue(
   }
   // One more row than live scopes proves interruption without a lifetime scan.
   const unclosed = db.query("SELECT id,epoch FROM dialogue_conversations WHERE owner_id=? AND closed=0 LIMIT ?").all(owner.id,(activeEpochs?.size ?? 0)+1) as Array<{id:string;epoch:number}>;
-  const exactActive = (row:{id:string;epoch:number}) => activeEpochFor(db,owner,principalId,row,activeEpochs);
+  const exactActive = (row:{id:string;epoch:number}) => activeEpochFor(db,owner,row,activeEpochs);
   const failedActive=unclosed.some(row=>exactActive(row)?.owner.coverage === "partial");
   const more = rows.length > records.length;
   return {
@@ -416,9 +467,13 @@ export function closeDialogue(
     // Retirement already closed every epoch of the chat.
     if (isRetired(db, "conversation", conversationId)) return;
     const c = db
-      .query("SELECT owner_id FROM dialogue_conversations WHERE id=?")
-      .get(conversationId) as { owner_id: string } | null;
+      .query("SELECT owner_id,principal_id FROM dialogue_conversations WHERE id=?")
+      .get(conversationId) as { owner_id: string; principal_id: string | null } | null;
     if (!c) return;
+    // Sharing the history's account is not authority over another login's
+    // epoch (#3963): only the login that opened the conversation closes it.
+    if (c.principal_id !== principalId)
+      throw new Error("Dialogue conversation principal mismatch");
     if (!dialogueOwner(db, { ownerId: c.owner_id }, principalId))
       throw new Error("Dialogue owner unavailable");
     if (partial)

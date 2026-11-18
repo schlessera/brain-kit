@@ -53,6 +53,7 @@ describe("activity server frames", () => {
     for (const origin of ["session", "cron", "autonomous"] as const) {
       const res = parseServerMessage(JSON.stringify({ type: "activity_delta", runId: "r1", seq: 1, span: { ...span, origin } }));
       expect(res.ok).toBe(true);
+      expect(res.ok && res.message.type).toBe("activity_delta");
       if (res.ok && res.message.type === "activity_delta") expect(res.message.span!.origin).toBe(origin);
     }
   });
@@ -69,6 +70,7 @@ describe("activity server frames", () => {
       })
     );
     expect(res.ok).toBe(true);
+    expect(res.ok && res.message.type).toBe("activity_snapshot");
     if (res.ok && res.message.type === "activity_snapshot") {
       expect(res.message.highWaterSeq.r1).toBe(4);
       expect(res.message.spans[0]!.kind).toBe("turn");
@@ -82,6 +84,7 @@ describe("activity server frames", () => {
       JSON.stringify({ type: "activity_delta", runId: "r1", seq: 1, span })
     );
     expect(res.ok).toBe(true);
+    expect(res.ok && res.message.type).toBe("activity_delta");
     if (res.ok && res.message.type === "activity_delta") {
       expect(res.message.span!.principalId).toBeUndefined();
     }
@@ -118,6 +121,7 @@ describe("activity server frames", () => {
       JSON.stringify({ type: "activity_delta", runId: "r1", seq: 5, span })
     );
     expect(res.ok).toBe(true);
+    expect(res.ok && res.message.type).toBe("activity_delta");
     if (res.ok && res.message.type === "activity_delta") {
       expect(res.message.seq).toBe(5);
       expect(res.message.span!.outcome).toBeUndefined();
@@ -142,6 +146,7 @@ describe("activity server frames", () => {
       })
     );
     expect(res.ok).toBe(true);
+    expect(res.ok && res.message.type).toBe("result");
     if (res.ok && res.message.type === "result") {
       expect(res.message.usage!.perModel!["claude-fable-5"]!.costUsd).toBe(1.02);
       expect(res.message.outcomeDetail).toBe("timeout");
@@ -159,6 +164,7 @@ describe("activity server frames", () => {
       })
     );
     expect(res.ok).toBe(true);
+    expect(res.ok && res.message.type).toBe("tool_use_start");
     if (res.ok && res.message.type === "tool_use_start") {
       expect(res.message.parentToolUseId).toBe("agent-call-1");
     }

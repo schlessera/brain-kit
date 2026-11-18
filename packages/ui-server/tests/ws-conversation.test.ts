@@ -1364,7 +1364,7 @@ test("a fresh host instance recovers scoped outcomes into a later epoch without 
   await until(() => !s.host.coordinator.isTurnActive());
   await s.host.catalog.settled!();
   s.host.conversations!.closeAll();
-  Object.defineProperty(s.host, "conversations", { value: new ConversationHost(s.host, s.live.provider), configurable: true });
+  Object.defineProperty(s.host, "conversations", { value: new ConversationHost(s.host, s.host.liveProviders), configurable: true });
   const resumed = await s.connect();
   const next = await resumed.open({ conversationId: c.id, contextualTasks: true });
   expect(next.epoch).toBe(2);
@@ -1394,7 +1394,7 @@ test("concurrent durable recovery has one owner and monotonically distinct epoch
   const c = await initial.open({ contextualTasks: true });
   s.host.conversations!.closeAll();
   await s.host.catalog.settled!();
-  Object.defineProperty(s.host, "conversations", { value: new ConversationHost(s.host, s.live.provider), configurable: true });
+  Object.defineProperty(s.host, "conversations", { value: new ConversationHost(s.host, s.host.liveProviders), configurable: true });
   const load = s.host.catalog.loadConversation!.bind(s.host.catalog);
   const releases: (() => void)[] = [];
   Object.defineProperty(s.host.catalog, "loadConversation", { value: async (...args: Parameters<typeof load>) => {
@@ -2056,4 +2056,54 @@ test("contradictory positive typed source with exact retained contextual turn re
  client.send({type:"conversation_stop",conversationId:c.id});await settle();client.send({type:"conversation_start",sessionId,requestId:"contradictory"});
  await until(()=>client.frames("conversation_closed").some(f=>f.requestId==="contradictory")||s.live.sessions.length>1);
  expect(s.live.sessions,"CONTRADICTORY_POSITIVE_SOURCE_NEVER_OPENS_PROVIDER").toHaveLength(1);
+});
+
+// #3729: barge-in and the operator's end are retained display evidence, so a
+// reloaded chat draws the same cut-off tag and end divider as the live one.
+test("an observed barge-in and the operator's final stop are retained; a resumable pause ends nothing",async()=>{
+ const s=setup(),client=await s.connect(),sessionId="ithaca-barge-in";
+ s.host.catalog.persistSessionStub(sessionId,"The raft is ready.",null,"fake");await s.host.catalog.settled?.();
+ client.send({type:"client_hello",protocolRev:5,capabilities:{sessionDialogue:true}});
+ const c=await client.open({sessionId});
+ c.session.emit({kind:"output_transcript",outputId:"raft-reply",sequence:0,text:"Calypso returns the bronze axe at"});
+ c.session.emit({kind:"interrupted",outputId:"raft-reply"});
+ await until(()=>client.frames("conversation_event").some(f=>f.event.kind==="interrupted"));
+ await s.host.dialogue.settled();
+ const read=async(requestId:string)=>{client.send({type:"dialogue_read",sessionId,requestId});await until(()=>client.frames("dialogue_history").some(p=>p.requestId===requestId));return client.frames("dialogue_history").find(p=>p.requestId===requestId).records.map((r:any)=>r.evidence);};
+ const first=await read("after-barge-in");
+ expect(first,"BARGE_IN_RETAINED_WITH_OUTPUT").toContainEqual({kind:"voice_interruption",conversationId:c.id,epoch:1,providerId:c.opened.providerId,outputId:"raft-reply"});
+ client.send({type:"conversation_stop",conversationId:c.id,resumable:true});await settle();
+ expect((await read("after-pause")).filter((e:any)=>e.kind==="voice_end"),"RESUMABLE_PAUSE_IS_NOT_AN_END").toEqual([]);
+ const resumed=await client.open({conversationId:c.id});
+ expect(resumed.epoch).toBe(2);
+ client.send({type:"conversation_stop",conversationId:c.id});await settle();
+ const ends=(await read("after-end")).filter((e:any)=>e.kind==="voice_end");
+ expect(ends,"ONE_RETAINED_END_FOR_THE_OPERATOR_STOP").toHaveLength(1);
+ expect(ends[0]).toMatchObject({conversationId:c.id,epoch:2,providerId:c.opened.providerId});
+ expect(ends[0].endedAt).toBeGreaterThanOrEqual(ends[0].startedAt);
+ // Display evidence only: none of it reaches the next provider's history.
+ const next=await client.open({sessionId});
+ expect(JSON.stringify(next.session.options.history ?? {}),"NO_MARK_EVIDENCE_IN_PROVIDER_HISTORY").not.toMatch(/voice_interruption|voice_end|interrupt/);
+ expect(next.session.options.history!.items.filter(i=>i.kind==="generated").map(i=>"text" in i ? i.text : ""),"THE_REPLY_TEXT_ITSELF_IS_UNCHANGED").toEqual(["Calypso returns the bronze axe at"]);
+});
+
+test("an interruption without an output identity is retained without one",async()=>{
+ const s=setup(),client=await s.connect();
+ const c=await client.open();
+ c.session.emit({kind:"interrupted"});
+ await until(()=>client.frames("conversation_event").some(f=>f.event.kind==="interrupted"));await settle();
+ const rows=()=>(s.db.query("SELECT payload FROM dialogue_records").all() as {payload:string}[]).map(r=>JSON.parse(r.payload));
+ expect(rows().filter(e=>e.kind==="voice_interruption"),"UNNAMED_INTERRUPTION_HAS_NO_INVENTED_OUTPUT").toEqual([{kind:"voice_interruption",conversationId:c.id,epoch:1,providerId:c.opened.providerId}]);
+ client.send({type:"conversation_stop",conversationId:c.id});await settle();
+ expect(rows().filter(e=>e.kind==="voice_end")).toHaveLength(1);
+});
+
+test("a conversation whose storage failed retains no end at the operator's final stop",async()=>{
+ const s=setup(),client=await s.connect();
+ const c=await client.open();
+ const finish=s.host.conversations!.storageFailing(c.id);
+ finish("Storage drain completed.");await settle();
+ client.send({type:"conversation_stop",conversationId:c.id});await settle();await s.host.dialogue.settled();
+ const ends=(s.db.query("SELECT payload FROM dialogue_records").all() as {payload:string}[]).map(r=>JSON.parse(r.payload)).filter(e=>e.kind==="voice_end");
+ expect(ends,"NO_END_WRITTEN_AFTER_STORAGE_FAILURE").toEqual([]);
 });

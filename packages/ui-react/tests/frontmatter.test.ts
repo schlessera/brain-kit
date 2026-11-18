@@ -64,13 +64,13 @@ describe("splitFrontmatter", () => {
     expect(r.body).toBe(md);
   });
 
-  test("realistic brain repo frontmatter", () => {
+  test("a full note block keeps its quoted title, its tag list and the body after the fence", () => {
     const md = [
       "---",
       "type: note",
-      'title: "CloudFest 2026 — rtCamp Conversation"',
-      "created: 2026-03-24",
-      "tags: [cloudfest, rtcamp, agentic]",
+      'title: "Council at Pylos — Nestor on the Way Home"',
+      "created: 2026-07-12",
+      "tags: [pylos, nestor, voyage]",
       "status: active",
       "---",
       "",
@@ -80,8 +80,8 @@ describe("splitFrontmatter", () => {
     ].join("\n");
     const r = splitFrontmatter(md);
     expect(r.fields).toHaveLength(5);
-    expect(r.fields[1].value).toBe("CloudFest 2026 — rtCamp Conversation");
-    expect(r.fields[3].list).toEqual(["cloudfest", "rtcamp", "agentic"]);
+    expect(r.fields[1].value).toBe("Council at Pylos — Nestor on the Way Home");
+    expect(r.fields[3].list).toEqual(["pylos", "nestor", "voyage"]);
     expect(r.body.startsWith("\n## Context")).toBe(true);
   });
 

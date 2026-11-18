@@ -198,6 +198,7 @@ describe("roadblock episodes", () => {
       { file_path: ".brain/scratch/x.md" }, { path: "/tmp/x" }, { url: "https://sirens.example/song" }];
     const outputs = [{ output: "ok" }, { output: EROFS, isError: true }, { output: "fatal\nExit code 1", isError: true },
       { output: "(no output)\n[exit 3]" }, { output: "ECONNREFUSED", isError: true }, { output: "boom", isError: true }, { denied: "user declined" }];
+    let validated = 0;
     for (let round = 0; round < 300; round += 1) {
       const calls = Array.from({ length: Math.floor(rand() * 12) }, (_, i) =>
         call(`c${i}`, pick(tools), pick(inputs), Math.floor(rand() * 5000), pick(outputs) as { output: string }));
@@ -205,8 +206,13 @@ describe("roadblock episodes", () => {
       const first = classifyRoadblocks(turn, []);
       expect(classifyRoadblocks(structuredClone(turn), [])).toEqual(first);
       expect(JSON.stringify(classifyRoadblocks(turn, []))).toBe(JSON.stringify(first));
-      for (const payload of first) expect(GOVERNANCE_EVENT_SCHEMAS.roadblock.payload.safeParse(payload).success).toBe(true);
+      for (const payload of first) {
+        expect(GOVERNANCE_EVENT_SCHEMAS.roadblock.payload.safeParse(payload).success).toBe(true);
+        validated += 1;
+      }
     }
+    // An empty classification is trivially deterministic: the generated frames must produce episodes.
+    expect(validated, "GENERATED_FRAMES_PRODUCE_EPISODES").toBeGreaterThan(0);
   });
 });
 

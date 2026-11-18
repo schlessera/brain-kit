@@ -141,12 +141,24 @@ test("failed SDK handshake refuses API input rather than treating init as verifi
   expect(h.frames.at(-1)).toMatchObject({ type: "error", message: expect.stringContaining("handshake refused") });
 });
 test("a stuck SDK handshake has a bounded pre-prompt refusal", async () => {
-  const f = fixture(); const h = harness(() => new Promise(() => {})); const started = Date.now();
-  await createClaudeBackend(options(f, h)).startTurn({ prompt: "nonempty user work", signal: new AbortController().signal, bridge: h.bridge });
-  expect(h.calls).toHaveLength(1);
-  expect(h.released).toHaveLength(0);
-  expect(h.frames.at(-1)).toMatchObject({ type: "error", message: expect.stringContaining("SDK startup timed out after 5 s") });
-  expect(Date.now() - started).toBeLessThan(7000);
+  // The gate's own deadline is registered at its production 5 s and fired at
+  // once; every other timer keeps real time.
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "setTimeout")!, native = globalThis.setTimeout;
+  const deadlines: number[] = [];
+  Object.defineProperty(globalThis, "setTimeout", { ...descriptor, value: (callback: () => void, delay?: number, ...args: unknown[]) => {
+    if (!/turn-prompt-gate\.ts/.test(new Error().stack ?? "")) return native(callback, delay, ...args);
+    deadlines.push(delay ?? 0);
+    return native(callback, 0, ...args);
+  } });
+  try {
+    const f = fixture(); const h = harness(() => new Promise(() => {})); const started = Date.now();
+    await createClaudeBackend(options(f, h)).startTurn({ prompt: "nonempty user work", signal: new AbortController().signal, bridge: h.bridge });
+    expect(deadlines, "SDK_STARTUP_DEADLINE_IS_5000_MS").toEqual([5000]);
+    expect(h.calls).toHaveLength(1);
+    expect(h.released).toHaveLength(0);
+    expect(h.frames.at(-1)).toMatchObject({ type: "error", message: expect.stringContaining("SDK startup timed out after 5 s") });
+    expect(Date.now() - started).toBeLessThan(7000);
+  } finally { Object.defineProperty(globalThis, "setTimeout", descriptor); }
 });
 test("host cancellation during handshake withholds input and preserves cancelled terminal", async () => {
   const f = fixture(); const host = new AbortController();

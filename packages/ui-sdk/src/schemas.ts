@@ -1,3 +1,5 @@
+export { safetyProjectionSchema, safetyReviewBodySchema, safetyReviewReceiptSchema, safetyReviewResponseSchema, safetySessionKeySchema, safetyPageSchema, safetyUpdateSchema, safetyCapabilitiesSchema } from "./safety.js";
+import { clientSafetyReadSchema, clientSafetySubscribeSchema, clientSafetyUnsubscribeSchema, serverSafetyHistorySchema, serverSafetyUpdateSchema, serverSafetyUnavailableSchema, safetyCapabilitiesSchema } from "./safety.js";
 import { POLICY_CHANGE_REVIEW_SCHEMA } from "./tool-contracts/policy.js";
 import type { HygieneAction, HygieneDiff, HygieneEffect, HygieneMediaMatches, HygieneMediaPlan, HygieneMediaProbe, HygieneMediaReceipt, HygieneMediaRefusal, HygieneReviewCommand, HygieneReviewMediaUndoCommand, HygieneReviewRequest, HygienePreviewRequest, HygieneReviewState, HygieneReviewRead, HygieneWorktreeDetailsRead } from "./protocol.js";
 import { attachmentFileSchema, sharedFileMetaSchema } from "./track-schemas.js";
@@ -22,7 +24,7 @@ export { attachmentFileSchema, sharedFileMetaSchema } from "./track-schemas.js";
 // ============================================================
 
 import { z } from "zod";
-import { CONVERSATION_LIMITS, isThinkingLevel, PILL_LABEL_MAX_CHARS, SESSION_NOT_FOUND, SHARE_MAX_FILES } from "./protocol.js";
+import { CONVERSATION_LIMITS, LIVE_PERSONA_LIMITS, isThinkingLevel, PILL_LABEL_MAX_CHARS, SESSION_NOT_FOUND, SHARE_MAX_FILES } from "./protocol.js";
 import type { ThinkingLevel, StateRoomObservation } from "./protocol.js";
 
 const thinkingLevelSchema = z.custom<ThinkingLevel>(isThinkingLevel, "Invalid thinking level");
@@ -37,7 +39,19 @@ import type {
   ClientConversationEndpoint,
   ClientConversationPlayback,
   ClientConversationStart,
+  ConversationPersonaRef,
   ConversationProfile,
+  LiveDefault,
+  ServerLiveSettings,
+  VoiceLiveSettings,
+  ConversationVoice,
+  LivePersona,
+  LivePersonaListResponse,
+  LivePersonaProviderStatus,
+  LivePersonaStatus,
+  LivePersonaSummary,
+  ServerLivePersona,
+  VoiceSettingsResponse,
   ClientConversationStop,
   ConversationAudioFormat,
   ConversationCapabilities,
@@ -81,6 +95,7 @@ import type {
   ServerHello,
   ServerLocationRequest,
   ServerMaskRequest,
+  ServerMarkupRequest,
   ServerMessage,
   ServerChatRetired,
   DialogueEvidence, DialogueRecord, DialoguePage, ClientDialogueRead, ServerDialogueHistory,
@@ -95,6 +110,7 @@ import type {
   ServerTextDelta,
   ServerThinkingDelta,
   ServerToolApprovalRequest,
+  ApprovalDisplay,
   ServerToolInputDelta,
   ServerToolResult,
   ServerToolUseComplete,
@@ -115,6 +131,7 @@ import type {
   ClientLocationResponse,
   ClientMaskError,
   ClientMaskResponse,
+  ClientMarkupError,
   ClientMessage,
   ClientSessionResume,
   ApprovalChannel,
@@ -618,6 +635,15 @@ export const clientMaskErrorSchema = z.looseObject({
   turnId: id.optional(),
 }) satisfies z.ZodType<ClientMaskError>;
 
+/** The decline only: the layer itself is uploaded over HTTP (#3975). */
+export const clientMarkupErrorSchema = z.looseObject({
+  type: z.literal("markup_error"),
+  requestId: id,
+  code: z.enum(["cancelled", "failed"]),
+  message: z.string().max(MAX_ANSWER_CHARS),
+  turnId: id.optional(),
+}) satisfies z.ZodType<ClientMarkupError>;
+
 const activityView = z.enum(["index", "session", "run"]);
 
 export const clientActivitySubscribeSchema = z.looseObject({
@@ -848,6 +874,8 @@ export const clientDialogueReadSchema = z.looseObject({
 
 export const clientConversationStartSchema = z.looseObject({
   disclosed: z.lazy(() => conversationProfileSchema).optional(),
+  providerId: id.optional(),
+  personaRef: z.lazy(() => conversationPersonaRefSchema).optional(),
   type: z.literal("conversation_start"),
   historyOwnerId: id.optional(),
   contextualTasks: z.boolean().optional(),
@@ -923,6 +951,7 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   clientLocationErrorSchema,
   clientMaskResponseSchema,
   clientMaskErrorSchema,
+  clientMarkupErrorSchema,
   clientActivitySubscribeSchema,
   clientActivityUnsubscribeSchema,
   clientLocalExchangeSchema,
@@ -930,6 +959,7 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   clientHandoffPrepareCancelSchema,
   clientHandoffStatusSchema,
   clientInboxResolveSchema, clientInboxSnoozeSchema, clientInboxSubscribeSchema, clientInboxUnsubscribeSchema,
+  clientSafetyReadSchema, clientSafetySubscribeSchema, clientSafetyUnsubscribeSchema,
   clientDialogueReadSchema,
   clientConversationStartSchema,
   clientConversationAudioSchema,
@@ -1175,6 +1205,7 @@ export const sessionDraftLimitsSchema = z.looseObject({
   maxDraftFiles: byteCount.optional(),
   maxDraftFileBytes: byteCount.optional(),
   maxDraftFilesBytes: byteCount.optional(),
+  maxOutgoingSnapshots: byteCount.optional(),
 }) satisfies z.ZodType<SessionDraftLimits>;
 
 export const attachmentLimitsSchema = z.looseObject({
@@ -1185,8 +1216,14 @@ export const attachmentLimitsSchema = z.looseObject({
 }) satisfies z.ZodType<import("./protocol.js").AttachmentLimits>;
 
 export const serverHelloSchema = z.looseObject({
+  safetyCapabilities: safetyCapabilitiesSchema.optional().catch(undefined),
   type: z.literal("server_hello"),
   conversationProfile: z.lazy(() => conversationProfileSchema).optional().catch(undefined),
+  // A malformed live-service roster is dropped rather than costing the whole hello (#3616).
+  conversationProfiles: z.lazy(() => conversationProfilesSchema).optional().catch(undefined),
+  liveDefault: z.lazy(() => liveDefaultSchema).optional().catch(undefined),
+  // A malformed persona status is dropped rather than costing the whole hello.
+  livePersona: z.lazy(() => livePersonaStatusSchema).optional().catch(undefined),
   protocolRev: z.number(),
   principalKey: z.string().max(MAX_ID_CHARS).optional(),
   capabilities: z.record(z.string(), z.boolean()).optional(),
@@ -1235,6 +1272,14 @@ export const draftSchema = z.looseObject({
     fileIds: z.array(z.string().regex(/^[a-f0-9-]{36}$/)).max(10),
     state: z.enum(["held", "dispatched"]),
   }).nullable().optional(),
+  snapshots: z.array(z.looseObject({
+    snapshotId: id,
+    requestId: id,
+    text: z.string(),
+    fileIds: z.array(z.string().regex(/^[a-f0-9-]{36}$/)).max(10),
+    state: z.enum(["held", "returned", "dispatched"]),
+    createdAt: byteCount,
+  })).max(SESSION_DRAFT_LIMITS.maxOutgoingSnapshots ?? 10).optional(),
 }) satisfies z.ZodType<Draft>;
 
 export const draftSaveResponseSchema = z.looseObject({
@@ -1333,6 +1378,18 @@ export const serverToolResultSchema = z.looseObject({
   ...sessionScoped,
 }) satisfies z.ZodType<ServerToolResult>;
 
+/**
+ * Display-only facts on an approval (#4154). A fact that fails this shape is
+ * dropped, never the card: unknown display reads as the neutral state, and
+ * the approval itself is unaffected.
+ */
+export const approvalDisplaySchema = z.looseObject({
+  github: z.looseObject({
+    poster: z.looseObject({ login: z.string().regex(/^[A-Za-z0-9-]{1,39}(?:\[bot\])?$/), is_bot: z.boolean() }).nullable().catch(null),
+    target: z.looseObject({ kind: z.enum(["issue", "pull_request"]), html_url: z.string().max(2048).nullable() }).nullable().catch(null),
+  }).optional().catch(undefined),
+}) satisfies z.ZodType<ApprovalDisplay>;
+
 export const serverToolApprovalRequestSchema = z.looseObject({
   type: z.literal("tool_approval_request"),
   toolUseId: z.string().max(MAX_ID_CHARS),
@@ -1341,6 +1398,7 @@ export const serverToolApprovalRequestSchema = z.looseObject({
   description: z.string().optional(),
   kind: z.enum(["tool", "command", "policy", "actor"]).optional(),
   rememberable: z.boolean().optional(),
+  display: approvalDisplaySchema.optional().catch(undefined),
   ...sessionScoped,
 }) satisfies z.ZodType<ServerToolApprovalRequest>;
 
@@ -1510,6 +1568,19 @@ export const serverMaskRequestSchema = z.looseObject({
   instruction: z.string().optional(),
   ...sessionScoped,
 }) satisfies z.ZodType<ServerMaskRequest>;
+
+export const serverMarkupRequestSchema = z.looseObject({
+  type: z.literal("markup_request"),
+  requestId: z.string().max(MAX_ID_CHARS),
+  imagePath: z.string(),
+  instruction: z.string().optional(),
+  width: z.number().int().positive(),
+  height: z.number().int().positive(),
+  maxBytes: z.number().int().positive(),
+  uploadPath: z.string().max(1024),
+  sourcePath: z.string().max(1024),
+  ...sessionScoped,
+}) satisfies z.ZodType<ServerMarkupRequest>;
 
 const activitySpanSchema = z.looseObject({
   spanId: id,
@@ -1741,11 +1812,101 @@ export const conversationDisclosureSchema = z.looseObject({
   destinations: z.array(z.string().min(1).max(500)).min(1).max(16),
 }) satisfies z.ZodType<ConversationDisclosure>;
 
+export const conversationVoiceSchema = z.object({
+  id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/),
+  label: z.string().min(1).max(64),
+}) satisfies z.ZodType<ConversationVoice>;
+
 export const conversationProfileSchema = z.object({
   providerId: id,
   capabilities: conversationCapabilitiesSchema,
   disclosure: conversationDisclosureSchema,
+  // Persona support (#3617). A malformed value means "no voice control", never a refused profile.
+  voices: z.array(conversationVoiceSchema).max(128).optional().catch(undefined),
+  defaultVoice: z.string().min(1).max(64).optional().catch(undefined),
+  personaInstructionBytes: z.number().int().min(1).max(LIVE_PERSONA_LIMITS.maxInstructionBytes).optional().catch(undefined),
 }) satisfies z.ZodType<ConversationProfile>;
+
+/** Registered live services, in registration order (#3616). Ids are unique. */
+export const conversationProfilesSchema = z.array(conversationProfileSchema).max(64)
+  .refine((profiles) => new Set(profiles.map((p) => p.providerId)).size === profiles.length, { message: "duplicate providerId" });
+
+export const liveDefaultSchema = z.looseObject({
+  saved: id.nullable(),
+  savedUsable: z.boolean(),
+  effective: id.nullable(),
+  source: z.enum(["saved", "host", "only", "none"]),
+}) satisfies z.ZodType<LiveDefault>;
+
+/** Additive (#3616): the saved live-service default changed; same fields as hello. */
+export const serverLiveSettingsSchema = z.looseObject({
+  type: z.literal("live_settings"),
+  liveDefault: liveDefaultSchema,
+  conversationProfiles: conversationProfilesSchema,
+}) satisfies z.ZodType<ServerLiveSettings>;
+
+/** `GET`/`PUT /api/settings/voice` response (#3616). */
+export const voiceLiveSettingsSchema = z.looseObject({
+  defaultProvider: id.nullable(),
+  revision: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+}) satisfies z.ZodType<VoiceLiveSettings>;
+const personaId = z.string().regex(new RegExp(`^(?:[a-z0-9-]{1,${LIVE_PERSONA_LIMITS.maxIdChars}})$`));
+const personaRevision = z.string().min(1).max(128);
+const personaVoices = z.record(z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/), z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/))
+  .refine(v => Object.keys(v).length <= LIVE_PERSONA_LIMITS.maxVoices);
+
+export const conversationPersonaRefSchema = z.object({
+  id: personaId,
+  revision: personaRevision,
+  voice: z.literal("default").optional(),
+}) satisfies z.ZodType<ConversationPersonaRef>;
+
+export const livePersonaSummarySchema = z.looseObject({
+  id: personaId,
+  name: z.string().max(LIVE_PERSONA_LIMITS.maxNameChars * 2),
+  voices: personaVoices,
+  instructionBytes: z.number().int().min(0),
+  revision: personaRevision,
+  builtIn: z.literal(true).optional(),
+  invalid: z.enum(["front_matter", "schema", "name", "voices", "too_long", "encoding", "over_count"]).optional(),
+}) satisfies z.ZodType<LivePersonaSummary>;
+
+export const livePersonaSchema = livePersonaSummarySchema.extend({
+  instructions: z.string().max(LIVE_PERSONA_LIMITS.maxFileBytes),
+}) satisfies z.ZodType<LivePersona>;
+
+export const livePersonaListResponseSchema = z.looseObject({
+  personas: z.array(livePersonaSummarySchema).max(256),
+}) satisfies z.ZodType<LivePersonaListResponse>;
+
+export const livePersonaProviderStatusSchema = z.looseObject({
+  voice: z.string().min(1).max(64),
+  voiceSource: z.enum(["persona", "default"]),
+  staleVoice: z.string().max(64).optional(),
+  maxInstructionBytes: z.number().int().min(0),
+  overLimit: z.boolean(),
+}) satisfies z.ZodType<LivePersonaProviderStatus>;
+
+export const livePersonaStatusSchema = z.looseObject({
+  selected: personaId,
+  selectedMissing: z.boolean(),
+  selectedInvalid: z.boolean(),
+  persona: livePersonaSummarySchema,
+  personaRef: z.object({ id: personaId, revision: personaRevision }),
+  providers: z.record(id, livePersonaProviderStatusSchema),
+}) satisfies z.ZodType<LivePersonaStatus>;
+
+export const voiceSettingsResponseSchema = z.looseObject({
+  defaultProvider: id.nullable(),
+  revision: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+  persona: z.object({ value: personaId, revision: z.number().int().min(0) }),
+  livePersona: livePersonaStatusSchema,
+}) satisfies z.ZodType<VoiceSettingsResponse>;
+
+export const serverLivePersonaSchema = z.looseObject({
+  type: z.literal("live_persona"),
+  livePersona: livePersonaStatusSchema,
+}) satisfies z.ZodType<ServerLivePersona>;
 
 export const conversationAudioFormatSchema = z.looseObject({
   encoding: z.literal("pcm16"),
@@ -1871,6 +2032,9 @@ export const dialogueEvidenceSchema = z.discriminatedUnion("kind", [
       z.object({kind:z.literal("unassigned_input_fragment"),sequence:conversationSequence,text:z.string().max(2000),sessionInterval:conversationIntervalSchema.transform(i=>({startMs:i.startMs,endMs:i.endMs})).optional(),timing:z.object({kind:z.literal("unavailable")}).optional(),finalization:z.enum(["final","unknown"]).optional()}),
       z.object({kind:z.literal("output_transcript"),outputId:id,sequence:conversationSequence,text:z.string().max(2000),interval:conversationIntervalSchema.transform(i=>({startMs:i.startMs,endMs:i.endMs})).optional()}),
     ]) }),
+  z.object({ kind: z.literal("voice_interruption"), conversationId: id, epoch: conversationEpoch, providerId: id, outputId: id.optional() }),
+  z.object({ kind: z.literal("voice_end"), conversationId: id, epoch: conversationEpoch, providerId: id, startedAt: z.number().int().nonnegative(), endedAt: z.number().int().nonnegative() })
+    .refine(e => e.endedAt >= e.startedAt, "A conversation cannot end before it started"),
   z.object({ kind: z.literal("request"), turnId: id, requestId: id.optional() }),
   z.object({ kind: z.literal("backend"), turnId: id, start: conversationSequence, end: conversationSequence, digest: z.string().regex(/^[a-f0-9]{64}$/), text: z.string().max(2000) }),
 ]).refine(e => e.kind !== "voice" || (e.event.kind === "input_fragment" ? (e.event.certainty === "known") === (e.event.confidence !== undefined)
@@ -1883,7 +2047,7 @@ export const dialoguePageSchema = z.object({ cursor:z.string().max(2048).optiona
 export const serverDialogueHistorySchema = dialoguePageSchema.extend({ type: z.literal("dialogue_history"), requestId: id.optional() }) satisfies z.ZodType<ServerDialogueHistory>;
 
 export const serverConversationOpenedSchema = z.looseObject({
-  historyCoverage: z.object({ state: z.enum(["complete", "bounded", "partial", "unavailable"]), tailOmitted: z.boolean() }).optional(),
+  historyCoverage: z.object({ state: z.enum(["complete", "bounded", "partial", "unavailable"]), tailOmitted: z.boolean(), includedMessages: z.number().int().nonnegative().optional() }).optional(),
   type: z.literal("conversation_opened"),
   historyGeneration:conversationEpoch.optional(),
   historyOwnerId: id.optional(),
@@ -1893,6 +2057,7 @@ export const serverConversationOpenedSchema = z.looseObject({
   epoch: conversationEpoch,
   sessionId: id.optional(),
   providerId: id,
+  providerSource: z.enum(["change", "saved", "host", "only"]).optional().catch(undefined),
   capabilities: conversationCapabilitiesSchema,
   disclosure: conversationDisclosureSchema,
   limits: conversationLimitsSchema,
@@ -1976,6 +2141,29 @@ export const serverChatRetiredSchema = z.looseObject({
   generation: z.number().int().min(1),
 }) satisfies z.ZodType<ServerChatRetired>;
 
+const attachmentReadEntrySchema = z.looseObject({
+  fileId: z.string().regex(/^[a-f0-9-]{36}$/),
+  turnId: id,
+  outcome: z.enum(["read", "partial", "no_text", "encrypted", "malformed", "failed", "unavailable", "changed"]),
+  scope: z.union([
+    z.looseObject({ pages: z.tuple([z.number().int().positive(), z.number().int().positive()]), pageCount: z.number().int().nonnegative() }),
+    z.looseObject({ bytes: z.tuple([z.number().int().nonnegative(), z.number().int().nonnegative()]), totalBytes: z.number().int().nonnegative() }),
+  ]).nullable(),
+  at: z.number().int().nonnegative(),
+}) satisfies z.ZodType<import("./protocol.js").AttachmentReadEntry>;
+
+/** `GET /api/sessions/:id/attachment-reads` (#3589). */
+export const sessionAttachmentReadsResponseSchema = z.looseObject({
+  sessionId: id,
+  reads: z.array(attachmentReadEntrySchema),
+}) satisfies z.ZodType<import("./protocol.js").SessionAttachmentReadsResponse>;
+
+export const serverAttachmentReadSchema = z.looseObject({
+  type: z.literal("attachment_read"),
+  sessionId: id,
+  read: attachmentReadEntrySchema,
+}) satisfies z.ZodType<import("./protocol.js").ServerAttachmentRead>;
+
 export const serverUsageSchema = z.looseObject({ type:z.literal("usage"),sessionId:id.optional(),turnId:id,
   usage:turnUsageSchema,observedAt:z.number().int().nonnegative(),budget:turnBudgetReceiptSchema.optional().catch(undefined),
 }) satisfies z.ZodType<import("./protocol.js").ServerUsage>;
@@ -1991,6 +2179,7 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   serverTurnJournalSchema,
   serverUsageSchema,
   serverChatRetiredSchema,
+  serverAttachmentReadSchema,
   serverRetryReceiptSchema,
   serverHelloSchema,
   serverTextDeltaSchema,
@@ -2013,6 +2202,7 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   serverPongSchema,
   serverLocationRequestSchema,
   serverMaskRequestSchema,
+  serverMarkupRequestSchema,
   serverActivitySnapshotSchema,
   serverActivityDeltaSchema,
   serverMessageBlocksSchema,
@@ -2023,13 +2213,16 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   inboxSnapshotSchema, inboxDeltaSchema,
   serverToolResolutionSchema,
   serverSessionQueueSchema,
+  serverSafetyHistorySchema, serverSafetyUpdateSchema, serverSafetyUnavailableSchema,
   serverDialogueHistorySchema,
   serverConversationOpenedSchema,
+  serverLivePersonaSchema,
   serverConversationClosedSchema,
   serverConversationEventSchema,
   serverConversationWorkSchema,
   serverConversationOutputSchema,
   serverConversationPermissionSchema,
+  serverLiveSettingsSchema,
 ]) satisfies z.ZodType<ServerMessage>;
 
 /**

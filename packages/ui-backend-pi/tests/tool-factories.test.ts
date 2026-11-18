@@ -89,6 +89,19 @@ test("editFileTool replaces one unique string and refuses an ambiguous one", asy
   await expect(run(editFileTool(kit()), { path: "notes/ithaca.md", old_string: "a", new_string: "b" })).rejects.toThrow("is not unique");
 });
 
+test("editFileTool writes $ sequences in new_string verbatim, and its remembered base matches the file", async () => {
+  const literal = "costs $$5, keeps $& and $' and $` as typed";
+  // Governed direct writes: the base the edit remembers is checked against
+  // the file before the next direct write.
+  const tools = kit({ directWrites: true });
+  await run(editFileTool(tools), { path: "notes/ithaca.md", old_string: "sails home", new_string: literal });
+  expect(readFileSync(join(root, "notes/ithaca.md"), "utf8")).toBe(`# Ithaca\n\nOdysseus ${literal}.\n`);
+  // The remembered base is the literal text, so a second edit in the same
+  // kit passes its base check instead of reading the file as changed.
+  await run(editFileTool(tools), { path: "notes/ithaca.md", old_string: "as typed", new_string: "as written" });
+  expect(readFileSync(join(root, "notes/ithaca.md"), "utf8")).toBe("# Ithaca\n\nOdysseus costs $$5, keeps $& and $' and $` as written.\n");
+});
+
 test("bashTool runs one command in the repository and keeps a nonzero exit", async () => {
   const tools = kit({ exec: {} });
   expect(resultText(await run(bashTool(tools), { command: "echo Odysseus" }))).toBe("Odysseus");

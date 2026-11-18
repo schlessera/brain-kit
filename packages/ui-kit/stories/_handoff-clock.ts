@@ -11,8 +11,8 @@
  * that genuinely holds the ghost past its fade keeps painting frames with it.
  *
  * The promise this checks is D53's: the outgoing ghost fades out over the
- * approved 600ms on its own animation clock and is gone within a few rendered
- * frames of that fade's end. The fade's length is read from its CSS animation timing at
+ * approved 600ms on its own animation clock, stays until that fade has ended,
+ * and is gone within a few rendered frames of its end (#3425). The fade's length is read from its CSS animation timing at
  * arrival; its end is the browser's own `animationend`.
  */
 
@@ -21,11 +21,10 @@ export const FADE_MS = 600;
 
 /**
  * At most this many frames may render after the frame in which the fade ends.
- * The removal timer starts at the commit and the fade on a frame near it, so
- * the two end within a vsync of each other. Normally the ghost is removed
- * before its fade ends at all. The worst case observed with one CPU shared
- * with six busy loops was two frames, while a ghost held 200ms past its fade
- * renders about twelve at 60Hz.
+ * The component ends the handoff on the fade's own end (#3425), so removal
+ * normally lands in the next frame or two. The worst case observed with one
+ * CPU shared with six busy loops was two frames, while a ghost held 200ms past
+ * its fade renders about twelve at 60Hz.
  */
 export const FRAMES_AFTER_FADE = 3;
 
@@ -48,8 +47,21 @@ export interface HandoffClock {
   fadeMs?: number;
   /** Frames rendered after the fade ended, up to removal. Zero if removal came first. */
   framesAfterFade: number;
+  /**
+   * A `ghost-out` fade ended (`animationend`) before the ghost was removed. A
+   * ghost removed part-way through its fade, from partial opacity, leaves it
+   * false (#3425).
+   */
+  fadeEnded: boolean;
   /** Frames rendered after arrival, up to removal. */
   framesAfterArrival: number;
+  /**
+   * Both layers' opacity in the first rendered frame whose `ghost-out` fade
+   * is running and at least a tenth through (#3755). Taken here, on the
+   * page's own frames, because the story's click can resolve after the
+   * whole fade on a loaded runner. Absent if no such frame rendered.
+   */
+  midFade?: { out: number; incoming: number; fadeTime: number };
   /** Resolves on removal, or once the ghost has outlived its fade by more than the allowance. */
   settled: Promise<void>;
   /** Re-checks the frame, for a mutation the observer has not delivered yet. */
@@ -72,6 +84,7 @@ export function watchHandoff(frame: HTMLElement, isArrival: (frame: HTMLElement)
     arrived: false,
     removed: false,
     framesAfterFade: 0,
+    fadeEnded: false,
     framesAfterArrival: 0,
     settled: new Promise<void>(resolve => { settle = resolve; }),
     observe,
@@ -96,8 +109,22 @@ export function watchHandoff(frame: HTMLElement, isArrival: (frame: HTMLElement)
     }
   }
 
+  function sampleMidFade() {
+    const out = frame.querySelector(".bk-ghost-out");
+    const fade = out?.getAnimations().find(a => (a as CSSAnimation).animationName === "ghost-out");
+    const fadeTime = Number(fade?.currentTime ?? 0);
+    if (!out || fade?.playState !== "running" || fadeTime < FADE_MS / 10) return;
+    const incoming = frame.querySelector(".bk-ghost-in");
+    clock.midFade = {
+      out: Number(getComputedStyle(out).opacity),
+      incoming: incoming ? Number(getComputedStyle(incoming).opacity) : NaN,
+      fadeTime,
+    };
+  }
+
   function tick() {
     clock.framesAfterArrival = ++frames;
+    if (!clock.midFade) sampleMidFade();
     if (frames > FRAMES_AFTER_ARRIVAL) return settle();
     if (fadeEndedAt !== undefined) {
       clock.framesAfterFade = frames - fadeEndedAt;
@@ -112,6 +139,7 @@ export function watchHandoff(frame: HTMLElement, isArrival: (frame: HTMLElement)
     // Animation events dispatch before this frame's rAF callbacks, so the frame
     // in which the fade ended is the first one counted after it.
     fadeEndedAt ??= frames;
+    clock.fadeEnded = true;
   }
 
   const observer = new MutationObserver(observe);

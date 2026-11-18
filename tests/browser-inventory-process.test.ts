@@ -2,7 +2,7 @@ import { expect, spyOn, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { browserInventory } from "../scripts/proof-inputs";
+import { browserInventory, normalizeInventory } from "../scripts/proof-inputs";
 
 const controlDeadlineMs = 1000;
 
@@ -63,6 +63,21 @@ test.each([false, true])("native watchdog reports publication %s and reaps the d
   expect(receipt.elapsedMs).toBeGreaterThanOrEqual(900);
   expect(receipt.elapsedMs).toBeLessThan(5000);
 });
+// #4149: a hosted timeout must say whether discovery was computing or the
+// runner starved it, instead of leaving the cause to be inferred from stderr.
+test.each([
+  ["waiting", "setInterval(()=>{},1000);"],
+  ["computing", "for(;;){}"],
+])("native watchdog receipt separates a %s child's CPU time from wall time", async (phase, script) => {
+  const { receipt } = diagnostics(await nativeControl(script, controlDeadlineMs));
+  expect(receipt).toMatchObject({ deadlineMs: 1000, timedOut: true, signal: "SIGKILL" });
+  expect(receipt.cpu).toEqual({ userMs: expect.any(Number), systemMs: expect.any(Number), involuntarySwitches: expect.any(Number) });
+  const cpuMs = receipt.cpu.userMs + receipt.cpu.systemMs;
+  if (phase === "waiting") expect(cpuMs).toBeLessThan(receipt.elapsedMs / 2);
+  else expect(cpuMs).toBeGreaterThan(receipt.elapsedMs / 4);
+  expect(receipt.host.parallelism).toBeGreaterThanOrEqual(1);
+  expect(receipt.host.loadavg).toHaveLength(3);
+});
 test("native signal remains distinct from watchdog expiration", async () => {
   const { receipt } = diagnostics(await nativeControl('process.kill(process.pid,"SIGTERM");', controlDeadlineMs));
   expect(receipt).toMatchObject({ deadlineMs: 1000, timedOut: false, signal: "SIGTERM", inventory: { present: false } });
@@ -110,4 +125,31 @@ test("native watchdog bounds inherited pipes even after the discovery leader has
     await Bun.sleep(10);
   }
   expect(["gone", "Z"]).toContain(state); // An adopted zombie cannot retain descriptors or execute.
+});
+
+test("a successful discovery reads the published JSON file, not the coloured console output", async () => {
+  const root = mkdtempSync(join(tmpdir(), "inventory-process-"));
+  mkdirSync(join(root, "packages/ui-kit"), { recursive: true });
+  mkdirSync(join(root, "scripts"));
+  writeFileSync(join(root, "scripts/visual.mjs"), 'const projects = projectArgs.length ? [] : ["visual", "rail-fine"];\n');
+  const discovered = [
+    { project: "rail-fine", file: "packages/ui-react/tests/browser/shared.offline.tsx" },
+    { project: "ui-react-endurance", file: "packages/ui-react/tests/browser/recordings.endurance.tsx" },
+    { project: "ui-react-layout", file: "packages/ui-react/tests/browser/one.layout.tsx" },
+    { project: "visual", file: "packages/ui-kit/tests/visual/one.visual.tsx" },
+  ];
+  const original = Bun.spawn;
+  const spawn = spyOn(Bun, "spawn").mockImplementationOnce(((argv: string[], options: Parameters<typeof Bun.spawn>[1]) => {
+    const output = argv.find(arg => arg.startsWith("--json="))!.slice(7);
+    writeFileSync(output, JSON.stringify(discovered.map(spec => ({ file: join(root, spec.file), projectName: `${spec.project} (chromium)` }))));
+    return original([process.execPath, "-e", 'console.log("\\u001b[31mconsole diagnostic\\u001b[0m");'], options);
+  }) as typeof Bun.spawn);
+  try { expect(await browserInventory(root)).toEqual(discovered); }
+  finally { spawn.mockRestore(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test("distinct Chromium and WebKit projects keep separate normalized identities", () => {
+  const file = "packages/ui-react/tests/browser/diagrams-renderer.layout.tsx";
+  expect(normalizeInventory([{ projectName: "diagrams-chromium (chromium)", file }, { projectName: "diagrams-webkit (webkit)", file }]))
+    .toEqual([{ project: "diagrams-chromium", file }, { project: "diagrams-webkit", file }]);
 });

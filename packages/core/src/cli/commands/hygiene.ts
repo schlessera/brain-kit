@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "fs";
 import { relative, sep } from "path";
 
-import { loadAuditDocs } from "../../lib/auditor.js";
+import { audit, loadAuditDocs } from "../../lib/auditor.js";
 import { openDatabase } from "../../lib/db.js";
 import {
   canonicalFindings,
@@ -21,13 +21,23 @@ import { selectHygieneNext } from "../../lib/hygiene-next.js";
 import { checkHygiene, CONFIG_BLOCKER_ID, repairHandlers, resolveHygiene, undoHygiene } from "../../lib/hygiene-repair.js";
 import { indexAll } from "../../lib/indexer.js";
 import { mediaPolicy } from "../../lib/media.js";
+import { reviewPropagations, type PropagationReviewReport } from "../../lib/propagation-review.js";
 import type { MediaAction } from "../../lib/media-effects.js";
 import { mediaReferenceLimits } from "../../lib/media-references.js";
 import { resolveEnv } from "../../config/env.js";
 import type { CliContext, CoreCommand } from "../types.js";
 import { emit, parseArgs, UsageError } from "../io.js";
 
-const HELP = `brain hygiene <reconcile|list|next|dismiss|snooze|keep-copy|unkeep|media|resolve|undo|check> — the content-hygiene log under context/hygiene/
+const HELP = `brain hygiene <reconcile|propagation|list|next|dismiss|snooze|keep-copy|unkeep|media|resolve|undo|check> — the content-hygiene log under context/hygiene/
+
+  propagation [--dry-run]
+      Inspect or run diff-assisted freshness review after persistent opt-in
+      (hygiene.propagation.enabled). Reports settings, typed judgments and
+      threshold sensitivity. Dry-run may call Jev but writes no Markdown.
+      Only a matching separate review receipt clears propagation; document
+      content and updated dates are untouched. Unknowns remain for the owner.
+      Ordinary reconcile/next run this prepass automatically when enabled;
+      inspection-only next --dry-run never initiates provider calls.
 
   reconcile [--extra <file.json>] [--fixed <file.json>] [--dry-run]
       Refresh the index, detect issues (brain audit, brain validate's corpus
@@ -200,10 +210,18 @@ async function detectAndReconcile(cli: CliContext, opts: Omit<ReconcileOptions, 
   const db = openDatabase(cli.brain.dbPath);
   try {
     await indexAll(db, { root: cli.brain.root, taxonomy: cli.brain.taxonomy, force: false, quiet: true });
-    const { candidates, failedChecks, media } = await detectCandidates(db, cli.brain, opts.now);
+    let { candidates, failedChecks, media } = await detectCandidates(db, cli.brain, opts.now);
+    let propagation: PropagationReviewReport | undefined;
+    if (!opts.dryRun && !opts.dispositions && !failedChecks.length && cli.brain.config?.hygiene?.propagation?.enabled === true) {
+      propagation = await reviewPropagations(cli.brain, candidates.filter(c => c.category === "propagation").map(c => c.path), { now: opts.now });
+      if (propagation.changedFiles.length) ({ candidates, failedChecks, media } = await detectCandidates(db, cli.brain, opts.now));
+    }
     const docs = new Map(loadAuditDocs(db).map((d) => [d.path, d]));
     const result = reconcile(cli.brain.root, candidates, docs, { ...opts, failedChecks, media: mediaPolicy(cli.brain.config) });
-    return { result, findings: canonicalFindings([...candidates, ...(opts.extra ?? [])]), inventory: media };
+    if (propagation) {
+      result.changedFiles = [...new Set([...result.changedFiles, ...propagation.changedFiles])];
+    }
+    return { result: propagation ? { ...result, propagation } : result, findings: canonicalFindings([...candidates, ...(opts.extra ?? [])]), inventory: media };
   } finally {
     db.close();
   }
@@ -260,6 +278,25 @@ export const hygieneCommand: CoreCommand = {
   async run(args, cli) {
     const { args: pos, flags } = parseArgs(args);
     const sub = pos[0];
+
+    if (sub === "propagation") {
+      if (pos.length !== 1) throw new UsageError("Usage: brain hygiene propagation [--dry-run]");
+      let paths: string[] = [];
+      if (cli.brain.config?.hygiene?.propagation?.enabled === true) {
+        const db = openDatabase(cli.brain.dbPath);
+        try {
+          await indexAll(db, { root: cli.brain.root, taxonomy: cli.brain.taxonomy, quiet: true, embeddings: false });
+          // Raw lag finds cached judgments too; ordinary audit applies receipts read-only.
+          paths = audit(db, cli.brain.taxonomy, { root: cli.brain.root }).filter(i => i.category === "propagation").map(i => i.path);
+        } finally { db.close(); }
+      }
+      const report = await reviewPropagations(cli.brain, paths, { dryRun: flags["dry-run"] === true });
+      emit(cli.json, report, () => {
+        console.log(report.enabled ? `${report.acknowledged} current, ${report.reviewRequired} need review, ${report.unavailable} unavailable, ${report.deferred} deferred` : "Propagation automation is disabled; enable hygiene.propagation.enabled explicitly.");
+        for (const item of report.findings) console.log(`${item.status}: ${item.path} (${item.reason}${item.cached ? ", cached" : ""})`);
+      });
+      return 0;
+    }
 
     if (sub === "next") {
       if (pos.length !== 1) throw new UsageError("Usage: brain hygiene next [--extra <file.json>] [--finding <id> --dry-run]");

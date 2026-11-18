@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { expect, waitFor } from "storybook/test";
 import { StreamingAnswer } from "../src/conversation/StreamingAnswer.js";
+import { TextButton } from "../src/primitives/TextButton.js";
 import { FADE_MS, FRAMES_AFTER_FADE, watchHandoff } from "./_handoff-clock.js";
 
 const TOKENS = ["Circe named", " them in order,", " on the morning", " we sailed from Aeaea."];
@@ -10,7 +11,7 @@ export function StreamingHandoff() {
   const [count, setCount] = useState(0);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%" }}>
-      <button type="button" onClick={() => setCount(n => Math.min(TOKENS.length, n + 1))}>Token</button>
+      <TextButton inline label="Token" onClick={() => setCount(n => Math.min(TOKENS.length, n + 1))} style={{ alignSelf: "flex-start" }} />
       <StreamingAnswer phase="writing" target="drafting" elapsed="2.0s" cost="~$0.03 so far" text={TOKENS.slice(0, count).join("")} />
     </div>
   );
@@ -51,6 +52,7 @@ export async function playStreamingHandoff({canvas, canvasElement, userEvent}: {
     await expect(handoff.fadeMs, "the outgoing ghost's fade, in animation time").toBeLessThanOrEqual(FADE_MS);
     await expect(handoff.framesAfterFade, "frames rendered with the ghost after its fade ended").toBeLessThanOrEqual(FRAMES_AFTER_FADE);
     await expect(handoff.removed, "the outgoing ghost was removed").toBe(true);
+    await expect(handoff.fadeEnded, "the outgoing ghost's fade ended before its removal").toBe(true);
     await expect(canvasElement.querySelectorAll(".bk-ghost, .bk-ghost-out")).toHaveLength(0);
 
     for (let i = 1; i < TOKENS.length; i++) await userEvent.click(token);

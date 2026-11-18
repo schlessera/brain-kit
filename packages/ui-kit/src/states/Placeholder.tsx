@@ -1,5 +1,5 @@
 import { GhostBand } from "../internal/GhostBand.js";
-import { useId, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import { useId, useRef, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 
 import { DEFAULT_SIZE, GhostText, INCOMING, ghostFamily, useArrival, type GhostSpec } from "../internal/GhostText.js";
 import { Icon, type IconName } from "../primitives/Icon.js";
@@ -112,7 +112,8 @@ export function Placeholder(p: PlaceholderProps) {
   const v = p.variant || "loading";
   const loading = v === "loading";
   const arrived = loading && p.arrived === true;
-  const arriving = useArrival(loading && !arrived);
+  const frame = useRef<HTMLDivElement>(null);
+  const arriving = useArrival(loading && !arrived, frame);
   const err = v === "error";
   const empty = v === "empty";
   const skin = TONES[p.tone || (err ? "red" : "neutral")] || TONES.neutral;
@@ -204,7 +205,7 @@ export function Placeholder(p: PlaceholderProps) {
   }
 
   return (
-    <div style={{ ...box, position: "relative" }} aria-busy={loading && !arrived ? true : undefined}>
+    <div ref={frame} style={{ ...box, position: "relative" }} aria-busy={loading && !arrived ? true : undefined}>
       {loading && !arrived ? <div style={stack}>{ghosts}</div> : null}
       {arrived ? (
         // One tree from arrival on: ending the handoff drops the overlay and a

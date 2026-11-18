@@ -49,7 +49,7 @@ test("real populate/persist retains created and replaced external notes with tai
     const notes = details.changes.filter(c => c.scope === "claude_memory");
     expect(notes.length, "MEMORY_REAL_PERSIST_REACHES_RETAINED_JOURNAL").toBe(2);
     expect(details.summary).toMatchObject({ state: "complete", changedFiles: 3, steeringFiles: 2, model: "odysseus-model", profile: "governed" });
-    expect(notes.every(c => c.class === "steering" && c.tainted && c.taintSourceEventId)).toBe(true);
+    expect(notes.filter(c => !(c.class === "steering" && c.tainted && c.taintSourceEventId))).toEqual([]);
     expect(notes.find(c => c.path.endsWith("athena.md"))?.before).toBeNull();
     const replaced = notes.find(c => c.path.endsWith("voyage.md"))!;
     expect(f.journal.version("ithaca", "return", replaced.sequence, "before")!.bytes(32)).toEqual(Buffer.from([65, 13, 10, 255]));
@@ -88,7 +88,7 @@ test("peer persistence refuses only the stale note, retains successful notes and
     expect(readFileSync(join(f.memory, "voyage.md"), "utf8"), "MEMORY_PEER_PERSIST_IS_NEVER_OVERWRITTEN").toBe("Peer counsel\n");
     expect(readFileSync(join(f.memory, "telemachus.md"), "utf8")).toBe("Independent\n");
     expect(f.journal.details("ithaca", "return")?.summary.state).toBe("partial");
-    expect(f.journal.details("ithaca", "return")?.changes.some(c => c.path === "claude-memory://voyage.md")).toBe(false);
+    expect(f.journal.details("ithaca", "return")?.changes.map(c => c.path)).not.toContain("claude-memory://voyage.md");
     const partialReverts = f.reverts();
     expect(partialReverts.plan("ithaca", "return").paths.find(item => item.path === "claude-memory://telemachus.md")?.state, "MEMORY_PARTIAL_SAVE_RETAINS_KNOWN_SUCCESSFUL_RECOVERY").toBe("eligible");
     await partialReverts.close();

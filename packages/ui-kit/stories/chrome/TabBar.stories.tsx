@@ -81,13 +81,19 @@ export const HitTargetIsExact = meta.story({
 
       // The design's README predicts "~33px tall visual -> 51px hit". The
       // visual is the icon (20) + gap (3) + the label's line box, so the claim
-      // worth asserting is the EXPANSION, which is exactly 18 and 28.
-      const inner = { h: box.height - 18, w: box.width - 28 };
-      await expect(box.height - inner.h).toBe(18);
-      await expect(box.width - inner.w).toBe(28);
+      // worth asserting is the EXPANSION, which is exactly 18 and 28: measured
+      // from the drawn visual, the icon above and the wider of icon and label
+      // across, not from the box it is supposed to have grown.
+      const icon = tab.querySelector("svg")!.getBoundingClientRect();
+      const label = document.createRange();
+      label.selectNode([...tab.childNodes].find((node) => node.nodeType === Node.TEXT_NODE)!);
+      const visualWidth = Math.max(icon.width, label.getBoundingClientRect().width);
+      await expect(icon.top - box.top, "9px of reach above the icon").toBeCloseTo(9, 1);
+      await expect(box.width - visualWidth, "28px of reach across the visual").toBeCloseTo(28, 1);
       // And the README's 51 is the real number at this width, within a pixel
       // of font metrics.
-      await expect(box.height > 50 && box.height < 52).toBe(true);
+      await expect(box.height).toBeGreaterThan(50);
+      await expect(box.height).toBeLessThan(52);
     }
 
     // The expansion overlaps nothing at phone width: a probe one pixel inside
@@ -127,7 +133,8 @@ export const NeighbourGapIsWideEnough = meta.story({
       // Border boxes are the expanded ones; the VISUALS are 14px inside each.
       gaps.push(b.left + 14 - (a.right - 14));
     }
-    for (const gap of gaps) await expect(gap >= 28).toBe(true);
+    await expect(gaps).toHaveLength(4);
+    for (const gap of gaps) await expect(gap).toBeGreaterThanOrEqual(28);
   },
 });
 

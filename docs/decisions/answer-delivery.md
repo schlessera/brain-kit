@@ -56,7 +56,7 @@ Claude Code sends `_meta["claudecode/toolUseId"]` on every MCP `tools/call`,
 and the Agent SDK's in-process server hands a request's `_meta` to the tool
 handler as `extra._meta`. The SDK types that argument as `unknown`, so the
 field is read defensively, with a minted id as the fallback (`askRequestId`,
-`packages/ui-backend-claude/src/tool-use-id.ts:20-25`). This was measured
+`packages/ui-backend-claude/src/tool-use-id.ts:28-33`). This was measured
 before anything was built on it: a keyless run of the bundled CLI 2.1.283
 against a scripted model on loopback delivered exactly the scripted
 `tool_use` id. `packages/ui-backend-claude/tests/ask-tool-request-id.test.ts`
@@ -165,7 +165,7 @@ saved.
 
 **The principal** is identified by `server_hello.principalKey`, a one-way
 digest of the principal id (`answerQueueKey`,
-`packages/ui-server/src/ws/connection.ts:27-29`). The page cannot read its
+`packages/ui-server/src/ws/connection.ts:28-30`). The page cannot read its
 principal from an httpOnly cookie, and it needs nothing more than "same or
 different". A different key on reconnect signs every held answer out,
 unsent. So does logging out, or revoking this device's own principal.
@@ -190,7 +190,7 @@ for the lock ahead of the submitting tab, and a unit test caught that.
 
 Browser WebSocket ping/pong is not exposed to scripts, so the host answers an
 application-level `ping` (`private sendProbe`,
-`packages/ui-sdk/src/client/ws-client.ts:458`). A replaced socket is retired,
+`packages/ui-sdk/src/client/ws-client.ts:459`). A replaced socket is retired,
 and every one of its callbacks checks that before it touches the client, so
 a late close from a dead socket cannot reset its replacement.
 
@@ -200,7 +200,7 @@ runs on a socket that never opened, and `reconnectNow()` does nothing while
 one is connecting, so the client waited forever. A connection that has
 delivered nothing after 10 seconds, whether still connecting or open, is now
 abandoned and retried through the normal backoff (`private abandon`,
-`ws-client.ts:492`). This adds no new timeout to a question. The host's turn
+`ws-client.ts:493`). This adds no new timeout to a question. The host's turn
 deadline stays the only limit on an ask.
 
 ## A question whose turn ended (#3356)
@@ -234,7 +234,7 @@ Before this, the terminal frame replaced an unanswered card with a dismissed
 stub, and its draft went with the controls. Now the card stays the editable
 question under a prompt that says the turn ended or timed out
 (`const [endedDismissed`,
-`packages/ui-react/src/components/chat/message-bubble.tsx:608-626`). Its
+`packages/ui-react/src/components/chat/message-bubble.tsx:633-651`). Its
 Submit sends no frame to the ended request. It records the answer locally as
 a `closed`/`ended` delivery, so the card shows the shipped Not delivered
 footer with Copy answer and Send as message (R1). Send as message is the only
@@ -256,7 +256,7 @@ whose turn was interrupted, it writes a reply of its own under its
 aborted.` for an aborted request. These replayed as the agent's words. They
 now replay as `SessionHistoryMessage.runtimeNotice` on the message they
 ended, after any partial answer (`export function runtimeNotice`,
-`packages/ui-backend-claude/src/history.ts:339-350`). Recognition needs
+`packages/ui-backend-claude/src/history.ts:340-351`). Recognition needs
 both the runtime's provenance and one of its two constant texts, read from
 the installed CLI, so the same words from the model or the user stay theirs.
 Only an aborted request names a cause, and neither notice says who stopped
@@ -320,7 +320,7 @@ in both themes, using the keyboard.
 The late stored-principal race has one native `ask_user` representative.
 All four ChatPage adapters enter `submitAnswer`; the first host frame calls
 `answers.connected()` without selecting an answer kind (`answersReady = true`,
-`packages/ui-react/src/ws-client/account.ts:74-75`). The shared restore path must
+`packages/ui-react/src/ws-client/account.ts:79-80`). The shared restore path must
 preserve that newer principal. Repeating this browser race for list, rank and
 form adds no separate startup path. Their online and offline/reload native
 cases remain: input adapters, `answerFrame` serialization and host dispatch

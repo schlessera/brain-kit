@@ -14,8 +14,9 @@ import { createSessionResources } from "./session-resources.js";
 import { createSessionRuntime } from "./native-session-runtime.js";
 import { toolLockFromKeyed } from "./tools.js";
 import { createPiBridgeTools } from "./bridge-tools.js";
-import { PI_WORKER_STATE, PiInputSafetyUnavailableError, SessionTooLargeError, pipeMessages, sendPipe, type PiWorkerMessage } from "./worker-protocol.js";
+import { PI_WORKER_STATE, PiInputSafetyUnavailableError, SessionTooLargeError, pipeMessages, sendPipe, safetyResultInput, type PiWorkerMessage } from "./worker-protocol.js";
 import type { CreatePiBackendOptions, PiSessionLike, SessionEnv, SessionToolkit } from "./backend-options.js";
+import { discoversPiExtensions } from "./extension-inspection.js";
 
 interface Init {
   type: "init";
@@ -145,7 +146,7 @@ async function initialize(init: Init): Promise<void> {
         try { return await fn(); } finally { await rpc("unlock", scope.name, scope.id, { lockId }); }
       },
     } : toolLockFromKeyed(createKeyedLock()),
-    allowedTools: new Set(), confirmPatterns: compileConfirmPatterns([], () => {}), loadExtensions: init.backend.loadExtensions ?? true,
+    allowedTools: new Set(), confirmPatterns: compileConfirmPatterns([], () => {}), loadExtensions: discoversPiExtensions(init.backend),
     // pi settings changes stay in scratch; source settings/extensions remain read-only.
     settingsSnapshot: init.agentFiles["settings.json"] ?? "{}",
     ...(init.relayed?.transport ? { pinnedSettings: { transport: init.relayed.transport } } : {}),
@@ -188,6 +189,7 @@ async function initialize(init: Init): Promise<void> {
     turn.turnContext.bridge = {
       emit() { throw new Error("Workers cannot emit privileged bridge frames"); },
       requestPermission() { throw new Error("Use the server permission RPC"); },
+      commitToolAdmission: async (id, name, input) => { await rpc("admission", name, id, input); },
       applyBrain: input => rpc("apply", toolScope.getStore()?.name ?? "", toolScope.getStore()?.id ?? "", input as unknown as Record<string, unknown>),
       readBrainBase: path => rpc("readBase", "brain_read_base", toolScope.getStore()?.id ?? "", { path }),
     };
@@ -199,9 +201,8 @@ async function initialize(init: Init): Promise<void> {
       // Initialization is awaited by the same loop that consumes RPC answers.
       // Refuse startup one-way; the typed error makes the host retain loss.
       unavailable: async()=>{if(initialized)await rpc("safetyUnavailable","","",{});},
-      result: (name,id,content) => {
-        const segments=content.filter(part=>part.type==="text").map(part=>(part as {text:string}).text);
-        return rpc("safetyResult",name,id,{output:segments.join("\n"),segments});
+      result: (name,id,content,complete) => {
+        return rpc("safetyResult",name,id,safetyResultInput(name,content,complete));
       },
       stop: () => controller.abort(),
     },
@@ -225,7 +226,9 @@ async function initialize(init: Init): Promise<void> {
   });
   send({ type: "ready", sessionId: session.sessionId, append: renderedAppend, ...(session.model ? { model: session.model } : {}),
     ...(session.thinkingLevel ? { thinkingLevel: session.thinkingLevel } : {}),
-    levels: session.getAvailableThinkingLevels?.() ?? [], cost: session.getSessionStats().cost });
+    levels: session.getAvailableThinkingLevels?.() ?? [], cost: session.getSessionStats().cost,
+    // Before any model-directed code runs: the host's evidence for an extension-free worker (#2874).
+    loadedExtensions: opened.loadedExtensions });
 }
 
 async function syncAuth(): Promise<void> {

@@ -31,7 +31,8 @@ writable terminal. Do not substitute a shell write when a hosted tool refuses.
 
 `brain sync run` does the whole sync without you: it cleans and commits local changes, pulls,
 merges conflicted notes by rule, pushes, and reindexes. **You handle only what it hands back:**
-a conflict no rule can merge, a file it could not classify, and media nobody has approved.
+a conflict no rule can merge and a file it could not classify. Media is not yours to decide:
+`run` leaves it untouched and counts it, and the person decides each file in hygiene review.
 Brain files are knowledge, so nothing here may silently drop content.
 
 ## Autonomy — no plans, no approval
@@ -39,24 +40,24 @@ Brain files are knowledge, so nothing here may silently drop content.
 A sync is frequently unattended: on a schedule, from a container, or through an agent runner with
 nobody watching. It must therefore complete on its own, and these rules override any default
 cautiousness. They hold in an interactive session too — every decision below has a defined
-conservative default, so there is nothing worth stopping to ask about. **The one exception is
-a media decision** (a `MEDIA` or `LARGE` leftover): committing a binary is permanent in git's
-history, so it is never a default. Interactively, ask; unattended, leave it untouched and report
-it.
+conservative default, so there is nothing worth stopping to ask about. Media needs no decision
+here either: committing a binary is permanent in git's history, so `run` never commits one, and
+the person decides each file in hygiene review, not in a sync.
 
 - **Never stop to plan.** Do not enter a plan-and-approve mode, write a plan document, or present
   a plan and wait for a go. There may be nobody to approve it — a sync that ends with "awaiting
   approval" is a failed sync.
-- **Never ask questions**, except the media decision above. No interactive prompts, no "should I…"
-  in the output. Take the default, and note what was decided in the final report.
+- **Never ask questions.** No interactive prompts, no "should I…" in the output, and never one
+  about a media file. Take the default, and note what was decided in the final report.
 - **Conservative default everywhere:** when two resolution options exist, pick the one that keeps
   more content (union / keep-both over overwrite) and touches less state. Never delete, reset, or
   rewrite published history to make a problem go away. The CLI may replay
   unpublished local commits on `origin/main` under `sync.pull`; never resolve
   a stopped rebase by hand as part of this skill.
 - **Truly unresolvable items** (binary conflicts, files over 100 KB, a stash entry `run` kept)
-  and **media nobody has approved** are the only allowed leftovers: leave them untouched and list
-  them in the final report. The only reasons to stop early are the ones `run` reports as `failed`.
+  are the only allowed leftovers besides media: leave them untouched and list them in the final
+  report. Media stays untouched too, reported only as `report`'s count line. The only reasons to
+  stop early are the ones `run` reports as `failed`.
 
 ## Step 1 — Run it
 
@@ -64,8 +65,11 @@ it.
 brain sync run --json
 ```
 
-It prints one envelope: `{ status, reason?, steps, leftovers: { unresolved, unknown, media },
-judge, timings, report }`. Use `run`, never bare `brain sync`: bare sync is the workflow that
+It prints one envelope: `{ status, reason?, steps, leftovers: { unresolved, unknown, media,
+mediaPending, mediaSetAside }, judge, timings, report }`. `leftovers.media` lists the media
+files with their sizes, for tools; `mediaPending` is the count `report` prints as
+`Media awaiting review: N`, and `mediaSetAside` counts the files dismissed, snoozed or kept as
+a permanent copy in review. Use `run`, never bare `brain sync`: bare sync is the workflow that
 handed you this work, and it hands its leftovers to an agent.
 
 `steps.pull` may report `rebased`, just like `merged` or `fast-forwarded`: remote
@@ -75,8 +79,8 @@ Set `sync.pull: "merge"` for merge-only pulls. Existing merge/index state is
 handled first, and an existing rebase is left for its owner. Conflicts this
 workflow hands you are always merge conflicts: OURS is local and THEIRS remote.
 
-- `status: "complete"` (exit 0) — pushed and reindexed. If `leftovers.unknown` and
-  `leftovers.media` are both empty, print `report` and stop. Otherwise go to Step 3.
+- `status: "complete"` (exit 0) — pushed and reindexed. If `leftovers.unknown` is empty, print
+  `report` and stop, whatever media it counts. Otherwise go to Step 3.
 - `status: "needs-judgment"` (exit 3) — something only you can settle, listed in
   `leftovers.unresolved`: a conflict no rule could merge (the merge is still in progress and
   nothing was pushed), or a file holding conflict markers (left uncommitted; the rest may have
@@ -147,17 +151,27 @@ sent to the judge and never ignored automatically. Read it.
 - Something the owner wrote or deliberately kept → commit it:
   `git commit --only -m "Add <domain>: <title>" -- <path>`.
 
-**MEDIA / LARGE** (`leftovers.media`, each with its `bytes`) — a binary (image, PDF, audio,
-video, office file) or any file over `media.maxTrackedBytes`. Git keeps every version forever.
+**MEDIA / LARGE** — a binary (image, PDF, audio, video, office file) or any file over
+`media.maxTrackedBytes`. Git keeps every version forever, so it is never yours to decide, and
+never a question: leave every media file untouched (not staged, not deleted, not ignored),
+whether someone is there or not. `report` already counts them in one line,
+`Media awaiting review: N`, with what is set aside and kept, and names no file; repeat that line,
+and do not list the files. Each one is a finding in hygiene review (Actions), where the person
+chooses, with a preview and an Undo:
 
-- **Someone is there:** ask before tracking it, and name the size. Offer three answers:
-  track it (small final media a note uses), ignore it (iterations, renders, exports — add a
-  `media.ignore` glob in `brain.config.ts` or a `.gitignore` line so the question does not
-  come back), or keep it with Git LFS (large masters that must travel with the brain).
-- **Unattended:** leave it untouched (not staged, not deleted, not ignored) and list it with its
-  size in the final report as awaiting a decision.
-- A `media.track` glob records a standing "track", and a `media.ignore` glob a standing
-  "ignore"; files they match never come back as MEDIA or LARGE.
+- **Persist here** — track the file where it is, with an exact `media.track` entry (or a broader
+  rule they approve with its matches); the next sync commits it.
+- **Move to a final location…** — move it and update the notes that link to it; the next sync
+  commits it there if that folder is tracked.
+- **Keep a permanent copy…** — for a file a conversation linked in the scratch area: copy it to a
+  tracked place, keeping the original where the conversation finds it.
+- **Delete…** — remove it.
+- **Leave pending** — skip it for the rest of this review; it still counts.
+
+Git never persists a file `media.ignore` or `.gitignore` ignores, nor anything in the scratch
+area: the next sync leaves them uncommitted. A `media.track` glob records a standing "track" and
+a `media.ignore` glob a standing "ignore"; files they match never come back as media awaiting
+review.
 
 If you committed anything in this step, run `brain sync run --json` once more to push it and
 reindex.
@@ -221,7 +235,8 @@ either side added.
 
 Report tersely, from `report` and what you did after it: commits created (one line each),
 conflicts resolved (strategy and a short description each, and which ones you merged by hand),
-index status, final sync status, and every leftover with its reason.
+index status, final sync status, every leftover with its reason, and `report`'s
+`Media awaiting review` line as it stands, without naming a media file.
 
 ## Notes
 

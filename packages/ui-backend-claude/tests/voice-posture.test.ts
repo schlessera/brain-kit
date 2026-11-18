@@ -74,7 +74,7 @@ function recordTables(): { allowed: string[]; excluded: string[] } {
       // `request_image_mask` needs the user to paint a region ... it is out."
       for (const name of names(why!)) {
         if (!/^[a-z_]+$/.test(name)) continue;
-        (name === "request_image_mask" ? excluded : allowed).push(BRIDGE + name);
+        (name === "request_image_mask" || name === "request_image_markup" ? excluded : allowed).push(BRIDGE + name);
       }
       continue;
     }
@@ -96,10 +96,11 @@ describe("VOICE_ALLOWED_TOOLS", () => {
     expect(RECORD_ALLOWED).toContain("mcp__brain-ui__show_block");
     expect(RECORD_EXCLUDED).toContain("Bash");
     expect(RECORD_EXCLUDED).toContain("mcp__brain-ui__request_image_mask");
+    expect(RECORD_EXCLUDED).toContain("mcp__brain-ui__request_image_markup");
     expect(RECORD_ALLOWED).toContain("mcp__brain__jobs_review");
     expect(RECORD_ALLOWED).toContain("mcp__brain-ui__turn_temp");
-    expect(RECORD_ALLOWED).toHaveLength(18);
-    expect(RECORD_EXCLUDED).toHaveLength(15);
+    expect(RECORD_ALLOWED).toHaveLength(19);
+    expect(RECORD_EXCLUDED).toHaveLength(16);
   });
 
   test("is exactly the decision record's allowed table", () => {

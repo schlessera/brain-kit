@@ -104,8 +104,8 @@ test("installed CLI denies an outside Read under bypassPermissions and reads the
     expect(turns[0]!.result).not.toContain("CONTROLLED OUTSIDE SENTINEL");
     expect(turns[0]!.result).toContain("Live measurement tools may only read");
     expect(turns[1]!.result).toContain("Nobody sails for Ithaca.");
-    expect(audit.some((entry) => entry.tool === "Read" && !entry.allowed)).toBe(true);
-    expect(audit.some((entry) => entry.tool === "Read" && entry.allowed && entry.target === "probe.md")).toBe(true);
+    expect(audit).toContainEqual(expect.objectContaining({ tool: "Read", allowed: false }));
+    expect(audit).toContainEqual(expect.objectContaining({ tool: "Read", allowed: true, target: "probe.md" }));
     rmSync(fixturePath);
     // The staging module owns this shared cwd until process exit (#1330).
     expect(existsSync(brain), "the shared measurement cwd must outlive this test's probe").toBe(true);

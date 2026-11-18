@@ -7,6 +7,7 @@
  */
 import type { Database } from "bun:sqlite";
 import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
+import { sameAccount, type AccountRecord } from "../middleware/account-partition.js";
 
 type RetiredKind = "session" | "dialogue_owner" | "conversation" | "task" | "request" | "native_task";
 export const CHAT_STORES = ["native", "dialogue", "tasks", "projections", "drafts"] as const;
@@ -65,58 +66,74 @@ export function nativeTaskRetired(db: Database, conversationId: string, epoch: n
 }
 
 interface Resolved {
-  id: string; kind: "session" | "provisional"; principalId: string; backendId: string | null; generation: number;
+  id: string; kind: "session" | "provisional"; backendId: string | null; generation: number;
+  /**
+   * Every deletion-relevant ownership record, each with the durable account
+   * the server stored beside its principal (#3962): never empty. Attribution
+   * only; a record never authorizes anyone (`chatOwnedBy` decides).
+   */
+  owners: AccountRecord[];
   identities: RetiredChatIdentities;
 }
+type OwnerRow = { principal_id: string | null; principal_account: string | null };
 /**
  * The exact current identity set of a chat, from verified ownership records
  * only: canonical dialogue owners (with every alias an earlier adoption
  * joined), recorded voice conversation epochs and the typed session-creation
- * binding (#3337). A chat with no such record, or with records naming
- * different principals, has unknown ownership.
+ * binding (#3337). A chat with no such record has unknown ownership. Records
+ * naming different logins are returned as they are; whether they are one
+ * account is `chatOwnedBy`'s question (#4138).
  */
 export function resolveChat(db: Database, target: ChatTarget): Resolved | { refused: "unavailable" | "stale" } {
-  const owners = new Set<string>(), conversations = new Set<string>(), principals = new Set<string>();
+  const owners = new Set<string>(), conversations = new Set<string>(), records = new Map<string, AccountRecord>();
+  // A record without a principal is unknown ownership, kept so it refuses.
+  const record = (row: OwnerRow) => { records.set(JSON.stringify([row.principal_id, row.principal_account]), { principalId: row.principal_id, account: row.principal_account }); };
   let id: string, kind: Resolved["kind"], generation = 1, sessionId: string | null = null;
   if ("sessionId" in target) {
     if (!target.sessionId || target.sessionId.length > MAX_ID) return { refused: "unavailable" };
     id = sessionId = target.sessionId; kind = "session";
-    const owner = db.query("SELECT id,principal_id,generation FROM dialogue_owners WHERE session_id=?").get(sessionId) as { id: string; principal_id: string; generation: number } | null;
-    if (owner) { owners.add(owner.id); principals.add(owner.principal_id); generation = owner.generation; }
-    for (const row of db.query("SELECT id,principal_id FROM conversation_epochs WHERE session_id=?").all(sessionId) as { id: string; principal_id: string }[]) {
-      conversations.add(row.id); principals.add(row.principal_id);
+    const owner = db.query("SELECT id,principal_id,principal_account,generation FROM dialogue_owners WHERE session_id=?").get(sessionId) as OwnerRow & { id: string; generation: number } | null;
+    if (owner) { owners.add(owner.id); record(owner); generation = owner.generation; }
+    for (const row of db.query("SELECT id,principal_id,principal_account FROM conversation_epochs WHERE session_id=?").all(sessionId) as (OwnerRow & { id: string })[]) {
+      conversations.add(row.id); record(row);
     }
     // The principal whose typed request created the session (#3337). It joins
-    // the other records: a disagreement is still ambiguous ownership.
-    const creator = db.query("SELECT principal_id FROM chat_session_owners WHERE session_id=?").get(sessionId) as { principal_id: string } | null;
-    if (creator) principals.add(creator.principal_id);
+    // the other records: every one of them must be the caller's account.
+    const creator = db.query("SELECT principal_id,principal_account FROM chat_session_owners WHERE session_id=?").get(sessionId) as OwnerRow | null;
+    if (creator) record(creator);
   } else {
     if (!target.ownerId || target.ownerId.length > MAX_ID) return { refused: "unavailable" };
-    const owner = db.query("SELECT id,principal_id,session_id,generation FROM dialogue_owners WHERE id=COALESCE((SELECT owner_id FROM dialogue_aliases WHERE id=?),?)")
-      .get(target.ownerId, target.ownerId) as { id: string; principal_id: string; session_id: string | null; generation: number } | null;
+    const owner = db.query("SELECT id,principal_id,principal_account,session_id,generation FROM dialogue_owners WHERE id=COALESCE((SELECT owner_id FROM dialogue_aliases WHERE id=?),?)")
+      .get(target.ownerId, target.ownerId) as OwnerRow & { id: string; session_id: string | null; generation: number } | null;
     if (!owner) {
       // A typed first turn has a host-minted safety/history owner before a
-      // native session exists. No dialogue or agent turn is fabricated.
-      const retained=db.query("SELECT DISTINCT principal_id,generation FROM safety_collections WHERE history_owner_id=? AND session_id IS NULL").all(target.ownerId) as {principal_id:string|null;generation:string}[];
-      if(retained.length!==1||!retained[0]!.principal_id)return {refused:"unavailable"};
+      // native session exists. No dialogue or agent turn is fabricated. Each
+      // collection is one ownership record; they must share one generation.
+      const retained=db.query("SELECT DISTINCT principal_id,principal_account,generation FROM safety_collections WHERE history_owner_id=? AND session_id IS NULL").all(target.ownerId) as (OwnerRow&{generation:string})[];
+      if(!retained.length||new Set(retained.map(row=>row.generation)).size!==1)return {refused:"unavailable"};
       id=target.ownerId;kind="provisional";generation=Number(retained[0]!.generation);
-      owners.add(target.ownerId);principals.add(retained[0]!.principal_id!);
+      owners.add(target.ownerId);for(const row of retained)record(row);
     } else {
       // Adoption made this a backend session's chat: the reviewed target changed.
       if (owner.session_id || owner.id !== target.ownerId) return { refused: "stale" };
       id = owner.id; kind = "provisional"; generation = owner.generation;
-      owners.add(owner.id); principals.add(owner.principal_id);
+      owners.add(owner.id); record(owner);
     }
   }
   for (const owner of [...owners]) {
     for (const row of db.query("SELECT id FROM dialogue_aliases WHERE owner_id=?").all(owner) as { id: string }[]) owners.add(row.id);
     for (const row of db.query("SELECT id FROM dialogue_conversations WHERE owner_id=?").all(owner) as { id: string }[]) conversations.add(row.id);
   }
+  // A typed turn not yet bound to a session keeps its safety collection under
+  // the history owner. Whichever branch resolved the chat, each one is an
+  // ownership record: retirement fences and scrubs them as the chat's.
+  for (const owner of owners)
+    for (const row of db.query("SELECT DISTINCT principal_id,principal_account FROM safety_collections WHERE history_owner_id=? AND session_id IS NULL").all(owner) as OwnerRow[]) record(row);
   for (const conversation of conversations) {
-    const row = db.query("SELECT principal_id FROM conversation_epochs WHERE id=?").get(conversation) as { principal_id: string } | null;
-    if (row) principals.add(row.principal_id);
+    const row = db.query("SELECT principal_id,principal_account FROM conversation_epochs WHERE id=?").get(conversation) as OwnerRow | null;
+    if (row) record(row);
   }
-  if (principals.size !== 1) return { refused: "unavailable" };
+  if (!records.size) return { refused: "unavailable" };
   const tasks: string[] = [], requests: string[] = [], nativeTasks: string[] = [];
   for (const conversation of conversations) {
     for (const row of db.query("SELECT epoch,native_handle,task_id,request_id FROM conversation_tasks WHERE conversation_id=? ORDER BY rowid").all(conversation) as { epoch: number; native_handle: string; task_id: string; request_id: string }[]) {
@@ -124,11 +141,29 @@ export function resolveChat(db: Database, target: ChatTarget): Resolved | { refu
     }
   }
   const backend = sessionId ? db.query("SELECT backend_id FROM sessions WHERE id=?").get(sessionId) as { backend_id: string | null } | null : null;
-  return { id, kind, principalId: [...principals][0]!, backendId: backend?.backend_id ?? null, generation, identities: {
+  return { id, kind, owners: [...records.values()], backendId: backend?.backend_id ?? null, generation, identities: {
     sessions: sessionId ? [sessionId] : [], dialogueOwners: [...owners].sort(), conversations: [...conversations].sort(), tasks, requests, nativeTasks } };
 }
 
-/** The caller alone: a usable owner principal. Ambient callers have no owner mapping, agents never delete. */
+/**
+ * Whether every ownership record of a resolved chat is the caller's account
+ * (#4138): the caller's own login, or another login of the same durable
+ * account, proven by that record's current principal row or by the account
+ * stored beside it. Missing, corrupt, contradictory or mixed-account evidence
+ * refuses. The caller proves its account only by its own current row, so a
+ * stored account is never a credential; whether the caller may act at all is
+ * `authorizedOwner`'s question, asked separately. Today only owner logins
+ * share an account: agent, ambient and system records match only themselves.
+ */
+export function chatOwnedBy(db: Database, chat: Pick<Resolved, "owners">, principalId: string): boolean {
+  return chat.owners.length > 0 && chat.owners.every(owner => sameAccount(db, owner, principalId));
+}
+
+/**
+ * The caller alone: a usable owner principal. Ambient callers have no owner
+ * mapping, agents never delete. `at` is the moment of the check, never a
+ * time stamped before an asynchronous wait: callers pass the current clock.
+ */
 export function authorizedOwner(db: Database, principalId: string, at: number): boolean {
   const principal = resolvePrincipal(db, principalId);
   return !!principal && principal.kind === "owner" && isUsablePrincipal(principal, at);
@@ -169,11 +204,13 @@ const targetId = (target: ChatTarget) => "sessionId" in target ? target.sessionI
 export function retireChat(db: Database, input: RetireChatInput): RetireChatResult {
   if (!input.operationId || input.operationId.length > MAX_ID) return { status: "refused", reason: "unavailable" };
   return db.transaction((): RetireChatResult => {
-    if (!authorizedOwner(db, input.principalId, input.at)) return { status: "refused", reason: "unauthorized" };
+    // Authority is the caller's now, at commit: `input.at` was stamped before the queue waits.
+    if (!authorizedOwner(db, input.principalId, Date.now())) return { status: "refused", reason: "unauthorized" };
     const previous = db.query("SELECT id,principal_id,operation_id,generation,backend_id FROM chat_lifecycles WHERE operation_id=?")
       .get(input.operationId) as { id: string; principal_id: string; operation_id: string; generation: number; backend_id: string | null } | null;
     if (previous) {
-      // The same key for the same owner and target is the same operation.
+      // The same key for the same initiating login and target is the same
+    // operation; another login of the account never adopts its handle.
       return previous.principal_id === input.principalId && previous.id === targetId(input.target)
         ? receipt(db, previous) : { status: "refused", reason: "unavailable" };
     }
@@ -181,12 +218,12 @@ export function retireChat(db: Database, input: RetireChatInput): RetireChatResu
       return { status: "refused", reason: "unavailable" };
     const chat = resolveChat(db, input.target);
     if ("refused" in chat) return { status: "refused", reason: chat.refused === "stale" && ownsAlias(db, input) ? "stale" : "unavailable" };
-    if (chat.principalId !== input.principalId) return { status: "refused", reason: "unavailable" };
+    if (!chatOwnedBy(db, chat, input.principalId)) return { status: "refused", reason: "unavailable" };
     if (chat.backendId !== input.expected.backendId || chat.generation !== input.expected.generation) return { status: "refused", reason: "stale" };
     if (chat.backendId !== null && !input.removableBackends.includes(chat.backendId)) return { status: "refused", reason: "unsupported" };
     const generation = chat.generation + 1;
     db.prepare("INSERT INTO chat_lifecycles(id,kind,principal_id,backend_id,generation,operation_id,retired_at) VALUES(?,?,?,?,?,?,?)")
-      .run(chat.id, chat.kind, chat.principalId, chat.backendId, generation, input.operationId, input.at);
+      .run(chat.id, chat.kind, input.principalId, chat.backendId, generation, input.operationId, input.at);
     const fence = db.prepare("INSERT OR IGNORE INTO chat_retired_identities(kind,id,lifecycle_id) VALUES(?,?,?)");
     const kinds: [RetiredKind, string[]][] = [["session", chat.identities.sessions], ["dialogue_owner", chat.identities.dialogueOwners],
       ["conversation", chat.identities.conversations], ["task", chat.identities.tasks], ["request", chat.identities.requests], ["native_task", chat.identities.nativeTasks]];
@@ -205,12 +242,12 @@ export function retireChat(db: Database, input: RetireChatInput): RetireChatResu
     return receipt(db, { id: chat.id, operation_id: input.operationId, generation, backend_id: chat.backendId });
   }).immediate();
 }
-/** Whether a stale provisional target is the caller's own; otherwise staleness would reveal it. */
+/** Whether a stale provisional target is the caller's account's own; otherwise staleness would reveal it. */
 function ownsAlias(db: Database, input: RetireChatInput): boolean {
   if (!("ownerId" in input.target)) return false;
-  const row = db.query("SELECT principal_id FROM dialogue_owners WHERE id=COALESCE((SELECT owner_id FROM dialogue_aliases WHERE id=?),?)")
-    .get(input.target.ownerId, input.target.ownerId) as { principal_id: string } | null;
-  return row?.principal_id === input.principalId;
+  const row = db.query("SELECT principal_id,principal_account FROM dialogue_owners WHERE id=COALESCE((SELECT owner_id FROM dialogue_aliases WHERE id=?),?)")
+    .get(input.target.ownerId, input.target.ownerId) as OwnerRow | null;
+  return !!row && chatOwnedBy(db, { owners: [{ principalId: row.principal_id, account: row.principal_account }] }, input.principalId);
 }
 
 /** The retirement's current non-content outcome for its owner, or null. */

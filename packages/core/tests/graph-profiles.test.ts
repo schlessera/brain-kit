@@ -484,7 +484,7 @@ describe("absent, uncomputed and older graph data", () => {
     });
     const clusters = cli(dir, (db) => getClusterGraph(db));
     expect(ids(clusters.nodes)).toEqual([1, 2, 3, 4, 5, 6]);
-    expect(clusters.nodes.every((n) => n.pagerank === undefined && n.x === undefined)).toBe(true);
+    expect(clusters.nodes.filter((n) => n.pagerank !== undefined || n.x !== undefined)).toEqual([]);
     expect(cli(dir, (db) => getDiscoveryGraph(db))).toEqual({ nodes: [], edges: [], truncated: false });
     expect(ids(cli(dir, (db) => getDiscoveryGraph(db, { root: "crew/odysseus.md", maxDepth: 1 })).nodes)).toEqual([1, 2, 3]);
     const findings = cli(dir, (db) => getMaintenanceFindings(db));

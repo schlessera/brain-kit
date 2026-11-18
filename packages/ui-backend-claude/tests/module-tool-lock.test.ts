@@ -19,6 +19,7 @@ const READ_TOOLS = [
   "mcp__brain__brain_read",
   "mcp__brain__brain_list",
   "mcp__brain__brain_graph",
+  "mcp__brain__brain_read_many",
   "mcp__brain__jobs_review",
 ];
 const roots: string[] = [];

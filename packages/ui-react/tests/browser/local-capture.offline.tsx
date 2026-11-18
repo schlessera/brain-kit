@@ -23,6 +23,7 @@ import { BrainUiProvider } from "../../src/root-context.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
 import { ChatPage } from "../../src/components/chat/chat-page.js";
 import { detectLocalCaptureSupport, startLocalCapture, type LocalCaptureChunk, type LocalCaptureSink } from "../../src/voice/local-capture.js";
+import { primeDictation } from "../fixtures/dictation-discovery.js";
 
 declare module "vitest/browser" {
   interface BrowserCommands {
@@ -158,6 +159,7 @@ async function mount(ctx: TestContext, opts: { online?: boolean; gum?: MediaDevi
   document.body.append(host);
   const sink = new TestSink();
   const ui = createBrainUiRoot({ storage: null, localCapture: { sink: () => sink, timesliceMs: 200 }, request: net.request });
+  primeDictation(ui, "fixture");
   ui.asr.register("fixture", () => new FixtureAsr());
   const renderer: Root = createRoot(host);
   let closed = false;
@@ -182,7 +184,7 @@ async function mount(ctx: TestContext, opts: { online?: boolean; gum?: MediaDevi
   return s;
 }
 
-const mic = (s: Scene) => s.host.querySelector<HTMLElement>('[data-composer] [role="button"][aria-label="Record on this device"], [data-composer] [role="button"][aria-label="Stop and save"], [data-composer] [role="button"][aria-label="Dictate"], [data-composer] [role="button"][aria-label="Stop dictation"]');
+const mic = (s: Scene) => s.host.querySelector<HTMLElement>('[data-composer] :is(button,[role="button"])[aria-label="Record on this device"], [data-composer] :is(button,[role="button"])[aria-label="Stop and save"], [data-composer] :is(button,[role="button"])[aria-label^="Dictate"], [data-composer] :is(button,[role="button"])[aria-label="Stop dictation"]');
 const field = (s: Scene) => s.host.querySelector<HTMLTextAreaElement>("[data-composer] textarea")!;
 const notice = (s: Scene) => s.host.querySelector<HTMLElement>("[data-capture-notice]");
 const phase = (s: Scene) => s.ui.stores.voice.getState().local;
@@ -234,7 +236,7 @@ test("with the host reachable, the mic still runs the streaming dictation throug
   await expect.poll(() => mic(s), { message: "the composer has a mic" }).not.toBe(null);
   await userEvent.click(mic(s)!);
   await expect.poll(() => FixtureAsr.started, { message: "the existing dictation client started" }).toBe(1);
-  expect(mic(s)?.getAttribute("aria-label")).toBe("Stop dictation");
+  expect(s.host.querySelector("[data-composer] [data-dictation-field]"), "the voice field stands in for the composer").not.toBe(null);
   expect(s.requests().filter((r) => r.path.endsWith("/voice/session")), "the voice session was requested").toEqual([{ path: "/api/voice/session", method: "POST" }]);
   expect(s.ui.stores.voice.getState().mode).toBe("dictate");
   expect(phase(s)).toBe("idle");
@@ -286,7 +288,7 @@ test("a recording on the device survives losing and regaining the host, and a di
 
   // A dictation, online: losing the host and getting it back records nothing.
   await reconnect(s);
-  await expect.poll(() => mic(s)?.getAttribute("aria-label")).toBe("Dictate");
+  await expect.poll(() => mic(s)?.getAttribute("aria-label")).toBe("Dictate · fixture");
   await userEvent.click(mic(s)!);
   await expect.poll(() => FixtureAsr.started).toBe(1);
   await drop(s);
@@ -403,15 +405,17 @@ test("a recorder the browser stops on its own ends the recording as interrupted"
   expect(sink.ended).toEqual(["interrupted"]);
 });
 
-test("Add on a dictated review never starts dictation beside a recording on the device", async (ctx) => {
+test("beside a recording on the device, dictated words offer no way to start dictation", async (ctx) => {
   const s = await mount(ctx);
   s.ui.stores.voice.getState().setReviewText("Ask Penelope about the loom.");
   await settle(s);
   await recordOffline(s);
   await reconnect(s);
-  const add = page.elementLocator(s.host).getByRole("button", { name: "Append more voice", exact: true }).query() as HTMLButtonElement | null;
-  expect(add, "the review card offers Add").toBeTruthy();
-  await userEvent.click(add!);
+  const field = s.host.querySelector<HTMLTextAreaElement>("textarea[data-composer]");
+  expect(field?.value, "the dictated words are in the draft (D6)").toBe("Ask Penelope about the loom.");
+  const starts = ["Dictate more", "Try again"].map((name) => page.elementLocator(s.host).getByRole("button", { name, exact: true }).query());
+  expect(starts, "no dictation entry while recording").toEqual([null, null]);
+  expect(mic(s)?.getAttribute("aria-label"), "the mic is the recording's stop").toBe("Stop and save");
   await settle(s);
   expect(s.requests().filter((r) => r.path.includes("/voice/")), "no voice session").toEqual([]);
   expect(s.ui.stores.voice.getState().mode, "no dictation").toBe("idle");

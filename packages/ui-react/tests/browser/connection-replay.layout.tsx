@@ -18,9 +18,9 @@ async function replayCardReady(host: HTMLElement, phase: "summary" | "header" | 
     // Resolve again on every painted sample, including after cancellation or
     // replacement. No rejected Animation.finished promise is swallowed.
     const column = host.querySelector("[data-reading-column]");
-    const messages = [...(column?.children ?? [])] as HTMLElement[];
+    const messages = [...(column?.querySelectorAll(":scope > [data-arrival-key]") ?? [])] as HTMLElement[];
     const header = [...host.querySelectorAll<HTMLButtonElement>("button")].find(b => b.textContent?.includes("check rope"));
-    const detail = header?.parentElement?.querySelector<HTMLElement>(".whitespace-pre-wrap");
+    const detail = header?.closest("[data-tool-call]")?.querySelector<HTMLElement>(".whitespace-pre-wrap");
     const expansion = detail?.closest<HTMLElement>(".overflow-hidden");
     const visible = (el: HTMLElement | undefined | null) => !!el?.isConnected
       && el.getClientRects().length > 0 && el.getBoundingClientRect().height > 0 && el.getBoundingClientRect().width > 0
@@ -83,7 +83,7 @@ for (const { theme, width } of [{ theme: "dark", width: 320 }, { theme: "light",
     const field = host.querySelector<HTMLTextAreaElement>("textarea[data-composer]")!;
     field.focus();
     await frame();
-    const nodes = [...column.children];
+    const nodes = [...column.querySelectorAll(":scope > [data-arrival-key]")];
     expect(nodes.length, "nonempty transcript with a suffix to protect").toBe(30);
     expect(scroller.scrollHeight - scroller.clientHeight).toBeGreaterThan(500);
     const first = nodes.find((node) => node.getBoundingClientRect().bottom > scroller.getBoundingClientRect().top)!;
@@ -176,10 +176,10 @@ for (const finished of [false, true]) for (const splitRun of [false, true]) for 
     expect(header, "a real live tool card is present").toBeDefined();
     await page.getByRole("button", { name: /check rope/ }).click();
     await replayCardReady(host, "expanded");
-    const detail = header.parentElement!.querySelector(".whitespace-pre-wrap");
+    const detail = header.closest("[data-tool-call]")!.querySelector(".whitespace-pre-wrap");
     expect(detail, "the card is expanded before the fault").not.toBeNull();
     const field = host.querySelector<HTMLTextAreaElement>("textarea[data-composer]")!; field.focus(); await frame();
-    const message = header.closest("[data-reading-column]")!.children[1]!;
+    const message = header.closest("[data-arrival-key]")!;
     net.drop({ announce: true }); await frame();
     net.recover(); ui.connection.reconnectNow(); await expect.poll(() => net.socket()?.readyState).toBe(1);
     const replayEnd = splitRun && !finished ? " Rope held. Live oars." : " Rope held.";
@@ -206,7 +206,7 @@ for (const finished of [false, true]) for (const splitRun of [false, true]) for 
 // This control tests the readiness helper, not replay behavior or Motion duration.
 test("expanded readiness follows a cancelled animation's replacement", async (ctx) => {
   const host = document.createElement("div");
-  host.innerHTML = '<div data-reading-column><div style="opacity:1;transform:none"></div><div style="opacity:1;transform:none"><div><button>check rope</button><div class="overflow-hidden" style="height:auto;opacity:1"><span class="whitespace-pre-wrap">check rope</span></div></div></div></div>';
+  host.innerHTML = '<div data-reading-column><div data-arrival-key="user" style="opacity:1;transform:none"></div><div data-arrival-key="answer" style="opacity:1;transform:none"><div data-tool-call="rope"><button>check rope</button><div class="overflow-hidden" style="height:auto;opacity:1"><span class="whitespace-pre-wrap">check rope</span></div></div></div></div>';
   document.body.append(host);
   const owner = host.querySelector<HTMLElement>(".overflow-hidden")!;
   const first = owner.animate([{ transform: "translateY(6px)" }, { transform: "none" }], { duration: 500 });

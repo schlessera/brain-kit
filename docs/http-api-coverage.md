@@ -7,7 +7,7 @@ fake backends and injected transports keep the checks keyless.
 
 Each ordinary row runs the named `mounted supported handler: METHOD PATH` test
 in [http-supported-mounts.test.ts](../packages/ui-server/tests/http-supported-mounts.test.ts)
-(`checkHandler`, `packages/ui-server/tests/http-supported-mounts.test.ts:177-196`).
+(`checkHandler`, `packages/ui-server/tests/http-supported-mounts.test.ts:191-210`).
 The explicit [lifetime audit](../packages/ui-server/tests/helpers/http-mount-lifetimes.ts)
 permits a bounded group of immutable readers to share startup, with a new owner
 per case. Principal enumeration, activity ownership, CLI dispatch, caches,
@@ -92,6 +92,8 @@ row's real mounting check. They do not establish mounting by themselves.
 | `POST /api/drafts/:draftId/attachments` | `mounted supported handler: POST /api/drafts/:draftId/attachments` | X |
 | `POST /api/drafts/:draftId/bind` | `mounted supported handler: POST /api/drafts/:draftId/bind` | X |
 | `POST /api/drafts/:draftId/files` | `mounted supported handler: POST /api/drafts/:draftId/files` | X |
+| `POST /api/markup/:requestId` | `mounted supported handler: POST /api/markup/:requestId` | X |
+| `GET /api/markup/:requestId/source` | `mounted supported handler: GET /api/markup/:requestId/source` | X |
 | `GET /api/files/content` | `mounted supported handler: GET /api/files/content` | F, V |
 | `GET /api/geo/coastline` | `mounted supported handler: GET /api/geo/coastline` | G, V |
 | `GET /api/governance/events` | `mounted supported handler: GET /api/governance/events` | GV |
@@ -124,6 +126,10 @@ row's real mounting check. They do not establish mounting by themselves.
 | `GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview` | J |
 | `GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/:side` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/:side` | J |
 | `GET /api/journal/configuration-coverage` | `mounted supported handler: GET /api/journal/configuration-coverage` | J |
+| `GET /api/sessions/:id/safety` | `mounted supported handler: GET /api/sessions/:id/safety` | S |
+| `POST /api/sessions/:id/safety/reviews/prepare` | `mounted supported handler: POST /api/sessions/:id/safety/reviews/prepare` | SR |
+| `POST /api/sessions/:id/safety/reviews/:requestId/commit` | `mounted supported handler: POST /api/sessions/:id/safety/reviews/:requestId/commit` | SR |
+| `GET /api/sessions/:id/attachment-reads` | `mounted supported handler: GET /api/sessions/:id/attachment-reads` | X |
 | `GET /api/sessions/:id/recovery` | `mounted supported handler: GET /api/sessions/:id/recovery` | S |
 | `POST /api/queue` | `mounted supported handler: POST /api/queue` | Q |
 | `GET /api/schedules` | `mounted supported handler: GET /api/schedules` | K |
@@ -135,9 +141,20 @@ row's real mounting check. They do not establish mounting by themselves.
 | `POST /api/schedules/proposals/:id/approve` | `mounted supported handler: POST /api/schedules/proposals/:id/approve` | K |
 | `POST /api/share` | `mounted supported handler: POST /api/share` | J, Q |
 | `GET /api/status` | `mounted supported handler: GET /api/status` | T |
+| `POST /api/status/safety-recording/recover` | `mounted supported handler: POST /api/status/safety-recording/recover` | T |
 | `POST /api/status/worker-host` | `mounted supported handler: POST /api/status/worker-host` | T |
 | `GET /api/voice/keyterms` | `mounted supported handler: GET /api/voice/keyterms` | N |
 | `GET /api/voice/overrides` | `mounted supported handler: GET /api/voice/overrides` | N |
+| `GET /api/voice/providers` | `mounted supported handler: GET /api/voice/providers` | R |
+| `GET /api/voice/personas` | `mounted supported handler: GET /api/voice/personas` | VP |
+| `POST /api/voice/personas` | `mounted supported handler: POST /api/voice/personas` | VP |
+| `GET /api/voice/personas/:id` | `mounted supported handler: GET /api/voice/personas/:id` | VP |
+| `PUT /api/voice/personas/:id` | `mounted supported handler: PUT /api/voice/personas/:id` | VP |
+| `DELETE /api/voice/personas/:id` | `mounted supported handler: DELETE /api/voice/personas/:id` | VP |
+| `GET /api/settings/voice` | `mounted supported handler: GET /api/settings/voice` | VP, LV |
+| `PUT /api/settings/voice` | `mounted supported handler: PUT /api/settings/voice` | VP, LV |
+| `GET /api/voice/dictation/settings` | `mounted supported handler: GET /api/voice/dictation/settings` | R |
+| `PUT /api/voice/dictation/settings` | `mounted supported handler: PUT /api/voice/dictation/settings` | R |
 | `GET /api/voice/capabilities` | `mounted supported handler: GET /api/voice/capabilities` | R |
 | `GET /api/voice/recordings/:recordingId/transcription` | `mounted supported handler: GET /api/voice/recordings/:recordingId/transcription` | R |
 | `PUT /api/voice/recordings/:recordingId/transcription` | `mounted supported handler: PUT /api/voice/recordings/:recordingId/transcription` | R |
@@ -148,6 +165,18 @@ row's real mounting check. They do not establish mounting by themselves.
 | `GET /ws` | Real upgrade and server_hello | W |
 
 ## Named behavior checks
+
+**SR — Individual safety review.**
+
+The mounted checks use a signed password-owner cookie and matching Origin to
+reach both review handlers on the real application. An unavailable history
+returns its specific refusal with no prepared request or decision. The
+[owner safety review suite](../packages/ui-server/tests/owner-safety-review.test.ts)
+additionally exercises successful individual A/B/C verdicts, immutable replay,
+live HTTP/WS authority, FULL-writer races, expiry, retirement, capacity and
+cross-root handle binding through authenticated loopback transports. Each
+mutation operation retains a fresh application/database under the lifetime
+audit; review fixtures never share request reservations or verdict state.
 
 J uses the real host admission, tool-completion and terminal observations,
 checks authenticated session/turn isolation and reads exact retained CRLF bytes
@@ -172,13 +201,14 @@ cover start refusal, mid-turn partial work, overlapping observations and leases.
 
 **T — Operational status.**
 
-- `mounted status reports the installed release and preserves the application commit` ([source](../packages/ui-server/tests/software-status.test.ts)), (`mounted status reports the installed release and preserves the application commit`, `packages/ui-server/tests/software-status.test.ts:6-17`)
-- `the status envelope carries the typed SystemStatus software object` ([source](../packages/ui-server/tests/software-status.test.ts)), (`the status envelope carries the typed SystemStatus software object`, `packages/ui-server/tests/software-status.test.ts:21-35`)
+- `mounted status reports the installed release and preserves the application commit` ([source](../packages/ui-server/tests/software-status.test.ts)), (`mounted status reports the installed release and preserves the application commit`, `packages/ui-server/tests/software-status.test.ts:10-21`)
+- `the status envelope carries the typed SystemStatus software object` ([source](../packages/ui-server/tests/software-status.test.ts)), (`the status envelope carries the typed SystemStatus software object`, `packages/ui-server/tests/software-status.test.ts:25-39`)
 - `has every field, and never the token` ([source](../packages/ui-server/tests/subscription-status.test.ts)), (`has every field, and never the token`, `packages/ui-server/tests/subscription-status.test.ts:293-313`)
 - `a turn's runtime report and auth failure are kept for /api/status, on that turn's run` ([source](../packages/ui-server/tests/ws-runtime-status.test.ts)), (`a turn's runtime report and auth failure are kept for /api/status, on that turn's run`, `packages/ui-server/tests/ws-runtime-status.test.ts:32-87`)
 - `a failing host boots anyway, logs the named requirement once, and /api/status reports it` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`a failing host boots anyway, logs the named requirement once, and /api/status reports it`, `packages/ui-server/tests/worker-host-status.test.ts:66-83`)
 - `re-runs the real probe and records what it found, in both directions` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`re-runs the real probe and records what it found, in both directions`, `packages/ui-server/tests/worker-host-status.test.ts:160-176`)
 - `is behind the auth guard` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`is behind the auth guard`, `packages/ui-server/tests/worker-host-status.test.ts:178-187`)
+- `the status route shows the recorder to the owner only, and recovery requires the owner` ([source](../packages/ui-server/tests/safety-containment.test.ts)), (`the status route shows the recorder to the owner only, and recovery requires the owner`, `packages/ui-server/tests/safety-containment.test.ts:275-290`)
 - `boots, warns once in the log, and keeps the warning on /api/status and through Check again` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`boots, warns once in the log, and keeps the warning on /api/status and through Check again`, `packages/ui-server/tests/worker-host-status.test.ts:214-231`)
 
 **A — Password access and revocation.**
@@ -342,6 +372,7 @@ checks both nonempty priced and mixed-knownness fixtures
 - `an upload retried after its bytes were swept stores them again under a usable id` ([source](../packages/ui-server/tests/drafts-store.test.ts)), (`an upload retried after its bytes were swept stores them again under a usable id`, `packages/ui-server/tests/drafts-store.test.ts:87-95`)
 - `acceptance consumes only a matching, current, same-session revision` ([source](../packages/ui-server/tests/drafts-store.test.ts)), (`acceptance consumes only a matching, current, same-session revision`, `packages/ui-server/tests/drafts-store.test.ts:97-109`)
 - `a revoked sender's acceptance consumes nothing` ([source](../packages/ui-server/tests/drafts-store.test.ts)), (`a revoked sender's acceptance consumes nothing`, `packages/ui-server/tests/drafts-store.test.ts:111-117`)
+- `a client viewing a session gets that session's recorded reads, live and on request, and nothing else` ([source](../packages/ui-server/tests/attachment-reads-delivery.test.ts)), (`a client viewing a session gets that session's recorded reads, live and on request, and nothing else`, `packages/ui-server/tests/attachment-reads-delivery.test.ts:86-159`)
 
 **J — Confirmed share intake.**
 
@@ -386,8 +417,8 @@ the additive `query_activity` scope carries the supported agent contract.
 - `governance events filter by session, turn and kind, and page in id order` ([source](../packages/ui-server/tests/governance-events-http.test.ts)), (`governance events filter by session, turn and kind, and page in id order`, `packages/ui-server/tests/governance-events-http.test.ts:48-71`)
 - `governance events refuse malformed parameters` ([source](../packages/ui-server/tests/governance-events-http.test.ts)), (`governance events refuse malformed parameters`, `packages/ui-server/tests/governance-events-http.test.ts:73-82`)
 - `a governance event storage failure is a 500` ([source](../packages/ui-server/tests/governance-events-http.test.ts)), (`a governance event storage failure is a 500`, `packages/ui-server/tests/governance-events-http.test.ts:84-91`)
-- `events survive the Activity span-detail prune` ([source](../packages/ui-server/tests/governance-events.test.ts)), (`events survive the Activity span-detail prune`, `packages/ui-server/tests/governance-events.test.ts:184-198`)
-- `deleting a session deletes its events and only its events` ([source](../packages/ui-server/tests/governance-events.test.ts)), (`deleting a session deletes its events and only its events`, `packages/ui-server/tests/governance-events.test.ts:200-209`)
+- `events survive the Activity span-detail prune` ([source](../packages/ui-server/tests/governance-events.test.ts)), (`events survive the Activity span-detail prune`, `packages/ui-server/tests/governance-events.test.ts:185-199`)
+- `deleting a session deletes its events and only its events` ([source](../packages/ui-server/tests/governance-events.test.ts)), (`deleting a session deletes its events and only its events`, `packages/ui-server/tests/governance-events.test.ts:201-210`)
 
 **N — Speech grants.**
 
@@ -490,7 +521,11 @@ track measurements and unchanged original bytes; the composer transport creates
 no inbox thread. Detailed parser/intake/containment checks live in
 [track-intake.test.ts](../packages/ui-server/tests/track-intake.test.ts).
 
-**R** — [saved-transcription.test.ts](../packages/ui-server/tests/saved-transcription.test.ts): concurrent real-route claims/retries, server hashes, body caps, account access, terminal outcomes, tombstones and keyless provider transport.
+**R** — [selectable-dictation.test.ts](../packages/ui-server/tests/selectable-dictation.test.ts) covers exact provider selection, settings revisions/authority and held mint/upload binding; [saved-transcription.test.ts](../packages/ui-server/tests/saved-transcription.test.ts): concurrent real-route claims/retries, server hashes, body caps, account access, terminal outcomes, tombstones and keyless provider transport.
+
+**LV — Live-conversation service default.** [live-provider-selection.test.ts](../packages/ui-server/tests/live-provider-selection.test.ts) covers the owner-only write guard (403 with an empty body for a delegated principal, before body validation), revisions under concurrent writes, unknown ids, persistence in the settings store, the `live_settings` broadcast and that a save opens no provider.
+
+**VP — Live-conversation personas.** [live-personas.test.ts](../packages/ui-server/tests/live-personas.test.ts) covers the file codec, the empty 403 for agent, system and anonymous callers, revision conflicts, creation limits, the selection key and its delete ordering, Start resolution and a linked persona directory; [live-persona-host.test.ts](../packages/ui-server/tests/live-persona-host.test.ts) covers hello, the `live_persona` push and the frozen Start through the real socket handlers.
 
 **RV — User history restoration.** `turn-revert.test.ts` exercises raw restoration,
 Undo, partial conflicts, operation identity, authorization, original voice and
@@ -535,3 +570,7 @@ byte-identical `not_admitted` for unknown, foreign, refused, agent and ambient
 callers, a read admitting and cleaning nothing, and revocation during the read;
 [the real-host test](../packages/ui-server/tests/chat-deletion-http.test.ts) repeats
 the owner, foreign, agent and unknown answers through `createApp` and cookies.
+
+The safety read additionally runs real password-authenticated loopback HTTP/WS
+fixtures in `packages/ui-server/tests/safety-history.test.ts`, including stale
+cursors, revocation/retirement after a held read and independent A/B/C records.

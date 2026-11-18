@@ -22,7 +22,7 @@ states that overlapping writable windows share observations. `observedAt`
 names the retained window observation, not a guessed receipt time.
 The type is defined by (`TurnJournalSummary`,
 `packages/ui-sdk/src/turn-journal.ts:2-29`); validation uses
-(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1105-1123`).
+(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1108-1126`).
 `actor` additionally accepts `user` for a server-recorded history operation.
 Optional `kind` is `turn` or `revert`; a revert may name its original
 `sourceTurnId`. These facts do not create an assistant message or an inference
@@ -55,7 +55,7 @@ reports the paths observed so far, a lower bound, and an empty partial reports
 summary retained before this field, or sent by an older server, omits it or
 reports `null`: the count is unknown, never zero, and a client names the
 `changedFiles` figure as recorded entries rather than files. The count is
-(`const KEPT_CHANGE`, `packages/ui-server/src/brain/turn-journal.ts:47-50`).
+(`const KEPT_CHANGE`, `packages/ui-server/src/brain/turn-journal.ts:54-57`).
 
 **Configuration coverage set (additive, #3257).** Untraced configuration inputs
 are a property of the brain's configuration, so the host stores each distinct
@@ -131,8 +131,8 @@ previous observation rather than adding it. The frame never opens a message,
 reopens run state or moves focus. Older clients may ignore it. The same optional
 `budget` is retained on `TurnJournalSummary` and replayed with the existing
 single below-turn disclosure. The additive types and validation are
-(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:4228-4234`) and
-(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1979-1981`).
+(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:4236-4242`) and
+(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1983-1985`).
 
 Budget list-price inference cost is separate from the journal's billing-aware
 `costUsd`. Unpriced totals remain null; known lower bounds, estimated rates,
@@ -172,6 +172,17 @@ spend is unknown, not zero. A host without an Apify ledger keeps the earlier
 value and never sends `apifyUsd`. A client that validated the earlier
 literals must accept both new values. `listPriceCostUsd` and `tokens` stay
 the agent's own completed inference.
+
+A turn refused because its safety record could not be written ends with the
+additive error code `SAFETY_RECORDING_UNAVAILABLE` (#3810, #3812) and the
+additive failure classes `safety_recording_unavailable` (a one-turn failure
+before delivery; retry) and `safety_recording_paused` (the brain-wide recorder
+is failed and even the turn's restricted start could not commit; the host
+recovers it by itself). Two more classes name spent room that no retry or
+recovery frees: `safety_recording_chat_full` (this chat has no room left;
+start a new chat) and `safety_recording_brain_full` (the server has no room
+left; a new chat does not help). Nothing reached the model in any of these
+cases. A client says so instead of reporting a refusal by the brain.
 
 `budget_exceeded` and `budget_unavailable` are additive host failure classes.
 The former names a turn/session/day `budgetScope`; a day stop carries
@@ -588,8 +599,13 @@ not apply to a turn is absent. The current names are:
   `type_translation_refresh`, `peer_folder_plans`, `private_index`, `data_tree`,
   `record_policy`, `startup_view_cleanup`, `exposure_records`, `manifest_begin`.
 - `journal`: `hold_wait`, `initialize`, `refused_admissions`, `observe` (with
-  `observe_checkpoint`, `observe_delta`, `observe_metadata`, `observe_capture`,
-  `observe_record`, `observe_commit`), `expiry`, `turn_insert`, `policy`.
+  `observe_release_reads`, `observe_reserve`, `observe_checkpoint`,
+  `observe_delta`, `observe_metadata`, `observe_capture`, `observe_worktrees`,
+  `observe_record`, `observe_publish`, `observe_facts`, `observe_commit`),
+  `expiry`, `turn_insert`, `policy`. `observe_reserve` waits for room behind
+  earlier checkpoint releases; `observe_record`, `observe_publish` and
+  `observe_facts` repeat once per other active turn the observation records,
+  and are absent when there is none (#2915).
 
 Records written before this field have no `subPhases`; nothing is backfilled.
 
@@ -935,10 +951,20 @@ SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the fa
 - **`errorClass`** uses the Claude Agent SDK's class names
   (`authentication_failed`, `rate_limit`, `overloaded`, `invalid_request`,
   `model_not_found`, `server_error`, …), plus `subscription_required` for a
-  turn the backend refused before sending it. `worker_host_unsupported` means
+  turn the backend refused before sending it. `host_refused` (additive in
+  0.45.0, #3787) means the host inference relay refused the model request,
+  including cancelled admission (HTTP 499). It carries no `authAction` and
+  does not update subscription authentication status. Its message names a
+  known, unambiguous host denial cause; conflicting observed causes and replay
+  with only relay text claim no finer cause.
+  `worker_host_unsupported` means
   the host refused before runtime initialization because its required worker
   boundary probe failed; the message names the requirement and the verified
   Linux/qualifying WSL2 route. It creates no backend session or transcript.
+  The requirement is descriptive text, not an enumerated value; it may carry a
+  parenthetical detail. A separate-UID setup timeout names the supervisor's last
+  recorded step there (additive, #3664):
+  `worker_identity_setup_timed_out (step: launch-sent, ms: 312, sinceSpawnMs: 340)`.
   `worker_resource_limit` (#1660) means a host resource limit ended the turn's
   worker; the message names the limit, its value and whether an rlimit or the
   worker's cgroup enforced it.
@@ -965,7 +991,8 @@ SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the fa
   It is free-form, so a new value
   is not a breaking change. `unknown` means the backend could not tell, and is
   never a guess. **`status`** is the provider's HTTP status. Absent means
-  unknown, not "no status". **`message`** is the runtime's own text.
+  unknown, not "no status". **`message`** is the runtime's own text, except `host_refused`,
+  which uses the host's explanation of the relay refusal.
 - **First-party diagnostic classes (#1619).** `FIRST_PARTY_FAILURE_CLASSES`,
   exported from `@schlessera/brain-ui-sdk` and `/protocol`, is an immutable
   registry whose keys and values are the first-party class names. Emitters
@@ -1197,7 +1224,7 @@ A backend may report profiles it is configured with but cannot run now
 (ruled 2026-10-06 on #1044: a separate optional roster, closed reason enum).
 
 ```
-PROFILE_UNAVAILABLE_REASONS = ["needs-credentials"]
+PROFILE_UNAVAILABLE_REASONS = ["needs-credentials", "unsupported-configuration"]
 AgentBackend.listUnavailableProfiles?(): { id, label, reason }[] | Promise<…>
 GET /api/providers → { providers, backends, unavailable?: { id, label, reason, backendId }[] }
 ```
@@ -1207,8 +1234,11 @@ GET /api/providers → { providers, backends, unavailable?: { id, label, reason,
   are unchanged. An unavailable id is never a valid `providerId`. The member
   is optional on the existing `AgentBackend` interface, not a new seam; a
   backend without it reports none. Claude reports a profile whose required
-  environment key is missing as `needs-credentials`; pi lists every configured
-  profile and omits the member.
+  environment key is missing as `needs-credentials`. pi lists every configured
+  profile, except when its configuration would fail every managed turn
+  (#3658, additive): with extension discovery opted in and any extension or
+  loading error, or with a configured package that is not installed, the
+  hosted module lists none and reports each as `unsupported-configuration`.
 - **Closed reason.** The host keeps only `id`, `label` and a `reason` in
   `PROFILE_UNAVAILABLE_REASONS`, adds the reporting `backendId`, drops any
   other entry and filters hidden profiles. No backend free text, such as a key
@@ -1271,8 +1301,11 @@ text, native call ids and generated speech are evidence, never authority.
 
 **Registration and discovery.** `CreateAppOptions.conversationProvider?:
 LiveConversationProvider` (`@schlessera/brain-ui-server`) registers one
-provider by value; it is validated at startup and an invalid one throws. Only
-then does `server_hello` carry `capabilities.liveConversation: true`. Without
+provider by value; it is validated at startup and an invalid one throws.
+`conversationProviders` registers several, and the
+[live-service selection](#live-service-selection-additive-3616) below says how a
+Start chooses among them. Only with at least one does `server_hello` carry
+`capabilities.liveConversation: true`. Without
 one, every `conversation_*` frame is answered with `error` code
 `CONVERSATION_UNAVAILABLE`. No existing frame, route or rev-3 rule changes,
 and these additions do not change `PROTOCOL_REV`.
@@ -1297,6 +1330,57 @@ server → { type: "conversation_output", conversationId, ...ConversationOutputR
 server → { type: "conversation_permission", conversationId, epoch, sessionId,
            turnId, toolUseId, toolName, announce }
 ```
+
+<a id="live-service-selection-additive-3616"></a>
+
+### Live-service selection (additive, #3616)
+
+A host registers one live service (`conversationProvider`, a list of one) or
+several (`conversationProviders`), plus an optional
+`defaultConversationProviderId`. The brain owner saves a brain-wide default
+through [`/api/settings/voice`](../http-api.md#live-conversation-service-default).
+"Usable" means registered at boot; nothing probes a credential. A Start without
+a pick uses the saved default only if it is usable (a saved but unusable
+default means no service, never a fall-through), then the host default only
+when nothing is saved, then the single registered service only when nothing is
+saved, else none.
+
+```
+server → server_hello { …, conversationProfile?, conversationProfiles: ConversationProfile[],
+           liveDefault: { saved: string | null, savedUsable, effective: string | null,
+                          source: "saved" | "host" | "only" | "none" } }
+server → { type: "live_settings", liveDefault, conversationProfiles }
+client → { type: "conversation_start", …, disclosed, providerId? }
+server → { type: "conversation_opened", …, providerId,
+           providerSource?: "change" | "saved" | "host" | "only" }
+```
+
+- `conversationProfiles` lists every registered service in registration
+  order, and `liveDefault` says how a Start resolves one. Both are present
+  exactly when `liveConversation` is.
+- `conversationProfile` is present **only when `liveDefault.effective` is
+  non-null**, and is that service's profile. A single-provider host therefore
+  sends exactly what it sent before. A client that reads only this field shows
+  live conversation as unavailable on a multi-service host with nothing
+  effective (maintainer ruling R1); there is no legacy fallback.
+- `live_settings` goes to every open connection after a save, with the same
+  two fields. It never retargets a running conversation. Clients that predate
+  it drop it as an unknown frame (`parseServerMessage` reports it; nothing
+  else changes).
+- `conversation_start.providerId` names the service the client disclosed: the
+  effective one or a one-time pick. The host opens a provider only when
+  `providerId === disclosed.providerId` and the id is registered; otherwise it
+  answers `CONVERSATION_DISCLOSURE` and opens nothing. Without `providerId` a
+  new Start uses the effective service and is refused the same way when there
+  is none. A resume of a known `conversationId` keeps the service the
+  conversation opened with, with or without `providerId`; naming another is
+  refused. The disclosure echo is rechecked after the history reads, so a
+  default changed on another device in between refuses a Start that named no
+  service.
+- `providerSource` says how the conversation's service was chosen: `change`
+  for a pick that differs from the effective service, otherwise the
+  resolution it came from. Older hosts omit it.
+- No frame carries a credential, key presence or endpoint.
 
 **Capabilities are evidence.** `capabilities` has seven keys —
 `nonblockingWork`, `manualEndpoint`, `finalTranscript`,
@@ -1812,7 +1896,9 @@ seconds is abandoned the same way and retried with the normal backoff, which
 resets only once a connection delivers a valid frame.
 `checkLiveness()` probes at once, for a return to the page, a resume or going
 online. `setForeground(false)` pauses the periodic probe. These are targets:
-a frozen page runs no timers.
+a frozen page runs no timers. The client consumes every `pong` itself: none reaches a
+consumer handler or `onAny`, and `ServerFrameHandlers` has no `pong` key
+([#3389](package-api.md#consumer-frames-without-pong-breaking-3389)).
 
 **principalKey** is a one-way digest of the principal id, stable per
 principal. A client files queued answers under it and never replays an
@@ -1949,17 +2035,134 @@ D52's tab-only track path.
   `DraftSaveRequest` gains `fileIds?` and `outgoing?`, `Draft` gains `files?`
   and `outgoing?`, and `DraftSummary` gains `fileCount?`. The routes are in
   the [HTTP API](../http-api.md#composer-file-attachments-additive-0450-3153).
+- **Outgoing snapshot list (additive, #3588).** `Draft.snapshots?` and
+  `DraftSaveRequest.snapshots?` carry up to 10 `DraftSnapshot`s per chat,
+  each `{ snapshotId, requestId, text, fileIds, state: "held" | "returned" |
+  "dispatched", createdAt }`. The save that creates one counts the chat's
+  live snapshots across its drafts, tabs and devices and is refused with 409
+  `DRAFT_OUTGOING_FULL` at `SessionDraftLimits.maxOutgoingSnapshots` (10)
+  before any send; state changes edit a snapshot in place and are never
+  refused for capacity. Acceptance releases only the snapshot of its
+  `requestId`. `Draft.outgoing` keeps its shape and shows the newest held or
+  unconfirmed snapshot; the single-slot write still works. `DELETE` of a draft
+  holding a held or unconfirmed snapshot is 409 `DRAFT_OUTGOING_PENDING`. The
+  rules are in the [HTTP API](../http-api.md#outgoing-snapshot-list-additive-0450-3588).
+- **The React client writes the list (additive, #3155).** On a host that
+  advertises `composerFiles`, `chatRequestAck` and
+  `sessionDraftLimits.maxOutgoingSnapshots`, `@schlessera/brain-ui-react`
+  sends every message through a snapshot: Send writes it, `held` or
+  `dispatched`, in the same `PUT` that clears the composer, and the
+  `chat_message` follows only once the host acknowledges a revision that
+  holds it dispatched, with that revision as `draftRef` and the snapshot's
+  `fileIds` as `attachmentRefs`. The frame's shape is unchanged. Send again
+  is two saves: the old snapshot moves to `returned`, then is left out in the
+  save that creates its successor under a new `snapshotId` and `requestId`.
+  A host without the limit field keeps D52's tab-local path.
+- **Images are originals too (additive, #3155).** On a host with
+  `composerFiles`, `@schlessera/brain-ui-react` uploads every image as its
+  exact bytes through `POST /api/drafts/:draftId/files`, never through the
+  legacy draft image route, and binds it as any other file (`fileIds`,
+  snapshot `fileIds`, `attachmentRefs`). For each original the host stored as
+  `kind: "image"` with `reader: "image"`, the client sends the frame it has
+  always prepared, with `ChatImageAttachment.fileId` naming that original, in
+  the same message's `attachments`. Frames go in file order while
+  `MAX_IMAGES_PER_MESSAGE` and `MAX_TOTAL_IMAGE_BYTES` allow; past them, or
+  when no frame can be made, the original is sent without one. After a
+  reload the frame is made again from `GET /api/attachments/:fileId`. The
+  frame's shape and the host's rules are unchanged. Legacy draft images of an
+  existing draft, and a host without `composerFiles`, keep the inline-only
+  path.
 
 The SDK publishes `COMPOSER_FILES_CAPABILITY`, `ATTACHMENT_DIR`,
 `ATTACHMENT_MAX_FILES`, `ATTACHMENT_MAX_FILE_BYTES`,
 `ATTACHMENT_MAX_TOTAL_BYTES`, `ATTACHMENT_POOL_DEFAULT_BYTES`,
 `ATTACHMENT_UNBOUND_TTL_MS`, `ATTACHMENT_GRACE_MS`, the
 `ChatAttachmentReference`, `AttachmentKind`, `AttachmentReader`,
-`AttachmentFile`, `AttachmentLimits`, `DraftOutgoing`, `AttachmentErrorCode`
+`AttachmentFile`, `AttachmentLimits`, `DraftOutgoing`, `DraftSnapshot`,
+`DraftSnapshotState`, `DraftSnapshotWrite`, `AttachmentErrorCode`
 and `AttachmentErrorResponse` types, and `attachmentFileSchema` and
 `attachmentLimitsSchema`. The governance `taint` event's `source` gains
 `chat_attachment`: reading under `.brain-ui/attachments/` taints the session
 as reading a staged share does.
+<a id="attachment-reads-additive-0450-3589"></a>
+
+### Attachment reads (additive, 0.45.0, #3589)
+
+A host with composer files sends `server_hello.capabilities.attachmentReads:
+true` (`ATTACHMENT_READS_CAPABILITY`). It then answers
+[`GET /api/sessions/:id/attachment-reads`](../http-api.md#attachment-reads-additive-0450-3589)
+and sends `attachment_read` frames to the connections that declared the same
+flag in `client_hello`. A connection without the flag never receives one, and a
+client on a host without the capability shows no read state for a sent file.
+
+- **`attachment_read`** `{ type: "attachment_read", sessionId, read:
+  AttachmentReadEntry }` follows each `read_attachment` call that reached an
+  original during a turn of `sessionId`, once the read is recorded. `read` is
+  `{ fileId, turnId, outcome, scope, at }`: outcome and scope only, never text.
+  A refused call sends nothing, and nothing is sent for a retired chat.
+- **Not conversation content.** The frame is not part of the transcript, the
+  host dialogue or a history replay, and it never reaches a provider: the
+  provider-facing history is unchanged.
+
+The SDK publishes `ATTACHMENT_READS_CAPABILITY`, `AttachmentReadEntry`,
+`SessionAttachmentReadsResponse` and `ServerAttachmentRead`, and the
+`serverAttachmentReadSchema` and `sessionAttachmentReadsResponseSchema`
+schemas; `serverMessageSchema` accepts the new frame.
+
+**The first-party client declares it (0.45.0, #3155).** `BrainUiClient`'s
+`client_hello` declares `attachmentReads: true`, so a consumer of the SDK
+client can receive `attachment_read` frames; `serverMessageSchema` already
+parses them, and a consumer that ignores unknown frame types is unaffected.
+`@schlessera/brain-ui-react` reads a session's records when its view opens and
+after each hello, appends each frame, and derives a sent row's read state only
+from those records. Until a session's records arrive, a sent row claims neither
+"read" nor "not read yet".
+
+<a id="markup-requests-additive-0450-3975"></a>
+
+### Markup requests (additive, 0.45.0, #3975)
+
+`request_image_markup` ([MCP](mcp.md#hosted-markup-layer-application-additive-0450-3975))
+opens the browser's markup editor. Only the request and a decline travel on
+the socket. The layer itself is uploaded: it may be up to 52,428,800 bytes, far
+beyond `MAX_CLIENT_FRAME_BYTES` (12,000,000), which is unchanged.
+
+- **`client_hello.capabilities.imageMarkup: true`** (`IMAGE_MARKUP_CAPABILITY`)
+  says the connection opens the editor and uploads the layer. A host asks only
+  when a connection of the turn's principal declared it, and refuses the tool
+  otherwise. The SDK's `BrainUiClient` declares it.
+- **`markup_request`** `{ type: "markup_request", requestId, imagePath,
+  instruction?, width, height, maxBytes, uploadPath, sourcePath, sessionId?,
+  turnId? }`.
+  `width` and `height` are the source's displayed size, read by the server
+  after EXIF orientation; the layer is exported at exactly that size.
+  `maxBytes` is 52,428,800. `uploadPath` is `/markup/<requestId>` and
+  `sourcePath` is `/markup/<requestId>/source`, both relative to the API base.
+  The editor reads the source there, with the frame's `turnId`. `requestId` is
+  unguessable (`markup-<uuid>`).
+- **Delivery.** The frame goes only to the turn principal's connections that
+  declared `imageMarkup`. When the last of those disconnects, the request is
+  rejected (`Client disconnected`), whoever else stays connected. A client
+  that receives a second request while one is open queues it behind the first.
+- **The answer** is one `POST <api base><uploadPath>?turnId=<turnId>` to the
+  [markup upload route](../http-api.md#markup-layer-upload-additive-0450-3975).
+  A refused upload leaves the request open, so the editor stays up with the
+  route's reason.
+- **`markup_error`** `{ type: "markup_error", requestId, code: "cancelled" |
+  "failed", message, turnId? }` declines. Only a connection of the request's
+  principal can decline it; `cancelled` resolves the tool with `The user
+  closed the markup editor`.
+
+A markup request needs a live client, like a mask request. A cancelled turn
+or a host shutdown rejects it, and a later upload for its id
+answers 404. There is no `markup_response` frame.
+
+The SDK publishes `ServerMarkupRequest`, `ClientMarkupError`,
+`IMAGE_MARKUP_CAPABILITY`, `serverMarkupRequestSchema` and
+`clientMarkupErrorSchema`. `serverMessageSchema` and `clientMessageSchema`
+accept the new frames, and a consumer that ignores unknown frame types is
+unaffected.
+
 <a id="explicit-chat-deletion-additive-3230"></a>
 
 ### Explicit chat deletion (additive, #3230)
@@ -2244,6 +2447,36 @@ same-request read are specified in the [HTTP reference](../http-api.md#policy-pr
 No client field grants authority or activates policy. Approval writes only the
 reviewed server-held bytes; changed input requires a new proposal.
 
+<a id="approval-display-facts-additive-0450-4154"></a>
+
+### Approval display facts (additive, 0.45.0, #4154)
+
+`tool_approval_request` optionally carries `display: ApprovalDisplay`, facts
+the host verified for the card and nothing else. Today it has one member,
+`github`, on a `brain_github_issue_comment` card:
+`{ poster: { login, is_bot } | null, target: { kind: "issue" | "pull_request", html_url } | null }`
+(`GithubApprovalDisplay`, `packages/ui-sdk/src/protocol.ts:1324-1327`).
+`poster` is the account the host's GitHub tools credential posts as, resolved
+for that same credential; `target` is the kind of the object at the card's own
+repository and number, read from GitHub for exactly that repository and
+number, with its `html_url` validated by the contract or `null`.
+
+- **Display only.** `input` stays exactly what is approved and sent; the answer
+  is compared with it alone, and a client never sends `display` back. The
+  facts grant no authority and never enter a tool input or result, the system
+  prompt or provider-facing history.
+- **Unknown is neutral.** An absent `display`, an absent `github` or a `null`
+  fact is unknown. A client shows its neutral state ("The host's GitHub
+  account"; `repository #number` with no kind and no link) and the approval
+  works as before. Clients validate the shape
+  (`approvalDisplaySchema`, `packages/ui-sdk/src/schemas.ts:1386-1391`);
+  a fact that fails it reads as `null`, never as a refused card.
+- **Re-delivery.** A pending card re-delivered after a reconnect carries the
+  host's facts for it again; a client replaces what it had.
+
+How the host resolves the facts, and when each is `null`, is in
+[the MCP component](mcp.md#github-writes-additive-0450-3798).
+
 ### Claude title-helper accounting (#2052)
 
 No WebSocket field changes. Root result/live usage remains completed main/child
@@ -2353,7 +2586,7 @@ request. Host terminal state reconciles unanswered requests without depending on
 
 Neither built-in adapter has a proven deterministic exact-copy permission audio
 path. The approved fallback therefore uses a local earcon, the existing card and
-a 40px strip line. Permission scripts and confirmed outcome wording are visual
+the live field's refusal line. Permission scripts and confirmed outcome wording are visual
 only: they are never submitted as model commentary or to a separate TTS service.
 Labels come only from bounded static registry labels (four words at most), with
 `An action` as the generic fallback. Payloads and unproven effect descriptions
@@ -2502,8 +2735,8 @@ Missing session reads use the same known-chat check as opening/resume and return
 `SESSION_NOT_FOUND` with their request ID; absence is not legacy coverage.
 A known chat without a journal receives an empty `complete` snapshot, with no
 spoken-history warning or latest-conversation control. A session ID alone is not
-evidence of prior voice use. `legacy` requires principal/session-scoped native
-voice recovery evidence without a matching journal conversation. Missing old
+evidence of prior voice use. `legacy` requires account/session-scoped native
+voice recovery evidence without a matching journal conversation ([#3963](#retained-voice-history-belongs-to-its-account-additive-0450-3963)). Missing old
 recovery metadata cannot reconstruct speech or prove it existed. No spoken words
 are invented from task prompts, JSON, drafts or paraphrases.
 
@@ -2570,7 +2803,7 @@ so a prior unclosed epoch is still conservatively qualified before Start.
 Failure notices latch once per owner/open episode; shutdown still reports the
 aggregate writer failure. Draining a failed epoch cannot close its replacement.
 
-Before a backend names a session, a principal-owned host history owner retains
+Before a backend names a session, an account-owned host history owner retains
 the evidence without creating a backend turn. `conversation_opened` adds optional
 `historyOwnerId`/`historyGeneration`. A new `conversation_start.historyOwnerId`
 reopens such history without using it as a backend session ID. Exact host task
@@ -2625,6 +2858,143 @@ An incomplete or mismatched backend position witness never truncates the native
 answer. Its complete semantic source group remains readable with unknown
 cross-stream position until the missing history page or evidence is available.
 
+
+<a id="retained-voice-history-belongs-to-its-account-additive-0450-3963"></a>
+
+### Retained voice history belongs to its account (additive, 0.45.0, #3963)
+
+A chat's retained dialogue now follows the account that owns it, as its
+safety history does ([#3952, #3962](http.md#durable-safety-account-additive-3962)):
+another owner login, on another device, continues the chat by voice. The host
+reads the same `dialogue_read` page, resolves the same `ownerId`,
+`sessionId` and aliases, opens `conversation_start` with `sessionId` or
+`historyOwnerId` on the same canonical owner and history, binds and adopts it,
+and sends that login's live `dialogue_history` pages and dialogue storage
+errors to every connected login of the account. A typed-first chat's first
+voice, from either login, reuses the chat's safety history owner. Account
+matching is `sameAccount` over the owner's stored account (migration 089), so
+the history stays the owner's after the login that started it is pruned.
+
+What stays exact:
+
+- A live conversation and its epochs belong to the login that opened them.
+  Another login of the account starts a new conversation on the history; it
+  cannot resume, reopen or close another login's conversation or epoch, or
+  write voice, interruption or end evidence into it.
+  Migration `090_dialogue_conversation_principal.sql` records the opening
+  login on each conversation, and fills it for existing rows from their owner,
+  which before this change was always the opening login.
+- An agent, ambient, system or unknown principal matches only itself. A
+  pruned, expired or revoked login regains nothing: the caller is still a
+  current, authorized login. Chat deletion by another login of the account
+  follows its own rule ([#4138](../integration-contract.md#same-account-chat-deletion-additive-4138)).
+- History whose login was pruned before it stored an account stays unknown
+  and refused. Corrupt or contradictory stored evidence matches nobody, its
+  own principal included, and refuses only that chat.
+- Coverage never claims more than the evidence: native voice recovery of any
+  login of the account, or of a login whose row is gone, keeps a chat
+  `legacy`, and another login's unclosed earlier epoch still marks it
+  `partial`.
+
+Nothing previously accepted is refused, with two exceptions no released host
+reaches in ordinary use: voice opened on a chat whose typed safety owner is
+another account, which formerly forked a second history owner, and a record
+whose stored evidence is contradictory. Records, order, aliases, attribution
+and generations are not rewritten, no field is added, and no ownership data
+reaches a provider.
+
+### Retained barge-in and conversation end (additive, 0.45.0, #3729)
+
+`DialogueEvidence` gains two kinds. Both are display evidence, retained on the
+existing dialogue write path under the same owner, scope, bound and coverage
+rules as text records:
+
+- `voice_interruption` (`conversationId`, `epoch`, `providerId`, optional
+  `outputId`) is written when the host forwards a provider `interrupted`
+  event. `outputId` is present only when the provider named one. The live
+  `interrupted` frame is sent first and never waits for the write. Its absence
+  is never evidence that a reply completed or was heard.
+- `voice_end` (`conversationId`, `epoch`, `providerId`, `startedAt`,
+  `endedAt`) is written when the operator's final, non-resumable
+  `conversation_stop` ends a conversation whose last epoch opened.
+  `startedAt` is the host clock (Unix milliseconds) when this host first opened
+  the conversation's current run; `endedAt` is the stop, never earlier than
+  `startedAt`. A resumable pause, a disconnect, a provider close or a refused
+  or failed open ends nothing and writes none. Nor does a stop after that
+  epoch's dialogue storage failed or became indeterminate: the host never
+  writes to such a store again, so that chat draws no divider. A persona may be added later as
+  an optional field once conversations carry one (#3617).
+
+Neither kind enters provider history (`readLiveHistory` reads only `voice`
+text records), tasks, review, permission speech or playback. The React client
+draws the cut-off tag only on the reply whose exact conversation, epoch and
+`outputId` a retained `voice_interruption` names, and the end divider only from
+a retained `voice_end`, with its duration taken from `endedAt - startedAt`. A
+live chat and the same chat reloaded therefore show the same marks; a client
+observation alone draws neither. A client from an earlier minor validates
+`DialogueEvidence` exhaustively and refuses a page that carries one of these
+kinds; the first-party client ships with the host in lockstep.
+
+### Live-conversation personas (additive, 0.45.0, #3617)
+
+A persona customizes how a live conversation sounds; it never grants tool,
+data, permission, task-admission or history authority.
+
+**Profile.** `ConversationProfile` gains optional `voices: { id, label }[]`,
+`defaultVoice` and `personaInstructionBytes`, copied from the registered
+provider. They describe persona support. The disclosure a Start must echo is
+still exactly `providerId`, `capabilities` and `disclosure`, so a client that
+drops or does not know these fields keeps starting. The first-party adapters
+declare 30 Gemini Live voices (default `Kore`, 6,000 bytes) and 38 GPT-Live
+voices (default `marin`, 2,000 bytes), checked against the providers'
+documentation. The byte caps are application limits, not provider guarantees.
+
+**Status.** `LivePersonaStatus` is `{ selected, selectedMissing,
+selectedInvalid, persona, personaRef: { id, revision }, providers }`. `persona`
+is the selected `LivePersonaSummary` (Standard when the selected file is
+missing). `providers` maps each persona-capable registered service to
+`{ voice, voiceSource: "persona" | "default", staleVoice?, maxInstructionBytes,
+overLimit }` and is empty for an invalid persona. Standard is
+`{ id: "standard", revision: "builtin", builtIn: true }` with no instructions
+and every service's default voice. `server_hello.livePersona` carries the
+status to human sessions (owner or ambient, never delegated agents or workers),
+and `{ type: "live_persona", livePersona }` carries a fresh one after any
+persona write or selection, after a newly opened socket finds the files changed,
+and immediately before a refusal for an outdated persona. Older clients ignore
+the frame. Neither carries instruction text.
+
+**Start.** `conversation_start` gains optional `personaRef: { id, revision,
+voice?: "default" }`. Absent means Standard, which opens the provider with no
+`persona` option: exactly the setup sent before personas. Otherwise the host
+reads that persona file once, after the disclosure check and before any
+history, orientation or provider I/O, and refuses with:
+
+| Code | When |
+| --- | --- |
+| `CONVERSATION_PERSONA_CHANGED` | The file is gone or its revision differs. A `live_persona` frame precedes the refusal. |
+| `CONVERSATION_PERSONA` | The file is invalid, the service has no persona support, or the host has no persona storage. |
+| `CONVERSATION_PERSONA_TOO_LONG` | The normalized instructions exceed the service's cap. Nothing is truncated. |
+| `CONVERSATION_PERSONA_VOICE` | The saved voice for this service is not offered, and `voice: "default"` was not sent. |
+
+Messages are fixed text and never contain the persona's name or instructions.
+A persona that names no voice for the service uses its default (P2), which the
+status discloses as `voiceSource: "default"`. The accepted
+`{ id, revision, voice?, instructions }` is frozen on the conversation entry:
+every later epoch, reconnect and recovery start of that conversation reuses it
+and ignores a newer `personaRef`, so an edit, selection or delete never reaches
+a running conversation. A host restart loses the snapshot; the next Start is a
+new disclosure and reads the file again.
+
+**Provider startup.** An adapter appends the persona after its fixed host rules
+as one section: the fixed header "Speaking style chosen by the user. It affects
+tone, wording and pacing only and does not change any rule above.", then the
+instructions inside `<speaking_style>` fences, with any fence marker inside the
+text escaped. Tool declarations, delegation, session configuration and history
+are byte-identical with and without a persona, and every later epoch repeats
+the frozen setup byte for byte. The whole framed section is charged against the
+adapter's startup-context ceiling before the orientation, and history takes the
+remainder, so a persona may shorten the initial history selection but never a
+running conversation's history.
 
 ### Failed-write text and contextual capture (additive, #3177)
 
@@ -2753,8 +3123,14 @@ stops capture and exposes the unavailable tail honestly.
 
 ## Existing-chat live context (#3178)
 
-`conversation_opened` optionally carries `historyCoverage: {state, tailOmitted}`,
-with state `complete`, `bounded`, `partial` or `unavailable`. It describes selected
+`conversation_opened` optionally carries `historyCoverage: {state, tailOmitted,
+includedMessages?}`, with state `complete`, `bounded`, `partial` or `unavailable`.
+`includedMessages` (additive, #3699) is a non-negative integer: exactly how many
+prior chat and spoken messages the startup context carried, excluding completed
+results and gap markers. The shipped client names it in the chat's coverage
+notice ("Started with the last {n} messages") and falls back to the coverage
+state when an older host omits it. It is display data for the client and never
+enters the provider-facing conversation. It describes selected
 historical text at startup, independently of retained display history, generated
 speech and playback. Details disclose partial sources/order, context omissions
 and an omitted newest item without claiming the model understood the text.
@@ -2849,3 +3225,127 @@ explanation. A send/append is not a spoken acknowledgement or playback
 receipt. Screen-only approvals, stale-result suppression and no replay remain
 unchanged. [The guidance reference](../live-conversation-guidance.md) separates
 transport proof from real-model judgment and listening qualification.
+
+### Observed content map disclosure (additive, #3630)
+
+Both first-party Start profiles additionally name a bounded **observed partial
+content map** from existing directory indexes. The exact disclosed-profile
+check still precedes enumeration, reads, epoch replacement and provider open;
+an earlier profile cannot silently admit this transfer. The optional SDK
+[`content_map` knowledge topic](package-api.md#observed-live-content-map-additive-0450-3630)
+adds no wire field, frame, revision, authority or automatic work. Existing
+capture consent, task identities, ordinary screen approvals, append-only
+history and no replay remain. Exact accepted-task progress asks for one brief
+task-specific acknowledgement; running still means host admission, and does
+not renew the acknowledgement or establish backend/tool entry.
+
+## Session safety history (additive, #3604)
+
+The optional boolean `sessionSafetyHistory` in `server_hello.capabilities`
+advertises read-only host sidecars. The optional sibling `safetyCapabilities`
+is version 1: `read:true`, `review:boolean`, `originRules:false`,
+`repositoryRules:false`, `recipientRules:false`,
+`readOnlyReason:"review_unavailable"|"owner_required"|null`, detector version 1
+and effective page, frame and cursor limits. Hosts exposing #3603's individual
+HTTP review set `review:true` and a null reason only for the live password-mode
+human owner; other callers receive false with `owner_required`. Hosts without
+that service retain `SAFETY_READ_CAPABILITIES` and `review_unavailable`.
+Review hosts optionally add literal `reviewBodyBytes:16384`,
+`reviewLifetimeMs:900000` and `receiptLifetimeMs:86400000` limits. Capability
+advertisement grants no authority: every HTTP operation rechecks it, and no WS
+review/mutation frame is accepted. Standing-rule flags remain false.
+Older clients ignore these optional fields; clients
+without both read declarations report unavailable and send no read/unsubscribe
+frames to an unsupported host. No verdict endpoint,
+mutation authority or fully qualified detector is implied by read support.
+
+After declaring the same capability in `client_hello`, clients may send:
+
+- `safety_read`: `{type,version:1,requestId,target,cursor?,limit?}`. The target
+  is `{sessionId}` or the exact provisional `{turnId,bindingId}`. Reads cannot
+  discover/create a session by guessing aliases. The host replies
+  `safety_history: {type,requestId,page:SafetyPage}`.
+  Additively for #3605, hosts advertise the independent boolean
+  `server_hello.capabilities.sessionSafetyEntryCorrelation`. Only after this
+  declaration may a client add `includeEntries:true`. Opted-in occurrence
+  records may contain `entry:{kind:"tool",toolUseId}`; the tool ID uses the
+  existing bounded ID grammar. Both the occurrence's host `turnId` and this
+  explicit tool identity must match a displayed entry. A host operation UUID,
+  names, arguments, timing and adjacency do not establish that join. Absent
+  correlation uses a separately named turn event. The snapshot pins this
+  choice for all pages and its subscription; changing it through a cursor
+  refuses. Default reads and subscriptions retain the original strict record
+  shape, and `safetyCapabilities` itself is unchanged for older clients.
+  Minimal correlation survives detail pruning and is deleted with its evidence.
+- `safety_subscribe`: `{type,version:1,requestId,identity,afterRevision,snapshotId}`.
+  One selected history subscription per connection replaces its predecessor.
+  `identity` is the canonical `{sessionId,historyOwnerId,historyGeneration}`
+  or provisional `{turnId,bindingId}`. The snapshot must have been issued to
+  this exact principal and identity at `afterRevision` and remain unexpired
+  when the subscription is accepted. Its opaque ID pins the exact collection
+  membership even if adoption has not yet advanced the brain-wide revision.
+  `safety_unsubscribe: {type,version:1}`
+  removes it; disconnect/auth loss also removes it.
+- `safety_update`: `{type,update:{version:1,identity,fromRevision,toRevision,
+  projection,records}}`. Both revisions are canonical unsigned decimal strings
+  bounded by uint64. Each update contains all selected-history records in its
+  `(fromRevision,toRevision]` interval and the authoritative aggregate at its
+  end, including changes with no detail rows. Revision numbers are brain-wide;
+  unrelated history revisions need not have a selected-history record.
+- `safety_unavailable`: `{type,version:1,requestId?,reason}` where reason is
+  `unavailable|unauthorized|expired|capacity|generation_changed|gap`. Gaps,
+  expired snapshots, generation changes and oversized deltas require a fresh
+  snapshot. No partial delta claims continuity.
+
+Pages echo their input `cursor` to prove ordering. The aggregate is independent
+of paginated detail and stored with the snapshot. `snapshotComplete` is true
+only when `nextCursor` is null. A client assembles one snapshot in cursor order
+and accepts updates only when `fromRevision` equals its current revision;
+older/duplicate updates cannot decrement its aggregate. Partial pages, historic
+review receipts and missing fields cannot label a session normal. After a gap,
+first-turn adoption, reconnect or restart, obtain a new snapshot. Canonical
+occurrence/decision IDs survive adoption and replay; client caches are cleared
+on retirement and auth loss and late request IDs cannot repopulate them.
+Adoption that adds pre-watermark collections invalidates paging and live
+continuity with `gap`; it cannot insert old records beneath a pinned aggregate
+or silently skip them in a delta. New post-watermark collections remain eligible
+for ordinary contiguous delivery. Duplicate pages after completion and updates
+from a previous subscription during pagination leave the aggregate intact;
+the final-page subscription replays from the pinned watermark.
+Local pending input and recording-loss latches can change without a committed
+revision, including when the failure notice itself rolls back. A subscription
+whose projection changes at an unchanged revision emits `gap` and requires a
+fresh snapshot. Final delivery also rejects a view that omits newly pending
+input or known local recording loss. A same-revision restrictive update is not
+an ordinary duplicate: clients retain the more restrictive aggregate and
+resynchronize; a same-revision normal frame cannot loosen that state.
+
+Records are tagged `occurrence`, `exposure` or `safe_decision`, with immutable
+host record ID, original sequence/time, turn, binding and occurrence ID.
+Occurrences retain their exact host operation/signal/exposure IDs where
+available, source, detector, exposure state and allowlisted transport provenance.
+The source inventory includes every durable taint source, including
+`apify_result` from supported host discovery, inspection and Actor results,
+and `github_result` from the host GitHub read tools (#3797).
+Opaque connections have null operation/provenance, never inferred Git/tool
+attribution. Pruned details explicitly use null unavailable correlation fields;
+independent occurrence IDs and aggregate counts survive. Text is display data,
+never HTML, instructions or provider conversation content. Commands, file/page
+bodies, URL credentials/query strings and arbitrary model text are omitted.
+
+Each page/update is bounded to 100 records and 262144 bytes. Oversized replay
+requires resync from the durable ledger; there is no unbounded delta cache.
+Snapshots use at most 256 entries, 32 per principal and 4194304 aggregate bytes;
+the shared cursor table caps at 4096 positions, each at most 512 bytes and valid
+for 300000 ms. At most 256 reads (32 per principal) wait at once, and 256
+subscriptions exist per host. Replaced subscriptions keep their in-flight reads
+inside those same read limits until settlement. Capacity refusal preserves all durable evidence.
+The existing one-second authorization sweep drives bounded live read delivery.
+Every asynchronous settlement and final delivery rechecks live principal,
+canonical generation, retirement and snapshot expiry. Permanent minimized
+retirement fences remain owned by the existing chat lifecycle.
+
+These sidecars never change provider messages, tools or system prefixes. The
+host-only verdict store remains separate; this slice changes no effective-taint
+admission semantics or Settings policy. The semantic G6 break remains governed
+by the prior maintainer ruling in the session-safety ADR.

@@ -135,6 +135,10 @@ test("repeated pauses share one finite deadline, and expiry publishes nothing", 
   const firstPause = Date.now();
   // A second changed path: the fresh attempt's own observation reaches the granted cap, which is Stop only.
   writeFileSync(join(p.f.brain, "voyage-chart.md"), "Odysseus charts Scheria.\n");
+  // Real time, the stimulus: the shared deadline is taken from Date.now() when
+  // the first pause starts waiting, and no clock in this file reaches it. This
+  // spends half of it, so a second pause that restarted the bound would wait
+  // past waitMs + 400 and fail POLICY_PAUSES_SHARE_ONE_DEADLINE.
   await Bun.sleep(600);
   expect((await p.f.scope.decide(p.f.message("continue"), true)).state).toBe("accepted");
   const result = await pending;

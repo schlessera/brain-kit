@@ -342,6 +342,13 @@ test("subagent Escape pops one level without remounting and focuses the new Back
 
 for (const destination of ["files", "settings"] as const) test(`${destination} pane: Escape respects inner prevention and modal stacking`, async ctx => {
   // Mutations: delete the pane listener, ignore defaultPrevented, or ignore openModal.
+  // The guards below are dispatched as synthetic (untrusted) Escapes, which
+  // never raise a close request: they are the keydown fallback's guards, so
+  // the test runs where that fallback is the path, without CloseWatcher
+  // (#2577). The watcher path's guards are in close-requests.pointer.tsx.
+  const closeWatcher = Object.getOwnPropertyDescriptor(window, "CloseWatcher");
+  Reflect.deleteProperty(window, "CloseWatcher");
+  ctx.onTestFinished(() => { if (closeWatcher) Object.defineProperty(window, "CloseWatcher", closeWatcher); });
   const s = await mount(ctx, 1280);
   flushSync(() => {
     if (destination === "settings") s.ui.stores.ui.getState().setSettingsTab("appearance");
@@ -572,7 +579,7 @@ test("destination opening references survive native completion before sampling",
     animation instanceof CSSAnimation && ["bk-overlay-fade", "bk-overlay-panel"].includes(animation.animationName));
   const effects = nativeOpenings(captured);
   expect(effects.length, "both real scrim and surface openings were captured").toBe(2);
-  expect(effects.every(animation => animation.playState === "paused"), "openings pause before activation returns").toBe(true);
+  expect(effects.map(animation => animation.playState), "openings pause before activation returns").toEqual(["paused", "paused"]);
   // Recreate the late-sample condition with native completion, without a sleep
   // or an invented animation: completed fill-none effects leave getAnimations.
   for (const animation of effects) animation.play();

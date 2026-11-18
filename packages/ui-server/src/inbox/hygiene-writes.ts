@@ -33,9 +33,11 @@ export function setup(db: Database, { timeZone }: { timeZone?: string }): WriteP
   let at = 0;
   const now = () => at, store = createInboxStore(db, { now });
   const resolver = createInboxResolver(db, { now, timeZone, allowedOperations: () => [], applyHygiene: async () => { throw new Error("Effects run on the host"); } });
+  // Authority is the clock's, read where the procedure runs (#4176): `at` was
+  // stamped before the review waited for the writer, and records times only.
   function authority(principalId: string) {
     const p = resolvePrincipal(db, principalId);
-    if (!p || !isUsablePrincipal(p, now()) || !["owner", "ambient"].includes(p.kind)) throw new HygieneAuthorityError("Human review authority is required");
+    if (!p || !isUsablePrincipal(p, Date.now()) || !["owner", "ambient"].includes(p.kind)) throw new HygieneAuthorityError("Human review authority is required");
   }
   function state(): HygieneReviewState {
     const row = db.query("SELECT data_json FROM hygiene_review WHERE singleton = 1").get() as { data_json: string } | null;
@@ -235,6 +237,20 @@ export function setup(db: Database, { timeZone }: { timeZone?: string }): WriteP
           const review = state();
           save({ ...review, fixed: Math.max(0, review.fixed - (prior.status === "fixed" ? 1 : 0)), kept: Math.max(0, (review.kept ?? 0) - (prior.status === "kept" ? 1 : 0)) });
         }
+      }).immediate();
+    },
+    /**
+     * The counts a selection stores, read again without selecting (#2783): an
+     * Undo while a card is pending, or after the pass ended, puts a finding
+     * back to awaiting review, so the stored count must say so too.
+     */
+    counts(time: number, principalId: string, next: z.infer<typeof nextSchema>) {
+      at = time;
+      authority(principalId);
+      return db.transaction(() => {
+        if ("blocker" in next) return;
+        const review = state();
+        save({ ...review, counts: next.counts, media: mediaOf(next) ?? review.media });
       }).immediate();
     },
     admit(time: number, principalId: string, request: ClientInboxResolve) {

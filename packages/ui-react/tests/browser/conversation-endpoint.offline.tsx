@@ -118,12 +118,12 @@ for (const action of ["send", "discard", "answer", "mute"] as const) for (const 
     s.deliver({ type: "ask_user_request", sessionId: SESSION, turnId: "ithaca-turn", requestId: "ithaca-question", questions: [{ question: "Which day?", header: "Day", multiSelect: false, options: [{ label: "Tomorrow", description: "Before departure" }] }] });
   }
   s.input("Tomorrow before departure");
-  await expect.poll(() => s.button(action === "discard" ? "Discard" : action === "mute" ? "Mute mic" : "Send now")).not.toBeUndefined();
+  await expect.poll(() => s.button(action === "discard" ? "Discard draft" : action === "mute" ? "Mute" : "Send now")).not.toBeUndefined();
   expect(s.socket.frames("conversation_endpoint")).toHaveLength(1);
   expect(s.client.state.getState().outputRecovery).toBe("speaking");
   let noise: ReturnType<typeof setInterval> | undefined;
   if (noisy) { audio(); noise = setInterval(audio, 60); ctx.onTestFinished(() => clearInterval(noise)); }
-  await userEvent.click(s.button(action === "discard" ? "Discard" : action === "mute" ? "Mute mic" : "Send now"));
+  await userEvent.click(s.button(action === "discard" ? "Discard draft" : action === "mute" ? "Mute" : "Send now"));
   expect(s.client.state.getState().outputRecovery, "MANUAL_ENDPOINT_STARTS_RECOVERY").toBe("checking");
   expect(s.socket.frames("conversation_endpoint")).toHaveLength(2);
   expect(s.socket.frames("conversation_commit")).toHaveLength(action === "send" ? 1 : 0);

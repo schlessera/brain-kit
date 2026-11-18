@@ -1,4 +1,4 @@
-import { APIFY_TOOL_NAMES, ASK_USER_TOOL_NAME, BRIDGE_TOOL_POSTURE } from "@schlessera/brain-ui-sdk/server";
+import { APIFY_TOOL_NAMES, ASK_USER_TOOL_NAME, BRIDGE_TOOL_POSTURE, GITHUB_READ_TOOL_NAMES, GITHUB_TOOL_NAMES, WEB_TOOL_NAME_LIST } from "@schlessera/brain-ui-sdk/server";
 /**
  * The curated brain tool surface for the pi backend.
  *
@@ -7,8 +7,8 @@ import { APIFY_TOOL_NAMES, ASK_USER_TOOL_NAME, BRIDGE_TOOL_POSTURE } from "@schl
  * what the Claude backend exposes:
  *
  *   read_file, grep — repo-scoped file access
- *   brain_search, brain_context, brain_read, brain_list, brain_graph —
- *     read paths of the brain MCP surface, in-process
+ *   brain_search, brain_context, brain_read, brain_list, brain_graph,
+ *   brain_read_many — read paths of the brain MCP surface, in-process
  *   write_file, edit_file, bash, brain_add, brain_update, brain_archive —
  *     mutating; serialized under the shared write lock
  *   ask_user, get_current_location, query_activity, request_image_mask —
@@ -30,7 +30,7 @@ import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 
 import { createPiBridgeTools } from "./bridge-tools.js";
 import { brainReadBaseTool, routedApplicationTools } from "./application-tools.js";
-import { brainAddTool, brainArchiveTool, brainContextTool, brainGraphTool, brainListTool, brainReadTool, brainSearchTool, brainUpdateTool } from "./brain-tools.js";
+import { brainAddTool, brainArchiveTool, brainContextTool, brainGraphTool, brainListTool, brainReadManyTool, brainReadTool, brainSearchTool, brainUpdateTool } from "./brain-tools.js";
 import { bashTool, editFileTool, grepTool, readFileTool, writeFileTool } from "./file-tools.js";
 import { createBrainToolKit } from "./tool-kit.js";
 import type { BrainAccess } from "./brain-access.js";
@@ -107,12 +107,15 @@ export interface BrainToolDeps {
     activity?: boolean;
     inbox?: boolean;
     mask?: boolean;
+    markup?: boolean;
     policyChange?: boolean;
     turnTemp?: boolean;
     reference?: boolean;
     compute?: boolean;
     apify?: boolean;
     attachments?: boolean;
+    web?: boolean;
+    github?: boolean;
   };
 }
 
@@ -127,6 +130,8 @@ export const TOOL_RISK: Record<string, RiskClass> = {
   brain_read: "read",
   brain_list: "read",
   brain_graph: "read",
+  // A bounded read of several documents (#3642): each member as brain_read reads it.
+  brain_read_many: "read",
   ask_user: "read",
   ask_user_list: "read",
   ask_user_rank: "read",
@@ -135,7 +140,7 @@ export const TOOL_RISK: Record<string, RiskClass> = {
   query_activity: "read",
   inbox_list: "read", inbox_get: "read", inbox_add: "mutate", resolve_action: "mutate", complete_share: "mutate",
   // Shared source is read-only; a worktree request, access, renewal or release changes host state (#2432).
-  reference_source: "read", reference_worktree: "mutate",
+  reference_source: "read", reference_worktree: "mutate", reference_read: "read",
   // External compute (#3108): a run starts paid remote work and a cancel
   // releases it; health, plan, status and collect change nothing the agent owns.
   brain_compute_health: "read", brain_compute_plan: "read", brain_compute_run: "mutate",
@@ -147,11 +152,21 @@ export const TOOL_RISK: Record<string, RiskClass> = {
   brain_apify_run: "mutate", brain_apify_status: "read", brain_apify_results: "read", brain_apify_abort: "mutate",
   // Attachment reads (#3154): the host authorizes each id against the session's own references.
   read_attachment: "read",
+  // Host-owned web tools (#3685): the host's executor reads the web; nothing
+  // the agent owns changes.
+  web_search: "read", fetch_content: "read", get_search_content: "read", source_check: "read",
+  // Host GitHub reads (#3797): the host reads GitHub with its own credential.
+  brain_github_issue_read: "read", brain_github_issue_search: "read",
+  // Host GitHub writes (#3798): outward, behind the host's allow-list and per-write card.
+  brain_github_issue_create: "mutate", brain_github_issue_comment: "mutate",
   // Echoes the block it was given; the surface draws it. Touches nothing.
   show_block: "read",
   // Writes a mask PNG next to its image, but the approval is the mask editor
   // itself — nothing happens unless the user paints and confirms.
   request_image_mask: "mutate",
+  // The host writes a markup layer under .brain/scratch/markup/ (#3975), and
+  // only once the user draws and sends it: the editor is the approval.
+  request_image_markup: "mutate",
   write_file: "mutate",
   edit_file: "mutate",
   bash: "mutate",
@@ -169,10 +184,10 @@ export const TOOL_RISK: Record<string, RiskClass> = {
  * rationale), and destructive bash shapes still confirm via
  * DEFAULT_CONFIRM_BASH_PATTERNS inside the tool_call gate.
  *
- * The well-known extension tools are listed here too so the recommended
- * extensions (pi-web-access) run prompt-free like Claude's WebSearch /
- * WebFetch; any OTHER extension-registered tool (e.g. a third-party MCP
- * server through pi-mcp-adapter) raises an approval card, exactly like a
+ * The host-owned web tools run prompt-free like Claude's WebSearch /
+ * WebFetch. `subagent` stays listed for an operator who turns extension
+ * discovery back on; any OTHER extension-registered tool (e.g. a third-party
+ * MCP server through pi-mcp-adapter) raises an approval card, exactly like a
  * non-allowlisted MCP tool does on the Claude backend.
  */
 export const DEFAULT_PI_ALLOWED_TOOLS: readonly string[] = [
@@ -184,6 +199,7 @@ export const DEFAULT_PI_ALLOWED_TOOLS: readonly string[] = [
   "brain_read_base",
   "brain_list",
   "brain_graph",
+  "brain_read_many",
   "brain_add",
   "brain_update",
   "write_file",
@@ -196,10 +212,16 @@ export const DEFAULT_PI_ALLOWED_TOOLS: readonly string[] = [
   // Attachment reads (#3154): the host authorizes each id against the
   // session's own references; a card would ask to read what the user sent.
   "read_attachment",
-  // pi-web-access (recommended web extension) — parity with Claude's
-  // auto-allowed WebSearch/WebFetch.
-  "web_search",
-  "fetch_content",
+  // The host-owned web tools (#3685), parity with Claude's auto-allowed
+  // WebSearch/WebFetch: the host binds and bounds every call.
+  ...WEB_TOOL_NAME_LIST,
+  // Host GitHub reads (#3797): the host binds the turn, holds the credential
+  // and taints the session; a card would ask to read.
+  ...GITHUB_READ_TOOL_NAMES,
+  // Host GitHub writes (#3798): the host checks the policy allow-list and asks
+  // per exact write on its own card; a tool card would ask twice and offer a
+  // rememberable grant. Voice and no-grant turns refuse before the host.
+  GITHUB_TOOL_NAMES.create, GITHUB_TOOL_NAMES.comment,
   // pi-subagents (recommended fan-out extension) — parity with Claude's
   // auto-allowed Agent tool. NOTE: a child agent's own tool calls run inside
   // pi's child session with that agent's declared tools, NOT through this
@@ -228,6 +250,7 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
     brainReadTool(kit),
     brainListTool(kit),
     brainGraphTool(kit),
+    brainReadManyTool(kit),
     writeFileTool(kit),
     editFileTool(kit),
     bashTool(kit),

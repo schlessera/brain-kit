@@ -42,13 +42,13 @@ export function referencePoolDouble(root: string, options: { capacityRoots?: num
         limits: { combinedBytes: 64 * 1024 ** 2, operationBytes: options.operationBytes ?? 8 * 1024 ** 2, emergencyBytes: 4096, physicalFloorBytes: 4096, maxIdentities: 4096 },
         accounting: null, physical: null, counts: { reserved: 0, writable: 0, sealed: 0, deleting: 0, deleted: 0, reclaimed: 0 }, identities: records.size } as NativePoolStatus;
     },
-    async poolCreate(id, purpose, from, allowanceBytes) {
+    async poolCreate(id, purpose, from, allowanceBytes, _signal, permanentWithdrawal) {
       note({ operation: "create", id });
       const existing = records.get(id);
       if (existing && ["deleting", "deleted", "reclaimed"].includes(existing.state)) fail("released", "This reference pool identity was released; it cannot be recreated.");
       if (existing) return existing;
       if (live().length >= pool.capacityRoots) fail("capacity", "Reference pool combined allowance cannot reserve its allowance; nothing was admitted.");
-      const record: NativePoolRecord = { id, purpose, from, allowanceBytes, state: "writable", root: { rootId: String(256 + records.size), uuid: createHash("sha256").update(id).digest("hex").slice(0, 32), otransid: "1" },
+      const record: NativePoolRecord = { id, ...(permanentWithdrawal ? { publicationRevoked: false } : {}), purpose, from, allowanceBytes, state: "writable", root: { rootId: String(256 + records.size), uuid: createHash("sha256").update(id).digest("hex").slice(0, 32), otransid: "1" },
         path: join(roots, id), ownerBytes: 0, reason: null, view: null, access: null };
       if (from) { const source = records.get(from); if (!source || source.state !== "sealed") fail("unknown", "A reference snapshot requires one retained sealed pool root."); cpSync(location(source!), record.path!, { recursive: true, verbatimSymlinks: true }); }
       else mkdirSync(record.path!);
@@ -57,16 +57,23 @@ export function referencePoolDouble(root: string, options: { capacityRoots?: num
     },
     async poolSeal(id) {
       const record = records.get(id);
+      // The manager also verifies and returns an already sealed retained root.
+      if (record?.state === "sealed") return record;
       if (!record || record.state !== "writable") fail("released", "Only a writable reference pool root can be sealed.");
       note({ operation: "seal", id });
       record!.state = "sealed";
       return record!;
     },
-    async poolPublish(id, view, name) {
+    async poolPublish(id, view, name, _signal, expectedRoots) {
       const record = records.get(id);
       if (!record || record.purpose !== "source") fail("unknown", "Only a recorded reference source root can be published.");
+      if (record!.publicationRevoked) fail("released", "This source root's publication authority was permanently withdrawn.");
       if (record!.state !== "sealed") fail("invalid", "Only a sealed reference source root can be published.");
       if (record!.view && record!.view !== view) fail("invalid", "A published reference root belongs to exactly one view.");
+      const entry = join(views, view, name);
+      let current: string | null = null;
+      try { current = readlinkSync(entry); } catch { /* no published alias */ }
+      if (expectedRoots && !expectedRoots.includes(current)) fail("unavailable", "The reference publication changed; request it again.");
       mkdirSync(join(views, view), { recursive: true });
       if (!record!.view) { renameSync(join(roots, id), join(views, view, id)); record!.view = view; record!.path = location(record!); }
       const temporary = join(views, view, `.${name}.${id}`);
@@ -89,6 +96,7 @@ export function referencePoolDouble(root: string, options: { capacityRoots?: num
     async poolWithdraw(id) {
       const record = records.get(id);
       if (!record || record.purpose !== "source") fail("unknown", "Only a recorded reference source root can be withdrawn.");
+      if (record!.publicationRevoked === false) record!.publicationRevoked = true;
       note({ operation: "withdraw", id });
       if (!record!.view) return record!;
       // Like the manager: a released root keeps its view in its record, and is never withdrawn.
@@ -164,9 +172,10 @@ export function referencePoolDouble(root: string, options: { capacityRoots?: num
       record!.access = generation; record!.path = location(record!);
       return record!;
     },
-    async poolPark(id) {
+    async poolPark(id, _signal, expectedAccess) {
       const record = records.get(id);
       if (!record || record.purpose !== "worktree") fail("unknown", "Only a recorded worktree root can be parked.");
+      if (expectedAccess !== undefined && record!.access !== expectedAccess) return record!;
       if (!record!.access) return record!;
       note({ operation: "park", id });
       renameSync(location(record!), join(roots, id));

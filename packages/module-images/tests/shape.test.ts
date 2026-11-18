@@ -122,13 +122,13 @@ describe("routing on shape", () => {
   test("a preset size with transparency stays on the default model", () => {
     const d = route({ request: { prompt: "x", size: "1024x1024", transparent: true }, available: ALL });
     expect(d.kind).toBe("resolved");
-    expect((d as { model: ModelCapabilities }).model.id).toBe("gpt-image-2.5-sunburst");
+    expect((d as { model: ModelCapabilities }).model.id).toBe("gpt-image-2.6-sunburst");
   });
 
-  test("a custom size plus transparency is served — both 2.5 models take custom sizes", () => {
+  test("a custom size plus transparency is served — every 2.5 and 2.6 model takes custom sizes", () => {
     const d = route({ request: { prompt: "x", size: "1360x768", transparent: true }, available: ALL });
     expect(d.kind).toBe("resolved");
-    expect((d as { model: ModelCapabilities }).model.id).toBe("gpt-image-2.5-sunburst");
+    expect((d as { model: ModelCapabilities }).model.id).toBe("gpt-image-2.6-sunburst");
   });
 
   test("an illegal custom size says what the rules are", () => {
@@ -152,6 +152,6 @@ describe("routing on shape", () => {
   test("a legal ratio leaves both providers in play, and the default decides", () => {
     const d = route({ request: { prompt: "x", aspect: "16:9" }, available: ALL });
     expect(d.kind).toBe("resolved");
-    expect((d as { model: ModelCapabilities }).model.id).toBe("gpt-image-2.5-sunburst");
+    expect((d as { model: ModelCapabilities }).model.id).toBe("gpt-image-2.6-sunburst");
   });
 });

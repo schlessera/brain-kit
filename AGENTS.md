@@ -85,6 +85,14 @@ on, links to or describes them.
   repo ([why](docs/plans/README.md#what-does-not-live-here)).
   `docs/decisions/` records why; `docs/plans/` holds design for work that is
   not built; GitHub holds everything that is open.
+- **Fail closed, proportionately.** A security or integrity guard restricts the
+  narrowest thing whose state is uncertain (a turn, a chat, a record, one
+  backend), runs restricted before it refuses, recovers by itself whenever
+  recovery needs no judgment, boots past a recoverable historical record, and
+  records its cause durably where the owner can see it. An unknown never
+  becomes clean; one local failure never makes the whole host unusable until a
+  restart or a hand-run script. A PR that adds or changes a guard answers the
+  checklist in [the rule](docs/decisions/proportionate-containment.md#checklist-for-a-new-or-changed-guard).
 - **Nothing that describes a real deployment goes in this repo.** Image layout,
   hosts, proxies, operator runbooks and production incidents belong in the
   private `brain-ui` repo, which is one person's running installation rather
@@ -132,7 +140,9 @@ on, links to or describes them.
 
 ## Testing expectations
 
-[Full testing rules and incident context](docs/process/testing.md).
+[Full testing rules and incident context](docs/process/testing.md). How to
+write one, and which kind of test proves which claim:
+[docs/process/test-authoring.md](docs/process/test-authoring.md).
 
 - Every library keeps or gains unit tests; contract tests assert the `--json`
   envelopes. Integration tests run against `packages/core/fixtures/corpus/` —
@@ -152,6 +162,12 @@ on, links to or describes them.
   mutation: break the guard, watch the named test fail on the expected
   assertion, restore, and record both in the PR. A failing-first receipt must
   fail for the reason claimed — a module-load error is not one.
+- A test watchdog (a timeout that stops a hang and cleans up) is a catch-all
+  for the worst case: size it well above normal duration, write an in-test one
+  as `watchdogMs(n)`, and raise it when it trips on a slow run. A product
+  timing (a time the product promises) is proof: assert it on measured or
+  controlled time and never loosen it to get green
+  ([how to tell them apart](docs/process/testing.md#watchdogs-and-product-timings)).
 - A review finding is one instance of a bug class: grep the diff and its file
   for every other instance before calling it closed.
 - Before opening or marking a PR ready, run `bun run check:pr --base
@@ -160,7 +176,15 @@ on, links to or describes them.
   failing-first/mutation receipts. Default preflight runs lint/leakage, environment
   documentation, changeset checks and affected fast invariants; import-graph
   feedback is opt-in with `--import-graph`. Explicit ready-candidate CI supplies complete
-  affected proof; subsequent pushes need a new confirmation request; every selected job must pass, and
+  affected fast proof (types, packaging, unit/integration); heavy runtime, browser, layout,
+  capture and endurance proof runs on the squash's own main run
+  ([hybrid ruling](docs/decisions/ci-utility.md#hybrid-post-merge-heavy-proof)).
+  A PR touching none of `ui-react`, `ui-kit`, `ui-server` or `core` under `packages/` may take
+  the [fast lane](docs/decisions/ci-utility.md#fast-lane-outside-the-core-packages)
+  instead of ready confirmation. A PR touching any of them needs a
+  [recorded independent review](docs/decisions/ci-utility.md#recorded-independent-review-of-core-package-prs)
+  before `integrate.ts confirm` will proceed.
+  Subsequent pushes need a new confirmation request; every selected job must pass, and
   missing, cancelled or unexpectedly skipped jobs are not green. Policy:
   [the CI decision](docs/decisions/ci-utility.md) and
   [the PR proof rules](docs/process/testing.md#required-proof-for-a-pr).
@@ -219,6 +243,8 @@ In `.agents/skills/`, symlinked into `.claude/skills/`.
 | `gh-stack` | Creating or working in stacked branches/PRs, including rebasing, submitting and merging a stack. Apply the [project stack rules](docs/process/github.md#stacked-pull-requests) alongside it. |
 | `work-issue` | Taking one unassigned, highest-priority ready brain-kit issue through implementation and merge, or a blocked handoff. |
 | `triage-issues` | Preparing open brain-kit issues without `agent-ready`: resolve factual gaps, maintain prompts, and reconcile labels and epic membership. |
+| `test-health` | A recurring run that audits one batch of existing tests in depth, proves and lands the fixes, and records the metrics. |
+| `test-health-push` | One dedicated full pass of the suite: the `test-health` audit fanned out against an integration branch and landed as one pull request. |
 
 A skill records what works. Fix any incorrect command, limit or API shape
 in the same PR that found it.

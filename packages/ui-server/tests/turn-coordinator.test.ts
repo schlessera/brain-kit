@@ -11,7 +11,11 @@ import type { RunningTurn } from "../src/ws/turns";
 import { closeDb, resetForTests, setBackendForTests, testHost } from "./helpers/test-host";
 import { testPrincipal } from "./helpers/principal";
 
-/** How a request settled within a second: its rejection message, "resolved", or "unsettled". */
+/**
+ * How a request settled within a second: its rejection message, "resolved", or
+ * "unsettled". A failure maximum: a request that settles wins the race at once,
+ * and the 1 s branch is only reached by one that hangs.
+ */
 function settlement(request: Promise<unknown>): Promise<string> {
   return Promise.race([
     request.then(() => "resolved", (error: unknown) => (error instanceof Error ? error.message : String(error))),

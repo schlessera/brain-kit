@@ -57,25 +57,25 @@ for (const theme of ["light", "dark"] as const) for (const width of [320, 1280])
   expect(row.getAttribute("aria-label"), "do not repeat qualifier name on section").toBeNull();
   expect(trigger.getAttribute("aria-label"), "original Gemini source survives current GPT picker").toBe("Recognized speech; Gemini Live; unverified. Transcript details.");
   expect(qualifier(s.host, "generated").getAttribute("aria-label")).toContain("Gemini Live; playback unknown");
+  // A spoken turn's details are its Details stop (#3728): no glyph, no
+  // tooltip, clipped at rest and shown as a pill once focused.
+  expect(row.querySelector(".bk-transcript-glyphs"), "no glyph inside or beside the spoken turn").toBeNull();
+  expect(trigger.closest(".bk-spoken-turn"), "the stop belongs to the spoken turn").not.toBeNull();
+  expect(trigger.dataset.transcriptTrigger).toBe("reveal");
+  expect(getComputedStyle(trigger).clipPath, "hidden at rest").toBe("inset(50%)");
   trigger.scrollIntoView({ block: "center" });
+  // The kit's 300 ms hover delay runs on a fake clock, so "every pending
+  // timer has run" is a step, not a window.
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] }); ctx.onTestFinished(() => { vi.useRealTimers(); });
+  await userEvent.tab(); while (document.activeElement !== trigger) await userEvent.tab();
+  flushSync(() => vi.advanceTimersByTime(300));
+  expect(getComputedStyle(trigger).clipPath, "focus shows the pill").toBe("none");
   const box = trigger.getBoundingClientRect();
   expect(box.width).toBeGreaterThanOrEqual(44); expect(box.height).toBeGreaterThanOrEqual(44);
   for (const [x,y] of [[box.left + 2,box.top + box.height/2],[box.right-2,box.top+box.height/2],[box.left+box.width/2,box.top+2],[box.left+box.width/2,box.bottom-2]]) expect(document.elementFromPoint(x,y)?.closest("button")).toBe(trigger);
-  // The qualifier's 300 ms show delay and 150 ms hide grace run on a fake
-  // clock, so "every pending timer has run" is a step, not a window.
-  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] }); ctx.onTestFinished(() => { vi.useRealTimers(); });
-  trigger.focus();
-  flushSync(() => vi.advanceTimersByTime(300));
-  await expect.poll(() => document.querySelector('[role="tooltip"]')?.textContent).toContain("Words may be uncertain; speaker unverified.");
-  const hint = document.querySelector<HTMLElement>('[role="tooltip"]')!;
-  expect(hint.getBoundingClientRect().left).toBeGreaterThanOrEqual(0);
-  expect(hint.getBoundingClientRect().right).toBeLessThanOrEqual(width);
-  expect(trigger.hasAttribute("title"), "single custom explanation").toBe(false);
-  expect(getComputedStyle(trigger).outlineWidth).toBe("2px");
-  await userEvent.keyboard("{Escape}");
-  await expect.poll(() => document.querySelector('[role="tooltip"]')).toBeNull();
-  flushSync(() => vi.runOnlyPendingTimers());
-  expect(document.querySelector('[role="tooltip"]'), "Escape suppresses while still focused").toBeNull();
+  expect(document.querySelector('[role="tooltip"]'), "the Details stop has no tooltip").toBeNull();
+  expect(trigger.hasAttribute("title"), "no native tooltip either").toBe(false);
+  expect(getComputedStyle(trigger.querySelector(".bk-transcript-pill")!).outlineWidth).toBe("2px");
   vi.useRealTimers();
   await userEvent.keyboard("{Enter}");
   const dialog = document.querySelector<HTMLDialogElement>('dialog[open]')!;
@@ -83,6 +83,7 @@ for (const theme of ["light", "dark"] as const) for (const width of [320, 1280])
   expect(dialog.id).toBe(trigger.getAttribute("aria-controls"));
   expect(document.activeElement?.textContent).toBe("Transcript details");
   expect(dialog.textContent).toContain("Source: Gemini Live");
+  expect(dialog.textContent, "the explanation the glyph tooltip carried").toContain("Words may be uncertain; speaker unverified.");
   expect(dialog.querySelector("details")!.open, "technical evidence starts collapsed").toBe(false);
   await userEvent.click(dialog.querySelector("summary")!);
   expect(dialog.textContent).toContain("Timing unavailable; speaker unverified.");
@@ -105,27 +106,25 @@ for (const theme of ["light", "dark"] as const) for (const width of [320, 1280])
   expect(qualifier(s.host).getAttribute("aria-label")).toContain("GPT-Live; unverified");
 });
 
-test("pointer can read tooltip then tap details; playback and restoration are independent evidence", async ctx => {
+test("pointer reveals the Details pill after hovering, then a tap opens details; playback and restoration are independent evidence", async ctx => {
   const s = await scene(ctx, 320, "light", 1, false);
   s.render(<><TranscriptSymbols /><ConversationOutput output={{ conversationId: "odysseus-voice", epoch: 1, sessionId: SESSION, providerId: "gpt-live", outputId: "restored-raft", generated: "The water skins belong beside the mast.", playback: "discarded" }} restored /></>);
   const trigger = qualifier(s.host, "generated");
-  // As above: the show delay and hide grace run on a fake clock.
+  const turn = trigger.closest<HTMLElement>(".bk-spoken-turn")!;
+  expect(turn, "the stop belongs to brain's spoken turn").not.toBeNull();
+  // The kit's 300 ms hover delay runs on a fake clock.
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] }); ctx.onTestFinished(() => { vi.useRealTimers(); });
-  await userEvent.hover(trigger);
+  await userEvent.hover(turn.querySelector(".bk-spoken-prose")!);
   flushSync(() => vi.advanceTimersByTime(300));
-  await expect.poll(() => document.querySelector('[role="tooltip"]')?.textContent).toContain("Remaining reply not spoken locally. Earlier spoken portion unknown.");
-  const hint = document.querySelector<HTMLElement>('[role="tooltip"]')!;
-  await userEvent.hover(hint);
-  flushSync(() => vi.runOnlyPendingTimers());
-  expect(hint.isConnected, "hoverable explanation persists").toBe(true);
+  expect(turn.dataset.reveal, "hovering the turn shows the pill").toBe("true");
+  expect(document.querySelector('[role="tooltip"]'), "no tooltip").toBeNull();
   vi.useRealTimers();
-  await userEvent.keyboard("{Escape}");
-  expect(document.querySelector('[role="tooltip"]')).toBeNull();
   const box = trigger.getBoundingClientRect();
   await commands.rankTap({ x: box.left+box.width/2, y: box.top+box.height/2 });
   await expect.poll(() => document.querySelector('dialog[open]')?.textContent).toContain("Restored text evidence. This does not prove playback or that the current voice engine received it.");
+  expect(document.querySelector('dialog[open]')?.textContent).toContain("Remaining reply not spoken locally. Earlier spoken portion unknown.");
   expect(document.querySelector('dialog[open]')?.textContent).toContain("Original discussion position unknown");
-  expect(trigger.querySelectorAll("svg")).toHaveLength(3);
+  expect(trigger.querySelectorAll("svg"), "no glyph").toHaveLength(0);
   await closeDetails();
   await userEvent.click(page.getByRole("button", { name: "Transcript symbols", exact: true }));
   expect(document.querySelector('dialog[open]')?.textContent).toContain("Received audio chunks played locally; spoken portion unknown.");

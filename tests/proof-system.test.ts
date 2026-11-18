@@ -16,7 +16,8 @@ function fixture(files: Record<string, string>) {
   const dir = mkdtempSync(join(tmpdir(), "odysseus-proof-system-"));
   directories.push(dir);
   const git = (...args: string[]) => {
-    const result = Bun.spawnSync(["git", ...args], { cwd: dir, stdout: "pipe", stderr: "pipe", env: ENV });
+    // Command-scoped, so an environment-scoped signing setting cannot reach these fixture commits (#3485).
+    const result = Bun.spawnSync(["git", "-c", "commit.gpgsign=false", ...args], { cwd: dir, stdout: "pipe", stderr: "pipe", env: ENV });
     if (result.exitCode !== 0) throw new Error(result.stderr.toString());
     return result.stdout.toString().trim();
   };
@@ -116,30 +117,110 @@ describe("path set", () => {
 });
 
 describe("timeout-change check", () => {
-  test("changing a Bun test third-argument timeout is a proof-system change naming file and line", () => {
+  test("lowering a Bun test third-argument timeout is a proof-system change naming file and line", () => {
     const repo = fixture(BASE_FILES);
-    const head = repo.commit({ "packages/core/tests/raft.test.ts": TEST_FILE.replace("}, 5000);", "}, 10000);") }, "slower");
+    const head = repo.commit({ "packages/core/tests/raft.test.ts": TEST_FILE.replace("}, 5000);", "}, 2000);") }, "tighter");
     const result = classify(repo.base, head, { cwd: repo.dir });
     expect(result.proofSystem).toBe(true);
     expect(result.reasons).toEqual([{ kind: "timeout-change", path: "packages/core/tests/raft.test.ts", line: 7, side: "head",
-      signal: "test-argument", name: "test", from: "5000", to: "10000" }]);
+      signal: "test-argument", name: "test", from: "5000", to: "2000" }]);
   });
 
-  test("changing a single-line test(\"x\", fn, 5000) timeout is flagged", () => {
+  test("lowering a single-line test(\"x\", fn, 5000) timeout is flagged", () => {
     const repo = fixture(BASE_FILES);
     const head = repo.commit({ "packages/core/tests/raft.test.ts":
-      TEST_FILE.replace("expect(true).toBe(true), 5000);", "expect(true).toBe(true), 10000);") }, "slower");
+      TEST_FILE.replace("expect(true).toBe(true), 5000);", "expect(true).toBe(true), 2000);") }, "tighter");
     const result = classify(repo.base, head, { cwd: repo.dir });
-    expect(result.reasons).toMatchObject([{ kind: "timeout-change", path: "packages/core/tests/raft.test.ts", line: 9, from: "5000", to: "10000" }]);
+    expect(result.reasons).toMatchObject([{ kind: "timeout-change", path: "packages/core/tests/raft.test.ts", line: 9, from: "5000", to: "2000" }]);
   });
 
-  test("changing a RESTART_DEADLINE_MS constant is flagged", () => {
+  test("lowering a RESTART_DEADLINE_MS constant is flagged", () => {
     const repo = fixture(BASE_FILES);
-    const head = repo.commit({ "packages/core/tests/raft.test.ts": TEST_FILE.replace("30_000", "60_000") }, "longer deadline");
+    const head = repo.commit({ "packages/core/tests/raft.test.ts": TEST_FILE.replace("30_000", "10_000") }, "shorter deadline");
     const result = classify(repo.base, head, { cwd: repo.dir });
     expect(result.proofSystem).toBe(true);
     expect(result.reasons).toEqual([{ kind: "timeout-change", path: "packages/core/tests/raft.test.ts", line: 3, side: "head",
-      signal: "constant", name: "RESTART_DEADLINE_MS", from: "30000", to: "60000" }]);
+      signal: "constant", name: "RESTART_DEADLINE_MS", from: "30000", to: "10000" }]);
+  });
+
+  // A watchdog is a catch-all for the worst case, so raising one is not a proof-system change (#4191).
+  test.each([
+    ["a multi-line third-argument timeout", [["}, 5000);", "}, 10000);"]]],
+    ["a single-line third-argument timeout", [["expect(true).toBe(true), 5000);", "expect(true).toBe(true), 120_000);"]]],
+    ["a deadline constant", [["30_000", "60_000"]]],
+    ["a deadline constant written as a product", [["30_000", "5 * 60 * 1000"]]],
+    ["every timeout in the file at once", [["}, 5000);", "}, 10000);"], ["expect(true).toBe(true), 5000);", "expect(true).toBe(true), 6000);"], ["30_000", "240_000"]]],
+  ] as const)("a diff that only raises %s is not a proof-system change", (_name, edits) => {
+    const repo = fixture(BASE_FILES);
+    const head = repo.commit({ "packages/core/tests/raft.test.ts": edits.reduce((text, [from, to]) => text.replace(from, to), TEST_FILE) }, "a longer watchdog");
+    const result = classify(repo.base, head, { cwd: repo.dir });
+    expect(result.reasons, "RAISED_WATCHDOG_IS_NOT_FLAGGED").toEqual([]);
+    expect(result.proofSystem).toBe(false);
+  });
+
+  test("the command reports a raise as not a proof-system change, and a lowering or a removal as one", () => {
+    const repo = fixture(BASE_FILES);
+    const raised = repo.commit({ "packages/core/tests/raft.test.ts": TEST_FILE.replace("}, 5000);", "}, 60_000);") }, "raise");
+    const up = main(["classify", "--base", repo.base, "--head", raised, "--json"], repo.dir);
+    expect(JSON.parse(up.stdout), "RAISE_ONLY_DIFF").toMatchObject({ proofSystem: false, reasons: [] });
+    expect(main(["classify", "--base", repo.base, "--head", raised], repo.dir).stdout).toStartWith("not a proof-system change");
+    const lowered = repo.commit({ "packages/core/tests/raft.test.ts": TEST_FILE.replace("}, 5000);", "}, 4999);") }, "lower");
+    const down = main(["classify", "--base", repo.base, "--head", lowered, "--json"], repo.dir);
+    expect(JSON.parse(down.stdout), "LOWERED_STAYS_FLAGGED").toMatchObject({ proofSystem: true,
+      reasons: [{ kind: "timeout-change", line: 7, signal: "test-argument", from: "5000", to: "4999" }] });
+    // Back from the raised value to the original is a lowering too: the direction is read, not the size.
+    expect(JSON.parse(main(["classify", "--base", raised, "--head", lowered, "--json"], repo.dir).stdout).reasons)
+      .toMatchObject([{ kind: "timeout-change", from: "60000", to: "4999" }]);
+    const removed = repo.commit({ "packages/core/tests/raft.test.ts": TEST_FILE.replace("}, 5000);", "});") }, "remove");
+    const gone = main(["classify", "--base", repo.base, "--head", removed, "--json"], repo.dir);
+    expect(JSON.parse(gone.stdout), "REMOVED_STAYS_FLAGGED").toMatchObject({ proofSystem: true,
+      reasons: [{ kind: "timeout-change", line: 7, side: "base", from: "5000", to: null }] });
+    expect(main(["classify", "--base", repo.base, "--head", removed], repo.dir).stdout).toStartWith("proof-system change");
+  });
+
+  test("a raise beside a lowering reports only the lowering", () => {
+    const repo = fixture(BASE_FILES);
+    const head = repo.commit({ "packages/core/tests/raft.test.ts": TEST_FILE.replace("}, 5000);", "}, 10000);").replace("30_000", "20_000") }, "mixed");
+    expect(classify(repo.base, head, { cwd: repo.dir }).reasons).toEqual([{ kind: "timeout-change", path: "packages/core/tests/raft.test.ts", line: 3, side: "head",
+      signal: "constant", name: "RESTART_DEADLINE_MS", from: "30000", to: "20000" }]);
+  });
+
+  test("a watchdog that starts reading the scaling helper is not flagged; one that stops, or shrinks inside it, is", () => {
+    const repo = fixture(BASE_FILES);
+    const wrapped = TEST_FILE.replace("}, 5000);", "}, watchdogMs(5000));").replace("= 30_000;", "= watchdogMs(30_000);");
+    const head = repo.commit({ "packages/core/tests/raft.test.ts": wrapped }, "scale under load");
+    expect(classify(repo.base, head, { cwd: repo.dir }).reasons, "ADOPTING_THE_HELPER_IS_A_RAISE").toEqual([]);
+    const longer = repo.commit({ "packages/core/tests/raft.test.ts": wrapped.replace("watchdogMs(5000)", "watchdogMs(9000)") }, "longer");
+    expect(classify(head, longer, { cwd: repo.dir }).reasons).toEqual([]);
+    const shorter = repo.commit({ "packages/core/tests/raft.test.ts": wrapped.replace("watchdogMs(5000)", "watchdogMs(4000)") }, "shorter");
+    expect(classify(head, shorter, { cwd: repo.dir }).reasons).toMatchObject([{ line: 7, from: "watchdogMs(5000)", to: "watchdogMs(4000)" }]);
+    const unwrapped = repo.commit({ "packages/core/tests/raft.test.ts": wrapped.replace("watchdogMs(5000)", "9000") }, "unscaled again");
+    expect(classify(head, unwrapped, { cwd: repo.dir }).reasons, "LEAVING_THE_HELPER_IS_A_LOWERING_UNDER_LOAD")
+      .toMatchObject([{ line: 7, from: "watchdogMs(5000)", to: "9000" }]);
+  });
+
+  test("a change whose direction cannot be read stays flagged", () => {
+    const file = TEST_FILE.replace("const RESTART_DEADLINE_MS = 30_000;", "const RESTART_DEADLINE_MS = slow ? 60_000 : 30_000; const landingDeadline = Date.now() + 5_000;");
+    const repo = fixture({ ...BASE_FILES, "packages/core/tests/raft.test.ts": file });
+    const sum = repo.commit({ "packages/core/tests/raft.test.ts": file.replace("Date.now() + 5_000", "Date.now() + 9_000") }, "later");
+    expect(classify(repo.base, sum, { cwd: repo.dir }).reasons, "SAME_SHAPE_LARGER_NUMBER_IS_A_RAISE").toEqual([]);
+    const earlier = repo.commit({ "packages/core/tests/raft.test.ts": file.replace("Date.now() + 5_000", "Date.now() + 1_000") }, "earlier");
+    expect(classify(repo.base, earlier, { cwd: repo.dir }).reasons).toMatchObject([{ name: "landingDeadline", from: "Date.now()+5000", to: "Date.now()+1000" }]);
+    const ternary = repo.commit({ "packages/core/tests/raft.test.ts": file.replace("slow ? 60_000 : 30_000", "slow ? 90_000 : 30_000") }, "conditional");
+    expect(classify(repo.base, ternary, { cwd: repo.dir }).reasons, "UNREADABLE_DIRECTION_FAILS_CLOSED").toMatchObject([{ name: "RESTART_DEADLINE_MS", from: "slow?60000:30000", to: "slow?90000:30000" }]);
+    const reshaped = repo.commit({ "packages/core/tests/raft.test.ts": file.replace("Date.now() + 5_000", "start + 50_000") }, "another clock");
+    expect(classify(repo.base, reshaped, { cwd: repo.dir }).reasons).toMatchObject([{ name: "landingDeadline", from: "Date.now()+5000", to: "start+50000" }]);
+  });
+
+  test("a timeout that leaves one test while a larger one appears on another is flagged: only a rewrite in place is a raise", () => {
+    const file = TEST_FILE.replace("expect(true).toBe(true), 5000);", "expect(true).toBe(true));");
+    const repo = fixture({ ...BASE_FILES, "packages/core/tests/raft.test.ts": file });
+    // Line 7 loses its 5000 and line 9 gains 60000. Paired across hunks they would read as one raised timeout.
+    const head = repo.commit({ "packages/core/tests/raft.test.ts": file.replace("}, 5000);", "});").replace("expect(true).toBe(true));", "expect(true).toBe(true), 60_000);") }, "moved");
+    const result = classify(repo.base, head, { cwd: repo.dir });
+    expect(result.proofSystem, "MOVED_TIMEOUT_IS_NOT_A_RAISE").toBe(true);
+    expect(result.reasons).toEqual([{ kind: "timeout-change", path: "packages/core/tests/raft.test.ts", line: 9, side: "head",
+      signal: "test-argument", name: "test", from: "5000", to: "60000" }]);
   });
 
   test("a test-file diff that changes no timeout is not a proof-system change", () => {
@@ -206,6 +287,8 @@ describe("timeout-change check", () => {
     expect(timeoutSignals("setDefaultTimeout(30 * 1000);")).toEqual([{ kind: "call", name: "setDefaultTimeout", value: "30*1000" }]);
     expect(timeoutSignals("const deadlineMs = 2.5;")).toEqual([{ kind: "constant", name: "deadlineMs", value: "2.5" }]);
     expect(timeoutSignals("setTimeout(resolve, 100);")).toEqual([]);
+    expect(timeoutSignals("}, watchdogMs(27_000));")).toEqual([{ kind: "test-argument", name: "test", value: "watchdogMs(27000)" }]);
+    expect(timeoutSignals('test("x", fn, { timeout: watchdogMs(5 * 1000) });')).toEqual([{ kind: "option", name: "timeout", value: "watchdogMs(5*1000)" }]);
     expect(timeoutSignals('test("x", fn);')).toEqual([]);
   });
 });

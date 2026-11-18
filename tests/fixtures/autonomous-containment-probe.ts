@@ -246,7 +246,10 @@ for pid in [p for p in os.listdir("/proc") if p.isdigit()]:
 res["processes"] = []
 for pid in [p for p in os.listdir("/proc") if p.isdigit()]:
     try:
-        cmd = open("/proc/%s/cmdline" % pid, "rb").read().replace(b"\\0", b" ").decode(errors="replace")[:160]
+        # Each argument keeps only its last two path components, so a long
+        # checkout or runtime path cannot push the entry's name past the cap.
+        argv = open("/proc/%s/cmdline" % pid, "rb").read().decode(errors="replace").split("\\0")
+        cmd = " ".join("/".join(arg.split("/")[-2:]) for arg in argv if arg)[:160]
         res["processes"].append({"cmd": cmd, "net": os.readlink("/proc/%s/ns/net" % pid), "mnt": os.readlink("/proc/%s/ns/mnt" % pid)})
     except OSError: pass
 res["selfNet"] = os.readlink("/proc/self/ns/net")

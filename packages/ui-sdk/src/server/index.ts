@@ -96,6 +96,7 @@ export type {
   ConversationResync,
   ConversationGuidance,
   ConversationOrientation,
+  ConversationPersona,
   ConversationTaskRef,
   ConversationHistoryEnvelope,
   HistoricalItem,
@@ -149,6 +150,7 @@ export {
 // docs/decisions/backend-authoring-toolkit.md for the inventory.
 export {
   handleApifyTool,
+  handleGithubTool,
   formatAttachmentRead,
   handleReadAttachment,
   handleAskUser,
@@ -161,8 +163,10 @@ export {
   handleReferenceTool,
   handleComputeTool,
   handleRequestImageMask,
+  handleRequestImageMarkup,
   handleShowBlock,
   handleTurnTemp,
+  handleWebTool,
 } from "./bridge-tools/index.js";
 export type { ImageMaskHandlerOptions, LocationHandlerOptions, InboxToolName, ReferenceToolName, TurnTempPurgeRecord } from "./bridge-tools/index.js";
 export type { TurnTempAccess } from "./worker-turn-temp.js";
@@ -209,3 +213,12 @@ export { brainReadBaseInput, brainReadBaseResult, BRAIN_READ_BASE_DESCRIPTION, B
 export type { BrainReadBaseInput, BrainReadBaseResult, BrainReadBaseWhole, BrainReadBasePage } from "./brain-read-base.js";
 
 export { BRAIN_MASK_MAX_BYTES, type BrainMaskInput } from "./brain-mask.js";
+export {
+  BRAIN_MARKUP_CLOSED,
+  BRAIN_MARKUP_DIR,
+  BRAIN_MARKUP_MAX_BYTES,
+  BRAIN_MARKUP_MAX_NOTES,
+  BRAIN_MARKUP_MAX_PIXELS,
+  BRAIN_MARKUP_NOTE_MAX_CHARS,
+  BRAIN_MARKUP_SOURCE_MAX_BYTES,
+} from "./brain-markup.js";

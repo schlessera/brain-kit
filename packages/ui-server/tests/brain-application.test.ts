@@ -87,7 +87,7 @@ describe("server-owned application boundary", () => {
     beforeCommit = () => { renameSync(join(root, "notes"), join(root, "old-notes")); symlinkSync(join(root, "context/policies"), join(root, "notes")); };
     await denied(write(), "topology_changed");
     expect(readFileSync(join(root, "old-notes/raft.md"), "utf8")).toBe(raw);
-    expect(readdirSync(join(root, "old-notes")).some(name => name.startsWith(".brain-apply"))).toBe(false);
+    expect(readdirSync(join(root, "old-notes")).filter(name => name.startsWith(".brain-apply"))).toEqual([]);
   });
   test("payload over the bound refuses", async () => {
     await denied(write(path, "x".repeat(BRAIN_APPLICATION_MAX_BYTES)), "payload_too_large");
@@ -199,6 +199,16 @@ describe("server-owned application boundary", () => {
     expect(edit.ok).toBe(true); expect(readFileSync(join(root, path), "utf8")).toBe("Odysseus rows.\n");
     expect(approvals).toEqual([]); expect(receipts).toEqual([result, edit]); policyUnchanged();
   });
+  test("an edit stores $ sequences in new_string verbatim", async () => {
+    const apply = application();
+    expect((await apply(request(write()))).ok).toBe(true);
+    const base = readBrainApplicationBase(root, path);
+    const literal = "sails for $$5, with $& and $' and $` as typed";
+    const edit = await apply(request({ operation: "edit", path, expectedBaseHash: base.expectedBaseHash, old_string: "sails", new_string: literal }));
+    expect(edit.ok).toBe(true);
+    expect(readFileSync(join(root, path), "utf8")).toBe(`Odysseus ${literal}.\n`);
+    expect(edit.changes).toEqual([{ path, contentHash: contentHash(`Odysseus ${literal}.\n`) }]);
+  });
   test("kernel write failure cleans private staging and preserves Markdown", async () => {
     const bwrap = Bun.which("bwrap"); expect(bwrap).not.toBeNull();
     const child = Bun.spawn([bwrap!, "--unshare-net", "--bind", "/", "/", "--proc", "/proc", "--dev", "/dev",
@@ -211,7 +221,7 @@ describe("server-owned application boundary", () => {
     expect(result.ok).toBe(false); expect(result.message).toMatch(/EFBIG|File too large/i);
     expect(result.changes).toEqual([]); expect(recorded).toEqual([result]);
     expect(readFileSync(join(root, path), "utf8")).toBe(raw);
-    expect(readdirSync(join(root, "notes")).some(name => name.startsWith(".brain-apply"))).toBe(false);
+    expect(readdirSync(join(root, "notes")).filter(name => name.startsWith(".brain-apply"))).toEqual([]);
   });
   test("applications preserve existing document modes including archive moves", async () => {
     chmodSync(join(root, path), 0o640);
@@ -255,7 +265,7 @@ describe("server-owned application boundary", () => {
     beforeCommit = () => signal.abort();
     await denied(write(), "cancelled");
     expect(readFileSync(join(root, path), "utf8")).toBe(raw);
-    expect(readdirSync(join(root, "notes")).some(name => name.startsWith(".brain-apply"))).toBe(false);
+    expect(readdirSync(join(root, "notes")).filter(name => name.startsWith(".brain-apply"))).toEqual([]);
   });
   test("cancellation after commit records the complete Markdown effect", async () => {
     beforeCommit = () => queueMicrotask(() => signal.abort());

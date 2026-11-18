@@ -34,7 +34,11 @@ const button = (within: ParentNode, label: string) => [...within.querySelectorAl
 
 const ERROR_CLASSES = ["authentication_failed", "oauth_org_not_allowed", "account_on_hold", "billing_error", "subscription_required", "rate_limit", "overloaded", "server_error", "invalid_request", "model_not_found", "max_output_tokens", "unknown"];
 
+// Storybook owns light and dark parity (docs/process/theme-parity.md). Wrapping,
+// action reach and announcements never read a colour, so each width runs in
+// one theme: dark at 320, light at 860.
 for (const theme of ["dark", "light"]) for (const width of [320, 860]) {
+  if ((width === 320) !== (theme === "dark")) continue;
   // Each class is its own test: twelve sequential browser interactions in
   // one test can exhaust the timeout when the whole Storybook suite runs.
   for (const errorClass of ERROR_CLASSES) test(`${theme} ${width} ${errorClass}: wraps, has reachable actions, and announces live arrival`, async () => {

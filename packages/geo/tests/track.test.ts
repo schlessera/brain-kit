@@ -87,10 +87,10 @@ describe("shared GPX recovery", () => {
   });
 
   test("recovery still rejects malformed, unsafe and nested input", () => {
-    for (const source of [gpx([pt("0", "0") + pt("0", "1")]).slice(0, -6),
-      '<!DOCTYPE gpx [<!ENTITY x "0">]>' + gpx([pt("0", "0") + pt("0", "1")]),
-      gpx(["<extensions>".repeat(129) + "</extensions>".repeat(129)])]) {
-      expect(() => parseTrackGpx(source)).toThrow();
+    for (const [source, message] of [[gpx([pt("0", "0") + pt("0", "1")]).slice(0, -6), /unclosed tag/],
+      ['<!DOCTYPE gpx [<!ENTITY x "0">]>' + gpx([pt("0", "0") + pt("0", "1")]), /doctypes/],
+      [gpx(["<extensions>".repeat(129) + "</extensions>".repeat(129)]), /nesting exceeds 128/]] as const) {
+      expect(() => parseTrackGpx(source)).toThrow(message);
     }
   });
 });

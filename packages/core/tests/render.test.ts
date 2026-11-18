@@ -118,6 +118,22 @@ describe("brain render", () => {
     });
   });
 
+  describe("--allow-host takes only a plain host (#2496)", () => {
+    for (const format of ["html", "pdf"]) test(`--allow-host '*' is a usage error naming the value, before any render (${format})`, async () => {
+      const out = `notes/allow-star.${format}`;
+      const res = await render(["notes/trip.md", "--format", format, "--out", out, "--allow-host", "*", "--json"]);
+      expect(res.code).toBe(1);
+      expect(res.stderr + res.stdout).toContain('--allow-host "*" is not a plain host name or IP address');
+      expect(existsSync(join(root, out))).toBe(false);
+    });
+
+    test("an entry that would inject a resolver rule is refused", async () => {
+      const res = await render(["notes/trip.md", "--format", "html", "--out", "notes/allow-comma.html", "--allow-host", "upload.wikimedia.org, MAP * 10.0.0.1", "--json"]);
+      expect(res.code).toBe(1);
+      expect(res.stderr + res.stdout).toContain("upload.wikimedia.org, MAP * 10.0.0.1");
+    });
+  });
+
   describe("the temp directory is not scratch space (#310)", () => {
     test("an output under the system temp directory is refused", async () => {
       const out = join(tmpdir(), `brain-render-${Date.now()}.html`);
@@ -149,18 +165,28 @@ describe("brain render", () => {
       expect(readFileSync(join(root, "notes/stdin.html"), "utf8")).toContain("<h1>From stdin</h1>");
     });
 
+    // A markdown heading inside an .html file tells the two parsers apart: HTML
+    // keeps it as text, markdown makes it a heading. Each test writes its own input.
+    const RAW = '<div class="card">raw</div>\n\n# Ithaca\n';
+
     test("treats .html input as HTML, not markdown", async () => {
-      writeFileSync(join(root, "notes/raw.html"), '<div class="card">raw</div>');
-      await render(["notes/raw.html", "--format", "html", "--out", "notes/t7.html"]);
+      writeFileSync(join(root, "notes/raw.html"), RAW);
+      const res = await render(["notes/raw.html", "--format", "html", "--out", "notes/t7.html"]);
+      expect(res.code).toBe(0);
       const html = readFileSync(join(root, "notes/t7.html"), "utf8");
       expect(html).toContain('<div class="card">raw</div>');
+      expect(html).toContain("# Ithaca");
+      expect(html).not.toContain("<h1>Ithaca</h1>");
     });
 
     test("--as overrides the extension", async () => {
-      await render(["notes/raw.html", "--format", "html", "--out", "notes/t8.html", "--as", "markdown"]);
-      // As markdown, the raw div is a block-level passthrough but the file is
-      // still parsed rather than copied — assert the parser ran.
-      expect(existsSync(join(root, "notes/t8.html"))).toBe(true);
+      writeFileSync(join(root, "notes/raw-as.html"), RAW);
+      const res = await render(["notes/raw-as.html", "--format", "html", "--out", "notes/t13.html", "--as", "markdown"]);
+      expect(res.code).toBe(0);
+      // As markdown, the raw div is a block-level passthrough and the heading is parsed.
+      const html = readFileSync(join(root, "notes/t13.html"), "utf8");
+      expect(html).toContain('<div class="card">raw</div>');
+      expect(html).toContain("<h1>Ithaca</h1>");
     });
   });
 

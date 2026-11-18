@@ -21,6 +21,7 @@ import { createSessionCatalog } from "../src/ws/session-catalog.js";
 import { TurnCoordinator } from "../src/ws/turns.js";
 import { createSessionProfiles, SessionProfileError } from "../src/ws/session-profiles.js";
 import { expectRejection } from "./helpers/expect-rejection.js";
+import { heldWriter } from "./helpers/held-writer.js";
 import { createPolicyProposals } from "../src/brain/policy-proposal.js";
 import { createSessionRoutes } from "../src/routes/sessions.js";
 import { createStaticBackendRegistry } from "../src/agent/backend.js";
@@ -49,8 +50,9 @@ test("governance events commit on the write worker at FULL, never on the app con
     expect(await writes.firstTaint({ ...attribution, kind: "taint", payload: { source: "egress_connection", tool: null, detail: "GET troy.example:443" } }), "GOVERNANCE_TAINT_COMMITS_ON_WORKER").toBe(true);
     await writes.bind("voyage", "ithaca");
     expect(f.db.query("SELECT count(*) AS n FROM governance_events WHERE session_id = 'ithaca'").get(), "GOVERNANCE_BIND_COMMITS_ON_WORKER").toEqual({ n: 2 });
-    expect(await writes.roadblocks({ ...attribution, sessionId: "ithaca" }, { startedAt: 0, endedAt: 1, calls: [], usage: [], finalUsage: null, outcomeDetail: null }))
-      .toBeGreaterThanOrEqual(0);
+    // The committed scope cap is one roadblock episode for this turn.
+    expect(await writes.roadblocks({ ...attribution, sessionId: "ithaca" }, { startedAt: 0, endedAt: 1, calls: [], usage: [], finalUsage: null, outcomeDetail: null }), "GOVERNANCE_ROADBLOCK_COMMITS_ON_WORKER")
+      .toBe(1);
     const runtime = createActivityRuntime(f.db, { log: quietLog, writer: f.writer });
     try { await runtime.governance({ ...attribution, kind: "budget_warning", payload: { scope: "turn", unit: "usd", limit: 1, observed: 1, source: "policy" } }); }
     finally { runtime.close(); }
@@ -340,6 +342,61 @@ test("a saved worker preference commits on the write worker, and its refusals ke
     expect(refusal.status, "PROFILE_REFUSAL_STATUS_KEPT").toBe(409);
     expect(new Set(await sites.log()), "PROFILE_SAVES_WRITTEN_ON_WORKER").toEqual(new Set(["session_worker_profiles", "draft_worker_profiles"]));
   } finally { await f.close(); }
+});
+
+for (const write of ["save", "bind"] as const) test(`a login that expires while a profile ${write} waits for the writer is refused by the current time (#4176)`, async () => {
+  const f = fixture(), held = await heldWriter(f.writer, f.path);
+  try {
+    const athena = createPrincipal(f.db, { authMethod: "password", label: "Athena device", ttlSeconds: 3600 });
+    f.db.query("INSERT INTO sessions(id,title,created_at,last_active_at) VALUES ('troy','Troy',0,0)").run();
+    f.db.query("INSERT INTO draft_worker_profiles (principal_id, draft_id, preference, updated_at) VALUES (?, 'troy-draft', 'strict', 0)").run(athena.id);
+    const profiles = createSessionProfiles(f.db, profileFacts, undefined, undefined, { writer: f.writer });
+    await held.hold();
+    const submitted = held.posted(write);
+    // The request stamps its time before the wait; the login is usable at that stamp.
+    const pending = write === "save" ? profiles.save(athena.id, "session", "troy", "strict") : profiles.bind(athena.id, "troy-draft", "troy");
+    await submitted;
+    await held.expireWhileQueued(athena.id);
+    held.release();
+    const refusal = await expectRejection(pending, SessionProfileError, `PROFILE_${write.toUpperCase()}_EXPIRY_CHECKED_AT_COMMIT`) as SessionProfileError;
+    expect(refusal.status, "PROFILE_EXPIRED_LOGIN_IS_401").toBe(401);
+    expect(f.db.query("SELECT COUNT(*) AS n FROM session_worker_profiles WHERE session_id = 'troy'").get(), "NO_PROFILE_RECORDED").toEqual({ n: 0 });
+    expect(f.db.query("SELECT COUNT(*) AS n FROM draft_worker_profiles WHERE draft_id = 'troy-draft'").get(), "DRAFT_NOT_CONSUMED").toEqual({ n: 1 });
+  } finally { await held.close(); await f.close(); }
+});
+
+test("profile writes behind a held writer still record the stamped time and clean up drafts by it (#4176)", async () => {
+  const f = fixture(), held = await heldWriter(f.writer, f.path);
+  try {
+    const athena = createPrincipal(f.db, { authMethod: "password", label: "Athena device", ttlSeconds: 3600 });
+    const penelope = createPrincipal(f.db, { authMethod: "password", label: "Penelope's loom", ttlSeconds: 3600 });
+    f.db.query("INSERT INTO sessions(id,title,created_at,last_active_at) VALUES ('troy','Troy',0,0)").run();
+    f.db.query("INSERT INTO draft_worker_profiles (principal_id, draft_id, preference, updated_at) VALUES (?, 'troy-draft', 'strict', 0)").run(athena.id);
+    f.db.query("INSERT INTO draft_worker_profiles (principal_id, draft_id, preference, updated_at) VALUES (?, 'loom-draft', 'strict', 0)").run(penelope.id);
+    const profiles = createSessionProfiles(f.db, profileFacts, undefined, undefined, { writer: f.writer });
+    // A saved draft preference: Penelope's login is live at the request's stamp and expired when the writer runs.
+    await held.hold();
+    let submitted = held.posted("save");
+    const saved = profiles.save(athena.id, "draft", "voyage-draft", "strict");
+    await submitted;
+    let stamped = await held.expireWhileQueued(penelope.id);
+    held.release();
+    await saved;
+    const draftAt = (f.db.query("SELECT updated_at AS at FROM draft_worker_profiles WHERE draft_id = 'voyage-draft'").get() as { at: number }).at;
+    expect(draftAt, "PROFILE_SAVE_UPDATED_AT_IS_THE_STAMP").toBeLessThanOrEqual(stamped);
+    expect(f.db.query("SELECT draft_id FROM draft_worker_profiles WHERE principal_id = ?").get(penelope.id), "PROFILE_DRAFT_CLEANUP_USES_THE_STAMP").toEqual({ draft_id: "loom-draft" });
+    // A bound draft: the session's row records the request's stamp, not the writer's clock.
+    await held.hold();
+    submitted = held.posted("bind");
+    const bound = profiles.bind(athena.id, "troy-draft", "troy");
+    await submitted;
+    stamped = Date.now();
+    while (Date.now() <= stamped) await Bun.sleep(1);
+    held.release();
+    await bound;
+    const sessionAt = (f.db.query("SELECT updated_at AS at FROM session_worker_profiles WHERE session_id = 'troy'").get() as { at: number }).at;
+    expect(sessionAt, "PROFILE_BIND_UPDATED_AT_IS_THE_STAMP").toBeLessThanOrEqual(stamped);
+  } finally { await held.close(); await f.close(); }
 });
 
 test("a replayed history waits for the classified blocks submitted before it (#2850)", async () => {

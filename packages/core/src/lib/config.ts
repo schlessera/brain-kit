@@ -92,6 +92,8 @@ export const propagationRuleSchema = z
     /** Glob for derivative documents that must not lag behind the source. */
     derivatives: repoRelativePathSchema,
     severity: severitySchema.optional(),
+    /** Declared purpose/coverage of these derivatives, unless the document overrides it. */
+    scope: z.string().trim().min(1).max(4000).optional(),
   })
   .strict();
 
@@ -315,6 +317,20 @@ export const brainConfigSchema = z
       .strict()
       .optional(),
     taxonomy: taxonomyConfigSchema.optional(),
+    /** Owner-authorized propagation freshness review; credentials alone never enable it. */
+    hygiene: z.object({
+      propagation: z.object({
+        enabled: z.boolean().optional(),
+        profile: z.enum(["conservative", "balanced", "permissive"]).optional(),
+        minConfidence: z.number().min(0).max(1).optional(),
+        crossChecks: z.boolean().optional(),
+        maxFiles: z.number().int().min(1).max(100).optional(),
+        timeoutMs: z.number().int().min(100).max(30000).optional(),
+        budgetMs: z.number().int().min(100).max(60000).optional(),
+        maxInputChars: z.number().int().min(1000).max(80000).optional(),
+        exclude: z.array(repoRelativePathSchema).optional(),
+      }).strict().optional(),
+    }).strict().optional(),
     /** Concrete OSM operations; absent leaves every new service disabled. */
     geo: geoConfigSchema.extend({ cacheDir: repoRelativePathSchema.optional() }).optional(),
     exclude: excludeConfigSchema.optional(),
@@ -530,8 +546,11 @@ export const DEFAULT_EXCLUDE = {
   // it, and a note beside the set quoting its queries would answer them.
   // context/scheduled-tasks: host-managed schedule definitions (#914). They
   // are content in Git, never index documents; only the UI host parses them.
+  // _voice: live-conversation personas (#3617, P5). Their instructions shape
+  // how a voice service speaks, so search, briefings and agent context never
+  // see them; the files stay in Git and editable on disk.
   dirs: [".git", "node_modules", ".claude", ".agents", "scripts", "logs", "tmp", "workspaces", "okf-dist", SCRATCH_DIR, "evals",
-    "context/scheduled-tasks", "context/policies"],
+    "context/scheduled-tasks", "context/policies", "_voice"],
   files: ["CLAUDE.md", "README.md", "AGENTS.md", "GEMINI.md"],
   segments: [] as string[],
 };

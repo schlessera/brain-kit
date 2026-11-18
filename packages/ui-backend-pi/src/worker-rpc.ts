@@ -14,6 +14,8 @@ import type { LaunchedWorker, NativeFileVersions, WorkerSandbox } from "@schless
 import type { SessionCaps } from "./backend-options.js";
 import { createPiBridgeTools, REQUEST_IMAGE_MASK_INPUT_SCHEMA } from "./bridge-tools.js";
 import { decidePiToolPermission } from "./permission-gate.js";
+import { revalidatePiAdmission } from "./tool-admission.js";
+import { safetyAdmissionRefusal } from "@schlessera/brain-ui-sdk/internal";
 import { syncPiAuth } from "./session-storage.js";
 import type { TurnContext } from "./turn-context.js";
 import type { PiWorkerMessage } from "./worker-protocol.js";
@@ -85,7 +87,11 @@ async function lock(msg: PiWorkerRpc, _bridge: BackendBridge, context: PiWorkerR
     : fileTool ? target && `path:${target}` : BRAIN_LOCK_KEY;
   if (typeof key !== "string" || msg.input.key !== key || Object.keys(msg.input).length !== 1) throw new Error("Pi worker lock does not match the authorized operation");
   const release = await workerLock.acquire(key, { signal: turnContext.signal ?? undefined });
-  try { live(); } catch (error) { release(); throw error; }
+  try {
+    live();
+    const stale = revalidatePiAdmission(turnContext, msg.toolName, msg.toolCallId, input);
+    if (stale) { grants.delete(msg.toolCallId); throw new Error(stale); }
+  } catch (error) { release(); throw error; }
   const lockId = randomUUID(); releases.set(lockId, release); executed(msg).lock = true; return { lockId };
 }
 
@@ -111,6 +117,8 @@ async function fileObservation(msg: PiWorkerRpc, _bridge: BackendBridge, context
     await nativeVersions.beginWrite(observed.key);
   } else await nativeVersions.finishWrite(observed.key, observed.version);
   executed(msg).phases.add(phase as string);
+  const unavailable = safetyAdmissionRefusal(context.turn.bridge?.admissionSafety);
+  if (unavailable) throw new Error(unavailable);
   return { ok: true };
 }
 
@@ -137,12 +145,36 @@ async function permission(msg: PiWorkerRpc, bridge: BackendBridge, context: PiWo
   if (application && bridge.applyBrain) {
     // Exact application authorization belongs to the server route.
     await bridge.inputSafety?.begin(msg.toolCallId,msg.toolName,msg.input);
-    return { behavior: "allow" };
+    live();
+    return permit(msg, bridge, context, { behavior: "allow" }, () => safetyAdmissionRefusal(bridge.admissionSafety));
   }
   grants.delete(msg.toolCallId);
   const decision = await decidePiToolPermission({ turn: turnContext, allowedTools, confirmPatterns }, msg.toolName, msg.input, msg.toolCallId);
   live();
-  if (decision.behavior === "allow") grants.set(msg.toolCallId, { name: msg.toolName, input: JSON.stringify(decision.updatedInput ?? msg.input) });
+  if (decision.behavior !== "allow") return decision;
+  const input = decision.updatedInput ?? msg.input;
+  return permit(msg, bridge, context, decision, () => revalidatePiAdmission(turnContext, msg.toolName, msg.toolCallId, input),
+    { name: msg.toolName, input: JSON.stringify(input) });
+}
+
+/**
+ * Lets one decided call run. The collector's last check comes first; the
+ * turn's liveness and the call's standing admission are rechecked after it,
+ * and the grant is published last, with no wait between it and the answer.
+ * A grant is usable the moment it exists, by any concurrent RPC for the call
+ * (a document-base read, a bridge call, a lock, a file observation or a
+ * final admission), so one published before the collector's check could run
+ * a call that check then refuses (#3812). A refused check denies the call,
+ * a stopped turn rejects it, and neither publishes anything.
+ */
+async function permit(msg: PiWorkerRpc, bridge: BackendBridge, context: PiWorkerRpcContext, decision: unknown,
+  refusal: () => string | null, grant?: { name: string; input: string }): Promise<unknown> {
+  try { await bridge.inputSafety?.allowed?.(msg.toolCallId); }
+  catch (error) { return { behavior: "deny", message: error instanceof Error ? error.message : "Safety recording refused this call." }; }
+  context.live();
+  const refused = refusal();
+  if (refused) return { behavior: "deny", message: refused };
+  if (grant) context.grants.set(msg.toolCallId, grant);
   return decision;
 }
 
@@ -185,6 +217,14 @@ async function bridgeCall(msg: PiWorkerRpc, bridge: BackendBridge, session: PiWo
       if (receipt && !turnContext.signal?.aborted) { receipt.output = output; persist(); }
       return output;
     } finally { turnContext.pendingMutations?.delete(work); }
+  }
+  if (msg.toolName === "request_image_markup") {
+    // The host writes the layer (#3975); its own application records the
+    // receipt. A cancellation waits for the write it may have begun.
+    live();
+    const work = tool.execute(msg.toolCallId, msg.input, turnContext.signal!, undefined, undefined as never);
+    turnContext.pendingMutations?.add(work);
+    try { return await work; } finally { turnContext.pendingMutations?.delete(work); }
   }
   return tool.execute(msg.toolCallId, msg.input, turnContext.signal!, undefined, undefined as never);
 }
@@ -229,13 +269,21 @@ async function apply(msg: PiWorkerRpc, bridge: BackendBridge, context: PiWorkerR
 /** One handler per worker RPC method. */
 export const PI_WORKER_RPC_HANDLERS: Readonly<Record<PiWorkerRpcMethod, PiWorkerRpcHandler>> = {
   unlock, lock, fileObservation, syncAuth, permission, bridge: bridgeCall, readBase, apply,
+  admission: async (msg, _bridge, context) => {
+    const grant = context.grants.get(msg.toolCallId);
+    if (msg.toolName !== "bash" || !grant || grant.name !== msg.toolName || grant.input !== JSON.stringify(msg.input)) throw new Error("Pi final admission has no exact permission grant");
+    const stale = revalidatePiAdmission(context.turn, msg.toolName, msg.toolCallId, msg.input, true);
+    if (stale) { context.grants.delete(msg.toolCallId); throw new Error(stale); }
+    context.grants.delete(msg.toolCallId);
+    return { ok: true };
+  },
   safetyUnavailable: async(msg,bridge)=>{
     if(msg.toolName||msg.toolCallId||Object.keys(msg.input).length)throw new Error("Malformed safety unavailable notice");
     await bridge.inputSafety?.unavailable?.();
     throw new Error("Unqualified Pi input transformations");
   },
   safetyResult: async(msg,bridge,context)=>{
-    if(Object.keys(msg.input).some(key=>!["output","segments"].includes(key))||typeof msg.input.output!=="string"||msg.input.segments!==undefined&&(!Array.isArray(msg.input.segments)||(msg.input.segments as unknown[]).some(v=>typeof v!=="string")))throw new Error("Malformed safety result");
+    if(Object.keys(msg.input).some(key=>!["output","segments"].includes(key))||typeof msg.input.output!=="string"||msg.input.segments!==undefined&&(!Array.isArray(msg.input.segments)||(msg.input.segments as unknown[]).some(v=>typeof v!=="string")))throw resultLoss(new Error("Malformed safety result"));
     const execution=context.executed(msg);
     const bounded=execution.name===msg.toolName&&context.canFinalizeSafety?.(msg.toolName,msg.toolCallId)===true;
     await bridge.inputSafety?.result(msg.toolCallId,msg.toolName,msg.input.output,bounded,msg.input.segments as string[]|undefined);
@@ -250,14 +298,49 @@ export const PI_WORKER_RPC_HANDLERS: Readonly<Record<PiWorkerRpcMethod, PiWorker
 export function createPiWorkerRpcDispatcher(context: PiWorkerRpcContext): (msg: PiWorkerRpc) => Promise<unknown> {
   let lastRpcId = 0;
   return msg => {
+    // A tool already ran when its result arrives, and recording it only
+    // restricts: a stopped turn still records it, then the post-record live
+    // check refuses the worker. A report refused before it reaches the
+    // collector leaves its chat a permanent gap instead (#3812).
+    const result = msg.method === "safetyResult", safety = context.turn.bridge?.inputSafety;
+    // Pi runs a call only on an "allow" answer, which the permission handler
+    // gives only once the collector's last check passed (`permit`). Every
+    // other answer, and every rejection (a replay, a stopped turn), refuses
+    // the call's id at the collector, so no later request for it is admitted
+    // or let run. Each permission request is one admission of its id, counted
+    // before anything else, a replay included. Only a deny answer is this
+    // host's denial before the call could run: for the id's only admission,
+    // never allowed, it discharges the call's result obligation. A rejection
+    // proves nothing (#3812).
+    const permission = msg.method === "permission" && safety?.refused ? safety : undefined;
+    const refuse = <T>(outcome: Promise<T>): Promise<T> => !permission ? outcome : outcome.then(
+      async answer => {
+        if ((answer as { behavior?: string } | null)?.behavior !== "allow") await permission.refused!(msg.toolCallId, true);
+        return answer;
+      },
+      async error => { await permission.refused!(msg.toolCallId); throw error; });
     try {
-      context.live();
-      if (msg.id <= lastRpcId) throw new Error("Replayed pi worker RPC");
+      permission?.admitting?.(msg.toolCallId, msg.toolName);
+      if (!result || !safety) context.live();
+      if (msg.id <= lastRpcId) throw resultLoss(new Error("Replayed pi worker RPC"));
       lastRpcId = msg.id;
       const bridge = context.turn.bridge!;
       const handler = Object.hasOwn(PI_WORKER_RPC_HANDLERS, msg.method) ? PI_WORKER_RPC_HANDLERS[msg.method] : undefined;
       if (!handler) throw new Error(`Unknown pi worker RPC method: ${String(msg.method)}`);
-      return handler(msg, bridge, context);
-    } catch (error) { return Promise.reject(error); }
+      const answer = handler(msg, bridge, context);
+      return result && safety ? answer.catch(error => keepResultLoss(safety, msg, error)) : refuse(answer);
+    } catch (error) { return result && safety ? keepResultLoss(safety, msg, error) : refuse(Promise.reject(error)); }
   };
+}
+
+/** Marks a result report refused before the collector saw it. A rejection
+ * from the collector itself already left its own gap. */
+const LOST = Symbol("pi safety result refused before its record");
+function resultLoss(error: Error): Error { return Object.assign(error, { [LOST]: true }); }
+async function keepResultLoss(safety: NonNullable<BackendBridge["inputSafety"]>, msg: PiWorkerRpc, error: unknown): Promise<never> {
+  if ((error as { [LOST]?: boolean } | null)?.[LOST]) {
+    // A loss notice that cannot commit is held by the host; the report is refused either way.
+    try { await safety.lost?.(msg.toolCallId, msg.toolName, error); } catch { /* The host retains it in process. */ }
+  }
+  throw error;
 }

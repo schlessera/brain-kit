@@ -5,6 +5,7 @@ import sharp from "sharp";
 import * as exifr from "exifr";
 import { cleanup, makeTempBrain, runCli } from "../../core/tests/cli-harness.js";
 import { taggedPhoto } from "./photo-fixtures.js";
+import { validateOutputNaming } from "../src/output-naming.js";
 
 const roots: string[] = [];
 const hash = (bytes: Uint8Array) => new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
@@ -33,6 +34,36 @@ const photo = (root: string, flags: string[] = [], input = "inputs/IMG_4711.jpg"
   runCli(root, ["travel", "photo", input, "--to", "copies", ...flags, "--json"], env);
 const route = (root: string, flags: string[] = []) =>
   runCli(root, ["travel", "route", "inputs/Recorded.GPX", "--to", "routes", ...flags, "--json"]);
+
+const DATE_REFUSAL = "--date requires a valid calendar date in YYYY-MM-DD form.";
+const SLUG_REFUSAL = "--name descriptor must contain an ASCII letter, digit, underscore or hyphen after accent folding.";
+const naming = (options: { name?: string; date?: string }, forceDate = false) => {
+  try { return validateOutputNaming(options, forceDate); } catch (error) { return (error as Error).message; }
+};
+
+describe("output naming rules", () => {
+  test("nonexistent, malformed and year-zero dates refuse with the calendar diagnostic", () => {
+    const dates = ["2026-02-30", "2026-02-29", "1900-02-29", "2026-04-31", "0000-01-01", "2026-13-01", "2026-1-01", "2026-09-27T00:00:00Z"];
+    expect(dates.map((date) => naming({ date }))).toEqual(dates.map(() => DATE_REFUSAL));
+    expect(dates.map((date) => naming({ name: "Ferry", date }))).toEqual(dates.map(() => DATE_REFUSAL));
+  });
+
+  test("valid leap days and dates before year 100 keep the exact supplied calendar", () => {
+    const dates = ["2024-02-29", "2000-02-29", "0001-01-01", "0099-12-31"];
+    expect(dates.map((date) => naming({ name: "Ferry", date }))).toEqual(dates.map((date) => ({ slug: "ferry", date })));
+  });
+
+  test("descriptors fold accents to the approved slug, and empty slugs refuse", () => {
+    const labels = [["Café in Ithaca", "cafe-in-ithaca"], ["Cafe\u0301 in Ithaca", "cafe-in-ithaca"], ["Straße", "stra-e"], ["Plan.v2", "plan-v2"], ["Ferry__to-Scheria", "ferry__to-scheria"]];
+    expect(labels.map(([name]) => naming({ name }))).toEqual(labels.map(([, slug]) => ({ slug, date: undefined })));
+    expect(["Αθήνα", ".. /"].map((name) => naming({ name, date: "2026-09-27" }))).toEqual([SLUG_REFUSAL, SLUG_REFUSAL]);
+  });
+
+  test("forcing the date requires a valid date", () => {
+    expect([naming({}, true), naming({ name: "Ferry" }, true), naming({ date: "2026-02-30" }, true), naming({ date: "2026-09-28" }, true)])
+      .toEqual(["--force-date requires a valid --date calendar date.", "--force-date requires a valid --date calendar date.", DATE_REFUSAL, { date: "2026-09-28" }]);
+  });
+});
 
 describe("real CLI output naming", () => {
   test("legacy names report no applied naming date with nonempty capture metadata", async () => {
@@ -124,21 +155,21 @@ describe("real CLI output naming", () => {
   });
 
   test("complete descriptors use exactly approved accent folding in both real commands", async () => {
-    for (const [label, slug] of [["Café in Ithaca", "cafe-in-ithaca"], ["Cafe\u0301 in Ithaca", "cafe-in-ithaca"], ["Straße", "stra-e"], ["Plan.v2", "plan-v2"], ["Ferry__to-Scheria", "ferry__to-scheria"]]) {
-      const root = brain();
-      const p = await photo(root, ["--name", label!, "--date", "2026-09-27"]);
-      expect(p.code).toBe(0);
-      expect(JSON.parse(p.stdout).photo.files[0]).toMatchObject({ output: `copies/2026-09-27-${slug}.jpg`, date_source: "flag" });
-      const r = await route(root, ["--name", label!, "--date", "2026-09-27"]);
-      expect(r.code).toBe(0);
-      expect(JSON.parse(r.stdout).route).toMatchObject({ gpx: `routes/2026-09-27-${slug}.gpx`, date_source: "flag" });
-    }
+    // The rule table is owned by "output naming rules"; one combining-accent label proves both commands apply it.
+    const root = brain(), label = "Cafe\u0301 in Ithaca";
+    const p = await photo(root, ["--name", label, "--date", "2026-09-27"]);
+    expect(p.code).toBe(0);
+    expect(JSON.parse(p.stdout).photo.files[0]).toMatchObject({ output: "copies/2026-09-27-cafe-in-ithaca.jpg", date_source: "flag" });
+    const r = await route(root, ["--name", label, "--date", "2026-09-27"]);
+    expect(r.code).toBe(0);
+    expect(JSON.parse(r.stdout).route).toMatchObject({ gpx: "routes/2026-09-27-cafe-in-ithaca.gpx", date_source: "flag" });
   });
 
   test("invalid calendar dates and empty slugs refuse before any output directory", async () => {
+    // One date and one slug refusal per command; "output naming rules" owns the full tables.
     for (const flags of [
-      ...["2026-02-30", "2026-02-29", "1900-02-29", "2026-04-31", "0000-01-01", "2026-13-01", "2026-1-01", "2026-09-27T00:00:00Z"].map(d => ["--date", d]),
-      ...["Αθήνα", ".. /"].map(n => ["--name", n]),
+      ["--date", "2026-02-30"],
+      ["--name", "Αθήνα"],
     ]) {
       const root = brain();
       for (const [result, out] of [[await photo(root, flags), "copies"], [await route(root, flags), "routes"]] as const) {
@@ -162,12 +193,10 @@ describe("real CLI output naming", () => {
     }
   });
 
-  test("valid leap days and dates before year 100 keep the exact supplied calendar", async () => {
-    for (const date of ["2024-02-29", "2000-02-29", "0001-01-01", "0099-12-31"]) {
-      const root = brain();
-      const r = await route(root, ["--name", "Ferry", "--date", date]); expect(r.code).toBe(0);
-      expect(JSON.parse(r.stdout).route).toMatchObject({ gpx: `routes/${date}-ferry.gpx`, date_source: "flag" });
-    }
+  test("a date before year 100 keeps its exact supplied calendar in the route name", async () => {
+    const root = brain();
+    const r = await route(root, ["--name", "Ferry", "--date", "0001-01-01"]); expect(r.code).toBe(0);
+    expect(JSON.parse(r.stdout).route).toMatchObject({ gpx: "routes/0001-01-01-ferry.gpx", date_source: "flag" });
   });
 
   test("named output containment and symlink guards remain active", async () => {

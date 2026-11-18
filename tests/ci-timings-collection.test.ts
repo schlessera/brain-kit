@@ -99,15 +99,19 @@ function seededSnapshot(id: number): TimingSnapshot {
 
 test("scheduled seeded collection fetches only new, incomplete and rerun attempts and reuses merged lifecycle data", () => {
   const f = fixture({ count: 3, rerun: true, pullCount: 1, headerlessDownloads: true });
+  const complete = seededSnapshot(12); complete.version = 2; complete.jobs[0]!.createdAt = complete.jobs[0]!.startedAt;
   const incomplete = seededSnapshot(13); incomplete.jobs = []; incomplete.problems = ["jobs unavailable"];
   const old = seededSnapshot(15); old.run.createdAt = "2026-07-04T10:00:00Z";
   try {
-    f.seed({ "run-12-attempt-1.json": seededSnapshot(12), "run-13-attempt-1.json": incomplete,
+    f.seed({ "run-12-attempt-1.json": complete, "run-13-attempt-1.json": incomplete,
       "run-15-attempt-1.json": old,
+      // A red-main coordinator observation (#2953) is carried forward so its log is never fetched twice.
+      "coordinator-900-attempt-1.json": { version: 1, repository, collectedAt: "2026-07-12T11:00:00Z", run: 900, attempt: 1,
+        createdAt: "2026-07-12T10:05:00Z", conclusion: "success", cancelled: [12], problem: null },
       "pull-42.json": { version: 1, repository, number: 42, collectedAt: "2026-07-12T11:00:00Z",
         head: "a".repeat(40), merge: "b".repeat(40), createdAt: "2026-07-12T10:00:00Z", mergedAt: "2026-07-12T10:01:00Z",
         closedAt: "2026-07-12T10:01:00Z", baseBranch: "main", changedFiles: 1, additions: 1, deletions: 0, problems: [], timeline: [] } });
-    const child = f.invoke(["--seed", "main", "--request-budget", "200", "--reserve", "500", "--reservations"]);
+    const child = f.invoke(["--seed", "main", "--request-budget", "200", "--reserve", "500", "--reservations", "--red-main"]);
     expect(new TextDecoder().decode(child.stderr)).toBe("");
     expect(child.exitCode).toBe(0);
     expect(f.calls().filter(p => p.includes("/jobs?")).sort()).toEqual([
@@ -117,7 +121,11 @@ test("scheduled seeded collection fetches only new, incomplete and rerun attempt
     expect(f.calls().filter(p => p.includes("pulls?state="))).toHaveLength(1);
     expect(f.calls().some(p => p.endsWith("pulls/42"))).toBe(false);
     expect(f.calls()).toHaveLength(10);
-    expect(f.json("collection.json").seed).toEqual({ run: 99, artifact: 77, snapshots: 2, pulls: 1, error: null });
+    expect(f.json("collection.json").seed, "COORDINATOR_OBSERVATION_SEEDED").toEqual({ run: 99, artifact: 77, snapshots: 2, pulls: 1, coordinator: 1, error: null });
+    expect(f.json("coordinator-900-attempt-1.json").cancelled).toEqual([12]);
+    // The coordination ref is unreachable here: red-main evidence is an explicit gap, not a quiet main.
+    expect(f.json("red-main.json").error).toContain("Reservation ref unavailable");
+    expect(f.json("summary.json").redMain.acquisition.complete, "RED_MAIN_GAP_REPORTED").toBe(false);
     expect(f.json("summary.json").coverage.runAttempts).toBe(4);
     expect(f.json("summary.json").coverage.incompleteAttempts).toBe(0);
     expect(f.json("summary.json").throughput.reservation).toBeNull();

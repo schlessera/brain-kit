@@ -23,7 +23,7 @@
  *   Gemini 3.1 Flash-Lite card    https://storage.googleapis.com/deepmind-media/Model-Cards/Gemini-3-1-Flash-Lite-Image-Model-Card.pdf
  *
  * Every figure in this file was measured on gpt-image-2, retired on 2026-09-29.
- * None of them is a measurement of gpt-image-2.5-sunburst or -flare.
+ * None of them is a measurement of any GPT Image 2.5 or 2.6 model.
  *
  * Read the caveats before extending this: the three sources each measure a
  * DIFFERENT quality tier of gpt-image-2 (arena.ai medium, Artificial Analysis
@@ -35,16 +35,17 @@
 /**
  * The routing policy, in two named cases and a fallback chain.
  *
- *   everything, transparency included  → gpt-image-2.5-sunburst
+ *   everything, transparency included  → gpt-image-2.6-sunburst
  *   quick throwaway work                → gemini-3.1-flash-lite-image  (`--draft`)
  *
- * gpt-image-2.5-flare is supported and chosen by name (`--model`, or
- * `preferredModels`); it is reached automatically only when Sunburst is not
- * available. Everything else is fallback.
+ * gpt-image-2.6-flare and the 2.5 pair are supported and chosen by name
+ * (`--model`, or `preferredModels`); they are reached automatically only when
+ * 2.6 Sunburst is not available. Everything else is fallback.
  *
- * The OpenAI slot is a MAINTAINER DECISION (2026-09-29, #586), not a
- * measurement. The arena figures in this file were all taken on gpt-image-2, which is
- * retired; none of them is a score for either 2.5 model, and nothing here may
+ * The OpenAI slot is a MAINTAINER DECISION (2026-09-29, #586; moved to 2.6 on
+ * 2026-11-09, #3782), not a measurement. The arena figures in this file were all
+ * taken on gpt-image-2, which is retired; none of them is a score for a 2.5 or
+ * 2.6 model, and nothing here may
  * be quoted as one. They still order the Gemini fallbacks among themselves,
  * which is what they measured.
  *
@@ -53,7 +54,12 @@
  * board, because its role here is the throwaway tier. When it is wanted, it is
  * asked for by name or by `--draft`, not arrived at while looking for quality.
  */
-export const POLICY_PREFERENCE = ["gpt-image-2.5-sunburst", "gpt-image-2.5-flare"] as const;
+export const POLICY_PREFERENCE = [
+  "gpt-image-2.6-sunburst",
+  "gpt-image-2.6-flare",
+  "gpt-image-2.5-sunburst",
+  "gpt-image-2.5-flare",
+] as const;
 
 /** Gemini fallbacks, in the order the public arenas put them (as of 2026-08-17). */
 export const MEASURED_FALLBACK = [
@@ -76,7 +82,7 @@ export const DRAFT_MODEL = "gemini-3.1-flash-lite-image";
 /**
  * There was one measured case where gemini-3-pro-image beat gpt-image-2 (now
  * retired): stylization, in Google's own evaluation, 1054 vs 1030 — a 24-point
- * margin on a vendor's own board. It says nothing about the 2.5 models.
+ * margin on a vendor's own board. It says nothing about the 2.5 or 2.6 models.
  *
  * It is deliberately NOT encoded. The policy above makes Pro a fallback model,
  * and a 24-point edge on one row of one vendor's self-published table is not

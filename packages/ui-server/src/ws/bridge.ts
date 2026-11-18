@@ -9,10 +9,18 @@ import { createActivity, guardMaskedRecords, openInbox } from "./bridge-capabili
 import { createPermissions } from "./bridge-capabilities/permissions.js";
 import { createAsks } from "./bridge-capabilities/asks.js";
 import { createLocationAndMask, createMaskApplicationSlice } from "./bridge-capabilities/location-mask.js";
+import { createMarkupSlice } from "./bridge-capabilities/markup.js";
 import { createPolicyProposal } from "./bridge-capabilities/policy-proposal.js";
 import { createApplication } from "./bridge-capabilities/application.js";
 import { createScratch } from "./bridge-capabilities/scratch.js";
 import { createAttachmentRead } from "./bridge-capabilities/attachments.js";
+import { createWebAccess } from "./bridge-capabilities/web.js";
+import { createEffectiveSafety } from "../governance/effective-safety.js";
+import { sessionTaint } from "../governance/session-taint.js";
+import type { GithubOutwardAction } from "../github/host.js";
+import type { ProviderExposure } from "../brain/governance-policy.js";
+import { recipientRouting } from "../web-tools/routing.js";
+import { retainTurnSessionBinding } from "./bridge-session-binding.js";
 
 export { emitTurnError } from "./bridge-capabilities/turn-error.js";
 
@@ -60,6 +68,9 @@ export async function makeBridge(host: WsHost, turn: RunningTurn, options: MakeB
     Object.assign(bridge, application.slice);
     if (ctx.backendId === "claude" || ctx.backendId === "pi") {
       Object.assign(bridge, createMaskApplicationSlice(ctx, host.brainPath, applicationPolicy, bridge.requestMask!, options));
+      // Markup (#3975) exists only here: the server applies it end to end, so
+      // a host without the application route has no markup to offer.
+      Object.assign(bridge, createMarkupSlice(ctx, host.brainPath, applicationPolicy, options));
       // Hosted scratch pruning is part of the mask operation, including its
       // exact removals. No second, unrecorded prune callback is handed out.
       delete bridge.pruneScratch;
@@ -71,8 +82,24 @@ export async function makeBridge(host: WsHost, turn: RunningTurn, options: MakeB
   if (host.referenceTools) bridge.referenceAccess = call => host.referenceTools!.call(ctx.turnId, ctx.principalId, call, ctx.signal);
   applyExternalServices(ctx, bridge, transcript, options.governance);
   Object.assign(bridge, createAttachmentRead(ctx, transcript));
+  Object.assign(bridge, createWebAccess(ctx, transcript, options.governance, options.providerMasks));
   guardMaskedRecords(ctx, bridge);
   if (ctx.backendId === "claude" || ctx.backendId === "pi") applyLiveAuthority(ctx, bridge);
+  if (host.activity?.governanceDb) {
+    let epoch = 0n, previous = ctx.current();
+    bridge.admissionSafety = createEffectiveSafety(host.activity.governanceDb, {
+      brain: host.brainPath, turnId: ctx.turnId, sessionId: () => turn.sessionId ?? null, policyHash: options.governance?.policy.hash ?? null,
+      writes: host.activity.governanceWrites, trust: host.safetyTrust, signal: ctx.signal,
+      authority: () => {
+        // Journal/scope holds retain their existing wait semantics; they are
+        // not principal revocation and do not mint a new authority epoch.
+        const current = ctx.current();
+        if (current !== previous) { epoch++; previous = current; }
+        return { current, epoch: String(epoch) };
+      },
+    });
+  }
+  retainTurnSessionBinding(bridge, ctx);
   return bridge;
 }
 
@@ -103,6 +130,46 @@ function applyExternalServices(ctx: BridgeContext, bridge: BackendBridge, transc
     bridge.apify = call => apify.call({ turnId, principalId, sessionId: () => transcript.collectedSessionId ?? null,
       posture: work?.posture === "voice" ? "voice" : "interactive",
       approvals: { requestPermission: request => bridge.requestPermission(request) }, signal }, call);
+  }
+  // GitHub (#3797): the host holds the credential and records the session's
+  // taint; the turn, never the call, names principal and session. Writes
+  // (#3798) take the allow-list from this turn's admitted policy, and their
+  // card from this bridge's own approval surface, so voice and revoked turns
+  // refuse as they do for every other card. No policy, no writes. Reads and
+  // searches are routed (G2, #4029) under the same frozen policy and the
+  // conversation's recorded exposures; writes are not, their card is the gate.
+  if (host.githubTools) {
+    const github = host.githubTools;
+    const sessionId = () => transcript.collectedSessionId ?? turn.sessionId ?? null;
+    const routing = async (recipient: string) => {
+      // Without the frozen policy nothing says which folders GitHub may receive.
+      if (!governance) return "recipient_unproven" as const;
+      // Before the conversation is named, nothing recorded says what it showed.
+      const named = sessionId();
+      let shown: ProviderExposure[] | undefined;
+      if (named && host.governedTurns) try { shown = await host.governedTurns.exposures([named]); } catch { shown = undefined; }
+      return recipientRouting(governance.policy.policy, governance.typeFolders, shown, recipient);
+    };
+    const posture = work?.posture === "voice" ? "voice" as const : "interactive" as const;
+    const write = {
+      repositories: () => governance?.policy.policy.outward?.github?.repositories ?? null,
+      posture,
+      requestPermission: (request: Parameters<BackendBridge["requestPermission"]>[0]) => bridge.requestPermission(request),
+      toolName,
+      tainted: () => {
+        const writes = host.activity?.governanceWrites, db = host.activity?.governanceDb;
+        return writes ? writes.taint(turnId, sessionId()) !== null : db ? sessionTaint(db, turnId, sessionId()) !== null : false;
+      },
+      isCurrent: () => !signal.aborted && isAuthorized(),
+      // Awaited where the store can say whether it committed, so an approval that is not recorded sends nothing.
+      govern: async (event: GithubOutwardAction) => {
+        const input = { ...event, turnId, sessionId: sessionId(), actor: posture, model: mainModel?.current() ?? null, profile: workerProfile?.actualProfile ?? null } as never;
+        const writes = host.activity?.governanceWrites;
+        if (writes) { await writes.record(input); return; }
+        host.catalog.recordGovernanceEvent?.(input);
+      },
+    };
+    bridge.github = call => github.call({ turnId, principalId, sessionId, signal, routing, write }, call);
   }
 }
 
@@ -136,7 +203,7 @@ export function applyIndexReads(ctx: Pick<BridgeContext, "host" | "signal">, bri
  */
 export function applyLiveAuthority(ctx: Pick<BridgeContext, "work" | "afterHolds" | "assertAuthority">, bridge: BackendBridge): void {
   const { work, afterHolds, assertAuthority } = ctx;
-  for (const name of ["requestPermission", "askUser", "askUserList", "askUserRank", "askUserForm", "getLocation", "queryActivity", "requestMask", "pruneScratch", "inboxList", "inboxGet", "inboxAdd", "resolveAction", "completeShare", "referenceAccess", "compute", "apify", "readAttachment"] as const) {
+  for (const name of ["requestPermission", "askUser", "askUserList", "askUserRank", "askUserForm", "getLocation", "queryActivity", "requestMask", "requestImageMarkup", "pruneScratch", "inboxList", "inboxGet", "inboxAdd", "resolveAction", "completeShare", "referenceAccess", "compute", "apify", "github", "readAttachment", "webAccess"] as const) {
     const original = bridge[name];
     if (!original) continue;
     (bridge as unknown as Record<string, unknown>)[name] = async (...args: unknown[]) => {
@@ -144,7 +211,7 @@ export function applyLiveAuthority(ctx: Pick<BridgeContext, "work" | "afterHolds
       try {
         return await afterHolds(() => {
           assertAuthority();
-          if (work?.posture === "voice" && ["askUserList", "askUserRank", "askUserForm", "requestMask", "pruneScratch"].includes(name))
+          if (work?.posture === "voice" && ["askUserList", "askUserRank", "askUserForm", "requestMask", "requestImageMarkup", "pruneScratch"].includes(name))
             throw new Error("This capability is outside the voice membership.");
           return (original as (...input: unknown[]) => unknown)(...args);
         });

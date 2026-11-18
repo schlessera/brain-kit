@@ -134,7 +134,7 @@ that is the failure mode this flag guards).
 that. A backend that leaves a configured profile out (Claude, when a profile's
 required environment key is missing) may also implement
 `listUnavailableProfiles()`, returning `{ id, label, reason }` with `reason`
-from the closed `ProfileUnavailableReason` enum (`needs-credentials`). The
+from the closed `ProfileUnavailableReason` enum (`needs-credentials`, `unsupported-configuration`). The
 host lists those apart, for presentation only, and drops any entry whose
 reason is not in the enum, so never put configuration detail such as a key
 name in it. A backend that lists every configured profile, as pi does, omits

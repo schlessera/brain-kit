@@ -107,12 +107,14 @@ async function fixture() {
   const path = join(root, "ui.db");
   const host = open(path);
   const owner = createPrincipal(host.db, { authMethod: "password", label: "Odysseus phone", ttlSeconds: 86_400 }).id;
-  const other = createPrincipal(host.db, { authMethod: "passkey", label: "Penelope tablet", ttlSeconds: 86_400 }).id;
+  // Every owner sign-in is the one owner account (#4138); another person is another account.
+  const second = createPrincipal(host.db, { authMethod: "passkey", label: "Odysseus tablet", ttlSeconds: 86_400 }).id;
+  const other = resolveAmbientPrincipal(host.db, "proxy", "penelope", "Penelope").id;
   const agent = createPrincipal(host.db, { authMethod: "delegated", label: "Mentor agent", createdBy: owner, ttlSeconds: 86_400 }).id;
   await seedChat(host, owner, "voyage", "ithaca", MARKER);
   await seedChat(host, other, "aeaea", "circe", CONTROL);
   createDraftStore(host.db).save(owner, "unbound-draft", { ifMatch: 0, idempotencyKey: "unbound", sessionId: null, text: UNBOUND, attachmentIds: [] });
-  return { root, path, host, owner, other, agent };
+  return { root, path, host, owner, second, other, agent };
 }
 
 function deletionFor(catalog: SessionCatalog, native: AgentBackend, overrides: Partial<ChatDeletionDeps> = {}) {
@@ -177,7 +179,8 @@ test("unsupported backends, busy work and other principals refuse before anythin
     expect(await busy.deletion.delete(voyage(f.owner)), "BUSY_REFUSES").toEqual({ status: "refused", reason: "busy" });
     const { deletion, retired } = deletionFor(catalog, backend([]));
     expect(await deletion.delete(voyage(f.agent)), "AGENT_REFUSES").toEqual({ status: "refused", reason: "unauthorized" });
-    expect(await deletion.delete(voyage(f.other)), "FOREIGN_REFUSES_AS_ABSENT").toEqual({ status: "refused", reason: "unavailable" });
+    expect(await deletion.delete({ ...voyage(f.owner, "delete-aeaea"), target: { sessionId: "aeaea" } }), "FOREIGN_REFUSES_AS_ABSENT").toEqual({ status: "refused", reason: "unavailable" });
+    expect(await deletion.delete(voyage(f.other)), "ANOTHER_ACCOUNT_IS_UNAUTHORIZED").toEqual({ status: "refused", reason: "unauthorized" });
     expect(retired, "NOTHING_RETIRED_LIVE").toEqual([]);
     expect(db.query("SELECT COUNT(*) AS n FROM chat_lifecycles").get()).toEqual({ n: 0 });
     expect(holding(db, MARKER).length).toBeGreaterThanOrEqual(15);
@@ -218,6 +221,36 @@ test("a failed store stays partial or unknown, and restart reconciliation comple
   } finally { await (reopened ?? f.host).close(); }
 });
 
+test("another owner login deletes a chat it continued: honest partial outcomes, retries and reconciliation stay under its operation", async () => {
+  const f = await fixture();
+  let reopened: ReturnType<typeof open> | undefined;
+  try {
+    const { db, catalog } = f.host;
+    // The tablet continued the phone's chat by voice: two logins of one account own its records.
+    await catalog.saveConversationEpoch!({ id: "telemachus", principalId: f.second, epoch: 1, sessionId: "voyage" });
+    await catalog.settled!();
+    db.exec("CREATE TRIGGER hold_dialogue BEFORE DELETE ON dialogue_records BEGIN SELECT RAISE(ABORT,'Ithaca dialogue cleanup interrupted'); END");
+    const { deletion, retired } = deletionFor(catalog, backend(["partial"]));
+    const first = await deletion.delete(voyage(f.second));
+    expect(first, "SECOND_LOGIN_PARTIAL_IS_HONEST").toEqual({ status: "retired", receipt: { operationId: "delete-voyage", generation: 2, status: "partial",
+      stores: { dialogue: "partial", drafts: "removed", native: "partial", projections: "removed", tasks: "removed" }, retained: RETAINED } });
+    expect(retired.map(r => r.principalId), "SECOND_LOGIN_RETIRES_LIVE_HOLDERS").toEqual([f.second]);
+    expect(holding(db, MARKER), "ONLY_THE_FAILED_STORES_HOLD_TEXT").toEqual(["dialogue_records.payload"]);
+    // The operation is the tablet's: the phone neither reads nor retries it.
+    expect(await deletion.read("delete-voyage", f.owner), "RECEIPT_STAYS_ITS_INITIATORS").toBeNull();
+    expect(await deletion.delete(voyage(f.owner)), "HANDLE_STAYS_ITS_INITIATORS").toEqual({ status: "refused", reason: "unavailable" });
+    db.exec("DROP TRIGGER hold_dialogue");
+    await f.host.close();
+    reopened = open(f.path);
+    const resumed = deletionFor(reopened.catalog, backend(["removed"]));
+    await resumed.deletion.reconcile();
+    expect(resumed.retired.map(r => r.principalId), "RECONCILED_UNDER_THE_INITIATOR").toEqual([f.second]);
+    expect(await resumed.deletion.read("delete-voyage", f.second), "SECOND_LOGIN_READS_COMPLETION").toMatchObject({ status: "removed" });
+    expect(holding(reopened.db, MARKER), "RECONCILED_NOTHING_REMAINS").toEqual([]);
+    expect(holding(reopened.db, CONTROL).length, "CONTROL_CHAT_INTACT").toBeGreaterThanOrEqual(15);
+  } finally { await (reopened ?? f.host).close(); }
+});
+
 function routesApp(db: Database, ...routes: Hono<AppEnv>[]) {
   const app = new Hono<AppEnv>();
   app.use("*", async (c, next) => { const id = c.req.header("x-odysseus-principal"); const p = id ? resolvePrincipal(db, id) : null; if (p) c.set("principal", p); await next(); });
@@ -242,7 +275,9 @@ test("the endpoint admits only the authenticated owner and answers with content-
       const response = await post(app, principal, requestBody(`by-${principal}`));
       refusals.push([response.status, (await response.json()).reason]);
     }
-    expect(refusals, "AGENT_AMBIENT_FOREIGN_REFUSED").toEqual([[403, "unauthorized"], [403, "unauthorized"], [404, "unavailable"]]);
+    const foreign = await post(app, f.owner, { ...requestBody("by-owner-for-aeaea"), target: { sessionId: "aeaea" } });
+    refusals.push([foreign.status, (await foreign.json()).reason]);
+    expect(refusals, "AGENT_AMBIENT_FOREIGN_REFUSED").toEqual([[403, "unauthorized"], [403, "unauthorized"], [403, "unauthorized"], [404, "unavailable"]]);
     const stale = await post(app, f.owner, { ...requestBody(), expected: { backendId: "claude", generation: 5 } });
     expect([stale.status, (await stale.json()).reason]).toEqual([409, "stale"]);
     expect(db.query("SELECT COUNT(*) AS n FROM chat_lifecycles").get()).toEqual({ n: 0 });
@@ -252,7 +287,8 @@ test("the endpoint admits only the authenticated owner and answers with content-
     expect(accepted.headers.get("cache-control")).toBe("no-store");
     expect(JSON.parse(text)).toEqual({ operationId: "delete-voyage", generation: 2, status: "removed",
       stores: { dialogue: "removed", drafts: "removed", native: "removed", projections: "removed", tasks: "removed" }, retained: RETAINED });
-    expect(text.includes(MARKER) || text.includes("ithaca"), "RECEIPT_CARRIES_NO_TEXT_OR_IDENTITIES").toBe(false);
+    expect(text, "RECEIPT_CARRIES_NO_TEXT").not.toContain(MARKER);
+    expect(text, "RECEIPT_CARRIES_NO_IDENTITIES").not.toContain("ithaca");
     // Revoked after the retirement: the operation's outcome is not disclosed.
     revokePrincipal(db, f.owner, Date.now());
     expect((await post(app, f.owner, requestBody())).status, "REVOKED_CALLER_LEARNS_NOTHING").toBe(401);
@@ -277,7 +313,7 @@ test("a session read held across retirement publishes nothing, and lists omit th
     const response = await reading;
     const body = await response.text();
     expect(response.status, "HELD_READ_REFUSED_AFTER_RETIREMENT").toBe(404);
-    expect(body.includes(MARKER), "HELD_READ_PUBLISHES_NO_MARKER").toBe(false);
+    expect(body, "HELD_READ_PUBLISHES_NO_MARKER").not.toContain(MARKER);
     const list = await (await app.request("/api/sessions?includeRetainedConversations=true", { headers: { "x-odysseus-principal": f.owner } })).json();
     expect(list.sessions.map((s: { id: string }) => s.id), "LIST_OMITS_RETIRED").toEqual(["aeaea"]);
   } finally { await f.host.close(); }
@@ -299,8 +335,8 @@ test("live startup history held across retirement never seeds a provider", async
     await deletionFor(catalog, native).deletion.delete(voyage(f.owner));
     release();
     const outcome = await reading;
-    expect("error" in outcome && outcome.error instanceof ChatRetiredError, "STARTUP_SEED_REFUSED_AFTER_RETIREMENT").toBe(true);
-    expect(JSON.stringify(outcome).includes(MARKER)).toBe(false);
+    expect((outcome as { error?: unknown }).error, "STARTUP_SEED_REFUSED_AFTER_RETIREMENT").toBeInstanceOf(ChatRetiredError);
+    expect(JSON.stringify(outcome)).not.toContain(MARKER);
   } finally { await f.host.close(); }
 });
 
@@ -357,15 +393,16 @@ test("the read answers the caller's receipt, and one byte-identical not_admitted
     expect([MARKER, '"voyage"', "ithaca", "claude", "sessionId"].filter(s => ownText.includes(s)), "RECEIPT_READ_IS_CONTENT_FREE").toEqual([]);
 
     // A refused attempt records nothing to read.
-    expect((await post(app, f.other, requestBody("penelope-attempt"))).status).toBe(404);
+    expect((await post(app, f.owner, { ...requestBody("penelope-attempt"), target: { sessionId: "aeaea" } })).status).toBe(404);
     const answers: Record<string, string> = {};
-    for (const [label, principal, operation] of [["foreign", f.other, "delete-voyage"], ["agent", f.agent, "delete-voyage"],
-      ["ambient", ambient, "delete-voyage"], ["refused", f.other, "penelope-attempt"], ["unknown", f.owner, "never-sent"]] as const) {
+    // The account's other login does not read this login's operation (#4138).
+    for (const [label, principal, operation] of [["second login", f.second, "delete-voyage"], ["foreign", f.other, "delete-voyage"], ["agent", f.agent, "delete-voyage"],
+      ["ambient", ambient, "delete-voyage"], ["refused", f.owner, "penelope-attempt"], ["unknown", f.owner, "never-sent"]] as const) {
       const response = await read(app, principal, operation);
       answers[label] = `${response.status} ${response.headers.get("cache-control")} ${await response.text()}`;
     }
     const miss = `404 no-store ${missBytes}`;
-    expect(answers, "EVERY_MISS_IS_BYTE_IDENTICAL").toEqual({ foreign: miss, agent: miss, ambient: miss, refused: miss, unknown: miss });
+    expect(answers, "EVERY_MISS_IS_BYTE_IDENTICAL").toEqual({ "second login": miss, foreign: miss, agent: miss, ambient: miss, refused: miss, unknown: miss });
     expect({ retireChat: calls.retireChat, cleanChatStore: calls.cleanChatStore, removals: removals.length }, "READS_STARTED_NO_CLEANUP")
       .toEqual({ retireChat: 2, cleanChatStore: 4, removals: 1 });
   } finally { await f.host.close(); }
@@ -420,6 +457,7 @@ test("a principal revoked during the read gets 401, never the receipt", async ()
     const response = await read(app, f.owner, "delete-voyage");
     const text = await response.text();
     expect([response.status, JSON.parse(text)], "REVOKED_MID_READ").toEqual([401, { error: "Authentication required", authRequired: true }]);
-    expect(text.includes("delete-voyage") || text.includes("removed"), "REVOKED_LEARNS_NOTHING").toBe(false);
+    expect(text, "REVOKED_LEARNS_NOTHING").not.toContain("delete-voyage");
+    expect(text, "REVOKED_LEARNS_NOTHING").not.toContain("removed");
   } finally { await f.host.close(); }
 });

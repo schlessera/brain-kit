@@ -15,8 +15,15 @@ import { imageCommand } from "../src/cli";
 import { configSchema } from "../src/module";
 
 let root: string;
-const saved = { key: process.env.GEMINI_API_KEY, log: console.log, error: console.error, fetch: globalThis.fetch };
+const saved = { key: process.env.GEMINI_API_KEY, openAiKey: process.env.OPENAI_API_KEY, log: console.log, error: console.error, fetch: globalThis.fetch };
 let out: string[];
+/** Directories outside the brain, removed in teardown even when the test fails. */
+const outsides: string[] = [];
+const outsideDir = () => {
+  const dir = mkdtempSync(join(tmpdir(), "brain-outside-"));
+  outsides.push(dir);
+  return dir;
+};
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "brain-image-scratch-"));
@@ -34,7 +41,10 @@ afterEach(() => {
   globalThis.fetch = saved.fetch;
   if (saved.key === undefined) delete process.env.GEMINI_API_KEY;
   else process.env.GEMINI_API_KEY = saved.key;
+  if (saved.openAiKey === undefined) delete process.env.OPENAI_API_KEY;
+  else process.env.OPENAI_API_KEY = saved.openAiKey;
   rmSync(root, { recursive: true, force: true });
+  for (const dir of outsides.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
 const run = (argv: string[]) =>
@@ -126,7 +136,7 @@ describe("brain image --scratch", () => {
     ignoreScratch(root);
     // --out asks for .jpeg; the provider answers PNG, so the write goes to
     // draft.png, where a link to an outside file has been planted.
-    const outside = mkdtempSync(join(tmpdir(), "brain-outside-"));
+    const outside = outsideDir();
     const victim = join(outside, "victim.png");
     writeFileSync(victim, "keep me");
     mkdirSync(join(root, SCRATCH_DIR), { recursive: true });
@@ -137,24 +147,24 @@ describe("brain image --scratch", () => {
     expect(readFileSync(victim, "utf8")).toBe("keep me");
     expect(readlinkSync(join(root, SCRATCH_DIR, "draft.png"))).toBe(victim);
     expect(scratchFiles()).toEqual(["draft.png"]);
-    rmSync(outside, { recursive: true, force: true });
   });
 
   test("a nested directory swapped for a symlink while the request is out is refused, and nothing lands outside", async () => {
     ignoreScratch(root);
-    const outside = mkdtempSync(join(tmpdir(), "brain-outside-"));
+    const outside = outsideDir();
     const nested = join(root, SCRATCH_DIR, "nested");
-    stubProvider(() => {
+    const provider = stubProvider(() => {
       rmSync(nested, { recursive: true, force: true });
       symlinkSync(outside, nested);
     });
     expect(await run(["a lighthouse", "--draft", "--out", `${SCRATCH_DIR}/nested/draft.png`])).toBe(1);
+    // The request went out: the refusal is the write's, not the pre-flight's.
+    expect(provider.calls).toBe(1);
     expect(readdirSync(outside)).toEqual([]);
-    rmSync(outside, { recursive: true, force: true });
   });
 
   test("outside scratch, a corrected name that is a link to an outside file is refused, the file byte-identical", async () => {
-    const outside = mkdtempSync(join(tmpdir(), "brain-outside-"));
+    const outside = outsideDir();
     const victim = join(outside, "victim.png");
     writeFileSync(victim, "keep me");
     mkdirSync(join(root, "assets"), { recursive: true });
@@ -164,7 +174,6 @@ describe("brain image --scratch", () => {
     expect(out.join("\n")).toContain("symlink");
     expect(readFileSync(victim, "utf8")).toBe("keep me");
     expect(readlinkSync(join(root, "assets", "draft.png"))).toBe(victim);
-    rmSync(outside, { recursive: true, force: true });
   });
 
   test("a corrected name whose directory came to resolve into unignored scratch while the request was out is refused", async () => {
@@ -184,7 +193,7 @@ describe("brain image --scratch", () => {
   });
 
   test("a derived -2 name that is a link to an outside file is refused, the file byte-identical, the first image kept", async () => {
-    const outside = mkdtempSync(join(tmpdir(), "brain-outside-"));
+    const outside = outsideDir();
     const victim = join(outside, "victim.png");
     writeFileSync(victim, "keep me");
     mkdirSync(join(root, "assets"), { recursive: true });
@@ -196,15 +205,10 @@ describe("brain image --scratch", () => {
         JSON.stringify({ data: [{ b64_json: Buffer.from(PNG_BYTES).toString("base64") }, { b64_json: Buffer.from("second").toString("base64") }] }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       )) as unknown as typeof fetch;
-    try {
-      expect(await run(["a lighthouse", "--provider", "openai", "--out", "assets/pair.png"])).toBe(1);
-    } finally {
-      delete process.env.OPENAI_API_KEY;
-    }
+    expect(await run(["a lighthouse", "--provider", "openai", "--out", "assets/pair.png"])).toBe(1);
     expect(out.join("\n")).toContain("symlink");
     expect(readFileSync(victim, "utf8")).toBe("keep me");
     expect(readFileSync(join(root, "assets", "pair.png"), "utf8")).toBe(PNG_BYTES);
-    rmSync(outside, { recursive: true, force: true });
   });
 
   test("an absolute --out inside the brain is reported repo-relative after generation, as in the dry run", async () => {
@@ -217,7 +221,7 @@ describe("brain image --scratch", () => {
   });
 
   test("an absolute --out outside the brain, or through a link out of it, is refused and nothing lands outside (#3422)", async () => {
-    const outside = mkdtempSync(join(tmpdir(), "brain-outside-"));
+    const outside = outsideDir();
     mkdirSync(join(root, "assets"), { recursive: true });
     symlinkSync(outside, join(root, "assets", "link-out"));
     stubProvider();
@@ -227,15 +231,16 @@ describe("brain image --scratch", () => {
       expect(out.join("\n")).toContain("Output path is not inside the brain");
     }
     expect(readdirSync(outside)).toEqual([]);
-    rmSync(outside, { recursive: true, force: true });
   });
 
   test("the ignore rule is checked again after the provider call, so a rule lost in flight refuses the write", async () => {
     ignoreScratch(root);
     // The rule disappears while the request is out: the pre-flight check
     // passed, the write must not.
-    stubProvider(() => writeFileSync(join(root, ".gitignore"), "node_modules\n"));
+    const provider = stubProvider(() => writeFileSync(join(root, ".gitignore"), "node_modules\n"));
     expect(await run(["a lighthouse", "--draft", "--scratch"])).toBe(1);
+    // The request went out: the refusal is the write's, not the pre-flight's.
+    expect(provider.calls).toBe(1);
     expect(out.join("\n")).toContain("brain doctor --fix");
     expect(scratchFiles()).toEqual([]);
   });

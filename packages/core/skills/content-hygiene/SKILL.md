@@ -200,7 +200,13 @@ If nothing changed (`changedFiles` empty and no fixes), print one line:
 ## Notes
 
 - **Conservative by default** — when ambiguous, log instead of fix.
-- **Derivative regeneration is never automated** — propagation/derivative drift is logged only.
+- **Derivative regeneration is never automated** — findings that require content changes remain logged for review.
+- Enabled `hygiene.propagation` adds a CLI-owned freshness prepass to normal
+  reconciliation: complete sources plus their diff, the owner's confidence
+  floor and optional veto-only cross-checks. A matching separate Markdown
+  receipt can clear a still-current finding without changing document dates.
+  Missing context, unknown judgments and every failed gate remain for review.
+  The skill never enables this setting or relaxes its policy on the owner's behalf.
 - **No interactive prompts** — runs to completion without user input, so it can be scheduled.
 - **Respects manual moves** — if the user moves an issue between files or edits `until:` dates by
   hand, `brain hygiene reconcile` matches by ID and keeps those decisions.

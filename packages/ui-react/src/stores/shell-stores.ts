@@ -43,7 +43,7 @@ export interface VoiceShellState {
   readonly connecting: boolean;
   /** Final transcript flush in progress after Done. */
   readonly draining: boolean;
-  /** Text waiting in the review card. */
+  /** Dictated text a take handed over, until the composer moves it into the draft (D6, #3694). */
   readonly reviewText: string;
 }
 

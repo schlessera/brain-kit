@@ -78,8 +78,8 @@ async function arrive(host: Host): Promise<string> {
   expect(response.status).toBe(201);
   return (await response.json() as { itemId: string }).itemId;
 }
-/** Two devices tap the same decision. */
-async function resolve(host: Host, itemId: string, optionId = "apply") {
+/** Two devices tap the same decision; it returns once the decision is resolved in the database. */
+async function resolve(at: Install, host: Host, itemId: string, optionId = "apply") {
   const devices = await Promise.all([0, 1].map(async () => {
     const frames: ServerMessage[] = [];
     const client = new BrainUiClient({ url: `${host.origin.replace("http", "ws")}/ws`,
@@ -90,6 +90,8 @@ async function resolve(host: Host, itemId: string, optionId = "apply") {
     return { client, frames };
   }));
   for (const { client } of devices) client.send({ type: "inbox_resolve", itemId, optionId });
+  expect(await waitFor(() => item(at, itemId).status === "resolved"), "the decision is resolved").toBe(true);
+  // A refused duplicate tap answers with an error frame: give the second device a window to send one.
   await Bun.sleep(300);
   for (const { frames, client } of devices) { expect(frames.filter(f => f.type === "error")).toEqual([]); client.close(); }
 }
@@ -145,9 +147,9 @@ test("killed after its escalation checkpoint: the decision survives once and res
   clock(at, 11 * MINUTE);
   await poke(at, host);
   expect(reservations(at).filter(r => r.status === "active"), "the lost attempt is reconciled").toEqual([]);
-  expect(reservations(at).every(r => r.charged_turns === 1), "and stays charged").toBe(true);
+  expect(reservations(at).map(r => [r.purpose, r.charged_turns]), "and stays charged").toEqual([["triage", 1], ["execute", 1]]);
   expect(pending(at), "CHECKPOINT_DURABLE").toEqual([action!]);
-  await resolve(host, action!.id);
+  await resolve(at, host, action!.id);
   expect(executes(at), "ONE_FOLLOW_UP").toHaveLength(1);
   expect(await poke(at, host)).toMatchObject({ claimed: 1 });
   expect(note(at)).toBe(WRITE.content as string);
@@ -161,7 +163,7 @@ test("killed after the approved side effect: the retried follow-up cannot apply 
   await arrive(host);
   expect(await poke(at, host)).toMatchObject({ claimed: 1 });
   const [action] = pending(at);
-  await resolve(host, action!.id);
+  await resolve(at, host, action!.id);
   void poke(at, host).catch(() => {});
   expect(await waitFor(() => existsSync(join(at.dir, "reached-effect")))).toBe(true);
   await host.kill();
@@ -200,7 +202,7 @@ test("the daily snapshot restores into an empty installation with its decision, 
   cpSync(join(at.brain, "notes"), join(content.brain, "notes"), { recursive: true });
 
   // Work after the capture point is lost with the installation.
-  await resolve(host, action!.id);
+  await resolve(at, host, action!.id);
   await host.kill();
 
   rmSync(content.db, { force: true });
@@ -212,7 +214,7 @@ test("the daily snapshot restores into an empty installation with its decision, 
   expect(read(content, "SELECT id, trust_class, source FROM inbox_threads WHERE id = ?", thread.id)).toEqual([thread]);
   expect(reservations(content).slice(0, spent.length), "SPEND_RETAINED").toEqual(spent);
   expect(await poke(content, host)).toMatchObject({ claimed: 0 });
-  await resolve(host, action!.id);
+  await resolve(content, host, action!.id);
   expect(executes(content), "ONE_FOLLOW_UP").toHaveLength(1);
   expect(await poke(content, host)).toMatchObject({ claimed: 1 });
   expect(note(content)).toBe(WRITE.content as string);
@@ -230,7 +232,7 @@ test("killed inside staging compensation: the restart repeats removal and acknow
   let host = await start(at, "cleanup");
   await arrive(host);
   expect(await poke(at, host)).toMatchObject({ claimed: 1 });
-  await resolve(host, pending(at)[0]!.id);
+  await resolve(at, host, pending(at)[0]!.id);
   expect(await poke(at, host)).toMatchObject({ claimed: 1 });
   expect(note(at)).toBe(WRITE.content as string);
   expect(staging(at), "staging is retained until the thread's work is terminal").toHaveLength(1);

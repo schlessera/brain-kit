@@ -21,13 +21,14 @@ import { RTK_WORKER_ENV, workerOutwardNote, workerCommandPolicyNote, prepareWork
   outputStagingLimit, turnTempLimit, type TurnTempAccess } from "@schlessera/brain-ui-sdk/internal";
 import { isThinkingLevel, stateRoomCopy, stateRoomWarning } from "@schlessera/brain-ui-sdk/protocol";
 import { QUERY_ACTIVITY_TOOL_NAME } from "./activity-tool.js";
-import { APIFY_TOOL_NAMES, COMPUTE_TOOL_CONTRACTS, READ_ATTACHMENT_TOOL_NAME, visibleToolName } from "@schlessera/brain-ui-sdk/server";
+import { APIFY_TOOL_NAMES, COMPUTE_TOOL_CONTRACTS, GITHUB_READ_TOOL_NAMES, GITHUB_TOOL_NAMES, READ_ATTACHMENT_TOOL_NAME, visibleToolName } from "@schlessera/brain-ui-sdk/server";
 import { createBrainUiMcpServer, ASK_USER_TOOL_NAME } from "./ask-user-tool.js";
 import { ASK_USER_LIST_TOOL_NAME } from "./ask-user-list-tool.js";
 import { ASK_USER_RANK_TOOL_NAME } from "./ask-user-rank-tool.js";
 import { envSnapshot, ambientExecConfig, operatorAdmittedEnvNames } from "./config/env.js";
 import { GET_LOCATION_TOOL_NAME } from "./location-tool.js";
 import { MASK_TOOL_NAME } from "./mask-tool.js";
+import { MARKUP_TOOL_NAME } from "./markup-tool.js";
 import { userMessage } from "./turn-input.js";
 import { SHOW_BLOCK_TOOL_NAME } from "./show-block-tool.js";
 import type { BackendLogFn, ClaudeBackendOptions } from "./options.js";
@@ -51,6 +52,15 @@ import type { TurnLockBinding } from "./turn-lock.js";
  * tool list never depends on configuration (provider-history.md).
  */
 export const IN_WORKER_COMPUTE_TOOLS: readonly string[] = Object.freeze(COMPUTE_TOOL_CONTRACTS.map(contract => `mcp__brain__${contract.name}`));
+/**
+ * The in-worker brain MCP server's fixed Apify tools (#3788). That server
+ * registers `brain_apify_*` unconditionally, but a worker holds neither the
+ * token nor the ledger (`HOST_ONLY_SECRET_ENV`), so every call there refuses
+ * with `ledger_unset`, under the same names and descriptions as the host's
+ * working `mcp__brain-ui__brain_apify_*` tools. Disallowed in every session,
+ * like compute, so the tool list never depends on configuration.
+ */
+export const IN_WORKER_APIFY_TOOLS: readonly string[] = Object.freeze(Object.values(APIFY_TOOL_NAMES).map(name => `mcp__brain__${name}`));
 /** The prompt-brief keys of the compute contracts, as `SurfaceTools` names them. */
 const COMPUTE_SURFACE_KEYS = [["computeHealth", "brain_compute_health"], ["computePlan", "brain_compute_plan"], ["computeRun", "brain_compute_run"],
   ["computeStatus", "brain_compute_status"], ["computeCancel", "brain_compute_cancel"], ["computeCollect", "brain_compute_collect"]] as const;
@@ -174,6 +184,7 @@ export interface ClaudeToolRoster {
   askUserForm: StartTurnRequest["bridge"]["askUserForm"];
   getLocation: StartTurnRequest["bridge"]["getLocation"];
   requestMask: StartTurnRequest["bridge"]["requestMask"];
+  requestImageMarkup: StartTurnRequest["bridge"]["requestImageMarkup"];
   proposePolicyChange: StartTurnRequest["bridge"]["proposePolicyChange"];
   queryActivity: StartTurnRequest["bridge"]["queryActivity"];
   /** Whether the turn registers its own size-limited /tmp tool. */
@@ -196,6 +207,9 @@ export function computeToolRoster(req: StartTurnRequest, allowedTools: readonly 
   // docs/decisions/voice-permission.md. Location, activity,
   // show_block and ask_user ask nothing of a viewer, so they are unaffected.
   const requestMask = req.noGrantSurface === true ? undefined : req.bridge.requestMask;
+  // The markup editor (#3975) needs eyes for the same reason, and is withheld
+  // the same way: registered, refused at call time, never auto-allowed here.
+  const requestImageMarkup = req.noGrantSurface === true ? undefined : req.bridge.requestImageMarkup;
   // The list card needs eyes for the same reason: up to thirty rows of chips
   // that someone has to read and tap. It is not in the voice posture, so it is
   // withheld here rather than appended into an allowlist that left it out.
@@ -240,6 +254,8 @@ export function computeToolRoster(req: StartTurnRequest, allowedTools: readonly 
     // Auto-allowed like the other bridge tools: the approval is the editor
     // itself — nothing happens unless the user paints and confirms.
     if (requestMask) allowed.push(MASK_TOOL_NAME);
+    // The same: nothing is written unless the user draws and sends a layer.
+    if (requestImageMarkup) allowed.push(MARKUP_TOOL_NAME);
     // Read-only over the host's own record — strictly narrower than the
     // file/tool access the model already has.
     if (queryActivity) allowed.push(QUERY_ACTIVITY_TOOL_NAME);
@@ -248,7 +264,7 @@ export function computeToolRoster(req: StartTurnRequest, allowedTools: readonly 
     if (!req.noGrantSurface && req.posture !== "voice") for (const [name, handler] of [["inbox_add", "inboxAdd"], ["resolve_action", "resolveAction"], ["complete_share", "completeShare"]] as const) if (req.bridge[handler]) allowed.push(visibleToolName(name, "claude"));
     // The host owns reference authority and refuses per call (#2432); an
     // approval card would add nothing a grant does not already decide.
-    if (req.bridge.referenceAccess) allowed.push(visibleToolName("reference_source", "claude"), visibleToolName("reference_worktree", "claude"));
+    if (req.bridge.referenceAccess) allowed.push(visibleToolName("reference_source", "claude"), visibleToolName("reference_worktree", "claude"), visibleToolName("reference_read", "claude"));
     // External compute (#3108): the host decides authority and shows its own
     // per-use approval card for a run, so a runtime card would ask twice.
     if (req.bridge.compute) allowed.push(...COMPUTE_TOOL_CONTRACTS.map(contract => visibleToolName(contract.name, "claude")));
@@ -258,12 +274,21 @@ export function computeToolRoster(req: StartTurnRequest, allowedTools: readonly 
     // Attachment reads (#3154): the host authorizes each id against this
     // session's own references; a card would ask to read what the user sent.
     if (req.bridge.readAttachment) allowed.push(visibleToolName(READ_ATTACHMENT_TOOL_NAME, "claude"));
+    // GitHub reads (#3797): the host holds the credential and taints the
+    // session; like the web tools they run without a card.
+    if (req.bridge.github) allowed.push(...GITHUB_READ_TOOL_NAMES.map(name => visibleToolName(name, "claude")));
+    // GitHub writes (#3798): the host checks the policy allow-list and asks
+    // per exact write on its own card; a runtime card would ask twice and
+    // offer a rememberable grant. Voice and no-grant turns keep the runtime
+    // gate, which refuses them before the host is reached.
+    if (req.bridge.github && !req.noGrantSurface && req.posture !== "voice")
+      allowed.push(visibleToolName(GITHUB_TOOL_NAMES.create, "claude"), visibleToolName(GITHUB_TOOL_NAMES.comment, "claude"));
     // No side effect and no host handler: the block is part of the answer, and
     // an approval card for drawing a table would be the surface asking
     // permission to answer.
     allowed.push(SHOW_BLOCK_TOOL_NAME);
   }
-  return { askUser, askUserList, askUserRank, askUserForm, getLocation, requestMask, proposePolicyChange, queryActivity, turnTempTool, hosted, allowed };
+  return { askUser, askUserList, askUserRank, askUserForm, getLocation, requestMask, requestImageMarkup, proposePolicyChange, queryActivity, turnTempTool, hosted, allowed };
 }
 
 /** The environment a turn's subprocesses run with, and the provider keys its worker keeps. */
@@ -335,7 +360,7 @@ export function assemblePromptContext(
   sandbox: NonNullable<StartTurnRequest["workerSandbox"]>,
   sandboxNote: string
 ) {
-  const { askUser, askUserList, askUserRank, askUserForm, getLocation, requestMask, proposePolicyChange, queryActivity, turnTempTool } = roster;
+  const { askUser, askUserList, askUserRank, askUserForm, getLocation, requestMask, requestImageMarkup, proposePolicyChange, queryActivity, turnTempTool } = roster;
   const brief = req.autonomous?.systemPromptAppend ?? buildAppend(
     backend,
     req.client,
@@ -347,12 +372,14 @@ export function assemblePromptContext(
       askUserForm: Boolean(askUserForm),
       location: Boolean(getLocation),
       mask: Boolean(requestMask),
+      markup: Boolean(requestImageMarkup),
       activity: Boolean(queryActivity),
       inbox: Boolean(req.bridge.inboxList),
       block: true,
       turnTemp: turnTempTool,
       reference: Boolean(req.bridge.referenceAccess),
       compute: Boolean(req.bridge.compute),
+      github: Boolean(req.bridge.github),
     },
     req.turnBudgetMs
   );
@@ -361,7 +388,7 @@ export function assemblePromptContext(
   const context = req.autonomous ? undefined : claudePromptContext(backend.brainPath, contextId);
   const append = context ? context.retainAppend([buildAppend(backend, undefined, {
     policyChange: true, askUser: true, askUserList: true, askUserRank: true, askUserForm: true,
-    location: true, mask: true, activity: true, inbox: true, block: true, turnTemp: true, reference: true, compute: true,
+    location: true, mask: true, markup: true, activity: true, inbox: true, block: true, turnTemp: true, reference: true, compute: true, github: true,
   }, undefined), req.sessionBudgetLimits].filter(Boolean).join("\n\n"), req.sessionBudgetLimits ? { limits: req.sessionBudgetLimits } : {}) : candidate;
   const available = (name: string) => toolAvailabilityRefusal({ ...req, workerSandbox: sandbox }, name) === undefined;
   const owned = context?.prepare(req.prompt, {
@@ -369,7 +396,8 @@ export function assemblePromptContext(
     sandbox: sandboxNote,
     capabilities: JSON.stringify({ posture: req.posture ?? "default", noGrantSurface: req.noGrantSurface === true,
       askUser: available("ask_user"), askUserList: available("ask_user_list"), askUserRank: available("ask_user_rank"), askUserForm: available("ask_user_form"),
-      location: available("get_current_location"), mask: available("request_image_mask"), policyChange: available("propose_policy_change"),
+      location: available("get_current_location"), mask: available("request_image_mask"), markup: available("request_image_markup"),
+      policyChange: available("propose_policy_change"),
       activity: available("query_activity"), inbox: { list: available("inbox_list"), get: available("inbox_get"),
         add: available("inbox_add"), resolveAction: available("resolve_action"), completeShare: available("complete_share") },
       reference: available("reference_source"), compute: available("brain_compute_run") }),
@@ -424,7 +452,7 @@ function assembleClaudeSdkTurn(
     allowedTools: allowed,
     // The built-in AskUserQuestion picker needs a TTY; keep it disabled even
     // when no ask-user handler is present.
-    disallowedTools: ["AskUserQuestion", ...IN_WORKER_COMPUTE_TOOLS, ...((hosted || req.autonomous) ? [
+    disallowedTools: ["AskUserQuestion", ...IN_WORKER_COMPUTE_TOOLS, ...IN_WORKER_APIFY_TOOLS, ...((hosted || req.autonomous) ? [
       "mcp__brain__brain_add", "mcp__brain__brain_update", "mcp__brain__brain_archive",
     ] : []), ...(hosted && req.autonomous && (sandbox.profile !== "governed" || req.posture === "voice") ? ["Write", "Edit", "NotebookEdit"] : [])],
     ...createPermissionWiring({
@@ -465,7 +493,7 @@ function assembleClaudeSdkTurn(
         }
       },
       log: (level, message) => log(level, message),
-    }, { limits: stateLimits, turnTempLimits }, req.workerLock, req.workerStarted, req.workerStartupView, req.persistClaudeMemory, options.hostInference, credentialEnv);
+    }, { limits: stateLimits, turnTempLimits, reportCleanup: notice => req.bridge.activity?.({ kind: "worker_cleanup", ...notice }) }, req.workerLock, req.workerStarted, req.workerStartupView, req.persistClaudeMemory, options.hostInference, credentialEnv);
   sdkOptions.spawnClaudeCodeProcess = worker.spawn;
   if (!req.autonomous) addStateRoomWarning(sdkOptions, req, worker);
   /** This turn's answer text so far: what it links in turn temp is promoted, so a purge keeps it. */
@@ -558,7 +586,7 @@ function turnMcpServer(
   turnTemp: TurnTempAccess,
   observeTools: (tools: unknown[]) => void
 ) {
-  const { askUser, askUserList, askUserRank, askUserForm, getLocation, requestMask, proposePolicyChange, queryActivity, turnTempTool } = roster;
+  const { askUser, askUserList, askUserRank, askUserForm, getLocation, requestMask, requestImageMarkup, proposePolicyChange, queryActivity, turnTempTool } = roster;
   return createBrainUiMcpServer({
     observeTools,
     stableRoster: !req.autonomous,
@@ -571,6 +599,7 @@ function turnMcpServer(
     askUserFormLimits: req.bridge.askUserFormLimits,
     getLocation,
     requestMask,
+    requestImageMarkup,
     queryActivity,
     ...(!req.autonomous || req.bridge.inboxList ? { inbox: req.bridge } : {}),
     ...(!req.autonomous || req.bridge.referenceAccess ? { reference: req.bridge } : {}),
@@ -578,6 +607,8 @@ function turnMcpServer(
     ...(!req.autonomous ? { compute: req.bridge } : {}),
     // Interactive sessions only: a restricted autonomous roster never lists Apify.
     ...(!req.autonomous ? { apify: req.bridge } : {}),
+    // Interactive sessions only, whether or not the host holds a GitHub credential (#3797).
+    ...(!req.autonomous ? { github: req.bridge } : {}),
     // Every interactive session, with or without attachments, so a file never changes the roster.
     ...(!req.autonomous ? { attachments: req.bridge } : {}),
     ...(turnTempTool ? { turnTemp: createTurnTempTool(turnTemp, event => {
@@ -648,12 +679,14 @@ function buildAppend(
     askUserForm: boolean;
     location: boolean;
     mask: boolean;
+    markup: boolean;
     activity: boolean;
     inbox: boolean;
     block: boolean;
     turnTemp: boolean;
     reference: boolean;
     compute: boolean;
+    github: boolean;
   },
   turnBudgetMs: number | undefined
 ): string {
@@ -664,6 +697,9 @@ function buildAppend(
     buildSystemPromptAppend({
       ...(client ? { client } : {}),
       ...(turnBudgetMs ? { turnBudgetMs } : {}),
+      // The host GitHub tools (#3797), in every interactive roster.
+      ...(tools.github ? { githubTools: { read: visibleToolName(GITHUB_TOOL_NAMES.read, "claude"), search: visibleToolName(GITHUB_TOOL_NAMES.search, "claude"),
+        create: visibleToolName(GITHUB_TOOL_NAMES.create, "claude"), comment: visibleToolName(GITHUB_TOOL_NAMES.comment, "claude") } } : {}),
       tools: {
         policyChange: tools.policyChange ? "mcp__brain-ui__propose_policy_change" : undefined,
         askUser: tools.askUser && ASK_USER_TOOL_NAME,
@@ -672,6 +708,7 @@ function buildAppend(
         askUserForm: tools.askUserForm && ASK_USER_FORM_TOOL_NAME,
         location: tools.location && GET_LOCATION_TOOL_NAME,
         mask: tools.mask && MASK_TOOL_NAME,
+        markup: tools.markup && MARKUP_TOOL_NAME,
         activity: tools.activity && QUERY_ACTIVITY_TOOL_NAME,
         inboxList: tools.inbox && visibleToolName("inbox_list", "claude"),
         inboxGet: tools.inbox && visibleToolName("inbox_get", "claude"),
@@ -682,6 +719,7 @@ function buildAppend(
         turnTemp: tools.turnTemp && TURN_TEMP_TOOL_NAME,
         referenceSource: tools.reference && visibleToolName("reference_source", "claude"),
         referenceWorktree: tools.reference && visibleToolName("reference_worktree", "claude"),
+        referenceRead: tools.reference && visibleToolName("reference_read", "claude"),
         ...Object.fromEntries(COMPUTE_SURFACE_KEYS.map(([key, name]) => [key, tools.compute && visibleToolName(name, "claude")])),
       },
     })

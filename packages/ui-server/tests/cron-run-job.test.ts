@@ -10,7 +10,7 @@ import {
   runJob,
 } from "../src/cron/run-job";
 import { createUiDb } from "../src/db/client";
-import type { HostBoundary } from "../src/brain/host-boundary";
+import { brainCommandClass, type HostBoundary } from "../src/brain/host-boundary";
 import { emitCrontab, TRUSTED_JOB_NAMES } from "../src/cron/emit";
 import { BRAIN_BIN, cleanup, keylessEnv, makeTempBrain } from "../../core/tests/cli-harness";
 import { git, initRepo } from "../../core/tests/git-fixture";
@@ -123,7 +123,7 @@ describe("cron runJob", () => {
     expect(exitCode).toBe(23);
     expect(stdout.read()).toBe("job stdout\n");
     expect(stderr.read()).toContain("[cron-run] tracking unavailable (job runs anyway):");
-    expect(stderr.read().endsWith("job stderr\n")).toBe(true);
+    expect(stderr.read()).toEndWith("job stderr\n");
   });
 
   test("tees both streams verbatim and exports the span sink to the argv child", async () => {
@@ -215,7 +215,7 @@ describe("cron runJob", () => {
     expect(recorded?.error).toBe(`exit code 9; stderr tail: ${stderrTail}`);
     expect(recorded?.error).not.toContain("stderr-head:");
     expect(recorded?.output).toHaveLength(WIRE_OUTPUT_TAIL_CHARS);
-    expect(recorded?.output?.endsWith(":stderr-tail")).toBe(true);
+    expect(recorded?.output).toEndWith(":stderr-tail");
     expect(recorded?.output).not.toContain("stderr-head:");
   });
 
@@ -372,7 +372,7 @@ describe("a failed brain maintain cron run", () => {
       const db = createUiDb(dbPath);
       const row = db.query("SELECT error_message FROM cron_runs WHERE job_name = 'maintain'").get() as { error_message: string } | null;
       db.close();
-      expect(row?.error_message.startsWith("exit code 2; stderr tail: ")).toBe(true);
+      expect(row?.error_message).toStartWith("exit code 2; stderr tail: ");
       expect(row?.error_message, "CRON_RECORD_DROPPED_NOISE_HEAD").not.toContain("provider unavailable (0)");
       expect(row?.error_message, "CRON_RECORD_NAMES_FAILED_STEP").toContain("brain maintain: FAILED step(s): git (fatal: bad boolean config value");
     } finally {
@@ -585,7 +585,9 @@ describe("cron runs jobs through the exec wrapper", () => {
   test("no trusted job name can be a namespaced module job", () => {
     // Module jobs are always `<module>-<entry>`, so a trusted name with a `-`
     // is the one way the namespacing alone would stop protecting it.
-    for (const name of TRUSTED_JOB_NAMES) expect(name).not.toContain("-");
+    // The digest is trusted (see above), so the set is never empty here.
+    expect([...TRUSTED_JOB_NAMES]).toContain("digest");
+    expect([...TRUSTED_JOB_NAMES].filter(name => name.includes("-"))).toEqual([]);
   });
 });
 
@@ -611,6 +613,27 @@ test("a job through the host boundary ends only once its launch has settled", as
     settlement.resolve();
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("propagation runs as exclusive credentialed maintenance while interactive hygiene stays credential-free", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "brain-cron-propagation-"));
+  const seen: { credentials: boolean; gate: string; argv: readonly string[] }[] = [];
+  const boundary = { isolated: () => true, launch: async (request: { credentials: boolean; gate: string; argv: readonly string[] }) => {
+    seen.push(request);
+    return { stdout: stream(), stderr: stream(), exited: Promise.resolve(0), settled: Promise.resolve(), signalCode: null, kill() {} };
+  } } as unknown as HostBoundary;
+  try {
+    for (const [jobName, command] of [["hygiene", ["brain", "hygiene", "reconcile"]], ["hygiene-propagation", ["brain", "hygiene", "propagation", "--json"]]] as const) {
+      expect(await runJob({ jobName, command: [...command], dbPath: join(dir, "brain-ui.db"), childEnv: { TYPESAFE_API_KEY: "fixture-key" }, exec: {}, boundary,
+        stdout: textSink().sink, stderr: textSink().sink }, { sinkPath: join(dir, "sink.jsonl") })).toBe(0);
+    }
+    expect(seen.map(r => ({ credentials: r.credentials, gate: r.gate }))).toEqual([
+      { credentials: false, gate: "shared" }, { credentials: true, gate: "exclusive" },
+    ]);
+    expect(brainCommandClass(["hygiene", "--json", "next"])).toEqual({ credentials: false, gate: "shared" });
+    expect(brainCommandClass(["hygiene", "--json", "propagation"])).toEqual({ credentials: true, gate: "exclusive" });
+    expect(brainCommandClass(["hygiene", "propagation", "--dry-run"])).toEqual({ credentials: true, gate: "exclusive" });
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 // #3380: a module job's own subprocess that writes a read-only host path in a

@@ -113,6 +113,8 @@ export type PermissionDecision =
   | { behavior: "deny"; message: string };
 
 export interface PermissionRequest {
+  /** @internal Host snapshot for withdrawing stale cards; never client authority. */
+  admissionSnapshot?: import("./admission-safety.js").AdmissionSafetySnapshot;
   toolUseId: string;
   toolName: string;
   input: Record<string, unknown>;
@@ -136,6 +138,12 @@ export interface PermissionRequest {
    * @experimental
    */
   outsideEnforcedAllowlist?: boolean;
+  /**
+   * Host-verified facts the card shows, display only (#4154). Sent with the
+   * approval frame; never part of `input`, never compared with the answer,
+   * never authority.
+   */
+  display?: import("../protocol.js").ApprovalDisplay;
 }
 
 export interface AskUserResult {
@@ -171,6 +179,10 @@ export interface LocationFix {
  * @experimental Part of the `AgentBackend` seam.
  */
 export interface BackendBridge {
+  /** @internal Worker-to-host final admission after local rewrite/lock waits. Never an approval surface. */
+  commitToolAdmission?(toolUseId: string, toolName: string, input: Record<string, unknown>): Promise<void>;
+  /** @internal Live host state, never sent to a worker or model provider. */
+  admissionSafety?: import("./admission-safety.js").AdmissionSafety;
   /** @internal Host-owned versioned input collection. Await before executing a
    * tool and before returning its result to the provider. Never a grant. */
   inputSafety?: {
@@ -179,6 +191,36 @@ export interface BackendBridge {
     unavailable?(): Promise<void>;
     begin(toolUseId: string, toolName: string, input: Readonly<Record<string, unknown>>): Promise<void>;
     result(toolUseId: string, toolName: string, output: string, finalized: boolean, segments?: readonly string[]): Promise<void>;
+    /** @internal A tool ran, but its result report was refused before `result`
+     * could record it: the turn's chat keeps a permanent gap. Resolves once
+     * that gap is durable. */
+    lost?(toolUseId: string, toolName: string, cause: unknown): Promise<void>;
+    /** @internal The runtime asks the backend to admit one call under this
+     * id, for this tool. Call it once per admission, before the backend
+     * decides anything about it, however many gates (hooks, callbacks) that
+     * one admission passes through. An id admitted more than once, or under
+     * more than one tool name, is never discharged by a refusal. A backend
+     * that calls `refused` must call this too. */
+    admitting?(toolUseId: string, toolName?: string): void;
+    /** @internal The backend refused a call with this id. Every call `begin`
+     * admits owes its `result` from then on; still owed when the turn ends,
+     * it leaves the turn's chat a permanent gap. A refusal discharges it only
+     * when it proves the call never ran: `denied` (the backend itself
+     * answered the admission with a deny before the call could run), for an
+     * id admitted exactly once and never `allowed`. Any other refusal (a
+     * rejected request, a second admission of the id, a refusal after an
+     * allow) leaves it to the recorded `result`. Every refusal refuses later
+     * `begin` and `allowed` calls for the id. Call it for every refusal the
+     * backend returns, before returning it. Never rejects. */
+    refused?(toolUseId: string, denied?: boolean): Promise<void>;
+    /** @internal The backend's last check before it lets this call run; from
+     * then on no refusal under the id discharges its call. Call it before
+     * returning every allow, and hand out nothing the call could use (a
+     * grant, a capability) until it resolves; a backend that calls `refused`
+     * must call this too. Rejects when the call's id was refused or its
+     * latest `begin` did not complete; the backend then refuses the call
+     * instead. */
+    allowed?(toolUseId: string): Promise<void>;
   };
   /** Validated, exact-base policy proposal; the server owns its explicit approval and write. */
   proposePolicyChange?(requestId: string, input: import("../tool-contracts/policy.js").PolicyChangeInput): Promise<import("../tool-contracts/policy.js").PolicyChangeReview>;
@@ -221,6 +263,15 @@ export interface BackendBridge {
    */
   requestMask?(imagePath: string, instruction?: string): Promise<Uint8Array>;
   /**
+   * Ask the user to mark up an image (#3975). Host-owned end to end: the host
+   * opens the editor, receives the layer over its bounded upload route,
+   * rechecks the source, authority and destination, writes the layer under
+   * `.brain/scratch/markup/` and resolves with the receipt. Rejects when the
+   * user closes the editor, the turn is cancelled or any recheck refuses.
+   * Absent means the host cannot apply markup, and the tool refuses.
+   */
+  requestImageMarkup?(input: import("../tool-contracts/bridge.js").RequestImageMarkupInput): Promise<import("../tool-contracts/bridge.js").ImageMarkupPayload>;
+  /**
    * Prune scratch after a tool writes. `produced` names canonical, slash-separated
    * brain-relative files that the host MUST retain for this pass, alongside its
    * retained-conversation pins. Never rejects; absent when there is no scratch pass.
@@ -249,7 +300,8 @@ export interface BackendBridge {
   /**
    * Shared reference source and managed worktrees (#2432). The host binds the
    * principal, turn and worker generation; the call carries only the tool and
-   * its parsed input. Refusals resolve as `{ ok: false }`.
+   * its parsed input. Immutable reads additionally carry the runtime's actual
+   * toolCallId separately from model-authored input. Refusals resolve as `{ ok: false }`.
    */
   referenceAccess?(call: import("../tool-contracts/reference.js").ReferenceToolCall): Promise<import("../tool-contracts/reference.js").ReferenceToolResult>;
   /**
@@ -266,12 +318,27 @@ export interface BackendBridge {
    */
   apify?(call: import("../tool-contracts/apify.js").ApifyToolCall): Promise<import("../tool-contracts/apify.js").ApifyToolResult>;
   /**
+   * One host GitHub tool (#3797). The host binds principal, session and turn
+   * and holds the dedicated credential; the call carries the tool's parsed
+   * input only. Every refusal resolves as `{ ok: false, tool, error }`.
+   */
+  github?(call: import("../tool-contracts/github.js").GithubToolCall): Promise<import("../tool-contracts/github.js").GithubToolResult>;
+  /**
    * Read one composer original the calling session was sent (#3154). The
    * host binds session, principal and turn, re-checks the reference and the
    * digest, and enforces every bound; the call carries the parsed input only.
    * Every refusal resolves as a result with its outcome.
    */
   readAttachment?(input: import("../tool-contracts/attachment.js").ReadAttachmentInput): Promise<import("../tool-contracts/attachment.js").AttachmentReadResult>;
+  /**
+   * One host-owned web tool call (#3685): `web_search`, `fetch_content`,
+   * `get_search_content` or `source_check`. The host binds principal, session,
+   * turn, profile, policy revision and cancellation from the authenticated
+   * turn, runs the call in its own executor and maps result handles to the
+   * calling session; the call carries the parsed input and the model's call id
+   * only. Every refusal resolves as `{ ok: false, error }`.
+   */
+  webAccess?(call: import("../tool-contracts/web.js").WebToolCall): Promise<import("../tool-contracts/web.js").WebToolEnvelope>;
 }
 
 /** A read over the activity record, shaped for model consumption. */
@@ -302,6 +369,9 @@ interface PolicyCommandRecord<L extends "commands.deny" | "commands.confirm"> {
 }
 
 export type BackendActivityEvent =
+  | { /** Host cleanup facts may arrive after the turn ended; no provider-facing content. */
+      kind: "worker_cleanup"; state: "retrying" | "resolved"; bytes: number; turnTempBytes: number;
+      errorClass?: string; message?: string }
   | { kind: "prompt_prefix"; prefix: import("../protocol.js").PromptPrefixFingerprint; resumed: boolean }
   | { kind: "first_request_cache"; usage: import("../protocol.js").FirstRequestCacheUsage }
 

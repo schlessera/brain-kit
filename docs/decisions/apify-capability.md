@@ -35,7 +35,7 @@ egress, outward rules and recipient restrictions, but no discovery or Actor gran
 fields (`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:101-130`).
 Name-based permission admission cannot distinguish different Actors supplied to
 one execution tool (`decideToolPermission`,
-`packages/ui-sdk/src/server/permission-gate.ts:62-92`). Provider accounting is
+`packages/ui-sdk/src/server/permission-gate.ts:63-93`). Provider accounting is
 already attributed and settled on the host (`observeProvider`,
 `packages/ui-server/src/brain/turn-budgets.ts:223-237`).
 
@@ -407,6 +407,14 @@ both chat backends; none widens it.
   lock. Nothing is asked on a terminal: only an exact grant admits a run.
   Neither variable reaches a worker, so a shell call inside a chat turn
   refuses.
+- **A chat turn sees only the host's copies (#3788).** An interactive Claude
+  turn loads the brain's `.mcp.json`, whose core server registers the same
+  `brain_apify_*` names and descriptions. Inside a worker those copies can
+  only refuse with `ledger_unset`, so every Claude session disallows the
+  `mcp__brain__brain_apify_*` names, whatever the configuration, as it does
+  the in-worker compute tools; the tool list never depends on it
+  ([provider-history.md](provider-history.md)). Pi has no MCP client: its
+  `brain_apify_*` tools are the host bridge's.
 - **Two additive codes.** `provider_unavailable` (the API could not be reached
   or verified, so nothing was admitted) keeps that case distinct from an
   incompatible answer; `invalid_input` is the operation's own refusal before

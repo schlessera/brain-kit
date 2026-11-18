@@ -211,7 +211,7 @@ async function main(): Promise<number> {
   const hygieneNext = hygienePositionals[0] === "next";
   // An invalid config blocks commands that depend on a correct taxonomy.
   const configBlockerCheck = hygienePositionals[0] === "check" && hygienePositionals[1] === "configuration-blocker";
-  const hygieneRepairWrite = (["resolve", "undo"].includes(hygienePositionals[0]) && hygieneArgs?.flags["dry-run"] !== true) ||
+  const hygieneRepairWrite = (["resolve", "undo", "propagation"].includes(hygienePositionals[0]) && hygieneArgs?.flags["dry-run"] !== true) ||
     (hygienePositionals[0] === "check" && !configBlockerCheck);
   if (configError && !TOLERATE_CONFIG_ERROR.has(command) && !hygieneNext && !configBlockerCheck) {
     console.error(`Invalid brain.config:\n${configError}`);

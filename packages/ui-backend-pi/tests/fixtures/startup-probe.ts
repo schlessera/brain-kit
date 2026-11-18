@@ -38,7 +38,8 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
 } });
 writeFileSync(join(agent,"models.json"), JSON.stringify({providers:{anthropic:{baseUrl:server.url.origin,apiKey:"offline-fixture"}}}));
 writeFileSync(join(agent,"settings.json"), JSON.stringify({retry:{enabled:false}}));
-const backend = createPiBackend({brainPath:brain,sessionDir:sessions,profiles:[{id:"fixture",label:"Fixture",vendor:"anthropic",model:"claude-sonnet-4-6",thinkingLevel:"off"}],
+// Discovery is opt-in since #3658; the refusal run below needs it on.
+const backend = createPiBackend({brainPath:brain,sessionDir:sessions,loadExtensions:true,profiles:[{id:"fixture",label:"Fixture",vendor:"anthropic",model:"claude-sonnet-4-6",thinkingLevel:"off"}],
   log(_level, message, meta) { if (current && message.startsWith("Pi startup")) current.phases.push({message,...meta}); } });
 const sandbox = prepareWorkerSandbox(brain,{profile:"strict",areas:[]});
 async function run(kind: string, sessionId?: string) {

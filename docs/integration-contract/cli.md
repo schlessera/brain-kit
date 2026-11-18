@@ -268,6 +268,7 @@ environment carries. A built-in provider whose key is withheld from the process
 | Anthropic completions | `anthropic` | `POST /v1/messages` |
 | OpenAI images | `openai` | `POST /v1/images/generations`, `/v1/images/edits` (multipart) |
 | Gemini images | `gemini` | `POST /v1beta/interactions` |
+| `jev` reranker (additive, 0.45.0, #3792) | `typesafe` | `POST /v1/systemone` |
 
 The request keeps its method, path, body and content headers. The CLI drops
 every credential header and adds three headers that are names, never values:
@@ -290,9 +291,22 @@ built-in providers retry as a transient error.
 A seam that is only available through the relay counts as configured: hybrid
 `brain search` embeds its query, `brain process` completes, `brain image` lists
 the provider's models, `brain video watch` uploads a local video (additive,
-0.45.0, #2738). Without the variable, or for a key that is set or never
-withheld, a provider behaves as before. The `jev` reranker is not relayed and
-keeps the `provider_unavailable` notice. Existing JSON envelopes are unchanged.
+0.45.0, #2738), and an enabled `jev` reranker reranks `brain search` and
+`brain_search` (additive, 0.45.0, #3792). Without the variable, or for a key
+that is set or never withheld, a provider behaves as before: on a host without
+the relay, the `jev` reranker keeps the `provider_unavailable` notice and
+lifecycle order. Existing JSON envelopes are unchanged.
+
+The `jev` reranker's family (additive, 0.45.0, #3792). `typesafe` relays only
+`POST /v1/systemone` without a query string; any other method, path or query
+under it is refused before contact. Its key, `TYPESAFE_API_KEY` by default,
+goes only to `https://api.typesafe.ai`, as `Authorization: Bearer`, unless the
+operator lists that key and an exact origin in `BRAIN_UI_CLI_PROVIDER_ORIGINS`;
+a custom `apiKeyEnv` needs its own listing. Each request is one metered
+attempt with operation `reranking`, carrying the usage the response reports.
+No rate is held for it, so its cost is unknown, never zero. The relay carries
+it for governed and strict turn workers; a credentialed maintenance worker
+keeps `TYPESAFE_API_KEY` and calls the provider directly, as before.
 
 The video files lifecycle (additive, 0.45.0, #2738). The relay answers a
 resumable upload start with an `x-goog-upload-url` of its own,
@@ -467,11 +481,19 @@ the file enables it. Since #3160 (additive) `apify` also carries
 `expires_at` normalized to an ISO 8601 UTC instant. Since #3161 (additive)
 `apify` also carries `limits`, `null` unless the file sets the complete
 [limits object](../supported-inputs.md#governance-policy).
+Since #3798 (additive), `effective.outward` also includes
+`github: { repositories: [] }` by default, or the file's validated
+`outward.github.repositories` entries in their order and spelling.
 Since #3607 (additive), `effective.taint` also includes `trusted_sources: []`
 by default, or the complete validated canonical trust entries from the
 [supported input](../supported-inputs.md#prospective-trust-policy-data-additive-3607),
 with explicit incoming/recipient defaults. This reports data, not a runtime
 trust exemption or new review capability; sticky taint enforcement is unchanged.
+Since #4088 (additive), `effective.taint` also includes `classifier`, `"off"`
+unless the file sets `"heuristics"`.
+Since #4089 (additive), `effective.taint` also includes `judge`,
+`{ "mode": "off", "floor": 0.9 }` unless the file sets `mode: jev` or a
+`floor` from 0.5 to 1.
 Valid and missing inputs exit 0 with `ok: true`, and invalid inputs exit 1 with
 `ok: false`. Missing inputs have a null hash, no errors and built-in defaults.
 Invalid input returns defaults, its validation errors, and a hash when its bytes
@@ -609,18 +631,19 @@ resumption. The host must retain a successful complete export at least every
 |---------|-------|
 | `brain search "q" --json` | `{ "results": SearchResult[], "warnings": string[] }` — `warnings` reports degraded modes (no vectors, model mismatch, missing key, a reranker that did not run, a [withheld provider key](#withheld-provider-keys-additive-0440-1666)). `--rerank none\|heuristic\|jev`: `jev` added in 0.39.0, additively; unset, the configured `reranker.provider` (judgment requires `reranker.enabled: true`; otherwise local `heuristic`, or `none` when selected). `--rerank-dry-run` (0.39.0) prints the reranker's outbound request to stderr and sends nothing, even while disabled or keyless. Date filters `--updated-since`, `--updated-before`, `--deadline-from`, `--deadline-to` (`YYYY-MM-DD`, inclusive; a deadline filter drops undated docs), `--sort score\|updated\|deadline` (default `score`; `updated` newest first, `deadline` earliest first with undated docs last) and `--upcoming` (= `--deadline-from <today, UTC> --sort deadline`) added in 0.38.0, additively. Stored dates are compared as their UTC day (sorts keep full timestamp precision). A stored value counts only as an ISO `YYYY-MM-DD`, optionally followed by `T` or a space, `HH:MM`, seconds, a fraction and a `Z` or `±HH:MM` offset. Anything else, `2026-02-30` and `now` included, counts as missing: it matches no bound and sorts last. With a query, a date sort picks the results by date from a candidate pool: the full-text lane's best `max(limit × 20, 500)` documents, plus the documents behind the vector lane's nearest chunks (at most that many documents, from at most 500 chunks). An invalid date or sort is a usage error (exit `1`). `--limit` is a whole number of `1` or more, default `20`, with no upper bound; the whole argument must be an integer literal. `--mode` is `fts`, `vector` or `hybrid`. Anything else (`--limit abc`, `0`, `-5`, `1.5`, `10abc`, an empty value, `--mode bogus`, or either flag, or a filter flag, without a value) is a usage error (exit `1`, a message on stderr, nothing on stdout) in human and JSON modes, and no query runs. **Breaking in 0.45.0 (#1352):** `--limit` used to be read with `parseInt`, so `10abc` searched with 10 and `1.5` with 1, `abc` came back as an empty result with an `FTS search failed: datatype mismatch` warning, and `0` or a negative was passed on to the query; an unknown `--mode` ran neither lane and returned nothing, without a warning |
 | `brain audit --json` | `{ "issues": AuditIssue[], "errors", "warnings", "infos", "mustFix", "informational" }` — markdown documents only (assets excluded). The three severity counts are the number of issues at each severity. `mustFix` is `errors + warnings` and `informational` is `infos` (both additive in 0.40.0): severity stays the one classification, and the two totals only name its halves. Every count is of issues, not of markers. **Breaking in 0.40.0:** `todo` and `verify` issues are grouped, one per document and category (see [`AuditIssue`](#auditissue)), and `verify` is `info` instead of `warning`, so a brain with markers reports fewer issues and fewer warnings than before for the same content. **Additive in 0.41.0:** `brain audit --fix --json` returns `AuditFixResult[]`, one result per finding in finding order: `{ path, issue, suggestion, canAutoFix, fix?, repair? }`. `path` is the finding path, `issue` its message, and `suggestion` its own advice (or "Manual review needed."); an unavailable `index-stale` instead names the failed repair premise, or says no registry content change is required. `canAutoFix` is true only for an actually available deterministic registry repair: safe contained path, valid opted-in registry with a content change, configured child types and no validation errors under the index directory. Available results also carry `repair: { capability: "registry", path: <index path> }`; all other categories and failed premises are manual with no `repair`. `repair` describes availability, grants no permission, and applies nothing. Optional `fix` means exact replacement text; this command never emits it. No completion provider is called, even if configured |
-| `brain context "q" --max-tokens N` | assembled markdown context (text). `--max-tokens` is a whole number of `1` or more, default `4000`; anything else (`abc`, `0`, `1.5`, or no value) is a usage error (exit `1`) and no query runs. **Breaking in 0.45.0 (#1352):** it used to be read with `parseInt`, so `10abc` meant 10 and `abc` reached the assembler as `NaN` |
+| `brain context "q" --max-tokens N` | assembled markdown context (text). Repeatable `--include <path>` and `--exclude <path>` (additive, 0.45.0, #3644) scope every lane and add a `### Coverage` note after the context; see [Scoped context](mcp.md#scoped-context-additive-0450-3644). `--max-tokens` is a whole number of `1` or more, default `4000`; anything else (`abc`, `0`, `1.5`, or no value) is a usage error (exit `1`) and no query runs. **Breaking in 0.45.0 (#1352):** it used to be read with `parseInt`, so `10abc` meant 10 and `abc` reached the assembler as `NaN` |
 | `brain read <path> [--section <heading>] [--max-tokens N]` | the document text; the flags behave as `brain_read`'s `section` and `max_tokens`, and an unknown section exits `1` (flags additive in 0.38.0) |
+| `brain read-many <path>... [--max-total-chars N] [--max-item-chars N] --json` | Additive in 0.45.0 (#3642). The `brain_read_many` envelope `{ "items", "truncated", "max_total_chars", "max_item_chars", "warnings" }`, printed as compact JSON so its length is the size the caps count; `warnings` is `[]`. `--input <file.json>` or `--stdin` takes the MCP input object instead (`requests` with `section`, `offset`, `column` and `expected_sha256`, plus the caps), and then the cap flags are refused. An absolute argument inside the brain is taken as brain-relative, as `brain read` takes it. Invalid input (no request or more than 20, a cap out of range or not an integer literal, two input forms, unreadable or malformed JSON) is a usage error: exit `1`, a message on stderr, nothing on stdout, nothing read. Item errors are items, exit `0`. Items, codes and caps: [Bounded multi-read](mcp.md#bounded-multi-read-additive-0450-3642) |
 | `brain briefing` | briefing text (mechanical: deadlines, reviews due, silent edits — no LLM). `--limit` (recently active documents) is a whole number of `1` or more, default `15`; anything else (`abc`, `0`, `1.5`, or no value) is a usage error (exit `1`). **Breaking in 0.45.0 (#1352):** a malformed `--limit` used to fall back to 15 silently, and `10abc` meant 10 |
 | `brain index [--force] [--embeddings] --json` | `{ "total", "added", "updated", "deleted", "unchanged", "chunks", "embeddings", "assets", "graphMs", "graphNodes" }`, all numbers, each counting this run only. See [`brain index` counters](#brain-index-counters). Incremental by default, `--force` = full rebuild, `--incremental` accepted as no-op |
 | `brain index --forget-cache <path> --json` | `{ "path", "forgotten" }` — `forgotten` is the number of sidecar lines removed for that document or asset (for an asset, every line for its bytes, whatever the title). Runs no index pass; the next `--embeddings` run regenerates what was forgotten. A path not in the index is a usage error (additive in 0.38.0) |
 | `brain index --compact --json` | `{ "compacted", "before": { "live", "allocated" }, "after": { "live", "allocated" } }` — rebuilds `vec_chunks` from its live rows and runs `VACUUM`, reclaiming the slots deleted vectors leave behind; `before`/`after` have the shape of `brain stats` `size.db.vectorSlots`. `compacted` is `false` only when there is no vector table. Makes no provider call and runs no index pass (additive in 0.38.0) |
 | `brain maintain --json` | `[{ "step", "result" }]` in run order: `registry`, `index`, `vectors`, `audit`, `stats`, `tags`, `git`, `scratch`. The `stats` step also carries additive `trends` (see "Recorded corpus trend verdicts"), evaluated before recording. The `stats` step (additive in 0.40.0) is `brain stats --record`: `ok — recorded <date> in .stats-history.jsonl (<n> snapshot(s) kept[, <m> older thinned])`, or `ok — replaced …` on a second run the same day. The `registry` step (additive in 0.38.0) is `brain registry`: `ok — <written> of <indexes> table(s) rewritten`, `FAILED — …` when an index's `registry:` block is invalid. `result` is a human-readable string that starts with `FAILED` when the step failed (and the exit code is `2`); the `tags` step never fails, and reports `skipped — …` instead. The `audit` step's result is `<errors> error(s), <warnings> warning(s), <infos> info(s); <mustFix> must-fix, <informational> informational`, the totals `brain audit --json` reports for the same run (the must-fix and informational part additive in 0.40.0; the counts follow the grouped `todo`/`verify` issues from 0.40.0). The `vectors` step (additive in 0.38.0) compacts the vector table the way `brain index --compact` does, only when fewer than half its slots are live and at least one internal chunk would be freed; otherwise it reports `ok — <live> of <allocated> slots live, nothing to reclaim`, and `skipped — …` when the slots cannot be read |
 | `brain registry [--check] --json` | `{ "indexes", "written", "stale", "invalid": [{ "path", "error" }] }` (additive in 0.38.0). Regenerates the registry table of every `_index.md` whose frontmatter has a `registry:` block. `indexes` counts them, valid or not. `written` lists the files rewritten. `stale` lists out-of-date indexes left as they are: all of them under `--check`, which writes nothing, and otherwise one whose file changed between being read and being written (it is regenerated on the next run). `invalid` lists indexes that cannot be generated, which are left untouched: a `registry:` block that does not validate, an index or a child that cannot be read, whose frontmatter does not parse, or whose frontmatter opens and never closes (an `_index.md` whose frontmatter does not parse counts when it has a `registry:` line, quoted or not), or malformed region markers. Exit `1` under `--check` when anything is stale or invalid, `2` without it when anything is invalid, else `0` |
-| `brain list --json` | `ListedDocument[]` — a bare array, newest `updated` first. Filters: `--type`, `--tag`, `--status`, `--relevance`. `--limit` is a whole number from `1` to `100`, default `20`; the whole argument must be an integer literal. Anything else (`abc`, `10abc`, `1.5`, `0`, `-1`, `101`, or `--limit` with no value) is a usage error (exit `1`, a message on stderr, nothing on stdout) in human and JSON modes, and no query runs. **Breaking in 0.41.0 (#1351):** `--limit` used to be read with `parseInt`, so `10abc` listed 10, `1.5` listed 1, `abc` was passed through as `NaN`, and values above 100 were honoured |
+| `brain list --json` | `ListedDocument[]` — a bare array, newest `updated` first. With `--path-prefix <path>`, `--overview` or `--cursor <cursor>` (additive in 0.45.0, #3643) it prints one bounded page instead, `{ "documents", "next_cursor", "total", "truncated"?, "warnings" }`, the same object `brain_list` returns for the same inputs, specified in [the paged inventory](../content-index-queries.md#paged-inventory-and-the-overview-projection); a malformed prefix or cursor, or a cursor from another listing, is a usage error (exit `1`, nothing on stdout). Filters: `--type`, `--tag`, `--status`, `--relevance`. `--limit` is a whole number from `1` to `100`, default `20`; the whole argument must be an integer literal. Anything else (`abc`, `10abc`, `1.5`, `0`, `-1`, `101`, or `--limit` with no value) is a usage error (exit `1`, a message on stderr, nothing on stdout) in human and JSON modes, and no query runs. **Breaking in 0.41.0 (#1351):** `--limit` used to be read with `parseInt`, so `10abc` listed 10, `1.5` listed 1, `abc` was passed through as `NaN`, and values above 100 were honoured |
 | `brain add "<content>" --json` | `{ "action": "created"\|"appended", "path", "title", "type", "indexed", "indexError"? }` — `path` is repo-relative. `indexed` is `false` when the file was written but the reindex after it failed, and `indexError` (a string) is present only then. `appended` means the content went under a new dated heading in an existing document of the same title and type. `--smart` hands the capture to the coding agent and prints its text instead |
 | `brain sync` | `{ run, agent }` in machine mode (`--json`, or stdout not a TTY); its text report in human mode (`--human`, or a terminal). With no verb, `sync` runs `brain sync run`. When an agent runner is configured and the run needs one (a conflict no strategy merges, or an `UNKNOWN` leftover), it then runs the `/sync` skill and exits `0`. Media never needs one: since 0.45.0 (#2780) a `MEDIA`/`LARGE` leftover is not handed to the agent, at a terminal or not, and hygiene review decides it. The `report` names no media path: when the run assessed media, it ends with one line, `Media awaiting review: N`, then ` · M set aside` (valid dismissed or snoozed) and ` · K kept as a copy` when non-zero, then ` · review in Actions` while `N` is above zero. A report without media is unchanged. `run.leftovers.mediaPending` and `run.leftovers.mediaSetAside: { dismissed, snoozed, kept }` carry those numbers; they are computed offline from the same inventory and disposition rules as `brain hygiene next`'s `media`. Media never changes `status` or the exit code. Without an agent runner the exit code is `run`'s: `0` complete, `1` failed, `3` something left for judgment: a conflict no strategy merges (left in progress, nothing pushed) or a file holding conflict markers (left uncommitted, never pushed). An agent run that fails exits `2`, its error on stderr. **Machine mode** prints exactly one JSON document on stdout, whatever the agent did, and nothing else: no report, no progress, no agent text beside it. `run` is the envelope `brain sync run --json` prints (its `status` and `report` are contract; its other fields drive the `/sync` skill and are not). `agent` is `{ invoked: false, reason: "not-needed" \| "no-runner" }` — `no-runner` when the run needed an agent and none was available — or `{ invoked: true, runner: string, outcome: "success" \| "failed", runtime: { name: string, version: string \| null } \| null, text: string \| null, error?: string }`. `runtime` is what that agent run reported about itself while it ran, never probed and never taken from another run: `null` when it reported nothing (a runner that does not report, or a run that ended first), `version: null` when it named itself without a version. The built-in `claude` runner reports `{ name: "claude-code", version }` from the Claude Code session's `system`/`init` event (`claude_code_version`), the field chat records as `runtime_observed`. A failed agent run still prints the result, with `outcome: "failed"`, `text: null`, `error`, and any runtime it reported before failing. Not invoking an agent says nothing about model cost: the sync judge and enrichment can call a model without one. **Human mode** prints the report, then the agent's final text when it ran, with tool progress on stderr. **Breaking in 0.40.0 (#290):** bare `sync` printed its text report in every output mode, so a caller that read stdout as text passes `--human`, or reads `run.report` and `agent.text`. **Breaking in 0.39.0:** it used to run the agent unconditionally, print only the agent's text, and exit `1` when no agent runner was available. The verb is the first positional argument, so output-mode flags may come before it: `brain sync --json` is still the bare form, and `brain sync --json assess` is `assess --json`. An unknown flag exits `1` (`Unknown flag: --x`). The mechanical verbs (`run`, `assess`, `group`, `commit`, `stash`, `pull`, `resolve`, `conflicts`, `conclude`, `push`, `post-sync`) follow the usual output mode — JSON when stdout is not a TTY or with `--json`, otherwise command-specific human-readable text — and their shapes, which exist for the `/sync` skill to drive, are not part of this contract |
-| `brain module list --json` | `{ "enabled": [{ "name", "key", "description", "types", "commands", "tools": string[], "cron": [{ "name", "schedule", "command" }], "state": "active" \| "dormant", "contextTokens": number }], "available": [{ "key", "description", "enabled": false }] }` — Existing fields and envelope are retained. The historical `enabled` array includes every configured module, even dormant ones. `key` is the module's `brain.config` key. `types` and `commands` are its declared type names and CLI words; `tools` stays the declared canonical names. `description` is from package.json, or null. Each configured module additionally includes `version: string | null` from package.json and `renderers: Record<string, { fences?: string[], extensions?: string[], client: string, static?: string }>` (empty object when absent). Dormant modules retain their declared renderer metadata; only active modules participate in dispatch. `/api/modules` passes through this metadata. `available` lists declared packages absent from config. `cron` is shape-constrained and empty for dormant modules. `contextTokens` is a nonnegative integer active-context estimate (see Module dormancy below). |
+| `brain module list --json` | `{ "enabled": [{ "name", "key", "description", "types", "commands", "tools": string[], "cron": [{ "name", "schedule", "command" }], "state": "active" \| "dormant", "contextTokens": number }], "available": [{ "key", "description", "enabled": false }] }` — Existing fields and envelope are retained. The historical `enabled` array includes every configured module, even dormant ones. `key` is the module's `brain.config` key. `types` and `commands` are its declared type names and CLI words; `tools` stays the declared canonical names. `description` is from package.json, or null. Each configured module additionally includes `version: string | null` from package.json and `renderers: Record<string, { fences?: string[], extensions?: string[], client: string, static?: string }>` (empty object when absent). Each configured module also includes `repositories: string[]` (empty when none are declared), the repositories its config asks the host to fetch for its cron jobs ([package API](package-api.md#module-repositories)); a module that fails to load omits it. Dormant modules retain their declared renderer metadata; only active modules participate in dispatch. `/api/modules` passes through this metadata. `available` lists declared packages absent from config. `cron` is shape-constrained and empty for dormant modules. `contextTokens` is a nonnegative integer active-context estimate (see Module dormancy below). |
 | `brain module enable <name> --json` / `disable <name> --json` | `{ "module": string, "state": "active" \| "dormant", "changed": boolean, "context": { "entered": string[], "left": string[] } }` — Toggle a configured manifest name, preserving domain config and documents. Synchronize managed skills and owned instruction regions. Unchanged repeated commands return changed:false. Errors use the existing nonzero-exit/stderr convention. |
 | `brain --version` | text: the core package's SemVer version and a newline, nothing else (`0.37.0`). `-v` is the same. Only as the first argument |
 | `brain config media <add-track\|remove-track\|add-ignore\|remove-ignore> <pattern> (--dry-run \| --expect-sha <sha256> [--expect-approval <digest>]) --json` | Additive in 0.45.0 (#2781). One change to `media.track` or `media.ignore` in a literal `brain.config`, parsed as syntax and never evaluated; a minimal splice keeps every other byte. `--dry-run` writes nothing: `{ "status": "preview", "op", "pattern", "scope": "exact"\|"pattern", "config": { "path", "sha256" }, "configDiff": { "path", "track": { "before", "after" }, "ignore": { "before", "after" } }, "matches": { "pattern", "anyFolder", "count", "bytes", "changed", "ignoredStill", "sensitive", "largest": [{ "path", "bytes", "before", "after" }], "digest" }, "approvalDigest", "refusals": [] }`. `scope` is `exact` for one full path (a `/` and no `*`), `pattern` otherwise; a pattern without `/` matches by name in every folder (`anyFolder`), now and in future. `matches` lists the files `brain sync assess` sees now that the pattern matches, with the class the lists give each before and after (`TRACK`, `ARTIFACT`, `SENSITIVE` or `null`), the five largest first; `ignoredStill` counts those an ignore entry still makes `ARTIFACT`, `sensitive` the secret-shaped ones sync never commits; `digest` covers every match. `approvalDigest` binds the config SHA-256, the diff and `matches.digest`. Apply writes only while the config still holds `--expect-sha` (otherwise `stale`) and, with `--expect-approval`, while the approval is the same (otherwise `stale-approval`), then reads the config back and restores its pre-image when it does not read as the intended lists (`config-invalid`): `{ "status": "applied", "op", "pattern", "config": { "path", "before", "after" }, "configDiff" }`. Every refusal exits `1` with nothing written: `{ "status": "refused"\|"stale", "op", "pattern", "reason", "refusals": [{ "code", "path"? }] }`, reasons `stale`, `stale-approval`, `already-listed`, `not-listed`, `not-expressible` (a `!` negation), `invalid-pattern`, `config-not-literal` and `config-invalid` |
@@ -1363,3 +1386,77 @@ inference in overall budgets. Caps are admission controls over those observed
 and estimated costs, not a guaranteed final invoice. Terminal reports remain
 reserved until a later observation at least ten seconds after first completion;
 missing reports remain unknown. See the [current decision](../decisions/apify-actor-approval.md).
+
+<a id="propagation-freshness-additive-0450-3452"></a>
+
+## Propagation freshness (additive, 0.45.0, #3452)
+
+`brain hygiene propagation [--dry-run] --json` returns one object:
+
+```ts
+{
+  enabled: boolean;
+  dryRun: boolean;
+  settings: {
+    enabled: boolean; profile: "conservative" | "balanced" | "permissive";
+    minConfidence: number; crossChecks: boolean; maxFiles: number;
+    timeoutMs: number; budgetMs: number; maxInputChars: number; exclude: string[];
+  };
+  model: string; questionVersion: string;
+  acknowledged: number; reviewRequired: number; unavailable: number; deferred: number;
+  changedFiles: string[];
+  findings: Array<{
+    path: string;
+    status: "acknowledged" | "would_acknowledge" | "review_required" | "unavailable" | "deferred";
+    reason: string; cached: boolean;
+    fingerprint?: string; reference?: string;
+    referenceKind?: "explicit" | "derivative-commit";
+    answers?: Record<string, {
+      type: "choice"; choice: string; confidence: number; probabilities: Record<string, number>;
+    }>;
+    sensitivity?: Array<{ minConfidence: number; currencyOnly: boolean; crossChecked: boolean | null }>;
+    changesSinceReference?: Array<{ path: string; unifiedDiff: string }>;
+  }>;
+}
+```
+
+Disabled execution is a no-op with empty findings and no provider/index/log
+work. Enabled execution refreshes the disposable index. Dry-run can call JEV
+but writes no Markdown; its acknowledged count includes `would_acknowledge`
+proposals. `acknowledged` with `cached: true` means an existing receipt passes
+the current policy. `review_required` means a valid judgment failed an
+acceptance gate, not a proved content defect. `unavailable` retains review
+(for example `no-key`, `missing-scope`, `uncommitted-derivative`,
+`missing-reference-history`, `historical-source-not-regular`, `input-size-limit`,
+`config-changed`, `context-changed`, or provider errors). `deferred` is a run
+limit, not acknowledgement. Future reason strings may be added.
+
+With no profile configured, settings report `balanced`, `minConfidence: 0.7`
+and `crossChecks: true`; `enabled` still defaults to false. Explicit profile,
+confidence and cross-check settings override these defaults.
+
+The concrete model is `jev-1.13.0`. The currency Choice must say `still_current`;
+when cross-checks are enabled, both assertions and coverage Choices must say
+`yes`. Every required confidence must meet the current floor. A higher floor
+or extra questions can only remove acceptance on the same saved answers; no
+averaging, voting or multiplication establishes a correctness probability.
+`crossChecked: null` in sensitivity means those answers were not asked.
+Fresh judgments carry the actual source diff; cached receipts need not recompute
+or repeat it. No input is clipped to make it fit.
+
+Successful typed judgments, including negative judgments, are stored in the
+separate [Markdown receipt file](frontmatter.md#propagation-freshness-additive-0450-3452).
+Only an accepted matching receipt suppresses propagation. Different source or
+derivative bytes, scope, UTC observation day or model/question version invalidate
+the match. Policy changes re-apply the current gates to cached answers; missing
+additional answers require a new request. Disabling the feature stops honoring
+the automation's receipts. Read-only audits never call the provider.
+
+Ordinary enabled, non-dry-run `hygiene reconcile` and `hygiene next` run the
+prepass when checks are available. Reconcile adds an optional `propagation`
+report of this shape and includes its receipt path in `changedFiles` when
+written. Existing fields and dispositions retain their meanings. Preview-only
+`next --dry-run` starts no provider work, and reconcile dry-run does not run a
+new model pass. Use the explicit `propagation --dry-run` to inspect prospective
+automation. The operation exits 0 after reporting outcomes, including unavailable
+and deferred cases; usage/configuration errors retain exit 1.

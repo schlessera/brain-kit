@@ -57,6 +57,9 @@ async function invoke(args: string[], exit = 0, imageState: "warm"|"cold"|"drift
       args: process.argv.slice(2), cwd: process.cwd()}) + "\\n");`;
   await writeFile(resolve(root, "node_modules/vitest/vitest.mjs"),
     record.replace("COMMAND", '"vitest"') + "process.exit(Number(process.env.RUNNER_EXIT));");
+  // A stand-in for the container side of the browser repetition gate (#4163), recorded like Vitest.
+  await writeFile(resolve(root, "scripts/browser-determinism-inside.mjs"),
+    record.replace("COMMAND", '"repeat"') + "process.exit(Number(process.env.RUNNER_EXIT));");
   for (const command of ["bun", "docker"]) {
     const script = resolve(root, "commands", command);
     const docker = command === "docker" ? `
@@ -178,6 +181,32 @@ test("inside default serializes browser files in every configured project", asyn
   expect(result.calls[0]!.cwd).toBe(resolve(result.root, "packages/ui-kit"));
 });
 
+test("a repeat plan enters the same container and runs the repetition runner there in place of vitest run (#4163)", async () => {
+  const plan = "--repeat-plan=tmp/browser-determinism/plan.json";
+  const inside = await invoke(["--inside", "--project=rail-fine", plan], 7);
+  // The runner's exit status is the launcher's, and Vitest's CLI is never started: the runner drives Vitest in-process.
+  expect(inside.code, inside.stderr).toBe(7);
+  expect(inside.calls).toEqual([{ command: "repeat", args: ["tmp/browser-determinism/plan.json"], cwd: resolve(inside.root, "packages/ui-kit") }]);
+  const local = await invoke(["--project=ui-react-layout", "--project=visual", plan]);
+  expect(local.code, local.stderr).toBe(0);
+  expect(local.calls.map((call) => call.command), "SAME_HOST_PATH_AS_ANY_BROWSER_RUN").toEqual(["bun", "docker", "repeat"]);
+  const docker = local.calls[1]!.args;
+  expect(docker.slice(docker.indexOf("--inside"))).toEqual(["--inside", "--project=ui-react-layout", "--project=visual", plan]);
+  // The selected projects decide the network exactly as for an ordinary run of them.
+  expect(docker, "LAYOUT_STAYS_OFFLINE").toContain("--network=none");
+  expect((await invoke(["--project=visual", plan])).calls[1]!.args).not.toContain("--network=none");
+});
+
+test("a repeat plan names its projects and a file under tmp/, and nothing else that chooses files", async () => {
+  const plan = "--repeat-plan=tmp/browser-determinism/plan.json";
+  for (const args of [[plan], ["--project=visual", plan, "--shard=1/2"], ["--project=visual", plan, "--update"], ["--project=visual", plan, "--filter=Composer"],
+    ["--project=visual", plan, plan], ["--project=visual", "--repeat-plan=packages/plan.json"], ["--project=visual", "--repeat-plan=tmp/../plan.json"]]) {
+    const refused = await invoke(args);
+    expect([refused.code, refused.calls], args.join(" ")).toEqual([1, []]);
+    expect(refused.stderr).toContain("use --repeat-plan=tmp/<plan>.json once, with --project and no --update, --shard, --filter, --proof-report or scheduling override");
+  }
+});
+
 test("hosted proof adds project-aware case receipts while retaining human output and the runner failure", async () => {
   const result = await invoke(["--inside", "--project=ui-react-endurance", "--proof-report"], 7);
   expect(result.code, result.stderr).toBe(7);
@@ -296,9 +325,9 @@ test("native volume producer failure blocks browser execution and still drains r
   const result = await invoke(["--project=diagrams-chromium"], 0, "warm", 17);
   expect(result.code, "NATIVE_FAILURE_MUST_BLOCK_BROWSER").not.toBe(0);
   expect(result.stderr).toContain("Native diagram producer failed (17)");
-  expect(result.calls.some(call => call.command === "vitest")).toBe(false);
+  expect(result.calls.map(call => call.command)).not.toContain("vitest");
   const calls = (await readFile(resolve(result.root, "native-calls.jsonl"), "utf8")).trim().split("\n").map(line => JSON.parse(line));
-  expect(calls.some(args => args[0] === "cp")).toBe(false);
+  expect(calls.map(args => args[0])).not.toContain("cp");
   expect(await readdir(resolve(result.root, "docker-state/volumes"))).toEqual([]);
   expect(await readdir(resolve(result.root, "docker-state/containers"))).toEqual([]);
 });
@@ -308,7 +337,7 @@ test("missing native origin PDF blocks receipt publication and browser execution
   expect(result.code, result.stderr).not.toBe(0);
   expect(result.stderr, "MISSING_ORIGIN_PDF_MUST_REFUSE_PUBLICATION").toContain("ENOENT");
   expect(result.stderr).toContain("origin.pdf");
-  expect(result.calls.some(call => call.command === "vitest"), "INCOMPLETE_ORIGIN_MUST_BLOCK_BROWSER").toBe(false);
+  expect(result.calls.map(call => call.command), "INCOMPLETE_ORIGIN_MUST_BLOCK_BROWSER").not.toContain("vitest");
   const prepared = resolve(result.root, "tmp/diagram-export-native-prepared");
   const [session] = await readdir(prepared);
   expect(session, "FAILED_ORIGIN_OWNS_PREPARATION_SESSION").toBeDefined();

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createUiDb } from "../src/db/client.js";
@@ -159,4 +159,105 @@ test("a killed private reader owner leaves a recoverable reservation without cla
     expect(db.query("SELECT count(*) AS n FROM turn_journal_reservations").get()).toEqual({ n: 0 });
     expect(db.query("SELECT count(*) AS n FROM turn_journal_objects").get()).toEqual({ n: 0 });
   } finally { db.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+for (const absent of [false, true]) test(`a ${absent ? "missing" : "corrupt"} published interrupted object is quarantined without poisoning other history`, async () => {
+  const root = mkdtempSync(join(tmpdir(), "journal-quarantine-odysseus-")), path = join(root, "ui.db");
+  const db = createUiDb(path), ledger = createJournalAccounting(db, path), objects = createJournalObjects(join(root, "objects"), ledger);
+  try {
+    const bad = await objects.putBytes(Buffer.from("Odysseus")), good = await objects.putBytes(Buffer.from("Athena"));
+    ledger.write(() => {
+      for (const [id, hash, bytes] of [["odysseus", bad, 8], ["penelope", bad, 8], ["athena", good, 6]] as const) {
+        db.query("INSERT INTO turn_journal_turns (turn_id,actor,profile,started_at,ended_at,state) VALUES (?,'interactive','governed',0,1,'complete')").run(id);
+        db.query("INSERT INTO turn_journal_object_refs VALUES (?,?)").run(id, hash);
+        db.query("INSERT INTO turn_journal_changes (turn_id,sequence,path,scope,before_json) VALUES (?,1,?,'brain',?)").run(id, `notes/${id}.md`, JSON.stringify({kind:"file",hash,bytes}));
+      }
+      db.query("INSERT INTO turn_journal_reservations (id,bytes,pid,pid_start,created_at,hash) VALUES (?,8,?,'gone',0,?)").run(crypto.randomUUID(), process.pid, bad);
+    });
+    if (absent) rmSync(join(root,"objects",bad)); else writeFileSync(join(root, "objects", bad), "damaged!");
+    expect(() => ledger.recover(objects), "JOURNAL_CORRUPT_OBJECT_DOES_NOT_REFUSE_BOOT").not.toThrow();
+    expect(db.query("SELECT * FROM turn_journal_reservations").all()).toEqual([]);
+    expect(db.query("SELECT turn_id,state FROM turn_journal_turns ORDER BY turn_id").all()).toEqual([
+      {turn_id:"athena",state:"complete"},{turn_id:"odysseus",state:"partial"},{turn_id:"penelope",state:"partial"}]);
+    expect(db.query("SELECT hash FROM turn_journal_object_quarantine").all()).toEqual([{hash:bad}]);
+    expect(() => ledger.openRead(bad), "JOURNAL_QUARANTINE_DENIES_RESTORE").toThrow("quarantined");
+    const lease = ledger.openRead(good);
+    expect(objects.read(good, 6), "JOURNAL_UNRELATED_VERSION_RESTORES").toEqual(Buffer.from("Athena")); ledger.releaseRead(lease);
+    expect(db.query("SELECT bytes,state FROM turn_journal_objects WHERE hash=?").get(bad), "JOURNAL_QUARANTINE_BYTES_STAY_CHARGED").toEqual({bytes:8,state:"present"});
+    ledger.write(() => {
+      db.query("UPDATE turn_journal_turns SET ended_at=NULL,state='recording',pid=?,pid_start=? WHERE turn_id='penelope'").run(process.pid,"live");
+      db.query("INSERT INTO turn_journal_reservations (id,bytes,pid,pid_start,created_at,hash) VALUES (?,8,?,'gone',0,?)").run(crypto.randomUUID(),process.pid,bad);
+    });
+    ledger.recover(objects);
+    expect(db.query("SELECT state FROM turn_journal_turns WHERE turn_id='penelope'").get(), "QUARANTINE_PRESERVES_OPEN_TURN_LIFECYCLE").toEqual({state:"recording"});
+    expect(db.query("SELECT count(*) AS n FROM turn_journal_object_quarantine").get()).toEqual({n:1});
+  } finally { objects.close(); db.close(); rmSync(root, {recursive:true,force:true}); }
+});
+
+
+for (const operation of ["has", "verify"] as const) for (const code of ["EMFILE", "EIO", "EACCES"]) test(`journal recovery retries unresolved ${operation} ${code} without inventing corruption`, async () => {
+  const root = mkdtempSync(join(tmpdir(), "journal-unresolved-")), path = join(root,"ui.db");
+  const db = createUiDb(path), ledger = createJournalAccounting(db,path), objects = createJournalObjects(join(root,"objects"),ledger);
+  try {
+    const hash = await objects.putBytes(Buffer.from("Odysseus"));
+    ledger.write(() => {
+      db.query("UPDATE turn_journal_objects SET state='pending' WHERE hash=?").run(hash);
+      db.query("INSERT INTO turn_journal_reservations (id,bytes,pid,pid_start,created_at,hash) VALUES (?,8,?,'gone',0,?)").run(crypto.randomUUID(),process.pid,hash);
+    });
+    const before = ledger.usage();
+    const report = ledger.recover({...objects,[operation]() { throw Object.assign(new Error(code),{code}); }});
+    expect(report, "JOURNAL_UNRESOLVED_REPORT").toEqual({unresolvedRecords:1,firstCause:{reservationId:expect.any(String),hash,at:expect.any(Number),errorClass:"Error",message:code,site:"journal-accounting.recover"}});
+    const reopened = createJournalAccounting(db,path);
+    expect(reopened.recover({...objects,[operation]() { throw Error("later error"); }}), "JOURNAL_FIRST_CAUSE_SURVIVES_REOPEN").toEqual(report);
+    expect(db.query("SELECT hash FROM turn_journal_object_quarantine").all(), "JOURNAL_IO_ERROR_IS_NOT_CORRUPTION").toEqual([]);
+    expect(db.query("SELECT state FROM turn_journal_objects WHERE hash=?").get(hash)).toEqual({state:"pending"});
+    expect(db.query("SELECT bytes FROM turn_journal_reservations").all(), "JOURNAL_UNRESOLVED_CHARGE_RETAINED").toEqual([{bytes:8}]);
+    expect(ledger.usage()).toBeGreaterThanOrEqual(before);
+    expect(ledger.recover(objects), "JOURNAL_RESOLVED_REPORT_CLEARS").toEqual({unresolvedRecords:0,firstCause:null});
+    expect(db.query("SELECT * FROM turn_journal_reservations").all()).toEqual([]);
+    expect(db.query("SELECT state FROM turn_journal_objects WHERE hash=?").get(hash)).toEqual({state:"present"});
+  } finally { objects.close(); db.close(); rmSync(root,{recursive:true,force:true}); }
+});
+
+
+test("a refused diagnostic write still reports unresolved recovery without blocking healthy records", () => {
+  const root = mkdtempSync(join(tmpdir(), "journal-diagnostic-odysseus-")), path = join(root, "ui.db");
+  const db = createUiDb(path), ledger = createJournalAccounting(db,path);
+  const bad = "a".repeat(64), good = "b".repeat(64);
+  try {
+    ledger.write(() => {
+      for (const [id,hash] of [["odysseus",bad],["athena",good]]) {
+        db.query("INSERT INTO turn_journal_objects VALUES (?,8,'pending')").run(hash!);
+        db.query("INSERT INTO turn_journal_reservations (id,bytes,pid,pid_start,created_at,hash) VALUES (?,8,?,'gone',0,?)").run(id!,process.pid,hash!);
+      }
+      db.exec("CREATE TEMP TRIGGER refuse_diagnostic BEFORE UPDATE OF recovery_failure ON turn_journal_reservations BEGIN SELECT RAISE(ABORT,'diagnostic unavailable'); END");
+    });
+    const objects = {has(hash:string) {if (hash === bad) throw Error("EACCES"); return true;},verify() {return true;},discardPending() {}};
+    const report = ledger.recover(objects);
+    expect(report, "JOURNAL_DIAGNOSTIC_FAILURE_STILL_VISIBLE").toMatchObject({unresolvedRecords:1,firstCause:{hash:bad,message:"EACCES"}});
+    expect(db.query("SELECT hash FROM turn_journal_reservations").all(), "JOURNAL_IO_FAILURE_LEAVES_HEALTHY_RECOVERY_USABLE").toEqual([{hash:bad}]);
+    expect(db.query("SELECT state FROM turn_journal_objects WHERE hash=?").get(good)).toEqual({state:"present"});
+    db.exec("DROP TRIGGER refuse_diagnostic");
+    ledger.recover(objects);
+    expect(JSON.parse((db.query("SELECT recovery_failure FROM turn_journal_reservations").get() as {recovery_failure:string}).recovery_failure)).toMatchObject({hash:bad,message:"EACCES"});
+  } finally {db.close();rmSync(root,{recursive:true,force:true});}
+});
+
+test("a damaged stored recovery cause is replaced by the current cause instead of refusing recovery", () => {
+  const root = mkdtempSync(join(tmpdir(), "journal-damaged-cause-odysseus-")), path = join(root, "ui.db");
+  const db = createUiDb(path), ledger = createJournalAccounting(db,path);
+  const bad = "c".repeat(64);
+  try {
+    for (const stored of ["{not json", "null"]) {
+      ledger.write(() => {
+        db.query("DELETE FROM turn_journal_reservations").run(); db.query("DELETE FROM turn_journal_objects").run();
+        db.query("INSERT INTO turn_journal_objects VALUES (?,8,'pending')").run(bad);
+        db.query("INSERT INTO turn_journal_reservations (id,bytes,pid,pid_start,created_at,hash,recovery_failure) VALUES ('ithaca',8,?,'gone',0,?,?)").run(process.pid,bad,stored);
+      });
+      const objects = {has() {throw Error("EIO");},verify() {return true;},discardPending() {}};
+      const report = ledger.recover(objects);
+      expect(report, `JOURNAL_DAMAGED_CAUSE_DOES_NOT_REFUSE_BOOT_${stored}`).toMatchObject({unresolvedRecords:1,firstCause:{hash:bad,message:"EIO"}});
+      expect(db.query("SELECT bytes FROM turn_journal_reservations").get(), "JOURNAL_DAMAGED_CAUSE_KEEPS_CHARGE").toEqual({bytes:8});
+    }
+  } finally {db.close();rmSync(root,{recursive:true,force:true});}
 });

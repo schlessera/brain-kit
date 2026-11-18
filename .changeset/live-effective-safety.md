@@ -1,0 +1,18 @@
+---
+"@schlessera/brain-ui-sdk": minor
+"@schlessera/brain-ui-server": minor
+"@schlessera/brain-backend-claude": minor
+"@schlessera/brain-backend-pi": minor
+---
+
+Breaking before 1.0: revalidate effective safety at dispatch after waits, restore later policy allowances only after complete individual review, and attribute new journal changes to current evidence while preserving historical facts.
+
+Fence parallel Claude hook waits and direct host approvals, and retain claimed-card ownership through grant persistence with explicit terminal receipts.
+
+Fence host publication after application/policy locks and related effect waits, while preserving principal epochs, completed per-use approvals and frozen ordinary policy.
+
+Wait for initial session identity binding before capturing an approval card's safety snapshot; recheck recorder health and authority after that bounded wait.
+
+Let inference and provider relay admission join their own turn proxy's submitted terminal records before reading fresh safety state. Keep that wait cancellable and continue refusing independent pending input, recorder loss and revoked authority.
+
+Keep pending approvals stable across unrelated sessions by scoping host admission revisions to canonical safety evidence. Continue withdrawing on same-cursor history adoption, exposure appends, provisional pending input and shared recorder loss; preserve brain-wide history/review cursors and existing capacity limits.

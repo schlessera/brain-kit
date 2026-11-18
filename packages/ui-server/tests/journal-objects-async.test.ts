@@ -10,15 +10,17 @@ test("changed-file capture yields to other sessions and preserves durable object
   const root = mkdtempSync(join(tmpdir(), "journal-async-odysseus-"));
   const dbPath = join(root, "ui.db"), db = createUiDb(dbPath);
   const ledger = createJournalAccounting(db, dbPath);
-  const store = createJournalObjects(join(root, "objects"), ledger);
+  // The identity pass runs before admission and awaits nothing but its reads, so
+  // heartbeats seen at admission prove those reads yield to the loop.
+  let heartbeats = 0, heartbeatsAtAdmission = -1;
+  const store = createJournalObjects(join(root, "objects"), { reserve(bytes, hash) { heartbeatsAtAdmission = heartbeats; return ledger.reserve(bytes, hash); } });
   const bytes = Buffer.alloc(8 * 1024 * 1024, 65);
   writeFileSync(join(root, "source"), bytes);
   const source = openSync(join(root, "source"), "r");
-  let heartbeats = 0;
   const timer = setInterval(() => heartbeats++, 1);
   try {
     const hash = await store.putFileAsync(source, bytes.length);
-    expect(heartbeats, "JOURNAL_CHANGED_CAPTURE_YIELDS_TO_SESSIONS").toBeGreaterThan(0);
+    expect(heartbeatsAtAdmission, "JOURNAL_CHANGED_CAPTURE_YIELDS_TO_SESSIONS").toBeGreaterThan(0);
     expect(store.verify(hash, bytes.length)).toBe(true);
     expect(db.query("SELECT bytes,state FROM turn_journal_objects WHERE hash=?").get(hash)).toEqual({ bytes: bytes.length, state: "present" });
     expect(db.query("SELECT count(*) AS n FROM turn_journal_reservations").get()).toEqual({ n: 0 });

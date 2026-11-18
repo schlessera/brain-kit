@@ -74,6 +74,29 @@ A brain usually hits the pain well before those limits.
   `--expect-sha` edits only that entry and leaves every other byte of the
   config as it was. In hygiene review, *Persist with a broader rule…* does the
   same for one media file, and asks you to approve the rule with its matches.
+- **The review card** in Actions shows the file with a small preview, its
+  size and type, which notes use it and which conversations link it. Choosing
+  *Persist here*, *Move to a final location…*, *Keep a permanent copy…* or
+  *Delete…* shows a preview of exactly what will change before anything is
+  written, and an unavailable choice says why. *Leave pending* skips the file
+  for the rest of the pass and still counts it as awaiting review. An image
+  loads when the card is shown. A scratch video or audio file, and any file
+  over the size limit, waits for *Load preview*, because the host reads a
+  scratch file whole for every request. A file too large for the files route
+  shows no preview at all. After a change, the receipt stays above the next
+  file with *Undo…* while its rollback data is retained.
+- **What each choice leaves for the next sync.** *Persist here* adds an
+  exact `media.track` entry, so the next `brain sync` commits the file where it
+  is. *Move to a final location…* moves the file and rewrites the notes that
+  link to it, without adding a rule: the next sync commits it there when
+  `media.track` already covers that folder, and otherwise counts it again,
+  under its new path. *Keep a permanent copy…* copies a conversation-linked
+  scratch file to a tracked place, so the next sync commits the copy only.
+  *Delete…* removes the file, and *Leave pending* changes nothing. Undo puts
+  back every byte the change wrote; a sync that ran after it commits none of
+  them. Git never persists a file that `media.ignore` or `.gitignore`
+  ignores, or anything in the scratch area: the next sync leaves those files
+  out, and an original in scratch stays under ordinary scratch pruning.
 - **The template's `.gitignore`** has a commented media section to start from.
 
 ## Git LFS for large masters

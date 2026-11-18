@@ -27,6 +27,7 @@ const DAY = 24 * 60 * 60 * 1000;
 
 /** One valid v1 payload per kind, in the Odysseus world. */
 const SAMPLE_PAYLOADS: { [K in GovernanceEventKind]: GovernanceEventPayload<K> } = {
+  safety_admission_expired: { toolUseId: "ithaca-card", evidenceRevision: "1", trustRevision: "0", authorityEpoch: "0", reason: "safety_changed" },
   taint_exposure: { occurrenceId: "ithaca-exposure", state: "interrupted_unknown" },
   egress_connection: { host: "ithaca.invalid", port: 443, method: "CONNECT", bytes: 100, accounting: "opaque_bytes", durationMs: 5, outcome: "completed" },
   policy_change: { requestId: "policy-ithaca", baseHash: null, proposedHash: "a".repeat(64), sections: ["profiles.interactive"], outcome: "updated" },

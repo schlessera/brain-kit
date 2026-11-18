@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { TimingClient } from "./ci-timing-api";
 
 export async function seedTimings(api: TimingClient, repository: string, branch: string, since: string, until: string, dir: string) {
-  const seed = { run: null as number | null, artifact: null as number | null, snapshots: 0, pulls: 0, error: null as string | null };
+  const seed = { run: null as number | null, artifact: null as number | null, snapshots: 0, pulls: 0, coordinator: 0, error: null as string | null };
   let temp: string | undefined;
   try {
     const runs = await api.json(`actions/workflows/ci-timings.yml/runs?branch=${encodeURIComponent(branch)}&status=completed&per_page=5`);
@@ -28,7 +28,7 @@ export async function seedTimings(api: TimingClient, repository: string, branch:
         return out;
       };
       const names = (await command(["-Z1", zip])).trim().split("\n")
-        .filter(name => /^(?:run-\d+-attempt-\d+|pull-\d+)\.json$/.test(name));
+        .filter(name => /^(?:run-\d+-attempt-\d+|pull-\d+|coordinator-\d+-attempt-\d+)\.json$/.test(name));
       if (!names.length || names.length > 20000 || new Set(names).size !== names.length) throw new Error("Empty or invalid normalized seed inventory");
       // Only exact, flat normalized filenames are extracted. No archive path,
       // executable, symlink or other metadata can become collector tooling.
@@ -37,12 +37,18 @@ export async function seedTimings(api: TimingClient, repository: string, branch:
         const path = join(extracted, name);
         if (!(await lstat(path)).isFile()) throw new Error("Seed contains a non-file observation");
         const value = await Bun.file(path).json();
-        if (value.version !== 1 || value.repository !== repository) throw new Error("Seed repository/version mismatch");
+        if (!(name.startsWith("run-") ? [1, 2].includes(value.version) : value.version === 1) || value.repository !== repository) throw new Error("Seed repository/version mismatch");
         if (name.startsWith("run-")) {
           if (name !== `run-${value.run?.id}-attempt-${value.run?.attempt}.json` || !Array.isArray(value.jobs) ||
             !Array.isArray(value.problems) || !Number.isFinite(Date.parse(value.run.createdAt))) throw new Error("Invalid seed attempt identity");
           if (Date.parse(value.run.createdAt) < Date.parse(since) || Date.parse(value.run.createdAt) > Date.parse(until)) continue;
           seed.snapshots++;
+        } else if (name.startsWith("coordinator-")) {
+          // Red-main coordinator observations (#2953): an archived log is never fetched twice.
+          if (name !== `coordinator-${value.run}-attempt-${value.attempt}.json` || !Number.isFinite(Date.parse(value.createdAt)) ||
+            !(value.cancelled === null || Array.isArray(value.cancelled))) throw new Error("Invalid seed coordinator identity");
+          if (Date.parse(value.createdAt) < Date.parse(since) || Date.parse(value.createdAt) > Date.parse(until)) continue;
+          seed.coordinator++;
         } else {
           if (name !== `pull-${value.number}.json` || !Array.isArray(value.problems)) throw new Error("Invalid seed PR identity");
           if (value.closedAt && Date.parse(value.closedAt) < Date.parse(since)) continue;

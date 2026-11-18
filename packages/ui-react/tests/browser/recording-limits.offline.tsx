@@ -275,10 +275,11 @@ test(`late ${timerKind} below backstop re-arms from short saved audio`, async (c
   Object.defineProperty(performance, "now", { configurable: true, value: () => clock });
   c.cleanup.push(() => { if (descriptor) Object.defineProperty(performance, "now", descriptor); else delete (performance as { now?: unknown }).now; });
   const callbacks = new Map<number, () => void>();
+  const armed: number[] = [];
   const timeout = globalThis.setTimeout;
   const timeoutDescriptor = Object.getOwnPropertyDescriptor(globalThis, "setTimeout")!;
   const timer = vi.spyOn(globalThis, "setTimeout").mockImplementation((handler, ms, ...args) => {
-    if (typeof handler === "function") callbacks.set(ms!, () => handler(...args));
+    if (typeof handler === "function") { callbacks.set(ms!, () => handler(...args)); armed.push(ms!); }
     return timeout(handler, ms, ...args);
   });
   c.cleanup.push(() => { timer.mockRestore(); Object.defineProperty(globalThis, "setTimeout", timeoutDescriptor); });
@@ -289,7 +290,10 @@ test(`late ${timerKind} below backstop re-arms from short saved audio`, async (c
   await sink.chunk({ index: 0, startMs: 0, endMs: 10_000, data: new Blob(["a"]) });
   clock = 650_000;
   const wallCallback = callbacks.get(660_000);
+  const armedBefore = armed.length;
   callbacks.get(timerKind === "warning" ? 530_000 : 589_750)!();
+  // Ten seconds of saved audio leaves 530 s to the warning and 589.75 s to the limit.
+  expect(armed.slice(armedBefore).filter(ms => ms === 530_000 || ms === 589_750), `late ${timerKind} re-arms both audio timers from the saved audio`).toEqual([530_000, 589_750]);
   expect(c.events.filter(e => e.kind === "warning"), "late warning does not mistake elapsed wall for audio").toEqual([]);
   expect(stop, "late limit does not save ten seconds as ten minutes").not.toHaveBeenCalled();
   expect(c.events.filter(e => e.kind === "stopped")).toEqual([]);

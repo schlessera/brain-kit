@@ -3,12 +3,15 @@ import { randomUUID } from "node:crypto";
 import { scanText } from "./check-leakage";
 import { GitReservationStore, assertLease, holderToken, holds, LEASE_MS, liveLease, reservationServerTime, reservationTransition, RENEW_MS, sameCandidate,
   type Candidate, type Operation, type Lease } from "./integration-reservation";
-import { latestIntegrationRun, verifyIntegrationProof } from "./integration-proof";
+import { contractReadiness, latestIntegrationRun, verifyIntegrationProof } from "./integration-proof";
 import { declareFix, gateDecision, recordExpedited, type RedMainRecord } from "./red-main";
 import { isAncestor } from "./red-main-cli";
 import { expeditedProblems, expeditedTests, fixProbeTitle, probeReceipt, type FeedbackEvidence, type ProbeEvidence } from "./red-main-expedite";
 import { receiptFromBody, receiptRefusal } from "./check-receipt";
-import type { API } from "./proof-reuse";
+import { reviewGate } from "./review-receipt";
+import type { API } from "./proof-api";
+import { classify } from "./proof-system";
+import { checkQualification, laneRefusal, readLane, type MainRun } from "./proof-system-lane";
 
 /**
  * A refusal no retry can cure: the candidate changed or the reservation no longer
@@ -20,6 +23,8 @@ class Fatal extends Error {}
 const describe = (error: unknown) => (error instanceof Error ? error.message : String(error)).trim().split("\n").slice(0, 3).join(" | ");
 /** Never act on a lease that may have expired: give up one renewal interval before it could. */
 const SAFETY_MS = LEASE_MS - RENEW_MS;
+/** How long `confirm` waits for a pending contract run before refusing (#3573). */
+const CONTRACT_WAIT_MS = 10 * RENEW_MS;
 
 async function gh(...args: string[]): Promise<string> {
   const child = Bun.spawn(["gh", ...args], { stdout: "pipe", stderr: "pipe" });
@@ -109,6 +114,38 @@ if (import.meta.main) {
       if (child.exitCode !== 0) throw new Error(new TextDecoder().decode(child.stderr).trim());
     } catch (error) { console.error(`Expedited fix merged but its record is incomplete; record it by hand: ${String(error)}`); }
   }
+  function ensureCommit(sha: string) {
+    if (Bun.spawnSync(["git", "cat-file", "-e", `${sha}^{commit}`], { cwd: store!.root }).exitCode !== 0) store!.git(["fetch", "origin", sha]);
+  }
+  /** The main-push CI run at one squash: the newest of at most ten, one API read. */
+  async function mainRunAt(sha: string): Promise<MainRun | null> {
+    const runs = (await api.json(`actions/workflows/ci.yml/runs?event=push&branch=main&head_sha=${sha}&per_page=10`)).workflow_runs ?? [];
+    const run = runs.filter((r: any) => r.head_sha === sha).sort((a: any, b: any) => b.id - a.id)[0];
+    return run ? { id: run.id, status: run.status, conclusion: run.conclusion ?? null } : null;
+  }
+  /**
+   * Proof-system lane (#3269, #3271): a proof-system candidate needs off-main qualification on the PR
+   * and an open stability window. Product candidates are never refused here. A declared red-main fix,
+   * expedited or confirmed ordinarily, is exempt: a fix that waited for the window it repairs could never land.
+   */
+  async function refuseProofSystemLane(desired: Candidate, fixesRun: number | undefined) {
+    if (fixesRun !== undefined || store!.read().redMain.open?.fixes.includes(desired.pr)) return;
+    for (const sha of [desired.base, desired.head]) ensureCommit(sha);
+    const from = store!.git(["merge-base", desired.base, desired.head]);
+    const candidateClass = classify(from, desired.head, { cwd: store!.root });
+    if (!candidateClass.proofSystem) return;
+    const problems: string[] = [];
+    const qualification = await checkQualification({ body: (await api.json(`pulls/${desired.pr}`)).body, repository, head: desired.head, cwd: store!.root, ensure: ensureCommit,
+      async readRun(id) {
+        const run = await api.json(`actions/runs/${id}`).catch(() => null);
+        return run ? { id, headSha: run.head_sha ?? null, repository: run.repository?.full_name ?? null, status: run.status ?? null, conclusion: run.conclusion ?? null } : null;
+      } });
+    if ("refusal" in qualification) problems.push(qualification.refusal);
+    const lane = laneRefusal(await readLane(desired.base, mainRunAt, { cwd: store!.root }));
+    if (lane) problems.push(lane);
+    const paths = [...new Set(candidateClass.reasons.map(reason => reason.path))].join(", ");
+    if (problems.length) throw new Error(`Proof-system candidate refused (${paths}): ${problems.join(". ")}`);
+  }
   /** One renewal tick: a transient failure is logged and retried next tick until the safety margin (#3302). */
   async function tick() {
     if (lost) return;
@@ -134,6 +171,35 @@ if (import.meta.main) {
       if (failing * 1000 >= SAFETY_MS) throw new Error(`Proof polls failed for ${failing}s; last error: ${describe(error)}`);
       return undefined;
     }
+  }
+  /**
+   * Hold confirmation until the newest exact-head contract run has passed (#3573). The merge path
+   * refuses anything else, so requesting candidate CI first would spend a whole run on a refusal.
+   * A pending run is waited for, without a reservation, for a bounded time.
+   */
+  async function contractPassed(desired: Candidate) {
+    for (let waited = 0; ; waited += RENEW_MS) {
+      const readiness = contractReadiness(await latestIntegrationRun(api, "contract.yml", desired), desired.head);
+      if (readiness.state === "passed") return;
+      if (readiness.state === "refused") throw new Error(readiness.message);
+      if (waited >= CONTRACT_WAIT_MS) throw new Error(`${readiness.message} after ${waited / 1000}s; confirm again once it completes. No reservation was taken and no candidate CI was requested.`);
+      console.error(`${readiness.message}; waiting before taking the reservation`);
+      await Bun.sleep(RENEW_MS);
+    }
+  }
+  /**
+   * The recorded independent review of a core-package candidate (#4110); returns the refusal or null.
+   * A candidate outside the core packages is never asked, and its comments are never read.
+   */
+  function reviewRefusal(desired: Candidate) {
+    return reviewGate(store!.root, desired, async () => {
+      const bodies: string[] = [];
+      for (let page = 1; ; page++) {
+        const batch: Array<{ body?: string | null }> = await api.json(`issues/${desired.pr}/comments?per_page=100&page=${page}`);
+        bodies.push(...batch.map(comment => comment.body ?? ""));
+        if (batch.length < 100) return bodies;
+      }
+    });
   }
   async function stopHeartbeat() { if (timer) clearInterval(timer); timer = undefined; await pending; }
   async function milestones(pr: number, issueRefs: string[]) {
@@ -189,6 +255,11 @@ if (import.meta.main) {
       const proof = await verifyIntegrationProof(store!.root, repository, desired, api, sha => { store!.git(["fetch", "origin", sha]); });
       const refusal = receiptRefusal((await api.json(`pulls/${desired.pr}`)).body, proof.covered);
       if (refusal) throw new Error(refusal);
+      // Read again here: a review posted while the candidate was being proved is the newest record.
+      const unreviewed = await reviewRefusal(desired);
+      if (unreviewed) throw new Error(unreviewed);
+      // Read again here too: a main run may have failed while the candidate was being proved.
+      await refuseProofSystemLane(desired, fixesRun);
       tree = proof.checkout.tree; candidateRun = proof.run;
     } else {
       expedited = await expeditedEvidence(desired, fixesRun, after);
@@ -239,7 +310,12 @@ if (import.meta.main) {
     store = new GitReservationStore(process.cwd());
     const remote = store.git(["remote", "get-url", "origin"]).replace(/^git@github.com:/, "https://github.com/").replace(/\.git$/, "");
     if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository) || remote !== `https://github.com/${repository}`) throw new Error("Authenticated repository and origin differ");
-    if (command === "main-status") {
+    if (command === "lane") {
+      if (target !== "--json" || options.length) throw new Error("usage: bun scripts/integrate.ts lane --json");
+      store.git(["fetch", "origin", "main"]);
+      const decision = await readLane(store.git(["rev-parse", "FETCH_HEAD"]), mainRunAt, { cwd: store.root });
+      console.log(JSON.stringify({ ...decision, refusal: laneRefusal(decision) }));
+    } else if (command === "main-status") {
       if (target !== undefined && target !== "--json") throw new Error("usage: bun scripts/integrate.ts main-status [--json]");
       const snapshot = store.read();
       console.log(JSON.stringify({ red: snapshot.redMain.open !== null, source: snapshot.oid, record: snapshot.redMain }));
@@ -272,12 +348,18 @@ if (import.meta.main) {
         if (current && current.id === values.get("--lease") && current.actor === actor && holds(current, token) && current.candidate.pr === Number(target) && current.candidate.repository === `https://github.com/${repository}`) own = current;
       }
       const desired = await candidate(Number(target));
+      // Refuse an undeliverable confirmation before any write, lease or candidate CI (#3850); merge checks again.
+      if (command === "confirm") await milestones(desired.pr, issues);
       if (fixesRun !== undefined) {
         // Refuse a run that is not the open record's, or category-only failures, before any write.
         expeditedTests(store.read().redMain, fixesRun);
         console.log(JSON.stringify({ declared: (await changeRedMain((record, now) => declareFix(record, desired.pr, now))).open?.fixes }));
-      } else if (command !== "acquire" && !receiptFromBody((await api.json(`pulls/${desired.pr}`)).body)) {
-        throw new Error(receiptRefusal("", new Set())!);
+      } else if (command !== "acquire") {
+        if (!receiptFromBody((await api.json(`pulls/${desired.pr}`)).body)) throw new Error(receiptRefusal("", new Set())!);
+        // Before any lease or candidate CI, like the receipt; an expedited red-main fix is exempt from both.
+        // `merge --lease` checks inside the merge instead, after its lease is proved to cover this candidate.
+        const unreviewed = command === "confirm" ? await reviewRefusal(desired) : null;
+        if (unreviewed) throw new Error(unreviewed);
       }
       refuseWhileRed(desired);
       if (command === "merge") {
@@ -313,6 +395,9 @@ if (import.meta.main) {
         }
         if (lost) throw lost;
       } else {
+        // Before any lease or candidate CI: a closed lane would refuse the merge anyway.
+        await refuseProofSystemLane(desired, fixesRun);
+        if (command === "confirm") await contractPassed(desired);
         own = await acquire(desired);
         // Only an explicit acquire prints the holder token, once; confirm keeps it in memory.
         console.log(JSON.stringify(command === "acquire" ? { acquired: own, token } : { acquired: own }));
@@ -343,7 +428,7 @@ if (import.meta.main) {
           if (lost) throw lost;
         }
       }
-    } else throw new Error("usage: bun scripts/integrate.ts inspect | main-status [--json] | declare-fix <pr> | acquire/confirm/merge <pr> [--lease id --token token] [--issues owner/repo#N,...] [--fixes-main-run <run-id>] | renew/release <id> [--token token] | revoke <reason>");
+    } else throw new Error("usage: bun scripts/integrate.ts inspect | main-status [--json] | lane --json | declare-fix <pr> | acquire/confirm/merge <pr> [--lease id --token token] [--issues owner/repo#N,...] [--fixes-main-run <run-id>] | renew/release <id> [--token token] | revoke <reason>");
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1;
   } finally {

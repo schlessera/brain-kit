@@ -6,8 +6,9 @@ linked in each section below. The
 schemas, bounds and proof briefs; its six §13 recommendations were approved
 at review on 2026-11-02. Admission, storage, ownership and cleanup are built
 ([what #3153 built](#what-3153-built)), and so is reading contents
-([what #3154 built](#what-3154-built)); the composer is open work in epic
-#3150.
+([what #3154 built](#what-3154-built)). The composer's first slice is built
+([what #3155 built so far](#what-3155-built-so-far)); the rest is open work in
+epic #3150.
 
 ## Sources and one pipeline
 
@@ -115,8 +116,10 @@ The server side of admission, storage, ownership and cleanup, as the design's
   operational database beside the drafts, and every mutation runs on the
   draft store's write channel. A save, an acceptance and a sweep mark
   therefore see one serialized state. Reference owners are `draft` and
-  `outgoing` (both keyed by the draft id; a draft has at most one outgoing
-  snapshot) and `message` (keyed by the session id). The design's compound
+  `outgoing` (both keyed by the draft id) and `message` (keyed by the session
+  id). #3153 shipped one outgoing slot per draft; #3588 replaced it with the
+  list described below, and the `outgoing` owner now covers every file of the
+  draft's snapshots. The design's compound
   owner ids were simplified this way because a draft id may itself contain
   `:`, and one reference per session protects a file as well as one per turn.
 - **References on the wire.** A message names its originals in a new optional
@@ -148,6 +151,52 @@ The server side of admission, storage, ownership and cleanup, as the design's
   deletion belongs to #3231's flow.
 - **Kept as before.** `/share`, `/track-upload`, staged-track references,
   inline images and D52's tab-only legacy track path behave as they did.
+
+## What #3588 built
+
+The G1 A snapshot list
+([ruling](https://github.com/schlessera/brain-kit/issues/3155#issuecomment-6591807939)),
+replacing #3153's single slot:
+
+- **A column, not a table.** The list is one JSON column on the draft row
+  (`outgoing_snapshots`, migration 079), so a save checks and writes it in the
+  draft's own immediate transaction. Migration 079 turns a saved slot into the
+  first snapshot, with its request id as its `snapshotId`. The ruling rejected
+  a send-intent table.
+- **A chat is its session.** The capacity count sums the snapshots of every
+  live draft bound to the same `sessionId`, which is what one chat's tabs and
+  devices share; a draft with no session is a chat of its own. Only a save
+  that adds a `snapshotId` is counted against the ten.
+- **The whole list on every save.** `snapshots` replaces the draft's list
+  under `If-Match`, as `PUT` replaces the rest of the draft. The host refuses
+  any change but an allowed state move or a held snapshot's files, and refuses
+  to drop anything but a `returned` snapshot. The save body bound rose to
+  4,390,912 bytes so ten snapshot texts fit at JSON's worst escapes.
+- **Additive compatibility.** Retyping `outgoing` would break readers, so it
+  stays: `Draft.outgoing` shows the newest held or unconfirmed snapshot in the
+  old shape, and the old write creates or dispatches the snapshot of its
+  request, or removes the one it shows.
+- **Nothing evicted by a send or a delete.** An acceptance that consumes a
+  draft still holding other snapshots keeps the row at the next revision with
+  an empty composer instead of a tombstone. A `DELETE` that would drop a held
+  or unconfirmed snapshot is `409 DRAFT_OUTGOING_PENDING`.
+- **A release is a revision (#3733).** An acceptance that releases a snapshot
+  moves the draft to a new revision even when it keeps the draft (a newer
+  revision exists, or the draft changed chats). Before this a tab that read
+  the draft earlier could still save under its `If-Match`, and the snapshot
+  it listed came back as a new `dispatched` one holding a slot. Now that save
+  is 409 `DRAFT_CONFLICT` with `current`. The other rule the issue offered,
+  refusing a new snapshot whose `requestId` is in `session_draft_sends`, was
+  not taken: that table records only first messages, not sends into an
+  existing chat (`resumed`), and keeps the last eight per draft, so it cannot
+  say which requests were accepted. The revision rule needs no new record,
+  covers every acceptance path and is the conflict the `If-Match` contract
+  already promises. A tab sending its own snapshot holds its saves until the
+  answer, so only a tab or device that was already behind sees the conflict.
+- **The composer keeps its envelope.** An upload's per-draft count now covers
+  the current revision and unbound uploads only. A snapshot's files are
+  checked against the per-message envelope when a save lists it, and stay in
+  the draft sub-limit and the pool.
 
 ## What #3154 built
 
@@ -201,6 +250,16 @@ The shared reader of the design's §7, with these concrete choices:
   provider. Session release and the sweep's forget remove a session's or a
   file's rows. There is no derived cache, so nothing new is charged to the
   pool.
+- **Delivering reads (#3589).** The records reach the browser two ways. A
+  route, `GET /api/sessions/:id/attachment-reads`, returns a session's reads
+  when its view opens. A capability-gated `attachment_read` frame carries a
+  read recorded during a live turn. The frame is sent with `sendToCapable`,
+  which bypasses the dialogue recorder, so it never joins a transcript or a
+  replay. Both return only reads of files that a `message` reference of the
+  same session still names. They use the history replay's authorization,
+  which is a usable principal of this host's shared namespace; the route adds
+  no ownership rule that a replay does not have. A replay field was not used:
+  the native transcript, not the host, owns a replayed message.
 - **Adding a reader.** A reader is concrete code, not a registry: add a rule
   to `detectKind` (`packages/ui-server/src/attachments/detect.ts`) and a
   `reader` value to `AttachmentReader` and migration 077's check; route it in
@@ -210,7 +269,217 @@ The shared reader of the design's §7, with these concrete choices:
   parsing; then add an Odysseus fixture and its outcome tests. The composer's
   Files picker has no `accept` filter, so it does not change.
 
-## Rejected alternatives
+## What #3155 built so far
+
+The composer's Files source, its upload queue and the draft binding of
+originals, on a host that advertises `composerFiles`:
+
+- **Menus as ruled.** Desktop shows Files… and paste-or-drop guidance, and no
+  Photo library or Camera. A phone keeps both beside Files. The Files input
+  has no `accept`, and paste and drop feed the same pipeline. A host without
+  `composerFiles` keeps the old menu and D52's tab-only track queue.
+- **One route for everything, images included.** Every file, an image too,
+  goes to `POST /api/drafts/:draftId/files` as its raw bytes. The client
+  never routes by MIME type or extension; detection is the host's.
+- **An image is an original plus a derived frame.** Once the host stores a
+  file as `kind: "image"` with `reader: "image"`, the composer prepares the
+  frame it always did (`fileToAttachment`) from the bytes just uploaded, or,
+  after a reload, from the original read back (`GET
+  /api/attachments/:fileId`). The frame is page state: drafts, snapshots and
+  saves name only the original, so a draft with images sends through a
+  snapshot and survives reload like any other. The message carries the
+  original in `attachmentRefs` and the frame with `fileId` naming it, and the
+  host charges the pair once. Choices this forces:
+  - **The frame budget is per message, in file order.** Frames go inline
+    while `MAX_IMAGES_PER_MESSAGE` and `MAX_TOTAL_IMAGE_BYTES` allow, after
+    any legacy inline image. Past them, or when no frame can be made (too
+    small, undecodable, still too large after downscaling), the original goes
+    alone and its chip says *not shown inline*, with *Your agent gets the file
+    but not a preview.* An image whose frame is still being made holds Send,
+    and those after it wait with it, so the placement never changes under a
+    send.
+  - **An image chip waits for storage.** Until the host has stored it, an
+    image is a queued file with the queue's honest states (uploading,
+    checking, failed, refused). Its thumbnail appears only once it is stored.
+  - **Legacy images stay readable.** A saved draft that already holds legacy
+    draft images keeps them as inline frames and keeps the tab-local send,
+    because a snapshot cannot hold one. A host without composer files keeps
+    the inline-only path.
+  - **A sent image claims no reading.** Its row is the original's kind and
+    size; a read record for an image is not shown. The transcript draws the
+    frame it sent.
+- **A queue item keeps one key for its whole life.** The idempotency key is
+  minted once per item. A lost answer becomes `unknown`, never "not stored".
+  It is uploaded again with the same key once on reconnect, or through
+  **Upload again**. A `503` waits and retries with that key. Only a received
+  `4xx` says *not stored*. `fetch` reports no upload progress, so the chip
+  says `uploading…` rather than invent a percentage.
+- **Stored originals are draft content.** A stored original joins
+  `ComposerDraft.files`, together with the draft id it was uploaded to (its
+  lineage). It is saved as `fileIds`, and it reads as saved only when an
+  acknowledged revision lists it. A file carried to another draft id, by a
+  rotation or a kept copy, cannot be bound there. It shows *not attached*,
+  blocks Send and is never listed in that id's save. The device copy of a
+  draft (#1014) keeps the references, so a restore cannot unbind them.
+- **Send waits for the binding.** Send holds while an upload or the save
+  that binds the originals is pending, and then sends `attachmentRefs` with
+  the acknowledged `draftRef`. A refused or failed upload, or a detached
+  file, blocks Send with a reason. Unread contents, and kinds with no
+  reader, never block it. On a host without the snapshot list this is the
+  composer's tab-local hold; with it, it is a held snapshot (below).
+- **Every send is a snapshot (#3588's list).** On a host that advertises
+  `composerFiles`, `chatRequestAck` and
+  `sessionDraftLimits.maxOutgoingSnapshots`, Send writes one snapshot in the
+  save that clears the composer. It is `held` while any of its uploads runs,
+  else `dispatched`. Its uploads leave the composer with it, and each stored
+  one joins the snapshot's files in a save. Once all are stored it moves to
+  `dispatched`, and the `chat_message` goes once, with its own text and
+  files, under a revision that holds it, and the frames of its image
+  originals once they are made. A draft with legacy inline images, or a host
+  without the limit, keeps the tab-local path, because a snapshot cannot hold
+  an inline image.
+  - **Acceptance drops it here at once.** The host releases an accepted
+    snapshot in place, and a stale list saved over it is a conflict (#3733).
+    So the client removes it
+    from both its list and its copy of the host's before the next save, and
+    holds a draft's saves while one of its sends is pending. When other
+    snapshots remain, the host keeps the row at the next revision with an
+    empty composer, and the client saves over that revision instead of
+    rotating the draft.
+  - **Send waits on no timer.** The save that creates a send's snapshot,
+    and a held snapshot's move to `dispatched`, go out in a microtask rather
+    than on the draft client's save timer, and the frame follows the save's
+    acknowledgement directly. Pressing Send therefore reaches the host as
+    directly as it did before snapshots, even in a page whose clock is
+    paused. Typing keeps its save pause, and retries keep their backoff.
+  - **A full chat sends nothing.** `409 DRAFT_OUTGOING_FULL` gives the text
+    and files back to the composer and shows the notice with **Show**. Until
+    the save that creates a snapshot is acknowledged, the field takes no new
+    edits. That window is one save, and it means a refusal gives the text back
+    alone, never joined to newer words (rev 4 correction 3). Only
+    Send waits. Drafting and every bubble action stay available, and Cancel
+    never asks for a slot. The notice clears when this tab frees one: a
+    Delete…, an Edit, or an acceptance. When another tab or device frees a
+    slot, a bounded re-read clears it (maintainer ruling A, 2026-11-08; there
+    is no draft change frame). While the notice shows and the tab is visible,
+    the draft client lists the host's drafts every 15 s, reads each one of
+    that chat, and counts their snapshots. It also re-reads at once on focus,
+    `online` and hello. These are reads only; the notice clears when the
+    count is below the limit
+    ([decision request](https://github.com/schlessera/brain-kit/issues/3155#issuecomment-6723796317)).
+  - **Bubbles in the transcript (G2 A).** Held, returned and unconfirmed
+    snapshots render after the last accepted message in creation order. Each
+    has its own `StatusIndicator` and actions keyed by `snapshotId`, and its
+    copy and actions follow rev 5 §2. A dispatched snapshot whose answer this
+    tab is waiting for is the transcript's own optimistic row. It is not
+    drawn a second time, so the rev 5 *Sending…* state shows only in the
+    moment before its frame leaves. On this host the bubble replaces D52's
+    review block for that send. With no bubble to draw the list adds nothing
+    to the transcript, not even an empty row and its divider: the last
+    message stays the reading column's last node, as #1013 measures, and the
+    polite region that speaks background changes sits outside the column.
+  - **Reload.** A held snapshot comes back *Paused after reload*, and only
+    its Send sends it. A dispatched one comes back unconfirmed, with
+    **Check** (one recovery read) and **Send again**. A returned one comes
+    back *Not sent*. The reason it returned lives in the tab only, so after a
+    reload it says no more than that.
+  - **Check proves little.** The recovery envelope names only a session's
+    latest accepted request. Check shows acceptance when that request is
+    this one. It shows non-acceptance only when the envelope holds no
+    accepted work at all (`revision` 0), and then moves the snapshot to
+    `returned`. Anything else stays *Couldn't confirm*, with the reason.
+  - **Send again is two saves.** Only a returned snapshot may be left out.
+    So the old one moves to `returned` in place, and the next save drops it
+    while it creates the successor under a new `snapshotId` and
+    `requestId`. The slot passes straight across, even at 10 of 10.
+  - **A session switch sends nothing elsewhere.** A snapshot stays with its
+    draft. A session's held snapshot still sends once its files are stored,
+    into its own chat. A new chat's snapshot sends only while that new chat
+    is in view.
+  - **Focus and speech.** Cancel, Edit and Delete… move focus as rev 5 §3
+    says. A background change, such as an upload not stored or a send left
+    unconfirmed, is announced once in one polite region, and focus stays
+    where it is. The indicators pass `announce={false}`, so nothing is spoken
+    twice.
+- **Tracks follow the host.** On a host with `composerFiles` a picked track
+  is a generic original: the host detects it, the draft binds it and a reload
+  restores it, so it is not a tab-only staged track and the #1150 leave guard
+  no longer applies once its binding is acknowledged. D52's tab-only path
+  remains for a host without `composerFiles`. The mounted-app suites that
+  prove it (#1112, #1150, #1018) remove that capability from the real host's
+  hello so they keep proving it. The drop-and-reconnect suite (#1013) runs
+  the generic path against the real host.
+- **Sent rows say what was read, from the records only.** A sent message
+  lists its originals by name, kind and size, and the host's read records
+  (#3589) add the design's §8.4 read state. The client declares
+  `attachmentReads`, reads a session's records when its view opens and after
+  each hello, and appends each `attachment_read` frame. Three choices the
+  records force:
+  - **Scopes combine.** Pages or bytes read across several calls are joined,
+    so a later range never hides an earlier one. A failure shows only when
+    nothing was read, and a changed original always shows.
+  - **What a record cannot say is not said.** A record keeps an outcome and a
+    scope, not `pagesWithoutText` or a failure's reason. A partial PDF read is
+    *partly read p. 1–3* rather than *3 of 12 pages had text*, and a failed
+    one is *couldn't read* rather than *took too long*.
+  - **Unknown is not unread.** Until a session's records arrive, or on a host
+    without `attachmentReads`, a row claims neither *read* nor *not read yet*.
+    An image never reads as *not read yet*: it reaches the agent as a frame.
+- **The draft indicator replaces the save line (rev 4 §1, E1 A).** The
+  composer's draft status is the kit `StatusIndicator`, placed beside
+  Attach: attach · indicator · field · mic · send. Its 44px box takes a 28px
+  place in the row, so it touches its neighbours' boxes without growing the
+  field. An empty draft keeps the slot with no control. D52's persistent line
+  is gone from the composer; `DraftSaveLine` stays for the voice strip.
+  - **Success is one fact.** The host acknowledged this exact edit, with
+    every original bound and nothing of the draft still uploading. An
+    acknowledgement of an older edit never shows ✓; the indicator stays
+    active until the newer one is acknowledged.
+  - **The other states keep their facts.** These states come from rev 4 §1:
+    queued while a file uploads, attention when offline (*Last saved* or
+    *never*), unknown when a save's answer was lost, failed or unknown for an
+    upload, and refused for a space refusal (**Open Storage**). D52's too
+    large, host full and unavailable become refused or attention states. A
+    conflict keeps **Compare drafts**, and another tab's version keeps **Open
+    other version**. Both are now detail actions.
+  - **Check again is a read.** A save whose answer was lost is kept in the
+    tab. Check again reads the draft once (`GET /api/drafts/:draftId`, rev 5
+    §1). If the host's revision is the one that save would make, with the
+    same text, images, `files[].fileId` and snapshot list, the save is
+    acknowledged. Anything else changes nothing. It never saves; the save's
+    own idempotent retries go on as before.
+  - **Quiet, and still where it was.** Opening details reads and writes
+    nothing. Closing them returns focus to the indicator. Only active work
+    animates, and reduced motion keeps the glyph still. The indicator passes
+    `announce={false}`: saving was silent before, and upload outcomes keep
+    the composer's own announcement.
+  - **The leave guards are unchanged.** Every state but saved and hidden is
+    at risk. An unacknowledged draft still holds the update reload
+    (`holdsUnsaved`), and a queued upload still arms the browser's leave
+    prompt.
+  - **An upload cut off by a reload is named, not restored (rev 5 §1).** The
+    device-kept work context (#1014) records the names of files still
+    uploading, never their bytes. After a cold reload their chips are gone.
+    That draft's composer then says *{name} was still uploading when the page
+    closed. It isn't attached. Choose it again to attach it.* until it is
+    dismissed. The notice says nothing about storage or cleanup. The host's
+    own references decide that: 1 hour for a file never bound, 7 days from the
+    last reference otherwise.
+- **One end-to-end proof of an on-demand read.**
+  `packages/ui-react/tests/attachment-read-runtime.test.ts` runs the public
+  ChatPage in real Chrome against the real host, keyless and offline. The
+  Files input uploads an Odysseus permit PDF. The test checks that the host
+  stores the original byte for byte under `.brain-ui/attachments/<fileId>/`
+  and that the saved revision binds it. Send carries `attachmentRefs` and the
+  `draftRef`, and the first message names the file without its contents. A
+  scripted turn, registered as `pi` because the bridge offers reads only to
+  the first-party backends, calls the SDK's `handleReadAttachment` through
+  the host bridge. The production reader and PDF extractor return page 2.
+  The reply quotes a sentence found only in the file, the host records the
+  read and sends its `attachment_read` frame, and the sent row shows
+  *read p. 2*. The native tool loops and their provider-history stability
+  stay with each backend's `read-attachment` guard.
+
 
 The rejected options were offered in the rulings above:
 

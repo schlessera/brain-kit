@@ -1,10 +1,13 @@
 /** Rebase-first pulls against real clones; conflicts must return to merge semantics. */
+import { withoutSigningForEach } from "./git-fixture";
 import { afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { brainConfigSchema } from "../src/lib/config";
 import { runCli } from "./cli-harness";
 import { brainWithRemote, cleanupFixtures, commitAndPush, git, gitMayFail, otherClone, write, type Brain } from "./sync-fixture";
+
+withoutSigningForEach();
 
 afterEach(cleanupFixtures);
 const CACHE = ".brain-cache/contexts.jsonl";
@@ -90,7 +93,7 @@ describe("rebase-first sync pull", () => {
     const recorder = recordingGit(root);
     const { body, result } = await pull(root, recorder.env);
     expect(readFileSync(join(root, CACHE), "utf-8")).toBe(ours);
-    expect(recorder.calls().some((line) => line.includes("rebase --abort"))).toBe(true);
+    expect(recorder.calls()).toContainEqual(expect.stringContaining("rebase --abort"));
     expect(body.mergedCaches).toContain(CACHE);
     expect(body.status).toBe("conflicted");
     expect(result.code).toBe(0);

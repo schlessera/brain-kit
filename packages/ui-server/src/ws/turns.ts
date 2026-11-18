@@ -292,6 +292,10 @@ export interface PendingApproval {
    * locks; an approval must survive that and reappear, not silently die.
    */
   request: PermissionRequest;
+  /** Final synchronous revalidation, including after a grant-store wait. */
+  revalidate?: () => string | null;
+  /** Retain the terminal fact before resolving a safety-aware backend wait. */
+  expire?: (reason: string, cause: "safety_changed" | "turn_ended" | "grant_storage_failed") => void;
   resolve: (
     decision: PermissionDecision,
     response?: { principalId: string; always?: boolean; channel?: ApprovalChannel }
@@ -438,6 +442,27 @@ interface PendingMask {
   reject: (err: Error) => void;
 }
 
+/** What the browser's markup upload carries (#3975): the layer and the drawing's own summary. */
+export interface MarkupSubmission {
+  png: Uint8Array;
+  marks: { pen: number; arrow: number; ellipse: number; text: number };
+  notes: string[];
+}
+
+/**
+ * A markup editor open in the browser (#3975). Its answer arrives over the
+ * bounded HTTP upload route, which only the turn's own principal may use.
+ */
+interface PendingMarkup {
+  turn: RunningTurn;
+  turnId: string;
+  principalId: string;
+  /** The bound source's bytes, for the editor; refuses once the source changed. */
+  source: () => { bytes: Uint8Array; type: string };
+  resolve: (submission: MarkupSubmission) => void;
+  reject: (err: Error) => void;
+}
+
 
 /** The ask kinds in the order every per-kind walk visits them. */
 const ASK_KINDS: readonly AskKind[] = ["ask_user", "ask_user_list", "ask_user_rank", "ask_user_form"];
@@ -464,10 +489,14 @@ export class TurnCoordinator {
   readonly #startingBySession = new Map<string, StartingSession>();
   readonly #unorderedSessions = new Set<string>();
   readonly #pendingApprovals = new Map<string, PendingApproval>();
+  /** A client owns the answer, but invalidation/teardown still own its lifetime. */
+  readonly #claimedApprovals = new Map<string, PendingApproval>();
+  readonly #expiringApprovals = new Set<string>();
   readonly #resolvedApprovals = new Map<string, ToolResolutionRecord>();
   readonly #asks = new Map<string, PendingAsk>();
   readonly #pendingLocation = new Map<string, PendingLocation>();
   readonly #pendingMask = new Map<string, PendingMask>();
+  readonly #pendingMarkup = new Map<string, PendingMarkup>();
   readonly #handoffs = new Map<string, PendingHandoff>();
   readonly #handoffPreparations = new Map<string, HandoffPreparation>();
   readonly #askOutcomes = new Map<string, AskOutcome>();
@@ -779,20 +808,38 @@ export class TurnCoordinator {
 
   /** Open a permission request unless another turn holds its id; says whether it opened. */
   openApproval(toolUseId: string, entry: PendingApproval): boolean {
+    if (this.#claimedApprovals.has(toolUseId) || this.#expiringApprovals.has(toolUseId)) return false;
     if (this.collides(this.#pendingApprovals.get(toolUseId), toolUseId, entry.turn)) return false;
     this.#pendingApprovals.set(toolUseId, entry);
     return true;
   }
 
   /**
-   * Remove a pending permission request that `accepts` matches, so no other
-   * path can settle it, and return it. Settle it with `settleApproval`.
+   * Transfer a pending answer to one handler. Keep it owned through any
+   * storage wait so invalidation/teardown can still expire it exactly once.
    */
   claimApproval(toolUseId: string, accepts: (p: PendingApproval) => boolean = () => true): PendingApproval | undefined {
     const p = this.#pendingApprovals.get(toolUseId);
     if (!p || !accepts(p)) return undefined;
     this.#pendingApprovals.delete(toolUseId);
+    this.#claimedApprovals.set(toolUseId, p);
     return p;
+  }
+
+  /** Expire a waiting or claimed answer; late handlers can no longer settle it. */
+  expireApproval(toolUseId: string, reason: string, cause: "safety_changed" | "turn_ended" | "grant_storage_failed",
+    accepts: (p: PendingApproval) => boolean = () => true): boolean {
+    const p = this.#pendingApprovals.get(toolUseId) ?? this.#claimedApprovals.get(toolUseId);
+    if (!p || !accepts(p)) return false;
+    this.#pendingApprovals.delete(toolUseId);
+    this.#claimedApprovals.delete(toolUseId);
+    this.#expiringApprovals.add(toolUseId);
+    if (p.expire) p.expire(reason, cause);
+    else {
+      this.recordApprovalOutcome(toolUseId, { outcome: "expired", turnId: p.turnId, sessionId: p.turn.sessionId, reason });
+      p.resolve({ behavior: "deny", message: reason });
+    }
+    return true;
   }
 
   /** Answer a claimed permission request and record its outcome. */
@@ -802,13 +849,20 @@ export class TurnCoordinator {
     decision: PermissionDecision,
     response: { principalId: string; always?: boolean; channel?: ApprovalChannel }
   ): void {
-    claimed.resolve(decision, response);
+    if (this.#claimedApprovals.get(toolUseId) !== claimed) return;
+    const refusal = decision.behavior === "allow" ? claimed.revalidate?.() : null;
+    if (refusal) {
+      this.expireApproval(toolUseId, refusal, "safety_changed", p => p === claimed);
+      return;
+    }
+    this.#claimedApprovals.delete(toolUseId);
     this.recordApprovalOutcome(toolUseId, {
       outcome: decision.behavior === "deny" ? "denied" : "granted",
       turnId: claimed.turnId,
       sessionId: claimed.turn.sessionId,
       ...(response.channel ? { channel: response.channel } : {}),
     });
+    claimed.resolve(decision, response);
   }
 
   /** Open a location request unless another turn holds its id; says whether it opened. */
@@ -839,6 +893,46 @@ export class TurnCoordinator {
     if (!p || !accepts(p)) return undefined;
     this.#pendingMask.delete(requestId);
     return p;
+  }
+
+  /** Open a markup request unless another turn holds its id; says whether it opened. */
+  openMarkup(requestId: string, entry: PendingMarkup): boolean {
+    if (this.collides(this.#pendingMarkup.get(requestId), requestId, entry.turn)) return false;
+    this.#pendingMarkup.set(requestId, entry);
+    return true;
+  }
+
+  /** A pending markup request that `accepts` matches, left open: an upload checks before it reads. */
+  peekMarkup(requestId: string, accepts: (p: PendingMarkup) => boolean = () => true): PendingMarkup | undefined {
+    const p = this.#pendingMarkup.get(requestId);
+    return p && accepts(p) ? p : undefined;
+  }
+
+  /** Remove and return a pending markup request that `accepts` matches; the caller settles it. */
+  claimMarkup(requestId: string, accepts: (p: PendingMarkup) => boolean = () => true): PendingMarkup | undefined {
+    const p = this.#pendingMarkup.get(requestId);
+    if (!p || !accepts(p)) return undefined;
+    this.#pendingMarkup.delete(requestId);
+    return p;
+  }
+
+  /** Reject and remove every pending markup request `orphaned` names. */
+  drainMarkup(orphaned: (p: PendingMarkup) => boolean, reason: string): void {
+    for (const [id, p] of this.#pendingMarkup) {
+      if (!orphaned(p)) continue;
+      this.#pendingMarkup.delete(id);
+      p.reject(new Error(reason));
+    }
+  }
+
+  /** Markup requests waiting for the browser. */
+  get pendingMarkup(): ReadonlyMap<string, PendingMarkup> {
+    return this.#pendingMarkup;
+  }
+
+  /** Unguessable, unlike the counters: the id names an upload route. */
+  nextMarkupRequestId(): string {
+    return `markup-${crypto.randomUUID()}`;
   }
 
   private locationCounter = 0;
@@ -963,9 +1057,11 @@ export class TurnCoordinator {
     for (const turn of [...this.#running]) this.cancelTurn(turn, reason);
     const orphaned = new Set<RunningTurn>();
     for (const p of this.#pendingApprovals.values()) orphaned.add(p.turn);
+    for (const p of this.#claimedApprovals.values()) orphaned.add(p.turn);
     for (const p of this.#asks.values()) orphaned.add(p.entry.turn);
     for (const p of this.#pendingLocation.values()) orphaned.add(p.turn);
     for (const p of this.#pendingMask.values()) orphaned.add(p.turn);
+    for (const p of this.#pendingMarkup.values()) orphaned.add(p.turn);
     for (const turn of orphaned) this.drainPendingForTurn(turn, reason);
     return hadWork;
   }
@@ -993,6 +1089,7 @@ export class TurnCoordinator {
 
   /** Record a settled permission outcome and tell the host. */
   recordApprovalOutcome(toolUseId: string, record: ToolResolutionRecord): void {
+    this.#expiringApprovals.delete(toolUseId);
     this.#resolvedApprovals.delete(toolUseId);
     this.#resolvedApprovals.set(toolUseId, record);
     while (this.#resolvedApprovals.size > MAX_RESOLVED_APPROVALS) {
@@ -1032,13 +1129,11 @@ export class TurnCoordinator {
     // caller aborts first. The first one's reason is the one kept.
     if (turn.abortController?.signal.aborted && this.#drained.get(turn)?.turnId !== turn.turnId)
       this.#drained.set(turn, { turnId: turn.turnId, reason });
-    for (const [id, p] of this.#pendingApprovals) {
+    for (const [id, p] of [...this.#pendingApprovals, ...this.#claimedApprovals]) {
       if (p.turn !== turn) continue;
-      p.resolve({ behavior: "deny", message: reason });
-      this.#pendingApprovals.delete(id);
       // A terminal turn settles its own cards: no tool_result is coming, and
       // a client must be able to clear the card without waiting for one.
-      this.recordApprovalOutcome(id, { outcome: "expired", turnId: p.turnId, sessionId: p.turn.sessionId, reason });
+      this.expireApproval(id, reason, "turn_ended", entry => entry === p);
     }
     // Kind by kind, in the order the per-kind maps were once drained.
     for (const kind of ASK_KINDS) {
@@ -1072,6 +1167,11 @@ export class TurnCoordinator {
       if (p.turn !== turn) continue;
       p.reject(new Error(reason));
       this.#pendingMask.delete(id);
+    }
+    for (const [id, p] of this.#pendingMarkup) {
+      if (p.turn !== turn) continue;
+      p.reject(new Error(reason));
+      this.#pendingMarkup.delete(id);
     }
   }
 

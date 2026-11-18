@@ -135,7 +135,7 @@ on the provider's credentials and model availability.
 | `model` | — | Fallback model, `"vendor/modelId"` or `"modelId"`, when no profiles are set. |
 | `profiles` | — | Selectable `{id,label,vendor?,model,thinkingLevel?}` profiles; first is the default for new sessions. |
 | `sessionDir` | `~/.local/state/brain-kit/pi/<SHA-256 of canonical brain path>/sessions` | Server-owned session JSONL trees outside the brain and its ancestors; aliases into the brain refuse. |
-| `loadExtensions` | `true` | Discovery remains enabled, but a loaded extension or loading error refuses a managed turn and reports incomplete collection. Set `false` to use the curated tools. Skills and both cwd `AGENTS.md`/`CLAUDE.md` files still load. |
+| `loadExtensions` | `false` | Curated tools only; installed extensions stay installed and inactive. Skills and both cwd `AGENTS.md`/`CLAUDE.md` files still load. `true` opts into discovery, but a loaded extension or loading error refuses a managed turn and reports incomplete collection. Before 0.45 the default was `true` (#3658). |
 | `confirmBashPatterns` | shared `DEFAULT_CONFIRM_BASH_PATTERNS` | Regex sources, or `{ pattern, effect }`; a matching `bash` command raises a confirmation card even though bash is auto-allowed, and the card shows the pattern's `effect` (a bare source gets a generic sentence). `[]` disables confirmation. A nonempty list with no valid regex rejects construction; mixed lists report invalid entries and retain valid patterns and effects. |
 | `allowedTools` | `DEFAULT_PI_ALLOWED_TOOLS` | Tool names that run without an approval card. Every executed tool NOT in the list raises one. |
 | `writeLock` | fresh keyed lock | Legacy whole-lock serialization for authoritative server applications. Inject one to share a lock with another server writer. Worker scratch is separate per turn. |
@@ -233,8 +233,8 @@ before every tool execution — curated and extension-registered alike. The
 policy mirrors the Claude backend:
 
 - **Allowlisted tools run with no round-trip** (`DEFAULT_PI_ALLOWED_TOOLS`:
-  every curated tool except `brain_archive`, plus `pi-web-access`'s
-  `web_search`/`fetch_content`).
+  every curated tool except `brain_archive`, including the four host-owned
+  web tools).
   This includes `brain_read_base`, which reads the authoritative content and
   base hash before an edit. An explicit `allowedTools` list still replaces
   the default; native base reads still require an admitted grant for the exact
@@ -280,12 +280,14 @@ output reads `(no output)`; a nonzero exit retains its trailing `[exit N]` marke
 | `brain_read` | read | auto-allow | `safeResolve` inside repo |
 | `brain_list` | read | auto-allow | in-process `filterSearch` (read-only db) |
 | `brain_graph` | read | auto-allow | in-process link-graph walk (read-only db) |
+| `brain_read_many` | read | auto-allow | each request through `safeResolve`, as `brain_read`; core's bounded multi-read |
 | `ask_user` | read | auto-allow | routes to `bridge.askUser` |
 | `ask_user_list` | read | auto-allow | routes to `bridge.askUserList`; refuses a turn declaring `noGrantSurface` |
 | `get_current_location` | read | auto-allow | routes to `bridge.getLocation`; reverse-geocoded server-side |
 | `query_activity` | read | auto-allow | routes to `bridge.queryActivity` (read-only record) |
 | `turn_temp` | read (turn temp only) | auto-allow | usage and scoped purge through the host's held worker descriptor; linked files are kept unless named paths force their removal |
 | `show_block` | read | auto-allow | validates and echoes one answer block; no bridge, no side effect |
+| `web_search`, `fetch_content`, `get_search_content`, `source_check` | read | auto-allow | routes to `bridge.webAccess`: the host's web executor runs the call; interactive sessions only, never autonomous |
 | `request_image_mask` | mutate | auto-allow (the mask editor IS the approval) | server PNG application; writes `<image>.mask.png` |
 | `write_file` | mutate | auto-allow | server-validated Markdown application |
 | `edit_file` | mutate | auto-allow | server-validated Markdown application; `old_string` must be unique |
@@ -306,16 +308,93 @@ through the server application route; a missing route visibly refuses. Search
 degrades to FTS-only when no embedding key is configured (the same keyless
 behaviour the CLI has).
 
-## Extensions (web search, MCP)
+## Web tools
+
+Web search runs on the host, not in the worker (#3685, epic #2765). Ordinary
+interactive sessions list four curated forwarding tools, `web_search`,
+`fetch_content`, `get_search_content` and `source_check`, with the pinned
+upstream pi-web-access parameters narrowed to what the host admits. Each call
+crosses the worker's bridge RPC under its exact permission grant. The host
+binds it to the turn's principal, session, profile and policy revision, runs it
+in its web executor and returns one JSON envelope. Provider configuration and
+credentials never enter the worker. A `responseId` is a host handle scoped to
+the calling session. Answer mode, summaries, curator review, video analysis
+and the browser-cookie and credential-command modes answer `unsupported`. Each
+result passes the input-safety collector before the model receives it.
+Autonomous turns get none of these tools. A host without a web executor
+refuses them before they run.
+
+The host web executor (#3686) runs the pinned upstream extension,
+`pi-web-access` 0.41.0, in a real Pi SDK session on the host, one child
+process per conversation. That process loads only that extension, with empty
+settings and no discovery. It runs in a fresh private directory (HOME, Pi
+agent directory, cache and temp) beside the UI database, which workers
+already have masked. It reads a sanitized copy of the host's
+`web-search.json` and gets the catalog providers' API keys from the host
+environment. The copy turns off the extension's workflow, curator, summary,
+media, GitHub-cloning, command and browser-cookie paths, and removes every
+`!command` credential. Settings, the Settings card and the system-prompt
+brief list the same unavailable features (`WEB_TOOL_UNAVAILABLE_FEATURES`).
+The directory is removed when the executor ends; an executor that dies is
+replaced on the next call, and its stored results go with it.
+
+The executor's network is one mandatory route (#3687). It runs under
+bubblewrap in its own network namespace, which has only loopback, so a direct
+socket, a spawned `curl` or a `NO_PROXY` setting reaches nothing. A trusted
+bootstrap forwards loopback to a host egress proxy opened for that session.
+The proxy resolves every destination itself and checks every redirect hop as
+a new connection. It refuses loopback, private, link-local, shared, multicast
+and reserved addresses unless the host's own `ssrf.allowRanges` names them.
+Cloud metadata addresses are refused even then. Ports other than 80 and 443
+are refused, and the session's bytes are bounded (64 MiB). The proxy does not
+intercept TLS, so a guard inside the executor keeps provider keys from
+following a redirect to another origin. Refused connections are logged with
+their host, port and reason. A host without bubblewrap has no web executor.
+
+Each request to a provider's API is admitted for the turn whose call is in
+flight, against that conversation's provider policy and the turn's budgets,
+and counts as unknown spend. A connection with no call in flight is refused.
+The executor opens one connection per request, so a reused tunnel cannot
+carry a request the host did not admit.
+
+A turn whose inference runs on the host relay lends its admitted model to its
+web calls (#3688), so OpenAI search can use that turn's ChatGPT/Codex login or
+its current model (`searchRouting.useCurrentModel`). The host starts that
+model's relay into the executor's egress route, resolving and refreshing the
+credential on every request; the executor holds a placeholder, knows only
+that model from Pi's built-in catalog while the call runs, and refuses a
+request for any other model. No live login has been qualified for this path:
+the proof is offline, with a fictional stored login.
+
+## Extensions (MCP, subagents)
 
 Managed turns currently refuse every loaded external extension, including
-`pi-web-access`, `pi-mcp-adapter` and `pi-subagents`. A tool permission gate or a
+`pi-web-access`, `pi-mcp-adapter` and `pi-subagents`. Web search does not need
+a worker-loaded `pi-web-access` (see Web tools above): the host runs its own
+pinned copy. A tool permission gate or a
 final `tool_result` observer cannot qualify these packages: Pi also exposes live
 messages/results after that observer, independent custom-message injection and
 provider-payload hooks. There is no trusted extension path, name or package
-exception. Use `loadExtensions: false` for the host's curated tools.
+exception. The curated tools are therefore the default (`loadExtensions: false`;
+hosted: `BRAIN_UI_PI_EXTENSIONS=curated`), and startup names any installed
+extension it is leaving inactive.
 
-The runtime checks the complete loaded extension set and loading errors before
+Opting into discovery (`BRAIN_UI_PI_EXTENSIONS=discover`) does not make an
+extension usable. The hosted module inspects Pi's extension configuration
+(settings package lists and the global/project extension directories, read
+through Pi's package manager without importing or installing anything) before
+each roster read and each non-restricted turn. It blocks Pi when that
+configuration would fail every managed turn: with discovery on, any extension
+or loading error; in the curated default, a configured package that is not
+installed (managed workers require prepared packages even when they load no
+extension); in either mode, an inspection failure. Blocked, Pi lists its profiles as unavailable
+with reason `unsupported-configuration` and refuses the turn before a worker
+starts, with an actionable message. The input-safety collector's failure path
+is not engaged and other backends keep running. Restricted autonomous turns
+load neither and are unaffected. A direct `createPiBackend()` has no such gate
+and relies on the refusal below.
+
+As a backstop, the runtime checks the complete loaded extension set and loading errors before
 session creation and again before Agent provider dispatch, including changed
 configuration and resume. Refusal awaits the existing host failure notice and
 stops the worker. The host also reports initialization loss before acquisition

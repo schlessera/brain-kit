@@ -42,6 +42,8 @@ export type OverlayProps = OverlayName & {
   keepLive?: string;
   /** For untitled media/sheet chrome, opt into the drawn close slot. */
   closeLabel?: string;
+  /** The id of the element whose text describes the overlay (`aria-describedby`). */
+  describedBy?: string;
   children: ReactNode;
 } & DataAttributes;
 
@@ -86,10 +88,15 @@ export function Overlay(p: OverlayProps) {
     openingFocus.current ??= { opener: doc.activeElement as HTMLElement | null };
     const { opener } = openingFocus.current;
     let active = true;
-    const request = (reason: OverlayCloseReason) => {
+    /** Returns whether the overlay was asked to close; `closedBy="none"` and a covered overlay stay. */
+    const request = (reason: OverlayCloseReason): boolean => {
       cancelSwipe();
-      if (active && isTopmost(doc, id.current) && latest.current.closedBy !== "none") latest.current.onClose(reason);
+      if (!active || !isTopmost(doc, id.current) || latest.current.closedBy === "none") return false;
+      latest.current.onClose(reason);
+      return true;
     };
+    // A non-modal overlay's close request is its watcher's (#2577): Escape or
+    // Android back alike, reported with Escape's reason.
     const unregister = registerOverlay(doc, { id: id.current, modal, escape: () => request("escape") });
     const focusInitial = () => {
       const body = surface.current?.querySelector<HTMLElement>(".bk-overlay-body");
@@ -179,6 +186,7 @@ export function Overlay(p: OverlayProps) {
     "data-theme": p.theme,
     "aria-label": p.label,
     "aria-labelledby": p.title ? heading : p.labelledBy,
+    "aria-describedby": p.describedBy,
     tabIndex: -1,
     onKeyDown: keys,
   };

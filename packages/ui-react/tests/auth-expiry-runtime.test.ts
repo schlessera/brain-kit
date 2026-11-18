@@ -7,7 +7,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { deflateSync } from "node:zlib";
-import { chromium, type Browser, type Page } from "playwright";
+import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Page } from "playwright";
 import { createRecordingObservability, createStaticBackendRegistry, resolveServerConfig } from "@schlessera/brain-ui-server";
 import { createFixtureApp as createApp } from "../../ui-server/tests/helpers/native-app-fixture.js";
 import type { SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
@@ -265,6 +265,33 @@ const field = (page: Page) => page.locator("textarea[data-composer]");
     }, outcome);
   }
 let cell = 0;
+/**
+ * A context whose host hello lacks `capabilities.composerFiles` and
+ * `attachmentLimits`, as an older host's would (design §9). The client then
+ * keeps D52's tab-only staged tracks, whose work-context snapshot these
+ * cases prove; on a host with composer files a track is a draft-bound
+ * original the host restores (#3155).
+ */
+async function legacyHostContext(options: BrowserContextOptions): Promise<BrowserContext> {
+  const context = await browser!.newContext(options);
+  await context.routeWebSocket("ws://127.0.0.1:*/**", (socket) => {
+    const host = socket.connectToServer();
+    host.onMessage((message) => {
+      if (typeof message === "string" && message.includes('"server_hello"')) {
+        const frame = JSON.parse(message) as Record<string, unknown> & { type: string; capabilities?: Record<string, boolean> };
+        if (frame.type === "server_hello") {
+          const { attachmentLimits: _limits, ...rest } = frame;
+          const { composerFiles: _files, ...capabilities } = frame.capabilities ?? {};
+          socket.send(JSON.stringify({ ...rest, capabilities }));
+          return;
+        }
+      }
+      socket.send(message);
+    });
+  });
+  return context;
+}
+
 async function boot(page: Page) {
   // The container has no external network; localhost is reachable. Explicit
   // browser emulation makes its online hint agree with that real host path.
@@ -292,8 +319,8 @@ async function expire(page: Page, kind: "401" | "1008" | "revoke") {
 }
 
 for (const kind of ["401", "1008"] as const) describe.skipIf(!executablePath)(`warm auth expiry ${kind} (#1018)`, () => {
-  test("capture ends; snapshot commits before unmount; same account restores all context without navigation", async () => {
-    const context = await browser!.newContext({viewport:{width:900,height:700}});
+  test("on a host without composer files: capture ends; snapshot commits before unmount; same account restores all context without navigation", async () => {
+    const context = await legacyHostContext({viewport:{width:900,height:700}});
     const page = await context.newPage();
     try {
       await boot(page);
@@ -445,8 +472,8 @@ describe.skipIf(!executablePath)("auth boundary failures and revocation (#1018)"
 
 
 describe.skipIf(!executablePath)("auth producer and identity races (#1018)",()=>{
- test("uploaded references in every inactive staged view survive same-account restoration",async()=>{
-  const context=await browser!.newContext({viewport:{width:900,height:700}}); const page=await context.newPage();
+ test("on a host without composer files, uploaded references in every inactive staged view survive same-account restoration",async()=>{
+  const context=await legacyHostContext({viewport:{width:900,height:700}}); const page=await context.newPage();
   try {
    await boot(page);
    const inactive:Array<{id:string;refs:unknown[]}>=[];
@@ -470,8 +497,8 @@ describe.skipIf(!executablePath)("auth producer and identity races (#1018)",()=>
    }
   } finally {await context.close();}
  },120_000);
- test("restored uploaded reference bytes still govern the mixed composer budget",async()=>{
-  const context=await browser!.newContext({viewport:{width:900,height:700}}); const page=await context.newPage();
+ test("on a host without composer files, restored uploaded reference bytes still govern the mixed composer budget",async()=>{
+  const context=await legacyHostContext({viewport:{width:900,height:700}}); const page=await context.newPage();
   try {
    await boot(page);
    await page.locator('input[type="file"][accept^=".gpx"]').setInputFiles(resolve(scratch!,"ithaca.gpx")); await until(page,"f.tracks().length === 1");
@@ -512,11 +539,17 @@ describe.skipIf(!executablePath)("auth producer and identity races (#1018)",()=>
    expect(await fixture(page,f=>f.text())).toBe("");
    await page.waitForTimeout(400); await loginForm(page); await ready(page);
    expect(await field(page).inputValue(),"saved text survives the delayed image callback").toBe(DRAFT);
-   expect(await fixture(page,f=>f.images())).toEqual([]);
+   // This host keeps composer files (#3155): the image's original was stored and
+   // bound before the lock, so it is the host's draft content and comes back as
+   // that original. Its frame, decoded late, never became draft content.
+   const back=await fixture(page,f=>f.images());
+   expect(back,"only the stored original, no late frame").toHaveLength(1);
+   expect(back[0]).toMatchObject({mediaType:"image/png",name:"shroud.png"});
+   expect(back[0]!.data,"an original by its record, not a frame's base64").toMatch(/^[0-9a-f-]{36}:[0-9a-f]{64}:\d+$/);
   } finally {await context.close();}
  },120_000);
- test("track-only New chat restores the same unbound composer identity",async()=>{
-  const context=await browser!.newContext({viewport:{width:900,height:700}}); const page=await context.newPage();
+ test("on a host without composer files, track-only New chat restores the same unbound composer identity",async()=>{
+  const context=await legacyHostContext({viewport:{width:900,height:700}}); const page=await context.newPage();
   try {
    await boot(page); await page.getByRole("button",{name:"New chat",exact:true}).click();
    await until(page,"f.activeSessionId() === null");

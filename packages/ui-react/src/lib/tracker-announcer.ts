@@ -23,6 +23,9 @@ export interface TrackerAnnouncement {
  * anything before a tracker's view is `settled` (nothing has answered for it
  * yet).
  *
+ * Once a tracker has a baseline, unavailable and unknown observations do not
+ * replace it: recovering the same facts is not new work.
+ *
  * The first settled view of a tracker is its baseline, not a change: a
  * tracker restored on load, taken in from another tab, or made by leaving a
  * session the reader was looking at says what was already the case. The one
@@ -44,7 +47,7 @@ export function createTrackerAnnouncer() {
       const present = new Set<string>();
       for (const view of views) {
         present.add(view.sessionId);
-        if (!view.settled) continue;
+        if (!view.settled || (last.has(view.sessionId) && (view.state === "cant_check" || view.state === "unknown"))) continue;
         const before = last.get(view.sessionId);
         last.set(view.sessionId, { state: view.state, turnId: view.turnId });
         const first = before === undefined;
@@ -56,6 +59,7 @@ export function createTrackerAnnouncer() {
       // A tracker that went (seen, acknowledged, or the set deleted) starts
       // over: if the session is tracked again, its first view is a baseline.
       for (const id of [...last.keys()]) if (!present.has(id)) last.delete(id);
+      for (const id of fresh) if (!present.has(id)) fresh.delete(id);
       return out;
     },
   };

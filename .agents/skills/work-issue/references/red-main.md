@@ -36,7 +36,11 @@ person's name.
 
 4. Do not request proof, `confirm` or `merge` for a PR that is not a declared
    fix while main is red. Do not rerun refused or cancelled proof. Your own
-   issue stays claimed and its branch stays yours.
+   issue stays claimed and its branch stays yours. Exception: when every
+   failure in the record is a post-merge category (`runtime`, `runtime_host`,
+   `browser`, `layout`, `captures`, `endurance`), ordinary proof and merges
+   continue; the gate says so
+   ([hybrid ruling](../../../../docs/decisions/ci-utility.md#hybrid-post-merge-heavy-proof)).
 
 ## Find and deduplicate
 

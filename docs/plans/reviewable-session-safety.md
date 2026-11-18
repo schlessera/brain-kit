@@ -25,34 +25,38 @@ public design or its fixtures. Fictional examples use the Odysseus world.
 - Taint recording retains every independently observed signal and reads a
   durable revisioned aggregate, including pending/failure and explicit unknown
   coverage (`safetyProjection`,
-  `packages/ui-server/src/governance/safety-store.ts:230`). Legacy rows prove
-  their own event, never a complete history. No product verdict writer or
-  review capability is enabled by this foundation.
+  `packages/ui-server/src/governance/safety-store.ts:418-423`). Legacy rows prove
+  their own event, never a complete history. Owner review transport and its
+  mutation capability remain disabled by this foundation.
 - Tool ingestion collects input and output signals independently (`inputTaintSignals`,
-  `packages/ui-server/src/activity/ingestion-taint.ts:150`;
-  `outputTaintSignals`, `packages/ui-server/src/activity/ingestion-taint.ts:172`).
+  `packages/ui-server/src/activity/ingestion-taint.ts:155`;
+  `outputTaintSignals`, `packages/ui-server/src/activity/ingestion-taint.ts:178`).
   Workspace paths taint regardless of repository ownership. Awaited backend
   hooks commit before tool dispatch/result delivery; display frames alone
   never prove finalized delivery or complete coverage.
 - The turn proxy records each admitted non-provider connection and terminal
   exposure observation (`prepareTurnEgress`,
-  `packages/ui-server/src/brain/turn-egress.ts:82-241`). A raw CONNECT reveals
+  `packages/ui-server/src/brain/turn-egress.ts:86-295`). Relay admissions join
+  this proxy's submitted terminal observations and its own announced session
+  binding before reading fresh safety (`settleTurnSessionBinding`,
+  `packages/ui-server/src/ws/bridge-session-binding.ts:14-28`), without excluding
+  independent pending input. A raw CONNECT reveals
   only an authority and opaque bytes, not a repository path or inner protocol
-  (`startEgressProxy`, `packages/ui-sdk/src/server/egress-proxy.ts:119-354`).
+  (`startEgressProxy`, `packages/ui-sdk/src/server/egress-proxy.ts:200-435`).
 - Outward decisions read session taint at admission (`prepareOutwardPlan`,
-  `packages/ui-sdk/src/server/outward-policy.ts:46-73`). Existing historical
+  `packages/ui-sdk/src/server/outward-policy.ts:47-94`). Existing historical
   steering attribution must remain attribution at the time of a write.
 - Governance policy is protected Markdown, validated by a strict schema
-  (`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:101-130`).
+  (`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:132-161`).
   The privileged proposal writer already provides exact-base review,
   descriptor-bound publication, authority rechecks and crash receipts
-  (`createPolicyProposals`, `packages/ui-server/src/brain/policy-proposal.ts:76-240`).
+  (`createPolicyProposals`, `packages/ui-server/src/brain/policy-proposal.ts:100-275`).
 - Private reference access already matches canonical repository prefixes and
   live principal grants; that is access authority, not content trust
   ([reference-source grants](../decisions/reference-source-grants.md)). Its
   fixed Git transport separates network acquisition from credential-free,
   network-free checkout (`createReferenceTransport`,
-  `packages/ui-server/src/brain/reference-transport.ts:97-170`).
+  `packages/ui-server/src/brain/reference-transport.ts:122-265`).
 - The Security and Devices & agents surfaces already exist; policy facts are
   currently read-only (`AgentPolicyGroup`,
   `packages/ui-react/src/components/settings/agent-policy-group.tsx:8-51`).
@@ -60,8 +64,9 @@ public design or its fixtures. Fictional examples use the Odysseus world.
 The original source review used main
 `35217d283b849b5ef81700d5d4c2ec7486405d12`; the current collection path retains
 input **and** output signals (`if(!safetyHooked&&ingestion)`,
-`packages/ui-server/src/activity/recorder.ts:384`). These collectors provide the internal coverage/projection foundation; public
-review/history DTOs and mutation remain prospective. The earlier design
+`packages/ui-server/src/activity/recorder.ts:384`). These collectors provide the internal coverage/projection foundation. The
+read-only history DTOs and recovery follow the [authoritative wire contract](../integration-contract/wire.md#session-safety-history-additive-3604); public
+review and Settings mutation remain prospective. The earlier design
 comment also inspected local #3595 work; this document does not assume that
 work has merged. #3595 is adjacent scoped network approval, not persistent
 trust or taint resolution. The extraction-classifier spike #3434 remains separate.
@@ -318,7 +323,7 @@ Attach to the exact tool/message entry only with authoritative correlation;
 otherwise use a separate turn-scoped network event, without blaming the nearest
 message. Examples of accessible names are **Safety restrictions: 2 unresolved
 triggers** and **Marked safe by you: show details**. Reuse the kit's icon map
-(`ICONS`, `packages/ui-kit/src/primitives/Icon.tsx:131-193`).
+(`ICONS`, `packages/ui-kit/src/primitives/Icon.tsx:145-207`).
 
 The transcript uses a compact safety notice, not an assistant-generated message
 or modal interruption. It records every new trigger even when another trigger
@@ -453,10 +458,12 @@ remain independently enforceable throughout.
 
 ## Proposed version 1 data contract
 
-Everything in this section is **prospective**, not an exported TypeScript type,
-registered route, wire frame or accepted policy key. Implementations must add
-runtime schemas and the authoritative HTTP/wire/package/policy contract with
-code. Strict objects reject unknown keys. No client fields supply principal,
+This section specifies the version 1 design. The read-only history subset is
+refined by the [implemented wire contract](../integration-contract/wire.md#session-safety-history-additive-3604), including provisional identities,
+cursor ordering and the actually retained record variants. The review, trust
+and publication DTOs below remain **prospective**, not registered routes or
+accepted policy keys. Implementations must add runtime schemas and the
+authoritative HTTP/wire/package/policy contract with code. Strict objects reject unknown keys. No client fields supply principal,
 brain, author, channel, authority epoch or operation provenance. Time is host
 UTC epoch milliseconds; strings below are UTF-8 byte bounded, never HTML.
 
@@ -500,6 +507,18 @@ begins restricted until the host proves recovery. No admission can turn an
 unrecorded input into normal state by losing an in-memory pending entry.
 At capacity, reviewing already retained finalized events is still possible;
 starting a new chat does not bypass brain-wide capacity.
+
+The scope and recovery of that latch follow
+[proportionate containment](../decisions/proportionate-containment.md):
+"restricted" means running under the tainted policy, not refusing; a failure
+before any bytes are delivered refuses only its turn; lost evidence after
+delivery restricts only its chat; only an unwritable evidence store restricts
+the brain, and the host clears that itself once the gap facts are durable
+(maintainer ruling, 2026-11-09, #3812). Under that latch a new turn still
+begins, its permanent gap committed before delivery; only a turn whose
+restricted begin cannot commit is refused. Restart resolves the latch and any
+pending reservations itself, so "begins restricted" never means "refuses"
+([the ruling as built](../decisions/session-safety-reviews.md#a-recording-failure-restricts-what-it-puts-at-risk-3812)).
 
 Permanent content-free retirement fences belong to the existing chat lifecycle,
 not a TTL cache. Never expire or evict them to fit the limits above. Enforce

@@ -35,7 +35,7 @@ const WRITE: BrainApplicationInput = { operation: "write", path: NOTE, expectedB
 const silentLog = { emit() {} } as never;
 
 type Script = (req: StartTurnRequest) => Promise<void>;
-function fixture(route = "needs_agent") {
+function fixture(route = "needs_agent", configured = true) {
   const directory = mkdtempSync(join(tmpdir(), "brain-dispatch-")), root = join(directory, "brain");
   mkdirSync(root);
   mkdirSync(join(root, "notes"), { recursive: true });
@@ -67,7 +67,7 @@ function fixture(route = "needs_agent") {
   const native = createNativeAppFixture(root), nativeManager = createNativeBrainManagerClient(native.nativeBrain);
   const activity = createActivityStore(db, { writer: "dispatch-test" });
   const dispatcher = createInboxDispatcher(db, { brainRoot: root, nativeManager, applicationPlanner: boundaryPlanner(createHostBoundary({ brainPath: root, dbPath, nativeManager })), budget, classification: { apiKey: "fixture-key" }, fetch, store: activity,
-    select: async () => ({ backend, profileId: "fixture", model: "fixture-model", billingMode: "subscription" }) });
+    select: async () => configured ? { backend, profileId: "fixture", model: "fixture-model", billingMode: "subscription" } : null });
   const runtime = createInboxRuntime(db, { log: silentLog, brainRoot: root, budget,
     timers: { setInterval: () => 0 as never, clearInterval: () => {} }, ...dispatcher });
   const store = createInboxStore(db);
@@ -189,4 +189,12 @@ test("drop, needs_user and an unconfigured selection never start an agent turn",
     expect(await f.runtime.tick()).toMatchObject({ claimed: 0 });
     expect(f.turns).toHaveLength(0);
   }
+  // An agent route with no server-selected profile is not claimed: the pass
+  // neither starts a turn nor fails on the operation guard behind it.
+  const f = fixture("needs_agent", false);
+  const itemId = await f.arrive("An agent arrival with no configured selection.");
+  expect(await f.runtime.tick()).toEqual({ busy: false, claimed: 0, recovered: 0, dispatchEnabled: true });
+  expect(f.turns).toHaveLength(0);
+  // T1 triage claimed the arrival once; the agent tier never did.
+  expect(f.store.getItem(itemId)).toMatchObject({ type: "triage", status: "ready", attempts: 1 });
 });

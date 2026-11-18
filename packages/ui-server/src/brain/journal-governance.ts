@@ -4,7 +4,7 @@ import { GovernanceEventError, recordGovernanceEvent } from "../governance/event
 
 type SteeringRow = {
   turn_id: string; sequence: number; path: string; scope: string; before_json: string | null; after_json: string | null; actor: string;
-  overlaps: string; taint_source_event_id: number | null; session_id: string | null; turn_actor: "interactive" | "voice" | "user";
+  overlaps: string; effective_taint: number | null; taint_source_event_id: number | null; session_id: string | null; turn_actor: "interactive" | "voice" | "user";
   model: string | null; profile: "strict" | "governed"; at: number;
 };
 
@@ -17,7 +17,7 @@ type SteeringRow = {
  * Returns how many events it recorded.
  */
 export function replaySteeringEvents(db: Database): number {
-  const rows = db.query(`SELECT c.turn_id, c.sequence, c.path, c.scope, c.before_json, c.after_json, c.actor, c.overlaps, c.taint_source_event_id,
+  const rows = db.query(`SELECT c.turn_id, c.sequence, c.path, c.scope, c.before_json, c.after_json, c.actor, c.overlaps, c.taint_source_event_id, c.effective_taint,
       t.session_id, t.actor AS turn_actor, t.model, t.profile, coalesce(t.ended_at, t.started_at) AS at
     FROM turn_journal_changes c JOIN turn_journal_turns t ON t.turn_id = c.turn_id
     WHERE c.class = 'steering' AND NOT EXISTS (SELECT 1 FROM governance_events g
@@ -32,7 +32,7 @@ export function replaySteeringEvents(db: Database): number {
         actor: row.scope !== "claude_memory" && row.actor === "user" ? "user" : row.turn_actor,
         dedupeKey: `${row.turn_id}:${row.sequence}`,
         payload: { path: row.path, sequence: row.sequence, beforeHash: hash(row.before_json), afterHash: hash(row.after_json),
-          taintSourceEventId: row.taint_source_event_id, overlappingTurnIds: JSON.parse(row.overlaps) as string[] },
+          ...(row.effective_taint === 1 ? { tainted: true as const } : {}), taintSourceEventId: row.taint_source_event_id, overlappingTurnIds: JSON.parse(row.overlaps) as string[] },
       }).recorded);
     } catch (error) {
       // A row the event schema refuses could never have been recorded either.

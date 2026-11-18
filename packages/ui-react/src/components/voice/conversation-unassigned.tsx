@@ -8,7 +8,7 @@ export function ConversationUnassigned({ onReview }: { onReview: () => void }) {
   const client = root.connection.conversation;
   const sessionId = useStore(root.stores.chat, s => s.activeSessionId);
   const retained = useStore(client.state, s => s.unassigned);
-  const fragments = retained.filter(f => f.sessionId === sessionId);
+  const fragments = retained.filter(f => !f.taskContext && f.sessionId === sessionId);
   const pending = useStore(client.state, s => s.unassignedWork);
   if (!fragments.length && !pending) return null;
   // An optional control that exists because something happened is an inline

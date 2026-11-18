@@ -75,16 +75,28 @@ export const piWorkerMessage = z.discriminatedUnion("type", [
     gitStatusIncluded: z.boolean().nullable(), coverage: z.literal("assembled_inputs"),
   }).strict() }).strict(),
   z.object({ type: z.literal("startup_timing"), phase: z.enum(["worker_started", "resources", "session", "initialize"]), durationMs: usageNumber }).strict(),
+  // `loadedExtensions`: what the worker's own loader loaded, extensions and
+  // load errors, counted before the prompt (#2874). Absent is no evidence.
   z.object({ type: z.literal("ready"), sessionId: z.string().uuid(), append: z.string().optional(), model: input.optional(),
-    thinkingLevel: text.optional(), levels: z.array(text), cost: usageNumber }).strict(),
+    thinkingLevel: text.optional(), levels: z.array(text), cost: usageNumber, loadedExtensions: z.number().int().nonnegative().optional() }).strict(),
   z.object({ type: z.literal("event"), event: piWorkerEvent }).strict(),
-  z.object({ type: z.literal("rpc"), id, method: z.enum(["permission", "bridge", "apply", "readBase", "syncAuth", "lock", "unlock", "fileObservation", "safetyResult", "safetyUnavailable"]),
+  z.object({ type: z.literal("rpc"), id, method: z.enum(["permission", "admission", "bridge", "apply", "readBase", "syncAuth", "lock", "unlock", "fileObservation", "safetyResult", "safetyUnavailable"]),
     toolCallId: text, toolName: text, input }).strict(),
   z.object({ type: z.literal("snapshot"), entries: z.array(transcriptEntry) }).strict(),
   z.object({ type: z.literal("done"), cost: usageNumber, error: text.optional() }).strict(),
   z.object({ type: z.literal("error"), message: text, errorClass: z.enum(["session_too_large","input_safety_unavailable"]).optional() }).strict(),
 ]);
 export type PiWorkerMessage = z.infer<typeof piWorkerMessage>;
+
+/** Text delivered to the host's safety collector, separate from provider history. */
+export function safetyResultInput(tool: string, content: readonly { type: string; text?: unknown }[], complete = true): { output: string; segments?: string[] } {
+  const segments = content.filter(part => part.type === "text").map(part => part.text as string);
+  // Omitted segments mean unprovable read delivery. Filtering an image or
+  // resource out must not turn mixed content into one verified text part.
+  if (tool === "reference_read" && (!complete || content.some(part => part.type !== "text" || typeof part.text !== "string")))
+    return { output: segments.join("\n") };
+  return { output: segments.join("\n"), segments };
+}
 
 export function sendPipe(pipe: Pick<Writable, "write">, value: unknown): void {
   const line = JSON.stringify(value) + "\n";

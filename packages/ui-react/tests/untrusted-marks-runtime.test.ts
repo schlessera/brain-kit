@@ -201,6 +201,16 @@ describe.skipIf(!executablePath)("untrusted marks in the real Files panel", () =
         // The list: present rows only, the reader's subtitle, inert hostile text.
         if (width < 900) await page.evaluate(() => (window as unknown as { __marks: { expandTree(): void } }).__marks.expandTree());
         await page.waitForFunction(() => document.querySelector("[data-untrusted-entry]")?.getAttribute("aria-label") === "Marked untrusted, 3 files");
+        // The hint leaves in the same commit the list arrives in: no DOM state ever holds both,
+        // so the check below cannot pass or fail on how fast the browser runs.
+        await page.evaluate(() => {
+          const w = window as unknown as { __hintBesideList: number };
+          w.__hintBesideList = 0;
+          new MutationObserver(() => {
+            const hint = [...document.querySelectorAll("div")].some(d => d.childElementCount === 0 && d.textContent?.includes("j / k move"));
+            if (hint && document.querySelector("[data-untrusted-list]")) w.__hintBesideList++;
+          }).observe(document.body, { subtree: true, childList: true, characterData: true });
+        });
         await page.locator("[data-untrusted-entry]").click();
         await page.locator("[data-untrusted-heading]").waitFor();
         expect(await focusedName(page), "ENTER_LIST_FOCUS_HEADING").toBe("Marked untrusted");
@@ -220,6 +230,7 @@ describe.skipIf(!executablePath)("untrusted marks in the real Files panel", () =
         await noHorizontalScroll(page, "reader list");
         await targetsAtLeast44(page, "[data-untrusted-list] :is(button, [role=button])", "reader list");
         if (width >= 900) expect(await page.getByText("j / k move").count(), "JK_HINT_SUSPENDED").toBe(0);
+        expect(await page.evaluate(() => (window as unknown as { __hintBesideList: number }).__hintBesideList), "JK_HINT_NEVER_BESIDE_LIST").toBe(0);
         await page.getByRole("button", { name: "All files" }).click();
         await page.waitForFunction(() => document.activeElement?.hasAttribute("data-untrusted-entry"));
         expect(outside).toEqual([]);
@@ -411,10 +422,17 @@ describe.skipIf(!executablePath)("untrusted marks in the real Files panel", () =
     const unsupported = await open("owner", 1440, 900, "light");
     try {
       await unsupported.page.route("**/api/files/untrusted**", route => route.fulfill({ status: 404, contentType: "text/plain", body: "404 Not Found" }));
+      const lookup = (part: string) => unsupported.page.waitForResponse(response => response.url().includes(part) && response.status() === 404);
+      const list = lookup("/api/files/untrusted/list");
       await unsupported.page.reload();
       await unsupported.page.waitForFunction("window.__marks !== undefined");
+      const detail = lookup(`/api/files/untrusted?path=${encodeURIComponent(MESSAGE)}`);
       await openFile(unsupported.page, MESSAGE);
+      await Promise.all([list, detail]);
       await unsupported.page.getByRole("button", { name: "Copy path" }).waitFor();
+      // Both lookups have been answered. An unsupported server draws nothing, so
+      // no element or state change marks the answer having been rendered: this
+      // window lets a wrongly drawn cue, control or entry row commit.
       await Bun.sleep(200);
       expect(await unsupported.page.locator("[data-untrusted-cue], [data-untrusted-control], [data-untrusted-unknown], [data-untrusted-entry]").count(), "UNSUPPORTED_NOTHING").toBe(0);
     } finally { await unsupported.context.close(); }

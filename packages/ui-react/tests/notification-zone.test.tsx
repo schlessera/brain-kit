@@ -195,6 +195,12 @@ if (process.env[CHILD_MARKER]) {
     } as unknown as Parameters<typeof registration.reportNotificationZone>[0];
   }
   const flush = () => act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  // The slot-timer tests below recognise the card's slot timer by its long
+  // delay, so they pin the clock away from a slot: in the last half minute
+  // before a local 09:00 or 17:00 the timer is a minute or less, and a test
+  // reading the real clock then misses it (#3801). 12:00 in Athens.
+  const MIDDAY = Date.UTC(2026, 6, 12, 9, 0);
+  const pinClock = () => spyOn(Date, "now").mockReturnValue(MIDDAY);
 
   test("a read in flight when the card is dismissed cannot bring it back; a zone report re-arms the slot timer", async () => {
     let release: (() => void) | undefined;
@@ -211,6 +217,7 @@ if (process.env[CHILD_MARKER]) {
     } as unknown as Parameters<typeof registration.reportNotificationZone>[0];
     const timers: number[] = [];
     const real = globalThis.setTimeout;
+    const clock = pinClock();
     const spy = spyOn(globalThis, "setTimeout").mockImplementation(((run: () => void, delay?: number) => {
       if ((delay ?? 0) > 60_000) { timers.push(delay!); return 0 as unknown as ReturnType<typeof setTimeout>; }
       return real(run, delay);
@@ -230,7 +237,7 @@ if (process.env[CHILD_MARKER]) {
       await flush();
       expect(view.container.textContent).not.toContain("Answer the Cyclops");
       cleanup();
-    } finally { spy.mockRestore(); }
+    } finally { spy.mockRestore(); clock.mockRestore(); }
   });
 
   test("a dismissal on one root does not hide another root's older summary", async () => {
@@ -283,6 +290,7 @@ if (process.env[CHILD_MARKER]) {
     const api = cardApi(() => response);
     const timers: Array<{ run: () => void; delay: number }> = [];
     const real = globalThis.setTimeout;
+    const clock = pinClock();
     const spy = spyOn(globalThis, "setTimeout").mockImplementation(((run: () => void, delay?: number) => {
       if ((delay ?? 0) > 60_000) { timers.push({ run, delay: delay! }); return 0 as unknown as ReturnType<typeof setTimeout>; }
       return real(run, delay);
@@ -304,7 +312,7 @@ if (process.env[CHILD_MARKER]) {
       await flush();
       expect(view.container.textContent).toContain("Pass Scylla");
       cleanup();
-    } finally { spy.mockRestore(); }
+    } finally { spy.mockRestore(); clock.mockRestore(); }
   });
 
   test("the digest card refetches after a first zone report and shows this client's new Actions", async () => {

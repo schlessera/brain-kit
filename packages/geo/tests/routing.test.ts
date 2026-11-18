@@ -83,7 +83,7 @@ describe("configured OSRM routing and explicit demo fallback",()=>{
     expect(result.source).toMatchObject({endpoint:"https://routing.openstreetmap.de/routed-bike/route/v1",dataset:{preparedMode:"bike",profile:"driving"},
       fallback:{used:true,reason:"http",primaryEndpoint:dataset("bike").url},transfer:{sent:true}});
     expect(result.attempts).toHaveLength(2);
-    expect(result.attribution.some(a=>a.url.endsWith("/fixthemap"))).toBe(true);
+    expect(result.attribution.map(a=>a.url)).toContainEqual(expect.stringMatching(/\/fixthemap$/));
     const cached=await geo.route(points,"bike");
     expect(cached.source).toMatchObject({fromCache:true,fallback:{used:true},dataset:{preparedMode:"bike"},transfer:{sent:false}});
     expect(cached.attempts.map(a=>a.requestSent)).toEqual([true,false]);

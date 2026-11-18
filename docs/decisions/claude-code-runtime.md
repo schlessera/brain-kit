@@ -41,10 +41,10 @@ next to it.
   `/usr/local/bin/claude` and resolved with
   `env.CLAUDE_CODE_PATH || "/usr/local/bin/claude"`. Since #213 it has no
   default (`name: "CLAUDE_CODE_PATH"`,
-  `packages/ui-server/src/config/env.ts:550-550`) and is null when unset
-  (`claudeCodePath`, `packages/ui-server/src/config/env.ts:1151`). The whole `agent` block is copied into the backend's module
+  `packages/ui-server/src/config/env.ts:606-606`) and is null when unset
+  (`claudeCodePath`, `packages/ui-server/src/config/env.ts:1250`). The whole `agent` block is copied into the backend's module
   config (`config: { ...agent }`,
-  `packages/ui-server/src/agent/backend.ts:505`), read back as a string
+  `packages/ui-server/src/agent/backend.ts:532`), read back as a string
   (`const claudeCodePath`, `packages/ui-backend-claude/src/module.ts:266-270`)
   and handed to the SDK (`backend.claudeCodePath`,
   `packages/ui-backend-claude/src/sdk-options.ts:385`). Because of the `||`
@@ -64,9 +64,9 @@ next to it.
   of this binary. The only version probe in the server is for the `brain` CLI
   (`Probe the selected content CLI`,
   `packages/ui-server/src/brain/client.ts:180-248`, called at
-  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:476`).
+  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:510`).
   `brain doctor` runs `claude mcp list` from `PATH` (`which("claude")`,
-  `packages/core/src/cli/commands/doctor.ts:505-509`) — the user's own Claude
+  `packages/core/src/cli/commands/doctor.ts:507-511`) — the user's own Claude
   Code on their own machine, to check the MCP registration, not the server's
   binary.
 - **Two moving parts.** The SDK is a runtime dependency of
@@ -111,7 +111,7 @@ than recalled:
   carries `claude_code_version` (`sdk.d.ts:5590`). The Claude backend already
   receives that message and keeps only a status line from it
   (`msg.subtype === "init"`,
-  `packages/ui-backend-claude/src/stream-adapter.ts:289-294`).
+  `packages/ui-backend-claude/src/stream-adapter.ts:290-295`).
 
 So the pair the measurements name — 2.1.280 with SDK 0.3.278 — is one the SDK
 never ships together. It can only arise when the binary is chosen separately
@@ -210,9 +210,9 @@ unnecessary.
   installed but cannot run — a musl binary with no musl loader — it fails with
   "exists but failed to launch". Both strings are in
   `node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs`. The boot probe below
-  turns either into a refusal to start, for the same reason a missing backend
-  refuses to boot (`A missing (or unrecognized) agent backend`,
-  `packages/ui-server/src/app.ts:414-419`).
+  refuses startup when either failure affects the default backend. Since
+  #3817, a failed secondary backend is excluded while the working default
+  continues; health reports degraded and authenticated status retains the cause.
 - **The published range is still a caret, and that bounds what this repo can
   guarantee.** `@schlessera/brain-backend-claude` depends on `^0.3.241`, and a
   host resolves it in its own lockfile. A host can bump the SDK — and so the
@@ -259,15 +259,18 @@ than refuses on a mismatch.**
   the same exec wrapper and environment a turn uses, so a binary the agent's
   uid cannot execute fails here and not on the first turn.
 - **What boot does with the answer.** A missing binary, or one that will not
-  run `--version`: **refuse to start**. A pair other than the measured one: one
+  run `--version`: **refuse the default backend at boot; exclude a secondary
+  backend and report degraded health** (#3817). Explicit incompatible version
+  requirements receive the same containment; that backend never executes.
+  A pair other than the measured one: one
   warning naming both pairs, and boot continues. A clean `--version` shows the
   binary launches, not that a session works; the first turn's `init` is the
   first proof of that.
 - **Where it shows.** `/api/status`, which is behind the auth guard and already
   reports the source commit (`Operational status`,
-  `packages/ui-server/src/routes/health.ts:57-75`), and the run record. Not
+  `packages/ui-server/src/routes/health.ts:73-91`), and the run record. Not
   `/api/health`: it is public and deliberately carries no version
-  (`Public liveness probe`, `health.ts:14-16`). Not `brain doctor`: it runs on
+  (`Public liveness probe`, `health.ts:19-21`). Not `brain doctor`: it runs on
   the user's machine against a different binary.
 
 Why warn rather than refuse an unmeasured pair, given that what was measured is
@@ -456,7 +459,7 @@ into them.
   A turn's environment is the filtered agent environment plus the profile's
   additions (`export function turnEnv`, `packages/ui-backend-claude/src/sdk-options.ts:86-92`,
   `envSnapshot`, `packages/ui-backend-claude/src/config/env.ts:201-209`), handed to the SDK
-  whole (`sdkOptions.env = childEnv`, `sdk-options.ts:461`). A declared bearer-token profile clears both
+  whole (`sdkOptions.env = childEnv`, `sdk-options.ts:514`). A declared bearer-token profile clears both
   ambient credentials (`input.authTokenEnv !== undefined`, `profiles.ts:116-122`); a declared API-key profile sets
   the key on purpose (`input.apiKeyEnv !== undefined`, `profiles.ts:123-125`).
 - **Billing originally relied on ambient credential classification.** The
@@ -541,7 +544,7 @@ subscription authenticates.
   successful turn with no text. That was #191's failure, and an auth failure is
   one of its cases. Since #575 the adapter reads `is_error` on either subtype
   (`msg.subtype === "success" && !msg.is_error`,
-  `packages/ui-backend-claude/src/stream-adapter.ts:247`) and ends the turn on a
+  `packages/ui-backend-claude/src/stream-adapter.ts:248`) and ends the turn on a
   `failure` carrying the class, the status and this text.
 - **`claude auth status` cannot detect it.** It reported `loggedIn: true`,
   `authMethod: "oauth_token"` for a bogus token, so it checks for presence, not
@@ -604,7 +607,7 @@ subscription authenticates.
    environment is necessary, whether or not a subscription credential is
    present. It is not sufficient: the CLI also takes an API key from an
    `apiKeyHelper` in settings — the backend loads the brain repo's project
-   settings (`settingSources: ["project"]`, `sdk-options.ts:329`) — and from a stored Console login, reported
+   settings (`settingSources: ["project"]`, `sdk-options.ts:438`) — and from a stored Console login, reported
    as `/login managed key` (`sdk.d.ts:5585`). So the turn has to check which
    credential the CLI selected **before the prompt is sent**, and end the turn
    if it is not a subscription. The check reads the account from the SDK's
@@ -692,7 +695,11 @@ subscription authenticates.
    server's part: the operator records the mint date
    (`BRAIN_UI_CLAUDE_TOKEN_MINTED_AT`), the server warns from 30 days before
    the measured one-year expiry, and `/api/status` shows when the token last
-   worked. Every auth failure also becomes an instruction: `relogin` for a
+   worked. Since #3817 an invalid mint date is an explicit "expiry unknown:
+   invalid mint date" warning in owner status and logs, with the cause retained
+   in operational settings. It does not refuse boot or silently disable the
+   warning. Correcting the configured date restores estimation on the next
+   start; authentication itself is unchanged. Every auth failure also becomes an instruction: `relogin` for a
    rejected token, `check_account` for an account the token cannot fix, and
    `check_config` for a turn the backend refused before sending it. A keyless
    test rehearses the rotation on a headless host.
@@ -1311,7 +1318,7 @@ profile's `baseUrl` from `BRAIN_UI_CLAUDE_PROFILES`, else the server's
 `ANTHROPIC_BASE_URL`, else first-party inference. The relay forwards to that
 route, keeping its base path. Before the prompt is sent, the runner refuses a
 route whose origin is neither first-party nor listed
-(`qualify(settings`, `packages/ui-backend-claude/src/turn-inference-relay.ts:108-133`).
+(`qualify(settings`, `packages/ui-backend-claude/src/turn-inference-relay.ts:115-140`).
 Each dispatch checks the same list again before the credential is read. Native
 settings may repeat the server's route, compared as a canonical origin and base
 path, but never replace it. A discovered profile never carries a route or a

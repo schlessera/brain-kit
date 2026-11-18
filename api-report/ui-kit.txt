@@ -15,6 +15,7 @@ export "." (./src/index.ts)
   type AgentRunTool
   ApprovalCard
   type ApprovalCardProps
+  type ArrowMark
   AskUserCard
   type AskUserCardProps
   AskUserFormCard
@@ -78,6 +79,8 @@ export "." (./src/index.ts)
   type ContactFact
   type ContactKind
   type ContactTone
+  ConversationEndDivider
+  CutOffTag
   DataTable
   type DataTableCell
   type DataTableColumn
@@ -101,6 +104,7 @@ export "." (./src/index.ts)
   type DispositionControl
   EffectPreview
   type EffectPreviewProps
+  type EllipseMark
   type Emphasis
   EmptyState
   type EmptyStateProps
@@ -122,6 +126,40 @@ export "." (./src/index.ts)
   type FormOption
   type GhostRole
   type GhostSpec
+  GitHubComment
+  type GitHubCommentProps
+  GitHubCommitRow
+  type GitHubCommitRowProps
+  GitHubDetailSection
+  type GitHubDetailSectionProps
+  type GitHubDetailState
+  GitHubIdentity
+  type GitHubIdentityProps
+  GitHubIssue
+  type GitHubIssueProps
+  GitHubMergeEvent
+  type GitHubMergeEventProps
+  GitHubParticipants
+  type GitHubParticipantsProps
+  type GitHubPerson
+  GitHubPullRequest
+  type GitHubPullRequestProps
+  GitHubRef
+  type GitHubRefProps
+  type GitHubResult
+  GitHubResultList
+  type GitHubResultListProps
+  GitHubReview
+  type GitHubReviewProps
+  type GitHubReviewState
+  type GitHubState
+  GitHubStateChip
+  type GitHubStateChipProps
+  GitHubThread
+  type GitHubThreadItem
+  type GitHubThreadProps
+  GitHubWriteNotice
+  type GitHubWriteNoticeProps
   type GraphEdge
   type GraphLegendItem
   type GraphNode
@@ -138,6 +176,8 @@ export "." (./src/index.ts)
   type IconButtonProps
   type IconName
   type IconProps
+  ImageEditorFrame
+  type ImageEditorFrameProps
   type InkTone
   InlineToast
   type InlineToastProps
@@ -158,17 +198,57 @@ export "." (./src/index.ts)
   ListRow
   type ListRowProps
   type ListRowVariant
+  type LiveServiceOption
+  LiveServiceSettings
+  type LiveServiceSettingsProps
+  type LiveServiceStatus
+  MARKUP_CLOSED
+  MARKUP_COLORS
+  MARKUP_EDITOR_TITLE
+  MARKUP_EMPTY_HINT
+  MARKUP_MAX_BYTES
+  MARKUP_MAX_ZOOM
+  MARKUP_NOTE_MAX
+  MARKUP_NOT_RENDERED
+  MARKUP_RECEIPT_NOTES
+  MARKUP_SECOND_TOUCH_MS
+  MARKUP_TOOLS
+  MARKUP_WIDTHS
   type MapCluster
   type MapLand
   type MapPath
   type MapPin
   MapView
   type MapViewProps
+  type Mark
+  MarkupCanvas
+  type MarkupCanvasProps
+  type MarkupColor
+  type MarkupCounts
+  MarkupEditor
+  type MarkupEditorProps
+  type MarkupExport
+  MarkupFallback
+  type MarkupFallbackProps
+  MarkupNoteField
+  type MarkupNoteFieldProps
+  type MarkupPoint
+  MarkupResultCard
+  type MarkupResultCardProps
+  type MarkupSize
+  type MarkupTool
+  MarkupToolbar
+  type MarkupToolbarProps
+  type MarkupView
+  type MarkupWidth
   MessageBubble
   type MessageBubbleProps
   type MessageRole
   Meter
   type MeterProps
+  MicButton
+  type MicButtonProps
+  type MicPhase
   ModelPicker
   type ModelPickerProps
   type NotificationAction
@@ -183,6 +263,7 @@ export "." (./src/index.ts)
   type PaletteItem
   PathRef
   type PathRefProps
+  type PenMark
   type PendingFollowUp
   PendingFollowUps
   type PendingFollowUpsProps
@@ -232,6 +313,16 @@ export "." (./src/index.ts)
   type SessionStripProps
   SideRail
   type SideRailProps
+  type Speaker
+  SpokenMark
+  type SpokenMarkProps
+  SpokenTurn
+  type SpokenTurnDetails
+  type SpokenTurnProps
+  StartCard
+  type StartCardNotice
+  type StartCardPersona
+  type StartCardProps
   type StatTile
   StatTiles
   type StatTilesProps
@@ -265,6 +356,7 @@ export "." (./src/index.ts)
   type TabItem
   TextButton
   type TextButtonProps
+  type TextMark
   type TimelineItem
   TimelineList
   type TimelineListProps
@@ -290,17 +382,54 @@ export "." (./src/index.ts)
   type TurnErrorAction
   TurnErrorCard
   type TurnErrorCardProps
+  UncertainWord
+  type UncertainWordProps
+  UnplayedText
+  UntrustedText
+  type UntrustedTextProps
+  VOICE_SKINS
   type ValueTone
   type ViewState
+  VoiceControlButton
+  type VoiceControlButtonProps
+  VoiceField
+  type VoiceFieldLabel
+  type VoiceFieldProps
+  type VoiceFieldShape
+  VoiceMeter
+  type VoiceMeterMode
+  type VoiceMeterProps
+  type VoiceMotion
+  VoiceNotice
+  type VoiceNoticeAction
+  type VoiceNoticeProps
+  type VoiceSkin
+  VoiceStateLabel
+  type VoiceStateLabelProps
+  VoiceText
+  type VoiceTextProps
+  type VoiceTone
+  VoiceToolChip
+  type VoiceToolChipProps
   WORKING_STATES
   type WorkingSession
   type WorkingSessionView
   type WorkingState
   color
+  countMarks
+  describeCounts
   describeWorkingSession
   effectLineCount
+  exportMarkupPng
   followUpLabel
   font
+  githubHref
+  markupBytesLabel
+  markupNotes
+  markupReceiptRows
+  markupSummary
+  overCapMessage
+  registrableDomain
   z
 
 export "./brand" (./src/brand.ts)
@@ -318,6 +447,8 @@ export "./brand" (./src/brand.ts)
 export "./brand/*" (./assets/brand/*) [asset]
 
 export "./internal" (./src/internal.ts)
+  type CloseRequestOptions
+  type CloseRequestWatch
   LIGHT_TOKENS
   PRINT_TOKENS
   TOKENS
@@ -329,6 +460,7 @@ export "./internal" (./src/internal.ts)
   canvas
   mapViewBounds
   printThemeCss
+  watchCloseRequests
 
 export "./links" (./src/links.ts)
   LINK_URL_MAX
@@ -443,6 +575,13 @@ signatures (every public export and the types it is made of)
             allow: string;
             deny: string;
         };
+    }
+  ArrowMark (packages/ui-kit/src/images/markup.ts)
+    export interface ArrowMark extends MarkBase {
+        kind: "arrow";
+        width: MarkupWidth;
+        from: MarkupPoint;
+        to: MarkupPoint;
     }
   AskUserCard (packages/ui-kit/src/decisions/AskUserCard.tsx)
     export function AskUserCard(p: AskUserCardProps): import("react").JSX.Element;
@@ -842,7 +981,11 @@ signatures (every public export and the types it is made of)
         onMic?: () => void;
         mic?: boolean;
         micLabel?: string;
+        micTip?: boolean;
+        micUnavailable?: string;
+        micControl?: ReactNode;
         maxRows?: number;
+        status?: ReactNode;
     }
   ComposerRecall (packages/ui-kit/src/chrome/Composer.tsx)
     export interface ComposerRecall {
@@ -897,6 +1040,14 @@ signatures (every public export and the types it is made of)
     export type ContactKind = "person" | "company" | "project";
   ContactTone (packages/ui-kit/src/types.ts)
     export type ContactTone = "teal" | "blue" | "purple" | "amber" | "neutral";
+  ConversationEndDivider (packages/ui-kit/src/voice/SpokenTurn.tsx)
+    export function ConversationEndDivider({ label }: {
+        label: string;
+    }): import("react").JSX.Element;
+  CutOffTag (packages/ui-kit/src/voice/SpokenTurn.tsx)
+    export function CutOffTag({ label = "cut off" }: {
+        label?: string;
+    }): import("react").JSX.Element;
   DataAttributes (packages/ui-kit/src/chrome/Overlay.tsx)
     type DataAttributes = {
         [key: `data-${string}`]: string | number | boolean | undefined;
@@ -1036,6 +1187,15 @@ signatures (every public export and the types it is made of)
         revealed?: boolean;
         onReveal?: () => void;
     }
+  EllipseMark (packages/ui-kit/src/images/markup.ts)
+    export interface EllipseMark extends MarkBase {
+        kind: "ellipse";
+        width: MarkupWidth;
+        x: number;
+        y: number;
+        w: number;
+        h: number;
+    }
   Emphasis (packages/ui-kit/src/types.ts)
     export type Emphasis = "hairline" | "strong" | "bold" | "dashed" | "none";
   EmptyState (packages/ui-kit/src/conversation/EmptyState.tsx)
@@ -1170,6 +1330,245 @@ signatures (every public export and the types it is made of)
         role: GhostRole;
         size?: number;
     }
+  GitHubComment (packages/ui-kit/src/github/GitHubComment.tsx)
+    export function GitHubComment(p: GitHubCommentProps): import("react").JSX.Element;
+  GitHubCommentBase (packages/ui-kit/src/github/GitHubComment.tsx)
+    interface GitHubCommentBase {
+        time?: string;
+        body: string;
+        htmlUrl?: string | null;
+        bodyTruncated?: boolean;
+    }
+  GitHubCommentProps (packages/ui-kit/src/github/GitHubComment.tsx)
+    export type GitHubCommentProps = GitHubCommentBase & ({
+        author: GitHubPerson;
+        preview?: boolean;
+    } | {
+        author?: null;
+        preview: true;
+    });
+  GitHubCommitRow (packages/ui-kit/src/github/GitHubCommitRow.tsx)
+    export function GitHubCommitRow(p: GitHubCommitRowProps): import("react").JSX.Element;
+  GitHubCommitRowProps (packages/ui-kit/src/github/GitHubCommitRow.tsx)
+    export interface GitHubCommitRowProps {
+        sha: string;
+        subject: string;
+        message?: string | null;
+        author: GitHubPerson | null;
+        time?: string;
+        htmlUrl?: string | null;
+    }
+  GitHubDetailSection (packages/ui-kit/src/github/GitHubDetailSection.tsx)
+    export function GitHubDetailSection(p: GitHubDetailSectionProps): import("react").JSX.Element;
+  GitHubDetailSectionProps (packages/ui-kit/src/github/GitHubDetailSection.tsx)
+    export interface GitHubDetailSectionProps {
+        state: GitHubDetailState;
+        noun: string;
+        object: string;
+        idleLabel: string;
+        moreLabel?: string;
+        errorStatus?: number | string;
+        resetAt?: string;
+        resetIn?: string;
+        children?: ReactNode;
+        onLoad?: () => void;
+        onLoadMore?: () => void;
+        onRetry?: () => void;
+    }
+  GitHubDetailState (packages/ui-kit/src/github/GitHubDetailSection.tsx)
+    export type GitHubDetailState = "idle" | "loading" | "loaded" | "empty" | "error" | "rate-limited" | "no-credential" | "gone";
+  GitHubIdentity (packages/ui-kit/src/github/GitHubIdentity.tsx)
+    export function GitHubIdentity(p: GitHubIdentityProps): import("react").JSX.Element;
+  GitHubIdentityProps (packages/ui-kit/src/github/GitHubIdentity.tsx)
+    export interface GitHubIdentityProps extends GitHubPerson {
+        size?: 22 | 20;
+        meta?: ReactNode;
+    }
+  GitHubIssue (packages/ui-kit/src/github/GitHubIssue.tsx)
+    export function GitHubIssue(p: GitHubIssueProps): import("react").JSX.Element;
+  GitHubIssueProps (packages/ui-kit/src/github/GitHubIssue.tsx)
+    export interface GitHubIssueProps {
+        state: "open" | "completed" | "not-planned";
+        repo: string;
+        number?: number | null;
+        htmlUrl?: string | null;
+        title: string;
+        author?: GitHubPerson | null;
+        opened?: string;
+        participants?: GitHubParticipantsProps;
+        locked?: boolean;
+        labels?: string[];
+        body?: string | null;
+        bodyLength?: number;
+        bodyTruncated?: boolean;
+        children?: ReactNode;
+        brainRead?: string;
+        posting?: {
+            status: "preview" | "posted";
+            time?: string;
+            note?: string;
+        };
+    }
+  GitHubMergeEvent (packages/ui-kit/src/github/GitHubMergeEvent.tsx)
+    export function GitHubMergeEvent(p: GitHubMergeEventProps): import("react").JSX.Element;
+  GitHubMergeEventProps (packages/ui-kit/src/github/GitHubMergeEvent.tsx)
+    export interface GitHubMergeEventProps {
+        by: GitHubPerson | null;
+        into: string;
+        sha?: string | null;
+        time?: string;
+        variant?: "banner" | "event";
+    }
+  GitHubParticipants (packages/ui-kit/src/github/GitHubIdentity.tsx)
+    export function GitHubParticipants(p: GitHubParticipantsProps): import("react").JSX.Element;
+  GitHubParticipantsProps (packages/ui-kit/src/github/GitHubIdentity.tsx)
+    export interface GitHubParticipantsProps {
+        people: GitHubPerson[];
+        count: number;
+    }
+  GitHubPerson (packages/ui-kit/src/github/shared.tsx)
+    export interface GitHubPerson {
+        login: string | null;
+        association?: string | null;
+        bot?: boolean;
+        avatarSrc?: string | null;
+    }
+  GitHubPullRequest (packages/ui-kit/src/github/GitHubPullRequest.tsx)
+    export function GitHubPullRequest(p: GitHubPullRequestProps): import("react").JSX.Element;
+  GitHubPullRequestProps (packages/ui-kit/src/github/GitHubPullRequest.tsx)
+    export interface GitHubPullRequestProps {
+        state: "open" | "draft" | "merged" | "closed";
+        repo: string;
+        number: number;
+        htmlUrl?: string | null;
+        title: string;
+        author: GitHubPerson;
+        opened?: string;
+        headRef: string;
+        baseRef: string;
+        labels?: string[];
+        reviews: {
+            changesRequested: number;
+            approved: number;
+        } | null;
+        checks: {
+            passed: number;
+            failed: number;
+            running: number;
+            skipped?: number;
+        } | null;
+        size?: {
+            files: number;
+            additions: number;
+            deletions: number;
+        } | null;
+        commits?: number | null;
+        reviewers?: {
+            person: GitHubPerson;
+            state: GitHubReviewState;
+            time?: string;
+        }[];
+        body?: string | null;
+        bodyLength?: number;
+        bodyTruncated?: boolean;
+        merge?: GitHubMergeEventProps;
+        tabs?: {
+            items: {
+                label: string;
+                count?: number;
+            }[];
+            active: number;
+            onSelect: (index: number) => void;
+        };
+        children?: ReactNode;
+        brainRead?: string;
+        preview?: boolean;
+    }
+  GitHubRef (packages/ui-kit/src/github/GitHubRef.tsx)
+    export function GitHubRef(p: GitHubRefProps): import("react").JSX.Element;
+  GitHubRefProps (packages/ui-kit/src/github/GitHubRef.tsx)
+    export interface GitHubRefProps {
+        kind: "pr" | "issue" | null;
+        repo: string;
+        number?: number | null;
+        htmlUrl?: string | null;
+        title?: string;
+        state?: GitHubState;
+    }
+  GitHubResult (packages/ui-kit/src/github/GitHubResultList.tsx)
+    export interface GitHubResult {
+        kind: "pr" | "issue";
+        number: number;
+        state: "open" | "draft" | "merged" | "closed" | "completed" | "not-planned";
+        title: string;
+        facts?: string[];
+        summary?: string | null;
+        htmlUrl?: string | null;
+    }
+  GitHubResultList (packages/ui-kit/src/github/GitHubResultList.tsx)
+    export function GitHubResultList(p: GitHubResultListProps): import("react").JSX.Element;
+  GitHubResultListProps (packages/ui-kit/src/github/GitHubResultList.tsx)
+    export interface GitHubResultListProps {
+        repo: string;
+        query: string;
+        total: number;
+        results: GitHubResult[];
+        incomplete?: boolean;
+        searchUrl?: string | null;
+        initial?: number;
+    }
+  GitHubReview (packages/ui-kit/src/github/GitHubReview.tsx)
+    export function GitHubReview(p: GitHubReviewProps): import("react").JSX.Element;
+  GitHubReviewProps (packages/ui-kit/src/github/GitHubReview.tsx)
+    export interface GitHubReviewProps {
+        reviewer: GitHubPerson;
+        state: GitHubReviewState;
+        time?: string;
+        body?: string | null;
+        htmlUrl?: string | null;
+        lineComments?: number;
+        onShowLineComments?: () => void;
+        children?: ReactNode;
+    }
+  GitHubReviewState (packages/ui-kit/src/github/GitHubReview.tsx)
+    export type GitHubReviewState = "approved" | "changes-requested" | "commented" | "dismissed" | "review-requested" | null;
+  GitHubState (packages/ui-kit/src/github/shared.tsx)
+    export type GitHubState = "open" | "draft" | "merged" | "closed" | "completed" | "not-planned" | "approved" | "changes-requested" | "review-requested" | "commented" | "dismissed" | "failing" | "running" | "passed" | "none-reported" | "not-reported" | "not-posted" | "posted";
+  GitHubStateChip (packages/ui-kit/src/github/GitHubStateChip.tsx)
+    export function GitHubStateChip(p: GitHubStateChipProps): import("react").JSX.Element;
+  GitHubStateChipProps (packages/ui-kit/src/github/GitHubStateChip.tsx)
+    export interface GitHubStateChipProps {
+        state: GitHubState;
+        kind?: "pr" | "issue";
+        count?: number;
+        variant?: "chip" | "inline";
+    }
+  GitHubThread (packages/ui-kit/src/github/GitHubThread.tsx)
+    export function GitHubThread(p: GitHubThreadProps): import("react").JSX.Element;
+  GitHubThreadItem (packages/ui-kit/src/github/GitHubThread.tsx)
+    export type GitHubThreadItem = ({
+        kind: "comment";
+        id: string;
+    } & GitHubCommentProps) | ({
+        kind: "review";
+        id: string;
+    } & GitHubReviewProps) | ({
+        kind: "merge";
+        id: string;
+    } & GitHubMergeEventProps);
+  GitHubThreadProps (packages/ui-kit/src/github/GitHubThread.tsx)
+    export interface GitHubThreadProps {
+        items: GitHubThreadItem[];
+        label?: string;
+        before?: ReactNode;
+        emptyText?: string;
+    }
+  GitHubWriteNotice (packages/ui-kit/src/github/GitHubIssue.tsx)
+    export function GitHubWriteNotice(p: GitHubWriteNoticeProps): import("react").JSX.Element;
+  GitHubWriteNoticeProps (packages/ui-kit/src/github/GitHubIssue.tsx)
+    export interface GitHubWriteNoticeProps {
+        outcome: "declined" | "changed" | "unknown";
+    }
   GraphEdge (packages/ui-kit/src/agents/GraphView.tsx)
     export type GraphEdge = [
         number,
@@ -1277,15 +1676,28 @@ signatures (every public export and the types it is made of)
   ICONS (packages/ui-kit/src/primitives/Icon.tsx)
     const ICONS: {
         readonly "calendar-ok": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly "changes-requested": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly "folder-open": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly "issue-closed": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly "issue-open": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly "mic-off": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly "not-planned": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly "pr-closed": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly "pr-merged": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly "pr-open": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly "review-pending": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly "zoom-in": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly "zoom-out": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly activity: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly add: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly agent: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly approval: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly arrow: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly ask: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly attach: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly attention: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly back: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly backspace: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly battery: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly bell: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly bookmark: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
@@ -1296,6 +1708,7 @@ signatures (every public export and the types it is made of)
         readonly chat: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly choose: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly collapse: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly commit: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly compose: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly confirm: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly copy: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
@@ -1305,8 +1718,11 @@ signatures (every public export and the types it is made of)
         readonly digest: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly dismiss: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly down: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly draft: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly edit: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly ellipse: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly enlarge: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly erase: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly expand: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly failed: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly file: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
@@ -1314,6 +1730,7 @@ signatures (every public export and the types it is made of)
         readonly files: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly filter: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly finished: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly fit: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly folder: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly fyi: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly graph: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
@@ -1322,6 +1739,7 @@ signatures (every public export and the types it is made of)
         readonly history: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly image: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly install: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly interrupt: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly later: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly latest: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly ledger: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
@@ -1334,8 +1752,10 @@ signatures (every public export and the types it is made of)
         readonly next: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly passkey: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly pause: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly pen: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly policy: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly quarantined: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly redo: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly reorder: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly repeat: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly researcher: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
@@ -1349,12 +1769,15 @@ signatures (every public export and the types it is made of)
         readonly send: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly settings: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly share: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly speaker: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly steps: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly stopped: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly suggestion: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly sunrise: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly text: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly thread: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly trust: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly undo: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly unheard: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly unproven: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly unreachable: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
@@ -1394,6 +1817,25 @@ signatures (every public export and the types it is made of)
         size?: number;
         color?: string;
         strokeWidth?: number;
+    }
+  ImageEditorFrame (packages/ui-kit/src/images/ImageEditorFrame.tsx)
+    export function ImageEditorFrame(p: ImageEditorFrameProps): import("react").JSX.Element;
+  ImageEditorFrameProps (packages/ui-kit/src/images/ImageEditorFrame.tsx)
+    export interface ImageEditorFrameProps {
+        open: boolean;
+        title: string;
+        subtitle?: string;
+        subtitlePrefix?: string;
+        subtitleMode?: "truncate" | "expand";
+        closeLabel: string;
+        onClose: (reason: OverlayCloseReason | "close-button") => void;
+        error?: string | null;
+        toolbar: ReactNode;
+        children: ReactNode;
+        initialFocus?: RefObject<HTMLElement | null>;
+        stageRef?: Ref<HTMLDivElement>;
+        stagePadding?: number;
+        [data: `data-${string}`]: string | undefined;
     }
   InkTone (packages/ui-kit/src/types.ts)
     export type InkTone = "ink" | "dim";
@@ -1534,7 +1976,77 @@ signatures (every public export and the types it is made of)
     }
   ListRowVariant (packages/ui-kit/src/types.ts)
     export type ListRowVariant = "group" | "card" | "launcher" | "plain";
+  LiveServiceOption (packages/ui-kit/src/voice/LiveServiceSettings.tsx)
+    export interface LiveServiceOption {
+        id: string;
+        name: string;
+        detail?: string;
+    }
+  LiveServiceSettings (packages/ui-kit/src/voice/LiveServiceSettings.tsx)
+    export function LiveServiceSettings(p: LiveServiceSettingsProps): import("react").JSX.Element;
+  LiveServiceSettingsProps (packages/ui-kit/src/voice/LiveServiceSettings.tsx)
+    export interface LiveServiceSettingsProps {
+        services: LiveServiceOption[];
+        checked: string | null;
+        saved?: string | null;
+        hostDefault?: string | null;
+        inUse?: string | null;
+        savedUnavailable?: LiveServiceOption | null;
+        status?: LiveServiceStatus | null;
+        readOnly?: boolean;
+        disabled?: boolean;
+        loading?: boolean;
+        loadError?: boolean;
+        onChoose?: (id: string) => void;
+        onRetry?: () => void;
+        onReload?: () => void;
+    }
+  LiveServiceStatus (packages/ui-kit/src/voice/LiveServiceSettings.tsx)
+    export type LiveServiceStatus = {
+        kind: "saving";
+    } | {
+        kind: "stale";
+    } | {
+        kind: "failed";
+        text: string;
+    };
   MAILTO_ADDRESSES_MAX (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
+  MARKUP_CLOSED (packages/ui-kit/src/images/MarkupEditor.tsx)
+    const MARKUP_CLOSED: "The user closed the markup editor";
+  MARKUP_COLORS (packages/ui-kit/src/images/markup.ts)
+    const MARKUP_COLORS: Record<MarkupColor, {
+        hex: string;
+        name: string;
+    }>;
+  MARKUP_EDITOR_TITLE (packages/ui-kit/src/images/MarkupEditor.tsx)
+    const MARKUP_EDITOR_TITLE: "Mark up the image";
+  MARKUP_EMPTY_HINT (packages/ui-kit/src/images/MarkupToolbar.tsx)
+    const MARKUP_EMPTY_HINT: "Draw at least one mark.";
+  MARKUP_MAX_BYTES (packages/ui-kit/src/images/markup.ts)
+    const MARKUP_MAX_BYTES: 52428800;
+  MARKUP_MAX_ZOOM (packages/ui-kit/src/images/markup.ts)
+    const MARKUP_MAX_ZOOM: 8;
+  MARKUP_NOTE_MAX (packages/ui-kit/src/images/markup.ts)
+    const MARKUP_NOTE_MAX: 80;
+  MARKUP_NOT_RENDERED (packages/ui-kit/src/images/MarkupResultCard.tsx)
+    const MARKUP_NOT_RENDERED: "markup not rendered";
+  MARKUP_RECEIPT_NOTES (packages/ui-kit/src/images/MarkupResultCard.tsx)
+    const MARKUP_RECEIPT_NOTES: 3;
+  MARKUP_SECOND_TOUCH_MS (packages/ui-kit/src/images/markup.ts)
+    const MARKUP_SECOND_TOUCH_MS: 120;
+  MARKUP_TOOLS (packages/ui-kit/src/images/MarkupToolbar.tsx)
+    const MARKUP_TOOLS: {
+        tool: MarkupTool;
+        icon: IconName;
+        label: string;
+        name: string;
+        key: string;
+    }[];
+  MARKUP_WIDTHS (packages/ui-kit/src/images/markup.ts)
+    const MARKUP_WIDTHS: Record<MarkupWidth, {
+        fraction: number;
+        name: string;
+    }>;
   MailVerdict (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
   MapCluster (packages/ui-kit/src/blocks/MapView.tsx)
     export interface MapCluster {
@@ -1603,6 +2115,149 @@ signatures (every public export and the types it is made of)
         };
         framed?: boolean;
     }
+  Mark (packages/ui-kit/src/images/markup.ts)
+    export type Mark = PenMark | ArrowMark | EllipseMark | TextMark;
+  MarkBase (packages/ui-kit/src/images/markup.ts)
+    interface MarkBase {
+        id: string;
+        color: MarkupColor;
+    }
+  MarkupCanvas (packages/ui-kit/src/images/MarkupCanvas.tsx)
+    export function MarkupCanvas(p: MarkupCanvasProps): import("react").JSX.Element;
+  MarkupCanvasProps (packages/ui-kit/src/images/MarkupCanvas.tsx)
+    export interface MarkupCanvasProps {
+        src: string;
+        size?: MarkupSize;
+        marks: readonly Mark[];
+        tool: MarkupTool;
+        color: MarkupColor;
+        width: MarkupWidth;
+        onCommit: (mark: Mark) => void;
+        onNoteRequest: (at: MarkupPoint, note: TextMark | null) => void;
+        noteField?: {
+            at: MarkupPoint;
+            editing?: string;
+            node: ReactNode;
+        };
+        onLoad?: (natural: MarkupSize) => void;
+        onError?: () => void;
+        onKeyDown?: (event: KeyboardEvent<HTMLDivElement>) => void;
+        initialView?: MarkupView;
+        measureText?: (text: string, font: string) => number;
+        newId?: () => string;
+        focusTarget?: {
+            current: HTMLElement | null;
+        };
+        style?: CSSProperties;
+    }
+  MarkupColor (packages/ui-kit/src/images/markup.ts)
+    export type MarkupColor = "red" | "yellow" | "cyan";
+  MarkupCounts (packages/ui-kit/src/images/markup.ts)
+    export interface MarkupCounts {
+        pen: number;
+        arrow: number;
+        ellipse: number;
+        text: number;
+    }
+  MarkupEditor (packages/ui-kit/src/images/MarkupEditor.tsx)
+    export function MarkupEditor(p: MarkupEditorProps): import("react").JSX.Element;
+  MarkupEditorProps (packages/ui-kit/src/images/MarkupEditor.tsx)
+    export interface MarkupEditorProps {
+        open: boolean;
+        src: string;
+        imagePath: string;
+        instruction?: string;
+        size?: MarkupSize;
+        maxBytes?: number;
+        onSubmit: (layer: MarkupExport) => void | Promise<void>;
+        onDismiss: () => void;
+        initialMarks?: Mark[];
+        initialView?: MarkupView;
+        initialTool?: MarkupTool;
+        exportLayer?: (marks: readonly Mark[], size: MarkupSize) => Promise<MarkupExport>;
+        layout?: "compact" | "wide";
+    }
+  MarkupExport (packages/ui-kit/src/images/markup.ts)
+    export interface MarkupExport {
+        png: Blob;
+        bytes: number;
+        width: number;
+        height: number;
+        counts: MarkupCounts;
+        notes: string[];
+    }
+  MarkupFallback (packages/ui-kit/src/images/MarkupResultCard.tsx)
+    export function MarkupFallback(p: MarkupFallbackProps): import("react").JSX.Element;
+  MarkupFallbackProps (packages/ui-kit/src/images/MarkupResultCard.tsx)
+    export interface MarkupFallbackProps {
+        imagePath?: string;
+        reason: string;
+    }
+  MarkupNoteField (packages/ui-kit/src/images/MarkupNoteField.tsx)
+    export function MarkupNoteField(p: MarkupNoteFieldProps): import("react").JSX.Element;
+  MarkupNoteFieldProps (packages/ui-kit/src/images/MarkupNoteField.tsx)
+    export interface MarkupNoteFieldProps {
+        value: string;
+        onChange: (value: string) => void;
+        onPlace: () => void;
+        onCancel: () => void;
+        onDelete?: () => void;
+        autoFocus?: boolean;
+    }
+  MarkupPoint (packages/ui-kit/src/images/markup.ts)
+    export interface MarkupPoint {
+        x: number;
+        y: number;
+    }
+  MarkupResultCard (packages/ui-kit/src/images/MarkupResultCard.tsx)
+    export function MarkupResultCard(p: MarkupResultCardProps): import("react").JSX.Element;
+  MarkupResultCardProps (packages/ui-kit/src/images/MarkupResultCard.tsx)
+    export interface MarkupResultCardProps {
+        imagePath: string;
+        markupPath: string;
+        width: number;
+        height: number;
+        bytes: number;
+        marks: MarkupCounts;
+        notes: readonly string[];
+        markupSrc?: string;
+        matchesSource?: boolean;
+    }
+  MarkupSize (packages/ui-kit/src/images/markup.ts)
+    export interface MarkupSize {
+        width: number;
+        height: number;
+    }
+  MarkupTool (packages/ui-kit/src/images/markup.ts)
+    export type MarkupTool = "pen" | "arrow" | "ellipse" | "text" | "hand";
+  MarkupToolbar (packages/ui-kit/src/images/MarkupToolbar.tsx)
+    export function MarkupToolbar(p: MarkupToolbarProps): import("react").JSX.Element;
+  MarkupToolbarProps (packages/ui-kit/src/images/MarkupToolbar.tsx)
+    export interface MarkupToolbarProps {
+        layout: "compact" | "wide";
+        tool: MarkupTool;
+        onTool: (tool: MarkupTool) => void;
+        color: MarkupColor;
+        onColor: (color: MarkupColor) => void;
+        width: MarkupWidth;
+        onWidth: (width: MarkupWidth) => void;
+        canUndo: boolean;
+        canRedo: boolean;
+        canClear: boolean;
+        onUndo: () => void;
+        onRedo: () => void;
+        onClear: () => void;
+        canSubmit: boolean;
+        submitting?: boolean;
+        onSubmit: () => void;
+    }
+  MarkupView (packages/ui-kit/src/images/MarkupCanvas.tsx)
+    export interface MarkupView {
+        zoom: number;
+        center?: MarkupPoint;
+    }
+  MarkupWidth (packages/ui-kit/src/images/markup.ts)
+    export type MarkupWidth = "thin" | "medium" | "thick";
   MessageBubble (packages/ui-kit/src/chrome/MessageBubble.tsx)
     export function MessageBubble(p: MessageBubbleProps): import("react").JSX.Element;
   MessageBubbleProps (packages/ui-kit/src/chrome/MessageBubble.tsx)
@@ -1629,6 +2284,28 @@ signatures (every public export and the types it is made of)
         gradient?: boolean;
         labelWidth?: number;
     }
+  MicButton (packages/ui-kit/src/voice/MicButton.tsx)
+    export function MicButton(p: MicButtonProps): import("react").JSX.Element;
+  MicButtonProps (packages/ui-kit/src/voice/MicButton.tsx)
+    export interface MicButtonProps {
+        phase?: MicPhase;
+        progress?: number;
+        hint?: boolean;
+        name?: string;
+        hintLabel?: string;
+        onClick?: () => void;
+        onPointerDown?: (event: PointerEvent<HTMLButtonElement>) => void;
+        onPointerUp?: (event: PointerEvent<HTMLButtonElement>) => void;
+        onPointerLeave?: (event: PointerEvent<HTMLButtonElement>) => void;
+        onPointerCancel?: (event: PointerEvent<HTMLButtonElement>) => void;
+        onKeyDown?: (event: KeyboardEvent<HTMLButtonElement>) => void;
+        onTalkLive?: () => void;
+        talkLiveLabel?: string;
+        disabled?: boolean;
+        motion?: VoiceMotion;
+    }
+  MicPhase (packages/ui-kit/src/voice/MicButton.tsx)
+    export type MicPhase = "idle" | "pressed" | "holding" | "complete";
   ModelPicker (packages/ui-kit/src/chrome/ModelPicker.tsx)
     export function ModelPicker(p: ModelPickerProps): import("react").JSX.Element;
   ModelPickerProps (packages/ui-kit/src/chrome/ModelPicker.tsx)
@@ -1735,6 +2412,7 @@ signatures (every public export and the types it is made of)
         theme?: string;
         keepLive?: string;
         closeLabel?: string;
+        describedBy?: string;
         children: ReactNode;
     } & DataAttributes;
   OverlayVariant (packages/ui-kit/src/chrome/Overlay.tsx)
@@ -1765,6 +2443,12 @@ signatures (every public export and the types it is made of)
         icon?: IconName;
         meta?: string;
         fontSize?: number;
+    }
+  PenMark (packages/ui-kit/src/images/markup.ts)
+    export interface PenMark extends MarkBase {
+        kind: "pen";
+        width: MarkupWidth;
+        points: MarkupPoint[];
     }
   PendingFollowUp (packages/ui-kit/src/chrome/PendingFollowUps.tsx)
     export interface PendingFollowUp {
@@ -2092,6 +2776,59 @@ signatures (every public export and the types it is made of)
         hint?: string | null;
         width?: number;
     }
+  Speaker (packages/ui-kit/src/voice/SpokenTurn.tsx)
+    export type Speaker = "you" | "brain";
+  SpokenMark (packages/ui-kit/src/voice/SpokenTurn.tsx)
+    export function SpokenMark(p: SpokenMarkProps): import("react").JSX.Element;
+  SpokenMarkProps (packages/ui-kit/src/voice/SpokenTurn.tsx)
+    export interface SpokenMarkProps {
+        speaker: Speaker;
+    }
+  SpokenTurn (packages/ui-kit/src/voice/SpokenTurn.tsx)
+    export function SpokenTurn(p: SpokenTurnProps): import("react").JSX.Element;
+  SpokenTurnDetails (packages/ui-kit/src/voice/SpokenTurn.tsx)
+    export type SpokenTurnDetails = Omit<TranscriptQualifiersProps, "trigger">;
+  SpokenTurnProps (packages/ui-kit/src/voice/SpokenTurn.tsx)
+    export interface SpokenTurnProps {
+        speaker: Speaker;
+        inProgress?: boolean;
+        cutOff?: boolean;
+        details?: SpokenTurnDetails;
+        children?: ReactNode;
+    }
+  StartCard (packages/ui-kit/src/voice/StartCard.tsx)
+    export function StartCard(p: StartCardProps): import("react").JSX.Element;
+  StartCardNotice (packages/ui-kit/src/voice/StartCard.tsx)
+    export interface StartCardNotice {
+        kind: "warn" | "block" | "error";
+        text: string;
+        action?: {
+            label: string;
+            onClick?: () => void;
+        };
+    }
+  StartCardPersona (packages/ui-kit/src/voice/StartCard.tsx)
+    export interface StartCardPersona {
+        id: string;
+        name: string;
+        voice?: string;
+    }
+  StartCardProps (packages/ui-kit/src/voice/StartCard.tsx)
+    export interface StartCardProps {
+        service: string | null;
+        disclosure?: string;
+        shared?: string[];
+        onChangeService?: () => void;
+        showService?: boolean;
+        personas?: StartCardPersona[];
+        selectedPersona?: string;
+        onSelectPersona?: (id: string) => void;
+        notice?: StartCardNotice;
+        onStart?: () => void;
+        onCancel?: () => void;
+        startLabel?: string;
+        motion?: VoiceMotion;
+    }
   StatTile (packages/ui-kit/src/blocks/StatTiles.tsx)
     export interface StatTile {
         label: string;
@@ -2138,6 +2875,7 @@ signatures (every public export and the types it is made of)
         title: string;
         operations: StatusIndicatorOperation[];
         returnFocus?: () => HTMLElement | null;
+        announce?: boolean;
     }
   StatusIndicatorState (packages/ui-kit/src/chrome/StatusIndicator.tsx)
     export type StatusIndicatorState = "active" | "queued" | "success" | "attention" | "unknown" | "failed" | "refused" | "idle";
@@ -2271,6 +3009,12 @@ signatures (every public export and the types it is made of)
         style?: CSSProperties;
         [data: `data-${string}`]: string | undefined;
     }
+  TextMark (packages/ui-kit/src/images/markup.ts)
+    export interface TextMark extends MarkBase {
+        kind: "text";
+        at: MarkupPoint;
+        text: string;
+    }
   TimelineItem (packages/ui-kit/src/blocks/TimelineList.tsx)
     export interface TimelineItem {
         time: string;
@@ -2373,6 +3117,19 @@ signatures (every public export and the types it is made of)
         onExpandedChange?: (expanded: boolean) => void;
         isStatic?: boolean;
     }
+  TranscriptQualifiersProps (packages/ui-kit/src/conversation/TranscriptQualifiers.tsx)
+    export interface TranscriptQualifiersProps {
+        kind: "recognized" | "generated" | "task-request" | "task-result";
+        source?: string;
+        playback?: "played" | "unknown" | "not-spoken";
+        restored?: boolean;
+        unsaved?: boolean;
+        orderUnknown?: boolean;
+        finish?: "updating" | "some-updating" | "finished" | "unknown";
+        evidenceLabel: string;
+        children: ReactNode;
+        trigger?: "glyphs" | "reveal";
+    }
   Tray (packages/ui-kit/src/blocks/Tray.tsx)
     const Tray: import("react").ForwardRefExoticComponent<TrayProps & import("react").RefAttributes<HTMLButtonElement>>;
   TrayProps (packages/ui-kit/src/blocks/Tray.tsx)
@@ -2423,10 +3180,144 @@ signatures (every public export and the types it is made of)
         busy?: boolean;
         retryWarning?: boolean;
     }
+  UncertainWord (packages/ui-kit/src/voice/SpokenTurn.tsx)
+    export function UncertainWord(p: UncertainWordProps): import("react").JSX.Element;
+  UncertainWordProps (packages/ui-kit/src/voice/SpokenTurn.tsx)
+    export interface UncertainWordProps {
+        children: ReactNode;
+        onClick?: () => void;
+    }
+  UnplayedText (packages/ui-kit/src/voice/SpokenTurn.tsx)
+    export function UnplayedText({ children }: {
+        children: ReactNode;
+    }): import("react").JSX.Element;
+  UntrustedText (packages/ui-kit/src/evidence/UntrustedText.tsx)
+    export function UntrustedText(p: UntrustedTextProps): import("react").JSX.Element;
+  UntrustedTextProps (packages/ui-kit/src/evidence/UntrustedText.tsx)
+    export interface UntrustedTextProps {
+        text: string;
+        source: string;
+        sourcePhrase?: string;
+        author?: string | null;
+        frame?: "box" | "rule" | "none";
+        caption?: string | false;
+        lines?: number;
+        linesNarrow?: number;
+        expandLabel?: string;
+        maxChars?: number;
+        truncated?: boolean;
+        truncatedNote?: ReactNode;
+    }
+  VOICE_SKINS (packages/ui-kit/src/voice/tone.ts)
+    const VOICE_SKINS: Readonly<Record<VoiceTone, VoiceSkin>>;
   ValueTone (packages/ui-kit/src/types.ts)
     export type ValueTone = Tone | InkTone;
   ViewState (packages/ui-kit/src/types.ts)
     export type ViewState = "ready" | "loading" | "empty" | "error";
+  VoiceControlButton (packages/ui-kit/src/voice/VoiceControlButton.tsx)
+    export function VoiceControlButton(p: VoiceControlButtonProps): import("react").JSX.Element;
+  VoiceControlButtonProps (packages/ui-kit/src/voice/VoiceControlButton.tsx)
+    export interface VoiceControlButtonProps {
+        name: string;
+        icon: IconName;
+        tone?: "neutral" | "end" | "you" | "brain";
+        pressed?: boolean;
+        disabled?: boolean;
+        busy?: boolean;
+        onClick?: () => void;
+    }
+  VoiceField (packages/ui-kit/src/voice/VoiceField.tsx)
+    export function VoiceField(p: VoiceFieldProps): import("react").JSX.Element;
+  VoiceFieldLabel (packages/ui-kit/src/voice/VoiceField.tsx)
+    export interface VoiceFieldLabel {
+        icon: IconName;
+        word: string;
+        meta?: string;
+        spin?: boolean;
+        live?: "polite" | "assertive";
+    }
+  VoiceFieldProps (packages/ui-kit/src/voice/VoiceField.tsx)
+    export interface VoiceFieldProps {
+        shape?: VoiceFieldShape;
+        tone?: VoiceTone;
+        label?: VoiceFieldLabel;
+        meter?: VoiceMeterMode;
+        level?: number;
+        outline?: boolean;
+        name?: string;
+        children?: ReactNode;
+        trailing?: ReactNode;
+        controls?: ReactNode;
+        motion?: VoiceMotion;
+    }
+  VoiceFieldShape (packages/ui-kit/src/voice/VoiceField.tsx)
+    export type VoiceFieldShape = "compact" | "tall" | "card";
+  VoiceMeter (packages/ui-kit/src/voice/VoiceMeter.tsx)
+    export function VoiceMeter(p: VoiceMeterProps): import("react").JSX.Element | null;
+  VoiceMeterMode (packages/ui-kit/src/voice/VoiceMeter.tsx)
+    export type VoiceMeterMode = "level" | "sweep" | "flat" | "hatch" | "none";
+  VoiceMeterProps (packages/ui-kit/src/voice/VoiceMeter.tsx)
+    export interface VoiceMeterProps {
+        mode?: VoiceMeterMode;
+        level?: number;
+        bars?: number;
+        motion?: VoiceMotion;
+    }
+  VoiceMotion (packages/ui-kit/src/voice/tone.ts)
+    export type VoiceMotion = "auto" | "reduce";
+  VoiceNotice (packages/ui-kit/src/voice/VoiceNotice.tsx)
+    export function VoiceNotice(p: VoiceNoticeProps): import("react").JSX.Element;
+  VoiceNoticeAction (packages/ui-kit/src/voice/VoiceNotice.tsx)
+    export interface VoiceNoticeAction {
+        label: string;
+        onClick?: () => void;
+        tone?: "you" | "brain";
+    }
+  VoiceNoticeProps (packages/ui-kit/src/voice/VoiceNotice.tsx)
+    export interface VoiceNoticeProps {
+        tone?: VoiceTone;
+        icon: IconName;
+        title: string;
+        body?: string;
+        actions?: VoiceNoticeAction[];
+        live?: "polite" | "assertive";
+        motion?: VoiceMotion;
+    }
+  VoiceSkin (packages/ui-kit/src/voice/tone.ts)
+    export interface VoiceSkin {
+        ink: string;
+        tint: string;
+        border: string;
+        bar: string;
+    }
+  VoiceStateLabel (packages/ui-kit/src/voice/VoiceStateLabel.tsx)
+    export function VoiceStateLabel(p: VoiceStateLabelProps): import("react").JSX.Element;
+  VoiceStateLabelProps (packages/ui-kit/src/voice/VoiceStateLabel.tsx)
+    export interface VoiceStateLabelProps {
+        icon: IconName;
+        word: string;
+        meta?: string;
+        spin?: boolean;
+        live?: "polite" | "assertive";
+    }
+  VoiceText (packages/ui-kit/src/voice/VoiceField.tsx)
+    export function VoiceText(p: VoiceTextProps): import("react").JSX.Element;
+  VoiceTextProps (packages/ui-kit/src/voice/VoiceField.tsx)
+    export interface VoiceTextProps {
+        text?: string;
+        partial?: string;
+        placeholder?: string;
+        children?: ReactNode;
+    }
+  VoiceTone (packages/ui-kit/src/voice/tone.ts)
+    export type VoiceTone = "you" | "brain" | "idle" | "fail";
+  VoiceToolChip (packages/ui-kit/src/voice/SpokenTurn.tsx)
+    export function VoiceToolChip(p: VoiceToolChipProps): import("react").JSX.Element;
+  VoiceToolChipProps (packages/ui-kit/src/voice/SpokenTurn.tsx)
+    export interface VoiceToolChipProps {
+        label: string;
+        state?: "running" | "done";
+    }
   WEB_APP_COLORS (packages/ui-kit/src/brand.ts)
     const WEB_APP_COLORS: {
         readonly background_color: "#0c1417";
@@ -2482,11 +3373,17 @@ signatures (every public export and the types it is made of)
         readonly surface: string;
         readonly tealLift: string;
     };
+  countMarks (packages/ui-kit/src/images/markup.ts)
+    export function countMarks(marks: readonly Mark[]): MarkupCounts;
   decodePunycode (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
+  describeCounts (packages/ui-kit/src/images/markup.ts)
+    export function describeCounts(counts: MarkupCounts, separator?: string): string;
   describeWorkingSession (packages/ui-kit/src/chrome/SessionStrip.tsx)
     export function describeWorkingSession(s: WorkingSession, now: number, clock?: (ms: number) => string): WorkingSessionView;
   effectLineCount (packages/ui-kit/src/decisions/EffectPreview.tsx)
     export function effectLineCount(text: string | undefined): number;
+  exportMarkupPng (packages/ui-kit/src/images/markup.ts)
+    export function exportMarkupPng(marks: readonly Mark[], size: MarkupSize, doc?: Document | undefined): Promise<MarkupExport>;
   followUpLabel (packages/ui-kit/src/chrome/PendingFollowUps.tsx)
     export function followUpLabel(text: string, words?: number): string;
   font (packages/ui-kit/src/tokens.ts)
@@ -2495,8 +3392,22 @@ signatures (every public export and the types it is made of)
         readonly display: "'DM Serif Text',Georgia,serif";
         readonly mono: "'JetBrains Mono',ui-monospace,monospace";
     };
+  githubHref (packages/ui-kit/src/github/shared.tsx)
+    export function githubHref(raw: string | null | undefined): string | null;
   highlyRestrictive (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
+  markupBytesLabel (packages/ui-kit/src/images/markup.ts)
+    export function markupBytesLabel(bytes: number): string;
+  markupNotes (packages/ui-kit/src/images/markup.ts)
+    export function markupNotes(marks: readonly Mark[]): string[];
+  markupReceiptRows (packages/ui-kit/src/images/MarkupResultCard.tsx)
+    export function markupReceiptRows(p: MarkupResultCardProps): ReceiptRow[];
+  markupSummary (packages/ui-kit/src/images/markup.ts)
+    export function markupSummary(marks: readonly Mark[]): string;
+  overCapMessage (packages/ui-kit/src/images/markup.ts)
+    export function overCapMessage(bytes: number, maxBytes?: number): string;
   refusalSentence (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
+  registrableDomain (packages/ui-kit/src/evidence/UntrustedText.tsx)
+    export function registrableDomain(host: string): string;
   z (packages/ui-kit/src/tokens.ts)
     const z: {
         readonly banner: "var(--bk-z-banner)";

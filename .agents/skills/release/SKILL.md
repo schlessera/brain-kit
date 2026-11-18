@@ -199,9 +199,13 @@ from a direct `bun run test experiments/…`, about 34 native/paid-harness
 failures with "Installed dependency inode has external hardlinks")? Bun's
 default install hard-links `node_modules` to its global cache, and the offline
 harnesses refuse runtime bytes they do not own. Reinstall the same lock as
-copies and rerun: `rm -rf node_modules && bun install --frozen-lockfile
---backend=copyfile`. The lock is unchanged, so this does not invalidate
-anything; do not skip or edit the tests.
+copies using [dependency diagnostic preparation](../../../docs/process/diagnostic-installs.md):
+preserve evidence, move aside only the owned checkout's `node_modules`, then run
+`sh scripts/prepare-diagnostic-install.sh`. A fresh private cache avoids modified
+shared-cache bytes; copyfile alone does not verify provenance. Keep the lock unchanged,
+rebuild, and rerun. Retain the old failed receipt;
+a changed installation requires fresh proof, even with an unchanged lock. Do not
+skip or edit the tests.
 
 **An offline experiment app refuses with `Hosted workers require managed Btrfs
 storage`?** Measurement harnesses are outside the normal product tests and

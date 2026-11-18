@@ -1,11 +1,12 @@
+import type { Database } from "bun:sqlite";
+import { getDictationSettings } from "../db/settings.js";
 import { createHash } from "node:crypto";
 import { Hono, type Context } from "hono";
-import { SpeechTranscriptionError, type SpeechProvider } from "@schlessera/brain-ui-sdk/server";
+import { SpeechTranscriptionError } from "@schlessera/brain-ui-sdk/server";
 import type { TranscriptionFailure } from "@schlessera/brain-ui-sdk/protocol";
 import type { AppEnv } from "../app-env.js";
-import type { VoiceConfig } from "../config/env.js";
 import { getKeyterms, type KeytermSettings } from "../voice/keyterm-builder.js";
-import { pickSpeechProvider, speechCapabilities } from "../voice/speech-providers.js";
+import { speechCapabilities, type SpeechProviderRegistry } from "../voice/speech-providers.js";
 import { refuse, TranscriptionError } from "../voice/transcription-store.js";
 
 import type { AwaitableTranscriptionStore } from "../voice/transcription-writes.js";
@@ -54,7 +55,8 @@ async function readAudio(c: Context<AppEnv>): Promise<Uint8Array> {
   return new Uint8Array(Buffer.concat(chunks, bytes));
 }
 export function createTranscriptionRoutes(deps: {
-  store: AwaitableTranscriptionStore; voice: VoiceConfig; keyterms: KeytermSettings; speechProvider?: SpeechProvider;
+  store: AwaitableTranscriptionStore; keyterms: KeytermSettings;
+  speechProviders: SpeechProviderRegistry; db: Database;
 }): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
   const run = (handler: (c: Context<AppEnv>, principalId: string, id: string) => Promise<Response>) => async (c: Context<AppEnv>) => {
@@ -80,7 +82,10 @@ export function createTranscriptionRoutes(deps: {
     return c.json(await deps.store.remove(principalId, id, disposition));
   }));
   app.put(path, run(async (c, principalId, id) => {
-    const provider = pickSpeechProvider(deps.voice, deps.speechProvider);
+    const selected = c.req.header("Speech-Provider");
+    const provider = selected !== undefined ? deps.speechProviders.get(selected)
+      : deps.speechProviders.effective(getDictationSettings(deps.db));
+    if (!provider) return refuse(409, "speech_provider_unavailable", "That dictation service isn't available on this host.");
     if (!speechCapabilities(provider).savedAudio) return refuse(501, "saved_audio_unsupported", "Saved-audio transcription is unavailable.");
     const contentType = c.req.header("content-type") ?? "";
     if (!MEDIA.test(contentType)) return refuse(415, "recording_media_unsupported", "Upload a WebM, Ogg or MP4 audio container.");

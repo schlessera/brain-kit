@@ -1,5 +1,5 @@
 import { PROPOSE_POLICY_CHANGE_CONTRACT, PROPOSE_POLICY_CHANGE_INPUT_SCHEMA } from "@schlessera/brain-ui-sdk/tool-contracts";
-import { APIFY_TOOL_CONTRACTS, COMPUTE_TOOL_CONTRACTS, INBOX_TOOL_CONTRACTS, READ_ATTACHMENT_CONTRACT, REFERENCE_TOOL_CONTRACTS, handleApifyTool, handleComputeTool, handleInboxTool, handleReadAttachment, handleReferenceTool } from "@schlessera/brain-ui-sdk/server";
+import { APIFY_TOOL_CONTRACTS, COMPUTE_TOOL_CONTRACTS, GITHUB_TOOL_CONTRACTS, handleGithubTool, INBOX_TOOL_CONTRACTS, READ_ATTACHMENT_CONTRACT, REFERENCE_TOOL_CONTRACTS, WEB_TOOL_CONTRACTS, handleApifyTool, handleComputeTool, handleInboxTool, handleReadAttachment, handleReferenceTool, handleWebTool } from "@schlessera/brain-ui-sdk/server";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import {
   ASK_USER_DESCRIPTION,
@@ -23,6 +23,9 @@ import {
   REQUEST_IMAGE_MASK_DESCRIPTION,
   REQUEST_IMAGE_MASK_INPUT_SCHEMA,
   REQUEST_IMAGE_MASK_TOOL_NAME,
+  REQUEST_IMAGE_MARKUP_DESCRIPTION,
+  REQUEST_IMAGE_MARKUP_INPUT_SCHEMA,
+  REQUEST_IMAGE_MARKUP_TOOL_NAME,
   SHOW_BLOCK_DESCRIPTION,
   SHOW_BLOCK_INPUT_SCHEMA,
   SHOW_BLOCK_TOOL_NAME,
@@ -47,6 +50,7 @@ import {
   handleGetCurrentLocation,
   handleQueryActivity,
   handleRequestImageMask,
+  handleRequestImageMarkup,
   handleShowBlock,
   type LocationHandlerOptions,
 } from "@schlessera/brain-ui-sdk/server";
@@ -89,6 +93,8 @@ export interface PiBridgeToolOptions {
     activity?: boolean;
     inbox?: boolean;
     mask?: boolean;
+    /** The host's markup editor and application (#3975). */
+    markup?: boolean;
     policyChange?: boolean;
     turnTemp?: boolean;
     /** Shared reference source and managed worktrees (#2432). */
@@ -99,6 +105,10 @@ export interface PiBridgeToolOptions {
     apify?: boolean;
     /** On-demand reads of the conversation's composer originals (#3154). */
     attachments?: boolean;
+    /** The host-owned web tools (#3685). */
+    web?: boolean;
+    /** The host GitHub read tools (#3797). */
+    github?: boolean;
   };
   reverseGeocodeConfig?: ReverseGeocodeConfig;
   reverseGeocode?: LocationHandlerOptions["reverseGeocode"];
@@ -280,6 +290,22 @@ export function createPiBridgeTools(options: PiBridgeToolOptions): ToolDefinitio
     },
   } satisfies ToolDefinition;
 
+  const requestImageMarkup = {
+    name: REQUEST_IMAGE_MARKUP_TOOL_NAME,
+    label: "Request image markup",
+    description: REQUEST_IMAGE_MARKUP_DESCRIPTION,
+    parameters: toPiParameters(REQUEST_IMAGE_MARKUP_INPUT_SCHEMA),
+    async execute(_id: string, input: unknown) {
+      // Checked at execute time, like the mask editor: the tool set outlives
+      // the turn, and a turn with no grant surface has nobody to draw.
+      if (turn.noGrantSurface) {
+        throw new Error("This turn has no way to show anyone an image, so request_image_markup cannot be used in it.");
+      }
+      const payload = await handleRequestImageMarkup(REQUEST_IMAGE_MARKUP_INPUT_SCHEMA.parse(input), turn.bridge ?? {});
+      return textResult(JSON.stringify(payload), { markupPath: payload.markupPath });
+    },
+  } satisfies ToolDefinition;
+
   const showBlock = {
     name: SHOW_BLOCK_TOOL_NAME,
     label: "Show block",
@@ -321,6 +347,7 @@ export function createPiBridgeTools(options: PiBridgeToolOptions): ToolDefinitio
   if (capabilities?.location) tools.push(getCurrentLocation);
   if (capabilities?.activity) tools.push(queryActivity);
   if (capabilities?.mask) tools.push(requestImageMask);
+  if (capabilities?.markup) tools.push(requestImageMarkup);
   if (capabilities?.inbox) for (const contract of INBOX_TOOL_CONTRACTS) tools.push({
     name: contract.name, label: contract.name, description: contract.description, parameters: toPiParameters(contract),
     async execute(_id: string, input: unknown) {
@@ -331,8 +358,8 @@ export function createPiBridgeTools(options: PiBridgeToolOptions): ToolDefinitio
   // The host binds principal, turn and generation; a refusal is a tool error.
   if (capabilities?.reference) for (const contract of REFERENCE_TOOL_CONTRACTS) tools.push({
     name: contract.name, label: contract.name, description: contract.description, parameters: toPiParameters(contract),
-    async execute(_id: string, input: unknown) {
-      const result = await handleReferenceTool(contract.name, input, turn.bridge ?? {});
+    async execute(id: string, input: unknown) {
+      const result = await handleReferenceTool(contract.name, input, turn.bridge ?? {}, id);
       if (result.isError) throw new Error(result.text);
       return textResult(result.text);
     },
@@ -362,6 +389,30 @@ export function createPiBridgeTools(options: PiBridgeToolOptions): ToolDefinitio
     name: READ_ATTACHMENT_CONTRACT.name, label: "Read attachment", description: READ_ATTACHMENT_CONTRACT.description, parameters: toPiParameters(READ_ATTACHMENT_CONTRACT),
     async execute(_id: string, input: unknown) {
       const result = await handleReadAttachment(input, turn.bridge ?? {});
+      if (result.isError) throw new Error(result.text);
+      return textResult(result.text);
+    },
+  });
+  // The web tools (#3685) run in the host's executor: the host binds the
+  // turn, holds provider configuration and credentials, and issues the
+  // result handles. An unsupported feature or a refusal is a tool error.
+  // A relayed turn lends the executor its admitted model (#3688).
+  if (capabilities?.web) for (const contract of WEB_TOOL_CONTRACTS) tools.push({
+    name: contract.name, label: contract.name, description: contract.description, parameters: toPiParameters(contract),
+    async execute(id: string, input: unknown) {
+      const result = await handleWebTool(contract.name, input, turn.bridge ?? {}, id, turn.webModel);
+      if (result.isError) throw new Error(result.text);
+      return textResult(result.text);
+    },
+  });
+  // GitHub reads (#3797) and writes (#3798) run on the host, which binds the
+  // turn, holds the dedicated credential, checks a write against the policy
+  // allow-list and asks for it on its own card; a refusal, `unavailable`
+  // included, is a tool error. All four, in the contract's fixed order.
+  if (capabilities?.github) for (const contract of GITHUB_TOOL_CONTRACTS) tools.push({
+    name: contract.name, label: contract.name, description: contract.description, parameters: toPiParameters(contract),
+    async execute(_id: string, input: unknown) {
+      const result = await handleGithubTool(contract.name, input, turn.bridge ?? {});
       if (result.isError) throw new Error(result.text);
       return textResult(result.text);
     },

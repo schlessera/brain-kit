@@ -28,7 +28,7 @@ for (const backend of ["claude", "pi"]) describe(`${backend} real autonomous run
     expect(r.calls).toBeGreaterThan(0);
     expect(r.frames.filter((f: any) => f.type === "result")).toHaveLength(1);
     expect(r.frames.at(-1).outcome).toBe("success");
-    expect(r.frames.some((f: any) => f.type === "session_info")).toBe(false);
+    expect(r.frames.map((f: any) => f.type)).not.toContain("session_info");
     expect(r.transcripts, "no persisted runtime history").toEqual([]);
     expect(r.sessions).toEqual([]);
     expect(r.interactiveRows.n).toBe(0);
@@ -68,7 +68,7 @@ for (const backend of ["claude", "pi"]) describe(`${backend} real autonomous run
     expect(r.checkpoint.request.toolName).toBe(backend === "claude" ? "Write" : "write_file");
     expect(r.checkpoint.stateMd).toContain("authority boundary");
     expect(r.frames.at(-1).outcome).toBe("cancelled");
-    expect(r.frames.some((f: any) => f.type === "tool_approval_request")).toBe(false);
+    expect(r.frames.map((f: any) => f.type)).not.toContain("tool_approval_request");
     expect(r.transcripts).toEqual([]);
     expect(r.rollup.origin).toBe("autonomous");
     expect(r.rollup.input_tokens, "inference before escalation is still accounted").toBeGreaterThan(0);
@@ -87,7 +87,7 @@ for (const backend of ["claude", "pi"]) describe(`${backend} real autonomous run
     expect(r.calls).toBeGreaterThan(0);
     expect(r.revocationElapsedMs, "revocation check aborts before the host deadline").toBeLessThan(3000);
     expect(r.frames.at(-1).outcome).toBe("cancelled");
-    expect(r.events.some((event: any) => event.event_type === "principal_revoked")).toBe(true);
+    expect(r.events.map((event: any) => event.event_type)).toContain("principal_revoked");
     expect(r.rollup.outcome).toBe("cancelled");
     expect(r.transcripts).toEqual([]);
     expect(r.captured).toEqual([]);
@@ -105,7 +105,7 @@ for (const backend of ["claude", "pi"]) describe(`${backend} real autonomous run
   test("unsupported profiles visibly reject without acquiring or persisting a runtime", async () => {
     const r = await probe(backend, "unsupported");
     expect(r.failure.name).toBe("BackendRequestError");
-    expect(r.frames.some((frame: any) => frame.type === "error" && frame.code === "AUTONOMOUS_TURN_FAILED")).toBe(true);
+    expect(r.frames).toEqual(expect.arrayContaining([expect.objectContaining({ type: "error", code: "AUTONOMOUS_TURN_FAILED" })]));
     expect(r.calls).toBe(0);
     expect(r.sessions).toEqual([]);
     expect(r.transcripts).toEqual([]);

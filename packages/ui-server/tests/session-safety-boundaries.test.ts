@@ -46,7 +46,7 @@ function providerRequest(socketPath: string, origin: string): Promise<{ status: 
   });
 }
 
-for (const mode of ["healthy", "other-turn-recording-loss", "cancelled"] as const) {
+for (const mode of ["healthy", "own-turn-recording-loss", "other-chat-recording-loss", "cancelled"] as const) {
   test(`final provider admission rechecks ${mode} after the budget wait`, async () => {
     const f = fixture(), controller = new AbortController();
     let requests = 0, admissions = 0;
@@ -75,18 +75,23 @@ for (const mode of ["healthy", "other-turn-recording-loss", "cancelled"] as cons
       await prepareRelayedEgress(run, { emit() {}, requestPermission: async () => ({ behavior: "allow" }) }, budget);
       const response = providerRequest(run.held.providerRelay!.socketPath, upstream.url.origin);
       await waiting.promise;
-      if (mode === "other-turn-recording-loss") {
-        // A different turn latches the shared recorder, leaving this turn's signal live.
-        await f.writes.safetyFail("other-turn");
-        expect(controller.signal.aborted, "SAFETY_OTHER_TURN_LOSS_LEAVES_REQUEST_SIGNAL_LIVE").toBe(false);
+      if (mode === "own-turn-recording-loss") {
+        // The loss notice lands during the wait, leaving this turn's signal live.
+        await f.writes.safetyFail("requesting-turn");
+        expect(controller.signal.aborted, "SAFETY_LOSS_LEAVES_REQUEST_SIGNAL_LIVE").toBe(false);
         expect(f.writes.recordingAvailable("requesting-turn", null)).toBe(false);
+      } else if (mode === "other-chat-recording-loss") {
+        // Another chat's loss restricts that chat, not this request (#3812).
+        await f.writes.safetyFail("other-turn");
+        expect(f.writes.recordingAvailable("requesting-turn", null), "SAFETY_OTHER_CHAT_LOSS_LEAVES_THIS_TURN").toBe(true);
       } else if (mode === "cancelled") controller.abort();
       release.resolve();
       const result = await response;
       expect(admissions, "SAFETY_TEST_REACHES_FINAL_BUDGET_WAIT").toBe(2);
-      expect(requests, "SAFETY_LOSS_DURING_FINAL_WAIT_NEVER_REACHES_UPSTREAM").toBe(mode === "healthy" ? 1 : 0);
-      expect(result.status).toBe(mode === "healthy" ? 200 : 403);
-      if (mode !== "healthy") expect(result.body).toContain("Input recording is unavailable");
+      const passes = mode === "healthy" || mode === "other-chat-recording-loss";
+      expect(requests, "SAFETY_LOSS_DURING_FINAL_WAIT_NEVER_REACHES_UPSTREAM").toBe(passes ? 1 : 0);
+      expect(result.status).toBe(passes ? 200 : 403);
+      if (!passes) expect(result.body).toContain("Input recording is unavailable");
     } finally {
       release.resolve();
       await run.held.providerRelay?.stop();
@@ -132,7 +137,7 @@ test("queued handoff turns retain the original inherited evidence without copyin
   try {
     await f.writes.safetyBegin({ turnId: "source-turn", bindingId, sessionId: null, principalId: principal.id, backendId: "claude", at: 0 });
     f.db.query("INSERT INTO sessions(id,created_at,last_active_at,backend_id) VALUES('source',0,0,'claude')").run();
-    f.db.query("INSERT INTO chat_session_owners VALUES('source',?,0)").run(principal.id);
+    f.db.query("INSERT INTO chat_session_owners(session_id,principal_id,created_at) VALUES('source',?,0)").run(principal.id);
     safetyCatalogCreated(f.db, "source", principal.id, "source-turn");
     await f.writes.bind("source-turn", "source");
     await source.ready("claude", 1);

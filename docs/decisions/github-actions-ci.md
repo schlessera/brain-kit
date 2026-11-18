@@ -40,9 +40,10 @@ remain required; missing runtimes and unrelated failures cannot be called green.
 > cleared locally as in CI. Bun and Node still each load every package in one
 > process, now followed by one process per package. This decision still binds.
 
-Forks use `pull_request` with `contents: read` and CI's `actions: read` / `checks: read` for
-bounded immutable proof lookup under #1333, no secrets, no job-level
-permission escalation and no persisted token. Titles and labels reach the
+Forks use `pull_request` with `contents: read` and CI's `actions: read` for its
+bounded read-only run and job lookups, no secrets, no job-level
+permission escalation and no persisted token. `checks: read` went with proof
+retention (#4107), its only reader. Titles and labels reach the
 contract script as environment data. A first-time contributor's approval-held
 run has not passed. Project sync keeps its separate trusted token and event
 workflow; ordinary CI does not acquire that token.
@@ -60,3 +61,33 @@ repository's active Depot definitions disables its configured CI workflows;
 the cutover records actual provider execution rather than assuming that a
 local YAML comparison proves event delivery. Unrelated Depot products and
 other repositories are outside this change.
+
+## Actions pinned by commit
+
+The maintainer ruled on 2026-11-16
+([#4111](https://github.com/schlessera/brain-kit/issues/4111)) that every
+workflow references an action by the full commit its release tag named when
+the pin was reviewed. A tag can be moved by whoever controls the action's
+repository; a commit cannot. An action runs with the workflow's token, which
+for `red-main.yml` can write the coordination ref, cancel runs and edit
+issues.
+
+- **One table.** `ACTION_PINS` (`scripts/action-pins.ts:7-16`) maps each
+  `owner/name@tag` to its commit. Tests and lint rules name an action through
+  `pinned` (`scripts/action-pins.ts:22-24`), never a literal reference.
+- **The lint refuses anything else.** `actionPinProblems`
+  (`scripts/action-pins.ts:44-63`) requires each reference to be its own block
+  line, `uses: owner/name@<commit> # <tag>`, with the commit and tag found in
+  the table. It also counts the references in the parsed workflow against
+  those lines, so a quoted, flow-style or reusable-workflow reference is
+  refused instead of going unread. `checkCIWorkflows` runs it on every
+  workflow file.
+- **The generated workflow keeps the comments.** `heavy-feedback.yml` is
+  rendered from `ci.yml`, and rendering drops comments;
+  `annotateActionPins` (`scripts/action-pins.ts:66-72`) restores them from
+  the table.
+
+This pins what was already in use: no action moved to a newer release.
+[Bumping a pin](../process/testing.md#bumping-an-action-pin) is a reviewed
+change to the table.
+

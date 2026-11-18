@@ -1,4 +1,6 @@
 import preview from "#.storybook/preview";
+import { standInField } from "../_stand-ins.js";
+import { atWidth, viewportAt } from "../_viewports.js";
 import { useEffect, useState } from "react";
 import { expect, fn, waitFor, within } from "storybook/test";
 import type { TurnJournalDetails, TurnJournalSummary, TurnJournalChange } from "@schlessera/brain-ui-sdk/protocol";
@@ -38,7 +40,7 @@ function JournalTheme({ onOperation }: { width: number; onOperation: (body: unkn
   });
   useEffect(() => () => root.dispose(), [root]);
   return <ConsumerDocument><BrainUiProvider root={root}>
-    <h1>The voyage</h1><h2>Turn receipt</h2><textarea aria-label="Message" defaultValue="Ask Penelope about the shroud." />
+    <h1>The voyage</h1><h2>Turn receipt</h2><textarea aria-label="Message" defaultValue="Ask Penelope about the shroud." style={standInField} />
     <TurnJournal turnId={turnId} summary={summary} />
   </BrainUiProvider></ConsumerDocument>;
 }
@@ -46,6 +48,7 @@ const meta = preview.meta({
   title: "Conversation/Journal theme", component: JournalTheme,
   parameters: { layout: "fullscreen" }, beforeEach: consumerViewport,
   args: { width: 320, onOperation: fn() },
+  globals: viewportAt(320),
 });
 export const Phone = meta.story({
   play: async ({ args, userEvent, globals }) => {
@@ -126,4 +129,4 @@ export const Phone = meta.story({
     // Fixture receipts establish UI dispatch only, never real file restoration.
   },
 });
-export const Desktop = Phone.extend({ args: { width: 1280 } });
+export const Desktop = Phone.extend(atWidth(1280));

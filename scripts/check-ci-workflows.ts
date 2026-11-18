@@ -1,9 +1,10 @@
 /** GitHub is the sole CI provider; contributions share read-only workflows. */
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { PROOF_SHARDS, shardNumbers, type ShardedDomain } from "./proof-shards";
+import { BROWSER_DETERMINISM_PARTITIONS, DETERMINISM_PARTITIONS, PROOF_SHARDS, shardNumbers, type ShardedDomain } from "./proof-shards";
 import { FEEDBACK_AGGREGATE } from "./heavy-feedback";
 import { CATEGORY_JOBS, FEEDBACK_GROUP, renderHeavyFeedbackWorkflow, sameWorkflow } from "./heavy-feedback-workflow";
+import { actionPinProblems, pinned } from "./action-pins";
 
 export const CI_WORKFLOWS = ["ci.yml", "contract.yml"] as const;
 const RUN_EXPRESSIONS = new Set(["matrix.shard", "github.event_name", "github.base_ref", "github.event.before"]);
@@ -28,11 +29,11 @@ export function workflowProblems(text: string, file: string): string[] {
   if (!workflow || typeof workflow !== "object") return [`${file}: workflow must be a mapping`];
   const fail = (message: string) => problems.push(`${file}: ${message}`);
   if (/\bsecrets\.|\bpull_request_target\b|\bworkflow_run\b/.test(text)) fail("CI must not expose secrets or privileged triggers");
-  const permissions = file === "ci.yml" ? { contents: "read", actions: "read", checks: "read" } : { contents: "read" };
+  const permissions = file === "ci.yml" ? { contents: "read", actions: "read" } : { contents: "read" };
   if (JSON.stringify(workflow.permissions) !== JSON.stringify(permissions)) fail("workflow permissions must be the specified read-only contents/actions scope");
   const expectedTriggers = file === "ci.yml" ? ["pull_request", "push", "schedule", "workflow_dispatch"] : ["pull_request"];
   if (JSON.stringify(Object.keys(workflow.on ?? {}).sort()) !== JSON.stringify(expectedTriggers)) fail("unexpected contribution triggers");
-  const expectedJobs = file === "ci.yml" ? ["browser", "captures", "changeset", "endurance", "layout", "pack", "proof", "runtime", "runtime_host", "unit", "verify"] : ["contract"];
+  const expectedJobs = file === "ci.yml" ? ["browser", "browser_determinism", "captures", "changeset", "determinism", "endurance", "layout", "pack", "proof", "runtime", "runtime_host", "unit", "verify"] : ["contract"];
   if (JSON.stringify(Object.keys(workflow.jobs ?? {}).sort()) !== JSON.stringify(expectedJobs)) fail("missing or unexpected CI jobs");
   for (const [name, job] of Object.entries(workflow.jobs ?? {})) {
     if (job["runs-on"] !== "ubuntu-24.04") fail(`${name}: unmapped GitHub-hosted runner`);
@@ -52,14 +53,15 @@ export function workflowProblems(text: string, file: string): string[] {
     }
   }
   if (file === "ci.yml") {
-    const names = ["verify", "pack", "unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance"];
+    const names = ["verify", "pack", "unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance", "determinism", "browser_determinism"];
     for (const name of names) {
       const job = workflow.jobs?.[name];
       if (job?.needs !== "changeset") fail(`${name}: independent proof must depend only on metadata`);
-      const selection = `needs.changeset.outputs.${name} == 'true'` + (["browser", "layout"].includes(name) ? ` && needs.changeset.outputs.run_${name} == 'true'` : "");
+      // The planner's selection alone decides: no second output may skip a selected category (#4107).
+      const selection = `needs.changeset.outputs.${name} == 'true'`;
       // Main pushes run selected proof even when the metadata job fails (#2942);
       // PR proof still requires a successful metadata job.
-      if (job?.if !== `\${{ !cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push') && ${selection} }}`) fail(`${name}: proof must use its explicit planner selection and validated retention`);
+      if (job?.if !== `\${{ !cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push') && ${selection} }}`) fail(`${name}: proof must run on its explicit planner selection alone`);
     }
     const verify = workflow.jobs?.verify;
     const verifySteps = verify?.steps ?? [];
@@ -78,9 +80,10 @@ export function workflowProblems(text: string, file: string): string[] {
         verifySteps.indexOf(summary) <= verifySteps.findIndex(s => s.id === "verify_proof"))
       fail("verify: always summary must separate raw install, planning and proof outcomes and receipts");
     // Network prerequisites cannot spend proof capacity; measured basis: docs/decisions/ci-utility.md (#2658).
-    for (const [name, proofMinutes] of [["unit", 30], ["runtime", 15], ["runtime_host", 15]] as const) {
+    // Repeated changed tests need the unit job's prerequisites: they may drive real Chrome (#4109).
+    for (const [name, proofMinutes] of [["unit", 30], ["runtime", 15], ["runtime_host", 45], ["determinism", DETERMINISM_PARTITIONS.stepMinutes]] as const) {
       const job = workflow.jobs?.[name];
-      const setup = job?.steps?.find(step => step.run === `bash scripts/ci-runtime-setup.sh${name === "unit" ? "" : " --native"}`);
+      const setup = job?.steps?.find(step => step.run === `bash scripts/ci-runtime-setup.sh${name === "unit" || name === "determinism" ? "" : " --native"}`);
       const command = `bun scripts/ci-proof.ts ${name}`;
       const proof = job?.steps?.find(step => step.run === command || step.run?.startsWith(`${command} `));
       if (setup?.["timeout-minutes"] !== 12) fail(`${name}: environment setup must have its separate 12-minute limit`);
@@ -88,21 +91,51 @@ export function workflowProblems(text: string, file: string): string[] {
       const limit = job?.["timeout-minutes"];
       if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 12 + proofMinutes + 3) fail(`${name}: job limit must cover setup, proof and 3 minutes of other steps`);
     }
-    // Matrices, retention and refresh share one shard table; a drifted matrix would strand a partition.
+    // Matrices, the merge path and the cost refresh share one shard table; a drifted matrix would strand a partition.
     for (const domain of Object.keys(PROOF_SHARDS) as ShardedDomain[]) {
       const job = workflow.jobs?.[domain] as any;
       if (JSON.stringify(job?.strategy?.matrix?.shard) !== JSON.stringify(shardNumbers(domain)) ||
           !job?.steps?.some((step: any) => step.run === `bun scripts/ci-proof.ts ${domain} --shard=\${{ matrix.shard }}/${PROOF_SHARDS[domain]}`)) fail(`${domain}: matrix and shard divisor must match PROOF_SHARDS`);
     }
+    // The unit partition count has one owner, UNIT_PARTITIONS, read by the planner per cadence (#4108).
+    // A literal matrix, a second matrix dimension or a literal divisor would disagree with it.
+    const unit = workflow.jobs?.unit as any, changeset = workflow.jobs?.changeset as any;
+    const unitProof = unit?.steps?.find((step: Step) => step.run?.startsWith("bun scripts/ci-proof.ts unit"));
+    if (changeset?.outputs?.unit_shards !== "${{ steps.plan.outputs.unit_shards }}" ||
+        changeset?.steps?.find((step: Step) => step.id === "plan")?.run !== "bun scripts/ci-plan.ts" ||
+        JSON.stringify(unit?.strategy?.matrix) !== JSON.stringify({ shard: "${{ fromJSON(needs.changeset.outputs.unit_shards) }}" }) ||
+        unitProof?.run !== 'bun scripts/ci-proof.ts unit --shard=${{ matrix.shard }}/"$UNIT_SHARDS"' ||
+        unitProof?.env?.UNIT_SHARDS !== "${{ strategy.job-total }}") fail("unit: matrix and shard divisor must come from the planner's unit_shards output");
+    // The determinism partition set has one owner too, DETERMINISM_PARTITIONS, read by the planner (#4117).
+    // A literal matrix or divisor would run a partition of some split the planner did not make.
+    const determinism = workflow.jobs?.determinism as any;
+    const determinismProof = determinism?.steps?.find((step: Step) => step.run?.startsWith("bun scripts/ci-proof.ts determinism"));
+    if (changeset?.outputs?.determinism_shards !== "${{ steps.plan.outputs.determinism_shards }}" ||
+        JSON.stringify(determinism?.strategy?.matrix) !== JSON.stringify({ shard: "${{ fromJSON(needs.changeset.outputs.determinism_shards) }}" }) ||
+        determinismProof?.run !== 'bun scripts/ci-proof.ts determinism --shard=${{ matrix.shard }}/"$DETERMINISM_SHARDS"' ||
+        determinismProof?.env?.DETERMINISM_SHARDS !== "${{ strategy.job-total }}") fail("determinism: matrix and shard divisor must come from the planner's determinism_shards output");
+    // One artifact name per partition: a shared name fails every upload after the first.
+    if (!determinism?.steps?.some((step: Step) => step.uses?.startsWith("actions/upload-artifact@") && step.with?.name === "determinism-proof-${{ matrix.shard }}")) fail("determinism: each partition must upload its own receipts");
+    // Changed browser specs repeat in planned partitions too, under the same one-owner rule (#4163):
+    // the matrix is the planner's output, the divisor is the matrix's own job total, and the step limit is the table's.
+    const repeat = workflow.jobs?.browser_determinism as any;
+    const repeatProof = repeat?.steps?.find((step: Step) => step.run?.startsWith("bun scripts/ci-proof.ts browser_determinism"));
+    if (changeset?.outputs?.browser_determinism_shards !== "${{ steps.plan.outputs.browser_determinism_shards }}" ||
+        JSON.stringify(repeat?.strategy?.matrix) !== JSON.stringify({ shard: "${{ fromJSON(needs.changeset.outputs.browser_determinism_shards) }}" }) ||
+        repeatProof?.run !== 'bun scripts/ci-proof.ts browser_determinism --shard=${{ matrix.shard }}/"$BROWSER_REPEAT_SHARDS"' ||
+        repeatProof?.env?.BROWSER_REPEAT_SHARDS !== "${{ strategy.job-total }}") fail("browser_determinism: matrix and shard divisor must come from the planner's browser_determinism_shards output");
+    if (repeatProof?.["timeout-minutes"] !== BROWSER_DETERMINISM_PARTITIONS.stepMinutes) fail(`browser_determinism: proof must retain its ${BROWSER_DETERMINISM_PARTITIONS.stepMinutes}-minute limit`);
+    const repeatLimit = repeat?.["timeout-minutes"];
+    if (typeof repeatLimit !== "number" || !Number.isInteger(repeatLimit) || repeatLimit < BROWSER_DETERMINISM_PARTITIONS.stepMinutes + 5) fail("browser_determinism: job limit must cover proof and 5 minutes of other steps");
+    if (!repeat?.steps?.some((step: Step) => step.uses?.startsWith("actions/upload-artifact@") && step.with?.name === "browser-determinism-proof-${{ matrix.shard }}")) fail("browser_determinism: each partition must upload its own receipts");
     const proof = workflow.jobs?.proof;
     if (proof?.name !== "${{ github.event_name != 'pull_request' && 'integrated or exhaustive proof' || github.event.pull_request.draft && 'draft gates' || 'proof' }}") fail("proof: draft, manual or main runs must not impersonate candidate confirmation");
     if (JSON.stringify(proof?.needs) !== JSON.stringify(["changeset", ...names])) fail("proof: aggregate must observe every selected category");
     if (proof?.if !== "${{ always() && !cancelled() }}") fail("proof: aggregate must observe failures/skips and reject cancellation");
-    for (const category of ["unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance"]) {
+    for (const category of ["unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance", "determinism", "browser_determinism"]) {
       if (!workflow.jobs?.[category]?.steps?.some(step => step.run === `bun scripts/ci-proof.ts ${category}` || step.run?.startsWith(`bun scripts/ci-proof.ts ${category} `))) fail(`${category}: complete proof command is missing`);
     }
     if (!proof?.steps?.some(step => step.run === "bun scripts/ci-proof.ts aggregate")) fail("proof: executable aggregate is missing");
-    if (!workflow.jobs?.changeset?.steps?.some(step => step.run === "bun scripts/proof-reuse.ts")) fail("metadata: immutable retention validation is missing");
     const metadata = workflow.jobs?.changeset?.steps ?? [];
     const admission = metadata.findIndex(step => step.run === "bun scripts/candidate-proof.ts");
     const planning = metadata.findIndex(step => step.run === "bun scripts/ci-plan.ts");
@@ -133,7 +166,11 @@ export function checkCIWorkflows(root: string): string[] {
   if (files.includes("publish-pages.yml")) expected.push("publish-pages.yml");
   if (files.includes("ci-timings.yml")) expected.push("ci-timings.yml");
   if (files.includes("heavy-feedback.yml")) expected.push("heavy-feedback.yml");
-  if (JSON.stringify(files) !== JSON.stringify(expected.sort())) problems.push("GitHub must contain only authoritative CI, contract, project-sync, red-main coordination and optional Pages/timing/heavy-feedback workflows");
+  if (files.includes("ci-evidence-archive.yml")) expected.push("ci-evidence-archive.yml");
+  if (files.includes("ci-evidence-report.yml")) expected.push("ci-evidence-report.yml");
+  if (JSON.stringify(files) !== JSON.stringify(expected.sort())) problems.push("GitHub must contain only authoritative CI, contract, project-sync, red-main coordination and optional Pages/timing/archive/report/heavy-feedback workflows");
+  // Every workflow, authoritative or not, runs only reviewed action commits (#4111).
+  for (const file of files.filter(file => /\.ya?ml$/.test(file))) problems.push(...actionPinProblems(readFileSync(join(directory, file), "utf8"), file));
   const depot = join(root, ".depot/workflows");
   if (existsSync(depot) && readdirSync(depot).some(file => /\.ya?ml$/.test(file))) problems.push("Active Depot CI workflow definitions must be removed");
   for (const file of CI_WORKFLOWS) {
@@ -147,7 +184,71 @@ export function checkCIWorkflows(root: string): string[] {
   if (existsSync(feedback) && existsSync(join(directory, "ci.yml"))) problems.push(...heavyFeedbackWorkflowProblems(readFileSync(feedback, "utf8"), readFileSync(join(directory, "ci.yml"), "utf8")));
   const timings = join(directory, "ci-timings.yml");
   if (existsSync(timings)) problems.push(...timingWorkflowProblems(readFileSync(timings, "utf8")));
+  const archive = join(directory, "ci-evidence-archive.yml");
+  if (existsSync(archive)) problems.push(...archiveWorkflowProblems(readFileSync(archive, "utf8")));
+  const report = join(directory, "ci-evidence-report.yml");
+  if (existsSync(report)) problems.push(...reportWorkflowProblems(readFileSync(report, "utf8")));
   return problems;
+}
+
+/**
+ * The evidence archive (#2955) is the one measurement job with write
+ * authority: `contents: write` on that job alone, for the data ref, as
+ * docs/decisions/ci-evidence.md rules. It runs trusted default-branch code.
+ */
+export function archiveWorkflowProblems(text: string): string[] {
+  const errors: string[] = [], fail = (message: string) => errors.push(`ci-evidence-archive.yml: ${message}`);
+  let workflow: Workflow;
+  try { workflow = Bun.YAML.parse(text) as Workflow; }
+  catch { return ["ci-evidence-archive.yml: invalid YAML"]; }
+  if (!workflow || typeof workflow !== "object") return ["ci-evidence-archive.yml: workflow must be a mapping"];
+  if (JSON.stringify(Object.keys(workflow.on ?? {}).sort()) !== JSON.stringify(["schedule", "workflow_dispatch"]) ||
+      /\bsecrets\.|\bpull_request(?:_target)?\b|\bworkflow_run\b/.test(text)) fail("archive must use scheduled/manual trusted execution only");
+  const schedule = workflow.on?.schedule as { cron?: string }[] | undefined;
+  if (!Array.isArray(schedule) || schedule.length !== 1 || !/^\d{1,2} \d{1,2} \* \* \*$/.test(schedule[0]?.cron ?? "")) fail("archive compaction must run once a day");
+  if (JSON.stringify(workflow.permissions) !== "{}") fail("workflow token must grant nothing; write authority belongs to the archive job alone");
+  if (JSON.stringify(Object.keys(workflow.jobs ?? {})) !== JSON.stringify(["archive"])) fail("archive workflow must contain only the archive job");
+  const job = workflow.jobs?.archive;
+  if (JSON.stringify(job?.permissions) !== JSON.stringify({ contents: "write", actions: "read" })) fail("archive job may only write contents (the data ref) and read actions");
+  if (job?.needs !== undefined || job?.["runs-on"] !== "ubuntu-24.04") fail("archive job must be independent on its declared hosted runner");
+  const steps = job?.steps ?? [], checkouts = steps.filter(s => s.uses?.startsWith("actions/checkout@"));
+  if (checkouts.length !== 1 || checkouts[0]?.with?.ref !== "${{ github.event.repository.default_branch }}" || checkouts[0]?.with?.repository !== undefined) fail("archive must check out trusted default-branch code");
+  const archive = steps.find(s => s.run?.includes("bun scripts/ci-timings.ts archive"));
+  if (!archive?.run?.includes('bun scripts/ci-timings.ts archive --repo "$ARCHIVE_REPO" --branch "$ARCHIVE_DEFAULT_BRANCH" --request-budget "$ARCHIVE_BUDGET" --reserve 500') ||
+    archive.env?.ARCHIVE_DEFAULT_BRANCH !== "${{ github.event.repository.default_branch }}") fail("archive requires the default branch's artifacts, a hard budget and the shared quota reserve");
+  for (const step of steps) if ((step.run ?? "").includes("${{") || /bun install/.test(step.run ?? "")) fail("archive scripts must not interpolate events or install dependencies");
+  return errors;
+}
+
+/**
+ * The scheduled evidence reports (#2956) read the data ref and main's history
+ * and write only their own artifacts: no write authority at all, trusted
+ * default-branch code, and an always-uploaded 90-day artifact
+ * (docs/decisions/ci-evidence.md). Posting them is a separate job's grant.
+ */
+export function reportWorkflowProblems(text: string): string[] {
+  const errors: string[] = [], fail = (message: string) => errors.push(`ci-evidence-report.yml: ${message}`);
+  let workflow: Workflow;
+  try { workflow = Bun.YAML.parse(text) as Workflow; }
+  catch { return ["ci-evidence-report.yml: invalid YAML"]; }
+  if (!workflow || typeof workflow !== "object") return ["ci-evidence-report.yml: workflow must be a mapping"];
+  if (JSON.stringify(Object.keys(workflow.on ?? {}).sort()) !== JSON.stringify(["schedule", "workflow_dispatch"]) ||
+      /\bsecrets\.|\bpull_request(?:_target)?\b|\bworkflow_run\b/.test(text)) fail("reports must use scheduled/manual trusted execution only");
+  const schedule = workflow.on?.schedule as { cron?: string }[] | undefined;
+  if (!Array.isArray(schedule) || schedule.length !== 1 || !/^\d{1,2} \d{1,2} \* \* \*$/.test(schedule[0]?.cron ?? "")) fail("reports must run once a day");
+  if (JSON.stringify(workflow.permissions) !== "{}") fail("workflow token must grant nothing");
+  if (JSON.stringify(Object.keys(workflow.jobs ?? {})) !== JSON.stringify(["report"])) fail("report workflow must contain only the report job");
+  const job = workflow.jobs?.report;
+  if (JSON.stringify(job?.permissions) !== JSON.stringify({ contents: "read" })) fail("the report job may only read contents");
+  const steps = job?.steps ?? [], checkouts = steps.filter(s => s.uses?.startsWith("actions/checkout@"));
+  if (checkouts.length !== 1 || checkouts[0]?.with?.ref !== "${{ github.event.repository.default_branch }}" || checkouts[0]?.with?.repository !== undefined ||
+    checkouts[0]?.with?.["fetch-depth"] !== 0 || checkouts[0]?.with?.["persist-credentials"] !== false) fail("reports must check out trusted default-branch code with full history");
+  if (!steps.some(s => s.run?.includes("bun scripts/ci-evidence-report.ts --cadence daily")) || !steps.some(s => s.run?.includes("bun scripts/ci-evidence-report.ts --cadence weekly")))
+    fail("reports must generate the daily digest and the weekly report");
+  if (!steps.some(s => s.uses === pinned("actions/upload-artifact@v7") && s.if === "always()" && s.with?.["retention-days"] === 90 && s.with?.path === "tmp/ci-evidence/"))
+    fail("the report artifacts must always be uploaded for 90 days");
+  for (const step of steps) if ((step.run ?? "").includes("${{") || /bun install/.test(step.run ?? "")) fail("report scripts must not interpolate events or install dependencies");
+  return errors;
 }
 
 /** Draft heavy feedback (#3272): ci.yml's own category jobs, per-PR cancellation, never `proof`. */
@@ -161,7 +262,7 @@ export function heavyFeedbackWorkflowProblems(text: string, ciText: string): str
   try { rendered = renderHeavyFeedbackWorkflow(ciText); } catch (error) { fail(`cannot derive from ci.yml: ${String(error)}`); }
   if (rendered && !sameWorkflow(text, rendered)) fail("stale copy of ci.yml's category jobs and pins; run bun scripts/heavy-feedback-workflow.ts");
   if (/\bsecrets\.|\bpull_request_target\b|\bworkflow_run\b/.test(text)) fail("feedback must not expose secrets or privileged triggers");
-  if (JSON.stringify(workflow.permissions) !== JSON.stringify({ contents: "read", actions: "read", checks: "read" })) fail("token must stay read-only");
+  if (JSON.stringify(workflow.permissions) !== JSON.stringify({ contents: "read", actions: "read" })) fail("token must stay read-only");
   if (JSON.stringify(Object.keys(workflow.on ?? {}).sort()) !== JSON.stringify(["pull_request", "workflow_dispatch"])) fail("only a dispatch requests feedback; pull_request only cancels it");
   const inputs = (workflow.on?.workflow_dispatch as any)?.inputs;
   if (inputs?.pr?.required !== true || inputs?.head_sha?.required !== true) fail("dispatch must name the PR and its exact head");
@@ -206,10 +307,10 @@ export function timingWorkflowProblems(text: string): string[] {
     checkouts[0]?.with?.["persist-credentials"] !== false || checkouts[0]?.with?.repository !== undefined) fail("collector must check out trusted default-branch code without credentials");
   if (JSON.stringify(workflow.on?.schedule) !== JSON.stringify([{ cron: "43 * * * *" }])) fail("timing collection must remain hourly and incremental");
   const collection = steps.find(s => s.run?.includes("bun scripts/ci-timings.ts collect"));
-  if (!collection?.run?.includes('bun scripts/ci-timings.ts collect --repo "$TIMING_REPO" --since "$since" --seed "$TIMING_DEFAULT_BRANCH" --request-budget 200 --reserve 500 --reservations') ||
+  if (!collection?.run?.includes('bun scripts/ci-timings.ts collect --repo "$TIMING_REPO" --since "$since" --seed "$TIMING_DEFAULT_BRANCH" --request-budget 200 --reserve 500 --reservations --red-main') ||
     /--resources\b/.test(collection.run) || collection.env?.TIMING_DEFAULT_BRANCH !== "${{ github.event.repository.default_branch }}") fail("timing collection requires seeded acquisition, a hard budget/reserve and no scheduled resource logs");
   for (const step of steps) if ((step.run ?? "").includes("${{") || /bun install/.test(step.run ?? "")) fail("collector scripts must not interpolate events or install candidate dependencies");
-  if (!steps.some(s => s.uses === "actions/upload-artifact@v7" && s.if === "always()" && s.with?.["retention-days"] === 90 && s.with?.path === "tmp/ci-timings/")) fail("bounded always-upload timing archive missing");
+  if (!steps.some(s => s.uses === pinned("actions/upload-artifact@v7") && s.if === "always()" && s.with?.["retention-days"] === 90 && s.with?.path === "tmp/ci-timings/")) fail("bounded always-upload timing archive missing");
   return errors;
 }
 
@@ -232,7 +333,7 @@ export function publicationWorkflowProblems(text: string): string[] {
   const steps = artifact?.steps ?? [];
   const checkouts = steps.filter(step => step.uses?.startsWith("actions/checkout@"));
   if (!checkouts.length || checkouts.some(step => step.with?.["persist-credentials"] !== false)) fail("checkout credentials must not persist");
-  const upload = steps.findIndex(step => step.uses === "actions/upload-pages-artifact@v4");
+  const upload = steps.findIndex(step => step.uses === pinned("actions/upload-pages-artifact@v4"));
   for (const command of ["bun website/scripts/check.ts", "bun website/scripts/verify-publication.ts"]) {
     const check = steps.findIndex(step => step.run === command);
     if (check < 0 || upload < 0 || check >= upload) fail("browser and identity checks must precede Pages artifact upload");

@@ -5,8 +5,8 @@ import { Readable } from "node:stream";
 import { consumeNativeStageAuthority, consumeNativeCheckpointRead, nativeCheckpointReaderPath, type NativeCheckpointReadTicket } from "./native-checkpoint-reader.js";
 import { nativeCheckpointId } from "./native-brain-manager-protocol.js";
 import { NativeBrainManagerError, nativeManagerRequest, NATIVE_CONTROL_BYTES, NATIVE_DATA_CHUNK_BYTES, NATIVE_MANAGER_OPERATION_TIMEOUT_MS, NATIVE_MANAGER_MAX_DELTA_BYTES,
-  type NativeCheckpoint, type NativeManagerErrorCode, type NativeManagerReady, type NativeManagerRequest, type NativeRecoveryRecord, type NativeStage, type NativeStageChange,
-  type NativePoolAccess, type NativePoolCheckpoint, type NativePoolCreatePurpose, type NativePoolRecord, type NativePoolStatus } from "./native-brain-manager-protocol.js";
+  type NativeCheckpoint, type NativeManagerErrorCode, type NativeManagerReady, type NativeManagerRequest, type NativeRecoveryRecord, type NativeStage, type NativeStageChange, type NativeTurnTree,
+  type NativePoolAccess, type NativePoolCheckpoint, type NativePoolCreatePurpose, type NativePoolGrowth, type NativePoolRecord, type NativePoolStatus } from "./native-brain-manager-protocol.js";
 
 export interface NativeDeltaStream {
   stream: ReadableStream<Uint8Array>;
@@ -254,6 +254,10 @@ export function createNativeBrainManagerClient(input: { socketPath: string; time
     release: async (id: string, signal?: AbortSignal): Promise<{ id: string; state: "deleted" }> => control({ operation: "release", id }, signal),
     prepareStage: async (id: string, checkpointId: string, allowanceBytes: number, signal?: AbortSignal): Promise<NativeStage> => control({ operation: "prepareStage", id, checkpointId, allowanceBytes }, signal),
     releaseStage: async (id: string, signal?: AbortSignal): Promise<{ id: string; state: "deleted" }> => control({ operation: "releaseStage", id }, signal),
+    /** A turn data tree's directory on the managed volume (#2911); `allowanceBytes` is whole pages. */
+    prepareTurnTree: async (id: string, allowanceBytes: number, signal?: AbortSignal): Promise<NativeTurnTree> => control({ operation: "prepareTurnTree", id, allowanceBytes }, signal),
+    /** Remove it once no worker mounts it; its charge is credited after observed reclamation. */
+    releaseTurnTree: async (id: string, signal?: AbortSignal): Promise<{ id: string; state: "deleted" }> => control({ operation: "releaseTurnTree", id }, signal),
     inspectStage: async (id: string, signal?: AbortSignal): Promise<NativeStageInspection> => {
       const response = await call({ operation: "inspectStage", id }, signal);
       const checkpointId = response.headers.get("x-brain-stage-checkpoint"), checkpointUuid = response.headers.get("x-brain-stage-lower");
@@ -289,13 +293,16 @@ export function createNativeBrainManagerClient(input: { socketPath: string; time
       };
     },
     poolStatus: async (signal?: AbortSignal): Promise<NativePoolStatus> => control({ operation: "poolStatus" }, signal),
-    poolCreate: async (id: string, purpose: NativePoolCreatePurpose, from: string | null, allowanceBytes: number, signal?: AbortSignal): Promise<NativePoolRecord> =>
-      control({ operation: "poolCreate", id, purpose, from, allowanceBytes }, signal),
+    /** Read-only residual-growth status (#3515); reports measured charges and thresholds only. */
+    poolGrowth: async (signal?: AbortSignal): Promise<NativePoolGrowth> => control({ operation: "poolGrowth" }, signal),
+    poolCreate: async (id: string, purpose: NativePoolCreatePurpose, from: string | null, allowanceBytes: number, signal?: AbortSignal, permanentWithdrawal?: true): Promise<NativePoolRecord> =>
+      control({ operation: "poolCreate", id, purpose, from, allowanceBytes, ...(permanentWithdrawal ? { permanentWithdrawal } : {}) }, signal),
     poolSeal: async (id: string, signal?: AbortSignal): Promise<NativePoolRecord> => control({ operation: "poolSeal", id }, signal),
     poolRelease: async (id: string, signal?: AbortSignal): Promise<NativePoolRecord> => control({ operation: "poolRelease", id }, signal),
     listPoolRecovery: async (after: string | null = null, signal?: AbortSignal): Promise<{ records: NativePoolRecord[]; next: string | null }> =>
       control({ operation: "listPoolRecovery", after }, signal),
-    poolPublish: async (id: string, view: string, name: string, signal?: AbortSignal): Promise<NativePoolRecord> => control({ operation: "poolPublish", id, view, name }, signal),
+    poolPublish: async (id: string, view: string, name: string, signal?: AbortSignal, expectedRoots?: readonly (string | null)[]): Promise<NativePoolRecord> =>
+      control({ operation: "poolPublish", id, view, name, ...(expectedRoots ? { expectedRoots: [...expectedRoots] } : {}) }, signal),
     poolUnpublish: async (view: string, name: string, signal?: AbortSignal): Promise<{ view: string; name: string; removed: boolean }> =>
       control({ operation: "poolUnpublish", view, name }, signal),
     poolWithdraw: async (id: string, signal?: AbortSignal): Promise<NativePoolRecord> => control({ operation: "poolWithdraw", id }, signal),
@@ -309,7 +316,7 @@ export function createNativeBrainManagerClient(input: { socketPath: string; time
     },
     poolAccessOpen: async (access: string, signal?: AbortSignal): Promise<NativePoolAccess> => control({ operation: "poolAccessOpen", access }, signal),
     poolAccess: async (id: string, access: string, signal?: AbortSignal): Promise<NativePoolRecord> => control({ operation: "poolAccess", id, access }, signal),
-    poolPark: async (id: string, signal?: AbortSignal): Promise<NativePoolRecord> => control({ operation: "poolPark", id }, signal),
+    poolPark: async (id: string, signal?: AbortSignal, expectedAccess?: string): Promise<NativePoolRecord> => control({ operation: "poolPark", id, ...(expectedAccess === undefined ? {} : { expectedAccess }) }, signal),
     poolAccessClose: async (access: string, signal?: AbortSignal): Promise<NativePoolAccess> => control({ operation: "poolAccessClose", access }, signal),
     listRecovery: async (after: string | null = null, signal?: AbortSignal): Promise<{ records: NativeRecoveryRecord[]; next: string | null }> => control({ operation: "listRecovery", after }, signal),
     delta: async (from: string, to: string, signal?: AbortSignal): Promise<NativeDeltaStream> => {

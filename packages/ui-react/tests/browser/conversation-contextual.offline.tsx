@@ -12,6 +12,7 @@ import { BrainUiProvider } from "../../src/root-context.js";
 import { AppShell } from "../../src/components/layout/app-shell.js";
 import { ChatPage } from "../../src/components/chat/chat-page.js";
 import { installFaultNetwork } from "./offline/fault-network.js";
+import { pointDetails } from "./spoken-details.js";
 
 const SESSION = "odysseus-ithaca";
 const CAPS: ConversationCapabilities = { nonblockingWork: "supported", manualEndpoint: "supported", finalTranscript: "unproven", remoteOutputCancelAck: "unproven", exactPermissionSpeech: "unproven", echoIsolatedInput: "unproven", outputWordAlignment: "unproven" };
@@ -580,7 +581,8 @@ test("mixed transcript window, reading anchor, history resync and session isolat
   await expect.poll(() => s.host.querySelectorAll("[data-conversation-output]").length).toBeGreaterThan(0);
   const returned = transcriptTimelineFor(s.ui.stores.chat).state.getState().entries;
   expect(returned.filter(e => e.kind !== "voice-boundary").map(e => e.key)).toEqual(keys);
-  expect(returned.filter(e => e.kind === "voice-boundary").map(e => e.label)).toEqual(["Voice ended"]);
+  // Switching away ends the conversation; its divider comes only from the host's retained end (#3729), which this fixture has none of.
+  expect(returned.filter(e => e.kind === "voice-boundary").map(e => e.label)).toEqual([]);
 });
 
 
@@ -589,7 +591,12 @@ test("cold restored speech explicitly has unknown original discussion position",
   s.client.enter(); s.client.start();
   s.deliver({...PROFILE,resync:{work:0,outputs:1},requestId:String(s.socket.frames("conversation_start").at(-1)!.requestId)});
   s.deliver({ type: "conversation_output", conversationId: PROFILE.conversationId, epoch: 1, outputId: "historical-voyage", generated: "An earlier voyage reply.", playback: "unknown" });
-  await expect.poll(() => s.host.querySelector("[data-conversation-output]")?.textContent).toContain("Original discussion position unknown");
+  await expect.poll(() => s.host.querySelector("[data-conversation-output]")?.textContent).toContain("An earlier voyage reply.");
+  // #3700: the unknown position is evidence in the details, not a diagnostic line in the chat.
+  expect(s.host.querySelector("[data-conversation-output]")!.textContent).not.toContain("Original discussion position unknown");
+  await pointDetails(s.host.querySelector<HTMLButtonElement>('[data-conversation-output] [data-transcript-qualifiers="generated"]')!);
+  await expect.poll(() => document.querySelector("dialog[open]")?.textContent).toContain("Original discussion position unknown");
+  await userEvent.keyboard("{Escape}");
   expect(s.client.state.getState().micOn).toBe(false);
 });
 
@@ -1002,6 +1009,9 @@ for (const theme of ["light", "dark"] as const) for (const width of [320, 1280])
   await expect.poll(() => s.host.querySelectorAll("[data-arrival-key]").length).toBe(40);
   const scroll = s.host.querySelector<HTMLElement>("[data-arrival-key]")!.parentElement!.parentElement!;
   scroll.scrollTop = 0; scroll.dispatchEvent(new Event("scroll"));
+  // Establish the reveal button's browser interaction position before measuring
+  // prepend recovery; the safety notice can move it within the clipped viewport.
+  page.getByRole("button", { name: /Show .*earlier/ }).element().scrollIntoView({ block: "center", behavior: "instant" });
   const anchor = s.host.querySelector<HTMLElement>("[data-arrival-key]")!;
   const top = anchor.getBoundingClientRect().top;
   await userEvent.click(page.getByRole("button", { name: /Show .*earlier/ }));
@@ -1021,7 +1031,7 @@ test("recognition namespaces, finish evidence, duplicates, transfer and epoch fe
   expect(s.client.state.getState().recognition[1]).toMatchObject({ kind: "input_fragment", utteranceId: s.socket.frames("conversation_audio").at(-1)!.utteranceId, sequence: 0 });
   s.event({ kind: "unassigned_input_fragment", sequence: 1, text: "", timing: { kind: "unavailable" }, finalization: "final" });
   const finishTrigger = s.host.querySelector<HTMLButtonElement>("[data-transcript-qualifiers=recognized]")!;
-  await userEvent.click(finishTrigger);
+  await pointDetails(finishTrigger);
   await expect.poll(() => document.querySelector("dialog[open]")?.textContent).toContain("Service finish marker received");
   await userEvent.keyboard("{Escape}");
   expect(s.host.querySelectorAll("[data-conversation-recognition]")).toHaveLength(2);
@@ -1039,7 +1049,8 @@ test("recognition namespaces, finish evidence, duplicates, transfer and epoch fe
   expect(s.client.reviewUnassigned()).toBe(false);
   await expect.poll(() => s.host.textContent).toContain("Moved to voice review");
   expect(s.client.state.getState().recognition.every(f => !f.text)).toBe(true);
-  expect(s.ui.stores.voice.getState().reviewText).toBe("Which note?Which note?");
+  // Reviewed in the composer (#3694, D6): the moved words are the draft.
+  await expect.poll(() => { const d = s.ui.stores.drafts.getState(); return d.drafts[d.idFor(SESSION)]?.text; }).toBe("Which note?Which note?");
   expect(s.socket.frames("conversation_commit")).toHaveLength(0);
   expect(s.socket.frames("chat_message")).toHaveLength(0);
   s.event({ ...fragment, sequence: 4, text: "After Leave." });
@@ -1064,7 +1075,9 @@ test("bounded recognition eviction and replacement never fabricate cold-reload d
   await expect.poll(() => s.host.textContent).toContain("Voice reconnected");
   expect(s.client.state.getState().recognition.at(-1)).toMatchObject({ epoch: 2, sequence: 0, text: "A new voyage." });
   s.client.leave();
-  await expect.poll(() => s.host.textContent).toContain("Voice ended");
+  // #3729: the end divider is drawn only from the host's retained end, never a local observation.
+  expect(s.socket.frames("conversation_stop").at(-1), "Leave is the operator's final stop").not.toHaveProperty("resumable");
+  expect(s.host.querySelector('[role="separator"]'), "no retained end, so no divider").toBeNull();
   s.ui.stores.chat.getState().setActiveSession("pylos-watch");
   s.client.enter();
   expect(s.client.state.getState().recognition).toEqual([]);

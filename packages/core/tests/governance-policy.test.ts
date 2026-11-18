@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { parseGovernancePolicy, providerAllows } from "../src/lib/governance-policy";
+import { githubWriteAllowance, parseGovernancePolicy, providerAllows } from "../src/lib/governance-policy";
 
 const parse = (yaml: string, body = "Odysseus keeps policy prose separate.\n") => parseGovernancePolicy(Buffer.from(`---\nschema_version: 1\n${yaml}\n---\n${body}`));
 
@@ -126,4 +126,59 @@ test("Apify limits are the only spending entitlement: absent grants nothing, pre
     expect(parse(yaml).ok, `APIFY_LIMIT_STRICT: ${field}=${String(value)}`).toBe(false);
   }
   expect(parse(limitsYaml({ ...LIMITS, account_usd: 5 })).ok, "APIFY_LIMIT_NO_EXTRA_FIELDS").toBe(false);
+});
+
+test("outward.github.repositories opens nothing by default and admits only exact owner/repo or owner/* entries (#3798)", () => {
+  expect(parse("profiles: { interactive: governed }").effective.outward, "GITHUB_WRITES_DEFAULT_NONE").toEqual({ allow: [], hosts: [], github: { repositories: [] } });
+  expect(parse("outward: { hosts: [api.github.com] }").effective.outward.github, "GITHUB_WRITES_SIBLING_DEFAULT").toEqual({ repositories: [] });
+  expect(parse("outward: { github: {} }").effective.outward.github).toEqual({ repositories: [] });
+  const listed = parse('outward: { github: { repositories: ["odysseus/ithaca", "odysseus/*", "Circe/aiaia.island", "argo-crew/the_ship-1"] } }');
+  expect(listed.ok, listed.errors.join(" ")).toBe(true);
+  expect(listed.effective.outward.github.repositories).toEqual(["odysseus/ithaca", "odysseus/*", "Circe/aiaia.island", "argo-crew/the_ship-1"]);
+  for (const entry of ["odysseus", "odysseus/", "/ithaca", "*/*", "*/ithaca", "odysseus/ith*", "odysseus/*/issues", "odysseus/ithaca/", "odysseus/..", "odysseus/.",
+    "https://github.com/odysseus/ithaca", "github.com/odysseus/ithaca", "odys seus/ithaca", "odysseus_/ithaca", "", `${"o".repeat(40)}/ithaca`, `odysseus/${"i".repeat(101)}`]) {
+    const parsed = parse(`outward: { github: { repositories: [${JSON.stringify(entry)}] } }`);
+    expect(parsed.ok, `GITHUB_WRITES_MALFORMED_REFUSED: ${entry}`).toBe(false);
+    expect(parsed.effective.outward.github, `GITHUB_WRITES_INVALID_OPENS_NOTHING: ${entry}`).toEqual({ repositories: [] });
+  }
+  // A malformed entry beside valid ones refuses the policy: it is never skipped.
+  expect(parse('outward: { github: { repositories: ["odysseus/ithaca", "odysseus"] } }').ok, "GITHUB_WRITES_MIXED_REFUSED").toBe(false);
+  for (const yaml of ["outward: { github: { repositories: [odysseus/ithaca], issues: true } }", "outward: { github: { repos: [odysseus/ithaca] } }",
+    "outward: { github: [odysseus/ithaca] }", "outward: { github: { repositories: odysseus/ithaca } }", "outward: { github: { repositories: [7] } }"]) {
+    expect(parse(yaml).ok, `GITHUB_WRITES_STRICT: ${yaml}`).toBe(false);
+  }
+  expect(parse(`outward: { github: { repositories: ${JSON.stringify(Array.from({ length: 257 }, (_, index) => `odysseus/ship-${index}`))} } }`).ok, "GITHUB_WRITES_BOUNDED").toBe(false);
+});
+
+test("githubWriteAllowance matches exactly or by owner wildcard, without case, and nothing else", () => {
+  const list = ["odysseus/ithaca", "Circe/*"];
+  expect(githubWriteAllowance(list, "odysseus/ithaca")).toEqual({ index: 0, entry: "odysseus/ithaca" });
+  expect(githubWriteAllowance(list, "ODYSSEUS/Ithaca")).toEqual({ index: 0, entry: "odysseus/ithaca" });
+  expect(githubWriteAllowance(list, "circe/aiaia")).toEqual({ index: 1, entry: "Circe/*" });
+  for (const repository of ["odysseus/argo", "odysseus/ithaca-archive", "odysseu/ithaca", "circe", "circe/*", "circe/aiaia/x", ""])
+    expect(githubWriteAllowance(list, repository), `GITHUB_WRITES_NOT_ALLOWED: ${repository}`).toBeNull();
+  expect(githubWriteAllowance([], "odysseus/ithaca"), "GITHUB_WRITES_EMPTY_LIST").toBeNull();
+});
+
+test("taint.classifier is off by default and accepts only off or heuristics (#4088)", () => {
+  expect(parse("").effective.taint.classifier, "CLASSIFIER_DEFAULT_OFF").toBe("off");
+  expect(parse("taint: { classifier: heuristics }").effective.taint).toEqual({ egress: { allow: [] }, trusted_sources: [], classifier: "heuristics", judge: { mode: "off", floor: 0.9 } });
+  expect(parse("taint: { classifier: off, egress: { allow: [tides.example] } }").effective.taint.classifier).toBe("off");
+  for (const yaml of ["taint: { classifier: jev }", "taint: { classifier: true }", "taint: { classifier: HEURISTICS }"]) {
+    const invalid = parse(yaml);
+    expect(invalid.ok, `CLASSIFIER_STRICT_VALUE: ${yaml}`).toBe(false);
+    expect(invalid.effective.taint.classifier, "CLASSIFIER_INVALID_POLICY_FALLS_BACK_OFF").toBe("off");
+  }
+});
+
+test("taint.judge is off with a 0.9 floor by default, and takes only off or jev with a floor from 0.5 to 1 (#4089)", () => {
+  expect(parse("").effective.taint.judge, "JUDGE_DEFAULT_OFF").toEqual({ mode: "off", floor: 0.9 });
+  expect(parse("taint: { classifier: heuristics, judge: { mode: jev } }").effective.taint.judge, "JUDGE_JEV_KEEPS_DEFAULT_FLOOR").toEqual({ mode: "jev", floor: 0.9 });
+  expect(parse("taint: { judge: { mode: jev, floor: 0.95 } }").effective.taint.judge, "JUDGE_FLOOR_CONFIGURABLE").toEqual({ mode: "jev", floor: 0.95 });
+  for (const yaml of ["taint: { judge: { mode: on } }", "taint: { judge: jev }", "taint: { judge: { floor: 0.4 } }", "taint: { judge: { floor: 1.1 } }",
+    "taint: { judge: { mode: jev, model: jev-latest } }"]) {
+    const invalid = parse(yaml);
+    expect(invalid.ok, `JUDGE_STRICT_VALUE: ${yaml}`).toBe(false);
+    expect(invalid.effective.taint.judge, "JUDGE_INVALID_POLICY_FALLS_BACK_OFF").toEqual({ mode: "off", floor: 0.9 });
+  }
 });

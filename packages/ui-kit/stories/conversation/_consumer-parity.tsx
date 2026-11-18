@@ -2,6 +2,7 @@ import { useLayoutEffect, useState, type ReactNode } from "react";
 import { expect } from "storybook/test";
 import axe from "axe-core";
 import { flushSync } from "react-dom";
+import { consumerViewportKey } from "../_viewports.js";
 
 const fixtureCleanups = new Set<() => void>();
 import consumerStyles from "../../../ui-react/dist/styles.css?raw";
@@ -43,9 +44,17 @@ export function ConsumerDocument({ children }: { children: ReactNode }) {
   return <main style={{ padding: 16, maxWidth: 900, color: "var(--bk-color-ink)", background: "var(--bk-color-canvas)" }}>{mounted && children}</main>;
 }
 
+/** The Vitest runner sets this; opened by hand, a story runs without it. */
+const inRunner = () => Boolean(document.documentElement.dataset.expectedStoryTheme);
+
 /** Loaded only in the browser test runner, leaving stories portable in dev. */
-export async function consumerViewport({ args }: { args: { width: number } }) {
-  if (!document.documentElement.dataset.expectedStoryTheme) return;
+export async function consumerViewport({ args, globals }: { args: { width: number }; globals?: { viewport?: unknown } }) {
+  if (!inRunner()) return;
+  // A story's width must also open it at that width by hand (#3749): one
+  // without the matching viewport global renders the desktop layout in the
+  // Storybook UI whatever its width says. Pair them with `atWidth()`.
+  const viewport = (globals?.viewport as { value?: string } | undefined)?.value;
+  await expect(viewport, `width ${args.width} opens at its own viewport (atWidth/viewportAt)`).toBe(consumerViewportKey(args.width));
   const { page, commands } = await import("vitest/browser");
   const { onTestFinished } = await import("vitest");
   const before = { width: innerWidth, height: innerHeight };
@@ -77,17 +86,32 @@ export async function consumerViewport({ args }: { args: { width: number } }) {
   return cleanup;
 }
 
-export async function painted(width: number, theme: string | undefined) {
-  await expect(innerWidth, "actual consumer viewport").toBe(width);
-  await expect(matchMedia("(min-width: 900px)").matches, "actual pane media query").toBe(width >= 900);
-  await expect(matchMedia("(prefers-reduced-motion: reduce)").matches).toBe(true);
-  await expect(document.querySelectorAll("style[data-consumer-parity]")).toHaveLength(1);
-  await expect(getComputedStyle(document.documentElement).colorScheme, "consumer document paints the selected theme").toBe(theme);
+/**
+ * `ui-react`'s compiled stylesheet owns the document. A story that renders a
+ * `ui-react` component without `ConsumerDocument` has none of its Tailwind
+ * utilities, and paints a dialog or a turn header as bare markup (#3748).
+ */
+export async function consumerStyled() {
+  await expect(document.querySelectorAll("style[data-consumer-parity]"), "the consumer stylesheet is loaded once").toHaveLength(1);
   const probe = document.createElement("div");
   probe.className = "p-4";
   document.body.append(probe);
   try { await expect(getComputedStyle(probe).padding, "consumer Tailwind scale owns the document").toBe("16px"); }
   finally { probe.remove(); }
+}
+
+export async function painted(width: number, theme: string | undefined) {
+  // The exact viewport and the reduced-motion emulation exist only in the
+  // runner. Opened by hand, the story's viewport global sets the width and
+  // the browser's own motion setting applies, so asserting them there would
+  // only report a failure nobody can act on.
+  if (inRunner()) {
+    await expect(innerWidth, "actual consumer viewport").toBe(width);
+    await expect(matchMedia("(min-width: 900px)").matches, "actual pane media query").toBe(width >= 900);
+    await expect(matchMedia("(prefers-reduced-motion: reduce)").matches).toBe(true);
+  }
+  await consumerStyled();
+  await expect(getComputedStyle(document.documentElement).colorScheme, "consumer document paints the selected theme").toBe(theme ?? "dark");
 }
 
 export async function bounds(element: HTMLElement, label: string) {

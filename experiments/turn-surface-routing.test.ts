@@ -66,8 +66,18 @@ test("inventory uses actual core stdio tools, project skill files and production
   try {
     expect(prepared.peer.tools.map(tool => tool.name).sort()).toEqual([...STABLE_BRIDGE_ROSTER]);
     expect(prepared.peer.tools.every(tool => tool._meta?.["anthropic/alwaysLoad"] === true)).toBe(true);
-    expect(prepared.peer.tools.every(tool => Object.keys(tool.inputSchema.properties ?? {}).length > 0)).toBe(true);
-    expect(core.tools.map(tool => tool.name).sort()).toEqual(["brain_add", "brain_archive", "brain_context", "brain_graph", "brain_list", "brain_read", "brain_search", "brain_update"]);
+    // Apify approvals intentionally takes no arguments; every other tool has
+    // named inputs. Keep this exception explicit so a lost schema names its tool.
+    expect(prepared.peer.tools.filter(tool => Object.keys(tool.inputSchema.properties ?? {}).length === 0)
+      .map(tool => tool.name)).toEqual(["brain_apify_approvals"]);
+    expect(core.tools.map(tool => tool.name).sort()).toEqual([
+      "brain_add", "brain_apify_abort", "brain_apify_approvals", "brain_apify_availability",
+      "brain_apify_discover", "brain_apify_inspect", "brain_apify_prepare", "brain_apify_results",
+      "brain_apify_revoke", "brain_apify_run", "brain_apify_status", "brain_archive",
+      "brain_compute_cancel", "brain_compute_collect", "brain_compute_health", "brain_compute_plan",
+      "brain_compute_run", "brain_compute_status", "brain_context", "brain_graph", "brain_list",
+      "brain_read", "brain_read_many", "brain_search", "brain_update",
+    ]);
     expect(core.client.getInstructions()).toContain("Odysseus");
     const response = await core.client.callTool({ name: "brain_read", arguments: { path: "me/identity.md" } });
     expect(response.isError).not.toBe(true);

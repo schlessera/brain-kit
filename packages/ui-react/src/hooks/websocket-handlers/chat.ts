@@ -30,7 +30,6 @@ type ChatFrame =
   | "result"
   | "retry_receipt"
   | "ask_answer_receipt"
-  | "pong"
   | "message_blocks"
   | "message_links"
   | "turn_journal"
@@ -75,6 +74,7 @@ function convertHistoryMessage(msg: SessionHistoryMessage): ChatMessage {
     timestamp: Date.now(),
     ...(askUserExchanges ? { askUserExchanges } : {}),
     ...(msg.files?.length ? { files: msg.files } : {}),
+    ...(msg.attachmentFiles?.length ? { attachmentFiles: msg.attachmentFiles } : {}),
     ...(msg.attachmentCount ? { attachmentCount: msg.attachmentCount } : {}),
     ...(msg.blocks && msg.blocks.length > 0 ? { blocks: msg.blocks } : {}),
     // Absent means typed: an older host never sends it, and a newer one
@@ -197,7 +197,7 @@ function reconstructAskUserExchanges(
  * (`{answers, skipped, notes?}`), so the input is the one place the items and
  * the scale survive a reload.
  */
-export function listSpecFromInput(input: Record<string, unknown> | undefined): AskUserListSpec {
+function listSpecFromInput(input: Record<string, unknown> | undefined): AskUserListSpec {
   const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object";
   const str = (v: unknown) => (typeof v === "string" ? v : undefined);
   const scale = (Array.isArray(input?.scale) ? input.scale : []).filter(record).flatMap((o) => {
@@ -248,7 +248,7 @@ function reconstructListExchange(tc: SessionHistoryMessage["toolCalls"][number])
   return exchange;
 }
 
-export function formSpecFromInput(input: Record<string, unknown> | undefined): AskUserFormSpec {
+function formSpecFromInput(input: Record<string, unknown> | undefined): AskUserFormSpec {
   const parsed = ASK_USER_FORM_INPUT_SCHEMA.parse(input);
   // A historical request already passed its host configuration. Check structure
   // without imposing this client's defaults on a host's larger valid form.
@@ -269,7 +269,7 @@ function reconstructFormExchange(tc: SessionHistoryMessage["toolCalls"][number])
   return exchange;
 }
 
-export function rankSpecFromInput(input: Record<string, unknown> | undefined): AskUserRankSpec {
+function rankSpecFromInput(input: Record<string, unknown> | undefined): AskUserRankSpec {
   const list = listSpecFromInput(input);
   const cutoff = typeof input?.cutoff === "number" ? input.cutoff : undefined;
   return { prompt: list.prompt, items: list.items, ...(cutoff !== undefined ? { cutoff } : {}) };
@@ -348,7 +348,8 @@ export const chatFrameHandlers = {
       msg.description,
       msg.kind,
       msg.rememberable,
-      context.frameTurnId
+      context.frameTurnId,
+      msg.display
     );
   },
   tool_result: (msg, context) => {
@@ -409,8 +410,6 @@ export const chatFrameHandlers = {
   // Receipts are connection-wide: they never reach a session's demux.
   retry_receipt: (msg, context) => context.retryReceipt(msg),
   ask_answer_receipt: (msg, context) => context.answerReceipt(msg),
-  // The SDK client answers its own probes; a pong never reaches a consumer.
-  pong: () => {},
   message_blocks: (msg, context) => {
     // Arrives after `result`, for the turn's own assistant message. An
     // answer never waits on it: the markdown is already on screen, and this

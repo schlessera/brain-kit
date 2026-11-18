@@ -1269,16 +1269,101 @@ A 44px box stays where it is the design, or where it draws no visible box:
 | Text inputs, selects and search fields | 44px is the field's own box, and a replaced element cannot carry a pseudo-element. |
 | Rows: `bk-row` list rows, `ListRow`, the mobile sheet rows, the untrusted-marks entry and list rows, trace rows in run detail, label rows around a `Toggle`, and the storage indicator strip | The row is the target, as for kit rows. |
 | Borderless links and `Disclosure` triggers given 44px through a host rule | They paint no box, so nothing visible is inflated. D57 records the `Disclosure` case. |
-| Icon controls the size of an `md` `IconButton`: the mask editor's tools, the viewer toolbar's link and share trigger, the zoom toolbar, and the graph's floating discs | 44px is the kit's `md` icon size. |
+| Icon controls the size of an `md` `IconButton`: the mask and markup editors' tools, swatches and widths, the viewer toolbar's link and share trigger, the zoom toolbar, and the graph's floating discs | 44px is the kit's `md` icon size. |
 | `ApprovalCard`'s Deny mount (96 × 44) and `Send bug report` | Approved designs specify 44px. |
-| The live conversation strip and the dictation sheet's primary button | Their bars are laid out around 44px controls (the strip's 44/52px rows). They are touch-first surfaces, not inflated `sm` or `md` Buttons. |
+| The live conversation strip | Its bar is laid out around 44px controls (its 44/52px rows). It is a touch-first surface, not inflated `sm` or `md` Buttons. (The dictation sheet's primary button was here too until #3694 replaced the sheet with the voice field.) |
 | The crash fallback (`app-error-boundary`) | It renders without the kit and uses system colours. |
 
-Two sites still draw a visible pill 44px tall, and neither has a kit size to
-move to. The file viewer's Preview/Raw `FilterRow` pills cannot reach,
-because `FilterRow`'s strip clips them with `overflow: hidden`. The
-Actions dismissal-reason pills are raw pressed chips, and the kit `Chip` is
-not interactive. Each needs a design decision before it can change (#3531).
+Two sites drew a visible pill 44px tall, and neither had a kit size to move
+to: the file viewer's Preview/Raw `FilterRow` pills, which could not reach
+because `FilterRow`'s strip clips them with `overflow: hidden`, and the
+Actions dismissal-reason pills, which are raw pressed chips beside a
+non-interactive kit `Chip`. The ruling for both follows.
+
+### 2026-11-08 — `FilterRow` pills reach by default; dismissal reasons take the kit pill (#3531)
+
+**Decision (maintainer, 2026-11-08).** Neither site keeps a 44px paint. Both
+paint at an existing kit size and reach 44px under `any-pointer: coarse`.
+**Every interactive `FilterRow` pill reaches by default**, with no prop for
+it. Static pills stay non-interactive and never reach. The runtime change and
+its caller audit are #4086.
+
+**Paint sizes.** The viewer's Preview/Raw pills keep the kit `FilterRow` pill:
+`4px 10px` padding, 10.5px/1 type, a 1px border, about **20.5px** tall, so
+the vertical reach is about 11.75px a side. The dismissal reasons take the
+kit `Chip variant="pill"` geometry: `6px 12px` padding, 11.5px/1.35 type,
+radius 999, about **29.5px** tall, so the vertical reach is 7.25px a side.
+Under a fine pointer both are their paint, as #3252 already rules.
+
+**How each meets 44px.**
+
+- `FilterRow` puts `.bk-hit` on every pill with an `onClick`. Under a coarse
+  pointer its strip clips only horizontally (`overflow-x: clip;
+  overflow-y: visible`): `clip` leaves the other axis `visible`, where
+  `hidden` would turn it into `auto`. Horizontal overflow and paint are
+  unchanged. Focus keeps `bk-control-inset`, because the strip still clips at
+  its ends (#1775). The strip's clipping is the `.bk-filter-row` class, since
+  an inline style cannot clip one axis under one pointer only.
+- The viewer drops its `[role=tab]` 44px overrides. Under a coarse pointer it
+  widens the gap between its wrapped toolbar lines from 12px to 20px
+  (`any-pointer-coarse:gap-y-5`), so that the 11.75px pill reach and the
+  7.8px reach of an `sm` Button on the line above would still clear each
+  other. As built (#4086), every control that can sit on the line above is a
+  44px box with no reach (the untrusted mark is an `md` `IconButton`), which
+  12px already clears; the wider gap keeps the rule when a reaching control is
+  put there.
+- The dismissal reasons stay raw `aria-pressed` buttons, swap `bk-row
+  min-h-11` for `bk-control bk-hit`, and widen their wrapped-row gap to 16px
+  under a coarse pointer (`any-pointer-coarse:gap-y-4`, the row gap the
+  reaching Buttons above already use), since two 7.25px reaches total 14.5px.
+  `bk-control` puts the focus ring outside, which is safe because the group
+  does not clip. Accessible names, `aria-description` and pressed state stay
+  as they are.
+
+**Spacing, clipping and focus bind every caller.** Default reach does not
+permit overlap. The 44px floor, the coarse-pointer condition and the neighbour
+rule (gap ≥ the sum of the two facing reaches) still hold, and a caller that
+breaks them is corrected, not exempted. With `FilterRow`'s 6px gap each side's
+horizontal reach must be at most 3px, so an interactive pill must be at least
+38px wide, or its row must widen the gap to meet the same rule. Each caller is
+also checked for an ancestor that clips its vertical reach, wrapped or stacked
+neighbours that need a wider coarse-pointer row gap, labels that wrap, and
+focus rings that would be cut. #4086 lists every interactive caller.
+
+**Narrow pills paint 44px wide on touch (maintainer, 2026-11-16, #4086).**
+The audit measured three interactive pills under 44px: the viewer's Raw
+(40px) and the graph Direction row's In (31px) and Out (41px). Their
+sideways reach would be clipped at the strip's ends, where the strip keeps
+clipping, and In and Out would overlap across the 6px gap. So under a coarse
+pointer an interactive pill paints at least 44px wide, label centred
+(`.bk-filter-row > .bk-hit`). No pill then reaches sideways, which meets the
+38px rule above for every caller without a per-caller exception. Height and
+fine-pointer paint are unchanged. Rejected: a 38px minimum under every
+pointer, because an end pill would still fall up to 3px short and the
+fine-pointer paint would change, and per-caller fixes, because each new
+narrow pill would meet the same problem.
+
+**Why default, not opt-in.** The brief proposed an opt-in `reach` prop,
+mirroring `Button`'s, and an audit of the other callers later. That branch is
+**superseded for `FilterRow`**. Reach by default brings every interactive
+filter row up to the touch floor at once, and it makes the caller audit part
+of the change instead of a follow-up that can lapse. `Button`'s `reach` stays
+opt-in, as recorded above.
+
+**Rejected.** For the viewer: a segmented control (the kit has none, and a
+new seam needs a second use), keeping 44px as the design (a 44px pill around
+10.5px type is the defect), and padding the strip to absorb the reach (it
+would grow every `FilterRow` by 23px under fine pointers too). For the
+dismissal reasons: an interactive kit `Chip` (the only pressed chip, so no
+second use), `ChoiceOption` rows (they read as a required, effectful choice,
+where the copy says a reason "never grants or stops anything"), and Buttons
+(`Button` has no pressed state).
+
+**Mocks.** The [design brief](https://github.com/schlessera/brain-kit/issues/3531#issuecomment-6611584754)
+carries the 320px and 1280px mocks, the edge tables and the coarse-pointer
+gap arithmetic. Its geometry applies unchanged to the default-reach branch.
+Only its `reach` prop and its opt-in recommendation (P1) are replaced by this
+ruling.
 
 ## 2026-11-02 — D57: collapsibles follow the job, not one Disclosure (#3253)
 
@@ -1364,7 +1449,7 @@ implements them with the session store:
 | `settings/modules-tab.tsx` complete source values | `<details>` | Evidence: `Complete source values · {n} keys`. |
 | `settings/module-settings-fields.tsx` collapsible lists | `Surface` and `<details>` | Editable item: `ItemCard`. |
 | `voice/conversation-unassigned.tsx` | `<details>` "Optional voice review" | Optional control: `Callout` and "Review in composer". |
-| `voice/conversation-strip.tsx` background tasks | `<details>` | Evidence: `Background tasks · {n} contextual requests`. |
+| `voice/conversation-field.tsx` background tasks | `<details>` | Removed from the live field (#3699); each task is a `VoiceToolChip` in the chat (#3700). |
 | `voice/recordings-tray.tsx` header | raw `aria-expanded` button | Panel: `Tray`, `On this device · {n} recordings · {size}`. |
 | `graph/graph-maintenance.tsx` finding groups | `TextButton` and dot | Panel: `Tray` with the lens swatch; the label keeps the kind's name. |
 | `graph/graph-scene.tsx` `ClusterLegend` | raw `aria-expanded` row | Panel: `Tray`, `Topics · {n}`. |
@@ -1407,7 +1492,7 @@ details. On 2026-11-02 they approved the specification on the issue
 
 Every state has its own existing `Icon` key and an existing semantic ink, so
 neither colour nor motion carries meaning alone
-(`STATES`, `packages/ui-kit/src/chrome/StatusIndicator.tsx:46-55`).
+(`STATES`, `packages/ui-kit/src/chrome/StatusIndicator.tsx:52-61`).
 
 | State | Glyph key | Tone | Motion |
 | --- | --- | --- | --- |
@@ -1432,7 +1517,7 @@ neither colour nor motion carries meaning alone
 ### Interaction
 
 The control
-(`StatusIndicator`, `packages/ui-kit/src/chrome/StatusIndicator.tsx:121-223`)
+(`StatusIndicator`, `packages/ui-kit/src/chrome/StatusIndicator.tsx:127-229`)
 draws a 20px glyph inside a native 44px `<button>`. A square `::before` keeps
 the target's corners inside the rounded paint. The control has no native
 `title`, so it composes the `TranscriptQualifiers` pattern and does not use
@@ -1453,7 +1538,7 @@ the target's corners inside the rounded paint. The control has no native
   user is on keeps focus.
 - **One polite live region** sits beside the trigger, or inside the modal while
   it is open, because the rest of the page is inert then
-  (`useAnnouncement`, `packages/ui-kit/src/chrome/StatusIndicator.tsx:81-118`).
+  (`useAnnouncement`, `packages/ui-kit/src/chrome/StatusIndicator.tsx:87-124`).
   It announces after a 1s coalescing window, and only when the derived state
   changes or an operation newly enters attention, unknown, failed or refused.
   Progress, summary and fact changes stay silent.
@@ -1462,7 +1547,7 @@ the target's corners inside the rounded paint. The control has no native
 
 The display state is derived, worst first: refused, failed, unknown,
 attention, active, queued, success, idle
-(`statusIndicatorLead`, `packages/ui-kit/src/chrome/StatusIndicator.tsx:63-69`).
+(`statusIndicatorLead`, `packages/ui-kit/src/chrome/StatusIndicator.tsx:69-75`).
 Two or more operations show a count. Details list every operation separately,
 keyed by the consumer's id, never by array index. An empty list renders a
 reserved 44px slot with no control. It is idle, never success, and it is how

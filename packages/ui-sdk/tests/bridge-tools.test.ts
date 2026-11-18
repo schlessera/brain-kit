@@ -19,11 +19,13 @@ describe("bridge tool server primitives", () => {
       "ask_user_form",
       "get_current_location",
       "request_image_mask",
+      "request_image_markup",
       "query_activity",
       "show_block",
       "turn_temp",
       "reference_source",
       "reference_worktree",
+      "reference_read",
       "brain_compute_health", "brain_compute_plan", "brain_compute_run", "brain_compute_status", "brain_compute_cancel", "brain_compute_collect",
     ]);
     expect(BRIDGE_TOOL_POSTURE.allowedTools("pi")).toEqual(
@@ -37,11 +39,13 @@ describe("bridge tool server primitives", () => {
       "mcp__brain-ui__ask_user_form",
       "mcp__brain-ui__get_current_location",
       "mcp__brain-ui__request_image_mask",
+      "mcp__brain-ui__request_image_markup",
       "mcp__brain-ui__query_activity",
       "mcp__brain-ui__show_block",
       "mcp__brain-ui__turn_temp",
       "mcp__brain-ui__reference_source",
       "mcp__brain-ui__reference_worktree",
+      "mcp__brain-ui__reference_read",
       "mcp__brain-ui__brain_compute_health", "mcp__brain-ui__brain_compute_plan", "mcp__brain-ui__brain_compute_run",
       "mcp__brain-ui__brain_compute_status", "mcp__brain-ui__brain_compute_cancel", "mcp__brain-ui__brain_compute_collect",
     ]);

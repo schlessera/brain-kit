@@ -5,8 +5,9 @@ import { join, resolve } from "node:path";
 import type { CheckPlan } from "../scripts/ci-plan";
 import { GitReservationStore } from "../scripts/integration-reservation";
 import { addSuspect, classifyFailure, clearRed, declareFix, emptyRedMain, FLAKE_WINDOW_MS, gateDecision, includeRedSet, junitFailures, recordExpedited,
-  openRed, parseRedMain, type RedFailure, type RedMainRecord } from "../scripts/red-main";
-import { coordinate, includedRedSet, incidentMarker, type CoordinatorIO, type Job, type Snapshot, type WorkflowRun } from "../scripts/red-main-coordinator";
+  openRed, parseRedMain, POST_MERGE_CATEGORIES, postMergeOnly, type RedFailure, type RedMainRecord } from "../scripts/red-main";
+import { coordinatorCancellations } from "../scripts/ci-red-main";
+import { coordinate, detectLanded, includedRedSet, incidentMarker, type CoordinatorIO, type Job, type Snapshot, type WorkflowRun } from "../scripts/red-main-coordinator";
 
 const ROOT = resolve(import.meta.dir, "..");
 const scratch: string[] = [];
@@ -119,8 +120,12 @@ describe("main selection includes the open red set", () => {
     for (const name of ["core", "ui-sdk"]) { mkdirSync(join(dir, "packages", name, "src"), { recursive: true });
       writeFileSync(join(dir, "packages", name, "package.json"), JSON.stringify({ name: `@fixture/${name}`, files: ["src"] })); writeFileSync(join(dir, "packages", name, "src/index.ts"), "export {};\n"); }
     mkdirSync(join(dir, "scripts")); mkdirSync(join(dir, "docs"));
-    writeFileSync(join(dir, "scripts/ci-plan.ts"), readFileSync(join(ROOT, "scripts/ci-plan.ts"), "utf8").replace('"typescript"', JSON.stringify(import.meta.resolve("typescript"))));
-    for (const name of ["browser-input-closure", "unit-test-consumers", "integration-reservation", "red-main"]) writeFileSync(join(dir, `scripts/${name}.ts`), `export * from ${JSON.stringify(join(ROOT, `scripts/${name}.ts`))};\n`);
+    const planner = readFileSync(join(ROOT, "scripts/ci-plan.ts"), "utf8");
+    writeFileSync(join(dir, "scripts/ci-plan.ts"), planner.replace('"typescript"', JSON.stringify(import.meta.resolve("typescript"))));
+    // Shim every sibling module the planner imports, read from its source: a hand list missed ./proof-shards (#4108).
+    const siblings = [...planner.matchAll(/from "\.\/([\w-]+)"/g)].map(match => match[1]!);
+    expect(siblings, "PLANNER_SIBLINGS_FOUND").toContain("red-main");
+    for (const name of siblings) writeFileSync(join(dir, `scripts/${name}.ts`), `export * from ${JSON.stringify(join(ROOT, `scripts/${name}.ts`))};\n`);
     writeFileSync(join(dir, "docs/notes.md"), "Ithaca.\n"); git(dir, "add", "."); git(dir, "commit", "-qm", "base");
     const before = git(dir, "rev-parse", "HEAD");
     writeFileSync(join(dir, "docs/notes.md"), "Ithaca, again.\n"); git(dir, "commit", "-qam", "docs only");
@@ -175,7 +180,7 @@ describe("hosted gate", () => {
 function fakeGitHub(options: { jobs: Job[]; junit?: string; artifact?: Record<string, string>; closure?: boolean | null; pulls?: Record<string, number>; prRuns?: WorkflowRun[]; history?: WorkflowRun[]; historyJobs?: Record<number, Job[]> }) {
   let snapshot: Snapshot = { oid: null, redMain: emptyRedMain() }, version = 0, clock = NOW;
   const issues: { number: number; title: string; body: string; labels: string[] }[] = [];
-  const comments: { issue: number; body: string }[] = [], cancelled: number[] = [], dispatched: unknown[] = [], events: unknown[] = [];
+  const comments: { issue: number; body: string }[] = [], cancelled: number[] = [], dispatched: unknown[] = [], events: unknown[] = [], printed: string[] = [];
   const io: CoordinatorIO = {
     repository: "odysseus/brain-kit",
     async json(path) {
@@ -217,9 +222,9 @@ function fakeGitHub(options: { jobs: Job[]; junit?: string; artifact?: Record<st
     isAncestor: (a, b) => a === b || (a === A && b !== A) || (a === B && b === C),
     commitTime: () => NOW,
     async recordEvent(event) { events.push(event); },
-    print() {},
+    print(line) { printed.push(line); },
   };
-  return { io, issues, comments, cancelled, dispatched, events, record: () => snapshot.redMain, set: (record: RedMainRecord) => { snapshot = { oid: String(++version), redMain: record }; } };
+  return { io, issues, comments, cancelled, dispatched, events, printed, record: () => snapshot.redMain, set: (record: RedMainRecord) => { snapshot = { oid: String(++version), redMain: record }; } };
 }
 const mainRun = (sha: string, conclusion: string, id = 100): WorkflowRun => ({ id, name: "CI", event: "push", head_branch: "main", head_sha: sha, status: "completed", conclusion,
   run_attempt: 1, display_title: "squash", created_at: "2026-07-12T00:00:00Z" });
@@ -268,7 +273,7 @@ describe("coordinator", () => {
   });
 
   test("a suspected flake files its test issue and dispatches a probe without declaring main red", async () => {
-    const gh = fakeGitHub({ jobs: [{ id: 2, name: "unit (2)", conclusion: "failure", steps: [] }], closure: false,
+    const gh = fakeGitHub({ jobs: [{ id: 2, name: "unit (2)", conclusion: "failure", steps: [] }], closure: false, prRuns: [prRun(320, 9, C)],
       junit: junit.replace("<failure>expect(received).toBe(expected)</failure>", "<failure message=\"Timed out after 5000ms\"/>") });
     await coordinate(gh.io, mainRun(B, "failure"));
     expect(gh.record().open).toBeNull();
@@ -279,6 +284,9 @@ describe("coordinator", () => {
     await coordinate(gh.io, { ...mainRun(B, "failure", 200), name: "red-main-probe", event: "workflow_dispatch", display_title: `red-main probe flake 100 ${B}` });
     expect(gh.record().open?.failures[0]?.reasons).toEqual(["probe-reproduced"]);
     expect(gh.comments.some(comment => comment.issue === 500 && comment.body.includes("**failed**"))).toBe(true);
+    // The probe path prints the main-run cancellation line too, so the evidence collector (#2953) sees it.
+    expect(gh.cancelled).toEqual([320]);
+    expect(coordinatorCancellations(gh.printed.join("\n"), "failure"), "PROBE_CANCELLATIONS_PRINTED").toEqual([320]);
   });
 
   test("first bad is the first commit after the last green run, and a squash landed while red is reported", async () => {
@@ -332,5 +340,29 @@ describe("expedited fixes (#2940)", () => {
     await coordinate(gh.io, { ...mainRun(B, "failure", 200), name: "red-main-probe", event: "workflow_dispatch", display_title: `red-main probe fix 100 ${B}` });
     expect(gh.record(), "FIX_PROBE_NEVER_CHANGES_THE_RECORD").toBe(before);
     expect(gh.issues).toHaveLength(0); expect(gh.comments).toHaveLength(0); expect(gh.dispatched).toHaveLength(0);
+  });
+});
+
+describe("per-family red under the hybrid post-merge ruling", () => {
+  const open = (failures: RedFailure[]) => openRed(emptyRedMain(), { firstBad: B, run: 11, failures }, NOW);
+  test("red confined to post-merge categories dooms no pre-merge proof; any fast-category or unknown failure still refuses", () => {
+    expect([...POST_MERGE_CATEGORIES].sort()).toEqual(["browser", "captures", "endurance", "layout", "runtime", "runtime_host"]);
+    const heavy = open([failure(null, "browser"), failure("packages/ui-kit/tests/menu.browser.test.ts", "layout"), failure(null, "runtime_host")]);
+    const admitted = gateDecision({ record: heavy, pr: 7, contains: () => true });
+    expect(admitted.refuse, "POST_MERGE_ONLY_RED_ADMITS").toBe(false);
+    expect(admitted.message).toContain("every red failure is post-merge proof (browser, layout, runtime_host)");
+    for (const category of ["unit", "verify", "pack", "changeset"] as const) {
+      expect(gateDecision({ record: open([failure(null, "browser"), failure(null, category)]), pr: 7, contains: () => true }).refuse, `FAST_${category}_RED_REFUSES`).toBe(true);
+    }
+    expect(postMergeOnly([]), "EMPTY_FAILURE_SET_STAYS_GLOBAL").toBe(false);
+    expect(gateDecision({ record: heavy, pr: 7, contains: () => false }).message, "UNRELATED_MERGE_REF_UNCHANGED").toContain("does not contain it");
+  });
+
+  test("a squash landing while only post-merge proof is red is not reported as a bypass", async () => {
+    const io = { isAncestor: () => true, async json() { throw new Error("no API call expected"); } } as unknown as CoordinatorIO;
+    const landed = await detectLanded(io, open([failure(null, "browser")]), { head_sha: C } as WorkflowRun).then(value => value, error => String(error));
+    expect(landed, "POST_MERGE_RED_LANDING_NOT_REPORTED").toBe(false);
+    await expect(detectLanded(io, open([failure("tests/raft.test.ts")]), { head_sha: C } as WorkflowRun).then(() => null, error => String(error)))
+      .resolves.toContain("no API call expected");
   });
 });

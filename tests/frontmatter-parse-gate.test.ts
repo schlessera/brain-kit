@@ -163,6 +163,9 @@ describe("rule 3: fences are found by frontmatterBlock (#2507)", () => {
       expect({ file, rules: rules(file, planted) }).toEqual({ file, rules: [3] });
     }
     for (const entry of FENCE_ALLOWED) expect(entry.reason.length).toBeGreaterThan(20);
+    // The policy review splitter left the list once it moved onto frontmatterBlock (#2507).
+    const splitter = "const match = /^(?:\\uFEFF)?---[ \\t]*\\r?\\n([\\s\\S]*?)\\r?\\n(?:---|\\.\\.\\.)[ \\t]*(?:\\r?\\n|$)/.exec(text);";
+    expect(rules("packages/ui-server/src/brain/policy-proposal.ts", splitter)).toEqual([3]);
   });
 
   test("the tree passes, and the CLI fails on a planted detector", () => {

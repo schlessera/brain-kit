@@ -116,10 +116,11 @@ describe("safeResolve — dangling and cyclic symlinks", () => {
 
 describe("resolveWritable", () => {
   const root = mkdtempSync(join(tmpdir(), "brain-writable-"));
+  fixtures.push(root);
 
   test("a repo-relative path resolves inside the repo", () => {
     const r = resolveWritable(root, "notes/x.md");
-    expect(r?.startsWith(realpathSync(root))).toBe(true);
+    expect(r).toBe(join(realpathSync(root), "notes/x.md"));
   });
 
   test("the scratch area is inside the repo, so it resolves", () => {
@@ -130,7 +131,7 @@ describe("resolveWritable", () => {
     // Output there could not be opened from the UI; transient output goes to
     // the brain's scratch area instead.
     const target = join(tmpdir(), "scratch", "x.html");
-    expect(target.startsWith(realpathSync(root))).toBe(false);
+    expect(target).not.toStartWith(realpathSync(root));
     expect(resolveWritable(root, target)).toBeNull();
   });
 

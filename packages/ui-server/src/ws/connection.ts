@@ -1,7 +1,8 @@
+import { SAFETY_READ_CAPABILITIES, IMAGE_MARKUP_CAPABILITY } from "@schlessera/brain-ui-sdk/protocol";
 import { createHash } from "node:crypto";
 import { upgradeWebSocket, websocket } from "hono/bun";
 import type { MiddlewareHandler } from "hono";
-import { ASK_RECEIPTS_CAPABILITY, CHAT_DELETION_CAPABILITY, COMPOSER_FILES_CAPABILITY, LIVENESS_CAPABILITY, PROTOCOL_REV, SESSION_RECOVERY_CAPABILITY } from "@schlessera/brain-ui-sdk/protocol";
+import { ASK_RECEIPTS_CAPABILITY, ATTACHMENT_READS_CAPABILITY, CHAT_DELETION_CAPABILITY, COMPOSER_FILES_CAPABILITY, LIVENESS_CAPABILITY, PROTOCOL_REV, SESSION_RECOVERY_CAPABILITY } from "@schlessera/brain-ui-sdk/protocol";
 import { parseClientMessage } from "@schlessera/brain-ui-sdk/schemas";
 import { withTurnScope } from "./frames.js";
 import { resendPendingInteractive } from "./resend.js";
@@ -68,7 +69,7 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
         return;
       }
       if (
-        !host.clients.add(ws, principal.id, { onRemove: connection.authorization.release })
+        !host.clients.add(ws, principal.id, { onRemove: () => { connection.authorization.release(); host.safetyHistory?.unsubscribe((ws.raw??ws) as object); host.conversations?.viewerClosed(ws); } })
       ) {
         connection.authorization.release();
         host.reportRefusedConnection();
@@ -81,13 +82,16 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
       host.log.emit({ severityText: "INFO", body: "client connected" });
       const { coordinator, catalog } = host;
 
+      const livePersona = host.conversations?.livePersona(principal);
       // Handshake first (rev 2, additive): protocol revision + coarse
       // capabilities, so the client can gate behavior instead of sniffing.
       host.sendMessage(ws, {
         type: "server_hello",
         protocolRev: PROTOCOL_REV,
         principalKey: answerQueueKey(principal.id),
+        ...(host.safetyHistory ? {safetyCapabilities: host.ownerSafetyReviews?.capabilities(principal) ?? SAFETY_READ_CAPABILITIES} : {}),
         capabilities: {
+          ...(host.safetyHistory ? {sessionSafetyHistory:true,sessionSafetyEntryCorrelation:true} : {}),
           multiSession: true,
           askUser: true,
           askUserList: true,
@@ -114,6 +118,9 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
           // POST /api/drafts/:draftId/files stores originals and
           // chat_message.attachmentRefs is accepted (#3153).
           ...(host.attachmentLimits ? { [COMPOSER_FILES_CAPABILITY]: true } : {}),
+          // GET /api/sessions/:id/attachment-reads answers, and `attachment_read`
+          // reaches connections that declare the flag (#3589).
+          ...(host.attachmentLimits ? { [ATTACHMENT_READS_CAPABILITY]: true } : {}),
           // GET /api/sessions/:id/recovery answers, and replays carry
           // host-proven turn ids (#964).
           ...(supportsSessionRecovery(host) ? { [SESSION_RECOVERY_CAPABILITY]: true } : {}),
@@ -122,10 +129,15 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
         },
         // Beside `capabilities`, whose values every shipped client parses
         // as booleans (#979).
-        ...(host.conversations ? { conversationProfile: host.conversations.profile() } : {}),
+        // The effective service's profile only when one is effective, beside
+        // every registered profile and how a Start resolves one (#3616).
+        ...(host.conversations ? host.conversations.helloFields() : {}),
+        // Additive (#3617): the selected persona, for human sessions only.
+        ...(livePersona ? { livePersona } : {}),
         ...(host.drafts ? { sessionDraftLimits: { ...host.drafts.limits } } : {}),
         ...(host.attachmentLimits ? { attachmentLimits: { ...host.attachmentLimits } } : {}),
       });
+      host.conversations?.viewerOpened(ws, connection, principal, livePersona);
 
       // Snapshot-on-connect only for the single-running-session case (backward
       // compatible). With zero or several running sessions the client rehydrates
@@ -314,6 +326,9 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
       // re-delivered on reconnect — a phone drops its socket at every screen
       // lock, and denying pending approvals on that signal killed real work.
       // The turn timeout remains their upper bound.
+      // A markup editor needs one of ITS principal's connections that can
+      // draw (#3975): once the last of those leaves, nobody can answer it.
+      host.coordinator.drainMarkup(p => !host.clients.anyDeclares(IMAGE_MARKUP_CAPABILITY, p.principalId), "Client disconnected");
       if (host.clients.hasClients()) return;
       for (const turn of host.coordinator.running) {
         host.coordinator.drainClientBoundForTurn(turn, "Client disconnected");

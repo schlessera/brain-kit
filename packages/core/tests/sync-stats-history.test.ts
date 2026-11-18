@@ -5,11 +5,14 @@
  * `brain doctor --fix`) git conflicts on it, and nothing but an agent could
  * resolve it. The fixture brain has no `.gitattributes`, which is that brain.
  */
+import { withoutSigningForEach } from "./git-fixture";
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { brainWithRemote, cleanupFixtures, commitAndPush, git, otherClone, syncJson, write, type Brain } from "./sync-fixture";
+
+withoutSigningForEach();
 
 const HISTORY = ".stats-history.jsonl";
 const day = (date: string, at: string, documents: number) => JSON.stringify({ date, at, documents });

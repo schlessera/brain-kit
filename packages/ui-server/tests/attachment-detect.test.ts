@@ -31,7 +31,7 @@ test("text is decided by strict UTF-8, whatever the MIME claims", () => {
   expect(detectKind(bytes("a\u0000b"), at("blob.bin"))).toMatchObject({ kind: "binary", reader: "none" });
   expect(detectKind(new Uint8Array([0xc3, 0x28, 0x41]), at("sirens.m4a", "audio/mp4"))).toMatchObject({ kind: "binary", reader: "none" });
   expect(decodeText(bytes("\u0001".repeat(3) + "x".repeat(97)))).toBeNull();
-  expect(decodeText(bytes("\u0001" + "x".repeat(199)))).not.toBeNull();
+  expect(decodeText(bytes("\u0001" + "x".repeat(199)))).toBe("\u0001" + "x".repeat(199));
 });
 
 test("valid tracks keep the shared parser's evidence; a failed parse never forges one", () => {

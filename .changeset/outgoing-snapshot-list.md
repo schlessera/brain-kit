@@ -1,0 +1,5 @@
+---
+"@schlessera/brain-ui-sdk": minor
+"@schlessera/brain-ui-server": minor
+---
+Keep up to ten outgoing snapshots per chat instead of one (#3588). `Draft.snapshots` and `DraftSaveRequest.snapshots` carry each held, returned or unconfirmed send as `{ snapshotId, requestId, text, fileIds, state, createdAt }`. The save that creates one counts every live snapshot of the chat across its drafts, tabs and devices in the same transaction and refuses the eleventh with `409 DRAFT_OUTGOING_FULL`, before anything is sent; Cancel, an upload failure, dispatch and a recovery read edit a snapshot in place and never need a free slot. Accepting a message releases only its own snapshot, and only a returned snapshot can be deleted, which starts its files' seven-day clock. `SessionDraftLimits` advertises `maxOutgoingSnapshots`, a delete that would drop a held or unconfirmed snapshot is `409 DRAFT_OUTGOING_PENDING`, and the save body bound rises to 4,390,912 bytes. `Draft.outgoing` and the single-slot write keep working, and a slot saved earlier becomes the first snapshot.

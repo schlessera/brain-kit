@@ -18,6 +18,7 @@ import {connectedSafetySession} from "./helpers/connected-safety";
 import { createUiDb } from "../src/db/client.js";
 import { queryGovernanceEvents, recordGovernanceEvent } from "../src/governance/events.js";
 import { prepareTurnEgress } from "../src/brain/turn-egress.js";
+import { beginSafetyCollection, acknowledgeSafety } from "../src/governance/safety-store.js";
 
 const HOST_KEY = "odysseus-host-gemini-key";
 const RERANK = "/v1beta/models/gemini-2.5-flash:generateContent";
@@ -58,6 +59,8 @@ const bridge = { requestPermission: async () => ({ behavior: "deny", message: "O
 async function turn(db: Database, sessionId: string, turnId: string, policy: GovernancePolicyInput = { schema_version: 1 },
   relayOptions: Partial<ProviderRelayOptions> = {}) {
   const controller = new AbortController();
+  beginSafetyCollection(db, { turnId, bindingId: crypto.randomUUID(), sessionId, principalId: "odysseus", backendId: "claude", at: 0 });
+  acknowledgeSafety(db, turnId, "claude", 1);
   const egress = await prepareTurnEgress({ controller, policy: resolveGovernancePolicy(policy), turnId, sessionId: () => sessionId,
     model: () => "claude-haiku-4-5", profile: "governed", origin: "interactive", bridge,
     record: event => recordGovernanceEvent(db, event), governanceDb: db });
@@ -116,8 +119,8 @@ test("provider first, then WebFetch: the provider request never taints, and WebF
     expect(providerRecords.map(record => [record.method, record.path, record.inference, record.provider]), "PROVIDER_CONNECTION_RECEIPTS")
       .toEqual([["POST", RERANK, undefined, true], ["POST", RERANK, undefined, true]]);
     // Worker records never carry the provider tag, even to the provider's host.
-    expect(voyage.events("egress_connection").filter(record => record.payload.method === "CONNECT").every(record => record.payload.provider === undefined),
-      "WORKER_RECORDS_NEVER_PROVIDER").toBe(true);
+    expect(voyage.events("egress_connection").filter(record => record.payload.method === "CONNECT" && record.payload.provider !== undefined).map(record => record.payload),
+      "WORKER_RECORDS_NEVER_PROVIDER").toEqual([]);
   } finally { await first.stop(); db.close(); }
 });
 
@@ -142,7 +145,7 @@ test("WebFetch first, then provider: the session stays tainted by WebFetch and t
       expect(await connectStatus(later.egress.socketPath, `127.0.0.3:${island.port}`), "LATER_TURN_NEW_HOST_NARROWED").toBe(403);
     } finally { await later.stop(); }
     expect(voyage.taints(), "PROVIDER_NEITHER_CLEARS_NOR_REPLACES_TAINT").toEqual([fetched]);
-    expect(voyage.events("egress_denial").every(event => !(event.payload.host === "127.0.0.1" && event.payload.method === "POST")), "NO_PROVIDER_TAINT_DENIAL").toBe(true);
+    expect(voyage.events("egress_denial").filter(event => event.payload.host === "127.0.0.1" && event.payload.method === "POST").map(event => event.payload), "NO_PROVIDER_TAINT_DENIAL").toEqual([]);
   } finally { await first.stop(); db.close(); }
 });
 

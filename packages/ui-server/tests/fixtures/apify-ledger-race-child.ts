@@ -2,13 +2,16 @@
  * One process of the two-process ledger race (#3161): waits for the shared
  * start signal, then tries to reserve $2 against a $3 account day. Prints
  * `admitted` or `refused:<reason>`. Keyless and offline: it only opens the
- * ledger file the parent names.
+ * ledger file the parent names, and marks itself ready beside the start
+ * signal once that ledger is open.
  */
-import { existsSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { ApifyLedgerRefusal, openApifyLedger } from "@schlessera/brain-common/internal/apify";
 
 const [path, go, index] = process.argv.slice(2) as [string, string, string];
 const ledger = openApifyLedger(path);
+// At the start line: the parent opens it once every child has said so.
+writeFileSync(`${go}.${index}.ready`, "");
 while (!existsSync(go)) await Bun.sleep(5);
 const now = Date.parse("2026-07-12T09:00:00.000Z");
 try {

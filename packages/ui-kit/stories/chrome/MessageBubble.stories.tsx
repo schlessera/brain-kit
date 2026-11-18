@@ -24,11 +24,13 @@ export const User = meta.story({});
  * bubble would say "a message"; a full-column answer says "this is the document
  * you asked for", and the trace line is what makes that claim checkable.
  */
+const BRAIN_ANSWER = "Circe named her on Aeaea, the morning you sailed — six heads, six men, one pass. You did not tell the crew.";
+
 export const Brain = User.extend({
   args: {
     role: "brain",
     trace: answerTrace,
-    text: "Circe named her on Aeaea, the morning you sailed — six heads, six men, one pass. You did not tell the crew.",
+    text: BRAIN_ANSWER,
   },
 });
 
@@ -59,10 +61,19 @@ export const Wide = User.extend({ parameters: wide });
  * and a border, a brain turn has neither.
  */
 export const OnlyTheUserGetsABubble = meta.story({
+  render: () => (
+    <>
+      <MessageBubble role="user" text={userMessage} />
+      <MessageBubble role="brain" text={BRAIN_ANSWER} />
+    </>
+  ),
   play: async ({ canvas }) => {
     const user = (await canvas.findByText(userMessage)) as HTMLElement;
     await expect(getComputedStyle(user).borderTopWidth).toBe("1px");
     await expect(getComputedStyle(user).backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
+    const brain = (await canvas.findByText(BRAIN_ANSWER)) as HTMLElement;
+    await expect(getComputedStyle(brain).borderTopWidth, "a brain turn has no border").toBe("0px");
+    await expect(getComputedStyle(brain).backgroundColor, "a brain turn has no background").toBe("rgba(0, 0, 0, 0)");
   },
 });
 

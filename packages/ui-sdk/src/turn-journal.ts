@@ -92,7 +92,7 @@ export interface TurnJournalChange {
   before: JournalVersion | null;
   after: JournalVersion | null;
   overlappingTurnIds: string[];
-  /** Present only when an existing same-session/turn taint event preceded this observation. */
+  /** Effective restriction at this observation; unknown coverage may have no source event. Historical attribution is unchanged. */
   tainted?: true;
   taintSourceEventId?: number;
   /** At least two distinct retained after-versions observed in one shared window. */

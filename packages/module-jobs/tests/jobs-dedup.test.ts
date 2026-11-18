@@ -27,14 +27,14 @@ describe("normalizeTitle", () => {
 
 describe("computeFingerprint", () => {
   test("senior vs junior at the same company do not collide", () => {
-    expect(computeFingerprint("Acme", "Senior Engineer")).not.toBe(
-      computeFingerprint("Acme", "Junior Engineer")
+    expect(computeFingerprint("Ithaca Fleet", "Senior Engineer")).not.toBe(
+      computeFingerprint("Ithaca Fleet", "Junior Engineer")
     );
   });
 
   test("same job cross-source still collides (dedup keeps working)", () => {
-    expect(computeFingerprint("Acme Inc.", "Senior Platform Engineer")).toBe(
-      computeFingerprint("Acme", "Senior Platform Engineer - Remote")
+    expect(computeFingerprint("Ithaca Fleet Inc.", "Senior Platform Engineer")).toBe(
+      computeFingerprint("Ithaca Fleet", "Senior Platform Engineer - Remote")
     );
   });
 
@@ -62,12 +62,12 @@ describe("runDedup integration", () => {
     const db = openDatabase(":memory:");
 
     const jobs: RawJob[] = [
-      { source: "remoteok", source_id: "r1", title: "Senior Platform Engineer", company: "Acme" },
+      { source: "remoteok", source_id: "r1", title: "Senior Platform Engineer", company: "Ithaca Fleet" },
       {
         source: "remotive",
         source_id: "v1",
         title: "Senior Platform Engineer - Remote",
-        company: "Acme Inc.",
+        company: "Ithaca Fleet Inc.",
       },
       {
         source: "nodesk",

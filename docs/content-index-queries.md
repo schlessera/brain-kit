@@ -1,6 +1,6 @@
 # Content-index query results
 
-`@schlessera/brain/queries` provides ten synchronous operations over a brain's
+`@schlessera/brain/queries` provides eleven synchronous operations over a brain's
 existing disposable `brain.db`. Bun resolves TypeScript source; ordinary `types`
 and `default` conditions resolve the same build's declarations and JavaScript.
 The entry does not initialize config, modules, providers, vectors, agents or the
@@ -44,6 +44,7 @@ taking these options without `brainPath`. See
 | `readVoiceVocabulary` | Required positive integer `limit: number` | `VoiceVocabulary`; at most that many ranked terms; extractor version 2, matching current tag/title/path/link/content scoring and stoplists. No pronunciation file or cache access. |
 | `listIndexDocuments` | `type?: string`, `tag?: string`, `status?: string`, `relevance?: string`, `limit?: number` | `ListedDocument[]`; limit 20 clamped 1..100, updated descending, current listing filter/tag behavior; archived only when `status: "archived"`. Null status is excluded by the default non-archived predicate. |
 | `findIndexDocuments` | `type?: string`, `excludeStatus?: string`, `pathSuffix?: string` | `DocumentCandidate[]`; complete path-ordered metadata selection, no cap. Literal suffix including `%`, `_` and an optional leading slash, never a LIKE pattern. Supplied exclusion also excludes null status. |
+| `pageIndexDocuments` | `type?`, `tag?`, `status?`, `relevance?`, `pathPrefix?`, `cursor?` (strings), `overview?: boolean`, `limit?: number` | `DocumentPage`; one bounded page of the [paged inventory](#paged-inventory-and-the-overview-projection) (additive in 0.45.0, #3643). Limit 20 clamped 1..100, the listing's filters and archived rule, order `updated` descending then `path` ascending, at most 30,000 UTF-8 bytes of compact JSON. Requires layout 4 or later. |
 
 All numbers must be safe integers before clamping. Enum/boolean inputs are
 validated, and supplied filter/suffix strings must be nonempty without control
@@ -118,6 +119,18 @@ interface ListedDocument {
   status: string | null; tags: string | null;
 }
 interface DocumentCandidate { path: string; updated: string | null }
+interface PagedDocument {
+  path: string; title: string; type: string; relevance: string | null;
+  status: string | null; tags: string | null;
+  // only with overview: true
+  summary?: string | null; updated?: string; deadline?: string | null;
+  indexed_at?: string; indexed_body_bytes?: number | null;
+  clipped?: string[];
+}
+interface DocumentPage {
+  documents: PagedDocument[]; next_cursor: string | null; total: number;
+  truncated?: true; warnings: string[];
+}
 
 
 interface VoiceVocabulary { terms: string[]; extractorVersion: number }
@@ -151,9 +164,95 @@ function listIndexDocuments(opts: Root & {
 function findIndexDocuments(opts: Root & {
   type?: string; excludeStatus?: string; pathSuffix?: string;
 }): QueryResult<DocumentCandidate[]>;
-``` Unknown extra options do not
+function pageIndexDocuments(opts: Root & {
+  type?: string; tag?: string; status?: string; relevance?: string;
+  pathPrefix?: string; cursor?: string; overview?: boolean; limit?: number;
+}): QueryResult<DocumentPage>;
+```
+
+Unknown extra options do not
 select new SQL or behavior. These functions and reachable types are supported
 under the same contract-versioning policy as other named machine surfaces.
+
+## Paged inventory and the overview projection
+
+`pageIndexDocuments`, `brain list` with `--path-prefix`, `--overview` or
+`--cursor` ([CLI](integration-contract/cli.md#stable---json-shapes)) and
+`brain_list` with `path_prefix`, `overview` or `cursor`
+([MCP](integration-contract/mcp.md#brain_list-paged-inventory-additive-0450-3643), and pi's tool of the same
+name) run one shared core operation, (`selectDocumentPage`,
+`packages/core/src/lib/document-page.ts:167-238`) then (`finishDocumentPage`,
+`packages/core/src/lib/document-page.ts:334-400`), so the same
+request on the same index returns the same page and cursor on every surface.
+A request with none of those inputs keeps its legacy listing and envelope.
+Additive in 0.45.0 (#3643).
+
+**Scope.** The listing's filters (`type`, `tag`, `status`, `relevance`, the
+CLI's `--include-archived`) and archived rule apply. `pathPrefix` is a
+root-relative key: slash separated, no empty, `.` or `..` segment, not
+absolute or drive-prefixed, no backslash or control character; one trailing
+slash is dropped. It matches that key itself and everything below it on whole
+segments, so `projects/active/raft` lists `projects/active/raft/plan.md` but
+neither `projects/active/raft.md` nor `projects/active/raft-old/notes.md`, and
+`%` or `_` are literal. The prefix only narrows the listing: it reads index
+keys, never resolves a filesystem path, and the index a masked turn reads
+never held a masked document ([supported inputs](supported-inputs.md)).
+
+**Order and cursor.** Rows come newest `updated` first, then by `path` in
+ascending byte order, a total order. `next_cursor` is an opaque string that
+resumes after the last row the page returned; it is `null` when the page
+reached the end, and pages never return zero rows while rows remain. While
+the index is unchanged, following it lists every matching document exactly
+once. A cursor is bound to its filters and prefix; `limit` and `overview`
+may change between pages. A cursor that is not one the operation issued is
+refused, and one used with other filters or another prefix is refused too
+(`invalid_input` here; a tool error naming the input on MCP and pi; a usage
+error with exit `1` on the CLI). A cursor issued before the scope's rows
+changed (its count or newest `indexed_at` differ) is still followed from its
+position, with the warning `the index changed since this cursor was issued;
+documents changed in between may be skipped or repeated, so restart without
+cursor for a complete enumeration`, and the page's own `next_cursor` is
+current again. `total` counts the scope's matching documents in this snapshot.
+
+**Output bound.** The whole envelope (rows, `next_cursor`, `total`,
+`truncated`, `warnings`) is at most 30,000 UTF-8 bytes of compact JSON. Rows
+are kept whole, in order, while they fit; when the bound ends a page before
+`limit` rows, `truncated: true` is set and `next_cursor` continues at the
+first row left out. Warnings take at most a quarter of the bound, and any
+past it are replaced by `<n> more warning(s) omitted`. A first row too large
+on its own keeps its path and has its `summary`, then `title`, then `tags`
+shortened at a code point with a trailing `…`, named in `clipped`, so the
+JSON stays valid and the page advances. The CLI prints the same object
+indented.
+
+**Overview fields** (with `overview: true`, after the six listing fields):
+
+| Field | Source | Null / absent | Unit |
+| --- | --- | --- | --- |
+| `summary` | frontmatter `summary`, as indexed | `null` when the frontmatter has none | text |
+| `updated` | frontmatter `updated`, as indexed; when the frontmatter has none the indexer stores its run date | never null | the frontmatter's date string |
+| `deadline` | frontmatter `deadline`, as indexed | `null` when unset | the frontmatter's date string |
+| `indexed_at` | when the index last wrote this row | never null | ISO 8601 instant |
+| `indexed_body_bytes` | UTF-8 byte length of the body the index stored at `indexed_at`, frontmatter excluded | `null` for a non-markdown asset, whose indexed text is a description | bytes |
+| `clipped` | the bound shortened these text fields | absent unless a field was shortened | field names |
+
+`updated` is what the document says about itself. It is not the file's
+modification time and not evidence of current activity in a project.
+`indexed_body_bytes` is an estimate of the source's size for choosing a read
+budget, never the exact size of the whole file: the frontmatter is excluded,
+and an edit after `indexed_at` is not reflected. With `overview`, the source
+of every markdown row on the page is stat-ed (never read) after the
+selection: a file modified after its row's `indexed_at` adds `source changed
+after indexing for <n> listed document(s) (<up to three paths>[ and <m>
+more]); their overview fields describe the indexed copy; run `brain index` or
+read the file`, and a missing or unreadable one adds `source missing or
+unreadable for <n> listed document(s) (…); they are listed from the index
+only`. The CLI and MCP also add their usual whole-index staleness warning.
+A missing index keeps each surface's existing error (`missing_index` here).
+
+The selection, total and fingerprint come from one read transaction, so a
+concurrent index commit cannot mix them within a page; separate pages are
+separate snapshots, which the stale-cursor warning reports.
 
 ## Compatibility, snapshots and failures
 

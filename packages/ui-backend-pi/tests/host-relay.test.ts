@@ -30,7 +30,7 @@ beforeAll(async () => {
 const relayed = (name: string, request: Record<string, string | null>, host: string) => {
   const result = results[name]!;
   expect(result.thrown, `${name} ran`).toBeNull();
-  expect(result.outcomes.every(outcome => outcome === "success"), `${name} succeeded`).toBe(true);
+  expect(result.outcomes.filter(outcome => outcome !== "success"), `${name} succeeded`).toEqual([]);
   expect(result.requests, "PI_RELAY_HOST_CREDENTIAL_REACHES_UPSTREAM").toEqual(result.outcomes.map(() => expect.objectContaining(request)));
   expect(result.workerObserved, "PI_RELAY_WORKER_OBSERVED").toBe(true);
   expect(result.secretInWorker, "PI_RELAY_WORKER_HOLDS_NO_CREDENTIAL").toBe(false);

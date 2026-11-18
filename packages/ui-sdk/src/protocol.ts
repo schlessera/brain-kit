@@ -1,3 +1,6 @@
+export { SESSION_SAFETY_CAPABILITY, SAFETY_READ_CAPABILITIES } from "./safety.js";
+export type { SafetyReviewBody, SafetyReviewReceipt, SafetyReviewResponse, SafetySessionKey, SafetyTarget, SafetyIdentity, SafetyHistoryProjection, SafetyRecord, SafetyPage, SafetyUpdate, SafetyUnavailable, SafetyCapabilities, ClientSafetyRead, ClientSafetySubscribe, ClientSafetyUnsubscribe, ServerSafetyHistory, ServerSafetyUpdate, ServerSafetyUnavailable } from "./safety.js";
+import type { ClientSafetyRead, ClientSafetySubscribe, ClientSafetyUnsubscribe, ServerSafetyHistory, ServerSafetyUpdate, ServerSafetyUnavailable, SafetyCapabilities } from "./safety.js";
 // ============================================================
 // brain-kit chat-UI wire protocol
 //
@@ -117,6 +120,7 @@ export interface SessionRef {
 // --- Client -> Server ---
 
 export type ClientMessage =
+  | ClientSafetyRead | ClientSafetySubscribe | ClientSafetyUnsubscribe
   | ClientScopeDecision
   | ClientHello
   | ClientRetryTurn
@@ -137,6 +141,7 @@ export type ClientMessage =
   | ClientLocationError
   | ClientMaskResponse
   | ClientMaskError
+  | ClientMarkupError
   | ClientActivitySubscribe
   | ClientActivityUnsubscribe
   | ClientLocalExchange
@@ -499,6 +504,12 @@ export interface SessionDraftLimits {
   maxDraftFileBytes?: number;
   /** Most original bytes of one draft's or message's attachments together, images included (additive; #3153). */
   maxDraftFilesBytes?: number;
+  /**
+   * Most live outgoing snapshots one chat keeps, across its drafts, tabs and
+   * devices (additive; #3588). Only a save that creates a snapshot is refused
+   * at this count, with `409 DRAFT_OUTGOING_FULL`.
+   */
+  maxOutgoingSnapshots?: number;
 }
 
 /** The limits a host ships with (the #943 R2 ruling). */
@@ -510,6 +521,7 @@ export const SESSION_DRAFT_LIMITS: Readonly<SessionDraftLimits> = Object.freeze(
   maxDraftFiles: 10,
   maxDraftFileBytes: 25_000_000,
   maxDraftFilesBytes: 50_000_000,
+  maxOutgoingSnapshots: 10,
 });
 
 /** Names one saved revision of one draft. */
@@ -557,14 +569,24 @@ export interface Draft {
   attachments: DraftAttachment[];
   /** File originals the saved revision binds, in its order (additive; #3153). */
   files?: AttachmentFile[];
-  /** The held or unconfirmed send of this draft, if one is saved (additive; #3153). */
+  /**
+   * The newest `held` or `dispatched` snapshot of {@link Draft.snapshots}, in
+   * the single-slot shape #3153 shipped (additive; #3153). Absent when no
+   * snapshot is held or unconfirmed. Read `snapshots` for the whole list.
+   */
   outgoing?: DraftOutgoing | null;
+  /**
+   * This draft's outgoing snapshots, oldest first (additive; #3588). Each is
+   * a send that is held, returned unsent or not yet confirmed, and owns its
+   * files. Absent when there are none.
+   */
+  snapshots?: DraftSnapshot[];
 }
 
 /**
- * A draft's one durable outgoing snapshot (#3153): the exact text and files of
- * a send that is held or not yet confirmed. It owns its files, so newer
- * revisions cannot orphan them. A restored `held` snapshot never sends itself.
+ * The single-slot view of an outgoing snapshot (#3153), kept for clients that
+ * read and write `Draft.outgoing`. A restored `held` snapshot never sends
+ * itself.
  */
 export interface DraftOutgoing {
   requestId: string;
@@ -572,6 +594,30 @@ export interface DraftOutgoing {
   fileIds: string[];
   state: "held" | "dispatched";
 }
+
+/** Where an outgoing snapshot stands (#3588). */
+export type DraftSnapshotState = "held" | "returned" | "dispatched";
+
+/**
+ * One durable outgoing snapshot (#3588): the exact text and files of one send
+ * that is held, returned unsent, or dispatched and not yet confirmed. It owns
+ * its files, so newer revisions cannot orphan them. A chat keeps at most
+ * `SessionDraftLimits.maxOutgoingSnapshots` of them across its drafts.
+ */
+export interface DraftSnapshot {
+  /** Client-minted; addresses the snapshot in every later save. */
+  snapshotId: string;
+  /** The `chat_message.requestId` this snapshot sends, or sent, as. */
+  requestId: string;
+  text: string;
+  fileIds: string[];
+  state: DraftSnapshotState;
+  /** Host milliseconds since epoch of the save that created it. */
+  createdAt: number;
+}
+
+/** A snapshot as a save names it: the host stamps `createdAt`. */
+export type DraftSnapshotWrite = Omit<DraftSnapshot, "createdAt">;
 
 export interface DraftListResponse {
   /** Every live draft, newest change first; bounded by `maxDrafts`. */
@@ -590,8 +636,23 @@ export interface DraftSaveRequest {
    * keeps none.
    */
   fileIds?: string[];
-  /** Set (object), clear (null) or keep (absent) the outgoing snapshot (additive; #3153). */
+  /**
+   * The single-slot write (additive; #3153): an object creates the snapshot
+   * of its `requestId`, or moves it from `held` to `dispatched`; null removes
+   * the snapshot `Draft.outgoing` shows. Absent keeps every snapshot. Not
+   * combined with `snapshots`.
+   */
   outgoing?: DraftOutgoing | null;
+  /**
+   * The draft's whole snapshot list, oldest first (additive; #3588). Absent
+   * keeps it. A new `snapshotId` creates a `held` or `dispatched` snapshot
+   * and is refused with `409 DRAFT_OUTGOING_FULL` when its chat already holds
+   * `maxOutgoingSnapshots`. A listed one may move `held` to `returned` or
+   * `dispatched`, or `dispatched` to `returned`, and a `held` one may change
+   * its `fileIds`; nothing else of it changes. Only a `returned` snapshot may
+   * be left out, which deletes it.
+   */
+  snapshots?: DraftSnapshotWrite[];
 }
 
 export interface DraftSaveResponse {
@@ -626,7 +687,9 @@ export type DraftErrorCode =
   | "DRAFT_PRECONDITION_REQUIRED"
   | "DRAFT_KEY_REUSED"
   | "DRAFT_NOT_ACCEPTED"
-  | "DRAFT_CHAT_RETIRED";
+  | "DRAFT_CHAT_RETIRED"
+  | "DRAFT_OUTGOING_FULL"
+  | "DRAFT_OUTGOING_PENDING";
 
 /** A draft route's failure body, discriminated by `error`. */
 export type DraftErrorResponse =
@@ -647,7 +710,11 @@ export type DraftErrorResponse =
   /** 409: no accepted message of that session carried this draft and request. */
   | { error: "DRAFT_NOT_ACCEPTED"; message: string }
   /** 410 (additive, #3230): the draft's chat was deleted. Nothing was stored; save the local content as a new, unbound draft. */
-  | { error: "DRAFT_CHAT_RETIRED"; message: string };
+  | { error: "DRAFT_CHAT_RETIRED"; message: string }
+  /** 409 (additive, #3588): the chat already keeps `limit` outgoing snapshots. Nothing was stored; no send happened. */
+  | { error: "DRAFT_OUTGOING_FULL"; message: string; limit: number }
+  /** 409 (additive, #3588): a delete would drop a `held` or `dispatched` snapshot. Nothing was removed. */
+  | { error: "DRAFT_OUTGOING_PENDING"; message: string; current: Draft };
 
 // ============================================================
 // Session recovery (additive; #964, design D52 §4 and §6)
@@ -853,6 +920,7 @@ export interface ServerRetryReceipt extends SessionScoped {
 // --- Server -> Client ---
 
 export type ServerMessage =
+  | ServerSafetyHistory | ServerSafetyUpdate | ServerSafetyUnavailable
   | ServerScopeDecisionReceipt
   | ServerHello
   | ServerRetryReceipt
@@ -876,6 +944,7 @@ export type ServerMessage =
   | ServerPong
   | ServerLocationRequest
   | ServerMaskRequest
+  | ServerMarkupRequest
   | ServerActivitySnapshot
   | ServerActivityDelta
   | ServerMessageBlocks
@@ -889,6 +958,7 @@ export type ServerMessage =
   | ServerSessionQueue
   | ServerDialogueHistory
   | ServerConversationOpened
+  | ServerLivePersona
   | ServerConversationClosed
   | ServerConversationEvent
   | ServerConversationWork
@@ -896,7 +966,18 @@ export type ServerMessage =
   | ServerConversationPermission
   | ServerTurnJournal
   | ServerUsage
-  | ServerChatRetired;
+  | ServerChatRetired
+  | ServerAttachmentRead
+  | ServerLiveSettings;
+
+/**
+ * The frames `BrainUiClient` hands its consumer: every {@link ServerMessage}
+ * except `pong` (#3389). The client answers its own liveness probes and
+ * returns before any consumer handler runs, so a consumer never sees one and
+ * needs no case for it. `pong` stays on the wire and in `ServerMessage`, the
+ * union `parseServerMessage` validates.
+ */
+export type ConsumerServerMessage = Exclude<ServerMessage, ServerPong>;
 
 /**
  * First frame a server sends after a socket opens (rev 2, additive). Clients
@@ -906,8 +987,26 @@ export type ServerMessage =
  * existing chat flow on the client having seen this frame.
  */
 export interface ServerHello {
-  /** Known destination/profile before explicit Start; no provider has opened. */
+  /** Read sidecar only; absent means unavailable. */
+  safetyCapabilities?: SafetyCapabilities;
+  /**
+   * Known destination/profile before explicit Start; no provider has opened.
+   * Present only when the effective live service is non-null (#3616): it is
+   * that service's profile. A multi-service host with nothing saved and no
+   * host default, or with an unusable saved default, omits it, so a client
+   * that reads only this field shows live conversation as unavailable.
+   */
   conversationProfile?: ConversationProfile;
+  /**
+   * Every registered live service's profile, in registration order (#3616).
+   * Present exactly when `capabilities.liveConversation` is true. Discovery
+   * only: registration is not proven provider health.
+   */
+  conversationProfiles?: ConversationProfile[];
+  /** How a new Start resolves its live service (#3616). Present with `conversationProfiles`. */
+  liveDefault?: LiveDefault;
+  /** Additive (#3617): the selected live persona. Present with `conversationProfile`. */
+  livePersona?: LivePersonaStatus;
   type: "server_hello";
   protocolRev: number;
   /**
@@ -1199,6 +1298,32 @@ export interface ServerToolApprovalRequest extends SessionScoped {
    * refusal whatever the client sends.
    */
   rememberable?: boolean;
+  /**
+   * Facts the host verified for the card's display only (additive, #4154).
+   * They never change what is approved: `input` stays the exact content,
+   * and the answer is compared with it alone. They grant no authority and
+   * never reach the model. Absent, or a fact `null`, means unknown: the
+   * card shows its neutral state instead and the approval works as before.
+   */
+  display?: ApprovalDisplay;
+}
+
+/** Host-verified facts an approval card may show (#4154). Display only. */
+export interface ApprovalDisplay {
+  /** A GitHub comment approval: who would post it, and on what. */
+  github?: GithubApprovalDisplay;
+}
+
+/**
+ * What the host verified about a GitHub comment approval (#4154). `poster`
+ * is the account the host's GitHub tools credential posts as, resolved for
+ * that same credential; `target` is the kind of the object at the card's
+ * repository and number, read from GitHub for that same repository and
+ * number. Either is `null` when it could not be verified.
+ */
+export interface GithubApprovalDisplay {
+  poster: { login: string; is_bot: boolean } | null;
+  target: { kind: "issue" | "pull_request"; html_url: string | null } | null;
 }
 
 export interface ServerResultMessage {
@@ -1280,7 +1405,7 @@ export interface TurnFailure {
   resetsAt?: number;
   /** Host budget scope; only a conversation block offers the reviewed handoff. */
   budgetScope?: "turn" | "session" | "day";
-  /** The failure as the runtime worded it. */
+  /** Runtime failure text, or the host's explanation of its own refusal. */
   message: string;
   /**
    * For a Claude subscription's auth failure: what the operator does about it
@@ -1293,10 +1418,10 @@ export interface TurnFailure {
 type FirstPartyFailureClass =
   | "authentication_failed" | "oauth_org_not_allowed" | "account_on_hold"
   | "verification_required" | "billing_error" | "subscription_required"
-  | "auth_failure" | "rate_limit" | "overloaded" | "server_error"
+  | "host_refused" | "auth_failure" | "rate_limit" | "overloaded" | "server_error"
   | "invalid_request" | "model_not_found" | "max_output_tokens"
   | "cloud_credential_error" | "worker_host_unsupported" | "session_too_large" | "worker_resource_limit"
-  | "worker_state_busy" | "worker_state_exceeded" | "worker_state_save_refused" | "journal_capacity" | "journal_unavailable" | "budget_exceeded" | "budget_unavailable" | "input_safety_unavailable" | "unknown";
+  | "worker_state_busy" | "worker_state_exceeded" | "worker_state_save_refused" | "journal_capacity" | "journal_unavailable" | "budget_exceeded" | "budget_unavailable" | "input_safety_unavailable" | "safety_recording_unavailable" | "safety_recording_paused" | "safety_recording_chat_full" | "safety_recording_brain_full" | "unknown";
 
 /**
  * First-party failure classes, shared by emitters and reviewed diagnostics.
@@ -1311,6 +1436,7 @@ export const FIRST_PARTY_FAILURE_CLASSES: Readonly<{ [Class in FirstPartyFailure
   verification_required: "verification_required",
   billing_error: "billing_error",
   subscription_required: "subscription_required",
+  host_refused: "host_refused",
   auth_failure: "auth_failure",
   rate_limit: "rate_limit",
   overloaded: "overloaded",
@@ -1330,6 +1456,10 @@ export const FIRST_PARTY_FAILURE_CLASSES: Readonly<{ [Class in FirstPartyFailure
   journal_capacity: "journal_capacity",
   journal_unavailable: "journal_unavailable",
   input_safety_unavailable: "input_safety_unavailable",
+  safety_recording_unavailable: "safety_recording_unavailable",
+  safety_recording_paused: "safety_recording_paused",
+  safety_recording_chat_full: "safety_recording_chat_full",
+  safety_recording_brain_full: "safety_recording_brain_full",
   unknown: "unknown",
 });
 
@@ -1554,8 +1684,10 @@ export interface ProviderInfo {
  * backend never sends free text and no configuration detail, such as an
  * environment key name, leaves the host. A new reason is an additive contract
  * change; a client shows a reason it does not know as a generic one.
+ * `unsupported-configuration` (#3658): the backend's configuration, such as an
+ * extension set managed input-safety collection cannot run, fails every turn.
  */
-export const PROFILE_UNAVAILABLE_REASONS = ["needs-credentials"] as const;
+export const PROFILE_UNAVAILABLE_REASONS = ["needs-credentials", "unsupported-configuration"] as const;
 export type ProfileUnavailableReason = (typeof PROFILE_UNAVAILABLE_REASONS)[number];
 
 export function isProfileUnavailableReason(value: unknown): value is ProfileUnavailableReason {
@@ -1820,7 +1952,17 @@ export type GovernedStatus = {
 }
   & ({ available: true } | { available: false; reason: GovernedUnavailableReason; detail: string });
 
+/** Unresolved object verification at journal boot; charges remain reserved. */
+export interface JournalRecoveryStatus {
+  unresolvedRecords: number;
+  firstCause: { reservationId: string; hash: string; at: number; errorClass: string; message: string; site: string } | null;
+}
+
 export interface SystemStatus {
+  /** Journal I/O recovery at server boot; only on authenticated status. */
+  journalRecovery?: JournalRecoveryStatus;
+  /** Native quarantine reported at server boot; only on authenticated status. */
+  nativeRecovery?: { quarantinedIntents: number; stagingChargedBytes: number | null; stagingRefusal?: string; diagnosticsPath: string };
   healthy: boolean;
   uptime: number;
   /** The configured source commit (`"dev"` by default), never a release. */
@@ -1920,6 +2062,31 @@ export interface TranscriptionErrorResponse {
   receipt?: RecordingTranscription;
 }
 
+/** An explicit provider is exact; omitted selection retains legacy resolution. */
+export interface VoiceSessionRequest {
+  providerId?: string;
+  smart?: boolean;
+}
+
+export interface DictationSettings {
+  defaultProvider: string | null;
+  smart: boolean;
+  revision: string;
+}
+
+export interface VoiceProvidersResponse {
+  providers: Array<{ id: string; label: string; destination?: string; capabilities: SpeechCapabilities }>;
+  dictation: {
+    saved: string | null;
+    savedUsable: boolean;
+    host: string | null;
+    effective: string | null;
+    source: "saved" | "host" | "only" | "none" | "unavailable";
+    smart: boolean;
+    revision: string;
+  };
+}
+
 export interface SpeechCapabilities {
   streaming: boolean;
   interimResults: boolean;
@@ -1927,6 +2094,9 @@ export interface SpeechCapabilities {
   endpointing: boolean;
   /** Absent/false means saved recordings cannot be transcribed. Derived from the optional server method. */
   savedAudio?: boolean;
+  /** True when the provider honours `createSession({ mode })`: "smart" cleans up fillers, self-corrections
+   * and formatting, "verbatim" transcribes as spoken. Absent/false means the mode option is ignored. */
+  smartTranscription?: boolean;
 }
 
 /** @deprecated superseded by VoiceSessionResponse; kept for client migration. */
@@ -2013,6 +2183,157 @@ export interface ConversationProfile {
   providerId: string;
   capabilities: ConversationCapabilities;
   disclosure: ConversationDisclosure;
+  /**
+   * Additive (#3617): the voices a persona may choose for this service,
+   * verified against the provider's documentation. Absent: the service has no
+   * voice control. Like `defaultVoice` and `personaInstructionBytes`, it
+   * describes persona support and is not part of the disclosure a Start echo
+   * must match.
+   */
+  voices?: ConversationVoice[];
+  /** The voice this service uses when a persona names none (P2). */
+  defaultVoice?: string;
+  /** Exact UTF-8 byte cap on persona instructions for this service. Absent: personas are unsupported. */
+  personaInstructionBytes?: number;
+}
+
+/** One voice a live-conversation service offers (#3617). */
+export interface ConversationVoice {
+  id: string;
+  label: string;
+}
+
+/**
+ * The persona a Start was disclosed with (#3617). `id` and `revision` come
+ * from `LivePersonaStatus.personaRef`; the host refuses the Start when they
+ * no longer match. `voice: "default"` is the explicit one-time choice to use
+ * the service's default voice instead of a saved voice it no longer offers.
+ */
+export interface ConversationPersonaRef {
+  id: string;
+  revision: string;
+  voice?: "default";
+}
+
+/** The built-in persona: no file, no instructions, the services' default voices. */
+export const STANDARD_PERSONA_ID = "standard";
+/** `revision` of the built-in Standard persona. File personas use a sha-256 hex digest. */
+export const STANDARD_PERSONA_REVISION = "builtin";
+
+/** Bounds on authored personas (`_voice/personas/<id>.md`, #3617). */
+export const LIVE_PERSONA_LIMITS = {
+  /** Personas listed as usable; files beyond this, ordered by name, cannot be selected. */
+  maxPersonas: 20,
+  /** `[a-z0-9-]`, from the file name, never changed. */
+  maxIdChars: 48,
+  /** Characters of `name`, after trimming. */
+  maxNameChars: 40,
+  /** UTF-8 bytes of normalized instructions any persona may store. Per-service caps are lower or equal. */
+  maxInstructionBytes: 6_000,
+  /** Provider keys in `voices`. */
+  maxVoices: 16,
+  /** Bytes of one persona file the host reads. */
+  maxFileBytes: 16_384,
+} as const;
+
+/** Why a persona file cannot be used. Fixed codes; Settings words them. */
+export type LivePersonaInvalidReason =
+  | "front_matter" | "schema" | "name" | "voices" | "too_long" | "encoding" | "over_count";
+
+/** One persona as the list shows it. Instructions are returned only by the single-persona read. */
+export interface LivePersonaSummary {
+  id: string;
+  name: string;
+  /** Provider id → that provider's voice id. A missing key means the provider's default. */
+  voices: Record<string, string>;
+  /** UTF-8 bytes of the normalized instructions. */
+  instructionBytes: number;
+  revision: string;
+  /** Present only on Standard. */
+  builtIn?: true;
+  /** Present when the persona cannot be used or selected. */
+  invalid?: LivePersonaInvalidReason;
+}
+
+/** One persona with its plain-text instructions. Never render them as markup. */
+export interface LivePersona extends LivePersonaSummary {
+  instructions: string;
+}
+
+/** `GET /api/voice/personas`: Standard first, then personas by name. */
+export interface LivePersonaListResponse {
+  personas: LivePersonaSummary[];
+}
+
+/** `POST /api/voice/personas`. Without `id`, one is derived from `name`. */
+export interface LivePersonaCreateRequest {
+  id?: string;
+  name: string;
+  voices: Record<string, string>;
+  instructions: string;
+}
+
+/** `PUT /api/voice/personas/:id`. `baseRevision` must match the file's current revision. */
+export interface LivePersonaUpdateRequest {
+  baseRevision: string;
+  name: string;
+  voices: Record<string, string>;
+  instructions: string;
+}
+
+/** What the selected persona means for one registered live service. */
+export interface LivePersonaProviderStatus {
+  /** The voice a Start would use. */
+  voice: string;
+  /** `default`: the persona names no voice for this service (P2, disclose before Start). */
+  voiceSource: "persona" | "default";
+  /** A saved voice this service no longer offers. Start needs `personaRef.voice: "default"` or an edit. */
+  staleVoice?: string;
+  maxInstructionBytes: number;
+  /** Instructions exceed this service's cap; Start is blocked, never truncated. */
+  overLimit: boolean;
+}
+
+/**
+ * The selected persona as a Start would resolve it (#3617). Sent in
+ * `server_hello.livePersona`, the `live_persona` frame and
+ * `GET /api/settings/voice`.
+ */
+export interface LivePersonaStatus {
+  /** The saved selection: `standard` or a persona id. */
+  selected: string;
+  /** The selected file no longer exists; Start uses Standard and says so. */
+  selectedMissing: boolean;
+  /** The selected file cannot be used; Start is blocked until it is edited or Standard is chosen. */
+  selectedInvalid: boolean;
+  /** Standard when the selection is missing, otherwise the selected persona. */
+  persona: LivePersonaSummary;
+  /** What `conversation_start.personaRef` echoes for this persona. */
+  personaRef: { id: string; revision: string };
+  /** Per registered service. Empty when the persona is invalid. */
+  providers: Record<string, LivePersonaProviderStatus>;
+}
+
+/**
+ * `GET /api/settings/voice` and the body of a successful `PUT`. The top-level
+ * `defaultProvider`/`revision` pair is the live-service default (#3616,
+ * {@link VoiceLiveSettings}); `persona` is the live persona (#3617). Each has
+ * its own revision.
+ */
+export interface VoiceSettingsResponse extends VoiceLiveSettings {
+  /** `voice.live.persona`: the selection and its own revision. */
+  persona: { value: string; revision: number };
+  livePersona: LivePersonaStatus;
+}
+
+/**
+ * `PUT /api/settings/voice`. Each group carries its own revision: send
+ * `defaultProvider` with `revision` (#3616), `persona` (#3617), or both.
+ */
+export interface VoiceSettingsUpdateRequest {
+  defaultProvider?: string | null;
+  revision?: number;
+  persona?: { value: string; revision: number };
 }
 
 /** Mono 16-bit little-endian PCM at one sample rate. */
@@ -2190,10 +2511,32 @@ export interface ConversationOutputRecord {
   playedSamples?: { start: number; end: number };
 }
 
+/**
+ * Server → Client (additive, #3617). The selected persona changed, or a Start
+ * named an outdated one. Older clients ignore it.
+ */
+export interface ServerLivePersona {
+  type: "live_persona";
+  livePersona: LivePersonaStatus;
+}
+
 /** Client → Server. Open a conversation, or a new epoch of an existing one. */
 export interface ClientConversationStart {
   /** Exact profile explicitly disclosed at Start; absent legacy starts refuse. */
   disclosed?: ConversationProfile;
+  /**
+   * The live service this Start is for (#3616): the effective one or a
+   * one-time pick. It must equal `disclosed.providerId` and name a
+   * registered service, or the start is refused. Absent means the effective
+   * service (legacy), and a start is refused when there is none.
+   */
+  providerId?: string;
+  /**
+   * Additive (#3617): the persona disclosed with this Start. Absent: Standard,
+   * exactly the behaviour before personas. A resumed conversation keeps the
+   * persona frozen at its first Start while this host holds it.
+   */
+  personaRef?: ConversationPersonaRef;
   /** Resume retained host-only history without pretending it is a backend session. */
   historyOwnerId?: string;
   /** New clients opt into the provider capability; older clients stay reviewed. */
@@ -2272,9 +2615,58 @@ export interface ClientConversationStop {
  * re-executed or re-announced. One frame per record keeps every record whole:
  * a single snapshot frame could outgrow the per-frame cap and be clipped.
  */
+/**
+ * Why a live service is the one a Start uses (#3616): `change` is the one-time
+ * pick on the Start card, `saved` the brain-wide default, `host` the host's
+ * `defaultConversationProviderId`, `only` the single registered service, and
+ * `none` means a Start must name one. `change` appears only on
+ * `conversation_opened`, never in `liveDefault`.
+ */
+export type LiveProviderSource = "change" | "saved" | "host" | "only" | "none";
+
+/** The live-service default as a new Start resolves it (#3616). Never names a credential. */
+export interface LiveDefault {
+  /** The saved brain-wide default, kept even when it is no longer registered. */
+  saved: string | null;
+  /** Whether `saved` names a registered service; false when nothing is saved. */
+  savedUsable: boolean;
+  /** The service a Start without a pick uses; null means a pick is required, or none exists. */
+  effective: string | null;
+  source: Exclude<LiveProviderSource, "change">;
+}
+
+/**
+ * Server → Client (#3616, additive). Sent to every open connection after the
+ * saved live-service default changes, with the same fields `server_hello`
+ * carries. It never retargets a running conversation. Older clients ignore it.
+ */
+export interface ServerLiveSettings {
+  type: "live_settings";
+  liveDefault: LiveDefault;
+  conversationProfiles: ConversationProfile[];
+}
+
+/** `GET`/`PUT /api/settings/voice` (#3616): the saved live-service default and its revision. */
+export interface VoiceLiveSettings {
+  /** A registered live service id, or null for nothing saved. */
+  defaultProvider: string | null;
+  revision: number;
+}
+
+/** `PUT /api/settings/voice` body (#3616). `revision` is the one last read. */
+export interface VoiceLiveSettingsUpdate {
+  defaultProvider: string | null;
+  revision: number;
+}
+
 export interface ServerConversationOpened {
-  /** Actual bounded startup text coverage; no semantic recall guarantee. */
-  historyCoverage?: { state: "complete" | "bounded" | "partial" | "unavailable"; tailOmitted: boolean };
+  /**
+   * Actual bounded startup text coverage; no semantic recall guarantee.
+   * `includedMessages` (#3699) is how many prior chat and spoken messages the
+   * startup context actually carried; completed results and gap markers are
+   * not counted. Absent from older hosts.
+   */
+  historyCoverage?: { state: "complete" | "bounded" | "partial" | "unavailable"; tailOmitted: boolean; includedMessages?: number };
   historyGeneration?: number;
   historyOwnerId?: string;
   type: "conversation_opened";
@@ -2287,6 +2679,8 @@ export interface ServerConversationOpened {
   /** Chat session, once known. */
   sessionId?: string;
   providerId: string;
+  /** How this conversation's live service was chosen (#3616). Absent from older hosts. */
+  providerSource?: Exclude<LiveProviderSource, "none">;
   capabilities: ConversationCapabilities;
   disclosure: ConversationDisclosure;
   limits: ConversationLimits;
@@ -2679,6 +3073,56 @@ export interface AttachmentFile {
   track?: SharedFileMeta;
 }
 
+/**
+ * `server_hello`/`client_hello` capability (additive, #3589): the host
+ * answers `GET /api/sessions/:id/attachment-reads` and sends
+ * `attachment_read` frames, only to connections that declared the flag.
+ * Without it a client shows no read state for a sent original.
+ */
+export const ATTACHMENT_READS_CAPABILITY = "attachmentReads";
+
+/**
+ * `client_hello` capability (#3975): this client opens the markup editor for a
+ * `markup_request` and uploads the layer. A host asks only when a connected
+ * client declares it, and refuses `request_image_markup` otherwise.
+ */
+export const IMAGE_MARKUP_CAPABILITY = "imageMarkup";
+
+/**
+ * One recorded `read_attachment` call of a session (#3589): what the agent
+ * read of one original, never the text. UI evidence only; it never reaches a
+ * provider.
+ */
+export interface AttachmentReadEntry {
+  fileId: string;
+  /** The turn whose agent made the call. */
+  turnId: string;
+  /** `refused` calls reached no original and are not recorded. */
+  outcome: Exclude<import("./tool-contracts/attachment.js").AttachmentReadOutcome, "refused">;
+  /** The pages or byte range the result covered, or null when nothing was read. */
+  scope: NonNullable<import("./tool-contracts/attachment.js").AttachmentReadResult["scope"]> | null;
+  /** Host milliseconds since epoch when it was recorded. */
+  at: number;
+}
+
+/** `GET /api/sessions/:id/attachment-reads` (additive, #3589). */
+export interface SessionAttachmentReadsResponse {
+  sessionId: string;
+  /** Reads of the originals this session's messages name, oldest first. */
+  reads: AttachmentReadEntry[];
+}
+
+/**
+ * Server → Client (additive, #3589). A turn of `sessionId` just recorded one
+ * read. Sent only to connections that declared
+ * {@link ATTACHMENT_READS_CAPABILITY}; never part of a transcript.
+ */
+export interface ServerAttachmentRead {
+  type: "attachment_read";
+  sessionId: string;
+  read: AttachmentReadEntry;
+}
+
 /** `server_hello.attachmentLimits`. */
 export interface AttachmentLimits {
   maxFiles: number;
@@ -3065,6 +3509,49 @@ export interface ClientMaskError {
   type: "mask_error";
   requestId: string;
   /** `cancelled` = the user declined; `failed` = the editor could not produce a mask. */
+  code: "cancelled" | "failed";
+  message: string;
+  turnId?: string;
+}
+
+/**
+ * Server → Client (#3975). The agent asked the user to mark up an image. The
+ * browser opens the markup editor on `imagePath` at the source's displayed
+ * size, which the server read from the image's own header after EXIF
+ * orientation, and the layer is exported at exactly that size.
+ *
+ * The answer does not travel over the socket: a layer may be up to 50 MiB,
+ * far beyond `MAX_CLIENT_FRAME_BYTES`. The browser uploads it to `uploadPath`
+ * (`POST`, relative to the API base) with this frame's `turnId`, and declines
+ * with a `ClientMarkupError` carrying the same `requestId`.
+ */
+export interface ServerMarkupRequest extends SessionScoped {
+  type: "markup_request";
+  requestId: string;
+  /** Repo-relative path of the image to mark up. */
+  imagePath: string;
+  /** What the agent asks the user to mark, shown as "Agent asks:". */
+  instruction?: string;
+  /** The source's displayed size, which the layer must match. */
+  width: number;
+  height: number;
+  /** The most layer bytes the upload accepts: 52,428,800. */
+  maxBytes: number;
+  /** Where the layer is uploaded, relative to the API base: `/markup/<requestId>`. */
+  uploadPath: string;
+  /**
+   * Where the editor reads the source, relative to the API base:
+   * `/markup/<requestId>/source`, with the frame's `turnId`. Served only while
+   * the request is open and the source still has the hash the server bound.
+   */
+  sourcePath: string;
+}
+
+/** Client → Server (#3975). The user closed the markup editor, or it could not run. */
+export interface ClientMarkupError {
+  type: "markup_error";
+  requestId: string;
+  /** `cancelled` = the user closed the editor; `failed` = the editor could not produce a layer. */
   code: "cancelled" | "failed";
   message: string;
   turnId?: string;
@@ -4261,6 +4748,18 @@ export type { StorageHistoryTier, StorageSeverity, StorageEvidenceReason, Storag
 export type DialogueEvidence =
   | { kind: "voice"; conversationId: string; epoch: number; providerId: string; model?:string; api?:string;
       event: Extract<ConversationWireEvent, { kind: "input_fragment" | "unassigned_input_fragment" | "output_transcript" }> }
+  /**
+   * The voice service reported that it stopped this output (barge-in).
+   * Retained only when observed; its absence is never evidence of a
+   * completed reply. `outputId` is present when the provider named one.
+   */
+  | { kind: "voice_interruption"; conversationId: string; epoch: number; providerId: string; outputId?: string }
+  /**
+   * The operator ended the live conversation. Host clock milliseconds since
+   * the Unix epoch: `startedAt` is when this host first opened the
+   * conversation's current run, `endedAt` when it was ended.
+   */
+  | { kind: "voice_end"; conversationId: string; epoch: number; providerId: string; startedAt: number; endedAt: number }
   | { kind: "request"; turnId: string; requestId?: string }
   | { kind: "backend"; turnId: string; start: number; end: number; digest: string; text: string };
 export interface DialogueRecord {

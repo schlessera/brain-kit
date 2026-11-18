@@ -1,8 +1,8 @@
 /** Exact merge-candidate validation; feedback never authorizes merging. */
-import { planFromEnvironment, proofCadence, proofSelections, redMainSnapshot } from "./ci-plan";
+import { browserDeterminismShards, determinismShards, planFromEnvironment, proofCadence, proofSelections, redMainSnapshot, unitShards } from "./ci-plan";
 import type { RedMainRecord } from "./red-main";
 import { checkout, type Checkout } from "./proof-inputs";
-import { GitHubProofAPI, type API } from "./proof-reuse";
+import { GitHubProofAPI, type API } from "./proof-api";
 
 const CONFIRMATION_REQUIRED = "Candidate confirmation required: convert this PR to draft, then mark ready for review after the final push.";
 
@@ -60,9 +60,16 @@ export function validateSelections(root: string, event: any, env: NodeJS.Process
   const plan = planFromEnvironment(root, { ...env, BASE_SHA: event.pull_request?.base?.sha,
     BEFORE_SHA: event.before, HEAD_SHA: event.pull_request?.head?.sha ?? env.GITHUB_SHA }, record);
   plan.cadence = cadence;
-  for (const [category, selected] of Object.entries(proofSelections(plan))) {
+  const selections = proofSelections(plan);
+  for (const [category, selected] of Object.entries(selections)) {
     if (outputs?.[category] !== String(selected)) throw new Error(`${category}: required candidate selection differs from actual inputs`);
   }
+  // The matrix ran the partitions the metadata job published; they must be the planned set (#4108).
+  if (selections.unit && outputs?.unit_shards !== JSON.stringify(unitShards(plan))) throw new Error("unit: published partition set differs from the planned one");
+  // A dropped or added partition would leave a selected file unrepeated, or repeat one the plan put elsewhere (#4117).
+  if (selections.determinism && outputs?.determinism_shards !== JSON.stringify(determinismShards(plan))) throw new Error("determinism: published partition set differs from the planned one");
+  // The same for changed browser specs: every pair runs in exactly one published partition (#4163).
+  if (selections.browser_determinism && outputs?.browser_determinism_shards !== JSON.stringify(browserDeterminismShards(plan))) throw new Error("browser_determinism: published partition set differs from the planned one");
 }
 
 export async function requireCandidate(root: string, event: any, env: NodeJS.ProcessEnv): Promise<void> {

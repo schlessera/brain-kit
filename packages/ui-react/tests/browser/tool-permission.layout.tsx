@@ -16,7 +16,7 @@ beforeEach(() => { viewport = { width: innerWidth, height: innerHeight }; themeB
 beforeAll(async () => { styles = document.createElement("style"); styles.textContent = await commands.formConsumerStyles(); document.head.append(styles); });
 afterAll(() => styles.remove());
 afterEach(async () => { if (renderer) flushSync(() => renderer!.unmount()); root?.dispose(); host?.remove(); renderer = undefined; root = undefined; host = undefined;
-  document.documentElement.dataset.theme = themeBefore; await page.viewport(viewport.width, viewport.height);
+  if (themeBefore === undefined) delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = themeBefore; await page.viewport(viewport.width, viewport.height);
   if (outer) await commands.formViewport(outer.width - 100, outer.height - 120);
 });
 const target="/tmp/ithaca/"+"Scylla".repeat(30)+"/crossing.md";

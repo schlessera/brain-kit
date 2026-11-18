@@ -3,6 +3,7 @@ import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { realpathSync } from "node:fs";
 import { dirname } from "node:path";
 import type { BackendBridge, PermissionDecision } from "./backend.js";
+import { safetySnapshotRefusal, STALE_SAFETY_ADMISSION, type AdmissionSafety, type AdmissionSafetySnapshot } from "./admission-safety.js";
 import { bashCommand, type CompiledConfirmPattern } from "./confirm-patterns.js";
 import { runMaintenanceWorkerSync, type MaintenanceHost } from "./maintenance-worker.js";
 import { classifyOutwardCall, outwardTarget, type OutwardClassification, type VisibleOutwardAction } from "./outward-actions.js";
@@ -48,9 +49,10 @@ export function prepareOutwardPlan(options: {
   autonomous?: boolean; voice?: boolean; configurationRoot?: string; maskPaths?: readonly string[]; maintenance?: MaintenanceHost;
   /** Read at admission: a session that ingested untrusted input asks for every outward action (G6). */
   taint?: () => WorkerSessionTaint | null;
+  safety?: AdmissionSafety;
 }): OutwardPlan {
   const classification = options.autonomous ? { kind: "unknown" as const, actions: [] } : classifyOutwardCall(options.toolName, options.shellToolName, options.input);
-  const tainted = classification.actions.length > 0 && options.taint?.() != null;
+  const tainted = classification.actions.length > 0 && (options.safety ? options.safety.read().restricted : options.taint?.() != null);
   const rules = classification.actions.map(action => {
     // Unknown preceding code can alter a named destination before the push.
     // A visible action still asks; opaque segments never borrow an allow rule.
@@ -69,6 +71,25 @@ export function prepareOutwardPlan(options: {
   const untrusted = tainted ? " This session ingested untrusted input, so outward.allow does not apply." : "";
   const pattern = needsApproval && command ? Object.assign(new RegExp(`^${escape(command)}$`, "i"), { effect: `Outward action: ${reason}.${untrusted}` }) : undefined;
   return { classification, rules, tainted, needsApproval, voiceRefusal, ...(pattern ? { pattern } : {}) };
+}
+/** Recompute standing authority at the last host-controlled dispatch boundary.
+ * A completed per-use outward card is authority for its exact input, not a rule. */
+export function commitOutwardPlan(plan: OutwardPlan, options: {
+  bridge?: BackendBridge | null; before?: AdmissionSafetySnapshot; approved: boolean; signal?: AbortSignal | null;
+}): string | null {
+  let now: AdmissionSafetySnapshot | undefined;
+  try { now = options.bridge?.admissionSafety?.read(); } catch { return STALE_SAFETY_ADMISSION; }
+  const unavailable = safetySnapshotRefusal(now, options.before);
+  if (unavailable || options.signal?.aborted) return unavailable ?? STALE_SAFETY_ADMISSION;
+  // Remote resolution can itself block while another writer commits. The
+  // final snapshot, not a taint read made before that lookup, decides.
+  if (now?.restricted && plan.classification.actions.length) {
+    plan.tainted = true; plan.rules = plan.rules.map(() => null); plan.needsApproval = true;
+  }
+  if (plan.voiceRefusal) return OUTWARD_VOICE_REFUSAL;
+  if (plan.needsApproval && !options.approved) return STALE_SAFETY_ADMISSION;
+  if (options.approved) plan.rules = plan.rules.map(() => null);
+  return null;
 }
 function bounded(text: string, limit: number): string {
   const suffix = "… [truncated]"; return text.length <= limit ? text : text.slice(0, limit - suffix.length) + suffix;

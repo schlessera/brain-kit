@@ -12,7 +12,9 @@ import { createWorkerStatusPipe, type WorkerStatusSupervisor } from "../src/serv
 // yet let die. Only a gate that waits for their deaths keeps the payload out.
 // The live launch now gates in the sandbox and refuses EOF itself (#3392); the
 // fixtures below keep bubblewrap's EOF-opening --block-fd on purpose, so they
-// prove this ordering as a guard of its own.
+// prove this ordering as a guard of its own. The delays are real time: they
+// stand in for scheduler latency before a native process dies, which a fake
+// clock cannot hold back.
 const SIGNAL_DELAY_MS = 200;
 const PID_SIGNAL_DELAY_MS = 2 * SIGNAL_DELAY_MS;
 
@@ -30,6 +32,31 @@ afterEach(() => {
   processKill?.mockRestore(); processKill = undefined;
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
+
+/** `/proc/<pid>/stat` after the command name: [state, ppid, ..., starttime at 19]. */
+function stat(pid: number): string[] | undefined {
+  try { return readFileSync(`/proc/${pid}/stat`, "utf8").replace(/^.*\) /s, "").split(" "); } catch { return undefined; }
+}
+/** A process by PID and kernel start time, so a recycled PID never matches. */
+function identity(pid: number) { return { pid, start: stat(pid)?.[19] }; }
+const childrenOf = (pid: number) => { try { return readFileSync(`/proc/${pid}/task/${pid}/children`, "utf8").trim(); } catch { return ""; } };
+/**
+ * Resolves once none of these gated sandbox processes can run code: gone,
+ * recycled or a zombie. Each is its PID namespace's first process, so its
+ * death ends every process that could start the payload, and a payload the
+ * gate released has written its marker by then.
+ */
+async function sandboxesDead(gated: { pid: number; start: string | undefined }[]) {
+  const deadline = Date.now() + 10_000;
+  const running = ({ pid, start }: { pid: number; start: string | undefined }) => {
+    const fields = stat(pid);
+    return fields !== undefined && fields[19] === start && !["Z", "X", "x"].includes(fields[0]!);
+  };
+  while (gated.some(running)) {
+    if (Date.now() >= deadline) throw Error(`GATED_SANDBOX_NEVER_DIED ${JSON.stringify(gated.filter(running))}`);
+    await Bun.sleep(5);
+  }
+}
 
 function delayedKills<T extends { kill(signal?: NodeJS.Signals | number): void }>(child: T): T {
   const kill = child.kill.bind(child);
@@ -71,9 +98,12 @@ test("a refused governed launch never starts its payload when bubblewrap dies la
       command: ["/bin/sh", "-c", "printf Odysseus > payload-started.md"] });
   } catch (error) { refusal = error; } finally { hook.mockRestore(); }
   expect(supervisor, "the launch spawned bubblewrap").toBeDefined();
+  // The refusal stopped bubblewrap; its kill is still delayed, so it has not reaped its sandbox.
+  const gated = childrenOf(supervisor!.pid).split(/\s+/).filter(Boolean).map(pid => identity(Number(pid)));
+  expect(gated, "bubblewrap forked its sandbox").not.toEqual([]);
   await supervisor!.exited;
-  // The gate closes only after the supervisor's exit; give a released payload time to write.
-  await Bun.sleep(3 * PID_SIGNAL_DELAY_MS);
+  // The gate closes only after the supervisor's exit, and a released payload runs before its sandbox dies.
+  await sandboxesDead(gated);
   expect(String(refusal)).toContain("retained folder mount points are unavailable");
   expect(existsSync(join(brain, "payload-started.md")), "UNQUALIFIED_FOLDER_PAYLOAD_NEVER_STARTS").toBe(false);
 }, 20_000);
@@ -91,12 +121,13 @@ test("closing an unreleased gate kills a sandbox whose status was never read", a
   try {
     // Wait until bubblewrap has forked its gated sandbox process.
     const deadline = Date.now() + 5_000;
-    const children = () => { try { return readFileSync(`/proc/${child.pid}/task/${child.pid}/children`, "utf8").trim(); } catch { return ""; } };
+    const children = () => childrenOf(child.pid);
     while (!children() && child.exitCode === null && Date.now() < deadline) await Bun.sleep(5);
     expect(children(), "bubblewrap forked its sandbox").not.toBe("");
+    const gated = children().split(/\s+/).map(pid => identity(Number(pid)));
     channel.close(supervisor);
     await child.exited;
-    await Bun.sleep(3 * PID_SIGNAL_DELAY_MS);
+    await sandboxesDead(gated);
     expect(existsSync(marker), "REFUSED_GATE_PAYLOAD_NEVER_STARTS").toBe(false);
   } finally { child.kill("SIGKILL"); await child.exited; }
 }, 20_000);
@@ -114,12 +145,13 @@ test("closing an unreleased gate kills a verified sandbox that outlived its reap
   let gated: number | undefined;
   try {
     gated = channel.childPid(child.pid, Date.now() + 5_000);
+    const sandbox = identity(gated);
     channel.closeWriter();
     child.kill("SIGKILL");
     await child.exited;
     expect(child.signalCode, "bubblewrap was reaped").toBe("SIGKILL");
     channel.close(child);
-    await Bun.sleep(3 * PID_SIGNAL_DELAY_MS);
+    await sandboxesDead([sandbox]);
     expect(existsSync(marker), "ORPHANED_GATED_PAYLOAD_NEVER_STARTS").toBe(false);
   } finally {
     processKill?.mockRestore();

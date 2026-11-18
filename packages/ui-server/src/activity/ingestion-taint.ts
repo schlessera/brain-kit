@@ -1,7 +1,7 @@
 /** Which completed tool calls ingested untrusted content (G6); this grants no tool authority. */
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { posix } from "node:path";
-import { WORKER_AREA_ROOT } from "@schlessera/brain-ui-sdk/internal";
+import { WORKER_AREA_ROOT, WORKER_REFERENCE_ROOT, WORKER_WORKTREE_ROOT } from "@schlessera/brain-ui-sdk/internal";
 import { commandTaintSource } from "./command-taint.js";
 
 type IngestionSource = "web_fetch" | "web_search" | "staged_share" | "chat_attachment" | "workspace_read" | "mcp_document"
@@ -10,8 +10,9 @@ type IngestionSource = "web_fetch" | "web_search" | "staged_share" | "chat_attac
 /** Whether a brain-relative path carries the user's untrusted mark (#2673). */
 export type MarkedLookup = (path: string) => boolean;
 
-/** Claude's and pi-web-access's web tools. */
-const WEB_TOOLS: Record<string, IngestionSource> = { WebFetch: "web_fetch", WebSearch: "web_search", fetch_content: "web_fetch", web_search: "web_search" };
+/** Claude's web tools and Pi's host-owned ones (#3685): stored-content reads and source checks return external pages too. */
+const WEB_TOOLS: Record<string, IngestionSource> = { WebFetch: "web_fetch", WebSearch: "web_search", fetch_content: "web_fetch", web_search: "web_search",
+  get_search_content: "web_fetch", source_check: "web_search" };
 /** brain-kit's own MCP servers serve brain content; every other server's result is an external document. */
 const BRAIN_MCP_SERVERS = new Set(["brain", "brain-ui"]);
 /** File tools and the input key naming the path they read. Edit results quote the file. */
@@ -51,6 +52,9 @@ function pathSource(path: string, brainPath: string | undefined): IngestionSourc
     return relative.startsWith("../") ? anyArea(relative) : leadingArea(relative);
   }
   const absolute = path.startsWith("/") ? posix.normalize(path) : posix.resolve(brainPath!, path);
+  // A sealed acquisition or writable snapshot alone proves no actual read
+  // provenance. Ordinary file tools retain the workspace restriction.
+  if ([WORKER_REFERENCE_ROOT, WORKER_WORKTREE_ROOT].some(root => isWithin(root, absolute, { includeRoot: true }))) return "workspace_read";
   for (const root of [brainPath && posix.normalize(brainPath).replace(/\/$/, ""), WORKER_AREA_ROOT]) {
     if (root && isWithin(root, absolute, { includeRoot: false })) return leadingArea(absolute.slice(root.length + 1));
   }
@@ -100,6 +104,7 @@ export function inputTaintSource(tool: string, input: unknown, brainPath?: strin
   // A collected external compute job returns a remote machine's output (#3108).
   if (COMPUTE_OUTPUT_TOOLS.has(tool)) return "compute_output";
   if (ATTACHMENT_READ_TOOLS.has(tool)) return "chat_attachment";
+  if (tool === "reference_read" || tool === "mcp__brain-ui__reference_read") return "workspace_read";
   const server = /^mcp__(.+?)__/.exec(tool)?.[1];
   if (server !== undefined && !BRAIN_MCP_SERVERS.has(server)) return "mcp_document";
   // brain-kit's own document readers can still name a file in an untrusted area.
@@ -129,8 +134,8 @@ export interface IngestionSignal {
 /** Versioned installed-tool inventory. Completeness still needs delivery hooks and epoch acknowledgement. */
 export const INGESTION_DETECTOR_MANIFEST = {
   version: 1,
-  web: WEB_TOOLS, webInputKeys: { WebFetch:["url"],WebSearch:["query"],fetch_content:["url","urls"],web_search:["query","queries"] }, files: FILE_TOOLS, search: [...SEARCH_TOOLS], attachments: [...ATTACHMENT_READ_TOOLS],
-  compute: [...COMPUTE_OUTPUT_TOOLS], hostRemotePages:["brain_apify_discover","brain_apify_inspect","brain_apify_results"], externalMcp: "mcp__<server>__<tool> except brain and brain-ui",
+  web: WEB_TOOLS, webInputKeys: { WebFetch:["url"],WebSearch:["query"],fetch_content:["url","urls"],web_search:["query","queries"],get_search_content:["url"],source_check:["claim","queries"] }, files: FILE_TOOLS, search: [...SEARCH_TOOLS], attachments: [...ATTACHMENT_READ_TOOLS],
+  compute: [...COMPUTE_OUTPUT_TOOLS], referenceReads:["reference_read","mcp__brain-ui__reference_read"], hostRemotePages:["brain_apify_discover","brain_apify_inspect","brain_apify_results","brain_github_issue_read","brain_github_issue_search"], externalMcp: "mcp__<server>__<tool> except brain and brain-ui",
   shell: ["Bash", "bash"],
   exclusions: ["proxied_shell_local_read", "opaque_tunnel_inner_protocol", "uninstrumented_backend_input", "missing_historical_signals"],
 } as const;
@@ -150,13 +155,14 @@ function fileSignals(path: string, brainPath: string | undefined, marked: Marked
 export function inputTaintSignals(tool: string, input: unknown, brainPath?: string, marked?: MarkedLookup,
   shellProxied = false): IngestionSignal[] {
   const source = inputTaintSource(tool, input, brainPath, undefined, shellProxied);
+  if (tool === "reference_read" || tool === "mcp__brain-ui__reference_read") return [{ source: "workspace_read", detector: "tool_file_input", key: "managed_reference" }];
   const key = FILE_TOOLS[tool.replace(/^mcp__brain(?:-ui)?__/, "")];
   const path = key && input && typeof input === "object" ? (input as Record<string, unknown>)[key] : undefined;
   if (typeof path === "string") return fileSignals(path, brainPath, marked, "tool_file_input");
   if (!source) return [];
   if(source==="web_fetch"||source==="web_search"){
     const object=input&&typeof input==="object"?input as Record<string,unknown>:{};
-    const keys=source==="web_fetch"?["url","urls"]:["query","queries"];
+    const keys=source==="web_fetch"?["url","urls"]:["query","queries","claim"];
     const values=keys.flatMap(key=>typeof object[key]==="string"?[object[key] as string]:Array.isArray(object[key])?(object[key] as unknown[]).filter((v):v is string=>typeof v==="string"):[]);
     if(values.length>256||values.some(value=>Buffer.byteLength(value)>2048))throw new Error("Safety web input capacity exceeded");
     return [...new Set(values.length?values:["unknown_input"])].map(key=>({source,detector:"tool_web_input" as const,key}));

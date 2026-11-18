@@ -4,7 +4,7 @@
  * (`ws-claude-effects`, `provider-mask-bridge`, `inbox-bridge-tools`).
  */
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createKeyedLock, type BackendBridge, type PermissionDecision } from "@schlessera/brain-ui-sdk/server";
@@ -18,9 +18,11 @@ import { applyIndexReads, applyLiveAuthority, settleTurnIndex } from "../src/ws/
 import { createBridgeContext, type BridgeContext, type MakeBridgeOptions } from "../src/ws/bridge-capabilities/context.js";
 import { createEmission, createTurnTranscript } from "../src/ws/bridge-capabilities/emission.js";
 import { createActivity, guardMaskedRecords, openInbox } from "../src/ws/bridge-capabilities/activity.js";
+import { ProviderRecordsRefusedError } from "../src/brain/provider-mask-refusal.js";
 import { createPermissions } from "../src/ws/bridge-capabilities/permissions.js";
 import { createAsks } from "../src/ws/bridge-capabilities/asks.js";
 import { createLocationAndMask, createMaskApplicationSlice } from "../src/ws/bridge-capabilities/location-mask.js";
+import { createPolicyProposals } from "../src/brain/policy-proposal.js";
 import { createPolicyProposal } from "../src/ws/bridge-capabilities/policy-proposal.js";
 import { createApplication } from "../src/ws/bridge-capabilities/application.js";
 import { createScratch } from "../src/ws/bridge-capabilities/scratch.js";
@@ -196,8 +198,8 @@ test("activity/inbox: the inbox opens with the turn's membership; masked records
     expect(await bridge.inboxList!({} as never), "UNMASKED_TURN_KEEPS_ITS_RECORDS").toEqual([] as never);
     const guard = { folders: ["me"], assert() {} };
     guardMaskedRecords({ ...f.ctx, maskGuard: guard }, bridge);
-    await expect(bridge.inboxList!({} as never)).rejects.toThrow();
-    await expect(bridge.queryActivity!({} as never)).rejects.toThrow();
+    await expect(bridge.inboxList!({} as never)).rejects.toBeInstanceOf(ProviderRecordsRefusedError);
+    await expect(bridge.queryActivity!({} as never)).rejects.toBeInstanceOf(ProviderRecordsRefusedError);
   } finally { f.cleanup(); }
 });
 
@@ -293,4 +295,31 @@ test("live authority: a revoked turn's attachment read never runs", async () => 
     await expect(bridge.readAttachment!({ file: "raft.pdf" } as never)).rejects.toThrow("current principal authority");
     expect(ran).toBe(0);
   } finally { f.cleanup(); }
+});
+
+for (const backendId of ["claude", "pi"]) test(`policy proposal: ${backendId} bridge rejects ambiguous bytes before permission or card (#3666)`, async () => {
+  const f = fixture({ backendId }), db = createUiDb(":memory:");
+  const original = "---\nschema_version: 1\n---\nOdysseus reviews.\n";
+  const path = join(f.root, "context/policies/governance.md");
+  mkdirSync(join(f.root, "context/policies"), { recursive: true }); writeFileSync(path, original);
+  let approvals = 0, observations = 0, events = 0;
+  const service = createPolicyProposals({ root: f.root, db, lock: createKeyedLock(),
+    observeUserPolicy: (_id, write) => { observations++; write(); }, recordEvent: () => { events++; } });
+  Object.assign(f.host, { policyProposals: service });
+  // Even a remembered allow must never see malformed proposals.
+  const bridge = { requestPermission: async () => { approvals++; return { behavior: "allow" }; } } as unknown as BackendBridge;
+  const slice = createPolicyProposal(f.ctx, () => bridge);
+  try {
+    for (const content of ["---\nschema_version: 1\n", ...["---x", "---yaml", "----"].flatMap(fence => [
+      original.replace(/^---/, fence), original.replace("1\n---", `1\n${fence}`),
+    ])]) {
+      await expect(slice.proposePolicyChange!("ambiguous", { content, rationale: "Review the policy." })).rejects.toThrow("Invalid policy");
+      expect(approvals).toBe(0); expect(observations).toBe(0); expect(events).toBe(0); expect(f.frames).toEqual([]);
+      expect(db.query("SELECT count(*) AS n FROM policy_proposals").get()).toEqual({ n: 0 });
+      expect(readFileSync(path, "utf8")).toBe(original);
+    }
+    const content = original.replace("reviews", "approves");
+    expect((await slice.proposePolicyChange!("repair", { content, rationale: "Review the policy." })).state).toBe("updated");
+    expect(approvals).toBe(1); expect(observations).toBe(1); expect(events).toBe(1); expect(readFileSync(path, "utf8")).toBe(content);
+  } finally { await service.settled(); db.close(); f.cleanup(); }
 });

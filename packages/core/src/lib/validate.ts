@@ -253,6 +253,13 @@ export function validateDetailed(root: string, taxonomy: Taxonomy): DetailedVali
         detail: { rule: "field-invalid", ...about("generated_from") },
       });
     }
+    for (const field of ["propagation_scope", "propagation_reference"]) {
+      if (field in data && (typeof data[field] !== "string" || !data[field].trim() || (field === "propagation_scope" && data[field].length > 4000) ||
+        (field === "propagation_reference" && !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(data[field])))) {
+        issues.push({ file: filePath, level: "error", message: `Invalid ${field}: expected ${field === "propagation_reference" ? "a full Git commit ID" : "a non-empty scope string"}`,
+          detail: { rule: "field-invalid", ...about(field) } });
+      }
+    }
     // `verification` (#394): `unverified` is the one value brain reads. Any
     // other would read as a claim (say, "verified") that nothing checks.
     if ("verification" in data && data.verification !== "unverified") {

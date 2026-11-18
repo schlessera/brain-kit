@@ -190,7 +190,7 @@ try {
       draft: () => {
         const drafts = root.stores.drafts.getState();
         const d = drafts.drafts[drafts.idFor(root.stores.chat.getState().activeSessionId)];
-        return { text: d?.text ?? "", images: d?.attachments.length ?? 0, sessionId: d?.sessionId ?? null };
+        return { text: d?.text ?? "", images: (d?.attachments.length ?? 0) + (d?.files ?? []).filter((f) => f.file.kind === "image").length, sessionId: d?.sessionId ?? null };
       },
     },
   });

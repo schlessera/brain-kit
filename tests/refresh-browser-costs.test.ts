@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import {readFileSync} from "node:fs";
 import {resolve} from "node:path";
 import { refreshBrowserCosts } from "../scripts/refresh-browser-costs";
-import type { API } from "../scripts/proof-reuse";
+import type { API } from "../scripts/proof-api";
 import { PROOF_SHARDS, shardNumbers } from "../scripts/proof-shards";
 
 const sha = "a".repeat(40), parent = "b".repeat(40), tree = "c".repeat(40);

@@ -72,14 +72,15 @@ test("native EOF alone never proves successful broker completion", async () => {
 
 test("failed, mismatched and trailing completion cannot be called a complete delta", async () => {
   const data = nativeManagerFrame(1, Uint8Array.from([1]));
-  for (const parts of [
-    [data, nativeManagerFrame(2, encode({ ok: true, exitCode: 1, bytes: 1 }))],
-    [data, nativeManagerFrame(2, encode({ ok: true, exitCode: 0, bytes: 2 }))],
-    [data, nativeManagerFrame(2, encode({ ok: true, exitCode: 0, bytes: 1 })), Uint8Array.from([0])],
-  ]) {
+  const unproven = "Native manager did not prove successful delta completion.";
+  for (const [parts, refusal] of [
+    [[data, nativeManagerFrame(2, encode({ ok: true, exitCode: 1, bytes: 1 }))], unproven],
+    [[data, nativeManagerFrame(2, encode({ ok: true, exitCode: 0, bytes: 2 }))], unproven],
+    [[data, nativeManagerFrame(2, encode({ ok: true, exitCode: 0, bytes: 1 })), Uint8Array.from([0])], "Native delta contained bytes after broker completion."],
+  ] as const) {
     const decoded = decodeNativeDelta(stream(...parts), 64);
-    await expect(collect(decoded.stream), "NATIVE_NO_FALSE_COMPLETE_OR_TRAILING_BYTES").rejects.toThrow();
-    await expect(decoded.completed).rejects.toThrow();
+    await expect(collect(decoded.stream), "NATIVE_NO_FALSE_COMPLETE_OR_TRAILING_BYTES").rejects.toThrow(refusal);
+    await expect(decoded.completed).rejects.toThrow(refusal);
   }
 });
 
@@ -111,6 +112,49 @@ test("Unix client sends only fixed identities and returns raw delta plus complet
   const delta = await client.delta(ID, SECOND); expect(await collect(delta.stream)).toEqual(raw); expect(await delta.completed).toEqual({ exitCode: 0, bytes: 4 });
   expect(await client.release(ID)).toEqual({ id: ID, state: "deleted" });
   expect(requests).toEqual([{ operation: "delta", from: ID, to: SECOND }, { operation: "release", id: ID }]);
+});
+
+test("Unix park requests retain an optional native generation expectation", async () => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-native-park-")), socketPath = join(root, "manager.sock");
+  cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+  const requests: NativeManagerRequest[] = [];
+  const service = Bun.serve({ unix: socketPath, async fetch(request) {
+    requests.push(nativeManagerRequest.parse(await request.json()));
+    return Response.json({ id: ID, access: null });
+  } });
+  cleanups.push(() => service.stop(true));
+  const client = createNativeBrainManagerClient({ socketPath, timeoutMs: 1000, maxDeltaBytes: 64 });
+  await client.poolPark(ID, undefined, SECOND); await client.poolPark(ID);
+  expect(requests, "NATIVE_PARK_EXPECTATION_REACHES_MANAGER").toEqual([
+    { operation: "poolPark", id: ID, expectedAccess: SECOND }, { operation: "poolPark", id: ID },
+  ]);
+  for (const expectedAccess of ["../other", "/srv/ithaca", null, 1])
+    expect(nativeManagerRequest.safeParse({ operation: "poolPark", id: ID, expectedAccess }).success, "NATIVE_PARK_EXPECTATION_IS_ONE_GENERATED_IDENTITY").toBe(false);
+});
+
+test("Unix source creation explicitly opts into permanent withdrawal without changing legacy calls", async () => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-native-withdrawal-")), socketPath = join(root, "manager.sock");
+  cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+  const requests: NativeManagerRequest[] = [];
+  const service = Bun.serve({ unix: socketPath, async fetch(request) {
+    const input = nativeManagerRequest.parse(await request.json()); requests.push(input);
+    return Response.json({ id: ID, ...(input.operation === "poolCreate" && input.permanentWithdrawal ? { publicationRevoked: false } : {}) });
+  } });
+  cleanups.push(() => service.stop(true));
+  const client = createNativeBrainManagerClient({ socketPath, timeoutMs: 1000, maxDeltaBytes: 64 });
+  expect(await client.poolCreate(ID, "source", null, 4096, undefined, true), "PERMANENT_WITHDRAWAL_RECEIPT_REACHES_CALLER").toMatchObject({ publicationRevoked: false });
+  await client.poolCreate(SECOND, "source", null, 4096);
+  await client.poolPublish(ID, SECOND, "ithaca", undefined, [ID, null]);
+  expect(requests, "PERMANENT_WITHDRAWAL_OPTION_REACHES_NATIVE_KEEPER").toEqual([
+    { operation: "poolCreate", id: ID, purpose: "source", from: null, allowanceBytes: 4096, permanentWithdrawal: true },
+    { operation: "poolCreate", id: SECOND, purpose: "source", from: null, allowanceBytes: 4096 },
+    { operation: "poolPublish", id: ID, view: SECOND, name: "ithaca", expectedRoots: [ID, null] },
+  ]);
+  for (const permanentWithdrawal of [false, null, 1, "true"])
+    expect(nativeManagerRequest.safeParse({ operation: "poolCreate", id: ID, purpose: "source", from: null, allowanceBytes: 4096, permanentWithdrawal }).success).toBe(false);
+  for (const expectedRoots of [[], [ID, null, SECOND], ["../ithaca"], [1]])
+    expect(nativeManagerRequest.safeParse({ operation: "poolPublish", id: ID, view: SECOND, name: "ithaca", expectedRoots }).success,
+      "NATIVE_PUBLICATION_EXPECTATION_IS_BOUNDED_ROOT_IDENTITIES").toBe(false);
 });
 
 test("lost Unix response is unknown and never an inferred absence or automatic retry", async () => {

@@ -12,11 +12,38 @@ issues, change assignments, implement fixes, push code, open PRs or invoke
 `work-issue` as part of triage. Reproductions and factual clarification are
 triage work; product/design/architecture rulings are not.
 
-Requires this checkout, authenticated `gh`, Bun, git and `jq`. Read
+Requires this checkout, authenticated `gh`, Bun and git. Read
 [the GitHub skill](../github/SKILL.md), `AGENTS.md`, `ROADMAP.md`'s binding
 decisions, `docs/process/github.md` and `scripts/labels.ts`. Those sources
 govern routing, public text screening, labels, issue shape and board sync.
 Use the user's explicit triage instructions when they differ from defaults.
+
+## The pass at a glance
+
+1. `bun scripts/issue-queue.ts snapshot`, and fetch remote main
+   ([Establish the pass](#establish-the-pass)).
+2. For each issue in the snapshot, in number order:
+   1. `bun scripts/issue-queue.ts show <n> --thread <file>`, then read the file
+      ([Read and resolve factual gaps](#read-and-resolve-factual-gaps)).
+   2. Resolve what known facts settle; decide each prerequisite
+      ([Reconcile prerequisite labels](#reconcile-prerequisite-labels)).
+   3. Check blockers and the parent epic
+      ([Dependencies and epic membership](#dependencies-and-epic-membership)).
+   4. Settle type, area and priority ([Type, area and priority](#type-area-and-priority)).
+   5. Edit the body or comment if needed, then change labels with
+      `bun scripts/issue-queue.ts labels` ([Apply and establish readiness](#apply-and-establish-readiness)).
+3. `bun scripts/issue-queue.ts check`, then report.
+
+### Spending few tokens
+
+- `bun scripts/issue-queue.ts` prints one line of JSON per command. Use it
+  instead of `gh ... | jq`: it paginates, applies the label rules and reads
+  back what it wrote.
+- `show <n> --thread <file>` writes the body and every comment to a file. Read
+  that file once instead of printing the issue several times.
+- Write `gh` and `git` commands plainly. Where `rtk` is installed, its hook
+  compresses their output without being asked; never prefix a command with
+  `rtk proxy` or `rtk bypass`, which switch that off.
 
 ## Establish the pass
 
@@ -26,18 +53,14 @@ do not silently stop at `gh issue list`'s default limit. Exclude PR objects.
 New arrivals wait for another pass; report unfinished snapshot items if stopped.
 
 ```sh
-rtk proxy bash -o pipefail <<'SH'
-rtk proxy gh api --paginate --slurp \
-  'repos/schlessera/brain-kit/issues?state=open&per_page=100' \
-  | rtk proxy jq '
-    [.[][]
-     | select(.pull_request == null and .state == "open")
-     | [.labels[].name] as $labels
-     | select(($labels | index("agent-ready")) == null)
-     | {number,title,updated_at,labels:$labels}]
-    | sort_by(.number)'
-SH
+bun scripts/issue-queue.ts snapshot
 ```
+
+It prints one line: the count and, for each issue, its number, title, labels
+and last update. `bun scripts/issue-queue.ts check` lists the open issues whose
+labels already contradict each other, and those still missing a type, an area
+or a priority; run it at the start to see the mechanical part of the pass, and
+at the end to confirm you left none behind.
 
 Fetch remote main and record the inspected SHA. Read source at that SHA;
 use an isolated temporary checkout for reproduction when needed. Preserve the
@@ -46,7 +69,10 @@ then refresh as needed. Use the manifest's labels; do not invent namespaces
 or run a repository-wide label sync just to triage an issue.
 
 Before processing and again before writing, re-read issue state, body, labels,
-comments and parent. Skip issues now closed or now `agent-ready`. Assignments
+comments and parent: `bun scripts/issue-queue.ts show <n>` gives the state,
+the grouped labels, the owner, the native parent, each declared blocker with
+its live state, the open pull requests that name the issue, and `updatedAt`.
+Skip issues now closed or now `agent-ready`. Assignments
 do not exclude an issue, but another worker's current plan and comments matter.
 Do not overwrite concurrent changes or their assignment. On changed state,
 reconcile fresh facts; on persistent contention, report a deferred issue.
@@ -129,9 +155,9 @@ An epic parent, related issue or shared package alone is not a blocker.
   missing evidence. Check public upstreams manually where project sync cannot;
   never expose or look up private-instance dependencies from a public triage.
 
-Use the native parent, not just “Part of #N” prose. The read endpoint is
-`GET repos/schlessera/brain-kit/issues/<number>/parent`; a confirmed no-parent
-response differs from auth/network failure. If no parent exists, compare open
+Use the native parent, not just “Part of #N” prose. `show` reads it: `parent`
+is the parent issue, `null` when GitHub confirms there is none, and `"unknown"`
+when the read failed, which is not the same as no parent. If no parent exists, compare open
 epics' **outcomes, scope and exclusions**. Attach to an epic only when the
 issue's full deliverable advances or directly verifies its outcome. Re-read
 the parent immediately before attaching; use the GitHub skill's sub-issue
@@ -173,7 +199,17 @@ and unresolved questions. Screen every public body/comment/title with the
 GitHub skill's leakage gate. Use `--body-file`, not interpolated shell bodies.
 Preserve useful history; fold corrections into the body rather than leaving
 contradictory specifications. Re-read, apply only intended label deltas and
-parent/body changes, and verify the result. Do not post a duplicate summary or
+parent/body changes, and verify the result. For labels:
+
+```sh
+bun scripts/issue-queue.ts labels <n> --add "<label>,<label>" --remove "<label>" --updated-at <updatedAt from show>
+```
+
+It applies only the difference, refuses a label outside the manifest, a closed
+issue, an issue that changed since `--updated-at`, and any result that breaks
+the readiness rules (`agent-ready` on an epic or beside a `needs:` label, two
+types, two priorities), then reads the labels back. `applied: false` means
+nothing was written: read the issue again and reconcile. Do not post a duplicate summary or
 prompt on an unchanged repeat pass.
 
 **Finally, re-read the issue's state and actual labels. Keep `agent-ready`

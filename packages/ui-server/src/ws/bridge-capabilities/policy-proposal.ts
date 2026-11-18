@@ -10,7 +10,7 @@ import type { BridgeContext, BridgeSlice } from "./context.js";
  * `requestPermission`, live-authority wrapper included.
  */
 export function createPolicyProposal(ctx: BridgeContext, self: () => BackendBridge): Partial<BridgeSlice<"proposePolicyChange">> {
-  const { host, turn, turnId, principalId, signal, work, backendId, maskGuard, toolName, principalIsAuthorized, scopePaused, holdOf } = ctx;
+  const { host, turn, turnId, principalId, signal, work, backendId, maskGuard, toolName, principalIsAuthorized, recordingAvailable, scopePaused, holdOf } = ctx;
   if (!host.policyProposals || work?.posture === "voice") return {};
   return {
     proposePolicyChange: async (requestId, input) => {
@@ -18,7 +18,7 @@ export function createPolicyProposal(ctx: BridgeContext, self: () => BackendBrid
       maskGuard?.assert(toolName(PROPOSE_POLICY_CHANGE_TOOL_NAME), [GOVERNANCE_POLICY_PATH]);
       return host.policyProposals!.propose({
         // Publication runs inside its own journal observation, so only a scope pause holds it.
-        principalId, turnId, sessionId: () => turn.sessionId, signal, isAuthorized: () => principalIsAuthorized() && !scopePaused(),
+        principalId, turnId, sessionId: () => turn.sessionId, signal, isAuthorized: () => principalIsAuthorized() && recordingAvailable() && !scopePaused(),
         hold: holdOf(scopePaused), isAvailable: () => work?.posture !== "voice",
         approve: async review => {
           const decision = await self().requestPermission({ toolUseId: requestId,

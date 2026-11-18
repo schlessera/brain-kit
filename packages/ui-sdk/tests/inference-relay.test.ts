@@ -62,7 +62,7 @@ describe("inference relay", () => {
     expect((await send(r.socketPath, "POST", "/v1/messages", { authorization: "Bearer worker", "x-api-key": "worker" }, "{}")).status).toBe(200);
     expect(calls).toBe(2);
     expect(seen.map(item => item.headers.authorization)).toEqual(["Bearer odysseus-first-login", "Bearer odysseus-changed-login"]);
-    expect(seen.every(item => item.headers["x-api-key"] === undefined)).toBe(true);
+    expect(seen.map(item => item.headers["x-api-key"] as string | undefined)).toEqual([undefined, undefined]);
   });
 
   test("credential resolution failures and invalid headers never reach upstream or disclose host secrets", async () => {
@@ -143,6 +143,9 @@ describe("inference relay", () => {
 
   test("a stream that idles longer than Bun's default idle timeout still arrives whole (#3441)", async () => {
     // A model writing one large tool input can send nothing for over 10s.
+    // Kept real time: the timeout under test is Bun's native socket idle timer
+    // (10 s by default), which no JavaScript clock advances. 15 s outlasts it
+    // by 5 s.
     const paused = Bun.serve({ hostname: "127.0.0.1", port: 0, idleTimeout: 0, fetch: () => {
       let pulls = 0;
       return new Response(new ReadableStream<Uint8Array>({ async pull(controller) {

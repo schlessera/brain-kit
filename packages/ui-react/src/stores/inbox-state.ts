@@ -239,8 +239,9 @@ export function createInboxStore() {
       // Successful hygiene outcomes precede the lifecycle transition in the
       // stream. Keep the local answer until that transition confirms it.
       // Failures unlock controls without turning a failed check into a receipt.
+      // Leave pending's `deferred` and a kept copy's `kept` (#2782) succeed like `snoozed` and `fixed`.
       const hygieneOutcome = next.hygiene?.outcome;
-      if (flight && next.version > flight.sentVersion && hygieneOutcome && !["applying", "fixed", "not_detected", "dismissed", "snoozed"].includes(hygieneOutcome.status)) {
+      if (flight && next.version > flight.sentVersion && hygieneOutcome && !["applying", "fixed", "not_detected", "dismissed", "snoozed", "deferred", "kept"].includes(hygieneOutcome.status)) {
         draft.outcomes[itemId] = hygieneOutcome.code === "receipt-unknown"
           ? { kind: "not-received", label: flight.label }
           : { kind: "not-applied" };

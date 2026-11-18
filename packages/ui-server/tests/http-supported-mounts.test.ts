@@ -12,10 +12,17 @@ import { closeHttpMountFixture, createHttpMountPool, httpMountAgentKey } from ".
 import { observeMountTimers } from "./helpers/http-mount-timers";
 import { mountLifetimes } from "./helpers/http-mount-lifetimes";
 import { documentedRoutes, httpCoverageMatrix } from "./helpers/http-spec";
+import { completeJsonLines } from "./helpers/json-lines.js";
 
 const SECRET = "http-contract-fixture-secret-0123456789";
 const json = (method: string, body: unknown): RequestInit => ({ method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 type Check = { path?: string; init?: RequestInit; status?: number; body?: object; verify?: (response: Response, t: HttpContractApp) => Promise<void> };
+const safetyReviewBody = { version: 1, session: { sessionId: "fixture-session", historyOwnerId: "missing-history", historyGeneration: "1" }, occurrenceId: "missing-occurrence", expectedEvidenceRevision: "0", verdict: "safe" };
+const unavailableSafetyReview: NonNullable<Check["verify"]> = async (response, t) => {
+  expect(response.headers.get("cache-control")).toBe("no-store");
+  expect(t.app.db.query("SELECT COUNT(*) n FROM safety_review_requests").get()).toEqual({ n: 0 });
+  expect(t.app.db.query("SELECT COUNT(*) n FROM safety_decisions").get()).toEqual({ n: 0 });
+};
 
 // Each supported operation reaches its real handler with a live owner cookie.
 // More detailed existing behavior checks are linked by the coverage matrix;
@@ -46,6 +53,7 @@ const checks: Record<string, Check> = {
   "GET /api/hygiene/review/details/:itemId": { path: "/api/hygiene/review/details/missing", body: { status: "gone" }, verify: async (r) => { expect(r.headers.get("cache-control")).toBe("no-store"); } },
   "POST /api/hygiene/review/preview": { init: json("POST", { itemId: "missing", optionId: "link-note", expectedVersion: 1, input: "notes/arrival.md" }), status: 409, body: { error: "preview_refused" } },
   "GET /api/status": { body: { healthy: true, version: "dev", software: { sourceCommit: "dev" } } },
+  "POST /api/status/safety-recording/recover": { init: json("POST", {}), verify: async (r) => { const b = await r.json(); expect(b.recovery).toMatchObject({ recovered: false, trigger: "owner" }); expect(b.safetyRecording.latched).toBe(false); } },
   "POST /api/status/worker-host": { init: { method: "POST" }, verify: async (r) => { const b = await r.json(); expect(b.ordinary).toMatchObject({ trigger: "check" }); expect(typeof b.ordinary.available).toBe("boolean"); } },
   "POST /api/auth/login": { init: json("POST", { password: "wrong-fixture-password" }), status: 401, body: { error: "Invalid credentials" } },
   "POST /api/auth/logout": { init: { method: "POST" }, body: { ok: true } },
@@ -91,6 +99,9 @@ const checks: Record<string, Check> = {
   "PUT /api/drafts/:draftId": { path: "/api/drafts/draft-ithaca", init: { method: "PUT", headers: { "content-type": "application/json", "if-match": "0", "idempotency-key": "fixture-save" }, body: JSON.stringify({ sessionId: null, text: "Odysseus reaches the harbor.", attachmentIds: [] }) }, body: { revision: 1 }, verify: async (_, t) => { expect(t.app.db.query("SELECT text FROM session_drafts WHERE draft_id = 'draft-ithaca'").get()).toEqual({ text: "Odysseus reaches the harbor." }); } },
   "POST /api/drafts/:draftId/attachments": { path: "/api/drafts/draft-ithaca/attachments", init: { method: "POST", headers: { "content-type": "image/png", "idempotency-key": "fixture-upload" }, body: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0]) }, verify: async (r, t) => { const { attachmentId } = await r.json(); expect(t.app.db.query("SELECT size_bytes FROM session_draft_attachments WHERE attachment_id = ?").get(attachmentId)).toEqual({ size_bytes: 9 }); } },
   "DELETE /api/drafts/:draftId": { path: "/api/drafts/draft-missing", init: { method: "DELETE", headers: { "if-match": "1" } }, status: 404, body: { error: "DRAFT_NOT_FOUND" } },
+  // No markup request is open on a fresh mount: both reach their handler and find none (#3975).
+  "POST /api/markup/:requestId": { path: "/api/markup/markup-00000000-0000-4000-8000-000000000001?turnId=raft-turn", init: { method: "POST", headers: { "content-type": "multipart/form-data; boundary=x" }, body: "--x--" }, status: 404, body: { error: "markup_request_not_found" }, verify: async (r) => { expect(r.headers.get("cache-control")).toBe("no-store"); } },
+  "GET /api/markup/:requestId/source": { path: "/api/markup/markup-00000000-0000-4000-8000-000000000001/source?turnId=raft-turn", status: 404, body: { error: "markup_request_not_found" } },
   "POST /api/drafts/:draftId/files": { path: "/api/drafts/draft-ithaca/files", init: { method: "POST", headers: { "content-type": "text/plain", "idempotency-key": "fixture-file", "x-file-name": encodeURIComponent("harbour-notice.txt"), "content-length": "28" }, body: "Odysseus reaches the harbor." }, status: 201, body: { kind: "text", bytes: 28 }, verify: async (r, t) => { const { fileId, path } = await r.json(); expect(t.app.db.query("SELECT bytes, state FROM attachment_files WHERE file_id = ?").get(fileId)).toEqual({ bytes: 28, state: "stored" }); expect(readFileSync(join(t.brainPath, path), "utf8")).toBe("Odysseus reaches the harbor."); expect(r.headers.get("cache-control")).toBe("no-store"); } },
   "GET /api/attachments/:fileId": { path: "/api/attachments/00000000-0000-4000-8000-000000000000", status: 404, body: { error: "ATTACHMENT_NOT_FOUND" }, verify: async (r) => { expect(r.headers.get("cache-control")).toBe("no-store"); } },
   "POST /api/drafts/:draftId/bind": { path: "/api/drafts/draft-missing/bind", init: json("POST", { sessionId: "fixture-session", requestId: "fixture-request" }), status: 409, body: { error: "DRAFT_NOT_ACCEPTED" } },
@@ -110,6 +121,12 @@ const checks: Record<string, Check> = {
   "GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/:side": { path: "/api/sessions/fixture-session/turns/unknown/journal/1/before", status: 404, body: { error: "Journal detail expired or unavailable." } },
   "GET /api/journal/configuration-coverage": { path: "/api/journal/configuration-coverage", status: 200, body: { state: "unknown" } },
   // Imported history: the session exists, and the host proves nothing about it.
+  "GET /api/sessions/:id/safety": {path:"/api/sessions/fixture-session/safety",status:404,body:{version:1,reason:"unavailable"},verify:async r=>{expect(r.headers.get("cache-control")).toBe("no-store");}},
+  "POST /api/sessions/:id/safety/reviews/prepare": { path: "/api/sessions/fixture-session/safety/reviews/prepare", init: json("POST", safetyReviewBody), status: 404,
+    body: { code: "unavailable", reason: "unavailable", retryable: false }, verify: unavailableSafetyReview },
+  "POST /api/sessions/:id/safety/reviews/:requestId/commit": { path: "/api/sessions/fixture-session/safety/reviews/missing-request/commit", init: json("POST", safetyReviewBody), status: 404,
+    body: { code: "unavailable", reason: "unavailable", retryable: false }, verify: unavailableSafetyReview },
+  "GET /api/sessions/:id/attachment-reads": { path: "/api/sessions/fixture-session/attachment-reads", body: { sessionId: "fixture-session", reads: [] }, verify: async (r) => { expect(r.headers.get("cache-control")).toBe("no-store"); } },
   "GET /api/sessions/:id/recovery": { path: "/api/sessions/fixture-session/recovery", body: { sessionId: "fixture-session", revision: 0, latest: { requestId: null, turnId: null, state: "unknown", outcome: null }, pending: [] }, verify: async (r) => { expect(r.headers.get("cache-control")).toBe("no-store"); } },
   "GET /api/push/public-key": { verify: async (r) => { const b = await r.json(); expect(b.publicKey.length).toBeGreaterThan(0); expect(Object.keys(b)).toEqual(["publicKey"]); } },
   "GET /api/push/subscriptions": { body: { subscriptions: [] } },
@@ -129,6 +146,16 @@ const checks: Record<string, Check> = {
   "POST /share-target": { init: { method: "POST" }, status: 303, verify: async (r) => { expect(r.headers.get("location")).toBe("/?share_error=no_worker"); } },
   "POST /api/render": { init: json("POST", { content: "# Arrival", contentType: "markdown", format: "png" }), status: 501, body: { error: "render_unavailable" } },
   "GET /api/geo/coastline": { path: "/api/geo/coastline?bbox=15.6,38.2,15.8,38.32", body: { coastline: [], attribution: "© OpenStreetMap contributors" } },
+  "GET /api/voice/providers": { body: { dictation: { effective: "webspeech", source: "host" } } },
+  "GET /api/voice/personas": { body: { personas: [{ id: "standard", name: "Standard", builtIn: true }] } },
+  "POST /api/voice/personas": { init: json("POST", { name: "Ithaca steward", voices: {}, instructions: "Brief." }), status: 201, body: { id: "ithaca-steward", name: "Ithaca steward", instructions: "Brief." } },
+  "GET /api/voice/personas/:id": { path: "/api/voice/personas/standard", body: { id: "standard", revision: "builtin", instructions: "" } },
+  "PUT /api/voice/personas/:id": { path: "/api/voice/personas/standard", init: json("PUT", { baseRevision: "builtin", name: "Standard", voices: {}, instructions: "" }), status: 409, body: { error: "PERSONA_READ_ONLY" } },
+  "DELETE /api/voice/personas/:id": { path: "/api/voice/personas/missing?baseRevision=0", init: { method: "DELETE" }, status: 404, body: { error: "PERSONA_NOT_FOUND" } },
+  "GET /api/settings/voice": { body: { defaultProvider: null, revision: 0, persona: { value: "standard", revision: 0 }, livePersona: { selected: "standard", selectedMissing: false } } },
+  "PUT /api/settings/voice": { init: json("PUT", { defaultProvider: null, revision: 0, persona: { value: "standard", revision: 0 } }), body: { defaultProvider: null, revision: 1, persona: { value: "standard", revision: 1 } } },
+  "GET /api/voice/dictation/settings": { body: { defaultProvider: null, smart: true, revision: "0" } },
+  "PUT /api/voice/dictation/settings": { init: { method: "PUT", headers: { "If-Match": '"0"' }, body: JSON.stringify({ defaultProvider: "webspeech", smart: false }) }, body: { defaultProvider: "webspeech", smart: false, revision: "1" } },
   "GET /api/voice/capabilities": { body: { providerId: "webspeech", capabilities: { savedAudio: false } } },
   "GET /api/voice/recordings/:recordingId/transcription": { path: "/api/voice/recordings/00000000-0000-4000-8000-000000000001/transcription", status: 404, body: { error: "transcription_not_found" } },
   "PUT /api/voice/recordings/:recordingId/transcription": { path: "/api/voice/recordings/00000000-0000-4000-8000-000000000001/transcription", init: { method: "PUT" }, status: 501, body: { error: "saved_audio_unsupported" } },
@@ -192,7 +219,7 @@ async function checkHandler(operation: string, check: Check, t: HttpContractApp,
   await check.verify?.(response, t);
   if (operation.includes("/api/brain/") && operation !== "POST /api/brain/sync") {
     const command = operation.split("/").at(-1)!;
-    const args = readFileSync(join(t.brainPath, CLI_LOG), "utf8").trim().split("\n").map((l) => JSON.parse(l) as string[]);
+    const args = completeJsonLines<string[]>(join(t.brainPath, CLI_LOG));
     expect(args.some((a) => a[0] === (command === "history" ? "stats" : command))).toBe(true);
   }
 }

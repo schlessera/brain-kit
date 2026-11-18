@@ -48,7 +48,7 @@ describe("database migrations", () => {
           "INSERT INTO sessions (id, title, created_at, last_active_at) VALUES (?, ?, ?, ?)"
         )
         .run("s1", "Duplicate", Date.now(), Date.now())
-    ).toThrow();
+    ).toThrow("UNIQUE constraint failed: sessions.id");
   });
 
   test("cron_runs table tracks job execution", () => {
@@ -77,7 +77,7 @@ describe("database migrations", () => {
           "INSERT INTO cron_runs (job_name, started_at, status) VALUES (?, ?, 'invalid')"
         )
         .run("test", Date.now())
-    ).toThrow();
+    ).toThrow("CHECK constraint failed");
   });
 
   test("cron_runs declares job_name ASC, started_at DESC lookup index keys", () => {
@@ -114,6 +114,6 @@ describe("database migrations", () => {
           "INSERT INTO _migrations (filename, applied_at) VALUES (?, ?)"
         )
         .run("001_initial.sql", Date.now())
-    ).toThrow();
+    ).toThrow("UNIQUE constraint failed: _migrations.filename");
   });
 });

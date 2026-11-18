@@ -346,7 +346,11 @@ describe("OKF checker", () => {
     });
     const errorReport = checkOkfBundle(errorRoot);
     expect(errorReport.ok).toBe(false);
-    expect(errorReport.errors).toBeGreaterThanOrEqual(4);
+    // One conformance error per broken rule, so losing any one check turns this red.
+    expect(errorReport.issues.map((issue) => `${issue.severity} ${issue.path}`).sort()).toEqual([
+      "error empty-type.md", "error index.md", "error index.md", "error log.md", "error missing-frontmatter.md",
+    ]);
+    expect(errorReport.errors).toBe(5);
   });
 
   test("finds frontmatter after a byte order mark, as the parser reads it (#2507)", () => {

@@ -1,3 +1,5 @@
+import type { StoreApi } from "zustand/vanilla";
+import { createSafetyStore, type SafetyState } from "./safety-state.js";
 import { createContentRendererStore } from "./content-renderer-state.js";
 import { createUIStore } from "./ui-state.js";
 import { createConnectionStore } from "./connection-state.js";
@@ -9,6 +11,7 @@ import { createActivityStore } from "./activity-state.js";
 import { createPrincipalStore } from "./principal-state.js";
 import { createInboxStore } from "./inbox-state.js";
 import { createMaskStore } from "./mask-state.js";
+import { createMarkupStore } from "./markup-state.js";
 import { createShareStore } from "./share-state.js";
 import { createHandoffStore } from "./handoff-state.js";
 import { createFollowUpStore } from "./follow-up-state.js";
@@ -16,6 +19,7 @@ import { createVoiceStore } from "../voice/voice-state.js";
 import { createTrackerStore } from "./tracker-state.js";
 import { createSessionListStore } from "./session-list-state.js";
 import { createDraftStore } from "./draft-state.js";
+import { createAttachmentReadStore, type AttachmentReadState } from "./attachment-read-state.js";
 import type { StoreEnvironment } from "./store-environment.js";
 
 export function createBrainStores(env: StoreEnvironment) {
@@ -26,6 +30,7 @@ export function createBrainStores(env: StoreEnvironment) {
   return {
     contentRenderers: createContentRendererStore(env),
     provider,
+    safety: createSafetyStore() satisfies StoreApi<SafetyState>,
     drafts,
     chat: createChatStore(env, provider, drafts),
     ui: createUIStore(env),
@@ -36,10 +41,13 @@ export function createBrainStores(env: StoreEnvironment) {
     inbox: createInboxStore(),
     principal: createPrincipalStore(env),
     mask: createMaskStore(),
+    markup: createMarkupStore(),
     share: createShareStore(),
     handoff,
     followUp: createFollowUpStore(),
-    voice: createVoiceStore(),
+    /** What the agent read of each sent composer original (#3155, #3589). */
+    attachmentReads: createAttachmentReadStore() satisfies StoreApi<AttachmentReadState>,
+    voice: createVoiceStore(env),
     trackers: createTrackerStore(env),
     // The list is where handoff links live (#61): every answer indexes them.
     sessions: createSessionListStore(env, (sessions) => handoff.getState().setLinks(sessions)),

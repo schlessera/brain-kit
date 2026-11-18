@@ -6,6 +6,9 @@ pipeline proxy for reliable delivery, not a guarantee of defect-free behavior.
 PR counts can reward smaller slices; compare size, workload, runner and policy
 cohorts before attributing an improvement to parallelism.
 
+The [integration evidence inventory](ci-evidence.md) maps each metric to its
+producer, normalized schema, cadence, retention and collection gaps.
+
 ## Collect the operational evidence
 
 The [timing collector](ci-timings.md) joins job/step durations to PR lifecycle,
@@ -27,7 +30,8 @@ its append-only history without changing it. Actor IDs and revocation prose
 are omitted. Protocol expiry establishes authorized lease time, not actual
 worker activity or caller waiting.
 
-Hourly incremental collection includes PR lifecycle and reservation history,
+Hourly incremental collection includes PR lifecycle, reservation and
+[red-main](#red-main-incidents-flakes-and-proof-stopped-while-red) history,
 within the [shared API budget](ci-timings.md#api-cost-and-expected-coverage-gaps). Explicit
 `--since`/`--until` choose the half-open throughput analysis interval. Without
 them, collection manifests supply a bounding interval whose gaps need review.
@@ -63,6 +67,7 @@ execution. It is not complete lifetime cost without complete lifetime coverage.
 | Merge → same-commit green | Time to observed green main proof on that exact squash. Recovery via a later repair commit needs an explicit related record. |
 | Pre-green/main-nongreen | A green aggregate at the final head followed by non-green first main proof. Discordance, not a diagnosed escaped defect. |
 | Same-source recovery | Failed/cancelled first main attempt followed by green at the same SHA. Not, by itself, a diagnosed flaky test. |
+| Runner-slot wait | Job creation → observed execution start, in seconds. Overall and workflow/category/event cohorts report known sample count, median, nearest-rank p90, max, unknown count and jobs waiting strictly over 300 seconds / known jobs (with percentage). |
 | Dependency → job start | Metadata completion → selected job start, including dispatch/queue delay. Does not isolate capacity pressure. |
 | CI concurrency | Time-weighted executed-job overlap, peak and means while active/across the interval. Adjacent end-exclusive intervals do not invent overlap. |
 | PR verification concurrency | Distinct PRs with verification intervals, merging overlapping attempts of one PR. Includes queueing; not active agent count. |
@@ -75,6 +80,14 @@ failures. Workflow failures include intentional feedback refusals and stale
 candidates as well as actual defects. Mixed policy epochs, sizes, dependency
 graphs and runners confound comparisons; the report includes changed-line
 cohorts and proof-policy epochs but does not establish causality.
+
+A ready confirmation runs its unit tier in up to eight partitions and a main
+push in up to four
+([ruling](../decisions/ci-utility.md#eight-unit-partitions-for-ready-confirmation)).
+Per-job `unit` durations, job counts and runner-minutes therefore differ
+between the `pull_request_ready` and `push_main` cohorts by design, and
+between epochs on either side of that change. Compare the slowest `unit` job
+of a run, or the reservation hold, not the per-job median.
 
 ## Proof-policy epochs
 
@@ -100,8 +113,9 @@ hourly collector checks out full history for this reason.
 | `epochs.current` | The epoch holding the newest squash before the window end: `days` since its boundary and `firstMainGreen`, the two numeric inputs of the #2934 Phase B gate, plus `incidentAttribution`. |
 | `epochs.current.incidentAttribution` | Failed first-main attempts in the epoch and how many carry a `failure-classified` record. `unknown` when none do, `partial` when some do, `recorded` when all do. No record is unknown, not unattributed; incidents outside first-main runs are not observed. |
 
-The report states these inputs; it does not decide whether the gate is met.
-An `unknown` boundary on the current epoch means its days are counted from a
+This report states these inputs; it does not decide whether the gate is met.
+The [scheduled evidence reports](ci-timings.md#scheduled-evidence-reports)
+evaluate the gate from them every day. An `unknown` boundary on the current epoch means its days are counted from a
 squash that may not have changed policy, so they are not evidence of a stable
 epoch.
 
@@ -120,7 +134,11 @@ bun scripts/ci-timings.ts record --event tmp/work-event.json --out tmp/ci-timing
 ```
 
 The command supplies version, UUID, current timestamp and repository. Explicit
-ID/time permit attributed historical observations. IDs cannot be overwritten
+ID/time permit attributed historical observations. Optional `orchestrator` IDs
+use the same opaque syntax as worker/task IDs. `preempted` records a preemption
+without claiming a pass or failure; it requires worker/task IDs. Explicit
+[publication](ci-timings.md#publish-local-coordination-events) appends these
+local events to the durable measurement ref. IDs cannot be overwritten
 with different content. Pairs are `work-started`/`work-finished` and
 `wait-started`/`wait-finished`; waits require `reason` set to `reservation`,
 `ci`, `review`, `conflict` or `other`. Each pair shares worker/task/reason.
@@ -142,6 +160,43 @@ records it after an expedited squash
 diagnoses. No incident surveillance means unknown overall incident rate.
 Arbitrary fields such as prompts, names, hosts and prose are refused. Keep event
 files with normalized snapshots under ignored `tmp/`, not in the public tree.
+
+## Red-main incidents, flakes and proof stopped while red
+
+`--red-main --since ...` reads the [red-main record](../decisions/ci-utility.md#red-main-record-and-coordinator)
+from the same public coordination ref, walking only the commits that changed
+`red-main.json`, back to the last green state before the window. It writes
+`red-main.json` with one observation per record, keyed by its opening run, and
+one per suspected flake. During `collect`, it also reads the coordinator's
+`BRAIN_RED_MAIN` lines from the `red-main` workflow runs created while main was
+red, as `coordinator-<run>-attempt-<n>.json`. A window in which main stayed green
+costs no API request. Each archived attempt is seeded forward and never fetched
+twice.
+
+`summary.json` carries a `redMain` section; `summary.md` renders it.
+
+| Field | Definition and boundary |
+| --- | --- |
+| `incidents` | Each record's opening run, first bad SHA and its bisect refinements, failing tests and categories with their estimator reasons, incident issue, declared and expedited fixes, and when it was cleared. |
+| `timeToGreenSeconds` | Record opened to record cleared, on GitHub server time. An open record has none; `openIncidents` counts them. |
+| `flakes` | Per test: suspicions, triage probe outcomes, flake issues, and `escalations` where a second suspicion within the window, or a reproducing probe, made it real. |
+| `cancellations` | PR runs the coordinator cancelled, with observed runner seconds consumed and an estimated saving. |
+| `refusals` | PR attempts the hosted gate refused (the failed gate step in `changeset`), with the same accounting. |
+| `savingReference` | The median observed runner time of successful PR CI attempts in the archive. Saving is that reference minus the time consumed. It is an estimate, not a measured counterfactual. |
+| `mergesDuringRed` | Non-fix squashes the coordinator reported landing while red, with their PR from the exact squash identity. |
+| `acquisition` | History scopes and their errors, scopes whose red hours lack coordinator logs, and coordinator attempts whose cancellations are unknown. |
+
+Unknowns never read as zero. A cancelled or refused run without a complete
+timing snapshot has unknown consumption and saving. With no reference attempt,
+saving is unknown. Each is counted separately (`unknownConsumed`,
+`unknownSaved`). A run that finished before its cancellation took effect saved
+nothing. A coordinator attempt that failed before printing its line has
+unknown cancellations. Probe-triggered cancellations print the same line from
+the change that added this collector. Earlier probe attempts that succeeded
+without it read as none. A squash without an exact PR identity is counted in
+`unknownPR`. No `red-main.json` makes the whole section `null`: unknown, not a
+quiet main. Overlapping archives join per record; contradicting opening times,
+clearings or incident numbers are refused.
 
 ## Scenario estimates and formal proof
 
@@ -172,3 +227,32 @@ agent-concurrency settings, work/queue/lease events, complete proof, main result
 and follow-up incident records. Compare green deliveries/day, tail latency,
 runner cost and recovery work together. A faster merge with unfinished main
 verification does not meet this objective.
+
+## Runner-slot wait
+
+New `run` snapshots use schema v2 and retain each job's API `created_at` as
+`jobs[].createdAt`. Readers accept v1 and v2 and refuse unknown versions;
+legacy v1 archives are preserved without inventing creation timestamps.
+`summary.json` is v2 and exposes `runnerSlotWait.overall`, `byWorkflow`
+(workflow path), `byCategory` and `byEvent`. `summary.md` renders those cohorts.
+Each cohort carries `n`, `mean`, `median`, `p90`, `max`, `unknown` and
+`overFiveMinutes: { numerator, denominator, percent }`. Durations are seconds;
+Markdown displays minutes. The percentage denominator is known intervals only,
+and an empty denominator has an unknown percentage.
+
+PR event cohorts are `pull_request_draft` and `pull_request_ready` when retained
+planner context establishes draft or feedback/confirmation cadence. Without
+that evidence they are `pull_request_unknown`; current PR draft state is never
+projected onto a historical run. Optional `--resources` enrichment reads this
+context; the hourly collector does not fetch logs just to classify PRs.
+Main pushes use `push_main` when the retained branch is `main`; dispatch uses
+`workflow_dispatch`, and other events retain their API event name.
+
+Missing, invalid or reversed timestamps and jobs without observed executed
+steps count as unknown and stay outside percentiles and the five-minute share.
+A real zero remains a known sample. For example, creation at 10:00:00 and start
+at 10:03:30 yields 210 seconds. Queue cancellations with synthetic-looking
+start timestamps cannot establish a start. This is creation-to-start latency,
+including dependency/dispatch delay; it does not isolate runner capacity,
+reservation admission or draft-feedback starvation. It remains separate from
+the first-attempt run-level initial queue estimate and metadata-to-job delay.

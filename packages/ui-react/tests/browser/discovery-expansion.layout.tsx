@@ -261,7 +261,7 @@ for (const width of [320, 1440]) test(`${width}: depth-eight native action revea
   await expect.poll(() => ui!.stores.graph.getState().discoveryExpansion.notice?.text).toBe("1 note added · Layout updated"); await settled();
   expect(ui!.stores.graph.getState().subgraph!.nodes.find(n => n.id === 17)?.distance).toBe(8);
   expect(ui!.stores.graph.getState().subgraph!.nodes.some(n => n.id === 18)).toBe(false);
-  expect(requests.every(depth => depth <= 8)).toBe(true);
+  expect(Math.max(...requests), "NEVER_REQUESTS_BEYOND_EIGHT_HOPS").toBe(8);
   await expect.element(page.getByText("No more notes within 8 hops of the root", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Reset expanded, 2 notes expanded", exact: true }).click(); await settled();
   expect(ui!.stores.graph.getState().selectedId).toBeNull();

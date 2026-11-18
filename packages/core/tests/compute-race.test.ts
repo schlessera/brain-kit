@@ -27,6 +27,26 @@ afterEach(async () => {
   box?.dispose();
 });
 
+/** A child's stdout one line at a time; `next()` is undefined once the stream ends without one. */
+function lines(stream: ReadableStream<Uint8Array>) {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let buffered = "";
+  return {
+    async next(): Promise<string | undefined> {
+      while (!buffered.includes("\n")) {
+        const chunk = await reader.read();
+        if (chunk.done) return undefined;
+        buffered += decoder.decode(chunk.value, { stream: true });
+      }
+      const at = buffered.indexOf("\n");
+      const line = buffered.slice(0, at);
+      buffered = buffered.slice(at + 1);
+      return line;
+    },
+  };
+}
+
 async function race(spec: { maxConcurrent: number; ceiling?: number; cap: number }) {
   box = sandbox();
   const barrier = join(box.base, "go");
@@ -35,15 +55,22 @@ async function race(spec: { maxConcurrent: number; ceiling?: number; cap: number
   const racers = Array.from({ length: RACERS }, () => {
     const child = Bun.spawn([process.execPath, RUNNER, "race", file], { stdout: "pipe", stderr: "pipe", stdin: "ignore" });
     children.push(child);
-    return child;
+    return { child, stdout: lines(child.stdout) };
   });
-  await Bun.sleep(300);
+  // Release the barrier only once every racer is waiting at it, so all of them contend for admission.
+  // Bounded, so a racer that never reports ready fails here; the file's
+  // teardown kills every child it spawned.
+  let bound: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const timedOut = new Promise<string>(resolve => { bound = setTimeout(() => resolve("RACER_NEVER_READY"), 10_000); });
+    for (const racer of racers) expect(await Promise.race([racer.stdout.next(), timedOut])).toBe("ready");
+  } finally { clearTimeout(bound); }
   writeFileSync(barrier, "");
   const results = await Promise.all(
-    racers.map(async (child) => {
-      const [stdout, stderr] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    racers.map(async ({ child, stdout }) => {
+      const [result, stderr] = await Promise.all([stdout.next(), new Response(child.stderr).text(), child.exited]);
       expect({ code: child.exitCode, stderr: child.exitCode === 0 ? "" : stderr }).toEqual({ code: 0, stderr: "" });
-      return JSON.parse(stdout.trim()) as { ok: boolean; code?: string };
+      return JSON.parse(result ?? "null") as { ok: boolean; code?: string };
     })
   );
   return { admitted: results.filter((r) => r.ok).length, refused: results.filter((r) => !r.ok).map((r) => r.code) };

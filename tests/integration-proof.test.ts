@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
-import { verifyIntegrationProof } from "../scripts/integration-proof";
+import { PROOF_JOBS } from "../scripts/ci-proof";
+import { MAX_RUN_JOBS, verifyIntegrationProof } from "../scripts/integration-proof";
 import { scanText } from "../scripts/check-leakage";
-import type { API } from "../scripts/proof-reuse";
+import type { API } from "../scripts/proof-api";
+import { BROWSER_DETERMINISM_PARTITIONS, DETERMINISM_PARTITIONS, MAX_UNIT_PARTITIONS } from "../scripts/proof-shards";
 
 const candidate = { repository: "https://github.com/odysseus/brain-kit", pr: 7, head: "a".repeat(40), base: "b".repeat(40) };
 const job = { id: 19, name: "changeset", status: "completed", conclusion: "success", run_id: 17, head_sha: candidate.head };
@@ -31,7 +33,8 @@ for (const [predicate, inventory] of [
   ["jobs is not an array", { total_count: 1 }],
   ["total_count differs from jobs.length", { total_count: 2, jobs: [job] }],
   ["jobs.length is zero", { total_count: 0, jobs: [] }],
-  ["jobs.length exceeds 30", { total_count: 31, jobs: Array.from({ length: 31 }, () => ({ ...job })) }],
+  // The bound is every proof job at its widest matrix, never a literal a new matrix would outgrow (#4163).
+  [`jobs.length exceeds ${MAX_RUN_JOBS}`, { total_count: MAX_RUN_JOBS + 1, jobs: Array.from({ length: MAX_RUN_JOBS + 1 }, () => ({ ...job })) }],
 ] as const) test(`inventory refuses ${predicate} with count context`, async () => {
   const message = await refusal(inventory);
   expect(message).toContain("Incomplete or failed selected job inventory");
@@ -123,4 +126,120 @@ for (const [label, malformed] of [
     job: { id: "invalid", name: "unrecognized", status: "unrecognized", conclusion: "unrecognized", run_id: "invalid", head_sha: "invalid" } });
   expect(message).not.toContain("Bearer");
   expect(message.length).toBeLessThan(1800);
+});
+
+/** A ready confirmation as the merge path reads it: the aggregate's receipts plus the run's actual job inventory. */
+type Repeated = { published?: unknown; ran: readonly (number | string)[]; conclusion?: string };
+async function confirmationOutcome(published: unknown, ran: readonly number[], repeated?: Repeated, browser?: Repeated): Promise<string> {
+  // Every hosted proof job, so a category added later (determinism, #4109) is part of the inventory.
+  const categories: readonly string[] = PROOF_JOBS;
+  // `repeated` selects the determinism job and `browser` the browser repetition job: each with its
+  // published partition set and the partitions that really ran (#4117, #4163).
+  const matrices: Record<string, Repeated | undefined> = { determinism: repeated, browser_determinism: browser };
+  const fast = (name: string) => ["verify", "pack", "unit"].includes(name) || matrices[name] !== undefined;
+  const encoded = (value: unknown) => typeof value === "string" || value === null ? value : JSON.stringify(value);
+  const checkout = { sha: "d".repeat(40), tree: "e".repeat(40), parents: [candidate.base, candidate.head] };
+  const selected = { selections: Object.fromEntries(categories.map(name => [name, String(fast(name))])),
+    results: Object.fromEntries(categories.map(name => [name, fast(name) ? "success" : "skipped"])), retained: [],
+    unitShards: encoded(published), ...(repeated && "published" in repeated ? { determinismShards: encoded(repeated.published) } : {}),
+    ...(browser && "published" in browser ? { browserDeterminismShards: encoded(browser.published) } : {}) };
+  let id = 100;
+  const entry = (name: string, conclusion = "success") => ({ ...job, id: id++, name, conclusion });
+  const jobs = [entry("changeset"), entry("proof"), ...categories.flatMap(name => name === "unit" ? ran.map(shard => entry(`unit (${shard})`))
+    : matrices[name] ? matrices[name]!.ran.map(shard => entry(typeof shard === "number" ? `${name} (${shard})` : shard, matrices[name]!.conclusion))
+    : [entry(name, fast(name) ? "success" : "skipped")])];
+  const actual = `[command]/usr/bin/git log -1 --format=%H\n2026-07-12T00:00:00Z ${checkout.sha}\n`;
+  const proofLog = actual + `BRAIN_CANDIDATE_RECEIPT ${JSON.stringify({ event: "ready_for_review", head: candidate.head, base: candidate.base, checkout })}\n` +
+    `BRAIN_SELECTED_PROOF_RECEIPT ${JSON.stringify(selected)}\nAll selected hosted proof passed; remaining skips are planner-intended.\n`;
+  const api: API = {
+    async json(path) {
+      if (path === "actions/runs/17/attempts/2/jobs?per_page=100") return { total_count: jobs.length, jobs };
+      return { workflow_runs: [{ id: 17, run_attempt: 2, event: "pull_request", head_sha: candidate.head,
+        repository: { html_url: candidate.repository }, head_repository: { html_url: candidate.repository },
+        pull_requests: [{ number: candidate.pr }], status: "completed", conclusion: "success" }] };
+    },
+    async log(jobId) { return jobId === jobs[1]!.id ? proofLog : actual; },
+  };
+  // Reaching the checkout fetch means the inventory, partition and per-job checkout guards all accepted the run.
+  try { await verifyIntegrationProof("unused", "odysseus/brain-kit", candidate, api, sha => { throw new Error(`ACCEPTED_INVENTORY ${sha}`); }); }
+  catch (error) { return (error as Error).message; }
+  return "verified without fetching the checkout";
+}
+
+test("the merge path accepts a confirmation only with exactly its planned unit partitions (#4108)", async () => {
+  const eight = [1, 2, 3, 4, 5, 6, 7, 8], accepted = `ACCEPTED_INVENTORY ${"d".repeat(40)}`;
+  const differs = "Actual selected job inventory differs from the validated selection", identity = "Missing actual unit partition identity";
+  expect(await confirmationOutcome(eight, eight), "EIGHT_PLANNED_EIGHT_RAN").toBe(accepted);
+  // A narrow inventory plans fewer partitions; the same exactness holds.
+  expect(await confirmationOutcome([1, 2, 3], [1, 2, 3]), "THREE_PLANNED_THREE_RAN").toBe(accepted);
+  expect(await confirmationOutcome(eight, eight.slice(0, 7)), "DROPPED_LAST_PARTITION").toBe(differs);
+  expect(await confirmationOutcome(eight, [1, 2, 3, 5, 6, 7, 8]), "DROPPED_MIDDLE_PARTITION").toBe(differs);
+  expect(await confirmationOutcome(eight, [...eight, 8]), "DUPLICATE_PARTITION").toBe(differs);
+  expect(await confirmationOutcome(eight.slice(0, 4), eight), "RAN_MORE_THAN_PLANNED").toBe(differs);
+  expect(await confirmationOutcome([...eight, 9], [...eight, 9]), "ABOVE_CONFIRMATION_CAP").toBe(identity);
+  expect(await confirmationOutcome([1, 2, 4, 3, 5, 6, 7, 8], eight), "REORDERED_PLAN").toBe(identity);
+  expect(await confirmationOutcome([2, 3, 4, 5, 6, 7, 8], [2, 3, 4, 5, 6, 7, 8]), "PLAN_WITHOUT_FIRST").toBe(identity);
+  expect(await confirmationOutcome([], []), "EMPTY_PLAN").toBe(identity);
+  expect(await confirmationOutcome(null, eight), "MISSING_PLAN").toBe(identity);
+});
+
+test("the merge path accepts a confirmation only with exactly its planned browser repetition partitions (#4163)", async () => {
+  const eight = [1, 2, 3, 4, 5, 6, 7, 8], three = [1, 2, 3], accepted = `ACCEPTED_INVENTORY ${"d".repeat(40)}`;
+  const differs = "Actual selected job inventory differs from the validated selection", identity = "Missing actual browser_determinism partition identity";
+  const outcome = (published: unknown, ran: readonly (number | string)[]) => confirmationOutcome(eight, eight, undefined, { published, ran });
+  expect(await outcome([1], [1]), "ONE_PLANNED_ONE_RAN").toBe(accepted);
+  expect(await outcome(three, three), "THREE_PLANNED_THREE_RAN").toBe(accepted);
+  expect(await outcome(three, [1, 2]), "DROPPED_LAST_PARTITION").toBe(differs);
+  expect(await outcome(three, [1, 3]), "DROPPED_MIDDLE_PARTITION").toBe(differs);
+  expect(await outcome(three, [...three, 3]), "DUPLICATE_PARTITION").toBe(differs);
+  expect(await outcome([1, 2], three), "RAN_MORE_THAN_PLANNED").toBe(differs);
+  // An unpartitioned job, or the Bun gate's partitions under this job's selection, is no planned partition.
+  expect(await outcome([1], ["browser_determinism"]), "UNPARTITIONED_JOB_NAME").toBe(differs);
+  expect(await outcome([1], ["determinism (1)"]), "ANOTHER_JOBS_PARTITION").toBe(differs);
+  const limit = Array.from({ length: BROWSER_DETERMINISM_PARTITIONS.max }, (_, index) => index + 1);
+  expect(await outcome(limit, limit), "THE_MAXIMUM_IS_ACCEPTED").toBe(accepted);
+  expect(await outcome([...limit, limit.length + 1], [...limit, limit.length + 1]), "ABOVE_THE_MAXIMUM").toBe(identity);
+  expect(await outcome([2, 1], [1, 2]), "REORDERED_PLAN").toBe(identity);
+  expect(await outcome([], []), "EMPTY_PLAN").toBe(identity);
+  expect(await outcome(null, [1]), "NULL_PLAN").toBe(identity);
+  expect(await confirmationOutcome(eight, eight, undefined, { ran: [1] }), "RECEIPT_WITHOUT_THE_SET").toBe(identity);
+  expect(await confirmationOutcome(eight, eight, undefined, { published: [1, 2], ran: [1, 2], conclusion: "failure" }), "FAILED_PARTITION").toContain("Incomplete or failed selected job inventory");
+  // Both repetition jobs at their widest, beside eight unit partitions: a complete run, inside the inventory bound.
+  const widest = Array.from({ length: DETERMINISM_PARTITIONS.max }, (_, index) => index + 1);
+  expect(MAX_UNIT_PARTITIONS + widest.length + limit.length + 2, "THE_WIDEST_CONFIRMATION_FITS").toBeLessThanOrEqual(MAX_RUN_JOBS);
+  expect(await confirmationOutcome(eight, eight, { published: widest, ran: widest }, { published: limit, ran: limit }), "WIDEST_CONFIRMATION_ACCEPTED").toBe(accepted);
+});
+
+test("the merge path accepts a confirmation only with exactly its planned determinism partitions (#4117)", async () => {
+  const eight = [1, 2, 3, 4, 5, 6, 7, 8], nine = [...eight, 9], accepted = `ACCEPTED_INVENTORY ${"d".repeat(40)}`;
+  const differs = "Actual selected job inventory differs from the validated selection", identity = "Missing actual determinism partition identity";
+  const outcome = (published: unknown, ran: readonly (number | string)[]) => confirmationOutcome(eight, eight, { published, ran });
+  // An unsplit selection is one partition; the largest observed selection plans nine.
+  expect(await outcome([1], [1]), "ONE_PLANNED_ONE_RAN").toBe(accepted);
+  expect(await outcome(nine, nine), "NINE_PLANNED_NINE_RAN").toBe(accepted);
+  expect(await outcome(nine, nine.slice(0, 8)), "DROPPED_LAST_PARTITION").toBe(differs);
+  expect(await outcome(nine, [1, 2, 3, 5, 6, 7, 8, 9]), "DROPPED_MIDDLE_PARTITION").toBe(differs);
+  expect(await outcome(nine, [...nine, 9]), "DUPLICATE_PARTITION").toBe(differs);
+  expect(await outcome([1, 2], [1, 2, 3]), "RAN_MORE_THAN_PLANNED").toBe(differs);
+  // The job as it was before the matrix: its one name is no planned partition.
+  expect(await outcome([1], ["determinism"]), "UNPARTITIONED_JOB_NAME").toBe(differs);
+  const limit = Array.from({ length: DETERMINISM_PARTITIONS.max }, (_, index) => index + 1);
+  expect(await outcome(limit, limit), "THE_MAXIMUM_IS_ACCEPTED").toBe(accepted);
+  expect(await outcome([...limit, limit.length + 1], [...limit, limit.length + 1]), "ABOVE_THE_MAXIMUM").toBe(identity);
+  expect(await outcome([2, 1], [1, 2]), "REORDERED_PLAN").toBe(identity);
+  expect(await outcome([2, 3], [2, 3]), "PLAN_WITHOUT_FIRST").toBe(identity);
+  expect(await outcome([], []), "EMPTY_PLAN").toBe(identity);
+  expect(await outcome(null, [1]), "NULL_PLAN").toBe(identity);
+  expect(await confirmationOutcome(eight, eight, { ran: [1] }), "RECEIPT_WITHOUT_THE_SET").toBe(identity);
+  // A failed partition never reaches the partition check: the inventory itself is refused.
+  expect(await confirmationOutcome(eight, eight, { published: [1, 2], ran: [1, 2], conclusion: "failure" }), "FAILED_PARTITION").toContain("Incomplete or failed selected job inventory");
+  // Unselected, the job is one intentional skip and no partition set is read.
+  expect(await confirmationOutcome(eight, eight), "UNSELECTED_SKIPS_ONCE").toBe(accepted);
+});
+
+test("refusal diagnostics name every partition a confirmation can plan", async () => {
+  const repeated = await refusal({ total_count: 2, jobs: [job, { ...job, id: 21, name: `determinism (${DETERMINISM_PARTITIONS.max})`, status: "queued" }] });
+  expect(JSON.parse(repeated.split("inventory: ")[1]!).offending[0].job.name).toBe(`determinism (${DETERMINISM_PARTITIONS.max})`);
+  const message = await refusal({ total_count: 2, jobs: [job, { ...job, id: 20, name: "unit (8)", status: "queued" }] });
+  expect(JSON.parse(message.split("inventory: ")[1]!).offending[0].job.name).toBe("unit (8)");
 });

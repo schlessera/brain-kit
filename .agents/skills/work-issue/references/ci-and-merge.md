@@ -3,8 +3,12 @@
 Read this when the implementation has a PR. Commands were checked against
 installed `gh` help; use their help again if an interface changes.
 Use finite queries/log exports and bounded waits, with user updates during
-monitoring. Prefix commands with `rtk proxy` as the session's RTK instructions
-require. The CI policy these commands check is
+monitoring. Write commands plainly: where `rtk` is installed, its hook
+compresses their output without being asked, and a `rtk proxy` or `rtk bypass`
+prefix switches that off. `bun scripts/pr-status.ts <pr>` reads a pull
+request's head, live base, checks, `proof` and failures in one line of JSON;
+the raw `gh` commands below are what it reads, for when you need more than it
+prints. The CI policy these commands check is
 [docs/process/testing.md](../../../../docs/process/testing.md#required-proof-for-a-pr).
 
 Green is a claim about a SHA, not about `main`. A commit pushed to a branch
@@ -50,20 +54,20 @@ Draft runs report `draft gates`, not `proof`. A ready PR without a passing
 `proof` from its confirmation run is unconfirmed, even if `draft gates` passed
 or failed because its live read found the PR ready; request confirmation again.
 The candidate gate checks actual merge parents/tree against the live head/base.
-A changed base requires a fresh confirmation event even without a rebase;
-valid immutable browser/layout retention remains available. Read the actual
+A changed base requires a fresh confirmation event even without a rebase.
+Read the actual
 `refs/pull/<number>/merge` commit too: GitHub can retain its old base across a
 draft/ready transition. When that ref still has old parents, refresh the branch
 against live main before requesting confirmation; another same-head event alone
 does not establish a new combined tree. Endurance is fresh
 and separately mandatory whenever selected. Assess relevant base changes before redoing
-heavy work; a new base requires confirmation, with valid browser/layout retention avoiding unnecessary execution.
-Under #1333, a selected browser/layout domain may intentionally skip fresh
-execution after complete input equivalence and original successful run/attempt/
-job/check/checkout receipts are validated. Inspect the current retention ledger
-and independently validating aggregate. Preserve original identities; do not
-describe retained jobs as executions on the new SHA. Native/Git-dependent and
-unknown domains, main pushes and scheduled/manual coverage remain fresh.
+heavy work; a new base requires confirmation.
+Every selected category runs fresh, on ready confirmation, main pushes and
+scheduled/manual coverage alike. Browser proof retention is retired (#4107):
+a selected job that was skipped is missing proof, never a retained pass, and no
+test pins a source file's hash, so a product edit never needs a re-audit.
+Inspect the aggregate, and never describe an earlier run's jobs as executions
+on the new SHA.
 
 A draft-to-ready transition can retain GitHub's previous PR base and synthetic
 merge ref even after live main advances. Before requesting expensive confirmation,
@@ -85,24 +89,22 @@ blocks with shell error checking enabled; a failed comparison stops the merge
 decision. PR `baseRefOid` is not a substitute for the live Git reference.
 
 ```sh
-verified_head=$(rtk proxy gh pr view <pr> --repo schlessera/brain-kit \
-  --json headRefOid --jq .headRefOid)
-verified_base=$(rtk proxy gh api repos/schlessera/brain-kit/git/ref/heads/main \
-  --jq .object.sha)
-rtk proxy git fetch origin main
-rtk proxy test "$(rtk proxy git rev-parse origin/main)" = "$verified_base"
-rtk proxy git show --no-patch --format='%H %P %T' "$verified_base"
-rtk proxy gh pr view <pr> --repo schlessera/brain-kit \
-  --json state,isDraft,headRefOid,baseRefName,mergeable,mergeStateStatus,reviewDecision,url
-rtk proxy gh api 'repos/schlessera/brain-kit/commits/<head-sha>/check-runs' \
-  --paginate --jq '.check_runs[] | {name,status,conclusion,details_url}'
-rtk proxy gh api 'repos/schlessera/brain-kit/commits/<head-sha>/status' \
-  --jq '{state,statuses:[.statuses[] | {context,state,target_url}]}'
-rtk proxy gh pr checks <pr> --repo schlessera/brain-kit \
-  --json name,state,bucket,link,workflow
-rtk proxy gh pr view <pr> --repo schlessera/brain-kit \
-  --json headRefOid,statusCheckRollup
+bun scripts/pr-status.ts <pr>
+git fetch origin main
+git show --no-patch --format='%H %P %T' <liveBase>
 ```
+
+Take `verified_head` from `head` and `verified_base` from `liveBase`: the
+script queries the base branch's live Git ref itself, independently of the
+pull request's own base field. `mergeRef.current` says whether GitHub's
+synthetic merge commit has exactly that base and that head as its parents;
+`false` is the stale-base case described below. `checks.total` of zero means
+CI has not started on this head, which is not green; `proof` is `passed` only
+for a successful `proof` check on this head; `receipt` says whether the body
+carries a `check:pr` receipt; `reviewRecord` summarizes the newest recorded
+independent review, or is null. When you need a single check's details, the
+underlying reads are `gh pr view <pr> --json statusCheckRollup` and
+`gh api 'repos/schlessera/brain-kit/commits/<head-sha>/check-runs'`.
 
 Record `headRefOid` for this inspection and re-read it before deciding. After
 a push/rebase/conflict resolution, inspect the new SHA from scratch. If CI
@@ -127,7 +129,17 @@ Forks use ordinary `pull_request` with a read-only token (`contents: read`,
 plus `actions: read` / `checks: read` for bounded proof lookup), no secrets
 and nonpersisted checkout credentials; an approval-held run has not passed.
 Drafts run cheap gates only, and tests-only changes may intentionally skip
-packaging while complete affected tests run. Read actual GitHub checks
+packaging while complete affected tests run. One job is the exception: when a
+PR adds or modifies a Bun test file, `determinism` repeats those files under
+CPU load at every cadence, drafts included, and `draft gates` and `proof`
+require it. The job is `determinism (1)`; a selection too heavy for one job
+runs as several numbered partitions, and all of them must pass. A failing repetition is fixed in the test, never rerun
+([the gate](../../../../docs/process/testing.md#changed-tests-repeat-under-load)).
+`browser_determinism` is the same rule for Vitest specs: when a PR adds or
+modifies a browser, layout or story spec, it repeats those specs under CPU
+load in the pinned container, as `browser_determinism (1)` or several
+numbered partitions
+([the gate](../../../../docs/process/testing.md#changed-browser-specs-repeat-under-load)). Read actual GitHub checks
 and logs for the current head, never an old Depot receipt or latest-main run.
 GitHub checks/statuses may include additional gates. No rows,
 queued/running checks or cancelled runs are not green.
@@ -142,13 +154,15 @@ For GitHub Actions, follow the check's run link and inspect its SHA, event,
 attempt, jobs and failed steps. These commands help locate and diagnose it:
 
 ```sh
-rtk proxy gh run list --repo schlessera/brain-kit --commit <head-sha> \
-  --limit 100 --json databaseId,headSha,status,conclusion,workflowName,event,url
-rtk proxy gh run view <run-id> --repo schlessera/brain-kit \
-  --json headSha,status,conclusion,jobs,url,attempt
-rtk proxy gh run view <run-id> --repo schlessera/brain-kit \
-  --attempt <attempt-number> --log-failed
+bun scripts/pr-status.ts <pr> --failures --logs <dir>
+gh run view <run-id> --repo schlessera/brain-kit --json headSha,status,conclusion,jobs,url,attempt
+gh run view <run-id> --repo schlessera/brain-kit --attempt <attempt-number> --log-failed
 ```
+
+The first command names every failed job of the head's runs with its failed
+steps, saves each job's log under `<dir>` and prints only its failing lines;
+read the saved log when those lines are not enough. `runs` in the plain
+`pr-status` output lists each run's id, workflow, event and attempt.
 
 A run list alone does not establish all PR checks; use the check links for
 ruleset or synthetic-merge runs omitted by the head-SHA filter.
@@ -161,7 +175,7 @@ are explicitly allowed, even when stdout is redirected. Export those logs to
 a file rather than printing the escaped response in a terminal:
 
 ```sh
-rtk proxy gh api --allow-escape-sequences \
+gh api --allow-escape-sequences \
   'repos/schlessera/brain-kit/actions/jobs/<job-id>/logs' > /tmp/ci-job.log
 ```
 
@@ -175,13 +189,13 @@ two-parent PR merge checkout, verify immutable parents and retain its tree:
 
 ```sh
 ci_checkout=<sha-from-actual-checkout-log>
-rtk proxy gh api "repos/schlessera/brain-kit/git/commits/$ci_checkout" \
+gh api "repos/schlessera/brain-kit/git/commits/$ci_checkout" \
   --jq '{sha,parents:[.parents[].sha],tree:.tree.sha}'
-rtk proxy git fetch origin "$ci_checkout"
-rtk proxy git show --no-patch --format='%H %P %T' "$ci_checkout"
-rtk proxy test "$(rtk proxy git show -s --format=%P "$ci_checkout")" \
+git fetch origin "$ci_checkout"
+git show --no-patch --format='%H %P %T' "$ci_checkout"
+test "$(git show -s --format=%P "$ci_checkout")" \
   = "$verified_base $verified_head"
-verified_tree=$(rtk proxy git rev-parse "$ci_checkout^{tree}")
+verified_tree=$(git rev-parse "$ci_checkout^{tree}")
 ```
 
 The local object must agree with the immutable API receipt. Reconcile all
@@ -263,10 +277,16 @@ slice. Queued PRs require actual merge-group and eventual landing evidence.
 
 For ordinary PRs, use `bun scripts/integrate.ts confirm <pr> --issues
 owner/repo#N,...` before requesting full confirmation. The explicit comma-separated
-list accepts at most 100 references, must include every closing issue, and
-checks every listed issue against the PR release milestone. It acquires the remote
+list accepts at most 100 references, must name at least one issue including
+every closing issue, and checks every listed issue against the PR release
+milestone. It refuses an empty or incomplete list, or a milestone mismatch,
+before taking a lease or spending candidate CI (#3850). It acquires the remote
 exact PR/head/base reservation, renews every minute, waits for actual complete
-candidate proof, and uses the shared merge path. `inspect` shows ownership;
+candidate proof, and uses the shared merge path. It first waits for the
+newest exact-head contract run and refuses, before taking a lease or spending
+candidate CI, when that run is missing, cancelled or failed. A body edit or a
+label change starts a fresh one. Edit the body before pushing so that one push
+does not start two racing contract runs (#3573). `inspect` shows ownership;
 busy callers have bounded retries, never a FIFO queue. Separate `acquire`
 requires minute `renew` and explicit `merge --lease`; `release` abandons it.
 The lease lasts five minutes with an absolute sixty-minute cap including
@@ -287,21 +307,91 @@ proof did not run, naming each. Rerun the check locally and paste the new
 receipt, or get the category selected; never edit a receipt by hand
 ([local check receipts](../../../../docs/decisions/ci-utility.md#local-check-receipts)).
 
+The merge path also reads the recorded independent review of a PR that touches
+`packages/ui-react/`, `packages/ui-kit/`, `packages/ui-server/` or
+`packages/core/`
+([ruling](../../../../docs/decisions/ci-utility.md#recorded-independent-review-of-core-package-prs)).
+`confirm` refuses before it takes the reservation, and the merge checks again.
+`bun scripts/review-receipt.ts check <pr>` prints the same decision without
+changing anything. Each refusal has one remedy:
+
+| Refusal | Remedy |
+| --- | --- |
+| No review record | Get the review and post its record: the skill's [Independent review](../SKILL.md#independent-review). |
+| A finding without a disposition | Answer it as fixed, filed or rejected and post the record again. |
+| Fixed in a commit the head does not contain | Name the commit on this branch that fixes it. |
+| The head contains commits the reviewed head does not | Get a review of the current head. Merges of the base never cause this; a new commit, a rebase or an amend does. |
+| A merge commit that is not a clean merge | Get a review of the current head. A merge that resolved a conflict, carries an edit of its own or has more than two parents is content the reviewer did not read. |
+| The reviewed head can be neither read nor fetched | Get a review of the current head. |
+
+Refresh a reviewed branch by merging `origin/main` and pushing. A rebase
+rewrites the reviewed commits and discards the record's coverage. A refresh
+that needed a conflict resolution also needs a new review.
+
+A proof-system candidate (`bun scripts/proof-system.ts classify --base <merge-base>
+--head <head>`) waits its turn in the proof-system lane. `acquire`, `confirm` (both before
+acquiring) and `merge` refuse it until the last proof-system squash on main
+has a completed main-push run of its own and the newest completed main run
+from that squash on is green: its own green run opens the lane, and after a
+failure the next green main run reopens it. They also refuse it until its PR
+body has an `## Off-main qualification` section linking a replay or dispatch
+run on the exact head, or on an ancestor with no proof-system change after it.
+Read the window with `bun scripts/integrate.ts lane --json` instead of polling
+runs; product candidates and declared red-main fixes are never held
+([proof-system lane](../../../../docs/decisions/ci-utility.md#lane-and-qualification-gates)).
+
 While main is red, a declared fix for the open record, forward fix or
 targeted revert alike, may use `bun scripts/integrate.ts confirm <pr>
 --fixes-main-run <run-id> --issues owner/repo#N,...`. It dispatches fix probes
 that must show the record's failing test files red on the exact base and green
 on the exact head, waits for the exact-head fast invariants and squashes under
 the reservation. It refuses category-level failures; use ordinary confirmation
-for those. Never merge a red-main fix any other way
+for those, and the fix's own main run proves a post-merge category. Never merge a red-main fix any other way
 ([expedited red-main fixes](../../../../docs/decisions/ci-utility.md#expedited-red-main-fixes)).
 
-While main is red, `confirm` and `merge` refuse every PR that is not a
-declared fix, and hosted proof containing the bad commit is refused or
-cancelled. Do not retry it; follow [the red-main incident steps](red-main.md)
+While main is red in a fast category (or with an unknown failure set),
+`confirm` and `merge` refuse every PR that is not a declared fix, and hosted
+proof containing the bad commit is refused or cancelled. Red confined to
+post-merge categories (runtime, runtime_host, browser, layout, captures,
+endurance) refuses nothing
+([hybrid ruling](../../../../docs/decisions/ci-utility.md#hybrid-post-merge-heavy-proof)). Do not retry it; follow [the red-main incident steps](red-main.md)
 and resume when `main-status` reports green. A fix or targeted revert PR for
 the incident is declared with `bun scripts/integrate.ts declare-fix <pr>` and
 then uses this same reservation and merge procedure.
+
+## Fast lane
+
+A PR whose diff touches nothing under `packages/ui-react/`, `packages/ui-kit/`,
+`packages/ui-server/` or `packages/core/` may skip ready-candidate confirmation
+([ruling](../../../../docs/decisions/ci-utility.md#fast-lane-outside-the-core-packages)).
+Check the paths against the PR's actual base, not your local branch:
+
+```sh
+gh pr diff <pr> --name-only | bun scripts/fast-lane.ts
+```
+
+It prints `"lane":"full"` with the core-package paths, or `"lane":"fast"`.
+The same predicate decides which PRs need a recorded independent review. On
+the full lane, use `integrate.ts confirm` as above. Otherwise:
+
+1. Paste the `check:pr` receipt and set the milestones, exactly as for any
+   other merge.
+2. Wait until the newest CI run on the exact head has no failed or cancelled
+   job apart from the feedback `proof` job, and until main is not red.
+3. Take the lease, so the merge cannot race another session's confirmation:
+   `bun scripts/integrate.ts acquire <pr>` (it prints a lease id and a holder
+   token). If another session holds it, wait. Never merge past a live lease.
+   For a proof-system candidate, `acquire` first enforces the stability window
+   and off-main qualification, with the same declared red-main fix exemption
+   as `confirm`; the fast lane skips neither gate.
+   `acquire` needs the PR's recorded base to be main's current tip. If main has
+   moved, merge `origin/main` into the branch, push, and repeat step 2 on the
+   new head ("An open ordinary exact-main candidate is required" means this).
+4. `gh pr ready <pr>`, then
+   `gh pr merge <pr> --squash --match-head-commit <verified-head>`, then
+   `bun scripts/integrate.ts release <lease-id> --token <holder-token>`.
+5. Verify the merge as in **Merge and verify** below, and watch the squash's
+   main run until it is green. A red run is an ordinary red-main incident.
 
 ## Merge and verify
 
@@ -318,15 +408,19 @@ Immediately re-read head/state/reviews/checks and query live main again.
 Keep the verified head/base/tree from the passing combined-state inspection:
 
 ```sh
-current_head=$(rtk proxy gh pr view <pr> --repo schlessera/brain-kit \
-  --json headRefOid --jq .headRefOid)
-current_base=$(rtk proxy gh api repos/schlessera/brain-kit/git/ref/heads/main \
-  --jq .object.sha)
-rtk proxy git fetch origin main
-rtk proxy test "$(rtk proxy git rev-parse origin/main)" = "$current_base"
-rtk proxy test "$current_head" = "$verified_head"
-rtk proxy git diff --name-only "$verified_base" "$current_base"
+bun scripts/pr-status.ts <pr> --expect-head "$verified_head" --expect-base "$verified_base"
+git fetch origin main
 ```
+
+It exits 1 when either moved. `unchanged` says which, and `baseGained` lists
+how many files the base gained and which of them this pull request also
+changes. GitHub lists at most 300 files of a comparison and 3000 of a pull
+request. When either list was cut short, `baseGained.overlapIncomplete` says
+which: `overlapsThisPr` is then a lower bound, and an empty one does not mean
+the base moved clear of this pull request. Read both lists from Git instead:
+`git diff --name-only "$verified_base" origin/main` for what the base gained,
+and `git diff --name-only origin/main...HEAD` for what the pull request
+changes.
 
 A head mismatch requires new inspection. A base mismatch requires assessment of
 the missing commits and new confirmation: request candidate confirmation for the new base; a rebase is needed only when the change requires it. Record unrelated advancement and retain the original tested base/tree;
@@ -335,16 +429,16 @@ passing head, a ready PR and satisfied branch rules. A completed partial
 slice uses `Refs` and states remaining acceptance/verification work.
 
 ```sh
-rtk proxy bun scripts/integrate.ts merge <pr> --lease <owned-lease-id> --token <holder-token> \
+bun scripts/integrate.ts merge <pr> --lease <owned-lease-id> --token <holder-token> \
   --issues schlessera/brain-kit#<advanced-issue>
-rtk proxy gh pr view <pr> --repo schlessera/brain-kit \
+gh pr view <pr> --repo schlessera/brain-kit \
   --json state,mergeCommit,mergedAt,headRefOid,url
-rtk proxy git fetch origin
-rtk proxy git merge-base --is-ancestor <merge-commit-sha> origin/main
-rtk proxy git show --no-patch --format='%H %P %T' <merge-commit-sha>
-rtk proxy test "$(rtk proxy git show -s --format=%P <merge-commit-sha>)" \
+git fetch origin
+git merge-base --is-ancestor <merge-commit-sha> origin/main
+git show --no-patch --format='%H %P %T' <merge-commit-sha>
+test "$(git show -s --format=%P <merge-commit-sha>)" \
   = "$verified_base"
-rtk proxy test "$(rtk proxy git rev-parse <merge-commit-sha>^{tree})" \
+test "$(git rev-parse <merge-commit-sha>^{tree})" \
   = "$verified_tree"
 ```
 
@@ -352,7 +446,8 @@ The shared command independently verifies selected jobs, actual checkout
 identities, milestones and final live ownership before its matching-head
 squash. A successful squash returns exit 2: reconcile automatic main jobs and
 checkout evidence separately even if a workflow summary is already green.
-Direct `gh pr merge` is not the cooperative merge procedure. Preserve branches
+Direct `gh pr merge` is not the cooperative merge procedure, except under a
+held lease on the [fast lane](#fast-lane). Preserve branches
 while a worktree/worker needs them. Follow a
 required merge queue's accepted strategy and monitor queue checks and
 **actual merge**: enqueued does not mean merged. For a queue, inspect the

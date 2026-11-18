@@ -20,6 +20,376 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Per-review line-comment counts (additive, 0.45.0, #4147)
+
+Each review in a `brain_github_issue_read` pull request result gains
+`line_comments`: the exact number of line comments on that review, or `null`
+when the host could not establish one. The host counts them from one bounded
+page of the pull request's review comments and never reports a partial total.
+A review in an internal detail page carries `null`, and a result recorded
+before 0.45.0 has no field, which reads as `null`.
+`GITHUB_LIMITS` gains `reviewComments` (100), the page the count is taken from.
+Field names, inputs and existing meanings are unchanged. See
+[the MCP component](integration-contract/mcp.md#per-review-line-comment-counts-additive-0450-4147).
+This ships in a minor.
+
+## Extraction classifier setting (additive, 0.45.0, #4088)
+
+The governance policy gains optional `taint.classifier`, `off` (the default) or
+`heuristics`, and `brain policy check --json` reports it in `effective.taint`.
+See [the supported input](supported-inputs.md#governance-policy),
+[the CLI component](integration-contract/cli.md) and
+[the package API](integration-contract/package-api.md#extraction-classifier-setting-additive-0450-4088).
+This ships in a minor; no breaking ruling is required.
+
+## Extraction judge setting and metered operation (additive, 0.45.0, #4089)
+
+The governance policy gains optional `taint.judge`, `{ mode: "off" | "jev", floor }`,
+resolved to `{ mode: "off", floor: 0.9 }`, and `brain policy check --json`
+reports it in `effective.taint`. With `mode: jev` beside
+`classifier: heuristics`, the host's judge calls are recorded in the turn
+budgets as relayed attempts of family `typesafe` with the new operation
+`extraction_judge`. See [the supported input](supported-inputs.md#governance-policy),
+[the CLI component](integration-contract/cli.md) and
+[the package API](integration-contract/package-api.md#extraction-judge-setting-additive-0450-4089).
+This ships in a minor; no breaking ruling is required.
+
+## Reference pool growth status (additive, 0.45.0, #3515)
+
+The host-only `brain-native-store pool` projection gains a read-only `growth`
+action, the native manager client gains `poolGrowth()`, and the protocol gains
+`NativePoolGrowth`. They report each worktree's and each changed refresh's
+owner charge against its chain's cold acquisition, and retained sources per
+published name across views. Flags apply the ruled thresholds and carry
+measured bytes only. See
+[the package API](integration-contract/package-api.md#reference-pool-growth-status-additive-0450-3515).
+This ships in a minor; no breaking ruling is required.
+
+## Turn data trees on the managed volume (additive, 0.45.0, #2911)
+
+The native manager client and the lease owner gain `prepareTurnTree(id,
+allowanceBytes)`, returning `NativeTurnTree` (`{ id, path, allowanceBytes }`),
+and `releaseTurnTree(id)`. `NativeRecoveryRecord.kind` gains `tree`, with an
+optional `treeRequest`. A strict, voice or autonomous turn on managed storage
+now keeps its data tree there, filled by reflinks. Described in
+[the package API](integration-contract/package-api.md#managed-turn-data-trees-additive-0450-2911).
+
+## Consumer frames without `pong` (breaking before 1.0, 0.45.0, #3389)
+
+`@schlessera/brain-ui-sdk/protocol` (and the root and `./client` entries that
+re-export it) exports `ConsumerServerMessage`: every `ServerMessage` except
+`ServerPong`. `ServerFrameHandlers` from `./client` is keyed on it, and its
+`onAny` receives one, so a `pong` handler no longer type-checks.
+`BrainUiClient` consumes `pong` for liveness and never called such a handler.
+This removes a member from a public type and needs the
+[recorded ruling](https://github.com/schlessera/brain-kit/issues/3389#issuecomment-6601349605);
+it ships in a minor with the `breaking` label. The wire is unchanged: the host
+still answers `ping` with `pong`, and `ServerMessage`, `ServerPong` and
+`parseServerMessage` keep it. In `@schlessera/brain-ui-react`, the
+conversation client gains `receive(frame)` for the eight frames it owns, which
+reach it through the handler map instead of its `frame()` prefilter. See
+[the package component](integration-contract/package-api.md#consumer-frames-without-pong-breaking-3389).
+
+## JeV reranking through the provider relay (additive, 0.45.0, #3792)
+
+The CLI provider relay gains the `typesafe` family, `x-brain-provider:
+typesafe`, whose only route is `POST /v1/systemone`. A governed or strict turn
+worker whose `TYPESAFE_API_KEY` the host withholds sends the `jev` reranker's
+request there; the host adds its key for `https://api.typesafe.ai` and meters
+the attempt as operation `reranking`, with an unknown cost rather than zero.
+Such a worker's `brain search` and `brain_search` are reranked instead of
+reporting `provider_unavailable` and falling back to lifecycle order; a host
+without the relay keeps that notice. Credentialed maintenance workers keep the
+key as before. See [the CLI component](integration-contract/cli.md#provider-relay-additive-0440-1673).
+This ships in a minor; no breaking ruling is required.
+
+## The Start card's persona choice (additive, 0.45.0, #3698)
+
+In `@schlessera/brain-ui-react`, the conversation client's state adds
+`personaChoice: ConversationPersonaRef | null`, and the client adds
+`choosePersona(ref | null)`: the persona this entry's Start sends as
+`personaRef` instead of the saved one, including the one-time
+`{ id: "standard", revision: "builtin" }` and `voice: "default"` choices.
+It saves nothing and is cleared on Enter and Leave. A first Start the host
+refused, which opened nothing, may choose a service or persona again; a
+`CONVERSATION_PERSONA_CHANGED` refusal clears the choice. No wire or HTTP
+shape changes. See
+[the package API](integration-contract/package-api.md#start-card-persona-choice-3698).
+This ships in a minor.
+
+## Approval display facts for a GitHub comment (additive, 0.45.0, #4154)
+
+`tool_approval_request` gains optional `display` (`ApprovalDisplay`), and
+`PermissionRequest` in `@schlessera/brain-ui-sdk/server` gains the same
+optional field. A `brain_github_issue_comment` card carries the account the
+host's credential would post as and whether the target is an issue or a pull
+request, each `null` when the host could not verify it. The facts are
+display only: the approved input, the answer comparison, the tool's result
+and provider-facing history are unchanged. The comment card's target lookup
+asks the turn's data routing first. In `@schlessera/brain-ui-kit`,
+`GitHubComment` in `preview` accepts no `author` ("The host's GitHub
+account") and shows its whole draft, and `GitHubRef` accepts `kind: null`
+(`repository #number`, no kind, no chip, no link). See
+[the wire component](integration-contract/wire.md#approval-display-facts-additive-0450-4154)
+and [the MCP component](integration-contract/mcp.md#github-writes-additive-0450-3798).
+This ships in a minor; no breaking ruling is required.
+
+## Data routing for the host GitHub reads (additive, 0.45.0, #4029)
+
+GitHub is a provider-policy recipient, named `github`. Before any request,
+`brain_github_issue_read` and `brain_github_issue_search` refuse a
+conversation that has shown a provider folder the policy keeps from `github`
+(`policy_denied`, reason `recipient_restricted`), and, under a policy that
+restricts `github`, one whose exposure cannot be judged (`policy_denied`,
+reason `recipient_unproven`). The two reasons are new on the read tools. A
+policy whose `providers` rules do not allow `github` therefore starts
+restricting GitHub reads for those folders. The write tools are not routed:
+their card and `outward.github.repositories` stay their gate. See
+[the MCP component](integration-contract/mcp.md#github-data-routing-additive-0450-4029)
+and [supported inputs](supported-inputs.md#governance-policy).
+This ships in a minor.
+
+## Host GitHub writes and their repository allow-list (additive, 0.45.0, #3798)
+
+Both first-party backends register `brain_github_issue_create` and
+`brain_github_issue_comment` in every interactive session's fixed roster,
+after the two reads, whatever the host's configuration or the turn's
+posture; no autonomous roster lists them. A write goes only to a repository
+the new governance policy key `outward.github.repositories` lists, exactly as
+`owner/repo` or as `owner/*`, compared without case; anything else is
+refused with `policy_denied` (`repository_not_allowed`) before any card, and
+an absent or empty list refuses every write. Inside the list, the host shows
+one per-use card with exactly what will be sent and sends it once on an
+unedited approval; a denial, an edited approval or a voice turn
+(`approval_declined`) sends nothing. Each decision is an `outward_action`
+governance event (`gh_write`) that the turn journal lists as irreversible.
+`brain policy check --json` reports `effective.outward.github.repositories`
+(default `[]`). Claude's SDK-options roster gains the two names. See
+[the MCP component](integration-contract/mcp.md#github-writes-additive-0450-3798)
+and [supported inputs](supported-inputs.md#governance-policy).
+This ships in a minor.
+
+## Raw GitHub API connections keep their Network card (additive, 0.45.0, #3799)
+
+This records shipped behaviour; its only new surface is the brief input
+below. When a shell command connects to an outward GitHub host (`api.github.com`, `uploads.github.com`)
+and the classifier cannot read it, the connection waits on the existing
+per-use `Network` card. The card names method, host and port. Allowing it
+admits the connection. Declining it refuses with `outward_not_approved`.
+Stopping the turn cancels the connection. A card raised with no client
+connected is sent to the next client that connects. Both backends' fixed
+system brief names the host GitHub tools under their visible names, tells the
+model not to fall back to `gh`, `curl` or WebFetch, and says what to do when
+the tools are unavailable. Sessions retained before it keep their earlier
+append. `buildSystemPromptAppend` gains the optional `githubTools` input for
+it ([package API](integration-contract/package-api.md#github-tools-system-brief-additive-0450-3799)). See
+[the MCP component](integration-contract/mcp.md#raw-connections-to-githubs-api-0450-3799)
+and [the decision](decisions/governed-writable-workers.md#outward-actions-g5).
+
+## GitHub detail-page types (additive, 0.45.0, #3796)
+
+`@schlessera/brain-ui-sdk/tool-contracts` adds the detail-page part list,
+the page-size bound, the review-comment, changed-file and check-run item
+schemas, the page schema and the detail error schema with `reset_at`, which
+the two new internal ui-server routes return to the chat's GitHub components:
+`GET /api/sessions/:id/github/:owner/:repo/:number/:part` and
+`GET /api/sessions/:id/github/avatars/:login`. The routes are internal (`I`)
+with no compatibility guarantee; nothing they serve enters the
+provider-facing conversation. See
+[the package API](integration-contract/package-api.md#github-detail-page-types-additive-0450-3796)
+and [the HTTP API](http-api.md#github-detail-pages-internal-0450-3796).
+This ships in a minor.
+
+## Host GitHub tools (additive, 0.45.0, #3797)
+
+Both first-party backends' interactive sessions gain two host-executed read
+tools in their fixed roster: `brain_github_issue_read` and
+`brain_github_issue_search` (`mcp__brain-ui__*` on Claude, plain on pi). Two
+write tools, `brain_github_issue_create` and `brain_github_issue_comment`, are
+declared with their schemas and payloads, and registered since #3798. Results are
+typed payloads for an issue, a pull request and a search, with bounded lists
+carrying `total_count` and `has_more`, untrusted text marked in the schema,
+and direct links that pass the exported `githubDirectUrl` and
+`githubSearchUrl` validators or are `null`. The host reads only the new
+`BRAIN_UI_GITHUB_TOOLS_TOKEN`, with no fallback to `GITHUB_TOKEN`; no worker
+or maintenance environment receives it, and without it the tools answer
+`unavailable`. A read taints the session with the new governance taint source
+`github_result`. No autonomous roster lists the tools. The SDK gains the
+contracts, payload schemas, `handleGithubTool` and `BackendBridge.github`. See
+[the MCP component](integration-contract/mcp.md#host-github-tools-additive-0450-3797).
+This ships in a minor.
+
+## Host-owned web tools for Pi (additive, 0.45.0, #3685)
+
+Pi's ordinary governed and strict interactive sessions gain four
+host-executed bridge tools: `web_search`, `fetch_content`,
+`get_search_content` and `source_check`. Their parameters are the pinned
+upstream pi-web-access tools, narrowed: no field chooses an endpoint, proxy,
+command, local path or credential, and `provider` is limited to the curated
+catalog and to the subset the host admits. Deferred workflows (answer mode,
+summaries, curator review, video) and the excluded credential modes answer
+`unsupported`. Each result is one JSON envelope. A `responseId` is a host
+handle scoped to the calling principal and session. No autonomous roster lists
+the tools, and a host without a web executor refuses them before they run. The
+SDK gains the tool contracts, `WebToolEnvelope`, `parseWebToolInput`,
+`handleWebTool` and `BackendBridge.webAccess`. See
+[the MCP component](integration-contract/mcp.md#host-owned-web-tools-additive-0450-3685)
+and [the package component](integration-contract/package-api.md#host-owned-web-tools-additive-0450-3685).
+This ships in a minor.
+
+## Subscription and current-model web search for Pi (additive, 0.45.0, #3688)
+
+A Pi turn whose inference runs on the host relay lends its admitted model to
+the web tools: `web_search` can use that turn's ChatGPT/Codex login, or the
+current model, for OpenAI search. The host resolves and refreshes the
+credential; the executor holds a placeholder, and a request for any other
+model is refused. Tool names, inputs and envelopes are unchanged. In the SDK,
+`WebToolCall` gains the optional `model: WebModelAccess`, with the new types
+`WebModelAccess`, `WebModelEgress` and `WebModelGrant`, and `handleWebTool`
+an optional fifth argument that sets it. See
+[the MCP component](integration-contract/mcp.md#host-owned-web-tools-additive-0450-3685)
+and [the package component](integration-contract/package-api.md#host-owned-web-tools-additive-0450-3685).
+This ships in a minor.
+
+## Host web executor for Pi (additive, 0.45.0, #3686)
+
+The four web tools now run on a host executor: the pinned upstream
+`pi-web-access` 0.41.0 in a trusted Pi session, one child process per
+principal's session, with provider configuration and keys on the host only.
+Their names, inputs and envelopes are unchanged. `GET /api/web-search` gains
+two fields. `unavailable` lists the features the host web tools do not
+offer, each `{ id, label, kind }` with `kind` either `deferred` or
+`excluded`. Each provider gains `keyIsCommand`, true when its stored key is a
+`!command` credential, which the host never runs. Such a key no longer counts
+as a credential, so it cannot enable a provider. `buildSystemPromptAppend`
+accepts `webTools: true`, which adds the brief's line on what the web tools
+do not offer. This ships in a minor.
+
+## Retained voice history belongs to its account (additive, 0.45.0, #3963)
+
+Another owner login continues a chat's retained dialogue by voice, reads it
+and receives its live pages; a pruned starting login no longer strands it. A
+live conversation and its epochs stay with the login that opened them, and
+other accounts are refused as before. No field changes. See
+[wire](integration-contract/wire.md#retained-voice-history-belongs-to-its-account-additive-0450-3963),
+[HTTP](integration-contract/http.md#retained-conversations-account-additive-3963)
+and [the package API](integration-contract/package-api.md#retained-dialogue-data-3177).
+This ships in a minor; no breaking ruling is required.
+
+## Retained barge-in and conversation end (additive, 0.45.0, #3729)
+
+`DialogueEvidence` gains `voice_interruption`, written when the host forwards
+a provider `interrupted` event (with its `outputId` when the provider named
+one), and `voice_end`, written when the operator's final stop ends a
+conversation (`startedAt`/`endedAt`, host clock milliseconds). Both are display
+evidence on the existing dialogue write path and never enter provider history.
+The React client draws the cut-off tag and the end divider only from them, so a
+live chat and the same chat reloaded show the same marks. An earlier-minor
+client refuses a page that carries the new kinds. See
+[wire](integration-contract/wire.md#retained-barge-in-and-conversation-end-additive-0450-3729)
+and [the package API](integration-contract/package-api.md#retained-dialogue-data-3177).
+This ships in a minor; no breaking ruling is required.
+
+## Live-conversation personas (additive, 0.45.0, #3617)
+
+A persona is authored Markdown at `_voice/personas/<id>.md` in the brain: a
+name, one voice per live service and plain-text speaking-style instructions.
+Core excludes `_voice` from the content index by default
+([configuration](configuration.md#exclude)). New owner-only routes read and
+write personas with sha-256 revisions, and `GET/PUT /api/settings/voice`
+carries the selection (`voice.live.persona`, its own revision) in the server
+settings store, never in `brain.db`. `LiveConversationProvider` gains optional
+`voices`, `defaultVoice` and `personaInstructionBytes`, mirrored on
+`ConversationProfile` outside the disclosure a Start must echo;
+`LiveConversationOpenOptions.persona` carries the persona frozen at Start.
+`server_hello.livePersona` and the new `live_persona` frame describe the
+selected persona to human sessions; `conversation_start.personaRef` echoes it,
+with `voice: "default"` as the explicit one-time stale-voice override. A
+conversation that sends no persona keeps exact current behaviour. See
+[wire](integration-contract/wire.md#live-conversation-personas-additive-0450-3617),
+[HTTP](integration-contract/http.md#live-conversation-personas-additive-0450-3617)
+and [the package API](integration-contract/package-api.md#live-conversation-personas-additive-0450-3617).
+This ships in a minor; no breaking ruling is required.
+
+## Choosing the dictation provider in the app (additive, 0.45.0, #3709)
+
+`openSettings("voice")` opens a new Settings › Voice pane, which holds the
+brain-wide dictation default. `RecordingStore.transcribe` accepts an optional
+provider id, sent as `Speech-Provider`; a retry refused for naming another
+provider applies the returned receipt and rejects; a pre-claim refusal
+carries the server's code as `code`. The kit `Composer` adds
+`micTip?: boolean` and `micUnavailable?: string`. Existing calls behave as before, and no HTTP or protocol
+shape changes. See
+[the package API](integration-contract/package-api.md#dictation-speech-integration-and-conformance).
+This ships in a minor.
+
+## Choosing the live-conversation service (additive, 0.45.0, #3616)
+
+`CreateAppOptions` adds `conversationProviders?: LiveConversationProvider[]` and
+`defaultConversationProviderId?: string`; `conversationProvider` keeps meaning a
+list of one, and both together, duplicate ids or an unregistered default fail
+startup. `server_hello` adds `conversationProfiles` and `liveDefault`, and keeps
+`conversationProfile` only while a service is effective (R1). A new
+`live_settings` frame follows a save, `conversation_start` accepts an optional
+`providerId` that must equal the disclosed one, and `conversation_opened` adds
+`providerSource`. `GET`/`PUT /api/settings/voice`, shared with the persona
+selection (#3617), add the top-level `defaultProvider`/`revision` pair for the
+brain-wide default, each group with its own revision, and the route's writes
+gain a new owner-only guard. The SDK exports `LiveDefault`,
+`LiveProviderSource`, `ServerLiveSettings`, `VoiceLiveSettings`,
+`VoiceLiveSettingsUpdate` and their schemas; the kit adds `LiveServiceSettings`.
+In `@schlessera/brain-ui-react`, the conversation client's state adds
+`conversationProfiles`, `liveDefault` and `serviceChoice`, the client adds
+`chooseService(providerId | null)` for a one-time pick before Start, and the
+REST client adds `liveSettings()` and `saveLiveSettings()`.
+Single-provider hosts and existing clients keep their behaviour. See
+[wire](integration-contract/wire.md#live-service-selection-additive-3616),
+[HTTP](integration-contract/http.md#live-conversation-service-default-additive-3616)
+and [the package API](integration-contract/package-api.md#live-service-registration-additive-3616).
+This ships in a minor.
+
+## Bounded multi-read (additive, 0.45.0, #3642)
+
+A new read tool, `brain_read_many`, on the MCP server and the pi backend, and a
+new command, `brain read-many --json`, all over one core operation. One call
+reads up to 20 documents or sections and keeps its whole JSON answer within
+`max_total_chars` (default 24,000, 2,000 to 40,000) and each item within
+`max_item_chars` (default 8,000), counted as UTF-16 units of the serialized
+JSON. Each item is `full`, `outline`, `partial`, `duplicate` or `error`, carries
+its file's `sha256`, and says how to continue; invalid input is refused, never
+clamped. `brain_read`, `brain_read_base` and every other tool and envelope are
+unchanged. See [the MCP component](integration-contract/mcp.md#bounded-multi-read-additive-0450-3642)
+and [the CLI component](integration-contract/cli.md). This ships in a minor; no
+breaking ruling is required.
+
+## Setup timeouts name their step (additive, 0.45.0, #3664)
+
+A separate-UID worker launch that misses its identity readiness deadline still
+refuses with `errorClass: "worker_host_unsupported"` and the requirement
+`worker_identity_setup_timed_out`. That requirement now always carries a
+parenthetical detail, which it never had before. The detail names the
+supervisor's last recorded setup step, for example
+`(step: launch-sent, ms: 312, sinceSpawnMs: 340)`. The steps are `started`,
+`listening`, `launch-sent`, `launch-acked`, `status-read` and `mounts-acked`.
+`step: none` means no step was recorded, and `step: refused (…)` means the record
+was not read. Any launch stderr follows after `; `, within the existing 400-byte
+detail. Requirement text is descriptive and other requirements already carry
+such a detail, so no field, class or meaning changes. See
+[wire](integration-contract/wire.md) and [the worker-host status](integration-contract/http.md).
+This ships in a minor.
+
+## Observed live content map (additive, 0.45.0, #3630)
+
+`ConversationOrientation.knowledge[].topic` additionally accepts `content_map`:
+an observed, explicitly partial map of existing root/top-level directory index
+leads, never runtime taxonomy or instruction authority. Both first-party
+profiles disclose this transfer at Start. Existing policy-held root anchoring,
+authorization, whole-policy omission and startup byte ceilings apply. There is
+no new frame, provider seam, automatic task or repository-config execution.
+See [the package API](integration-contract/package-api.md#observed-live-content-map-additive-0450-3630),
+[the disclosure amendment](integration-contract/wire.md#observed-content-map-disclosure-additive-3630)
+and [source mapping and bounds](live-conversation-guidance.md). This ships in a minor.
+
 ## Refusals say why (additive, #3431)
 
 A relayed provider request refused by the CLI provider relay keeps its `403`
@@ -74,6 +444,26 @@ directs. The new environment input is `BRAIN_UI_ATTACHMENT_POOL_BYTES`. See
 [the wire component](integration-contract/wire.md#composer-file-attachments-additive-0450-3153),
 [the HTTP API](http-api.md#composer-file-attachments-additive-0450-3153) and
 [package API](integration-contract/package-api.md#composer-file-attachments-additive-0450-3153).
+On such a host the React package uploads images as originals too and sends
+each frame with `ChatImageAttachment.fileId` naming its original (#3155); a
+legacy draft image and a host without the flag keep the inline-only path.
+
+## Outgoing snapshot list (additive, 0.45.0, #3588)
+
+A draft keeps up to 10 outgoing snapshots per chat instead of #3153's one
+slot: `Draft.snapshots?` and `DraftSaveRequest.snapshots?`, each snapshot
+`{ snapshotId, requestId, text, fileIds, state: "held" | "returned" |
+"dispatched", createdAt }`, and `SessionDraftLimits.maxOutgoingSnapshots`.
+The save that creates one is refused with the new 409 `DRAFT_OUTGOING_FULL`
+when the chat is full; a delete that would drop a held or unconfirmed one is
+the new 409 `DRAFT_OUTGOING_PENDING`. `Draft.outgoing` and the single-slot
+write keep their shape and meaning for one held or unconfirmed send. The save
+body bound rises from 512 KiB to 4,390,912 bytes to carry ten snapshot texts.
+An acceptance that releases a snapshot moves the draft to a new revision even
+when it keeps the draft, so a save that still lists the sent snapshot is 409
+`DRAFT_CONFLICT` with `current` rather than recreating it (#3733).
+See [the wire component](integration-contract/wire.md#composer-file-attachments-additive-0450-3153)
+and [the HTTP API](http-api.md#outgoing-snapshot-list-additive-0450-3588).
 
 ## Reading composer attachments on demand (additive, 0.45.0, #3154)
 
@@ -93,6 +483,44 @@ it keep their wording and still replay. The SDK gains the tool contract,
 files answers `unavailable`. See
 [the MCP component](integration-contract/mcp.md#read_attachment-additive-0450-3154)
 and [the package component](integration-contract/package-api.md#reading-composer-attachments-additive-0450-3154).
+This ships in a minor.
+
+## Attachment reads for sent rows (additive, 0.45.0, #3589)
+
+A host with composer files advertises `server_hello.capabilities.attachmentReads`.
+`GET /api/sessions/:id/attachment-reads` returns the recorded `read_attachment`
+calls of the originals a session's messages name, as `{ fileId, turnId,
+outcome, scope, at }` and never their text, under the session's existing
+authorization. A read recorded during a live turn reaches the connections that
+declared the same flag as one new `attachment_read` frame. `ServerMessage`
+gains that variant; a client without the flag never receives it. Nothing of
+either reaches a provider. See [the wire component](integration-contract/wire.md#attachment-reads-additive-0450-3589)
+and [the HTTP API](http-api.md#attachment-reads-additive-0450-3589). This
+ships in a minor. The SDK's `BrainUiClient` now declares the flag in its
+`client_hello`, and the React package shows the records on sent rows (#3155).
+
+## Outgoing snapshot bubbles (additive, 0.45.0, #3155)
+
+`@schlessera/brain-ui-react` keeps each send as a durable outgoing snapshot
+on a host with #3588's list, and draws held, returned and unconfirmed ones as
+bubbles in the transcript. `BrainUiConnection.drafts` gains
+`resendSnapshot(requestId)` and `sendPaused(draftId, snapshotId)`.
+`@schlessera/brain-ui-kit`'s `StatusIndicatorProps` gains optional
+`announce`; `false` drops the indicator's own live region. The `chat_message`
+frame and every host route keep their shapes. See
+[the wire component](integration-contract/wire.md#composer-file-attachments-additive-0450-3153)
+and [the package component](integration-contract/package-api.md#outgoing-snapshot-bubbles-additive-0450-3155).
+This ships in a minor.
+
+## Composer draft indicator (additive, 0.45.0, #3155)
+
+`@schlessera/brain-ui-kit`'s `ComposerProps` gains optional `status`, a
+compact status beside the attach trigger. `@schlessera/brain-ui-react`'s
+composer passes its draft indicator there, in place of the save line under
+the field. `BrainUiConnection.drafts` gains `checkSave(draftId)`, a read-only
+Check again for a draft save whose answer was lost. Every route and wire
+frame keeps its shape. See
+[the package component](integration-contract/package-api.md#composer-draft-indicator-additive-0450-3155).
 This ships in a minor.
 
 ## Reading a chat deletion's outcome (additive, #3455)
@@ -235,6 +663,18 @@ an `allowlist` egress mode, or the exact origins in
 `BRAIN_UI_CLI_PROVIDER_ORIGINS`. There is no new opt-out field. See
 [the G6 ruling](decisions/governed-writable-workers.md#untrusted-input-g6) and
 [supported inputs](supported-inputs.md).
+
+## Module repositories (additive, 0.45.0, #3380)
+
+A module's config block accepts an optional core-owned `repositories` list of
+repository URLs its cron jobs may read, and `brain module list --json` adds
+`repositories: string[]` to each configured module. The cron runner fetches a
+listed repository only when the operator's new `BRAIN_UI_MODULE_REPOSITORIES`
+host setting names it too; otherwise the job is refused before it starts. The
+host fetches with its sync credential into a private mirror, and the job's
+worker reads the mirror through a Git URL rewrite without any credential. See
+[the package API component](integration-contract/package-api.md#module-repositories).
+This ships in a minor; no breaking ruling is required.
 
 ## Module state area (additive, 0.45.0, #3380)
 
@@ -462,6 +902,20 @@ answer as for a chat that does not exist. The session catalog's
 No request, receipt, frame or field shape changes, and paging and retention of
 undeleted chats are unchanged. This ships in a minor.
 
+## Same-account chat deletion (additive, #4138)
+
+`POST /api/chat-deletions` ([HTTP](http-api.md#explicit-chat-deletion-additive-3230))
+now admits any usable owner login when every recorded owner of the chat proves
+that same owner account, so a chat two owner logins used, by voice or by typing,
+is deleted by either of them, also after the other login is pruned. A chat with
+a record of another account, or with missing, corrupt or contradictory account
+evidence, still refuses as `unavailable`. The operation, its receipt and its
+retry key stay with the login that started it. Agent, ambient, system, revoked
+and expired callers are still `unauthorized`. No request, receipt, refusal or
+frame shape changes, and live conversation and epoch control is unchanged
+([decision](decisions/chat-history-deletion.md#same-account-deletion--2026-11-17-4138)).
+This ships in a minor.
+
 ## Native history removal (additive, #3229)
 
 `BackendCapabilities.historyRemoval?` and the optional
@@ -522,7 +976,8 @@ carry an optional authorized, frozen chat snapshot, separately from native
 same-conversation resync. `LiveConversationSession.historyCoverage` and
 `conversation_opened.historyCoverage` optionally report the actual startup
 selection's `state` (`complete`, `bounded`, `partial`, `unavailable`) and
-`tailOmitted`. This is data receipt/selection evidence, never a guarantee of
+`tailOmitted`, plus, additively (#3699), `includedMessages`: the number of
+prior chat and spoken messages actually sent. This is data receipt/selection evidence, never a guarantee of
 semantic recall. See the [package API](integration-contract/package-api.md#existing-chat-live-context-3178)
 and [wire behavior](integration-contract/wire.md#existing-chat-live-context-3178).
 
@@ -1005,6 +1460,10 @@ Original fragment identities remain available at this entry point.
 
 - [ui-server HTTP routes](integration-contract/http.md#ui-server-http-routes) (original line 1943).
 
+<a id="degraded-backend-availability-and-unknown-expiry-additive-3817"></a>
+
+- [Degraded backend availability and unknown expiry (additive, #3817)](integration-contract/http.md#degraded-backend-availability-and-unknown-expiry-additive-3817).
+
 <a id="published-react-health-and-sync-helpers-breaking-health-correction"></a>
 
 - [Published React health and sync helpers (breaking health correction)](integration-contract/http.md#published-react-health-and-sync-helpers-breaking-health-correction) (original line 1964).
@@ -1368,6 +1827,23 @@ worktree into or out of one worker-bound directory; `NativePoolRecord` gains
 the `checkpoint` purpose and `access`. Described in
 [the package API](integration-contract/package-api.md#managed-worktree-storage-additive-2430).
 
+## Diff-assisted propagation freshness review (additive, 0.45.0, #3452)
+
+Optional canonical `hygiene.propagation` configuration authorizes bounded JEV
+currency review with source diffs, user-selected confidence floors and veto-only
+cross-checks. Automation is off by default; opted-in review defaults to the
+balanced profile (0.7 floor with both cross-checks). Separate Markdown judgment receipts can
+suppress a propagation finding without changing content-edit dates; all changed
+or unavailable evidence returns to review. `brain hygiene propagation --json`
+adds inspectable dry-run/judgment/sensitivity output, and enabled reconciliation
+adds an optional `propagation` report. Scope/reference frontmatter and rule scope
+are additive inputs. See [CLI](integration-contract/cli.md#propagation-freshness-additive-0450-3452),
+[file semantics](integration-contract/frontmatter.md#propagation-freshness-additive-0450-3452)
+and [configuration](configuration.md#hygienepropagation). Hosted scheduling has
+a separate operator opt-in; existing interactive hygiene stays credential-free.
+This ships in a minor; existing dates, CLI fields and provider activation retain
+their meaning. No breaking ruling is required.
+
 ## Managed worktree hygiene review (additive, #2431)
 
 The human-started hygiene review (`/api/hygiene/review`) also selects host-only
@@ -1390,6 +1866,15 @@ every file default when omitted; the hygiene review uses it for managed-worktree
 findings. Described in
 [the package API](integration-contract/package-api.md#hygiene-card-caller-copy-additive-0440-2837).
 
+
+## Immutable reference read tool (additive, 0.45.0, #3613)
+
+Both backends gain `reference_read`, a bounded regular-file read from a
+host-acquired GitHub commit. The [MCP contract](integration-contract/mcp.md#immutable-reference-read-additive-0450-3613)
+defines its strict inputs and byte-preserving content result. The
+[package API](integration-contract/package-api.md#immutable-reference-read-additive-0450-3613)
+records the additive shared contracts and runtime call identity. Host-only
+acquisition/read/result evidence supplies no repository trust exemption.
 
 ## Reference and worktree tools (additive, 0.44.0, #2432)
 

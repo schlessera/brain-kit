@@ -3,18 +3,19 @@
  * proof is `tests/autonomous-containment.test.ts`; these are the refusals and
  * the selection that never reach a worker.
  */
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Model } from "@earendil-works/pi-ai";
+import * as internal from "@schlessera/brain-ui-sdk/internal";
 import { INFERENCE_PLACEHOLDER } from "@schlessera/brain-ui-sdk/internal";
 import { piAutonomousEnvelope } from "../src/autonomous-envelope.js";
 
 const anthropic = { provider: "anthropic", id: "claude-sonnet-4-6", api: "anthropic-messages", baseUrl: "https://api.anthropic.com" } as Model<any>;
 const dirs: string[] = [];
 const stops: Array<() => void> = [];
-const saved = { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY, ODYSSEUS_PI_KEY: process.env.ODYSSEUS_PI_KEY };
+const saved = { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY, OPENAI_API_KEY: process.env.OPENAI_API_KEY, ODYSSEUS_PI_KEY: process.env.ODYSSEUS_PI_KEY };
 afterEach(() => {
   for (const stop of stops.splice(0)) stop();
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
@@ -38,11 +39,20 @@ describe("pi autonomous envelope", () => {
 
   test("a provider override selects the upstream; a $NAME key reads the server environment", () => {
     delete process.env.ANTHROPIC_API_KEY;
+    // An ambient OpenAI key would answer before the override's key.
+    delete process.env.OPENAI_API_KEY;
     process.env.ODYSSEUS_PI_KEY = "sk-odysseus-override";
     const openai = { provider: "openai", id: "gpt-odysseus", api: "openai-completions", baseUrl: "https://api.openai.com/v1" } as Model<any>;
-    const { relay, inference } = piAutonomousEnvelope(openai, agentDir({ "models.json": { providers: { openai: { baseUrl: "https://gateway.example/v1", apiKey: "$ODYSSEUS_PI_KEY" } } } }));
-    stops.push(relay.stop);
-    expect(inference.basePath).toBe("/v1");
+    const start = spyOn(internal, "startInferenceRelay");
+    try {
+      const { relay, inference } = piAutonomousEnvelope(openai, agentDir({ "models.json": { providers: { openai: { baseUrl: "https://gateway.example/ithaca/v1", apiKey: "$ODYSSEUS_PI_KEY" } } } }));
+      stops.push(relay.stop);
+      expect(inference.basePath).toBe("/ithaca/v1");
+      expect(start).toHaveBeenCalledTimes(1);
+      expect(start.mock.calls[0]![0]).toMatchObject({ upstream: "https://gateway.example/ithaca/v1", credentials: { authorization: "Bearer sk-odysseus-override" } });
+    } finally {
+      start.mockRestore();
+    }
   });
 
   test.each([

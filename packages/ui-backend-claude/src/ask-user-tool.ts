@@ -4,6 +4,7 @@ import { registerInboxTools } from "./inbox-tools.js";
 import { registerReferenceTools } from "./reference-tools.js";
 import { registerComputeTools } from "./compute-tools.js";
 import { registerApifyTools } from "./apify-tools.js";
+import { registerGithubTools } from "./github-tools.js";
 import { registerReadAttachmentTool } from "./read-attachment-tool.js";
 import { registerBrainApplicationTools } from "./brain-application-tools.js";
 import type { AskUserFormLimits } from "@schlessera/brain-ui-sdk/tool-contracts";
@@ -25,6 +26,7 @@ import { BRIDGE_TOOL_POSTURE, handleAskUser } from "@schlessera/brain-ui-sdk/ser
 import { createLocationTool, type LocationHandler } from "./location-tool.js";
 import { createActivityQueryTool, type ActivityQueryHandler } from "./activity-tool.js";
 import { createMaskTool, type MaskHandler } from "./mask-tool.js";
+import { createMarkupTool, type MarkupHandler } from "./markup-tool.js";
 import { createShowBlockTool } from "./show-block-tool.js";
 import { createAskUserListTool, type AskUserListHandler } from "./ask-user-list-tool.js";
 import { createAskUserRankTool, type AskUserRankHandler } from "./ask-user-rank-tool.js";
@@ -108,6 +110,8 @@ export function createBrainUiMcpServer(handlers: {
   compute?: Pick<BackendBridge, "compute">;
   /** The fixed Apify operations (#3162); interactive sessions only. */
   apify?: Pick<BackendBridge, "apify">;
+  /** The host GitHub read tools (#3797); interactive sessions only. */
+  github?: Pick<BackendBridge, "github">;
   /** On-demand reads of the conversation's composer originals (#3154); interactive sessions only. */
   attachments?: Pick<BackendBridge, "readAttachment">;
   application?: Pick<BackendBridge, "applyBrain" | "readBrainBase" | "applyImageMask">;
@@ -118,6 +122,8 @@ export function createBrainUiMcpServer(handlers: {
   askUserFormLimits?: AskUserFormLimits;
   getLocation?: LocationHandler;
   requestMask?: MaskHandler;
+  /** The host's markup operation (#3975); the host writes the layer. */
+  requestImageMarkup?: MarkupHandler;
   queryActivity?: ActivityQueryHandler;
   /** The turn_temp tool (#1703), built with the turn's own access to its worker's turn temp. */
   turnTemp?: SdkMcpToolDefinition<any>;
@@ -134,9 +140,11 @@ export function createBrainUiMcpServer(handlers: {
       askUser: handlers.askUser ?? unavailable, askUserList: handlers.askUserList ?? unavailable,
       askUserRank: handlers.askUserRank ?? unavailable, askUserForm: handlers.askUserForm ?? unavailable,
       requestMask: handlers.requestMask ?? unavailable, queryActivity: handlers.queryActivity ?? unavailable,
+      requestImageMarkup: handlers.requestImageMarkup ?? unavailable,
       inbox: handlers.inbox ?? {}, application: handlers.application ?? {}, reference: handlers.reference ?? {},
       compute: handlers.compute ?? {},
       apify: handlers.apify ?? {},
+      github: handlers.github ?? {},
       attachments: handlers.attachments ?? {},
     };
   }
@@ -150,6 +158,7 @@ export function createBrainUiMcpServer(handlers: {
   if (handlers.requestMask && handlers.brainPath) {
     tools.push(createMaskTool(handlers.requestMask, handlers.brainPath, handlers.application));
   }
+  if (handlers.requestImageMarkup) tools.push(createMarkupTool(handlers.requestImageMarkup));
   if (handlers.queryActivity) {
     tools.push(createActivityQueryTool(handlers.queryActivity));
   }
@@ -191,6 +200,7 @@ export function createBrainUiMcpServer(handlers: {
   if (handlers.reference) registerReferenceTools(server.instance, handlers.reference, observe);
   if (handlers.compute) registerComputeTools(server.instance, handlers.compute, observe);
   if (handlers.apify) registerApifyTools(server.instance, handlers.apify, observe);
+  if (handlers.github) registerGithubTools(server.instance, handlers.github, observe);
   if (handlers.attachments) registerReadAttachmentTool(server.instance, handlers.attachments, observe);
   if (handlers.application && (handlers.stableRoster || handlers.application.applyBrain)) registerBrainApplicationTools(server.instance, handlers.application, handlers.stableRoster, observe);
   if (rosterComplete) {

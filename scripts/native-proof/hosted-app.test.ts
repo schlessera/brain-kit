@@ -9,6 +9,7 @@ import { nativeReleaseObservations } from "./native-release-observation.js";
 import { Database } from "bun:sqlite";
 import { NativeEventLog } from "./event-log.js";
 import { proveRecoveryInventory } from "./recovery-inventory.js";
+import { observationPhases, summarizePhases, median as phaseMedian, type ManagerSpan, type ObservationTrace, type PhaseSample } from "./observation-phases.js";
 
 const SOURCE = "/repo";
 const ARTIFACTS = "/proof/run";
@@ -74,9 +75,11 @@ print(json.dumps(result))`;
   const fsid = /^fsid\s+([0-9a-f-]+)/m.exec(fs.stdout.toString())![1]!;
   mkdirSync("/native-runtime", { mode: 0o755, recursive: true });
   const socket = "/native-runtime/manager.sock";
+  // #2915: every manager operation's lock wait and steps, kept in memory so recording adds no write to its path.
+  const managerSpans: ManagerSpan[] = [];
   const service = await serveNativeBrainManager({ storePath: "/brain-fixture", devicePath: "/dev/brain-native-proof-loop", fsid, brainUuid, socketPath: socket,
     appUid: APP_UID, appGid: APP_UID, stageAllowanceBytes: staging.allowanceBytes, stageBudgetBytes: staging.budgetBytes,
-    capacityBytes: 4 * 1024 ** 3, recoveryReserveBytes: 16 * 1024 ** 2 });
+    capacityBytes: 4 * 1024 ** 3, recoveryReserveBytes: 16 * 1024 ** 2 }, OBSERVATION_TIMING ? { trace: (span: ManagerSpan) => { managerSpans.push(span); } } : {});
   const { createNativeBrainManagerClient } = await import(join(SOURCE, "packages/ui-sdk/src/server/native-brain-manager-client.ts"));
   const admitted = await createNativeBrainManagerClient({ socketPath: socket }).ready();
   expect(admitted.privatePaths, "NATIVE_ADMITTED_EXACT_BACKING_PRIVATE_PATH").toContain("/native-backing/fixture.img");
@@ -282,8 +285,14 @@ print(json.dumps(result))`;
         return { calls: ms.length, medianMs: ms.length ? median(ms) : null, p95Ms: ms.length ? [...ms].sort((a, b) => a - b)[Math.ceil(ms.length * 0.95) - 1] : null, maxMs: ms.length ? Math.max(...ms) : null, ms }; };
       const search = rows.find(row => row.kind === "scheria_search");
       const seeds = rows.filter(row => row.kind === "turn_tree_seed").map(row => ({ ms: row.ms, masked: row.masked, mounted: row.mounted }));
+      // #2911: each mounted tree's Btrfs allocation at seed and at close.
+      type Allocation = { stage: string; masked: boolean; code: number; errors: string; rows: { path: string; total: number; exclusive: number; shared: number }[] };
+      const allocations = rows.filter(row => row.kind === "turn_tree_allocation") as unknown as Allocation[];
+      const bytes = (row: Allocation, key: "total" | "exclusive" | "shared") => row.rows.reduce((sum, entry) => sum + entry[key], 0);
       const timing = { backend: BACKEND, appUid: APP_UID, files: FILES, bytes: BYTES, loadBefore, loadAfter, elapsedMs: performance.now() - timingStart,
         write: cell("write"), edit: cell("edit"), barriers: barriers.map(row => ({ name: row.name, ms: row.ms, ok: row.ok })), seeds,
+        allocations: allocations.map(row => ({ stage: row.stage, masked: row.masked, code: row.code, errors: row.errors,
+          totalBytes: bytes(row, "total"), exclusiveBytes: bytes(row, "exclusive"), sharedBytes: bytes(row, "shared"), rows: row.rows })),
         results: applies.map(row => ({ operation: row.operation, ok: row.ok, indexed: row.indexed, indexStatus: row.indexStatus })), search,
         terminal: sender.frames.filter(f => f.receiptAt >= timingStart && (f.type === "result" || f.type === "error")) };
       writeFileSync(join(ARTIFACTS, "apply-timing.json"), JSON.stringify(timing, null, 2));
@@ -297,6 +306,12 @@ print(json.dumps(result))`;
       // live index still receives every edit when the turn ends.
       expect(barriers.some(row => row.ok && (row.name === "brain_search" || row.name === "mcp__brain__brain_search")), "APPLY_TIMING_SEARCH_WAITED_FOR_INDEX").toBe(true);
       expect(seeds.length, `APPLY_TIMING_TURN_TREE_SEEDED: ${JSON.stringify(seeds)}`).toBeGreaterThan(0);
+      // The trees share the checkpoint's extents: a plain copy would allocate
+      // every total byte (#2911). Growth is what the turn's own changes allocated.
+      const seeded = allocations.filter(row => row.stage === "seed"), closed = allocations.filter(row => row.stage === "close");
+      expect(seeded.length > 0 && seeded.every(row => row.code === 0 && row.rows.length > 0), `APPLY_TIMING_TREE_ALLOCATION_RECEIPT: ${JSON.stringify(allocations)}`).toBe(true);
+      for (const row of seeded) expect(bytes(row, "exclusive"), `APPLY_TIMING_TREE_SHARES_THE_CHECKPOINT: ${JSON.stringify(row)}`).toBeLessThan(bytes(row, "total") / 10);
+      expect(closed.length, `APPLY_TIMING_TREE_GROWTH_RECORDED: ${JSON.stringify(allocations)}`).toBeGreaterThan(0);
       const live = new Database(join(brain, ".brain-index", "brain.db"), { readonly: true });
       try {
         const indexed = (live.query("SELECT d.path FROM documents_fts f JOIN documents d ON d.id = f.rowid WHERE documents_fts MATCH 'harbour AND Nausicaa' ORDER BY d.path").all() as { path: string }[]).map(row => row.path);
@@ -349,7 +364,7 @@ print(json.dumps(result))`;
           const within = (at: number) => result && next && at >= result.at - 1 && at <= next.at;
           const observed = captures.filter(row => within(row.at));
           const frozenAt = freezes.find(row => within(row.at))?.at, resumedAt = frozenAt === undefined ? undefined : resumes.find(row => row.at >= frozenAt && (!next || row.at <= next.at))?.at;
-          return { step: response.step, tool: response.tool, label: response.label as string, isError: result?.isError ?? null, roundTripMs, toolMs,
+          return { step: response.step, tool: response.tool, label: response.label as string, toolUseId: response.toolUseId as string, isError: result?.isError ?? null, roundTripMs, toolMs,
             addedMs: roundTripMs !== null && toolMs !== null ? roundTripMs - toolMs : null, resultToNextRequestMs: result && next ? next.at - result.at : null,
             captures: observed.length, frozenMs: frozenAt !== undefined && resumedAt !== undefined ? resumedAt - frozenAt : null,
             resumeToNextRequestMs: resumedAt !== undefined && next ? next.at - resumedAt : null };
@@ -428,12 +443,41 @@ print(json.dumps(result))`;
       const beginFinish = harbour.map(turnId => ({ turnId, beginMs: elapsed("journal_begin_end", turnId) ?? null, finishMs: elapsed("journal_finish_end", turnId) ?? null }))
         .map(row => ({ ...row, totalMs: row.beginMs !== null && row.finishMs !== null ? row.beginMs + row.finishMs : null }));
       const total = (field: "beginMs" | "finishMs" | "totalMs") => beginFinish.map(row => row[field]).filter((value): value is number => value !== null);
+      // #2915: each writer's hold and each harbour turn's begin and finish, attributed to its steps.
+      const traces: ObservationTrace[] = eventLog.read("observation-trace").filter(row => row.kind === "observation_trace")
+        .map(row => ({ kind: row.traceKind, turnId: row.turnId, ...(row.toolUseId ? { toolUseId: row.toolUseId } : {}), steps: row.steps }));
+      writeFileSync(join(ARTIFACTS, "observation-traces.json"), JSON.stringify({ traces, managerSpans }));
+      const WRITERS = ["write_file", "edit_file", "bash write"];
+      const writers = (timeline?.calls ?? []).filter(call => WRITERS.includes(call.label)).flatMap(call => {
+        const trace = traces.find(item => item.kind === "tool" && item.toolUseId === call.toolUseId);
+        return trace ? [{ label: call.label, sample: { phases: observationPhases(trace, managerSpans), measuredMs: call.frozenMs } as PhaseSample }] : [];
+      });
+      const journalSamples = (kind: "begin" | "finish", field: "beginMs" | "finishMs") => beginFinish.flatMap(row => {
+        const trace = traces.find(item => item.kind === kind && item.turnId === row.turnId);
+        return trace ? [{ phases: observationPhases(trace, managerSpans), measuredMs: row[field] }] : [];
+      });
+      const begins = journalSamples("begin", "beginMs"), finishes = journalSamples("finish", "finishMs");
+      const pairedTotals = begins.flatMap((begin, i) => finishes[i] ? [begin.phases.holdMs + finishes[i]!.phases.holdMs] : []);
+      const begin = summarizePhases(begins), finish = summarizePhases(finishes);
+      const observationSteps = {
+        clock: "performance.timeOrigin + performance.now() in the app child and the fixture's manager; a manager request counts toward the app step it arrived in",
+        writer: { all: summarizePhases(writers.map(item => item.sample)),
+          byTool: Object.fromEntries(WRITERS.map(label => [label, summarizePhases(writers.filter(item => item.label === label).map(item => item.sample))])) },
+        begin, finish,
+        beginPlusFinish: { pairedHoldMedianMs: phaseMedian(pairedTotals), sumOfHoldMediansMs: begin.hold.medianMs !== null && finish.hold.medianMs !== null ? begin.hold.medianMs + finish.hold.medianMs : null, pairs: pairedTotals.length },
+        traces: traces.length, managerSpans: managerSpans.length,
+      };
       const result = { backend: BACKEND, appUid: APP_UID, files: FILES, bytes: BYTES, loadBefore, loadAfter: load(), elapsedMs: performance.now() - timingStart, timelineTurnIds,
         tools: timeline?.tools ?? null, admission, journal: { begin: { medianMs: median(total("beginMs")), p95Ms: p95(total("beginMs")) }, finish: { medianMs: median(total("finishMs")), p95Ms: p95(total("finishMs")) },
-          beginPlusFinish: { medianMs: median(total("totalMs")), p95Ms: p95(total("totalMs")) }, turns: beginFinish }, calls: timeline?.calls ?? null };
+          beginPlusFinish: { medianMs: median(total("totalMs")), p95Ms: p95(total("totalMs")) }, turns: beginFinish }, phases: observationSteps, calls: timeline?.calls ?? null };
       writeFileSync(join(ARTIFACTS, "observation-timing.json"), JSON.stringify(result, null, 2));
       console.log(JSON.stringify({ observationTiming: { ...result, calls: undefined, journal: { ...result.journal, turns: undefined } } }));
       expect(total("totalMs"), "OBSERVATION_TIMING_10_HARBOUR_TURNS").toHaveLength(10);
+      expect([begins.length, finishes.length], "OBSERVATION_TIMING_HARBOUR_TRACES").toEqual([10, 10]);
+      if (timeline) expect(writers.length, "OBSERVATION_TIMING_EVERY_OBSERVED_WRITER_TRACED").toBe(timeline.calls.filter(call => WRITERS.includes(call.label) && call.captures).length);
+      // One clock: every native step paired with exactly one request that arrived in it, and each checkpoint answered before its step ended.
+      for (const [name, summary] of Object.entries({ writer: observationSteps.writer.all, begin, finish }))
+        expect([name, summary.clock.unpaired, (summary.clock.minEndSlackMs ?? 0) >= 0], "OBSERVATION_TIMING_ONE_CLOCK").toEqual([name, [], true]);
       for (const [name, row] of Object.entries({ ...admission.scenarios, ...Object.fromEntries(warm.map((row, i) => [`warm-${i}`, row])) }))
         expect(row?.journalBeginMs !== null && row?.governedAdmissionMs !== null && Object.keys(row?.steps ?? {}).length > 0, `OBSERVATION_TIMING_ADMISSION_STEPS_RECORDED ${name}`).toBe(true);
       if (timeline) {

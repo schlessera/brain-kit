@@ -1,4 +1,5 @@
 import preview from "#.storybook/preview";
+import { atWidth, viewportAt } from "../_viewports.js";
 import { useEffect, useState } from "react";
 import { expect, fn, waitFor, within } from "storybook/test";
 import type { AskUserQuestion } from "@schlessera/brain-ui-sdk/protocol";
@@ -28,6 +29,7 @@ const meta = preview.meta({
   title: "Conversation/Answer theme", component: AnswerTheme,
   parameters: { layout: "fullscreen" }, beforeEach: consumerViewport,
   args: { width: 320, onSubmit: fn() },
+  globals: viewportAt(320),
 });
 
 export const Phone = meta.story({
@@ -54,4 +56,4 @@ export const Phone = meta.story({
     await expect(firstCall(args.onSubmit)).toEqual(["odysseus-harbour", { "Which harbour first?": "Scheria — Σχερίη" }]);
   },
 });
-export const Desktop = Phone.extend({ args: { width: 1280 } });
+export const Desktop = Phone.extend(atWidth(1280));

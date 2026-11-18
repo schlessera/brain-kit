@@ -92,6 +92,7 @@ async function anthropic(url: URL): Promise<Response> {
 }
 
 const realFetch = globalThis.fetch;
+const fetchDescriptor = Object.getOwnPropertyDescriptor(globalThis, "fetch");
 
 /**
  * Every variable the installed Gemini SDK reads besides the key it is handed:
@@ -127,7 +128,8 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  globalThis.fetch = realFetch;
+  if (fetchDescriptor) Object.defineProperty(globalThis, "fetch", fetchDescriptor);
+  else delete (globalThis as { fetch?: unknown }).fetch;
   delete process.env[KEY_ENV];
   for (const [name, value] of Object.entries(savedEnv)) {
     if (value !== undefined) process.env[name] = value;

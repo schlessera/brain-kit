@@ -2,7 +2,7 @@
 
 Default execution ownership is discovered, not copied into a static test
 allowlist. `bun run test:inventory` writes `tmp/proof-inventory.json`; CI publishes
-it with the metadata artifact. Each row has a runner/project/file identity,
+it as the metadata job's `proof-inventory` artifact. Each row has a runner/project/file identity,
 its domain, source test declarations and assertion line locations. An assertion
 inside a parameterized test runs for every collected case: the inventory does
 not pretend source declarations are runtime test counts. Actual suite reports
@@ -127,12 +127,22 @@ and complete `git diff --no-renames SHA^ SHA` paths:
 bun scripts/replay-browser-selection.ts snapshot.json report.json
 ```
 
+A change to the selection rule attaches a comparison. Write the report on the
+tree before the change, then pass it as the baseline on the tree after it:
+
+```sh
+bun scripts/replay-browser-selection.ts snapshot.json after.json before.json
+```
+
+`omittedSinceBaseline` lists every PR and category the earlier rule selected
+and the later one omits. It must be empty unless the change is ruled to narrow
+selection.
+
 The tool verifies every diff and emits per-PR before/after selection, the list of
 omitted browser plans, complete category closures and unresolved-edge diagnostics.
 It compares current selection rules over historical changes, not historical source
 execution or elapsed performance. Closure graph hashes describe paths and diagnostics,
-not source bytes or passing-proof fingerprints. Keep the actual source identity
-with its report; proof retention requires its separate immutable input validation.
+not source bytes. Keep the actual source identity with its report.
 Schedule/manual proof is exhaustive; push proof remains complete affected proof.
 
 ## Recording assertion mapping

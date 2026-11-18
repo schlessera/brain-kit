@@ -71,9 +71,17 @@ export const Wide = Title.extend({ parameters: wide });
  * from `nav` as well. */
 export const DividerBelongsToNav = meta.story({
   args: { variant: "nav", title: "run #4c1" },
-  play: async ({ canvasElement }) => {
-    const header = canvasElement.querySelector<HTMLElement>("div > div")!;
-    await expect(getComputedStyle(header).borderBottomStyle).toBe("solid");
+  render: (args) => (
+    <div data-testid="headers" style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%" }}>
+      <ScreenHeader {...args} />
+      <ScreenHeader {...args} variant="title" />
+      <ScreenHeader {...args} variant="hero" />
+      <ScreenHeader {...args} divider={false} />
+    </div>
+  ),
+  play: async ({ canvas }) => {
+    const rules = [...canvas.getByTestId("headers").children].map((header) => getComputedStyle(header).borderBottomStyle);
+    await expect(rules, "nav ruled; title, hero and nav with divider: false not").toEqual(["solid", "none", "none", "none"]);
   },
 });
 

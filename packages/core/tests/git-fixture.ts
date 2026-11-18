@@ -4,7 +4,7 @@
  * config is needed.
  */
 
-import { expect } from "bun:test";
+import { afterEach, beforeEach, expect } from "bun:test";
 
 export function git(root: string, ...args: string[]): string {
   const proc = Bun.spawnSync(
@@ -86,4 +86,25 @@ export function withoutSigning(env: Record<string, string>): Record<string, stri
     [`GIT_CONFIG_KEY_${count}`]: "commit.gpgSign", [`GIT_CONFIG_VALUE_${count}`]: "false",
     [`GIT_CONFIG_KEY_${count + 1}`]: "tag.gpgSign", [`GIT_CONFIG_VALUE_${count + 1}`]: "false",
   };
+}
+
+/**
+ * Opt one test file into unsigned fixture and product commits, including
+ * in-process Git children. Unlike a preload override, this runs only where
+ * requested; signing-policy tests keep their original environment (#3485).
+ */
+export function withoutSigningForEach(): void {
+  let before: Record<string, string> = {};
+  beforeEach(() => {
+    before = Object.fromEntries(Object.entries(process.env).filter(
+      (entry): entry is [string, string] => entry[0].startsWith("GIT_CONFIG_") && entry[1] !== undefined,
+    ));
+    Object.assign(process.env, withoutSigning(before));
+  });
+  afterEach(() => {
+    for (const key of Object.keys(process.env)) {
+      if (key.startsWith("GIT_CONFIG_") && !(key in before)) delete process.env[key];
+    }
+    Object.assign(process.env, before);
+  });
 }

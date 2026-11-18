@@ -36,7 +36,7 @@ export function createMessagesSlice(ctx: ChatSliceContext): MessagesSliceSlice {
     // createIfMissing: a user-initiated send must never be dropped, even when
     // the active session's buffer hasn't been materialized yet (cold start
     // racing the history replay).
-    addUserMessage: (key, text, source, attachments, effort, files) =>
+    addUserMessage: (key, text, source, attachments, effort, files, attachmentFiles) =>
       mutateBuffer(
         key,
         (chat) => ({
@@ -53,6 +53,7 @@ export function createMessagesSlice(ctx: ChatSliceContext): MessagesSliceSlice {
               source: source ?? "typed",
               ...effort,
               ...(files?.length ? { files } : {}),
+              ...(attachmentFiles?.length ? { attachmentFiles } : {}),
               ...(attachments && attachments.length > 0
                 ? { attachments, attachmentCount: attachments.length }
                 : {}),

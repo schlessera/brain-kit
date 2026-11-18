@@ -190,7 +190,7 @@ test("capture that cannot fit the journal refuses before any write", async () =>
   put(f.root, LOOM, loom);
   const receipt = await f.apply(LOOM, "delete");
   expect(receipt, "MEDIA_CAPTURE_CAPACITY").toMatchObject({ outcome: "refused", reason: "capture-capacity" });
-  expect(read(f.root, LOOM) === loom, "MEDIA_CAPTURE_BEFORE_WRITE").toBe(true);
+  expect(sha(read(f.root, LOOM)), "MEDIA_CAPTURE_BEFORE_WRITE").toBe(sha(loom));
 });
 
 test("an interrupted apply is compensated per file, and a concurrent edit is left as a conflict (partial)", async () => {
@@ -249,6 +249,11 @@ test("a restart compensates an interrupted Move from its durable intent and neve
 test("a revoked reviewer cannot apply, and an operation identity cannot be reused for another plan", async () => {
   const f = await setup();
   const { finding, plan } = await f.plan(LOOM, "delete");
+  const persist = await f.plan(LOOM, "persist");
+  const reused = { id: "odysseus-media-reused", principalId: "odysseus", findingId: finding.id, fingerprint: finding.fingerprint };
+  expect((await f.effects.apply({ ...reused, plan: persist.plan })).outcome).toBe("applied");
+  await expect(f.effects.apply({ ...reused, plan }), "MEDIA_IDENTITY_REUSE_REFUSED").rejects.toThrow("Operation identity belongs to another request");
+  expect(read(f.root, LOOM), "MEDIA_IDENTITY_REUSE_WRITES_NOTHING").toBe("loom bytes");
   f.revoke();
   await expect(f.effects.apply({ id: "odysseus-media-revoked", principalId: "odysseus", findingId: finding.id, fingerprint: finding.fingerprint, plan })).rejects.toThrow("authority");
   expect(read(f.root, LOOM)).toBe("loom bytes");
@@ -312,6 +317,31 @@ test("undo-media from review undoes a resolved Delete, records the Undo on the c
   expect(again?.hygiene?.findingId, "MEDIA_REVIEW_UNDO_RESELECTED").toBe(card.hygiene!.findingId);
   expect(again?.id).not.toBe(card.id);
   expect(again?.status).toBe("pending");
+});
+
+test("undo-media while another card is pending, or after the pass ended, counts the restored file as awaiting review again (#2783)", async () => {
+  const f = await setup();
+  const card = await reviewWithTwo(f);
+  expect(f.review.read().review.media, "MEDIA_REVIEW_COUNT_BEFORE").toEqual({ awaitingReview: 2, setAside: 0, kept: 0 });
+  await resolveWith(f, card.id, "media-delete");
+  const second = f.review.read().action!;
+  expect(f.review.read().review.media).toEqual({ awaitingReview: 1, setAside: 0, kept: 0 });
+  const journalId = createInboxStoreRead(f.db, card.id)!.hygiene!.outcome!.media!.journalId;
+  // The other card stays the pending one, and the count the review shows is the CLI's again.
+  const undone = await f.review.undoMedia(f.reviewer.id, journalId);
+  expect(undone.mediaUndo.outcome).toBe("undone");
+  expect(undone.action?.id, "MEDIA_REVIEW_UNDO_KEEPS_CARD").toBe(second.id);
+  expect(undone.review.media, "MEDIA_REVIEW_UNDO_RECOUNTED").toEqual({ awaitingReview: 2, setAside: 0, kept: 0 });
+  expect((await f.brain.hygiene!(["next"]) as { media: { awaitingReview: number } }).media.awaitingReview, "MEDIA_REVIEW_UNDO_CLI_COUNT").toBe(2);
+  // After the pass: deleting the last one ends it, and its Undo is counted although nothing selects.
+  await resolveWith(f, second.id, "media-delete");
+  const third = f.review.read().action!;
+  await resolveWith(f, third.id, "media-delete");
+  expect(f.review.read().review.status).toBe("complete");
+  expect(f.review.read().review.media).toEqual({ awaitingReview: 0, setAside: 0, kept: 0 });
+  const last = await f.review.undoMedia(f.reviewer.id, createInboxStoreRead(f.db, third.id)!.hygiene!.outcome!.media!.journalId);
+  expect(last.review.status, "MEDIA_REVIEW_UNDO_PASS_STAYS_COMPLETE").toBe("complete");
+  expect(last.review.media, "MEDIA_REVIEW_UNDO_RECOUNTED_COMPLETE").toEqual({ awaitingReview: 1, setAside: 0, kept: 0 });
 });
 
 test("undo-media refuses before any write when a file changed since, and the card shows why", async () => {
@@ -688,7 +718,6 @@ test("recover() confirms a kept copy when its entry, fingerprint and copy SHA-25
 const tampers: Array<[string, Tamper]> = [
   // Only the recorded SHA-256 differs: the entry stays kept, as the copy's own bytes are never compared.
   ["copy-sha256", f => put(f.root, "context/hygiene/kept.md", read(f.root, "context/hygiene/kept.md").replace(/(- copy-sha256: )[0-9a-f]{64}/, `$1${"0".repeat(64)}`))],
-  // Only the fingerprint the review admitted differs from the entry's.
   // Only the entry's fingerprint differs from the one the review admitted.
   ["fingerprint", f => put(f.root, "context/hygiene/kept.md", read(f.root, "context/hygiene/kept.md").replace(/(\*\*Fingerprint\*\*: )[0-9a-f]{12}/, `$1${"0".repeat(12)}`))],
   // Only the state differs: the CLI lists the entry as no longer kept, with the same fingerprint and SHA-256.
@@ -707,8 +736,10 @@ for (const [what, tamper] of tampers) {
   });
 }
 
-test("mixed versions: a keep-copy answer this server does not know as kept is never resolved, and the copy is compensated", async () => {
-  for (const answer of [{ status: "kept-v2" }, { outcome: "kept" }]) {
+// One fixture per case: four real repositories in one case outran its deadline on a loaded host.
+const unknownKeptAnswers = [{ status: "kept-v2" }, { outcome: "kept" }];
+for (const answer of unknownKeptAnswers) {
+  test(`mixed versions: a keep-copy answer ${JSON.stringify(answer)} this server does not know as kept compensates the copy`, async () => {
     // The effect itself: only an exact `kept` answer keeps the copy.
     const e = await setup({ wrap: (args, real) => args[0] === "keep-copy" ? answer : real(args) });
     put(e.root, SCRATCH, "dawn bytes");
@@ -716,6 +747,8 @@ test("mixed versions: a keep-copy answer this server does not know as kept is ne
     const receipt = await e.apply(SCRATCH, "keep-copy", "places/ithaca/harbour-dawn.jpg");
     expect(receipt.outcome, `MEDIA_MIXED_COMPENSATED ${JSON.stringify(answer)}`).toBe("compensated");
     expect(existsSync(join(e.root, "places/ithaca/harbour-dawn.jpg"))).toBe(false);
+  });
+  test(`mixed versions: a keep-copy answer ${JSON.stringify(answer)} this server does not know as kept is never resolved, and the copy is compensated`, async () => {
     // And through review, which never resolves the card on it.
     const f = await setup({ wrap: (args, real) => args[0] === "keep-copy" ? answer : real(args) });
     rmSync(join(f.root, NOTE)); rmSync(join(f.root, "places/ithaca.md")); rmSync(join(f.root, LOOM));
@@ -731,5 +764,5 @@ test("mixed versions: a keep-copy answer this server does not know as kept is ne
     expect(existsSync(join(f.root, "places/ithaca/harbour-dawn.jpg")), "MEDIA_MIXED_COPY_COMPENSATED").toBe(false);
     expect(read(f.root, "brain.config.json")).toBe("{}\n");
     expect(read(f.root, SCRATCH)).toBe("dawn bytes");
-  }
-});
+  });
+}

@@ -130,6 +130,9 @@ if (!childMode) {
       expect(harness.createAsrClient(asrOptions("deepgram"))).toBeInstanceOf(
         harness.DeepgramClient
       );
+      expect(harness.createAsrClient(asrOptions("gemini"))).toBeInstanceOf(
+        harness.GeminiAsrClient
+      );
       expect(harness.createAsrClient(asrOptions("webspeech"))).toBeInstanceOf(
         harness.WebSpeechClient
       );
@@ -194,7 +197,10 @@ if (!childMode) {
     // name rather than by which backend owns the session.
     // The Apify pack (#3163) is global too: its approval cards carry fixed
     // names, and its results arrive under either backend's tool spelling.
+    // So is the GitHub pack (#3795): the host GitHub tools are one contract
+    // per tool under each backend's spelling.
     expect(distinct.map((pack) => pack.backend ?? "global")).toEqual([
+      "global",
       "global",
       "global",
       "claude",
@@ -203,16 +209,18 @@ if (!childMode) {
     ]);
     expect(distinct[0]).toBe(harness.brainUiToolPack);
     expect(distinct[1]).toBe(harness.apifyToolPack);
-    expect(distinct[2]).toBe(harness.claudeToolPack);
-    expect(distinct[3]).toBe(harness.piToolPack);
-    // Every repeat passed one of those same three objects; a pack rebuilt per
-    // call would show up as a fourth distinct object above.
-    expect(packs.every((pack) => distinct.includes(pack))).toBe(true);
+    expect(distinct[2]).toBe(harness.githubToolPack);
+    expect(distinct[3]).toBe(harness.claudeToolPack);
+    expect(distinct[4]).toBe(harness.piToolPack);
+    // A pack rebuilt per call would show up as a sixth distinct object above.
+    // The repeats must still reach the registry (no module latch), so every
+    // pack was handed over more than once.
+    expect(packs.length).toBeGreaterThan(distinct.length);
 
     const providers = registerAsrClient.mock.calls.map(
       ([providerId]: [string, AsrClientFactory]) => providerId
     );
-    expect([...new Set(providers)]).toEqual(["deepgram", "webspeech"]);
+    expect([...new Set(providers)]).toEqual(["deepgram", "gemini", "webspeech"]);
 
     strictDictation.unmount();
     strictTimeline.unmount();

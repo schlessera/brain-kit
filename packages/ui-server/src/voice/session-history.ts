@@ -43,6 +43,8 @@ export interface BoundedHistory {
   selectedRefs: readonly string[];
   /** Host-only: newest omitted, or omitted text may be newer when source order is unknown. */
   tailOmitted: boolean;
+  /** Host-only: chat and spoken messages actually serialized into `text` (not results or gaps). */
+  includedMessages: number;
   coverage: ConversationHistoryEnvelope["coverage"];
 }
 
@@ -63,7 +65,7 @@ export function boundHistory(
   excludeResults: ReadonlySet<string> = new Set(),
   limits: { maxBytes: number; maxItems: number; maxFactBytes: number } = HISTORY_LIMITS,
 ): BoundedHistory {
-  const empty = (coverage: BoundedHistory["coverage"]): BoundedHistory => ({ text: "", bytes: 0, selectedRefs: [], tailOmitted: false, coverage });
+  const empty = (coverage: BoundedHistory["coverage"]): BoundedHistory => ({ text: "", bytes: 0, selectedRefs: [], tailOmitted: false, includedMessages: 0, coverage });
   if (!envelope) return empty({ state: "unavailable", reasons: ["source_unavailable"] });
   // Exact-identity dedupe (keep the newest occurrence); facts already in resync drop out.
   const seen = new Set<string>();
@@ -133,7 +135,9 @@ export function boundHistory(
     const item=candidates[i]?.item;
     return item?.kind==="gap" && item.reason==="source_unavailable";
   });
-  return { text, bytes: bytes(text), tailOmitted: unavailableTail || uncertainOmission || candidates.length > 0 && !chosen[candidates.length - 1], selectedRefs: candidates.filter((_, i) => chosen[i]).map((c) => c.item.ref),
+  // Only what the provider actually receives: a dropped block carried none.
+  const includedMessages = text ? candidates.filter((c, i) => chosen[i] && c.item.kind !== "host_fact" && c.item.kind !== "gap").length : 0;
+  return { text, bytes: bytes(text), includedMessages, tailOmitted: unavailableTail || uncertainOmission || candidates.length > 0 && !chosen[candidates.length - 1], selectedRefs: candidates.filter((_, i) => chosen[i]).map((c) => c.item.ref),
     coverage: { state, reasons: outReasons } };
 }
 

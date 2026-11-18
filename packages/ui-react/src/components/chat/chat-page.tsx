@@ -1,12 +1,12 @@
 import { transcriptMessage, transcriptTimelineFor, transcriptRange } from "../../lib/transcript-timeline.js";
 import { useStore } from "zustand";
-import { ConversationOutput, ConversationRecognitionRow, ConversationPermissionOutcomes, ConversationTaskContext } from "../voice/conversation-outputs.js";
+import { ConversationCoverageNotice, ConversationOutput, ConversationRecognitionRow, ConversationPermissionOutcomes, ConversationTaskContext, conversationEndLabel } from "../voice/conversation-outputs.js";
 import { replyToToolApproval } from "../../lib/tool-approval.js";
 import type { AskUserFormAnswers } from "@schlessera/brain-ui-sdk/protocol";
 import { useBrainUiRoot } from "../../root-context.js";
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react";
 import { TranscriptReadingScope } from "@schlessera/brain-ui-kit/internal";
-import { Button } from "@schlessera/brain-ui-kit";
+import { Button, ConversationEndDivider } from "@schlessera/brain-ui-kit";
 import { useChatStore, activeChat, restorationOf } from "../../stores/chat-store.js";
 import type { AskUserAnnotation } from "@schlessera/brain-ui-sdk/protocol";
 import type { AnswerPayload } from "../../lib/answer-delivery/types.js";
@@ -15,7 +15,9 @@ import { useUIStore } from "../../stores/ui-store.js";
 import { useWebSocket } from "../../hooks/use-websocket.js";
 import { useTrackerSeen } from "../../hooks/use-tracker-seen.js";
 import { MaskEditor } from "../images/mask-editor.js";
+import { MarkupEditorHost } from "../images/markup-editor.js";
 import { MessageBubble } from "./message-bubble.js";
+import { SessionSafety } from "./safety-indicator.js";
 import { useWorkRestore } from "../../hooks/use-local-work.js";
 import { messageFingerprint } from "../../lib/local-work.js";
 
@@ -48,6 +50,7 @@ import { Overlay, DiscButton, DiscRow } from "@schlessera/brain-ui-kit";
 import { useRootStore } from "../../root-context.js";
 import { SessionsPane } from "./sessions-pane.js";
 import { UnconfirmedSends } from "./unconfirmed-sends.js";
+import { OutgoingSnapshots } from "./outgoing-snapshots.js";
 import { trackerLabel, useWorkingSessions } from "../../hooks/use-working-sessions.js";
 import { announcementText } from "../../lib/tracker-announcer.js";
 import type { TrackerState } from "../../lib/trackers.js";
@@ -595,7 +598,8 @@ export function ChatPage() {
     const covered = ui.activeView !== "chat" || ui.sessionPanelOpen || ui.filePanelOpen || ui.settingsPanelOpen || ui.syncPanelOpen
       || ui.whatsupPanelOpen || ui.searchPanelOpen || ui.addPanelOpen || ui.paletteOpen || ui.subagentStack.length > 0
       // The other surfaces over Chat, as the seen observer lists them.
-      || root.stores.mask.getState().request !== null || root.stores.handoff.getState().sheet !== null;
+      || root.stores.mask.getState().request !== null || root.stores.markup.getState().request !== null
+      || root.stores.handoff.getState().sheet !== null;
     if (chat.activeSessionId !== intent.sessionId || covered) { opening.current = null; return; }
     // A long history arrives in several chunks, back to back: the replay is
     // over once a chunk has come and no other has followed it for a moment.
@@ -625,6 +629,13 @@ export function ChatPage() {
         onCancel={(requestId, message) =>
           send({ type: "mask_error", requestId, code: "cancelled", message })
         }
+      />
+      {/* Markup editor (#3975): the layer is uploaded, a decline goes over the socket. */}
+      <MarkupEditorHost
+        onDecline={(request, message) => send({
+          type: "markup_error", requestId: request.requestId, code: "cancelled", message,
+          ...(request.turnId ? { turnId: request.turnId } : {}),
+        })}
       />
 
       {/* Subagent drill-in: an overlay stack — chat is the residence, the
@@ -709,7 +720,7 @@ export function ChatPage() {
             )}
             {messages.length === 0 && !hasVoiceOutput && !hasVoicePermission && restoring ? (
               <div className="h-full overflow-y-auto">
-                <div className="px-4 md:px-6"><div {...{ [READING_COLUMN_ATTR]: "" }} className="mx-auto max-w-3xl"><UnconfirmedSends /></div></div>
+                <div className="px-4 md:px-6"><div {...{ [READING_COLUMN_ATTR]: "" }} className="mx-auto max-w-3xl"><OutgoingSnapshots /><UnconfirmedSends /></div></div>
                 <RestorationState onNewChat={clearMessages} />
               </div>
             ) : messages.length === 0 && !hasVoiceOutput && !hasVoicePermission ? (
@@ -719,7 +730,7 @@ export function ChatPage() {
                 </div>
                 {/* A tracked session whose history came back empty can still be acknowledged. */}
                 {unlinked && <MarkAsSeen onMark={markSeen} />}
-                <div className="px-4 md:px-6"><div {...{ [READING_COLUMN_ATTR]: "" }} className="mx-auto max-w-3xl"><UnconfirmedSends /></div></div>
+                <div className="px-4 md:px-6"><div {...{ [READING_COLUMN_ATTR]: "" }} className="mx-auto max-w-3xl"><OutgoingSnapshots /><UnconfirmedSends /></div></div>
                 <WelcomeState onAction={runCommand} briefingWhy={briefingWhy} />
               </div>
             ) : (
@@ -737,6 +748,7 @@ export function ChatPage() {
                   className="mx-auto max-w-3xl divide-y divide-border/20"
                 >
                   {dialogueNotice && <p role="status" className="py-3 text-sm">{dialogueNotice}</p>}
+                  <SessionSafety />
                   {dialoguePage?.coverage === "legacy" && <p className="py-3 text-sm">Earlier spoken dialogue was not saved.</p>}
                   {dialoguePage?.before !== undefined && <Button label="Load earlier conversation" tone="ghost" onClick={()=>root.connection.conversation.loadDialogue(sessionId ?? `dialogue:${dialoguePage.ownerId}`,true)} />}
                   {dialoguePage && (dialoguePage.records.length > 0 || dialoguePage.through > 0) && <Button label="Show latest conversation" tone="ghost" onClick={()=>root.connection.conversation.loadDialogue(sessionId ?? `dialogue:${dialoguePage.ownerId}`)} />}
@@ -759,8 +771,11 @@ export function ChatPage() {
                   <TranscriptReadingScope onRead={beginReading} returnFocus={readingFallback}>
                   {visibleEntries.map((entry) => {
                     if (entry.kind === "history-notice") return <p key={entry.key} className="py-3 text-sm">{entry.label}</p>;
-                    if (entry.kind === "speech") return <ConversationOutput key={entry.key} arrivalKey={entry.key} output={entry.output} restored={entry.restored} />;
-                    if (entry.kind === "voice-boundary") return <p key={entry.key} data-arrival-key={entry.key} tabIndex={-1} className="py-3 text-xs text-muted-foreground">{entry.label}</p>;
+                    if (entry.kind === "voice-coverage") return <div key={entry.key} data-arrival-key={entry.key} tabIndex={-1} className="py-3"><ConversationCoverageNotice conversationId={entry.conversationId} coverage={entry.coverage} /></div>;
+                    if (entry.kind === "speech") return <ConversationOutput key={entry.key} arrivalKey={entry.key} output={entry.output} restored={entry.restored} cutOff={entry.cutOff} />;
+                    if (entry.kind === "voice-boundary") return entry.label === "Voice ended"
+                      ? <div key={entry.key} data-arrival-key={entry.key} tabIndex={-1} className="py-3"><ConversationEndDivider label={conversationEndLabel(entry.durationMs)} /></div>
+                      : <p key={entry.key} data-arrival-key={entry.key} tabIndex={-1} className="py-3 text-xs text-muted-foreground">{entry.label}</p>;
                     if (entry.kind === "recognition") {
                       const first = entry.fragments[0]!;
                       const preceding = entries.slice(0, entries.indexOf(entry)).filter(e => e.kind === "recognition").flatMap(e => e.kind === "recognition" ? e.fragments : []);
@@ -799,7 +814,7 @@ export function ChatPage() {
                   {/* Live frames drawn before the history arrived (#1328). */}
                   {restoring && <RestorationState onNewChat={clearMessages} />}
                   {/* A send the host never confirmed, held where it was sent (D52 §5). */}
-                  <UnconfirmedSends />
+                  <OutgoingSnapshots /><UnconfirmedSends />
                 </div>
               </div>
             )}

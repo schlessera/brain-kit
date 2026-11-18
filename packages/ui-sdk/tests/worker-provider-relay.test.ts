@@ -3,7 +3,9 @@
  * bubblewrap. A governed or strict turn worker holds no provider key; the real
  * `brain search` embeds its query through the relay, which adds the host's key,
  * records the request's usage and refuses it once a budget is blocked. The
- * upstream is a fictional loopback Gemini endpoint the operator lists.
+ * upstream is a fictional loopback Gemini endpoint the operator lists. Its
+ * `jev` reranking goes through the relay too (#3792), to the first-party
+ * origin, which the relay's own dispatch reaches on a loopback stand-in.
  */
 import { launchFixtureAgentWorker } from "./helpers/worker-startup-view-fixture.js";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -28,7 +30,9 @@ const vector = (seed: number) => Array.from({ length: DIMENSIONS }, (_, index) =
 interface Seen { method?: string; path: string; headers: Record<string, string> }
 let upstream: ReturnType<typeof Bun.serve>;
 const seen: Seen[] = [];
-let root: string, brain: string, videoBrain: string;
+let root: string, brain: string, videoBrain: string, rerankBrain: string;
+/** The candidate the fictional Jev answer ranks first: the last one it was asked about. */
+let jevChoice: string | undefined;
 /** Files the fictional provider still holds, by name. */
 const stored = new Set<string>();
 
@@ -50,6 +54,14 @@ beforeAll(async () => {
     if (url.pathname === "/v1beta/files/troy-1") {
       if (request.method === "DELETE") stored.delete("files/troy-1");
       return Response.json(request.method === "DELETE" ? {} : { name: "files/troy-1", uri: `${upstream.url.origin}/v1beta/files/troy-1`, state: "ACTIVE" });
+    }
+    if (url.pathname === "/v1/systemone") {
+      const asked = await request.json() as { questions: { ranking: { criteria: Record<string, string> } } };
+      const ids = Object.keys(asked.questions.ranking.criteria);
+      jevChoice = asked.questions.ranking.criteria[ids.at(-1)!];
+      return Response.json({ model: "jev-1.13.0", answers: { ranking: { type: "choice", choice: ids.at(-1), confidence: 0.9,
+        probabilities: Object.fromEntries(ids.map((id, index) => [id, index === ids.length - 1 ? 0.9 : 0.1 / (ids.length - 1)])) } },
+        usage: { input_tokens: 700, output_tokens: 4 } });
     }
     if (url.pathname.endsWith(":generateContent")) {
       const asked = await request.json() as { contents: Array<{ parts: Array<{ fileData?: { fileUri: string } }> }> };
@@ -87,6 +99,18 @@ beforeAll(async () => {
 export default defineConfig({ modules: { "@schlessera/brain-module-video": {} } });
 `);
   writeFileSync(join(videoBrain, "troy.mp4"), "fictional-video-bytes");
+  // A third brain with model reranking enabled, searched by keyword so no embedding is involved.
+  rerankBrain = join(root, "rerank-brain");
+  mkdirSync(join(rerankBrain, "notes"), { recursive: true });
+  for (const [name, title] of [["harbour", "Ithaca harbour"], ["palace", "Ithaca palace"], ["grove", "Ithaca olive grove"]]) {
+    writeFileSync(join(rerankBrain, `notes/${name}.md`), `---\ntype: note\ntitle: ${title}\ncreated: 2026-07-12\nupdated: 2026-07-12\n---\n`
+      + `Odysseus walks to the ${title} on Ithaca.\n`);
+  }
+  writeFileSync(join(rerankBrain, "brain.config.json"), JSON.stringify({ reranker: { enabled: true } }));
+  const keywordIndex = Bun.spawn([process.execPath, BRAIN_CLI, "index", "--json"], { cwd: root, stdout: "pipe", stderr: "pipe",
+    env: { PATH: "/usr/bin:/bin", HOME: root, BRAIN_ROOT: rerankBrain, BUN_OPTIONS: "--no-env-file" } });
+  const [keywordCode, keywordStderr] = await Promise.all([keywordIndex.exited, new Response(keywordIndex.stderr).text()]);
+  if (keywordCode !== 0) throw new Error(`brain index failed: ${keywordStderr}`);
   // Vectors built on the host against the fictional endpoint. Asynchronous:
   // the endpoint serves from this process while the CLI runs.
   const index = Bun.spawn([process.execPath, BRAIN_CLI, "index", "--embeddings", "--json"], { cwd: root, stdout: "pipe", stderr: "pipe",
@@ -178,8 +202,8 @@ describe.each(["governed", "strict"] as const)("a %s turn worker with the provid
     // Ordinary turn egress (G5): the provider connection is the turn's record.
     expect(records.filter(record => record.path?.endsWith(":batchEmbedContents")), "RELAYED_REQUEST_IS_TURN_EGRESS")
       .toMatchObject([{ method: "POST", host: "127.0.0.1", port: upstream.port, outcome: "completed" }]);
-    expect(records.some(record => record.inference)).toBe(false);
-    expect(SECRETS.some(secret => stdout.includes(secret) || stderr.includes(secret))).toBe(false);
+    expect(records.filter(record => record.inference)).toEqual([]);
+    expect(SECRETS.filter(secret => stdout.includes(secret) || stderr.includes(secret))).toEqual([]);
   });
 
   test("a blocked budget refuses the request before any provider contact", async () => {
@@ -205,11 +229,11 @@ describe.each(["governed", "strict"] as const)("a %s turn worker with the provid
       "POST /upload/v1beta/files", "POST /upload/v1beta/files", "GET /v1beta/files/troy-1",
       "POST /v1beta/models/gemini-3-flash-preview:generateContent", "DELETE /v1beta/files/troy-1",
     ]);
-    expect(seen.every(request => request.headers["x-goog-api-key"] === HOST_KEYS.GEMINI_API_KEY), "HOST_KEY_ON_EVERY_LIFECYCLE_REQUEST").toBe(true);
+    expect(seen.map(request => request.headers["x-goog-api-key"]), "HOST_KEY_ON_EVERY_LIFECYCLE_REQUEST").toEqual(Array(5).fill(HOST_KEYS.GEMINI_API_KEY));
     expect(stored, "RELAYED_VIDEO_LEAVES_NO_FILE").toEqual(new Set());
     expect(receipts.map(receipt => receipt.operation), "RELAYED_VIDEO_METERED").toEqual(["files", "files", "files", "completions", "files"]);
     expect(receipts[3]).toMatchObject({ model: "gemini-3-flash-preview", usage: { inputTokens: 300, outputTokens: 12, inputByModality: { VIDEO: 290, TEXT: 10 } } });
-    expect(SECRETS.some(secret => stdout.includes(secret) || stderr.includes(secret)), "WORKER_SEES_NO_KEY").toBe(false);
+    expect(SECRETS.filter(secret => stdout.includes(secret) || stderr.includes(secret)), "WORKER_SEES_NO_KEY").toEqual([]);
   });
 
   test("a blocked budget refuses brain video watch before any byte reaches the provider", async () => {
@@ -261,6 +285,56 @@ test("a relayed Claude API-key turn's anthropic-haiku completion uses the host k
     Object.defineProperty(globalThis, "fetch", realFetch);
     if (hostKey) Object.defineProperty(process.env, "ANTHROPIC_API_KEY", hostKey); else delete process.env.ANTHROPIC_API_KEY;
   }
+});
+
+describe.each(["governed", "strict"] as const)("a %s turn worker's jev reranking (#3792)", (profile) => {
+  /** Run with the relay's own dispatch to the first-party Jev origin answered by the loopback stand-in. */
+  async function reranked(options: Parameters<typeof run>[2] = {}) {
+    const realFetch = Object.getOwnPropertyDescriptor(globalThis, "fetch")!;
+    Object.defineProperty(globalThis, "fetch", { ...realFetch, value: (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(input instanceof Request ? input.url : input);
+      if (url.origin !== "https://api.typesafe.ai") return realFetch.value(input, init);
+      return realFetch.value(`${upstream.url.origin}${url.pathname}`, init);
+    } });
+    seen.length = 0; jevChoice = undefined;
+    try {
+      return await run(profile, [process.execPath, BRAIN_CLI, "search", "Ithaca", "--mode", "fts", "--rerank", "jev", "--json"],
+        // The worker's proxy still admits only loopback: a request that bypassed the relay could not reach the real origin.
+        { brainPath: rerankBrain, relayEgress: false, ...options });
+    } finally { Object.defineProperty(globalThis, "fetch", realFetch); }
+  }
+
+  test("brain search is reranked through the relay with the host's key, which the worker never held", async () => {
+    const { exit, stdout, stderr, receipts } = await reranked();
+    expect(exit, stderr).toBe(0);
+    const found = JSON.parse(stdout) as { results: Array<{ path: string; title: string }>; warnings: string[] };
+    expect(found.warnings.join("\n"), "RELAYED_JEV_NO_NOTICE").not.toMatch(/provider_unavailable|unavailable|lifecycle order/);
+    expect(seen.map(request => `${request.method} ${request.path}`), "RELAYED_JEV_REACHED_STAND_IN").toEqual(["POST /v1/systemone"]);
+    expect(seen[0]!.headers.authorization, "RELAYED_JEV_HOST_KEY_PLACED").toBe(`Bearer ${HOST_KEYS.TYPESAFE_API_KEY}`);
+    expect(Object.keys(seen[0]!.headers).filter(name => /^(x-api-key|x-brain-provider)/.test(name)), "RELAYED_JEV_NO_WORKER_HEADERS").toEqual([]);
+    expect(jevChoice).toBeDefined();
+    expect(found.results[0]?.title, "RELAYED_JEV_ORDER_APPLIED").toBe(jevChoice!);
+    expect(receipts, "RELAYED_JEV_METERED").toMatchObject([{ family: "typesafe", operation: "reranking", model: "jev-1.13.0",
+      origin: "https://api.typesafe.ai", key: "TYPESAFE_API_KEY", outcome: "completed", status: 200, usage: { inputTokens: 700, outputTokens: 4 } }]);
+    expect(SECRETS.filter(secret => stdout.includes(secret) || stderr.includes(secret)), "RELAYED_JEV_WORKER_SEES_NO_KEY").toEqual([]);
+  });
+
+  test("the worker holds no Jev key and names it withheld", async () => {
+    const { exit, stdout, stderr } = await run(profile, INSPECT, { brainPath: rerankBrain });
+    expect(exit, stderr).toBe(0);
+    const { env } = JSON.parse(stdout) as { env: Record<string, string> };
+    expect(env.TYPESAFE_API_KEY, "RELAYED_JEV_WORKER_HOLDS_NO_KEY").toBeUndefined();
+    expect(env.BRAIN_WITHHELD_KEYS?.split(","), "RELAYED_JEV_KEY_NAMED_WITHHELD").toContain("TYPESAFE_API_KEY");
+  });
+
+  test("a blocked budget refuses the reranking before contact and keeps lifecycle order", async () => {
+    const { exit, stdout, stderr, receipts } = await reranked({ blocked: true });
+    expect(exit, stderr).toBe(0);
+    const found = JSON.parse(stdout) as { results: unknown[]; warnings: string[] };
+    expect(found.results.length).toBeGreaterThan(0);
+    expect(seen, "BLOCKED_JEV_NEVER_CONTACTED").toEqual([]);
+    expect(receipts).toEqual([]);
+  });
 });
 
 test("an operator-listed custom key is named withheld, so the CLI relays it", async () => {

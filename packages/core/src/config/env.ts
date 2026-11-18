@@ -128,7 +128,7 @@ export const ENV_VARS: readonly EnvVarSpec[] = [
     description:
       "Default TypeSafe AI key for Jev: the built-in jev search reranker (default " +
       "name only — a config `apiKeyEnv` can point elsewhere) and the judgments " +
-      "`brain sync` asks. Search also requires reranker.enabled: true. " +
+      "`brain sync` asks, plus opted-in hygiene propagation review. Search also requires reranker.enabled: true; propagation requires hygiene.propagation.enabled: true. " +
       "Absent key keeps the lifecycle (heuristic) search " +
       "ordering, and every sync judgment takes its conservative default.",
     required: false,

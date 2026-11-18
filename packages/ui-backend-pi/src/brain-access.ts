@@ -27,10 +27,12 @@ import {
   loadVecSupport,
   openDatabase,
 } from "@schlessera/brain/internal";
-import { listIndexDocuments, readLinkWalk, type QueryCode, type QueryResult } from "@schlessera/brain/queries";
+import { listIndexDocuments, pageIndexDocuments, readLinkWalk, type DocumentPage, type QueryCode, type QueryResult } from "@schlessera/brain/queries";
 import { type EmbeddingProvider } from "@schlessera/brain";
 import {
   estimateTokens,
+  type ContextCoverage,
+  type ContextScopeInput,
   initContext,
   relevanceOnArchive,
   resolveEmbeddingProvider,
@@ -53,11 +55,17 @@ export interface BrainAccess {
   /** Resolve a repo-relative path, refusing anything that escapes the repo. */
   resolveInRepo(relPath: string): string | null;
   search(opts: SearchOptions): Promise<SearchResponse>;
-  /** A token-limited, retrieval-focused context block for a query (markdown). */
-  context(query: string, maxTokens?: number): Promise<string>;
+  /**
+   * A token-limited, retrieval-focused context block for a query (markdown).
+   * `options.include`/`exclude` scope every lane (#3644); with a scope and a
+   * `coverage` record, the record is filled with what the block covers.
+   */
+  context(query: string, maxTokens?: number, options?: ContextOptions): Promise<string>;
   add(input: IngestInput): Promise<IngestOutcome>;
   /** Metadata-filtered listing (no query) — mirrors the brain_list MCP tool. */
   list(opts: ListOptions): Promise<ListedDocument[]>;
+  /** One bounded page of the paged inventory — mirrors brain_list's path_prefix/overview/cursor (#3643). */
+  page(opts: PageOptions): Promise<DocumentPage>;
   /** Wiki-link graph traversal from a document, with the documents it touches — mirrors brain_graph. */
   graph(opts: GraphOptions): Promise<GraphResult>;
   /** Frontmatter/body update on an existing document — mirrors brain_update. */
@@ -66,12 +74,23 @@ export interface BrainAccess {
   archive(relPath: string, dryRun?: boolean): Promise<ArchiveResult>;
 }
 
+export interface ContextOptions extends ContextScopeInput {
+  /** Filled for a scoped call; untouched for an unscoped one. */
+  coverage?: ContextCoverage;
+}
+
 export interface ListOptions {
   type?: string;
   tag?: string;
   status?: string;
   relevance?: string;
   limit?: number;
+}
+
+export interface PageOptions extends ListOptions {
+  pathPrefix?: string;
+  cursor?: string;
+  overview?: boolean;
 }
 
 export interface ListedDocument {
@@ -221,7 +240,7 @@ export function createBrainAccess(brainPath: string): BrainAccess {
       }
     },
 
-    async context(query: string, maxTokens = 4000): Promise<string> {
+    async context(query: string, maxTokens = 4000, options: ContextOptions = {}): Promise<string> {
       const c = await ensureContext();
       const db = openRead(c.dbPath);
       try {
@@ -240,6 +259,8 @@ export function createBrainAccess(brainPath: string): BrainAccess {
           embeddings,
           rerank: rerankSetup(c.config?.reranker),
           warnings,
+          scope: { include: options.include, exclude: options.exclude },
+          coverage: options.coverage,
         });
         // Warnings lead the block, in whatever budget the block left over.
         let budget = maxTokens - (block ? estimateTokens(block) : 0);
@@ -271,6 +292,18 @@ export function createBrainAccess(brainPath: string): BrainAccess {
 
     async list(opts: ListOptions): Promise<ListedDocument[]> {
       return queryValue(listIndexDocuments({ ...opts, brainPath }));
+    },
+
+    async page(opts: PageOptions): Promise<DocumentPage> {
+      const result = pageIndexDocuments({ ...opts, brainPath });
+      // The query reports only a code; name the inputs that can cause it.
+      if (!result.ok && result.error.code === "invalid_input") {
+        throw new Error(
+          "Invalid brain_list input: path_prefix must be a root-relative folder or file (no .., leading slash or backslash), " +
+            "limit a whole number, and a cursor only continues the listing that returned it; restart without cursor."
+        );
+      }
+      return queryValue(result);
     },
 
     async graph(opts: GraphOptions): Promise<GraphResult> {

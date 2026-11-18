@@ -31,13 +31,14 @@ import {
   type MaintenanceTempKind, runMaintenanceWorkerSync, workerHostProven, hostMaintenanceTempLimits, resolveMaintenanceTempLimits, type WorkerStateLimits, type MaintenanceCommand, type WorkerHostProbe,
   prepareNativeWorkerStartupView, hasManagedNativeStorage, type WorkerStartupView,
   acquireHostCredentialExclusion, type HostCredentialDomain,
-  startProviderRelay, relayedProviderKeys, hostProviderCredential, type ProviderRelay, type ProviderRelayReceipt,
+  startProviderRelay, relayedProviderKeys, hostProviderCredential, FIRST_PARTY_PROVIDER_RECIPIENTS, type ProviderRelay, type ProviderRelayReceipt,
 } from "@schlessera/brain-ui-sdk/internal";
 import { createKeyedLock, type KeyedLock, killWrapped, wrapCommand, type ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
 import { markUnpinnedHostWriter, refuseHostFallback, type GateHold, type GateMode, type WriterGate } from "./writer-gate.js";
 import { createGovernancePolicyReader } from "./governance-policy.js";
 import type { GovernedStatus, GovernedUnavailableReason } from "@schlessera/brain-ui-sdk/protocol";
 import { runMirrorSync, syncMirrorPath } from "./sync-mirror.js";
+import { moduleRepositoryWorkerAccess, type ModuleRepositoryAccess } from "./module-repositories.js";
 import { resolveWorkerProtection } from "@schlessera/brain-ui-sdk/internal";
 import { prepareMaintenanceOutput } from "./maintenance-output.js";
 import { operationalStateMasks, operationalStateRefusal, workerIdentitySentinelDirectory, type OperationalStateLayout, type WorkerProbeState } from "./operational-state.js";
@@ -83,6 +84,11 @@ export interface BrainExecution {
   writeFiles?: readonly string[];
   /** A complete hosted sync: its only credentialed part is the host mirror transport. */
   sync?: boolean;
+  /**
+   * @internal Host-fetched repositories a module cron job may read (#3380): each
+   * mirror read-only, with a Git URL rewrite onto it. Never a credential.
+   */
+  repositories?: readonly ModuleRepositoryAccess[];
   /** @internal Take the contention lock after writer-gate admission, never before it. */
   lock?: { keyed: import("@schlessera/brain-ui-sdk/server").KeyedLock; key: string };
   /** @internal The turn whose tool started this run: its relayed provider spend is charged there (#1673). */
@@ -131,8 +137,12 @@ export function brainCommandClass(args: readonly string[]): { credentials: boole
   const [command] = args;
   switch (command) {
     case "--version": case "briefing": case "stats": case "list": case "read": case "validate":
-    case "hygiene": case "skills": case "scratch":
+    case "skills": case "scratch":
       return { credentials: false, gate: "shared" };
+    case "hygiene": {
+      const sub = args[1] === "--json" || args[1] === "--human" ? args[2] : args[1];
+      return sub === "propagation" ? { credentials: true, gate: "exclusive" } : { credentials: false, gate: "shared" };
+    }
     // Automatic plain index is keyword-only. Provider/flagged operations keep
     // the conservative credentialed exclusive envelope.
     case "index": return args.length === 1 ? { credentials: false, gate: "shared" } : { credentials: true, gate: "exclusive" };
@@ -171,8 +181,17 @@ export const hostExecution = {
 const TURN_EGRESS_ACTIVE = "Governed and strict Claude and pi turns run on their own turn egress proxy and the host inference relay. A pi turn whose credential runs a command, or whose provider and credential type the relay does not carry, is refused.";
 const TURN_EGRESS_INACTIVE = "This brain is not on managed native storage, which the server requires at boot, so the turn egress relay cannot run and every governed and strict turn is refused.";
 /** Whether the brain CLI's paid providers are relayed (#1673): where provider keys live on this host. */
-const PROVIDERS_RELAYED = "The brain CLI's Gemini, Anthropic and OpenAI image providers go through a metered host relay, in turn and maintenance workers alike: the host holds their keys, records each request's usage and counts it toward the budgets.";
+const PROVIDERS_RELAYED = "The brain CLI's Gemini, Anthropic and OpenAI image providers go through a metered host relay, in turn and maintenance workers alike, and so does its JeV reranker in turn workers: the host holds their keys, records each request's usage and counts it toward the budgets.";
 const PROVIDERS_NOT_RELAYED = "The brain CLI's providers are not relayed here: governed and strict turn workers report them unavailable, and maintenance workers still receive the provider keys, so their spend is unmetered.";
+/**
+ * The keys a credentialed maintenance run reaches only through its relay. The
+ * JeV key is not one of them unless the operator lists it: such a run's sync
+ * judge and propagation review call TypeSafe directly (`createJevClient`,
+ * `packages/core/src/lib/jev.ts`), outside the relay, so the run keeps the key
+ * as before. Only turn workers relay JeV reranking (#3792).
+ */
+const maintenanceRelayedKeys = (origins?: ReadonlyMap<string, readonly string[]>): string[] =>
+  relayedProviderKeys(origins).filter(name => name !== FIRST_PARTY_PROVIDER_RECIPIENTS.typesafe.key || Boolean(origins?.has(name)));
 /** Deny direction (#3422): whether `path` is `dir` or below it; a `dir` of `/` holds every absolute path. */
 export const within = (dir: string, path: string) => isWithin(dir, path, { trailingSeparator: "boundary" });
 const real = (path: string) => { try { return realpathSync(path); } catch { return resolve(path); } };
@@ -445,8 +464,8 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     // A relayed run holds no relayed key: it learns their names and reaches
     // them through the relay. Keys the relay does not carry stay (#1673).
     if (relay) {
-      for (const name of relayedProviderKeys(options.providerRelay?.origins)) delete env[name];
-      const held = relayedProviderKeys(options.providerRelay?.origins).filter(name => Boolean(runCredential(execution, name)));
+      for (const name of maintenanceRelayedKeys(options.providerRelay?.origins)) delete env[name];
+      const held = maintenanceRelayedKeys(options.providerRelay?.origins).filter(name => Boolean(runCredential(execution, name)));
       if (held.length) env.BRAIN_WITHHELD_KEYS = held.join(",");
       else delete env.BRAIN_WITHHELD_KEYS;
     }
@@ -454,6 +473,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     const argv = absoluteArgv(brain, execution.argv, path);
     // The wrapper runs inside the worker; one that is not there fails here, as a host spawn of it would.
     if (exec.wrapper && !existsSync(exec.wrapper)) throw new Error(`The exec wrapper ${exec.wrapper} does not exist`);
+    const repositories = execution.repositories?.length ? moduleRepositoryWorkerAccess(execution.repositories) : undefined;
     return {
       brainPath: brain,
       ...(startupView ? { startupView } : {}),
@@ -467,7 +487,8 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       credentials: execution.credentials,
       ...(relay ? { providerRelay: relay.dir, maskEnvFiles: true } : {}),
       ...(execution.credentials && options.home ? { home: options.home } : {}),
-      readPaths: [...(exec.wrapper ? [exec.wrapper] : []), ...serverInstallation()],
+      readPaths: [...(exec.wrapper ? [exec.wrapper] : []), ...serverInstallation(), ...(repositories?.readPaths ?? [])],
+      ...(repositories ? { gitConfig: repositories.gitConfig } : {}),
       maskPaths,
       ...(execution.writeFiles?.length ? { writeFiles: execution.writeFiles } : {}),
     };
