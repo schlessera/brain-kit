@@ -64,7 +64,9 @@ for (const theme of ["dark", "light"]) {
           ui.connection.handleServerMessage({ type: "text_delta", sessionId: SESSION, turnId: "active", text: " Still sailing." });
           ui.connection.flushChatDeltas();
         });
-        expect(container.textContent).toContain(PARTIAL + " Still sailing.");
+        // The growing last block re-parses at deferred priority (#2588), so
+        // the appended text shows on the commit after the urgent one.
+        await expect.poll(() => container.textContent).toContain(PARTIAL + " Still sailing.");
 
         flushSync(() => ui.connection.handleServerMessage({
           type: "error", code: "agent_error", sessionId: SESSION, turnId: "active", message: "Provider unavailable",
