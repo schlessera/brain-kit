@@ -189,7 +189,7 @@ reclamation is observed.
 ## Fixed GitHub wire and identity authority (#3613)
 
 The concrete access owner (`createGitHubReferenceAccess`,
-`packages/ui-server/src/brain/github-reference-access.ts:19-186`) uses the
+`packages/ui-server/src/brain/github-reference-access.ts:19-189`) uses the
 fixed transport (`createGitHubReferenceWire`,
 `packages/ui-server/src/brain/github-reference-wire.ts:19-254`).
 
@@ -213,7 +213,10 @@ result nor anonymous owner lookup approves a trust boundary. The Settings
 publisher must retain its independent human authority and bind a fresh identity
 observation to reviewed publication; changing names or IDs cannot inherit an
 old review. Cancellation and operation authority are retained before waits and
-rechecked before returning the identity, including after wire shutdown.
+rechecked before returning the identity, including after wire shutdown. A
+repository observation retains a synchronous authority check over its selected
+grant and credential for the final publication boundary; invoking it does not
+refresh metadata or approve the target.
 
 The fixed wire shares one operation allowance across metadata, Git discovery,
 authentication and fetch, and charges the real turn counter. It counts TLS
