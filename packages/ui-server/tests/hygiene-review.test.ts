@@ -17,6 +17,7 @@ import { Hono } from "hono";
 import type { AppEnv } from "../src/app-env.js";
 import type { InboxActionItem, InboxDelta, ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { parseServerMessage } from "@schlessera/brain-ui-sdk/schemas";
+import { completeJsonLines } from "./helpers/json-lines.js";
 
 const { createFixtureBrainClient: createBrainClient } = installNativeBrainClientFixtures();
 
@@ -51,7 +52,7 @@ function setup(body = "Odysseus sees [[Eumaeus hut]].", missingTitle = false) {
   const brain = createBrainClient({ brainPath: root, exec: {} });
   const review = createHygieneReview(db, { brain });
   const store = createInboxStore(db);
-  const argv = () => existsSync(join(root, "argv.jsonl")) ? readFileSync(join(root, "argv.jsonl"), "utf8").trim().split("\n").map(s => JSON.parse(s) as string[]) : [];
+  const argv = () => completeJsonLines<string[]>(join(root, "argv.jsonl"));
   const applies = () => argv().filter(a => a.includes("resolve") && !a.includes("--dry-run"));
   return { root, db, principal, brain, review, store, argv, applies };
 }

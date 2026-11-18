@@ -8,7 +8,7 @@
  */
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as worker from "@schlessera/brain-ui-sdk/internal";
@@ -17,6 +17,7 @@ import { createPiBackend } from "../../ui-backend-pi/src/backend.js";
 import { createWebBroker, type WebBroker, type WebReceipt } from "../src/web-tools/broker.js";
 import { createChildWebExecutor } from "../src/web-tools/child-executor.js";
 import { createWebAccess } from "../src/ws/bridge-capabilities/web.js";
+import { completeJsonLines } from "./helpers/json-lines.js";
 
 let root: string, brain: string, executorDir: string, broker: WebBroker, receipts: WebReceipt[];
 beforeEach(() => {
@@ -31,8 +32,7 @@ beforeEach(() => {
 });
 afterEach(async () => { await broker.close(); rmSync(root, { recursive: true, force: true }); });
 
-const executed = () => existsSync(join(executorDir, "calls.jsonl"))
-  ? readFileSync(join(executorDir, "calls.jsonl"), "utf8").trim().split("\n").map(line => JSON.parse(line)) : [];
+const executed = () => completeJsonLines<any>(join(executorDir, "calls.jsonl"));
 
 async function piTurn(mode: string) {
   const previous = process.env.PI_CODING_AGENT_DIR;
