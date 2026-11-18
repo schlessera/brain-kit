@@ -1,5 +1,5 @@
 /** Test-owned host storage; production's HOME fallback remains untouched. */
-import { lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -59,6 +59,17 @@ export function createInvokingTestHome() {
       if (claudeHomeSnapshot(home) !== baseline)
         throw new Error("TEST_WROTE_INVOKING_CLAUDE_HOME: a test changed the invoking Claude storage");
     },
-    dispose() { rmSync(root, { recursive: true, force: true }); },
+    dispose() {
+      try {
+        // The preload records its PID/start identity in this invocation-owned
+        // tree. Its conventional ledger must outlive every repetition, but the
+        // parent removes it after observing the complete child group drain.
+        let identity: { pid: number; start: string } | undefined;
+        try { identity = JSON.parse(readFileSync(join(resources, "admission.json"), "utf8")); }
+        catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+        if (identity) rmSync(join(tmpdir(),
+          `brain-host-admission-test-${process.getuid?.() ?? "user"}-${identity.pid}-${identity.start}`), { recursive: true, force: true });
+      } finally { rmSync(root, { recursive: true, force: true }); }
+    },
   };
 }

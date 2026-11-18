@@ -71,7 +71,10 @@ admission ledger until the test process group drains, including all
 `--rerun-each` repetitions, failure and handled cancellation. Bun repeats the
 preload's `afterAll` on the last file, so that hook only asserts the network
 guard for launched tests. Nested `installTestHome` fixtures still restore both
-environment descriptors when explicitly disposed. Raw `bun test` retains its
+environment descriptors when explicitly disposed. The preload keeps the ledger
+named for the Bun test process's PID/start identity, so descendants with replaced
+environments still discover that process's private ledger; it records the identity
+in the owned tree for launcher cleanup. Raw `bun test` retains its
 preload cleanup fallback; use `bun run test` for repeated or cancellable runs.
 Turns must await owned observation saves before settling so teardown cannot
 race storage writes.

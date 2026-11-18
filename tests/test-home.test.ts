@@ -87,6 +87,8 @@ import { expect, test } from "bun:test";
 import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { keylessEnv } from ${JSON.stringify(harness)};
+import { testLedgerFor } from ${JSON.stringify(join(import.meta.dir, "../scripts/host-admission.mjs"))};
+import { processIdentity } from ${JSON.stringify(join(import.meta.dir, "../scripts/workspace-lease.mjs"))};
 const state = globalThis as typeof globalThis & { odysseusHome?: string; odysseusUtility?: string };
 state.odysseusHome ??= process.env.HOME;
 state.odysseusUtility ??= keylessEnv("/odysseus").HOME;
@@ -96,6 +98,11 @@ test("every repetition retains owned storage", async () => {
   expect(process.env.CLAUDE_CONFIG_DIR).toBe(join(state.odysseusHome!, ".claude"));
   expect(existsSync(state.odysseusUtility!), "CLI_UTILITY_SURVIVES_REPETITION").toBe(true);
   expect(existsSync(process.env.BRAIN_HOST_ADMISSION_DIR!), "ADMISSION_SURVIVES_REPETITION").toBe(true);
+  const own = testLedgerFor(process.pid, processIdentity(process.pid)!.start);
+  expect(process.env.BRAIN_HOST_ADMISSION_DIR, "TEST_PROCESS_OWNS_ADMISSION").toBe(own);
+  const descendant = Bun.spawnSync([process.execPath, "-e", ${JSON.stringify(`console.log((await import(${JSON.stringify(join(import.meta.dir, "../scripts/host-admission.mjs"))})).ledgerDir({}))`)}], { env: { PATH: process.env.PATH! }, stdout: "pipe", stderr: "pipe" });
+  expect(descendant.exitCode, descendant.stderr.toString()).toBe(0);
+  expect(descendant.stdout.toString().trim(), "ENVIRONMENT_FREE_DESCENDANT_FINDS_TEST_LEDGER").toBe(own);
   mkdirSync(process.env.CLAUDE_CONFIG_DIR!, { recursive: true });
   writeFileSync(join(process.env.CLAUDE_CONFIG_DIR!, "prompt-context"), "Ithaca");
   appendFileSync(${JSON.stringify(report)}, JSON.stringify({ home: process.env.HOME, utility: state.odysseusUtility, admission: process.env.BRAIN_HOST_ADMISSION_DIR, bin: keylessEnv("/odysseus").XDG_BIN_HOME, path: keylessEnv("/odysseus").PATH }) + "\\n");
@@ -103,8 +110,11 @@ test("every repetition retains owned storage", async () => {
   if (${JSON.stringify(outcome)} === "cancel") await Bun.sleep(60_000);
 });`);
     }
-    const launched = Bun.spawn([process.execPath, join(import.meta.dir, "../scripts/test.ts"), "--rerun-each=4", "--bail=1", join(root, "first.test.ts"), join(root, "last.test.ts")], {
-      stdout: "pipe", stderr: "pipe",
+    // Exercise the package command as a nested child too. Cancellation targets
+    // the launcher directly, whose signal/group-drain contract this test proves.
+    const entry = outcome === "cancel" ? [join(import.meta.dir, "../scripts/test.ts")] : ["run", "test"];
+    const launched = Bun.spawn([process.execPath, ...entry, "--rerun-each=4", "--bail=1", join(root, "first.test.ts"), join(root, "last.test.ts")], {
+      cwd: join(import.meta.dir, ".."), stdout: "pipe", stderr: "pipe",
     });
     child = launched;
     const output = Promise.all([new Response(launched.stdout).text(), new Response(launched.stderr).text(), launched.exited]);

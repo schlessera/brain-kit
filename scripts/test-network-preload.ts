@@ -3,7 +3,7 @@ import { cleanupCliUtilities, setCliUtilityRoot } from "../packages/core/tests/c
 import { installNetworkGuard } from "./test-network-guard";
 import { installTestHome } from "./test-home";
 import { join, resolve } from "node:path";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { ensureWorkspaceLease, processIdentity, workspaceTestAccess } from "./workspace-lease.mjs";
 
@@ -23,9 +23,14 @@ setCliUtilityRoot(testHome.root);
 // names its own directory; an admitted caller's descendants inherit its slot.
 // The launcher owns its ledger until the child group has drained. Raw Bun
 // invocations retain the existing afterAll fallback.
-const privateAdmission = resourceRoot ? process.env.BRAIN_HOST_ADMISSION_DIR! : join(tmpdir(),
-  `brain-host-admission-test-${process.getuid?.() ?? "user"}-${process.pid}-${processIdentity(process.pid)?.start ?? "0"}`);
-if (!resourceRoot) mkdirSync(privateAdmission, { mode: 0o700 });
+const admissionIdentity = { pid: process.pid, start: processIdentity(process.pid)?.start ?? "0" };
+const privateAdmission = join(tmpdir(),
+  `brain-host-admission-test-${process.getuid?.() ?? "user"}-${admissionIdentity.pid}-${admissionIdentity.start}`);
+// Preserve this test process's conventional identity for environment-free
+// descendants. Register before creation so parent cleanup also covers startup
+// failure or cancellation between ledger setup and the first test.
+if (resourceRoot) writeFileSync(join(resourceRoot, "admission.json"), JSON.stringify(admissionIdentity));
+mkdirSync(privateAdmission, { mode: 0o700 });
 process.env.BRAIN_HOST_ADMISSION_DIR = privateAdmission;
 afterEach(() => guard.assertNoEscapes());
 // Bun repeats the preload's afterAll for the last file under --rerun-each,
