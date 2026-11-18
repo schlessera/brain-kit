@@ -52,6 +52,7 @@ export "." (./src/index.ts)
   type ApifySpendScopeRead
   type ApifyUnresolvedRunRead
   type ApprovalChannel
+  type ApprovalDisplay
   type AskAnswerBinding
   type AskUserAnnotation
   type AskUserFormAnswer
@@ -201,6 +202,7 @@ export "." (./src/index.ts)
   type FirstRequestCacheUsage
   type GeoCoords
   type GeoRequestOptions
+  type GithubApprovalDisplay
   type GovernedStatus
   type GovernedUnavailableReason
   type GraphBrokenLink
@@ -602,6 +604,7 @@ export "./client" (./src/client/index.ts)
   type ApifyToolResult
   type ApifyUnresolvedRunRead
   type ApprovalChannel
+  type ApprovalDisplay
   type AskAnswerBinding
   type AskUserAnnotation
   type AskUserFormAnswer
@@ -860,6 +863,7 @@ export "./client" (./src/client/index.ts)
   type GeoRequestOptions
   type GetCurrentLocationInput
   type GetSearchContentInput
+  type GithubApprovalDisplay
   type GithubAuthor
   type GithubChangedFile
   type GithubCheckRun
@@ -1685,6 +1689,7 @@ export "./protocol" (./src/protocol.ts)
   type ApifySpendScopeRead
   type ApifyUnresolvedRunRead
   type ApprovalChannel
+  type ApprovalDisplay
   type AskAnswerBinding
   type AskUserAnnotation
   type AskUserFormAnswer
@@ -1831,6 +1836,7 @@ export "./protocol" (./src/protocol.ts)
   type FirstRequestCacheUsage
   type GeoCoords
   type GeoRequestOptions
+  type GithubApprovalDisplay
   type GovernedStatus
   type GovernedUnavailableReason
   type GraphBrokenLink
@@ -2161,6 +2167,7 @@ export "./schemas" (./src/schemas.ts)
   MAX_PROMPT_CHARS
   MAX_SERVER_FRAME_BYTES
   type ParseFrameResult
+  approvalDisplaySchema
   attachmentFileSchema
   attachmentLimitsSchema
   classifySessionRecoveryResponse
@@ -2429,6 +2436,7 @@ export "./server" (./src/server/index.ts)
   type ApifyToolResult
   type ApifyUnresolvedRunRead
   type ApprovalChannel
+  type ApprovalDisplay
   type AskAnswerBinding
   type AskUserAnnotation
   type AskUserFormAnswer
@@ -2755,6 +2763,7 @@ export "./server" (./src/server/index.ts)
   type GeoRequestOptions
   type GetCurrentLocationInput
   type GetSearchContentInput
+  type GithubApprovalDisplay
   type GithubAuthor
   type GithubChangedFile
   type GithubCheckRun
@@ -4705,6 +4714,10 @@ signatures (every public export and the types it is made of)
     }
   ApprovalChannel (packages/ui-sdk/src/protocol.ts)
     export type ApprovalChannel = "card" | "voice";
+  ApprovalDisplay (packages/ui-sdk/src/protocol.ts)
+    export interface ApprovalDisplay {
+        github?: GithubApprovalDisplay;
+    }
   AskAnswerBinding (packages/ui-sdk/src/protocol.ts)
     export interface AskAnswerBinding {
         submissionId?: string;
@@ -9887,6 +9900,17 @@ signatures (every public export and the types it is made of)
     export type GetCurrentLocationInput = z.infer<typeof GET_CURRENT_LOCATION_INPUT_SCHEMA>;
   GetSearchContentInput (packages/ui-sdk/src/tool-contracts/web.ts)
     export type GetSearchContentInput = z.infer<typeof GET_SEARCH_CONTENT_INPUT_SCHEMA>;
+  GithubApprovalDisplay (packages/ui-sdk/src/protocol.ts)
+    export interface GithubApprovalDisplay {
+        poster: {
+            login: string;
+            is_bot: boolean;
+        } | null;
+        target: {
+            kind: "issue" | "pull_request";
+            html_url: string | null;
+        } | null;
+    }
   GithubAuthor (packages/ui-sdk/src/tool-contracts/github.ts)
     export type GithubAuthor = z.infer<typeof GITHUB_AUTHOR_SCHEMA>;
   GithubChangedFile (packages/ui-sdk/src/tool-contracts/github.ts)
@@ -11302,6 +11326,7 @@ signatures (every public export and the types it is made of)
         description?: string;
         kind?: "tool" | "command" | "policy" | "actor";
         outsideEnforcedAllowlist?: boolean;
+        display?: import("../protocol.js").ApprovalDisplay;
     }
   PermissionScenario (packages/ui-sdk/src/testing/index.ts)
     export type PermissionScenario = "mutation" | "shortcut" | "command";
@@ -13804,6 +13829,7 @@ signatures (every public export and the types it is made of)
         description?: string;
         kind?: "tool" | "command" | "policy" | "actor";
         rememberable?: boolean;
+        display?: ApprovalDisplay;
     }
   ServerToolInputDelta (packages/ui-sdk/src/protocol.ts)
     export interface ServerToolInputDelta extends SessionScoped {
@@ -15409,6 +15435,22 @@ signatures (every public export and the types it is made of)
     }
   apifyOperationOf (packages/common/src/apify-operations.ts)
     export function apifyOperationOf(name: string): ApifyOperation | undefined;
+  approvalDisplaySchema (packages/ui-sdk/src/schemas.ts)
+    const approvalDisplaySchema: z.ZodObject<{
+        github: z.ZodCatch<z.ZodOptional<z.ZodObject<{
+            poster: z.ZodCatch<z.ZodNullable<z.ZodObject<{
+                is_bot: z.ZodBoolean;
+                login: z.ZodString;
+            }, z.core.$loose>>>;
+            target: z.ZodCatch<z.ZodNullable<z.ZodObject<{
+                html_url: z.ZodNullable<z.ZodString>;
+                kind: z.ZodEnum<{
+                    issue: "issue";
+                    pull_request: "pull_request";
+                }>;
+            }, z.core.$loose>>>;
+        }, z.core.$loose>>>;
+    }, z.core.$loose>;
   assertLiveConversationProvider (packages/ui-sdk/src/server/conversation.ts)
     export function assertLiveConversationProvider(provider: LiveConversationProvider): void;
   assertLiveConversationSession (packages/ui-sdk/src/server/conversation.ts)
@@ -24135,6 +24177,21 @@ signatures (every public export and the types it is made of)
         type: z.ZodLiteral<"tool_result">;
     }, z.core.$loose>, z.ZodObject<{
         description: z.ZodOptional<z.ZodString>;
+        display: z.ZodCatch<z.ZodOptional<z.ZodObject<{
+            github: z.ZodCatch<z.ZodOptional<z.ZodObject<{
+                poster: z.ZodCatch<z.ZodNullable<z.ZodObject<{
+                    is_bot: z.ZodBoolean;
+                    login: z.ZodString;
+                }, z.core.$loose>>>;
+                target: z.ZodCatch<z.ZodNullable<z.ZodObject<{
+                    html_url: z.ZodNullable<z.ZodString>;
+                    kind: z.ZodEnum<{
+                        issue: "issue";
+                        pull_request: "pull_request";
+                    }>;
+                }, z.core.$loose>>>;
+            }, z.core.$loose>>>;
+        }, z.core.$loose>>>;
         input: z.ZodRecord<z.ZodString, z.ZodUnknown>;
         kind: z.ZodOptional<z.ZodEnum<{
             actor: "actor";
@@ -28602,6 +28659,21 @@ signatures (every public export and the types it is made of)
   serverToolApprovalRequestSchema (packages/ui-sdk/src/schemas.ts)
     const serverToolApprovalRequestSchema: z.ZodObject<{
         description: z.ZodOptional<z.ZodString>;
+        display: z.ZodCatch<z.ZodOptional<z.ZodObject<{
+            github: z.ZodCatch<z.ZodOptional<z.ZodObject<{
+                poster: z.ZodCatch<z.ZodNullable<z.ZodObject<{
+                    is_bot: z.ZodBoolean;
+                    login: z.ZodString;
+                }, z.core.$loose>>>;
+                target: z.ZodCatch<z.ZodNullable<z.ZodObject<{
+                    html_url: z.ZodNullable<z.ZodString>;
+                    kind: z.ZodEnum<{
+                        issue: "issue";
+                        pull_request: "pull_request";
+                    }>;
+                }, z.core.$loose>>>;
+            }, z.core.$loose>>>;
+        }, z.core.$loose>>>;
         input: z.ZodRecord<z.ZodString, z.ZodUnknown>;
         kind: z.ZodOptional<z.ZodEnum<{
             actor: "actor";

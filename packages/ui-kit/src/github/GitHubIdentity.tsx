@@ -108,6 +108,30 @@ export function GitHubIdentity(p: GitHubIdentityProps) {
   );
 }
 
+/** What a preview names when the host could not verify who would post (#4154). */
+export const HOST_ACCOUNT = "The host's GitHub account";
+
+/**
+ * The poster of a comment not posted yet, when the host could not verify
+ * which account its credential posts as (#4154). It names no login: not
+ * `@ghost`, which means a deleted account, and no login the kit could
+ * guess. The avatar is an empty circle with a solid edge, so it reads
+ * neither as a person nor as the ghost's dashed one, and loads nothing.
+ */
+export function GitHubHostAccount(p: { meta?: ReactNode }) {
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", flexWrap: "wrap", gap: "2px 6px", minWidth: 0 }} data-github-identity="" data-github-host-account="">
+      <span
+        aria-hidden="true"
+        data-avatar-state="host"
+        style={{ flex: "none", display: "inline-flex", width: 22, height: 22, boxSizing: "border-box", borderRadius: 999, border: `1px solid ${color.edge}`, background: "transparent" }}
+      />
+      <span style={{ font: `600 11.5px/1.4 ${font.body}`, color: color.ink, minWidth: 0 }}>{HOST_ACCOUNT}</span>
+      {p.meta !== undefined && p.meta !== null ? <span style={{ font: `400 11px/1.4 ${font.body}`, color: color.inkMute }}>{p.meta}</span> : null}
+    </span>
+  );
+}
+
 /**
  * `GitHubParticipants` — up to four overlapping 20px faces, then `+n`, then
  * the count in words. The stack is decoration; "4 people" carries the count.

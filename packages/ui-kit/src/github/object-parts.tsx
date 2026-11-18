@@ -67,6 +67,8 @@ export function Labels({ labels }: { labels: string[] }) {
 
 /** Where a not-posted draft's links say they come from: it is not on GitHub yet. */
 export const DRAFT_SOURCE = { source: "this draft", sourcePhrase: "in this draft" } as const;
+/** The caption every not-posted draft carries: Brain wrote it, and it is not on GitHub (W1, W4). */
+export const DRAFT_CAPTION = "Brain's draft · not posted";
 
 /**
  * An issue or pull request body. A read or posted body keeps the design's
@@ -83,7 +85,7 @@ export function Body(p: { body?: string | null; author: string; bodyLength?: num
   return (
     <UntrustedText
       text={p.body}
-      {...(p.draft ? { ...DRAFT_SOURCE, author: null, caption: "Brain's draft · not posted" } : { source: "GitHub", author: p.author })}
+      {...(p.draft ? { ...DRAFT_SOURCE, author: null, caption: DRAFT_CAPTION } : { source: "GitHub", author: p.author })}
       frame="box"
       lines={8}
       linesNarrow={10}

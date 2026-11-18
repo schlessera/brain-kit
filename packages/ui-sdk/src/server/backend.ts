@@ -138,6 +138,12 @@ export interface PermissionRequest {
    * @experimental
    */
   outsideEnforcedAllowlist?: boolean;
+  /**
+   * Host-verified facts the card shows, display only (#4154). Sent with the
+   * approval frame; never part of `input`, never compared with the answer,
+   * never authority.
+   */
+  display?: import("../protocol.js").ApprovalDisplay;
 }
 
 export interface AskUserResult {
