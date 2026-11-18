@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CLI_LOG, httpContractApp } from "./helpers/http-contract-app";
+import { completeJsonLines } from "./helpers/json-lines.js";
 
 test("mounted capture rejects incorrect JSON media, oversized bytes and missing content without invoking add", async () => {
   const t = await httpContractApp();
@@ -19,13 +19,12 @@ test("mounted capture rejects incorrect JSON media, oversized bytes and missing 
     const empty = await t.fetch("/api/brain/add", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
     expect(empty.status).toBe(400);
     expect(await empty.json()).toEqual({ error: "Field 'content' is required" });
-    const calls = existsSync(join(t.brainPath, CLI_LOG))
-      ? readFileSync(join(t.brainPath, CLI_LOG), "utf8").trim().split("\n").map((l) => JSON.parse(l)) : [];
+    const calls = completeJsonLines<string[]>(join(t.brainPath, CLI_LOG));
     expect(calls.map((a: string[]) => a[0])).not.toContain("add");
     const admitted = await t.fetch("/api/brain/add", { method: "POST", headers: { "content-type": "application/json; charset=utf-8" }, body: valid });
     expect(admitted.status).toBe(200);
     expect(await admitted.json()).toMatchObject({ success: true, indexed: false });
-    expect(readFileSync(join(t.brainPath, CLI_LOG), "utf8").trim().split("\n").map(l => JSON.parse(l)[0])).toContain("add");
+    expect(completeJsonLines<string[]>(join(t.brainPath, CLI_LOG)).map(args => args[0])).toContain("add");
   } finally { await t.close(); }
 });
 

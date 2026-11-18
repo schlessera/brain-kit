@@ -16,6 +16,7 @@ import { hostProcessAlive, waitForHostProcesses } from "./helpers/host-processes
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { registeredVersionDeadline } from "../../ui-sdk/tests/helpers/registered-version-deadline";
 import { MIN_BRAIN_CLI_VERSION } from "../src/brain/client";
+import { completeJsonLines } from "./helpers/json-lines.js";
 const roots: string[] = [];
 const closeNative: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const close of closeNative.splice(0)) await close(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -38,7 +39,7 @@ function fixture(version = MIN_BRAIN_CLI_VERSION) {
   const boundary = (exec: import("@schlessera/brain-ui-sdk/server").ExecWrapperConfig = {}) => createHostBoundary({ brainPath: root, dbPath: config.dbPath, exec, nativeManager });
   const observability = createRecordingObservability();
   const registry = createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]);
-  const invocations = () => existsSync(calls) ? readFileSync(calls, "utf8").trim().split("\n").map(line => JSON.parse(line) as string[]) : [];
+  const invocations = () => completeJsonLines<string[]>(calls);
   return { root, bin, install, config, observability, registry, invocations, boundary };
 }
 
