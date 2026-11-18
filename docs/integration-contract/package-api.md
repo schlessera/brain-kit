@@ -98,7 +98,10 @@ reuses the anonymous-first and live private-grant/API-recipient checks above;
 owner namespace lookup remains anonymous-only. Both operations snapshot the
 principal, target, cancellation and operation-authority callback before waits,
 recheck them after waits including shutdown, and return fresh fixed-endpoint
-identity data. They return no credential, relay capability, approved-owner
+identity data. Repository lookup also retains a synchronous `assertAuthority()`
+callback over that exact lookup's selected grant/credential and operation; it
+allows the publisher to recheck after later waits without selecting replacement
+authority. This callback is not metadata refresh or approval evidence. They return no credential, relay capability, approved-owner
 boundary or source-trust flag. The Settings publisher still supplies its
 independent password-mode human authority and must revalidate identity before
 publishing. A lookup at review time is not permanent identity approval.

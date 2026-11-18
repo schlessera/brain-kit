@@ -220,6 +220,7 @@ test("Settings repository identity has no Git phase or revision and stays anonym
     await expect(pending, "SETTINGS_REPOSITORY_RESOLVES_WITHOUT_GIT_OR_AGENT_TURN").resolves.toEqual({
       owner: "odysseus", repository: "ithaca", canonical: "https://github.com/odysseus/ithaca", cloneUrl: "https://github.com/odysseus/ithaca.git",
       metadataUrl: "https://api.github.com/repos/odysseus/ithaca", repositoryId: "101", ownerId: "201", private: false,
+      assertAuthority: expect.any(Function),
     });
     expect(f.received).toEqual([{ path: "/repos/odysseus/ithaca", authorization: null }]);
     expect(f.git, "SETTINGS_METADATA_NEVER_DISPATCHES_GIT").toEqual([]);
@@ -258,6 +259,29 @@ test("private Settings metadata uses the owner's own live grant and separately p
     expect(f.git).toEqual([]);
   } finally { await f.close(); }
 });
+
+for (const kind of ["grant", "replace", "narrower", "recipient", "credential", "principal", "operation", "cancel"] as const)
+  test(`Settings metadata retains a final synchronous ${kind} authority fence after wire cleanup`, async () => {
+    let current = true;
+    const credentials: Record<string, string> = { GITHUB_TOKEN: token }, controller = new AbortController();
+    const f = await fixture({ private: true, credentials }), grant = f.grant({ principalId: f.owner.id });
+    try {
+      const result = await f.service().repository({ ...f.bounds, principalId: f.owner.id, repository: "odysseus/ithaca",
+        current: () => current, signal: controller.signal });
+      expect(() => result.assertAuthority(), "SETTINGS_FRESH_METADATA_AUTHORITY_REMAINS_USABLE_AFTER_CLEANUP").not.toThrow();
+      if (kind === "grant" || kind === "replace") {
+        revokeReferenceGrant(f.db, { brain, principalId: f.owner.id, id: grant.id, now: Date.now() });
+        if (kind === "replace") f.grant({ principalId: f.owner.id });
+      } else if (kind === "narrower") f.grant({ principalId: f.owner.id, repositoryPrefix: "https://github.com/odysseus/ithaca" });
+      else if (kind === "recipient") f.db.query("UPDATE reference_grants SET metadata_credential_recipient=NULL WHERE id=?").run(grant.id);
+      else if (kind === "credential") credentials.GITHUB_TOKEN = "changed-fixture-token";
+      else if (kind === "principal") revokePrincipal(f.db, f.owner.id, Date.now());
+      else if (kind === "operation") current = false;
+      else controller.abort();
+      expect(() => result.assertAuthority(), "SETTINGS_FINAL_PUBLICATION_FENCE_RETAINS_LOOKUP_AUTHORITY").toThrow();
+      expect(f.received).toHaveLength(2); expect(f.git).toEqual([]);
+    } finally { await f.close(); }
+  });
 
 for (const kind of ["absent", "legacy", "other-brain", "other-principal", "sibling-repository", "revoked", "credentialless"] as const)
   test(`Settings private metadata refuses ${kind} authority without credential probing`, async () => {

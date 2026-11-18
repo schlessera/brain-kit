@@ -141,14 +141,17 @@ export function createGitHubReferenceAccess(options: {
     },
 
     /** Fixed metadata only. No revision, Git channel, token or approval proof escapes. */
-    async repository(input: RequestBounds & { principalId: string; repository: unknown }): Promise<GitHubReferenceIdentity> {
+    async repository(input: RequestBounds & { principalId: string; repository: unknown }): Promise<GitHubReferenceIdentity & { assertAuthority(): void }> {
       const access = await repositoryMetadata(input, true);
       try { access.assertCurrent(); }
       finally { await access.close(); }
       // Wire shutdown is an asynchronous wait too. Its intentional abort does
       // not invalidate the caller's independent live Settings authority.
       access.assertAuthority();
-      return access.identity;
+      // A later synchronous publication fence must retain this operation's
+      // selected grant and credential, rather than select a replacement grant.
+      // This checks authority only; a new review/commit still needs fresh metadata.
+      return Object.freeze({ ...access.identity, assertAuthority: access.assertAuthority });
     },
 
     /** Open one host-only budget; anonymous metadata always precedes any permitted private retry. */
