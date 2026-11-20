@@ -19,7 +19,6 @@ import { existsSync } from "node:fs";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { checkGovernancePolicy, GOVERNANCE_POLICY_PATH } from "@schlessera/brain-common/internal/governance-policy";
 import { liability, type ApifyLedger, type ApifyRuns, type ApifyStatus, type ApifyCoverageScope } from "@schlessera/brain-common/internal/apify";
-import type { PolicyChangeReview } from "@schlessera/brain-ui-sdk/tool-contracts";
 import type {
   ApifyGrantRead, ApifyPolicyChange, ApifyPolicyMode, ApifyPolicyProposalRead, ApifyPolicyRead, ApifySettingsRead, ApifySpendRead,
   ApifySpendScopeRead, ApifyUnresolvedRunRead,
