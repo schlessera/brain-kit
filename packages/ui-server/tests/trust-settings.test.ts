@@ -479,5 +479,5 @@ test('review4: oversized policy retains last-valid live trust with honest error'
 });
 
 for(const host of ['example.org','127.0.0.1','[::1]','xn--bcher-kva.example'])for(const kind of ['web_origin','tunnel_authority'] as const)test(`review4: Settings accepts enforced canonical ${kind} ${host}`,async()=>{
- const f=await fixture({originEnforcement:true});const selector=kind==='web_origin'?{kind,scheme:'https',host,port:443}:{kind,host,port:443};const draft=await f.prepare({action:'create',rule:{...rule,selector}});const saved=await f.commit(draft);expect(saved.receipt).toMatchObject({enforcement:'enforced'});expect(f.settings.live.read().rules[0]?.selector).toEqual(selector);
+ const f=await fixture({originEnforcement:true});const selector=kind==='web_origin'?{kind,scheme:'https' as const,host,port:443}:{kind,host,port:443};const draft=await f.prepare({action:'create',rule:{...rule,selector}});const saved=await f.commit(draft);expect(saved.receipt).toMatchObject({enforcement:'enforced'});expect(f.settings.live.read().rules[0]?.selector).toEqual(selector);
 });
