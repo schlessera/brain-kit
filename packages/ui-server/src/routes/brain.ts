@@ -23,9 +23,9 @@ import { observeWrite } from "../activity/store-writes.js";
  * sync is refused by name and the brain is free again; a sync that has
  * started is never bounded here.
  */
-export const SYNC_LAUNCH_TIMEOUT_MS = 120_000;
+const SYNC_LAUNCH_TIMEOUT_MS = 120_000;
 /** How long a sync's output may keep its pipes open after the process has exited. */
-export const SYNC_OUTPUT_GRACE_MS = 10_000;
+const SYNC_OUTPUT_GRACE_MS = 10_000;
 /** Combined output kept on a UI sync's Activity run, as a cron job keeps its own. */
 const SYNC_OUTPUT_TAIL_CHARS = 8_000;
 /** Non-empty output lines named in a failed UI sync's run reason and log line. */
