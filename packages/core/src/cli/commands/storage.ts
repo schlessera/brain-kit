@@ -1,4 +1,4 @@
-import { GitNoSpaceError, gitPackingHeadroom, isGitWorkTree, isNoSpaceFailure, packRepository } from "../../lib/git-storage.js";
+import { GitPackingSkipped, gitObjectCounts, GitNoSpaceError, gitPackingHeadroom, isGitWorkTree, isNoSpaceFailure, packRepository } from "../../lib/git-storage.js";
 import { resolveEnv } from "../../config/env.js";
 import { resolve } from "node:path";
 import { collectStorageProcess } from "../../lib/storage-process.js";
@@ -8,7 +8,7 @@ import type { CoreCommand } from "../types.js";
 export const storageCommand: CoreCommand = {
   summary: "Bounded storage inventory and non-destructive Git packing",
   helpBlock: `brain storage inventory --json
-brain storage pack --json
+brain storage pack [--dry-run] --json
 
 Collect metadata for BRAIN_ROOT without evaluating brain configuration, opening
 a database or reading attachment bytes. Linux descriptor traversal is required.
@@ -20,7 +20,8 @@ Git directories. No request flag accepts or expands those roots.
 
 pack runs the existing loose-object/incremental-pack/ref-packing maintenance.
 It preserves refs, reflogs and history. Old and new packs can coexist; temporary
-headroom is workload-dependent and is not reserved. Exit 2 retains a qualified
+headroom uses a conservative raw-object sizing rule and is not reserved by the
+standalone CLI. --dry-run reports the plan without starting maintenance. Exit 2 retains a qualified
 refusal/partial report; packing never runs broad gc or expires history.`,
   run: async (args, cli) => args[0] === "pack" ? runStoragePack(args, cli.brain.root, cli.json) : runStorageInventory(args, cli.json),
 };
@@ -46,20 +47,22 @@ export async function runStorageInventory(args: string[], json: boolean): Promis
 }
 
 export function runStoragePack(args: string[], root: string, json: boolean): number {
-  if (args[0] !== "pack" || args.slice(1).some(arg => arg !== "--json")) throw new UsageError("Usage: brain storage pack --json");
+  if (args[0] !== "pack" || args.slice(1).some(arg => arg !== "--json" && arg !== "--dry-run")) throw new UsageError("Usage: brain storage pack [--dry-run] --json");
   let started = false;
-  const result: { schema_version: 1; action: "pack"; state: "complete" | "refused" | "partial"; packed: number | null; reason: string | null; headroom: ReturnType<typeof gitPackingHeadroom> | null } =
-    { schema_version: 1, action: "pack", state: "refused", packed: null, reason: null, headroom: null };
+  const result: { schema_version: 1; action: "pack"; state: "complete" | "refused" | "partial"; packed: number | null; reason: string | null; garbage: { count: number; bytes: number } | null; headroom: ReturnType<typeof gitPackingHeadroom> | null } =
+    { schema_version: 1, action: "pack", state: "refused", packed: null, reason: null, headroom: null, garbage: null };
   try {
     if (!isGitWorkTree(root)) result.reason = "not_a_git_worktree";
     else {
+      result.garbage = gitObjectCounts(root).garbage;
       result.headroom = gitPackingHeadroom(root);
       if (result.headroom.availableBytes === 0) result.reason = "no_space";
+      else if (args.includes("--dry-run")) { result.state = "complete"; }
       else { started = true; result.packed = packRepository(root).packed; result.state = "complete"; }
     }
   } catch (error) {
     result.state = started ? "partial" : "refused";
-    result.reason = error instanceof GitNoSpaceError || isNoSpaceFailure(String(error)) ? "no_space" : "git_maintenance_unavailable";
+    result.reason = error instanceof GitPackingSkipped ? "packing_headroom" : error instanceof GitNoSpaceError || isNoSpaceFailure(String(error)) ? "no_space" : "git_maintenance_unavailable";
   }
   if (json) console.log(JSON.stringify(result));
   else console.log(result.state === "complete" ? `Packed ${result.packed} loose objects; history and refs retained.` : `Packing ${result.state}: ${result.reason}. Re-measure storage before trying again.`);

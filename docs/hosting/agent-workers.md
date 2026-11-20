@@ -929,29 +929,53 @@ bytes. Deleting a lower-only baseline file does not free writable capacity.
 No host-backed output overflow fallback exists. The agent's limits note states
 the same resolved output allowance.
 
-Maintenance Git packing is bounded by the same allowance. Hosted `brain
-maintain` runs git's incremental `loose-objects`, `incremental-repack` and
-`pack-refs` tasks inside its maintenance worker, so each new pack is written into
-that worker's output stage, never directly into the brain's `.git`. The
-launcher declares the stage's size and setting to the worker in
-`BRAIN_WORKER_OUTPUT_ALLOWANCE`. A pack larger than the space left fails the `git`
-step with a named refusal instead of git's bare `Out of diskspace`:
+Hosted maintenance uses a **dedicated reserved packing stage**, following the
+maintainer's 2026-11-20 ruling on #4288. The normal `brain maintain` pass runs
+with `--no-git`, publishes its validated index/registry/scratch output, and
+then inspects Git inside a credential-free worker. Git never runs on the host.
+A separate worker packs and publishes only `.git`. The generic
+`BRAIN_UI_OUTPUT_STAGING_BYTES` default and its other consumers are unchanged.
 
-```text
-FAILED — no space: git packing ran out of space in the maintenance worker's output stage (allowance 268435456 bytes, set by BRAIN_UI_OUTPUT_STAGING_BYTES; 264241152 bytes available when the step started). git: fatal: sha1 file '.git/objects/pack/tmp_pack_…' write error. Out of diskspace
-```
+The plan reads raw Git object sizes, including packed objects, and page-rounds
+`3 × sum(raw object bytes + 128 per object) + 16 MiB`. This covers both
+non-destructive loose-object passes, indexes and auxiliary files with a safety
+margin while the old packs remain present. The dedicated stage adds another
+16 MiB for the frozen Git adapter and mount scaffolds. Its hard bound is the
+managed volume's configured capacity minus the recovery reserve and the 2 GiB
+free-space floor. Before creating it, the native manager reserves all outstanding
+stage/tree allowances (including uncertain cleanup charges) plus this stage
+against observed free space, preserving that floor and recovery allocation.
+The stage remains charged until its confirmed deletion. No new environment
+setting increases every turn's allowance.
 
-The available figure is the stage's free space when the step started, measured
-the way `brain storage pack --json` reports `headroom`. To let the pack through,
-raise `BRAIN_UI_OUTPUT_STAGING_BYTES` above the largest pack the step writes (a
-multiple of 4096) and restart the server. Unset, the budget follows it as
-allowance × `MAX_CONCURRENT_SESSIONS`; an explicit
-`BRAIN_UI_OUTPUT_STAGING_BUDGET_BYTES` must be raised to at least the new
-allowance too. The cost: every consumer, each agent turn as well as each
-maintenance run, then reserves the larger allowance, so the admitted total grows
-with it, or fewer consumers fit at once under an explicit budget. A
-`brain maintain` run outside a hosted worker reports the same shortfall against
-the filesystem holding `.git`, without a hosted setting.
+Insufficient or unknown headroom gives the named `skipped — packing_headroom`
+maintenance result before Git maintenance starts; the next run retries. A
+single object larger than the generic allowance can pack when the dedicated
+reservation fits. The existing 4 GiB per-file publication limit still applies.
+Git's own out-of-space refusal remains `FAILED — no space:` with the starting
+headroom and launcher-declared stage allowance.
+
+A failed or incomplete pack publishes **nothing under `.git`**. Newly created
+temporary pack files are removed from the failed stage; historical garbage is
+never removed. Failed worker commands discard Git publication while retaining
+other validated output. `brain maintain`'s git result and
+`brain storage pack --json` report existing garbage count and bytes from
+`git count-objects -v`. Cleanup of existing garbage requires a separate backed-up
+owner operation. The CLI's standalone packing preflight uses the same conservative
+need and skips when it cannot establish enough space, without reserving it.
+
+The existing idle host-maintenance schedule also scrubs the journal object
+store, never admission or finish. Each pass lists at most 64 directory entries
+and resumes its held directory iterator on the next pass (a process restart
+starts a fresh sweep). Under the journal writer lock it excludes hashes with
+any object row, reference or reservation, verifies remaining bytes against the
+SHA-256 filename, commits their quota charge, then moves verified orphans to
+`<objects-root>.quarantine`. Quarantined bytes stay charged until an explicit
+owner action removes them. Interrupted moves retain their charge and reconcile
+on the next pass; corrupt files stay in place and are reported separately.
+A busy journal records `journal_busy` without waiting for the turn to end.
+Counts, bytes, skips and failure causes appear in the existing maintenance
+Activity record as `journal_scrub` / `journal_scrub_failed` events.
 
 A fixed trusted helper uses util-linux `unshare` and `mount` to create a
 copy-on-write overlay with immutable input as its lower layer and upper/work

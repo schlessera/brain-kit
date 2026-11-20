@@ -1,3 +1,4 @@
+import { maintenancePackingCommand, runHostedMaintenance } from "./maintenance-packing.js";
 /**
  * The host execution boundary (#1648; docs/decisions/governed-writable-workers.md,
  * "The host execution boundary").
@@ -111,6 +112,8 @@ export interface BrainExecution {
   turnId?: string;
   /** @internal What its maintenance reservation is for, named by a busy refusal (#3461). Default `sync` for a sync, else `command`. */
   maintenanceKind?: MaintenanceTempKind;
+  /** @internal Host-calculated dedicated Git packing stage. Never a request input. */
+  packingAllowanceBytes?: number;
 }
 
 export interface ExecutionResult {
@@ -566,7 +569,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     return proc;
   }
 
-  return {
+  const boundary: HostBoundary = {
     brainPath: brain,
     maintenance: {tempLimits:maintenanceTemp,maskPaths,...(tempDomain ? {tempDomain} : {}),
       scratchIgnoreQuery: createScratchIgnoreQuery({ brainPath: brain, nativeManager: options.nativeManager, lock: outputLock,
@@ -621,6 +624,8 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     },
     withGate,
     async run(execution) {
+      const packing = maintenancePackingCommand(execution);
+      if (packing >= 0 && isolated()) return runHostedMaintenance(execution, packing, next => boundary.run(next));
       const admissionSignal = execution.admissionSignal
         ? execution.signal ? AbortSignal.any([execution.signal, execution.admissionSignal]) : execution.admissionSignal
         : execution.signal;
@@ -669,7 +674,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
             let relay: ProviderRelay | undefined;
             try {
               execution.signal?.throwIfAborted();
-              outputs = await prepareMaintenanceOutput(brain, { startupView: view, folderPaths: hold?.folderPaths, signal: execution.signal, areas: execution.outputAreas });
+              outputs = await prepareMaintenanceOutput(brain, { startupView: view, folderPaths: hold?.folderPaths, signal: execution.signal, areas: execution.outputAreas, packingAllowanceBytes: execution.packingAllowanceBytes });
               relay = providerRelayFor(execution);
               const launch = command(execution, undefined, relay);
               const git = await prepareMaintenanceGit(launch, outputs, execution.signal, options.log);
@@ -677,6 +682,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
               const result = await runMaintenanceWorker({ ...launch, startupView: outputs.view, output: outputs.output, ...(git ? { git } : {}), stdin: execution.stdin,
                 ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}), ...(execution.outputBytes ? { outputBytes: execution.outputBytes } : {}) },
               () => { execution.assertAuthorized?.(); execution.onExecute?.(); });
+              if (result.exitCode !== 0) outputs.discardGit();
               if (!result.killed && execution.publish !== false) {
                 execution.assertAuthorized?.();
                 if (execution.lock) await outputs.publishLocked(execution.lock.keyed);
@@ -691,6 +697,16 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       });
     },
     async launch(execution) {
+      if (maintenancePackingCommand(execution) >= 0 && isolated()) {
+        const stdout = syncOutput(), stderr = syncOutput(), stop = new AbortController();
+        let signalCode: string | null = null;
+        const signal = execution.signal ? AbortSignal.any([execution.signal, stop.signal]) : stop.signal;
+        const exited = boundary.run({ ...execution, signal }).then(result => {
+          stdout.write(result.stdout); stderr.write(result.stderr); return result.exitCode;
+        }).finally(() => { stdout.close(); stderr.close(); });
+        return { stdout: stdout.stream, stderr: stderr.stream, exited, settled: exited.then(() => {}, () => {}),
+          get signalCode() { return signalCode; }, kill(value: NodeJS.Signals = "SIGTERM") { signalCode=value;stop.abort(new Error(`maintenance killed by ${value}`)); } };
+      }
       execution.signal?.throwIfAborted();
       const hold = execution.gate === "none" ? null : await holdGate(execution.gate, execution.purpose, execution.signal);
       let hostFallback: boolean;
@@ -758,7 +774,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         execution.signal?.throwIfAborted();
         view = await prepareInput(execution.signal);
         execution.signal?.throwIfAborted();
-        outputs = await prepareMaintenanceOutput(brain, { startupView: view, folderPaths: hold?.folderPaths, signal: execution.signal, areas: execution.outputAreas });
+        outputs = await prepareMaintenanceOutput(brain, { startupView: view, folderPaths: hold?.folderPaths, signal: execution.signal, areas: execution.outputAreas, packingAllowanceBytes: execution.packingAllowanceBytes });
         relay = providerRelayFor(execution);
         const launch = command(execution, undefined, relay);
         const git = await prepareMaintenanceGit(launch, outputs, execution.signal, options.log);
@@ -773,6 +789,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       void worker.input(execution.stdin ?? "");
       let signalCode: string | null = null;
       const exited = worker.exited.then(async code => {
+        if (code !== 0) outputs!.discardGit();
         if (!signalCode && execution.publish !== false) {
           if (execution.lock) await outputs!.publishLocked(execution.lock.keyed);
           else await outputs!.publish();
@@ -807,4 +824,5 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       return { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode };
     },
   };
+  return boundary;
 }

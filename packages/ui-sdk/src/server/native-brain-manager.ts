@@ -610,7 +610,7 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig,
       if (request.operation === "prepareStage") {
         if (fixed.appUid === undefined || fixed.stageAllowanceBytes === undefined || fixed.stageBudgetBytes === undefined)
           throw new NativeBrainManagerError("unsupported", "Configure fixed appUid and existing output staging allowance/budget before native output admission.");
-        if (!Number.isSafeInteger(request.allowanceBytes) || request.allowanceBytes % 4096 || request.allowanceBytes > fixed.stageAllowanceBytes)
+        if (!Number.isSafeInteger(request.allowanceBytes) || request.allowanceBytes % 4096 || request.allowanceBytes > (request.packing ? fixed.capacityBytes : fixed.stageAllowanceBytes))
           throw new NativeBrainManagerError("capacity", "Requested native staging allowance exceeds its configured finite bound.");
         let intent = readIntent(request.id);
         if (intent && intent.kind !== "stage") throw new NativeBrainManagerError("invalid", "This identity belongs to a checkpoint, not a stage.");
@@ -628,12 +628,21 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig,
         const checkpoint = await verifyOwned(source, signal);
         const recoveryRefusal = stagingRecoveryRefusal(request.allowanceBytes);
         if (recoveryRefusal) throw new NativeBrainManagerError("unknown", recoveryRefusal);
-        if (stagedBytes + quarantinedStageBytes + request.allowanceBytes > fixed.stageBudgetBytes) throw new NativeBrainManagerError("capacity", "Native output staging aggregate budget is busy; nothing ran.");
+        if (request.packing) {
+          await ensureReserve(signal);
+          const { statfsSync } = await import("node:fs"), space = statfsSync(fixed.storePath);
+          if (space.type !== BTRFS_MAGIC) throw new NativeBrainManagerError("unsupported", "Native store filesystem type changed.");
+          // Reserve every outstanding stage/tree plus the 2 GiB turn floor.
+          // Recovery allocation remains allocated and is not spendable headroom.
+          if (reserveConsumed || stagedBytes + quarantinedStageBytes + treeBytes + quarantinedTreeBytes + request.allowanceBytes + 2 * 1024 ** 3 + fixed.recoveryReserveBytes > space.bavail * space.bsize)
+            throw new NativeBrainManagerError("capacity", "packing_headroom: managed store cannot reserve the packing stage above its free-space floor; Git did not start.");
+        }
+        if (!request.packing && stagedBytes + quarantinedStageBytes + request.allowanceBytes > fixed.stageBudgetBytes) throw new NativeBrainManagerError("capacity", "Native output staging aggregate budget is busy; nothing ran.");
         const path = join(stages, request.id);
         if (!intent) {
           if (existsSync(path)) throw new NativeBrainManagerError("unknown", "Unrecorded staging storage occupies this identity.");
           intent = { version: 1, id: request.id, sourceUuid: fixed.brainUuid, kind: "stage", state: "creating",
-            stageRequest: { checkpointId: request.checkpointId, checkpointUuid: checkpoint.uuid, allowanceBytes: request.allowanceBytes } }; await writeIntent(intent);
+            stageRequest: { checkpointId: request.checkpointId, checkpointUuid: checkpoint.uuid, allowanceBytes: request.allowanceBytes, ...(request.packing ? { packing: true as const } : {}) } }; await writeIntent(intent);
           recordStageAllowance(request.id, request.allowanceBytes);
           mkdirSync(path, { mode: 0o700 });
           syncStages();

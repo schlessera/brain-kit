@@ -252,7 +252,7 @@ export function createNativeBrainManagerClient(input: { socketPath: string; time
     ready: async (signal?: AbortSignal): Promise<NativeManagerReady> => control({ operation: "ready" }, signal),
     checkpoint: async (id: string, signal?: AbortSignal): Promise<NativeCheckpoint> => control({ operation: "checkpoint", id }, signal),
     release: async (id: string, signal?: AbortSignal): Promise<{ id: string; state: "deleted" }> => control({ operation: "release", id }, signal),
-    prepareStage: async (id: string, checkpointId: string, allowanceBytes: number, signal?: AbortSignal): Promise<NativeStage> => control({ operation: "prepareStage", id, checkpointId, allowanceBytes }, signal),
+    prepareStage: async (id: string, checkpointId: string, allowanceBytes: number, signal?: AbortSignal, packing?: true): Promise<NativeStage> => control({ operation: "prepareStage", id, checkpointId, allowanceBytes, ...(packing ? { packing } : {}) }, signal),
     releaseStage: async (id: string, signal?: AbortSignal): Promise<{ id: string; state: "deleted" }> => control({ operation: "releaseStage", id }, signal),
     /** A turn data tree's directory on the managed volume (#2911); `allowanceBytes` is whole pages. */
     prepareTurnTree: async (id: string, allowanceBytes: number, signal?: AbortSignal): Promise<NativeTurnTree> => control({ operation: "prepareTurnTree", id, allowanceBytes }, signal),

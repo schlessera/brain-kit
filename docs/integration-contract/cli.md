@@ -331,15 +331,24 @@ guards; a governed host invokes it only inside its credential-free maintenance
 boundary. There are no arbitrary roots, commands or expiry options.
 
 The JSON result is `{schema_version: 1, action: "pack", state, packed, reason,
-headroom}`. `state` is `complete`, `refused` or `partial`; exit code is 0 for
+headroom, garbage}`. `state` is `complete`, `refused` or `partial`; exit code is 0 for
 complete and 2 otherwise. `packed` counts loose objects packed by the owner or
 is null when no complete count is known. It is not reclaimed bytes. `reason`
-is null, `no_space`, `not_a_git_worktree` or `git_maintenance_unavailable`.
+is null, `no_space`, `packing_headroom`, `not_a_git_worktree` or `git_maintenance_unavailable`.
 `headroom` is null before capacity inspection, or `{availableBytes, requiredBytes:
 null, reason}`. Availability is a nullable live statfs observation of the Git
-common store. Required temporary bytes depend on the workload; old/new packs
-can coexist, and this command reserves no space. Known zero availability
-refuses before packing. A failure after maintenance started is partial and
+common store. Additive in #4287/#4288: `headroom.packingRequiredBytes`
+is the conservative preflight need: page-rounded three times the sum of raw Git
+object sizes plus 128 bytes per object, plus 16 MiB. `requiredBytes` retains its
+historical null value. Old/new packs coexist; the standalone CLI reserves no
+space. Unknown availability or availability below the conservative need refuses
+with `packing_headroom` before maintenance. Known zero retains `no_space`.
+`garbage` is null before Git accounting, otherwise `{count, bytes}` from
+`git count-objects -v`'s `garbage` and `size-garbage` (KiB converted to bytes).
+It reports existing garbage; no existing garbage is deleted. Optional
+`brain storage pack --dry-run --json` returns this inspection without running
+Git maintenance (`state: complete`, `packed: null`, exit 0 when inspection
+succeeds); failure keeps the ordinary refused envelope and exit 2. A failure after maintenance started is partial and
 requires remeasurement; it is never reported as a rollback or success.
 
 ## Storage inventory (additive, #2009)

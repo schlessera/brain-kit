@@ -138,3 +138,49 @@ test("a built-in key outside the run's own environment is neither released nor n
     expect(result.stdout.trim(), "MAINTENANCE_AUDIENCE_BOUNDS_RELAYED_KEYS").toBe("GEMINI_API_KEY,OPENAI_API_KEY");
   } finally { if (saved) Object.defineProperty(process.env, "ANTHROPIC_API_KEY", saved); else delete process.env.ANTHROPIC_API_KEY; }
 });
+
+// Force Git to write two temporary outputs before refusing, so the publication
+// assertion remains meaningful even after conservative headroom was added.
+test("failed hosted packing publishes no Git files while ordinary index output publishes",async()=>{
+  const {readdirSync,readFileSync,statSync}=await import("node:fs");
+  const realGit=Bun.which("git")!;
+  const git=(...args:string[])=>{
+    const child=Bun.spawnSync([realGit,"-C",brain,...args],{stdout:"pipe",stderr:"pipe"});
+    expect(child.exitCode,child.stderr.toString()).toBe(0);return child.stdout.toString();
+  };
+  git("init","-q");
+  const pack=join(brain,".git/objects/pack");
+  const before=readdirSync(pack).sort();
+  const note=join(brain,"notes/ithaca.md");
+  writeFileSync(note,readFileSync(note,"utf8")+"\nAthena reviews the departure.\n");
+  const index=join(brain,".brain-index/brain.db");
+  const indexBefore=statSync(index).mtimeMs;
+  const bin=join(root,"failed-pack-bin");mkdirSync(bin);
+  writeFileSync(join(bin,"git"),`#!/bin/sh
+for arg in "$@"; do
+ if [ "$arg" = maintenance ]; then
+   data=""; next=""
+   for part in "$@"; do
+     if [ "$next" = yes ]; then data="$part"; next=""; fi
+     if [ "$part" = -C ]; then next=yes; fi
+   done
+   printf partial > "$data/.git/objects/pack/tmp_pack_Ithaca"
+   printf companion > "$data/.git/objects/pack/tmp_pack_Athena"
+   printf completed-first-task > "$data/.git/objects/pack/pack-0000000000000000000000000000000000000000.pack"
+   echo 'fatal: Out of diskspace' >&2
+   exit 128
+ fi
+done
+exec '${realGit}' "$@"
+`,{mode:0o755});
+  const saved=Object.getOwnPropertyDescriptor(process.env,"PATH");
+  process.env.PATH=`${bin}:${process.env.PATH}`;
+  try {
+    const {host}=boundary();
+    const result=await host.run({argv:[process.execPath,BRAIN_CLI,"maintain","--json"],env:hostEnv(),credentials:true,gate:"exclusive",purpose:"Odysseus failed packing"});
+    expect(readdirSync(pack).sort(),"FAILED_PACK_PUBLISHES_NO_GIT_FILES").toEqual(before);
+    expect(JSON.parse(result.stdout).find((row:{step:string})=>row.step==="index").result,"FAILED_PACK_INDEX_PUBLISHED").toContain("ok —");
+    expect(statSync(index).mtimeMs,"FAILED_PACK_INDEX_BYTES_PUBLISHED").toBeGreaterThan(indexBefore);
+    expect(result.exitCode).toBe(2);
+  }finally{if(saved)Object.defineProperty(process.env,"PATH",saved);else delete process.env.PATH;}
+});

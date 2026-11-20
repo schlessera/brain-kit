@@ -388,3 +388,22 @@ test("a failed index step closes its database handle", async () => {
   expect(opened.size).toBeGreaterThan(0);
   expect([...opened].filter((db) => !closed.has(db))).toHaveLength(0);
 });
+
+test("packing skips before Git maintenance when injected headroom is below the conservative need", async () => {
+  const { packRepository, gitPackingHeadroom, GitPackingSkipped } = await import("../src/lib/git-storage");
+  const root=tempBrain(); initRepo(root); writeLooseBlobs(root,2);
+  const before=git(root,"count-objects","-v");
+  const plan=gitPackingHeadroom(root);
+  expect(plan.packingRequiredBytes).toBeGreaterThanOrEqual(16*1024**2);
+  expect(()=>packRepository(root,{...plan,availableBytes:plan.packingRequiredBytes-1}),"PACKING_PREFLIGHT_SKIP").toThrow(GitPackingSkipped);
+  expect(git(root,"count-objects","-v")).toBe(before);
+});
+
+test("existing temporary pack garbage is reported by both maintenance and storage pack", async () => {
+  const root=tempBrain(); initRepo(root);
+  writeFileSync(join(root,".git/objects/pack/tmp_pack_Ithaca"),Buffer.alloc(8192));
+  const {git:step}=await maintain(root);
+  expect(step?.result,"MAINTAIN_EXISTING_GARBAGE").toContain("garbage: 1 file(s), 8192 bytes");
+  const result=await runCli(root,["storage","pack","--json"]);
+  expect(JSON.parse(result.stdout).garbage,"STORAGE_PACK_EXISTING_GARBAGE").toEqual({count:1,bytes:8192});
+});

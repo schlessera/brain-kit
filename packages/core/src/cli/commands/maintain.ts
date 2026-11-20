@@ -7,7 +7,7 @@ import { tagReport } from "../../lib/tags.js";
 import { summarizeTagReport } from "./tags.js";
 import { collectAndRecordStats, describeRecord } from "./stats.js";
 import type { StatsTrends } from "../../lib/stats-trends.js";
-import { GitNoSpaceError, GitUnavailableError, gitPackingHeadroom, isGitWorkTree, packRepository } from "../../lib/git-storage.js";
+import { GitPackingSkipped, gitObjectCounts, GitNoSpaceError, GitUnavailableError, gitPackingHeadroom, isGitWorkTree, packRepository } from "../../lib/git-storage.js";
 import { workerOutputAllowance } from "../../config/env.js";
 import type { CoreCommand } from "../types.js";
 import { emit, embeddingDims, parseArgs, UsageError } from "../io.js";
@@ -178,17 +178,20 @@ export const maintainCommand: CoreCommand = {
         if (!isGitWorkTree(cli.brain.root)) {
           report.push({ step: "git", result: "skipped — not a git repository" });
         } else {
-          // Measured before packing, the same way `brain storage pack` does,
-          // so an out-of-space failure can say what it started with.
+          const garbage = gitObjectCounts(cli.brain.root).garbage;
           let available: number | null = null;
-          try { available = gitPackingHeadroom(cli.brain.root).availableBytes; } catch { /* Unknown is not zero. */ }
           try {
-            const { packed } = packRepository(cli.brain.root);
+            const headroom = gitPackingHeadroom(cli.brain.root);
+            available = headroom.availableBytes;
+            const { packed } = packRepository(cli.brain.root, headroom);
             report.push({ step: "git", result: `ok — packed ${packed} loose object(s)` });
           } catch (e) {
-            if (!(e instanceof GitNoSpaceError)) throw e;
-            report.push({ step: "git", result: describeNoSpace(e.message, available) });
+            if (e instanceof GitPackingSkipped) report.push({ step: "git", result: `skipped — ${e.message}` });
+            else if (e instanceof GitNoSpaceError) report.push({ step: "git", result: describeNoSpace(e.message, available) });
+            else report.push({ step: "git", result: `FAILED — ${(e as Error).message}` });
           }
+          if (garbage.count) report.at(-1)!.result += `; garbage: ${garbage.count} file(s), ${garbage.bytes} bytes`;
+
         }
       } catch (e) {
         const message = (e as Error).message;

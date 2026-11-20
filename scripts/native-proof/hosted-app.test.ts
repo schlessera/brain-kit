@@ -110,6 +110,12 @@ print(json.dumps(result))`;
     expect(status.runtime.workerHost.ordinary?.available, "NATIVE_BOOT_ORDINARY_WORKER_HEALTHY").toBe(true);
     expect(status.runtime.workerHost.governed, "NATIVE_BOOT_MAINTENANCE_GOVERNED_HEALTHY").toMatchObject({ available: true, profile: "governed", hostExecution: "worker" });
     expect(status.runtime.workerHost.rootServer?.warning ?? null, "NATIVE_ROOT_APP_PRESERVES_STATUS_WARNING").toBe(APP_UID === 0 ? ready.rootWarnings[0] : null);
+    if (OBSERVATION_TIMING && BACKEND === "claude" && APP_UID === 1000) {
+      const packing = await fetch(origin + "/native-proof/maintenance-packing").then(response => response.json()) as { bytes: number; garbage: { count: number } };
+      writeFileSync(join(ARTIFACTS, "maintenance-packing.json"), JSON.stringify(packing, null, 2));
+      expect(packing.bytes, "NATIVE_PACKING_EXCEEDS_GENERIC_STAGE").toBeGreaterThan(staging.allowanceBytes);
+      expect(packing.garbage.count, "NATIVE_PACKING_GARBAGE_FREE").toBe(0);
+    }
     async function device() {
       const frames: any[] = [];
       const ws: WebSocket = new NativeWebSocket(origin.replace("http", "ws") + "/ws", { headers: { cookie, origin } }); sockets.push(ws);

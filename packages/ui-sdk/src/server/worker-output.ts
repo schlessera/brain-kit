@@ -113,18 +113,20 @@ function current(root: string, rel: string): Entry | undefined {
 }
 
 /** Shared snapshots stay private, including the writable output workspace. */
-export function prepareWorkerOutput(brain: string, options: { startupView?: WorkerStartupView; areas?: readonly string[] } = {}) {
+export function prepareWorkerOutput(brain: string, options: { startupView?: WorkerStartupView; areas?: readonly string[]; packingAllowanceBytes?: number } = {}) {
   const view = options.startupView ?? createWorkerStartupView(brain);
   let output: WorkerStartupView;
   try {
-    const storage = createOutputStagingStorage(undefined, view.root);
+    const storage = createOutputStagingStorage(options.packingAllowanceBytes ? {allowanceBytes:options.packingAllowanceBytes,budgetBytes:options.packingAllowanceBytes} : undefined, view.root);
     storage.retain();
     output = { brain: view.brain, root: `${storage.root}/merged`, storage, cleanup() { storage.release(); } };
   } catch (error) { if (!options.startupView) view.cleanup(); throw error; }
   let before: Map<string, Entry>;
   try { before = inventory(view.root); }
   catch (error) { try { output.cleanup(); } finally { if (!options.startupView) view.cleanup(); } throw error; }
+  let discardGit = false;
   const publication = {
+    discardGit() { discardGit = true; },
     view, output: { source: output.root, target: WORKER_OUTPUT, storage: output.storage as ReturnType<typeof createOutputStagingStorage> },
     cleanup() { try { output.cleanup(); } finally { if (!options.startupView) view.cleanup(); } },
     /**
@@ -139,7 +141,7 @@ export function prepareWorkerOutput(brain: string, options: { startupView?: Work
       for (const rel of [".git/hooks", ".git/info", ".git/modules"]) {
         if (!before.has(rel) && after.get(rel)?.type === "directory" && ![...after.keys()].some(path => isWithin(rel, path, { includeRoot: false }))) after.delete(rel);
       }
-      const selected = (rel: string) => !options.areas || options.areas.some(area => isWithin(area, rel));
+      const selected = (rel: string) => !(discardGit && isWithin(".git", rel)) && (!options.areas || options.areas.some(area => isWithin(area, rel)));
       const changed = [...new Set([...before.keys(), ...after.keys()])].filter(rel => selected(rel) && !equalOutput(before.get(rel), after.get(rel)));
       // Every refused tier A change, named before anything is written (#4256).
       const refused = changed.filter(rel => isEnvName(rel.split("/")[0]!) || PROTECTED_TIER_A.some(path => isWithin(path, rel)));
@@ -273,7 +275,7 @@ export function prepareWorkerOutput(brain: string, options: { startupView?: Work
   return { ...publication,
     async publishLocked(lock: KeyedLock) {
       const after = inventory(output.root);
-      const selected = (rel: string) => !options.areas || options.areas.some(area => isWithin(area, rel));
+      const selected = (rel: string) => !(discardGit && isWithin(".git", rel)) && (!options.areas || options.areas.some(area => isWithin(area, rel)));
       const paths = [...new Set([...before.keys(), ...after.keys()])]
         .filter(rel => selected(rel) && !equalOutput(before.get(rel), after.get(rel))).sort();
       const releases: (() => void)[] = [];
