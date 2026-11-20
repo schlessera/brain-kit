@@ -1494,7 +1494,6 @@ export "./internal" (./src/internal.ts)
   canonicalModelId
   claudeMaskFilename
   claudeReportedMaskPath
-  collectModuleGenerations
   combineRemovalOutcomes
   commitOutwardPlan
   compileWorkerCommandPolicy
@@ -1507,7 +1506,6 @@ export "./internal" (./src/internal.ts)
   createTurnTempPressure
   createTurnTempPromoter
   createWorkerFileObserver
-  currentModuleGeneration
   denyWorkerCommand
   describeClient
   egressAddressRefusal
@@ -1534,8 +1532,6 @@ export "./internal" (./src/internal.ts)
   maintenanceLaunch
   mergeLimitReports
   mib
-  moduleLockHash
-  moduleStorePath
   mountPointsUnder
   nativeFileVersion
   nativeObservationIdentity
@@ -1567,7 +1563,6 @@ export "./internal" (./src/internal.ts)
   projectConversationGuidance
   promptPrefixFingerprint
   protectedPaths
-  publishModuleGeneration
   readWebSearchOverride
   readWebSearchRouting
   recoveredWorkerFile

@@ -179,20 +179,27 @@ export interface OperationalStateProof {
  * Linux Btrfs getattr uses a distinct anonymous st_dev for each subvolume; no
  * transaction generation, timestamp or elapsed-time cache participates.
  */
-export function createOperationalStateProof(record: (proof: OperationalStateProof) => void = () => {}) {
+export function createOperationalStateProof(record: (proof: OperationalStateProof) => void = () => {}, workerMasks: string[] = []) {
   let qualified: string | undefined, last: string | undefined;
   return (input: OperationalStateLayout): OperationalStateRefusal | undefined => {
-    let signature: string | undefined, mounted: boolean | undefined;
+    let signature: string | undefined, mounted: boolean | undefined, evidenceRefusal: OperationalStateRefusal | undefined;
     let cause = "state shares a filesystem or its boundary could not be read";
+    const refuse = (detail: string): OperationalStateRefusal => ({ available: false, reason: "private_state_in_brain",
+      detail: `OperationalStateBoundaryError: ${detail}` });
+    try {
+      // The very array retained by turn and maintenance launchers is extended
+      // before qualification. Keep old masks too: old private bytes stay private.
+      for (const mask of operationalStateMasks(input)) if (!workerMasks.includes(mask)) workerMasks.push(mask);
+    } catch (error) { evidenceRefusal = refuse(`worker masks could not be refreshed: ${String(error)}`); }
     try {
       const brain = canonical(input.brainPath), paths = statePaths(input);
       const roots = [...new Set(paths.flatMap(({ path }) => [canonical(path), canonical(dirname(path))]))];
-      const existing = (path: string) => {
-        while (!lstatSync(path, { throwIfNoEntry: false }) && path !== "/") path = dirname(path);
-        return path;
-      };
-      const brainId = operationalStateEvidence.identity(brain);
-      const identities = roots.map(path => [path, operationalStateEvidence.identity(existing(path))] as const);
+      // A directory's configured parent is checked by identity, not walked.
+      // Mounts under unrelated siblings are not nested state storage.
+      const trees = [...new Set(paths.map(({ path }) => {
+        const resolved = canonical(path);
+        return lstatSync(resolved, { throwIfNoEntry: false })?.isDirectory() ? resolved : dirname(resolved);
+      }))];
       const table = operationalStateEvidence.mounts();
       const decode = (path: string) => path.replace(/\\([0-7]{3})/g, (_, octal: string) => String.fromCharCode(parseInt(octal, 8)));
       const rows = table.trim().split("\n").map(line => {
@@ -201,32 +208,40 @@ export function createOperationalStateProof(record: (proof: OperationalStateProo
         return { path: decode(fields[4]!), root: decode(fields[3]!), device: fields[2]!, line };
       });
       mounted = rows.some(row => within(brain, row.path));
-      // Conservatively requalify on any nested state/worker mount. A parent
-      // bind can alias a state subtree too: compare kernel device/root names.
       const covering = (path: string) => rows.filter(row => within(row.path, path)).sort((a,b) => b.path.length-a.path.length)[0];
       const stateMounts = roots.map(path => {
         const row = covering(path);
         if (!row) throw Error("State mount identity missing");
         return { device: row.device, root: join(row.root, path.slice(row.path.length)) };
       });
-      const masks = operationalStateMasks(input);
-      const aliases = rows.some(row => stateMounts.some(state => {
-        if (state.device !== row.device || !(within(state.root, row.root) || within(row.root, state.root))) return false;
+      let exposedAlias: string | undefined;
+      for (const row of rows) for (const state of stateMounts) {
+        if (state.device !== row.device || !(within(state.root, row.root) || within(row.root, state.root))) continue;
         const exposed = within(row.root, state.root) ? join(row.path, state.root.slice(row.root.length)) : row.path;
-        // Workers see the host RO except its masks. An alias elsewhere in that
-        // host view can bypass the original mask just as a bind in the brain can.
-        return within(brain, exposed) || !masks.some(mask => within(mask, exposed));
-      }));
-      const nested = rows.some(row => roots.some(root => within(root, row.path))) || rows.some(row => within(brain, row.path) && row.path !== brain);
-      if (!nested && !aliases && identities.every(([, identity]) => identity.device !== brainId.device
+        // A brain bind restores its contents after host masks. An alias there,
+        // or anywhere else outside the actual worker masks, is exposure.
+        if (within(brain, exposed) || !workerMasks.some(mask => within(mask, exposed))) exposedAlias = exposed;
+      }
+      if (exposedAlias) evidenceRefusal = refuse(`private state has an unmasked worker-visible mount alias at ${exposedAlias}; remove the alias or configure its host-private mask before retrying`);
+      const nested = rows.some(row => trees.some(root => row.path !== root && within(root, row.path)))
+        || rows.some(row => row.path !== brain && within(brain, row.path));
+      const existing = (path: string) => {
+        while (!lstatSync(path, { throwIfNoEntry: false }) && path !== "/") path = dirname(path);
+        return path;
+      };
+      // Mount exposure is checked even if the identity reader subsequently fails.
+      const brainId = operationalStateEvidence.identity(brain);
+      const identities = roots.map(path => [path, operationalStateEvidence.identity(existing(path))] as const);
+      if (!nested && !evidenceRefusal && identities.every(([, identity]) => identity.device !== brainId.device
         && [0, process.geteuid!()].includes(identity.owner) && !(identity.mode & 0o022))) {
-        signature = JSON.stringify([brain, brainId, identities, input, rows.map(row => row.line)]);
+        signature = JSON.stringify([brain, brainId, identities, input, rows.map(row => row.line), workerMasks]);
         cause = "current filesystem/subvolume identities and mount topology prove separation";
       }
     } catch (error) { cause = `boundary evidence unavailable: ${String(error)}`; }
     const needsWalk = signature === undefined || signature !== qualified;
-    const refusal = inspectOperationalState(input, !needsWalk, mounted);
-    // Failed qualification never becomes a remembered boundary.
+    let refusal = evidenceRefusal;
+    try { refusal ??= inspectOperationalState(input, !needsWalk, mounted); }
+    catch (error) { refusal = refuse(`full state alias guard could not verify this admission: ${String(error)}`); }
     qualified = refusal ? undefined : signature;
     const proof: OperationalStateProof = { mode: signature && !refusal ? "filesystem_identity" : "walk", cause: refusal?.detail ?? cause };
     const serialized = JSON.stringify(proof);

@@ -72,6 +72,7 @@ export interface HostExecution {
 export function createHostExecution(options: { brainPath: string; dbPath: string; exec?: ExecWrapperConfig; home?: string; log?: Logger;
   nativeManager?: import("./host-boundary.js").HostBoundaryOptions["nativeManager"];
   nativeMaskPaths?: readonly string[];
+  workerMaskPaths?: string[];
   /** The CLI provider relay for credentialed maintenance (#1673); only with `nativeManager`. */
   providerRelay?: import("./host-boundary.js").HostBoundaryOptions["providerRelay"];
   maintenanceTemp?: WorkerStateLimits;
@@ -90,7 +91,7 @@ export function createHostExecution(options: { brainPath: string; dbPath: string
     proofRecord = proof;
     if (proofDb ?? early) setSetting((proofDb ?? early)!, "worker.stateBoundary", proof);
     options.log?.emit({ severityText: "INFO", body: "operational state proof mode", attributes: { mode: proof.mode, cause: proof.cause } });
-  }, profile: options.profile, brainPath: options.brainPath, dbPath: options.dbPath, privateStatePaths: options.privateStatePaths,
+  }, workerMaskPaths: options.workerMaskPaths, profile: options.profile, brainPath: options.brainPath, dbPath: options.dbPath, privateStatePaths: options.privateStatePaths,
     ...(options.nativeManager ? { nativeManager: options.nativeManager } : {}),
     ...(options.nativeManager && options.providerRelay ? { providerRelay: options.providerRelay } : {}),
     ...(options.nativeMaskPaths ? { nativeMaskPaths: options.nativeMaskPaths } : {}),

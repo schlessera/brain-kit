@@ -29,7 +29,7 @@ import type { Logger } from "@opentelemetry/api-logs";
 import {
   WorkerStateError, workerIdentityHelper, CREDENTIAL_FREE_ENV, HOST_GIT_CREDENTIAL_ENV, execWrapperSpawnOptions, prepareMaintenanceWorker, launchMaintenanceWorkerAsync, probeNativeMaintenanceWorker, restrictedReadPaths, runMaintenanceWorker, workerHostBoundary,
   type MaintenanceTempKind, runMaintenanceWorkerSync, workerHostProven, hostMaintenanceTempLimits, resolveMaintenanceTempLimits, type WorkerStateLimits, type MaintenanceCommand, type WorkerHostProbe,
-  prepareNativeWorkerStartupView, hasManagedNativeStorage, currentModuleGeneration, type WorkerStartupView,
+  prepareNativeWorkerStartupView, hasManagedNativeStorage, type WorkerStartupView,
   acquireHostCredentialExclusion, type HostCredentialDomain,
   startProviderRelay, relayedProviderKeys, hostProviderCredential, FIRST_PARTY_PROVIDER_RECIPIENTS, type ProviderRelay, type ProviderRelayReceipt,
 } from "@schlessera/brain-ui-sdk/internal";
@@ -43,7 +43,6 @@ import { resolveWorkerProtection } from "@schlessera/brain-ui-sdk/internal";
 import { prepareMaintenanceOutput } from "./maintenance-output.js";
 import { operationalStateMasks, operationalStateRefusal, createOperationalStateProof, workerIdentitySentinelDirectory, type OperationalStateLayout, type WorkerProbeState } from "./operational-state.js";
 import { prepareMaintenanceGit } from "./maintenance-git.js";
-import { maintainModuleStore, moduleMaintenanceRequested, type ModuleMaintenanceResult } from "./module-maintenance.js";
 import { createScratchIgnoreQuery } from "./scratch-mask-query.js";
 
 /** Why `governed` cannot run on this server. */
@@ -57,8 +56,6 @@ type GateUse = "none" | GateMode;
 
 /** One evaluation of the brain's own code: its working directory is the brain. */
 export interface BrainExecution {
-  /** Host maintenance Activity receives the named module publication result. */
-  observeModuleStore?: (result: ModuleMaintenanceResult) => void;
   /** Program and arguments. A bare program name is resolved on the worker's PATH. */
   argv: readonly string[];
   /** The environment a credentialed command receives; a credential-free one gets only its plain settings. */
@@ -258,6 +255,8 @@ export interface HostBoundary {
 }
 
 export interface HostBoundaryOptions {
+  /** Shared mutable mask list used by every hosted turn and maintenance worker. */
+  workerMaskPaths?: string[];
   /** Owner-visible durable admission proof mode, supplied by the hosted owner. */
   recordStateProof?: (proof: import("./operational-state.js").OperationalStateProof) => void;
   /** @internal Trusted server-state placement passed by the autonomous owner. */
@@ -302,12 +301,11 @@ export interface HostBoundaryOptions {
 }
 
 /** The program a worker runs, made absolute: in the brain, the server's Bun, or on the worker's PATH. */
-export function absoluteArgv(brain: string, argv: readonly string[], path: string): string[] {
+function absoluteArgv(brain: string, argv: readonly string[], path: string): string[] {
   const [program, ...args] = argv;
   if (!program) throw new Error("a maintenance command needs a program");
   // The server's own Bun, however it is named (a `latest` alias), is the binary the worker is given.
   if (isAbsolute(program)) return [real(program) === real(process.execPath) ? real(process.execPath) : program, ...args];
-  if (program === "brain" && hasManagedNativeStorage(brain) && currentModuleGeneration(brain)) return [join(brain, "node_modules/.bin/brain"), ...args];
   if (program === "bun") return [realpathSync(process.execPath), ...args];
   if (program.includes("/")) return [join(brain, program), ...args];
   const found = Bun.which(program, { PATH: path });
@@ -438,10 +436,18 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     }
     return maintenance.probe;
   };
+  const stateLayout = { brainPath: brain, dbPath: options.dbPath, privateStatePaths: options.privateStatePaths };
+  const maskPaths = options.workerMaskPaths ?? operationalStateMasks(stateLayout);
+  for (const path of options.nativeMaskPaths ?? []) if (!maskPaths.includes(path)) maskPaths.push(path);
   let stateBoundary: import("./operational-state.js").OperationalStateProof | undefined;
-  const stateProof = createOperationalStateProof(proof => { stateBoundary = proof; options.recordStateProof?.(proof); });
+  const stateProof = createOperationalStateProof(proof => { stateBoundary = proof; options.recordStateProof?.(proof); }, maskPaths);
   const governed = (startupView?: WorkerStartupView) => governedAvailability({ brainPath: brain, dbPath: options.dbPath, privateStatePaths: options.privateStatePaths, stateProof, workerHost: () => workerHost(startupView) });
+  const assertStatePlacement = () => {
+    const refusal = stateProof(stateLayout);
+    if (refusal) throw Object.assign(new Error(refusal.detail), { name: "OperationalStateBoundaryError", status: refusal });
+  };
   const prepareInput = (signal?: AbortSignal) => {
+    assertStatePlacement();
     if (!options.nativeManager) throw new Error("Maintenance execution requires the configured native managed-storage manager; full-copy fallback is unavailable.");
     return prepareNativeWorkerStartupView(brain, options.nativeManager, signal);
   };
@@ -454,16 +460,9 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     if (options.nativeManager) return true;
     if (options.history?.() === true) return true;
     const availability = governed();
-    return availability.available || (availability.reason === "worker_host_unavailable" && (maintenanceResourceRefused || workerHostProven(brain)));
+    return availability.available || availability.reason === "database_in_brain" || availability.reason === "private_state_in_brain" || (availability.reason === "worker_host_unavailable" && (maintenanceResourceRefused || workerHostProven(brain)));
   };
 
-  const maintainModules = async (execution: BrainExecution, view: WorkerStartupView) => {
-    if (!moduleMaintenanceRequested(execution.argv)) return;
-    const result = await maintainModuleStore(brain, view, command(execution), execution.purpose);
-    execution.observeModuleStore?.(result);
-    options.log?.emit({ severityText: result.result === "failed" ? "WARN" : "INFO", body: "module store maintenance", attributes: { result: JSON.stringify(result) } });
-  };
-  const maskPaths = [...operationalStateMasks({ brainPath: brain, dbPath: options.dbPath, privateStatePaths: options.privateStatePaths }), ...(options.nativeMaskPaths ?? [])];
   /**
    * A credentialed run's own CLI provider relay (#1673), where the host relays
    * providers; the caller stops it once the worker has exited.
@@ -484,6 +483,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
   const runCredential = (execution: Pick<BrainExecution, "env">, name: string): string | undefined =>
     execution.env[name] || (relayedProviderKeys().includes(name) ? undefined : hostProviderCredential(name));
   const command = (execution: BrainExecution | Parameters<HostBoundary["runSync"]>[0], startupView?: WorkerStartupView, relay?: ProviderRelay): MaintenanceCommand => {
+    assertStatePlacement();
     const path = brainWorkerPath(brain, execution.env.PATH);
     const env: Record<string, string | undefined> = execution.credentials ? { ...execution.env }
       : Object.fromEntries(CREDENTIAL_FREE_ENV.map(name => [name, execution.env[name]]));
@@ -588,6 +588,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     isolated,
     governed,
     async prepare(signal, preparedView) {
+      assertStatePlacement();
       signal?.throwIfAborted();
       // Capability proof is already complete. A maintenance output operation
       // has its own lease and must not delay this cached admission fact.
@@ -636,6 +637,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     },
     withGate,
     async run(execution) {
+      assertStatePlacement();
       const admissionSignal = execution.admissionSignal
         ? execution.signal ? AbortSignal.any([execution.signal, execution.admissionSignal]) : execution.admissionSignal
         : execution.signal;
@@ -684,7 +686,6 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
             let relay: ProviderRelay | undefined;
             try {
               execution.signal?.throwIfAborted();
-              await maintainModules(execution, view);
               outputs = await prepareMaintenanceOutput(brain, { startupView: view, folderPaths: hold?.folderPaths, signal: execution.signal, areas: execution.outputAreas });
               relay = providerRelayFor(execution);
               const launch = command(execution, undefined, relay);
@@ -707,6 +708,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       });
     },
     async launch(execution) {
+      assertStatePlacement();
       execution.signal?.throwIfAborted();
       const hold = execution.gate === "none" ? null : await holdGate(execution.gate, execution.purpose, execution.signal);
       let hostFallback: boolean;
@@ -774,7 +776,6 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         execution.signal?.throwIfAborted();
         view = await prepareInput(execution.signal);
         execution.signal?.throwIfAborted();
-        await maintainModules(execution, view);
         outputs = await prepareMaintenanceOutput(brain, { startupView: view, folderPaths: hold?.folderPaths, signal: execution.signal, areas: execution.outputAreas });
         relay = providerRelayFor(execution);
         const launch = command(execution, undefined, relay);
@@ -811,6 +812,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       return retainExecutionAdmission({ stdout: worker.stdout, stderr: worker.stderr, exited, settled, get signalCode() { return signalCode; }, kill }, credential);
     },
     async runSync(execution) {
+      assertStatePlacement();
       if (execution.credentials) throw new Error("Credentialed maintenance requires asynchronous execution.");
       if (!isolated()) {
         if (execution.publish === false) throw Error("A discarded read requires the qualified worker boundary");

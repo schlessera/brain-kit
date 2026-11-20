@@ -131,8 +131,6 @@ export interface WorkerInferenceRecipient {
 }
 
 export interface WorkerSandbox {
-  /** @internal Opaque retained native module input. Public path fields grant no bind. */
-  readonly moduleGeneration?: object;
   /** Frozen host scope policy; absent for autonomous turns. */
   readonly scopePolicy?: { max_files_changed: number; max_minutes: number; max_tool_calls: number; max_bytes_written: number };
   /** Frozen host command rules from this turn's admitted policy, absent for autonomous turns. */
@@ -655,7 +653,7 @@ export function workerSandboxNote(sandbox: WorkerSandbox, facts: WorkerNoteFacts
       "",
       linkRule(scratch?.rel),
       `The brain's packaged CLI directory \`${join(sandbox.brain, "node_modules", ".bin")}\` is first on PATH.`,
-      ...(!sandbox.moduleGeneration && !existsSync(join(sandbox.brain, "node_modules", ".bin", "brain"))
+      ...(!existsSync(join(sandbox.brain, "node_modules", ".bin", "brain"))
         ? ["The packaged `brain` CLI is missing. Install `@schlessera/brain` in the brain repository and run `bun install` there before using `brain` commands."] : []),
       "",
       secretsNote(resolvedFacts.providerKeys ?? [], resolvedFacts.egress === true),

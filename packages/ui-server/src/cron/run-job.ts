@@ -340,10 +340,6 @@ export async function runJob(
           } });
       }
       proc = await options.boundary.launch({ argv: options.command, env, ...cronJobClass(options.jobName),
-        observeModuleStore: result => {
-          writeLine(stderr, `[cron-run] ${options.jobName}: module_store ${JSON.stringify(result)}`);
-          recorder?.event?.("module_store", result);
-        },
         purpose: `cron ${options.jobName}`, writeFiles: [sinkPath], ...(syncJob ? { sync: true } : {}),
         ...(access?.ok && access.repositories.length ? { repositories: access.repositories } : {}),
         ...(githubRelay ? { githubRelay: githubRelay.dir } : {}) });

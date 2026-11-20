@@ -398,7 +398,7 @@ directory it cannot search, and the server reads only the nested
 foreign owners and changed identities refuse. The bounds and the rationale are
 in the [governed-writable-workers record](governed-writable-workers.md), under "Server-owned strict output".
 
-## State boundaries and host module generations — 2026-11-20
+## State boundaries and root dependencies — 2026-11-20
 
 Operational state is proven separate by current filesystem identities where
 that boundary exists, and by the existing alias walk where it does not.
@@ -406,11 +406,18 @@ Admission reads the brain and state roots' current filesystem/subvolume
 identities and one mount table. It retains the path, ownership and symlink
 checks. A different Linux `st_dev` separates filesystems and Btrfs subvolumes;
 Btrfs supplies a distinct anonymous device identity for each subvolume.
-State-root and worker-root mounts must not restore an alias across that
-boundary. The full guard runs at boot and whenever identities, topology or
+A mount at the state root is its filesystem boundary, not a nested mount.
+Descendant mounts under state storage or the brain require requalification.
+A known unmasked alias in the worker's host view is refused; walking only the
+brain cannot discharge that exposure. Every execution entry checks it before
+launch or host fallback, and removing the alias permits the next attempt. The full guard runs at boot and whenever identities, topology or
 store configuration change. Unreadable evidence selects the full walk on
 that admission. The mode and cause are retained in the owner setting
-`worker.stateBoundary` and emitted as a structured log.
+`worker.stateBoundary`, exposed in authenticated status, and emitted as a
+structured log. Turn and maintenance launchers share one mask list. Admission
+extends that actual list with current canonical state targets before identity
+qualification, including when identity reading fails. Old masks are retained,
+so a symlink retarget cannot restore former private paths.
 
 A passed verdict on a shared filesystem is never a substitute for this proof,
 whether cached by elapsed time or another token. A bare Btrfs subvolume
@@ -418,28 +425,10 @@ transaction generation is also rejected: without sync it missed 16 of 16
 writes, and after sync it advanced on 16 of 16 plain reads. Banning new links
 cannot repair an alias that already exists. These shortcuts must not return.
 
-The native store's `modules/` directory is a sibling of the brain subvolume.
-It contains host-owned install generations. Scheduled host maintenance, and
-manual maintenance through the host boundary, compare the tracked `bun.lock`
-hash with the active generation's receipt. A differing hash, including the
-first install, builds a new generation from tracked `package.json` and
-`bun.lock` in an isolated maintenance worker. Validation checks the installed
-CLI and the entire generation's ownership, links and filesystem identities.
-Only then does one atomic `current.json` publication activate it. The receipt
-names the lock hash, generation, install trigger and time; maintenance Activity
-records `module_store` with its named result. Failure leaves the previous
-publication in force. Until first activation, the existing in-brain
-`node_modules` remains bound and walked. It is never automatically deleted.
-
-Every worker pins the generation selected at startup and binds it read-only
-at `<brain>/node_modules`. Superseded generations stay while a startup owner
-or its retained execution holds them; later maintenance collects released
-generations. Unknown holder records retain storage. This eliminates the
-per-admission dependency walk; the small protected directories keep their
-checks. Brains without managed native storage retain the old layout.
-
 “Ignored files get no protection” applies inside a checkout: dependencies and
 build output there can be regenerated. The brain's own root dependencies are
 code executed by later turns and maintenance, so their read-only protection
-continues even when git ignores them. They stop being inventoried on admission
-only after a host-owned generation is available.
+continues even when git ignores them. The root dependency tree keeps its
+existing admission walk. A host-owned
+module store must not replace it until bounded installation, provider masks,
+worker ownership and crash recovery are proven together.

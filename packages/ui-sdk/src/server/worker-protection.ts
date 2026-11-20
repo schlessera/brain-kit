@@ -4,7 +4,7 @@ import { closeSync, fstatSync, lstatSync, mkdirSync, readdirSync, realpathSync, 
 import { isAbsolute, join, normalize } from "node:path";
 import { INDEX_DIR } from "@schlessera/brain-common/internal/index-location";
 import { CACHE_DIR, LEGACY_SIDECAR_CACHES } from "@schlessera/brain-common/internal/cache-location";
-import { hasNativeBrainBoundary, workerModuleGeneration, type WorkerStartupView } from "./worker-startup-view.js";
+import { hasNativeBrainBoundary } from "./worker-startup-view.js";
 import { runWorkerStepsSync, workerStepSleep, type WorkerSteps } from "./worker-steps.js";
 import { isEnvName, protectedPaths, PROTECTED_TIER_A, PROTECTED_TIER_B } from "./protected-paths.js";
 import { maintenanceEnvMasks } from "./maintenance-env-masks.js";
@@ -58,7 +58,6 @@ function checkTree(fd: number, rel: string, count: { value: number }, brain: str
 
 /** Prepare missing directories through descriptors; never create placeholder files. */
 export function resolveWorkerProtection(brain: string, options: {
-  startupView?: WorkerStartupView;
   paths?: readonly string[]; appeared?: readonly string[]; folderPaths?: readonly string[];
 } = {}): { protection: WorkerProtection; reason?: string } {
   const paths: ProtectedWorkerPath[] = [];
@@ -102,7 +101,7 @@ export function resolveWorkerProtection(brain: string, options: {
             if (!info.isFile() && !info.isDirectory()) throw new Error(`${rel} is not a regular file or directory`);
             if (info.isDirectory()) {
               const dir = openDirectory(path);
-              try { if (!(rel === "node_modules" && hasNativeBrainBoundary(brain) && workerModuleGeneration(options.startupView))) checkTree(dir, rel, { value: 0 }, brain); } finally { closeSync(dir); }
+              try { checkTree(dir, rel, { value: 0 }, brain); } finally { closeSync(dir); }
             }
             mode = "read_only";
           }

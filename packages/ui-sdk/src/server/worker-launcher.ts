@@ -1,4 +1,3 @@
-import { moduleWorkerMounts } from "./module-store.js";
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { maintenanceEnvMasks } from "./maintenance-env-masks.js";
 import { registerWorkerRtk } from "./worker-rtk.js";
@@ -28,7 +27,7 @@ import { processStateLedger } from "./worker-state-budget.js";
 import { TURN_TEMP_ROOT } from "./worker-turn-temp.js";
 import { dataTreeMounts, resolveWorkerProtection, protectedWorkerMounts, providerMaskMounts, verifyWorkerFolderMountsSteps } from "./worker-protection.js";
 import { prepareWorkerOutput } from "./worker-output.js";
-import { createWorkerStartupView, isNativeWorkerStartupRoot, workerModuleGeneration, workerModuleInput, type WorkerStartupView } from "./worker-startup-view.js";
+import { createWorkerStartupView, isNativeWorkerStartupRoot, type WorkerStartupView } from "./worker-startup-view.js";
 import { consumeNativeMaintenanceMasks, transferNativeMaintenanceMasks, bindNativeMaintenanceExit, bindPreparedWorkerOutputExit, type PreparedWorkerOutput, type WorkerOutputStorage } from "./worker-native-output.js";
 import { workerFilesystemFilter, workerFilesystemFilterRefusal } from "./worker-filesystem-filter.js";
 import { HOST_GIT_CREDENTIAL_ENV, WORKER_PROVIDER_CREDENTIAL_ENV, workerProviderCredentials } from "./subprocess-env.js";
@@ -707,8 +706,6 @@ export function workerCommand(input: WorkerLaunch): string[] {
     // The turn's data tree: brain tools read documents and the index there,
     // configuration from the frozen view above (#2848).
     ...(dataTree ? dataTreeMounts(brain, WORKER_DATA_ROOT, dataTree) : []),
-    ...(input.startupView ? workerModuleGeneration(input.startupView)?.mounts(brain) ?? [] : moduleWorkerMounts(input.sandbox?.moduleGeneration, brain)),
-    ...(maintenance?.output ? workerModuleGeneration(input.startupView)?.mounts(maintenance.output.target) ?? [] : []),
     "--clearenv"];
   // Last: neither a complete view nor a protected-path bind may restore a
   // secret over an earlier mask. The masks are about reads, not writes.
@@ -982,7 +979,7 @@ function* prepareWorkerSandboxSteps(brainPath: string, options: PrepareWorkerSan
   }
   if (options.restricted) return { brain, restricted: true, areas: [], scratchAliasesRemoved: [] };
   const resolved = options.profile === "governed" ? resolveWorkerProtection(brain, {
-    startupView: options.maintenance?.startupView, paths: options.protectedPaths, appeared: options.appearedPaths, folderPaths: options.folderPaths,
+    paths: options.protectedPaths, appeared: options.appearedPaths, folderPaths: options.folderPaths,
   }) : undefined;
   const areas: WorkerArea[] = [];
   let removed: string[] = [];
@@ -1004,7 +1001,6 @@ function* prepareWorkerSandboxSteps(brainPath: string, options: PrepareWorkerSan
   // directory on the host, where no size-limited mount can hold it (#1703).
   const home: WorkerHome = { mode: "xdg" };
   return { brain, restricted: false, areas, scratchAliasesRemoved: removed,
-    moduleGeneration: workerModuleInput(options.maintenance?.startupView),
     ...(options.folderPaths?.length ? { retainedFolders: Object.freeze([...options.folderPaths]) } : {}),
     ...(options.profile ? { profile: resolved?.reason ? "strict" as const : options.profile,
       ...(resolved ? { protection: resolved.protection } : {}),

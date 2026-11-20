@@ -496,7 +496,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const providerRelay = nativeManager ? maintenanceProviderMeter({ brainPath: config.brainPath,
     ...(config.cliProviderOrigins ? { origins: config.cliProviderOrigins } : {}), budgets: () => relayBudgets,
     report: message => brainLog.emit({ severityText: "WARN", body: message }) }) : undefined;
-  const hostExecution = createHostExecution({ nativeManager, nativeMaskPaths, ...(providerRelay ? { providerRelay } : {}), profile: options.workerProfile, brainPath: config.brainPath, dbPath: config.dbPath, exec: config.exec, maintenanceTemp: config.maintenanceTemp, privateStatePaths,
+  const turnMaskPaths = [...operationalStateMasks({ brainPath: config.brainPath, dbPath: config.dbPath, privateStatePaths }), ...nativeMaskPaths];
+  const hostExecution = createHostExecution({ workerMaskPaths: turnMaskPaths, nativeManager, nativeMaskPaths, ...(providerRelay ? { providerRelay } : {}), profile: options.workerProfile, brainPath: config.brainPath, dbPath: config.dbPath, exec: config.exec, maintenanceTemp: config.maintenanceTemp, privateStatePaths,
     ...(subprocessEnv("brainCli").HOME ? { home: subprocessEnv("brainCli").HOME! } : {}), log: brainLog, workerHost: latestOrdinary });
   bootCleanup.push(() => hostExecution.release());
   const boundary = hostExecution.boundary;
@@ -733,7 +734,6 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   attachmentSweep.unref?.();
   const stopAttachmentSweep = async () => { clearInterval(attachmentSweep); await attachmentSweepRun; };
   bootCleanup.push(stopAttachmentSweep);
-  const turnMaskPaths = [...operationalStateMasks({ brainPath: config.brainPath, dbPath: config.dbPath, privateStatePaths }), ...nativeMaskPaths];
   const governedRecords = procedureCaller(db, governedTurnWrites, undefined, writer);
   const governedTurns = createGovernedTurns({ nativeManager, brainPath: config.brainPath, execution: hostExecution,
       profile: options.workerProfile ?? "governed",

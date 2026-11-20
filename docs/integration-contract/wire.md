@@ -3358,4 +3358,7 @@ with `{ mode: "filesystem_identity" | "walk", cause: string }`. Identity mode
 uses current filesystem/subvolume identities and mount topology, requalifying
 changed evidence with the full guard. Missing identity evidence selects the
 walk. The owner setting `worker.stateBoundary` retains the same mode and cause.
-These internal diagnostics never enter provider-facing conversation history.
+A known unmasked worker-visible state alias refuses the execution before a
+worker or host fallback can run; its cause uses the existing unavailable reason
+and the optional proof field. These internal diagnostics never enter
+provider-facing conversation history.
