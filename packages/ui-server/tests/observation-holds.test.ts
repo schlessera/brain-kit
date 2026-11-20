@@ -4,12 +4,17 @@ import { join } from "node:path";
 import type { ActivityTurnHold } from "@schlessera/brain-ui-sdk/protocol";
 import type { StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
 import { scopeFixture } from "./helpers/scope-fixture";
+import { createActivityStore } from "../src/activity/store";
+import { createTurnLifecycle } from "../src/activity/turn-lifecycle";
 
 test("three tool holds share exact physical stop and resume evidence across turns without another owner identity", async () => {
   let now = 1000;
   const clock = spyOn(Date, "now").mockImplementation(() => now);
   const f = scopeFixture({}, () => now);
   const first: ActivityTurnHold[] = [], second: ActivityTurnHold[] = [];
+  const store = createActivityStore(f.db);
+  const voyage = createTurnLifecycle(store, "voyage", "ithaca", now, () => {}, () => now);
+  const loom = createTurnLifecycle(store, "loom", "scheria", now, () => {}, () => now);
   const exit = Promise.withResolvers<number>();
   const events: string[] = [];
   const worker = (id: string) => ({ exited: exit.promise, freeze() { events.push(`${id}:stop`); now += 10; },
@@ -20,8 +25,8 @@ test("three tool holds share exact physical stop and resume evidence across turn
     await f.journal.begin("loom", { sessionId: "scheria", actor: "interactive", model: null, profile: "governed", policyHash: null }, () => {});
     await f.scope.begin("loom", { sessionId: "scheria", principalId: "penelope", origin: "interactive", profile: "governed", policy: f.policy,
       source: "policy", hardTimeoutMs: 60000, current: () => true, stop() {} });
-    f.journal.evidence?.("voyage", hold => first.push(hold), () => true);
-    f.journal.evidence?.("loom", hold => second.push(hold));
+    f.journal.evidence?.("voyage", hold => { first.push(hold); voyage.hold(hold); }, () => true);
+    f.journal.evidence?.("loom", hold => { second.push(hold); loom.hold(hold); });
     f.scope.workerStarted("voyage", worker("voyage")); f.scope.workerStarted("loom", worker("loom"));
     for (let i = 0; i < 3; i++) {
       f.journal.toolStarted("voyage", `shell-${i}`, "bash", true);
@@ -35,6 +40,9 @@ test("three tool holds share exact physical stop and resume evidence across turn
       .toEqual([0, 1, 2].map(i => ["tool", "voyage", `shell-${i}`, 1, true, 1]));
     expect(second.map(h => [h.causeTurnId, h.toolUseId, h.otherTurnsStopped, h.inferenceInFlight])).toEqual([[null, undefined, 1, false], [null, undefined, 1, false], [null, undefined, 1, false]]);
     expect(first.map(h => h.holdId)).toEqual(second.map(h => h.holdId));
+    voyage.finish("success"); loom.finish("success");
+    expect(store.lifecycle("voyage")!.holds, "HOLDS_RIDE_THE_EXISTING_TERMINAL_WRITE").toEqual(first);
+    expect(store.lifecycle("loom")!.holds).toEqual(second);
     expect(first.map(h => [h.requestedAt, h.stoppedAt, h.resumedAt])).toEqual([[1000, 1010, 1040], [1060, 1070, 1100], [1120, 1130, 1160]]);
     expect(second.map(h => [h.stoppedAt, h.resumedAt])).toEqual([[1020, 1060], [1080, 1120], [1140, 1180]]);
   } finally { exit.resolve(0); await f.close(); clock.mockRestore(); }
