@@ -1,3 +1,4 @@
+import { nativeScriptedService } from "../../../../scripts/test-native-guard.ts";
 import { createFixtureWorkerStartupView } from "../../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 /** Keyless selected-runtime assembly receipt; caller denies all external network. */
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -21,6 +22,7 @@ const upstream = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request
   ];
   return new Response(events.map(e => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
 } });
+nativeScriptedService(upstream.url.origin);
 try {
   for (let index = 0; index < 4; index++) {
     const brainPath = join(scratch, `ithaca-${index}`);

@@ -1,3 +1,4 @@
+import { nativeScriptedService } from "../../../../scripts/test-native-guard.ts";
 /** The caller confines the SDK, bundled CLI and every tool to loopback. */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -61,6 +62,7 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
     { type: "message_delta", delta: { stop_reason: tool ? "tool_use" : "end_turn", stop_sequence: null }, usage: { output_tokens: 5 } }, { type: "message_stop" });
   return new Response(events.map(e => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
 } });
+nativeScriptedService(server.url.origin);
 const restore = replaceNativeStartupAcquisitionForFixture();
 try {
   for (scenario of ["control", "repository", "facts", "posture", "promotion", "title", "reference", "renewal", "freshness", "immutable", "datatree", "compute", "safety"]) {

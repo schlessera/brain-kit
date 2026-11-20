@@ -1,3 +1,4 @@
+import { nativeScriptedService } from "../../scripts/test-native-guard.ts";
 import { createFixtureTurnHost } from "./turn-host-fixture.js";
 import { startFixtureTurn } from "./worker-input-fixture.js";
 /** Executed inside a network namespace with loopback fixture inference only. */
@@ -90,6 +91,7 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
     { type: "message_delta", delta: { stop_reason: "end_turn", stop_sequence: null }, usage: { output_tokens: 5 } },
     { type: "message_stop" }]);
 } });
+nativeScriptedService(server.url.origin);
 function start(): unknown {
   return { type: "message_start", message: { id: `msg_${crypto.randomUUID()}`, type: "message", role: "assistant",
     model: "claude-sonnet-4-6", content: [], stop_reason: null, stop_sequence: null,

@@ -1129,15 +1129,24 @@ launches (which use Bun's subprocess transport) and the existing worker bootstra
 
 Direct SDK children get an empty root filesystem, explicit system/runtime and
 fixture mounts, fresh PID and network namespaces, and one Unix socket bridged
-to the exact scripted IPv4 loopback service. They receive a synthetic API key.
+to the exact scripted loopback service. They receive synthetic credentials or
+registered relay placeholders.
 Host account databases, managed settings, homes and credential storage are not
 mounted. The boundary traces native and descendant `connect` syscalls with
-`strace` in raw-argument mode: only pointer/number arguments are recorded, never
-addresses, file paths or payloads. On exit it publishes a sanitized
-`native-offline-audit` receipt with the exact head and denied-connect count.
-A missing namespace launcher or tracing capability refuses before launch. Managed settings supplied by a hostile fixture are synthetic. Existing
-workers retain their concrete fixture mounts and private egress namespace,
-but lose the broad read-only host root. A shared-network native worker refuses.
+raw arguments and `execve` with zero-length argument strings. The private trace
+contains executable paths but no decoded connect addresses or payloads. A
+successful native exec record is required: an empty or missing trace produces
+a failed receipt with `nativeLaunched: false`. The emitted `native-offline-audit`
+receipt contains only the exact head, launch evidence and denied-connect count.
+A missing namespace launcher or tracing capability refuses before launch.
+Managed settings supplied by a hostile fixture are synthetic. Workers receive
+a private network namespace and retain their concrete fixture mounts, while
+losing the broad read-only host root. An unavailable isolated view refuses.
+Restricted fixture code declares its scripted origin with
+`nativeScriptedService`. The guard creates Unix servers under that authority
+and pins all handler fetch/TCP/Unix transports to it. Socket ownership alone
+is never admission: a pre-existing, unregistered relay refuses. SDK runtime
+discovery includes every workspace owner and refuses unresolved declared SDKs.
 No production authentication or managed-policy behavior changes.
 
 `tests/native-offline-boundary.test.ts` proves local refusal with harmless

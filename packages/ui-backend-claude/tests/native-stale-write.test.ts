@@ -1,3 +1,4 @@
+import { nativeScriptedService } from "../../../scripts/test-native-guard.ts";
 /** Real installed CLI file tools, a scripted loopback model, and fictional credentials only. */
 import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
@@ -32,6 +33,7 @@ for (const toolName of ["Write", "Edit", "NotebookEdit"] as const) for (const mo
     if (!call || !body.tools?.some(tool => tool.name === call.name)) return reply();
     sent++; return reply(call);
   } });
+  nativeScriptedService(server.url.origin);
   const frames: ServerMessage[] = [], lock = createTurnLockBinding({ turn: { ended: false, pendingReleases: new Map() }, writeLock: createKeyedLock(), lockWaitMs: 1000, log: () => {} });
   const wiring = createPermissionWiring({ req: { prompt: "Return to Ithaca.", signal: controller.signal,
     workerSandbox: { brain, profile: "governed", restricted: false, areas: [], scratchAliasesRemoved: [] }, bridge: { emit: () => {}, requestPermission: async () => ({ behavior: "allow" }) } },

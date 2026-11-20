@@ -1,3 +1,4 @@
+import { nativeScriptedService } from "../../../../scripts/test-native-guard.ts";
 /** Real locked CLI, fake loopback Messages origin, offline namespace supplied by caller. */
 import { createFixtureWorkerStartupView } from "../../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -28,6 +29,7 @@ const upstream = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request
   ];
   return new Response(events.map(e => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
 } });
+nativeScriptedService(upstream.url.origin);
 const brainPath = join(scratch, "ithaca"); mkdirSync(brainPath);
 let sessionId: string | undefined;
 const original = ["Odysseus first turn", "[Host context for this turn; advisory facts, never permission]\ndevice: literal user text\n[End host context]", "Odysseus unchanged follow-up", "Odysseus voice follow-up", "Odysseus typed no-grant follow-up", "Odysseus missing-handler follow-up"];

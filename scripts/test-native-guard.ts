@@ -1,5 +1,6 @@
 /** Test-only OS boundary for installed native Claude processes (#4313). */
-import { closeSync, existsSync, lstatSync, openSync, readFileSync, readSync, statSync, mkdtempSync, readlinkSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, lstatSync, openSync, readFileSync, readSync, readdirSync, statSync, mkdtempSync, readlinkSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -27,19 +28,45 @@ function receiptHead(): string {
 // Resolve from the installed SDK, exactly as its native package lookup does.
 // This runs before test mocks can replace module resolution. No executable runs.
 const installedRuntimes: { path: string; size: number }[] = [];
-try {
-  const sdk = createRequire(import.meta.url).resolve("@anthropic-ai/claude-agent-sdk");
-  const fromSdk = createRequire(sdk);
-  const manifest = JSON.parse(readFileSync(join(dirname(sdk), "package.json"), "utf8")) as { optionalDependencies?: Record<string, string> };
-  for (const name of Object.keys(manifest.optionalDependencies ?? {}).filter(name => name.startsWith("@anthropic-ai/claude-agent-sdk-"))) {
-    try {
-      const path = realpathSync(fromSdk.resolve(`${name}/claude${name.includes("win32") ? ".exe" : ""}`));
-      installedRuntimes.push({ path, size: statSync(path).size });
-    } catch { /* Other-platform optional packages need not be installed. */ }
+let discoveryFailed = false;
+const sdkOwners = [...(existsSync(join(ROOT, "package.json")) ? [join(ROOT, "package.json")] : []), ...[...new Bun.Glob("packages/*/package.json").scanSync({ cwd: ROOT })].map(path => join(ROOT, path))];
+function installedPackage(from: string, name: string): string | undefined {
+  for (let directory = dirname(from); ; directory = dirname(directory)) {
+    const path = join(directory, "node_modules", name, "package.json");
+    if (existsSync(path)) return path;
+    if (dirname(directory) === directory) return;
   }
-  const cli = join(dirname(sdk), "cli.js");
-  if (existsSync(cli)) installedRuntimes.push({ path: realpathSync(cli), size: statSync(cli).size });
-} catch { /* Copied non-native harness fixtures need no installed SDK. */ }
+}
+const seenSdks = new Set<string>();
+for (const owner of sdkOwners) {
+  let required = false;
+  try {
+    const manifest = JSON.parse(readFileSync(owner, "utf8")) as Record<string, Record<string, string>>;
+    required = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"].some(key => Boolean(manifest[key]?.["@anthropic-ai/claude-agent-sdk"]));
+    if (!installedPackage(owner, "@anthropic-ai/claude-agent-sdk")) {
+      if (required) discoveryFailed = true;
+      continue;
+    }
+    let sdk: string;
+    try { sdk = realpathSync(createRequire(owner).resolve("@anthropic-ai/claude-agent-sdk")); }
+    catch { if (required) discoveryFailed = true; continue; }
+    if (seenSdks.has(sdk)) continue;
+    seenSdks.add(sdk);
+    const fromSdk = createRequire(sdk);
+    const sdkManifest = JSON.parse(readFileSync(join(dirname(sdk), "package.json"), "utf8")) as { optionalDependencies?: Record<string, string> };
+    const before = installedRuntimes.length;
+    for (const name of Object.keys(sdkManifest.optionalDependencies ?? {}).filter(name => name.startsWith(`@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}`))) {
+      try {
+        if (!installedPackage(sdk, name)) continue;
+        const path = realpathSync(fromSdk.resolve(`${name}/claude${process.platform === "win32" ? ".exe" : ""}`));
+        installedRuntimes.push({ path, size: statSync(path).size });
+      } catch { /* The alternate libc package may not be installed. */ }
+    }
+    const cli = join(dirname(sdk), "cli.js");
+    if (existsSync(cli)) installedRuntimes.push({ path: realpathSync(cli), size: statSync(cli).size });
+    if (installedRuntimes.length === before) discoveryFailed = true;
+  } catch { discoveryFailed = true; }
+}
 
 const hashes = new Map<string, string>();
 function fileHash(path: string): string {
@@ -61,6 +88,7 @@ function resolveExecutable(command: string, options: SpawnContext): string {
 }
 
 export function isNativeClaude(command: string, args: readonly unknown[] = [], options: SpawnContext = {}): boolean {
+  if (discoveryFailed) refuse("installed SDK runtime discovery failed");
   for (const value of [command, ...args]) {
     if (typeof value !== "string" || value.startsWith("-")) continue;
     let path: string;
@@ -130,7 +158,7 @@ function testRuntimeMounts(): string[] {
   });
 }
 
-interface AuditReceipt { kind: "native-offline-audit"; head: string; nativeLaunched: true; deniedConnects: number }
+interface AuditReceipt { kind: "native-offline-audit"; head: string; nativeLaunched: boolean; success: boolean; reason?: string; deniedConnects: number }
 interface Boundary { argv: string[]; env: Record<string, string>; dispose(): void; receipt(): AuditReceipt }
 
 /** Raw connect arguments are pointers/numbers: no addresses, paths or payloads. */
@@ -138,7 +166,12 @@ export function deniedNativeConnects(trace: string): number {
   return trace.split("\n").filter(line => /(?:connect\(|connect resumed>).*?= -1 (?:EACCES|EPERM|ENETUNREACH|EHOSTUNREACH|ECONNREFUSED|ENOENT)\b/.test(line)).length;
 }
 
-function auditNativeLaunch(argv: string[], cleanup: () => void) {
+/** A successful exec trace for the expected program is the launch evidence. */
+export function nativeExecObserved(trace: string, paths: readonly string[]): boolean {
+  return trace.split("\n").some(line => paths.some(path => line.includes(`execve(${JSON.stringify(path)},`)) && /\)\s+= 0$/.test(line.trim()));
+}
+
+export function auditNativeLaunch(argv: string[], expected: readonly string[], cleanup: () => void) {
   const directory = mkdtempSync(join(tmpdir(), "odysseus-native-audit-"));
   const log = join(directory, "connect.log");
   writeFileSync(log, "", { mode: 0o600 });
@@ -146,13 +179,17 @@ function auditNativeLaunch(argv: string[], cleanup: () => void) {
   const finish = (): AuditReceipt => {
     if (receipt) return receipt;
     try {
-      const trace = readFileSync(log, "utf8");
-      receipt = { kind: "native-offline-audit", head: receiptHead(), nativeLaunched: true, deniedConnects: deniedNativeConnects(trace) };
+      let trace = "";
+      try { trace = readFileSync(log, "utf8"); } catch { /* Missing evidence is a failed receipt. */ }
+      const nativeLaunched = nativeExecObserved(trace, expected);
+      if (!nativeLaunched) denied++;
+      receipt = { kind: "native-offline-audit", head: receiptHead(), nativeLaunched, success: nativeLaunched,
+        ...(!nativeLaunched ? { reason: "native exec was not observed" } : {}), deniedConnects: deniedNativeConnects(trace) };
       console.error(JSON.stringify(receipt));
       return receipt;
     } finally { cleanup(); rmSync(directory, { recursive: true, force: true }); }
   };
-  return { argv: ["strace", "-f", "-qq", "-e", "trace=connect", "-e", "raw=connect", "-o", log, "--", ...argv],
+  return { argv: ["strace", "-f", "-qq", "-s", "0", "-e", "trace=connect,execve", "-e", "raw=connect", "-o", log, "--", ...argv],
     dispose() { finish(); }, receipt: finish };
 }
 
@@ -199,7 +236,10 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
   if (!home || !within(tmpdir(), home) || home === tmpdir() || cwd === tmpdir() || !within(tmpdir(), cwd) && !within(ROOT, cwd)) {
     refuse("native launch requires fixture-owned storage");
   }
-  const bridge = startNativeTestRelay(args.at(-1) === "--version" ? "http://127.0.0.1:1" : env.ANTHROPIC_BASE_URL);
+  const inheritedSocket = env.ANTHROPIC_UNIX_SOCKET;
+  const inheritedOrigin = inheritedSocket && ownedSocketOrigin(inheritedSocket);
+  if (inheritedSocket && !inheritedOrigin) refuse("pre-existing native relay is not guard-owned");
+  const bridge = startNativeTestRelay(versionOnly ? "http://127.0.0.1:1" : inheritedOrigin ?? scriptedRoute.getStore()?.origin ?? env.ANTHROPIC_BASE_URL);
   try {
     command = resolveExecutable(command, options);
     const executable = realpathSync(command);
@@ -209,6 +249,7 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
       ...(cwd === ROOT || within(ROOT, cwd) || within(home, cwd) ? [] : ["--bind", cwd, cwd]),
       "--ro-bind", bridge.directory, "/tmp/native-relay",
       "--ro-bind", join(bridge.directory, "passwd"), "/etc/passwd", "--ro-bind", join(bridge.directory, "group"), "/etc/group",
+      ...(inheritedSocket && inheritedOrigin ? ["--ro-bind", inheritedSocket, "/tmp/native-relay/relay.sock", "--ro-bind", inheritedSocket, inheritedSocket] : []),
       ...(options.managedSettings ? ["--ro-bind", options.managedSettings, "/etc/claude-code"] : []), "--clearenv"];
     const childEnv: Record<string, string> = { HOME: home, CLAUDE_CONFIG_DIR: versionHome ?? env.CLAUDE_CONFIG_DIR ?? home,
       PATH: "/usr/bin:/bin", LANG: "C.UTF-8", ANTHROPIC_API_KEY: "offline-odysseus",
@@ -225,11 +266,121 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
       delete childEnv.ANTHROPIC_API_KEY;
       childEnv.CLAUDE_CODE_OAUTH_TOKEN = env.CLAUDE_CODE_OAUTH_TOKEN!;
     }
+    if (inheritedOrigin) Object.assign(childEnv, relayCredentialPlaceholders(env));
     for (const [key, value] of Object.entries(childEnv)) argv.push("--setenv", key, value);
     argv.push("--chdir", cwd, "--", command, ...args);
-    const audited = auditNativeLaunch(argv, () => { bridge.dispose(); if (versionHome) rmSync(versionHome, { recursive: true, force: true }); });
+    const audited = auditNativeLaunch(argv, [command], () => { bridge.dispose(); if (versionHome) rmSync(versionHome, { recursive: true, force: true }); });
     return { ...audited, env: {} };
   } catch (error) { bridge.dispose(); if (versionHome) rmSync(versionHome, { recursive: true, force: true }); throw error; }
+}
+
+const scriptedRoute = new AsyncLocalStorage<Readonly<{ origin: string }> | undefined>();
+
+/** Test code pins its scripted service before building a restricted turn. */
+export function nativeScriptedService(origin: string): () => void {
+  const target = new URL(origin);
+  if (target.protocol !== "http:" || !["127.0.0.1", "localhost", "[::1]"].includes(target.hostname) || !target.port || target.username || target.password || target.pathname !== "/" || target.search || target.hash) refuse("invalid scripted route authority");
+  const previous = scriptedRoute.getStore();
+  scriptedRoute.enterWith(Object.freeze({ origin: target.origin }));
+  return () => scriptedRoute.enterWith(previous);
+}
+
+const relayForwarding = new AsyncLocalStorage<Readonly<{ origin: string }>>();
+const ownedRelaySockets = new Map<string, { origin: string; dev: bigint; ino: bigint }>();
+
+const ownedHttpServers = new WeakMap<object, Readonly<{ origin: string }>>();
+function rememberRelay(path: string, origin: string): void {
+  const stat = lstatSync(path, { bigint: true });
+  ownedRelaySockets.set(realpathSync(path), { origin, dev: stat.dev, ino: stat.ino });
+}
+
+export function guardNativeHttpListen(server: object, args: unknown[]): void {
+  const route = scriptedRoute.getStore();
+  const first = args[0] as string | { path?: string } | undefined;
+  const path = typeof first === "string" ? first : first?.path;
+  if (!route || !path?.startsWith("/")) return;
+  ownedHttpServers.set(server, route);
+  (server as { once(event: string, callback: () => void): void }).once("listening", () => rememberRelay(path, route.origin));
+}
+
+export function guardNativeHttpEvent(server: object, event: unknown, invoke: () => unknown): unknown {
+  const route = ownedHttpServers.get(server);
+  return route && (event === "request" || event === "connect") ? relayForwarding.run(route, invoke) : invoke();
+}
+
+/** The guard creates the server and binds every transport in its handler. */
+export function guardNativeRelayServer(options: any, create: (options: any) => any): any {
+  const route = scriptedRoute.getStore();
+  if (!route || typeof options.unix !== "string" || typeof options.fetch !== "function") return create(options);
+  const original = options.fetch;
+  const server = create({ ...options, fetch: function(this: unknown, ...args: unknown[]) {
+    return relayForwarding.run(route, () => Reflect.apply(original, this, args));
+  } });
+  rememberRelay(options.unix, route.origin);
+  return server;
+}
+
+export function assertNativeRelayDestination(url: URL): void {
+  const route = relayForwarding.getStore();
+  if (!route) return;
+  const target = new URL(route.origin), requested = new URL(url);
+  if (target.hostname === "localhost") target.hostname = "127.0.0.1";
+  if (requested.hostname === "localhost") requested.hostname = "127.0.0.1";
+  if (requested.origin === target.origin) return;
+  denied++;
+  console.error(JSON.stringify({ kind: "native-offline-route-denial", success: false, reason: "unintended relay destination", head: receiptHead() }));
+  throw new Error("Native relay refused an unintended destination");
+}
+
+export function assertNativeRelaySocket(host: string, port: unknown): void {
+  if (!relayForwarding.getStore()) return;
+  assertNativeRelayDestination(new URL(`http://${host === "::1" ? "[::1]" : host}:${port}`));
+}
+
+export function assertNativeRelayUnix(path: string): void {
+  const route = relayForwarding.getStore();
+  if (!route) return;
+  let authority: { origin: string } | undefined;
+  try { authority = ownedRelaySockets.get(realpathSync(path)); } catch { /* Unknown socket. */ }
+  if (authority?.origin === route.origin) return;
+  assertNativeRelayDestination(new URL("http://unowned-native-ipc.invalid"));
+}
+
+function relayCredentialPlaceholders(env: Record<string, string | undefined>): Record<string, string> {
+  return Object.fromEntries(["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"].map(key =>
+    [key, env[key] === "brain-inference-relay-placeholder" ? env[key]! : ""]));
+}
+
+function ownedSocketOrigin(path: string): string | undefined {
+  let real: string;
+  try { real = realpathSync(path); } catch { return; }
+  const authority = ownedRelaySockets.get(real);
+  if (!authority) return;
+  const stat = lstatSync(real, { bigint: true });
+  return stat.isSocket() && stat.dev === authority.dev && stat.ino === authority.ino ? authority.origin : undefined;
+}
+
+function admittedRelay(argv: string[], socket: string): string | undefined {
+  for (let i = 0; i < argv.length - 2; i++) {
+    if (!["--ro-bind", "--bind"].includes(argv[i]!) || !within(argv[i + 2]!, socket)) continue;
+    const path = join(argv[i + 1]!, socket.slice(argv[i + 2]!.length));
+    let real: string;
+    try { real = realpathSync(path); } catch { continue; }
+    const authority = ownedRelaySockets.get(real);
+    if (!authority) continue;
+    const stat = lstatSync(real, { bigint: true });
+    if (!stat.isSocket() || stat.dev !== authority.dev || stat.ino !== authority.ino) continue;
+    // A directory mount exposes every socket it contains, not only the name
+    // in ANTHROPIC_UNIX_SOCKET. Every such capability needs the same authority.
+    const directory = statSync(argv[i + 1]!).isDirectory() ? argv[i + 1]! : undefined;
+    for (const name of directory ? readdirSync(directory) : []) {
+      const sibling = join(directory!, name), info = lstatSync(sibling, { bigint: true });
+      if (!info.isSocket()) continue;
+      const peer = ownedRelaySockets.get(realpathSync(sibling));
+      if (!peer || peer.origin !== authority.origin || peer.dev !== info.dev || peer.ino !== info.ino) return;
+    }
+    return authority.origin;
+  }
 }
 
 /** Inspect the concrete existing worker bootstrap, including its exec payload. */
@@ -239,7 +390,6 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
   let launch: { command?: string[]; argv?: string[]; env?: Record<string, string>; brainPath?: string } | null;
   try { launch = JSON.parse(env.BRAIN_WORKER_LAUNCH); } catch { return unchanged; }
   if (!launch?.command?.[0] || !isNativeClaude(launch.command[0], launch.command.slice(1), { cwd: launch.brainPath, env: launch.env })) return unchanged;
-  qualify();
   const argv = launch.argv;
   if (!argv) refuse("native worker lacks the OS launcher");
   const bwrap = argv.findIndex(value => basename(value) === "bwrap");
@@ -247,35 +397,23 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
   // Even ordinary test workers use a private network and a single bridge.
   // Do not rely on SDK options or the production profile to establish this.
   const socket = launch.env?.ANTHROPIC_UNIX_SOCKET;
-  const existingRelay = socket && launch.env?.ANTHROPIC_BASE_URL === "http://localhost";
-  if (existingRelay) {
-    const separator = argv.indexOf("--", bwrap);
-    let admitted = false;
-    for (let i = bwrap + 1; i < separator; i++) {
-      if (argv[i] !== "--ro-bind" || !argv[i + 1] || !argv[i + 2] || !within(argv[i + 2]!, socket)) continue;
-      const source = argv[i + 1]!, directory = realpathSync(source);
-      if (!within(tmpdir(), directory) || directory === tmpdir() || directory !== source) continue;
-      const path = join(directory, socket.slice(argv[i + 2]!.length));
-      const info = lstatSync(path);
-      if (info.isSocket() && info.uid === process.getuid?.()) admitted = true;
-    }
-    if (!admitted || !argv.includes("--unshare-net")) refuse("native worker relay is not fixture-owned isolated IPC");
-  }
-  // Existing restricted workers already have a server-owned exact-route relay.
-  // The unused bridge in that case supplies only synthetic account files.
-  const bridge = startNativeTestRelay(existingRelay ? "http://127.0.0.1:1" : launch.env?.ANTHROPIC_BASE_URL);
+  const route = scriptedRoute.getStore();
+  const ownedOrigin = socket && admittedRelay(argv, socket);
+  if (socket && !ownedOrigin) refuse("pre-existing native relay is not guard-owned");
+  qualify();
+  const bridge = startNativeTestRelay(ownedOrigin ?? route?.origin ?? launch.env?.ANTHROPIC_BASE_URL);
   try {
     for (let i = bwrap + 1; i < argv.indexOf("--", bwrap); i++) {
       if (argv[i] === "--ro-bind" && argv[i + 1] === "/" && argv[i + 2] === "/") argv.splice(i--, 3);
     }
     argv.splice(bwrap + 1, 0, "--unshare-net", ...systemMounts(), ...testRuntimeMounts(), "--ro-bind", process.execPath, process.execPath);
-    const pinned = { ANTHROPIC_BASE_URL: "http://localhost", ANTHROPIC_UNIX_SOCKET: existingRelay ? socket : "/tmp/native-relay/relay.sock",
-      ANTHROPIC_API_KEY: "offline-odysseus", ANTHROPIC_AUTH_TOKEN: "", CLAUDE_CODE_OAUTH_TOKEN: "" };
+    const pinned = { ANTHROPIC_BASE_URL: "http://localhost", ANTHROPIC_UNIX_SOCKET: socket && ownedOrigin ? socket : "/tmp/native-relay/relay.sock",
+      ...(ownedOrigin ? relayCredentialPlaceholders(launch.env ?? {}) : { ANTHROPIC_API_KEY: "offline-odysseus", ANTHROPIC_AUTH_TOKEN: "", CLAUDE_CODE_OAUTH_TOKEN: "" }) };
     const separator = argv.indexOf("--", bwrap);
     argv.splice(separator, 0, "--ro-bind", bridge.directory, "/tmp/native-relay",
       "--ro-bind", join(bridge.directory, "passwd"), "/etc/passwd", "--ro-bind", join(bridge.directory, "group"), "/etc/group",
       ...Object.entries(pinned).flatMap(([key, value]) => ["--setenv", key, value]));
-    const audited = auditNativeLaunch(argv, bridge.dispose);
+    const audited = auditNativeLaunch(argv, launch.command.filter(value => isNativeClaude(value, [], { cwd: launch.brainPath, env: launch.env })).map(value => resolveExecutable(value, { cwd: launch.brainPath, env: launch.env })), bridge.dispose);
     launch.argv = audited.argv;
     return { env: { ...env, BRAIN_WORKER_LAUNCH: JSON.stringify(launch) }, dispose: audited.dispose };
   } catch (error) { bridge.dispose(); throw error; }

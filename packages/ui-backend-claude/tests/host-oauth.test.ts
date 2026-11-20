@@ -1,3 +1,4 @@
+import { nativeScriptedService } from "../../../scripts/test-native-guard.ts";
 import { afterEach, expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
 import { chmodSync, existsSync, linkSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -27,7 +28,9 @@ function fixture(auth: Record<string, unknown> = fresh()) {
   return { root, path };
 }
 function upstream(handler: (request: Request) => Response | Promise<Response>) {
-  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: handler }); servers.push(server);
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: handler });
+  nativeScriptedService(server.url.origin);
+  servers.push(server);
   // Lowest shared request method rewrites only the measured fixed authority.
   // The actual HTTP request and response stream still use the guarded loopback network.
   const replacement = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {

@@ -1,3 +1,4 @@
+import { nativeScriptedService } from "../../../scripts/test-native-guard.ts";
 /** Production SDK options and isolated worker, real CLI tools, scripted loopback inference. */
 import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
@@ -43,6 +44,7 @@ for (const toolName of ["Write", "Edit", "NotebookEdit"] as const) for (const mo
     if (!call || !body.tools?.some(tool => tool.name === call.name)) return reply();
     sent++; return reply(call);
   } });
+  nativeScriptedService(server.url.origin);
   const lockState = { ended: false, pendingReleases: new Map<string, () => void>() };
   let lockHeldDuringWrite = false;
   const frames: ServerMessage[] = [], lock = createTurnLockBinding({ turn: lockState, writeLock: createKeyedLock(), lockWaitMs: 1000, log: () => {} });

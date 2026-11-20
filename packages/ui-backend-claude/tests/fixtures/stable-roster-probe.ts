@@ -1,3 +1,4 @@
+import { nativeScriptedService } from "../../../../scripts/test-native-guard.ts";
 /** Installed CLI/SDK, isolated by the caller's offline network namespace. */
 import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -55,6 +56,7 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
   return response(selected.map((name, index) => ({ type: "tool_use", id: `toolu_raft_${captures.length}_${index}`,
     name: /^[A-Z]/.test(name) || name.startsWith("mcp__") ? name : `mcp__brain-ui__${name}`, input: inputs[name] ?? missingInputs[name] ?? {} })));
 } });
+nativeScriptedService(server.url.origin);
 function response(calls: unknown[]) {
   const content: any[] = calls.length ? calls : [{ type: "text", text: "Odysseus checks the mast." }];
   const events: any[] = [{ type: "message_start", message: { id: "msg_raft", type: "message", role: "assistant", model: "claude-sonnet-4-6", content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 1, output_tokens: 0 } } }];

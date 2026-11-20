@@ -1,3 +1,4 @@
+import { nativeScriptedService } from "../../scripts/test-native-guard.ts";
 import { createFixtureTurnHost } from "./turn-host-fixture.js";
 /** Actual ordinary adapter and server bridge behind kernel loopback isolation. */
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
@@ -113,6 +114,7 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
   events.push({ type: "content_block_stop", index: 0 }, { type: "message_delta", delta: { stop_reason: action ? "tool_use" : "end_turn", stop_sequence: null }, usage: { output_tokens: 5 } }, { type: "message_stop" });
   return new Response(events.map((event: any) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
 } });
+nativeScriptedService(server.url.origin);
 const db = createUiDb(":memory:"); const store = createActivityStore(db, { writer: "claude-worker-test" }), stream = createActivityStream(store);
 const profile: InferenceProfile = { id: "fixture", label: "Fixture", model: "claude-sonnet-4-6", billing: "api", requiredEnvKeys: [], buildEnv: () => ({ ANTHROPIC_BASE_URL: `http://127.0.0.1:${server.port}`, ANTHROPIC_API_KEY: "offline-fixture", CLAUDE_CODE_OAUTH_TOKEN: "", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" }) };
 const backend = createClaudeBackend({ brainPath, profiles: [profile], log: () => {} });

@@ -1,3 +1,4 @@
+import { nativeScriptedService } from "../test-native-guard.ts";
 /** Actual core factory, actual bundled CLI, networkless fictional control only. */
 import { mkdirSync,writeFileSync,readFileSync,existsSync,appendFileSync } from "node:fs";
 import { join } from "node:path";
@@ -26,6 +27,7 @@ for(const arm of ["allow","deny"]){
   entry.forwarded=true;entry.servedModel=MODEL;const call=plans[turn++];const bytes=call?reply([{type:"tool_use",id:"tool_"+arm+"_"+turn,name:call.name,input:call.input}],"tool_use"):reply([{type:"text",text:"Odysseus controlled turn complete."}],"end_turn");entry.rawResponse=bytes;writeFileSync(join(output,arm+"-physical.json"),JSON.stringify(physical,null,2));
   return new Response(bytes,{headers:{"content-type":"text/event-stream","anthropic-ratelimit-unified-status":"allowed","anthropic-ratelimit-unified-overage-status":"disabled"}});
  }});
+ nativeScriptedService(server.url.origin);
  Object.assign(process.env,{HOME:home,CLAUDE_CONFIG_DIR:join(home,".claude"),CLAUDE_CODE_OAUTH_TOKEN:OAUTH,ANTHROPIC_BASE_URL:`http://127.0.0.1:${server.port}`,ANTHROPIC_MODEL:MODEL,ANTHROPIC_DEFAULT_SONNET_MODEL:MODEL,ANTHROPIC_DEFAULT_OPUS_MODEL:MODEL,ANTHROPIC_DEFAULT_HAIKU_MODEL:MODEL,ANTHROPIC_SMALL_FAST_MODEL:MODEL,CLAUDE_CODE_SUBAGENT_MODEL:MODEL,CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:"1"});
  const original=nativeSpawn;let close:Promise<any>|undefined,stdout:Promise<string>|undefined,stderr:Promise<string>|undefined,args:any,stdin="",forcedKill=false;
  observedSpawn=(command:any,options:any)=>{

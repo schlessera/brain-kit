@@ -1,3 +1,4 @@
+import { nativeScriptedService } from "../../../scripts/test-native-guard.ts";
 /** Actual installed native tools through the production runner; only the worker transport is replaced. */
 import { expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
@@ -31,6 +32,7 @@ for (const tool of ["Write", "Edit", "NotebookEdit"] as const) test(`restarted C
       : { notebook_path: path, cell_id: "loom", new_source: "Athena charts.", edit_mode: "replace" };
     return nativeModelReply({ name, input, id: name === "Read" ? "toolu_ithaca_read" : "toolu_ithaca_native" });
   } });
+  nativeScriptedService(server.url.origin);
   const env = { HOME: home, CLAUDE_CONFIG_DIR: join(home, ".claude"), PATH: process.env.PATH ?? "/usr/bin:/bin",
     ANTHROPIC_BASE_URL: `http://127.0.0.1:${server.port}`, ANTHROPIC_API_KEY: "odysseus-offline-only-key", ANTHROPIC_AUTH_TOKEN: undefined,
     CLAUDE_CODE_OAUTH_TOKEN: undefined, CLAUDE_CODE_USE_BEDROCK: "", CLAUDE_CODE_USE_VERTEX: "", CLAUDE_CODE_USE_FOUNDRY: "", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" };

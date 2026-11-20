@@ -1,3 +1,4 @@
+import { nativeScriptedService } from "../../../../scripts/test-native-guard.ts";
 import { SDK_RELAY_TURN_COUNT, SDK_RELAY_TURN_TIMEOUT_MS, SDK_RELAY_CANCELLATION_TIMEOUT_MS } from "./sdk-host-relay-limits.js";
 /** Actual ordinary Claude spawn/state path; copied storage fixture, not Btrfs qualification. */
 import { query, type AccountInfo } from "@anthropic-ai/claude-agent-sdk";
@@ -113,6 +114,7 @@ const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request
     name: "Bash", id: "tool_ithaca_denied", input: { command: `printf odysseus > ${join(brain, "should-not-exist")}` },
   } : undefined);
 } });
+nativeScriptedService(provider.url.origin);
 const originalFetch = globalThis.fetch;
 // Only the host's lowest fetch method is replaced. The native CLI makes real
 // HTTP requests over the real Unix socket. Both upstream exchanges reach a

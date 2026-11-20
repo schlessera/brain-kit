@@ -1,3 +1,4 @@
+import { nativeScriptedService } from "../../../../scripts/test-native-guard.ts";
 /** Actual ordinary Claude spawn/state path; copied storage fixture, not Btrfs qualification. */
 import { query, type AccountInfo } from "@anthropic-ai/claude-agent-sdk";
 import { startInferenceRelay, ANTHROPIC_INFERENCE_ROUTES, INFERENCE_PLACEHOLDER, acquireHostCredentialExclusion, startEgressProxy, type EgressRecord } from "@schlessera/brain-ui-sdk/internal";
@@ -64,6 +65,7 @@ const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request
     apiKey: request.headers.get("x-api-key"), model: body.model, priorMessages: body.messages.length });
   return nativeModelReply();
 } });
+nativeScriptedService(provider.url.origin);
 const originalFetch = globalThis.fetch;
 // Only the host's lowest fetch method is replaced. The native CLI makes real
 // HTTP requests over the real Unix socket. Both upstream exchanges reach a

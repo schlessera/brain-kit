@@ -1,6 +1,7 @@
 /** Test-only subprocess and transport safeguards; never imported by a published package. */
-import { assertNoNativeRefusals, nativeIsolationFailed, isNativeClaude, nativeClaudeBoundary, nativeWorkerBoundary, refuseNativeClaude } from "./test-native-guard";
+import { guardNativeHttpListen, guardNativeHttpEvent, guardNativeRelayServer, assertNativeRelayDestination, assertNativeRelaySocket, assertNativeRelayUnix, assertNoNativeRefusals, nativeIsolationFailed, isNativeClaude, nativeClaudeBoundary, nativeWorkerBoundary, refuseNativeClaude } from "./test-native-guard";
 import { basename, join } from "node:path";
+import { Server as HttpServer } from "node:http";
 import { isIP, Socket } from "node:net";
 import { inheritWorkspaceLease } from "./workspace-lease.mjs";
 
@@ -29,6 +30,17 @@ function testGitEnvironment(env: Record<string, string | undefined>): Record<str
 export function installNetworkGuard(): { assertNoEscapes(): void } {
   if (installed) return installed;
   Object.assign(process.env, testGitEnvironment(process.env));
+  const nativeHttpListen = HttpServer.prototype.listen;
+  const nativeHttpEmit = HttpServer.prototype.emit;
+  HttpServer.prototype.listen = function(...args: unknown[]) {
+    guardNativeHttpListen(this, args);
+    return Reflect.apply(nativeHttpListen, this, args);
+  } as typeof nativeHttpListen;
+  HttpServer.prototype.emit = function(...args: unknown[]) {
+    return guardNativeHttpEvent(this, args[0], () => Reflect.apply(nativeHttpEmit, this, args));
+  } as typeof nativeHttpEmit;
+  const nativeServe = Bun.serve;
+  Bun.serve = ((options: any) => guardNativeRelayServer(options, value => nativeServe(value))) as typeof Bun.serve;
   const escapes: string[] = [];
   let reported = 0;
   const message = () => `Offline test guard: attempted real network access\n${escapes.join("\n")}`;
@@ -37,6 +49,7 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
     throw new Error(message());
   }
   function permitted(url: URL): void {
+    assertNativeRelayDestination(url);
     if (!["http:", "https:"].includes(url.protocol) || !LOOPBACK.has(url.hostname)) {
       refuse(`fetch ${url.href}`);
     }
@@ -59,8 +72,10 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
         };
       // Unix paths and adoption/TLS upgrades of an existing socket open no
       // new TCP destination. SNI on an adopted socket is not its address.
+      if (options.path) assertNativeRelayUnix(options.path);
       if (!options.path && !options.socket && options.fd == null) {
         const host = options.host ?? "localhost";
+        assertNativeRelaySocket(host, options.port);
         if (!socketLoopback(host)) refuse(`socket.connect ${host}:${options.port}`);
       }
       return Reflect.apply(nativeSocketConnect, this, args);
@@ -70,6 +85,8 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
   Object.defineProperty(Bun, "connect", {
     ...Object.getOwnPropertyDescriptor(Bun, "connect"),
     value: async function offlineBunConnect(options: Bun.TCPSocketConnectOptions<unknown> | Bun.UnixSocketOptions<unknown>) {
+      if ("hostname" in options) assertNativeRelaySocket(options.hostname, options.port);
+      else if ("unix" in options) assertNativeRelayUnix(options.unix);
       if ("hostname" in options && !socketLoopback(options.hostname)) {
         refuse(`Bun.connect ${options.hostname}:${options.port}`);
       }
@@ -87,6 +104,7 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
     // A Unix socket never leaves the host; `new Request` drops Bun's `unix`
     // option, so every hop passes it on or a socket request becomes TCP.
     const unix = (init as RequestInit & { unix?: string } | undefined)?.unix;
+    if (unix) assertNativeRelayUnix(unix);
     for (let hop = 0; ; hop++) {
       const replay = request.clone();
       let replayBody = replay.body;

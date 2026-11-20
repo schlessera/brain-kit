@@ -1,7 +1,7 @@
 /** Local tests never execute the installed native runtime, including mutations. */
 import { expect, test } from "bun:test";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { bundledClaudeBinary } from "../packages/core/src/providers/agents/claude-binary";
 import { isNativeClaude } from "../scripts/test-native-guard";
@@ -12,7 +12,7 @@ if (!runtime) throw new Error("Native boundary proof requires the installed SDK 
 
 async function probe(script: string, home: string) {
   const path = join(home, "probe.ts"); writeFileSync(path, script);
-  const child = Bun.spawn([process.execPath, path], { env: { PATH: "/usr/bin:/bin", HOME: home }, stdout: "pipe", stderr: "pipe" });
+  const child = Bun.spawn([process.execPath, "--no-install", path], { env: { PATH: "/usr/bin:/bin", HOME: home }, stdout: "pipe", stderr: "pipe" });
   const [code, output] = await Promise.all([child.exited, new Response(child.stderr).text()]);
   return { code, output };
 }
@@ -120,6 +120,107 @@ test("relay paths cannot redirect headers and body to another loopback service",
 test("native audit counts raw kernel failures without decoding addresses or payloads", async () => {
   const { deniedNativeConnects } = await import("../scripts/test-native-guard");
   expect(deniedNativeConnects("1 connect(0x3, 0x123, 0x10) = -1 ENETUNREACH (Network is unreachable)\n2 <... connect resumed>) = -1 EACCES (Permission denied)\n3 connect(0x4, 0x456, 0x10) = 0\n4 connect(0x5, 0x789, 0x10) = -1 EINPROGRESS (Operation now in progress)")).toBe(2);
+});
+
+test("cleanup cannot claim native exec from an empty or launcher-only trace", async () => {
+  const { nativeExecObserved } = await import("../scripts/test-native-guard");
+  expect(nativeExecObserved("", ["/synthetic/native"])).toBe(false);
+  expect(nativeExecObserved('1 execve("/usr/bin/bwrap", [], 0x1) = 0', ["/synthetic/native"])).toBe(false);
+  expect(nativeExecObserved('1 execve("/synthetic/native", [], 0x1) = -1 ENOENT', ["/synthetic/native"])).toBe(false);
+  expect(nativeExecObserved('1 execve("/synthetic/native", [], 0x1) = 0', ["/synthetic/native"])).toBe(true);
+  const scratch = mkdtempSync(join(tmpdir(), "odysseus-empty-native-audit-"));
+  try {
+    const result = await probe(`${imports}
+      import {auditNativeLaunch} from ${JSON.stringify(join(ROOT, "scripts/test-native-guard.ts"))};
+      const audit=auditNativeLaunch(["/usr/bin/true"],["/synthetic/native"],()=>{});
+      audit.dispose(); process.exit(0);`, scratch);
+    expect(result.code).not.toBe(0);
+    expect(result.output).toContain('"nativeLaunched":false,"success":false');
+    expect(result.output).toContain("native exec was not observed");
+  } finally { rmSync(scratch, { recursive: true, force: true }); }
+});
+
+test("an arbitrary same-user Unix relay is refused before namespace setup", async () => {
+  const scratch = mkdtempSync(join(tmpdir(), "odysseus-unowned-relay-"));
+  const socket = join(scratch, "relay.sock");
+  const service = Bun.serve({ unix: socket, fetch() { return new Response("Unowned"); } });
+  try {
+    const result = await probe(`${imports}
+      import {nativeWorkerBoundary} from ${JSON.stringify(join(ROOT, "scripts/test-native-guard.ts"))};
+      nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify({command:[${JSON.stringify(runtime)}],
+        env:{ANTHROPIC_BASE_URL:"http://localhost",ANTHROPIC_UNIX_SOCKET:"/tmp/relay/relay.sock"},
+        argv:["bwrap","--unshare-net","--ro-bind",${JSON.stringify(scratch)},"/tmp/relay","--",${JSON.stringify(runtime)}]})});`, scratch);
+    expect(result.code).not.toBe(0);
+    expect(result.output).toContain('"reason":"pre-existing native relay is not guard-owned"');
+    expect(result.output).toContain('"nativeLaunched":false');
+  } finally { service.stop(true); rmSync(scratch, { recursive: true, force: true }); }
+});
+
+test("guard-created relay handlers cannot switch their pinned scripted destination", async () => {
+  const scratch = mkdtempSync(join(tmpdir(), "odysseus-owned-relay-"));
+  let unintended = 0;
+  const target = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { return new Response("Ithaca"); } });
+  const other = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { unintended++; return new Response("Unintended"); } });
+  try {
+    const result = await probe(`${imports}
+      import {nativeScriptedService} from ${JSON.stringify(join(ROOT, "scripts/test-native-guard.ts"))};
+      const restore=nativeScriptedService(${JSON.stringify(target.url.origin)});
+      const socket=${JSON.stringify(join(scratch, "relay.sock"))};
+      const relay=Bun.serve({unix:socket,async fetch(){return fetch(${JSON.stringify(other.url.origin)});}});
+      restore();
+      try {await fetch("http://localhost/v1/messages",{unix:socket});} finally {relay.stop(true);} process.exit(0);`, scratch);
+    expect(result.code).not.toBe(0);
+    expect(result.output).toContain('"reason":"unintended relay destination"');
+    expect(unintended).toBe(0);
+  } finally { target.stop(true); other.stop(true); rmSync(scratch, { recursive: true, force: true }); }
+});
+
+test("guard-owned Node HTTP relays pin their TCP transports too", async () => {
+  const scratch = mkdtempSync(join(tmpdir(), "odysseus-node-relay-"));
+  let unintended = 0;
+  const target = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { return new Response("Ithaca"); } });
+  const other = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { unintended++; return new Response("Unintended"); } });
+  try {
+    const result = await probe(`${imports}
+      import {createServer,request} from "node:http";
+      import {nativeScriptedService} from ${JSON.stringify(join(ROOT, "scripts/test-native-guard.ts"))};
+      const restore=nativeScriptedService(${JSON.stringify(target.url.origin)});
+      const relay=createServer((incoming,response)=>{try{
+        const upstream=request(${JSON.stringify(other.url.origin)},reply=>{response.writeHead(reply.statusCode);reply.pipe(response);});
+        upstream.on("error",()=>{response.writeHead(403);response.end("Denied");});upstream.end();
+      }catch{response.writeHead(403);response.end("Denied");}});
+      const socket=${JSON.stringify(join(scratch, "relay.sock"))};
+      await new Promise(resolve=>relay.listen(socket,resolve));restore();
+      const reply=await fetch("http://localhost/v1/messages",{unix:socket});await reply.text();
+      relay.closeAllConnections();await new Promise(resolve=>relay.close(resolve));process.exit(0);`, scratch);
+    expect(result.code).not.toBe(0);
+    expect(result.output).toContain('"reason":"unintended relay destination"');
+    expect(unintended).toBe(0);
+  } finally { target.stop(true); other.stop(true); rmSync(scratch, { recursive: true, force: true }); }
+});
+
+test("workspace SDK discovery works without root resolution and fails closed for a missing owner SDK", async () => {
+  const { createRequire } = await import("node:module");
+  const sdk = createRequire(import.meta.url).resolve("@anthropic-ai/claude-agent-sdk");
+  const scratch = mkdtempSync(join(tmpdir(), "odysseus-workspace-sdk-"));
+  try {
+    mkdirSync(join(scratch, "scripts"));
+    mkdirSync(join(scratch, "packages/native/node_modules/@anthropic-ai"), { recursive: true });
+    writeFileSync(join(scratch, "package.json"), JSON.stringify({ private: true }));
+    writeFileSync(join(scratch, "packages/native/package.json"), JSON.stringify({ name: "odysseus-native", dependencies: { "@anthropic-ai/claude-agent-sdk": "*" } }));
+    copyFileSync(join(ROOT, "scripts/test-native-guard.ts"), join(scratch, "scripts/test-native-guard.ts"));
+    const link = join(scratch, "packages/native/node_modules/@anthropic-ai/claude-agent-sdk");
+    symlinkSync(dirname(sdk), link);
+    const module = join(scratch, "scripts/test-native-guard.ts");
+    const available = await probe(`import {isNativeClaude} from ${JSON.stringify(module)};
+      if(!isNativeClaude(${JSON.stringify(runtime)}))throw Error("workspace native SDK was missed");`, scratch);
+    expect(available.code, available.output).toBe(0);
+    rmSync(link);
+    const missing = await probe(`import {isNativeClaude} from ${JSON.stringify(module)};isNativeClaude("/usr/bin/true");`, scratch);
+    expect(missing.code).not.toBe(0);
+    expect(missing.output).toContain('"reason":"installed SDK runtime discovery failed"');
+    expect(missing.output).toContain('"nativeLaunched":false');
+  } finally { rmSync(scratch, { recursive: true, force: true }); }
 });
 
 // Positive native tests are deliberately unavailable on developer hosts. The

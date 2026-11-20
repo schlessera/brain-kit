@@ -1,3 +1,4 @@
+import { nativeScriptedService } from "../../../../scripts/test-native-guard.ts";
 /** Real SDK-selected CLI in the production worker; caller supplies an offline namespace. */
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { createHash } from "node:crypto";
@@ -77,6 +78,7 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
   if (!sent) { sent = true; return nativeModelReply({ name: "Bash", input: { command, description: "Inspect the Ithaca shell." }, id: "toolu_ithaca_shell" }); }
   return nativeModelReply();
 } });
+nativeScriptedService(server.url.origin);
 const ledger = createStateLedger();
 const startupView = createFixtureWorkerStartupView(brain);
 const sandbox = prepareFixtureWorkerSandbox(brain, { home, profile, areas: [] });
