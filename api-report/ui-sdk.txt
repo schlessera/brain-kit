@@ -21304,16 +21304,30 @@ signatures (every public export and the types it is made of)
             unresolvedCount: z.ZodNumber;
         }, z.core.$strict>;
         records: z.ZodArray<z.ZodDiscriminatedUnion<[z.ZodObject<{
-            admission: z.ZodOptional<z.ZodObject<{
-                collectionRevision: z.ZodOptional<z.ZodString>;
+            admission: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
                 policyHash: z.ZodNullable<z.ZodString>;
-                ruleId: z.ZodOptional<z.ZodString>;
                 trustRevision: z.ZodString;
-                trusted: z.ZodBoolean;
-            }, z.core.$strict>>;
+                trusted: z.ZodLiteral<false>;
+            }, z.core.$strict>, z.ZodObject<{
+                collectionRevision: z.ZodString;
+                policyHash: z.ZodString;
+                ruleId: z.ZodString;
+                trustRevision: z.ZodString;
+                trusted: z.ZodLiteral<true>;
+            }, z.core.$strict>], "trusted">>;
             bindingId: z.ZodString;
             detailPruned: z.ZodBoolean;
-            detector: z.ZodNullable<z.ZodString>;
+            detector: z.ZodNullable<z.ZodEnum<{
+                attachment_input: "attachment_input";
+                compute_input: "compute_input";
+                explicit_untrusted_input: "explicit_untrusted_input";
+                external_mcp_input: "external_mcp_input";
+                proxy_input: "proxy_input";
+                tool_file_input: "tool_file_input";
+                tool_search_output: "tool_search_output";
+                tool_web_input: "tool_web_input";
+                unproxied_shell_input: "unproxied_shell_input";
+            }>>;
             entry: z.ZodOptional<z.ZodObject<{
                 kind: z.ZodLiteral<"tool">;
                 toolUseId: z.ZodString;
@@ -21457,16 +21471,30 @@ signatures (every public export and the types it is made of)
     }, z.core.$strict>;
   safetyRecordSchema (packages/ui-sdk/src/safety.ts)
     const safetyRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
-        admission: z.ZodOptional<z.ZodObject<{
-            collectionRevision: z.ZodOptional<z.ZodString>;
+        admission: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
             policyHash: z.ZodNullable<z.ZodString>;
-            ruleId: z.ZodOptional<z.ZodString>;
             trustRevision: z.ZodString;
-            trusted: z.ZodBoolean;
-        }, z.core.$strict>>;
+            trusted: z.ZodLiteral<false>;
+        }, z.core.$strict>, z.ZodObject<{
+            collectionRevision: z.ZodString;
+            policyHash: z.ZodString;
+            ruleId: z.ZodString;
+            trustRevision: z.ZodString;
+            trusted: z.ZodLiteral<true>;
+        }, z.core.$strict>], "trusted">>;
         bindingId: z.ZodString;
         detailPruned: z.ZodBoolean;
-        detector: z.ZodNullable<z.ZodString>;
+        detector: z.ZodNullable<z.ZodEnum<{
+            attachment_input: "attachment_input";
+            compute_input: "compute_input";
+            explicit_untrusted_input: "explicit_untrusted_input";
+            external_mcp_input: "external_mcp_input";
+            proxy_input: "proxy_input";
+            tool_file_input: "tool_file_input";
+            tool_search_output: "tool_search_output";
+            tool_web_input: "tool_web_input";
+            unproxied_shell_input: "unproxied_shell_input";
+        }>>;
         entry: z.ZodOptional<z.ZodObject<{
             kind: z.ZodLiteral<"tool">;
             toolUseId: z.ZodString;
@@ -21961,16 +21989,30 @@ signatures (every public export and the types it is made of)
             unresolvedCount: z.ZodNumber;
         }, z.core.$strict>;
         records: z.ZodArray<z.ZodDiscriminatedUnion<[z.ZodObject<{
-            admission: z.ZodOptional<z.ZodObject<{
-                collectionRevision: z.ZodOptional<z.ZodString>;
+            admission: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
                 policyHash: z.ZodNullable<z.ZodString>;
-                ruleId: z.ZodOptional<z.ZodString>;
                 trustRevision: z.ZodString;
-                trusted: z.ZodBoolean;
-            }, z.core.$strict>>;
+                trusted: z.ZodLiteral<false>;
+            }, z.core.$strict>, z.ZodObject<{
+                collectionRevision: z.ZodString;
+                policyHash: z.ZodString;
+                ruleId: z.ZodString;
+                trustRevision: z.ZodString;
+                trusted: z.ZodLiteral<true>;
+            }, z.core.$strict>], "trusted">>;
             bindingId: z.ZodString;
             detailPruned: z.ZodBoolean;
-            detector: z.ZodNullable<z.ZodString>;
+            detector: z.ZodNullable<z.ZodEnum<{
+                attachment_input: "attachment_input";
+                compute_input: "compute_input";
+                explicit_untrusted_input: "explicit_untrusted_input";
+                external_mcp_input: "external_mcp_input";
+                proxy_input: "proxy_input";
+                tool_file_input: "tool_file_input";
+                tool_search_output: "tool_search_output";
+                tool_web_input: "tool_web_input";
+                unproxied_shell_input: "unproxied_shell_input";
+            }>>;
             entry: z.ZodOptional<z.ZodObject<{
                 kind: z.ZodLiteral<"tool">;
                 toolUseId: z.ZodString;
@@ -26879,16 +26921,30 @@ signatures (every public export and the types it is made of)
                 unresolvedCount: z.ZodNumber;
             }, z.core.$strict>;
             records: z.ZodArray<z.ZodDiscriminatedUnion<[z.ZodObject<{
-                admission: z.ZodOptional<z.ZodObject<{
-                    collectionRevision: z.ZodOptional<z.ZodString>;
+                admission: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
                     policyHash: z.ZodNullable<z.ZodString>;
-                    ruleId: z.ZodOptional<z.ZodString>;
                     trustRevision: z.ZodString;
-                    trusted: z.ZodBoolean;
-                }, z.core.$strict>>;
+                    trusted: z.ZodLiteral<false>;
+                }, z.core.$strict>, z.ZodObject<{
+                    collectionRevision: z.ZodString;
+                    policyHash: z.ZodString;
+                    ruleId: z.ZodString;
+                    trustRevision: z.ZodString;
+                    trusted: z.ZodLiteral<true>;
+                }, z.core.$strict>], "trusted">>;
                 bindingId: z.ZodString;
                 detailPruned: z.ZodBoolean;
-                detector: z.ZodNullable<z.ZodString>;
+                detector: z.ZodNullable<z.ZodEnum<{
+                    attachment_input: "attachment_input";
+                    compute_input: "compute_input";
+                    explicit_untrusted_input: "explicit_untrusted_input";
+                    external_mcp_input: "external_mcp_input";
+                    proxy_input: "proxy_input";
+                    tool_file_input: "tool_file_input";
+                    tool_search_output: "tool_search_output";
+                    tool_web_input: "tool_web_input";
+                    unproxied_shell_input: "unproxied_shell_input";
+                }>>;
                 entry: z.ZodOptional<z.ZodObject<{
                     kind: z.ZodLiteral<"tool">;
                     toolUseId: z.ZodString;
@@ -27044,16 +27100,30 @@ signatures (every public export and the types it is made of)
                 unresolvedCount: z.ZodNumber;
             }, z.core.$strict>;
             records: z.ZodArray<z.ZodDiscriminatedUnion<[z.ZodObject<{
-                admission: z.ZodOptional<z.ZodObject<{
-                    collectionRevision: z.ZodOptional<z.ZodString>;
+                admission: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
                     policyHash: z.ZodNullable<z.ZodString>;
-                    ruleId: z.ZodOptional<z.ZodString>;
                     trustRevision: z.ZodString;
-                    trusted: z.ZodBoolean;
-                }, z.core.$strict>>;
+                    trusted: z.ZodLiteral<false>;
+                }, z.core.$strict>, z.ZodObject<{
+                    collectionRevision: z.ZodString;
+                    policyHash: z.ZodString;
+                    ruleId: z.ZodString;
+                    trustRevision: z.ZodString;
+                    trusted: z.ZodLiteral<true>;
+                }, z.core.$strict>], "trusted">>;
                 bindingId: z.ZodString;
                 detailPruned: z.ZodBoolean;
-                detector: z.ZodNullable<z.ZodString>;
+                detector: z.ZodNullable<z.ZodEnum<{
+                    attachment_input: "attachment_input";
+                    compute_input: "compute_input";
+                    explicit_untrusted_input: "explicit_untrusted_input";
+                    external_mcp_input: "external_mcp_input";
+                    proxy_input: "proxy_input";
+                    tool_file_input: "tool_file_input";
+                    tool_search_output: "tool_search_output";
+                    tool_web_input: "tool_web_input";
+                    unproxied_shell_input: "unproxied_shell_input";
+                }>>;
                 entry: z.ZodOptional<z.ZodObject<{
                     kind: z.ZodLiteral<"tool">;
                     toolUseId: z.ZodString;
@@ -27730,16 +27800,30 @@ signatures (every public export and the types it is made of)
                 unresolvedCount: z.ZodNumber;
             }, z.core.$strict>;
             records: z.ZodArray<z.ZodDiscriminatedUnion<[z.ZodObject<{
-                admission: z.ZodOptional<z.ZodObject<{
-                    collectionRevision: z.ZodOptional<z.ZodString>;
+                admission: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
                     policyHash: z.ZodNullable<z.ZodString>;
-                    ruleId: z.ZodOptional<z.ZodString>;
                     trustRevision: z.ZodString;
-                    trusted: z.ZodBoolean;
-                }, z.core.$strict>>;
+                    trusted: z.ZodLiteral<false>;
+                }, z.core.$strict>, z.ZodObject<{
+                    collectionRevision: z.ZodString;
+                    policyHash: z.ZodString;
+                    ruleId: z.ZodString;
+                    trustRevision: z.ZodString;
+                    trusted: z.ZodLiteral<true>;
+                }, z.core.$strict>], "trusted">>;
                 bindingId: z.ZodString;
                 detailPruned: z.ZodBoolean;
-                detector: z.ZodNullable<z.ZodString>;
+                detector: z.ZodNullable<z.ZodEnum<{
+                    attachment_input: "attachment_input";
+                    compute_input: "compute_input";
+                    explicit_untrusted_input: "explicit_untrusted_input";
+                    external_mcp_input: "external_mcp_input";
+                    proxy_input: "proxy_input";
+                    tool_file_input: "tool_file_input";
+                    tool_search_output: "tool_search_output";
+                    tool_web_input: "tool_web_input";
+                    unproxied_shell_input: "unproxied_shell_input";
+                }>>;
                 entry: z.ZodOptional<z.ZodObject<{
                     kind: z.ZodLiteral<"tool">;
                     toolUseId: z.ZodString;
@@ -27911,16 +27995,30 @@ signatures (every public export and the types it is made of)
                 unresolvedCount: z.ZodNumber;
             }, z.core.$strict>;
             records: z.ZodArray<z.ZodDiscriminatedUnion<[z.ZodObject<{
-                admission: z.ZodOptional<z.ZodObject<{
-                    collectionRevision: z.ZodOptional<z.ZodString>;
+                admission: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
                     policyHash: z.ZodNullable<z.ZodString>;
-                    ruleId: z.ZodOptional<z.ZodString>;
                     trustRevision: z.ZodString;
-                    trusted: z.ZodBoolean;
-                }, z.core.$strict>>;
+                    trusted: z.ZodLiteral<false>;
+                }, z.core.$strict>, z.ZodObject<{
+                    collectionRevision: z.ZodString;
+                    policyHash: z.ZodString;
+                    ruleId: z.ZodString;
+                    trustRevision: z.ZodString;
+                    trusted: z.ZodLiteral<true>;
+                }, z.core.$strict>], "trusted">>;
                 bindingId: z.ZodString;
                 detailPruned: z.ZodBoolean;
-                detector: z.ZodNullable<z.ZodString>;
+                detector: z.ZodNullable<z.ZodEnum<{
+                    attachment_input: "attachment_input";
+                    compute_input: "compute_input";
+                    explicit_untrusted_input: "explicit_untrusted_input";
+                    external_mcp_input: "external_mcp_input";
+                    proxy_input: "proxy_input";
+                    tool_file_input: "tool_file_input";
+                    tool_search_output: "tool_search_output";
+                    tool_web_input: "tool_web_input";
+                    unproxied_shell_input: "unproxied_shell_input";
+                }>>;
                 entry: z.ZodOptional<z.ZodObject<{
                     kind: z.ZodLiteral<"tool">;
                     toolUseId: z.ZodString;

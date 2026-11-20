@@ -419,3 +419,8 @@ for(const approval of [false,true])test(`review6: tunnel chunks fence a withdraw
  try{const ready=new Promise<void>(r=>client.once('data',b=>{expect(b.toString()).toContain('200 Connection Established');r();}));client.write(`CONNECT 127.0.0.1:${port} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n`);await ready;current=false;revision='2';client.write('ithaca');await ended;await upstreamClosed;expect(bytes,'TUNNEL_CHUNKS_NEVER_BYPASS_RECIPIENT_OR_CARD_FENCE').toBe(0);
  }finally{client.destroy();proxy.stop();await new Promise<void>(r=>server.close(()=>r()));}
 });
+
+test('review7: absent approvals never read approval history during a real HTTP exchange',async()=>{
+ let reads=0;const origin=Bun.serve({hostname:'127.0.0.1',port:0,fetch:()=>new Response('Ithaca')});const proxy=await startEgressProxy({...defaults([]),taint:{allow:[],tainted:()=>false,contacted:()=>false,approvalRevision:()=>{reads++;return '1';}}});
+ try{expect((await get(proxy.socketPath,origin.url.href)).status).toBe(200);expect(reads,'ABSENT_APPROVAL_NEVER_READS_REVISION').toBe(0);}finally{proxy.stop();origin.stop(true);}
+});

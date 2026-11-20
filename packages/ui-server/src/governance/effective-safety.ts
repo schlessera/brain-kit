@@ -3,7 +3,7 @@ import type { AdmissionSafety } from "@schlessera/brain-ui-sdk/internal";
 import { Database } from "bun:sqlite";
 import type { GovernanceWrites } from "./event-writes.js";
 import { safetyEvidenceSequence, safetyProjection, safetyScopeTurns } from "./safety-store.js";
-import { safetyQueue } from "./safety-queue.js";
+import { safetyQueue, safetyReadVersion } from "./safety-queue.js";
 
 /** Concrete input from the host's future trust publisher, not a policy loader or matcher. */
 export interface LiveTrustRevision {
@@ -20,12 +20,14 @@ export function createEffectiveSafety(db: Database, options: {
   signal?: AbortSignal;
 }): AdmissionSafety {
   let observed: string | undefined, evidenceRevision = "0", lastGlobalRevision = 0n;
-  const read = () => {
-    const sessionId = options.sessionId();
+  let cached: { key:string; value:ReturnType<AdmissionSafety["read"]> } | undefined;
+  const read = (cacheAllowed = true) => {
+    const sessionId = options.sessionId(), authority = options.authority(), trustRevision = options.trust?.revision() ?? "0";
+    const key = JSON.stringify([safetyReadVersion(db),sessionId,authority.current,authority.epoch,trustRevision]);
+    if (cacheAllowed && cached?.key === key) return cached.value;
     const projection = options.writes?.safety(options.turnId, sessionId) ?? safetyProjection(db, options.turnId, sessionId);
     const sequence = safetyEvidenceSequence(db, options.turnId, sessionId);
     const membership = safetyScopeTurns(db, options.turnId, sessionId).size;
-    const authority = options.authority(), trustRevision = options.trust?.revision() ?? "0";
     for (const revision of [projection.evidenceRevision, sequence, trustRevision, authority.epoch]) {
       if (!/^(0|[1-9][0-9]{0,19})$/.test(revision) || BigInt(revision) > 18446744073709551615n) throw new Error("Invalid live safety revision");
     }
@@ -46,7 +48,7 @@ export function createEffectiveSafety(db: Database, options: {
       evidenceRevision = next.toString(); observed = marker;
     }
     lastGlobalRevision = global;
-    return { evidenceRevision, trustRevision, authorityEpoch: authority.epoch,
+    const value = { evidenceRevision, trustRevision, authorityEpoch: authority.epoch,
       scope: JSON.stringify([options.brain ?? db.filename, options.turnId, projection.session]), policyHash: options.policyHash,
       restricted: projection.restriction === "restricted",
       // The facade also knows a turn begun restricted: its permanent gap
@@ -54,11 +56,12 @@ export function createEffectiveSafety(db: Database, options: {
       recordingAvailable: options.writes?.recordingAvailable ? options.writes.recordingAvailable(options.turnId, sessionId)
         : !projection.reasons.some(reason => ["recording_pending", "recording_failed", "capacity"].includes(reason)),
       authorityCurrent: authority.current };
+    if (cacheAllowed) cached = { key, value }; return value;
   };
   return {
     read() {
       // Projection and immutable sequence must describe one SQLite snapshot.
-      return db.inTransaction ? read() : Database.prototype.transaction.call(db, read).deferred() as ReturnType<AdmissionSafety["read"]>;
+      return db.inTransaction ? read(false) : Database.prototype.transaction.call(db, read).deferred() as ReturnType<AdmissionSafety["read"]>;
     },
     subscribe(changed) {
       const listeners = safetyQueue(db).listeners;

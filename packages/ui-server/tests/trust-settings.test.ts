@@ -509,3 +509,9 @@ test('review5: refresh rechecks current generation after its durable projection 
  const pending=f.settings.live.refresh();try{await reached;}finally{spy.mockRestore();}writeFileSync(f.path,'---\nschema_version: [\n---\n');await slow;
  expect((await pending).error,'REFRESH_NEVER_REPORTS_HEALTHY_AFTER_POLICY_CHANGES_DURING_COMMIT').toBe('policy_unavailable');
 });
+
+test('review7: a second reader recovers after the writer commits the same file generation',async()=>{
+ const f=await fixture({originEnforcement:true});await f.commit(await f.prepare());const second=createTrustSettings({...f.options,originEnforcement:true});expect(second.live.read().rules).toHaveLength(1);
+ writeFileSync(f.path,initial);expect(()=>second.live.read()).toThrow();await f.settings.live.refresh();
+ expect(second.live.read().rules,'SECOND_READER_RECOVERS_WITHOUT_EXPLICIT_REFRESH').toEqual([]);expect(second.live.revision()).toBe('2');
+});

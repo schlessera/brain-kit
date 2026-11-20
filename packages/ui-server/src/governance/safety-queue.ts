@@ -2,7 +2,7 @@
 import type { Database } from "bun:sqlite";
 import type { SessionTaint } from "./session-taint.js";
 type PendingSafety = {turnId:string|null;sessionId:string|null;source:SessionTaint["source"];bytes:number};
-const queues=new WeakMap<Database,{pending:Set<PendingSafety>;bytes:number;failed:boolean;inflight:number;
+const queues=new WeakMap<Database,{generation:bigint;pending:Set<PendingSafety>;bytes:number;failed:boolean;inflight:number;
  /** The safety revision when this process latched in memory; null when unreadable. */
  latchRevision:string|null;
  lostTurns:Set<string>;unscopedLoss:boolean;listeners:Set<()=>void>;recovery:{timer:ReturnType<typeof setTimeout>|null;attempt:number};
@@ -12,11 +12,18 @@ const queues=new WeakMap<Database,{pending:Set<PendingSafety>;bytes:number;faile
  recording:Map<string,Set<Promise<void>>>}>();
 export function safetyQueue(db:Database){
  let queue=queues.get(db);
- if(!queue){queue={pending:new Set(),bytes:0,failed:false,inflight:0,latchRevision:null,lostTurns:new Set(),unscopedLoss:false,listeners:new Set(),recovery:{timer:null,attempt:0},lossCause:null,recording:new Map()};queues.set(db,queue);}
+ if(!queue){queue={generation:0n,pending:new Set(),bytes:0,failed:false,inflight:0,latchRevision:null,lostTurns:new Set(),unscopedLoss:false,listeners:new Set(),recovery:{timer:null,attempt:0},lossCause:null,recording:new Map()};queues.set(db,queue);}
  return queue;
 }
 
+/** Constant-size cache identity across local writes, FULL writers and local pending/loss overlays. */
+export function safetyReadVersion(db:Database):string {
+ const row=db.query("SELECT revision,total_changes() AS changes FROM safety_meta WHERE singleton=1").get() as {revision:string;changes:number};
+ const external=db.query("PRAGMA data_version").get() as {data_version:number};
+ return JSON.stringify([row.revision,row.changes,external.data_version,db.inTransaction,safetyQueue(db).generation.toString()]);
+}
 export function notifySafetyChanged(db:Database):void {
+ safetyQueue(db).generation++;
  for(const listener of [...safetyQueue(db).listeners]) {
   try { listener(); } catch { /* The synchronous dispatch read still fails closed. */ }
  }

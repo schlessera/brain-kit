@@ -1,5 +1,5 @@
 import { createEffectiveSafety } from "../src/governance/effective-safety.js";
-import { expect, test } from "bun:test";
+import { expect, test, spyOn } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -186,5 +186,21 @@ test('review4: exact DNS parent never authorizes its subdomain',()=>{
 test('review6: explicit recipient approval survives independently of a source-only rule',async()=>{
  const f=await fixture();try{await f.taint();f.decide(async()=>({behavior:'allow'}));expect(await get(f.proxy.socketPath,f.origin.url.href)).toBe(200);await f.proxy.settled();f.decide(async()=>({behavior:'deny',message:'No second card should appear'}));
  expect(await get(f.proxy.socketPath,f.origin.url.href),'EXPLICIT_RECIPIENT_APPROVAL_SURVIVES_SOURCE_TRUST').toBe(200);expect(f.asks()).toBe(1);const {contactedHosts}=await import('../src/governance/session-taint');expect(contactedHosts(f.db,'voyage'),'EXPLICIT_RECIPIENT_APPROVAL_IS_DURABLE').toContain('127.0.0.1');
+ }finally{await f.close();}
+});
+
+
+for(const restricted of [false,true])test(`review7: streaming counters avoid history scans (restricted ${restricted})`,async()=>{
+ const f=await fixture();try{if(restricted)await f.taint();f.decide(async()=>({behavior:'allow'}));const op=f.proxy.managedReference(new URL('https://github.com/'),new AbortController().signal);expect(await op.admit()).toBe(true);
+ const query=f.db.query.bind(f.db);let scans=0;const spy=spyOn(f.db,'query').mockImplementation(((...args:Parameters<typeof f.db.query>)=>{if(String(args[0]).includes('FROM safety_records'))scans++;return Reflect.apply(query,f.db,args);}) as typeof f.db.query);
+ try{expect(op.charge(1)).toBe(true);scans=0;for(let i=0;i<32;i++)expect(op.charge(1)).toBe(true);expect(scans,'STABLE_APPROVED_CHUNKS_NEVER_SCAN_HISTORY').toBe(0);await f.taint();expect(op.charge(1),'NEW_INPUT_STILL_WITHDRAWS_CACHED_APPROVAL').toBe(false);}finally{spy.mockRestore();op.finish('cancelled');}
+ }finally{await f.close();}
+});
+
+
+test('review7: provisional safety reads never survive a rolled-back transaction',async()=>{
+ const f=await fixture();try{await f.taint();const safety=f.bridge.admissionSafety!;expect(safety.read().restricted).toBe(true);
+ expect(()=>f.db.transaction(()=>{f.db.exec('DELETE FROM safety_records');expect(safety.read().restricted).toBe(false);throw new Error('Odysseus rolls back');})()).toThrow('Odysseus rolls back');
+ expect(safety.read().restricted,'ROLLED_BACK_INPUT_NEVER_REUSES_PROVISIONAL_SAFETY').toBe(true);
  }finally{await f.close();}
 });

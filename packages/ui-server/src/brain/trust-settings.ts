@@ -143,12 +143,15 @@ export function createTrustSettings(options: {
   };
   const freshProjection = (): Projection => {
     const observation = observePolicy();
-    if (!retained || retainedFor !== observation) { retained = projection(); retainedFor = observation; }
-    if (liveCache?.observation === observation && liveCache.base === retained) return liveCache.value;
-    if (observation.kind === "valid" && JSON.stringify(observation.rules) !== JSON.stringify(retained.rules)) throw new TrustSettingsError("stale_revision");
-    const value = observation.kind === "unavailable" ? { ...retained, error: "policy_unavailable" }
-      : { ...retained, policyHash: observation.policyHash, error: null };
-    liveCache = { observation, base: retained, value }; return value;
+    if (observation.kind === "unavailable") return { ...projection(), error: "policy_unavailable" };
+    // An unverified projection is never cached: another reader may be seeing
+    // the published file while its writer is still committing the projection.
+    const base = retained && retainedFor === observation ? retained : projection();
+    if (liveCache?.observation === observation && liveCache.base === base) return liveCache.value;
+    if (observation.kind === "valid" && JSON.stringify(observation.rules) !== JSON.stringify(base.rules)) throw new TrustSettingsError("stale_revision");
+    retained = base; retainedFor = observation;
+    const value = { ...base, policyHash: observation.policyHash, error: null };
+    liveCache = { observation, base, value }; return value;
   };
   const live = { read: freshProjection, revision: () => freshProjection().revision,
     refresh: () => options.lock.withLock(BRAIN_LOCK_KEY, refresh), subscribe(changed: () => void) { listeners.add(changed); return () => { listeners.delete(changed); }; } };

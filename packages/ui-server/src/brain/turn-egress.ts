@@ -8,6 +8,7 @@ import { occurrence, type Occurrence } from "../governance/occurrence.js";
 import type { GovernanceEventInput } from "../governance/events.js";
 import { contactedHosts, recordFirstTaint, sessionTaint, type TaintSource } from "../governance/session-taint.js";
 import type { GovernanceWrites } from "../governance/event-writes.js";
+import { safetyQueue, safetyReadVersion } from "../governance/safety-queue.js";
 import { safetyProjection, safetyEvidenceSequence } from "../governance/safety-store.js";
 import { settleTurnSessionBinding } from "../ws/bridge-session-binding.js";
 import { isMarkedUntrusted } from "../files/untrusted-marks.js";
@@ -150,7 +151,7 @@ export async function prepareTurnEgress(options: {
     try {
       const trustedSource = record.connectionId ? trustedInputs.has(record.connectionId) : false;
       track(options.record({ ...base(), kind: "egress_connection", payload: { ...record, ...(trustedSource ? { trustedSource: true } : {}), ...(record.connectionId && standingRecipients.has(record.connectionId) ? { standingRecipient: true, recipientAdmission: standingRecipients.get(record.connectionId) } : {}) } }));
-      if (record.connectionId) { trustedInputs.delete(record.connectionId); standingRecipients.delete(record.connectionId); }
+      if (record.connectionId) { trustedInputs.delete(record.connectionId); standingRecipients.delete(record.connectionId); approvalMarkers.delete(record.connectionId); }
       const exposure = record.connectionId ? exposures.get(record.connectionId) : undefined;
       if (exposure) {
         exposures.delete(record.connectionId!);
@@ -181,7 +182,21 @@ export async function prepareTurnEgress(options: {
    * recorded before its first byte. Each connection keeps independent evidence.
    */
   // A taint submitted but not yet committed counts (#2850).
-  const firstTaint = () => db ? writes ? writes.taint(options.turnId, options.sessionId()) : sessionTaint(db, options.turnId, options.sessionId()) : null;
+  let taintRead: { version:string; value:ReturnType<typeof sessionTaint> } | undefined;
+  const firstTaint = () => {
+    if (!db) return null;
+    const sessionId = options.sessionId(), version = JSON.stringify([safetyReadVersion(db),sessionId]);
+    if (taintRead?.version === version) return taintRead.value;
+    const value = writes ? writes.taint(options.turnId,sessionId) : sessionTaint(db,options.turnId,sessionId);
+    taintRead = {version,value}; return value;
+  };
+  let projectionRead: {version:string;value:ReturnType<typeof safetyProjection>} | undefined;
+  const currentProjection = () => {
+    const sessionId = options.sessionId(), version = JSON.stringify([safetyReadVersion(db!),sessionId]);
+    if (projectionRead?.version === version) return projectionRead.value;
+    const value = writes?.safety?.(options.turnId,sessionId) ?? safetyProjection(db!,options.turnId,sessionId);
+    projectionRead = {version,value}; return value;
+  };
   /**
    * One card per exact destination and live approval revision: concurrent
    * connections share only the same reviewed context. An allowed connection's admission adds
@@ -189,13 +204,17 @@ export async function prepareTurnEgress(options: {
    * charged `egress_connection` record carries it into later turns
    * (`contactedHosts`).
    */
+  const approvalMarkers = new Map<string,{version:string;marker:string}>();
   const approvalRevision = (connectionId?: string) => {
       if (!db) return "unrecorded";
       const safety = options.bridge.admissionSafety?.read();
+      const key = connectionId ?? "global", version = JSON.stringify([safety?.evidenceRevision ?? safetyReadVersion(db), safety?.scope, safety?.authorityEpoch, safety?.authorityCurrent, safety?.recordingAvailable, options.trust?.revision() ?? "0", safetyQueue(db).generation.toString()]);
+      const cached = approvalMarkers.get(key); if (cached?.version === version) return cached.marker;
       const state = options.governanceWrites?.safety?.(options.turnId, options.sessionId()) ?? safetyProjection(db, options.turnId, options.sessionId());
-      return JSON.stringify([state.pendingCount, state.coverage.state, state.reasons.filter(reason => reason !== "unresolved"), safetyEvidenceSequence(db, options.turnId, options.sessionId(), connectionId ? exposures.get(connectionId)?.id ?? null : null),
+      const marker = JSON.stringify([state.pendingCount, state.coverage.state, state.reasons.filter(reason => reason !== "unresolved"), safetyEvidenceSequence(db, options.turnId, options.sessionId(), connectionId ? exposures.get(connectionId)?.id ?? null : null),
         options.trust?.revision() ?? "0", safety?.scope, safety?.authorityEpoch, safety?.authorityCurrent,
         writes?.recordingAvailable?.(options.turnId, options.sessionId()) ?? safety?.recordingAvailable]);
+      approvalMarkers.set(key,{version,marker}); return marker;
     };
   const asking = new Map<string, Promise<boolean>>();
   const approveTainted = async (destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }, signal: AbortSignal): Promise<boolean> => {
@@ -224,7 +243,7 @@ export async function prepareTurnEgress(options: {
     recipient: (destination: OriginDestination) => originTrustMatch(options.trust, destination, "recipientWhileRestricted", "0") !== null,
     tainted: (connectionId?: string) => {
       if (connectionId && normalBefore.has(connectionId)) {
-        const projection = options.governanceWrites?.safety?.(options.turnId, options.sessionId()) ?? safetyProjection(db, options.turnId, options.sessionId());
+        const projection = currentProjection();
         // Only this request's own newly recorded input may be excluded from
         // its first-byte check. A second connection gets no such authority.
         if (projection.coverage.state === "complete" && projection.unresolvedCount === 1 &&

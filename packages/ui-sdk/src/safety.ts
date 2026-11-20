@@ -21,8 +21,11 @@ const provenance = z.union([z.null(), z.strictObject({ kind: z.literal("web_orig
   z.strictObject({kind:z.literal("tunnel_authority"),authority:z.strictObject({host:text(253),port:z.number().int().min(1).max(65535)}),verifiedBy:z.literal("host_proxy")})]);
 const common = { id, sequence: revision, observedAt: time, turnId: id, bindingId: id, occurrenceId: id, detailPruned: z.boolean() };
 export const safetyRecordSchema = z.discriminatedUnion("kind", [
-  z.strictObject({ ...common, kind:z.literal("occurrence"), epochId:id, detector:id.nullable(), source, operationId:id.nullable(), signalId:id.nullable(), exposureId:id.nullable(), exposure,
-    summary:text(2048), provenance, admission:z.strictObject({trusted:z.boolean(),ruleId:id.optional(),policyHash:z.string().regex(/^[a-f0-9]{64}$/).nullable(),trustRevision:revision,collectionRevision:revision.optional()}).optional(), entry:z.strictObject({kind:z.literal("tool"),toolUseId:id}).optional() }),
+  z.strictObject({ ...common, kind:z.literal("occurrence"), epochId:id, detector:z.enum(["tool_web_input","tool_file_input","tool_search_output","external_mcp_input","attachment_input","compute_input","unproxied_shell_input","proxy_input","explicit_untrusted_input"]).nullable(), source, operationId:id.nullable(), signalId:id.nullable(), exposureId:id.nullable(), exposure,
+    summary:text(2048), provenance, admission:z.discriminatedUnion("trusted",[
+      z.strictObject({trusted:z.literal(false),policyHash:z.string().regex(/^[a-f0-9]{64}$/).nullable(),trustRevision:revision}),
+      z.strictObject({trusted:z.literal(true),ruleId:id,policyHash:z.string().regex(/^[a-f0-9]{64}$/),trustRevision:revision,collectionRevision:revision}),
+    ]).optional(), entry:z.strictObject({kind:z.literal("tool"),toolUseId:id}).optional() }),
   z.strictObject({ ...common, kind:z.literal("exposure"), state:exposure }),
   z.strictObject({ ...common, kind:z.literal("safe_decision"), session:safetySessionKeySchema, requestId:id, principalId:id, verdict:z.literal("safe"), channel:z.enum(["owner_history","owner_settings"]) }),
 ]);

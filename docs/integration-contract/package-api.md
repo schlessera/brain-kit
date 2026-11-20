@@ -84,6 +84,10 @@ CONNECT accepts explicit bracketed IPv6 authorities as well as canonical DNS
 and IPv4 hosts. `canonicalEgressHost` supplies one lowercase DNS or canonical bare
 IP identity for host checks, cards, receipts and dialing. Settings selectors
 retain URL brackets for IPv6; the trust matcher adapts that schema boundary.
+Absent approvals never request an approval revision. Unchanged safety reads,
+approval markers and taint/projection reads use local-write, external SQLite
+change and pending/loss counters; changed evidence revalidates the scoped
+marker, including the exact own-occurrence exception.
 Every upstream write/end and tunnel chunk uses the same current authority,
 recipient, source-trust, approval-freshness and byte-budget fence.
 Live trust reads and durable refresh share one policy observation state machine.

@@ -283,7 +283,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     // An approval of this destination outside the taint allow-list (#3430).
     let outwardApproved = false, grantRevision: string | undefined, outwardRevision: string | undefined;
     const approvalRevision = (own = false) => options.taint?.approvalRevision?.(own ? connectionId : undefined) ?? JSON.stringify(options.admissionSafety?.read());
-    const grantCurrent = (own = false) => { try { const now = approvalRevision(own); return (!granted || grantRevision === now) && (!outwardApproved || outwardRevision === now); } catch { return false; } };
+    const grantCurrent = (own = false) => { if (!granted && !outwardApproved) return true; try { const now = approvalRevision(own); return (!granted || grantRevision === now) && (!outwardApproved || outwardRevision === now); } catch { return false; } };
     const recipient = { host, port, method, protocol: url.protocol, managedReference };
     // Checked again after an approval wait, during which another connection may taint the session.
     // Inference/provider relays retain G5. Managed references retain ordinary
