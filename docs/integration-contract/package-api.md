@@ -5982,3 +5982,21 @@ for every interactive session, so a new session's retained append contains
 the bullet. A session retained earlier keeps its append byte for byte. The
 same-commit API report records the additive types. See
 [the MCP component](mcp.md#raw-connections-to-githubs-api-0450-3799).
+
+
+### Host-owned dependency generations (#4300)
+
+The host-prepared `WorkerSandbox` carries optional `@internal
+moduleGeneration`, an opaque input minted only from an acquired native startup
+view. Copying host sandbox metadata retains the input; public path facts cannot
+authorize a bind. Governed workers use it on their live brain; strict and
+maintenance workers use their retained startup view. Both bind the pinned
+host-owned generation read-only at the brain's existing `node_modules` path.
+The generation and proof metadata never enter provider-facing history.
+
+Scheduled maintenance Activity may include a `module_store` event whose
+`result` is `activated`, `unchanged`, `failed` or `unmanaged`, with `trigger`,
+optional `generation`, `lockHash` and `detail`. Activation records the lock hash
+and generation after full build/validation and atomic publication. Failure
+keeps the previous publication, or the existing in-brain dependencies before
+first activation. No CLI command or environment setting changes.

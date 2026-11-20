@@ -1934,6 +1934,8 @@ export interface WorkerLimitsStatus {
 export type GovernedUnavailableReason = "server_cwd_in_brain" | "database_in_brain" | "private_state_in_brain" | "worker_host_unavailable";
 
 export type GovernedStatus = {
+  /** Current operational-state proof, also retained in the owner's settings. */
+  stateBoundary?: { mode: "filesystem_identity" | "walk"; cause: string };
   hostExecution: "worker" | "host";
   /** Current ordinary-turn default; a turn resolves its own protection again. */
   profile?: "governed" | "strict";

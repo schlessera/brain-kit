@@ -650,6 +650,16 @@ permissions in another turn.
 | B — runtime permission and configuration surfaces | `.claude/settings.json`, `.claude/settings.local.json`, `.mcp.json`, `brain.config.ts`, `brain.config.json`, `package.json`, `bun.lock`, `node_modules/` | Yes |
 | Added by the policy | Anything listed under `protect` | Yes, by deleting the entry |
 
+On managed native storage, root `node_modules/` comes from a host-owned
+install generation beside the brain subvolume, bound read-only at the same
+path. Maintenance builds and validates a differing tracked lock hash before
+atomic activation. Until first activation, the in-brain directory is bound
+and checked as before. The dependency tree is no longer walked on each
+admission once the store is active; small protected trees retain their alias
+checks. Ignored dependencies inside a checkout get no protection; root brain
+dependencies keep it because later turns execute them. See the
+[state and module-store ruling](worker-writable-areas.md#state-boundaries-and-host-module-generations--2026-11-20).
+
 **Why the tier A paths are there:**
 
 - `context/policies/` is the policy itself.

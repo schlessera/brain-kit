@@ -3349,3 +3349,13 @@ These sidecars never change provider messages, tools or system prefixes. The
 host-only verdict store remains separate; this slice changes no effective-taint
 admission semantics or Settings policy. The semantic G6 break remains governed
 by the prior maintainer ruling in the session-safety ADR.
+
+
+### Operational-state proof mode (#4301)
+
+The authenticated runtime worker-host `governed` status may add `stateBoundary`
+with `{ mode: "filesystem_identity" | "walk", cause: string }`. Identity mode
+uses current filesystem/subvolume identities and mount topology, requalifying
+changed evidence with the full guard. Missing identity evidence selects the
+walk. The owner setting `worker.stateBoundary` retains the same mode and cause.
+These internal diagnostics never enter provider-facing conversation history.

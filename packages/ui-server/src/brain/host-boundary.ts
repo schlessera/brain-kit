@@ -41,8 +41,9 @@ import { runMirrorSync, syncMirrorPath } from "./sync-mirror.js";
 import { moduleRepositoryWorkerAccess, type ModuleRepositoryAccess } from "./module-repositories.js";
 import { resolveWorkerProtection } from "@schlessera/brain-ui-sdk/internal";
 import { prepareMaintenanceOutput } from "./maintenance-output.js";
-import { operationalStateMasks, operationalStateRefusal, workerIdentitySentinelDirectory, type OperationalStateLayout, type WorkerProbeState } from "./operational-state.js";
+import { operationalStateMasks, operationalStateRefusal, createOperationalStateProof, workerIdentitySentinelDirectory, type OperationalStateLayout, type WorkerProbeState } from "./operational-state.js";
 import { prepareMaintenanceGit } from "./maintenance-git.js";
+import { maintainModuleStore, moduleMaintenanceRequested, type ModuleMaintenanceResult } from "./module-maintenance.js";
 import { createScratchIgnoreQuery } from "./scratch-mask-query.js";
 
 /** Why `governed` cannot run on this server. */
@@ -56,6 +57,8 @@ type GateUse = "none" | GateMode;
 
 /** One evaluation of the brain's own code: its working directory is the brain. */
 export interface BrainExecution {
+  /** Host maintenance Activity receives the named module publication result. */
+  observeModuleStore?: (result: ModuleMaintenanceResult) => void;
   /** Program and arguments. A bare program name is resolved on the worker's PATH. */
   argv: readonly string[];
   /** The environment a credentialed command receives; a credential-free one gets only its plain settings. */
@@ -213,14 +216,14 @@ export const within = (dir: string, path: string) => isWithin(dir, path, { trail
 const real = (path: string) => { try { return realpathSync(path); } catch { return resolve(path); } };
 
 /** Whether `governed` can run for this server and brain, and if not, why. */
-function governedAvailability(input: OperationalStateLayout & { workerHost: () => { ok: true } | { ok: false; requirement: string } }): GovernedAvailability {
+function governedAvailability(input: OperationalStateLayout & { stateProof?: ReturnType<typeof createOperationalStateProof>; workerHost: () => { ok: true } | { ok: false; requirement: string } }): GovernedAvailability {
   const brain = real(input.brainPath);
   const cwd = real(hostExecution.cwd());
   if (within(brain, cwd)) {
     return { available: false, reason: "server_cwd_in_brain",
       detail: `the server's working directory ${cwd} is inside the brain, so Bun loaded the brain's bunfig.toml and .env into the server itself; start the server from a directory outside the brain` };
   }
-  const refusal = operationalStateRefusal(input);
+  const refusal = (input.stateProof ?? operationalStateRefusal)(input);
   if (refusal) return refusal;
   const probe = input.workerHost();
   if (!probe.ok) return { available: false, reason: "worker_host_unavailable", detail: probe.requirement };
@@ -255,6 +258,8 @@ export interface HostBoundary {
 }
 
 export interface HostBoundaryOptions {
+  /** Owner-visible durable admission proof mode, supplied by the hosted owner. */
+  recordStateProof?: (proof: import("./operational-state.js").OperationalStateProof) => void;
   /** @internal Trusted server-state placement passed by the autonomous owner. */
   identitySentinelDirectory?: string;
   /** Trusted shared host credential state; omitted server/cron instances use the per-UID domain. */
@@ -432,7 +437,9 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     }
     return maintenance.probe;
   };
-  const governed = (startupView?: WorkerStartupView) => governedAvailability({ brainPath: brain, dbPath: options.dbPath, privateStatePaths: options.privateStatePaths, workerHost: () => workerHost(startupView) });
+  let stateBoundary: import("./operational-state.js").OperationalStateProof | undefined;
+  const stateProof = createOperationalStateProof(proof => { stateBoundary = proof; options.recordStateProof?.(proof); });
+  const governed = (startupView?: WorkerStartupView) => governedAvailability({ brainPath: brain, dbPath: options.dbPath, privateStatePaths: options.privateStatePaths, stateProof, workerHost: () => workerHost(startupView) });
   const prepareInput = (signal?: AbortSignal) => {
     if (!options.nativeManager) throw new Error("Maintenance execution requires the configured native managed-storage manager; full-copy fallback is unavailable.");
     return prepareNativeWorkerStartupView(brain, options.nativeManager, signal);
@@ -449,6 +456,12 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     return availability.available || (availability.reason === "worker_host_unavailable" && (maintenanceResourceRefused || workerHostProven(brain)));
   };
 
+  const maintainModules = async (execution: BrainExecution, view: WorkerStartupView) => {
+    if (!moduleMaintenanceRequested(execution.argv)) return;
+    const result = await maintainModuleStore(brain, view, command(execution), execution.purpose);
+    execution.observeModuleStore?.(result);
+    options.log?.emit({ severityText: result.result === "failed" ? "WARN" : "INFO", body: "module store maintenance", attributes: { result: JSON.stringify(result) } });
+  };
   const maskPaths = [...operationalStateMasks({ brainPath: brain, dbPath: options.dbPath, privateStatePaths: options.privateStatePaths }), ...(options.nativeMaskPaths ?? [])];
   /**
    * A credentialed run's own CLI provider relay (#1673), where the host relays
@@ -613,6 +626,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       const protection = resolveWorkerProtection(brain);
       const profile = options.profile === "strict" || !availability.available || protection.reason ? "strict" : "governed";
       return { hostExecution: isolated() ? "worker" : "host", ...availability, profile,
+        ...(stateBoundary ? { stateBoundary } : {}),
         protectedPaths: protection.protection.paths.map(({ rel, mode, reason }) => ({ path: rel, mode, reason })),
         ...(protection.reason ? { profileFallback: protection.reason } : {}),
         ...identity, configurationView: profile === "governed" ? "live" : "startup",
@@ -669,6 +683,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
             let relay: ProviderRelay | undefined;
             try {
               execution.signal?.throwIfAborted();
+              await maintainModules(execution, view);
               outputs = await prepareMaintenanceOutput(brain, { startupView: view, folderPaths: hold?.folderPaths, signal: execution.signal, areas: execution.outputAreas });
               relay = providerRelayFor(execution);
               const launch = command(execution, undefined, relay);
@@ -758,6 +773,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         execution.signal?.throwIfAborted();
         view = await prepareInput(execution.signal);
         execution.signal?.throwIfAborted();
+        await maintainModules(execution, view);
         outputs = await prepareMaintenanceOutput(brain, { startupView: view, folderPaths: hold?.folderPaths, signal: execution.signal, areas: execution.outputAreas });
         relay = providerRelayFor(execution);
         const launch = command(execution, undefined, relay);

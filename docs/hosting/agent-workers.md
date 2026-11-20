@@ -1740,3 +1740,26 @@ The [qualification and proposed integration contract](paid-cli-provider-qualific
 records actual offline controls, SDK accounting loss, media lifecycle constraints
 and the host-side admission/receipt design needed before activation. Existing
 CLI JSON envelopes and ordinary backend defaults remain unchanged.
+
+
+### Host-owned dependency generations
+
+Managed native storage places the module store at `modules/` beside its
+`brain` subvolume. Scheduled maintenance automatically builds its first
+generation from tracked `package.json` and `bun.lock`, and rebuilds when the
+tracked lock hash changes. A validated generation is activated atomically;
+maintenance Activity records `module_store` as `activated`, `unchanged` or
+`failed`, with the generation/hash or failure cause. A worker keeps its
+startup generation read-only at `<brain>/node_modules` for its whole lifetime.
+Later maintenance collects superseded generations after their holders release.
+
+Before the first successful activation, and after a failed upgrade, existing
+dependencies stay in force. The original in-brain directory is not removed.
+Unmanaged brains keep that directory and its admission alias walk. Ignored
+files inside a checkout are disposable; the brain's root dependencies remain
+protected because later turns execute them.
+
+Operational-state admission selects filesystem identity proof only when
+current identities and mount topology prove separation. Otherwise the full
+alias walk remains in force. The durable `worker.stateBoundary` owner setting
+records the selected mode and cause; the server logs each transition.

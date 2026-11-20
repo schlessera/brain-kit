@@ -262,6 +262,13 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig,
   const abandon = (error: unknown): never => { void inspector.close(); throw error; };
   try {
     await qualify();
+    // Dependencies live beside the brain subvolume. Only maintenance receives
+    // a writable generation; agent workers see one completed RO bind.
+    const modules = join(fixed.storePath, "modules");
+    if (!existsSync(modules)) { mkdirSync(modules, { mode: 0o755 }); chownSync(modules, fixed.appUid ?? 0, fixed.appGid); }
+    const moduleInfo = lstatSync(modules);
+    if (!moduleInfo.isDirectory() || moduleInfo.isSymbolicLink() || moduleInfo.uid !== (fixed.appUid ?? 0) || (moduleInfo.mode & 0o022))
+      throw new NativeBrainManagerError("unsupported", "Native module store must be one host-owned directory beside the brain.");
     for (const [path, mode] of [[privateRoot, 0o710], [state, 0o700], [roots, 0o750], [stages, 0o710], [trees, 0o710]] as const) {
       if (!existsSync(path)) { mkdirSync(path, { mode }); chownSync(path, 0, fixed.appGid); chmodSync(path, mode); }
       trustedDirectory(path, mode);
@@ -466,7 +473,7 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig,
     const { statfsSync } = await import("node:fs"), space = statfsSync(fixed.storePath);
     if (space.type !== BTRFS_MAGIC) throw new NativeBrainManagerError("unsupported", "Native store filesystem type changed.");
     return { brainPath: brain, brainUuid: identity.uuid, brainRootId: identity.rootId,
-      privatePaths: [...new Set([privateRoot, dirname(fixed.socketPath), fixed.devicePath, ...(backingPath ? [backingPath] : []), ...(referencePool?.privatePaths ?? [])])],
+      privatePaths: [...new Set([join(fixed.storePath, "modules"), privateRoot, dirname(fixed.socketPath), fixed.devicePath, ...(backingPath ? [backingPath] : []), ...(referencePool?.privatePaths ?? [])])],
       fsid: fixed.fsid, capacityBytes: fixed.capacityBytes, availableBytes: space.bavail * space.bsize, recoveryReserveBytes: fixed.recoveryReserveBytes,
       reserveAllocatedBytes: lstatSync(reserve).blocks * 512,
       ...(quarantinedIntents.size ? { recovery: { quarantinedIntents: quarantinedIntents.size,

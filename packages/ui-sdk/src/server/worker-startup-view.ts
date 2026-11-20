@@ -1,4 +1,5 @@
 /** Native immutable execution views, acquired before synchronous worker spawn. */
+import { holdModuleGeneration, moduleWorkerInput, type HeldModuleGeneration } from "./module-store.js";
 import { randomUUID } from "node:crypto";
 import { lstatSync, realpathSync, statfsSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -22,6 +23,15 @@ export interface WorkerStartupView {
 
 type NativeClient = ReturnType<typeof createNativeBrainManagerClient>;
 type NativeViewManager = Pick<NativeClient, "checkpoint" | "release"> & Partial<Pick<NativeClient, "prepareStage" | "inspectStage" | "releaseStage" | "prepareTurnTree" | "releaseTurnTree">>;
+const moduleInputs = new WeakMap<WorkerStartupView, HeldModuleGeneration>();
+/** Only a trusted native acquisition can select a module generation. */
+export function workerModuleGeneration(view: WorkerStartupView | undefined): HeldModuleGeneration | undefined {
+  return view && !releasedViews.has(view) ? moduleInputs.get(view) : undefined;
+}
+/** Select a host-only capability for a governed worker that runs on the live brain. */
+export function workerModuleInput(view: WorkerStartupView | undefined): object | undefined {
+  const held = workerModuleGeneration(view); return held ? moduleWorkerInput(held) : undefined;
+}
 const nativeInputs = new WeakMap<WorkerStartupView, { checkpoint: NativeCheckpoint; manager: NativeViewManager }>();
 /** Trusted acquisition metadata; no request-supplied manager or checkpoint is accepted. */
 export function nativeWorkerStartupInput(view: WorkerStartupView) {
@@ -109,6 +119,7 @@ export function retainWorkerStartupView(view: WorkerStartupView): WorkerStartupV
     return completion ??= Promise.resolve(view.storage.release())
       .catch((error: unknown) => { completion = undefined; throw error; });
   } };
+  const modules = moduleInputs.get(view); if (modules) moduleInputs.set(retained, modules);
   const native = nativeInputs.get(view); if (native) nativeInputs.set(retained, native);
   return retained;
 }
@@ -156,6 +167,8 @@ export async function prepareNativeWorkerStartupView(brainPath: string,
     catch (releaseError) { throw new AggregateError([error, releaseError], `Native startup checkpoint ${id} has an unknown outcome; reconcile its durable manager intent.`); }
     throw error;
   }
+  let modules: HeldModuleGeneration | undefined;
+  try { modules = holdModuleGeneration(brain); } catch (error) { await manager.release(id); throw error; }
   let refs = 0, closing = false, deletion: Promise<void> | undefined;
   nativeRoots.add(expected);
   const storage: WorkerStartupStorage = { root: expected,
@@ -168,11 +181,12 @@ export async function prepareNativeWorkerStartupView(brainPath: string,
       }
       // A refused deletion retries the same identity without dropping a
       // second reference or admitting another consumer of this closed view.
-      return deletion ??= manager.release(id).then(() => {})
+      return deletion ??= manager.release(id).then(() => { modules?.release(); })
         .catch((error: unknown) => { deletion = undefined; throw error; });
     },
   };
   const owner: WorkerStartupView = { brain, root: expected, storage, cleanup() {} };
+  if (modules) moduleInputs.set(owner, modules);
   nativeInputs.set(owner, { checkpoint, manager });
   return retainWorkerStartupView(owner);
 }

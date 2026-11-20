@@ -1,3 +1,4 @@
+import { currentModuleGeneration, hasManagedNativeStorage } from "@schlessera/brain-ui-sdk/internal";
 import { existsSync } from "fs";
 import { isAbsolute, join } from "path";
 import type { Logger } from "@opentelemetry/api-logs";
@@ -146,7 +147,7 @@ export const MIN_BRAIN_CLI_VERSION = "0.44.0";
  */
 export function brainCliCommand(brainPath: string): string[] {
   const packaged = join(brainPath, "node_modules", ".bin", "brain");
-  if (existsSync(packaged)) return [packaged];
+  if ((hasManagedNativeStorage(brainPath) && currentModuleGeneration(brainPath)) || existsSync(packaged)) return [packaged];
   return ["bun", "scripts/brain-cli.ts"];
 }
 

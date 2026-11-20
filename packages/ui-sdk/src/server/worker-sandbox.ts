@@ -131,6 +131,8 @@ export interface WorkerInferenceRecipient {
 }
 
 export interface WorkerSandbox {
+  /** @internal Opaque retained native module input. Public path fields grant no bind. */
+  readonly moduleGeneration?: object;
   /** Frozen host scope policy; absent for autonomous turns. */
   readonly scopePolicy?: { max_files_changed: number; max_minutes: number; max_tool_calls: number; max_bytes_written: number };
   /** Frozen host command rules from this turn's admitted policy, absent for autonomous turns. */
