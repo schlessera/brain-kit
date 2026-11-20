@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { sessionPromptContextLocation } from "@schlessera/brain-ui-sdk/internal";
@@ -31,4 +31,13 @@ test("one corrupt selection refuses only that session and leaves another usable"
   expect(() => retainSessionRequestShape(brain, id, true, current, legacy)).toThrow("Invalid saved Claude session request shape");
   expect(readFileSync(path, "utf8")).toBe('{"disallowedTools":"unknown"}');
   expect(retainSessionRequestShape(brain, other, false, current, legacy)).toEqual(current);
+});
+
+test("a dangling selection alias is refused rather than replaced with a legacy roster", () => {
+  const id = session();
+  const { dir, name } = sessionPromptContextLocation(process.env.CLAUDE_CONFIG_DIR!, brain, id);
+  const path = join(dir, `${name}.claude-tools`);
+  symlinkSync(join(brain, "missing-selection.json"), path);
+  expect(() => retainSessionRequestShape(brain, id, true, current, legacy)).toThrow();
+  expect(lstatSync(path).isSymbolicLink()).toBe(true);
 });

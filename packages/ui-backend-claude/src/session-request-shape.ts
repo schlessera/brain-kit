@@ -1,6 +1,6 @@
 /** Host-owned native selection, fixed before a session's first provider request. */
 import { sessionPromptContextLocation } from "@schlessera/brain-ui-sdk/internal";
-import { existsSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { envSnapshot } from "./config/env.js";
@@ -28,8 +28,11 @@ export function retainSessionRequestShape(brain: string, session: string, resume
   const { dir, name } = sessionRequestShapeLocation(root, brain, session);
   if (realpathSync(dir) !== dir) throw new Error("Session request storage must not contain directory aliases");
   const path = join(dir, name);
-  if (existsSync(path)) {
-    const saved = JSON.parse(regular(path, 64 * 1024).toString("utf8"));
+  let bytes: Buffer | undefined;
+  try { bytes = regular(path, 64 * 1024); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+  if (bytes !== undefined) {
+    const saved = JSON.parse(bytes.toString("utf8"));
     if (!Array.isArray(saved) || !saved.every((name: unknown) => typeof name === "string")) {
       throw new Error("Invalid saved Claude session request shape");
     }
