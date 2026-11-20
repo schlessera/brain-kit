@@ -57,7 +57,8 @@ export function createTurnClock(report: (message: ClientMessage) => boolean, clo
         ...(observation.lastContentAt === undefined ? {} : { lastContentFrameToIdleMs: Math.max(0, at - observation.lastContentAt) }),
       };
       // One attempt, no retry or retained outgoing queue. Loss affects only this measurement.
-      report({ type: "client_turn_receipt", turnId, timing });
+      try { report({ type: "client_turn_receipt", turnId, timing }); }
+      catch { /* A transport exception must not interrupt idle handling. */ }
     },
   };
 }

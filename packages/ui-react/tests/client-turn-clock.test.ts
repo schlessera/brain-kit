@@ -48,3 +48,19 @@ test("frames before the request's identity are measured without adopting another
     sendToFirstHostFrameMs: 5, sendToFirstContentFrameMs: 100, lastContentFrameToIdleMs: 20,
   } }]);
 });
+
+test("a lost report is attempted once even when the socket throws, and later turns still report", () => {
+  const attempts: ClientMessage[] = [];
+  const clock = createTurnClock(message => { attempts.push(message); throw new Error("Socket closed"); }, () => 1100);
+  clock.sent({ type: "chat_message", text: "Plan Ithaca", requestId: "voyage" }, 1000);
+  const identity = { type: "session_info" as const, isNew: true, sessionId: "ithaca", turnId: "turn-ithaca", requestId: "voyage" };
+  clock.frame(identity);
+  const idle = { type: "status" as const, status: "idle" as const, turnId: "turn-ithaca" };
+  expect(() => clock.frame(idle)).not.toThrow();
+  clock.frame(idle);
+  expect(attempts).toEqual([{ type: "client_turn_receipt", turnId: "turn-ithaca", timing: { sendToFirstHostFrameMs: 100 } }]);
+  clock.sent({ type: "chat_message", text: "Return to Ithaca", requestId: "return" }, 1000);
+  clock.frame({ ...identity, turnId: "turn-return", requestId: "return" });
+  clock.frame({ ...idle, turnId: "turn-return" });
+  expect(attempts).toHaveLength(2);
+});
