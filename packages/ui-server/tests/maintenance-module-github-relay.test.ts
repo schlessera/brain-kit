@@ -55,8 +55,8 @@ test("a credential-free maintenance worker reaches the relay through its socket,
     proc: { environ: string; cmdline: string; etcEnvironment: string }; relayDir: string[] };
   expect(observed.env.BRAIN_UI_MODULE_GITHUB_TOKEN, "WORKER_ENV_HAS_NO_TOKEN").toBeUndefined();
   expect(`${observed.proc.environ}${observed.proc.cmdline}`, "WORKER_PROCESS_HAS_NO_TOKEN").not.toContain(TOKEN);
-  // The cron runner's environment file is covered: empty, never the host's.
-  expect([ "", "ENOENT" ], "WORKER_ETC_ENVIRONMENT_COVERED").toContain((observed.proc as { etcEnvironment: string }).etcEnvironment);
+  // The cron runner's environment file is covered: empty or unreadable, never the host's bytes.
+  expect(["", "ENOENT", "EACCES"], "WORKER_ETC_ENVIRONMENT_COVERED").toContain((observed.proc as { etcEnvironment: string }).etcEnvironment);
   expect(observed.relayDir, "RELAY_DIR_HOLDS_ONLY_THE_SOCKET").toEqual(["github.sock"]);
   expect(observed.socket, "WORKER_SOCKET_PATH").toBe("/run/brain-github/github.sock");
   expect(observed.relayed, "WORKER_REACHES_RELAY").toBe(200);
