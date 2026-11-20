@@ -28,16 +28,16 @@ import { workerIdentityHelper } from "@schlessera/brain-ui-sdk/internal";
 import { GITHUB_API_ORIGIN } from "@schlessera/brain-ui-sdk/tool-contracts";
 
 /** The relay's socket name in its private directory. */
-export const MODULE_GITHUB_RELAY_SOCKET_NAME = "github.sock";
+const MODULE_GITHUB_RELAY_SOCKET_NAME = "github.sock";
 /** The write operations an operator can enable per repository. */
-export const MODULE_GITHUB_WRITES = ["issue_comment", "issue_state"] as const;
+const MODULE_GITHUB_WRITES = ["issue_comment", "issue_state"] as const;
 export type ModuleGitHubWrite = (typeof MODULE_GITHUB_WRITES)[number];
 /** A request body larger than this is refused before it is forwarded. */
-export const MAX_MODULE_GITHUB_REQUEST_BYTES = 1024 * 1024;
+const MAX_MODULE_GITHUB_REQUEST_BYTES = 1024 * 1024;
 /** A response larger than this is refused rather than relayed. */
-export const MAX_MODULE_GITHUB_RESPONSE_BYTES = 16 * 1024 * 1024;
+const MAX_MODULE_GITHUB_RESPONSE_BYTES = 16 * 1024 * 1024;
 /** Calls one run may make through the relay. */
-export const MAX_MODULE_GITHUB_CALLS = 500;
+const MAX_MODULE_GITHUB_CALLS = 500;
 const RESPONSE_HEADERS = ["content-type", "link", "etag", "x-ratelimit-limit", "x-ratelimit-remaining", "x-ratelimit-reset", "x-github-request-id"];
 const NAME = /^[A-Za-z0-9_.-]{1,100}$/;
 
