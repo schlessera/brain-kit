@@ -211,7 +211,9 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
       "(the module's `repositories` and BRAIN_UI_MODULE_REPOSITORIES). Use a fine-grained token limited to those repositories (it is the read boundary for data a GraphQL query reaches through them), with Issues read " +
       "and, only where BRAIN_UI_MODULE_GITHUB_WRITES enables a write, Issues write. No fallback: GITHUB_TOKEN, the sync token and " +
       "BRAIN_UI_GITHUB_TOOLS_TOKEN are never used, and without this one every relayed call is refused. Read by the cron runner only, " +
-      "never forwarded to a job or worker.",
+      "never forwarded to a job or worker, and covered in every worker's view of /etc/environment. The relay exists only where jobs run in " +
+      "maintenance workers: on a host without the worker boundary, repository jobs run as host processes with the runner's own access, " +
+      "like any other runner credential.",
     default: null,
     required: false,
   },

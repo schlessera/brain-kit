@@ -644,7 +644,7 @@ export function workerCommand(input: WorkerLaunch): string[] {
   if (input.sandbox?.dataTree && (maintenance || transport || workerProfile(input.sandbox) === "governed" || !input.startupView))
     throw new WorkerHostError("a turn data tree belongs only to a worker on an immutable startup view");
   const emptyHome = !input.restricted && input.env.HOME === WORKER_EMPTY_HOME;
-  const reservedRuntimePaths = ["/proc", "/dev", scratch, WORKER_STATE, ...(emptyHome ? [WORKER_EMPTY_HOME] : []), WORKER_AREA_ROOT, WORKER_DATA_ROOT, WORKER_WORKTREE_ROOT, WORKER_REFERENCE_ROOT, WORKER_XDG_HOME, WORKER_INFERENCE_DIR, WORKER_EGRESS_DIR, WORKER_PROVIDER_RELAY_DIR,
+  const reservedRuntimePaths = ["/proc", "/dev", scratch, WORKER_STATE, ...(emptyHome ? [WORKER_EMPTY_HOME] : []), WORKER_AREA_ROOT, WORKER_DATA_ROOT, WORKER_WORKTREE_ROOT, WORKER_REFERENCE_ROOT, WORKER_XDG_HOME, WORKER_INFERENCE_DIR, WORKER_EGRESS_DIR, WORKER_PROVIDER_RELAY_DIR, WORKER_MODULE_GITHUB_DIR,
     MAINTENANCE_HOME, ...Object.values(MAINTENANCE_XDG_DIRS), "/tmp/brain-maintenance-output",
     ...(maintenance?.output ? [maintenance.output.target] : []), ...(transport ? [transport.mirror, ...(transport.writePaths ?? [])] : [])];
   const runtimeEntries = input.command.filter((path, index) => isAbsolute(path) && existsSync(path) && (index === 0 || !reservedRuntimePaths.some(reserved => holds(reserved, runtimeCanonicalName(path)) || holds(runtimeCanonicalName(path), reserved))));

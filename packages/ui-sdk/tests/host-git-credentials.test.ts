@@ -60,3 +60,10 @@ test("every host-view worker covers /etc/environment, where a container keeps th
     expect(covered, `ETC_ENVIRONMENT_COVERED: ${maintenance ? "maintenance" : "agent"}`).toBe(existsSync("/etc/environment"));
   }
 });
+
+test("a runtime or read path cannot take the module GitHub relay's mount point (#4259)", () => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-worker-relay-mount-")); roots.push(root);
+  const brain = join(root, "brain"); mkdirSync(brain);
+  expect(() => workerCommand({ brainPath: brain, command: ["/bin/true"], env: { PATH: "/usr/bin:/bin" },
+    maintenance: { credentials: false, network: false, readPaths: [process.execPath, "/run/brain-github"] } }), "RELAY_MOUNT_RESERVED").toThrow();
+});
