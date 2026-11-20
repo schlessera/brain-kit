@@ -236,9 +236,9 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
 export function nativeWorkerBoundary(env: Record<string, string | undefined>): { env: Record<string, string | undefined>; dispose(): void } {
   const unchanged = { env, dispose() {} };
   if (!env.BRAIN_WORKER_LAUNCH) return unchanged;
-  let launch: { command?: string[]; argv?: string[]; env?: Record<string, string> } | null;
+  let launch: { command?: string[]; argv?: string[]; env?: Record<string, string>; brainPath?: string } | null;
   try { launch = JSON.parse(env.BRAIN_WORKER_LAUNCH); } catch { return unchanged; }
-  if (!launch?.command?.[0] || !isNativeClaude(launch.command[0], launch.command.slice(1))) return unchanged;
+  if (!launch?.command?.[0] || !isNativeClaude(launch.command[0], launch.command.slice(1), { cwd: launch.brainPath, env: launch.env })) return unchanged;
   qualify();
   const argv = launch.argv;
   if (!argv) refuse("native worker lacks the OS launcher");
