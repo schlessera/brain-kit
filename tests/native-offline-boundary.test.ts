@@ -70,6 +70,58 @@ test("runtime provenance follows a symlink and detects an arbitrarily named byte
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 });
 
+test("native identity uses the child's PATH and cwd", async () => {
+  const scratch = mkdtempSync(join(tmpdir(), "odysseus-child-resolution-"));
+  try {
+    symlinkSync(runtime!, join(scratch, "odysseus-selected"));
+    expect(isNativeClaude("odysseus-selected", [], { env: { PATH: scratch }, cwd: "/" })).toBe(true);
+    expect(isNativeClaude("./odysseus-selected", [], { env: { PATH: "/usr/bin:/bin" }, cwd: scratch })).toBe(true);
+    expect(isNativeClaude("/usr/bin/true", [], { env: { PATH: scratch }, cwd: scratch })).toBe(false);
+  } finally { rmSync(scratch, { recursive: true, force: true }); }
+});
+
+test("missing bubblewrap emits a failed receipt and cannot be caught into success", async () => {
+  const scratch = mkdtempSync(join(tmpdir(), "odysseus-missing-isolation-"));
+  try {
+    const result = await probe(`${imports}
+      process.env.GITHUB_ACTIONS="true"; process.env.RUNNER_ENVIRONMENT="github-hosted";
+      const original=Bun.spawnSync;
+      Bun.spawnSync=((...args)=>{if(args[0]?.[0]==="bwrap")throw Object.assign(new Error("synthetic missing isolation"),{code:"ENOENT"});return Reflect.apply(original,Bun,args);});
+      try { nativeClaudeBoundary(${JSON.stringify(runtime)}, [], {}); } catch {} process.exit(0);`, scratch);
+    expect(result.code).not.toBe(0);
+    expect(result.output).toContain('"success":false,"nativeLaunched":false');
+    expect(result.output).toContain('"reason":"OS namespace setup failed"');
+  } finally { rmSync(scratch, { recursive: true, force: true }); }
+});
+
+test("relay paths cannot redirect headers and body to another loopback service", async () => {
+  const scratch = mkdtempSync(join(tmpdir(), "odysseus-relay-origin-"));
+  let intended = 0, unintended = 0;
+  const target = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { intended++; return new Response("Ithaca"); } });
+  const other = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { unintended++; return new Response("Unintended"); } });
+  try {
+    const result = await probe(`${imports}
+      import {startNativeTestRelay} from ${JSON.stringify(join(ROOT, "scripts/test-native-guard.ts"))};
+      const relay=startNativeTestRelay(${JSON.stringify(target.url.origin)});
+      try {
+        const denied=await relay.handle(new Request(${JSON.stringify(`http://localhost//127.0.0.1:${other.port}/v1/messages`)},
+          {method:"POST",headers:{authorization:"odysseus-fixture"},body:"synthetic"}));
+        if(denied.status!==403)throw Error("relay accepted an authority path");
+        const allowed=await relay.handle(new Request("http://localhost/v1/messages"));
+        if(await allowed.text()!=="Ithaca")throw Error("scripted origin was unavailable");
+        console.log("RELAY_AUTHORITY_REFUSED");
+      } finally {relay.dispose();} process.exit(0);`, scratch);
+    expect(result.code).not.toBe(0);
+    expect(result.output).toContain('"reason":"unintended native destination"');
+    expect(unintended).toBe(0); expect(intended).toBe(1);
+  } finally { target.stop(true); other.stop(true); rmSync(scratch, { recursive: true, force: true }); }
+});
+
+test("native audit counts raw kernel failures without decoding addresses or payloads", async () => {
+  const { deniedNativeConnects } = await import("../scripts/test-native-guard");
+  expect(deniedNativeConnects("1 connect(0x3, 0x123, 0x10) = -1 ENETUNREACH (Network is unreachable)\n2 <... connect resumed>) = -1 EACCES (Permission denied)\n3 connect(0x4, 0x456, 0x10) = 0\n4 connect(0x5, 0x789, 0x10) = -1 EINPROGRESS (Operation now in progress)")).toBe(2);
+});
+
 // Positive native tests are deliberately unavailable on developer hosts. The
 // local suite proves refusal above; CI executes this assertion rather than a
 // skipped test or an unsealed fallback.
@@ -100,7 +152,7 @@ for host,port in [('127.0.0.1',${service.port}),('198.18.0.1',1)]:
  try:
   socket.create_connection((host,port),timeout=1)
  except OSError:
-  print('NATIVE_TCP_DENIED',flush=True)
+  pass
  else:
   raise RuntimeError('unintended native destination reached')
 connection=http.client.HTTPConnection('localhost')
@@ -117,13 +169,14 @@ print('HOSTILE_MANAGED_BOUNDARY_HELD',flush=True)
       const child = Bun.spawn(boundary.argv, { env: boundary.env, stdout: "pipe", stderr: "pipe" });
       const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
       expect(code, err).toBe(0);
-      expect(out.match(/NATIVE_TCP_DENIED/g)).toHaveLength(2);
+      expect(boundary.receipt().deniedConnects).toBeGreaterThanOrEqual(2);
       expect(out).toContain("HOSTILE_MANAGED_BOUNDARY_HELD");
       expect(out + err).not.toContain("odysseus-synthetic-credential");
       expect(requests).toBe(1);
       // Restored mutation: re-expose only the synthetic outside credential.
       // The same runtime assertion must now reject the managed helper escape.
-      const mutant = [...boundary.argv];
+      const mutationBoundary = nativeClaudeBoundary(executable, [], { cwd: brain, env: { HOME: home, ANTHROPIC_BASE_URL: service.url.origin }, managedSettings: managed });
+      const mutant = [...mutationBoundary.argv];
       mutant.splice(mutant.indexOf("--clearenv"), 0, "--ro-bind", sentinel, sentinel);
       const broken = Bun.spawn(mutant, { env: boundary.env, stdout: "pipe", stderr: "pipe" });
       const [brokenCode, brokenOut, brokenErr] = await Promise.all([broken.exited,
@@ -131,6 +184,7 @@ print('HOSTILE_MANAGED_BOUNDARY_HELD',flush=True)
       expect(brokenCode).not.toBe(0);
       expect(brokenErr).toContain("outside credential escaped");
       expect(brokenOut + brokenErr).not.toContain("odysseus-synthetic-credential");
+      mutationBoundary.dispose();
     } finally { boundary?.dispose(); service.stop(true); rmSync(scratch, { recursive: true, force: true }); }
   });
 }

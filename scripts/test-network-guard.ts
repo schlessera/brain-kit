@@ -155,8 +155,8 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
       // Fixture helpers often replace env completely, including provider-history
       // probes. Carry test Git policy through those children as well as shells.
       let boundary: ReturnType<typeof nativeClaudeBoundary> | undefined;
-      if (isNativeClaude(executable, cmd.slice(1))) {
-        if (key === "spawnSync") refuseNativeClaude(executable, cmd.slice(1));
+      if (isNativeClaude(executable, cmd.slice(1), options)) {
+        if (key === "spawnSync") refuseNativeClaude(executable, cmd.slice(1), options);
         boundary = nativeClaudeBoundary(executable, cmd.slice(1), options);
         args[0] = Array.isArray(first) ? boundary.argv : { ...first, cmd: boundary.argv };
       }

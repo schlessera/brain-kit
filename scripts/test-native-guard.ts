@@ -53,11 +53,18 @@ function fileHash(path: string): string {
   const digest = hash.digest("hex"); hashes.set(key, digest); return digest;
 }
 
-export function isNativeClaude(command: string, args: readonly unknown[] = []): boolean {
+interface SpawnContext { cwd?: string; env?: Record<string, string | undefined> }
+function resolveExecutable(command: string, options: SpawnContext): string {
+  const cwd = resolve(options.cwd ?? process.cwd());
+  const path = options.env?.PATH ?? process.env.PATH;
+  return realpathSync(command.includes("/") ? resolve(cwd, command) : Bun.which(command, { cwd, PATH: path }) ?? resolve(cwd, command));
+}
+
+export function isNativeClaude(command: string, args: readonly unknown[] = [], options: SpawnContext = {}): boolean {
   for (const value of [command, ...args]) {
     if (typeof value !== "string" || value.startsWith("-")) continue;
     let path: string;
-    try { path = realpathSync(value.startsWith("/") ? value : Bun.which(value) ?? value); } catch { continue; }
+    try { path = resolveExecutable(value, options); } catch { continue; }
     if (installedRuntimes.some(runtime => runtime.path === path)) return true;
     // Size eliminates ordinary fixture scripts and interpreters before hashing.
     const size = statSync(path).size;
@@ -75,8 +82,8 @@ function refuse(reason: string): never {
   throw new Error(`Offline native Claude refused before launch: ${reason}`);
 }
 
-export function refuseNativeClaude(command: string, args: readonly unknown[] = []): void {
-  if (isNativeClaude(command, args)) refuse("OS isolation has not been qualified");
+export function refuseNativeClaude(command: string, args: readonly unknown[] = [], options: SpawnContext = {}): void {
+  if (isNativeClaude(command, args, options)) refuse("OS isolation has not been qualified");
 }
 
 function qualify(): void {
@@ -86,10 +93,17 @@ function qualify(): void {
     refuse("positive native proof requires a hosted runner");
   }
   if (qualified) return;
-  const result = Bun.spawnSync(["bwrap", "--unshare-all", "--die-with-parent", "--new-session", "--ro-bind", "/usr", "/usr",
+  let result: ReturnType<typeof Bun.spawnSync>;
+  try { result = Bun.spawnSync(["bwrap", "--unshare-all", "--die-with-parent", "--new-session", "--ro-bind", "/usr", "/usr",
     "--symlink", "usr/bin", "/bin", "--symlink", "usr/lib", "/lib", "--symlink", "usr/lib64", "/lib64", "/usr/bin/true"],
-  { env: {}, stdout: "pipe", stderr: "pipe", timeout: 5000 });
+  { env: {}, stdout: "pipe", stderr: "pipe", timeout: 5000 }); }
+  catch { refuse("OS namespace setup failed"); }
   if (result.exitCode !== 0) refuse("OS namespace setup failed");
+  let trace: ReturnType<typeof Bun.spawnSync>;
+  try { trace = Bun.spawnSync(["strace", "-qq", "-e", "trace=connect", "-e", "raw=connect", "/usr/bin/true"],
+    { env: {}, stdout: "pipe", stderr: "pipe", timeout: 5000 }); }
+  catch { refuse("native connection audit setup failed"); }
+  if (trace.exitCode !== 0) refuse("native connection audit setup failed");
   qualified = true;
 }
 
@@ -116,10 +130,34 @@ function testRuntimeMounts(): string[] {
   });
 }
 
-interface Boundary { argv: string[]; env: Record<string, string>; dispose(): void }
+interface AuditReceipt { kind: "native-offline-audit"; head: string; nativeLaunched: true; deniedConnects: number }
+interface Boundary { argv: string[]; env: Record<string, string>; dispose(): void; receipt(): AuditReceipt }
+
+/** Raw connect arguments are pointers/numbers: no addresses, paths or payloads. */
+export function deniedNativeConnects(trace: string): number {
+  return trace.split("\n").filter(line => /(?:connect\(|connect resumed>).*?= -1 (?:EACCES|EPERM|ENETUNREACH|EHOSTUNREACH|ECONNREFUSED|ENOENT)\b/.test(line)).length;
+}
+
+function auditNativeLaunch(argv: string[], cleanup: () => void) {
+  const directory = mkdtempSync(join(tmpdir(), "odysseus-native-audit-"));
+  const log = join(directory, "connect.log");
+  writeFileSync(log, "", { mode: 0o600 });
+  let receipt: AuditReceipt | undefined;
+  const finish = (): AuditReceipt => {
+    if (receipt) return receipt;
+    try {
+      const trace = readFileSync(log, "utf8");
+      receipt = { kind: "native-offline-audit", head: receiptHead(), nativeLaunched: true, deniedConnects: deniedNativeConnects(trace) };
+      console.error(JSON.stringify(receipt));
+      return receipt;
+    } finally { cleanup(); rmSync(directory, { recursive: true, force: true }); }
+  };
+  return { argv: ["strace", "-f", "-qq", "-e", "trace=connect", "-e", "raw=connect", "-o", log, "--", ...argv],
+    dispose() { finish(); }, receipt: finish };
+}
 
 /** One Unix socket forwards only to the explicitly selected scripted service. */
-function relay(upstream: string | undefined) {
+export function startNativeTestRelay(upstream: string | undefined) {
   let target: URL;
   try { target = new URL(upstream!); } catch { return refuse("missing scripted loopback service"); }
   if (target.protocol !== "http:" || !["127.0.0.1", "localhost", "[::1]"].includes(target.hostname) || !target.port || target.username || target.password ||
@@ -130,19 +168,24 @@ function relay(upstream: string | undefined) {
   const uid = process.getuid?.() ?? 0, gid = process.getgid?.() ?? 0;
   writeFileSync(join(directory, "passwd"), `odysseus:x:${uid}:${gid}:Odysseus:/tmp/native-account:/bin/sh\n`);
   writeFileSync(join(directory, "group"), `odysseus:x:${gid}:\n`);
-  const server = Bun.serve({ unix: socket, async fetch(request) {
+  const handle = async (request: Request): Promise<Response> => {
     const url = new URL(request.url);
-    if (url.origin !== "http://localhost") {
+    // Concatenate onto the fixed authority; never resolve a request-controlled
+    // path as a relative URL, where // or backslashes could replace that host.
+    const outbound = new URL(target.origin + url.pathname + url.search);
+    if (url.origin !== "http://localhost" || !url.pathname.startsWith("/") || url.pathname.startsWith("//") ||
+        url.pathname.includes("\\") || outbound.origin !== target.origin) {
       denied++;
       console.error(JSON.stringify({ kind: "native-offline-boundary", success: false, nativeLaunched: true, reason: "unintended native destination", head: receiptHead() }));
       return new Response("Offline native destination refused", { status: 403 });
     }
     // A redirect is returned to the isolated native process; it cannot make a
     // TCP connection or obtain another host socket through this bridge.
-    return fetch(new URL(url.pathname + url.search, target), { method: request.method, headers: request.headers,
+    return fetch(outbound, { method: request.method, headers: request.headers,
       body: request.body, redirect: "manual", signal: request.signal });
-  } });
-  return { directory, dispose() { server.stop(true); rmSync(directory, { recursive: true, force: true }); } };
+  };
+  const server = Bun.serve({ unix: socket, fetch: handle });
+  return { directory, handle, dispose() { server.stop(true); rmSync(directory, { recursive: true, force: true }); } };
 }
 
 /** Direct SDK launch: empty filesystem, fresh PID/network namespaces, one IPC. */
@@ -156,9 +199,9 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
   if (!home || !within(tmpdir(), home) || home === tmpdir() || cwd === tmpdir() || !within(tmpdir(), cwd) && !within(ROOT, cwd)) {
     refuse("native launch requires fixture-owned storage");
   }
-  const bridge = relay(args.at(-1) === "--version" ? "http://127.0.0.1:1" : env.ANTHROPIC_BASE_URL);
+  const bridge = startNativeTestRelay(args.at(-1) === "--version" ? "http://127.0.0.1:1" : env.ANTHROPIC_BASE_URL);
   try {
-    command = Bun.which(command) ?? command;
+    command = resolveExecutable(command, options);
     const executable = realpathSync(command);
     const argv = ["bwrap", "--unshare-all", "--die-with-parent", "--new-session", "--cap-drop", "ALL", ...systemMounts(),
       "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", ...testRuntimeMounts(),
@@ -184,7 +227,8 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
     }
     for (const [key, value] of Object.entries(childEnv)) argv.push("--setenv", key, value);
     argv.push("--chdir", cwd, "--", command, ...args);
-    return { argv, env: {}, dispose() { bridge.dispose(); if (versionHome) rmSync(versionHome, { recursive: true, force: true }); } };
+    const audited = auditNativeLaunch(argv, () => { bridge.dispose(); if (versionHome) rmSync(versionHome, { recursive: true, force: true }); });
+    return { ...audited, env: {} };
   } catch (error) { bridge.dispose(); if (versionHome) rmSync(versionHome, { recursive: true, force: true }); throw error; }
 }
 
@@ -219,7 +263,7 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
   }
   // Existing restricted workers already have a server-owned exact-route relay.
   // The unused bridge in that case supplies only synthetic account files.
-  const bridge = relay(existingRelay ? "http://127.0.0.1:1" : launch.env?.ANTHROPIC_BASE_URL);
+  const bridge = startNativeTestRelay(existingRelay ? "http://127.0.0.1:1" : launch.env?.ANTHROPIC_BASE_URL);
   try {
     for (let i = bwrap + 1; i < argv.indexOf("--", bwrap); i++) {
       if (argv[i] === "--ro-bind" && argv[i + 1] === "/" && argv[i + 2] === "/") argv.splice(i--, 3);
@@ -231,6 +275,8 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
     argv.splice(separator, 0, "--ro-bind", bridge.directory, "/tmp/native-relay",
       "--ro-bind", join(bridge.directory, "passwd"), "/etc/passwd", "--ro-bind", join(bridge.directory, "group"), "/etc/group",
       ...Object.entries(pinned).flatMap(([key, value]) => ["--setenv", key, value]));
-    return { env: { ...env, BRAIN_WORKER_LAUNCH: JSON.stringify(launch) }, dispose: bridge.dispose };
+    const audited = auditNativeLaunch(argv, bridge.dispose);
+    launch.argv = audited.argv;
+    return { env: { ...env, BRAIN_WORKER_LAUNCH: JSON.stringify(launch) }, dispose: audited.dispose };
   } catch (error) { bridge.dispose(); throw error; }
 }

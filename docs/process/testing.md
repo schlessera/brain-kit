@@ -1131,7 +1131,11 @@ Direct SDK children get an empty root filesystem, explicit system/runtime and
 fixture mounts, fresh PID and network namespaces, and one Unix socket bridged
 to the exact scripted IPv4 loopback service. They receive a synthetic API key.
 Host account databases, managed settings, homes and credential storage are not
-mounted. Managed settings supplied by a hostile fixture are synthetic. Existing
+mounted. The boundary traces native and descendant `connect` syscalls with
+`strace` in raw-argument mode: only pointer/number arguments are recorded, never
+addresses, file paths or payloads. On exit it publishes a sanitized
+`native-offline-audit` receipt with the exact head and denied-connect count.
+A missing namespace launcher or tracing capability refuses before launch. Managed settings supplied by a hostile fixture are synthetic. Existing
 workers retain their concrete fixture mounts and private egress namespace,
 but lose the broad read-only host root. A shared-network native worker refuses.
 No production authentication or managed-policy behavior changes.
@@ -1139,6 +1143,10 @@ No production authentication or managed-policy behavior changes.
 `tests/native-offline-boundary.test.ts` proves local refusal with harmless
 synthetic executables. Hosted proof additionally exercises hostile managed
 settings, an outside-HOME sentinel credential, helper descendants, denied TCP,
-and the one permitted scripted service. Run installed-native backend and
+and the one permitted scripted service; the child silently swallows denied
+connections, so the audit count comes from the boundary rather than child output.
+The retention fixtures in #4312 separately integrate their instrumented `rg`
+through the boundary PATH, `USE_BUILTIN_RIPGREP` and fixture mounts; their complete
+retention qualification remains with #4274. Run installed-native backend and
 provider-history cells only in hosted CI; a temporary HOME and SDK options
 alone do not establish isolation.

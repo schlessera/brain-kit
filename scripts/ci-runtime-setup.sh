@@ -8,7 +8,7 @@ if [ "${1:-}" != "--native" ]; then
   bun scripts/ci-disk.ts reclaim
 fi
 sudo apt-get update -qq
-sudo apt-get install --yes bubblewrap iproute2 poppler-utils
+sudo apt-get install --yes bubblewrap iproute2 poppler-utils strace
 # Unit partitions retain their existing prerequisites; the runtime job alone
 # prepares the native image before entering its network-disabled proof.
 if [ "${1:-}" = "--native" ]; then
