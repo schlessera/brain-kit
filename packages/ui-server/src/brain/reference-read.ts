@@ -1,5 +1,5 @@
 /** Immutable reference content returned through one authenticated turn and actual backend call. */
-import { captureReferenceOwnerRoot, resolveReferenceOwners } from "./reference-owner-resolution.js";
+import { type ReferenceOwnerRoot, resolveReferenceOwners } from "./reference-owner-resolution.js";
 import { createHash, randomUUID } from "node:crypto";
 import type { Database } from "bun:sqlite";
 import { REFERENCE_READ_INPUT_SCHEMA, type ReferenceReadInput, type ReferenceToolResult } from "@schlessera/brain-ui-sdk/tool-contracts";
@@ -32,11 +32,11 @@ function finalReadText(output: string, segments?: readonly string[]): string | n
 
 export function createReferenceReads(options: {
   /** Served protected policy root; absent hosts report owner qualification unavailable. */
-  brainPath?: string;
+  ownerRoot?: Readonly<ReferenceOwnerRoot>;
   db: Database; brain: string; sources: Pick<ReferenceSources, "request">; pool: Pick<ReferencePool, "poolSeal">;
   transport: Pick<ReferenceTransport, "readBlob">;
 }) {
-  const { db } = options, write = referenceWrites(db), ownerRoot = captureReferenceOwnerRoot(options.brainPath);
+  const { db } = options, write = referenceWrites(db), ownerRoot = options.ownerRoot;
   const calls = new Map<string, Set<string>>();
   return {
     end(turnId: string) { calls.delete(turnId); },

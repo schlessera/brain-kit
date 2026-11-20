@@ -1,3 +1,4 @@
+import type { ReferenceOwnerRoot } from "./reference-owner-resolution.js";
 /** Human Settings operations. Markdown is authoritative; these rows are bounded
  * request/audit receipts, never a second policy source or an agent turn. */
 import { createHash, randomBytes } from "node:crypto";
@@ -80,6 +81,7 @@ export function createTrustSettings(options: {
    * fingerprint includes credential/lifetime identity, never a body/channel claim. */
   authority(principalId: string): string | null;
   observe(operationId: string, operation: (publish?: (write: () => void) => Promise<void>) => void | Promise<void>): Promise<void>;
+  ownerRoot?: Readonly<ReferenceOwnerRoot>;
   github?: ReturnType<typeof createTrustGitHubIdentity>;
   now?: () => number;
   /** Host-only deterministic crash/race injection, never wired from HTTP. */
@@ -261,7 +263,9 @@ export function createTrustSettings(options: {
           receipt.stage = "file_published"; receipt.publication = "proved";
           receipt.publishedTrustRevision = String(BigInt(p.revision) + 1n);
           await save("file_published", JSON.stringify({ operationId: receipt.operationId, principal, brain, authority: r.authority,
-            policyRoot: { device: target.directories[0]!.dev, inode: target.directories[0]!.ino },
+            policyRoot: { device: target.directories[0]!.dev, inode: target.directories[0]!.ino,
+              ...(options.ownerRoot?.path === root && options.ownerRoot.device === target.directories[0]!.dev && options.ownerRoot.inode === target.directories[0]!.ino
+                ? { continuity: options.ownerRoot.continuity } : {}) },
             baseHash: p.policyHash, expectedTrustRevision: p.revision, publishedTrustRevision: receipt.publishedTrustRevision, reviewedBytesHash: payload.proposedHash,
             ...(payload.githubIdentity ? { githubIdentity: payload.githubIdentity } : {}) }), payload.githubIdentity && payload.rule
               ? { brain, ruleId: payload.rule.id, selector: JSON.stringify(payload.rule.selector), identity: JSON.stringify(payload.githubIdentity) } : undefined); proved = true;

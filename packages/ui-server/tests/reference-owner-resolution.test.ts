@@ -17,7 +17,7 @@ import { createTrustSettings } from "../src/brain/trust-settings";
 import { createReferenceSources } from "../src/brain/reference-source";
 import { createReferenceReads } from "../src/brain/reference-read";
 import { registerReferenceWrites } from "../src/brain/reference-writes";
-import { captureReferenceOwnerRoot, resolveReferenceOwners, type ReferenceOwnerResolution } from "../src/brain/reference-owner-resolution";
+import { createReferenceOwnerContinuity, resolveReferenceOwners, type ReferenceOwnerResolution } from "../src/brain/reference-owner-resolution";
 import type { ReferenceIdentityObservation } from "../src/brain/reference-acquisition";
 import { heldWriter } from "./helpers/held-writer";
 import type { ReferenceTransport } from "../src/brain/reference-transport";
@@ -26,6 +26,7 @@ import { fixtureTls } from "./fixtures/fixture-tls";
 
 const cleanup: (() => void | Promise<void>)[] = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
+const captureReferenceOwnerRoot = (path: string) => { const c = createReferenceOwnerContinuity(path); cleanup.push(() => c.close()); return c.root; };
 const brain = "ithaca-brain", commit = "a".repeat(40), tree = "b".repeat(40);
 const repositoryRule: TrustRule = { id: "ithaca", label: "Ithaca", incomingContent: true, recipientWhileRestricted: false,
   selector: { kind: "github_repository", host: "github.com", owner: "odysseus", repository: "ithaca", repositoryId: "101" } };
@@ -33,6 +34,7 @@ const ownerRule: TrustRule = { ...repositoryRule, id: "odysseus", selector: { ki
 
 async function fixture(worker = false) {
   const root = mkdtempSync(join(tmpdir(), "odysseus-owner-resolution-")); cleanup.push(() => rmSync(root, { recursive: true, force: true }));
+  const continuity = createReferenceOwnerContinuity(root); cleanup.push(() => continuity.close());
   const policyPath = join(root, "context/policies/governance.md"); mkdirSync(join(root, "context/policies"), { recursive: true });
   writeFileSync(policyPath, "---\nschema_version: 1\n---\nThe voyage policy.\n");
   const db = createUiDb(join(root, "ui.db")), writer = worker ? openSqliteWriter(db) : undefined;
@@ -66,7 +68,7 @@ async function fixture(worker = false) {
   const access = createGitHubReferenceAccess({ db, brain, credentials: { GITHUB_TOKEN: "odysseus-fixture-token" }, transport,
     wireTransport: { ca: readFileSync(tls.ca, "utf8"), lookup: async () => [{ address: "93.184.216.34", family: 4 }],
       connect: (() => connect({ host: "127.0.0.1", port: server.port! })) as typeof connect } });
-  const settingsOptions = { root, db, writer, lock: createKeyedLock(), github: createTrustGitHubIdentity({ root, access }),
+  const settingsOptions = { root, ownerRoot: continuity.root, db, writer, lock: createKeyedLock(), github: createTrustGitHubIdentity({ root, access }),
     authority: (id: string) => id === owner.id ? "owner-epoch" : null, observe: async (_id: string, publish: () => void | Promise<void>) => { await publish(); } };
   const settings = createTrustSettings(settingsOptions);
   const change = async (change: unknown) => {
@@ -81,7 +83,7 @@ async function fixture(worker = false) {
   const pool = referencePoolDouble(join(root, "pool")), sources = createReferenceSources({ db, brain, pool, transport, github: access, credentials: { GITHUB_TOKEN: "odysseus-fixture-token" } });
   cleanup.push(() => sources.close());
   const egress = await startEgressProxy({ mode: "record", allow: [], deny: [], outwardHosts: [], maxBytes: 16 * 1048576, observe() {} }); cleanup.push(() => egress.stop());
-  const reads = createReferenceReads({ db, brain, brainPath: root, pool, sources, transport });
+  const reads = createReferenceReads({ db, brain, ownerRoot: continuity.root, pool, sources, transport });
   let call = 0;
   const read = async (principalId = other.id) => {
     const toolCallId = `read-${++call}`;
@@ -91,7 +93,7 @@ async function fixture(worker = false) {
     const row = db.query("SELECT evidence,acquisition FROM reference_reads WHERE tool_call_id=?").get(toolCallId) as { evidence: string; acquisition: string };
     return { result, row, evidence: JSON.parse(row.evidence) as { trusted: false; ownerResolution: ReferenceOwnerResolution; identityObservation: ReferenceIdentityObservation } };
   };
-  return { root, db, writer, owner, other, state, settings, settingsOptions, change, save, approve, read, reads, requests, policyPath, sources };
+  return { root, ownerRoot: continuity.root, continuity, db, writer, owner, other, state, settings, settingsOptions, change, save, approve, read, reads, requests, policyPath, sources };
 }
 
 for (const worker of [false, true]) test(`protected publication binds an actual fresh managed read; writer=${worker}`, async () => {
@@ -240,7 +242,7 @@ test("a reopened database reconstructs qualification from retained boundary evid
   f.db.exec("DELETE FROM trust_settings_operations");
   const reopened = createUiDb(join(f.root, "ui.db"));
   try {
-    const resolved = resolveReferenceOwners(reopened, captureReferenceOwnerRoot(f.root), observed.evidence.identityObservation);
+    const resolved = resolveReferenceOwners(reopened, f.ownerRoot, observed.evidence.identityObservation);
     expect(resolved, "OWNER_RESOLUTION_SURVIVES_DATABASE_REOPEN").toEqual(observed.evidence.ownerResolution);
     const history = reopened.query("SELECT evidence FROM reference_reads").get() as { evidence: string };
     expect(JSON.parse(history.evidence).ownerResolution).toEqual(resolved);
@@ -277,4 +279,46 @@ test("restart cannot apply retained approval to a replacement policy root with i
         "RESTART_REJECTS_APPROVAL_FROM_REPLACED_PUBLISHED_ROOT").toEqual([]);
     } finally { reopened.close(); }
   } finally { rmSync(f.root, { recursive: true, force: true }); renameSync(backup, f.root); }
+});
+
+test("deleted root replacement cannot inherit approval even when the filesystem reuses its identity", async () => {
+  const f = await fixture(); await f.approve(); const observed = await f.read(), policy = readFileSync(f.policyPath);
+  const retained = mkdtempSync(join(tmpdir(), "odysseus-retained-owner-db-"));
+  try {
+    writeFileSync(join(retained, "ui.db"), f.db.serialize());
+    writeFileSync(join(retained, "ui.db.journal.db"), f.db.serialize("journal"));
+    f.continuity.close(); // Simulate shutdown: no descriptor pins the deleted root.
+    rmSync(f.root, { recursive: true });
+    mkdirSync(join(f.root, "context/policies"), { recursive: true }); writeFileSync(f.policyPath, policy);
+    const reopened = createUiDb(join(retained, "ui.db"));
+    try {
+      const replacement = captureReferenceOwnerRoot(f.root)!;
+      const row = reopened.query("SELECT proof FROM trust_settings_github_boundaries").get() as { proof: string };
+      const proof = JSON.parse(row.proof);
+      // Deterministically model the kernel reusing the deleted directory's
+      // device/inode pair; deletion above is real, not a rename keeping it alive.
+      proof.policyRoot.device = replacement.device; proof.policyRoot.inode = replacement.inode;
+      reopened.query("UPDATE trust_settings_github_boundaries SET proof=?").run(JSON.stringify(proof));
+      expect(resolveReferenceOwners(reopened, replacement, observed.evidence.identityObservation).bindings,
+        "DELETED_ROOT_REUSE_REQUIRES_NEW_REVIEWED_APPROVAL").toEqual([]);
+    } finally { reopened.close(); }
+  } finally { rmSync(retained, { recursive: true, force: true }); }
+});
+
+test("a new host lifetime requires reviewed republication even with an unchanged policy root", async () => {
+  const f = await fixture(); await f.approve(); const observed = await f.read();
+  f.continuity.close();
+  const next = createReferenceOwnerContinuity(f.root);
+  try {
+    expect(resolveReferenceOwners(f.db, next.root, observed.evidence.identityObservation).bindings,
+      "NEW_HOST_LIFETIME_REQUIRES_REAPPROVAL").toEqual([]);
+    const settings = createTrustSettings({ ...f.settingsOptions, ownerRoot: next.root });
+    const before = await settings.list(f.owner.id);
+    const draft = await settings.prepare(f.owner.id, { version: 1, expectedTrustRevision: before.revision,
+      expectedPolicyHash: before.policyHash, change: { action: "edit", rule: { ...repositoryRule, label: "The reviewed home harbor" } } });
+    await settings.commit(f.owner.id, { version: 1, requestId: draft.receipt.requestId,
+      reviewId: draft.review.reviewId, reviewedBytesHash: draft.review.reviewedBytesHash });
+    expect(resolveReferenceOwners(f.db, next.root, observed.evidence.identityObservation).bindings,
+      "NEW_PUBLICATION_RESTORES_CURRENT_HOST_QUALIFICATION").toHaveLength(1);
+  } finally { next.close(); }
 });

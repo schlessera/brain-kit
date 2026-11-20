@@ -1,3 +1,4 @@
+import { createReferenceOwnerContinuity } from "../../packages/ui-server/src/brain/reference-owner-resolution.js";
 /** Actual managed Git/TLS acquisition, maintenance workers and native Btrfs publication. No read-trust exemption. */
 import { expect } from "bun:test";
 import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
@@ -43,6 +44,7 @@ export async function proveManagedReferenceSource(client: ReturnType<typeof crea
   const token = "odysseus-native-fixture-token", basic = `Basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`;
   let privateSource = false, revokeAtSeal = false;
   const requests: { host: string; authorization: string | null }[] = [];
+  const ownerContinuity = createReferenceOwnerContinuity(brain);
   const db = createUiDb(join(root, "ui.db"));
   const principal = createPrincipal(db, { authMethod: "password", label: "Penelope", ttlSeconds: 3600 });
   let grantId: string | null = null;
@@ -113,7 +115,7 @@ export async function proveManagedReferenceSource(client: ReturnType<typeof crea
       const blob = await transport.readBlob!({ root: record.path!, commit, tree, path: "README.md", offset: 9, maximum: 13 });
       lease.assertAuthority();
       expect(Buffer.from(blob.bytes).toString(), "MANAGED_NATIVE_IMMUTABLE_OBJECT_RANGE").toBe("charts Ithaca");
-      const settings = createTrustSettings({ root: brain, db, lock: createKeyedLock(),
+      const settings = createTrustSettings({ root: brain, ownerRoot: ownerContinuity.root, db, lock: createKeyedLock(),
         github: createTrustGitHubIdentity({ root: brain, access: github }), authority: id => id === principal.id ? "fixture-owner-epoch" : null,
         observe: async (_id, publish) => { await publish(); } });
       const beforePolicy = await settings.list(principal.id);
@@ -124,7 +126,7 @@ export async function proveManagedReferenceSource(client: ReturnType<typeof crea
       const approved = await settings.commit(principal.id, { version: 1, requestId: preparedApproval.receipt.requestId,
         reviewId: preparedApproval.review.reviewId, reviewedBytesHash: preparedApproval.review.reviewedBytesHash });
       expect(approved.receipt.publication, "MANAGED_NATIVE_OWNER_APPROVAL_IS_REAL_PUBLICATION").toBe("proved");
-      const reads = createReferenceReads({ db, brainPath: brain, brain: servedBrain, sources, pool: client, transport });
+      const reads = createReferenceReads({ db, ownerRoot: ownerContinuity.root, brain: servedBrain, sources, pool: client, transport });
       const tools = createReferenceTools({ sources, reads }), turnId = "odysseus-native-read";
       await tools.begin(turnId, { principalId: principal.id, posture: "interactive", generation: null });
       tools.attachEgress(turnId, principal.id, { egress, current: () => true });
@@ -177,6 +179,6 @@ export async function proveManagedReferenceSource(client: ReturnType<typeof crea
     note("managed-source-native-revocation", { refused: true, livePublicMappingUnaffected: db.query("SELECT count(*) AS n FROM reference_acquisitions").get() });
   } finally {
     try { await releaseOwned(); }
-    finally { egress.stop(); server.stop(true); db.close(); writeFileSync(bundle, originalBundle); }
+    finally { egress.stop(); server.stop(true); db.close(); ownerContinuity.close(); writeFileSync(bundle, originalBundle); }
   }
 }
