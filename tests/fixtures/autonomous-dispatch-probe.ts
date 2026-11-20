@@ -1,3 +1,4 @@
+import "../../scripts/test-network-child-preload.ts";
 import { nativeScriptedService } from "../../scripts/test-native-guard.ts";
 import { createFixtureTurnHost } from "./turn-host-fixture.js";
 import { Database } from "bun:sqlite";

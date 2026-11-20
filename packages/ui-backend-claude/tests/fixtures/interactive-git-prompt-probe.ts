@@ -1,3 +1,4 @@
+import "../../../../scripts/test-network-child-preload.ts";
 import { nativeScriptedService } from "../../../../scripts/test-native-guard.ts";
 import { createFixtureWorkerStartupView, createFixtureMaintenanceHost } from "../../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 /** Keyless selected-runtime assembly receipt; caller denies all external network. */
@@ -56,7 +57,7 @@ try {
           bridge: { emit() {}, checkpointPermission() {}, async requestPermission() { return { behavior: "deny", message: "no grant" }; } } } as never,
         profile: { id: "fixture", label: "Fixture", model: "claude-sonnet-4-6", billing, requiredEnvKeys: [],
           buildEnv: () => ({ HOME: home, CLAUDE_CONFIG_DIR: home, ANTHROPIC_BASE_URL: `http://127.0.0.1:${upstream.port}`,
-            ...(billing === "api" ? { ANTHROPIC_API_KEY: "sk-odysseus-fixture" } : { CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-odysseus-fixture" }) }) },
+            ...(billing === "api" ? { ANTHROPIC_API_KEY: "sk-odysseus-fixture" } : { CLAUDE_CODE_OAUTH_TOKEN: `sk-ant-oat01-${"o".repeat(95)}AA` }) }) },
         abortController, allowedTools: ["Read"], confirmPatterns: [],
         turnLock: { acquire: () => undefined, release: () => undefined } as never, log() {},
       });

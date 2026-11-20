@@ -1,3 +1,4 @@
+import "../../../../scripts/test-network-child-preload.ts";
 import { nativeScriptedService } from "../../../../scripts/test-native-guard.ts";
 /** Installed CLI/SDK, isolated by the caller's offline network namespace. */
 import { mkdirSync, writeFileSync, readFileSync } from "node:fs";

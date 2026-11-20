@@ -114,7 +114,7 @@ function arrange(setup: Setup): { brainPath: string; home: string } {
     DECLARED_TOKEN_ENV: DECLARED_TOKEN,
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
     BRAIN_UI_SUBPROCESS_ENV_EXTRA:
-      "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC,ANTHROPIC_CUSTOM_HEADERS",
+      "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC,ANTHROPIC_CUSTOM_HEADERS,ANTHROPIC_BASE_URL",
   });
   if (setup.customHeaders !== undefined) process.env.ANTHROPIC_CUSTOM_HEADERS = setup.customHeaders;
   if (setup.oauth === undefined) delete process.env.CLAUDE_CODE_OAUTH_TOKEN;

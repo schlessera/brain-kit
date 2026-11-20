@@ -1,3 +1,4 @@
+import "../../../../scripts/test-network-child-preload.ts";
 import { nativeScriptedService } from "../../../../scripts/test-native-guard.ts";
 /** Actual SDK/CLI protocol qualification, inside the caller's private network namespace. */
 import { query, type AccountInfo } from "@anthropic-ai/claude-agent-sdk";

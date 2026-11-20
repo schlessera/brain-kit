@@ -1,3 +1,4 @@
+import "../../../../scripts/test-network-child-preload.ts";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { defaultIdentityPhase } from "./default-identity-phases.js";
 import { installDbRepeatObservation, repeatWarmIndex } from "./db-repeat-observation.js";

@@ -1,3 +1,4 @@
+import "../../../../scripts/test-network-child-preload.ts";
 import { nativeScriptedService } from "../../../../scripts/test-native-guard.ts";
 /**
  * Apify through the installed Claude CLI (#3162). The caller confines the SDK,

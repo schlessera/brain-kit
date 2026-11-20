@@ -11,6 +11,10 @@ const ROOT = resolve(import.meta.dir, "..");
 // Fixed Git metadata only. Discovery refusal must not recurse through admission.
 const metadataSpawnSync = Bun.spawnSync.bind(Bun);
 const SYSTEM = ["/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32"];
+const WORKER_RUNTIME_ENV = new Set(["HOME", "CLAUDE_CONFIG_DIR", "LANG", "LC_ALL", "TERM", "SHELL", "USER", "LOGNAME", "TMPDIR",
+  "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_RUNTIME_DIR",
+  "BRAIN_ROOT", "BRAIN_WORKER_DATA_ROOT", "BRAIN_WORKER_CONFIG_ROOT", "BRAIN_WORKER_SCRATCH", "BRAIN_WITHHELD_KEYS", "BRAIN_PROVIDER_RELAY_SOCKET",
+  "ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_SMALL_FAST_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_DISABLE_AUTO_MEMORY"]);
 const within = (root: string, path: string) => path === root || path.startsWith(`${root}/`);
 let qualified = false;
 let bwrapExecutable = "bwrap", straceExecutable = "strace";
@@ -22,7 +26,7 @@ export function assertNoNativeRefusals(): void {
   throw new Error("Offline native Claude isolation refused a launch during this test");
 }
 let head: string | undefined;
-function receiptHead(): string {
+export function nativeTestHead(): string {
   if (head) return head;
   let value = "";
   try {
@@ -31,6 +35,15 @@ function receiptHead(): string {
   } catch { /* Containers carry the exact checkout identity without Git metadata. */ }
   return head = /^[0-9a-f]{40}$/.test(value) ? value
     : /^[0-9a-f]{40}$/.test(process.env.BRAIN_NATIVE_TEST_HEAD ?? "") ? process.env.BRAIN_NATIVE_TEST_HEAD! : "unavailable";
+}
+
+/** Metadata survives an outer fixture namespace's deliberate clearenv. */
+export function nativeNamespaceEnvironment(): string[] {
+  const values: Record<string, string> = { BRAIN_NATIVE_TEST_HEAD: nativeTestHead() };
+  if (process.env.GITHUB_ACTIONS === "true" && process.env.RUNNER_ENVIRONMENT === "github-hosted") {
+    values.GITHUB_ACTIONS = "true"; values.RUNNER_ENVIRONMENT = "github-hosted";
+  }
+  return Object.entries(values).flatMap(([name, value]) => ["--setenv", name, value]);
 }
 
 // Resolve from the installed SDK, exactly as its native package lookup does.
@@ -114,7 +127,7 @@ function refuse(reason: string): never {
   denied++;
   // Fixed classifications only: arguments, settings, credentials and addresses
   // never enter a denial receipt.
-  console.error(JSON.stringify({ kind: "native-offline-boundary", success: false, nativeLaunched: false, reason, head: receiptHead() }));
+  console.error(JSON.stringify({ kind: "native-offline-boundary", success: false, nativeLaunched: false, reason, head: nativeTestHead() }));
   throw new Error(`Offline native Claude refused before launch: ${reason}`);
 }
 
@@ -176,6 +189,7 @@ function syntheticCredentials(env: Record<string, string | undefined>): Record<s
   const result: Record<string, string> = {};
   if (env.ANTHROPIC_API_KEY) result.ANTHROPIC_API_KEY = /^sk-ant-api03-([a-z])\1{94}AA$/.test(env.ANTHROPIC_API_KEY) ? env.ANTHROPIC_API_KEY : "offline-fixture";
   if (/^sk-ant-oat01-([a-z])\1{94}AA$/.test(env.CLAUDE_CODE_OAUTH_TOKEN ?? "")) result.CLAUDE_CODE_OAUTH_TOKEN = env.CLAUDE_CODE_OAUTH_TOKEN!;
+  if (/^sk-ant-declared-t{60}$/.test(env.ANTHROPIC_AUTH_TOKEN ?? "")) result.ANTHROPIC_AUTH_TOKEN = env.ANTHROPIC_AUTH_TOKEN!;
   return result;
 }
 
@@ -201,7 +215,7 @@ export function auditNativeLaunch(argv: string[], expected: readonly string[], c
       try { trace = readFileSync(log, "utf8"); } catch { /* Missing evidence is a failed receipt. */ }
       const nativeLaunched = nativeExecObserved(trace, expected);
       if (!nativeLaunched) denied++;
-      receipt = { kind: "native-offline-audit", head: receiptHead(), nativeLaunched, success: nativeLaunched,
+      receipt = { kind: "native-offline-audit", head: nativeTestHead(), nativeLaunched, success: nativeLaunched,
         ...(!nativeLaunched ? { reason: "native exec was not observed" } : {}), deniedConnects: deniedNativeConnects(trace) };
       console.error(JSON.stringify(receipt));
       return receipt;
@@ -231,7 +245,7 @@ export function startNativeTestRelay(upstream: string | undefined) {
     if (url.origin !== "http://localhost" || !url.pathname.startsWith("/") || url.pathname.startsWith("//") ||
         url.pathname.includes("\\") || outbound.origin !== target.origin) {
       denied++;
-      console.error(JSON.stringify({ kind: "native-offline-route-denial", success: false, reason: "unintended native destination", head: receiptHead() }));
+      console.error(JSON.stringify({ kind: "native-offline-route-denial", success: false, reason: "unintended native destination", head: nativeTestHead() }));
       return new Response("Offline native destination refused", { status: 403 });
     }
     // A redirect is returned to the isolated native process; it cannot make a
@@ -262,8 +276,8 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
   const inheritedSocket = env.ANTHROPIC_UNIX_SOCKET;
   const inheritedOrigin = inheritedSocket && ownedSocketOrigin(inheritedSocket);
   if (inheritedSocket && !inheritedOrigin) refuse("pre-existing native relay is not guard-owned");
-  if (inheritedOrigin && (!scriptedRoute.getStore() || normalizedOrigin(inheritedOrigin) !== normalizedOrigin(scriptedRoute.getStore()!.origin))) refuse("native relay did not match scripted authority");
-  const bridge = startNativeTestRelay(versionOnly ? "http://127.0.0.1:1" : inheritedOrigin ?? scriptedRoute.getStore()?.origin ?? env.ANTHROPIC_BASE_URL);
+  if (inheritedOrigin && (!currentScriptedRoute() || normalizedOrigin(inheritedOrigin) !== normalizedOrigin(currentScriptedRoute()!.origin))) refuse("native relay did not match scripted authority");
+  const bridge = startNativeTestRelay(versionOnly ? "http://127.0.0.1:1" : inheritedOrigin ?? env.ANTHROPIC_BASE_URL ?? currentScriptedRoute()?.origin);
   try {
     command = resolveExecutable(command, options);
     const executable = realpathSync(command);
@@ -298,13 +312,22 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
 }
 
 const scriptedRoute = new AsyncLocalStorage<Readonly<{ origin: string }> | undefined>();
+const declaredRoutes = new Map<string, Readonly<{ origin: string }>>();
+function currentScriptedRoute(): Readonly<{ origin: string }> | undefined {
+  // SDK/module async resources can predate the fixture scope. A process that
+  // declared exactly one immutable authority has no alternate destination to
+  // select. A second distinct declaration permanently disables this fallback.
+  return scriptedRoute.getStore() ?? (declaredRoutes.size === 1 ? declaredRoutes.values().next().value : undefined);
+}
 
 /** Test code pins its scripted service before building a restricted turn. */
 export function nativeScriptedService(origin: string): () => void {
   const target = new URL(origin);
   if (target.protocol !== "http:" || !["127.0.0.1", "localhost", "[::1]"].includes(target.hostname) || !target.port || target.username || target.password || target.pathname !== "/" || target.search || target.hash) refuse("invalid scripted route authority");
   const previous = scriptedRoute.getStore();
-  scriptedRoute.enterWith(Object.freeze({ origin: target.origin }));
+  const authority = Object.freeze({ origin: target.origin });
+  declaredRoutes.set(target.origin, authority);
+  scriptedRoute.enterWith(authority);
   return () => scriptedRoute.enterWith(previous);
 }
 
@@ -330,7 +353,7 @@ function rememberRelay(path: string, origin: string): void {
 }
 
 export function guardNativeHttpListen(server: object, args: unknown[]): void {
-  const route = scriptedRoute.getStore();
+  const route = currentScriptedRoute();
   const first = args[0] as string | { path?: string } | undefined;
   const path = typeof first === "string" ? first : first?.path;
   if (!route || !path?.startsWith("/")) return;
@@ -345,7 +368,7 @@ export function guardNativeHttpEvent(server: object, event: unknown, invoke: () 
 
 /** The guard creates the server and binds every transport in its handler. */
 export function guardNativeRelayServer(options: any, create: (options: any) => any): any {
-  const route = scriptedRoute.getStore();
+  const route = currentScriptedRoute();
   if (!route || typeof options.unix !== "string" || typeof options.fetch !== "function") return create(options);
   const original = options.fetch;
   const server = create({ ...options, fetch: function(this: unknown, ...args: unknown[]) {
@@ -369,7 +392,7 @@ export function assertNativeRelayDestination(url: URL): void {
   if (requested.hostname === "localhost") requested.hostname = "127.0.0.1";
   if (requested.origin === target.origin) return;
   denied++;
-  console.error(JSON.stringify({ kind: "native-offline-route-denial", success: false, reason: "unintended relay destination", head: receiptHead() }));
+  console.error(JSON.stringify({ kind: "native-offline-route-denial", success: false, reason: "unintended relay destination", head: nativeTestHead() }));
   throw new Error("Native relay refused an unintended destination");
 }
 
@@ -451,7 +474,7 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
   // Even ordinary test workers use a private network and a single bridge.
   // Do not rely on SDK options or the production profile to establish this.
   const socket = launch.env?.ANTHROPIC_UNIX_SOCKET;
-  const route = scriptedRoute.getStore();
+  const route = currentScriptedRoute();
   const ownedOrigin = socket && admittedRelay(workerArgv, socket);
   if (socket && !ownedOrigin) refuse("pre-existing native relay is not guard-owned");
   if (ownedOrigin && (!route || normalizedOrigin(ownedOrigin) !== normalizedOrigin(route.origin))) refuse("native relay did not match scripted authority");
@@ -460,9 +483,11 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
   try {
     for (let i = bwrap + 1; i < workerArgv.indexOf("--", bwrap); i++) {
       if (workerArgv[i] === "--ro-bind" && workerArgv[i + 1] === "/" && workerArgv[i + 2] === "/") workerArgv.splice(i--, 3);
+      else if (workerArgv[i] === "--setenv" && !WORKER_RUNTIME_ENV.has(workerArgv[i + 1]!)) workerArgv.splice(i--, 3);
     }
-    workerArgv.splice(bwrap + 1, 0, "--unshare-net", ...systemMounts(), ...testRuntimeMounts(), "--ro-bind", process.execPath, process.execPath);
+    workerArgv.splice(bwrap + 1, 0, "--clearenv", "--unshare-net", ...systemMounts(), ...testRuntimeMounts(), "--ro-bind", process.execPath, process.execPath);
     const pinned = { ANTHROPIC_BASE_URL: "http://localhost", ANTHROPIC_UNIX_SOCKET: socket && ownedOrigin ? socket : "/tmp/native-relay/relay.sock",
+      PATH: `${dirname(process.execPath)}:/usr/bin:/bin`, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", DISABLE_AUTOUPDATER: "1",
       ANTHROPIC_API_KEY: "", ANTHROPIC_AUTH_TOKEN: "", CLAUDE_CODE_OAUTH_TOKEN: "",
       ...(ownedOrigin ? relayCredentialPlaceholders(launch.env ?? {}) : syntheticCredentials(launch.env ?? {})) };
     const separator = workerArgv.indexOf("--", bwrap);

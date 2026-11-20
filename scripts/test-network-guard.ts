@@ -1,5 +1,5 @@
 /** Test-only subprocess and transport safeguards; never imported by a published package. */
-import { guardNativeHttpListen, guardNativeHttpEvent, guardNativeRelayServer, assertNativeRelayDestination, assertNativeRelaySocket, assertNativeRelayUnix, assertNoNativeRefusals, nativeIsolationFailed, isNativeClaude, nativeClaudeBoundary, nativeWorkerBoundary, refuseNativeClaude } from "./test-native-guard";
+import { guardNativeHttpListen, guardNativeHttpEvent, guardNativeRelayServer, assertNativeRelayDestination, assertNativeRelaySocket, assertNativeRelayUnix, assertNoNativeRefusals, nativeIsolationFailed, nativeTestHead, isNativeClaude, nativeClaudeBoundary, nativeWorkerBoundary, refuseNativeClaude } from "./test-native-guard";
 import { basename, join } from "node:path";
 import { Server as HttpServer } from "node:http";
 import { isIP, Socket } from "node:net";
@@ -179,8 +179,8 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
         args[0] = Array.isArray(first) ? boundary.argv : { ...first, cmd: boundary.argv };
       }
       const workerBoundary = boundary ? undefined : nativeWorkerBoundary(testGitEnvironment({ ...options.env ?? process.env,
-        ...(/^[0-9a-f]{40}$/.test(process.env.BRAIN_NATIVE_TEST_HEAD ?? "") ? { BRAIN_NATIVE_TEST_HEAD: process.env.BRAIN_NATIVE_TEST_HEAD } : {}),
-        ...(process.env.GITHUB_ACTIONS === "true" ? { GITHUB_ACTIONS: "true", RUNNER_ENVIRONMENT: process.env.RUNNER_ENVIRONMENT } : {}) }));
+        ...(options.env?.BRAIN_NATIVE_TEST_HEAD === undefined ? { BRAIN_NATIVE_TEST_HEAD: nativeTestHead() } : {}),
+        ...(options.env?.GITHUB_ACTIONS === undefined && process.env.GITHUB_ACTIONS === "true" ? { GITHUB_ACTIONS: "true", RUNNER_ENVIRONMENT: options.env?.RUNNER_ENVIRONMENT ?? process.env.RUNNER_ENVIRONMENT } : {}) }));
       const inherited = inheritWorkspaceLease({ ...options, env: boundary?.env ?? workerBoundary!.env }, defaultStderr, pipeOnly);
       if (Array.isArray(first)) args[1] = inherited;
       else args[0] = { ...inherited, cmd: (args[0] as { cmd: string[] }).cmd };

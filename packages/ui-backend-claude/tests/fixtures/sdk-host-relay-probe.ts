@@ -1,3 +1,4 @@
+import "../../../../scripts/test-network-child-preload.ts";
 import { nativeScriptedService } from "../../../../scripts/test-native-guard.ts";
 import { SDK_RELAY_TURN_COUNT, SDK_RELAY_TURN_TIMEOUT_MS, SDK_RELAY_CANCELLATION_TIMEOUT_MS } from "./sdk-host-relay-limits.js";
 /** Actual ordinary Claude spawn/state path; copied storage fixture, not Btrfs qualification. */

@@ -1,3 +1,4 @@
+import "../../../../scripts/test-network-child-preload.ts";
 import { nativeScriptedService } from "../../../../scripts/test-native-guard.ts";
 /** The caller confines the SDK, bundled CLI and every tool to loopback. */
 import { mkdirSync, writeFileSync } from "node:fs";

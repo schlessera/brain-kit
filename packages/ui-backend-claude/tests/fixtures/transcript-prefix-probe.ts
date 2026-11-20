@@ -1,3 +1,4 @@
+import "../../../../scripts/test-network-child-preload.ts";
 import { nativeScriptedService } from "../../../../scripts/test-native-guard.ts";
 /** Narrow #2049 proof; follows the offline CLI pattern from #2053/#2047. */
 import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";

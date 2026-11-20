@@ -173,17 +173,18 @@ test("isolated plans preserve synthetic credential precedence and an unauthentic
       Bun.which=((command,options)=>command==="strace"?"/synthetic/strace":which(command,options));
       Bun.spawnSync=((argv,options)=>["bwrap","strace"].includes(argv[0])?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
       process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";
-      const key="sk-ant-api03-"+"k".repeat(95)+"AA",token="sk-ant-oat01-"+"o".repeat(95)+"AA";
+      const key="sk-ant-api03-"+"k".repeat(95)+"AA",token="sk-ant-oat01-"+"o".repeat(95)+"AA",bearer="sk-ant-declared-"+"t".repeat(60);
       const leave=nativeScriptedService("http://127.0.0.1:1");
-      for(const creds of [{},{ANTHROPIC_API_KEY:key},{CLAUDE_CODE_OAUTH_TOKEN:token},{ANTHROPIC_API_KEY:key,CLAUDE_CODE_OAUTH_TOKEN:token}]){
+      for(const creds of [{},{ANTHROPIC_API_KEY:key},{CLAUDE_CODE_OAUTH_TOKEN:token},{ANTHROPIC_API_KEY:key,CLAUDE_CODE_OAUTH_TOKEN:token},{ANTHROPIC_AUTH_TOKEN:bearer}]){
         const boundary=nativeClaudeBoundary(${JSON.stringify(runtime)},[],{cwd:${JSON.stringify(scratch)},env:{HOME:${JSON.stringify(scratch)},ANTHROPIC_BASE_URL:"http://127.0.0.1:1",...creds}});
         const injected={};for(let i=0;i<boundary.argv.length;i++)if(boundary.argv[i]==="--setenv")injected[boundary.argv[i+1]]=boundary.argv[i+2];
-        if(injected.ANTHROPIC_API_KEY!==creds.ANTHROPIC_API_KEY||injected.CLAUDE_CODE_OAUTH_TOKEN!==creds.CLAUDE_CODE_OAUTH_TOKEN)throw Error("synthetic credential row changed");
+        if(injected.ANTHROPIC_API_KEY!==creds.ANTHROPIC_API_KEY||injected.CLAUDE_CODE_OAUTH_TOKEN!==creds.CLAUDE_CODE_OAUTH_TOKEN||injected.ANTHROPIC_AUTH_TOKEN!==creds.ANTHROPIC_AUTH_TOKEN)throw Error("synthetic credential row changed");
         writeFileSync(boundary.argv[boundary.argv.indexOf("-o")+1],${JSON.stringify(`1 execve(${JSON.stringify(runtime)}, [], 0x1) = 0`)});boundary.dispose();
-        const worker=nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify({command:[${JSON.stringify(runtime)}],brainPath:${JSON.stringify(scratch)},env:{HOME:${JSON.stringify(scratch)},...creds},argv:["bwrap","--",${JSON.stringify(runtime)}]})});
+        const worker=nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify({command:[${JSON.stringify(runtime)}],brainPath:${JSON.stringify(scratch)},env:{HOME:${JSON.stringify(scratch)},...creds},argv:["bwrap","--setenv","ODYSSEUS_OTHER_KEY","synthetic-outside-key","--setenv","LD_PRELOAD","synthetic-loader","--",${JSON.stringify(runtime)}]})});
         const argv=JSON.parse(worker.env.BRAIN_WORKER_LAUNCH).argv,workerEnv={};
+        if(argv.includes("synthetic-outside-key")||argv.includes("synthetic-loader"))throw Error("non-runtime worker environment escaped isolation");
         for(let i=0;i<argv.length;i++)if(argv[i]==="--setenv")workerEnv[argv[i+1]]=argv[i+2];
-        if(workerEnv.ANTHROPIC_API_KEY!==(creds.ANTHROPIC_API_KEY??"")||workerEnv.CLAUDE_CODE_OAUTH_TOKEN!==(creds.CLAUDE_CODE_OAUTH_TOKEN??""))throw Error("synthetic worker credential row changed");
+        if(workerEnv.ANTHROPIC_API_KEY!==(creds.ANTHROPIC_API_KEY??"")||workerEnv.CLAUDE_CODE_OAUTH_TOKEN!==(creds.CLAUDE_CODE_OAUTH_TOKEN??"")||workerEnv.ANTHROPIC_AUTH_TOKEN!==(creds.ANTHROPIC_AUTH_TOKEN??""))throw Error("synthetic worker credential row changed");
         writeFileSync(argv[argv.indexOf("-o")+1],${JSON.stringify(`1 execve(${JSON.stringify(runtime)}, [], 0x1) = 0`)});worker.dispose();
       }leave();`, scratch);
     expect(result.code, result.output).toBe(0);
@@ -243,6 +244,40 @@ test("the SDK spawn hook retains its scripted authority when invoked from anothe
       writeFileSync(argv[argv.indexOf("-o")+1],${JSON.stringify(`1 execve(${JSON.stringify(runtime)}, [], 0x1) = 0`)});worker.dispose();`, scratch);
     expect(result.code, result.output).toBe(0);
   } finally { intended.stop(true); other.stop(true); rmSync(scratch, { recursive: true, force: true }); }
+});
+
+test("an immutable single scripted authority survives async scope loss, while ambiguous authority refuses", async () => {
+  for (const ambiguous of [false, true]) {
+    const scratch = mkdtempSync(join(tmpdir(), "odysseus-declared-route-"));
+    try {
+      const result = await probe(`${imports}
+        import {nativeScriptedService,nativeWorkerBoundary} from ${JSON.stringify(join(ROOT, "scripts/test-native-guard.ts"))};
+        nativeScriptedService("http://127.0.0.1:1")();
+        const socket=${JSON.stringify(join(scratch, "relay.sock"))};
+        const relay=Bun.serve({unix:socket,fetch(){return new Response("Ithaca");}});
+        ${ambiguous ? 'nativeScriptedService("http://127.0.0.1:2")();' : ""}
+        try{nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify({command:[${JSON.stringify(runtime)}],
+          env:{ANTHROPIC_UNIX_SOCKET:"/tmp/relay/relay.sock"},argv:["bwrap","--ro-bind",${JSON.stringify(scratch)},"/tmp/relay","--",${JSON.stringify(runtime)}]})});}
+        finally{relay.stop(true);}`, scratch);
+      expect(result.code).not.toBe(0);
+      expect(result.output).toContain(ambiguous ? "native relay did not match scripted authority" : "positive native proof requires a hosted runner");
+      expect(result.output).toContain('"nativeLaunched":false');
+    } finally { rmSync(scratch, { recursive: true, force: true }); }
+  }
+});
+
+test("qualification metadata preserves explicit child environment overrides", async () => {
+  const scratch = mkdtempSync(join(tmpdir(), "odysseus-child-context-"));
+  try {
+    const result = await probe(`${imports}
+      process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";
+      const child=Bun.spawn([process.execPath,"-e",'console.error(JSON.stringify({actions:process.env.GITHUB_ACTIONS,runner:process.env.RUNNER_ENVIRONMENT,head:process.env.BRAIN_NATIVE_TEST_HEAD}))'],
+        {env:{PATH:"/usr/bin:/bin",GITHUB_ACTIONS:"false",RUNNER_ENVIRONMENT:"fixture"},stdout:"pipe",stderr:"pipe"});
+      const [code,err]=await Promise.all([child.exited,new Response(child.stderr).text()]);
+      const context=JSON.parse(err.trim());
+      if(code!==0||context.actions!=="false"||context.runner!=="fixture"||!/^[0-9a-f]{40}$/.test(context.head))throw Error("explicit child context was overwritten");`, scratch);
+    expect(result.code, result.output).toBe(0);
+  } finally { rmSync(scratch, { recursive: true, force: true }); }
 });
 
 test("an arbitrary same-user Unix relay is refused before namespace setup", async () => {
@@ -376,12 +411,15 @@ settings=json.load(open('/etc/claude-code/managed-settings.json'))
 helper=subprocess.run(settings['apiKeyHelper'],shell=True,capture_output=True)
 assert helper.returncode != 0 and not helper.stdout, 'outside credential escaped'
 for host,port in [('127.0.0.1',${service.port}),('198.18.0.1',1)]:
+ probe=socket.socket(socket.AF_INET,socket.SOCK_STREAM)
  try:
-  socket.create_connection((host,port),timeout=1)
+  probe.connect((host,port))
  except OSError:
   pass
  else:
   raise RuntimeError('unintended native destination reached')
+ finally:
+  probe.close()
 connection=http.client.HTTPConnection('localhost')
 connection.sock=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM)
 connection.sock.connect(os.environ['ANTHROPIC_UNIX_SOCKET'])

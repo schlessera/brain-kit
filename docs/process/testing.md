@@ -1147,11 +1147,19 @@ Restricted fixture code declares its scripted origin with
 and pins all handler fetch/TCP/Unix transports to it. Socket ownership alone
 is never admission: a pre-existing, unregistered relay refuses. SDK runtime
 discovery includes every workspace owner and refuses unresolved declared SDKs.
+If SDK/module async resources lose the caller's scope, a process with exactly
+one explicitly declared scripted origin retains that immutable authority. A
+second distinct origin permanently disables this fallback; ambiguous launches
+require scoped authority. SDK fixture adapters pin the existing spawn callback
+to their declared service. Standalone native fixture entries load the preload,
+and outer namespaces preserve qualification metadata across `clearenv`.
 For the existing separate-UID identity supervisor, the guard transforms its
 concrete nested launcher. Tracing starts after the UID handoff and stays outside
 an inner native mount/PID view that hides the audit storage. Offline proof
 containers inherit hosted-runner qualification only from an actual hosted run,
 plus the exact checkout head for receipts when Git metadata is not mounted.
+Worker environments retain only known runtime paths/selectors and pinned
+synthetic inference credentials; unrelated keys and loader overrides are removed.
 No production authentication or managed-policy behavior changes.
 
 `tests/native-offline-boundary.test.ts` proves local refusal with harmless

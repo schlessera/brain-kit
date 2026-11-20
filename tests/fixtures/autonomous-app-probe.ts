@@ -1,3 +1,4 @@
+import "../../scripts/test-network-child-preload.ts";
 import { nativeScriptedService } from "../../scripts/test-native-guard.ts";
 /**
  * The whole app pipeline with an installed first-party runtime (#689 AC1 and
