@@ -579,8 +579,8 @@ These measure frame arrival, not presentation or paint. No host timestamp is
 subtracted from a client timestamp. Missing content boundaries are absent, not
 zero. A request without correlation, or a client disconnected during the turn,
 reports nothing; reconnect/history replay cannot reconstruct arrival evidence.
-The React client keeps at most 256 pending observations; evicting one only loses
-its measurement. A failed/lost report is never retried and never affects the turn.
+The React client caps pending request observations and turn-arrival correlations
+at 256 entries each; evicting one only loses its measurement. A failed/lost report is never retried and never affects the turn.
 
 Only `turnId` and `timing` are accepted; unknown envelope/timing fields and
 negative or non-finite values are refused. The host binds ownership to the
