@@ -167,6 +167,13 @@ export interface LocationFix {
   timestamp: number;
 }
 
+/** Host-owned causal view factory for an exact logical tool call. Never a grant. */
+export type InputSafetyAdmissionView = (
+  toolUseId: string,
+  toolName: string,
+  safety: import("./admission-safety.js").AdmissionSafety,
+) => import("./admission-safety.js").AdmissionSafety;
+
 /**
  * Host plumbing handed to the backend for one turn. `emit` delivers protocol
  * frames to the client; the request/response methods resolve when the user
@@ -186,6 +193,10 @@ export interface BackendBridge {
   /** @internal Host-owned versioned input collection. Await before executing a
    * tool and before returning its result to the provider. Never a grant. */
   inputSafety?: {
+    /** Host-only causal view for this exact logical call. Cache it per id/tool.
+     * Exclude only its own recorded input, never decisions, results, other
+     * calls, pending/lost evidence or trust/authority changes. Never a grant. */
+    forAdmission?: InputSafetyAdmissionView;
     ready(backendId: string, detectorVersion: number): Promise<void>;
     /** @internal Persist collector loss before refusing unqualified input. */
     unavailable?(): Promise<void>;

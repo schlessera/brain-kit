@@ -3,6 +3,7 @@ import type { BackendBridge } from "@schlessera/brain-ui-sdk/server";
 import type { Database } from "bun:sqlite";
 import { inputTaintSignals, outputTaintSignals, type IngestionSignal } from "../activity/ingestion-taint.js";
 import { isMarkedUntrusted } from "../files/untrusted-marks.js";
+import { createCausalAdmissionSafety } from "./causal-admission.js";
 import { occurrence } from "./occurrence.js";
 import type { GovernanceWrites } from "./event-writes.js";
 import { SafetyRecordingUnavailable } from "./safety-store.js";
@@ -17,7 +18,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
  // cannot be recorded faithfully. `owed`: its obligation is durable (#3812).
  // `refused`: the backend refused a call with this id, so nothing more for
  // that id is admitted or let run.
- type Operation={tool:string;inputHashes:Set<string>;id:string;occurrences:string[];done:boolean;admitted:boolean;signals:IngestionSignal[];outputHash?:string;owed:boolean;refused:boolean;uncertain:boolean};
+ type Operation={tool:string;inputHashes:Set<string>;id:string;occurrences:string[];inputOccurrences:string[];resultStarted:boolean;done:boolean;admitted:boolean;signals:IngestionSignal[];outputHash?:string;owed:boolean;refused:boolean;uncertain:boolean};
  const operations=new Map<string,Operation>();
  // What the backend reported about each id: how many times the runtime asked
  // to admit a call under it, for each tool name it came under, and whether
@@ -27,11 +28,12 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
  // collector discharges this turn's obligations; a restart gaps every open
  // obligation whatever these say. Two tool names already make the id
  // unprovable, so a third is not kept.
+ const views=new Map<string,{tool:string;root:import("@schlessera/brain-ui-sdk/internal").AdmissionSafety;view:import("@schlessera/brain-ui-sdk/internal").AdmissionSafety}>();
  const calls=new Map<string,{tools:Map<string,number>;allowed:boolean}>();
  // A refusal can prove the call never ran only for an id admitted once,
  // under one tool name, and never allowed.
  const once=(call:{tools:Map<string,number>;allowed:boolean}|undefined)=>!!call&&!call.allowed&&call.tools.size===1&&[...call.tools.values()][0]===1;
- const operation=(tool:string):Operation=>({tool,inputHashes:new Set<string>(),id:crypto.randomUUID(),occurrences:[],done:false,admitted:false,signals:[],owed:false,refused:false,uncertain:false});
+ const operation=(tool:string):Operation=>({tool,inputHashes:new Set<string>(),id:crypto.randomUUID(),occurrences:[],inputOccurrences:[],resultStarted:false,done:false,admitted:false,signals:[],owed:false,refused:false,uncertain:false});
  const base=()=>({turnId:options.turnId,sessionId:options.sessionId(),actor:options.actor??"interactive" as const,model:null,profile:null});
  const marked=(path:string)=>isMarkedUntrusted(db,path);
  const hash=(value:string)=>new Bun.CryptoHasher("sha256").update(value).digest("hex");
@@ -94,6 +96,18 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
   return fail(error);
  };
  return {
+  forAdmission(toolUseId,tool,root){
+   const cached=views.get(toolUseId);
+   if(cached){if(cached.tool!==tool||cached.root!==root)throw new Error("Causal admission identity changed");return cached.view;}
+   if(views.size>=2000)throw new Error("Causal admission capacity exceeded");
+   const view=createCausalAdmissionSafety(db,root,{turnId:options.turnId,sessionId:options.sessionId,writes,own:()=>{
+    const op=operations.get(toolUseId),call=calls.get(toolUseId);
+    const unique=!call||(call.tools.size===1&&call.tools.get(tool)===1);
+    const valid=unique&&(!op||(op.tool===tool&&!op.done&&!op.resultStarted&&!op.refused&&!op.uncertain));
+    return {valid,ids:valid&&op?op.inputOccurrences:[]};
+   }});
+   views.set(toolUseId,{tool,root,view});return view;
+  },
   async ready(backend,version){assertLive();await writes.safetyReady(options.turnId,backend,version);options.onReady?.();},
   async unavailable(){return fail(new Error("Input collection is not qualified for this runtime configuration"));},
   // Every call begin() admits owes its result's record from the moment its
@@ -119,6 +133,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
     for(const signal of inputTaintSignals(tool,input,options.brainPath,marked,options.shellProxied())){
      if(op.signals.some(prior=>prior.detector===signal.detector&&prior.key===signal.key))continue;
      const item=observed(toolUseId,signal.detector,op.id);
+     op.inputOccurrences.push(item.id);
      await writes.firstTaint({...base(),kind:"taint",payload:{source:signal.source,tool,detail:null,occurrence:item}},{beforeDelivery:true});
      op.occurrences.push(item.id);op.signals.push(signal);
     }
@@ -133,6 +148,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
   // tools, never a record; the turn's end waits for a record under way),
   // and any failure leaves its chat a permanent gap.
   result(toolUseId,tool,output,finalized,segments){
+   const started=operations.get(toolUseId);if(started)started.resultStarted=true;
    const reject=(error:unknown)=>rejectReadResult(toolUseId,tool,error);
    return recording(serial(toolUseId,async()=>{
    try{

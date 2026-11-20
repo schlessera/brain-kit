@@ -1,5 +1,5 @@
 /** Host-only per-use provenance retained across rewrite and lock waits. */
-import { commitOutwardPlan, prepareOutwardPlan, STALE_SAFETY_ADMISSION, type AdmissionSafetySnapshot } from "@schlessera/brain-ui-sdk/internal";
+import { commitOutwardPlan, prepareOutwardPlan, toolAdmissionSafety, STALE_SAFETY_ADMISSION, type AdmissionSafetySnapshot } from "@schlessera/brain-ui-sdk/internal";
 import type { BackendBridge } from "@schlessera/brain-ui-sdk/server";
 import type { TurnContext } from "./turn-context.js";
 
@@ -23,7 +23,7 @@ export function revalidatePiAdmission(turn: TurnContext, tool: string, id: strin
   const plan = prepareOutwardPlan({ toolName: tool, shellToolName: "bash", input, allow: turn.commandPolicy?.outwardAllow,
     taint: turn.commandPolicy?.taint, safety: turn.bridge?.admissionSafety, autonomous: !!turn.autonomous,
     voice: turn.posture === "voice", configurationRoot: turn.configurationRoot, maintenance: turn.maintenance });
-  const refused = commitOutwardPlan(plan, { bridge: turn.bridge, before: admitted.before, approved: admitted.approved, signal: turn.signal });
+  const refused = commitOutwardPlan(plan, { bridge: turn.bridge, safety:toolAdmissionSafety(turn.bridge,id,tool), before: admitted.before, approved: admitted.approved, signal: turn.signal });
   if (!refused && consume) state!.calls.delete(key(tool, id));
   return refused;
 }

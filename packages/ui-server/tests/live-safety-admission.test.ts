@@ -8,7 +8,7 @@ import { resolveGovernancePolicy } from "@schlessera/brain-common/internal/gover
 import type { BackendActivityEvent, BackendBridge, PermissionRequest } from "@schlessera/brain-ui-sdk/server";
 import { createPermissionWiring } from "../../ui-backend-claude/src/permission-hooks";
 import { MUTATING_TOOL_MATCHER } from "../../ui-backend-claude/src/tool-policy";
-import { decidePiToolPermission } from "../../ui-backend-pi/src/permission-gate";
+import { createPermissionGate, decidePiToolPermission } from "../../ui-backend-pi/src/permission-gate";
 import { createTurnContext } from "../../ui-backend-pi/src/turn-context";
 import { createBrainAccess } from "../../ui-backend-pi/src/brain-access";
 import { createBrainToolKit } from "../../ui-backend-pi/src/tool-kit";
@@ -44,7 +44,7 @@ import { retireChat, resolveChat } from "../src/ws/chat-lifecycle";
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture";
 import { createTurnJournal } from "../src/brain/turn-journal";
 
-async function fixture() {
+async function fixture(shellProxied = true) {
   const root = mkdtempSync(join(tmpdir(), "odysseus-live-safety-")), db = createUiDb(join(root, "ui.db"));
   const writer = openSqliteWriter(db), writes = createGovernanceWrites(db, writer), bindingId = crypto.randomUUID();
   const principal = createPrincipal(db, { authMethod: "password", label: "Odysseus", ttlSeconds: 3600 });
@@ -54,7 +54,7 @@ async function fixture() {
   safetyCatalogCreated(db, "ithaca", principal.id, "voyage"); await writes.bind("voyage", "ithaca");
   const controller = new AbortController();
   const collector = createSafetyCollector(db, writes, { turnId: "voyage", bindingId, sessionId: () => "ithaca", backendId: "claude",
-    signal: controller.signal, shellProxied: () => true, brainPath: root });
+    signal: controller.signal, shellProxied: () => shellProxied, brainPath: root });
   await collector.ready("claude", 1);
   const state = () => writes.safety("voyage", "ithaca");
   const actor = { principalId: principal.id, channel: "owner_history" as const };
@@ -85,7 +85,7 @@ const command = "git push https://github.com/odysseus/voyage.git main";
 const allow = [{ command: "^git push ", remotes: ["github.com/odysseus/*"], index: 0 }];
 type Binding = "claude-hook" | "claude-callback" | "pi";
 async function execute(f: Fixture, binding: Binding, options: {
-  phase?: "approval" | "input" | "index" | "lock"; interleave?: () => Promise<unknown>; explicit?: boolean;
+  phase?: "approval" | "input" | "index" | "lock" | "allowed"; interleave?: () => Promise<unknown>; explicit?: boolean;
 }) {
   let interleaved = false;
   const pause = async (phase: typeof options.phase) => {
@@ -95,16 +95,18 @@ async function execute(f: Fixture, binding: Binding, options: {
   const bridge: BackendBridge = { emit() {}, admissionSafety: f.safety, activity: e => { events.push(e); },
     async requestPermission(req) { requests.push(req); await pause("approval"); return { behavior: "allow" }; },
     async awaitIndex() { await pause("index"); },
-    inputSafety: { ...f.collector, async begin(id, tool, input) { await f.collector.begin(id, tool, input); await pause("input"); } } };
+    inputSafety: { ...f.collector, async begin(id, tool, input) { await f.collector.begin(id, tool, input); await pause("input"); }, async allowed(id) {await f.collector.allowed!(id);await pause("allowed");} } };
   const policy = { hash: null, deny: [], confirm: options.phase === "approval" && binding === "claude-hook" && !options.explicit
     ? [{ pattern: "^git push ", reason: "Review this command", index: 0 }] : [], outwardAllow: options.explicit ? [] : allow,
     taint: () => f.writes.taint("voyage", "ithaca") };
   const id = crypto.randomUUID(), input = { command };
   let allowed = false;
   if (binding === "pi") {
-    const decision = await decidePiToolPermission({ turn: { ...createTurnContext(), bridge, signal: f.controller.signal, commandPolicy: policy },
-      allowedTools: new Set(options.phase === "approval" && !options.explicit ? [] : ["bash"]), confirmPatterns: [] }, "bash", input, id);
-    allowed = decision.behavior === "allow";
+    const turn={...createTurnContext(),bridge,signal:f.controller.signal,commandPolicy:policy};
+    const gate=createPermissionGate({turn,allowedTools:new Set(options.phase==="approval"&&!options.explicit?[]:["bash"]),confirmPatterns:[]});
+    let handler:((event:unknown)=>Promise<{block?:boolean}|undefined>)|undefined;
+    (typeof gate==='function'?gate:gate.factory)({on:(name:string,callback:unknown)=>{if(name==='tool_call')handler=callback as typeof handler;}} as never);
+    allowed=!(await handler!({toolName:'bash',toolCallId:id,input}))?.block;
   } else {
     const wiring = createPermissionWiring({ req: { prompt: "Return to Ithaca", bridge, signal: f.controller.signal,
       workerSandbox: { brain: f.root, profile: "governed", commandPolicy: policy } as never }, allowedTools: ["Bash"], confirmPatterns: [], brainPath: f.root,
@@ -131,7 +133,7 @@ async function execute(f: Fixture, binding: Binding, options: {
 }
 
 for (const mode of ["in-process-lock", "rpc-lock", "rpc-final"] as const) for (const explicit of [false, true]) {
-  test(`Pi ${mode}: final post-permission admission preserves ${explicit ? "per-use approval" : "standing-rule restrictions"}`, async () => {
+  test(`Pi ${mode}: final post-permission admission fences ${explicit ? "per-use approval" : "standing authority"} after independent evidence`, async () => {
     const f = await fixture(), bin = join(f.root, "bin"), marker = join(f.root, "effect"); mkdirSync(bin);
     writeFileSync(join(bin, "git"), `#!/bin/sh\nprintf 'Ithaca\\n' >> '${marker}'\n`, { mode: 0o755 });
     const saved = Object.getOwnPropertyDescriptor(process.env, "PATH"); process.env.PATH = `${bin}:/usr/bin:/bin`;
@@ -163,8 +165,8 @@ for (const mode of ["in-process-lock", "rpc-lock", "rpc-final"] as const) for (c
         } catch (error) { refused = error; }
         for (const release of context.releases.values()) release();
       }
-      expect(existsSync(marker), "LIVE_PI_POST_GATE_WAITS_REVALIDATE_BEFORE_PROCESS_EFFECT").toBe(explicit);
-      if (explicit) expect(refused).toBeUndefined(); else expect(String(refused)).toContain("Safety or authority changed");
+      expect(existsSync(marker), "LIVE_PI_POST_GATE_WAITS_REVALIDATE_BEFORE_PROCESS_EFFECT").toBe(false);
+      expect(String(refused)).toContain("Safety or authority changed");
     } finally {
       if (saved) Object.defineProperty(process.env, "PATH", saved); else delete process.env.PATH;
       await f.close();
@@ -209,11 +211,11 @@ for (const binding of ["claude-hook", "claude-callback", "pi"] as const) {
       expect(result.executed, "LIVE_APPROVAL_WAITS_RECHECK_REVISION_AND_AUTHORITY").toBe(false);
     } finally { await f.close(); }
   });
-  test(`${binding}: a completed explicit outward approval stays distinct from a removed standing rule`, async () => {
+  test(`${binding}: a completed explicit outward approval expires when trust changes`, async () => {
     const f = await fixture(); try {
       const result = await execute(f, binding, { explicit: true, phase: "input", interleave: async () => { f.remove(); } });
-      expect(result.executed, "LIVE_COMPLETED_PER_USE_IS_NOT_STANDING_AUTHORITY").toBe(true);
-      expect(result.events.find(e => e.kind === "outward_action")).toMatchObject({ payload: { decision: "approved", rule: null } });
+      expect(result.executed, "LIVE_COMPLETED_PER_USE_RECHECKS_TRUST_REVISION").toBe(false);
+      expect(result.events.find(e => e.kind === "outward_action")).toMatchObject({ payload: { decision: "refused", rule: null } });
     } finally { await f.close(); }
   });
   test(`${binding}: another facade's recorder loss during the last input wait fences dispatch`, async () => {
@@ -619,4 +621,65 @@ test("withdrawal receipt storage failure explicitly terminates and stops the bac
   } finally {
     host.close(); await run; origin.stop(true); await f.close();
   }
+});
+
+for(const binding of ['claude-hook','claude-callback','pi'] as const)test(`${binding}: an independent trigger during post-card input collection invalidates the card`,async()=>{
+ const f=await fixture();try{
+  const result=await execute(f,binding,{explicit:true,phase:'input',interleave:()=>f.add('independent_post_card')});
+  expect(result.interleaved,'POST_CARD_REPRO_REACHES_REAL_INPUT_WAIT').toBe(true);
+  expect(result.requests.some(r=>r.kind==='command'),'POST_CARD_REPRO_OBTAINS_EXACT_OUTWARD_APPROVAL').toBe(true);
+  expect(result.executed,'POST_CARD_INDEPENDENT_TRIGGER_CANNOT_REUSE_APPROVAL').toBe(false);
+ }finally{await f.close();}
+});
+
+for(const binding of ['claude-hook','claude-callback','pi'] as const)test(`${binding}: an approved call survives only its own unproxied input collection`,async()=>{
+ const f=await fixture(false);try{
+  const before=f.safety.read();
+  const result=await execute(f,binding,{explicit:true});
+  expect(f.safety.read().evidenceRevision).not.toBe(before.evidenceRevision);
+  expect(result.executed,'EXACT_OWN_INPUT_DOES_NOT_INVALIDATE_ITS_APPROVAL').toBe(true);
+ }finally{await f.close();}
+});
+
+for(const binding of ['claude-hook','claude-callback','pi'] as const)test(`${binding}: trust changes during post-card input collection invalidate the card`,async()=>{
+ const f=await fixture();try{
+  const result=await execute(f,binding,{explicit:true,phase:'input',interleave:async()=>f.remove()});
+  expect(result.interleaved).toBe(true);expect(result.executed,'POST_CARD_TRUST_CHANGE_CANNOT_REUSE_APPROVAL').toBe(false);
+ }finally{await f.close();}
+});
+for(const binding of ['claude-callback','pi'] as const)for(const change of ['healthy','evidence','trust'] as const)test(`${binding}: final allowed wait fences ${change}`,async()=>{
+ const f=await fixture(false);try{
+  const result=await execute(f,binding,{explicit:true,phase:'allowed',interleave:async()=>{if(change==='evidence')await f.add('post_allowed');if(change==='trust')f.remove();}});
+  expect(result.interleaved,'FINAL_ALLOWANCE_WAIT_IS_REACHED').toBe(true);
+  expect(result.executed,'FINAL_ALLOWANCE_WAIT_CANNOT_DISPATCH_STALE_AUTHORITY').toBe(change==='healthy');
+ }finally{await f.close();}
+});
+
+for(const binding of ['claude-hook','claude-callback','pi'] as const)test(`${binding}: another call with identical input cannot borrow the own-input exclusion`,async()=>{
+ const f=await fixture(false);try{
+  const result=await execute(f,binding,{explicit:true,phase:'input',interleave:()=>f.collector.begin('independent_identical',binding==='pi'?'bash':'Bash',{command})});
+  expect(result.interleaved).toBe(true);
+  expect(result.executed,'IDENTICAL_INPUT_UNDER_ANOTHER_ID_IS_INDEPENDENT_EVIDENCE').toBe(false);
+ }finally{await f.close();}
+});
+for(const binding of ['claude-hook','claude-callback','pi'] as const)test(`${binding}: a refused review of unfinalized own input creates no evidence change`,async()=>{
+ const f=await fixture(false);try{
+  const result=await execute(f,binding,{explicit:true,phase:'input',interleave:async()=>{
+   const id=safetyRecords(f.db,'ithaca').filter(record=>record.kind==='occurrence').at(-1)!.id;
+   expect(await f.review(id)).toMatchObject({stage:"refused",reason:"not_finalized"});
+  }});
+  expect(result.interleaved).toBe(true);
+  expect(f.db.query('SELECT COUNT(*) n FROM safety_decisions').get()).toEqual({n:0});
+  expect(result.executed,'REFUSED_REVIEW_CREATES_NO_INDEPENDENT_REVISION').toBe(true);
+ }finally{await f.close();}
+});
+
+for(const binding of ['claude-hook','claude-callback','pi'] as const)test(`${binding}: a committed review during the input wait invalidates prior approval`,async()=>{
+ const f=await fixture(false);try{
+  const reviewed=await f.add('reviewed_before_card');
+  const result=await execute(f,binding,{explicit:true,phase:'input',interleave:async()=>{
+   expect(await f.review(reviewed),'REVIEW_PREMISE_IS_ACTUALLY_COMMITTED').toMatchObject({stage:'verdict_committed'});
+  }});
+  expect(result.executed,'REVIEW_DECISIONS_REMAIN_IN_THE_CAUSAL_VIEW').toBe(false);
+ }finally{await f.close();}
 });

@@ -1,6 +1,7 @@
 export type {
   AgentBackend,
   BackendBridge,
+  InputSafetyAdmissionView,
   BackendActivityEvent,
   ActivityQuery,
   ActivityQueryResult,

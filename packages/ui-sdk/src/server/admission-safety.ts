@@ -37,3 +37,18 @@ export function safetySnapshotRefusal(now: AdmissionSafetySnapshot | undefined, 
     (now.scope !== before.scope || now.policyHash !== before.policyHash || now.authorityEpoch !== before.authorityEpoch))) return STALE_SAFETY_ADMISSION;
   return null;
 }
+
+/** The concrete host owns exclusions. A backend cannot invent one. */
+export function toolAdmissionSafety(bridge: import("./backend.js").BackendBridge | null | undefined, toolUseId: string, toolName: string): AdmissionSafety | undefined {
+  const root=bridge?.admissionSafety;
+  return root&&bridge?.inputSafety?.forAdmission?bridge.inputSafety.forAdmission(toolUseId,toolName,root):root;
+}
+
+/** Strict outward fence after the last host wait; own input is excluded only by the host view. */
+export function outwardAdmissionRefusal(safety: AdmissionSafety | undefined,before?: AdmissionSafetySnapshot): string | null {
+  if(!safety)return null;
+  try {
+    const now=safety.read(),unavailable=safetySnapshotRefusal(now,before);
+    return unavailable??(before&&(now.evidenceRevision!==before.evidenceRevision||now.trustRevision!==before.trustRevision)?STALE_SAFETY_ADMISSION:null);
+  }catch{return STALE_SAFETY_ADMISSION;}
+}

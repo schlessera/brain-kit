@@ -5952,3 +5952,23 @@ for every interactive session, so a new session's retained append contains
 the bullet. A session retained earlier keeps its append byte for byte. The
 same-commit API report records the additive types. See
 [the MCP component](mcp.md#raw-connections-to-githubs-api-0450-3799).
+
+
+## Causal tool admission view (additive, 0.45.0, #4271)
+
+`BackendBridge.inputSafety` accepts an optional `forAdmission` callback of
+exported type `InputSafetyAdmissionView` in `@schlessera/brain-ui-sdk/server`.
+It takes the exact tool-use ID, tool name and root admission safety facade,
+and returns a host-owned live facade. Backends cache that exact facade through
+approval, input collection, rewrite and lock waits, then compare evidence and
+trust revisions again in the final dispatch continuation.
+
+The host excludes only immutable input occurrences recorded for that exact
+logical call. Independent occurrences, results, decisions, collection/binding
+changes, pending or lost evidence, trust revisions and authority changes remain
+visible. Reused, completed, refused or ambiguous identities cannot acquire an
+exclusion. This is neither permission nor an outward-authority exemption.
+Without the callback the backend uses the unfiltered root facade, preserving
+strict revision checks and granting no exclusion. Provider tool definitions,
+prompts and earlier conversation bytes are unchanged. The same-commit API
+report records the additive callback type.

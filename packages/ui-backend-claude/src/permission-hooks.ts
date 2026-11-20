@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { relative, resolve } from "node:path";
 import { createWorkerFileObserver, NativeFileVersions, WORKER_AREA_ROOT, type ObservedWorkerFile } from "@schlessera/brain-ui-sdk/internal";
 import type { HookCallback, Options, PermissionResult } from "@anthropic-ai/claude-agent-sdk";
-import { type AdmissionSafetySnapshot, type CompiledWorkerCommandPolicy, compileWorkerCommandPolicy, denyWorkerCommand, requestPolicyPermission, prepareOutwardPlan, commitOutwardPlan, safetyAdmissionRefusal, observeOutwardPlan, OUTWARD_VOICE_REFUSAL } from "@schlessera/brain-ui-sdk/internal";
+import { type AdmissionSafetySnapshot, type CompiledWorkerCommandPolicy, compileWorkerCommandPolicy, denyWorkerCommand, requestPolicyPermission, prepareOutwardPlan, commitOutwardPlan, safetyAdmissionRefusal, toolAdmissionSafety, outwardAdmissionRefusal, observeOutwardPlan, OUTWARD_VOICE_REFUSAL } from "@schlessera/brain-ui-sdk/internal";
 import type { StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
 import {
   checkEditedApproval,
@@ -364,7 +364,8 @@ export function canUseToolFor(ctx: PermissionContext): NonNullable<Options["canU
     // once the tool is actually approved.
     turnLock.releaseForTool(opts.toolUseID);
     const outwardPlan = outward(toolName, input);
-    const snapshot = req.bridge.admissionSafety?.read();
+    const safety=toolAdmissionSafety(req.bridge,opts.toolUseID,toolName);
+    const snapshot = safety?.read();
     if (outwardPlan.voiceRefusal) { observe(outwardPlan, toolName, input, opts.toolUseID, "refused"); return { behavior: "deny", message: OUTWARD_VOICE_REFUSAL }; }
     const shown = shownOutward.get(opts.toolUseID) === JSON.stringify(input);
     shownOutward.delete(opts.toolUseID);
@@ -429,7 +430,7 @@ export function canUseToolFor(ctx: PermissionContext): NonNullable<Options["canU
       if(!stale){try{await req.bridge.inputSafety?.begin(opts.toolUseID,toolName,effectiveInput);}catch(error){turnLock.releaseForTool(opts.toolUseID);return {behavior:"deny",message:error instanceof Error?error.message:"Safety recording unavailable"};}}
       if (stale) { turnLock.releaseForTool(opts.toolUseID); return { behavior: "deny", message: stale }; }
       const finalPlan = outward(toolName, effectiveInput);
-      const refusal = commitOutwardPlan(finalPlan, { bridge: req.bridge, before: snapshot,
+      const refusal = commitOutwardPlan(finalPlan, { bridge: req.bridge, safety, before: snapshot,
         approved: shown || outwardPlan.needsApproval && perUseDecision?.behavior === "allow", signal: req.signal });
       observe(finalPlan, toolName, effectiveInput, opts.toolUseID, refusal ? "refused" : decision);
       if (refusal) { turnLock.releaseForTool(opts.toolUseID); return { behavior: "deny", message: refusal }; }
@@ -492,7 +493,8 @@ export function mutatingHookFor(ctx: PermissionContext): HookCallback {
     // Asked BEFORE the lock is taken — a user deliberating for ten minutes
     // must not hold the write lock against every other session that whole time.
     const outwardPlan = outward(hookInput.tool_name, hookInput.tool_input);
-    const snapshot = req.bridge.admissionSafety?.read();
+    const safety=toolAdmissionSafety(req.bridge,hookInput.tool_use_id,hookInput.tool_name);
+    const snapshot = safety?.read();
     if (outwardPlan.voiceRefusal) {
       observe(outwardPlan, hookInput.tool_name, hookInput.tool_input, hookInput.tool_use_id, "refused");
       return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: OUTWARD_VOICE_REFUSAL } };
@@ -583,7 +585,7 @@ export function mutatingHookFor(ctx: PermissionContext): HookCallback {
     }
     const finalPlan = outward(hookInput.tool_name, finalInput);
     const approved = outwardPlan.needsApproval && approval?.kind === "command";
-    const refusal = commitOutwardPlan(finalPlan, { bridge: req.bridge, before: snapshot, approved, signal: req.signal });
+    const refusal = commitOutwardPlan(finalPlan, { bridge: req.bridge, safety, before: snapshot, approved, signal: req.signal });
     observe(finalPlan, hookInput.tool_name, finalInput, hookInput.tool_use_id, refusal ? "refused" : { behavior: "allow" });
     if (refusal) { turnLock.releaseForTool(hookInput.tool_use_id); return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: refusal } }; }
     if (approved) shownOutward.set(hookInput.tool_use_id, JSON.stringify(finalInput));
@@ -611,7 +613,8 @@ function createRewriteHooks(ctx: PermissionContext, options: PermissionWiringOpt
   // contain the foreground/RTK rewrite, so restrict that final form too: a
   // rewrite's auto-allow must not re-admit an already completed effect.
   const restrictRewrite = (hook: HookCallback, toolName: string): HookCallback => async (...args) => {
-    const snapshot = req.bridge.admissionSafety?.read();
+    const safety=args[0].hook_event_name==="PreToolUse"?toolAdmissionSafety(req.bridge,args[0].tool_use_id,toolName):req.bridge.admissionSafety;
+    const snapshot = safety?.read();
     const output = await hook(...args);
     const admissionRefusal = safetyAdmissionRefusal(req.bridge.admissionSafety);
     if (admissionRefusal) return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: admissionRefusal } };
@@ -633,7 +636,7 @@ function createRewriteHooks(ctx: PermissionContext, options: PermissionWiringOpt
       // Recording the rewritten input is another wait. Recompute its standing
       // authority afterwards; parallel hooks only checked the original input.
       const finalPlan = outward(toolName, output.hookSpecificOutput.updatedInput);
-      const finalRefusal = commitOutwardPlan(finalPlan, { bridge: req.bridge, before: snapshot, approved: false, signal: req.signal });
+      const finalRefusal = commitOutwardPlan(finalPlan, { bridge: req.bridge, safety, before: snapshot, approved: false, signal: req.signal });
       if (finalRefusal) return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: finalRefusal } };
     }
     return output;
@@ -667,7 +670,7 @@ export function createPermissionWiring(options: PermissionWiringOptions): Pick<O
   const { req, turnLock } = options;
   const { nativeRefusal, beginNativeRead, finishNativeFile } = createNativeFileGuards(options);
   const ctx = createPermissionContext(options, nativeRefusal);
-  const { enforced } = ctx;
+  const { enforced, outward } = ctx;
   const enforcementHook = enforcementHookFor(ctx);
   // Every deny this backend returns refuses the call's id at the collector,
   // so no later admission or allow under it succeeds. It is the backend's own
@@ -701,7 +704,10 @@ export function createPermissionWiring(options: PermissionWiringOptions): Pick<O
   // collector checks and notes it first, so no later deny under the id
   // proves the call never ran; one it can no longer let run is denied
   // instead.
+  const callbackAdmissions=new Map<string,number>();
   const canUseTool: typeof decideToolUse = async (toolName, input, opts) => {
+    admit(opts.toolUseID,toolName,callbackAdmissions);
+    const safety=toolAdmissionSafety(req.bridge,opts.toolUseID,toolName),before=safety?.read();
     const result = await decideToolUse(toolName, input, opts);
     if (result?.behavior === "deny") await refuse(opts.toolUseID);
     else if (result?.behavior === "allow" && req.bridge.inputSafety?.allowed) {
@@ -711,6 +717,10 @@ export function createPermissionWiring(options: PermissionWiringOptions): Pick<O
         await refuse(opts.toolUseID);
         return { behavior: "deny", message: error instanceof Error ? error.message : "Safety recording refused this call." };
       }
+    }
+    if(result?.behavior==="allow"&&outward(toolName,result.updatedInput??input).classification.actions.length){
+      const stale=outwardAdmissionRefusal(safety,before);
+      if(stale){turnLock.releaseForTool(opts.toolUseID);await refuse(opts.toolUseID);return {behavior:"deny",message:stale};}
     }
     return result;
   };
@@ -727,17 +737,20 @@ export function createPermissionWiring(options: PermissionWiringOptions): Pick<O
     return output;
   }; };
   async function fenced(hook: HookCallback, args: Parameters<HookCallback>): Promise<Awaited<ReturnType<HookCallback>>> {
+    const safety=args[0].hook_event_name==="PreToolUse"?toolAdmissionSafety(req.bridge,args[0].tool_use_id,args[0].tool_name):req.bridge.admissionSafety;
     let snapshot: AdmissionSafetySnapshot | undefined;
     let output: Awaited<ReturnType<HookCallback>>;
     try {
-      snapshot = req.bridge.admissionSafety?.read();
+      snapshot = safety?.read();
       output = await hook(...args);
     } catch (error) {
       if (args[0].hook_event_name === "PreToolUse") turnLock.releaseForTool(args[0].tool_use_id);
       return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny",
         permissionDecisionReason: error instanceof Error ? error.message : "Host tool admission is unavailable." } };
     }
-    const refusal = safetyAdmissionRefusal(req.bridge.admissionSafety, snapshot)
+    const outwardInput="hookSpecificOutput" in output&&output.hookSpecificOutput?.hookEventName==="PreToolUse"?output.hookSpecificOutput.updatedInput:undefined;
+    const refusal = safetyAdmissionRefusal(safety, snapshot)
+      ?? (args[0].hook_event_name==="PreToolUse"&&outward(args[0].tool_name,outwardInput??args[0].tool_input).classification.actions.length?outwardAdmissionRefusal(safety,snapshot):null)
       ?? (req.signal.aborted || args[2].signal.aborted ? "Turn cancelled before tool admission." : null);
     if (refusal) {
       if (args[0].hook_event_name === "PreToolUse") turnLock.releaseForTool(args[0].tool_use_id);

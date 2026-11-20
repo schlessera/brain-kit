@@ -45,11 +45,11 @@ import {
   isCompletedAutonomousToolCall,
 } from "@schlessera/brain-ui-sdk/server";
 
-import { compileWorkerCommandPolicy, denyWorkerCommand, requestPolicyPermission, prepareOutwardPlan, commitOutwardPlan, safetyAdmissionRefusal, observeOutwardPlan, OUTWARD_VOICE_REFUSAL } from "@schlessera/brain-ui-sdk/internal";
+import { compileWorkerCommandPolicy, denyWorkerCommand, requestPolicyPermission, prepareOutwardPlan, commitOutwardPlan, safetyAdmissionRefusal, toolAdmissionSafety, observeOutwardPlan, OUTWARD_VOICE_REFUSAL } from "@schlessera/brain-ui-sdk/internal";
 import type { PermissionDecision } from "@schlessera/brain-ui-sdk/server";
 import type { TurnContext } from "./turn-context.js";
 import { PI_BRAIN_UPDATE_TOOL_NAME } from "./tools.js";
-import { rememberPiAdmission } from "./tool-admission.js";
+import { rememberPiAdmission, revalidatePiAdmission } from "./tool-admission.js";
 
 export interface PermissionGateOptions {
   /** The session's turn holder — the gate reads the CURRENT turn's bridge. */
@@ -129,6 +129,9 @@ export function createPermissionGate(options: PermissionGateOptions): InlineExte
           await safety?.refused?.(event.toolCallId, true);
           return { block: true, reason: error instanceof Error ? error.message : "Safety recording refused this call." };
         }
+        const visible=prepareOutwardPlan({toolName:event.toolName,shellToolName:"bash",input:event.input,autonomous:!!turn.autonomous}).classification.actions.length>0;
+        const stale=visible?revalidatePiAdmission(turn,event.toolName,event.toolCallId,event.input??{}):null;
+        if(stale){await safety?.refused?.(event.toolCallId,true);return {block:true,reason:stale};}
         return answer;
       });
       async function admit(event: ToolCallEvent): Promise<ToolCallEventResult | undefined> {
@@ -178,7 +181,8 @@ export async function decidePiToolPermission(options: PermissionGateOptions, too
   if (denied) { observeOutwardPlan(prepareOutwardPlan({ toolName, shellToolName: "bash", input, taint: turn.commandPolicy?.taint, autonomous: Boolean(turn.autonomous) }), { bridge: turn.bridge, toolName, input, toolUseId, decision: "refused" }); return { behavior: "deny", message: denied }; }
   if (turn.signal?.aborted) return { behavior: "deny", message: "Turn cancelled before tool admission." };
   const outwardPlan = outward(input);
-  const snapshot = turn.bridge?.admissionSafety?.read();
+  const safety=toolAdmissionSafety(turn.bridge,toolUseId,toolName);
+  const snapshot = safety?.read();
   let outwardApproved = false;
   const confirmPatterns = [...options.confirmPatterns, ...policy.confirm, ...(outwardPlan.pattern ? [outwardPlan.pattern] : [])];
   if (outwardPlan.voiceRefusal) { observe(input, "refused"); return { behavior: "deny", message: OUTWARD_VOICE_REFUSAL }; }
@@ -222,7 +226,7 @@ export async function decidePiToolPermission(options: PermissionGateOptions, too
   try{await turn.bridge?.inputSafety?.begin(toolUseId,toolName,effective);}
   catch(error){return {behavior:"deny",message:error instanceof Error?error.message:"Safety collection unavailable"};}
   const finalPlan = outward(effective);
-  const stale = commitOutwardPlan(finalPlan, { bridge: turn.bridge, before: snapshot, approved: outwardApproved, signal: turn.signal });
+  const stale = commitOutwardPlan(finalPlan, { bridge: turn.bridge, safety, before: snapshot, approved: outwardApproved, signal: turn.signal });
   observeOutwardPlan(finalPlan, { bridge: turn.bridge, toolName, input: effective, toolUseId, decision: stale ? "refused" : { behavior: "allow" } });
   if (stale) return { behavior: "deny", message: stale };
   rememberPiAdmission(turn, toolName, toolUseId, effective, snapshot, outwardApproved);
