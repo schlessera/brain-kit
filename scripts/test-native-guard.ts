@@ -10,6 +10,7 @@ const ROOT = resolve(import.meta.dir, "..");
 const SYSTEM = ["/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32"];
 const within = (root: string, path: string) => path === root || path.startsWith(`${root}/`);
 let qualified = false;
+let bwrapExecutable = "bwrap", straceExecutable = "strace";
 let denied = 0, reported = 0;
 export function nativeIsolationFailed(): boolean { return denied > 0; }
 export function assertNoNativeRefusals(): void {
@@ -132,6 +133,8 @@ function qualify(): void {
     { env: {}, stdout: "pipe", stderr: "pipe", timeout: 5000 }); }
   catch { refuse("native connection audit setup failed"); }
   if (trace.exitCode !== 0) refuse("native connection audit setup failed");
+  bwrapExecutable = Bun.which("bwrap") ?? refuse("OS namespace setup failed");
+  straceExecutable = Bun.which("strace") ?? refuse("native connection audit setup failed");
   qualified = true;
 }
 
@@ -189,7 +192,7 @@ export function auditNativeLaunch(argv: string[], expected: readonly string[], c
       return receipt;
     } finally { cleanup(); rmSync(directory, { recursive: true, force: true }); }
   };
-  return { argv: ["strace", "-f", "-qq", "-s", "0", "-e", "trace=connect,execve", "-e", "raw=connect", "-o", log, "--", ...argv],
+  return { argv: [straceExecutable, "-f", "-qq", "-s", "0", "-e", "trace=connect,execve", "-e", "raw=connect", "-o", log, "--", ...argv],
     dispose() { finish(); }, receipt: finish };
 }
 
@@ -203,8 +206,8 @@ export function startNativeTestRelay(upstream: string | undefined) {
   const directory = mkdtempSync(join(tmpdir(), "odysseus-native-relay-"));
   const socket = join(directory, "relay.sock");
   const uid = process.getuid?.() ?? 0, gid = process.getgid?.() ?? 0;
-  writeFileSync(join(directory, "passwd"), `odysseus:x:${uid}:${gid}:Odysseus:/tmp/native-account:/bin/sh\n`);
-  writeFileSync(join(directory, "group"), `odysseus:x:${gid}:\n`);
+  writeFileSync(join(directory, "passwd"), `${uid === 0 ? "" : "root:x:0:0:Odysseus:/tmp/native-account:/bin/sh\n"}odysseus:x:${uid}:${gid}:Odysseus:/tmp/native-account:/bin/sh\n`);
+  writeFileSync(join(directory, "group"), `${gid === 0 ? "" : "root:x:0:\n"}odysseus:x:${gid}:\n`);
   const handle = async (request: Request): Promise<Response> => {
     const url = new URL(request.url);
     // Concatenate onto the fixed authority; never resolve a request-controlled
@@ -225,6 +228,11 @@ export function startNativeTestRelay(upstream: string | undefined) {
   return { directory, handle, dispose() { server.stop(true); rmSync(directory, { recursive: true, force: true }); } };
 }
 
+function expectedNativeExec(command: string, args: readonly string[], options: SpawnContext): string[] {
+  const native = [command, ...args].filter(value => isNativeClaude(value, [], options));
+  return [...new Set((native.length ? native : [command]).flatMap(value => [resolve(options.cwd ?? process.cwd(), value), resolveExecutable(value, options)]))];
+}
+
 /** Direct SDK launch: empty filesystem, fresh PID/network namespaces, one IPC. */
 export function nativeClaudeBoundary(command: string, args: string[], options: { cwd?: string; env?: Record<string, string | undefined>; managedSettings?: string }): Boundary {
   qualify();
@@ -243,7 +251,7 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
   try {
     command = resolveExecutable(command, options);
     const executable = realpathSync(command);
-    const argv = ["bwrap", "--unshare-all", "--die-with-parent", "--new-session", "--cap-drop", "ALL", ...systemMounts(),
+    const argv = [bwrapExecutable, "--unshare-all", "--die-with-parent", "--new-session", "--cap-drop", "ALL", ...systemMounts(),
       "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", ...testRuntimeMounts(),
       "--ro-bind", executable, command, "--ro-bind", process.execPath, process.execPath, "--bind", home, home,
       ...(cwd === ROOT || within(ROOT, cwd) || within(home, cwd) ? [] : ["--bind", cwd, cwd]),
@@ -267,9 +275,14 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
       childEnv.CLAUDE_CODE_OAUTH_TOKEN = env.CLAUDE_CODE_OAUTH_TOKEN!;
     }
     if (inheritedOrigin) Object.assign(childEnv, relayCredentialPlaceholders(env));
+    if (args.some((value, index) => value === "auth" && args[index + 1] === "status")) {
+      // Auth status inspects the isolated fixture login; injecting an API key
+      // would change the very authentication method the fixture is testing.
+      for (const key of ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"]) delete childEnv[key];
+    }
     for (const [key, value] of Object.entries(childEnv)) argv.push("--setenv", key, value);
     argv.push("--chdir", cwd, "--", command, ...args);
-    const audited = auditNativeLaunch(argv, [command], () => { bridge.dispose(); if (versionHome) rmSync(versionHome, { recursive: true, force: true }); });
+    const audited = auditNativeLaunch(argv, expectedNativeExec(command, args, options), () => { bridge.dispose(); if (versionHome) rmSync(versionHome, { recursive: true, force: true }); });
     return { ...audited, env: {} };
   } catch (error) { bridge.dispose(); if (versionHome) rmSync(versionHome, { recursive: true, force: true }); throw error; }
 }
@@ -413,7 +426,7 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
     argv.splice(separator, 0, "--ro-bind", bridge.directory, "/tmp/native-relay",
       "--ro-bind", join(bridge.directory, "passwd"), "/etc/passwd", "--ro-bind", join(bridge.directory, "group"), "/etc/group",
       ...Object.entries(pinned).flatMap(([key, value]) => ["--setenv", key, value]));
-    const audited = auditNativeLaunch(argv, launch.command.filter(value => isNativeClaude(value, [], { cwd: launch.brainPath, env: launch.env })).map(value => resolveExecutable(value, { cwd: launch.brainPath, env: launch.env })), bridge.dispose);
+    const audited = auditNativeLaunch(argv, expectedNativeExec(launch.command[0], launch.command.slice(1), { cwd: launch.brainPath, env: launch.env }), bridge.dispose);
     launch.argv = audited.argv;
     return { env: { ...env, BRAIN_WORKER_LAUNCH: JSON.stringify(launch) }, dispose: audited.dispose };
   } catch (error) { bridge.dispose(); throw error; }

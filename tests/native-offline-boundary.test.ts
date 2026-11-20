@@ -140,6 +140,28 @@ test("cleanup cannot claim native exec from an empty or launcher-only trace", as
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 });
 
+test("wrapper exec and auth inspection cannot fabricate native launch or injected credentials", async () => {
+  const scratch = mkdtempSync(join(tmpdir(), "odysseus-wrapper-audit-"));
+  try {
+    const result = await probe(`${imports}
+      import {writeFileSync} from "node:fs";
+      const spawnSync=Bun.spawnSync,which=Bun.which;
+      Bun.spawnSync=((argv,options)=>["bwrap","strace"].includes(argv[0])?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
+      Bun.which=((command,options)=>command==="strace"?"/synthetic/strace":which(command,options));
+      process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";
+      const boundary=nativeClaudeBoundary("/usr/bin/unshare",["--user",${JSON.stringify(runtime)},"auth","status","--json"],
+        {cwd:${JSON.stringify(scratch)},env:{HOME:${JSON.stringify(scratch)},ANTHROPIC_BASE_URL:"http://127.0.0.1:1"}});
+      if(boundary.argv[0]!=="/synthetic/strace")throw Error("audit executable was not resolved");
+      const setup=boundary.argv.slice(0,boundary.argv.lastIndexOf("--"));
+      for(let i=0;i<setup.length;i++)if(setup[i]==="--setenv"&&["ANTHROPIC_API_KEY","ANTHROPIC_AUTH_TOKEN","CLAUDE_CODE_OAUTH_TOKEN"].includes(setup[i+1]))throw Error("auth inspection received a synthetic credential override");
+      writeFileSync(boundary.argv[boundary.argv.indexOf("-o")+1],'1 execve("/usr/bin/unshare", [], 0x1) = 0');
+      boundary.dispose();process.exit(0);`, scratch);
+    expect(result.code).not.toBe(0);
+    expect(result.output).toContain('"nativeLaunched":false,"success":false');
+    expect(result.output).toContain("native exec was not observed");
+  } finally { rmSync(scratch, { recursive: true, force: true }); }
+});
+
 test("an arbitrary same-user Unix relay is refused before namespace setup", async () => {
   const scratch = mkdtempSync(join(tmpdir(), "odysseus-unowned-relay-"));
   const socket = join(scratch, "relay.sock");
