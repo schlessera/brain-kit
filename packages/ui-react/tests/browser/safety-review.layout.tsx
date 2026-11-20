@@ -221,5 +221,5 @@ for(const width of [320,1280])for(const theme of ['light','dark'])for(const tunn
  await scene(width,theme);const records={...ui!.stores.safety.getState().records};
  for(const [id,r] of Object.entries(records))if(r.kind==='occurrence')records[id]={...r,admission:{trusted:true,ruleId:'ithaca-source',policyHash:'a'.repeat(64),trustRevision:'7',collectionRevision:'3'},provenance:tunnel?{kind:'tunnel_authority',authority:{host:'::1',port:443},verifiedBy:'host_proxy'}:{kind:'web_origin',origin:{scheme:'http',host:'::1',port:8080},verifiedBy:'host_transport'}};
  flushSync(()=>ui!.stores.safety.setState({records}));const indicator=[...host!.querySelectorAll<HTMLButtonElement>('[data-safety-indicator] button')].find(b=>b.getAttribute('aria-label')?.startsWith('Trusted at admission'))!;await userEvent.click(indicator);
- const expected=tunnel?'[::1]:443':'http://[::1]:8080';await expect.poll(()=>document.querySelector('[data-safety-details]')?.textContent,'IPV6_HISTORY_BRACKETS_THE_EXACT_AUTHORITY').toContain(expected);
+ const expected=tunnel?'[::1]:443':'http://[::1]:8080';await expect.poll(()=>document.querySelector('[data-safety-details]')?.textContent,{message:'IPV6_HISTORY_BRACKETS_THE_EXACT_AUTHORITY'}).toContain(expected);
 });
