@@ -383,7 +383,7 @@ in common; the host supplies what only it knows.
      live-admission rule requires at every last dispatch point (#3602).
 9. **Card need and posture.** A call that is not admitted needs a card. An
    interactive turn shows it. Voice cannot grant, so a needed card refuses
-   before it is shown, as GitHub writes do (`if (ctx.posture !== "interactive")`, `packages/ui-server/src/github/host.ts:484-487`);
+   before it is shown, as GitHub writes do (`if (ctx.posture !== "interactive")`, `packages/ui-server/src/github/host.ts:584-587`);
    a call standing admission already admitted, a session allowance included,
    runs in voice too (ruling 6). Autonomous turns refuse (§10).
 10. **Routing (G2).** A read or search sends model-chosen text to Google, and a
@@ -408,10 +408,10 @@ in common; the host supplies what only it knows.
     never retried. A timed-out write answers that it may have happened.
 13. **Provenance, then return.** A `content` result records `google_result`
     taint through the host's `untrusted` callback before it returns, as the
-    GitHub read tools do (`const githubTools = createGithubToolsHost`, `packages/ui-server/src/app.ts:810-817`):
+    GitHub read tools do (`const githubTools = createGithubToolsHost`, `packages/ui-server/src/app.ts:816-823`):
     a new member of the `taint` source enum (`taint: kind(1`, `packages/ui-server/src/governance/events.ts:223-233`),
     with the read tools listed in the ingestion detector manifest
-    (`hostRemotePages`, `packages/ui-server/src/activity/ingestion-taint.ts:137`).
+    (`hostRemotePages`, `packages/ui-server/src/activity/ingestion-taint.ts:138`).
     A failure to record it withholds the result. A `structured` result records
     no safety occurrence; the call's collector obligation is discharged with
     nothing to record. An audit line for every Google call goes to a separate
