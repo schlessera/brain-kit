@@ -13,6 +13,7 @@ test("hosted packing uses a separate calculated stage and preserves ordinary mai
   return answer({state:"complete",packed:1,garbage:{count:0,bytes:0}});
  });
  expect(calls[0]!.argv).toContain("--no-git");
+ expect(calls[0]!.discardGit,"ORDINARY_PASS_DISCARDS_GIT_SCAFFOLDING").toBe(true);
  expect(calls[0]!.packingAllowanceBytes,"GENERIC_STAGE_KEEPS_DEFAULT").toBeUndefined();
  expect(calls[1]!.publish).toBe(false);
  expect(calls[2],"PACKING_HAS_ITS_OWN_STAGE").toMatchObject({packingAllowanceBytes:416*1024**2,outputAreas:[".git"],credentials:false});

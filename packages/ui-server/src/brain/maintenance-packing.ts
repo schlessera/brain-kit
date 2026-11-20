@@ -8,7 +8,7 @@ export async function runHostedMaintenance(execution: BrainExecution, commandInd
   run: (execution: BrainExecution) => Promise<ExecutionResult>): Promise<ExecutionResult> {
   const prefix = execution.argv.slice(0, commandIndex);
   const json = !execution.argv.includes("--human");
-  const ordinary = await run({ ...execution, argv: [...execution.argv.filter(arg => arg !== "--human"), "--no-git", "--json"] });
+  const ordinary = await run({ ...execution, discardGit:true, argv: [...execution.argv.filter(arg => arg !== "--human"), "--no-git", "--json"] });
   let report: {step:string;result:string}[];
   try { report=JSON.parse(ordinary.stdout); if(!Array.isArray(report)||!report.some(row=>row.step==="git"))return ordinary; }
   catch {return ordinary;}

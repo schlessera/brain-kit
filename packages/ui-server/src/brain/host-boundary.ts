@@ -84,6 +84,8 @@ export interface BrainExecution {
   outputBytes?: number;
   /** @internal A consequence reader discards every worker output, including Git side effects. */
   publish?: false;
+  /** @internal Keep ordinary maintenance Git scaffolding out of live Git state. */
+  discardGit?: true;
   /** @internal Fixed host-selected publication areas, never supplied by a request. */
   outputAreas?: readonly string[];
   /** Existing host files the command may append to (a cron span sink). */
@@ -682,7 +684,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
               const result = await runMaintenanceWorker({ ...launch, startupView: outputs.view, output: outputs.output, ...(git ? { git } : {}), stdin: execution.stdin,
                 ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}), ...(execution.outputBytes ? { outputBytes: execution.outputBytes } : {}) },
               () => { execution.assertAuthorized?.(); execution.onExecute?.(); });
-              if (result.exitCode !== 0) outputs.discardGit();
+              if (result.exitCode !== 0 || execution.discardGit) outputs.discardGit();
               if (!result.killed && execution.publish !== false) {
                 execution.assertAuthorized?.();
                 if (execution.lock) await outputs.publishLocked(execution.lock.keyed);
@@ -789,7 +791,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       void worker.input(execution.stdin ?? "");
       let signalCode: string | null = null;
       const exited = worker.exited.then(async code => {
-        if (code !== 0) outputs!.discardGit();
+        if (code !== 0 || execution.discardGit) outputs!.discardGit();
         if (!signalCode && execution.publish !== false) {
           if (execution.lock) await outputs!.publishLocked(execution.lock.keyed);
           else await outputs!.publish();
