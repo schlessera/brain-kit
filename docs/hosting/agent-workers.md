@@ -937,7 +937,7 @@ A separate worker packs and publishes only `.git`. The generic
 `BRAIN_UI_OUTPUT_STAGING_BYTES` default and its other consumers are unchanged.
 
 The plan reads raw Git object sizes, including packed objects, and page-rounds
-`3 × sum(raw object bytes + 128 per object) + 16 MiB`. This covers both
+`3 × (sum(raw object bytes + 128 per object) + ref text bytes + 128 per ref) + 16 MiB`. This covers both
 non-destructive loose-object passes, indexes and auxiliary files with a safety
 margin while the old packs remain present. The dedicated stage adds another
 16 MiB for the frozen Git adapter and mount scaffolds. Its hard bound is the

@@ -160,12 +160,17 @@ export function gitPackingHeadroom(root: string): { availableBytes: number | nul
     if (!/^\d+$/.test(line)) throw new GitStorageError("Git packing size unavailable");
     raw += Number(line) + 128;
   }
-  const requiredBytes = Math.ceil((3 * raw + 16 * 1024 ** 2) / 4096) * 4096;
+  const refs = git(root, ["for-each-ref", "--format=%(objectname) %(refname)"]);
+  if (!refs.ok) throw new GitStorageError("Git packing ref size unavailable");
+  // Packed refs can dwarf object bytes when many long names share one object.
+  // Include their text plus room for one peeled object line per reference.
+  const refBytes = Buffer.byteLength(refs.stdout) + refs.stdout.split("\n").filter(Boolean).length * 128;
+  const requiredBytes = Math.ceil((3 * (raw + refBytes) + 16 * 1024 ** 2) / 4096) * 4096;
   if (!Number.isSafeInteger(requiredBytes)) throw new GitStorageError("Git packing size exceeds safe accounting");
   let availableBytes: number | null = null;
   try {
     const info = statfsSync(common.stdout, { bigint: true }), bytes = info.bavail * info.bsize;
     if (bytes >= 0n && bytes <= BigInt(Number.MAX_SAFE_INTEGER)) availableBytes = Number(bytes);
   } catch { /* Unknown capacity skips packing. */ }
-  return { availableBytes, requiredBytes: null, packingRequiredBytes: requiredBytes, reason: "Three times raw object bytes plus 128 bytes per object, plus 16 MiB fixed overhead; old packs coexist. No space is reserved by the CLI." };
+  return { availableBytes, requiredBytes: null, packingRequiredBytes: requiredBytes, reason: "Three times raw object bytes plus 128 bytes per object and ref text plus 128 bytes per ref, plus 16 MiB fixed overhead; old packs coexist. No space is reserved by the CLI." };
 }

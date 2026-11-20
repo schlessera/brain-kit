@@ -339,7 +339,8 @@ is null, `no_space`, `packing_headroom`, `not_a_git_worktree` or `git_maintenanc
 null, reason}`. Availability is a nullable live statfs observation of the Git
 common store. Additive in #4287/#4288: `headroom.packingRequiredBytes`
 is the conservative preflight need: page-rounded three times the sum of raw Git
-object sizes plus 128 bytes per object, plus 16 MiB. `requiredBytes` retains its
+object sizes plus 128 bytes per object, and ref text plus 128 bytes per ref,
+plus 16 MiB. `requiredBytes` retains its
 historical null value. Old/new packs coexist; the standalone CLI reserves no
 space. Unknown availability or availability below the conservative need refuses
 with `packing_headroom` before maintenance. Known zero retains `no_space`.
