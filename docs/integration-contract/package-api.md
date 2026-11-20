@@ -1042,11 +1042,13 @@ the operator's `BRAIN_UI_MODULE_GITHUB_WRITES` enables them for that repository,
 and `PATCH /repos/<r>/issues/<n>` with `{ state, state_reason? }`
 (`issue_state`). Every other request is refused before anything leaves the
 host, with `{ message, brain_relay_refusal }` and status 400, 403, 413, 429, 502
-or 503 (`unavailable` without the token). Request bodies are bounded at 1 MiB,
-responses at 16 MiB and calls at 500 per run. The response keeps GitHub's status,
+or 503 (`unavailable` without the token). A call beyond 8 in flight is refused with 503 `relay_busy` before anything is
+read. Request bodies are bounded at 1 MiB, responses at 16 MiB and calls at 500
+per run. The response keeps GitHub's status,
 body and `content-type`, `link`, `etag`, rate-limit and request-id headers. Each
 forwarded write is a `github_write` event on the job's Activity root span:
-`{ repository, operation, number, status }`. Neither setting reaches a job.
+`{ repository, operation, number, status }`, with `status: 0` when the request
+was sent but its answer was lost. Neither setting reaches a job.
 
 **Additive protected scratch retention (#1743).** The existing module helper
 `pruneScratch(root, now?, options?)` accepts optional

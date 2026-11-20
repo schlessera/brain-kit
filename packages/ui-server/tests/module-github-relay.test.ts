@@ -57,7 +57,12 @@ describe("module GitHub relay reads (#4259)", () => {
     const { call } = relay();
     const foreign = await call("GET", "/repos/sparta/barracks/issues");
     expect(foreign.status, "FOREIGN_REPOSITORY_REFUSED").toBe(403);
-    expect((await foreign.json()).brain_relay_refusal).toBe("repository_not_granted");
+    const refusal = await foreign.json();
+    expect(refusal.brain_relay_refusal).toBe("repository_not_granted");
+    expect(refusal.message, "NOT_GRANTED_NAMES_SETTING").toContain("BRAIN_UI_MODULE_REPOSITORIES");
+    const doubled = await call("GET", "/repos//sparta/barracks");
+    expect(doubled.status, "DOUBLE_SLASH_REFUSED").toBe(400);
+    expect((await doubled.json()).message, "INVALID_PATH_NAMES_SETTING").toContain("BRAIN_UI_MODULE_REPOSITORIES");
     expect((await call("GET", "/user")).status, "NON_REPOSITORY_PATH_REFUSED").toBe(403);
     const malformed = await call("GET", "/repos/ithaca/%E0/issues");
     expect(malformed.status, "MALFORMED_ESCAPE_REFUSED").toBe(400);
@@ -179,6 +184,17 @@ describe("module GitHub relay writes (#4259)", () => {
     const response = await fetch(`http://localhost${COMMENTS}`, { method: "POST", unix: started.socketPath, body: big } as RequestInit);
     expect(response.status, "CHUNKED_REQUEST_BOUNDED").toBe(413);
     expect(seen).toEqual([]);
+  });
+
+  test("a write whose upstream answer is lost is still recorded, with an unknown status", async () => {
+    const writes: ModuleGitHubWriteRecord[] = [];
+    const lost = startModuleGitHubRelay({ token: () => TOKEN, repositories: ["ithaca/watchtower"],
+      writes: parseModuleGitHubWrites("https://github.com/ithaca/watchtower#issue_comment").writes, observe: write => { writes.push(write); },
+      fetch: (async () => { throw new Error("connection reset after the request was sent"); }) as unknown as typeof fetch });
+    relays.push(lost);
+    const response = await fetch(`http://localhost${COMMENTS}`, { method: "POST", unix: lost.socketPath, body: JSON.stringify({ body: "Why closed?" }) } as RequestInit);
+    expect(response.status).toBe(502);
+    expect(writes, "LOST_WRITE_RECORDED").toEqual([{ repository: "ithaca/watchtower", operation: "issue_comment", number: 7, status: 0 }]);
   });
 
   test("the operator list parses only GitHub repositories and known operations", () => {

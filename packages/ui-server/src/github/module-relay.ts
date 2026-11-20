@@ -252,7 +252,7 @@ export function startModuleGitHubRelay(options: ModuleGitHubRelayOptions): Modul
     const url = new URL(request.url);
     const method = request.method.toUpperCase();
     const path = url.pathname;
-    if (path.split("/").some(part => part === "." || part === "..") || path.includes("//")) refuse(400, "invalid_path", "The relayed path is not a plain GitHub API path.");
+    if (path.split("/").some(part => part === "." || part === "..") || path.includes("//")) refuse(400, "invalid_path", "The relayed path is not a plain GitHub API path: reads are GET under a /repos/<owner>/<repo>/ granted through BRAIN_UI_MODULE_REPOSITORIES.");
     let body: string | undefined;
     let write: { repository: string; operation: ModuleGitHubWrite; number: number } | undefined;
     const repo = /^\/repos\/([^/]+)\/([^/]+)(\/.*)?$/.exec(path);
@@ -289,11 +289,18 @@ export function startModuleGitHubRelay(options: ModuleGitHubRelayOptions): Modul
     const token = options.token();
     if (!token) refuse(503, "unavailable", "The module GitHub relay has no credential: set BRAIN_UI_MODULE_GITHUB_TOKEN on the host.");
     if (++calls > maxCalls) refuse(429, "budget_exceeded", `This run made its ${maxCalls} relayed GitHub calls.`);
-    const upstream = await (options.fetch ?? fetch)(new URL(`${path}${url.search}`, origin), {
+    let upstream: Response;
+    try {
+      upstream = await (options.fetch ?? fetch)(new URL(`${path}${url.search}`, origin), {
       method, redirect: "manual", ...(body !== undefined ? { body } : {}),
       headers: { authorization: `Bearer ${token}`, accept: request.headers.get("accept")?.startsWith("application/vnd.github") ? request.headers.get("accept")! : "application/vnd.github+json",
         "x-github-api-version": "2022-11-28", "user-agent": "brain-ui-module", ...(body !== undefined ? { "content-type": "application/json" } : {}) },
     });
+    } catch (error) {
+      // GitHub may have performed a write whose answer was lost: it is recorded with an unknown status (0).
+      if (write) { try { options.observe?.({ ...write, repository: granted.get(write.repository)!, status: 0 }); } catch { /* Recording never fails the call. */ } }
+      throw error;
+    }
     // GitHub has answered: a write it may have performed is recorded now, whatever happens to its body.
     if (write) { try { options.observe?.({ ...write, repository: granted.get(write.repository)!, status: upstream.status }); } catch { /* Recording never fails the call. */ } }
     if (upstream.status >= 300 && upstream.status < 400) { await upstream.body?.cancel(); refuse(502, "redirect", "GitHub redirected; the relay never follows a redirect."); }
