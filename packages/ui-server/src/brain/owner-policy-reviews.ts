@@ -127,6 +127,16 @@ export function createOwnerPolicyReviews(options: OwnerPolicyReviewOptions) {
       if (!recorded) throw options.fail(404, "not_found", "No policy review is open for this request.");
       return recorded;
     },
+    /**
+     * Decline this owner's open reviews in this family and wait for them to
+     * settle: a newer review of the same source replaces them, so unanswered
+     * ones a closed panel can no longer show never reach the cap.
+     */
+    async supersede(principalId: string): Promise<void> {
+      const open = [...pending.values()].filter(entry => entry.principalId === principalId);
+      for (const entry of open) entry.answer(false);
+      await Promise.allSettled(open.map(entry => entry.done));
+    },
     /** Decline every open review: shutdown or test teardown. */
     close() { for (const entry of pending.values()) entry.answer(false); },
   };

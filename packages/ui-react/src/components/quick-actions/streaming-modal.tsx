@@ -98,7 +98,7 @@ export function StreamingPanel({
               }
               if (data.type === "done") {
                 finished = true;
-                setState(data.success ? "success" : "error");
+                setState(data.success ? "success" : data.reason === "policy_review" ? "waiting" : "error");
               }
             } catch {}
           }

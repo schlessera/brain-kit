@@ -154,6 +154,22 @@ describe("a sync's incoming policy change (#4256)", () => {
     expect(launched()).toBe(2);
   });
 
+  test("unanswered reviews never fill the cap: each sync's review replaces the owner's older one", async () => {
+    const root = brain();
+    const { as } = setup(root);
+    const reviews: Record<string, unknown>[] = [];
+    for (let i = 0; i < 6; i++) {
+      const all = await frames(await as(owner).request("/api/brain/sync", { method: "POST" }));
+      const review = all.find(frame => frame.type === "policy_review");
+      expect(review, `SYNC_${i}_REVIEWS_AGAIN: ${JSON.stringify(all.at(-1))}`).toBeDefined();
+      reviews.push(review!);
+    }
+    // The superseded reviews were declined: answering one now returns its recorded receipt and writes nothing.
+    expect((await (await decide(as(owner), reviews[0]!, true)).json()).state, "SUPERSEDED_REVIEW_DECLINED").toBe("declined");
+    expect(readFileSync(join(root, "context/policies/governance.md"), "utf8")).toBe(CURRENT);
+    expect((await (await decide(as(owner), reviews.at(-1)!, true)).json()).state, "CURRENT_REVIEW_APPROVES").toBe("updated");
+  });
+
   test("another principal or an unknown review is refused, and nothing is written", async () => {
     const root = brain();
     const { as, family } = setup(root);

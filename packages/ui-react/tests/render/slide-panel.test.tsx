@@ -425,6 +425,8 @@ describe("StreamingPanel sync policy review (#4256)", () => {
       ].map(frame => `data: ${JSON.stringify(frame)}\n\n`).join("");
       await act(async () => { requests[0]!.response.resolve(new Response(frames)); await flushPromises(); });
       expect(view.getByText("Sync paused: the pull changes the governance policy.")).toBeTruthy();
+      expect(view.getByText("Waiting for your policy review"), "PAUSED_SYNC_NOT_FAILED").toBeTruthy();
+      expect(view.queryByText("Failed")).toBeNull();
       const card = view.baseElement.querySelector("[data-sync-policy-review]");
       expect(card?.getAttribute("data-policy-state"), "SYNC_REVIEW_RENDERED").toBe("pending");
       expect(card?.textContent).toContain("4b1d0c0ffee4");

@@ -841,17 +841,23 @@ namespace mount points alone do not constrain the host publisher.
 > ([#4256](https://github.com/schlessera/brain-kit/issues/4256), maintainer ruling option 1).**
 > The policy file is versioned host input, so a pull is where a policy change
 > arrives. The refusal above still holds: a hosted sync's worker output never
-> publishes a tier A change. When the only refused path is
-> `context/policies/governance.md`, the host reads the output's bytes before
-> cleanup, publishes nothing, and opens a host-owned review of them through the
-> existing policy proposals, the only policy writer, as Settings › Apify does
-> (`createOwnerPolicyReviews`, `packages/ui-server/src/brain/owner-policy-reviews.ts`).
-> Only the owner whose UI sync opened it can answer, and only an approval
-> writes, in a `user` journal window. The next sync then merges the identical
-> change cleanly. A scheduled sync opens no review and names the waiting change.
-> Every other tier A change keeps its refusal, with next-step text. No agent
-> runtime, worker or autonomous turn proposes or answers these reviews, and the
-> rationale shown is fixed host text. A Settings control for
+> publishes a tier A change. When the only refused paths are
+> `context/policies/governance.md` and the `context/policies` directory a first
+> policy creates with it, on a sync with a remote, the host compares the stage's
+> bytes with the upstream commit's own policy blob. The host transport reads that
+> blob after the integrity check and the fetch, before the sync's worker runs,
+> with replace objects disabled. Only equal bytes are reviewable, so worker output
+> is never a policy source. The host then publishes nothing and opens a host-owned
+> review through the existing policy proposals, the only policy writer, as
+> Settings › Apify does (`createOwnerPolicyReviews`,
+> `packages/ui-server/src/brain/owner-policy-reviews.ts`). A newer sync's review
+> replaces the owner's unanswered one. Only the owner whose UI sync opened it can
+> answer, and only an approval writes, in a `user` journal window. The next sync
+> then merges the identical change cleanly. A scheduled sync opens no review and
+> names the waiting change. Any other tier A change, a merged policy that differs
+> from upstream's, or a sync without a remote keeps the refusal, with next-step
+> text. No agent runtime, worker or autonomous turn proposes or answers these
+> reviews, and the rationale shown is fixed host text. A Settings control for
 > `outward.github.repositories` was not taken: chat's `propose_policy_change`
 > already edits it.
 

@@ -15,7 +15,8 @@ import type { Tone } from "@schlessera/brain-ui-kit";
  * failure or a cancellation — and the row is a polite live region so a
  * screen reader hears "Complete" once, not every line.
  */
-export type StreamState = "idle" | "running" | "success" | "error" | "cancelled";
+/** `waiting`: the job paused for an owner answer (a sync's incoming policy review, #4256), not a failure. */
+export type StreamState = "idle" | "running" | "success" | "error" | "cancelled" | "waiting";
 
 const STATUS: Record<StreamState, { tone: Tone; pulse: boolean; text: string }> = {
   idle: { tone: "neutral", pulse: false, text: "Ready" },
@@ -23,6 +24,7 @@ const STATUS: Record<StreamState, { tone: Tone; pulse: boolean; text: string }> 
   success: { tone: "teal", pulse: false, text: "Complete" },
   error: { tone: "red", pulse: false, text: "Failed" },
   cancelled: { tone: "red", pulse: false, text: "Cancelled" },
+  waiting: { tone: "amber", pulse: false, text: "Waiting for your policy review" },
 };
 
 interface StreamingOutputProps {
