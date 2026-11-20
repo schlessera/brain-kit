@@ -201,7 +201,8 @@ for (const change of ["invalid", "symlink", "selector", "projection"]) test(`a $
 });
 
 test("replacing the configured policy root cannot borrow the previous directory's approval", async () => {
-  const f = await fixture(); await f.approve(); const r = await f.read(), bound = captureReferenceOwnerRoot(f.root)!;
+  const f = await fixture(); await f.approve(); const r = await f.read(), bound = f.ownerRoot;
+  expect(resolveReferenceOwners(f.db, bound, r.evidence.identityObservation).bindings, "LIVE_ORIGINAL_ROOT_HAS_APPROVED_BINDING").toHaveLength(1);
   const policy = readFileSync(f.policyPath), backup = f.root + "-old";
   renameSync(f.root, backup);
   try {

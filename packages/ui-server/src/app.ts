@@ -1538,6 +1538,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       // Consumers have drained; close the shared write connection before its reader.
       await attempt(() => writer.close());
       await attempt(() => db.close());
+      await attempt(() => ownerContinuity.close());
       clearTimeout(grace);
       if (failures.length === 1) throw failures[0];
       if (failures.length) throw new AggregateError(failures, "Application shutdown retained failed cleanup outcomes.");
