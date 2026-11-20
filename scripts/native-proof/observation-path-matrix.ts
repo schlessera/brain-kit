@@ -8,7 +8,7 @@ import type { GovernedTurns } from "../../packages/ui-server/src/brain/governed-
 
 export async function observationPathMatrix(brain: string, journal: TurnJournal, governed: GovernedTurns,
   event: (kind: string, data: object) => void) {
-  const turnId = `odysseus-path-matrix-${crypto.randomUUID()}`, signal = AbortSignal.timeout(watchdogMs(900_000));
+  const turnId = `odysseus-path-matrix-${crypto.randomUUID()}`, signal = AbortSignal.timeout(watchdogMs(3_600_000));
   const admission: { name: string; ms: number }[] = [];
   const hold = await governed.begin(turnId, signal, "interactive", "governed", undefined, name => {
     const start = performance.now(); return () => { admission.push({ name, ms: performance.now() - start }); };
@@ -20,7 +20,7 @@ export async function observationPathMatrix(brain: string, journal: TurnJournal,
   const abort = () => worker?.kill("SIGKILL"); signal.addEventListener("abort", abort, { once: true });
   try {
     assert.equal(hold.sandbox.profile, "governed", "PATH_MATRIX_REAL_GOVERNED_ADMISSION");
-    await journal.begin(turnId, { sessionId: null, actor: "interactive", model: null, profile: "governed", policyHash: hold.policy.hash }, error => { worker?.kill("SIGKILL"); throw error; }, signal);
+    await journal.begin(turnId, { sessionId: "odysseus-path-matrix", actor: "interactive", model: null, profile: "governed", policyHash: hold.policy.hash }, error => { worker?.kill("SIGKILL"); throw error; }, signal);
     worker = launchAgentWorker({ brainPath: brain, sandbox: hold.sandbox, env: { PATH: "/usr/bin:/bin" }, command: ["/bin/sh", "-c",
       'echo ready; while read -r count sample; do i=0; while [ "$i" -lt "$count" ]; do echo "Odysseus sample $sample path $i" > "notes/ithaca-matrix-$count-$i.md"; i=$((i+1)); done; echo written; done'] });
     worker.stderr.resume();
@@ -43,9 +43,28 @@ export async function observationPathMatrix(brain: string, journal: TurnJournal,
       await journal.toolEnded(turnId, toolUseId);
       samples.push({ changedPaths, sample, toolUseId, frozenMs });
     }
-    event("observation_path_matrix", { turnId, samples, admission });
+    // The same real worker creates committed versions until this active
+    // turn has over 10,000 rows. No test-only row or sequence is injected.
+    for (let sample = 12; sample < 50; sample++) {
+      signal.throwIfAborted(); worker.stdin.write(`200 ${sample}\n`);
+      assert.equal((await iterator.next()).value, "written", "PATH_MATRIX_HISTORY_WRITES_ACKNOWLEDGED");
+      const toolUseId = `path-matrix-history-${sample}`;
+      journal.toolStarted(turnId, toolUseId, "Bash", true); await journal.toolEnded(turnId, toolUseId);
+    }
+    const historyRows = journal.details("odysseus-path-matrix", turnId)!.changes.length;
+    assert.ok(historyRows >= 10_000, "PATH_MATRIX_TEN_THOUSAND_COMMITTED_ROWS");
+    const loadedSamples: typeof samples = [];
+    for (let sample = 0; sample < 12; sample++) {
+      signal.throwIfAborted(); worker.stdin.write(`1 ${sample + 100}\n`);
+      assert.equal((await iterator.next()).value, "written", "PATH_MATRIX_LOADED_WRITES_ACKNOWLEDGED");
+      const toolUseId = `path-matrix-loaded-${sample}`;
+      journal.toolStarted(turnId, toolUseId, "Bash", true); await journal.toolEnded(turnId, toolUseId);
+      loadedSamples.push({ changedPaths: 1, sample, toolUseId, frozenMs });
+    }
+    event("observation_path_matrix", { turnId, samples, admission, historyRows, loadedSamples });
     assert.equal(samples.length, 48, "PATH_MATRIX_ALL_48_SAMPLES");
-    return { turnId, samples, admission };
+    assert.equal(loadedSamples.length, 12, "PATH_MATRIX_ALL_LOADED_SAMPLES");
+    return { turnId, samples, admission, historyRows, loadedSamples };
   } finally {
     signal.removeEventListener("abort", abort); detach?.(); lines?.close(); worker?.stdout.resume(); worker?.kill("SIGKILL");
     if (worker) { await worker.exited; await worker.released(); worker.turnTemp?.close(); }

@@ -1,4 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
+import { watchdogMs } from "../test-deadlines.js";
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
@@ -331,10 +332,18 @@ print(json.dumps(result))`;
     }
     if (OBSERVATION_TIMING) {
       const load = () => readFileSync("/proc/loadavg", "utf8").trim(), loadBefore = load(), timingStart = performance.now();
+      // Isolate the path cells from automatic updates of the preceding turns.
+      await until(() => {
+        const events = eventLog.read("path-matrix-index-settlement");
+        return events.filter(row => row.kind === "automatic_index_started").every(start =>
+          events.some(end => ["automatic_index_finished", "automatic_index_failed"].includes(end.kind) && end.ordinal === start.ordinal));
+      }, 120000);
       const matrixResponse = await fetch(origin + "/__native_observation_path_matrix");
-      const pathMatrix = await matrixResponse.json() as { turnId: string; samples: { changedPaths: number; sample: number; toolUseId: string; frozenMs: number }[]; admission: { name: string; ms: number }[] };
+      const pathMatrix = await matrixResponse.json() as { turnId: string; samples: { changedPaths: number; sample: number; toolUseId: string; frozenMs: number }[]; admission: { name: string; ms: number }[]; historyRows: number; loadedSamples: { changedPaths: number; sample: number; toolUseId: string; frozenMs: number }[] };
       expect(matrixResponse.status, `OBSERVATION_PATH_MATRIX_SUCCEEDED ${JSON.stringify(pathMatrix)}`).toBe(200);
       expect(pathMatrix.samples).toHaveLength(48);
+      expect(pathMatrix.historyRows, "OBSERVATION_MATRIX_HAS_TEN_THOUSAND_ROWS").toBeGreaterThanOrEqual(10000);
+      expect(pathMatrix.loadedSamples).toHaveLength(12);
 
       const median = (values: number[]) => values.length ? [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]! : null;
       const p95 = (values: number[]) => values.length ? [...values].sort((a, b) => a - b)[Math.ceil(values.length * 0.95) - 1]! : null;
@@ -481,7 +490,16 @@ print(json.dumps(result))`;
         });
         return { changedPaths, samples: samples.length, medianMs: median(samples.map(sample => sample.frozenMs)), p95Ms: p95(samples.map(sample => sample.frozenMs)), phases: summarizePhases(attributed) };
       });
-      const result = { backend: BACKEND, appUid: APP_UID, files: FILES, bytes: BYTES, loadBefore, loadAfter: load(), elapsedMs: performance.now() - timingStart, timelineTurnIds, pathMatrix: { ...pathMatrix, cells: pathCells },
+      const warmOnePath = pathMatrix.samples.filter(sample => sample.changedPaths === 1).map(sample => sample.frozenMs);
+      const loadedOnePath = pathMatrix.loadedSamples.map(sample => sample.frozenMs);
+      const onePathHistory = { historyRows: pathMatrix.historyRows, warmMedianMs: median(warmOnePath), loadedMedianMs: median(loadedOnePath),
+        addedMedianMs: median(loadedOnePath)! - median(warmOnePath)!, loadedP95Ms: p95(loadedOnePath),
+        phases: summarizePhases(pathMatrix.loadedSamples.map(sample => {
+          const trace = traces.find(trace => trace.toolUseId === sample.toolUseId);
+          if (!trace) throw Error(`OBSERVATION_PATH_MATRIX_LOADED_TRACE_MISSING ${sample.toolUseId}`);
+          return { phases: observationPhases(trace, managerSpans), measuredMs: sample.frozenMs };
+        })) };
+      const result = { backend: BACKEND, appUid: APP_UID, files: FILES, bytes: BYTES, loadBefore, loadAfter: load(), elapsedMs: performance.now() - timingStart, timelineTurnIds, pathMatrix: { ...pathMatrix, cells: pathCells, onePathHistory },
         tools: timeline?.tools ?? null, admission, journal: { begin: { medianMs: median(total("beginMs")), p95Ms: p95(total("beginMs")) }, finish: { medianMs: median(total("finishMs")), p95Ms: p95(total("finishMs")) },
           beginPlusFinish: { medianMs: median(total("totalMs")), p95Ms: p95(total("totalMs")) }, turns: beginFinish }, phases: observationSteps, calls: timeline?.calls ?? null };
       writeFileSync(join(ARTIFACTS, "observation-timing.json"), JSON.stringify(result, null, 2));
@@ -628,7 +646,9 @@ print(json.dumps(result))`;
   }
   expect(cleanExit, "HOSTED_NORMAL_SHUTDOWN_CLEAN_EXIT").toBe(true);
   // The #2848 timing turn first waits for the earlier turns' index refresh.
-}, OBSERVATION_TIMING ? 1_500_000 : APPLY_TIMING ? 240000 : 120000);
+// Baseline measurement also retains 10,000 real versions; its slow holds
+// need their own hang catch-all, independently of the measured stop durations.
+}, OBSERVATION_TIMING ? watchdogMs(5_100_000) : APPLY_TIMING ? 240000 : 120000);
 
 // One fixed backend/UID cell owns this backend-independent root-lifetime control.
 if (BACKEND === "pi" && APP_UID === 0) for (const held of ["descriptor", "cwd"] as const) test(`a retained native checkpoint ${held} records the actual release interruption and reconciles the same root`, async () => {
