@@ -1,5 +1,5 @@
 /** Test-only subprocess and transport safeguards; never imported by a published package. */
-import { isNativeClaude, nativeClaudeBoundary, nativeWorkerBoundary, refuseNativeClaude } from "./test-native-guard";
+import { assertNoNativeRefusals, nativeIsolationFailed, isNativeClaude, nativeClaudeBoundary, nativeWorkerBoundary, refuseNativeClaude } from "./test-native-guard";
 import { basename, join } from "node:path";
 import { isIP, Socket } from "node:net";
 import { inheritWorkspaceLease } from "./workspace-lease.mjs";
@@ -176,6 +176,7 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
 
   installed = {
     assertNoEscapes() {
+      assertNoNativeRefusals();
       if (escapes.length > reported) {
         reported = escapes.length;
         throw new Error(message());
@@ -185,7 +186,7 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
   // Ordinary Bun children have no test hooks. A caught error, including one
   // followed by process.exit(0), must still make that process unsuccessful.
   process.on("exit", () => {
-    if (escapes.length) {
+    if (escapes.length || nativeIsolationFailed()) {
       console.error(message());
       process.exit(1);
     }

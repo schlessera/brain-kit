@@ -7,6 +7,13 @@ const ROOT = resolve(import.meta.dir, "..");
 const SYSTEM = ["/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32"];
 const within = (root: string, path: string) => path === root || path.startsWith(`${root}/`);
 let qualified = false;
+let denied = 0, reported = 0;
+export function nativeIsolationFailed(): boolean { return denied > 0; }
+export function assertNoNativeRefusals(): void {
+  if (denied <= reported) return;
+  reported = denied;
+  throw new Error("Offline native Claude isolation refused a launch during this test");
+}
 let head: string | undefined;
 function receiptHead(): string {
   if (head) return head;
@@ -22,6 +29,7 @@ export function isNativeClaude(command: string, args: readonly unknown[] = []): 
 }
 
 function refuse(reason: string): never {
+  denied++;
   // Fixed classifications only: arguments, settings, credentials and addresses
   // never enter a denial receipt.
   console.error(JSON.stringify({ kind: "native-offline-boundary", success: false, nativeLaunched: false, reason, head: receiptHead() }));

@@ -43,6 +43,20 @@ test("worker exec payload refuses before the trusted bootstrap starts", async ()
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 });
 
+test("catching a native refusal and exiting zero still fails the child", async () => {
+  const scratch = mkdtempSync(join(tmpdir(), "odysseus-caught-refusal-"));
+  try {
+    const script = join(scratch, "probe.ts");
+    writeFileSync(script, `import {installNetworkGuard} from ${JSON.stringify(join(ROOT, "scripts/test-network-guard.ts"))};
+      delete process.env.GITHUB_ACTIONS; delete process.env.RUNNER_ENVIRONMENT;
+      installNetworkGuard(); try { Bun.spawn(["/synthetic/claude"]); } catch {} process.exit(0);`);
+    const child = Bun.spawn([process.execPath, script], { env: { PATH: "/usr/bin:/bin", HOME: scratch }, stdout: "pipe", stderr: "pipe" });
+    const [code, output] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+    expect(code).not.toBe(0);
+    expect(output).toContain('"success":false,"nativeLaunched":false');
+  } finally { rmSync(scratch, { recursive: true, force: true }); }
+});
+
 // Positive native tests are deliberately unavailable on developer hosts. The
 // local suite proves refusal above; CI executes this assertion rather than a
 // skipped test or an unsealed fallback.
