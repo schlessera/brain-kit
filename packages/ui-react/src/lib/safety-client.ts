@@ -51,11 +51,15 @@ export function createSafetyClient(root:BrainUiServices,send:(message:ClientMess
       }
       if(msg.type==="safety_unavailable"){
         if(msg.requestId&&msg.requestId!==requestId)return true;
+        const resync=["gap","expired","generation_changed"].includes(msg.reason);
+        // Uncorrelated loss notices may belong to the replaced subscription.
+        // A refusal of the active read must carry that read's request ID.
+        if(awaitingPage&&!msg.requestId&&(resync||msg.reason==="capacity"))return true;
         // Lost subscriptions need a fresh snapshot; never replay a mutation.
         // The wire does not distinguish a dropped delta from a refused subscribe.
         // Allow one capacity resnapshot until live progress or explicit refresh;
         // completing pages alone cannot prove the subscription was accepted.
-        const again=target&&(["gap","expired","generation_changed"].includes(msg.reason)||msg.reason==="capacity"&&!awaitingPage&&!capacityRecoveryUsed);
+        const again=target&&(resync||msg.reason==="capacity"&&!awaitingPage&&!capacityRecoveryUsed);
         if(msg.reason==="capacity")capacityRecoveryUsed=true;
         store.getState().unavailable(msg.reason);requestId=null;if(again&&target)read(target);return true;
       }
