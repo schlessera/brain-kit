@@ -20,3 +20,11 @@ for(const state of ["complete","skipped","partial"] as const)test(`previous Acti
  expect(parseServerMessage(JSON.stringify(frame)).ok,"PREVIOUS_SDK_PARSER_RETAINS_WHOLE_FRAME").toBe(true);
  expect(previousDelta.safeParse({...frame,span:{...frame.span,outcome:"partial"}}).success,"CLOSED_ENUM_NEGATIVE_CONTROL").toBe(false);
 });
+
+test("previous Activity schema accepts the scrub failure event and existing error outcome",()=>{
+ const frame={type:"activity_delta",runId:"maintenance",seq:2,
+   span:{spanId:"maintenance:root",runId:"maintenance",name:"cron maintain",kind:"cron",origin:"cron",startedAt:1,outcome:"error"},
+   event:{spanId:"maintenance:root",eventIndex:1,ts:2,eventType:"journal_scrub_failed",payload:{site:"journal.scrub",errorClass:"Error",message:"storage unavailable",at:2}}};
+ expect(previousDelta.safeParse(frame).success).toBe(true);
+ expect(parseServerMessage(JSON.stringify(frame)).ok).toBe(true);
+});
