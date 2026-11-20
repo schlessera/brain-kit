@@ -25,7 +25,7 @@ export interface OwnerPolicyJournal {
 /** A review the owner can decide: its identity and the review as first shown. */
 export interface OwnerPolicyProposal { turn_id: string; request_id: string; review: PolicyChangeReview }
 
-export type OwnerPolicyRefusal = "not_authorized" | "busy" | "stale" | "policy_invalid" | "not_found";
+type OwnerPolicyRefusal = "not_authorized" | "busy" | "stale" | "policy_invalid" | "not_found";
 
 /** A refused review request, with its HTTP status and a fixed message; it never carries policy text. */
 export class OwnerPolicyReviewError extends Error {
@@ -35,7 +35,7 @@ export class OwnerPolicyReviewError extends Error {
   }
 }
 
-export interface OwnerPolicyReviewOptions {
+interface OwnerPolicyReviewOptions {
   root: string;
   proposals: PolicyProposals;
   journal: OwnerPolicyJournal;
@@ -53,12 +53,12 @@ export interface OwnerPolicyReviewOptions {
 /** At most this many unanswered reviews per owner, per review family. */
 const MAX_PENDING = 4;
 
-export function readGovernancePolicy(root: string): string | null {
+function readGovernancePolicy(root: string): string | null {
   try { return readFileSync(join(root, GOVERNANCE_POLICY_PATH), "utf8"); }
   catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; }
 }
 
-export const policyHash = (text: string | null) => text === null ? null : createHash("sha256").update(text, "utf8").digest("hex");
+const policyHash = (text: string | null) => text === null ? null : createHash("sha256").update(text, "utf8").digest("hex");
 
 export function createOwnerPolicyReviews(options: OwnerPolicyReviewOptions) {
   const timeoutMs = options.timeoutMs ?? 10 * 60_000;
