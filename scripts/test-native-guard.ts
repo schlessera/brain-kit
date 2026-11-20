@@ -228,7 +228,11 @@ export function auditNativeLaunch(argv: string[], expected: readonly string[], c
 /** One Unix socket forwards only to the explicitly selected scripted service. */
 export function startNativeTestRelay(upstream: string | undefined) {
   let target: URL;
-  try { target = new URL(upstream!); } catch { return refuse("missing scripted loopback service"); }
+  try { target = new URL(upstream!); } catch {
+    return refuse(declaredRoutes.size === 0 ? "missing scripted loopback service: no declared authority"
+      : declaredRoutes.size > 1 ? "missing scripted loopback service: ambiguous declared authorities"
+      : "missing scripted loopback service: declared authority absent from launch");
+  }
   if (target.protocol !== "http:" || !["127.0.0.1", "localhost", "[::1]"].includes(target.hostname) || !target.port || target.username || target.password ||
       target.pathname !== "/" || target.search || target.hash) refuse("invalid scripted loopback service");
   if (target.hostname === "localhost") target.hostname = "127.0.0.1";

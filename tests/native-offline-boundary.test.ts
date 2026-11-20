@@ -266,6 +266,23 @@ test("an immutable single scripted authority survives async scope loss, while am
   }
 });
 
+test("the installed spawn interceptor receives fixture authority before a synthetic bootstrap", async () => {
+  const scratch = mkdtempSync(join(tmpdir(), "odysseus-spawn-authority-"));
+  try {
+    const bootstrap = `import {writeFileSync} from "node:fs";const launch=JSON.parse(process.env.BRAIN_WORKER_LAUNCH!);const args=launch.argv;writeFileSync(args[args.indexOf("-o")+1],${JSON.stringify(`1 execve(${JSON.stringify(runtime)}, [], 0x1) = 0`)});`;
+    const result = await probe(`${imports}
+      import {nativeScriptedService} from ${JSON.stringify(join(ROOT, "scripts/test-native-guard.ts"))};
+      const spawnSync=Bun.spawnSync,which=Bun.which;
+      Bun.which=((command,options)=>command==="strace"?"/synthetic/strace":which(command,options));
+      Bun.spawnSync=((argv,options)=>["bwrap","strace"].includes(argv[0])?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
+      process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";
+      nativeScriptedService("http://127.0.0.1:1");
+      const child=Bun.spawn([process.execPath,"-e",${JSON.stringify(bootstrap)}],{env:{HOME:${JSON.stringify(scratch)},BRAIN_WORKER_LAUNCH:JSON.stringify({command:[${JSON.stringify(runtime)}],env:{HOME:${JSON.stringify(scratch)}},brainPath:${JSON.stringify(scratch)},argv:["bwrap","--",${JSON.stringify(runtime)}]})},stdout:"pipe",stderr:"pipe"});
+      const [code,err]=await Promise.all([child.exited,new Response(child.stderr).text()]);if(code!==0)throw Error(err);`, scratch);
+    expect(result.code, result.output).toBe(0);
+  } finally { rmSync(scratch, { recursive: true, force: true }); }
+});
+
 test("qualification metadata preserves explicit child environment overrides", async () => {
   const scratch = mkdtempSync(join(tmpdir(), "odysseus-child-context-"));
   try {
