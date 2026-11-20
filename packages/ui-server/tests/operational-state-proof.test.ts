@@ -149,3 +149,19 @@ test("an existing worker mask list hides a retargeted secret in a real sandbox",
   host.status();
   expect(read(), "RETAINED_WORKER_MASKS_HIDE_RETARGETED_STATE").toBe("masked");
 });
+
+test("aliases beneath generic host masks retain explicit private masks without refusing healthy state", () => {
+  const f = fixture(), b = boundary(f), masks = state.operationalStateMasks(f.input);
+  const proof = state.createOperationalStateProof(() => {}, masks);
+  b.topology(`1 0 0:1 / / rw - ext4 /dev/root rw\n2 1 0:1 ${f.objects} /srv/odysseus-state-alias rw - ext4 /dev/root rw\n`);
+  try {
+    expect(proof(f.input), "ALREADY_MASKED_HOST_ALIAS_IS_NOT_AN_OUTAGE").toBeUndefined();
+    expect(masks, "RUNTIME_BIND_BACK_CANNOT_RESTORE_PRIVATE_ALIAS").toContain("/srv/odysseus-state-alias");
+    expect(proof(f.input)).toBeUndefined();
+  } finally { b.close(); }
+});
+test("an inside-brain database retains its existing refusal reason", () => {
+  const f = fixture();
+  expect(state.createOperationalStateProof()({ brainPath: f.brainPath, dbPath: join(f.brainPath, "ui.db") }))
+    .toMatchObject({ available: false, reason: "database_in_brain", detail: expect.stringContaining("resolves inside") });
+});

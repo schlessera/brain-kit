@@ -3,7 +3,7 @@ import { closeSync, constants, fstatSync, lstatSync, openSync, readdirSync, read
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
-import { mountPointsUnder, workerIdentityHelper } from "@schlessera/brain-ui-sdk/internal";
+import { HOST_MASKS, mountPointsUnder, workerIdentityHelper } from "@schlessera/brain-ui-sdk/internal";
 import type { GovernedUnavailableReason } from "@schlessera/brain-ui-sdk/protocol";
 import { journalDatabasePath } from "../db/journal-database.js";
 
@@ -220,7 +220,13 @@ export function createOperationalStateProof(record: (proof: OperationalStateProo
         const exposed = within(row.root, state.root) ? join(row.path, state.root.slice(row.root.length)) : row.path;
         // A brain bind restores its contents after host masks. An alias there,
         // or anywhere else outside the actual worker masks, is exposure.
-        if (within(brain, exposed) || !workerMasks.some(mask => within(mask, exposed))) exposedAlias = exposed;
+        if (within(brain, exposed)) exposedAlias = exposed;
+        else if (!workerMasks.some(mask => within(mask, exposed))) {
+          // Generic host masks already hide this alias. Retain its exact
+          // private name too, so a runtime bind of an ancestor cannot restore it.
+          if (HOST_MASKS.some(mask => within(mask, exposed))) workerMasks.push(exposed);
+          else exposedAlias = exposed;
+        }
       }
       if (exposedAlias) evidenceRefusal = refuse(`private state has an unmasked worker-visible mount alias at ${exposedAlias}; remove the alias or configure its host-private mask before retrying`);
       const nested = rows.some(row => trees.some(root => row.path !== root && within(root, row.path)))
@@ -239,9 +245,12 @@ export function createOperationalStateProof(record: (proof: OperationalStateProo
       }
     } catch (error) { cause = `boundary evidence unavailable: ${String(error)}`; }
     const needsWalk = signature === undefined || signature !== qualified;
-    let refusal = evidenceRefusal;
-    try { refusal ??= inspectOperationalState(input, !needsWalk, mounted); }
+    let refusal: OperationalStateRefusal | undefined;
+    try { refusal = inspectOperationalState(input, !needsWalk, mounted); }
     catch (error) { refusal = refuse(`full state alias guard could not verify this admission: ${String(error)}`); }
+    // Preserve existing path/inode diagnoses; a clean walk cannot excuse an
+    // uncovered host alias or a mask-refresh failure.
+    refusal ??= evidenceRefusal;
     qualified = refusal ? undefined : signature;
     const proof: OperationalStateProof = { mode: signature && !refusal ? "filesystem_identity" : "walk", cause: refusal?.detail ?? cause };
     const serialized = JSON.stringify(proof);
