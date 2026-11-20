@@ -121,10 +121,15 @@ export async function proveManagedReferenceSource(client: ReturnType<typeof crea
         const prepared = db.query("SELECT acquisition, evidence, delivery FROM reference_reads WHERE turn_id = ?").get(turnId) as { acquisition: string; evidence: string; delivery: string };
         expect(prepared.delivery, "MANAGED_NATIVE_PREPARED_IS_NOT_BACKEND_DELIVERY").toBe("prepared");
         const evidence = JSON.parse(prepared.evidence);
+        expect(evidence.identityObservation, "MANAGED_NATIVE_READ_HAS_OWN_TRANSPORT_IDENTITY").toMatchObject({
+          brain: servedBrain, principalId: principal.id, turnId, rootId: lease.rootId, ref: "refs/heads/main", commit,
+          identity: { repositoryId: "101", ownerId: "201" },
+        });
+        expect(evidence.identityObservation.operationId).not.toBe(lease.identityObservation!.operationId);
         expect(evidence).toMatchObject({ blob: blob.blob, digest: blob.digest, offset: 9, length: 13, trusted: false });
         expect(JSON.parse(prepared.acquisition)).toMatchObject({ commit_id: commit, tree_id: tree, native_generation: record.root!.otransid });
         note("managed-source-native-host-read", { commit, tree, blob: evidence.blob, digest: evidence.digest, offset: 9, length: 13,
-          actualMaintenanceWorker: true, hostToolEntry: true, delivery: prepared.delivery, backendEquivalence: false, readTrustExemption: false });
+          actualMaintenanceWorker: true, hostToolEntry: true, identityObservation: evidence.identityObservation, delivery: prepared.delivery, backendEquivalence: false, readTrustExemption: false });
       } finally { tools.end(turnId); }
       expect(blob).toMatchObject({ tree, mode: "100644", offset: 9, length: 13, totalBytes: 38 });
       note("managed-source-native-blob", { commit, tree, root: record.root, path: "README.md", blob: blob.blob, mode: blob.mode, offset: blob.offset,

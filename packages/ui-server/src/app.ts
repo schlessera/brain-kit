@@ -62,6 +62,7 @@ import type { WorkerHostMode } from "./activity/runtime-status.js";
 import { createNativeBrainManagerClient, PROVIDER_CACHE_FILES, resolveWebSearchConfigPath, workerLimitsStatus, type WorkerHostProbe } from "@schlessera/brain-ui-sdk/internal";
 import type { WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
 import { createBrainRoutes } from "./routes/brain.js";
+import { createOwnerPolicyReviews, OwnerPolicyReviewError } from "./brain/owner-policy-reviews.js";
 import { createSessionProfiles } from "./ws/session-profiles.js";
 import { createSessionProfileRoutes } from "./routes/session-profiles.js";
 import { createSessionRoutes } from "./routes/sessions.js";
@@ -1185,9 +1186,15 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   );
   // Host readers of the index wait for application updates queued before them (#2835).
   for (const path of INDEX_READ_ROUTES) app.use(path, indexReadBarrier(indexBatch));
+  // A sync's incoming policy change (#4256) is reviewed through the existing
+  // policy proposals, the only policy writer, in a user journal window.
+  const policyOwner = (id: string) => { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); };
+  const syncPolicyReviews = createOwnerPolicyReviews({ root: config.brainPath, proposals: policyProposals, journal, authorized: policyOwner,
+    turnPrefix: "sync-policy", requestPrefix: "sync", fail: (status, code, message) => new OwnerPolicyReviewError(status, code, message) });
+  bootCleanup.push(() => syncPolicyReviews.close());
   app.route(
     "/api",
-    createBrainRoutes({ syncingRoots: new Set(), brain, brainPath: config.brainPath, exec: config.exec, keyterms, brainCliMinimum, log: brainLog, boundary })
+    createBrainRoutes({ syncingRoots: new Map(), activity: activity.store, policyReviews: syncPolicyReviews, brain, brainPath: config.brainPath, exec: config.exec, keyterms, brainCliMinimum, log: brainLog, boundary })
   );
   app.route("/api", createSessionProfileRoutes(sessionProfiles));
   app.route("/api", createSessionRoutes({ registry, db, labels: host.labels !== null, prepareHistory: (id, messages) => host.prepareHistory(id, messages),

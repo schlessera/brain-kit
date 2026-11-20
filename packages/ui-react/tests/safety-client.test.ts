@@ -3,7 +3,7 @@ import { createStore } from "zustand/vanilla";
 import { createSafetyStore } from "../src/stores/safety-state";
 import { createSafetyClient } from "../src/lib/safety-client";
 import type { BrainUiServices } from "../src/root";
-import { SAFETY_READ_CAPABILITIES, type ClientMessage, type SafetyPage } from "@schlessera/brain-ui-sdk/protocol";
+import { SAFETY_READ_CAPABILITIES, type ClientMessage, type SafetyPage, type SafetyRecord } from "@schlessera/brain-ui-sdk/protocol";
 import { parseClientMessage } from "@schlessera/brain-ui-sdk/schemas";
 
 const hello = { type: "server_hello" as const, protocolRev: 5,
@@ -128,5 +128,164 @@ test("valid sessions keep paging, subscription and gap recovery on the published
     expect(sent.at(-1)).toMatchObject({ type: "safety_read", target: { sessionId: chat.getState().activeSessionId } });
     client.refresh();
     checkWire();
+  } finally { client.dispose(); }
+});
+
+for (const reason of ["gap", "expired", "generation_changed", "capacity"] as const) {
+  test(`${reason} subscription loss obtains a fresh paginated snapshot without reselection`, () => {
+    const { safety, sent, client, checkWire } = supportedClient("ithaca");
+    try {
+      client.frame(hello);
+      const initial = sent.find(message => message.type === "safety_read");
+      if (initial?.type !== "safety_read") throw new Error("Missing initial read");
+      client.frame({ type: "safety_history", requestId: initial.requestId, page });
+      expect(safety.getState().status).toBe("ready");
+      const before = sent.length;
+      client.frame({ type: "safety_unavailable", version: 1, reason });
+      const fresh = sent.slice(before).find(message => message.type === "safety_read");
+      expect(fresh, "SUBSCRIPTION_LOSS_REQUESTS_FRESH_SNAPSHOT").toBeDefined();
+      if (fresh?.type !== "safety_read") throw new Error("Missing recovery read");
+      expect(fresh.requestId).not.toBe(initial.requestId);
+      expect(fresh).not.toHaveProperty("cursor");
+      expect(safety.getState()).toMatchObject({ status: "loading", normal: false });
+      client.frame({ type: "safety_history", requestId: initial.requestId, page });
+      expect(safety.getState().status, "STALE_PAGE_CANNOT_COMPLETE_RECOVERY").toBe("loading");
+      const recordsFor = (id: string, sequence: string): SafetyRecord[] => [
+        { kind: "occurrence", id, occurrenceId: id, sequence, observedAt: Date.UTC(2026, 6, 12), turnId: "voyage",
+          bindingId: "voyage_binding", detailPruned: false, epochId: "voyage_binding", detector: "tool_web_input",
+          source: "web_fetch", operationId: id, signalId: id, exposureId: id, exposure: "finalized", summary: "Voyage notes", provenance: null },
+        { kind: "safe_decision", id: `${id}_safe`, occurrenceId: id, sequence: String(BigInt(sequence) + 1n),
+          observedAt: Date.UTC(2026, 6, 12), turnId: "voyage", bindingId: "voyage_binding", detailPruned: false,
+          session: page.projection.session!, requestId: `${id}_review`, principalId: "odysseus", verdict: "safe", channel: "owner_history" },
+      ];
+      const firstRecords = recordsFor("reviewed_web_a", "1"), lastRecords = recordsFor("reviewed_web_b", "3");
+      const normalPage: SafetyPage = { ...page, snapshotId: "recovery_snapshot", highWater: "4",
+        projection: { ...page.projection, evidenceRevision: "4", unresolvedCount: 0, restriction: "normal", reasons: [],
+          coverage: { ...page.projection.coverage, state: "complete" } } };
+      client.frame({ type: "safety_history", requestId: fresh.requestId,
+        page: { ...normalPage, records: firstRecords, nextCursor: "recovery_page_2", snapshotComplete: false } });
+      expect(safety.getState().status).toBe("partial");
+      expect(safety.getState().normal, "PARTIAL_RECOVERY_CANNOT_RESTORE_NORMAL").toBe(false);
+      expect(safety.getState().records.reviewed_web_a, "FIRST_RECOVERY_PAGE_RETAINS_EVIDENCE").toEqual(firstRecords[0]);
+      expect(sent.at(-1)).toMatchObject({ type: "safety_read", requestId: fresh.requestId, cursor: "recovery_page_2" });
+      client.frame({ type: "safety_history", requestId: fresh.requestId,
+        page: { ...normalPage, records: lastRecords, cursor: "recovery_page_2" } });
+      expect(safety.getState().status).toBe("ready");
+      expect(safety.getState().normal).toBe(true);
+      expect(Object.values(safety.getState().records), "RECOVERY_RETAINS_EVERY_PAGE").toEqual([...firstRecords, ...lastRecords]);
+      expect(sent.at(-1), "RECOVERY_SUBSCRIBES_AT_SNAPSHOT_HIGH_WATER").toMatchObject({ type: "safety_subscribe", requestId: fresh.requestId, snapshotId: "recovery_snapshot", afterRevision: "4" });
+      checkWire();
+    } finally { client.dispose(); }
+  });
+}
+
+for (const reason of ["capacity", "unauthorized", "unavailable"] as const) {
+  test(`${reason} read refusal does not loop snapshots`, () => {
+    const { safety, sent, client } = supportedClient("ithaca");
+    try {
+      client.frame(hello);
+      const initial = sent.find(message => message.type === "safety_read");
+      if (initial?.type !== "safety_read") throw new Error("Missing read");
+      const before = sent.length;
+      client.frame({ type: "safety_unavailable", version: 1, requestId: initial.requestId, reason });
+      expect(sent.length, "READ_REFUSAL_DOES_NOT_RETRY_IN_A_LOOP").toBe(before);
+      expect(safety.getState()).toMatchObject({ status: "unavailable", reason, normal: false });
+    } finally { client.dispose(); }
+  });
+}
+
+test("consecutive capacity refusals stop after one recovery snapshot until explicit refresh", () => {
+  const { safety, sent, client } = supportedClient("ithaca");
+  const complete = () => {
+    const read = sent.findLast(message => message.type === "safety_read");
+    if (read?.type !== "safety_read") throw new Error("Missing read");
+    client.frame({ type: "safety_history", requestId: read.requestId, page });
+    return read.requestId;
+  };
+  try {
+    client.frame(hello);
+    const initial = complete();
+    client.frame({ type: "safety_unavailable", version: 1, requestId: initial, reason: "capacity" });
+    const recovery = complete();
+    expect(recovery).not.toBe(initial);
+    const before = sent.length;
+    client.frame({ type: "safety_unavailable", version: 1, requestId: recovery, reason: "capacity" });
+    expect(sent.length, "CONSECUTIVE_CAPACITY_REFUSALS_HAVE_BOUNDED_RECOVERY").toBe(before);
+    expect(safety.getState()).toMatchObject({ status: "unavailable", reason: "capacity", normal: false });
+    client.frame({ type: "safety_unavailable", version: 1, reason: "capacity" });
+    expect(sent.length).toBe(before);
+    client.refresh();
+    expect(sent.filter(message => message.type === "safety_read")).toHaveLength(3);
+    expect(safety.getState().status).toBe("loading");
+  } finally { client.dispose(); }
+});
+
+test("only a valid advancing subscription update rearms capacity recovery", () => {
+  for (const advances of [false, true]) {
+    const { safety, sent, client } = supportedClient("ithaca");
+    try {
+      client.frame(hello);
+      const complete = () => {
+        const read = sent.findLast(message => message.type === "safety_read");
+        if (read?.type !== "safety_read") throw new Error("Missing read");
+        client.frame({ type: "safety_history", requestId: read.requestId, page });
+      };
+      complete();
+      client.frame({ type: "safety_unavailable", version: 1, reason: "capacity" });
+      complete();
+      const revision = advances ? "1" : "0";
+      client.frame({ type: "safety_update", update: { version: 1, identity: page.identity,
+        fromRevision: "0", toRevision: revision, records: [], projection: { ...page.projection, evidenceRevision: revision } } });
+      const before = sent.length;
+      client.frame({ type: "safety_unavailable", version: 1, reason: "capacity" });
+      expect(sent.length > before, "ONLY_ADVANCING_CONTIGUOUS_UPDATE_REARMS_CAPACITY_RECOVERY").toBe(advances);
+      expect(safety.getState().status).toBe(advances ? "loading" : "unavailable");
+    } finally { client.dispose(); }
+  }
+});
+
+for (const reason of ["capacity", "gap", "expired", "generation_changed"] as const) {
+  test(`uncorrelated ${reason} notices cannot interrupt an in-progress recovery snapshot`, () => {
+    const { safety, sent, client } = supportedClient("ithaca");
+    try {
+      client.frame(hello);
+      const initial = sent.findLast(message => message.type === "safety_read");
+      if (initial?.type !== "safety_read") throw new Error("Missing read");
+      client.frame({ type: "safety_history", requestId: initial.requestId, page });
+      client.frame({ type: "safety_unavailable", version: 1, requestId: initial.requestId, reason: "capacity" });
+      const recovery = sent.findLast(message => message.type === "safety_read");
+      if (recovery?.type !== "safety_read") throw new Error("Missing recovery read");
+      const before = sent.length;
+      client.frame({ type: "safety_unavailable", version: 1, reason });
+      expect(safety.getState(), "UNCORRELATED_LOSS_CANNOT_CANCEL_RECOVERY").toMatchObject({ status: "loading", requestId: recovery.requestId });
+      expect(sent.length).toBe(before);
+      client.frame({ type: "safety_history", requestId: recovery.requestId,
+        page: { ...page, nextCursor: "recovery_page_2", snapshotComplete: false } });
+      const paging = sent.length;
+      client.frame({ type: "safety_unavailable", version: 1, reason });
+      expect(safety.getState(), "UNCORRELATED_LOSS_CANNOT_CANCEL_PARTIAL_RECOVERY").toMatchObject({ status: "partial", requestId: recovery.requestId });
+      expect(sent.length).toBe(paging);
+      client.frame({ type: "safety_history", requestId: recovery.requestId, page: { ...page, cursor: "recovery_page_2" } });
+      expect(safety.getState().status).toBe("ready");
+    } finally { client.dispose(); }
+  });
+}
+
+test("a correlated capacity refusal terminates the active recovery page", () => {
+  const { safety, sent, client } = supportedClient("ithaca");
+  try {
+    client.frame(hello);
+    const initial = sent.findLast(message => message.type === "safety_read");
+    if (initial?.type !== "safety_read") throw new Error("Missing read");
+    client.frame({ type: "safety_history", requestId: initial.requestId, page });
+    client.frame({ type: "safety_unavailable", version: 1, requestId: initial.requestId, reason: "capacity" });
+    const recovery = sent.findLast(message => message.type === "safety_read");
+    if (recovery?.type !== "safety_read") throw new Error("Missing recovery read");
+    client.frame({ type: "safety_history", requestId: recovery.requestId,
+      page: { ...page, nextCursor: "recovery_page_2", snapshotComplete: false } });
+    const before = sent.length;
+    client.frame({ type: "safety_unavailable", version: 1, requestId: recovery.requestId, reason: "capacity" });
+    expect(sent.length).toBe(before);
+    expect(safety.getState(), "ACTIVE_READ_CAPACITY_REFUSAL_REMAINS_TERMINAL").toMatchObject({ status: "unavailable", requestId: null, reason: "capacity", normal: false });
   } finally { client.dispose(); }
 });

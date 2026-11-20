@@ -251,6 +251,42 @@ Disconnect does not establish cancellation: the server continues draining and
 reserves the canonical repository until its child exits, as specified in
 [the HTTP sync contract](../http-api.md#corpus-queries-capture-and-sync).
 
+<a id="bounded-ui-sync-additive-4257"></a>
+
+### Bounded UI sync start, hold duration and Activity run (additive, #4257)
+
+`POST /api/brain/sync` keeps its admission, SSE frames and disconnect rules.
+Three additions ([HTTP reference](../http-api.md#corpus-queries-capture-and-sync)):
+
+- A concurrent attempt's 409 body is `{ error, heldMs }`, where `heldMs` is how
+  long the admitted sync has held the canonical root.
+- The time from admission until the sync's first worker starts (on a hosted
+  install, after the mirror lock, startup view and origin probe) is bounded at
+  120 seconds. Past it the stream ends with `{ type: "done", success: false,
+  reason: "launch_timeout", text }`, the reservation is released and nothing
+  has run. `reason` is present only on this refusal. `brainSync()` keeps
+  mapping it to `{ success: false, message }`.
+- Each admitted UI sync is an Activity run with root span kind and origin
+  `cron` and `jobName: "ui-sync"`, attributed to the requesting principal. Its
+  terminal outcome carries the exit status and last output lines, and its
+  `job_output` event carries the output tail.
+
+<a id="sync-incoming-policy-review-additive-4256"></a>
+
+### A sync's incoming policy change is reviewed, not failed (additive, #4256)
+
+`POST /api/brain/sync` may send one new frame,
+`{ type: "policy_review", turn_id, request_id, review: PolicyChangeReview }`,
+followed by `{ type: "done", success: false, reason: "policy_review", text }`,
+when a hosted pull's only tier A change is `context/policies/governance.md`
+([HTTP reference](../http-api.md#corpus-queries-capture-and-sync)). Nothing is
+published. The internal `POST /api/brain/sync/policy/:turnId/:requestId`
+takes `{ approve }` from the owner whose sync opened the review and returns the
+recorded `PolicyChangeReview`; only an approval writes, through the existing
+policy writer. `brainSync()` keeps mapping the terminal frame to
+`{ success: false, message }`, and clients that ignore unknown frame types are
+unaffected. No agent runtime proposes or answers these reviews.
+
 <a id="typed-status-software-identity-additive-598"></a>
 
 ### Typed status software identity (additive, #598)

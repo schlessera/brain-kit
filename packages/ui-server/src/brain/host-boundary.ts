@@ -72,7 +72,12 @@ export interface BrainExecution {
   timeoutMs?: number;
   /** @internal Storage owner operations recheck authority after admission/preparation. */
   assertAuthorized?: () => void;
-  /** @internal Distinguish pre-launch owner refusal from an interrupted effect. */
+  /**
+   * @internal Distinguish pre-launch owner refusal from an interrupted effect.
+   * `launch` calls it once the command's process has started; for a hosted
+   * sync, once its mirror lock, startup view and origin probe are done and its
+   * first worker starts, so a caller can bound everything before it (#4257).
+   */
   onExecute?: () => void;
   /** @internal Combined output bound for an explicitly bounded operation. */
   outputBytes?: number;
@@ -84,6 +89,12 @@ export interface BrainExecution {
   writeFiles?: readonly string[];
   /** A complete hosted sync: its only credentialed part is the host mirror transport. */
   sync?: boolean;
+  /**
+   * @internal A hosted sync whose pull changes only the governance policy
+   * hands the incoming bytes here instead of failing (#4256); it publishes
+   * nothing either way. Absent: the sync refuses and names the waiting change.
+   */
+  onPolicyChange?: (change: import("./sync-mirror.js").IncomingPolicyChange) => void;
   /**
    * @internal Host-fetched repositories a module cron job may read (#3380): each
    * mirror read-only, with a Git URL rewrite onto it. Never a credential.
@@ -649,7 +660,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         }
         return credentialed(admission, async () => {
           if (execution.sync) return outputLock.withLock(brain, () => runMirrorSync({ log: options.log, nativeManager: options.nativeManager, folderPaths: hold?.folderPaths, command: command(execution), transportEnv: execution.env, mirror: mirror ??= syncMirrorPath(brain, options.dbPath),
-            ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) }), { signal: admissionSignal });
+            ...(execution.onPolicyChange ? { onPolicyChange: execution.onPolicyChange } : {}), ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) }), { signal: admissionSignal });
           const run = async () => {
             admissionSignal?.throwIfAborted();
             execution.assertAuthorized?.();
@@ -696,6 +707,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
             await admitHost(hold);
             stillHostFallback(execution.signal);
             const proc = hostSpawn(execution);
+            execution.onExecute?.();
             const admitted = credential;
             return retainExecutionAdmission({ stdout: proc.stdout, stderr: proc.stderr, exited: proc.exited,
               get signalCode() { return proc.signalCode; }, kill: (signal?: NodeJS.Signals) => killWrapped(proc, exec, signal ?? "SIGTERM") },
@@ -724,7 +736,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
           const onAbort = () => abort.abort(execution.signal?.reason);
           execution.signal?.addEventListener("abort", onAbort, { once: true });
           const exited = runMirrorSync({ log: options.log, nativeManager: options.nativeManager, folderPaths: hold?.folderPaths, command: selectedCommand, transportEnv: execution.env, mirror: selectedMirror, signal: abort.signal,
-            ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) }).then(result => {
+            ...(execution.onExecute ? { onExecute: execution.onExecute } : {}), ...(execution.onPolicyChange ? { onPolicyChange: execution.onPolicyChange } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) }).then(result => {
             stdout.write(result.stdout); stderr.write(result.stderr); return result.exitCode;
           }, error => { stderr.write(error instanceof Error ? error.message : String(error)); return 1; })
             .finally(async () => {
@@ -755,6 +767,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         await prepareMaintenanceWorker(maintenance, execution.signal);
         execution.signal?.throwIfAborted();
         worker = await launchMaintenanceWorkerAsync(maintenance);
+        execution.onExecute?.();
       }
       catch (error) { await relay?.stop(); try { await outputs?.cleanup(); } finally { try { await view?.cleanup(); } finally { try { releaseOutput(); } finally { try { credential?.release(); } finally { hold?.release(); } } } } throw error; }
       void worker.input(execution.stdin ?? "");

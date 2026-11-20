@@ -1425,6 +1425,7 @@ export "./internal" (./src/internal.ts)
   PROVIDER_RELAY_KEYS_NAME
   PROVIDER_RELAY_SOCKET_NAME
   type PreparedWorkerOutput
+  ProtectedMaintenanceOutputError
   type ProviderRelay
   type ProviderRelayOptions
   type ProviderRelayReceipt

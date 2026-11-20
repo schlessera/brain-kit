@@ -83,6 +83,7 @@ export function createGitHubReferenceAccess(options: {
       if (result.status !== 200) throw new ReferenceTransportError([401, 403, 404].includes(result.status) ? "denied" : "unavailable", "GitHub repository identity is unavailable");
       const identity: GitHubReferenceIdentity = parseGitHubReferenceMetadata(location.cloneUrl, result.value);
       if (!grant && identity.private) throw new ReferenceTransportError("denied", "anonymous metadata cannot establish public source access");
+      let identityObservedAt = now();
       openingMetadata = false;
       // Source/worktree effects outlive wire shutdown, but not this authority.
       const assertAuthority = () => {
@@ -90,7 +91,7 @@ export function createGitHubReferenceAccess(options: {
       };
       const assertCurrent = () => { wire.signal.throwIfAborted(); assertAuthority(); };
       assertCurrent();
-      return Object.freeze({ identity: Object.freeze(identity), repository, credential, wire,
+      return Object.freeze({ identity: Object.freeze(identity), get identityObservedAt() { return identityObservedAt; }, repository, credential, wire,
         domain: grant ? "private" as const : "public" as const, grantId: grant?.id ?? null, assertCurrent, assertAuthority,
         /** A final fixed metadata observation must still describe this exact acquisition. */
         async revalidate() {
@@ -100,6 +101,7 @@ export function createGitHubReferenceAccess(options: {
             assertCurrent();
             if (result.status !== 200 || !sameGitHubReferenceIdentity(identity, parseGitHubReferenceMetadata(location.cloneUrl, result.value)))
               throw new ReferenceTransportError("denied", "GitHub repository identity changed during acquisition");
+            identityObservedAt = now();
           } catch (error) {
             const interrupted = signal?.aborted || (currentOperation && !currentOperation());
             await wire.close();
@@ -162,7 +164,7 @@ export function createGitHubReferenceAccess(options: {
       const access = await repositoryMetadata(input, false);
       const { identity, domain, grantId, wire, credential, repository, assertCurrent, assertAuthority, revalidate, close } = access;
       let resolved: Extract<ReferenceCheck, { ok: true }> | undefined;
-      return Object.freeze({ identity, domain, grantId, revision, signal: wire.signal, bytes: wire.bytes, assertCurrent, assertAuthority, revalidate, close,
+      return Object.freeze({ identity, get identityObservedAt() { return access.identityObservedAt; }, domain, grantId, revision, signal: wire.signal, bytes: wire.bytes, assertCurrent, assertAuthority, revalidate, close,
         async resolve() {
           assertCurrent();
           const result = await options.transport.resolve({ repository, revision, token: credential, wire, signal: wire.signal });

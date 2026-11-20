@@ -868,6 +868,31 @@ Publication also refuses deletion of a tier A ancestor directory, including an
 empty `context` or `.git` whose protected descendants are currently absent.
 This host-side check applies before any changed output is installed; worker
 namespace mount points alone do not constrain the host publisher.
+
+> **2026-11-20 — An incoming policy change from a sync is reviewed by the owner
+> ([#4256](https://github.com/schlessera/brain-kit/issues/4256), maintainer ruling option 1).**
+> The policy file is versioned host input, so a pull is where a policy change
+> arrives. The refusal above still holds: a hosted sync's worker output never
+> publishes a tier A change. When the only refused paths are
+> `context/policies/governance.md` and the `context/policies` directory a first
+> policy creates with it, on a sync with a remote, the host compares the stage's
+> bytes with the upstream commit's own policy blob. The host transport reads that
+> blob after the integrity check and the fetch, before the sync's worker runs,
+> with replace objects disabled. Only equal bytes are reviewable, so worker output
+> is never a policy source. The host then publishes nothing and opens a host-owned
+> review through the existing policy proposals, the only policy writer, as
+> Settings › Apify does (`createOwnerPolicyReviews`,
+> `packages/ui-server/src/brain/owner-policy-reviews.ts`). A newer sync's review
+> replaces the owner's unanswered one. Only the owner whose UI sync opened it can
+> answer, and only an approval writes, in a `user` journal window. The next sync
+> then merges the identical change cleanly. A scheduled sync opens no review and
+> names the waiting change. Any other tier A change, a merged policy that differs
+> from upstream's, or a sync without a remote keeps the refusal, with next-step
+> text. No agent runtime, worker or autonomous turn proposes or answers these
+> reviews, and the rationale shown is fixed host text. A Settings control for
+> `outward.github.repositories` was not taken: chat's `propose_policy_change`
+> already edits it.
+
 Within one server process, maintenance clients serialize preparation through
 publication per canonical brain. Even readers produce SQLite projections or
 Git attribute objects in their private outputs; concurrent copies of that
@@ -4097,6 +4122,16 @@ reconciler's timed retry cannot make a second attempt inside it.
 
 ### Outward actions (G5)
 
+**Google host tools — 2026-11-17 (#4201).** The
+[maintainer ruled](google-workspace.md) that an own-account reversible Google
+write made through the host Google tools (archive, labels, read state, stars,
+brain-made drafts, guest-free events on a calendar verified private), which is
+invisible to anyone else and has a recorded inverse, is not an outward action.
+It may run without a card under the policy's `google` block or a remembered
+approval in an untainted session, or under a session allowance in a tainted
+one. Every other Google write stays outward: it asks every time and is
+journaled as irreversible. The rest of this section is unchanged.
+
 **Inside the brain, nothing is outward.** Journaled edits, commits to the
 local repository and scratch output are free.
 
@@ -4256,6 +4291,16 @@ and a documented "no GitHub here" were both rejected. The rest of the ruling:
   A session retained before #3799 keeps its earlier append byte for byte.
 
 ### Untrusted input (G6)
+
+**Google structured reads — 2026-11-17 (#4201).** The
+[maintainer ruled](google-workspace.md) that a host Google tool result
+composed only of host-validated structured values (Google-minted Gmail ids,
+label ids and names, host-minted handles, timestamps, counts, size buckets,
+flags, closed enums and free/busy intervals) is not untrusted input and does
+not taint. Every other Google result taints the session as `google_result`
+before it returns. A tainted session follows the rules below as written,
+except that a session allowance the owner granted on a reversible Google card
+admits that operation and entity for a bounded time.
 
 **Prospective supersession — 2026-11-05 (#3599).** The
 [owner-reviewed session-safety decision](session-safety-reviews.md) permits

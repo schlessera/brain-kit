@@ -14,18 +14,17 @@
  * user-history operation. The control itself never writes. Only the owner who
  * proposed a change can decide it; agents never reach these routes.
  */
-import { createHash, randomUUID } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { checkGovernancePolicy, GOVERNANCE_POLICY_PATH } from "@schlessera/brain-common/internal/governance-policy";
 import { liability, type ApifyLedger, type ApifyRuns, type ApifyStatus, type ApifyCoverageScope } from "@schlessera/brain-common/internal/apify";
-import type { PolicyChangeReview } from "@schlessera/brain-ui-sdk/tool-contracts";
 import type {
   ApifyGrantRead, ApifyPolicyChange, ApifyPolicyMode, ApifyPolicyProposalRead, ApifyPolicyRead, ApifySettingsRead, ApifySpendRead,
   ApifySpendScopeRead, ApifyUnresolvedRunRead,
 } from "@schlessera/brain-ui-sdk/protocol";
-import type { PolicyProposals, PolicyProposalTurn } from "../brain/policy-proposal.js";
+import type { PolicyProposals } from "../brain/policy-proposal.js";
+import { createOwnerPolicyReviews, type OwnerPolicyJournal } from "../brain/owner-policy-reviews.js";
 
 /** A refusal with an HTTP status and a fixed message; it never carries policy text or a secret. */
 export class ApifySettingsError extends Error {
@@ -232,10 +231,7 @@ export function apifySettingsRead(status: ApifyStatus, policy: ApifyPolicyRead, 
 }
 
 /** The `user` journal window a settings edit is written in, as for any user-history operation. */
-export interface ApifySettingsJournal {
-  begin(turnId: string, metadata: { sessionId: null; actor: "user"; model: null; profile: "strict"; policyHash: string | null }, stop: (error: Error) => void, signal?: AbortSignal): Promise<void>;
-  finish(turnId: string): Promise<void>;
-}
+export type ApifySettingsJournal = OwnerPolicyJournal;
 
 interface ApifyPolicyEditsOptions {
   root: string;
@@ -247,79 +243,22 @@ interface ApifyPolicyEditsOptions {
   timeoutMs?: number;
 }
 
-/** At most this many unanswered Settings reviews per owner. */
-const MAX_PENDING = 4;
-
 export function createApifyPolicyEdits(options: ApifyPolicyEditsOptions) {
-  const timeoutMs = options.timeoutMs ?? 10 * 60_000;
-  const pending = new Map<string, { principalId: string; answer(approve: boolean): void; done: Promise<PolicyChangeReview> }>();
-  const read = (): string | null => {
-    try { return readFileSync(join(options.root, GOVERNANCE_POLICY_PATH), "utf8"); }
-    catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; }
-  };
+  const reviews = createOwnerPolicyReviews({ ...options, turnPrefix: "settings-apify", requestPrefix: "apify",
+    fail: (status, code, message) => new ApifySettingsError(status, code, code === "stale" ? "The policy changed since Settings read it. Reload Settings; nothing was proposed." : message) });
   return {
     /** Propose one change against the policy version the owner saw; resolves once its review is pending. */
     async propose(principalId: string, change: ApifyPolicyChange, baseHash: string | null): Promise<ApifyPolicyProposalRead> {
-      if (!options.authorized(principalId)) throw new ApifySettingsError(409, "not_authorized", "This owner no longer has current authority. Nothing was proposed.");
-      if ([...pending.values()].filter(entry => entry.principalId === principalId).length >= MAX_PENDING)
-        throw new ApifySettingsError(409, "busy", "Answer the open policy reviews first. Nothing was proposed.");
-      const current = read();
-      const hash = current === null ? null : createHash("sha256").update(current, "utf8").digest("hex");
-      if (hash !== baseHash) throw new ApifySettingsError(409, "stale", "The policy changed since Settings read it. Reload Settings; nothing was proposed.");
-      const content = editApifyPolicy(current, change);
-      const turnId = `settings-apify-${randomUUID()}`, requestId = `apify-${randomUUID()}`, key = `${turnId}:${requestId}`;
-      const controller = new AbortController();
-      let answer!: (approve: boolean) => void;
-      const decision = new Promise<boolean>(resolve => { answer = resolve; });
-      let shown!: (review: PolicyChangeReview) => void, failed!: (error: unknown) => void;
-      const first = new Promise<PolicyChangeReview>((resolve, reject) => { shown = resolve; failed = reject; });
-      let journaled = false;
-      const timer = setTimeout(() => answer(false), timeoutMs);
-      timer.unref?.();
-      const turn: PolicyProposalTurn = {
-        principalId, turnId, sessionId: () => null, signal: controller.signal,
-        isAuthorized: () => options.authorized(principalId), isAvailable: () => true,
-        approve: async review => {
-          shown(structuredClone(review));
-          if (!await decision) return false;
-          // Approved: the write happens inside a user journal window, like a revert or a removal.
-          await options.journal.begin(turnId, { sessionId: null, actor: "user", model: null, profile: "strict", policyHash: review.baseHash },
-            () => controller.abort(), controller.signal);
-          journaled = true;
-          return true;
-        },
-        emit: () => undefined,
-      };
-      const done = options.proposals.propose(turn, requestId, { content, rationale: apifyChangeRationale(change) }).finally(async () => {
-        clearTimeout(timer);
-        pending.delete(key);
-        if (journaled) await options.journal.finish(turnId).catch(() => undefined);
-      });
-      done.then(review => shown(review), failed);
-      pending.set(key, { principalId, answer, done });
-      try { return { turn_id: turnId, request_id: requestId, review: await first }; }
-      catch (error) {
-        answer(false);
-        throw error instanceof ApifySettingsError ? error : new ApifySettingsError(422, "policy_invalid",
-          `The proposed policy did not validate, so nothing was proposed: ${error instanceof Error ? error.message.slice(0, 300) : "unknown error"}`);
-      }
+      return reviews.propose(principalId, current => editApifyPolicy(current, change), baseHash, apifyChangeRationale(change),
+        "The proposed policy did not validate, so nothing was proposed");
     },
     /**
      * The owner's one answer to a review they proposed. A repeated or late
      * answer reads the recorded outcome; it never writes again.
      */
-    async decide(principalId: string, turnId: string, requestId: string, approve: boolean): Promise<PolicyChangeReview> {
-      const entry = pending.get(`${turnId}:${requestId}`);
-      if (entry && entry.principalId === principalId) {
-        entry.answer(approve);
-        return structuredClone(await entry.done);
-      }
-      const recorded = options.proposals.read(principalId, turnId, requestId);
-      if (!recorded) throw new ApifySettingsError(404, "not_found", "No policy review is open for this request.");
-      return recorded;
-    },
+    decide: reviews.decide,
     /** Decline every open review: shutdown or test teardown. */
-    close() { for (const entry of pending.values()) entry.answer(false); },
+    close: reviews.close,
   };
 }
 export type ApifyPolicyEdits = ReturnType<typeof createApifyPolicyEdits>;
