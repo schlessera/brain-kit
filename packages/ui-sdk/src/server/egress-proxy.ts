@@ -133,7 +133,8 @@ export function egressAddressRefusal(address: string, allow?: BlockList): "metad
   return null;
 }
 export const canonicalEgressHost = (value: string) => {
-  const host = value.toLowerCase().replace(/\.$/, "").replace(/^\[|\]$/g, "");
+  const normalized = value.toLowerCase().replace(/\.$/, "");
+  const host = normalized.startsWith("[") && normalized.endsWith("]") ? normalized.slice(1, -1) : normalized;
   return isIP(host) === 6 ? new URL(`http://[${host}]`).hostname.slice(1, -1) : host;
 };
 function matches(host: string, patterns: readonly string[]): boolean {

@@ -345,7 +345,7 @@ test("taint narrowing never overrides deny or the ordinary allowlist, and its pa
     expect((await get(proxy.socketPath, origin.url.href)).status, "EGRESS_TAINT_IS_NARROWING_ONLY").toBe(403);
     expect(records[0]).toMatchObject({ reason: "destination_not_allowed" });
   } finally { proxy.stop(); origin.stop(true); }
-  await expect(startEgressProxy({ ...defaults([]), taint: { allow: ["bad host"], tainted: () => true, contacted: () => false } })).rejects.toThrow("Invalid egress host pattern");
+  for (const host of ["bad host", "[::1", "::1]"]) await expect(startEgressProxy({ ...defaults([]), taint: { allow: [host], tainted: () => true, contacted: () => false } })).rejects.toThrow("Invalid egress host pattern");
 });
 
 test("each refusal tells the tool why in its status line and body (#3431)", async () => {
