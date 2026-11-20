@@ -22,9 +22,9 @@ function get(socketPath: string, target: string): Promise<number> {
   }); r.once("error", reject); r.end(); });
 }
 function trust(rule: TrustRule) {
-  let revision = "1", rules = [rule]; const listeners = new Set<() => void>();
-  const live: OriginTrust = { revision: () => revision, read: () => ({revision,rules,policyHash:"a".repeat(64)}), subscribe: cb => {listeners.add(cb);return () => {listeners.delete(cb);};} };
-  return { live, remove() { rules=[];revision="2";for(const cb of listeners)cb(); } };
+  let revision = "1", rules = [rule], policyHash="a".repeat(64); const listeners = new Set<() => void>();
+  const live: OriginTrust = { revision: () => revision, read: () => ({revision,rules,policyHash}), subscribe: cb => {listeners.add(cb);return () => {listeners.delete(cb);};} };
+  return { live, remove() { rules=[];revision="2";policyHash="b".repeat(64);for(const cb of listeners)cb(); } };
 }
 async function fixture(recipient = false, policy: GovernancePolicyInput = {schema_version:1}, response?: () => Response, full = false, listenHost = "127.0.0.1") {
   const root=full?mkdtempSync(join(tmpdir(),"odysseus-origin-trust-")):null;
@@ -203,4 +203,9 @@ test('review7: provisional safety reads never survive a rolled-back transaction'
  expect(()=>f.db.transaction(()=>{f.db.exec('DELETE FROM safety_records');expect(safety.read().restricted).toBe(false);throw new Error('Odysseus rolls back');})()).toThrow('Odysseus rolls back');
  expect(safety.read().restricted,'ROLLED_BACK_INPUT_NEVER_REUSES_PROVISIONAL_SAFETY').toBe(true);
  }finally{await f.close();}
+});
+
+
+test('review8: unmatched input after removal records the current policy hash and revision',async()=>{
+ const f=await fixture();try{f.t.remove();expect(await get(f.proxy.socketPath,f.origin.url.href)).toBe(200);await f.proxy.settled();const events=queryGovernanceEvents(f.db,{kinds:['taint'],limit:10});expect(events[0]?.payload,'UNMATCHED_ADMISSION_USES_ONE_LIVE_POLICY_SNAPSHOT').toMatchObject({occurrence:{admission:{trusted:false,policyHash:'b'.repeat(64),trustRevision:'2'}}});}finally{await f.close();}
 });

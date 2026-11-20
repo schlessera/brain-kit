@@ -1,5 +1,5 @@
 /** One admitted turn's concrete proxy, approval surface and durable records. */
-import { originTrustMatch, type OriginTrust, type OriginDestination } from "./origin-trust.js";
+import { originTrustMatch, originTrustMatchSnapshot, type OriginTrust, type OriginDestination } from "./origin-trust.js";
 import type { EffectiveGovernancePolicy, TrustMatch } from "@schlessera/brain-common/internal/governance-policy";
 import { startEgressProxy, canonicalEgressHost, EgressAdmissionRefused, type EgressRecord } from "@schlessera/brain-ui-sdk/internal";
 import { requestToolPermission, type BackendActivityEvent, type BackendBridge } from "@schlessera/brain-ui-sdk/server";
@@ -277,9 +277,10 @@ export async function prepareTurnEgress(options: {
     if (firstTaint() === null) normalBefore.add(destination.connectionId);
     if (!writes) return;
     const exposure = occurrence(collectionEpoch, "proxy_input", destination.connectionId, "open");
-    const match = originTrustMatch(options.trust, destination, "incomingContent", options.bridge.admissionSafety?.read().evidenceRevision ?? "0");
+    const trustSnapshot = options.trust?.read();
+    const match = originTrustMatchSnapshot(trustSnapshot, destination, "incomingContent", options.bridge.admissionSafety?.read().evidenceRevision ?? "0");
     exposure.admission = match ? { trusted: true, ruleId: match.ruleId, policyHash: match.policyHash, trustRevision: match.trustRevision, collectionRevision: match.collectionRevision }
-      : { trusted: false, policyHash: options.policyHash ?? null, trustRevision: options.trust?.revision() ?? "0" };
+      : { trusted: false, policyHash: trustSnapshot ? trustSnapshot.policyHash : options.policyHash ?? null, trustRevision: trustSnapshot?.revision ?? "0" };
     if (match) trustedInputs.set(destination.connectionId, { destination, revision: match.trustRevision });
     exposure.provenance=destination.method==="CONNECT"
       ? {kind:"tunnel_authority",authority:{host:destination.host,port:destination.port},verifiedBy:"host_proxy"}

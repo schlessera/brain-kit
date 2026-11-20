@@ -7,6 +7,8 @@ import { activeChat, useChatStore } from "../../stores/chat-store.js";
 import { entryEvidence, safetyEvidence, type SafetyEvidence } from "../../lib/safety-evidence.js";
 import { createSafetyReviewer, type SafetyReviewProgress } from "../../lib/safety-reviewer.js";
 
+const formatAuthority = ({host,port}:{host:string;port:number}) => `${host.includes(":") && !host.startsWith("[") ? `[${host}]` : host}:${port}`;
+
 const sources:Record<SafetyEvidence["occurrence"]["source"],string>={web_fetch:"Web fetch",web_search:"Web search",staged_share:"Shared input",chat_attachment:"Chat attachment",
   workspace_read:"Workspace read",mcp_document:"External tool input",user_marked:"Marked untrusted",fetching_command:"Fetching command",unclassified_command:"Unclassified command",
   compute_output:"Compute output",apify_result:"Apify result",github_result:"GitHub result",egress_connection:"Network input",legacy_unknown:"Legacy input evidence"};
@@ -118,8 +120,8 @@ function SafetyTrigger({entry}:{entry:SafetyEvidence}) {
   const readable=state.status==="ready"&&!!session,owner=state.capabilities?.review===true&&auth==="active";
   const canReview=readable&&owner&&entry.exposure==="finalized"&&!entry.decision&&!r.admission?.trusted&&!state.projection?.pendingCount&&!state.projection?.reasons.includes("recording_failed");
   const busy=progress?.stage==="pending",unknown=progress?.stage==="unknown";
-  const provenance=r.provenance?.kind==="web_origin"?`${r.provenance.origin.scheme}://${r.provenance.origin.host}:${r.provenance.origin.port}`:
-    r.provenance?.kind==="tunnel_authority"?`${r.provenance.authority.host}:${r.provenance.authority.port}`:"Source provenance unavailable";
+  const provenance=r.provenance?.kind==="web_origin"?`${r.provenance.origin.scheme}://${formatAuthority(r.provenance.origin)}`:
+    r.provenance?.kind==="tunnel_authority"?formatAuthority(r.provenance.authority):"Source provenance unavailable";
   return <section data-safety-trigger={r.id} className="space-y-2 border-t border-border py-3">
     <p className="font-medium">{r.admission?.trusted?"Trusted at admission":entry.decision?"Marked safe by you":"Safety restrictions enabled"}</p>
     <p>{sources[r.source]} · <time dateTime={new Date(r.observedAt).toISOString()}>{new Date(r.observedAt).toLocaleString()}</time></p>

@@ -16,8 +16,12 @@ function originProvenance(destination: OriginDestination): TrustProvenance | nul
   return null;
 }
 export function originTrustMatch(trust: OriginTrust | undefined, destination: OriginDestination, capability: TrustMatch["capability"], collectionRevision: string): TrustMatch | null {
-  if (!trust) return null;
-  const p = trust.read(), provenance = originProvenance(destination);
+  return originTrustMatchSnapshot(trust?.read(), destination, capability, collectionRevision);
+}
+/** All admission evidence, including an unmatched verdict, uses this same snapshot. */
+export function originTrustMatchSnapshot(p: ReturnType<OriginTrust["read"]> | undefined, destination: OriginDestination, capability: TrustMatch["capability"], collectionRevision: string): TrustMatch | null {
+  if (!p) return null;
+  const provenance = originProvenance(destination);
   if (!p.policyHash || !provenance) return null;
   return matchTrustRules(p.rules, provenance, capability, { phase: "prospective_admission", trustRevision: p.revision, policyHash: p.policyHash, collectionRevision },
     value => value.kind === "web_origin" ? { kind: "host_transport" } : value.kind === "tunnel_authority" ? { kind: "host_proxy" } : { kind: "unknown" });
