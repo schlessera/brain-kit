@@ -355,7 +355,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (current && !current.recordingAvailable) { chargeReason = "unavailable"; finish("denied", "egress_unavailable"); return false; }
       if (safetySnapshotRefusal(current, snapshot)) { chargeReason = "safety"; finish("denied", "safety_changed"); return false; }
       if (!grantCurrent(true)) { chargeReason = "safety"; finish("denied", "safety_changed"); return false; }
-      if (count > options.maxBytes - usedBytes || usedBytes >= options.maxBytes) { finish("denied", "max_bytes_per_turn"); return false; }
+      if (count > options.maxBytes - usedBytes) { finish("denied", "max_bytes_per_turn"); return false; }
       if (!inputCurrent(connectionId)) { revokeInput(); return false; }
       if (narrowed(true)) { chargeReason = "safety"; finish("denied", "taint_not_allowed"); return false; }
       if (!notified) { notified = true; options.committed?.({ ...recipient, connectionId, inference, provider, recipientApproved: granted }); }

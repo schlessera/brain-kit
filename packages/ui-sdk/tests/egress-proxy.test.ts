@@ -431,3 +431,38 @@ for(const pinned of [false,true])test(`review9: absolute DNS authority survives 
  const proxy=await startEgressProxy({...defaults(records),...(pinned?{destinations:{ports:[port],allowRanges:['127.0.0.0/8'],lookup:async(host:string)=>{seen.push(host);return [{address:'127.0.0.1',family:4}];}}}:{})});
  try{expect(await tunnel(proxy.socketPath,`ithaca.example.org.:${port}`,'ithaca')).toContain('ITHACA');expect(seen,'ABSOLUTE_DNS_AUTHORITY_NEVER_LOSES_ITS_DOT').toEqual(['ithaca.example.org.']);await recorded(records,1);expect(records[0]?.host).toBe('ithaca.example.org');}finally{spy.mockRestore();proxy.stop();await new Promise<void>(r=>server.close(()=>r()));}
 });
+
+for (const over of [false, true]) test(`review13: real HTTP end ${over ? 'refuses one byte over' : 'completes at'} the exact cap`, async () => {
+  const origin = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response('Ithaca') });
+  const measured: EgressRecord[] = [], sample = await startEgressProxy({ ...defaults(measured), maxBytes: 4096 });
+  try {
+    await get(sample.socketPath, origin.url.href); await recorded(measured, 1);
+    const cap = measured[0]!.bytes, records: EgressRecord[] = [];
+    const proxy = await startEgressProxy({ ...defaults(records), maxBytes: cap - Number(over) });
+    try {
+      const result = await get(proxy.socketPath, origin.url.href).catch(() => null);
+      await recorded(records, 1);
+      if (over) { expect(result?.body).not.toBe('Ithaca'); expect(records[0]).toMatchObject({ outcome: 'denied', reason: 'max_bytes_per_turn' }); }
+      else { expect(result, 'HTTP_EXACT_CAP_END_COMPLETES').toEqual({ status: 200, body: 'Ithaca' }); expect(records[0]).toMatchObject({ outcome: 'completed', bytes: cap }); }
+    } finally { proxy.stop(); }
+  } finally { sample.stop(); origin.stop(true); }
+});
+
+for (const over of [false, true]) test(`review13: real tunnel close ${over ? 'refuses one byte over' : 'completes at'} the exact cap`, async () => {
+  const payload = 'Ithaca', records: EgressRecord[] = [];
+  const origin = createServer(socket => socket.end(payload));
+  await new Promise<void>(resolve => origin.listen(0, '127.0.0.1', resolve));
+  const port = (origin.address() as { port: number }).port;
+  const proxy = await startEgressProxy({ ...defaults(records), maxBytes: Buffer.byteLength(payload) - Number(over) });
+  const client = connect(proxy.socketPath); let text = '';
+  try {
+    await new Promise<void>((resolve, reject) => {
+      client.on('error', reject); client.on('data', bytes => { text += bytes; });
+      client.once('connect', () => client.write(`CONNECT 127.0.0.1:${port} HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\n\r\n`));
+      client.once('end', () => client.end()); client.once('close', () => resolve());
+    });
+    await recorded(records, 1);
+    if (over) { expect(text).not.toContain(payload); expect(records[0]).toMatchObject({ outcome: 'denied', reason: 'max_bytes_per_turn' }); }
+    else { expect(text, 'TUNNEL_EXACT_CAP_CLOSE_COMPLETES').toContain(payload); expect(records[0]).toMatchObject({ outcome: 'completed', bytes: payload.length }); }
+  } finally { client.destroy(); proxy.stop(); await new Promise<void>(resolve => origin.close(() => resolve())); }
+});

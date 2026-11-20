@@ -35,3 +35,11 @@ for(const count of [-1,-0.5,0.5,NaN,Infinity,-Infinity,Number.MAX_SAFE_INTEGER+1
  const records:Array<{bytes:number}>=[];const proxy=await startEgressProxy({mode:'record',allow:[],deny:[],maxBytes:32,outwardHosts:[],observe:r=>{records.push(r);}});
  try{const op=proxy.inference('POST',new URL('http://127.0.0.1/'),new AbortController().signal);expect(await op.admit()).toBe(true);expect(op.charge(8)).toEqual({ok:true});expect(()=>op.charge(count),'INVALID_CHARGE_NEVER_MUTATES_NETWORK_BUDGET').toThrow('nonnegative safe integer');expect(proxy.usedBytes()).toBe(8);expect(proxy.remainingBytes()).toBe(24);expect(op.charge(0)).toEqual({ok:true});expect(op.charge(24)).toEqual({ok:true});expect(proxy.usedBytes()).toBe(32);op.finish('completed');expect(records[0]?.bytes,'INVALID_CHARGE_NEVER_MUTATES_CONNECTION_BYTES').toBe(32);}finally{proxy.stop();}
 });
+
+for (const failure of ['safety','unavailable','source'] as const) test(`review13: zero-byte completion at the cap still checks ${failure}`, async () => {
+ let current=true;
+ const proxy=await startEgressProxy({mode:'record',allow:[],deny:[],maxBytes:8,outwardHosts:[],observe(){},
+  inputCurrent:()=>failure!=='source'||current,
+  admissionSafety:{read:()=>({evidenceRevision:'1',trustRevision:'1',authorityEpoch:'1',scope:'ithaca',policyHash:null,restricted:false,recordingAvailable:failure!=='unavailable'||current,authorityCurrent:failure!=='safety'||current}),subscribe:()=>()=>{}}});
+ try{const op=proxy.inference('POST',new URL('http://127.0.0.1/'),new AbortController().signal);expect(await op.admit()).toBe(true);expect(op.charge(8)).toEqual({ok:true});expect(op.charge(0),'ZERO_BYTE_TERMINAL_AT_CAP_IS_ALLOWED').toEqual({ok:true});current=false;expect(op.charge(0),'ZERO_BYTE_TERMINAL_REVALIDATES_SAFETY').toEqual({ok:false,reason:failure==='unavailable'?'unavailable':'safety'});}finally{proxy.stop();}
+});

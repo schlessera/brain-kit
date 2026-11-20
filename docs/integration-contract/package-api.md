@@ -5990,8 +5990,8 @@ Provider history remains byte-identical as an earlier prefix.
 The concrete turn proxy's `charge(bytes)` returns `{ok:true}` or
 `{ok:false,reason:"budget"|"safety"|"unavailable"}`. Callers preserve that
 classification. `commit()` is the same typed decision as `charge(0)`: it revalidates
-without consuming bytes and notifies commitment only once. An exhausted turn can
-refuse even a zero-byte decision. `bytes` must be a nonnegative safe integer; invalid counts
+without consuming bytes and notifies commitment only once. A zero-byte terminal decision can complete at the exact byte ceiling while
+still revalidating safety. `bytes` must be a nonnegative safe integer; invalid counts
 throw RangeError before changing either the turn or connection byte counter.
 Only budget refusal is byte exhaustion; authority/source or
 approval changes are safety refusals, and unverifiable recording/admission is

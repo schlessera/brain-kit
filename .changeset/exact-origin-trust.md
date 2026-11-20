@@ -25,3 +25,5 @@ Cancel queued turn-start trust refreshes with the turn signal, and distinguish b
 Revalidate only an active input’s admitted source rule across trust revisions, unify source revocation audit/safety results, and reject invalid byte counts before either charge counter changes.
 
 Retire source-rule instances durably across independent publishers, preserve typed commit/charge failures on managed streams, and classify post-write source revocation identically to notification and send fences.
+
+Allow HTTP and tunnel completion exactly at the byte ceiling while preserving terminal safety checks and refusing bytes beyond it.
