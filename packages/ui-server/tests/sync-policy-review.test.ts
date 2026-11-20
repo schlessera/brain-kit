@@ -86,11 +86,13 @@ function setup(root: string, launch?: HostBoundary["launch"]) {
     }) } as HostBoundary,
   });
   const as = (principal: Principal) => new Hono<AppEnv>().use("*", async (c, next) => { c.set("principal", principal); await next(); }).route("/api", routes);
-  return { as, windows, events, launched: () => launched };
+  const family = (turnPrefix: string, requestPrefix: string) => createOwnerPolicyReviews({ root, proposals, journal, authorized: () => true,
+    turnPrefix, requestPrefix, fail: (status, code, message) => new OwnerPolicyReviewError(status, code, message) });
+  return { as, windows, events, launched: () => launched, family };
 }
 
 const frames = async (response: Response) => (await response.text()).split("\n").filter(line => line.startsWith("data: ")).map(line => JSON.parse(line.slice(6)) as Record<string, unknown>);
-const decide = (app: Hono<AppEnv>, review: Record<string, unknown>, approve: boolean) => app.request(`/api/brain/sync/policy/${review.turn_id}/${review.request_id}`,
+const decide = (app: Hono<AppEnv>, review: { turn_id?: unknown; request_id?: unknown }, approve: boolean) => app.request(`/api/brain/sync/policy/${review.turn_id}/${review.request_id}`,
   { method: "POST", headers: { "Content-Type": "application/json", Origin: "http://localhost" }, body: JSON.stringify({ approve }) });
 
 describe("a sync's incoming policy change (#4256)", () => {
@@ -117,7 +119,7 @@ describe("a sync's incoming policy change (#4256)", () => {
     expect(answered.status).toBe(200);
     expect((await answered.json()).state, "APPROVED_REVIEW_WRITTEN").toBe("updated");
     expect(readFileSync(join(root, "context/policies/governance.md"), "utf8"), "INCOMING_BYTES_ADOPTED").toBe(INCOMING);
-    expect(windows).toEqual([review.turn_id]);
+    expect(windows).toEqual([String(review.turn_id)]);
     expect(events).toHaveLength(1);
     const policy = parseGovernancePolicy(readFileSync(join(root, "context/policies/governance.md")));
     expect(policy.ok).toBe(true);
@@ -137,13 +139,18 @@ describe("a sync's incoming policy change (#4256)", () => {
 
   test("another principal or an unknown review is refused, and nothing is written", async () => {
     const root = brain();
-    const { as } = setup(root);
+    const { as, family } = setup(root);
     const review = (await frames(await as(owner).request("/api/brain/sync", { method: "POST" }))).find(frame => frame.type === "policy_review")!;
     const other = await decide(as(suitor), review, true);
     expect(other.status, "OTHER_PRINCIPAL_REFUSED").toBe(404);
     const unknown = await decide(as(owner), { turn_id: "sync-policy-unknown", request_id: "sync-unknown" }, true);
     expect(unknown.status, "UNKNOWN_REVIEW_REFUSED").toBe(404);
-    const foreign = await decide(as(owner), { turn_id: "settings-apify-1", request_id: "apify-1" }, true);
+    // A recorded review of another family (Settings) is never read or answered through the sync route.
+    const settings = family("settings-apify", "apify");
+    cleanup.push(() => settings.close());
+    const opened = await settings.propose(owner.id, () => INCOMING, undefined, "Settings change", "invalid");
+    await settings.decide(owner.id, opened.turn_id, opened.request_id, false);
+    const foreign = await decide(as(owner), opened, true);
     expect(foreign.status, "FOREIGN_REVIEW_FAMILY_REFUSED").toBe(404);
     expect(readFileSync(join(root, "context/policies/governance.md"), "utf8")).toBe(CURRENT);
   });

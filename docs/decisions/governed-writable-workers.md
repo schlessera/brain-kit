@@ -836,6 +836,24 @@ Publication also refuses deletion of a tier A ancestor directory, including an
 empty `context` or `.git` whose protected descendants are currently absent.
 This host-side check applies before any changed output is installed; worker
 namespace mount points alone do not constrain the host publisher.
+
+> **2026-11-20 — An incoming policy change from a sync is reviewed by the owner
+> ([#4256](https://github.com/schlessera/brain-kit/issues/4256), maintainer ruling option 1).**
+> The policy file is versioned host input, so a pull is where a policy change
+> arrives. The refusal above still holds: a hosted sync's worker output never
+> publishes a tier A change. When the only refused path is
+> `context/policies/governance.md`, the host reads the output's bytes before
+> cleanup, publishes nothing, and opens a host-owned review of them through the
+> existing policy proposals, the only policy writer, as Settings › Apify does
+> (`createOwnerPolicyReviews`, `packages/ui-server/src/brain/owner-policy-reviews.ts`).
+> Only the owner whose UI sync opened it can answer, and only an approval
+> writes, in a `user` journal window. The next sync then merges the identical
+> change cleanly. A scheduled sync opens no review and names the waiting change.
+> Every other tier A change keeps its refusal, with next-step text. No agent
+> runtime, worker or autonomous turn proposes or answers these reviews, and the
+> rationale shown is fixed host text. A Settings control for
+> `outward.github.repositories` was not taken: chat's `propose_policy_change`
+> already edits it.
 Within one server process, maintenance clients serialize preparation through
 publication per canonical brain. Even readers produce SQLite projections or
 Git attribute objects in their private outputs; concurrent copies of that

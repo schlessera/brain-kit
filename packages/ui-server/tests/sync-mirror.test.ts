@@ -126,6 +126,74 @@ test("full hosted sync commits, pulls and pushes while config and included filte
   } finally { server.stop(true); if (old === undefined) delete process.env.BRAIN_UI_SYNC_GITHUB_TOKEN; else process.env.BRAIN_UI_SYNC_GITHUB_TOKEN = old; }
 }, 120_000);
 
+test("an upstream governance policy commit pauses a hosted sync for review, and an adopted policy lets the next sync complete (#4256)", async () => {
+  const f = fixture();
+  const boundary = createHostBoundary({ brainPath: f.brain, nativeManager: f.nativeManager, dbPath: f.dbPath });
+  const server = fixtureRemote(f.root, f.remote);
+  git(f.brain, "remote", "set-url", "origin", `${server.url}remote.git`);
+  const policy = "---\nschema_version: 1\noutward:\n  github:\n    repositories: [ithaca/*]\n---\nOdysseus decides what leaves Ithaca.\n";
+  const other = join(f.root, "other");
+  git(other, "pull", "--quiet", "origin", "main");
+  mkdirSync(join(other, "context/policies"), { recursive: true });
+  writeFileSync(join(other, "context/policies/governance.md"), policy);
+  git(other, "add", "."); git(other, "commit", "-m", "Open GitHub writes to Ithaca"); git(other, "push", "origin", "main");
+  const upstream = git(f.remote, "rev-parse", "main");
+  try {
+    const client = createBrainClient({ brainPath: f.brain, boundary, exec: {} });
+    // A scheduled sync has no owner to review: it refuses and names the waiting change.
+    const scheduled = await client.sync().then(() => null, (error: BrainSyncError) => error);
+    expect(scheduled, "SCHEDULED_SYNC_REFUSED").toBeInstanceOf(BrainSyncError);
+    expect(`${scheduled!.message}\n${JSON.stringify(scheduled!.result)}`, "SCHEDULED_NAMES_WAITING_REVIEW").toContain("needs the owner's review");
+    expect(existsSync(join(f.brain, "context/policies/governance.md")), "SCHEDULED_PUBLISHED_NOTHING").toBe(false);
+
+    // A UI sync hands the incoming bytes to the host and publishes nothing.
+    const changes: { content: Uint8Array; upstream: string | null }[] = [];
+    const proc = await boundary.launch({ argv: [join(f.brain, "node_modules/.bin/brain"), "sync", "--human"], env: { PATH: process.env.PATH },
+      credentials: false, gate: "exclusive", sync: true, purpose: "policy review sync", onPolicyChange: change => { changes.push(change); } });
+    void new Response(proc.stdout).text().catch(() => {});
+    const stderr = new Response(proc.stderr).text();
+    expect(await proc.exited, "UI_SYNC_PAUSED_EXIT").toBe(1);
+    expect(await stderr, "UI_SYNC_PAUSED_TEXT").toContain("Sync paused before publishing anything");
+    expect(changes, "UI_SYNC_HANDS_OVER_CHANGE").toHaveLength(1);
+    expect(new TextDecoder().decode(changes[0]!.content), "INCOMING_BYTES_EXACT").toBe(policy);
+    expect(changes[0]!.upstream, "INCOMING_NAMES_UPSTREAM").toBe(upstream);
+    expect(existsSync(join(f.brain, "context/policies/governance.md")), "UI_PUBLISHED_NOTHING").toBe(false);
+    expect(existsSync(join(f.brain, "notes/sea.md")), "UI_PUBLISHED_NO_OTHER_FILE").toBe(false);
+
+    // What an approved review writes, through the policy writer, then the next sync completes.
+    mkdirSync(join(f.brain, "context/policies"), { recursive: true });
+    writeFileSync(join(f.brain, "context/policies/governance.md"), policy);
+    const result = await client.sync().catch(error => { throw new Error(JSON.stringify(error.result) + "\n" + error.message); });
+    expect(result.result?.run.status, "ADOPTED_SYNC_COMPLETES").toBe("complete");
+    expect(readFileSync(join(f.brain, "context/policies/governance.md"), "utf8")).toBe(policy);
+    expect(readFileSync(join(f.brain, "notes/sea.md"), "utf8")).toContain("Telemachus watches the tide.");
+  } finally { server.stop(true); }
+}, 180_000);
+
+test("an upstream change to another tier A input keeps its refusal and says what to do next (#4256)", async () => {
+  const f = fixture();
+  const boundary = createHostBoundary({ brainPath: f.brain, nativeManager: f.nativeManager, dbPath: f.dbPath });
+  const server = fixtureRemote(f.root, f.remote);
+  git(f.brain, "remote", "set-url", "origin", `${server.url}remote.git`);
+  const other = join(f.root, "other");
+  git(other, "pull", "--quiet", "origin", "main");
+  writeFileSync(join(other, "bunfig.toml"), "[install]\nexact = true\n");
+  git(other, "add", "."); git(other, "commit", "-m", "Pin installs"); git(other, "push", "origin", "main");
+  try {
+    const changes: unknown[] = [];
+    const proc = await boundary.launch({ argv: [join(f.brain, "node_modules/.bin/brain"), "sync", "--human"], env: { PATH: process.env.PATH },
+      credentials: false, gate: "exclusive", sync: true, purpose: "tier A refusal sync", onPolicyChange: change => { changes.push(change); } });
+    void new Response(proc.stdout).text().catch(() => {});
+    const stderr = new Response(proc.stderr).text();
+    expect(await proc.exited).toBe(1);
+    const text = await stderr;
+    expect(text, "TIER_A_REFUSED").toContain("maintenance output cannot change protected input bunfig.toml");
+    expect(text, "TIER_A_NEXT_STEP").toContain("revert the upstream commit");
+    expect(changes, "TIER_A_NOT_REVIEWABLE").toEqual([]);
+    expect(existsSync(join(f.brain, "bunfig.toml"))).toBe(false);
+  } finally { server.stop(true); }
+}, 180_000);
+
 test("hosted sync retains startup imports while publishing outputs beside a newer governed edit", async () => {
   const f = fixture();
   const boundary = createHostBoundary({ brainPath: f.brain, nativeManager: f.nativeManager, dbPath: f.dbPath });
