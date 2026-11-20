@@ -699,6 +699,7 @@ signatures (every public export and the types it is made of)
                     ruleId: z.ZodString;
                     trustRevision: z.ZodString;
                 }, z.core.$strict>>;
+                recipientApproved: z.ZodOptional<z.ZodLiteral<true>>;
                 standingRecipient: z.ZodOptional<z.ZodLiteral<true>>;
                 trustedSource: z.ZodOptional<z.ZodLiteral<true>>;
             }, z.core.$strict>;
