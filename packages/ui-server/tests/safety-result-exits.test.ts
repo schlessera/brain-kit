@@ -1,3 +1,4 @@
+import { safetyResultInput } from "../../ui-backend-pi/src/worker-protocol";
 /** Every exit between a tool running and its result's record either records
  * the result or leaves its chat a permanent gap, in both backends (#3812).
  * Every call `begin()` admits owes its result until the record is durable,
@@ -280,7 +281,7 @@ test("a call still owed when the host dies leaves its chat a permanent gap at bo
 async function searchRuns(f: Voyage, toolCallId: string, input: Record<string, unknown>): Promise<string> {
   const grep = createBrainTools({ brain: createBrainAccess(f.brain), turn: createTurnContext(), exec: {},
     lock: { withKey: async (_key: string, run: () => Promise<unknown>) => run() } } as never).find(tool => tool.name === "grep")!;
-  return JSON.stringify((await grep.execute(toolCallId, input as never, f.controller.signal, undefined, undefined as never)).content);
+  return safetyResultInput("grep",(await grep.execute(toolCallId, input as never, f.controller.signal, undefined, undefined as never)).content).output;
 }
 
 /** What stands for a call that ran and was never reported: its obligation, then its chat's gap. */
@@ -487,7 +488,7 @@ test('real Pi grep empty output stays empty when the collector records its resul
   const input={pattern:'no_cyclops_matches_here'};
   await f.collector.begin('empty_search','grep',input);
   const output=await searchRuns(f,'empty_search',input);
-  expect(JSON.parse(output),'SHIPPED_PI_EMPTY_SEARCH_FORMAT').toEqual([{type:'text',text:'No matches.'}]);
+  expect(output,'SHIPPED_PI_EMPTY_SEARCH_FORMAT').toBe('No matches.');
   await f.collector.result('empty_search','grep',output,true);
   expect(f.recorded(),'REAL_EMPTY_SEARCH_CREATES_NO_OCCURRENCE').toEqual([]);
   expect(f.chat().restriction).toBe('normal');

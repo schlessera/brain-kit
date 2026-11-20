@@ -12,7 +12,7 @@ test("unqualified managed reference and worktree file reads retain ordinary work
     "/tmp/brain-worktrees/ithaca/README.md", "/tmp/brain-reference/public/ithaca/../loom/README.md"]) {
     expect(inputTaintSource("Read", { file_path: path }, brain), "REFERENCE_PATH_IS_NOT_A_TRUST_EXEMPTION").toBe("workspace_read");
     expect(inputTaintSource("read_file", { path }, brain)).toBe("workspace_read");
-    expect(outputTaintSource("Grep", `${path}:1: Odysseus`, brain)).toBe("workspace_read");
+    expect(outputTaintSource("grep", `${path}:1: Odysseus`, brain)).toBe("workspace_read");
   }
   expect(inputTaintSource("Read", { file_path: "/tmp/brain-reference-other/README.md" }, brain)).toBeNull();
 });
@@ -62,7 +62,7 @@ test("a brain whose own path contains an area name does not taint its ordinary r
 });
 
 test("a search from an ancestor directory taints only when its output names an untrusted-area file", () => {
-  expect(outputTaintSource("Grep", `${brain}/notes/a.md\n${brain}/workspaces/voyage/b.md`, brain), "G6_GREP_OUTPUT_WORKSPACE").toBe("workspace_read");
+  expect(outputTaintSource("Grep", JSON.stringify({numFiles:2,filenames:[`${brain}/notes/a.md`,`${brain}/workspaces/voyage/b.md`]}), brain), "G6_GREP_OUTPUT_WORKSPACE").toBe("workspace_read");
   expect(outputTaintSource("grep", "notes/a.md:3: Ithaca\n.brain-ui/inbox/share-1/n.md:1: Ithaca", brain)).toBe("staged_share");
   expect(outputTaintSource("Glob", `${brain}/notes/a.md`, brain)).toBeNull();
   expect(outputTaintSource("Read", "workspaces/voyage/b.md", brain), "G6_OUTPUT_ONLY_FOR_SEARCH").toBeNull();
@@ -83,9 +83,9 @@ test("the real recorder keeps independent sources and excludes a denied fetch", 
   const events = () => queryGovernanceEvents(db, { sessionId, kinds: ["taint"], limit: 10 });
   try {
     call("denied", "WebFetch", { url: "https://ithaca.invalid" }, "Denied", true);
-    call("clean", "Grep", { pattern: "Ithaca" }, `${brain}/notes/a.md`);
+    call("clean", "Grep", { pattern: "Ithaca" }, JSON.stringify({numFiles:1,filenames:[`${brain}/notes/a.md`]}));
     expect(events(), "G6_DENIED_FETCH_CLEAN").toHaveLength(0);
-    call("search", "Grep", { pattern: "Ithaca" }, `${brain}/workspaces/voyage/a.md`);
+    call("search", "Grep", { pattern: "Ithaca" }, JSON.stringify({numFiles:1,filenames:[`${brain}/workspaces/voyage/a.md`]}));
     call("fetch", "WebFetch", { url: "https://ithaca.invalid" }, "A fictional harbour notice.");
     expect(events().map(event => [event.payload.source, event.payload.tool, event.payload.detail]), "G6_RECORDER_EVERY_TOOL_SOURCE")
       .toEqual([["workspace_read", "Grep", null], ["web_fetch", "WebFetch", null]]);
@@ -132,7 +132,7 @@ test('the display recorder uses admitted Claude filename mode for colon paths',a
  try{
   recorder.observeFrame({type:'tool_use_start',sessionId,toolUseId:'colon_grep',toolName:'Grep'});
   recorder.observeFrame({type:'tool_use_complete',sessionId,toolUseId:'colon_grep',toolName:'Grep',input:{path:'.',pattern:'sirens',output_mode:'files_with_matches'}});
-  recorder.observeFrame({type:'tool_result',sessionId,toolUseId:'colon_grep',isError:false,output:JSON.stringify([{type:'text',text:'notes/voyage:2:home.md'}])});
+  recorder.observeFrame({type:'tool_result',sessionId,toolUseId:'colon_grep',isError:false,output:JSON.stringify({numFiles:1,filenames:['notes/voyage:2:home.md']})});
   expect(queryGovernanceEvents(db,{sessionId,kinds:['taint'],limit:10}).map(e=>e.payload.source),'RECORDER_PRESERVES_ADMITTED_SEARCH_FORMAT').toEqual(['user_marked']);
  }finally{recorder.finish('success');db.close();}
 });

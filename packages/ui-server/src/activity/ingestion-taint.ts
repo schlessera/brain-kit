@@ -1,5 +1,6 @@
 /** Which completed tool calls ingested untrusted content (G6); this grants no tool authority. */
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
+import { z } from "zod";
 import { posix } from "node:path";
 import { WORKER_AREA_ROOT, WORKER_REFERENCE_ROOT, WORKER_WORKTREE_ROOT } from "@schlessera/brain-ui-sdk/internal";
 import { commandTaintSource } from "./command-taint.js";
@@ -117,7 +118,7 @@ export function inputTaintSource(tool: string, input: unknown, brainPath?: strin
 export function outputTaintSource(tool: string, output: string, brainPath?: string, marked?: MarkedLookup): IngestionSource | null {
   // Legacy scalar callers report a known source, not collection completeness.
   // Reuse exact path parsing; the collector retains the separate unknown signal.
-  const signals = outputTaintSignals(tool, output, brainPath, marked);
+  const signals = outputTaintSignals(tool, output, brainPath, marked, searchOutputContext(tool, {}));
   const known = signals.find(
     signal => signal.source !== "legacy_unknown");
   return known?.source ?? null;
@@ -172,80 +173,83 @@ export function inputTaintSignals(tool: string, input: unknown, brainPath?: stri
   return [{ source, detector, key: "input" }];
 }
 
-/** Each distinct returned normalized path contributes independently of the input.
- * Unparseable/truncated search output is a separate unknown-provenance signal.
- * This is conservative text observation, not a claim of verified source bytes. */
-export function outputTaintSignals(tool: string, output: string, brainPath?: string, marked?: MarkedLookup, context?: {backendId?: string; outputMode?: string}): IngestionSignal[] {
+/** Admitted format only. Invalid or incomplete output always retains unknown coverage. */
+interface SearchOutputContext { backendId?: string; outputMode?: string; lineNumbers?: boolean; offset?: number }
+// Installed SDK: GlobInput/GrepInput and GlobOutput/GrepOutput in
+// @anthropic-ai/claude-agent-sdk/sdk-tools.d.ts:905-983,3506-3545. Pi's shipped grep and text
+// envelope are `grepTool` (packages/ui-backend-pi/src/file-tools.ts:52-91)
+// and `textResult` (packages/ui-backend-pi/src/tool-kit.ts:25-27).
+const natural = z.number().int().nonnegative().safe();
+const globOutput = z.object({ durationMs: z.number().finite().nonnegative(), numFiles: natural,
+  filenames: z.array(z.string()), truncated: z.boolean(), totalMatches: natural.optional(), countIsComplete: z.boolean().optional() }).strict();
+const grepOutput = z.object({ mode: z.enum(['content','files_with_matches','count']).optional(), numFiles: natural,
+  filenames: z.array(z.string()), content: z.string().optional(), numLines: natural.optional(), numMatches: natural.optional(),
+  totalFiles: natural.optional(), totalLines: natural.optional(), appliedLimit: natural.optional(), appliedOffset: natural.optional() }).strict();
+
+export function outputTaintSignals(tool: string, output: string, brainPath?: string, marked?: MarkedLookup, context?: SearchOutputContext): IngestionSignal[] {
   if (!SEARCH_TOOLS.has(tool)) return [];
-  if(Buffer.byteLength(output)>1048576)throw new Error("Safety search output capacity exceeded");
-  // These are the installed backend tool formats, not guesses from a line.
-  // Claude Grep's mode is retained from its admitted input; Glob text is paths.
-  const format = tool === "Glob" ? "files_with_matches" : tool === "grep"
-    ? context === undefined || context.backendId === "pi" ? "pi-grep" : "unknown" : context?.outputMode ?? "unknown";
-  const result: IngestionSignal[] = [], seen = new Set<string>();
-  const paths: string[] = [], texts: string[] = [];
-  let unknown = !["files_with_matches", "content", "count", "pi-grep"].includes(format);
-  try {
-    const collect = (value: unknown, depth: number, path = false): void => {
-      if(depth>8){unknown=true;return;}
-      if(typeof value==="string"){(path?paths:texts).push(value);return;}
-      if(Array.isArray(value)){for(const item of value)collect(item,depth+1,path);return;}
-      if(value&&typeof value==="object"){
-        let recognized=false;
-        for(const [key,item] of Object.entries(value)){
-          if(["truncated","has_more"].includes(key)&&item===true||key==="omitted"&&typeof item==="number"&&item>0)unknown=true;
-          if(["filenames","files","paths","matches","content","text","output","file_path","filePath","path"].includes(key)){
-            recognized=true;collect(item,depth+1,["filenames","files","paths","file_path","filePath","path"].includes(key));
-          }
-        }
-        if(!recognized)unknown=true;
-      }else unknown=true;
-    };
-    collect(JSON.parse(output),0);
-  }catch{ texts.push(output); }
-  // Pi emits this only as the entire text of an empty result. Neither line
-  // trimming nor a sentinel mixed with other content establishes emptiness.
-  if(format==="pi-grep"&&!unknown&&!paths.length&&texts.length===1&&texts[0]==="No matches.")return [];
-  const entries=[...paths.map(text=>({text,path:true})),...texts.flatMap(text=>text.split("\n").map(line=>({text:line,path:false})))];
-  for(const entry of entries){
-    const text=entry.text;
-    // Check every path line, including exact fields and Glob content blocks.
+  if(Buffer.byteLength(output)>1048576)throw new Error('Safety search output capacity exceeded');
+  const result:IngestionSignal[]=[],seen=new Set<string>();let unknown=false;
+  const add=(path:string)=>{
+    if(!path||/[\r\n\0]/.test(path)){unknown=true;return;}
+    if(/truncat|omitted|\.\.\.|…/i.test(path))unknown=true;
+    for(const signal of fileSignals(path,brainPath,marked,'tool_search_output')){
+      const key=JSON.stringify([signal.detector,signal.key]);if(seen.has(key))continue;
+      if(result.length>=256)throw new Error('Safety search signal capacity exceeded');seen.add(key);result.push(signal);
+    }
+  };
+  const content=(text:string,numbers:boolean)=>{
     if(/truncat|omitted|\.\.\.|…/i.test(text))unknown=true;
-    if(!text){if(entry.path)unknown=true;continue;}
-    let candidates:string[];
-    if(entry.path||format==="files_with_matches")candidates=[text];
-    else if(format==="count"){
-      const count=/:([0-9]+)$/.exec(text);candidates=count?[text.slice(0,count.index)]:[text];if(!count)unknown=true;
-    }else{
-      // Zero-width matches retain overlapping delimiters in `file:2:7:text`.
-      // Every possible filename is checked; ambiguity remains restrictive.
-      candidates=[];
-      for(const split of text.matchAll(/(?=:[1-9][0-9]*:)/g)){
-        if(candidates.length>=256)throw new Error("Safety search candidate capacity exceeded");
-        const path=text.slice(0,split.index);
-        if(Buffer.byteLength(path)>1024)throw new Error("Safety path capacity exceeded");
-        candidates.push(path);
+    for(const line of text.split('\n')){
+      if(!line){unknown=true;continue;}
+      let count=0;
+      // No line numbers: every colon could separate the filename and content.
+      // With numbers: lookahead preserves overlapping `:2:7:` candidates.
+      for(const split of line.matchAll(numbers?/(?=:[1-9][0-9]*:)/g:/(?=:)/g)){
+        if(count++>=256)throw new Error('Safety search candidate capacity exceeded');add(line.slice(0,split.index));
       }
-      if(!candidates.length){unknown=true;candidates.push(text);}
-      else {if(candidates.length>1)unknown=true;if(format==="unknown")candidates.push(text);}
+      if(count!==1)unknown=true;
     }
-    for(const path of candidates){
-      if(!path||/[\r\n\0]/.test(path)){unknown=true;continue;}
-      for(const signal of fileSignals(path,brainPath,marked,"tool_search_output")){
-        const id=JSON.stringify([signal.detector,signal.key]);if(seen.has(id))continue;
-        if(result.length>=256)throw new Error("Safety search signal capacity exceeded");
-        seen.add(id);result.push(signal);
+  };
+  let parsed:unknown;try{parsed=JSON.parse(output);}catch{/* Pi returns raw text; Claude requires its structured schema. */}
+  if(tool==='grep'&&(context===undefined||context.backendId==='pi')){
+    // `safetyResultInput` (packages/ui-backend-pi/src/worker-protocol.ts:92-99)
+    // joins the shipped tool's text. No JSON envelope is part of this format.
+    if(/^[\s]*[\[{\"]/.test(output))unknown=true;
+    else if(output!=='No matches.')content(output,true);
+  }else if((context?.backendId??'claude')==='claude'&&tool==='Glob'){
+    const checked=globOutput.safeParse(parsed);
+    if(!checked.success)unknown=true;
+    else {const value=checked.data;for(const path of value.filenames)add(path);
+      if(value.numFiles!==value.filenames.length||value.truncated||value.countIsComplete===false||
+        value.totalMatches!==undefined&&value.totalMatches!==value.numFiles)unknown=true;}
+  }else if((context?.backendId??'claude')==='claude'&&tool==='Grep'){
+    const checked=grepOutput.safeParse(parsed),mode=context?.outputMode;
+    if(!checked.success||!['files_with_matches','content','count'].includes(mode??''))unknown=true;
+    else {const value=checked.data;for(const path of value.filenames)add(path);
+      if(value.mode!==undefined&&value.mode!==mode||value.numFiles!==value.filenames.length||
+        value.totalFiles!==undefined&&value.totalFiles!==value.numFiles||
+        (value.appliedOffset??0)>0||(context?.offset??0)>0)unknown=true;
+      if(mode==='files_with_matches'){if(value.content!==undefined&&value.content!=='')unknown=true;}
+      else if(value.content===undefined)unknown=true;
+      else {
+        if(value.content) {
+          if(mode==='content')content(value.content,context?.lineNumbers!==false);
+          else for(const line of value.content.split('\n')){const split=/:([0-9]+)$/.exec(line);if(split)add(line.slice(0,split.index));else unknown=true;}
+        }
+        const lines=value.content?value.content.split('\n').length:0;
+        if(value.numLines!==undefined&&value.numLines!==lines||value.totalLines!==undefined&&value.totalLines!==lines)unknown=true;
       }
     }
-  }
-  if(unknown){if(result.length>=256)throw new Error("Safety search signal capacity exceeded");result.push({source:"legacy_unknown",detector:"tool_search_output",key:"unknown_remainder"});}
+  }else unknown=true;
+  if(unknown){if(result.length>=256)throw new Error('Safety search signal capacity exceeded');result.push({source:'legacy_unknown',detector:'tool_search_output',key:'unknown_remainder'});}
   return result;
 }
 
-/** Installed backend formats, from the admitted tool input rather than result text. */
-export function searchOutputContext(tool: string, input: unknown, backendId = tool === "grep" ? "pi" : "claude"): {backendId: string; outputMode?: string} {
-  if(tool!=="Grep")return {backendId};
-  const requested=input&&typeof input==="object"?(input as Record<string,unknown>).output_mode:undefined;
-  const mode=requested??"files_with_matches";
-  return {backendId,outputMode:typeof mode==="string"&&["content","files_with_matches","count"].includes(mode)?mode:"unknown"};
+/** Retain only validated format selectors, never raw input. */
+export function searchOutputContext(tool:string,input:unknown,backendId=tool==='grep'?'pi':'claude'):SearchOutputContext {
+  if(tool!=='Grep')return {backendId};
+  const value=input&&typeof input==='object'?input as Record<string,unknown>:{};
+  const mode=value.output_mode??'files_with_matches',numbers=value['-n']??true,offset=value.offset??0;
+  return {backendId,outputMode:typeof mode==='string'&&['content','files_with_matches','count'].includes(mode)&&typeof numbers==='boolean'&&Number.isSafeInteger(offset)&&Number(offset)>=0?mode:'unknown',lineNumbers:numbers===true,offset:typeof offset==='number'?offset:0};
 }

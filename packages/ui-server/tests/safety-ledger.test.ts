@@ -259,7 +259,7 @@ test("imported and legacy provisional histories remain unknown after new detecto
 test("detector overflow stops collection rather than silently truncating later paths",async()=>{
  const f=fixture();try{const {collector}=await fresh(f);
  await collector.begin("many","Grep",{path:"notes"});
- const output=Array.from({length:257},(_,i)=>`workspaces/voyage/map-${i}.md`).join("\n");
+ const output=JSON.stringify({numFiles:257,filenames:Array.from({length:257},(_,i)=>`workspaces/voyage/map-${i}.md`)});
  await expectRejection(collector.result("many","Grep",output,true),"signal capacity");
  expect(f.writes.safety(null,"ithaca").reasons,"SAFETY_DETECTOR_OVERFLOW_LATCHED").toContain("recording_failed");
  }finally{await f.close();}});
@@ -331,7 +331,7 @@ test("a clean search input cannot suppress mixed JSON paths, an explicit mark or
  const f=fixture();try{const {collector}=await fresh(f);
  const {untrustedMarkOperations}=await import("../src/files/untrusted-marks");untrustedMarkOperations(f.db).mark("notes/voyage.md",null,0);
  await collector.begin("mixed","Grep",{path:"notes"});
- await collector.result("mixed","Grep",JSON.stringify({filenames:["workspaces/voyage/map.md","notes/voyage.md"],truncated:true}),true);
+ await collector.result("mixed","Grep",JSON.stringify({numFiles:2,filenames:["workspaces/voyage/map.md","notes/voyage.md"],totalFiles:3}),true);
  expect(triggers(f).map(r=>(r.payload as {source:string}).source),"SAFETY_CLEAN_INPUT_CANNOT_HIDE_UNTRUSTED_JSON_OUTPUT").toEqual(["workspace_read","user_marked","legacy_unknown"]);
  }finally{await f.close();}});
 
@@ -362,7 +362,7 @@ for(const excerpt of ["Odysseus omitted the mast.","Odysseus repairs the truncat
  const f=fixture();try{const {collector}=await fresh(f);
  const {untrustedMarkOperations}=await import("../src/files/untrusted-marks");untrustedMarkOperations(f.db).mark("workspaces/voyage/raft.md",null,0);
  await collector.begin("excerpt","Grep",{path:"notes",output_mode:"content"});
- await collector.result("excerpt","Grep",`workspaces/voyage/raft.md:1: ${excerpt}`,true);
+ await collector.result("excerpt","Grep",JSON.stringify({numFiles:0,filenames:[],content:`workspaces/voyage/raft.md:1: ${excerpt}`}),true);
  const sources=triggers(f).map(r=>(r.payload as {source:string}).source);
  expect(sources,"SAFETY_EXCERPT_NEVER_SUPPRESSES_PATH_SIGNALS").toEqual(expect.arrayContaining(["workspace_read","user_marked"]));
  if(excerpt.includes("..."))expect(sources).toContain("legacy_unknown");
@@ -522,7 +522,7 @@ test("structured Glob paths preserve a marked colon filename",async()=>{
  const {untrustedMarkOperations}=await import('../src/files/untrusted-marks');
  untrustedMarkOperations(f.db).mark('notes/voyage:home.md',null,Date.UTC(2026,6,12));
  await collector.begin('colon_glob','Glob',{path:'.'});
- await collector.result('colon_glob','Glob',JSON.stringify({filenames:['notes/voyage:home.md']}),true);
+ await collector.result('colon_glob','Glob',JSON.stringify({durationMs:1,numFiles:1,filenames:['notes/voyage:home.md'],truncated:false}),true);
  expect(triggers(f).map(r=>(r.payload as {source:string}).source),'STRUCTURED_COLON_PATH_RETAINS_EXPLICIT_MARK').toContain('user_marked');
  }finally{await f.close();}
 });
@@ -558,14 +558,14 @@ for(const [name,tool,output,expected] of [
  ['truncated Pi empty metadata','grep',JSON.stringify({content:[{type:'text',text:'No matches.'}],truncated:true}),['legacy_unknown']],
  ['empty numeric candidate','grep',':2:7:sirens',['user_marked','legacy_unknown']],
  ['overlapping numeric delimiters','grep','notes/voyage:2:7:sirens',['user_marked','legacy_unknown']],
- ['Glob text content colon','Glob',JSON.stringify([{type:'text',text:'notes/voyage:2:home.md'}]),['user_marked']],
+ ['Glob text content colon','Glob',JSON.stringify([{type:'text',text:'notes/voyage:2:home.md'}]),['legacy_unknown']],
  ['clipped plain Glob path','Glob','notes/voy...',['legacy_unknown']],
  ['clipped structured Glob text','Glob',JSON.stringify([{type:'text',text:'notes/voy...'}]),['legacy_unknown']],
  ['padded Pi empty sentinel','grep',' No matches. ',['legacy_unknown']],
  ['mixed Pi match and empty sentinel','grep','notes/voyage.md:1: sirens\nNo matches.',['legacy_unknown']],
  ['wrapped mixed Pi match and empty sentinel','grep',JSON.stringify([{type:'text',text:'notes/voyage.md:1: sirens\nNo matches.'}]),['legacy_unknown']],
- ['structured numeric colon','Glob',JSON.stringify({filenames:['notes/voyage:2:home.md']}),['user_marked']],
- ['structured spaced colon','Glob',JSON.stringify({filenames:['notes/voyage home:map.md']}),['user_marked']],
+ ['structured numeric colon','Glob',JSON.stringify({durationMs:1,numFiles:1,filenames:['notes/voyage:2:home.md'],truncated:false}),['user_marked']],
+ ['structured spaced colon','Glob',JSON.stringify({durationMs:1,numFiles:1,filenames:['notes/voyage home:map.md'],truncated:false}),['user_marked']],
  ['plain colon grep','grep','notes/voyage:home.md:7: Odysseus',['user_marked']],
  ['ambiguous numeric colon','grep','notes/voyage:2:home.md:7: Odysseus',['user_marked','legacy_unknown']],
  ['malformed structured path','Glob',JSON.stringify({filenames:[123]}),['legacy_unknown']],
@@ -581,9 +581,9 @@ for(const [name,tool,output,expected] of [
 });
 
 for(const [name,backend,tool,mode,output,expected] of [
- ['Claude filename mode','claude','Grep','files_with_matches',JSON.stringify([{type:'text',text:'notes/voyage:2:home.md'}]),['user_marked']],
- ['Claude count mode','claude','Grep','count','notes/voyage:2:7',['user_marked']],
- ['invalid Claude mode','claude','Grep','unsupported','notes/voyage:2:7:sirens',['user_marked','legacy_unknown']],
+ ['Claude filename mode','claude','Grep','files_with_matches',JSON.stringify({numFiles:1,filenames:['notes/voyage:2:home.md']}),['user_marked']],
+ ['Claude count mode','claude','Grep','count',JSON.stringify({numFiles:0,filenames:[],content:'notes/voyage:2:7'}),['user_marked']],
+ ['invalid Claude mode','claude','Grep','unsupported','notes/voyage:2:7:sirens',['legacy_unknown']],
  ['Pi sentinel cannot cross backend','claude','grep','content','No matches.',['legacy_unknown']],
 ] as const)test(`search parser identity: ${name}`,async()=>{
  const f=fixture();try{const {collector}=await fresh(f,'voyage','ithaca',backend);
