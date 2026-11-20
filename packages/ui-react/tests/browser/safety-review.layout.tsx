@@ -21,7 +21,7 @@ afterEach(async()=>{await disposeView();if(fixture)await commands.safetyServer({
 const patch=(patch:Record<string,unknown>={})=>commands.safetyServer({op:'set',id:fixture!.id,patch}) as Promise<{page:SafetyPage;commits:number;prepares:number;decisions:Array<{occurrence_id:string}>}>;
 const noop=()=>{};
 const message:ChatMessage={id:'odysseus-answer',turnId:'voyage',role:'assistant',content:'Voyage notes retained.',isStreaming:false,timestamp:Date.UTC(2026,6,12,10),
- toolCalls:[{id:'tool_a',name:'WebFetch',inputJson:'{}',input:{url:'https://example.com/odyssey'},output:'Odysseus voyage notes',status:'complete'},{id:'tool_c',name:'WebFetch',inputJson:'{}',input:{url:'https://example.com/odyssey'},output:'Penelope voyage notes',status:'complete'}],
+ toolCalls:[{id:'tool_a',name:'WebFetch',inputJson:'{}',input:{url:'https://example.com/odyssey'},output:'Odysseus voyage notes',status:'complete'},{id:'tool_c',name:'Read',inputJson:'{}',input:{file_path:'workspaces/ithaca/voyage.md'},output:'Penelope voyage notes',status:'complete'}],
  parts:[{kind:'tool',toolIndex:0},{kind:'tool',toolIndex:1},{kind:'text',text:'Voyage notes retained.'}]};
 async function view(independentSocket=false){
  const f=fixture!;
@@ -160,4 +160,27 @@ test('two live owner views keep independent review scope and converge after ever
  }finally{
   await disposeView();ui=first.ui;socket=first.socket;renderer=first.renderer;host=first.host;safetyClient=first.client;
  }
+});
+
+for(const theme of ['light','dark'])test(`${theme}: a mixed reviewed group names its remaining unresolved source on hover and focus`,async()=>{
+ await scene(320,theme);
+ const indicator=buttonForTool();
+ await userEvent.click(indicator);
+ await userEvent.click(page.getByRole('button',{name:'Mark as safe',exact:true}).first());
+ await userEvent.click(page.getByRole('button',{name:'Mark this trigger as safe',exact:true}));
+ await expect.poll(()=>ui!.stores.safety.getState().projection?.unresolvedCount).toBe(2);
+ await userEvent.keyboard('{Escape}');
+ const tooltip=indicator.parentElement!.querySelector<HTMLElement>('[role=tooltip]')!;
+ expect(indicator.getAttribute('aria-label'),'GROUP_REASON_NAMES_UNRESOLVED_SOURCE').toContain('Workspace read');
+ expect(indicator.getAttribute('aria-label')).not.toContain('Web fetch');
+ indicator.focus();
+ await expect.poll(()=>getComputedStyle(tooltip).opacity).toBe('1');
+ expect(tooltip.textContent,'FOCUS_REASON_NAMES_UNRESOLVED_SOURCE').toContain('Workspace read');
+ await userEvent.click(page.getByRole('button',{name:'Outside safety details'}));
+ await userEvent.hover(indicator);
+ await expect.poll(()=>getComputedStyle(tooltip).opacity).toBe('1');
+ expect(tooltip.textContent,'HOVER_REASON_NAMES_UNRESOLVED_SOURCE').toContain('Workspace read');
+ await userEvent.click(indicator);
+ expect(document.querySelectorAll('[data-safety-trigger]')).toHaveLength(2);
+ expect(document.querySelector('[data-safety-details]')!.textContent).toContain('Marked safe by you');
 });

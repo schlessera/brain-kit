@@ -72,7 +72,7 @@ function SafetyIndicator({entries:currentEntries}:{entries:SafetyEvidence[]}) {
   useEffect(()=>{setOpen(false);},[scope,auth]);
   const unresolved=entries.filter(e=>!e.decision).length,unknown=entries.some(e=>e.occurrence.detailPruned||e.occurrence.source==="legacy_unknown");
   const name=unresolved?`Safety restrictions: ${unresolved} unresolved trigger${unresolved===1?"":"s"}`:`Marked safe by you${entries.length>1?`: ${entries.length} triggers`:""}: show details`;
-  const reason=unresolved?`${sources[entries[0]!.occurrence.source]} · Only this trigger can be reviewed`:"Human decision retained; content remains in the model context";
+  const reason=unresolved?`${sources[entries.find(e=>!e.decision)!.occurrence.source]} · Only this trigger can be reviewed`:"Human decision retained; content remains in the model context";
   useLayoutEffect(()=>{
     if(!open)return;
     const place=()=>{const r=trigger.current?.getBoundingClientRect();if(r)setPosition({left:Math.max(12,Math.min(r.left,innerWidth-Math.min(384,innerWidth-24)-12)),top:Math.max(12,Math.min(r.bottom+4,innerHeight-Math.min(520,innerHeight*.65)-12))});};

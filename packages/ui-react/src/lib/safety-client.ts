@@ -47,8 +47,9 @@ export function createSafetyClient(root:BrainUiServices,send:(message:ClientMess
       }
       if(msg.type==="safety_unavailable"){
         if(msg.requestId&&msg.requestId!==requestId)return true;
-        // Expiry/gap needs an explicit fresh snapshot; never replay a mutation.
-        const again=target&&["gap","expired","generation_changed"].includes(msg.reason);
+        // Lost subscriptions need a fresh snapshot; never replay a mutation.
+        // Capacity while paging is a read refusal, not another dropped delta.
+        const again=target&&(["gap","expired","generation_changed"].includes(msg.reason)||msg.reason==="capacity"&&!awaitingPage);
         store.getState().unavailable(msg.reason);requestId=null;if(again&&target)read(target);return true;
       }
       return false;

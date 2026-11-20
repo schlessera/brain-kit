@@ -130,3 +130,50 @@ test("valid sessions keep paging, subscription and gap recovery on the published
     checkWire();
   } finally { client.dispose(); }
 });
+
+for (const reason of ["gap", "expired", "generation_changed", "capacity"] as const) {
+  test(`${reason} subscription loss obtains a fresh paginated snapshot without reselection`, () => {
+    const { safety, sent, client, checkWire } = supportedClient("ithaca");
+    try {
+      client.frame(hello);
+      const initial = sent.find(message => message.type === "safety_read");
+      if (initial?.type !== "safety_read") throw new Error("Missing initial read");
+      client.frame({ type: "safety_history", requestId: initial.requestId, page });
+      expect(safety.getState().status).toBe("ready");
+      const before = sent.length;
+      client.frame({ type: "safety_unavailable", version: 1, reason });
+      const fresh = sent.slice(before).find(message => message.type === "safety_read");
+      expect(fresh, "SUBSCRIPTION_LOSS_REQUESTS_FRESH_SNAPSHOT").toBeDefined();
+      if (fresh?.type !== "safety_read") throw new Error("Missing recovery read");
+      expect(fresh.requestId).not.toBe(initial.requestId);
+      expect(fresh).not.toHaveProperty("cursor");
+      expect(safety.getState()).toMatchObject({ status: "loading", normal: false });
+      client.frame({ type: "safety_history", requestId: initial.requestId, page });
+      expect(safety.getState().status, "STALE_PAGE_CANNOT_COMPLETE_RECOVERY").toBe("loading");
+      client.frame({ type: "safety_history", requestId: fresh.requestId,
+        page: { ...page, snapshotId: "recovery_snapshot", nextCursor: "recovery_page_2", snapshotComplete: false } });
+      expect(safety.getState().status).toBe("partial");
+      expect(sent.at(-1)).toMatchObject({ type: "safety_read", requestId: fresh.requestId, cursor: "recovery_page_2" });
+      client.frame({ type: "safety_history", requestId: fresh.requestId,
+        page: { ...page, snapshotId: "recovery_snapshot", cursor: "recovery_page_2" } });
+      expect(safety.getState().status).toBe("ready");
+      expect(sent.at(-1)).toMatchObject({ type: "safety_subscribe", requestId: fresh.requestId, snapshotId: "recovery_snapshot" });
+      checkWire();
+    } finally { client.dispose(); }
+  });
+}
+
+for (const reason of ["capacity", "unauthorized", "unavailable"] as const) {
+  test(`${reason} read refusal does not loop snapshots`, () => {
+    const { safety, sent, client } = supportedClient("ithaca");
+    try {
+      client.frame(hello);
+      const initial = sent.find(message => message.type === "safety_read");
+      if (initial?.type !== "safety_read") throw new Error("Missing read");
+      const before = sent.length;
+      client.frame({ type: "safety_unavailable", version: 1, requestId: initial.requestId, reason });
+      expect(sent.length, "READ_REFUSAL_DOES_NOT_RETRY_IN_A_LOOP").toBe(before);
+      expect(safety.getState()).toMatchObject({ status: "unavailable", reason, normal: false });
+    } finally { client.dispose(); }
+  });
+}
