@@ -24,7 +24,7 @@
 import { createHash } from "crypto";
 import { closeSync, constants, fstatSync, openSync, readSync } from "fs";
 import { posix } from "path";
-import { Glob } from "bun";
+import { discoveryFiles } from "./discovery-walk.js";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
@@ -150,7 +150,8 @@ class Refused extends Error {
 /** Every note the scan reads, in path order. Hidden directories and symlinked directories are not walked. */
 export function referenceNotes(root: string): string[] {
   const notes: string[] = [];
-  for (const path of new Glob("**/*.md").scanSync({ cwd: root, dot: false, followSymlinks: false, onlyFiles: true })) {
+  for (const path of discoveryFiles(root, path => PROTECTED.some(p => `${path}/`.startsWith(p) || `${path}/`.includes(`/${p}`)))) {
+    if (!path.endsWith(".md")) continue;
     const rel = path.split("\\").join("/");
     if (PROTECTED.some((p) => rel.startsWith(p) || rel.includes(`/${p}`))) continue;
     notes.push(rel);

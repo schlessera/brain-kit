@@ -4,7 +4,7 @@
  * The two directory scans are exported because `okf export` and `brain doctor`
  * need the same view of the corpus without running an index.
  */
-import { Glob } from "bun";
+import { discoveryFiles } from "../discovery-walk.js";
 import type { Database } from "bun:sqlite";
 import { statSync } from "fs";
 import { resolve } from "path";
@@ -20,10 +20,9 @@ import type { ExistingDoc, IndexOptions, IndexRun, ParseResult } from "./types.j
  * Scan `root` for *.md files, excluding configured dirs and files.
  */
 export function getMarkdownFiles(root: string, taxonomy: Taxonomy): string[] {
-  const glob = new Glob("**/*.md");
   const files: string[] = [];
-  for (const path of glob.scanSync({ cwd: root })) {
-    if (!taxonomy.isExcludedPath(path)) {
+  for (const path of discoveryFiles(root, path => taxonomy.isExcludedDirectory(path))) {
+    if (path.endsWith(".md") && !taxonomy.isExcludedPath(path)) {
       files.push(path);
     }
   }
@@ -50,15 +49,10 @@ const MIME_TYPES: Record<string, string> = {
  * is not filtered this way: gitignored local notes stay searchable.
  */
 export function getAssetFiles(root: string, taxonomy: Taxonomy): Asset[] {
-  // Include both lowercase and uppercase extensions (.jpg and .JPG, etc.)
-  const exts = ASSET_EXTENSIONS.map((e) => e.slice(1));
-  const allExts = [...exts, ...exts.map((e) => e.toUpperCase())];
-  const pattern = `**/*.{${allExts.join(",")}}`;
-  const glob = new Glob(pattern);
   const assets: Asset[] = [];
   const ignored = gitIgnoredMatcher(root);
 
-  for (const path of glob.scanSync({ cwd: root })) {
+  for (const path of discoveryFiles(root, path => taxonomy.isExcludedDirectory(path) || ignored(`${path}/`))) {
     // The path as it is on disk, the way the markdown scan, the stats corpus
     // walk and the MCP listing test it: exclude entries are literal. Only the
     // extension below is case-folded. Lowercasing here made `dirs: ["drafts"]`
@@ -69,7 +63,9 @@ export function getAssetFiles(root: string, taxonomy: Taxonomy): Asset[] {
     // Skip Zone.Identifier files (Windows WSL metadata)
     if (path.includes(":Zone.Identifier")) continue;
 
-    const ext = "." + path.split(".").pop()!.toLowerCase();
+    const suffix = path.split(".").pop()!;
+    if (!ASSET_EXTENSIONS.some(ext => suffix === ext.slice(1) || suffix === ext.slice(1).toUpperCase())) continue;
+    const ext = "." + suffix.toLowerCase();
     const mimeType = MIME_TYPES[ext];
     if (!mimeType) continue;
 
