@@ -959,7 +959,9 @@ Git's own out-of-space refusal remains `FAILED — no space:` with the starting
 headroom and launcher-declared stage allowance.
 
 A failed or incomplete pack publishes **nothing under `.git`**. Newly created
-temporary pack files are removed from the failed stage; historical garbage is
+temporary pack files are removed from the failed stage; outside a declared
+private stage, new names are conservatively left alone because another Git
+writer may own them. Historical garbage is
 never removed. Failed worker commands discard Git publication while retaining
 other validated output. `brain maintain`'s git result and
 `brain storage pack --json` report existing garbage count and bytes from

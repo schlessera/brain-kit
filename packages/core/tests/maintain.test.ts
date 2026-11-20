@@ -417,7 +417,16 @@ test("a failed pack removes its new temporary outputs and preserves historical g
   const pack=join(root,".git/objects/pack");
   writeFileSync(join(pack,"tmp_pack_Previous"),"historical garbage");
   const before=readdirSync(pack).sort();
-  const result=await maintain(root,[],{PATH:gitOutOfSpace(root)});
+  const result=await maintain(root,[],{PATH:gitOutOfSpace(root),BRAIN_WORKER_OUTPUT_ALLOWANCE:JSON.stringify({bytes:64*1024**2,setting:"ODYSSEUS_STAGE_BYTES"})});
   expect(result.code).toBe(2);
   expect(readdirSync(pack).sort(),"FAILED_PACK_REMOVES_ONLY_NEW_TEMPORARIES").toEqual(before);
+});
+
+
+test("without a private stage declaration failure cleanup preserves unowned pack temporaries",async()=>{
+  const {existsSync}=await import("node:fs");
+  const root=tempBrain();initRepo(root);
+  const result=await maintain(root,[],{PATH:gitOutOfSpace(root)});
+  expect(result.code).toBe(2);
+  expect(existsSync(join(root,".git/objects/pack/tmp_pack_Attempt")),"UNHOSTED_PACK_TEMPORARY_OWNERSHIP_IS_UNKNOWN").toBe(true);
 });

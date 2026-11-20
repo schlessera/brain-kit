@@ -1,4 +1,5 @@
 import { readdirSync, unlinkSync, statfsSync } from "node:fs";
+import { workerOutputAllowance } from "../config/env.js";
 
 /**
  * Git storage upkeep for a brain repository: the non-destructive packing
@@ -133,8 +134,10 @@ export function packRepository(root: string, headroom = gitPackingHeadroom(root)
     runMaintenance(root, ["--task=loose-objects"]);
     return { packed: Math.max(0, before - looseObjects(root).count) };
   } catch (error) {
-    // Only this attempt's temporary outputs, never historical garbage.
-    for (const name of readdirSync(pack)) if (!previous.has(name) && /^(tmp_pack_|\.tmp-)/.test(name)) unlinkSync(`${pack}/${name}`);
+    // Only a private output stage proves these new names belong to this
+    // execution. A standalone Git writer may be racing another pack process.
+    if (workerOutputAllowance()) for (const name of readdirSync(pack))
+      if (!previous.has(name) && /^(tmp_pack_|\.tmp-)/.test(name)) unlinkSync(`${pack}/${name}`);
     throw error;
   }
 }
