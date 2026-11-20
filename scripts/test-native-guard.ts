@@ -228,11 +228,7 @@ export function auditNativeLaunch(argv: string[], expected: readonly string[], c
 /** One Unix socket forwards only to the explicitly selected scripted service. */
 export function startNativeTestRelay(upstream: string | undefined) {
   let target: URL;
-  try { target = new URL(upstream!); } catch {
-    return refuse(declaredRoutes.size === 0 ? "missing scripted loopback service: no declared authority"
-      : declaredRoutes.size > 1 ? "missing scripted loopback service: ambiguous declared authorities"
-      : "missing scripted loopback service: declared authority absent from launch");
-  }
+  try { target = new URL(upstream!); } catch { return refuse("missing scripted loopback service"); }
   if (target.protocol !== "http:" || !["127.0.0.1", "localhost", "[::1]"].includes(target.hostname) || !target.port || target.username || target.password ||
       target.pathname !== "/" || target.search || target.hash) refuse("invalid scripted loopback service");
   if (target.hostname === "localhost") target.hostname = "127.0.0.1";
@@ -278,10 +274,10 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
     refuse("native launch requires fixture-owned storage");
   }
   const inheritedSocket = env.ANTHROPIC_UNIX_SOCKET;
-  const inheritedOrigin = inheritedSocket && ownedSocketOrigin(inheritedSocket);
+  const inheritedOrigin = inheritedSocket ? ownedSocketOrigin(inheritedSocket) : undefined;
   if (inheritedSocket && !inheritedOrigin) refuse("pre-existing native relay is not guard-owned");
-  if (inheritedOrigin && (!currentScriptedRoute() || normalizedOrigin(inheritedOrigin) !== normalizedOrigin(currentScriptedRoute()!.origin))) refuse("native relay did not match scripted authority");
-  const bridge = startNativeTestRelay(versionOnly ? "http://127.0.0.1:1" : inheritedOrigin ?? env.ANTHROPIC_BASE_URL ?? currentScriptedRoute()?.origin);
+  if (inheritedOrigin && (!scriptedRoute.getStore() || normalizedOrigin(inheritedOrigin) !== normalizedOrigin(scriptedRoute.getStore()!.origin))) refuse("native relay did not match scripted authority");
+  const bridge = startNativeTestRelay(versionOnly ? "http://127.0.0.1:1" : inheritedOrigin ?? env.ANTHROPIC_BASE_URL ?? scriptedRoute.getStore()?.origin);
   try {
     command = resolveExecutable(command, options);
     const executable = realpathSync(command);
@@ -316,13 +312,6 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
 }
 
 const scriptedRoute = new AsyncLocalStorage<Readonly<{ origin: string }> | undefined>();
-const declaredRoutes = new Map<string, Readonly<{ origin: string }>>();
-function currentScriptedRoute(): Readonly<{ origin: string }> | undefined {
-  // SDK/module async resources can predate the fixture scope. A process that
-  // declared exactly one immutable authority has no alternate destination to
-  // select. A second distinct declaration permanently disables this fallback.
-  return scriptedRoute.getStore() ?? (declaredRoutes.size === 1 ? declaredRoutes.values().next().value : undefined);
-}
 
 /** Test code pins its scripted service before building a restricted turn. */
 export function nativeScriptedService(origin: string): () => void {
@@ -330,7 +319,6 @@ export function nativeScriptedService(origin: string): () => void {
   if (target.protocol !== "http:" || !["127.0.0.1", "localhost", "[::1]"].includes(target.hostname) || !target.port || target.username || target.password || target.pathname !== "/" || target.search || target.hash) refuse("invalid scripted route authority");
   const previous = scriptedRoute.getStore();
   const authority = Object.freeze({ origin: target.origin });
-  declaredRoutes.set(target.origin, authority);
   scriptedRoute.enterWith(authority);
   return () => scriptedRoute.enterWith(previous);
 }
@@ -357,7 +345,7 @@ function rememberRelay(path: string, origin: string): void {
 }
 
 export function guardNativeHttpListen(server: object, args: unknown[]): void {
-  const route = currentScriptedRoute();
+  const route = scriptedRoute.getStore();
   const first = args[0] as string | { path?: string } | undefined;
   const path = typeof first === "string" ? first : first?.path;
   if (!route || !path?.startsWith("/")) return;
@@ -372,7 +360,7 @@ export function guardNativeHttpEvent(server: object, event: unknown, invoke: () 
 
 /** The guard creates the server and binds every transport in its handler. */
 export function guardNativeRelayServer(options: any, create: (options: any) => any): any {
-  const route = currentScriptedRoute();
+  const route = scriptedRoute.getStore();
   if (!route || typeof options.unix !== "string" || typeof options.fetch !== "function") return create(options);
   const original = options.fetch;
   const server = create({ ...options, fetch: function(this: unknown, ...args: unknown[]) {
@@ -478,8 +466,8 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
   // Even ordinary test workers use a private network and a single bridge.
   // Do not rely on SDK options or the production profile to establish this.
   const socket = launch.env?.ANTHROPIC_UNIX_SOCKET;
-  const route = currentScriptedRoute();
-  const ownedOrigin = socket && admittedRelay(workerArgv, socket);
+  const route = scriptedRoute.getStore();
+  const ownedOrigin = socket ? admittedRelay(workerArgv, socket) : undefined;
   if (socket && !ownedOrigin) refuse("pre-existing native relay is not guard-owned");
   if (ownedOrigin && (!route || normalizedOrigin(ownedOrigin) !== normalizedOrigin(route.origin))) refuse("native relay did not match scripted authority");
   qualify();
