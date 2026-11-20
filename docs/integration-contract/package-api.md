@@ -1041,8 +1041,10 @@ the operator's `BRAIN_UI_MODULE_GITHUB_WRITES` enables them for that repository,
 `POST /repos/<r>/issues/<n>/comments` with exactly `{ body }` (`issue_comment`)
 and `PATCH /repos/<r>/issues/<n>` with `{ state, state_reason? }`
 (`issue_state`). Every other request is refused before anything leaves the
-host, with `{ message, brain_relay_refusal }` and status 400, 403, 413, 429, 502
-or 503 (`unavailable` without the token). A call beyond 8 in flight is refused with 503 `relay_busy` before anything is
+host, with `{ message, brain_relay_refusal }` and status 400, 403, 413, 429 or
+503 (`unavailable` without the token). A forwarded call fails with 502 after
+GitHub answers or fails to: `redirect` (never followed), `response_too_large`
+or `upstream_unreachable`. A call beyond 8 in flight is refused with 503 `relay_busy` before anything is
 read, and a call that arrives after the run ended, while calls in flight settle
 for up to 10 seconds, with 503 `relay_stopped`. Request bodies are bounded at 1 MiB, responses at 16 MiB and calls at 500
 per run. The response keeps GitHub's status,
