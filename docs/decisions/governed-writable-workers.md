@@ -614,8 +614,9 @@ REST `GET` and repository-rooted GraphQL queries. Writes are a fixed operation
 set (`issue_comment`, `issue_state`), each enabled per repository by the
 operator's `BRAIN_UI_MODULE_GITHUB_WRITES` in host configuration, so editing
 `brain.config.ts` cannot widen it. The relay is a per-run Unix socket in a
-private server-owned directory, bound read-only into that one worker, because
-a maintenance worker has no network namespace route to the host. A token placed
+private server-owned directory, bound read-only into that one worker: only
+that run's worker can reach it, where a loopback port would answer any process
+on the host. A token placed
 in the job's worker and leaving API writes to the operator's own host jobs
 were both rejected.
 

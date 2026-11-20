@@ -178,7 +178,7 @@ if (subcommand === "run") {
       repositories: cronJobRepositories({ boundary: host.boundary, dbPath: config.dbPath, moduleDiscoveryEnv: config.moduleDiscoveryEnv,
         env: config.childEnv, allowList: config.moduleRepositories.allowed }),
       // Their granted GitHub repositories' API, through the module GitHub relay (#4259).
-      githubRelay: { token: config.moduleGitHub.token, writes: config.moduleGitHub.writes },
+      githubRelay: { token: config.moduleGitHub.token, writes: config.moduleGitHub.writes, invalid: config.moduleGitHub.invalid },
     });
   } finally { await host.close(); }
   process.exit(code);

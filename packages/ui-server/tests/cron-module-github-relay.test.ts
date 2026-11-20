@@ -69,6 +69,18 @@ test("a job granted a GitHub repository reaches its API through the run's relay,
   } finally { db.close(); }
 });
 
+test("invalid write entries are named on the run, not dropped silently", async () => {
+  let err = "";
+  const boundary = { isolated: () => true, brainPath: dir, launch: async () => finished() } as unknown as HostBoundary;
+  const code = await runJob({ ...JOB, dbPath: join(dir, "ui-invalid.db"), childEnv: { PATH: "/usr/bin:/bin" }, exec: {}, boundary,
+    stdout: { write() {} }, stderr: { write(text: string) { err += text; } },
+    repositories: async () => ({ ok: true, notes: [], repositories: [{ url: "https://github.com/ithaca/watchtower", mirror: join(dir, "mirror.git") }] }),
+    githubRelay: { token: () => TOKEN, writes: new Map(), invalid: ["https://github.com/ithaca/watchtower#issue-comment"] } }, { sinkPath: join(dir, "sink-invalid.jsonl") });
+  expect(code).toBe(0);
+  expect(err, "INVALID_WRITES_NAMED").toContain("BRAIN_UI_MODULE_GITHUB_WRITES ignores invalid entries");
+  expect(err).toContain("#issue-comment");
+});
+
 test("a job granted no GitHub repository gets no relay", async () => {
   const launched: BrainExecution[] = [];
   const boundary = { isolated: () => true, brainPath: dir, launch: async (execution: BrainExecution) => { launched.push(execution); return finished(); } } as unknown as HostBoundary;

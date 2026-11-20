@@ -1,8 +1,8 @@
 /**
  * The host GitHub API relay for module cron jobs (#4259).
  *
- * A scheduled module job runs in a maintenance worker with no credential and
- * no network. A job whose repositories the host granted (the module's
+ * A scheduled module job runs in a maintenance worker that holds no GitHub
+ * credential. A job whose repositories the host granted (the module's
  * `repositories` ∩ `BRAIN_UI_MODULE_REPOSITORIES`, the same grant as its read
  * mirror) also gets this per-run relay: a Unix socket in a private directory
  * the launcher binds read-only into that one worker. The job sends ordinary

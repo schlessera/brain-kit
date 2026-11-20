@@ -92,7 +92,10 @@ interface RunJobOptions {
    * repositories reaches their API through a per-run host relay that holds
    * this credential and allows only these writes.
    */
-  githubRelay?: Pick<ModuleGitHubRelayOptions, "token" | "writes" | "fetch" | "origin">;
+  githubRelay?: Pick<ModuleGitHubRelayOptions, "token" | "writes" | "fetch" | "origin"> & {
+    /** Entries of BRAIN_UI_MODULE_GITHUB_WRITES that enable nothing; named on each run that gets a relay. */
+    invalid?: readonly string[];
+  };
   stdout?: TextSink;
   stderr?: TextSink;
 }
@@ -326,7 +329,10 @@ export async function runJob(
       // Its granted GitHub repositories' API, through a per-run host relay (#4259).
       const githubRepositories = access?.ok ? access.repositories.map(repository => githubRepositoryOf(repository.url)).filter((name): name is string => name !== null) : [];
       if (githubRepositories.length && options.githubRelay) {
-        githubRelay = startModuleGitHubRelay({ ...options.githubRelay, repositories: githubRepositories,
+        if (options.githubRelay.invalid?.length)
+          writeLine(stderr, `[cron-run] ${options.jobName}: BRAIN_UI_MODULE_GITHUB_WRITES ignores invalid entries (expected https://github.com/<owner>/<repo>#issue_comment or #issue_state): ${options.githubRelay.invalid.join(", ")}`);
+        const { invalid: _invalid, ...relayOptions } = options.githubRelay;
+        githubRelay = startModuleGitHubRelay({ ...relayOptions, repositories: githubRepositories,
           observe: write => recorder?.event?.("github_write", write) });
       }
       proc = await options.boundary.launch({ argv: options.command, env, ...cronJobClass(options.jobName),

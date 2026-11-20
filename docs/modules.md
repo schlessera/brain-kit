@@ -165,8 +165,7 @@ maintenance workers. A module command run by hand gets no mirror.
 ### Calling the GitHub API from a scheduled job
 
 A job also gets the GitHub **API** of the GitHub repositories it was granted
-above, through a host relay (#4259). The worker still holds no token and has no
-network. The relay is a Unix socket named in `BRAIN_MODULE_GITHUB_SOCKET`
+above, through a host relay (#4259). The worker still holds no GitHub token. The relay is a Unix socket named in `BRAIN_MODULE_GITHUB_SOCKET`
 (`/run/brain-github/github.sock`), and lives only as long as the run. Send it
 ordinary GitHub API requests:
 
