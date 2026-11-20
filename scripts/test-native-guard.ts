@@ -122,8 +122,9 @@ interface Boundary { argv: string[]; env: Record<string, string>; dispose(): voi
 function relay(upstream: string | undefined) {
   let target: URL;
   try { target = new URL(upstream!); } catch { return refuse("missing scripted loopback service"); }
-  if (target.protocol !== "http:" || target.hostname !== "127.0.0.1" || !target.port || target.username || target.password ||
+  if (target.protocol !== "http:" || !["127.0.0.1", "localhost", "[::1]"].includes(target.hostname) || !target.port || target.username || target.password ||
       target.pathname !== "/" || target.search || target.hash) refuse("invalid scripted loopback service");
+  if (target.hostname === "localhost") target.hostname = "127.0.0.1";
   const directory = mkdtempSync(join(tmpdir(), "odysseus-native-relay-"));
   const socket = join(directory, "relay.sock");
   const uid = process.getuid?.() ?? 0, gid = process.getgid?.() ?? 0;
@@ -132,7 +133,8 @@ function relay(upstream: string | undefined) {
   const server = Bun.serve({ unix: socket, async fetch(request) {
     const url = new URL(request.url);
     if (url.origin !== "http://localhost") {
-      console.error(JSON.stringify({ kind: "native-offline-boundary", success: false, reason: "unintended native destination" }));
+      denied++;
+      console.error(JSON.stringify({ kind: "native-offline-boundary", success: false, nativeLaunched: true, reason: "unintended native destination", head: receiptHead() }));
       return new Response("Offline native destination refused", { status: 403 });
     }
     // A redirect is returned to the isolated native process; it cannot make a
@@ -173,9 +175,10 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
     for (const key of ["ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_SMALL_FAST_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_DISABLE_AUTO_MEMORY"]) {
       if (env[key]) childEnv[key] = env[key]!;
     }
+    if (/^sk-ant-api03-([a-z])\1{94}AA$/.test(env.ANTHROPIC_API_KEY ?? "")) childEnv.ANTHROPIC_API_KEY = env.ANTHROPIC_API_KEY!;
     // The core runner's pinned synthetic OAuth fixture tests that auth route.
     // No other ambient OAuth value may enter the native environment.
-    if (env.CLAUDE_CODE_OAUTH_TOKEN === `sk-ant-oat01-${"o".repeat(95)}AA`) {
+    if (/^sk-ant-oat01-([a-z])\1{94}AA$/.test(env.CLAUDE_CODE_OAUTH_TOKEN ?? "")) {
       delete childEnv.ANTHROPIC_API_KEY;
       childEnv.CLAUDE_CODE_OAUTH_TOKEN = env.CLAUDE_CODE_OAUTH_TOKEN;
     }
