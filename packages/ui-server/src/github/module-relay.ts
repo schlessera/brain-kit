@@ -242,6 +242,12 @@ export function startModuleGitHubRelay(options: ModuleGitHubRelayOptions): Modul
       refuse(403, "write_not_enabled", `${operation} on ${granted.get(repository)} is not enabled: add https://github.com/${granted.get(repository)}#${operation} to BRAIN_UI_MODULE_GITHUB_WRITES.`);
   };
 
+  /** A path segment, decoded; a malformed escape is refused as an invalid path, never mistaken for an upstream failure. */
+  const segment = (raw: string): string => {
+    try { return decodeURIComponent(raw); }
+    catch { return refuse(400, "invalid_path", "The relayed path has a malformed escape: reads are GET under a /repos/<owner>/<repo>/ granted through BRAIN_UI_MODULE_REPOSITORIES."); }
+  };
+
   async function handle(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const method = request.method.toUpperCase();
@@ -251,7 +257,7 @@ export function startModuleGitHubRelay(options: ModuleGitHubRelayOptions): Modul
     let write: { repository: string; operation: ModuleGitHubWrite; number: number } | undefined;
     const repo = /^\/repos\/([^/]+)\/([^/]+)(\/.*)?$/.exec(path);
     if (method === "GET" && repo) {
-      repositoryOf(decodeURIComponent(repo[1]!), decodeURIComponent(repo[2]!));
+      repositoryOf(segment(repo[1]!), segment(repo[2]!));
     } else if (method === "POST" && path === "/graphql" && !url.search) {
       body = await boundedBody(request);
       const value = jsonObject(body);
@@ -261,14 +267,14 @@ export function startModuleGitHubRelay(options: ModuleGitHubRelayOptions): Modul
       if (!target) refuse(403, "graphql_not_allowed", "Only one GraphQL query whose one root field is repository(owner:, name:), without comments, block strings or escapes, is relayed; mutations and other roots are refused. The repository must be granted through the module's repositories and BRAIN_UI_MODULE_REPOSITORIES.");
       repositoryOf(...(target!.split("/") as [string, string]));
     } else if (method === "POST" && repo && /^\/issues\/[1-9][0-9]{0,9}\/comments$/.test(repo[3] ?? "") && !url.search) {
-      const repository = repositoryOf(decodeURIComponent(repo[1]!), decodeURIComponent(repo[2]!));
+      const repository = repositoryOf(segment(repo[1]!), segment(repo[2]!));
       writeAllowed(repository, "issue_comment");
       body = await boundedBody(request);
       const value = jsonObject(body);
       if (typeof value.body !== "string" || !value.body.trim() || Object.keys(value).length !== 1) refuse(400, "invalid_body", "An issue comment is { body } with nonempty text.");
       write = { repository, operation: "issue_comment", number: Number(repo[3]!.split("/")[2]) };
     } else if (method === "PATCH" && repo && /^\/issues\/[1-9][0-9]{0,9}$/.test(repo[3] ?? "") && !url.search) {
-      const repository = repositoryOf(decodeURIComponent(repo[1]!), decodeURIComponent(repo[2]!));
+      const repository = repositoryOf(segment(repo[1]!), segment(repo[2]!));
       writeAllowed(repository, "issue_state");
       body = await boundedBody(request);
       const value = jsonObject(body);

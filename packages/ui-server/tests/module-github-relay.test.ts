@@ -59,6 +59,9 @@ describe("module GitHub relay reads (#4259)", () => {
     expect(foreign.status, "FOREIGN_REPOSITORY_REFUSED").toBe(403);
     expect((await foreign.json()).brain_relay_refusal).toBe("repository_not_granted");
     expect((await call("GET", "/user")).status, "NON_REPOSITORY_PATH_REFUSED").toBe(403);
+    const malformed = await call("GET", "/repos/ithaca/%E0/issues");
+    expect(malformed.status, "MALFORMED_ESCAPE_REFUSED").toBe(400);
+    expect((await malformed.json()).message, "MALFORMED_ESCAPE_NAMES_SETTING").toContain("BRAIN_UI_MODULE_REPOSITORIES");
     const removal = await call("DELETE", "/repos/ithaca/watchtower");
     expect(removal.status, "DELETE_REFUSED").toBe(403);
     expect((await removal.json()).message, "NOT_RELAYED_NAMES_SETTINGS").toMatch(/BRAIN_UI_MODULE_REPOSITORIES.*BRAIN_UI_MODULE_GITHUB_WRITES/);
