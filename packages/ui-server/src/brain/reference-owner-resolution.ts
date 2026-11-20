@@ -14,7 +14,8 @@ const providerId = z.string().regex(/^[1-9][0-9]{0,19}$/u);
 const revision = z.string().regex(/^(0|[1-9][0-9]{0,19})$/u).refine(value => BigInt(value) <= 18446744073709551615n);
 const identitySchema = z.strictObject({ selector: TrustSelectorSchema, ownerId: providerId, private: z.boolean().nullable() });
 const proofSchema = z.strictObject({ operationId: id, principal: z.string().min(1).max(128), brain: digest,
-  authority: z.string().min(1).max(4096), baseHash: digest.nullable(), expectedTrustRevision: revision,
+  authority: z.string().min(1).max(4096),
+  policyRoot: z.strictObject({ device: z.number().int().nonnegative().safe(), inode: z.number().int().nonnegative().safe() }), baseHash: digest.nullable(), expectedTrustRevision: revision,
   publishedTrustRevision: revision, reviewedBytesHash: digest, githubIdentity: identitySchema });
 
 export interface ReferenceOwnerRoot { path: string; device: number; inode: number }
@@ -75,7 +76,7 @@ export function resolveReferenceOwners(db: Database, root: Readonly<ReferenceOwn
       try {
         const identity = identitySchema.parse(JSON.parse(row.identity)), proof = proofSchema.parse(JSON.parse(row.proof));
         if (JSON.stringify(identity.selector) !== JSON.stringify(selector) || JSON.stringify(proof.githubIdentity) !== JSON.stringify(identity)
-          || proof.brain !== brain || BigInt(proof.publishedTrustRevision) !== BigInt(proof.expectedTrustRevision) + 1n
+          || proof.brain !== brain || proof.policyRoot.device !== root.device || proof.policyRoot.inode !== root.inode || BigInt(proof.publishedTrustRevision) !== BigInt(proof.expectedTrustRevision) + 1n
           || BigInt(proof.publishedTrustRevision) > BigInt(projection.revision)
           || identity.ownerId !== current.ownerId
           || (selector.kind === "github_owner" ? identity.private !== null || identity.ownerId !== selector.ownerId : typeof identity.private !== "boolean")) continue;

@@ -261,6 +261,7 @@ export function createTrustSettings(options: {
           receipt.stage = "file_published"; receipt.publication = "proved";
           receipt.publishedTrustRevision = String(BigInt(p.revision) + 1n);
           await save("file_published", JSON.stringify({ operationId: receipt.operationId, principal, brain, authority: r.authority,
+            policyRoot: { device: target.directories[0]!.dev, inode: target.directories[0]!.ino },
             baseHash: p.policyHash, expectedTrustRevision: p.revision, publishedTrustRevision: receipt.publishedTrustRevision, reviewedBytesHash: payload.proposedHash,
             ...(payload.githubIdentity ? { githubIdentity: payload.githubIdentity } : {}) }), payload.githubIdentity && payload.rule
               ? { brain, ruleId: payload.rule.id, selector: JSON.stringify(payload.rule.selector), identity: JSON.stringify(payload.githubIdentity) } : undefined); proved = true;

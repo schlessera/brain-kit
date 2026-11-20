@@ -132,12 +132,15 @@ test("equal bytes and prepared metadata cannot create approved-owner evidence", 
   expect((await f.read()).evidence.ownerResolution.bindings, "PREPARED_IDENTITY_IS_NOT_OWNER_APPROVAL").toEqual([]);
 });
 
-for (const failure of ["missing", "malformed", "wrong-brain", "changed-identity", "future-revision"]) test(`a ${failure} publication proof stays unavailable`, async () => {
+for (const failure of ["missing", "malformed", "wrong-brain", "changed-identity", "future-revision", "legacy-root", "wrong-device", "wrong-inode"]) test(`a ${failure} publication proof stays unavailable`, async () => {
   const f = await fixture(); await f.approve();
   const row = f.db.query("SELECT proof FROM trust_settings_github_boundaries").get() as { proof: string };
   const proof = JSON.parse(row.proof);
   if (failure === "missing") f.db.exec("DELETE FROM trust_settings_github_boundaries");
   else {
+    if (failure === "legacy-root") delete proof.policyRoot;
+    if (failure === "wrong-device") proof.policyRoot.device += 1;
+    if (failure === "wrong-inode") proof.policyRoot.inode += 1;
     if (failure === "wrong-brain") proof.brain = "a".repeat(64);
     if (failure === "changed-identity") proof.githubIdentity.ownerId = "202";
     if (failure === "future-revision") { proof.expectedTrustRevision = "99"; proof.publishedTrustRevision = "100"; }
@@ -258,4 +261,20 @@ test("approved ownership grants no private access and cannot outlive private-gra
   const revoked = await f.read().then(() => null, error => error);
   expect(revoked, "OWNER_APPROVAL_CANNOT_OVERRIDE_LIVE_PRIVATE_REVOCATION").toBeInstanceOf(Error);
   expect(f.db.query("SELECT count(*) n FROM reference_reads").get()).toEqual({ n: 2 });
+});
+
+test("restart cannot apply retained approval to a replacement policy root with identical bytes", async () => {
+  const f = await fixture(); await f.approve(); const observed = await f.read();
+  const policy = readFileSync(f.policyPath), backup = f.root + "-before-restart";
+  renameSync(f.root, backup);
+  try {
+    mkdirSync(join(f.root, "context/policies"), { recursive: true }); writeFileSync(f.policyPath, policy);
+    // Retain the authoritative UI database, but construct both readers anew as
+    // startup does. Equal path/policy bytes must not resurrect old approval.
+    const reopened = createUiDb(join(backup, "ui.db"));
+    try {
+      expect(resolveReferenceOwners(reopened, captureReferenceOwnerRoot(f.root), observed.evidence.identityObservation).bindings,
+        "RESTART_REJECTS_APPROVAL_FROM_REPLACED_PUBLISHED_ROOT").toEqual([]);
+    } finally { reopened.close(); }
+  } finally { rmSync(f.root, { recursive: true, force: true }); renameSync(backup, f.root); }
 });

@@ -442,7 +442,11 @@ Approved-owner rule evaluation remains independently required.
 The host read service resolves each actual transport observation against the
 protected Markdown policy, its matching durable trust projection and Settings'
 operation-bound approved-owner evidence. The policy root's directory identity is
-captured at service construction. Links, replaced roots, invalid or incoherent
+captured at service construction and compared with the directory device/inode
+retained from the descriptor-anchored Settings publication. Restart cannot adopt
+a replacement root's identical policy bytes as the old approval. Legacy proofs
+without that publication root withhold qualification until a new reviewed
+publication. Links, replaced roots, invalid or incoherent
 policy/projection data and missing/malformed publication proof produce unavailable
 qualification; they do not prevent an otherwise authorized untrusted read.
 
