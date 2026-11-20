@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { type HostVersionRequirements } from "../src/app";
@@ -113,6 +113,8 @@ describe("host version requirements at app startup", () => {
   });
   test("a replaced CLI is also refused before streaming sync's independent launch", async () => {
     const f = fixture();
+    // The Odysseus fixture corpus as the brain, so the UI sync runs against a real brain (#4257).
+    cpSync(join(import.meta.dir, "../../core/fixtures/corpus"), f.root, { recursive: true });
     const app = await createApp({ ...f, versionRequirements: { brainCli: "0.40.0" } });
     try {
       f.install("0.39.0");
