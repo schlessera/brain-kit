@@ -626,8 +626,9 @@ cancel sync or release its reservation**; output continues draining until the
 child exits.
 
 **Bounded start (additive, #4257).** Everything between admission and the
-sync process starting (the CLI version probe, the writer gate and the worker
-launch) is bounded at 120 seconds. Past it the stream ends with
+sync's first worker starting (the CLI version probe, the writer gate, the
+worker launch and, on a hosted install, the mirror lock, startup view and
+origin probe) is bounded at 120 seconds. Past it the stream ends with
 `{ type: "done", success: false, reason: "launch_timeout", text }`, the
 reservation is released, nothing has run, and a launch that settles later is
 killed. `reason` is present only on this refusal. After the child exits, its

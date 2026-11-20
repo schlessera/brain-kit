@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { probeBrainCliVersion, type BrainClient } from "../brain/client.js";
-import { brainCommandClass, createHostBoundary, type HostBoundary } from "../brain/host-boundary.js";
+import { brainCommandClass, createHostBoundary, type HostBoundary, type StreamingExecution } from "../brain/host-boundary.js";
 import type { Logger } from "@opentelemetry/api-logs";
 import { subprocessEnv } from "../config/env.js";
 import type { ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
@@ -226,10 +226,18 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono<AppEnv> {
         // Everything before the process starts is bounded (#4257): a probe or
         // launch that never settles must not hold the brain until a restart.
         const launching = new AbortController();
+        let markStarted!: () => void;
+        const started = new Promise<void>(resolve => { markStarted = resolve; });
         let timedOut = false;
         let timer: ReturnType<typeof setTimeout> | undefined;
+        let launched: StreamingExecution | undefined;
         const bound = new Promise<never>((_, reject) => {
-          timer = setTimeout(() => { timedOut = true; launching.abort(); reject(new SyncLaunchTimeout(launchTimeoutMs)); }, launchTimeoutMs);
+          timer = setTimeout(() => {
+            timedOut = true; launching.abort();
+            // A launch that returned but never started its work is stopped now.
+            if (launched) { launched.kill("SIGTERM"); void launched.exited.catch(() => {}); }
+            reject(new SyncLaunchTimeout(launchTimeoutMs));
+          }, launchTimeoutMs);
         });
         const start = (async () => {
           if (deps.brainCliMinimum !== undefined) {
@@ -248,9 +256,15 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono<AppEnv> {
             purpose: "brain sync",
             sync: true,
             signal: launching.signal,
+            onExecute: () => markStarted(),
           });
+          launched = proc;
           // A launch that settles after its bound was already refused: stop it.
-          if (timedOut) { proc.kill("SIGTERM"); void proc.exited.catch(() => {}); }
+          if (timedOut) { proc.kill("SIGTERM"); void proc.exited.catch(() => {}); return proc; }
+          // A hosted sync's launch returns before its mirror lock, startup
+          // view and origin probe: the bound holds until its first worker
+          // starts, or the attempt ends before one does.
+          await Promise.race([started, proc.exited.then(() => {}, () => {})]);
           return proc;
         })();
         start.catch(() => {});

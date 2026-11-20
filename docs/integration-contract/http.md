@@ -260,8 +260,9 @@ Three additions ([HTTP reference](../http-api.md#corpus-queries-capture-and-sync
 
 - A concurrent attempt's 409 body is `{ error, heldMs }`, where `heldMs` is how
   long the admitted sync has held the canonical root.
-- The time from admission until the sync process starts is bounded at 120
-  seconds. Past it the stream ends with `{ type: "done", success: false,
+- The time from admission until the sync's first worker starts (on a hosted
+  install, after the mirror lock, startup view and origin probe) is bounded at
+  120 seconds. Past it the stream ends with `{ type: "done", success: false,
   reason: "launch_timeout", text }`, the reservation is released and nothing
   has run. `reason` is present only on this refusal. `brainSync()` keeps
   mapping it to `{ success: false, message }`.

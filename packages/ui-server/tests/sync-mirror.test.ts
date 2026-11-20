@@ -403,6 +403,25 @@ for (const output of ["stdout", "stderr"] as const) {
   });
 }
 
+test("a hosted sync launch reports its start only once its first worker starts, after the origin probe (#4257)", async () => {
+  const f = fixture();
+  const db = createUiDb(f.dbPath);
+  const execution = createHostExecution({ brainPath: f.brain, nativeManager: f.nativeManager, dbPath: f.dbPath, exec: {} });
+  try {
+    execution.attach(db);
+    const events: string[] = [];
+    const sentinel = join(f.brain, "started.sentinel");
+    const worker = await execution.boundary.launch({ argv: ["/bin/sh", "-c", 'printf started > "$1"', "probe", sentinel],
+      env: { PATH: "/usr/bin:/bin" }, credentials: false, gate: "exclusive", sync: true, purpose: "start-reporting sync",
+      onExecute: () => { events.push(existsSync(sentinel) ? "after-worker" : "started"); } });
+    // The launch returned with the mirror sync still preparing: nothing has started yet.
+    events.push("launched");
+    void new Response(worker.stdout).text().catch(() => {}); void new Response(worker.stderr).text().catch(() => {});
+    expect(await worker.exited, "START_SYNC_EXIT").toBe(0);
+    expect(events, "START_REPORTED_ONCE_AFTER_LAUNCH_BEFORE_WORKER").toEqual(["launched", "started"]);
+  } finally { db.close(); }
+});
+
 test("an in-memory host uses its private temporary mirror for a real sync", async () => {
   if (await privateMaintenanceTest(import.meta.path, "an in-memory host uses its private temporary mirror for a real sync", 120_000)) return;
   const f = fixture();

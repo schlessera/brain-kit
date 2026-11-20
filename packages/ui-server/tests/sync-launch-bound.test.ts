@@ -78,6 +78,7 @@ describe("bounded sync launch (#4257)", () => {
       calls++;
       signals.push(execution.signal);
       if (calls === 1) return new Promise<never>(() => {});
+      execution.onExecute?.();
       return fakeProcess(["Synced Ithaca"], 0);
     }, { syncLaunchTimeoutMs: 50 });
 
@@ -107,12 +108,36 @@ describe("bounded sync launch (#4257)", () => {
     expect(late.killedWith(), "LATE_PROCESS_KILLED").toBe("SIGTERM");
   });
 
+  test("a hosted launch that returns before its first worker starts is bounded until that start", async () => {
+    const root = brainRoot();
+    // A hosted sync's launch returns at once; its mirror lock, startup view and
+    // origin probe follow inside the returned process. Here they never finish.
+    const pending = { ...fakeProcess([], 0), exited: new Promise<number>(() => {}) };
+    let killed: string | undefined;
+    pending.kill = signal => { killed = signal ?? "SIGTERM"; };
+    let calls = 0;
+    const app = routes(root, async execution => {
+      calls++;
+      if (calls === 1) return pending;
+      execution.onExecute?.();
+      return fakeProcess(["Synced Ithaca"], 0);
+    }, { syncLaunchTimeoutMs: 50 });
+    const first = await readFor(await app.request("/brain/sync", { method: "POST" }), 2_000);
+    expect(first.ended, "PRESTART_STREAM_ENDS").toBe(true);
+    expect(frames(first.text).at(-1), "PRESTART_REFUSED").toMatchObject({ type: "done", success: false, reason: "launch_timeout" });
+    expect(killed, "PRESTART_KILLED").toBe("SIGTERM");
+    const next = await app.request("/brain/sync", { method: "POST" });
+    expect(next.status, "PRESTART_NEXT_ADMITTED").toBe(200);
+    expect(frames((await readFor(next, 2_000)).text).at(-1)).toMatchObject({ type: "done", success: true });
+  });
+
   test("a sync whose process exited while its output pipe stays open still releases the brain", async () => {
     const root = brainRoot();
     const encoder = new TextEncoder();
     let calls = 0;
-    const app = routes(root, async () => {
+    const app = routes(root, async execution => {
       calls++;
+      execution.onExecute?.();
       if (calls > 1) return fakeProcess([], 0);
       // A descendant holds stdout open after the sync itself exited.
       return {
@@ -156,7 +181,7 @@ describe("bounded sync launch (#4257)", () => {
       const encoder = new TextEncoder();
       let exit!: (code: number) => void;
       const exited = new Promise<number>(resolve => { exit = resolve; });
-      const app = routes(root, async () => ({
+      const app = routes(root, async execution => (execution.onExecute?.(), {
         stdout: new ReadableStream({ async start(controller) {
           controller.enqueue(encoder.encode("Pulling the Ithaca remote\n"));
           await gate;
