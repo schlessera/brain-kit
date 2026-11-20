@@ -13,7 +13,7 @@ import type { prepareTurnEgress } from "./turn-egress.js";
 
 type Egress = Pick<Awaited<ReturnType<typeof prepareTurnEgress>>, "managedReference" | "remainingBytes">;
 type Recipient = "git" | "metadata";
-const chargeError = (failure:EgressChargeFailure) => new ReferenceTransportError(failure.reason === "budget" ? "capacity" : failure.reason === "safety" ? "denied" : "unavailable",egressChargeRefusal(failure,"Reference").message);
+const chargeError = (failure:EgressChargeFailure) => new ReferenceTransportError(failure.reason === "budget" ? "capacity" : failure.reason === "safety_changed" || failure.reason === "policy_denied" ? "denied" : "unavailable",egressChargeRefusal(failure,"Reference").message);
 const MAX_METADATA_BYTES = 65536;
 
 /** One acquisition owns this budget across metadata, discovery, auth retries and Git fetch. */
@@ -93,8 +93,8 @@ export async function createGitHubReferenceWire(options: ({ repository: unknown;
         if (operation.outcome() === "completed") return;
         upstream?.destroy(); client.destroy();
         if (operation.outcome() === "cancelled" && !controller.signal.aborted) {
-          const decision = operation.charge(0);
-          if (!decision.ok) fail(chargeError(decision));
+          const decision = operation.failure();
+          if (decision) fail(chargeError(decision));
         }
       };
       operation.signal.addEventListener("abort", operationStopped, { once: true });
@@ -103,10 +103,7 @@ export async function createGitHubReferenceWire(options: ({ repository: unknown;
       };
       client.once("close", () => { upstream?.destroy(); finish(controller.signal.aborted ? "cancelled" : "completed"); });
       try {
-        if (!await operation.admit()) {
-          if (["egress_unavailable","safety_changed","max_bytes_per_turn"].includes(operation.reason() ?? "")) { const decision=operation.charge(0);if (!decision.ok) throw chargeError(decision); }
-          throw new ReferenceTransportError("denied", "reference recipient was not admitted");
-        }
+        if (!await operation.admit()) throw chargeError(operation.failure() ?? {ok:false,reason:"unavailable"});
         const addresses = options.lookup ? await options.lookup(target.hostname, { all: true, verbatim: true })
           : await lookupHost(target.hostname, { all: true, verbatim: true });
         if (!addresses.length || addresses.some(value => egressAddressRefusal(value.address)))

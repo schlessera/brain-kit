@@ -15,12 +15,27 @@ export const WORKER_EGRESS_TRANSPORT_ENV = Object.freeze(["HTTP_PROXY", "HTTPS_P
   "http_proxy", "https_proxy", "all_proxy", "no_proxy", "GIT_SSH_COMMAND"]);
 /** The trusted in-namespace bootstrap that forwards loopback TCP to `WORKER_EGRESS_SOCKET`, then runs a command behind it. */
 export function egressBootstrapEntry(): string { return Bun.resolveSync("./egress-worker-entry", import.meta.dir); }
-export type EgressChargeFailure = { ok: false; reason: "budget" | "safety" | "unavailable" };
+export type EgressFailureReason = "budget" | "safety_changed" | "policy_denied" | "unavailable" | "cancelled";
+export type EgressChargeFailure = { ok: false; reason: EgressFailureReason };
 export type EgressChargeResult = { ok: true } | EgressChargeFailure;
+const FAILURE_DETAILS = {
+  budget: { reason:"max_bytes_per_turn",status:403,message:"egress limit exceeded" },
+  safety_changed: { reason:"safety_changed",status:403,message:"safety or authority changed" },
+  policy_denied: { reason:"policy_denied",status:403,message:"network policy refused the request" },
+  unavailable: { reason:"egress_unavailable",status:503,message:"egress unavailable" },
+  cancelled: { reason:"cancelled",status:499,message:"request cancelled" },
+} as const;
 export function egressChargeRefusal(failure: EgressChargeFailure, subject: string) {
-  return { reason: failure.reason === "budget" ? "max_bytes_per_turn" : failure.reason === "safety" ? "safety_changed" : "egress_unavailable",
-    status: failure.reason === "unavailable" ? 503 : 403,
-    message: `${subject} ${failure.reason === "budget" ? "egress limit exceeded" : failure.reason === "safety" ? "safety or authority changed" : "egress unavailable"}` };
+  const detail=FAILURE_DETAILS[failure.reason];return {...detail,message:`${subject} ${detail.message}`};
+}
+/** Capture the category with the terminal audit decision, before abort listeners run. */
+function terminalFailure(outcome: EgressRecord["outcome"], reason?: string): EgressChargeFailure | undefined {
+  if (outcome === "completed") return undefined;
+  const category: EgressFailureReason = reason === "max_bytes_per_turn" || reason === "max_reference_wire_bytes" ? "budget"
+    : reason === "safety_changed" || reason === "source_trust_changed" ? "safety_changed"
+    : reason === "egress_unavailable" || reason === "session_binding_unavailable" || outcome === "failed" ? "unavailable"
+    : outcome === "cancelled" ? "cancelled" : "policy_denied";
+  return Object.freeze({ok:false,reason:category});
 }
 export interface EgressRecord {
   /** Host identity, shared with admission and terminal observation; never a tool correlation. */
@@ -35,6 +50,7 @@ export interface EgressRecord {
   recipientApproved?: true;
   /** False for charged preparation that never crossed the dispatch boundary. */
   dispatched?: boolean;
+  failureReason?: EgressFailureReason;
   method: string;
   host: string;
   port: number;
@@ -73,7 +89,7 @@ export interface EgressProxyOptions {
    */
   taint?: { allow: readonly string[]; tainted(connectionId?: string): boolean; contacted(host: string): boolean;
     /** Immutable evidence/authority marker; may exclude only this admission's own recorded input. */
-    approvalRevision?(connectionId?: string): string;
+    approvalRevision?(connectionId?: string, kind?: "network" | "outward"): string;
     recipient?(destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }): boolean;
     approve?(destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }, signal: AbortSignal): Promise<boolean>;
     /** What tainted the session, as "it …" completes it, for a refusal's message (#3431). */
@@ -205,11 +221,14 @@ const REFUSAL_STATUS: Readonly<Record<EgressRefusal["cause"], string>> = {
  * other failure of the hook is `failed` with `proxy_error`.
  */
 export class EgressAdmissionRefused extends Error {
-  constructor(message = "The host did not admit this connection.", readonly reason: "call_not_admitted" | "source_trust_changed" = "call_not_admitted") { super(message); this.name = "EgressAdmissionRefused"; }
+  constructor(message = "The host did not admit this connection.", readonly reason: "call_not_admitted" | "source_trust_changed" | "egress_unavailable" = "call_not_admitted") { super(message); this.name = "EgressAdmissionRefused"; }
 }
 /** One refused connection's 403, with its reason when it has one. */
-function refusalHead(refusal: EgressRefusal | undefined, reason: string | undefined): { code: number; status: string; body: string } | undefined {
-  if (!refusal) return undefined;
+function refusalHead(refusal: EgressRefusal | undefined, reason: string | undefined, failure?: EgressChargeFailure): { code: number; status: string; body: string } | undefined {
+  if (!refusal) {
+    if (!failure) return undefined; const detail=egressChargeRefusal(failure,"Network");
+    return {code:detail.status,status:detail.status===503?"Service Unavailable":detail.status===499?"Client Closed Request":"Forbidden",body:detail.message+"\n"};
+  }
   const status = reason === "taint_not_approved" ? "Forbidden - declined by the user" : REFUSAL_STATUS[refusal.cause];
   return { code: refusal.cause === "egress_unavailable" ? 503 : 403, status, body: `${refusal.message}\n` };
 }
@@ -266,23 +285,27 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     /** The checked address this connection is pinned to, under a destination policy. */
     let pinned: { address: string; family: number } | undefined;
     let finalOutcome: EgressRecord["outcome"] | undefined, finalReason: string | undefined;
-    let chargeReason: EgressChargeFailure["reason"] | undefined;
+    let failure: EgressChargeFailure | undefined;
     const finish = (outcome: EgressRecord["outcome"], reason?: string) => {
       if (finished) return;
-      finished = true; finalOutcome = outcome; finalReason = reason; controllers.delete(controller); inputs.delete(connectionId); controller.abort();
+      finished = true; finalOutcome = outcome; finalReason = reason; failure=terminalFailure(outcome,reason); controllers.delete(controller); inputs.delete(connectionId); controller.abort();
       // Records never contain request headers, content, credentials or query strings.
-      try { options.observe({ connectionId, ...(inference ? { inference: true } : {}), ...(provider ? { provider: true } : {}), ...(managedReference ? { managedReference: true } : {}), method, host, port, dispatched: notified, ...(notified && granted ? { recipientApproved: true } : {}), ...(method === "CONNECT" ? {} : { path: url.pathname }), bytes,
+      try { options.observe({ connectionId, ...(inference ? { inference: true } : {}), ...(provider ? { provider: true } : {}), ...(managedReference ? { managedReference: true } : {}), method, host, port, dispatched: notified, ...(failure ? {failureReason:failure.reason} : {}), ...(notified && granted ? { recipientApproved: true } : {}), ...(method === "CONNECT" ? {} : { path: url.pathname }), bytes,
         accounting: method === "CONNECT" ? "opaque_bytes" : "http_wire_bound",
         durationMs: performance.now() - started, outcome, ...(reason ? { reason } : {}) }); } catch { /* A recorder cannot keep a connection alive. */ }
     };
-    const revokeInput = () => { chargeReason = "safety"; finish("cancelled", "source_trust_changed"); };
+    const revokeInput = () => { finish("cancelled", "source_trust_changed"); };
     inputs.set(connectionId, revokeInput);
     // Turn cleanup must observe final audit failures before it publishes its
     // terminal outcome; socket close callbacks run only after stop returns.
-    controller.signal.addEventListener("abort", () => finish("cancelled", "turn_cancelled"), { once: true });
+    controller.signal.addEventListener("abort", () => {
+      const reason=controller.signal.reason;
+      if (reason instanceof EgressAdmissionRefused && reason.reason === "egress_unavailable") finish("denied","egress_unavailable");
+      else finish("cancelled", "turn_cancelled");
+    }, { once: true });
     const charge = (count: number): EgressChargeResult => {
       if (!Number.isSafeInteger(count) || count < 0) throw new RangeError("Egress charge bytes must be a nonnegative safe integer");
-      return maySendNow(count) ? { ok: true } : { ok: false, reason: finalReason === "max_bytes_per_turn" ? "budget" : chargeReason ?? "unavailable" };
+      return maySendNow(count) ? { ok: true } : failure ?? {ok:false,reason:"cancelled"};
     };
     /** One approval wait; cancelling this connection or the turn resolves it as refused. */
     const approval = async (ask: ((destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }, signal: AbortSignal) => Promise<boolean>) | undefined) => {
@@ -302,8 +325,14 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     };
     // An approval of this destination outside the taint allow-list (#3430).
     let outwardApproved = false, grantRevision: string | undefined, outwardRevision: string | undefined;
-    const approvalRevision = (own = false) => options.taint?.approvalRevision?.(own ? connectionId : undefined) ?? JSON.stringify(options.admissionSafety?.read());
-    const grantCurrent = (own = false) => { if (!granted && !outwardApproved) return true; try { const now = approvalRevision(own); return (!granted || grantRevision === now) && (!outwardApproved || outwardRevision === now); } catch { return false; } };
+    const approvalRevision = (own = false, outward = false) => options.taint?.approvalRevision?.(own ? connectionId : undefined, outward ? "outward" : "network") ?? JSON.stringify(options.admissionSafety?.read());
+    const grantCurrent = (own = false) => { if (!granted && !outwardApproved) return true; try { return (!granted || grantRevision === approvalRevision(own)) && (!outwardApproved || outwardRevision === approvalRevision(own,true)); } catch { return false; } };
+    // A marker can change because recording or authority disappeared while a
+    // card was pending. Classify that live failure before a generic stale card.
+    const refuseStaleApproval = () => {
+      try { if (!refuseSafety(options.admissionSafety?.read(),snapshot)) finish("denied","safety_changed"); }
+      catch { finish("denied","egress_unavailable"); }
+    };
     const recipient = { host, port, method, protocol: url.protocol, managedReference };
     // Checked again after an approval wait, during which another connection may taint the session.
     // Inference/provider relays retain G5. Managed references retain ordinary
@@ -312,18 +341,18 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     const narrowing = async () => {
       if (!narrowed()) return true;
       if (options.taint?.approve) { grantRevision = approvalRevision(); granted = await approval(options.taint.approve.bind(options.taint));
-        if (granted && !grantCurrent()) { finish("denied", "safety_changed"); return false; } }
+        if (granted && !grantCurrent()) { refuseStaleApproval(); return false; } }
       if (!granted) finish(stopped ? "cancelled" : "denied", options.taint?.approve ? "taint_not_approved" : "taint_not_allowed");
       return granted;
     };
     const refuseSafety = (current: AdmissionSafetySnapshot | undefined, before?: AdmissionSafetySnapshot) => {
-      const reason = current && !current.recordingAvailable ? "unavailable" : safetySnapshotRefusal(current,before) ? "safety" : undefined;
+      const reason = current && !current.recordingAvailable ? "unavailable" : safetySnapshotRefusal(current,before) ? "safety_changed" : undefined;
       if (!reason) return false;
-      chargeReason = reason; finish("denied",egressChargeRefusal({ok:false,reason},"Network").reason); return true;
+      finish("denied",egressChargeRefusal({ok:false,reason},"Network").reason); return true;
     };
     const admit = async () => {
       try { snapshot = options.admissionSafety?.read(); }
-      catch { chargeReason="unavailable";finish("denied","egress_unavailable");return false; }
+      catch { finish("denied","egress_unavailable");return false; }
       if (refuseSafety(snapshot,snapshot)) return false;
       if (stopped || options.signal?.aborted) { finish("cancelled", "turn_cancelled"); return false; }
       if (matches(host, options.deny) || options.mode === "allowlist" && !matches(host, options.allow)) { finish("denied", "destination_not_allowed"); return false; }
@@ -343,37 +372,37 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       }
       if (!await narrowing()) return false;
       if (matches(host, options.outwardHosts) || options.outwardPorts?.includes(port)) {
-        outwardRevision = approvalRevision();
+        outwardRevision = approvalRevision(false,true);
         if (!await approval(options.approveOutward)) { finish(stopped ? "cancelled" : "denied", "outward_not_approved"); return false; }
         outwardApproved = true;
-        if (!grantCurrent()) { finish("denied", "safety_changed"); return false; }
+        if (!grantCurrent()) { refuseStaleApproval(); return false; }
       }
       if (!await narrowing()) return false;
       // A recorder failure aborts the turn through its own signal; it cannot admit.
       try { await options.admitted?.({ host, port, method, inference, provider, managedReference, connectionId, protocol:url.protocol }); }
-      catch (error) { if (error instanceof EgressAdmissionRefused && error.reason === "source_trust_changed") revokeInput(); else if (error instanceof EgressAdmissionRefused) finish("denied", "call_not_admitted"); else finish("failed", "proxy_error"); return false; }
+      catch (error) { if (error instanceof EgressAdmissionRefused && error.reason === "source_trust_changed") revokeInput(); else if (error instanceof EgressAdmissionRefused) finish("denied", error.reason); else finish("failed", "proxy_error"); return false; }
       if (stopped || controller.signal.aborted) { finish("cancelled", "turn_cancelled"); return false; }
       return true;
     };
     // No await may intervene between this check and connect/request/fetch.
     const maySendNow = (count: number) => {
       try {
-      if (stopped || controller.signal.aborted) { chargeReason ??= "unavailable"; finish("cancelled", "turn_cancelled"); return false; }
+      if (stopped || controller.signal.aborted) { finish("cancelled", "turn_cancelled"); return false; }
       const current = options.admissionSafety?.read();
       if (refuseSafety(current,snapshot)) return false;
-      if (!grantCurrent(true)) { chargeReason = "safety"; finish("denied", "safety_changed"); return false; }
+      if (!grantCurrent(true)) { refuseStaleApproval(); return false; }
       if (count > options.maxBytes - usedBytes) { finish("denied", "max_bytes_per_turn"); return false; }
       if (!inputCurrent(connectionId)) { revokeInput(); return false; }
-      if (narrowed(true)) { chargeReason = "safety"; finish("denied", "taint_not_allowed"); return false; }
+      if (narrowed(true)) { finish("denied", "taint_not_allowed"); return false; }
       usedBytes += count; bytes += count;
       return true;
-      } catch { chargeReason = "unavailable"; finish("denied", "egress_unavailable"); return false; }
+      } catch { finish("denied", "egress_unavailable"); return false; }
     };
     const commit = (): EgressChargeResult => {
       const decision=charge(0); if (!decision.ok) return decision;
       try { if (!notified) { options.committed?.({ ...recipient, connectionId, inference, provider, recipientApproved: granted }); notified=true; } }
-      catch { chargeReason="unavailable";finish("denied","egress_unavailable");return {ok:false,reason:"unavailable"}; }
-      return decision;
+      catch { finish("denied","egress_unavailable");return {ok:false,reason:"unavailable"}; }
+      return failure ?? decision;
     };
     /** Why this connection was refused, for the tool that made it; undefined while admitted or for a bare refusal. */
     const refusal = () => {
@@ -382,7 +411,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (finalReason === "taint_not_allowed") try { cause = options.taint?.cause?.(); } catch { /* The message names no cause. */ }
       return describeRefusal(finalReason, host, matches(host, options.deny), cause);
     };
-    return { host, dialHost, finish, charge, admit, commit, refusal, signal: controller.signal, outcome: () => finalOutcome, reason: () => finalReason, pinned: () => pinned };
+    return { host, dialHost, finish, charge, admit, commit, refusal, failure:()=>failure, signal: controller.signal, outcome: () => finalOutcome, reason: () => finalReason, pinned: () => pinned };
   }
   server.on("connect", (request, client, head) => {
     client.on("error", () => {});
@@ -398,7 +427,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     client.once("close", () => op.finish(stopped || !connected ? "cancelled" : "completed"));
     void (async () => {
       if (!await op.admit() || client.destroyed || !op.charge(head.length).ok || !op.commit().ok) {
-        const declined = refusalHead(op.refusal(), op.reason());
+        const declined = refusalHead(op.refusal(), op.reason(), op.failure());
         client.end(declined ? `HTTP/1.1 ${declined.code} ${declined.status}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: ${Buffer.byteLength(declined.body)}\r\nConnection: close\r\n\r\n${declined.body}`
           : "HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
         return;
@@ -432,7 +461,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     op.signal.addEventListener("abort", () => { if (response.headersSent) response.destroy(); }, { once: true });
     response.once("close", () => op.finish(stopped ? "cancelled" : response.writableFinished ? "completed" : "cancelled"));
     const refuse = () => {
-      const declined = refusalHead(op.refusal(), op.reason());
+      const declined = refusalHead(op.refusal(), op.reason(), op.failure());
       if (declined) response.writeHead(declined.code, declined.status, { "content-type": "text/plain; charset=utf-8" }).end(declined.body);
       else { response.writeHead(403); response.end(); }
     };
@@ -487,7 +516,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
   const stop = () => {
     if (stopped) return;
     stopped = true; options.signal?.removeEventListener("abort", stop);
-    for (const controller of controllers) controller.abort();
+    for (const controller of controllers) controller.abort(options.signal?.reason);
     for (const socket of connections) socket.destroy();
     server.close(); rmSync(dir, { recursive: true, force: true });
   };
@@ -520,7 +549,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     const abort = () => op.finish("cancelled", "client_disconnected");
     signal.addEventListener("abort", abort, { once: true });
     if (signal.aborted) abort();
-    return { charge: op.charge, signal: op.signal, outcome: op.outcome, refusal: op.refusal, reason: op.reason,
+    return { charge: op.charge, signal: op.signal, outcome: op.outcome, refusal: op.refusal, reason: op.reason, failure: op.failure,
       admit: async () => !op.signal.aborted && await op.admit(),
       /** The concrete relay calls this again after its own final async waits. */
       commit: op.commit,

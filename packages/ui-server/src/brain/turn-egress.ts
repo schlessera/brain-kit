@@ -66,9 +66,11 @@ function actionHosts(action: Classification["actions"][number]): readonly string
  */
 export function createOutwardCalls() {
   const calls = new Map<string, { read: boolean; hosts: readonly string[] } | null>();
+  let generation=0n;
   return {
     activity(event: BackendActivityEvent): void {
       if (event.kind !== "outward_classification") return;
+      generation++;
       // A refused or declined call never runs.
       if (event.decision !== "allow") { calls.delete(event.toolUseId); return; }
       const classification = event.classification;
@@ -77,8 +79,9 @@ export function createOutwardCalls() {
         : classification.kind === "outward" ? { read: false, hosts: classification.actions.flatMap(actionHosts) } : null);
     },
     emitted(message: Parameters<BackendBridge["emit"]>[0]): void {
-      if (message.type === "tool_result") calls.delete(message.toolUseId);
+      if (message.type === "tool_result" && calls.delete(message.toolUseId)) generation++;
     },
+    generation:()=>generation.toString(),
     covers(host: string): boolean {
       const active = [...calls.values()];
       // Every call in progress must be a read or name this host: another
@@ -150,7 +153,7 @@ export async function prepareTurnEgress(options: {
   const base = () => ({ turnId: options.turnId, sessionId: options.sessionId(), model: options.model(),
     actor: options.origin, profile: options.profile });
   const fail = () => {
-    recordingFailure ??= new Error("Turn egress recording is unavailable");
+    recordingFailure ??= new EgressAdmissionRefused("Turn egress recording is unavailable","egress_unavailable");
     options.controller.abort(recordingFailure);
   };
   const track = (committed: unknown) => {
@@ -217,15 +220,16 @@ export async function prepareTurnEgress(options: {
    * (`contactedHosts`).
    */
   const approvalMarkers = new Map<string,{version:string;marker:string}>();
-  const approvalRevision = (connectionId?: string) => {
-      if (!db) return "unrecorded";
+  const approvalRevision = (connectionId?: string,kind: "network" | "outward" = "network") => {
+      const callGeneration=kind==="outward"?calls.generation():"0";
+      if (!db) return `unrecorded:${callGeneration}`;
       const safety = options.bridge.admissionSafety?.read();
-      const key = connectionId ?? "global", version = JSON.stringify([safety?.evidenceRevision ?? safetyReadVersion(db), safety?.scope, safety?.authorityEpoch, safety?.authorityCurrent, safety?.recordingAvailable, options.trust?.revision() ?? "0", safetyQueue(db).generation.toString()]);
+      const key = `${connectionId ?? "global"}:${kind}`, version = JSON.stringify([safety?.evidenceRevision ?? safetyReadVersion(db), safety?.scope, safety?.authorityEpoch, safety?.authorityCurrent, safety?.recordingAvailable, options.trust?.revision() ?? "0", safetyQueue(db).generation.toString(),callGeneration]);
       const cached = approvalMarkers.get(key); if (cached?.version === version) return cached.marker;
       const state = options.governanceWrites?.safety?.(options.turnId, options.sessionId()) ?? safetyProjection(db, options.turnId, options.sessionId());
       const marker = JSON.stringify([state.pendingCount, state.coverage.state, state.reasons.filter(reason => reason !== "unresolved"), safetyEvidenceSequence(db, options.turnId, options.sessionId(), connectionId ? exposures.get(connectionId)?.id ?? null : null),
         options.trust?.revision() ?? "0", safety?.scope, safety?.authorityEpoch, safety?.authorityCurrent,
-        writes?.recordingAvailable?.(options.turnId, options.sessionId()) ?? safety?.recordingAvailable]);
+        writes?.recordingAvailable?.(options.turnId, options.sessionId()) ?? safety?.recordingAvailable,callGeneration]);
       approvalMarkers.set(key,{version,marker}); return marker;
     };
   const asking = new Map<string, Promise<boolean>>();

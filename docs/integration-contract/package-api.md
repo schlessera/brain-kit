@@ -5988,16 +5988,21 @@ Provider history remains byte-identical as an earlier prefix.
 ## Turn egress charge and cancellation
 
 The concrete turn proxy's `charge(bytes)` returns `{ok:true}` or
-`{ok:false,reason:"budget"|"safety"|"unavailable"}`. Callers preserve that
-classification. `commit()` returns the same typed decision as `charge(0)`, then notifies
+`{ok:false,reason:"budget"|"safety_changed"|"policy_denied"|"unavailable"|"cancelled"}`. Callers preserve that
+classification. Each terminal decision stores its typed reason before notifying
+abort listeners; `failure()` reads that immutable decision without charging or
+consulting live state. Callers never call `charge(0)` to classify an operation
+that already refused. `commit()` returns the same typed decision as `charge(0)`, then notifies
 commitment only once at the final dispatch boundary. Charging alone never
 publishes a contacted-host grant. Callers charge preparation first, then commit
 immediately before dispatch. A zero-byte terminal decision can complete at the exact byte ceiling while
 still revalidating safety. `bytes` must be a nonnegative safe integer; invalid counts
 throw RangeError before changing either the turn or connection byte counter.
 Only budget refusal is byte exhaustion; authority/source or
-approval changes are safety refusals, and unverifiable recording/admission is
-unavailable. Inference/provider uploads, headers, streams and managed GitHub
+approval changes are `safety_changed`, denied recipient/destination policy is
+`policy_denied`, unverifiable recording/admission is `unavailable`, and turn or
+client cancellation is `cancelled`. Their statuses are 403, 403, 503 and 499
+respectively; disconnected transports may have no response status. Inference/provider uploads, headers, streams and managed GitHub
 wire metering consume this result. `OriginTrust.refresh(signal?)` cancels a
 queued brain-lock acquisition on turn abort; it never releases another holder.
 Turn startup rechecks abort before creating egress resources and normal turn

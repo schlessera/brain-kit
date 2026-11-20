@@ -17,7 +17,7 @@ for(const provider of [false,true])for(const recording of [false,true])for(const
 for(const reason of ['budget','safety','unavailable'] as const)test(`review10: charge distinguishes ${reason}`,async()=>{
  let current=true;const snapshot=()=>({evidenceRevision:'1',trustRevision:'1',authorityEpoch:'1',scope:'ithaca',policyHash:null,restricted:false,recordingAvailable:reason==='unavailable'?current:true,authorityCurrent:reason==='safety'?current:true});
  const proxy=await startEgressProxy({mode:'record',allow:[],deny:[],maxBytes:8,outwardHosts:[],observe(){},admissionSafety:{read:snapshot,subscribe:()=>()=>{}}});
- try{const op=proxy.inference('POST',new URL('http://127.0.0.1/'),new AbortController().signal);expect(await op.admit()).toBe(true);current=false;expect(op.charge(reason==='budget'?9:1),'CHARGE_FAILURE_HAS_A_TYPED_REASON').toEqual({ok:false,reason});}finally{proxy.stop();}
+ try{const op=proxy.inference('POST',new URL('http://127.0.0.1/'),new AbortController().signal);expect(await op.admit()).toBe(true);current=false;expect(op.charge(reason==='budget'?9:1),'CHARGE_FAILURE_HAS_A_TYPED_REASON').toEqual({ok:false,reason:reason==='safety'?'safety_changed':reason});}finally{proxy.stop();}
 });
 
 for(const recording of [false,true])test(`review10: raw HTTP proxy reports ${recording?'unavailable recording':'changed safety'} before delayed bytes`,async()=>{
@@ -29,7 +29,7 @@ for(const recording of [false,true])test(`review10: raw HTTP proxy reports ${rec
 
 for(const notified of [false,true])test(`review11: source revocation has one safety reason (notification first ${notified})`,async()=>{
  let current=true;const records:import('../src/server/egress-proxy').EgressRecord[]=[];const proxy=await startEgressProxy({mode:'record',allow:[],deny:[],maxBytes:32,outwardHosts:[],observe:r=>records.push(r),inputCurrent:()=>current});
- try{const op=proxy.managedReference(new URL('https://github.com/'),new AbortController().signal);expect(await op.admit()).toBe(true);expect(op.charge(3)).toEqual({ok:true});current=false;if(notified)proxy.invalidateInputs();expect(op.charge(1),'REVOCATION_IS_SAFETY_REGARDLESS_OF_FIRST_FENCE').toEqual({ok:false,reason:'safety'});expect(records[0]).toMatchObject({outcome:'cancelled',reason:'source_trust_changed',bytes:3});expect(records).toHaveLength(1);expect(proxy.remainingBytes()).toBe(29);}finally{proxy.stop();}
+ try{const op=proxy.managedReference(new URL('https://github.com/'),new AbortController().signal);expect(await op.admit()).toBe(true);expect(op.charge(3)).toEqual({ok:true});current=false;if(notified)proxy.invalidateInputs();expect(op.charge(1),'REVOCATION_IS_SAFETY_REGARDLESS_OF_FIRST_FENCE').toEqual({ok:false,reason:'safety_changed'});expect(records[0]).toMatchObject({outcome:'cancelled',reason:'source_trust_changed',bytes:3});expect(records).toHaveLength(1);expect(proxy.remainingBytes()).toBe(29);}finally{proxy.stop();}
 });
 for(const count of [-1,-0.5,0.5,NaN,Infinity,-Infinity,Number.MAX_SAFE_INTEGER+1,'1' as unknown as number])test(`review11: invalid charge ${String(count)} leaves both counters intact`,async()=>{
  const records:Array<{bytes:number}>=[];const proxy=await startEgressProxy({mode:'record',allow:[],deny:[],maxBytes:32,outwardHosts:[],observe:r=>{records.push(r);}});
@@ -41,7 +41,7 @@ for (const failure of ['safety','unavailable','source'] as const) test(`review13
  const proxy=await startEgressProxy({mode:'record',allow:[],deny:[],maxBytes:8,outwardHosts:[],observe(){},
   inputCurrent:()=>failure!=='source'||current,
   admissionSafety:{read:()=>({evidenceRevision:'1',trustRevision:'1',authorityEpoch:'1',scope:'ithaca',policyHash:null,restricted:false,recordingAvailable:failure!=='unavailable'||current,authorityCurrent:failure!=='safety'||current}),subscribe:()=>()=>{}}});
- try{const op=proxy.inference('POST',new URL('http://127.0.0.1/'),new AbortController().signal);expect(await op.admit()).toBe(true);expect(op.charge(8)).toEqual({ok:true});expect(op.charge(0),'ZERO_BYTE_TERMINAL_AT_CAP_IS_ALLOWED').toEqual({ok:true});current=false;expect(op.charge(0),'ZERO_BYTE_TERMINAL_REVALIDATES_SAFETY').toEqual({ok:false,reason:failure==='unavailable'?'unavailable':'safety'});}finally{proxy.stop();}
+ try{const op=proxy.inference('POST',new URL('http://127.0.0.1/'),new AbortController().signal);expect(await op.admit()).toBe(true);expect(op.charge(8)).toEqual({ok:true});expect(op.charge(0),'ZERO_BYTE_TERMINAL_AT_CAP_IS_ALLOWED').toEqual({ok:true});current=false;expect(op.charge(0),'ZERO_BYTE_TERMINAL_REVALIDATES_SAFETY').toEqual({ok:false,reason:failure==='unavailable'?'unavailable':'safety_changed'});}finally{proxy.stop();}
 });
 
 for(const provider of [false,true])test(`review14: ${provider?'provider':'inference'} initial recording loss is unavailable`,async()=>{
@@ -49,4 +49,9 @@ for(const provider of [false,true])test(`review14: ${provider?'provider':'infere
  const proxy=await startEgressProxy({mode:'record',allow:[],deny:[],maxBytes:65536,outwardHosts:[],observe(){},admissionSafety:{read:()=>({evidenceRevision:'1',trustRevision:'1',authorityEpoch:'1',scope:'ithaca',policyHash:null,restricted:false,recordingAvailable:false,authorityCurrent:true}),subscribe:()=>()=>{}}});
  const relay=provider?startProviderRelay({origins:new Map([['ANTHROPIC_API_KEY',[upstream.url.origin]]]),credential:()=> 'odysseus-host-key',egress:proxy}):startInferenceRelay({upstream:upstream.url.origin,routes:['/v1/messages'],credentials:{'x-api-key':'odysseus-host-key'},egress:proxy});
  try{const result=await new Promise<{status:number;body:string}>((resolve,reject)=>{const r=request({socketPath:relay.socketPath,method:'POST',path:'/v1/messages',headers:{'content-type':'application/json',...(provider?{'x-brain-provider':'anthropic','x-brain-provider-key':'ANTHROPIC_API_KEY','x-brain-provider-origin':upstream.url.origin}:{})}},res=>{let body='';res.on('data',b=>{body+=b;});res.once('end',()=>resolve({status:res.statusCode!,body}));});r.on('error',reject);r.end(JSON.stringify({model:'odysseus-model',messages:[]}));});expect(result.status).toBe(503);expect(result.body).toContain('unavailable');}finally{await relay.stop();proxy.stop();upstream.stop(true);}
+});
+
+for(const outward of [false,true])test(`review15: stale ${outward?'outward':'Network'} approval keeps its safety refusal`,async()=>{
+ let revision='1';const records:import('../src/server/egress-proxy').EgressRecord[]=[];const proxy=await startEgressProxy({mode:'record',allow:[],deny:[],maxBytes:1024,outwardHosts:outward?['github.com']:[],approveOutward:async()=>{revision='2';return true;},observe:r=>records.push(r),taint:{allow:[],tainted:()=>!outward,contacted:()=>false,approvalRevision:()=>revision,approve:async()=>{revision='2';return true;}}});
+ try{const op=proxy.managedReference(new URL('https://github.com/'),new AbortController().signal);expect(await op.admit()).toBe(false);expect(op.charge(0),'STALE_APPROVAL_NEVER_BECOMES_UNAVAILABLE').toEqual({ok:false,reason:'safety_changed'});expect(records[0]).toMatchObject({reason:'safety_changed'});}finally{proxy.stop();}
 });

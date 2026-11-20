@@ -233,3 +233,13 @@ for(const order of ['notification','chunk','post-write'] as const)test(`review12
  await f.proxy.settled();expect(queryGovernanceEvents(f.db,{kinds:['egress_connection'],limit:10})[0]?.payload,'EVERY_SOURCE_REMOVAL_ORDER_HAS_ONE_AUDIT_CLASS').toMatchObject({outcome:'cancelled',reason:'source_trust_changed',trustedSource:true,method:'GET'});expect(f.controller.signal.aborted).toBe(false);
  }finally{release?.();f.proxy.stop();await pending;await f.close();}
 });
+
+for(const change of ['end','opaque'] as const)test(`review15: outward covering-call ${change} during occurrence write fences dispatch`,async()=>{
+ const f=await fixture(false,{schema_version:1,outward:{hosts:['127.0.0.1']}},undefined,true);let entered!:()=>void,release!:()=>void;const reached=new Promise<void>(r=>{entered=r;}),held=new Promise<void>(r=>{release=r;});const original=f.writes.firstTaint;
+ try{f.proxy.bridge.activity?.({kind:'outward_classification',toolUseId:'voyage',classification:{kind:'read',actions:[]},decision:'allow'});f.writes.firstTaint=async(...args)=>{entered();await held;return original(...args);};const pending=get(f.proxy.socketPath,f.origin.url.href);await reached;if(change==='end')f.proxy.bridge.emit({type:'tool_result',toolUseId:'voyage',output:'Ithaca',isError:false});else f.proxy.bridge.activity?.({kind:'outward_classification',toolUseId:'opaque',classification:{kind:'unknown',actions:[],opaque:true},decision:'allow'});release();expect(await pending,'EXPIRED_OUTWARD_COVERAGE_NEVER_DISPATCHES').toBe(403);expect(f.hits()).toBe(0);}finally{release();await f.close();}
+});
+
+test('review15: unrelated call changes do not withdraw an explicit Network card',async()=>{
+ const f=await fixture(false,{schema_version:1},undefined,true);let entered!:()=>void,release!:()=>void;const reached=new Promise<void>(r=>{entered=r;}),held=new Promise<void>(r=>{release=r;});const original=f.writes.firstTaint;
+ try{await f.taint();f.decide(async()=>({behavior:'allow'}));f.proxy.bridge.activity?.({kind:'outward_classification',toolUseId:'voyage',classification:{kind:'read',actions:[]},decision:'allow'});f.writes.firstTaint=async(...args)=>{entered();await held;return original(...args);};const pending=get(f.proxy.socketPath,f.origin.url.href);await reached;f.proxy.bridge.emit({type:'tool_result',toolUseId:'voyage',output:'Ithaca',isError:false});release();expect(await pending,'NETWORK_APPROVAL_IS_INDEPENDENT_OF_OUTWARD_CALL_LIFETIME').toBe(200);expect(f.hits()).toBe(1);}finally{release();await f.close();}
+});

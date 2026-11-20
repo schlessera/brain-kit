@@ -680,6 +680,13 @@ signatures (every public export and the types it is made of)
                 connectionId: z.ZodOptional<z.ZodString>;
                 dispatched: z.ZodOptional<z.ZodBoolean>;
                 durationMs: z.ZodNumber;
+                failureReason: z.ZodOptional<z.ZodEnum<{
+                    budget: "budget";
+                    cancelled: "cancelled";
+                    policy_denied: "policy_denied";
+                    safety_changed: "safety_changed";
+                    unavailable: "unavailable";
+                }>>;
                 host: z.ZodString;
                 inference: z.ZodOptional<z.ZodLiteral<true>>;
                 managedReference: z.ZodOptional<z.ZodLiteral<true>>;

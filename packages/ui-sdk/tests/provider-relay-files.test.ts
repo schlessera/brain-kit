@@ -210,3 +210,8 @@ for(const unavailable of [false,true])test(`review14: Files cleanup retains ${un
  const all:ProviderRelayReceipt[]=[];const {relay,start,upload}=open({egress:proxy,observe:receipt=>all.push(receipt)});
  try{const started=await start();await upload(String(started.headers['x-goog-upload-url']));seen.length=0;all.length=0;current=false;await relay.stop();expect(seen).toEqual([]);expect(all,'REFUSED_CLEANUP_HAS_TYPED_STATUS_AND_NEVER_DISPATCHED').toMatchObject([{operation:'files',outcome:'cancelled',status:unavailable?503:403}]);}finally{await relay.stop();proxy.stop();}
 });
+
+for(const allowlist of [false,true])test(`review15: Files cleanup policy ${allowlist?'omission':'denial'} is 403`,async()=>{
+ const {startEgressProxy}=await import('../src/server/egress-proxy');const deny:string[]=[],allow=['127.0.0.1'];const records:import('../src/server/egress-proxy').EgressRecord[]=[];const proxy=await startEgressProxy({mode:allowlist?'allowlist':'record',allow,deny,maxBytes:65536,outwardHosts:[],observe:r=>records.push(r)});const all:ProviderRelayReceipt[]=[];const {relay,start,upload}=open({egress:proxy,observe:receipt=>all.push(receipt)});
+ try{const started=await start();await upload(String(started.headers['x-goog-upload-url']));seen.length=0;all.length=0;if(allowlist)allow.length=0;else deny.push('127.0.0.1');await relay.stop();expect(seen).toEqual([]);expect(all,'POLICY_REFUSAL_NEVER_LOOKS_UNAVAILABLE').toMatchObject([{operation:'files',outcome:'cancelled',status:403}]);expect(records.at(-1)).toMatchObject({outcome:'denied',reason:'destination_not_allowed'});}finally{await relay.stop();proxy.stop();}
+});

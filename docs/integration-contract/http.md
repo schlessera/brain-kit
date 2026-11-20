@@ -1391,3 +1391,11 @@ older records without the field retain their existing interpretation. Historical
 contacted hosts use the same canonical comparison key as current destinations,
 including legacy bracketed IPv6 literals. Recording unavailability is always
 503 `egress_unavailable`, including initial admission.
+
+Egress audit records add optional `failureReason` with the stored terminal
+category: `budget`, `safety_changed`, `policy_denied`, `unavailable` or
+`cancelled`. This category is captured before abort listeners run and is shared
+by every caller; reading it never retries admission or recomputes a cause.
+Outward approval markers include the active call-classification generation,
+so a covering call ending or an opaque call starting withdraws its exemption
+even across a durable occurrence write.

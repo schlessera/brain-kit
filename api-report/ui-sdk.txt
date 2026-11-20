@@ -1387,6 +1387,7 @@ export "./internal" (./src/internal.ts)
   type EgressChargeFailure
   type EgressChargeResult
   type EgressDestinationPolicy
+  type EgressFailureReason
   type EgressRecord
   type EgressRefusal
   FIRST_PARTY_PROVIDER_RECIPIENTS

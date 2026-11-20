@@ -437,12 +437,7 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
     const signal = operation ? AbortSignal.any([request.signal, operation.signal]) : request.signal;
     const chargeFailure = (count: number) => { const result = operation?.charge(count); return result && !result.ok ? result : undefined; };
     const chargeDenied = (failure: EgressChargeFailure) => { const detail = egressChargeRefusal(failure,"Provider"); return refuse(detail.status,"egress_refused",detail.message,operation?.refusal()); };
-    if (operation && !await operation.admit()) {
-          if (["egress_unavailable","safety_changed","max_bytes_per_turn"].includes(operation.reason() ?? "")) { const decision=operation.charge(0); if (!decision.ok) return chargeDenied(decision); }
-      const cancelled = request.signal.aborted || operation.outcome() === "cancelled";
-      operation.finish(cancelled ? "cancelled" : "denied", "provider_admission_refused");
-      return refuse(cancelled ? 499 : 403, cancelled ? "cancelled" : "egress_refused", "Provider network admission refused", cancelled ? undefined : operation.refusal());
-    }
+    if (operation && !await operation.admit()) return chargeDenied(operation.failure() ?? {ok:false,reason:"unavailable"});
     const initialDecision = operation?.charge(0);
     if (initialDecision && !initialDecision.ok) return chargeDenied(initialDecision);
     const denied = (reason: string, status = 403): Response => {
@@ -688,9 +683,7 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       catch { /* The host's own accounting reports its failure. */ }
     };
     if (operation && !await operation.admit()) {
-      const decision=operation.charge(0);
-      if (!decision.ok) observe("cancelled",egressChargeRefusal(decision,"Provider").status);
-      operation.finish("denied", "provider_admission_refused"); return;
+      observe("cancelled",egressChargeRefusal(operation.failure() ?? {ok:false,reason:"unavailable"},"Provider").status); return;
     }
     const headers = new Headers(PLACEMENT.gemini(secret));
     const cleanupCharge = operation?.charge(headerBytes(`DELETE ${target.pathname} HTTP/1.1`, headers));

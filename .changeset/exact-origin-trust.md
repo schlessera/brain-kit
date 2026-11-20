@@ -29,3 +29,5 @@ Retire source-rule instances durably across independent publishers, preserve typ
 Allow HTTP and tunnel completion exactly at the byte ceiling while preserving terminal safety checks and refusing bytes beyond it.
 
 Separate preparation byte charging from dispatch notification and contacted-host grants, classify initial recording loss as unavailable, and preserve historical IPv6 session grants through canonical host lookup.
+
+Capture one immutable typed refusal per egress operation before abort, preserve it through every caller and audit record, and fence outward exemptions with the active call-classification generation.
