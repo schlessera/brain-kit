@@ -1,3 +1,4 @@
+import { nativeScriptedService } from "./test-native-guard";
 // #1238: actual bundled runtime, production model assembly, fixture inference.
 // Run inside a network namespace with only loopback. No real credentials.
 import assert from "node:assert/strict";
@@ -66,6 +67,7 @@ try {
       ];
       return new Response(events.map(event => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
     } });
+    nativeScriptedService(server.url.origin);
     const profiles = defineProfiles([{ id: model, model, label: "Claude Haiku 5.5", apiKeyEnv: "OFFLINE_FIXTURE_KEY" }]);
     profiles[0]!.requiredEnvKeys = [];
     profiles[0]!.buildEnv = () => ({ ...env, ANTHROPIC_BASE_URL: `http://127.0.0.1:${server!.port}` });

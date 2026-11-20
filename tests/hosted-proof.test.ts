@@ -422,3 +422,13 @@ test("an oversized browser selection runs as planned partitions: every pair in e
   expect(browserDeterminismShards({ ...selected, browserDeterminism: undefined, cadence: "confirmation" })).toEqual([1]);
   expect(browserDeterminismShards({ ...armada, cadence: "integrated" }), "MAIN_NEVER_REPEATS").toEqual([1]);
 });
+
+test("standalone native measurement commands load the same offline boundary as tests", () => {
+  const plan = planChecks(["scripts/test-network-guard.ts"], workspaces(ROOT));
+  const commands = localChecks(plan, true);
+  for (const script of ["measure-claude-runtime", "measure-claude-enforcement", "measure-claude-delegation", "measure-claude-capability", "measure-claude-haiku"]) {
+    const command = commands.find(command => command.argv.join(" ").includes(`scripts/${script}.ts`));
+    expect(command, script).toBeDefined();
+    expect(command!.argv.join(" ")).toContain(`bun --no-install --preload scripts/test-network-child-preload.ts scripts/${script}.ts`);
+  }
+});

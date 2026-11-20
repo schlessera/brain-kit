@@ -1,3 +1,4 @@
+import { nativeScriptedService } from "./test-native-guard.ts";
 // #1213: production enforcement and foreground rewrite inherited by a real subagent.
 // Run with only loopback enabled. All credentials and commands are controlled fixtures.
 import assert from "node:assert/strict";
@@ -63,6 +64,7 @@ for (const allowChild of [false, true]) {
                 type: string;
             }).type}\ndata: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
         } });
+nativeScriptedService(server.url.origin);
     const saved = { ...process.env };
     Object.assign(process.env, { HOME: home, CLAUDE_CONFIG_DIR: join(home, "config") });
     const observed: typeof query = params => {

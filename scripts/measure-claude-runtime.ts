@@ -1,3 +1,4 @@
+import { nativeScriptedService } from "./test-native-guard.ts";
 // Re-measures the Claude Code runtime behaviours the permission design rests
 // on, against whatever SDK and CLI this workspace installs (#209,
 // docs/decisions/claude-code-runtime.md, "Re-checking a measured behaviour
@@ -175,6 +176,7 @@ export function scriptedModel(): {
       return toolReply(call);
     },
   });
+nativeScriptedService(server.url.origin);
   return {
     url: `http://127.0.0.1:${server.port}`,
     plan(next) {

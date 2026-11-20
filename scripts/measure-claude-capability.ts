@@ -1,3 +1,4 @@
+import { nativeScriptedService } from "./test-native-guard.ts";
 // #1213: keyless Sonnet 5.5 native metadata control. Run with loopback only.
 import assert from "node:assert/strict";
 import { CLEARED_API_CREDENTIALS } from "../packages/ui-backend-claude/src/subscription";
@@ -23,6 +24,7 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(req) {
         ];
         return new Response(events.map(event => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
     } });
+nativeScriptedService(server.url.origin);
 let init: unknown, result: unknown, handshake: unknown;
 const controller = new AbortController();
 const deadline = setTimeout(() => controller.abort(), 20000);
