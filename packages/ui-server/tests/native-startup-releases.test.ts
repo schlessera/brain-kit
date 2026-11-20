@@ -91,7 +91,7 @@ test("an observation reserves behind a delayed startup release without inheritin
   try {
     await observer.initialize();
     const slot = await queue.reserve();
-    slot.handoff("voyage", { root: "/odysseus/checkpoint", async cleanup() { entered.resolve(); await deletion.promise; throw new Error("EIO"); } } as startup.WorkerStartupView);
+    slot.handoff("voyage", { brain, root: "/odysseus/checkpoint", storage: { root: "/odysseus/checkpoint", retain() {}, release() {} }, async cleanup() { entered.resolve(); await deletion.promise; throw new Error("EIO"); } });
     await entered.promise;
     let observed = false;
     const work = observer.observe(undefined, name => () => { steps.push(name); }).then(value => { observed = true; return value; });
