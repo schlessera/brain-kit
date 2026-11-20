@@ -930,8 +930,18 @@ export const clientConversationStopSchema = z.looseObject({
 
 const clientScopeDecisionSchema = z.strictObject({ type: z.literal("scope_decision"), sessionId: id, turnId: id,
   eventId: id, submissionId: id, action: z.enum(["continue", "stop", "readback"]) }) satisfies z.ZodType<import("./protocol.js").ClientScopeDecision>;
+export const clientTurnTimingSchema = z.strictObject({
+  sendToFirstHostFrameMs: z.number().nonnegative(),
+  sendToFirstContentFrameMs: z.number().nonnegative().optional(),
+  lastContentFrameToIdleMs: z.number().nonnegative().optional(),
+  sendToFirstPhaseStatusFrameMs: z.number().nonnegative().optional(),
+}) satisfies z.ZodType<import("./protocol.js").ClientTurnTiming>;
+const clientTurnReceiptSchema = z.strictObject({
+  type: z.literal("client_turn_receipt"), turnId: id, timing: clientTurnTimingSchema,
+}) satisfies z.ZodType<import("./protocol.js").ClientTurnReceipt>;
 export const clientMessageSchema = z.discriminatedUnion("type", [
   clientScopeDecisionSchema,
+  clientTurnReceiptSchema,
   clientRetryTurnSchema,
   clientRetryStatusSchema,
   clientHelloSchema,
@@ -1620,6 +1630,7 @@ const activitySpanEventSchema = z.looseObject({
 }) satisfies z.ZodType<ActivitySpanEvent>;
 
 const activityTurnLifecycleSchema = z.looseObject({
+  clientTiming: clientTurnTimingSchema.optional(),
   hostEvents: z.array(z.looseObject({principalId: id, kind: z.enum(["turn_cancelled", "ask_user_cancelled", "principal_revoked", "follow_up"]), observedAt: z.number()})),
   skippedPhases: z.array(z.enum(["governed", "budget", "journal"])),
   lifecycleId: id, turnId: id, sessionId: id.nullable(), backendRunId: id.nullable(),

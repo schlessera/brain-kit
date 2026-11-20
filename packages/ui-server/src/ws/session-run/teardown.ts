@@ -90,6 +90,7 @@ export async function teardownTurn(run: TurnRun, outcome: TurnOutcome): Promise<
   // (#2814); recovery must see them before the final idle notification,
   // which the slot publishes with {@link publishTurnStatus}.
   await recorder?.settled();
+  await lifecycle?.settled();
 }
 
 /**

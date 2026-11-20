@@ -1,3 +1,4 @@
+import { clientTurnTimingSchema } from "@schlessera/brain-ui-sdk/schemas";
 import type { ActivityTurnLifecycle } from "@schlessera/brain-ui-sdk/protocol";
 import { lifecycleTiming } from "./turn-lifecycle.js";
 import { settleInboxBudgetRun } from "../inbox/budget.js";
@@ -289,7 +290,8 @@ export interface PruneOptions {
 export const MAX_EVENT_PAYLOAD_BYTES = 16_384;
 
 export interface ActivityStore {
-  writeLifecycle(record: ActivityTurnLifecycle): void;
+  writeLifecycle(record: ActivityTurnLifecycle, principalId?: string): void;
+  writeClientReceipt(turnId: string, principalId: string, timing: import("@schlessera/brain-ui-sdk/protocol").ClientTurnTiming): boolean;
   lifecycleChangesSince(cursor: number, limit?: number): Array<{ changeId: number; runId: string; seq: number; kind: "lifecycle"; lifecycle: ActivityTurnLifecycle }>;
   lifecycle(turnId: string): ActivityTurnLifecycle | null;
   lifecycles(sessionId?: string, limit?: number): ActivityTurnLifecycle[];
@@ -368,7 +370,7 @@ export interface ActivityStore {
 
 type Awaitable<T> = T | Promise<T>;
 /** The writes a store may commit off the event loop (#2814). */
-export type ActivityWriteMethod = "writeLifecycle" | "startSpan" | "endSpan" | "patchSpan" | "appendEvent" | "heartbeat"
+export type ActivityWriteMethod = "writeClientReceipt" | "writeLifecycle" | "startSpan" | "endSpan" | "patchSpan" | "appendEvent" | "heartbeat"
   | "cascadeClose" | "sweepOwnOrphans" | "sweepStale" | "rollupRun" | "prune";
 
 /**
@@ -636,9 +638,13 @@ export function createActivityStore(
     if (root.endedAt !== null) settleInboxBudgetRun(db, runId, "settled", Date.now(), getPricing());
   }
 
+  const joinClient = (record: ActivityTurnLifecycle): ActivityTurnLifecycle => {
+    const row = db.query("SELECT receipt FROM activity_turn_clients WHERE turn_id = ?").get(record.turnId) as { receipt: string | null } | null;
+    return lifecycleTiming({ ...record, ...(row?.receipt ? { clientTiming: clientTurnTimingSchema.parse(JSON.parse(row.receipt)) } : {}) });
+  };
   const lifecycle = (id: string): ActivityTurnLifecycle | null => {
     const row = db.query("SELECT record FROM activity_turn_lifecycles WHERE turn_id = ?").get(id) as { record: string } | null;
-    return row ? lifecycleTiming(JSON.parse(row.record)) : null;
+    return row ? joinClient(JSON.parse(row.record)) : null;
   };
   return {
     writer,
@@ -660,22 +666,41 @@ export function createActivityStore(
       const rows = sessionId === undefined
         ? db.query("SELECT record FROM activity_turn_lifecycles ORDER BY accepted_at DESC LIMIT ?").all(limit)
         : db.query("SELECT record FROM activity_turn_lifecycles WHERE session_id = ? ORDER BY accepted_at DESC LIMIT ?").all(sessionId, limit);
-      return (rows as { record: string }[]).map(row => lifecycleTiming(JSON.parse(row.record)));
+      return (rows as { record: string }[]).map(row => joinClient(JSON.parse(row.record)));
     },
     lifecycleChangesSince(cursor, limit = 500) {
       const rows = db.query(`SELECT c.change_id,c.run_id,c.seq,l.record FROM activity_changes c
         JOIN activity_turn_lifecycles l ON l.turn_id = substr(c.run_id, 11) AND c.span_id = c.run_id
         WHERE c.change_id > ? ORDER BY c.change_id LIMIT ?`).all(cursor, limit) as any[];
-      return rows.map(r => ({changeId:r.change_id,runId:r.run_id,seq:r.seq,kind:"lifecycle" as const,lifecycle:lifecycleTiming(JSON.parse(r.record))}));
+      return rows.map(r => ({changeId:r.change_id,runId:r.run_id,seq:r.seq,kind:"lifecycle" as const,lifecycle:joinClient(JSON.parse(r.record))}));
     },
-    writeLifecycle(record) {
+    writeClientReceipt(turnId, principalId, timing) {
+      // Strict projection at the storage boundary too: callers cannot smuggle
+      // host fields through a cast. First accepted report wins atomically.
+      const parsed = clientTurnTimingSchema.safeParse(timing);
+      if (!parsed.success) return false;
+      return inWrite(() => {
+        const changed = db.query(`UPDATE activity_turn_clients SET receipt = ?
+          WHERE turn_id = ? AND principal_id = ? AND receipt IS NULL
+          AND EXISTS (SELECT 1 FROM activity_turn_lifecycles WHERE turn_id = ? AND ended_at IS NOT NULL)`)
+          .run(JSON.stringify(parsed.data), turnId, principalId, turnId).changes;
+        if (!changed) return false;
+        const id = `lifecycle:${turnId}`;
+        logChange(id, nextSeq(id), id);
+        return true;
+      });
+    },
+    writeLifecycle(record, principalId) {
       inWrite(() => {
         const previous = lifecycle(record.turnId);
         if (previous?.endedAt !== null && previous !== null) return;
-        const value = lifecycleTiming(record);
+        // Client data is never part of the completed host envelope.
+        const { clientTiming: _clientTiming, ...hostRecord } = record;
+        const value = lifecycleTiming(hostRecord);
         db.query(`INSERT INTO activity_turn_lifecycles VALUES (?, ?, ?, ?, ?)
           ON CONFLICT(turn_id) DO UPDATE SET session_id=excluded.session_id, ended_at=excluded.ended_at, record=excluded.record`)
           .run(value.turnId, value.sessionId, value.acceptedAt, value.endedAt, JSON.stringify(value));
+        if (principalId) db.query("INSERT INTO activity_turn_clients (turn_id, principal_id) VALUES (?, ?) ON CONFLICT DO NOTHING").run(value.turnId, principalId);
         logChange(value.lifecycleId, nextSeq(value.lifecycleId), value.lifecycleId);
       });
     },

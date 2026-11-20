@@ -559,6 +559,47 @@ is null until observed, and `backendRunId` is null until a backend root is
 actually recorded. It never owns tokens, costs, spans or rollups. Inference
 aggregation continues to read backend rollups exactly once.
 
+#### Client frame-arrival receipt (additive, #4282)
+
+After receiving a turn's `status: idle`, the initiating client may send exactly
+one best-effort `{ type: "client_turn_receipt", turnId, timing }` frame.
+`timing` contains non-negative finite millisecond pairs measured entirely on
+the client's monotonic clock:
+
+- `sendToFirstHostFrameMs`: send to the first received host frame for this turn
+  (including its queued acknowledgement).
+- Optional `sendToFirstContentFrameMs`: send to the first non-empty
+  `thinking_delta` or `text_delta` frame received.
+- Optional `lastContentFrameToIdleMs`: last such content frame received to
+  `status: idle` received.
+- Optional `sendToFirstPhaseStatusFrameMs`: reserved for the first phase status
+  frame received; absent until phase-specific statuses are supported (#4311).
+
+These measure frame arrival, not presentation or paint. No host timestamp is
+subtracted from a client timestamp. Missing content boundaries are absent, not
+zero. A request without correlation, or a client disconnected during the turn,
+reports nothing; reconnect/history replay cannot reconstruct arrival evidence.
+The React client keeps at most 256 pending observations; evicting one only loses
+its measurement. A failed/lost report is never retried and never affects the turn.
+
+Only `turnId` and `timing` are accepted; unknown envelope/timing fields and
+negative or non-finite values are refused. The host binds ownership to the
+accepting principal, independently of the session's creator. A report for a
+missing, unfinished, unowned or differently owned turn is refused. The first
+accepted report wins atomically; all later reports, even identical ones, are
+refused without changing it. The host records refusals in its inbound-frame
+rejection diagnostics; this telemetry message has no reply or turn-control effect.
+
+The receipt is separate from the host envelope, keyed by turn id, and joined
+as optional `ActivityTurnLifecycle.clientTiming` on single, list and stream
+reads. Receipt acceptance advances the lifecycle's stream sequence without
+changing its completed host record. Its owner binding and receipt are deleted
+with the lifecycle record. Older records without an owner binding accept no
+report and remain readable. Client pairs never enter provider history, inference
+usage or cost accounting.
+
+#### Host milestones
+
 `acceptedAt` is the observed host acceptance time, before routing/admission.
 Queued requests retain their observed queue acceptance and `dequeuedAt`;
 `queueWaitMs` is null when no queue interval was observed. Milestones are

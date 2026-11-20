@@ -123,6 +123,7 @@ export type ClientMessage =
   | ClientSafetyRead | ClientSafetySubscribe | ClientSafetyUnsubscribe
   | ClientScopeDecision
   | ClientHello
+  | ClientTurnReceipt
   | ClientRetryTurn
   | ClientRetryStatus
   | ClientChatMessage
@@ -159,6 +160,22 @@ export type ClientMessage =
   | ClientConversationCommit
   | ClientConversationPlayback
   | ClientConversationStop;
+
+/** Client-monotonic frame-arrival pairs, in milliseconds; never presentation timings. */
+export interface ClientTurnTiming {
+  sendToFirstHostFrameMs: number;
+  sendToFirstContentFrameMs?: number;
+  lastContentFrameToIdleMs?: number;
+  /** Absent until phase-specific status frames are supported. */
+  sendToFirstPhaseStatusFrameMs?: number;
+}
+
+/** Best-effort, once after idle; cannot update the host lifecycle. */
+export interface ClientTurnReceipt {
+  type: "client_turn_receipt";
+  turnId: string;
+  timing: ClientTurnTiming;
+}
 
 /**
  * Client → Server. First frame a client sends after the socket opens (rev 3,
@@ -3897,6 +3914,8 @@ export interface ActivityTurnSubPhase {
 
 /** Host-owned envelope; never contributes inference usage or cost. */
 export interface ActivityTurnLifecycle {
+  /** Separate owner-bound receipt joined on read; absent when unobserved or lost. */
+  clientTiming?: ClientTurnTiming;
   hostEvents: Array<{ principalId: string; kind: "turn_cancelled" | "ask_user_cancelled" | "principal_revoked" | "follow_up"; observedAt: number }>;
   skippedPhases: Array<"governed" | "budget" | "journal">;
   lifecycleId: string;

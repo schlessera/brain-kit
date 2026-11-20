@@ -1,3 +1,4 @@
+import { createTurnClock } from "./ws-client/turn-clock.js";
 import { attachTranscriptTimeline } from "./lib/transcript-timeline.js";
 import { createConversationClient } from "./voice/conversation-client.js";
 import { takeComposerTextAsAnswer } from "./lib/ask-user-typed.js";
@@ -30,12 +31,14 @@ export function createWebSocketClient(root: BrainUiServices) {
   let disposed = false;
   const isActive = () => root.authLock.state.getState().phase === "active";
 
+  const turnClock = createTurnClock(send);
+
   const lease = createSocketLease({
     url: () => root.wsUrl(),
     disposed: () => disposed,
     active: isActive,
     noteSocketOpen: () => root.stores.connection.getState().noteSocketOpen(),
-    onMessage: (message) => inbound.handleServerMessage(message),
+    onMessage: (message) => { turnClock.frame(message); inbound.handleServerMessage(message); },
     onStatusChange: (status) => handleStatusChange(status),
     onClose: (close) => handleSocketClose(root, close, services.trackers),
     onProtocolError: (err) => {
@@ -48,7 +51,10 @@ export function createWebSocketClient(root: BrainUiServices) {
 
   /** The one gated path every client frame takes. */
   function send(message: ClientMessage): boolean {
-    return outbound(message);
+    const at = turnClock.now();
+    const sent = outbound(message);
+    if (sent) turnClock.sent(message, at);
+    return sent;
   }
 
   const restoration = createRestorationDriver(root, { send, disposed: () => disposed });
@@ -97,7 +103,7 @@ export function createWebSocketClient(root: BrainUiServices) {
 
   function handleStatusChange(status: ConnectionStatus): void {
     root.stores.connection.getState().setWsStatus(status);
-    if (status !== "connected") services.socketDown();
+    if (status !== "connected") { services.socketDown(); turnClock.disconnected(); }
     if (status === "connected") {
       inbound.resetTurns();
       root.stores.connection.getState().noteSocketOpen();

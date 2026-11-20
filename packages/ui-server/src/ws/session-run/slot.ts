@@ -155,7 +155,7 @@ export function requestLifecycle(
   const { host, turn } = slot;
   if (turn.turnId === slot.firstTurnId) return initialLifecycle;
   return current.lifecycle ?? (host.activity
-    ? createTurnLifecycle(host.activity.store, turn.turnId, turn.sessionId, current.queuedAt ?? Date.now(), () => host.activity!.stream.pump())
+    ? createTurnLifecycle(host.activity.store, turn.turnId, turn.sessionId, current.queuedAt ?? Date.now(), () => host.activity!.stream.pump(), undefined, current.principalId)
     : undefined);
 }
 

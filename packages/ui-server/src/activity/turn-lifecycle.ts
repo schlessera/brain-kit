@@ -12,7 +12,7 @@ export type PhaseTimer = (name: string) => () => void;
 type LifecycleMilestone = "dequeuedAt" | "governedStartedAt" | "governedAcquiredAt" | "budgetStartedAt" | "budgetAdmittedAt" | "journalStartedAt" | "journalBeganAt" | "backendInvokedAt" | "firstFrameAt" | "failureObservedAt";
 
 export function createTurnLifecycle(store: AwaitableActivityStore, turnId: string, sessionId: string | null,
-  acceptedAt: number, onWrite: () => void, clock: () => number = Date.now) {
+  acceptedAt: number, onWrite: () => void, clock: () => number = Date.now, principalId?: string) {
   const record: ActivityTurnLifecycle = {
     hostEvents: [], skippedPhases: [], lifecycleId: `lifecycle:${turnId}`, turnId, sessionId, backendRunId: null, acceptedAt, dequeuedAt: null,
     governedStartedAt: null, governedAcquiredAt: null, budgetStartedAt: null, budgetAdmittedAt: null,
@@ -23,7 +23,7 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
   // Observability, including fanout, must never fail the observed turn. Each
   // write carries the record as it is now and fans out once committed (#2814).
   const writes = orderedWrites(store, () => { /* best effort */ });
-  const persist = () => { writes.store.writeLifecycle(structuredClone(record)); writes.after(onWrite); };
+  const persist = () => { writes.store.writeLifecycle(structuredClone(record), principalId); writes.after(onWrite); };
   persist();
   const recordHostEvent = (kind: ActivityTurnLifecycle["hostEvents"][number]["kind"], principalId: string) => {
     if (record.endedAt !== null) return;
@@ -31,6 +31,7 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
   };
   return {
     recordHostEvent,
+    settled: writes.settled,
     recordCancellation(principalId: string, kind: "turn" | "ask_user" = "turn") {
       recordHostEvent(kind === "turn" ? "turn_cancelled" : "ask_user_cancelled", principalId);
     },

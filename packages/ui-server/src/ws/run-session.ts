@@ -64,7 +64,7 @@ export async function runSession(host: WsHost, initial: RunSessionInput): Promis
   const turnId = crypto.randomUUID();
   if(initial.historyOwnerId && initial.authorization.valid) host.dialogue.adoptTurn(turnId,initial.historyOwnerId,initial.authorization.principalId);
   const releaseAuthorization = initial.authorization.retain();
-  const lifecycle = host.activity ? createTurnLifecycle(host.activity.store, turnId, initial.sessionId ?? null, Date.now(), () => host.activity!.stream.pump()) : undefined;
+  const lifecycle = host.activity ? createTurnLifecycle(host.activity.store, turnId, initial.sessionId ?? null, Date.now(), () => host.activity!.stream.pump(), undefined, initial.authorization.principalId) : undefined;
   const task = runRetainedSession(host, initial, turnId, lifecycle);
   host.turnTasks.add(task);
   try {
@@ -253,7 +253,7 @@ function queueFollowUp(host: WsHost, ws: WSContext, sessionId: string, slot: { q
   entry.queuedAt = Date.now();
   if (host.activity && !entry.lifecycle) {
     entry.lifecycleTurnId = crypto.randomUUID();
-    entry.lifecycle = createTurnLifecycle(host.activity.store, entry.lifecycleTurnId, sessionId, entry.queuedAt, () => host.activity!.stream.pump());
+    entry.lifecycle = createTurnLifecycle(host.activity.store, entry.lifecycleTurnId, sessionId, entry.queuedAt, () => host.activity!.stream.pump(), undefined, entry.principalId);
     const release = entry.releaseAuthorization;
     entry.releaseAuthorization = () => { entry.lifecycle?.finish("cancelled", "Removed from the queue before completion"); release(); };
   }
