@@ -1,5 +1,6 @@
 import { createTrustSettings } from "./brain/trust-settings.js";
 import { createTrustSettingsRoutes } from "./routes/trust-settings.js";
+import { createTrustGitHubIdentity } from "./brain/trust-github-identity.js";
 import { SafetyHistory } from "./governance/safety-history.js";
 import { createSessionSafetyRoutes } from "./routes/session-safety.js";
 import { createOwnerSafetyReviewRoutes } from "./routes/owner-safety-review.js";
@@ -544,8 +545,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const referenceCredentials = referenceCredentialValues();
   const referenceTransport = createReferenceTransport({ brainPath: config.brainPath, ...(config.maintenanceTemp ? { tempLimits: config.maintenanceTemp } : {}),
     ...(config.dbPath && config.dbPath !== ":memory:" ? { tempDomain: { statePath: resolve(config.dbPath) } } : {}) });
+  const githubReferenceAccess = createGitHubReferenceAccess({ db, brain: nativeReady.brainUuid, credentials: referenceCredentials, transport: referenceTransport });
   const referenceSources = referencePoolConfigured ? createReferenceSources({ db, pool: nativeManager, brain: nativeReady.brainUuid, credentials: referenceCredentials,
-    transport: referenceTransport, github: createGitHubReferenceAccess({ db, brain: nativeReady.brainUuid, credentials: referenceCredentials, transport: referenceTransport }),
+    transport: referenceTransport, github: githubReferenceAccess,
     ...(config.referenceSource ? { limits: config.referenceSource } : {}), log: brainLog,
     // Managed worktrees (#2430) keep the source roots they were snapshotted from.
     dependents: rootId => referenceWorktreeDependents(db, rootId) }) : undefined;
@@ -1333,6 +1335,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   app.route("/api", createPiAuthRoutes({ agent: config.agent, excluded: piExcluded }));
   app.route("/api", createWebSearchRoutes({ agent: config.agent, excluded: piExcluded }));
   const trustSettings = createTrustSettings({ root: config.brainPath, db, writer, lock: workerLock,
+    github: createTrustGitHubIdentity({ root: config.brainPath, access: githubReferenceAccess }),
     authority: id => {
       if (authMode !== "password") return null;
       const p = resolvePrincipal(db, id);

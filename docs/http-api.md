@@ -160,7 +160,7 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/policy-proposals/:turnId/:requestId` | I | Read one principal-owned policy request receipt | Same-request reconciliation only; never writes or reactivates approval. |
 | GET | `/api/trust-settings` | I | Read trust policy data and publication availability | Paired Security settings transport (#3608); live password-mode human owners only; runtime trust remains disabled. |
 | GET | `/api/trust-settings/:request` | I | Read one owner-bound trust publication receipt and review | Same-request reconciliation only; never republishes or resolves a taint trigger. |
-| POST | `/api/trust-settings/prepare` | I | Prepare one exact-base trust change | Paired Security settings transport; same-origin JSON and live owner authority; repository create/edit awaits verified host identity. |
+| POST | `/api/trust-settings/prepare` | I | Prepare one exact-base trust change | Paired Security settings transport; same-origin JSON and live owner authority; repository create/edit independently verifies host metadata. |
 | POST | `/api/trust-settings/commit` | I | Publish the exact owner-reviewed trust change | Shared descriptor-bound publisher; bounded durable receipt; saved policy does not imply runtime enforcement. |
 | GET | `/api/sessions/:id/safety` | S | Read bounded revisioned host safety evidence | Authenticated principal of the history owner's account (#3952); immutable records, snapshot aggregate/high-water, scoped cursor, explicit coverage/unavailable, no mutation (#3604). |
 | POST | `/api/sessions/:id/safety/reviews/prepare` | S | Prepare review of one finalized safety occurrence | Live password-mode human owner, exact Origin and bounded JSON; host-issued body/brain/principal/generation-bound handle (#3603). |
@@ -2393,6 +2393,11 @@ the served brain and requesting owner, and readback never repeats a write.
 Publication reuses the protected policy writer without an agent turn. Prepared
 state, reviewed bytes/base, publication proof and partial/unknown completion
 survive restart. Saved origin/tunnel rules do not enable unbuilt trust admission;
-repository create/edit refuses until independent host identity is available.
+repository create/edit independently verifies fixed-endpoint metadata at review
+and again inside the publication observation window. Browser IDs cannot
+self-verify; unknown or changed identity withholds the write. Approved owner
+boundaries derive from this operation's durable publication proof and are not
+inferred from matching policy bytes. Owner-scope review explicitly covers
+future repositories currently in that namespace. Runtime trust remains disabled.
 Removal/readback remain available for existing rules. Revision exhaustion refuses
 before protected publication. No historical trigger is resolved by these routes.

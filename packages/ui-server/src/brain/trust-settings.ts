@@ -12,9 +12,10 @@ import { BRAIN_LOCK_KEY, type KeyedLock } from "@schlessera/brain-ui-sdk/server"
 import { procedureCaller, type SqliteWriter } from "../db/write-worker.js";
 import { publishProtectedPolicy } from "./policy-publication.js";
 import * as writes from "./trust-settings-writes.js";
+import type { createTrustGitHubIdentity, TrustGitHubIdentity } from "./trust-github-identity.js";
+import { ReferenceTransportError } from "./reference-transport.js";
 const hash = (s: string | Uint8Array) => createHash("sha256").update(s).digest("hex");
 const id = () => randomBytes(24).toString("base64url");
-const capabilities = { ...TRUST_RUNTIME_CAPABILITIES, readOnlyReason: "Runtime trust enforcement and verified repository identity are unavailable" };
 const exactDiff = (before: string | null, after: string) => (before ?? "").split("\n").map(line => `- ${line}`).concat(after.split("\n").map(line => `+ ${line}`)).join("\n");
 const digest = z.string().regex(/^[a-f0-9]{64}$/u);
 const MAX_TRUST_REVISION = 18446744073709551615n;
@@ -39,7 +40,7 @@ interface Receipt {
   publication: "not_published" | "proved" | "unknown"; ruleId: string; publishedTrustRevision: string | null;
   currentRule: "present" | "removed" | "changed" | "unknown"; enforcement: "unavailable"; reason: string | null;
 }
-interface Payload { input: Prepare; reviewId: string; proposed: string; proposedHash: string; base: string | null; topology: string; rule: TrustRule | null }
+interface Payload { input: Prepare; reviewId: string; proposed: string; proposedHash: string; base: string | null; topology: string; rule: TrustRule | null; githubIdentity?: TrustGitHubIdentity }
 interface Row { principal_id: string; brain_id: string; authority: string; expires_at: number; retain_until: number; payload: string; stage: string; proof: string | null; receipt: string }
 const topology = (root: string) => [root, join(root, "context"), join(root, "context/policies"), join(root, "context/policies/governance.md")].map((path, i) => {
   const stat = lstatSync(path, { throwIfNoEntry: false });
@@ -78,7 +79,8 @@ export function createTrustSettings(options: {
   /** Null unless the current password-mode human principal remains usable. The
    * fingerprint includes credential/lifetime identity, never a body/channel claim. */
   authority(principalId: string): string | null;
-  observe(operationId: string, publish: () => void): Promise<void>;
+  observe(operationId: string, publish: () => void | Promise<void>): Promise<void>;
+  github?: ReturnType<typeof createTrustGitHubIdentity>;
   now?: () => number;
   /** Host-only deterministic crash/race injection, never wired from HTTP. */
   checkpoint?(stage: string): void | Promise<void>;
@@ -86,6 +88,8 @@ export function createTrustSettings(options: {
   let root: string;
   try { root = realpathSync(options.root); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; root = resolve(options.root); }
   const brain = hash(root);
+  const capabilities = { ...TRUST_RUNTIME_CAPABILITIES, repositoryIdentity: !!options.github,
+    readOnlyReason: "Runtime trust enforcement is unavailable" };
   const call = procedureCaller(options.db, writes, undefined, options.writer), now = options.now ?? Date.now;
   const authority = (principal: string, expected?: string) => {
     const value = options.authority(principal);
@@ -131,21 +135,32 @@ export function createTrustSettings(options: {
     if (r.stage === "file_published") receipt = { ...receipt, stage: "partial", publication: r.proof ? "proved" : "unknown", reason: "publication_recorded_completion_incomplete" };
     const p = await options.lock.withLock(BRAIN_LOCK_KEY, refresh); row(principal, request);
     return { receipt: current(receipt, payload, p), review: { reviewId: payload.reviewId, base: payload.base, proposed: payload.proposed,
-      diff: exactDiff(payload.base, payload.proposed), reviewedBytesHash: payload.proposedHash, expiresAt: r.expires_at }, policy: p, capabilities };
+      diff: exactDiff(payload.base, payload.proposed), reviewedBytesHash: payload.proposedHash, expiresAt: r.expires_at,
+      repositoryIdentity: payload.githubIdentity ?? null,
+      includesFutureRepositories: payload.rule?.selector.kind === "github_owner" }, policy: p, capabilities };
   };
   return {
     /** Live trust-only projection for future admissions. Ordinary policy snapshots
      * remain owned by their admitted turn; this never mutates them. */
     async snapshot() { return options.lock.withLock(BRAIN_LOCK_KEY, refresh); },
+    /** Historical host publication evidence, not a current identity or source-trust grant. */
+    async repositoryApproval(ruleId: string) { return options.lock.withLock(BRAIN_LOCK_KEY, async () => {
+      const p = await refresh();
+      if (p.error) return null;
+      const rule = p.rules.find(value => value.id === ruleId);
+      if (!rule || (rule.selector.kind !== "github_owner" && rule.selector.kind !== "github_repository")) return null;
+      const row = options.db.query("SELECT selector,identity,proof FROM trust_settings_github_boundaries WHERE brain_id=? AND rule_id=?").get(brain, ruleId) as { selector: string; identity: string; proof: string } | null;
+      return row && row.selector === JSON.stringify(rule.selector) ? { identity: JSON.parse(row.identity) as TrustGitHubIdentity, proof: JSON.parse(row.proof) as unknown } : null;
+    }); },
     async list(principal: string) { authority(principal); const p = await options.lock.withLock(BRAIN_LOCK_KEY, refresh); authority(principal);
       return { ...p, origins: p.rules.filter(r => !r.selector.kind.startsWith("github_")), repositories: p.rules.filter(r => r.selector.kind.startsWith("github_")), capabilities }; },
     read,
-    async prepare(principal: string, raw: unknown) {
+    async prepare(principal: string, raw: unknown, signal?: AbortSignal) {
       const auth = authority(principal), input = TrustPrepareSchema.parse(raw);
       if (process.platform !== "linux") throw new TrustSettingsError("unavailable", 503);
       // Names/IDs supplied by browsers cannot create repository identity proof.
       // Removal remains possible even while repository qualification is unavailable.
-      if (input.change.action !== "remove" && input.change.rule.selector.kind.startsWith("github_")) throw new TrustSettingsError("repository_identity_unavailable", 503);
+      if (input.change.action !== "remove" && input.change.rule.selector.kind.startsWith("github_") && !options.github) throw new TrustSettingsError("repository_identity_unavailable", 503);
       const request = await options.lock.withLock(BRAIN_LOCK_KEY, async () => {
         authority(principal, auth); const p = await refresh(); authority(principal, auth);
         if (p.error) throw new TrustSettingsError("unavailable", 503);
@@ -163,8 +178,17 @@ export function createTrustSettings(options: {
         catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT" || p.policyHash !== null) throw error; }
         finally { target?.close(); }
         const proposed = edit(base, rules), requestId = id(), operationId = id();
+        let githubIdentity: TrustGitHubIdentity | undefined;
+        if (change.action !== "remove" && (change.rule.selector.kind === "github_repository" || change.rule.selector.kind === "github_owner")) {
+          try {
+            const observed = await options.github!.resolve({ principalId: principal, selector: change.rule.selector, policyHash: p.policyHash, signal,
+              current: () => options.authority(principal) === auth });
+            authority(principal, auth); observed.assertAuthority(); githubIdentity = observed.identity;
+          } catch { throw new TrustSettingsError("repository_identity_unavailable", 503); }
+        }
         if (Buffer.byteLength(JSON.stringify({ base, proposed, diff: exactDiff(base, proposed) })) > 196608) throw new TrustSettingsError("capacity", 503);
-        const payload: Payload = { input, reviewId: id(), proposed, proposedHash: hash(proposed), base, topology: identity, rule: change.action === "remove" ? null : change.rule };
+        const payload: Payload = { input, reviewId: id(), proposed, proposedHash: hash(proposed), base, topology: identity,
+          rule: change.action === "remove" ? null : change.rule, ...(githubIdentity ? { githubIdentity } : {}) };
         const receipt: Receipt = { version: 1, requestId, operationId, stage: "prepared", publication: "not_published", ruleId,
           publishedTrustRevision: null, currentRule: "unknown", enforcement: "unavailable", reason: null };
         const inserted = await call<string>("insert", { requestId, brainId: brain, principalId: principal, authority: auth, expires: now() + 900000, retain: now() + 86400000,
@@ -174,7 +198,7 @@ export function createTrustSettings(options: {
       });
       return read(principal, request);
     },
-    async commit(principal: string, raw: unknown) {
+    async commit(principal: string, raw: unknown, signal?: AbortSignal) {
       const input: Commit = TrustCommitSchema.parse(raw); row(principal, input.requestId);
       await options.lock.withLock(BRAIN_LOCK_KEY, async () => {
         const r = row(principal, input.requestId), payload = JSON.parse(r.payload) as Payload;
@@ -182,8 +206,11 @@ export function createTrustSettings(options: {
         if (r.stage !== "prepared") return; // Readback only, including uncertain writes.
         if (r.expires_at < now()) throw new TrustSettingsError("request_expired");
         const receipt = JSON.parse(r.receipt) as Receipt;
-        let published = false, proved = false; const created: string[] = []; let target: AnchoredGovernancePolicy | undefined;
-        const save = (stage: string, proof: string | null = null) => call("stage", input.requestId, stage, JSON.stringify(receipt), proof, now());
+        let published = false, proved = false, publicationOpen = true;
+        const created: string[] = []; let target: AnchoredGovernancePolicy | undefined;
+        const save = (stage: string, proof: string | null = null,
+          boundary?: { brain: string; ruleId: string; selector: string; identity: string }) =>
+          call("stage", input.requestId, stage, JSON.stringify(receipt), proof, now(), boundary);
         try {
           const p = await refresh(); row(principal, input.requestId);
           if (p.error || p.revision !== payload.input.expectedTrustRevision) throw new TrustSettingsError("stale_revision");
@@ -192,19 +219,46 @@ export function createTrustSettings(options: {
           await save("writing"); await options.checkpoint?.("writing");
           if (!matchesTopology(root, payload.topology, false)) throw new TrustSettingsError("stale_base");
           target = openGovernancePolicyAnchored(root, { create: p.policyHash === null, created });
-          const check = () => { row(principal, input.requestId); if (r.expires_at < now()) throw new TrustSettingsError("request_expired");
+          let identityAuthority: (() => void) | undefined;
+          const check = () => { signal?.throwIfAborted();
+            if (!publicationOpen) throw new TrustSettingsError("publication_failed");
+            row(principal, input.requestId); identityAuthority?.(); if (r.expires_at < now()) throw new TrustSettingsError("request_expired");
             if (!matchesTopology(root, payload.topology, true)) throw new TrustSettingsError("stale_base");
             verifyGovernancePolicyAnchored(target!, p.policyHash); };
+          let publication: Promise<void> | undefined;
           await options.observe(receipt.operationId, () => {
-            publishProtectedPolicy(target!, Buffer.from(payload.proposed), p.policyHash, check, () => { published = true; });
+            if (publication || !publicationOpen) throw new TrustSettingsError("request_conflict");
+            publication = (async () => {
+              // The journal's own queue/observation waits precede the fresh
+              // metadata read. No further await separates its final authority
+              // fence from the synchronous descriptor-bound publication.
+              if (payload.rule && (payload.rule.selector.kind === "github_repository" || payload.rule.selector.kind === "github_owner")) {
+                if (!payload.githubIdentity || !options.github) throw new TrustSettingsError("repository_identity_unavailable", 503);
+                const observed = await options.github.resolve({ principalId: principal, selector: payload.rule.selector, policyHash: p.policyHash, signal,
+                  current: () => publicationOpen && options.authority(principal) === r.authority && r.expires_at >= now() });
+                if (JSON.stringify(observed.identity) !== JSON.stringify(payload.githubIdentity)) throw new TrustSettingsError("repository_identity_changed");
+                identityAuthority = observed.assertAuthority;
+              }
+              identityAuthority?.();
+              publishProtectedPolicy(target!, Buffer.from(payload.proposed), p.policyHash, check, () => { published = true; });
+            })();
+            // Preserve a rejected callback even if an older host observer
+            // forgets to await it; this invocation still joins it below.
+            void publication.catch(() => {});
+            return publication;
           });
+          if (!publication) throw new TrustSettingsError("publication_failed");
+          await publication;
+          if (!published) throw new TrustSettingsError("publication_failed");
           await options.checkpoint?.("renamed");
           // The proof is written only after THIS invocation's atomic publication
           // and directory fsync, never inferred by comparing current bytes.
           receipt.stage = "file_published"; receipt.publication = "proved";
           receipt.publishedTrustRevision = String(BigInt(p.revision) + 1n);
           await save("file_published", JSON.stringify({ operationId: receipt.operationId, principal, brain, authority: r.authority,
-            baseHash: p.policyHash, expectedTrustRevision: p.revision, publishedTrustRevision: receipt.publishedTrustRevision, reviewedBytesHash: payload.proposedHash })); proved = true;
+            baseHash: p.policyHash, expectedTrustRevision: p.revision, publishedTrustRevision: receipt.publishedTrustRevision, reviewedBytesHash: payload.proposedHash,
+            ...(payload.githubIdentity ? { githubIdentity: payload.githubIdentity } : {}) }), payload.githubIdentity && payload.rule
+              ? { brain, ruleId: payload.rule.id, selector: JSON.stringify(payload.rule.selector), identity: JSON.stringify(payload.githubIdentity) } : undefined); proved = true;
           await options.checkpoint?.("file_published");
           const latest = await refresh(); row(principal, input.requestId);
           if (latest.policyHash === payload.proposedHash) receipt.publishedTrustRevision = latest.revision;
@@ -212,11 +266,13 @@ export function createTrustSettings(options: {
           receipt.stage = "partial"; receipt.reason = "policy_saved_runtime_enforcement_unavailable";
           await save("committed"); await options.checkpoint?.("committed");
         } catch (error) {
+          publicationOpen = false;
           receipt.stage = proved ? "partial" : published ? "unknown" : "refused";
           receipt.publication = proved ? "proved" : published ? "unknown" : "not_published";
-          receipt.reason = error instanceof TrustSettingsError ? error.code : published ? "recording_failed" : "publication_failed";
+          receipt.reason = error instanceof TrustSettingsError ? error.code : error instanceof ReferenceTransportError && !published
+            ? "repository_identity_unavailable" : published ? "recording_failed" : "publication_failed";
           await save(receipt.stage);
-        } finally { target?.close(); if (!published) for (const path of created.reverse()) { try { rmdirSync(path); } catch { /* Concurrent content remains. */ } } }
+        } finally { publicationOpen = false; target?.close(); if (!published) for (const path of created.reverse()) { try { rmdirSync(path); } catch { /* Concurrent content remains. */ } } }
       });
       return read(principal, input.requestId);
     },

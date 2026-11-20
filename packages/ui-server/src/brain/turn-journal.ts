@@ -674,9 +674,9 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     },
     /** Host Settings audit identity is retained by its durable operation store.
      * Observe user policy changes across existing turns without minting a turn. */
-    observeSettingsPolicy(_operationId: string, approvedWrite: () => void): Promise<void> { return held(async () => {
+    observeSettingsPolicy(_operationId: string, approvedWrite: () => void | Promise<void>): Promise<void> { return held(async () => {
       await observe();
-      try { approvedWrite(); } finally { await observe(true); }
+      try { await approvedWrite(); } finally { await observe(true); }
     }); },
     /** The caller retains approval/current-principal authority; this never revives a completed turn. */
     observeUserPolicy(turnId: string, approvedWrite: () => void | Promise<void>): Promise<void> { return held(async () => {

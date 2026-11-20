@@ -15,11 +15,30 @@ export function setup(db: Database): WriteProcedures {
         return "prepared";
       }).immediate();
     },
-    stage(id: string, stage: string, receipt: string, proof: string | null, now: number) {
-      db.query("UPDATE trust_settings_operations SET stage=?, receipt=?, proof=coalesce(?,proof), retain_until=max(retain_until,?) WHERE request_id=?").run(stage, receipt, proof, now + 86400000, id);
+    stage(id: string, stage: string, receipt: string, proof: string | null, now: number,
+      boundary?: { brain: string; ruleId: string; selector: string; identity: string }) {
+      return db.transaction(() => {
+        db.query("UPDATE trust_settings_operations SET stage=?, receipt=?, proof=coalesce(?,proof), retain_until=max(retain_until,?) WHERE request_id=?").run(stage, receipt, proof, now + 86400000, id);
+        if (boundary) {
+          if (stage !== "file_published" || !proof) throw new Error("A GitHub boundary requires this operation's durable publication proof");
+          db.query(`INSERT INTO trust_settings_github_boundaries VALUES (?,?,?,?,?)
+            ON CONFLICT(brain_id,rule_id) DO UPDATE SET selector=excluded.selector,identity=excluded.identity,proof=excluded.proof`)
+            .run(boundary.brain, boundary.ruleId, boundary.selector, boundary.identity, proof);
+        }
+      }).immediate();
     },
     projection(brain: string, revision: string, rules: string, hash: string | null, error: string | null) {
-      db.query("INSERT INTO trust_settings_projection VALUES (?,?,?,?,?) ON CONFLICT(brain_id) DO UPDATE SET revision=excluded.revision,rules=excluded.rules,policy_hash=excluded.policy_hash,error=excluded.error").run(brain, revision, rules, hash, error);
+      return db.transaction(() => {
+        db.query("INSERT INTO trust_settings_projection VALUES (?,?,?,?,?) ON CONFLICT(brain_id) DO UPDATE SET revision=excluded.revision,rules=excluded.rules,policy_hash=excluded.policy_hash,error=excluded.error").run(brain, revision, rules, hash, error);
+        // At most one retained boundary per current rule; equal file bytes
+        // alone never create one. Invalid policy retains last-valid facts.
+        if (!error) {
+          const current = new Map((JSON.parse(rules) as { id: string; selector: unknown }[]).map(rule => [rule.id, JSON.stringify(rule.selector)]));
+          const boundaries = db.query("SELECT rule_id,selector FROM trust_settings_github_boundaries WHERE brain_id=?").all(brain) as { rule_id: string; selector: string }[];
+          for (const row of boundaries) if (current.get(row.rule_id) !== row.selector)
+            db.query("DELETE FROM trust_settings_github_boundaries WHERE brain_id=? AND rule_id=?").run(brain, row.rule_id);
+        }
+      }).immediate();
     },
   };
 }
