@@ -304,7 +304,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (destinationPorts) {
         if (!destinationPorts.has(port)) { finish("denied", "destination_port"); return false; }
         let addresses: ReadonlyArray<{ address: string; family: number }>;
-        try { addresses = isIP(host) ? [{ address: host, family: isIP(host) }] : await resolve(host); }
+        try { const addressHost = host.replace(/^\[|\]$/g, ""); addresses = isIP(addressHost) ? [{ address: addressHost, family: isIP(addressHost) }] : await resolve(addressHost); }
         catch { finish("denied", "unresolved_destination"); return false; }
         if (!addresses.length) { finish("denied", "unresolved_destination"); return false; }
         // Every address must pass: a mixed answer is refused, not narrowed.
@@ -353,7 +353,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     client.on("error", () => {});
     let target: URL;
     try {
-      if (!request.url || !/^[a-zA-Z0-9.-]+:[0-9]+$/.test(request.url)) throw new Error();
+      if (!request.url || !/^(?:[a-zA-Z0-9.-]+|\[[0-9a-fA-F:.]+\]):[0-9]+$/.test(request.url)) throw new Error();
       target = new URL(`http://${request.url}`);
       if (!Number(target.port || 80)) throw new Error();
     } catch { client.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n"); return; }
@@ -369,7 +369,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
         return;
       }
       const address = op.pinned();
-      upstream = track(connect({ host: address?.address ?? target.hostname, port: Number(target.port || 80) }));
+      upstream = track(connect({ host: address?.address ?? target.hostname.replace(/^\[|\]$/g, ""), port: Number(target.port || 80) }));
       const tunnel = upstream;
       tunnel.once("connect", () => {
         if (stopped || op.signal.aborted || client.destroyed || !op.commit()) { tunnel.destroy(); return; }

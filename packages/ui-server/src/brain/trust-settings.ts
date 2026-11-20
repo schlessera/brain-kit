@@ -113,7 +113,9 @@ export function createTrustSettings(options: {
       return { ...p, policyHash: target.bytes === null ? null : hash(target.bytes) };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT" && p.rules.length === 0) return { ...p, policyHash: null };
-      throw error;
+      if (error instanceof TrustSettingsError) throw error; // A valid changed rule list must fence.
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new TrustSettingsError("stale_revision");
+      return { ...p, error: "policy_unavailable" }; // Unreadable/invalid publication retains last-valid rules.
     } finally { target?.close(); }
   };
   const live = { read: freshProjection, revision: () => freshProjection().revision,

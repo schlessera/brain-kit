@@ -14,7 +14,7 @@ import { queryGovernanceEvents } from "../src/governance/events.js";
 import { occurrence } from "../src/governance/occurrence.js";
 import { safetyProjection, pruneSafetyDetail } from "../src/governance/safety-store.js";
 import { prepareTurnEgress } from "../src/brain/turn-egress.js";
-import type { OriginTrust } from "../src/brain/origin-trust.js";
+import { originTrustMatch, type OriginTrust } from "../src/brain/origin-trust.js";
 import { connectedSafetySession } from "./helpers/connected-safety.js";
 function get(socketPath: string, target: string): Promise<number> {
   return new Promise((resolve, reject) => { const r = request({ socketPath, path: target }, response => {
@@ -26,15 +26,15 @@ function trust(rule: TrustRule) {
   const live: OriginTrust = { revision: () => revision, read: () => ({revision,rules,policyHash:"a".repeat(64)}), subscribe: cb => {listeners.add(cb);return () => {listeners.delete(cb);};} };
   return { live, remove() { rules=[];revision="2";for(const cb of listeners)cb(); } };
 }
-async function fixture(recipient = false, policy: GovernancePolicyInput = {schema_version:1}, response?: () => Response, full = false) {
+async function fixture(recipient = false, policy: GovernancePolicyInput = {schema_version:1}, response?: () => Response, full = false, listenHost = "127.0.0.1") {
   const root=full?mkdtempSync(join(tmpdir(),"odysseus-origin-trust-")):null;
   const db = createUiDb(root?join(root,"ui.db"):":memory:"); connectedSafetySession(db,"voyage","turn-voyage");
   const writer=full?openSqliteWriter(db):undefined;
   const writes = createGovernanceWrites(db,writer); let asks = 0, hits = 0;
   let decide: BackendBridge["requestPermission"] = async () => ({behavior:"deny",message:"Athena declines"});
-  const origin = Bun.serve({hostname:"127.0.0.1",port:0,fetch(){hits++;return response?.() ?? new Response("Ithaca");}});
+  const origin = Bun.serve({hostname:listenHost,port:0,fetch(){hits++;return response?.() ?? new Response("Ithaca");}});
   const rule: TrustRule = {id:"ithaca",label:"Ithaca",incomingContent:true,recipientWhileRestricted:recipient,
-    selector:{kind:"web_origin",scheme:"http",host:"127.0.0.1",port:origin.port!}};
+    selector:{kind:"web_origin",scheme:"http",host:origin.url.hostname,port:origin.port!}};
   const t=trust(rule);const controller=new AbortController();
   const bridge={emit(){},requestPermission:async(...args: Parameters<BackendBridge["requestPermission"]>)=>{asks++;return decide(...args);},admissionSafety:createEffectiveSafety(db,{turnId:"turn-voyage",sessionId:()=>"voyage",policyHash:null,writes,trust:t.live,authority:()=>({current:true,epoch:"0"})})} as unknown as BackendBridge;
   const proxy=await prepareTurnEgress({policy:resolveGovernancePolicy(policy),trust:t.live,controller,turnId:"turn-voyage",sessionId:()=>"voyage",model:()=>null,profile:"governed",origin:"interactive",governanceDb:db,governanceWrites:writes,record:writes.record,
@@ -65,7 +65,9 @@ test("removal fences future admissions and preserves historical trust",async()=>
 test("exact recipients cannot cover another port, a subdomain or opaque CONNECT",async()=>{
  const f=await fixture(true);const other=Bun.serve({hostname:"127.0.0.1",port:0,fetch:()=>new Response("Troy")});
  try{await f.taint();expect(await get(f.proxy.socketPath,other.url.href)).toBe(403);
+  f.t.live.read().rules[0]!.selector={kind:"web_origin",scheme:"http",host:"localhost",port:f.origin.port!};
   expect(await get(f.proxy.socketPath,`http://sub.localhost:${f.origin.port}/`)).toBe(403);
+  expect(f.asks(),"SUBDOMAIN_REQUIRES_ITS_OWN_CARD").toBe(2);
   const status=await new Promise<number>((resolve,reject)=>{const c=connect(f.proxy.socketPath);c.on("error",reject);c.on("connect",()=>c.write(`CONNECT 127.0.0.1:${f.origin.port} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n`));c.on("data",b=>{resolve(Number(/^HTTP\/1.1 (\d+)/.exec(b.toString())?.[1]));c.destroy();});});
   expect(status,"HTTPS_RULE_NEVER_COVERS_OPAQUE_TUNNEL").toBe(403);expect(f.asks()).toBe(3);expect(f.hits()).toBe(0);
  }finally{other.stop(true);await f.close();}
@@ -166,4 +168,17 @@ test('review3: managed HTTPS and opaque CONNECT never share a pending Network ca
  tunnel=new Promise<number>((resolve,reject)=>{socket=connect(f.proxy.socketPath);socket.on('error',reject);socket.on('connect',()=>socket!.write(`CONNECT github.com:443 HTTP/1.1\r\nHost: github.com\r\n\r\n`));socket.on('data',b=>{resolve(Number(/^HTTP\/1.1 (\d+)/.exec(b.toString())?.[1]));socket!.destroy();});});await secondRequest;
  const cards=f.asks();for(const answer of answers)answer({behavior:'deny',message:'Athena declines'});expect(await managed).toBe(false);op.finish('denied');expect(await tunnel).toBe(403);expect(cards,'MANAGED_AND_OPAQUE_TRANSPORTS_REQUIRE_DISTINCT_CARDS').toBe(2);
  }finally{safety.read=read;for(const answer of answers)answer({behavior:'deny',message:'Closed'});socket?.destroy();await Promise.allSettled([managed,tunnel]);await f.close();}
+});
+
+
+test('review4: IPv6 Settings selector reaches an exact real opaque tunnel',async()=>{
+ const f=await fixture(true,{schema_version:1},undefined,false,'::1');try{await f.taint();f.t.live.read().rules[0]!.selector={kind:'tunnel_authority',host:'[::1]',port:f.origin.port!};
+ const status=await new Promise<number>((resolve,reject)=>{const c=connect(f.proxy.socketPath);c.on('error',reject);c.on('connect',()=>c.write(`CONNECT [::1]:${f.origin.port} HTTP/1.1\r\nHost: [::1]\r\n\r\n`));c.on('data',b=>{resolve(Number(/^HTTP\/1.1 (\d+)/.exec(b.toString())?.[1]));c.destroy();});});expect(status,'EXPLICIT_IPV6_TUNNEL_IS_ENFORCED').toBe(200);expect(f.asks()).toBe(0);
+ }finally{await f.close();}
+});
+test('review4: exact DNS parent never authorizes its subdomain',()=>{
+ const t=trust({id:'ithaca',label:'Ithaca',incomingContent:true,recipientWhileRestricted:true,selector:{kind:'web_origin',scheme:'https',host:'ithaca.example.org',port:443}});
+ const destination={host:'ithaca.example.org',port:443,method:'GET',protocol:'https:'};
+ expect(originTrustMatch(t.live,destination,'recipientWhileRestricted','0')).not.toBeNull();
+ expect(originTrustMatch(t.live,{...destination,host:'sub.ithaca.example.org'},'recipientWhileRestricted','0'),'DNS_SUBDOMAIN_NEVER_INHERITS_PARENT_TRUST').toBeNull();
 });

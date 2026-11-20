@@ -471,3 +471,13 @@ test('review3: live trust evidence uses verified bytes after an unrelated policy
  const current=f.settings.live.read();expect(current.rules).toEqual(before.rules);expect(current.revision).toBe(before.revision);
  expect(current.policyHash,'LIVE_ADMISSION_HASH_NAMES_VERIFIED_POLICY_BYTES').toBe(hash(changed));expect(current.policyHash).not.toBe(before.policyHash);
 });
+
+
+test('review4: oversized policy retains last-valid live trust with honest error',async()=>{
+ const f=await fixture({originEnforcement:true});await f.commit(await f.prepare());const before=f.settings.live.read();writeFileSync(f.path,'x'.repeat(1024*1024+1));
+ await f.settings.live.refresh();expect(f.settings.live.read(),'UNREADABLE_POLICY_RETAINS_LAST_VALID_TRUST').toMatchObject({...before,error:'policy_unavailable'});expect(f.settings.live.revision()).toBe(before.revision);
+});
+
+for(const host of ['example.org','127.0.0.1','[::1]','xn--bcher-kva.example'])for(const kind of ['web_origin','tunnel_authority'] as const)test(`review4: Settings accepts enforced canonical ${kind} ${host}`,async()=>{
+ const f=await fixture({originEnforcement:true});const selector=kind==='web_origin'?{kind,scheme:'https',host,port:443}:{kind,host,port:443};const draft=await f.prepare({action:'create',rule:{...rule,selector}});const saved=await f.commit(draft);expect(saved.receipt).toMatchObject({enforcement:'enforced'});expect(f.settings.live.read().rules[0]?.selector).toEqual(selector);
+});

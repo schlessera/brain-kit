@@ -391,3 +391,11 @@ test('review2: one successful real tunnel notifies committed exactly once',async
  const op=proxy.relayed('GET',new URL(`http://127.0.0.1:${port}/`),new AbortController().signal);expect(await op.admit()).toBe(true);expect(op.commit()).toBe(true);expect(op.commit()).toBe(true);expect(commits,'RELAY_RECHECKS_DO_NOT_REPEAT_COMMIT_NOTIFICATION').toBe(2);op.finish('completed');
  }finally{proxy.stop();serverSocket?.destroy();await new Promise<void>(r=>server.close(()=>r()));}
 });
+
+test('review4: bracketed IPv6 keeps canonical trust identity and dials a checked IP',async()=>{
+ const server=createServer(socket=>socket.on('data',b=>socket.write(b.toString().toUpperCase())));await new Promise<void>(r=>server.listen(0,'::1',r));const port=(server.address() as {port:number}).port;const records:EgressRecord[]=[];
+ const proxy=await startEgressProxy({...defaults(records),destinations:{ports:[port],allowRanges:['::1/128'],lookup:async()=>{throw new Error('IPv6 literals must bypass DNS');}}});
+ try{expect(await tunnel(proxy.socketPath,`[::1]:${port}`,'ithaca'),'CHECKED_IPV6_TUNNEL_REACHES_LOOPBACK').toContain('ITHACA');await recorded(records,1);expect(records[0]).toMatchObject({host:'[::1]',port,outcome:'completed'});
+ for(const bad of ['::1:443','[::1]','[::1]:0','[::1]:65536','[::1]:443/path','[::1%25lo]:443'])expect(await tunnel(proxy.socketPath,bad,''),'MALFORMED_TUNNEL_REMAINS_BAD_REQUEST').toContain('400 Bad Request');
+ }finally{proxy.stop();await new Promise<void>(r=>server.close(()=>r()));}
+});

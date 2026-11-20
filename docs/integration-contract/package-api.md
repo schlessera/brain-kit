@@ -80,6 +80,9 @@ and byte accounting; it cannot grant a contacted-host allowance. No worker
 header selects it. Network approval destinations carry `protocol` and the
 host-owned `managedReference` identity; pending approvals never coalesce a
 managed HTTPS acquisition with an opaque CONNECT to the same authority.
+CONNECT accepts explicit bracketed IPv6 authorities as well as canonical DNS
+and IPv4 hosts. Trust evidence keeps brackets; socket dialing and destination
+IP checks use the unbracketed literal.
 The internal entry also exports the existing
 `egressAddressRefusal` validator so the fixed acquisition wire validates every
 DNS address before connecting to a checked IP. These are implementation
