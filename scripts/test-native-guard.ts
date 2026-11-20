@@ -60,6 +60,14 @@ function systemMounts(): string[] {
   return argv;
 }
 
+/** Runtime source and dependencies, without shared tmp, Git or host IPC. */
+function testRuntimeMounts(): string[] {
+  return ["packages", "node_modules", "package.json", "tsconfig.json", "bunfig.toml"].flatMap(name => {
+    const path = join(ROOT, name);
+    return existsSync(path) ? ["--ro-bind", path, path] : [];
+  });
+}
+
 interface Boundary { argv: string[]; env: Record<string, string>; dispose(): void }
 
 /** One Unix socket forwards only to the explicitly selected scripted service. */
@@ -100,9 +108,9 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
   try {
     const executable = realpathSync(command);
     const argv = ["bwrap", "--unshare-all", "--die-with-parent", "--new-session", "--cap-drop", "ALL", ...systemMounts(),
-      "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--ro-bind", ROOT, ROOT,
+      "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", ...testRuntimeMounts(),
       "--ro-bind", executable, command, "--ro-bind", process.execPath, process.execPath, "--bind", home, home,
-      ...(within(ROOT, cwd) || within(home, cwd) ? [] : ["--bind", cwd, cwd]),
+      ...(cwd === ROOT || within(ROOT, cwd) || within(home, cwd) ? [] : ["--bind", cwd, cwd]),
       "--ro-bind", bridge.directory, "/tmp/native-relay",
       "--ro-bind", join(bridge.directory, "passwd"), "/etc/passwd", "--ro-bind", join(bridge.directory, "group"), "/etc/group",
       ...(options.managedSettings ? ["--ro-bind", options.managedSettings, "/etc/claude-code"] : []), "--clearenv"];
@@ -162,7 +170,7 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
     for (let i = bwrap + 1; i < argv.indexOf("--", bwrap); i++) {
       if (argv[i] === "--ro-bind" && argv[i + 1] === "/" && argv[i + 2] === "/") argv.splice(i--, 3);
     }
-    argv.splice(bwrap + 1, 0, "--unshare-net", ...systemMounts(), "--ro-bind", ROOT, ROOT, "--ro-bind", process.execPath, process.execPath);
+    argv.splice(bwrap + 1, 0, "--unshare-net", ...systemMounts(), ...testRuntimeMounts(), "--ro-bind", process.execPath, process.execPath);
     const pinned = { ANTHROPIC_BASE_URL: "http://localhost", ANTHROPIC_UNIX_SOCKET: existingRelay ? socket : "/tmp/native-relay/relay.sock",
       ANTHROPIC_API_KEY: "offline-odysseus", ANTHROPIC_AUTH_TOKEN: "", CLAUDE_CODE_OAUTH_TOKEN: "" };
     const separator = argv.indexOf("--", bwrap);
