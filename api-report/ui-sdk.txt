@@ -2869,6 +2869,7 @@ export "./server" (./src/server/index.ts)
   type InboxToolName
   type InboxView
   type InboxWorkPayload
+  type InputSafetyOutputStatus
   type JournalObservationReference
   type JournalOutwardAction
   type JournalRecoveryStatus
@@ -10697,6 +10698,13 @@ signatures (every public export and the types it is made of)
     export interface InboxWorkPayload {
         instruction: string;
         operation?: InboxOperation;
+    }
+  InputSafetyOutputStatus (packages/ui-sdk/src/server/backend.ts)
+    export interface InputSafetyOutputStatus {
+        readonly complete: boolean;
+        readonly exitCode?: number;
+        readonly stderr?: boolean;
+        readonly truncated?: boolean;
     }
   JournalObservationReference (packages/ui-sdk/src/turn-journal.ts)
     export interface JournalObservationReference {

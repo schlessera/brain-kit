@@ -50,11 +50,11 @@ for(const [name,tool,input,output,expected] of [
  ['Glob exceeds installed file cap','Glob',{},glob(Array.from({length:101},(_,i)=>`notes/loom-${i}.md`)),['legacy_unknown']],
  ['Glob legal CR LF filename','Glob',{},glob(['workspaces/voyage/log\r\n.md']),['workspace_read','user_marked']],
  ['Grep legal CR LF filename','Grep',{},grep(['workspaces/voyage/log\r\n.md']),['workspace_read','user_marked']],
- ['Pi sentinel plus image','grep',{},safetyResultInput('grep',[{type:'text',text:'No matches.'},{type:'image'}]).output,['legacy_unknown']],
- ['Pi sentinel incomplete original','grep',{},safetyResultInput('grep',[{type:'text',text:'No matches.'}],false).output,['legacy_unknown']],
- ['Pi marked row plus image','grep',{},safetyResultInput('grep',[{type:'text',text:'notes/voyage.md:1:sirens'},{type:'image'}]).output,['user_marked','legacy_unknown']],
- ['Pi sentinel plus empty block','grep',{},safetyResultInput('grep',[{type:'text',text:'No matches.'},{type:'text',text:''}]).output,['legacy_unknown']],
- ['Pi exact original sentinel','grep',{},safetyResultInput('grep',[{type:'text',text:'No matches.'}]).output,[]],
+ ['Pi sentinel plus image','grep',{},safetyResultInput('grep',[{type:'text',text:'No matches.'},{type:'image'}]),['legacy_unknown']],
+ ['Pi sentinel incomplete original','grep',{},safetyResultInput('grep',[{type:'text',text:'No matches.'}],false),['legacy_unknown']],
+ ['Pi marked row plus image','grep',{},safetyResultInput('grep',[{type:'text',text:'notes/voyage.md:1:sirens'},{type:'image'}]),['user_marked','legacy_unknown']],
+ ['Pi sentinel plus empty block','grep',{},safetyResultInput('grep',[{type:'text',text:'No matches.'},{type:'text',text:''}]),['legacy_unknown']],
+ ['Pi exact original sentinel','grep',{},safetyResultInput('grep',[{type:'text',text:'No matches.'}],true,{search:{exitCode:1,stderr:false,truncated:false}}),[]],
  ['Grep duplicate per-file count rows','Grep',{output_mode:'count'},grep(['notes/loom.md'],{content:'notes/loom.md:1\nnotes/loom.md:1',numMatches:2}),['legacy_unknown']],
  ['Pi newline filename ambiguity is never healthy legacy evidence','grep',{},'./raft:1:sail\nloom.md:1:sirens',['legacy_unknown']],
  ['Pi NUL newline filename','grep',{},'./raft:1:sail\nloom.md:\0'+'1:sirens\n',['user_marked']],
@@ -93,6 +93,15 @@ for(const [name,tool,input,output,expected] of [
  ['Pi quoted sentinel','grep',{},JSON.stringify('No matches.'),['legacy_unknown']],
 ] as const)test(`recognized search shape: ${name}`,()=>{
  const marked=(path:string)=>['raft:1:sail\nloom.md','workspaces/voyage/log\r\n.md','[voyage]/log.md','notes/voyage.md','notes/voyage:2','notes/voyage:2:home.md'].includes(path);
- const signals=outputTaintSignals(tool,output,'/srv/odysseus/brain',marked,searchOutputContext(tool,input));
+ const observation=typeof output==='string'?{output,outputStatus:undefined}:output;
+ const signals=outputTaintSignals(tool,observation.output,'/srv/odysseus/brain',marked,{...searchOutputContext(tool,input),outputComplete:observation.outputStatus?.complete});
  expect(signals.map(s=>s.source),'ONLY_RECOGNIZED_COMPLETE_SHAPES_CAN_REMAIN_HEALTHY').toEqual([...expected]);
+});
+
+for(const terminated of [false,true])for(const shape of ['incomplete','image'] as const)test(`explicit Pi completeness is independent of row text: ${shape}-${terminated?'terminated':'unterminated'}`,()=>{
+ const text='notes/loom.md:\0'+'1:sirens'+(terminated?'\n':'');
+ const converted=safetyResultInput('grep',[{type:'text',text},...(shape==='image'?[{type:'image'}]:[])],shape!=='incomplete',{search:{exitCode:0,stderr:false,truncated:false}});
+ expect(converted.output,'STATUS_NEVER_REWRITES_RESULT_TEXT').toBe(text);
+ const signals=outputTaintSignals('grep',converted.output,'/srv/odysseus/brain',()=>false,{...searchOutputContext('grep',{}),outputComplete:converted.outputStatus.complete});
+ expect(signals.map(signal=>signal.source),'EXPLICIT_INCOMPLETE_RESULT_STAYS_UNKNOWN').toEqual(['legacy_unknown']);
 });

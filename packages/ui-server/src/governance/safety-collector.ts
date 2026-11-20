@@ -137,7 +137,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
   // may skip both: a stopped turn still records it (stopping refuses new
   // tools, never a record; the turn's end waits for a record under way),
   // and any failure leaves its chat a permanent gap.
-  result(toolUseId,tool,output,finalized,segments){
+  result(toolUseId,tool,output,finalized,segments,outputStatus){
    const reject=(error:unknown)=>rejectReadResult(toolUseId,tool,error);
    return recording(serial(toolUseId,async()=>{
    try{
@@ -152,11 +152,13 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
     }
     // Record output independently, before the backend releases it to the
     // model. Its bytes already exist, so a refusal here is never "before delivery".
-    for(const signal of outputTaintSignals(tool,output,options.brainPath,marked,op.searchContext)){
+    const outputComplete=outputStatus===undefined?undefined:outputStatus.complete&&outputStatus.stderr!==true&&outputStatus.truncated!==true&&
+     (outputStatus.exitCode===undefined||outputStatus.exitCode===0&&output.length>0&&output!=="No matches."||outputStatus.exitCode===1&&output==="No matches.");
+    for(const signal of outputTaintSignals(tool,output,options.brainPath,marked,{...op.searchContext,outputComplete})){
       const item=observed(toolUseId,signal.detector,op.id);
       await writes.firstTaint({...base(),kind:"taint",payload:{source:signal.source,tool,detail:null,occurrence:item}});op.occurrences.push(item.id);
     }
-    await options.referenceReads?.observeResult(options.turnId,toolUseId,tool,output,finalized&&!op.uncertain,segments);
+    await options.referenceReads?.observeResult(options.turnId,toolUseId,tool,output,finalized&&!op.uncertain&&outputComplete!==false,segments);
     const state=finalized&&!op.uncertain&&!['Bash','bash'].includes(tool)?"finalized":"interrupted_unknown";
     // The last exposure commits with the call's discharge, in one
     // transaction: no end and no restart can find the record durable and

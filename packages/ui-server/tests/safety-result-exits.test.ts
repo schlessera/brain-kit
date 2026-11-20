@@ -9,7 +9,7 @@ import { safetyResultInput } from "../../ui-backend-pi/src/worker-protocol";
  * `safety-result-retention.test.ts`; these drive the remaining exits against
  * the real host ledger. Keyless and offline. */
 import { afterEach, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {createRequire} from "node:module";
@@ -73,7 +73,7 @@ function dispatcher(f: Voyage) {
     canFinalizeSafety: () => false } as unknown as PiWorkerRpcContext);
 }
 const report = (id: number, toolCallId: string, input: Record<string, unknown>): PiWorkerRpc =>
-  ({ type: "rpc", id, method: "safetyResult", toolName: "grep", toolCallId, input }) as PiWorkerRpc;
+  ({ type: "rpc", id, method: "safetyResult", toolName: "grep", toolCallId, input: {outputStatus:{complete:true,exitCode:0,stderr:false,truncated:false},...input} }) as PiWorkerRpc;
 
 test("a result reaching a turn that stopped and ended leaves its chat a permanent gap", async () => {
   const f = await voyage(); try {
@@ -279,11 +279,15 @@ test("a call still owed when the host dies leaves its chat a permanent gap at bo
 });
 
 /** The real curated search, run the way the worker runs it once the host allowed it. */
-async function searchRuns(f: Voyage, toolCallId: string, input: Record<string, unknown>): Promise<string> {
-  const grep = createBrainTools({ brain: createBrainAccess(f.brain), turn: createTurnContext(), exec: {},
-    lock: { withKey: async (_key: string, run: () => Promise<unknown>) => run() } } as never).find(tool => tool.name === "grep")!;
-  return safetyResultInput("grep",(await grep.execute(toolCallId, input as never, f.controller.signal, undefined, undefined as never)).content).output;
+async function runSearchTool(f:Voyage,toolCallId:string,input:Record<string,unknown>,wrapper?:string){
+ const grep=createBrainTools({brain:createBrainAccess(f.brain),turn:createTurnContext(),exec:wrapper?{wrapper}:{},lock:{withKey:async(_key:string,run:()=>Promise<unknown>)=>run()}} as never).find(tool=>tool.name==='grep')!;
+ return grep.execute(toolCallId,input as never,f.controller.signal,undefined,undefined as never);
 }
+async function searchResult(f:Voyage,toolCallId:string,input:Record<string,unknown>){
+ const result=await runSearchTool(f,toolCallId,input);
+ return safetyResultInput('grep',result.content,true,result.details);
+}
+async function searchRuns(f:Voyage,toolCallId:string,input:Record<string,unknown>):Promise<string>{return (await searchResult(f,toolCallId,input)).output;}
 
 /** What stands for a call that ran and was never reported: its obligation, then its chat's gap. */
 async function stillOwed(f: Voyage, call: string) {
@@ -482,9 +486,9 @@ for(const binding of ['pi','claude'] as const)test(`${binding}: two allowed sear
    const gate=createPermissionGate({turn,allowedTools:new Set(['grep']),confirmPatterns:[]});
    (typeof gate==='function'?gate:gate.factory)({on:(name:string,callback:unknown)=>{if(name==='tool_call')handler=callback as typeof handler;}} as never);
    admit=async()=>{const result=await handler!({toolName:'grep',toolCallId:id,input});expect(result,'PI_REUSED_ID_CALL_REACHES_EXECUTION').toBeUndefined();};
-   run=()=>searchRuns(f,id,input);
+   run=()=>searchResult(f,id,input);
    const dispatch=dispatcher(f);
-   deliver=output=>dispatch(report(1,id,safetyResultInput('grep',[{type:'text',text:String(output)}])));
+   deliver=output=>dispatch(report(1,id,output as Record<string,unknown>));
   }else{
    const wiring=createPermissionWiring({req:{prompt:'Listen for the sirens.',signal:f.controller.signal,bridge:{emit(){},requestPermission:async()=>({behavior:'allow'}),inputSafety:f.collector}} as never,
     allowedTools:['Grep'],confirmPatterns:[],brainPath:f.brain,childEnv:{PATH:'/usr/bin:/bin'},log(){},turnLock:{acquireForTool:async()=>({ok:true}),releaseForTool(){}} as never});
@@ -514,9 +518,9 @@ test('real Pi grep empty output stays empty when the collector records its resul
  const f=await voyage();try{
   const input={pattern:'no_cyclops_matches_here'};
   await f.collector.begin('empty_search','grep',input);
-  const output=await searchRuns(f,'empty_search',input);
+  const observed=await searchResult(f,'empty_search',input),output=observed.output;
   expect(output,'SHIPPED_PI_EMPTY_SEARCH_FORMAT').toBe('No matches.');
-  await f.collector.result('empty_search','grep',output,true);
+  await dispatcher(f)(report(1,'empty_search',observed));
   expect(f.recorded(),'REAL_EMPTY_SEARCH_CREATES_NO_OCCURRENCE').toEqual([]);
   expect(f.chat().restriction).toBe('normal');
  }finally{await f.close();}
@@ -534,11 +538,11 @@ for(const marked of [false,true])test(`real Pi grep bracket paths retain exactly
   }
   const input={pattern:'sirens',path:'[voyage]'};
   await f.collector.begin('bracket_search','grep',input);
-  const output=await searchRuns(f,'bracket_search',input);
+  const observed=await searchResult(f,'bracket_search',input),output=observed.output;
   expect(output.split('\n').filter(Boolean).sort(),'REAL_GREP_RETURNS_BOTH_BRACKET_FILENAMES').toEqual(paths.map(path=>`${path}:\0`+"1:sirens"));
   const signals=outputTaintSignals('grep',output,f.brain,path=>isMarkedUntrusted(f.db,path),searchOutputContext('grep',input));
   expect(signals.sort((a,b)=>a.key.localeCompare(b.key)),'REAL_BRACKET_OUTPUT_HAS_EXACT_PATH_SIGNALS').toEqual(marked?paths.map(key=>({source:'user_marked',detector:'explicit_untrusted_input',key})):[]);
-  await f.collector.result('bracket_search','grep',output,true);
+  await dispatcher(f)(report(1,'bracket_search',observed));
   // The ledger intentionally retains no raw filename. Assert its exact
   // occurrence/exposure inventory as well as the detector's actual paths.
   expect(f.db.query("SELECT kind,source,detector FROM safety_records ORDER BY kind,length(sequence),sequence").all(),'REAL_BRACKET_LEDGER_HAS_NO_EXTRA_UNKNOWN').toEqual(marked?[
@@ -554,9 +558,9 @@ for(const shape of ['exact','image','second-text','incomplete'] as const)test(`P
  const f=await voyage();try{
   const input={pattern:'no_cyclops_matches_here'},id='original_empty';
   await f.collector.begin(id,'grep',input);
-  const text=await searchRuns(f,id,input);expect(text).toBe('No matches.');
+  const actual=await runSearchTool(f,id,input),text=actual.content.filter(part=>part.type==='text').map(part=>part.text).join('');expect(text).toBe('No matches.');
   const content=[{type:'text',text},...(shape==='image'?[{type:'image'}]:shape==='second-text'?[{type:'text',text:''}]:[])];
-  const converted=safetyResultInput('grep',content,shape!=='incomplete');
+  const converted=safetyResultInput('grep',content,shape!=='incomplete',actual.details);
   await dispatcher(f)(report(1,id,converted));
   expect(f.db.query("SELECT source,detector FROM safety_records WHERE kind='occurrence'").all(),'ORIGINAL_MIXED_PI_RESULT_RETAINS_UNKNOWN').toEqual(shape==='exact'?[]:[{source:'legacy_unknown',detector:'tool_search_output'}]);
   expect(f.chat().restriction).toBe(shape==='exact'?'normal':'restricted');
@@ -571,10 +575,44 @@ test('shipped Pi grep preserves a marked newline filename through the worker led
   writeFileSync(join(f.brain,path),'nymph_signal\n');
   untrustedMarkOperations(f.db).mark(path,null,Date.UTC(2026,6,12));
   await f.collector.begin(id,'grep',input);
-  const output=await searchRuns(f,id,input);
+  const observed=await searchResult(f,id,input),output=observed.output;
   expect(outputTaintSignals('grep',output,f.brain,p=>isMarkedUntrusted(f.db,p),searchOutputContext('grep',input)),'PI_NEWLINE_PATH_KEEPS_ITS_EXACT_MARK').toEqual([{source:'user_marked',detector:'explicit_untrusted_input',key:path}]);
   expect(output).toBe(`./${path}:\0`+'1:nymph_signal\n');
-  await dispatcher(f)(report(1,id,safetyResultInput('grep',[{type:'text',text:output}])));
+  await dispatcher(f)(report(1,id,observed));
   expect(f.db.query("SELECT source,detector FROM safety_records WHERE kind='occurrence'").all(),'PI_NEWLINE_PATH_LEDGER_HAS_NO_FALSE_HEALTHY_OR_UNKNOWN').toEqual([{source:'user_marked',detector:'explicit_untrusted_input'}]);
  }finally{await f.close();}
+});
+
+for(const mode of ['file','empty','regex','partial','warning'] as const)test(`Pi after-tool RPC preserves grep status: ${mode}`,async()=>{
+ const f=await voyage();let unreadable:string|undefined;try{
+  const {untrustedMarkOperations}=await import('../src/files/untrusted-marks');
+  mkdirSync(join(f.brain,'notes'));
+  writeFileSync(join(f.brain,'notes/loom.md'),'nymph_signal\n');
+  if(mode==='partial'){
+   unreadable=join(f.brain,'notes/raft.md');writeFileSync(unreadable,'nymph_signal\n');chmodSync(unreadable,0);
+   untrustedMarkOperations(f.db).mark('notes/loom.md',null,Date.UTC(2026,6,12));
+  }
+  const wrapper=mode==='warning'?join(f.brain,'warning-wrapper'):undefined;
+  if(wrapper)writeFileSync(wrapper,'#!/bin/sh\nprintf "search warning\\n" >&2\nexec "$@"\n',{mode:0o755});
+  const input={pattern:mode==='regex'?'[':mode==='empty'?'no_cyclops_here':'nymph_signal',...(mode==='file'?{path:'notes/loom.md'}:{})},id='status_search';
+  await f.collector.begin(id,'grep',input);
+  const actual=await runSearchTool(f,id,input,wrapper);
+  const expectedCode=mode==='empty'?1:mode==='regex'||mode==='partial'?2:0;
+  expect((actual.details as {search:unknown}).search,'GREP_EXIT_STATUS_AND_STDERR_ARE_OBSERVED').toEqual({exitCode:expectedCode,stderr:['regex','partial','warning'].includes(mode),truncated:false});
+  let stopped=false,forwarded:unknown;
+  const agent={abort(){stopped=true;},streamFunction:async()=>{}} as unknown as Agent;
+  const dispatch=dispatcher(f);
+  installPiToolSafety(agent,{permission:async()=>({behavior:'allow'}),stop(){stopped=true;},async result(name,toolId,content,complete,details){
+   const converted=safetyResultInput(name,content,complete,details);forwarded=converted.outputStatus;
+   await dispatch(JSON.parse(JSON.stringify(report(1,toolId,converted))));
+  }},()=>false);
+  await agent.afterToolCall!({toolCall:{name:'grep',id},args:input,result:actual,isError:false} as never,f.controller.signal);
+  const incomplete=['regex','partial','warning'].includes(mode);
+  expect(forwarded,'GREP_STATUS_REACHES_WORKER_RPC').toEqual({complete:!incomplete,exitCode:expectedCode,stderr:incomplete,truncated:false});
+  expect(stopped).toBe(false);
+  expect(f.db.query("SELECT source,detector FROM safety_records WHERE kind='occurrence' ORDER BY length(sequence),sequence").all(),'PARTIAL_GREP_KEEPS_KNOWN_MARKS_AND_AN_UNKNOWN_REMAINDER').toEqual(mode==='partial'?[
+   {source:'user_marked',detector:'explicit_untrusted_input'},{source:'legacy_unknown',detector:'tool_search_output'}
+  ]:incomplete?[{source:'legacy_unknown',detector:'tool_search_output'}]:[]);
+  expect(f.chat().restriction).toBe(incomplete?'restricted':'normal');
+ }finally{if(unreadable)chmodSync(unreadable,0o600);await f.close();}
 });

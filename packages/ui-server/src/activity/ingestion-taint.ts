@@ -174,7 +174,7 @@ export function inputTaintSignals(tool: string, input: unknown, brainPath?: stri
 }
 
 /** Admitted format only. Invalid or incomplete output always retains unknown coverage. */
-interface SearchOutputContext { backendId?: string; outputMode?: string; lineNumbers?: boolean; offset?: number; limit?: number }
+interface SearchOutputContext { backendId?: string; outputMode?: string; lineNumbers?: boolean; offset?: number; limit?: number; outputComplete?: boolean }
 // Installed SDK: GlobInput/GrepInput and GlobOutput/GrepOutput in
 // @anthropic-ai/claude-agent-sdk/sdk-tools.d.ts:905-983,3506-3545. Pi's shipped grep and text
 // envelope are `grepTool` (packages/ui-backend-pi/src/file-tools.ts:44-82)
@@ -189,7 +189,7 @@ const grepOutput = z.object({ mode: z.enum(['content','files_with_matches','coun
 export function outputTaintSignals(tool: string, output: string, brainPath?: string, marked?: MarkedLookup, context?: SearchOutputContext): IngestionSignal[] {
   if (!SEARCH_TOOLS.has(tool)) return [];
   if(Buffer.byteLength(output)>1048576)throw new Error('Safety search output capacity exceeded');
-  const result:IngestionSignal[]=[],seen=new Set<string>(),contentPaths=new Set<string>();let unknown=false;
+  const result:IngestionSignal[]=[],seen=new Set<string>(),contentPaths=new Set<string>();let unknown=context?.outputComplete===false;
   const add=(path:string)=>{
     if(!path||path.includes('\0')){unknown=true;return;}
     if(/truncat|omitted|\.\.\.|…/i.test(path))unknown=true;

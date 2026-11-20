@@ -5952,3 +5952,24 @@ for every interactive session, so a new session's retained append contains
 the bullet. A session retained earlier keeps its append byte for byte. The
 same-commit API report records the additive types. See
 [the MCP component](mcp.md#raw-connections-to-githubs-api-0450-3799).
+
+
+## Collected search output status (additive, 0.45.0, #4275)
+
+`BackendBridge.inputSafety.result` in `@schlessera/brain-ui-sdk/server`
+accepts an optional sixth argument, `outputStatus`, after the existing
+`segments` argument. The exported `InputSafetyOutputStatus` type has readonly required `complete: boolean`
+and optional `exitCode: number`, `stderr: boolean`, `truncated: boolean`.
+`stderr` records presence, never the error bytes. This is host-only evidence,
+not a provider-facing tool definition or a permission grant.
+
+Omission preserves the existing collection behavior. `complete: false`, a
+failed search exit, stderr or truncation retains an unknown search remainder
+alongside every identifiable source. It is independent of the existing
+`finalized` exposure argument; incomplete evidence cannot prove a managed
+reference read. Pi carries the original tool status through its result hook
+and worker RPC. Exit 1 with empty stdout and no stderr is its only empty
+sentinel; exit 0 requires matches. Missing search status is restrictive.
+Neither metadata nor completeness is encoded by changing result text, and
+neither changes prior provider history. The same-commit API report records
+the additive argument.

@@ -157,7 +157,7 @@ describe("the grep tool", () => {
       expect(resultText(res)).toContain("needle");
       expect(readFileSync(argvLog, "utf-8").split("\n").filter(Boolean)).toEqual([
         Bun.which("grep")!,
-        "-rInZE",
+        "-rHInZE",
         "--",
         "needle",
         ".",
@@ -188,7 +188,7 @@ test("host A/C and explicit empty override ambient B for both Pi spawn tools (#1
       expect(existsSync(b.argvLog), "EXPLICIT_EMPTY_NOT_AMBIENT").toBe(false);
     }
     expect(readFileSync(a.argvLog, "utf8").split("\n").filter(Boolean)).toEqual([
-      Bun.which("bash")!, "--noprofile", "--norc", "-c", "echo needle", Bun.which("grep")!, "-rInZE", "--", "needle", ".",
+      Bun.which("bash")!, "--noprofile", "--norc", "-c", "echo needle", Bun.which("grep")!, "-rHInZE", "--", "needle", ".",
     ]);
     expect(readFileSync(c.argvLog, "utf8")).toBe(readFileSync(a.argvLog, "utf8"));
   } finally { brain.cleanup(); }

@@ -188,3 +188,13 @@ test("brainReadBaseTool reads the server base and remembers its whole-document h
   expect(JSON.parse(resultText(result))).toMatchObject({ expectedBaseHash: "d".repeat(64) });
   expect(tools.bases.get(tools.turn.bridge!)?.get("notes/ithaca.md")).toBe("d".repeat(64));
 });
+
+test('grepTool never reports a failed regular expression as an empty search',async()=>{
+ const result=await run(grepTool(kit({exec:{}})),{pattern:'['});
+ expect(resultText(result),'FAILED_GREP_IS_NOT_THE_EMPTY_SENTINEL').not.toBe('No matches.');
+});
+
+test('grepTool prefixes a single file operand with its exact filename',async()=>{
+ const result=await run(grepTool(kit({exec:{}})),{pattern:'Odysseus',path:'notes/ithaca.md'});
+ expect(resultText(result),'SINGLE_FILE_GREP_HAS_A_FILENAME_BOUNDARY').toBe('notes/ithaca.md:\0'+'3:Odysseus sails home.\n');
+});

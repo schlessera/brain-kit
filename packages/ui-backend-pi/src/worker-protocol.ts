@@ -88,20 +88,21 @@ export const piWorkerMessage = z.discriminatedUnion("type", [
 ]);
 export type PiWorkerMessage = z.infer<typeof piWorkerMessage>;
 
-/** Text delivered to the host's safety collector, separate from provider history. */
-export function safetyResultInput(tool: string, content: readonly { type: string; text?: unknown }[], complete = true): { output: string; segments?: string[] } {
-  const segments = content.filter(part => part.type === "text").map(part => part.text as string);
-  // The shipped grep returns exactly one text block. Preserve every text
-  // row, but add an unparseable empty row when the original result is not
-  // that complete shape. This host-only observation never changes provider
-  // content, and mixed/non-text output cannot impersonate the empty sentinel.
-  if(tool==="grep"&&(!complete||content.length!==1||content[0]?.type!=="text"||typeof content[0]?.text!=="string"))
-    return {output:segments.join("\n")+"\n",segments};
-  // Omitted segments mean unprovable read delivery. Filtering an image or
-  // resource out must not turn mixed content into one verified text part.
-  if (tool === "reference_read" && (!complete || content.some(part => part.type !== "text" || typeof part.text !== "string")))
-    return { output: segments.join("\n") };
-  return { output: segments.join("\n"), segments };
+export const piOutputStatus=z.object({complete:z.boolean(),exitCode:z.number().int().optional(),stderr:z.boolean().optional(),truncated:z.boolean().optional()}).strict();
+const searchStatus=z.object({exitCode:z.number().int(),stderr:z.boolean(),truncated:z.boolean()}).strict();
+/** Host-only observation. Never alter provider result content to encode status. */
+export function safetyResultInput(tool:string,content:readonly {type:string;text?:unknown}[],complete=true,details?:unknown): {output:string;segments?:string[];outputStatus:z.infer<typeof piOutputStatus>} {
+ const segments=content.filter(part=>part.type==='text'&&typeof part.text==='string').map(part=>part.text as string),output=segments.join('\n');
+ if(tool==='grep'){
+  const status=searchStatus.safeParse(details&&typeof details==='object'?(details as Record<string,unknown>).search:undefined);
+  const original=complete&&content.length===1&&content[0]?.type==='text'&&typeof content[0]?.text==='string';
+  const successful=status.success&&!status.data.stderr&&!status.data.truncated&&
+   (status.data.exitCode===0&&output.length>0&&output!=='No matches.'||status.data.exitCode===1&&output==='No matches.');
+  return {output,segments,outputStatus:{...(status.success?status.data:{}),complete:original&&successful}};
+ }
+ // Reference reads require every original segment; omission never proves a read.
+ if(tool==='reference_read'&&(!complete||content.some(part=>part.type!=='text'||typeof part.text!=='string')))return {output,outputStatus:{complete:false}};
+ return {output,segments,outputStatus:{complete}};
 }
 
 export function sendPipe(pipe: Pick<Writable, "write">, value: unknown): void {

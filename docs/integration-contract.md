@@ -1893,3 +1893,11 @@ archived discussion. Optional negotiated history paging/provenance fields are
 additive; the retention/privacy meaning change is a pre-1.0 breaking minor.
 See [durable dialogue](integration-contract/wire.md#durable-live-dialogue-breaking-retention-supersession-3177).
 Historical provider input remains separate #3178 work.
+
+
+## Collected search output status (additive, 0.45.0, #4275)
+
+The host input collector accepts optional, explicit completeness and process
+status for search output. Incomplete evidence remains restrictive without
+rewriting the result text. See the
+[package API](integration-contract/package-api.md#collected-search-output-status-additive-0450-4275).

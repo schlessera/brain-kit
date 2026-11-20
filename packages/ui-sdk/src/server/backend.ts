@@ -167,6 +167,14 @@ export interface LocationFix {
   timestamp: number;
 }
 
+/** Host-only collection status. This is evidence, never dispatch authority. */
+export interface InputSafetyOutputStatus {
+  readonly complete: boolean;
+  readonly exitCode?: number;
+  readonly stderr?: boolean;
+  readonly truncated?: boolean;
+}
+
 /**
  * Host plumbing handed to the backend for one turn. `emit` delivers protocol
  * frames to the client; the request/response methods resolve when the user
@@ -190,7 +198,10 @@ export interface BackendBridge {
     /** @internal Persist collector loss before refusing unqualified input. */
     unavailable?(): Promise<void>;
     begin(toolUseId: string, toolName: string, input: Readonly<Record<string, unknown>>): Promise<void>;
-    result(toolUseId: string, toolName: string, output: string, finalized: boolean, segments?: readonly string[]): Promise<void>;
+    /** `outputStatus.complete:false` retains an unknown search remainder even when
+     * known rows were delivered. Omission preserves the existing behavior;
+     * it is independent of the result's finalized exposure lifecycle. */
+    result(toolUseId: string, toolName: string, output: string, finalized: boolean, segments?: readonly string[], outputStatus?: InputSafetyOutputStatus): Promise<void>;
     /** @internal A tool ran, but its result report was refused before `result`
      * could record it: the turn's chat keeps a permanent gap. Resolves once
      * that gap is durable. */

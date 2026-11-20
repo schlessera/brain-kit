@@ -15,7 +15,7 @@ import { bashLockKey, killWrapped, rtkRewriteCommand, wrapCommand } from "@schle
 import { RTK_WORKER_ENV, execWrapperSpawnOptions, WORKER_DATA_ROOT, WORKER_EGRESS_TRANSPORT_ENV } from "@schlessera/brain-ui-sdk/internal";
 
 import { resolveEnabledWebSearchEnvNames, ambientExecConfig, subprocessEnv } from "./config/env.js";
-import { clip, MAX_READ_BYTES, textResult, type BrainToolKit } from "./tool-kit.js";
+import { clip, MAX_READ_BYTES, MAX_OUTPUT_BYTES, textResult, type BrainToolKit } from "./tool-kit.js";
 import { revalidatePiAdmission } from "./tool-admission.js";
 
 /** `read_file`: one repo-contained UTF-8 file, remembered as a same-turn base. */
@@ -60,7 +60,7 @@ export function grepTool(kit: BrainToolKit): ToolDefinition {
       const rel = params.path ?? ".";
       resolveOrThrow(rel);
       const exec = deps.exec ?? ambientExecConfig();
-      const proc = spawn(wrapCommand(["grep", "-rInZE", "--", params.pattern, rel], exec.wrapper), {
+      const proc = spawn(wrapCommand(["grep", "-rHInZE", "--", params.pattern, rel], exec.wrapper), {
         cwd: brain.root,
         env: subprocessEnv([...resolveEnabledWebSearchEnvNames(), ...WORKER_EGRESS_TRANSPORT_ENV]),
         stdout: "pipe",
@@ -69,13 +69,14 @@ export function grepTool(kit: BrainToolKit): ToolDefinition {
       });
       const onAbort = () => killWrapped(proc, exec);
       signal?.addEventListener("abort", onAbort, { once: true });
-      const [out] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+      const [out, stderr, exitCode] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
       signal?.removeEventListener("abort", onAbort);
       // Keep the visible colon layout and an unambiguous machine boundary.
       // POSIX filenames may contain newlines, colons and edge whitespace.
       // This changes result data only; provider tool definitions stay identical.
-      const text = out.replaceAll("\0", ":\0");
-      return textResult(text ? clip(text) : "No matches.", { pattern: params.pattern });
+      const empty=exitCode===1&&out.length===0&&stderr.length===0;
+      const text=empty?"No matches.":out.replaceAll("\0", ":\0")||"Search output unavailable.";
+      return textResult(clip(text), {pattern:params.pattern,search:{exitCode,stderr:stderr.length>0,truncated:text.length>MAX_OUTPUT_BYTES}});
     },
   } satisfies ToolDefinition;
 }

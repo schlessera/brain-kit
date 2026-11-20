@@ -18,7 +18,7 @@ import { revalidatePiAdmission } from "./tool-admission.js";
 import { safetyAdmissionRefusal } from "@schlessera/brain-ui-sdk/internal";
 import { syncPiAuth } from "./session-storage.js";
 import type { TurnContext } from "./turn-context.js";
-import type { PiWorkerMessage } from "./worker-protocol.js";
+import { piOutputStatus, type PiWorkerMessage } from "./worker-protocol.js";
 import type { PiWorkerReceipts } from "./worker-receipts.js";
 import type { CallExecution } from "./worker-session.js";
 
@@ -283,10 +283,13 @@ export const PI_WORKER_RPC_HANDLERS: Readonly<Record<PiWorkerRpcMethod, PiWorker
     throw new Error("Unqualified Pi input transformations");
   },
   safetyResult: async(msg,bridge,context)=>{
-    if(Object.keys(msg.input).some(key=>!["output","segments"].includes(key))||typeof msg.input.output!=="string"||msg.input.segments!==undefined&&(!Array.isArray(msg.input.segments)||(msg.input.segments as unknown[]).some(v=>typeof v!=="string")))throw resultLoss(new Error("Malformed safety result"));
+    if(Object.keys(msg.input).some(key=>!["output","segments","outputStatus"].includes(key))||typeof msg.input.output!=="string"||msg.input.segments!==undefined&&(!Array.isArray(msg.input.segments)||(msg.input.segments as unknown[]).some(v=>typeof v!=="string")))throw resultLoss(new Error("Malformed safety result"));
     const execution=context.executed(msg);
     const bounded=execution.name===msg.toolName&&context.canFinalizeSafety?.(msg.toolName,msg.toolCallId)===true;
-    await bridge.inputSafety?.result(msg.toolCallId,msg.toolName,msg.input.output,bounded,msg.input.segments as string[]|undefined);
+    const parsed=piOutputStatus.safeParse(msg.input.outputStatus);
+    let status=parsed.success?parsed.data:msg.input.outputStatus===undefined?undefined:{complete:false};
+    if(msg.toolName==="grep"&&(!status||status.exitCode===undefined||status.stderr===undefined||status.truncated===undefined))status={complete:false};
+    await bridge.inputSafety?.result(msg.toolCallId,msg.toolName,msg.input.output,bounded,msg.input.segments as string[]|undefined,status);
     context.live();return {ok:true};
   },
 };
