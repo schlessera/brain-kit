@@ -676,6 +676,14 @@ worker reads the mirror through a Git URL rewrite without any credential. See
 [the package API component](integration-contract/package-api.md#module-repositories).
 This ships in a minor; no breaking ruling is required.
 
+## Module GitHub relay (additive, 0.45.0, #4259)
+
+A module cron job granted a GitHub repository reaches its API through a per-run
+host relay socket named in `BRAIN_MODULE_GITHUB_SOCKET`. It forwards granted
+reads and only operator-enabled writes (`BRAIN_UI_MODULE_GITHUB_WRITES`) with the
+host's `BRAIN_UI_MODULE_GITHUB_TOKEN`; the worker holds no token. See
+[the package API component](integration-contract/package-api.md#module-github-relay).
+
 ## Module state area (additive, 0.45.0, #3380)
 
 A module keeps durable state in `<brain>/.brain-ui/modules/<module-name>/`,

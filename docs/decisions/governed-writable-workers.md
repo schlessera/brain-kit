@@ -603,6 +603,38 @@ credential sent only to `https://github.com`, and a transport worker that
 never mounts the brain
 ([the contract](../integration-contract/package-api.md#module-repositories)).
 
+**The GitHub API of a granted repository — 2026-11-20
+([#4259](https://github.com/schlessera/brain-kit/issues/4259), maintainer ruling
+option 1).** A module job that must read issues or write to them reaches the
+GitHub API through a host relay, never a token in its worker. The relay's grant
+is the read grant above: only the job's granted `github.com` repositories. A
+dedicated host-only credential, `BRAIN_UI_MODULE_GITHUB_TOKEN`, has no fallback
+to `GITHUB_TOKEN`, the sync token or `BRAIN_UI_GITHUB_TOOLS_TOKEN`. Reads are
+REST `GET` and repository-rooted GraphQL queries. Writes are a fixed operation
+set (`issue_comment`, `issue_state`), each enabled per repository by the
+operator's `BRAIN_UI_MODULE_GITHUB_WRITES` in host configuration, so editing
+`brain.config.ts` cannot widen it. The relay is a per-run Unix socket in a
+private server-owned directory, bound read-only into that one worker: only
+that run's worker can reach it, where a loopback port would answer any process
+on the host. A token placed
+in the job's worker and leaving API writes to the operator's own host jobs
+were both rejected.
+
+A GraphQL read is rooted at a granted repository, as the ruling states.
+Below that root, the relay also refuses fields that select another repository,
+owner or account by name (`repository`, `repositories`, `owner`, `forks`,
+`parent`, `search`, `viewer`, `headRepository` and the like). That denylist
+cannot close every traversal GitHub's schema offers: an author's other issues,
+or a cross-referencing issue elsewhere, still answer with whatever the token
+can read, as the REST timeline does. By the maintainer's 2026-11-20 ruling on #4259,
+the token's own scope is the read boundary below the root. One
+`BRAIN_UI_MODULE_GITHUB_TOKEN` serves every module job, so the operator limits it
+to the union of the repositories module jobs are granted. REST-only reads and a
+token per module were not taken. Every host-view worker, agent and
+maintenance alike, also covers `/etc/environment`. A container writes the cron
+runner's environment there for pam_env, host-only credentials included, and a
+worker builds its environment explicitly and never reads that file.
+
 The protected list below keeps the policy intact, keeps secrets out of workers,
 and stops a turn from steering later turns' permissions or start-up code.
 
