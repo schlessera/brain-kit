@@ -1,4 +1,5 @@
-import { afterEach, expect, test } from "bun:test";
+import * as rootKernel from "../src/brain/reference-owner-root-kernel";
+import { afterEach, expect, test, spyOn } from "bun:test";
 import { createHash } from "node:crypto";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, renameSync } from "node:fs";
 import { connect } from "node:net";
@@ -26,7 +27,8 @@ import { fixtureTls } from "./fixtures/fixture-tls";
 
 const cleanup: (() => void | Promise<void>)[] = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
-const captureReferenceOwnerRoot = (path: string) => { const c = createReferenceOwnerContinuity(path); cleanup.push(() => c.close()); return c.root; };
+const nativeExpected = { fsid: "11111111-1111-4111-8111-111111111790", brainUuid: "11".repeat(16) };
+const captureReferenceOwnerRoot = async (path: string, expected = nativeExpected) => { const c = await createReferenceOwnerContinuity(path, expected); cleanup.push(() => c.close()); return c.root; };
 const brain = "ithaca-brain", commit = "a".repeat(40), tree = "b".repeat(40);
 const repositoryRule: TrustRule = { id: "ithaca", label: "Ithaca", incomingContent: true, recipientWhileRestricted: false,
   selector: { kind: "github_repository", host: "github.com", owner: "odysseus", repository: "ithaca", repositoryId: "101" } };
@@ -34,7 +36,10 @@ const ownerRule: TrustRule = { ...repositoryRule, id: "odysseus", selector: { ki
 
 async function fixture(worker = false) {
   const root = mkdtempSync(join(tmpdir(), "odysseus-owner-resolution-")); cleanup.push(() => rmSync(root, { recursive: true, force: true }));
-  const continuity = createReferenceOwnerContinuity(root); cleanup.push(() => continuity.close());
+  const nativeState = { uuid: nativeExpected.brainUuid };
+  const nativeSpy = spyOn(rootKernel, "inspectPinnedReferenceRoot").mockImplementation(async () => ({ fsid: nativeExpected.fsid, uuid: nativeState.uuid, readOnly: false, receivedUuid: "0".repeat(32), devices: 1 }));
+  cleanup.push(() => nativeSpy.mockRestore());
+  const continuity = await createReferenceOwnerContinuity(root, nativeExpected); cleanup.push(() => continuity.close());
   const policyPath = join(root, "context/policies/governance.md"); mkdirSync(join(root, "context/policies"), { recursive: true });
   writeFileSync(policyPath, "---\nschema_version: 1\n---\nThe voyage policy.\n");
   const db = createUiDb(join(root, "ui.db")), writer = worker ? openSqliteWriter(db) : undefined;
@@ -93,7 +98,7 @@ async function fixture(worker = false) {
     const row = db.query("SELECT evidence,acquisition FROM reference_reads WHERE tool_call_id=?").get(toolCallId) as { evidence: string; acquisition: string };
     return { result, row, evidence: JSON.parse(row.evidence) as { trusted: false; ownerResolution: ReferenceOwnerResolution; identityObservation: ReferenceIdentityObservation } };
   };
-  return { root, ownerRoot: continuity.root, continuity, db, writer, owner, other, state, settings, settingsOptions, change, save, approve, read, reads, requests, policyPath, sources };
+  return { root, nativeState, ownerRoot: continuity.root, continuity, db, writer, owner, other, state, settings, settingsOptions, change, save, approve, read, reads, requests, policyPath, sources };
 }
 
 for (const worker of [false, true]) test(`protected publication binds an actual fresh managed read; writer=${worker}`, async () => {
@@ -141,8 +146,8 @@ for (const failure of ["missing", "malformed", "wrong-brain", "changed-identity"
   if (failure === "missing") f.db.exec("DELETE FROM trust_settings_github_boundaries");
   else {
     if (failure === "legacy-root") delete proof.policyRoot;
-    if (failure === "wrong-device") proof.policyRoot.device += 1;
-    if (failure === "wrong-inode") proof.policyRoot.inode += 1;
+    if (failure === "wrong-device") proof.policyRoot.fsid = "22222222-2222-4222-8222-222222222222";
+    if (failure === "wrong-inode") proof.policyRoot.uuid = "22".repeat(16);
     if (failure === "wrong-brain") proof.brain = "a".repeat(64);
     if (failure === "changed-identity") proof.githubIdentity.ownerId = "202";
     if (failure === "future-revision") { proof.expectedTrustRevision = "99"; proof.publishedTrustRevision = "100"; }
@@ -274,9 +279,10 @@ test("restart cannot apply retained approval to a replacement policy root with i
     mkdirSync(join(f.root, "context/policies"), { recursive: true }); writeFileSync(f.policyPath, policy);
     // Retain the authoritative UI database, but construct both readers anew as
     // startup does. Equal path/policy bytes must not resurrect old approval.
+    f.nativeState.uuid = "22".repeat(16);
     const reopened = createUiDb(join(backup, "ui.db"));
     try {
-      expect(resolveReferenceOwners(reopened, captureReferenceOwnerRoot(f.root), observed.evidence.identityObservation).bindings,
+      expect(resolveReferenceOwners(reopened, await captureReferenceOwnerRoot(f.root, { ...nativeExpected, brainUuid: "22".repeat(16) }), observed.evidence.identityObservation).bindings,
         "RESTART_REJECTS_APPROVAL_FROM_REPLACED_PUBLISHED_ROOT").toEqual([]);
     } finally { reopened.close(); }
   } finally { rmSync(f.root, { recursive: true, force: true }); renameSync(backup, f.root); }
@@ -293,33 +299,29 @@ test("deleted root replacement cannot inherit approval even when the filesystem 
     mkdirSync(join(f.root, "context/policies"), { recursive: true }); writeFileSync(f.policyPath, policy);
     const reopened = createUiDb(join(retained, "ui.db"));
     try {
-      const replacement = captureReferenceOwnerRoot(f.root)!;
-      const row = reopened.query("SELECT proof FROM trust_settings_github_boundaries").get() as { proof: string };
-      const proof = JSON.parse(row.proof);
-      // Deterministically model the kernel reusing the deleted directory's
-      // device/inode pair; deletion above is real, not a rename keeping it alive.
-      proof.policyRoot.device = replacement.device; proof.policyRoot.inode = replacement.inode;
-      reopened.query("UPDATE trust_settings_github_boundaries SET proof=?").run(JSON.stringify(proof));
+      f.nativeState.uuid = "22".repeat(16);
+      const replacement = await captureReferenceOwnerRoot(f.root, { ...nativeExpected, brainUuid: f.nativeState.uuid });
+      // The previous weak path/device/inode proof is gone. Native root identity
+      // remains different even when a Btrfs replacement reuses root inode 256.
       expect(resolveReferenceOwners(reopened, replacement, observed.evidence.identityObservation).bindings,
         "DELETED_ROOT_REUSE_REQUIRES_NEW_REVIEWED_APPROVAL").toEqual([]);
     } finally { reopened.close(); }
   } finally { rmSync(retained, { recursive: true, force: true }); }
 });
 
-test("a new host lifetime requires reviewed republication even with an unchanged policy root", async () => {
+test("ordinary host restart retains approval for the same qualified native brain", async () => {
   const f = await fixture(); await f.approve(); const observed = await f.read();
   f.continuity.close();
-  const next = createReferenceOwnerContinuity(f.root);
+  const next = await createReferenceOwnerContinuity(f.root, nativeExpected);
   try {
     expect(resolveReferenceOwners(f.db, next.root, observed.evidence.identityObservation).bindings,
-      "NEW_HOST_LIFETIME_REQUIRES_REAPPROVAL").toEqual([]);
-    const settings = createTrustSettings({ ...f.settingsOptions, ownerRoot: next.root });
-    const before = await settings.list(f.owner.id);
-    const draft = await settings.prepare(f.owner.id, { version: 1, expectedTrustRevision: before.revision,
-      expectedPolicyHash: before.policyHash, change: { action: "edit", rule: { ...repositoryRule, label: "The reviewed home harbor" } } });
-    await settings.commit(f.owner.id, { version: 1, requestId: draft.receipt.requestId,
-      reviewId: draft.review.reviewId, reviewedBytesHash: draft.review.reviewedBytesHash });
-    expect(resolveReferenceOwners(f.db, next.root, observed.evidence.identityObservation).bindings,
-      "NEW_PUBLICATION_RESTORES_CURRENT_HOST_QUALIFICATION").toHaveLength(1);
+      "ORDINARY_NATIVE_RESTART_PRESERVES_APPROVED_OWNER").toHaveLength(1);
   } finally { next.close(); }
+});
+
+test("an unqualified host withholds retained owner approval", async () => {
+  const f = await fixture(); await f.approve(); const observed = await f.read();
+  const next = await createReferenceOwnerContinuity(f.root);
+  try { expect(resolveReferenceOwners(f.db, next.root, observed.evidence.identityObservation).bindings,
+    "UNQUALIFIED_NATIVE_HOST_WITHHOLDS_OWNER_APPROVAL").toEqual([]); } finally { next.close(); }
 });

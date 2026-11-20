@@ -1,6 +1,5 @@
 /** Read-only owner qualification. This records historical evidence, never a source-trust admission. */
-import { createHash, randomUUID } from "node:crypto";
-import { constants, openSync, fstatSync, closeSync, realpathSync } from "node:fs";
+import { createHash } from "node:crypto";
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import { openGovernancePolicyAnchored, verifyGovernancePolicyAnchored, parseGovernancePolicy,
@@ -15,23 +14,12 @@ const revision = z.string().regex(/^(0|[1-9][0-9]{0,19})$/u).refine(value => Big
 const identitySchema = z.strictObject({ selector: TrustSelectorSchema, ownerId: providerId, private: z.boolean().nullable() });
 const proofSchema = z.strictObject({ operationId: id, principal: z.string().min(1).max(128), brain: digest,
   authority: z.string().min(1).max(4096),
-  policyRoot: z.strictObject({ device: z.number().int().nonnegative().safe(), inode: z.number().int().nonnegative().safe(), continuity: z.string().uuid() }), baseHash: digest.nullable(), expectedTrustRevision: revision,
+  policyRoot: z.strictObject({ fsid: z.string().uuid(), uuid: z.string().regex(/^[a-f0-9]{32}$/u) }), baseHash: digest.nullable(), expectedTrustRevision: revision,
   publishedTrustRevision: revision, reviewedBytesHash: digest, githubIdentity: identitySchema });
 
-export interface ReferenceOwnerRoot { path: string; device: number; inode: number; continuity: string }
-/** One host lifetime. Holding the directory descriptor prevents inode reuse
- * while live; the unguessable epoch withholds old approval after any restart.
- * The epoch is host-only and never stored in the agent-writable policy tree. */
-export function createReferenceOwnerContinuity(path: string): { root: Readonly<ReferenceOwnerRoot> | undefined; close(): void } {
-  let fd: number | undefined;
-  try {
-    const canonical = realpathSync(path);
-    fd = openSync(canonical, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
-    const stat = fstatSync(fd);
-    const root = Object.freeze({ path: canonical, device: stat.dev, inode: stat.ino, continuity: randomUUID() });
-    return { root, close() { if (fd !== undefined) { closeSync(fd); fd = undefined; } } };
-  } catch { if (fd !== undefined) closeSync(fd); return { root: undefined, close() {} }; }
-}
+export { createReferenceOwnerContinuity } from "./reference-owner-native-root.js";
+import type { ReferenceOwnerRoot } from "./reference-owner-native-root.js";
+export type { ReferenceOwnerRoot } from "./reference-owner-native-root.js";
 
 type GitHubSelector = Extract<TrustSelector, { kind: "github_owner" | "github_repository" }>;
 export interface ReferenceOwnerResolution {
@@ -82,7 +70,7 @@ export function resolveReferenceOwners(db: Database, root: Readonly<ReferenceOwn
       try {
         const identity = identitySchema.parse(JSON.parse(row.identity)), proof = proofSchema.parse(JSON.parse(row.proof));
         if (JSON.stringify(identity.selector) !== JSON.stringify(selector) || JSON.stringify(proof.githubIdentity) !== JSON.stringify(identity)
-          || proof.brain !== brain || proof.policyRoot.continuity !== root.continuity || proof.policyRoot.device !== root.device || proof.policyRoot.inode !== root.inode || BigInt(proof.publishedTrustRevision) !== BigInt(proof.expectedTrustRevision) + 1n
+          || proof.brain !== brain || proof.policyRoot.fsid !== root.native.fsid || proof.policyRoot.uuid !== root.native.uuid || BigInt(proof.publishedTrustRevision) !== BigInt(proof.expectedTrustRevision) + 1n
           || BigInt(proof.publishedTrustRevision) > BigInt(projection.revision)
           || identity.ownerId !== current.ownerId
           || (selector.kind === "github_owner" ? identity.private !== null || identity.ownerId !== selector.ownerId : typeof identity.private !== "boolean")) continue;

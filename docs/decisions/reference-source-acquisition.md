@@ -442,14 +442,17 @@ Approved-owner rule evaluation remains independently required.
 The host read service resolves each actual transport observation against the
 protected Markdown policy, its matching durable trust projection and Settings'
 operation-bound approved-owner evidence. The policy root's directory identity is
-captured for one host lifetime with an open directory descriptor, which prevents
-that directory inode from being reused while the host is live. Settings records
-the descriptor identity and an unguessable host continuity epoch at publication.
-The epoch lives in host memory and the protected UI database, never the
-agent-writable policy tree. A new host lifetime has a new epoch: retained
-approval remains historical and requires a new reviewed publication before owner
-qualification becomes available, even for unchanged policy bytes and directory.
-Legacy proofs without that continuity binding also withhold qualification. Links, replaced roots, invalid or incoherent
+captured with a no-follow directory descriptor and qualified against the native
+manager's filesystem ID and fixed live-brain subvolume UUID. The kernel Btrfs
+identity is read from that already held descriptor, including across native
+library startup waits; lexical replacement before qualification completes
+withholds the result. Holding the directory descriptor prevents live inode
+reuse, and each read still checks the named root against that descriptor's
+identity. Publication records filesystem ID and subvolume UUID from this host
+qualification. Ordinary restart requalifies the same native brain and preserves
+approval; recreation at the same path, inode and policy bytes has a different
+subvolume UUID and cannot inherit it. An unqualified host or legacy proof without
+that native binding withholds qualification. Links, replaced roots, invalid or incoherent
 policy/projection data and missing/malformed publication proof produce unavailable
 qualification; they do not prevent an otherwise authorized untrusted read.
 
@@ -461,8 +464,8 @@ Owner rules deliberately include future repositories currently in that same
 canonical namespace and stable owner ID. A validated policy permits at most one
 matching repository and one matching owner rule. Other policy edits do not erase
 a retained approval of the same selector, and bounded operation-receipt pruning
-or approving-login deletion does not erase the durable owner evidence. It does
-not prove continuity across host restart.
+or approving-login deletion does not erase the durable owner evidence. It
+is interpreted only against a freshly qualified native brain after restart.
 
 Resolution runs provisionally before recording and again inside the acquired
 SQLite writer transaction. The recorded operation ID, policy hash/revision,

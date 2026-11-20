@@ -1,3 +1,5 @@
+import { proveReferenceOwnerRoot } from "./reference-owner-root.js";
+import { resolveReferenceOwners } from "../../packages/ui-server/src/brain/reference-owner-resolution.js";
 import { createReferenceOwnerContinuity } from "../../packages/ui-server/src/brain/reference-owner-resolution.js";
 /** Actual managed Git/TLS acquisition, maintenance workers and native Btrfs publication. No read-trust exemption. */
 import { expect } from "bun:test";
@@ -44,7 +46,7 @@ export async function proveManagedReferenceSource(client: ReturnType<typeof crea
   const token = "odysseus-native-fixture-token", basic = `Basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`;
   let privateSource = false, revokeAtSeal = false;
   const requests: { host: string; authorization: string | null }[] = [];
-  const ownerContinuity = createReferenceOwnerContinuity(brain);
+  const ownerContinuity = await createReferenceOwnerContinuity(brain, await client.ready());
   const db = createUiDb(join(root, "ui.db"));
   const principal = createPrincipal(db, { authMethod: "password", label: "Penelope", ttlSeconds: 3600 });
   let grantId: string | null = null;
@@ -149,6 +151,10 @@ export async function proveManagedReferenceSource(client: ReturnType<typeof crea
         expect(JSON.parse(prepared.acquisition)).toMatchObject({ commit_id: commit, tree_id: tree, native_generation: record.root!.otransid });
         note("managed-source-native-host-read", { commit, tree, blob: evidence.blob, digest: evidence.digest, offset: 9, length: 13,
           actualMaintenanceWorker: true, hostToolEntry: true, identityObservation: evidence.identityObservation, ownerResolution: evidence.ownerResolution, delivery: prepared.delivery, backendEquivalence: false, readTrustExemption: false });
+        const restartedOwner = await createReferenceOwnerContinuity(brain, await client.ready());
+        try { expect(resolveReferenceOwners(db, restartedOwner.root, evidence.identityObservation).bindings,
+          "MANAGED_NATIVE_OWNER_APPROVAL_SURVIVES_ORDINARY_RESTART").toHaveLength(1); } finally { restartedOwner.close(); }
+        await proveReferenceOwnerRoot(brain, note);
         const currentPolicy = await settings.list(principal.id);
         const removal = await settings.prepare(principal.id, { version: 1, expectedTrustRevision: currentPolicy.revision,
           expectedPolicyHash: currentPolicy.policyHash, change: { action: "remove", ruleId: "ithaca-native" } });
