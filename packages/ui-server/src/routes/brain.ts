@@ -310,7 +310,10 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono<AppEnv> {
         await Promise.race([Promise.all([drained, stderrDone]), graceOver]);
         clearTimeout(grace);
         clearInterval(keepalive);
-        await reader.cancel().catch(() => {});
+        // Never awaited: a boundary's cancel can itself drain to EOF, keeping
+        // the writer gate until the descendant lets go (the next sync waits on
+        // that gate within its own launch bound), but not this reservation.
+        void reader.cancel().catch(() => {});
 
         // Rebuild voice keyterms cache after a successful sync.
         if (exitCode === 0) {

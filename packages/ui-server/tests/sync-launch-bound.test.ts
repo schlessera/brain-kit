@@ -141,7 +141,8 @@ describe("bounded sync launch (#4257)", () => {
       if (calls > 1) return fakeProcess([], 0);
       // A descendant holds stdout open after the sync itself exited.
       return {
-        stdout: new ReadableStream({ start(controller) { controller.enqueue(encoder.encode("Pulled Ithaca\n")); } }),
+        // Its cancel drains to EOF, as the host boundary's admission-retaining stream does.
+        stdout: new ReadableStream({ start(controller) { controller.enqueue(encoder.encode("Pulled Ithaca\n")); }, cancel: () => new Promise<void>(() => {}) }),
         stderr: new ReadableStream({ start(controller) { controller.close(); } }),
         exited: Promise.resolve(0), signalCode: null, kill() {},
       };
