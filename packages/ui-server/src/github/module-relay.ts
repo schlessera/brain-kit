@@ -158,7 +158,7 @@ export function graphqlQueryRepository(query: string, variables: unknown, operat
  * offers: the token's own scope bounds the rest (docs/modules.md).
  */
 const CROSS_REPOSITORY_FIELDS = new Set(["repository", "repositories", "repositoryOwner", "owner", "organization", "organizations", "user", "viewer",
-  "forks", "parent", "templateRepository", "headRepository", "baseRepository", "headRepositoryOwner", "search", "node", "resource", "topic",
+  "forks", "parent", "templateRepository", "headRepository", "baseRepository", "headRepositoryOwner", "search", "resource",
   "enterprise", "sponsorable", "pinnedItems", "starredRepositories", "watching", "repositoriesContributedTo", "topRepositories", "gists"]);
 
 /**

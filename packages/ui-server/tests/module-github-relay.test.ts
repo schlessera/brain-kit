@@ -174,6 +174,7 @@ test("graphqlQueryRepository reads literal and variable arguments, and refuses c
   expect(graphqlQueryRepository('query Closed($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { issue(number: $number) { timelineItems(last: 5, itemTypes: [CLOSED_EVENT]) { nodes { ... on ClosedEvent { createdAt actor { login } closer { __typename ... on PullRequest { number merged } } } } } } } }',
     { owner: "ithaca", name: "watchtower", number: 7 }), "NESTED_IN_REPOSITORY_ALLOWED").toBe("ithaca/watchtower");
   expect(graphqlQueryRepository('{ repository(owner: "ithaca", name: "watchtower") { id } }', {})).toBe("ithaca/watchtower");
+  expect(graphqlQueryRepository('{ repository(owner: "ithaca", name: "watchtower") { issues(first: 5) { edges { node { number } } } } }', {}), "CONNECTION_EDGES_ALLOWED").toBe("ithaca/watchtower");
   expect(graphqlQueryRepository('query {\n  repository(name: $n, owner: $o) { label(name: "bug") { id } }\n}', { o: "ithaca", n: "watchtower" })).toBe("ithaca/watchtower");
   expect(graphqlQueryRepository('# mutation { x }\nquery { repository(name: $n, owner: $o) { description } }', { o: "ithaca", n: "watchtower" }), "COMMENT_REFUSED").toBeNull();
   expect(graphqlQueryRepository('{ repository(owner: "ithaca", name: "watchtower") { ...Fields } } fragment Fields on Repository { id }', {})).toBeNull();

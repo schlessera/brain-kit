@@ -625,9 +625,11 @@ owner or account by name (`repository`, `repositories`, `owner`, `forks`,
 `parent`, `search`, `viewer`, `headRepository` and the like). That denylist
 cannot close every traversal GitHub's schema offers: an author's other issues,
 or a cross-referencing issue elsewhere, still answer with whatever the token
-can read, as the REST timeline does. The token's own scope is therefore the
-read boundary below the root, and the operator limits
-`BRAIN_UI_MODULE_GITHUB_TOKEN` to the repositories module jobs are granted. Every host-view worker, agent and
+can read, as the REST timeline does. By the maintainer's 2026-11-20 ruling on #4259,
+the token's own scope is the read boundary below the root. One
+`BRAIN_UI_MODULE_GITHUB_TOKEN` serves every module job, so the operator limits it
+to the union of the repositories module jobs are granted. REST-only reads and a
+token per module were not taken. Every host-view worker, agent and
 maintenance alike, also covers `/etc/environment`. A container writes the cron
 runner's environment there for pam_env, host-only credentials included, and a
 worker builds its environment explicitly and never reads that file.

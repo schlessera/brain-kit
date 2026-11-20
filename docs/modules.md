@@ -181,7 +181,8 @@ const issues = await github("/repos/ithaca/watchtower/issues?state=closed").then
   `repository(owner:, name:)` naming a granted repository. Fields that select
   another repository or owner by name are refused below the root. Other
   nested data (an author's other issues, a cross-reference) is bounded by the
-  token's own scope, so limit the token to the granted repositories.
+  token's own scope. One token serves every module job, so limit it to the
+  union of the repositories module jobs are granted.
 - **Writes:** only what the operator enables per repository in
   `BRAIN_UI_MODULE_GITHUB_WRITES`, as `https://github.com/<owner>/<repo>#<operation>`:
   `issue_comment` (`POST /repos/<r>/issues/<n>/comments` with `{ body }`) and
