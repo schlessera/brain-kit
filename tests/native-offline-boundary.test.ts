@@ -189,6 +189,61 @@ test("isolated plans preserve synthetic credential precedence and an unauthentic
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 });
 
+test("separate-UID plans trace the broker payload outside its hidden native audit view", async () => {
+  const scratch = mkdtempSync(join(tmpdir(), "odysseus-identity-plan-"));
+  try {
+    const result = await probe(`${imports}
+      import {writeFileSync} from "node:fs";
+      import {dirname} from "node:path";
+      import {nativeWorkerBoundary,nativeScriptedService} from ${JSON.stringify(join(ROOT, "scripts/test-native-guard.ts"))};
+      import {WORKER_IDENTITY_SUPERVISOR} from ${JSON.stringify(join(ROOT, "packages/ui-sdk/src/server/worker-identity-program.ts"))};
+      const spawnSync=Bun.spawnSync,which=Bun.which;
+      Bun.which=((command,options)=>command==="strace"?"/synthetic/strace":which(command,options));
+      Bun.spawnSync=((argv,options)=>["bwrap","strace"].includes(argv[0])?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
+      process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";
+      const leave=nativeScriptedService("http://127.0.0.1:1");
+      const launch={command:[${JSON.stringify(runtime)}],brainPath:${JSON.stringify(scratch)},env:{HOME:${JSON.stringify(scratch)},ANTHROPIC_API_KEY:"offline-fixture"},
+        argv:["/usr/bin/python3","-I","-S","-c",WORKER_IDENTITY_SUPERVISOR,JSON.stringify({argv:["bwrap","--ro-bind","/","/","--",${JSON.stringify(runtime)}],secret:"synthetic"})]};
+      const worker=nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify(launch)});
+      const outer=JSON.parse(worker.env.BRAIN_WORKER_LAUNCH).argv;
+      if(outer[0]!=="/usr/bin/python3")throw Error("tracer wrapped the coordinator instead of the payload");
+      const config=JSON.parse(outer[5]),args=config.argv,split=args.indexOf("--"),trace=args.slice(split+1);
+      if(trace[0]!=="/synthetic/strace")throw Error("native broker payload was not traced");
+      const log=trace[trace.indexOf("-o")+1],directory=dirname(log);
+      const inner=trace.slice(trace.indexOf("--")+1);
+      if(!inner.some((arg,i)=>arg==="--tmpfs"&&inner[i+1]===directory)||!inner.includes("--unshare-pid")||!inner.includes("--unshare-net"))throw Error("native child can see audit storage or tracer PID");
+      if(args.slice(0,split).some((arg,i)=>arg==="--ro-bind"&&args[i+1]==="/"))throw Error("host root remained mounted");
+      if(config.secret!=="synthetic")throw Error("identity authority changed");
+      writeFileSync(log,${JSON.stringify(`1 execve(${JSON.stringify(runtime)}, [], 0x1) = 0`)});worker.dispose();leave();`, scratch);
+    expect(result.code, result.output).toBe(0);
+  } finally { rmSync(scratch, { recursive: true, force: true }); }
+});
+
+test("the SDK spawn hook retains its scripted authority when invoked from another async scope", async () => {
+  const scratch = mkdtempSync(join(tmpdir(), "odysseus-sdk-scope-"));
+  const intended = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { return new Response("Ithaca"); } });
+  const other = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { return new Response("Cyclops"); } });
+  try {
+    const result = await probe(`${imports}
+      import {writeFileSync} from "node:fs";
+      import {nativeScriptedQuery,nativeScriptedService,nativeWorkerBoundary} from ${JSON.stringify(join(ROOT, "scripts/test-native-guard.ts"))};
+      const spawnSync=Bun.spawnSync,which=Bun.which;
+      Bun.which=((command,options)=>command==="strace"?"/synthetic/strace":which(command,options));
+      Bun.spawnSync=((argv,options)=>["bwrap","strace"].includes(argv[0])?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
+      process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";
+      let hook,worker;
+      const query=nativeScriptedQuery(input=>{hook=input.options.spawnClaudeCodeProcess;return {};},${JSON.stringify(intended.url.origin)});
+      query({prompt:"fixture",options:{spawnClaudeCodeProcess(){worker=nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify({command:[${JSON.stringify(runtime)}],env:{HOME:${JSON.stringify(scratch)}},brainPath:${JSON.stringify(scratch)},argv:["bwrap","--",${JSON.stringify(runtime)}]})});return {};}}});
+      const leave=nativeScriptedService(${JSON.stringify(other.url.origin)});hook({});leave();
+      const argv=JSON.parse(worker.env.BRAIN_WORKER_LAUNCH).argv;
+      const mount=argv.indexOf("/tmp/native-relay"),directory=argv[mount-1];
+      const reply=await fetch("http://localhost/v1/messages",{unix:directory+"/relay.sock"});
+      if(await reply.text()!=="Ithaca")throw Error("SDK spawn lost its scripted authority");
+      writeFileSync(argv[argv.indexOf("-o")+1],${JSON.stringify(`1 execve(${JSON.stringify(runtime)}, [], 0x1) = 0`)});worker.dispose();`, scratch);
+    expect(result.code, result.output).toBe(0);
+  } finally { intended.stop(true); other.stop(true); rmSync(scratch, { recursive: true, force: true }); }
+});
+
 test("an arbitrary same-user Unix relay is refused before namespace setup", async () => {
   const scratch = mkdtempSync(join(tmpdir(), "odysseus-unowned-relay-"));
   const socket = join(scratch, "relay.sock");

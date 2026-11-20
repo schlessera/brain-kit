@@ -1,4 +1,4 @@
-import { nativeScriptedService } from "./test-native-guard";
+import { nativeScriptedService, nativeScriptedQuery } from "./test-native-guard";
 // #1238: actual bundled runtime, production model assembly, fixture inference.
 // Run inside a network namespace with only loopback. No real credentials.
 import assert from "node:assert/strict";
@@ -87,7 +87,7 @@ try {
     }
     const frames: Array<{ type: string; outcome?: string; message?: string }> = [];
     worker = createMeasurementWorkerFixture(brainPath, root);
-    const backend = createClaudeBackend({ brainPath, maintenance: worker.maintenance, profiles, queryFn: observedQuery, allowedTools: [], log: () => {} });
+    const backend = createClaudeBackend({ brainPath, maintenance: worker.maintenance, profiles, queryFn: nativeScriptedQuery(observedQuery, server.url.origin), allowedTools: [], log: () => {} });
     await backend.startTurn({ ...worker.request, profileId: model, prompt: "Reply with the fictional fixture sentence.", signal: controller.signal,
       bridge: { emit: frame => frames.push(frame), requestPermission: async () => ({ behavior: "deny", message: "No tools in this measurement." }) } });
     assert.equal(frames.at(-1)?.outcome, "success", JSON.stringify(frames.at(-1)));

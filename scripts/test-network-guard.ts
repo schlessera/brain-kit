@@ -179,6 +179,7 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
         args[0] = Array.isArray(first) ? boundary.argv : { ...first, cmd: boundary.argv };
       }
       const workerBoundary = boundary ? undefined : nativeWorkerBoundary(testGitEnvironment({ ...options.env ?? process.env,
+        ...(/^[0-9a-f]{40}$/.test(process.env.BRAIN_NATIVE_TEST_HEAD ?? "") ? { BRAIN_NATIVE_TEST_HEAD: process.env.BRAIN_NATIVE_TEST_HEAD } : {}),
         ...(process.env.GITHUB_ACTIONS === "true" ? { GITHUB_ACTIONS: "true", RUNNER_ENVIRONMENT: process.env.RUNNER_ENVIRONMENT } : {}) }));
       const inherited = inheritWorkspaceLease({ ...options, env: boundary?.env ?? workerBoundary!.env }, defaultStderr, pipeOnly);
       if (Array.isArray(first)) args[1] = inherited;

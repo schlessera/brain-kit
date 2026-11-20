@@ -9,6 +9,7 @@ import { ownedPruneVariant, ownedPruneDiagnosticSelected, bootPruneCaptureVarian
 import { dbRepeatStageVariant } from "./native-proof/db-repeat-variant.js";
 import { NATIVE_PROOF_IMAGE } from "./prove-native-host.js";
 import { WORKER_FILESYSTEM_FILTER_PROGRAM } from "../packages/ui-sdk/src/server/worker-filesystem-filter.js";
+import { nativeGuardEnvironment } from "./native-proof/guard-environment.ts";
 
 /** Fixed, diagnostic-only source variant; never changes the checked-out product files. */
 export function collectorInventoryVariant(collectorSource: string, hostSource: string) {
@@ -67,7 +68,7 @@ process.exitCode = code;
 
 export function workerIdentityDockerArgs(source: string, artifact: string, container: string, image: string, apparmor: boolean, variants: { db: boolean; boot: boolean; prune: boolean; inventory: boolean; scratch: boolean }, bun: string): string[] {
   const capabilities = ["SYS_ADMIN", "SYS_CHROOT", "MKNOD", "DAC_OVERRIDE", "FOWNER", "KILL", "CHOWN", "SETUID", "SETGID"];
-  return ["docker", "run", "--name", container, "--rm", "--pull=never", "--network=none", "--cap-drop=ALL", ...capabilities.map(cap => `--cap-add=${cap}`),
+  return ["docker", "run", "--name", container, "--rm", "--pull=never", "--network=none", ...nativeGuardEnvironment(), "--cap-drop=ALL", ...capabilities.map(cap => `--cap-add=${cap}`),
     `--security-opt=seccomp=${join(source, "scripts/native-proof/seccomp.json")}`,
     ...(apparmor ? ["--security-opt=apparmor=brain-kit-native-proof"] : []), "--security-opt=systempaths=unconfined", "--device=/dev/loop-control", "--device-cgroup-rule=b 7:1790 rwm",
     "--mount", `type=bind,source=${dirname(artifact)},target=/proof-runs`,

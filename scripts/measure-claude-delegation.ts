@@ -1,4 +1,4 @@
-import { nativeScriptedService } from "./test-native-guard.ts";
+import { nativeScriptedService, nativeScriptedQuery } from "./test-native-guard.ts";
 // #1213: production enforcement and foreground rewrite inherited by a real subagent.
 // Run with only loopback enabled. All credentials and commands are controlled fixtures.
 import assert from "node:assert/strict";
@@ -101,7 +101,7 @@ nativeScriptedService(server.url.origin);
     try {
         const profile: InferenceProfile = { id: "fixture", label: "Fixture", model: "claude-sonnet-5-5", billing: "api", requiredEnvKeys: [], buildEnv: () => ({ ...CLEARED_API_CREDENTIALS,
                 ANTHROPIC_BASE_URL: `http://127.0.0.1:${server.port}`, ANTHROPIC_API_KEY: "offline-fixture", CLAUDE_CODE_OAUTH_TOKEN: "", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" }) };
-        const backend = createClaudeBackend({ brainPath: cwd, maintenance: worker.maintenance, profiles: [profile], allowedTools: allowChild ? ["Agent", "Bash"] : ["Agent"], queryFn: observed, log: () => { } });
+        const backend = createClaudeBackend({ brainPath: cwd, maintenance: worker.maintenance, profiles: [profile], allowedTools: allowChild ? ["Agent", "Bash"] : ["Agent"], queryFn: nativeScriptedQuery(observed, server.url.origin), log: () => { } });
         await backend.startTurn({ ...worker.request, prompt: "Delegate the controlled fixture call.", profileId: "fixture", signal: controller.signal, enforceAllowedTools: true,
             bridge: { emit: () => { }, requestPermission: async (request) => { approvals.push(request); return { behavior: "deny", message: "delegated-fixture-denied" }; } } });
         assert.equal(mainSent, true, "the main CLI must execute the planned Agent call");

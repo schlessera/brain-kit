@@ -1,12 +1,15 @@
 /** Test-only OS boundary for installed native Claude processes (#4313). */
-import { closeSync, existsSync, lstatSync, openSync, readFileSync, readSync, readdirSync, statSync, mkdtempSync, readlinkSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, lstatSync, openSync, readFileSync, readSync, readdirSync, statSync, mkdtempSync, readlinkSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
+import type { query as sdkQuery } from "@anthropic-ai/claude-agent-sdk";
 
 const ROOT = resolve(import.meta.dir, "..");
+// Fixed Git metadata only. Discovery refusal must not recurse through admission.
+const metadataSpawnSync = Bun.spawnSync.bind(Bun);
 const SYSTEM = ["/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32"];
 const within = (root: string, path: string) => path === root || path.startsWith(`${root}/`);
 let qualified = false;
@@ -21,9 +24,13 @@ export function assertNoNativeRefusals(): void {
 let head: string | undefined;
 function receiptHead(): string {
   if (head) return head;
-  const result = Bun.spawnSync(["git", "rev-parse", "HEAD"], { cwd: ROOT, env: { PATH: "/usr/bin:/bin", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" }, stdout: "pipe", stderr: "pipe" });
-  const value = result.stdout.toString().trim();
-  return head = result.exitCode === 0 && /^[0-9a-f]{40}$/.test(value) ? value : "unavailable";
+  let value = "";
+  try {
+    const result = metadataSpawnSync(["git", "rev-parse", "HEAD"], { cwd: ROOT, env: { PATH: "/usr/bin:/bin", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" }, stdout: "pipe", stderr: "pipe" });
+    if (result.exitCode === 0) value = result.stdout.toString().trim();
+  } catch { /* Containers carry the exact checkout identity without Git metadata. */ }
+  return head = /^[0-9a-f]{40}$/.test(value) ? value
+    : /^[0-9a-f]{40}$/.test(process.env.BRAIN_NATIVE_TEST_HEAD ?? "") ? process.env.BRAIN_NATIVE_TEST_HEAD! : "unavailable";
 }
 
 // Resolve from the installed SDK, exactly as its native package lookup does.
@@ -301,6 +308,18 @@ export function nativeScriptedService(origin: string): () => void {
   return () => scriptedRoute.enterWith(previous);
 }
 
+/** Keep fixture authority at the SDK's existing spawn hook, across its async work. */
+export function nativeScriptedQuery(query: typeof sdkQuery, origin: string): typeof sdkQuery {
+  return input => {
+    const spawn = input.options?.spawnClaudeCodeProcess;
+    if (!spawn) return query(input);
+    return query({ ...input, options: { ...input.options, spawnClaudeCodeProcess: options => {
+      const leave = nativeScriptedService(origin);
+      try { return spawn(options); } finally { leave(); }
+    } } });
+  };
+}
+
 const relayForwarding = new AsyncLocalStorage<Readonly<{ origin: string }>>();
 const ownedRelaySockets = new Map<string, { origin: string; dev: bigint; ino: bigint }>();
 
@@ -414,31 +433,64 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
   if (!launch?.command?.[0] || !isNativeClaude(launch.command[0], launch.command.slice(1), { cwd: launch.brainPath, env: launch.env })) return unchanged;
   const argv = launch.argv;
   if (!argv) refuse("native worker lacks the OS launcher");
-  const bwrap = argv.findIndex(value => basename(value) === "bwrap");
+  let workerArgv = argv;
+  let supervisor: { argv: string[] } | undefined;
+  if (argv.length === 6 && argv[1] === "-I" && argv[2] === "-S" && argv[3] === "-c") {
+    // This concrete launcher hands off to another UID; tracing its Python
+    // coordinator cannot observe the broker's independently launched payload.
+    try {
+      const { WORKER_IDENTITY_SUPERVISOR } = createRequire(import.meta.url)("../packages/ui-sdk/src/server/worker-identity-program.ts") as { WORKER_IDENTITY_SUPERVISOR: string };
+      if (argv[4] !== WORKER_IDENTITY_SUPERVISOR || realpathSync(argv[0]!) !== realpathSync("/usr/bin/python3")) refuse("unrecognized native identity launcher");
+      supervisor = JSON.parse(argv[5]!);
+    } catch { refuse("invalid native identity launcher"); }
+    if (!supervisor || !Array.isArray(supervisor.argv) || !supervisor.argv.every(value => typeof value === "string")) refuse("invalid native identity launcher");
+    workerArgv = supervisor.argv;
+  }
+  const bwrap = workerArgv.findIndex(value => basename(value) === "bwrap");
   if (bwrap < 0) refuse("native worker lacks the OS launcher");
   // Even ordinary test workers use a private network and a single bridge.
   // Do not rely on SDK options or the production profile to establish this.
   const socket = launch.env?.ANTHROPIC_UNIX_SOCKET;
   const route = scriptedRoute.getStore();
-  const ownedOrigin = socket && admittedRelay(argv, socket);
+  const ownedOrigin = socket && admittedRelay(workerArgv, socket);
   if (socket && !ownedOrigin) refuse("pre-existing native relay is not guard-owned");
   if (ownedOrigin && (!route || normalizedOrigin(ownedOrigin) !== normalizedOrigin(route.origin))) refuse("native relay did not match scripted authority");
   qualify();
   const bridge = startNativeTestRelay(ownedOrigin ?? route?.origin ?? launch.env?.ANTHROPIC_BASE_URL);
   try {
-    for (let i = bwrap + 1; i < argv.indexOf("--", bwrap); i++) {
-      if (argv[i] === "--ro-bind" && argv[i + 1] === "/" && argv[i + 2] === "/") argv.splice(i--, 3);
+    for (let i = bwrap + 1; i < workerArgv.indexOf("--", bwrap); i++) {
+      if (workerArgv[i] === "--ro-bind" && workerArgv[i + 1] === "/" && workerArgv[i + 2] === "/") workerArgv.splice(i--, 3);
     }
-    argv.splice(bwrap + 1, 0, "--unshare-net", ...systemMounts(), ...testRuntimeMounts(), "--ro-bind", process.execPath, process.execPath);
+    workerArgv.splice(bwrap + 1, 0, "--unshare-net", ...systemMounts(), ...testRuntimeMounts(), "--ro-bind", process.execPath, process.execPath);
     const pinned = { ANTHROPIC_BASE_URL: "http://localhost", ANTHROPIC_UNIX_SOCKET: socket && ownedOrigin ? socket : "/tmp/native-relay/relay.sock",
       ANTHROPIC_API_KEY: "", ANTHROPIC_AUTH_TOKEN: "", CLAUDE_CODE_OAUTH_TOKEN: "",
       ...(ownedOrigin ? relayCredentialPlaceholders(launch.env ?? {}) : syntheticCredentials(launch.env ?? {})) };
-    const separator = argv.indexOf("--", bwrap);
-    argv.splice(separator, 0, "--ro-bind", bridge.directory, "/tmp/native-relay",
+    const separator = workerArgv.indexOf("--", bwrap);
+    workerArgv.splice(separator, 0, "--ro-bind", bridge.directory, "/tmp/native-relay",
       "--ro-bind", join(bridge.directory, "passwd"), "/etc/passwd", "--ro-bind", join(bridge.directory, "group"), "/etc/group",
       ...Object.entries(pinned).flatMap(([key, value]) => ["--setenv", key, value]));
-    const audited = auditNativeLaunch(argv, expectedNativeExec(launch.command[0], launch.command.slice(1), { cwd: launch.brainPath, env: launch.env }), bridge.dispose);
-    launch.argv = audited.argv;
+    const expected = expectedNativeExec(launch.command[0], launch.command.slice(1), { cwd: launch.brainPath, env: launch.env });
+    let audited: ReturnType<typeof auditNativeLaunch>;
+    if (supervisor) {
+      const payload = workerArgv.splice(workerArgv.indexOf("--", bwrap) + 1);
+      // The tracer runs after the UID handoff, outside the native PID and mount
+      // view. The inner boundary preserves fixture writable mounts but hides
+      // the audit storage and drops namespace capabilities from descendants.
+      audited = auditNativeLaunch([bwrapExecutable, "--die-with-parent", "--unshare-user", "--unshare-pid", "--unshare-net", "--cap-drop", "ALL",
+        "--bind", "/", "/", "--proc", "/proc", "--tmpfs", "AUDIT_STORAGE", "--", ...payload], expected, bridge.dispose);
+      const log = audited.argv[audited.argv.indexOf("-o") + 1]!, directory = dirname(log);
+      audited.argv[audited.argv.indexOf("AUDIT_STORAGE")] = directory;
+      // Only the outer tracer sees this mount; the native process sees tmpfs.
+      chmodSync(directory, 0o777); chmodSync(log, 0o666);
+      chmodSync(bridge.directory, 0o755); chmodSync(join(bridge.directory, "relay.sock"), 0o666);
+      workerArgv.splice(workerArgv.indexOf("--", bwrap), 0, "--bind", directory, directory);
+      workerArgv.push(...audited.argv);
+      argv[5] = JSON.stringify(supervisor);
+      launch.argv = argv;
+    } else {
+      audited = auditNativeLaunch(workerArgv, expected, bridge.dispose);
+      launch.argv = audited.argv;
+    }
     return { env: { ...env, BRAIN_WORKER_LAUNCH: JSON.stringify(launch) }, dispose: audited.dispose };
   } catch (error) { bridge.dispose(); throw error; }
 }

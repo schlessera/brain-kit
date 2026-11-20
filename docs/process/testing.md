@@ -1147,6 +1147,11 @@ Restricted fixture code declares its scripted origin with
 and pins all handler fetch/TCP/Unix transports to it. Socket ownership alone
 is never admission: a pre-existing, unregistered relay refuses. SDK runtime
 discovery includes every workspace owner and refuses unresolved declared SDKs.
+For the existing separate-UID identity supervisor, the guard transforms its
+concrete nested launcher. Tracing starts after the UID handoff and stays outside
+an inner native mount/PID view that hides the audit storage. Offline proof
+containers inherit hosted-runner qualification only from an actual hosted run,
+plus the exact checkout head for receipts when Git metadata is not mounted.
 No production authentication or managed-policy behavior changes.
 
 `tests/native-offline-boundary.test.ts` proves local refusal with harmless

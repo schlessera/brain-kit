@@ -1,3 +1,4 @@
+import { query } from "@anthropic-ai/claude-agent-sdk";
 import { defaultIdentityPhase } from "./default-identity-phases.js";
 import { installDbRepeatObservation, repeatWarmIndex } from "./db-repeat-observation.js";
 import { installBootPruneCapture } from "./boot-prune-capture.js";
@@ -13,6 +14,7 @@ import { createPrincipal } from "../../../ui-server/src/db/principals.js";
 import { createClaudeBackend } from "../../../ui-backend-claude/src/backend.js";
 import { nativeModelReply } from "../../../ui-backend-claude/tests/helpers/native-model-reply.js";
 import { serializeSigned } from "hono/utils/cookie";
+import { nativeScriptedService, nativeScriptedQuery } from "../../../../scripts/test-native-guard.ts";
 
 const sharedGit = new URL(import.meta.url).searchParams.has("shared-git");
 const bootPruneCapture = sharedGit && process.argv.includes("--boot-prune-capture");
@@ -36,13 +38,14 @@ const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request
   requests.push({ model: body.model, history: body.messages.length, apiCredential: request.headers.get("x-api-key") === "odysseus-fictional-api-key" });
   return nativeModelReply();
 } });
-const backend = createClaudeBackend({ brainPath: brain, profiles: [{ id: "odysseus-haiku", label: "Odysseus Haiku", billing: "api",
+const backend = createClaudeBackend({ brainPath: brain, queryFn: nativeScriptedQuery(query, provider.url.origin), profiles: [{ id: "odysseus-haiku", label: "Odysseus Haiku", billing: "api",
   requiredEnvKeys: [], model: "claude-haiku-4-5", buildEnv: () => ({ ANTHROPIC_BASE_URL: provider.url.origin,
     ANTHROPIC_API_KEY: "odysseus-fictional-api-key", HOME: home, CLAUDE_CONFIG_DIR: config, PATH: "/usr/local/bin:/usr/bin:/bin",
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", DISABLE_AUTOUPDATER: "1" }) }], log() {} });
 const backendProfiles: Array<string | undefined> = [];
 const admissionReads: Array<ReturnType<NonNullable<Parameters<typeof backend.startTurn>[0]["bridge"]["admissionSafety"]>["read"]>> = [];
 const observedBackend = { ...backend, startTurn(request: Parameters<typeof backend.startTurn>[0]) {
+  nativeScriptedService(provider.url.origin);
   backendProfiles.push(request.workerSandbox?.profile);
   // Observe the real host gate synchronously, returning each original read
   // unchanged. Native refusals otherwise collapse to a generic HTTP 403.

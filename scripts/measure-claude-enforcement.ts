@@ -1,3 +1,4 @@
+import { nativeScriptedQuery } from "./test-native-guard.ts";
 // #901: real production wiring, real CLI, scripted loopback inference.
 // Run in the same loopback-only network namespace as measure-claude-runtime.
 // The query wrapper observes existing handlers and messages; it forwards their
@@ -114,7 +115,7 @@ try {
         const profile: InferenceProfile = { id: "probe", label: "Probe", model: "claude-sonnet-4-6", billing: "api", requiredEnvKeys: [],
           buildEnv: () => ({ ...CLEARED_API_CREDENTIALS, ANTHROPIC_BASE_URL: model.url, ANTHROPIC_API_KEY: "offline-fixture", CLAUDE_CODE_OAUTH_TOKEN: "",
             CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" }) };
-        const backend = createClaudeBackend({ brainPath: cwd, maintenance: worker.maintenance, profiles: [profile], allowedTools: arm === "allowlisted" ? ["Bash"] : [], queryFn: observedQuery, log: () => {} });
+        const backend = createClaudeBackend({ brainPath: cwd, maintenance: worker.maintenance, profiles: [profile], allowedTools: arm === "allowlisted" ? ["Bash"] : [], queryFn: nativeScriptedQuery(observedQuery, model.url), log: () => {} });
         await backend.startTurn({ ...worker.request, prompt: "Run the planned tool call.", profileId: "probe", signal: controller.signal, enforceAllowedTools: scenario !== "manual-default",
           bridge: { emit: () => {}, requestPermission: async (request) => {
             requests.push(request);

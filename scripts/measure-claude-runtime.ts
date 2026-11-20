@@ -1,4 +1,4 @@
-import { nativeScriptedService } from "./test-native-guard.ts";
+import { nativeScriptedService, nativeScriptedQuery } from "./test-native-guard.ts";
 // Re-measures the Claude Code runtime behaviours the permission design rests
 // on, against whatever SDK and CLI this workspace installs (#209,
 // docs/decisions/claude-code-runtime.md, "Re-checking a measured behaviour
@@ -935,6 +935,7 @@ async function credentialRows(model: ReturnType<typeof scriptedModel>): Promise<
   try {
     const backend = createClaudeBackend({
       maintenance: worker.maintenance,
+      queryFn: nativeScriptedQuery(query, model.url),
       brainPath: sc.cwd,
       profiles: defineProfiles([{ id: "claude", label: "Claude", source: "builtin", baseUrl: model.url }]),
       log: () => {},
