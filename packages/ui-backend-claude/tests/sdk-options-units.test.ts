@@ -86,6 +86,7 @@ describe("assemblePromptContext", () => {
       const b = assemblePromptContext({ brainPath: brain }, req, wide, sandbox, "SANDBOX NOTE");
       // The append is the same whatever the roster: it must not move the cached prefix.
       expect(a.append).toBe(b.append);
+      expect(a.append, "CLAUDE_FIXED_APPEND_BATCHES_INDEPENDENT_READS").toContain("Batch your");
       expect(a.append).not.toContain("SANDBOX NOTE");
       expect(a.owned?.text).toContain("SANDBOX NOTE");
       expect(a.context).toBeDefined();

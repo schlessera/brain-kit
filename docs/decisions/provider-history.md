@@ -20,10 +20,13 @@ brain-kit from doing that, and the guard that checks it.
 turn N+1.** brain-kit may only add to the end of the conversation, never change
 what is already in it. Concretely, across the turns of one session:
 
-1. **Tools stay the same.** The same tool definitions, with the same schemas and
-   in the same order, on every turn. A posture, profile or capability that
-   should not use a tool is enforced in the permission hooks, not by leaving
-   the tool out.
+1. **Earlier tools stay the same.** The same tool definitions, with the same
+   schemas and in the same order, remain the prefix on every request. On first
+   discovery of a deferred tool, the runtime may append its definition after
+   every definition already sent. Nothing may be removed, edited or reordered,
+   including definitions discovered earlier. A posture, profile or capability
+   that should not use a tool is enforced in the permission hooks, not by
+   leaving the tool out.
 2. **The system prompt stays the same.** Anything brain-kit puts into the system
    prompt or its append is fixed for the life of the session. Nothing in it may
    depend on the time, the device, the repository's state, budgets, the sandbox,
@@ -100,7 +103,9 @@ runs real consecutive turns through the installed SDK against a local fake
 Messages endpoint. It records the exact request bodies and asserts the rule
 directly:
 
-- `tools` and `system` are byte-identical between turns of one session;
+- `system` is byte-identical between turns of one session;
+- `tools` is unchanged, or the complete previous array followed by newly
+  discovered definitions, with earlier definitions and order byte-identical;
 - every request's `messages` extend the previous request's `messages` plus that
   request's answer;
 - between the turns, the test changes everything that legitimately changes in
@@ -172,3 +177,28 @@ than its `test.failing` list, needs a maintainer ruling on its issue first.
 - **Rely on the provider's cache diagnostics in production.** They find a break
   after it has been paid for, and only on providers that offer them. The guard
   finds it before merge, keyless, for every backend.
+
+## 2026-11-20 — Append-only deferred discovery (#4306)
+
+The maintainer approved appending a deferred tool's definition on its first
+native discovery. This accepts one tools-block cache miss per first discovery;
+it does not permit sorted insertion, replacing a definition or rebuilding the
+roster. The system prompt and every earlier message remain byte-identical.
+
+The companion guard `packages/ui-backend-claude/tests/provider-request-shape.test.ts`
+captures SDK assembly and the pinned runtime through the Unix relay, including
+first discovery and resume. Qualification found two unmet rules: CLI 2.1.293
+inserts the discovered definition into the sorted stdio MCP group, and its
+direct-runtime path rewrites system-role message content from a block array to
+a string. Neither is normalized away in the history guard. The production
+relay therefore does not pin tool search on for this runtime. The qualification
+evidence and decision questions belong to #4306 and #4310; the companion test
+asserts the independently qualified assembly and transport behavior.
+Worker boundary proof remains in the original guard; the companion launches
+the runtime directly inside an offline namespace and makes no worker-boundary
+claim.
+
+New hosted sessions retain their native disallow selection in private prompt
+context storage. A native session that predates that snapshot starts from the
+legacy selection and retains it on later resumes. The retained system append
+continues to protect earlier wording when a new deployment adds a brief.

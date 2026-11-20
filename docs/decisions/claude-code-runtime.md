@@ -1511,3 +1511,51 @@ managed fixture. Fixture SQLite observations are not a new server governance
 event contract. Automatic server selection, canonical connection events,
 approved custom-origin positives, Pi enforcement, command admission and the
 remaining socket/credential cutover stay outside this prepared selection.
+
+## 2026-11-20 — Session request shape and relay qualification (#4306–#4308, #4310)
+
+SDK 0.3.293 bundles CLI 2.1.293 (the installed SDK package and its manifest,
+matching `bun.lock`). The offline request-shape probe uses real core MCP
+registrations, the production SDK assembly and permission hooks, the Unix
+inference relay and a fake upstream. It launches the runtime directly within
+an isolated network namespace; it does not qualify the worker boundary.
+
+The relay's local base URL disables native tool search unless explicitly
+pinned. The pin must be limited to a selected first-party upstream and must
+also enter flag settings, whose env overlay wins over project settings.
+Successful discovery on this pair inserts a definition into the sorted MCP
+group; it does not satisfy the approved append-only tools rule. No production
+pin is applied. D44 and [provider history](provider-history.md) record the
+metadata and exact prefix rule.
+
+New hosted sessions remove these process-local built-ins and retain the
+selection in host prompt-context storage for every later resume:
+
+| Built-in | Hosted reason |
+| --- | --- |
+| `CronCreate`, `CronDelete`, `CronList` | Native jobs belong to a per-turn process; the host owns durable schedules. |
+| `ScheduleWakeup` | Native wakeups end with that process. |
+| `RemoteTrigger` | The pinned runtime reports that the tool is disabled. |
+| `SendMessage` | The maintainer chose removal: hosted Agent calls are foreground, so no live background agent remains to continue. |
+| `ListAgents` | No live background worker remains to address after the foreground Agent call. |
+| `NotebookEdit` | Hosted strict writes use host tools; there is no notebook content domain. |
+
+Reference tools remain registered and retain their existing scoped refusals.
+A legacy session without a selection snapshot uses the legacy disallow list;
+removing built-ins from a deployment-wide list on resume would rewrite its
+roster. Plan/worktree modes, Workflow and ReportFindings remain available:
+the direct-runtime probe does not establish that each is unusable inside the
+hosted boundary, and working built-ins are not removed on assumption.
+
+New interactive appends opt into the existing independent-call batching brief.
+The append is retained once per session, so an older session keeps its wording
+in both the SDK input and the provider request. This is request-assembly proof,
+not evidence of fewer model steps; that requires a paid A/B.
+
+Fast-mode qualification sets flag-tier `settings.fastMode=true`. On this pair
+the local relay still emits `speed: "fast"` for fake API credentials and the
+OAuth placeholder, while the native status reports `on`; omitting the setting
+reports `sdk_opt_in_required`. The explicit disable reports `disabled_by_env`
+and omits wire speed. These are keyless request-assembly observations, not
+account entitlement, pricing, throughput or spend evidence. No session speed
+control or billing change is introduced by this qualification.

@@ -1,3 +1,4 @@
+import { HOST_UNUSED_BUILTINS, retainSessionRequestShape } from "./session-request-shape.js";
 import { AGENT_INFERENCE_CREDENTIAL_ENV, INFERENCE_PLACEHOLDER, WORKER_EGRESS_DIR, workerProviderCredentials } from "@schlessera/brain-ui-sdk/internal";
 import { promptPrefixFingerprint } from "@schlessera/brain-ui-sdk/internal";
 import { createClaudeTitleUsageCollector } from "./title-usage.js";
@@ -511,6 +512,10 @@ function assembleClaudeSdkTurn(
   // bodies also return model-readable errors instead of acquiring authority.
   let assembledTools: unknown[] | undefined;
   sdkOptions.mcpServers = { "brain-ui": turnMcpServer(backend, req, roster, turnTemp, tools => { assembledTools = tools; }) };
+  if (context) {
+    sdkOptions.disallowedTools = retainSessionRequestShape(backend.brainPath, contextId, req.sessionId !== undefined,
+      [...sdkOptions.disallowedTools ?? [], ...(hosted ? HOST_UNUSED_BUILTINS : [])], sdkOptions.disallowedTools ?? []);
+  }
   sdkOptions.env = childEnv;
   applyTurnSettings(sdkOptions, envelope, subscriptionOnly, inferenceEnv);
   if (!req.autonomous) reportPromptPrefix(req, sdkOptions, assembledTools);
@@ -695,6 +700,7 @@ function buildAppend(
   return (
     options.systemPromptAppend ??
     buildSystemPromptAppend({
+      execution: { parallelToolCalls: true },
       ...(client ? { client } : {}),
       ...(turnBudgetMs ? { turnBudgetMs } : {}),
       // The host GitHub tools (#3797), in every interactive roster.

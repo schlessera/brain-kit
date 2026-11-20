@@ -708,3 +708,9 @@ test("starts with degraded context for invalid config and disables writes", asyn
     cleanup(invalidRoot);
   }
 });
+
+test("the five common brain reads stay inline under native tool search (#4306)", async () => {
+  const { tools } = await client.listTools();
+  const inline = tools.filter(tool => tool._meta?.["anthropic/alwaysLoad"] === true).map(tool => tool.name).sort();
+  expect(inline, "CORE_READS_ALWAYS_LOADED").toEqual(["brain_context", "brain_list", "brain_read", "brain_read_many", "brain_search"]);
+});

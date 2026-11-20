@@ -41,6 +41,7 @@ afterEach(() => { testHome?.dispose(); testHome = undefined; });
  * #3613 adds reference_read to the four interactive rosters and retained
  * briefs, and to the allowlist where reference access is available. The two
  * autonomous modes and all unrelated options remain byte-identical.
+ * #4307/#4308 re-record new hosted selections and the fixed batching brief.
  * Regenerate it only for a reviewed, intended change to
  * the roster, allowlist or system prompt, and say so in the PR.
  */

@@ -405,3 +405,20 @@ startup wait set — is now the `d44-always-load-reaches-the-model` case of
 `MEASURED_RUNTIME` names. The latency and rate halves still need a live
 model: `bun scripts/measure-show-block.ts --both-arms` runs both load modes in
 one invocation and records the Claude Code version of every turn.
+
+## 2026-11-20 — Core reads and relayed discovery (#4306)
+
+The five common brain reads (`brain_search`, `brain_context`, `brain_read`,
+`brain_list`, `brain_read_many`) carry `_meta["anthropic/alwaysLoad"] = true`,
+just as the bridge tools do. They are needed without paying a discovery step.
+Other core definitions remain eligible for native deferral.
+
+The relay replaces the runtime's first-party base URL with a local transport.
+Features gated on that URL need explicit qualification and pins, both in the
+inference environment and the flag-settings overlay, limited to a selected
+first-party upstream. SDK 0.3.293 / CLI 2.1.293 demonstrates deferral with
+`ENABLE_TOOL_SEARCH=true`, including a successful tool-reference round trip.
+Its discovery inserts definitions into a sorted group rather than appending
+them, so this runtime cannot receive that production pin under the approved
+[provider-history rule](../provider-history.md#2026-11-20--append-only-deferred-discovery-4306).
+The keyless qualification guards that mismatch; gateway profiles gain no pin.

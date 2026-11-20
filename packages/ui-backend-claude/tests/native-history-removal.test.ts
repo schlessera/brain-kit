@@ -45,6 +45,7 @@ function metadata(id: string, text: string) {
   const replay = sessionReplayLocation(config, brain, id), prompt = sessionPromptContextLocation(config, brain, id);
   mkdirSync(replay.dir, { recursive: true }); mkdirSync(prompt.dir, { recursive: true });
   writeFileSync(join(replay.dir, replay.name), JSON.stringify({ texts: {}, receipts: { r: { id: "r", name: "brain_add", input: { text }, output: text, isError: false } } }));
+  writeFileSync(join(prompt.dir, `${prompt.name}.claude-tools`), JSON.stringify([text]));
   writeFileSync(join(prompt.dir, prompt.name), JSON.stringify({ append: text, delivered: {}, turns: { t: { original: text, wireDigest: "0", facts: {} } } }));
   const observations = join(archive, "native-observations"); mkdirSync(observations, { recursive: true });
   writeFileSync(join(observations, `${nativeObservationIdentity(brain, id)}.json`), JSON.stringify({ schema: 1, identity: text, incomplete: false, observed: [] }));

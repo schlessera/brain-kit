@@ -1,5 +1,5 @@
 import { expect } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -31,6 +31,18 @@ export function bytes(value: unknown): string {
 export function identical(expected: unknown, actual: unknown, label: string): void {
   compareBytes(bytes(expected), bytes(actual), label);
 }
+/** Only newly discovered definitions may extend the complete earlier tools array. */
+export function appendOnlyTools(previous: readonly any[], next: readonly any[], label: string): void {
+  expect(next.length, `${label}: tools cannot disappear`).toBeGreaterThanOrEqual(previous.length);
+  identical(previous, next.slice(0, previous.length), label);
+  const names = new Set(previous.map(tool => tool.name));
+  for (const tool of next.slice(previous.length)) {
+    expect(tool.defer_loading, `${label}: additions must be discovered deferred definitions`).toBe(true);
+    expect(names.has(tool.name), `${label}: a definition is discovered only once`).toBe(false);
+    names.add(tool.name);
+  }
+}
+
 /** The local Claude CLI may replay old system bytes; also hold the actual
  * SDK systemPrompt option (or its production fingerprint for hosted turns). */
 export function identicalSystemPromptOptions(appends: readonly unknown[], label: string): void {
@@ -81,10 +93,13 @@ export function noInternalNotes(capture: HistoryCapture): void {
   }
 }
 
-export async function captureOffline(probe: string): Promise<Captures> {
+export async function captureOffline(probe: string, options: { isolateManagedSettings?: boolean } = {}): Promise<Captures> {
   const root = resolve(import.meta.dir, "../..");
   const scratch = mkdtempSync(join(tmpdir(), "odysseus-provider-history-"));
-  const child = Bun.spawn(["bwrap", "--unshare-net", "--bind", "/", "/", "--proc", "/proc", "--dev", "/dev",
+  const managed = join(scratch, "managed-settings");
+  if (options.isolateManagedSettings) mkdirSync(managed);
+  const child = Bun.spawn(["bwrap", "--unshare-net", "--bind", "/", "/",
+    ...(options.isolateManagedSettings ? ["--ro-bind", managed, "/etc/claude-code"] : []), "--proc", "/proc", "--dev", "/dev",
     process.execPath, "--preload", join(root, "scripts/test-network-child-preload.ts"), probe, scratch], {
     cwd: root, env: { PATH: process.env.PATH!, LANG: "C.UTF-8", TMPDIR: tmpdir(), HOME: join(scratch, "home"),
       PI_CODING_AGENT_DIR: join(scratch, "pi-agent") }, stdout: "pipe", stderr: "pipe",
