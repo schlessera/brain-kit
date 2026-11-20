@@ -38,6 +38,8 @@ const MAX_MODULE_GITHUB_REQUEST_BYTES = 1024 * 1024;
 const MAX_MODULE_GITHUB_RESPONSE_BYTES = 16 * 1024 * 1024;
 /** Calls one run may make through the relay. */
 const MAX_MODULE_GITHUB_CALLS = 500;
+/** How long stopping waits for calls in flight, so a write GitHub performs is still recorded. */
+const STOP_SETTLE_MS = 10_000;
 /** Calls in flight at once, so request and response buffers bound the runner's memory too. */
 const MAX_MODULE_GITHUB_CONCURRENT = 8;
 const RESPONSE_HEADERS = ["content-type", "link", "etag", "x-ratelimit-limit", "x-ratelimit-remaining", "x-ratelimit-reset", "x-github-request-id"];
@@ -55,7 +57,7 @@ export interface ModuleGitHubRelayOptions {
   writes: ReadonlyMap<string, ReadonlySet<ModuleGitHubWrite>>;
   observe?: (write: ModuleGitHubWriteRecord) => void;
   /** @internal Test seams. */
-  fetch?: typeof fetch; origin?: string; maxCalls?: number; maxResponseBytes?: number; maxConcurrent?: number;
+  fetch?: typeof fetch; origin?: string; maxCalls?: number; maxResponseBytes?: number; maxConcurrent?: number; stopSettleMs?: number;
 }
 
 export interface ModuleGitHubRelay { dir: string; socketPath: string; stop(): Promise<void> }
@@ -215,8 +217,8 @@ async function boundedBody(request: Request): Promise<string> {
 
 function jsonObject(text: string): Record<string, unknown> {
   let value: unknown;
-  try { value = JSON.parse(text); } catch { refuse(400, "invalid_body", "The relayed request body must be a JSON object."); }
-  if (!value || typeof value !== "object" || Array.isArray(value)) refuse(400, "invalid_body", "The relayed request body must be a JSON object.");
+  try { value = JSON.parse(text); } catch { refuse(400, "invalid_body", "The relayed request body must be a JSON object; the only writes are those BRAIN_UI_MODULE_GITHUB_WRITES enables."); }
+  if (!value || typeof value !== "object" || Array.isArray(value)) refuse(400, "invalid_body", "The relayed request body must be a JSON object; the only writes are those BRAIN_UI_MODULE_GITHUB_WRITES enables.");
   return value as Record<string, unknown>;
 }
 
@@ -226,6 +228,7 @@ export function startModuleGitHubRelay(options: ModuleGitHubRelayOptions): Modul
   const maxCalls = options.maxCalls ?? MAX_MODULE_GITHUB_CALLS;
   const maxResponseBytes = options.maxResponseBytes ?? MAX_MODULE_GITHUB_RESPONSE_BYTES;
   const maxConcurrent = options.maxConcurrent ?? MAX_MODULE_GITHUB_CONCURRENT;
+  const stopSettleMs = options.stopSettleMs ?? STOP_SETTLE_MS;
   let calls = 0;
   // Private to this server user; the one worker of this run sees only the bound socket.
   const dir = mkdtempSync(join(tmpdir(), "brain-module-github-"));
@@ -262,7 +265,7 @@ export function startModuleGitHubRelay(options: ModuleGitHubRelayOptions): Modul
       body = await boundedBody(request);
       const value = jsonObject(body);
       if (typeof value.query !== "string" || Object.keys(value).some(key => !["query", "variables", "operationName"].includes(key)))
-        refuse(400, "invalid_body", "A relayed GraphQL request is { query, variables?, operationName? }.");
+        refuse(400, "invalid_body", "A relayed GraphQL request is { query, variables?, operationName? }, a read of a repository granted through BRAIN_UI_MODULE_REPOSITORIES.");
       const target = graphqlQueryRepository(value.query as string, value.variables, value.operationName);
       if (!target) refuse(403, "graphql_not_allowed", "Only one GraphQL query whose one root field is repository(owner:, name:), without comments, block strings or escapes, is relayed; mutations and other roots are refused. The repository must be granted through the module's repositories and BRAIN_UI_MODULE_REPOSITORIES.");
       repositoryOf(...(target!.split("/") as [string, string]));
@@ -271,7 +274,7 @@ export function startModuleGitHubRelay(options: ModuleGitHubRelayOptions): Modul
       writeAllowed(repository, "issue_comment");
       body = await boundedBody(request);
       const value = jsonObject(body);
-      if (typeof value.body !== "string" || !value.body.trim() || Object.keys(value).length !== 1) refuse(400, "invalid_body", "An issue comment is { body } with nonempty text.");
+      if (typeof value.body !== "string" || !value.body.trim() || Object.keys(value).length !== 1) refuse(400, "invalid_body", "An issue comment is { body } with nonempty text and nothing else: the issue_comment write BRAIN_UI_MODULE_GITHUB_WRITES enables allows no other field.");
       write = { repository, operation: "issue_comment", number: Number(repo[3]!.split("/")[2]) };
     } else if (method === "PATCH" && repo && /^\/issues\/[1-9][0-9]{0,9}$/.test(repo[3] ?? "") && !url.search) {
       const repository = repositoryOf(segment(repo[1]!), segment(repo[2]!));
@@ -281,7 +284,7 @@ export function startModuleGitHubRelay(options: ModuleGitHubRelayOptions): Modul
       const keys = Object.keys(value);
       if (!["open", "closed"].includes(value.state as string) || keys.some(key => key !== "state" && key !== "state_reason")
         || (value.state_reason !== undefined && !["completed", "not_planned", "reopened", null].includes(value.state_reason as string | null)))
-        refuse(400, "invalid_body", "An issue state change is { state: open|closed, state_reason? } and nothing else.");
+        refuse(400, "invalid_body", "An issue state change is { state: open|closed, state_reason? } and nothing else: the issue_state write BRAIN_UI_MODULE_GITHUB_WRITES enables allows no other field.");
       write = { repository, operation: "issue_state", number: Number(repo[3]!.split("/")[2]) };
     } else {
       refuse(403, "not_relayed", `${method} ${path} is not relayed: reads are GET under a /repos/<owner>/<repo>/ granted through BRAIN_UI_MODULE_REPOSITORIES, or a repository GraphQL query; the only writes are issue_comment and issue_state, enabled in BRAIN_UI_MODULE_GITHUB_WRITES.`);
@@ -312,16 +315,20 @@ export function startModuleGitHubRelay(options: ModuleGitHubRelayOptions): Modul
     return new Response(Buffer.from(bytes!), { status: upstream.status, headers });
   }
 
-  let active = 0;
+  let active = 0, stopping = false;
+  const inFlight = new Set<Promise<Response>>();
   const server = Bun.serve({
     unix: socketPath,
     async fetch(request) {
+      if (stopping) return Response.json({ message: "The run ended; the module GitHub relay takes no new calls.", brain_relay_refusal: "relay_stopped" }, { status: 503 });
       // Refused before any byte is read: at most this many requests are held at once.
       if (active >= maxConcurrent) {
         return Response.json({ message: `The module GitHub relay serves at most ${maxConcurrent} calls at once; retry after one finishes.`, brain_relay_refusal: "relay_busy" }, { status: 503 });
       }
       active++;
-      try { return await handle(request); }
+      const call = handle(request);
+      inFlight.add(call); void call.finally(() => inFlight.delete(call)).catch(() => {});
+      try { return await call; }
       catch (error) {
         if (error instanceof Refusal) return Response.json({ message: error.message, brain_relay_refusal: error.code }, { status: error.status });
         return Response.json({ message: "The module GitHub relay could not reach GitHub.", brain_relay_refusal: "upstream_unreachable" }, { status: 502 });
@@ -329,11 +336,14 @@ export function startModuleGitHubRelay(options: ModuleGitHubRelayOptions): Modul
     },
   });
   chmodSync(socketPath, separateIdentity ? 0o660 : 0o600);
-  let stopping: Promise<void> | undefined;
+  let stopped: Promise<void> | undefined;
   return {
     dir, socketPath,
+    /** Takes no new call, lets calls in flight finish (and record their writes) for a bounded time, then closes. */
     stop() {
-      return stopping ??= (async () => {
+      return stopped ??= (async () => {
+        stopping = true;
+        if (inFlight.size) await Promise.race([Promise.allSettled([...inFlight]), Bun.sleep(stopSettleMs)]);
         await server.stop(true);
         rmSync(dir, { recursive: true, force: true });
       })();

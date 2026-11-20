@@ -160,7 +160,9 @@ describe("module GitHub relay writes (#4259)", () => {
     const { call, writes } = relay({ writes: "https://github.com/ithaca/watchtower#issue_comment https://github.com/Ithaca/Watchtower#issue_state" });
     expect((await call("POST", COMMENTS, { body: "Telemachus asks why this closed." })).status, "COMMENT_FORWARDED").toBe(200);
     expect((await call("PATCH", "/repos/ithaca/watchtower/issues/7", { state: "open" })).status, "STATE_FORWARDED").toBe(200);
-    expect((await call("PATCH", "/repos/ithaca/watchtower/issues/7", { state: "open", title: "Renamed" })).status, "STATE_EXTRA_FIELD_REFUSED").toBe(400);
+    const extra = await call("PATCH", "/repos/ithaca/watchtower/issues/7", { state: "open", title: "Renamed" });
+    expect(extra.status, "STATE_EXTRA_FIELD_REFUSED").toBe(400);
+    expect((await extra.json()).message, "EXTRA_FIELD_NAMES_SETTING").toContain("BRAIN_UI_MODULE_GITHUB_WRITES");
     expect((await call("POST", COMMENTS, { body: "x", extra: true })).status, "COMMENT_EXTRA_FIELD_REFUSED").toBe(400);
     expect(seen.map(entry => `${entry.method} ${entry.path}`)).toEqual([`POST ${COMMENTS}`, "PATCH /repos/ithaca/watchtower/issues/7"]);
     expect(writes, "WRITES_RECORDED").toEqual([
@@ -195,6 +197,20 @@ describe("module GitHub relay writes (#4259)", () => {
     const response = await fetch(`http://localhost${COMMENTS}`, { method: "POST", unix: lost.socketPath, body: JSON.stringify({ body: "Why closed?" }) } as RequestInit);
     expect(response.status).toBe(502);
     expect(writes, "LOST_WRITE_RECORDED").toEqual([{ repository: "ithaca/watchtower", operation: "issue_comment", number: 7, status: 0 }]);
+  });
+
+  test("stopping lets a write in flight finish and be recorded, and takes no new call", async () => {
+    let release!: () => void;
+    hold = new Promise<void>(resolve => { release = resolve; });
+    const { call, writes, started } = relay({ writes: "https://github.com/ithaca/watchtower#issue_comment" });
+    const pending = call("POST", COMMENTS, { body: "Telemachus asks why this closed." });
+    while (seen.length < 1) await Bun.sleep(5);
+    const stopping = started.stop();
+    await Bun.sleep(20);
+    release();
+    await stopping;
+    expect((await pending).status, "IN_FLIGHT_WRITE_FINISHES").toBe(200);
+    expect(writes, "IN_FLIGHT_WRITE_RECORDED").toEqual([{ repository: "ithaca/watchtower", operation: "issue_comment", number: 7, status: 200 }]);
   });
 
   test("the operator list parses only GitHub repositories and known operations", () => {
