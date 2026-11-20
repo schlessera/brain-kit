@@ -166,7 +166,7 @@ for(const width of [320,1280])for(const theme of ['light','dark'])test(`${width}
  await scene(width,theme);
  const initialWidth=document.documentElement.scrollWidth;
  const records={...ui!.stores.safety.getState().records};
- for(const [id,r] of Object.entries(records))if(r.kind==='occurrence')records[id]={...r,admission:{trusted:true,ruleId:'ithaca-source',policyHash:'a'.repeat(64),trustRevision:'7',collectionRevision:'3'}};
+ for(const [id,r] of Object.entries(records))if(r.kind==='occurrence')records[id]={...r,admission:{trusted:true as const,ruleId:'ithaca-source',policyHash:'a'.repeat(64),trustRevision:'7',collectionRevision:'3'}};
  flushSync(()=>ui!.stores.safety.setState({records}));
  const indicator=[...host!.querySelectorAll<HTMLButtonElement>('[data-safety-indicator] button')].find(b=>b.getAttribute('aria-label')?.startsWith('Trusted at admission'))!;
  expect(indicator,'SOURCE_DECISION_NEVER_READS_AS_UNRESOLVED_OR_HUMAN_VERDICT').toBeTruthy();await userEvent.click(indicator);
@@ -205,9 +205,9 @@ for(const width of [320,1280])for(const theme of ['light','dark'])for(const mode
  await scene(width,theme);const state=ui!.stores.safety.getState(),rows=Object.values(state.records).filter(r=>r.kind==='occurrence');expect(rows.length).toBeGreaterThanOrEqual(3);
  const at=Date.UTC(2026,6,12,10),hasReviewed=mode!=='unresolved',hasUnresolved=mode!=='reviewed';
  const base=(r:typeof rows[number])=>({...r,turnId:message.turnId!,entry:{kind:'tool' as const,toolUseId:'tool_a'},observedAt:at});
- const trusted={...base(rows[0]!),source:'web_fetch' as const,admission:{trusted:true,ruleId:'ithaca-source',policyHash:'a'.repeat(64),trustRevision:'7',collectionRevision:'3'}};
- const reviewed={...base(rows[1]!),source:'mcp_document' as const,admission:{trusted:false,policyHash:null,trustRevision:'0'}};
- const unresolved={...base(rows[2]!),source:'workspace_read' as const,admission:{trusted:false,policyHash:null,trustRevision:'0'}};
+ const trusted={...base(rows[0]!),source:'web_fetch' as const,admission:{trusted:true as const,ruleId:'ithaca-source',policyHash:'a'.repeat(64),trustRevision:'7',collectionRevision:'3'}};
+ const reviewed={...base(rows[1]!),source:'mcp_document' as const,admission:{trusted:false as const,policyHash:null,trustRevision:'0'}};
+ const unresolved={...base(rows[2]!),source:'workspace_read' as const,admission:{trusted:false as const,policyHash:null,trustRevision:'0'}};
  const records:Record<string,SafetyRecord>={[trusted.id]:trusted};if(hasReviewed){records[reviewed.id]=reviewed;const identity=state.identity;if(!identity||!('sessionId' in identity))throw new Error('Missing session');records.mixed_verdict={id:'mixed_verdict',sequence:'999999',observedAt:at,turnId:message.turnId!,bindingId:reviewed.bindingId,occurrenceId:reviewed.id,detailPruned:false,kind:'safe_decision',session:identity,requestId:'mixed_request',principalId:'odysseus',verdict:'safe',channel:'owner_history'};}if(hasUnresolved)records[unresolved.id]=unresolved;
  flushSync(()=>ui!.stores.safety.setState({records,projection:{...state.projection!,unresolvedCount:hasUnresolved?1:0,earliestUnresolvedId:hasUnresolved?unresolved.id:null,restriction:hasUnresolved?'restricted':'normal',reasons:hasUnresolved?['unresolved']:[]},normal:!hasUnresolved&&state.projection?.coverage.state==='complete'}));
  const indicator=[...host!.querySelectorAll<HTMLButtonElement>('[data-safety-indicator] button')].find(b=>b.getClientRects().length>0)!;expect(indicator).toBeTruthy();
