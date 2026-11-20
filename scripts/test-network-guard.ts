@@ -1,4 +1,5 @@
 /** Test-only subprocess and transport safeguards; never imported by a published package. */
+import { installNativeClaudeGuard, refuseNativeClaude } from "./test-native-guard";
 import { basename, join } from "node:path";
 import { isIP, Socket } from "node:net";
 import { inheritWorkspaceLease } from "./workspace-lease.mjs";
@@ -27,6 +28,7 @@ function testGitEnvironment(env: Record<string, string | undefined>): Record<str
 
 export function installNetworkGuard(): { assertNoEscapes(): void } {
   if (installed) return installed;
+  installNativeClaudeGuard();
   Object.assign(process.env, testGitEnvironment(process.env));
   const escapes: string[] = [];
   let reported = 0;
@@ -135,6 +137,7 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
       const first = args[0] as string[] | { cmd: string[] };
       const cmd = Array.isArray(first) ? first : first.cmd;
       const executable = String(cmd[0]);
+      refuseNativeClaude(executable, cmd.slice(1));
       if (basename(executable) === "curl") refuse(`${key} ${cmd.join(" ")}`);
       if (basename(executable) === "bun" || executable === process.execPath) {
         // Bun treats `bun --preload FILE test` as a package script. Keep the
