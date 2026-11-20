@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../../scripts/test-deadlines.js";
 /** Native Pi workers and Responses serialization, inside the caller's offline namespace. */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -80,7 +81,7 @@ try {
       const controller = new AbortController();
       const sandbox = prepareFixtureWorkerSandbox(brain, { profile: "strict", ...(scenario === "promotion" ? {} : { areas: [] }) });
       const frames: ServerMessage[] = [];
-      const timer = setTimeout(() => controller.abort(), 30_000);
+      const timer = setTimeout(() => controller.abort(), watchdogMs(30_000));
       try {
         await startFixtureTurn(backend, brain, { prompt: `Odysseus checks voyage step ${turnIndex}.`, profileId: "fixture", sessionId,
           signal: controller.signal, turnId: `odysseus-${turnIndex}`,

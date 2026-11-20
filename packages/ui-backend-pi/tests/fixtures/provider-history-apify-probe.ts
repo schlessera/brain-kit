@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../../scripts/test-deadlines.js";
 /**
  * Apify through a native Pi worker (#3162), inside the caller's offline
  * namespace. Three resumed turns call the fixed `brain_apify_*` tools through
@@ -77,7 +78,7 @@ try {
       const sandbox = prepareFixtureWorkerSandbox(brain, { profile: "strict", areas: [] });
       const frames: ServerMessage[] = [];
       const turnId = `odysseus-apify-${turnIndex}`;
-      const timer = setTimeout(() => controller.abort(), 30_000);
+      const timer = setTimeout(() => controller.abort(), watchdogMs(30_000));
       try {
         await startFixtureTurn(backend, brain, { prompt: `Odysseus charts voyage step ${turnIndex}.`, profileId: "fixture", sessionId,
           signal: controller.signal, turnId, workerSandbox: sandbox,

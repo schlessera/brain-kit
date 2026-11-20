@@ -1523,10 +1523,16 @@ an isolated network namespace; it does not qualify the worker boundary.
 The relay's local base URL disables native tool search unless explicitly
 pinned. The pin must be limited to a selected first-party upstream and must
 also enter flag settings, whose env overlay wins over project settings.
-Successful discovery on this pair inserts a definition into the sorted MCP
-group; it does not satisfy the approved append-only tools rule. No production
-pin is applied. D44 and [provider history](provider-history.md) record the
-metadata and exact prefix rule.
+Successful discovery on this pair inserts a referenced deferred definition
+into the sorted MCP group. The maintainer permits insertion at any position:
+every earlier definition retains exact bytes and relative order, nothing is
+removed or edited, and only names referenced by the discovery may be added.
+Ordinary round trips retain exact equality; system and earlier messages stay
+byte-identical. Production pins tool search on for new first-party sessions and
+off for other selected origins. Legacy sessions retain their original unpinned
+SDK input. D44 and [provider history](provider-history.md) record the rule.
+The keyless insertion-versus-append byte-prefix comparison measures no real
+provider cache hits or savings.
 
 New hosted sessions remove these process-local built-ins and retain the
 selection in host prompt-context storage for every later resume:
@@ -1538,10 +1544,13 @@ selection in host prompt-context storage for every later resume:
 | `RemoteTrigger` | The pinned runtime reports that the tool is disabled. |
 | `SendMessage` | The maintainer chose removal: hosted Agent calls are foreground, so no live background agent remains to continue. |
 | `ListAgents` | No live background worker remains to address after the foreground Agent call. |
-| `NotebookEdit` | Hosted strict writes use host tools; there is no notebook content domain. |
 
-Reference tools remain registered and retain their existing scoped refusals.
-A legacy session without a selection snapshot uses the legacy disallow list;
+NotebookEdit remains registered for governed typed native writes; a strict-mode
+refusal is not evidence that the governed contract is unusable. Reference tools
+remain registered and retain their existing scoped refusals. Selection and its
+initialization marker share the atomic prompt-context record; missing marked
+selection refuses rather than silently adopting legacy. A genuine legacy
+context without either field uses the legacy disallow list;
 removing built-ins from a deployment-wide list on resume would rewrite its
 roster. Plan/worktree modes, Workflow and ReportFindings remain available:
 the direct-runtime probe does not establish that each is unusable inside the
@@ -1559,3 +1568,9 @@ reports `sdk_opt_in_required`. The explicit disable reports `disabled_by_env`
 and omits wire speed. These are keyless request-assembly observations, not
 account entitlement, pricing, throughput or spend evidence. No session speed
 control or billing change is introduced by this qualification.
+
+The earlier system-role message content array-to-string rewrite observed on
+resume is a provider-history violation (#4324), not an approved normalization.
+Fast-mode product work (#4310) waits for that fix. The qualification capture
+records this exact failure without weakening the strict earlier-message guard;
+no user-facing mode, pricing or budget change ships here.

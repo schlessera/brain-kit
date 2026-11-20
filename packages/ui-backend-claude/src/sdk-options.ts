@@ -111,6 +111,14 @@ export function selectedInferenceUpstream(turnEnvironment: Readonly<Record<strin
   return (turnEnvironment?.ANTHROPIC_BASE_URL || "https://api.anthropic.com").replace(/\/+$/, "");
 }
 
+/** Origin qualification happens before replacing the selected route with the relay. */
+export function firstPartyInferenceUpstream(env: Readonly<Record<string, string | undefined>>): boolean {
+  try {
+    const url = new URL(selectedInferenceUpstream(env));
+    return url.origin === "https://api.anthropic.com" && !url.username && !url.password && !url.search && !url.hash;
+  } catch { return false; }
+}
+
 interface ClaudeSdkTurnOptions {
   identity?: import("@schlessera/brain-ui-sdk/internal").WorkerNoteFacts["identity"];
   backend: ClaudeBackendOptions;
@@ -307,6 +315,7 @@ export function turnChildEnvironment(
     ANTHROPIC_UNIX_SOCKET: `${WORKER_EGRESS_DIR}/inference.sock`,
     ANTHROPIC_BASE_URL: options.hostInference.baseUrl ?? "http://localhost",
     ...RELAYED_TURN_TRAFFIC_ENV,
+    ENABLE_TOOL_SEARCH: firstPartyInferenceUpstream(inheritedEnv) ? "true" : "false",
   } : undefined;
   // The relay holds the profile's credential, so the variables it names stay on the host.
   const childEnv = inferenceEnv ? { ...Object.fromEntries(Object.entries(inheritedEnv)
@@ -513,8 +522,21 @@ function assembleClaudeSdkTurn(
   let assembledTools: unknown[] | undefined;
   sdkOptions.mcpServers = { "brain-ui": turnMcpServer(backend, req, roster, turnTemp, tools => { assembledTools = tools; }) };
   if (context) {
-    sdkOptions.disallowedTools = retainSessionRequestShape(backend.brainPath, contextId, req.sessionId !== undefined,
-      [...sdkOptions.disallowedTools ?? [], ...(hosted ? HOST_UNUSED_BUILTINS : [])], sdkOptions.disallowedTools ?? []);
+    const retained = retainSessionRequestShape(backend.brainPath, contextId, req.sessionId !== undefined,
+      [...sdkOptions.disallowedTools ?? [], ...(hosted ? HOST_UNUSED_BUILTINS : [])], sdkOptions.disallowedTools ?? [], undefined,
+      inferenceEnv ? (inferenceEnv.ENABLE_TOOL_SEARCH === "true" ? "true" : "false") : null);
+    sdkOptions.disallowedTools = retained.disallowedTools;
+    if (inferenceEnv) {
+      if (retained.toolSearch === "true" && inferenceEnv.ENABLE_TOOL_SEARCH !== "true")
+        throw new Error("This session's tool search requires its qualified first-party inference upstream.");
+      if (retained.toolSearch === null) {
+        delete (inferenceEnv as Record<string, string>).ENABLE_TOOL_SEARCH;
+        delete childEnv.ENABLE_TOOL_SEARCH;
+      } else {
+        inferenceEnv.ENABLE_TOOL_SEARCH = retained.toolSearch;
+        childEnv.ENABLE_TOOL_SEARCH = retained.toolSearch;
+      }
+    }
   }
   sdkOptions.env = childEnv;
   applyTurnSettings(sdkOptions, envelope, subscriptionOnly, inferenceEnv);

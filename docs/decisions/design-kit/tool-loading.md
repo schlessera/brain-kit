@@ -418,7 +418,14 @@ Features gated on that URL need explicit qualification and pins, both in the
 inference environment and the flag-settings overlay, limited to a selected
 first-party upstream. SDK 0.3.293 / CLI 2.1.293 demonstrates deferral with
 `ENABLE_TOOL_SEARCH=true`, including a successful tool-reference round trip.
-Its discovery inserts definitions into a sorted group rather than appending
-them, so this runtime cannot receive that production pin under the approved
-[provider-history rule](../provider-history.md#2026-11-20--append-only-deferred-discovery-4306).
-The keyless qualification guards that mismatch; gateway profiles gain no pin.
+Its discovery inserts definitions into a sorted group. The maintainer permits
+that insertion only for definitions actually referenced by a successful tool
+search, with every earlier definition's bytes and relative order preserved.
+Nothing is removed or edited; ordinary tool round trips require exact equality,
+as do system and earlier-message bytes. The production pin applies only to new
+sessions on the selected first-party origin, in both inference env and flag
+settings. Gateway profiles pin tool search off, and legacy sessions retain their
+original unpinned SDK input. The [provider-history rule](../provider-history.md#2026-11-20--referenced-deferred-discovery-4306)
+and keyless capture guard the first discovery and every subsequent transition.
+Insertion shortens the unchanged tool-array byte prefix versus append; keyless
+captures cannot establish actual provider cache hits or cost.

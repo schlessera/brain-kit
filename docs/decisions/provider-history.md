@@ -18,13 +18,16 @@ brain-kit from doing that, and the guard that checks it.
 
 **What the provider received for turn N is the prefix of what it receives for
 turn N+1.** brain-kit may only add to the end of the conversation, never change
-what is already in it. Concretely, across the turns of one session:
+what is already in it. The narrowly scoped tool-discovery exception below
+permits insertion of new definitions. Concretely, across the turns of one session:
 
-1. **Earlier tools stay the same.** The same tool definitions, with the same
-   schemas and in the same order, remain the prefix on every request. On first
-   discovery of a deferred tool, the runtime may append its definition after
-   every definition already sent. Nothing may be removed, edited or reordered,
-   including definitions discovered earlier. A posture, profile or capability
+1. **Earlier tools stay the same.** Every earlier definition keeps its exact
+   bytes and order relative to the other earlier definitions. Only definitions
+   referenced by a successful tool-search discovery may be added, carrying
+   `defer_loading`, at any position (including sorted insertion). Nothing is
+   removed or edited. Every other tool round trip requires exact equality.
+   The exception never changes the system prompt or earlier messages.
+   A posture, profile or capability
    that should not use a tool is enforced in the permission hooks, not by
    leaving the tool out.
 2. **The system prompt stays the same.** Anything brain-kit puts into the system
@@ -178,27 +181,40 @@ than its `test.failing` list, needs a maintainer ruling on its issue first.
   after it has been paid for, and only on providers that offer them. The guard
   finds it before merge, keyless, for every backend.
 
-## 2026-11-20 — Append-only deferred discovery (#4306)
+## 2026-11-20 — Referenced deferred discovery (#4306)
 
-The maintainer approved appending a deferred tool's definition on its first
-native discovery. This accepts one tools-block cache miss per first discovery;
-it does not permit sorted insertion, replacing a definition or rebuilding the
-roster. The system prompt and every earlier message remain byte-identical.
+The maintainer permits a definition discovered by native tool search to appear
+at any position, including sorted insertion. Every earlier definition keeps
+its exact bytes and its order relative to the other earlier definitions.
+Nothing is removed or edited. Only definitions referenced by a successful
+ToolSearch discovery may be added, and those definitions carry `defer_loading`.
+Every other tool round trip retains exact tool equality. The system prompt
+and every earlier message remain byte-identical.
 
 The companion guard `packages/ui-backend-claude/tests/provider-request-shape.test.ts`
-captures SDK assembly and the pinned runtime through the Unix relay, including
-first discovery and resume. Qualification found two unmet rules: CLI 2.1.293
-inserts the discovered definition into the sorted stdio MCP group, and its
-direct-runtime path rewrites system-role message content from a block array to
-a string. Neither is normalized away in the history guard. The production
-relay therefore does not pin tool search on for this runtime. The qualification
-evidence and decision questions belong to #4306 and #4310; the companion test
-asserts the independently qualified assembly and transport behavior.
+captures production SDK assembly and the pinned runtime through the Unix relay,
+including the first discovery transition and resume. The guard checks actual
+tool references before authorizing additions. CLI 2.1.293 inserts the discovered
+definition into the sorted stdio MCP group, preserving all earlier definitions
+and relative order. New first-party relayed sessions pin tool search in both
+the inference environment and flag settings. Other selected origins pin it off.
+The captured tool-array common byte prefix is shorter with insertion than with
+hypothetical append; this keyless comparison does not measure provider cache
+hits, tokens or savings.
+
+The direct-runtime path also rewrites earlier system-role message content from
+a block array to a string on resume. That remains a provider-history violation,
+tracked in #4324; fast-mode product work in #4310 waits for its fix. The strict
+history guard does not normalize it away. Separate qualification records the
+exact known reproduction and rejects every other earlier-message mismatch.
 Worker boundary proof remains in the original guard; the companion launches
 the runtime directly inside an offline namespace and makes no worker-boundary
 claim.
 
-New hosted sessions retain their native disallow selection in private prompt
-context storage. A native session that predates that snapshot starts from the
-legacy selection and retains it on later resumes. The retained system append
-continues to protect earlier wording when a new deployment adds a brief.
+New hosted sessions retain their native disallow selection and tool-search pin
+atomically in private prompt-context storage, beside an initialization marker.
+An initialized record with a missing or malformed selection refuses only that
+session. A genuine older prompt-context record without either field adopts the
+legacy selection with no new SDK tool-search pin. Mandatory exclusions remain
+validated. The retained system append protects earlier wording when a new
+deployment adds a brief. These internal fields never enter provider content.

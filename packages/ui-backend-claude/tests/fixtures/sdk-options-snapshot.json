@@ -59,8 +59,7 @@
       "ScheduleWakeup",
       "RemoteTrigger",
       "SendMessage",
-      "ListAgents",
-      "NotebookEdit"
+      "ListAgents"
     ],
     "systemPrompt": {
       "type": "preset",
@@ -270,8 +269,7 @@
       "ScheduleWakeup",
       "RemoteTrigger",
       "SendMessage",
-      "ListAgents",
-      "NotebookEdit"
+      "ListAgents"
     ],
     "systemPrompt": {
       "type": "preset",
@@ -679,8 +677,7 @@
       "ScheduleWakeup",
       "RemoteTrigger",
       "SendMessage",
-      "ListAgents",
-      "NotebookEdit"
+      "ListAgents"
     ],
     "systemPrompt": {
       "type": "preset",
@@ -764,7 +761,8 @@
         "ANTHROPIC_UNIX_SOCKET": "/run/brain-egress/inference.sock",
         "CLAUDE_CODE_OAUTH_TOKEN": "brain-inference-relay-placeholder",
         "ANTHROPIC_BASE_URL": "http://localhost",
-        "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
+        "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+        "ENABLE_TOOL_SEARCH": "true"
       },
       "skipWebFetchPreflight": true,
       "includeGitInstructions": false
@@ -857,7 +855,8 @@
       "ANTHROPIC_UNIX_SOCKET": "/run/brain-egress/inference.sock",
       "CLAUDE_CODE_OAUTH_TOKEN": "brain-inference-relay-placeholder",
       "ANTHROPIC_BASE_URL": "http://localhost",
-      "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
+      "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+      "ENABLE_TOOL_SEARCH": "true"
     },
     "promptIsStream": true
   },

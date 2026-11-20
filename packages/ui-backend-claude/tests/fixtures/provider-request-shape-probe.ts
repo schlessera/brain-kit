@@ -3,8 +3,11 @@
  * captureOffline isolates networking. This probe launches the runtime directly:
  * worker boundary qualification remains in provider-history-probe.ts.
  */
-import { chmodSync, linkSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, linkSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { watchdogMs } from "../../../../scripts/test-deadlines.js";
+import { sessionPromptContextLocation } from "@schlessera/brain-ui-sdk/internal";
+import { baseline, legacySdkTurn } from "./legacy-sdk-turn.js";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { INFERENCE_PLACEHOLDER, startInferenceRelay } from "@schlessera/brain-ui-sdk/internal";
 import { createClaudeSdkTurn } from "../../src/sdk-options.js";
@@ -60,12 +63,17 @@ try {
   capture = captures[scenario] = { sessions: [], exchanges: [], appends: [], budgets: [], calls: [] };
   let sessionId: string | undefined;
   const legacy = scenario === "legacy" || scenario === "builtins";
-  if (legacy) { sessionId = crypto.randomUUID(); claudePromptContext(brain, sessionId).retainAppend("Odysseus retains the original system brief."); }
-  for (turnIndex = 0; turnIndex < (scenario === "builtins" || scenario === "fast-thirdparty" ? 1 : 3); turnIndex++) {
+  if (legacy) {
+    sessionId = crypto.randomUUID();
+    // This is the pre-upgrade context format: only the old append, no request
+    // selection or marker. The first query uses independently frozen inputs.
+    claudePromptContext(brain, sessionId).retainAppend(baseline.append);
+  }
+  for (turnIndex = 0; turnIndex < (scenario === "builtins" ? 2 : scenario === "fast-thirdparty" ? 1 : 3); turnIndex++) {
     if (turnIndex) rmSync(marker, { force: true });
     queue = scenario === "discovery" && turnIndex === 0 ? [{ name: "ToolSearch", input: { query: "select:mcp__brain__brain_graph", max_results: 1 } }]
       : scenario === "removed" && turnIndex === 0 ? [{ name: "SendMessage", input: { to: "athena", message: "Odysseus checks Ithaca." } }]
-      : scenario === "builtins" ? [
+      : scenario === "builtins" && turnIndex === 1 ? [
         { name: "EnterPlanMode", input: {} }, { name: "ExitPlanMode", input: {} },
         { name: "EnterWorktree", input: { name: "ithaca" } }, { name: "ExitWorktree", input: { action: "keep" } },
         { name: "CronCreate", input: { cron: "0 0 12 7 *", prompt: "Odysseus checks Ithaca.", recurring: false } },
@@ -80,28 +88,27 @@ try {
     const controller = new AbortController();
     const view = createFixtureWorkerStartupView(brain);
     const turnLock = createTurnLockBinding({ turn: { pendingReleases: new Map(), ended: false }, writeLock: createKeyedLock(), lockWaitMs: 1000, log() {} });
-    const turn = createClaudeSdkTurn({ backend: { brainPath: brain }, req: { prompt: `Odysseus checks Ithaca step ${turnIndex}.`, sessionId,
+    const environment: Record<string, string> = { GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", HOME: home, CLAUDE_CONFIG_DIR: join(home, ".claude"), CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1", MCP_CONNECTION_NONBLOCKING: "0",
+      ...(scenario === "gateway" ? { ANTHROPIC_BASE_URL: "https://gateway.example.com" } : {}) };
+    const turn = legacy && turnIndex === 0 ? legacySdkTurn(brain, sessionId!, environment, relay.socketPath, controller) : createClaudeSdkTurn({ backend: { brainPath: brain }, req: { prompt: `Odysseus checks Ithaca step ${turnIndex}.`, sessionId,
       applicationAuthority: "server", signal: controller.signal, turnId: `ithaca-${turnIndex}`, workerStartupView: view,
       workerSandbox: prepareFixtureWorkerSandbox(brain, { home, profile: "strict", areas: [] }),
       bridge: { emit() {}, checkpointPermission() {}, async requestPermission() { return { behavior: "allow" }; } },
     }, profile: { id: "fixture", label: "Fixture", model: "claude-opus-5-5", billing: "api", requiredEnvKeys: [], buildEnv: () => ({}) },
-      turnEnvironment: { GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", HOME: home, CLAUDE_CONFIG_DIR: join(home, ".claude"), CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1", MCP_CONNECTION_NONBLOCKING: "0",
-        ...(scenario === "gateway" ? { ANTHROPIC_BASE_URL: "https://gateway.example.com" } : {}) },
+      turnEnvironment: environment,
       hostInference: { proxyDir: relay.dir, placeholders: { ANTHROPIC_API_KEY: INFERENCE_PLACEHOLDER } },
       abortController: controller, allowedTools: ["Read"], confirmPatterns: [], turnLock, log(level, message) { console.error(level, message); },
     });
     delete turn.options.spawnClaudeCodeProcess;
     turn.options.env!.ANTHROPIC_UNIX_SOCKET = relay.socketPath;
     (turn.options.settings as any).env.ANTHROPIC_UNIX_SOCKET = relay.socketPath;
-    turn.options.env!.ENABLE_TOOL_SEARCH = "false";
-    (turn.options.settings as any).env.ENABLE_TOOL_SEARCH = "false";
-    // Qualification only: the pinned runtime violates the approved tools-prefix
-    // rule on discovery. Production must not enable this flag (#4306).
-    if (["discovery", "removed"].includes(scenario)) {
-      turn.options.env!.ENABLE_TOOL_SEARCH = "true";
-      (turn.options.settings as any).env.ENABLE_TOOL_SEARCH = "true";
-    }
-    if (legacy && turnIndex === 0) { delete turn.options.resume; turn.options.sessionId = sessionId; }
+    // Route only the transport socket into this direct-runtime probe. Never
+    // override production tool-search selection for gateway or removal cases.
+    const contextFile = sessionPromptContextLocation(process.env.CLAUDE_CONFIG_DIR || join(process.env.HOME!, ".claude"), brain, sessionId ?? turn.options.sessionId!);
+    const initialized = JSON.parse(readFileSync(join(contextFile.dir, contextFile.name), "utf8")).claudeRequestShapeInitialized === true;
+    capture.qualification ??= {};
+    capture.qualification.watchdogMs = watchdogMs(45_000);
+    if (legacy && turnIndex === 0) capture.qualification.baseline = { source: baseline.source, initialized };
     turn.options.mcpServers = { ...turn.options.mcpServers, brain: { command: process.execPath, args: [resolve(import.meta.dir, "request-shape-mcp.ts"), marker] } };
     if (scenario.startsWith("fast-")) {
       turn.options.settings = { ...turn.options.settings as object, fastMode: true };
@@ -123,9 +130,10 @@ try {
     }
     turn.options.stderr = text => console.error(text);
     capture.appends.push(turn.options.systemPrompt);
-    capture.budgets!.push({ disallowed: turn.options.disallowedTools, env: turn.options.env?.ENABLE_TOOL_SEARCH, settings: (turn.options.settings as any)?.env?.ENABLE_TOOL_SEARCH,
-      mcp: Object.keys(turn.options.mcpServers), requestedFast: (turn.options.settings as any)?.fastMode });
-    const timer = setTimeout(() => controller.abort(), 45_000);
+    capture.budgets!.push({ disallowed: turn.options.disallowedTools, allowed: turn.options.allowedTools,
+      env: turn.options.env?.ENABLE_TOOL_SEARCH, settings: (turn.options.settings as any)?.env?.ENABLE_TOOL_SEARCH,
+      flagSettings: turn.options.settings, mcp: Object.keys(turn.options.mcpServers), requestedFast: (turn.options.settings as any)?.fastMode });
+    const timer = setTimeout(() => controller.abort(), watchdogMs(45_000));
     try {
       let success = false;
       for await (const message of query({ prompt: turn.prompt, options: turn.options })) {

@@ -1,4 +1,5 @@
 import { expect } from "bun:test";
+import { DEADLINE_FACTOR_ENV, watchdogMs } from "../../scripts/test-deadlines.js";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -15,6 +16,8 @@ export interface HistoryCapture {
   exchanges: Exchange[];
   appends: unknown[];
   budgets?: unknown[];
+  /** Private qualification evidence, never a product frame. */
+  qualification?: Record<string, unknown>;
   voiceRefusal?: { message: string; before: number; after: number };
   /** Host calls a backend's reference tools made, as the host received them (#2432). */
   calls?: unknown[];
@@ -31,15 +34,58 @@ export function bytes(value: unknown): string {
 export function identical(expected: unknown, actual: unknown, label: string): void {
   compareBytes(bytes(expected), bytes(actual), label);
 }
-/** Only newly discovered definitions may extend the complete earlier tools array. */
-export function appendOnlyTools(previous: readonly any[], next: readonly any[], label: string): void {
-  expect(next.length, `${label}: tools cannot disappear`).toBeGreaterThanOrEqual(previous.length);
-  identical(previous, next.slice(0, previous.length), label);
-  const names = new Set(previous.map(tool => tool.name));
-  for (const tool of next.slice(previous.length)) {
-    expect(tool.defer_loading, `${label}: additions must be discovered deferred definitions`).toBe(true);
-    expect(names.has(tool.name), `${label}: a definition is discovered only once`).toBe(false);
-    names.add(tool.name);
+/** Names in successful new tool results for this response's actual ToolSearch calls. */
+export function discoveredToolNames(previous: Exchange, next: Exchange): string[] {
+  const calls = new Set((previous.answer.content as any[] ?? []).filter(part => part.type === "tool_use" && part.name === "ToolSearch").map(part => part.id));
+  const found = new Set<string>();
+  for (const message of messages(next).slice(messages(previous).length)) {
+    if (!Array.isArray(message.content)) continue;
+    for (const result of message.content) {
+      if (result.type !== "tool_result" || !calls.has(result.tool_use_id) || result.is_error === true || !Array.isArray(result.content)) continue;
+      for (const ref of result.content) if (ref.type === "tool_reference" && typeof ref.tool_name === "string") found.add(ref.tool_name);
+    }
+  }
+  return [...found];
+}
+
+/** Discovery may insert referenced definitions; all prior bytes and relative order stay fixed. */
+export function providerTools(previous: Exchange, next: Exchange, label: string): void {
+  const before = body(previous).tools, after = body(next).tools;
+  const refs = new Set(discoveredToolNames(previous, next));
+  if (!refs.size) { identical(before, after, label); return; }
+  const names = new Set(before.map((tool: any) => tool.name));
+  expect(new Set(after.map((tool: any) => tool.name)).size, `${label}: unique definitions`).toBe(after.length);
+  identical(before, after.filter((tool: any) => names.has(tool.name)), `${label}: earlier definitions and relative order`);
+  for (const tool of after.filter((tool: any) => !names.has(tool.name))) {
+    expect(tool.defer_loading, `${label}: discovered definition is deferred`).toBe(true);
+    expect(refs.has(tool.name), `${label}: definition was actually referenced by this ToolSearch`).toBe(true);
+  }
+}
+
+/**
+ * Qualification only: keep the strict guard's outcome, and reject any mismatch
+ * other than #4324's recorded system-content encoding. This never makes the
+ * provider history clean or changes the bytes fed to history().
+ */
+export function qualifyHistory(previous: Exchange, next: Exchange): { issue: 4324; indices: number[]; guardFailure: string } | null {
+  try { history(previous, next); return null; } catch (error) {
+    const expected = [...messages(previous), previous.answer], actual = messages(next).slice(0, expected.length);
+    expect(actual).toHaveLength(expected.length);
+    const indices: number[] = [];
+    for (const [index, message] of expected.entries()) {
+      const observed = actual[index];
+      if (bytes(message) === bytes(observed)) continue;
+      // Diagnose the exact known violation, without admitting it in history().
+      expect(message.role, "#4324 is confined to an earlier system-role message").toBe("system");
+      identical({ ...message, content: undefined }, { ...observed, content: undefined }, "#4324 leaves non-content fields unchanged");
+      expect(Array.isArray(message.content)).toBe(true);
+      identical(message.content, message.content.map((part: any) => ({ type: "text", text: part.text })), "#4324 original blocks contain only text");
+      expect(typeof observed.content).toBe("string");
+      expect(observed.content, "#4324 diagnostic: text itself is unchanged").toBe(message.content.map((part: any) => part.text).join(""));
+      indices.push(index);
+    }
+    expect(indices.length).toBeGreaterThan(0);
+    return { issue: 4324, indices, guardFailure: error instanceof Error ? error.message : String(error) };
   }
 }
 
@@ -110,9 +156,10 @@ export async function captureOffline(probe: string, options: { isolateManagedSet
       ...systemFiles.flatMap(name => ["--ro-bind-try", `/etc/${name}`, `/etc/${name}`])] : []), "--proc", "/proc", "--dev", "/dev",
     process.execPath, "--preload", join(root, "scripts/test-network-child-preload.ts"), probe, scratch], {
     cwd: root, env: { PATH: process.env.PATH!, LANG: "C.UTF-8", TMPDIR: tmpdir(), HOME: join(scratch, "home"),
-      PI_CODING_AGENT_DIR: join(scratch, "pi-agent") }, stdout: "pipe", stderr: "pipe",
+      PI_CODING_AGENT_DIR: join(scratch, "pi-agent"),
+      ...(process.env[DEADLINE_FACTOR_ENV] ? { [DEADLINE_FACTOR_ENV]: process.env[DEADLINE_FACTOR_ENV] } : {}) }, stdout: "pipe", stderr: "pipe",
   });
-  const deadline = setTimeout(() => child.kill(), 170_000);
+  const deadline = setTimeout(() => child.kill(), watchdogMs(170_000));
   try {
     const [out, err, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     expect(exit, err || out).toBe(0);

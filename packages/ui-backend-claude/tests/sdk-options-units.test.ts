@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { assemblePromptContext, computeToolRoster, turnChildEnvironment } from "../src/sdk-options.js";
+import { assemblePromptContext, computeToolRoster, firstPartyInferenceUpstream, turnChildEnvironment } from "../src/sdk-options.js";
 
 const handler = async () => { throw new Error("PRIVILEGED_HANDLER_EXECUTED"); };
 const request = (extra: Record<string, unknown> = {}) => ({
@@ -59,6 +59,23 @@ describe("turnChildEnvironment", () => {
     expect(env.childEnv).toBe(turnEnvironment);
     expect(env.inferenceEnv).toBeUndefined();
     expect(env.providerKeys).toEqual(["CLAUDE_CODE_OAUTH_TOKEN"]);
+  });
+
+  test("tool search is pinned only for the selected first-party origin", () => {
+    for (const route of [undefined, "https://api.anthropic.com", "https://api.anthropic.com/"]) {
+      const turnEnvironment = { ANTHROPIC_BASE_URL: route, ENABLE_TOOL_SEARCH: "false" };
+      expect(firstPartyInferenceUpstream(turnEnvironment)).toBe(true);
+      const env = turnChildEnvironment({ profile, turnEnvironment, hostInference: { proxyDir: "/run/relay" } }, undefined);
+      expect(env.inferenceEnv?.ENABLE_TOOL_SEARCH).toBe("true");
+      expect(env.childEnv.ENABLE_TOOL_SEARCH).toBe("true");
+    }
+    for (const route of ["https://gateway.example.com", "http://api.anthropic.com", "https://api.anthropic.com.example.com", "https://odysseus@api.anthropic.com", "https://api.anthropic.com?route=ithaca", "not a URL"]) {
+      const turnEnvironment = { ANTHROPIC_BASE_URL: route, ENABLE_TOOL_SEARCH: "true" };
+      expect(firstPartyInferenceUpstream(turnEnvironment)).toBe(false);
+      const env = turnChildEnvironment({ profile, turnEnvironment, hostInference: { proxyDir: "/run/relay" } }, undefined);
+      expect(env.inferenceEnv?.ENABLE_TOOL_SEARCH).toBe("false");
+      expect(env.childEnv.ENABLE_TOOL_SEARCH).toBe("false");
+    }
   });
 
   test("a relayed turn keeps the profile's credential on the host and points inference at the relay", () => {
