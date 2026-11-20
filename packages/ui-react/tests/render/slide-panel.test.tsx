@@ -3,9 +3,11 @@
 // so a stray click cancelled the run. Same containment contract as
 // render-smoke.test.tsx: the DOM module first, `afterAll(unregisterDom)`,
 // queries off `render()` and never `screen`.
-import { unregisterSlidePanelDom as unregisterDom } from "./slide-panel-dom.js";
+import { registerSlidePanelDom, unregisterSlidePanelDom as unregisterDom } from "./slide-panel-dom.js";
 
-import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+// A repeated run of this file reuses its modules: register the DOM again before its tests.
+beforeAll(registerSlidePanelDom);
 import { overlayGeometry } from "./overlay-geometry.js";
 
 let restoreGeometry: () => void;
@@ -29,7 +31,8 @@ afterAll(async () => {
 });
 
 const realFetch = globalThis.fetch;
-const realMatchMedia = window.matchMedia;
+let realMatchMedia: typeof window.matchMedia;
+beforeAll(() => { realMatchMedia = window.matchMedia; });
 afterEach(() => {
   globalThis.fetch = realFetch;
   window.matchMedia = realMatchMedia;
