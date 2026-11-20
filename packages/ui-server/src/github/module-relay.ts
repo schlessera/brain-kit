@@ -138,12 +138,13 @@ export function graphqlQueryRepository(query: string, variables: unknown, operat
   // The argument text itself, from the original query (blanking keeps every offset).
   const args = query.slice(start + 1, end).slice(open + 1, close);
   const values = variables && typeof variables === "object" && !Array.isArray(variables) ? variables as Record<string, unknown> : {};
-  const pairs = args.split(",").map(pair => pair.trim()).filter(Boolean);
-  if (pairs.length !== 2) return null;
+  // GraphQL commas are optional: the arguments are exactly two `name: value`
+  // pairs, separated by whitespace and/or commas, with nothing else between.
+  const pair = /([_A-Za-z][_0-9A-Za-z]*)\s*:\s*(\$[_A-Za-z][_0-9A-Za-z]*|"[^"\\]*")/g;
+  const pairs = [...args.matchAll(pair)];
+  if (pairs.length !== 2 || args.replace(pair, "").replace(/[\s,]/g, "") !== "") return null;
   const parsed = new Map<string, string>();
-  for (const pair of pairs) {
-    const match = /^([_A-Za-z][_0-9A-Za-z]*)\s*:\s*(\$[_A-Za-z][_0-9A-Za-z]*|"[^"\\]*")$/.exec(pair);
-    if (!match) return null;
+  for (const match of pairs) {
     const value = match[2]!.startsWith("$") ? values[match[2]!.slice(1)] : match[2]!.slice(1, -1);
     if (typeof value !== "string" || !NAME.test(value)) return null;
     parsed.set(match[1]!, value);
