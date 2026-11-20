@@ -1,5 +1,5 @@
 import { expect } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -96,10 +96,18 @@ export function noInternalNotes(capture: HistoryCapture): void {
 export async function captureOffline(probe: string, options: { isolateManagedSettings?: boolean } = {}): Promise<Captures> {
   const root = resolve(import.meta.dir, "../..");
   const scratch = mkdtempSync(join(tmpdir(), "odysseus-provider-history-"));
+  // A private /etc works even when the runner has no /etc/claude-code.
+  // Pre-create bind targets before making that view read-only; preserve only
+  // basic OS/account resolution files, never the host's managed CLI policy.
   const managed = join(scratch, "managed-settings");
-  if (options.isolateManagedSettings) mkdirSync(managed);
+  const systemFiles = ["passwd", "group", "nsswitch.conf", "os-release", "localtime", "hosts", "resolv.conf"];
+  if (options.isolateManagedSettings) {
+    mkdirSync(join(managed, "claude-code"), { recursive: true });
+    for (const name of systemFiles) writeFileSync(join(managed, name), "");
+  }
   const child = Bun.spawn(["bwrap", "--unshare-net", "--bind", "/", "/",
-    ...(options.isolateManagedSettings ? ["--ro-bind", managed, "/etc/claude-code"] : []), "--proc", "/proc", "--dev", "/dev",
+    ...(options.isolateManagedSettings ? ["--ro-bind", managed, "/etc",
+      ...systemFiles.flatMap(name => ["--ro-bind-try", `/etc/${name}`, `/etc/${name}`])] : []), "--proc", "/proc", "--dev", "/dev",
     process.execPath, "--preload", join(root, "scripts/test-network-child-preload.ts"), probe, scratch], {
     cwd: root, env: { PATH: process.env.PATH!, LANG: "C.UTF-8", TMPDIR: tmpdir(), HOME: join(scratch, "home"),
       PI_CODING_AGENT_DIR: join(scratch, "pi-agent") }, stdout: "pipe", stderr: "pipe",
