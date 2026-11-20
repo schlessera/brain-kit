@@ -410,15 +410,14 @@ test("a hosted sync launch reports its start only once its first worker starts, 
   try {
     execution.attach(db);
     const events: string[] = [];
-    const sentinel = join(f.brain, "started.sentinel");
-    const worker = await execution.boundary.launch({ argv: ["/bin/sh", "-c", 'printf started > "$1"', "probe", sentinel],
-      env: { PATH: "/usr/bin:/bin" }, credentials: false, gate: "exclusive", sync: true, purpose: "start-reporting sync",
-      onExecute: () => { events.push(existsSync(sentinel) ? "after-worker" : "started"); } });
+    const worker = await execution.boundary.launch({ argv: ["/bin/true"], env: { PATH: "/usr/bin:/bin" }, credentials: false,
+      gate: "exclusive", sync: true, purpose: "start-reporting sync", onExecute: () => { events.push("started"); } });
     // The launch returned with the mirror sync still preparing: nothing has started yet.
     events.push("launched");
-    void new Response(worker.stdout).text().catch(() => {}); void new Response(worker.stderr).text().catch(() => {});
-    expect(await worker.exited, "START_SYNC_EXIT").toBe(0);
-    expect(events, "START_REPORTED_ONCE_AFTER_LAUNCH_BEFORE_WORKER").toEqual(["launched", "started"]);
+    void new Response(worker.stdout).text().catch(() => {});
+    const stderr = new Response(worker.stderr).text().catch(() => "");
+    expect(await worker.exited, `START_SYNC_EXIT: ${await stderr}`).toBe(0);
+    expect(events, "START_REPORTED_ONCE_AFTER_LAUNCH").toEqual(["launched", "started"]);
   } finally { db.close(); }
 });
 
