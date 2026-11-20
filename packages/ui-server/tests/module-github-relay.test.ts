@@ -215,6 +215,18 @@ describe("module GitHub relay writes (#4259)", () => {
     expect(writes, "IN_FLIGHT_WRITE_RECORDED").toEqual([{ repository: "ithaca/watchtower", operation: "issue_comment", number: 7, status: 200 }]);
   });
 
+  test("a write still unanswered when the stop window closes is recorded with an unknown status", async () => {
+    hold = new Promise<void>(() => {});
+    const writes: ModuleGitHubWriteRecord[] = [];
+    const slow = startModuleGitHubRelay({ token: () => TOKEN, repositories: ["ithaca/watchtower"], origin: upstream.url.origin, stopSettleMs: 30,
+      writes: parseModuleGitHubWrites("https://github.com/ithaca/watchtower#issue_comment").writes, observe: write => { writes.push(write); } });
+    relays.push(slow);
+    void fetch(`http://localhost${COMMENTS}`, { method: "POST", unix: slow.socketPath, body: JSON.stringify({ body: "Why closed?" }) } as RequestInit).catch(() => {});
+    while (seen.length < 1) await Bun.sleep(5);
+    await slow.stop();
+    expect(writes, "UNANSWERED_WRITE_RECORDED_AT_STOP").toEqual([{ repository: "ithaca/watchtower", operation: "issue_comment", number: 7, status: 0 }]);
+  });
+
   test("the operator list parses only GitHub repositories and known operations", () => {
     const parsed = parseModuleGitHubWrites("https://github.com/ithaca/watchtower#issue_comment, https://gitlab.com/ithaca/x#issue_comment https://github.com/ithaca/watchtower#merge");
     expect([...parsed.writes.get("ithaca/watchtower") ?? []]).toEqual(["issue_comment"]);

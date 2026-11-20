@@ -251,6 +251,14 @@ export function startModuleGitHubRelay(options: ModuleGitHubRelayOptions): Modul
     catch { return refuse(400, "invalid_path", "The relayed path has a malformed escape: reads are GET under a /repos/<owner>/<repo>/ granted through BRAIN_UI_MODULE_REPOSITORIES."); }
   };
 
+  const pendingWrites = new Map<symbol, { repository: string; operation: ModuleGitHubWrite; number: number }>();
+  const record = (key: symbol, status: number) => {
+    const write = pendingWrites.get(key);
+    if (!write) return;
+    pendingWrites.delete(key);
+    try { options.observe?.({ ...write, repository: granted.get(write.repository)!, status }); } catch { /* Recording never fails the call. */ }
+  };
+
   async function handle(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const method = request.method.toUpperCase();
@@ -293,6 +301,9 @@ export function startModuleGitHubRelay(options: ModuleGitHubRelayOptions): Modul
     const token = options.token();
     if (!token) refuse(503, "unavailable", "The module GitHub relay has no credential: set BRAIN_UI_MODULE_GITHUB_TOKEN on the host.");
     if (++calls > maxCalls) refuse(429, "budget_exceeded", `This run made its ${maxCalls} relayed GitHub calls.`);
+    // A write is pending from the moment it is sent; it is recorded exactly once, when GitHub answers or when the relay stops.
+    const sent = write ? Symbol("write") : undefined;
+    if (sent) pendingWrites.set(sent, write!);
     let upstream: Response;
     try {
       upstream = await (options.fetch ?? fetch)(new URL(`${path}${url.search}`, origin), {
@@ -302,11 +313,11 @@ export function startModuleGitHubRelay(options: ModuleGitHubRelayOptions): Modul
     });
     } catch (error) {
       // GitHub may have performed a write whose answer was lost: it is recorded with an unknown status (0).
-      if (write) { try { options.observe?.({ ...write, repository: granted.get(write.repository)!, status: 0 }); } catch { /* Recording never fails the call. */ } }
+      if (sent) record(sent, 0);
       throw error;
     }
     // GitHub has answered: a write it may have performed is recorded now, whatever happens to its body.
-    if (write) { try { options.observe?.({ ...write, repository: granted.get(write.repository)!, status: upstream.status }); } catch { /* Recording never fails the call. */ } }
+    if (sent) record(sent, upstream.status);
     if (upstream.status >= 300 && upstream.status < 400) { await upstream.body?.cancel(); refuse(502, "redirect", "GitHub redirected; the relay never follows a redirect."); }
     if (Number(upstream.headers.get("content-length") ?? "0") > maxResponseBytes) { await upstream.body?.cancel(); refuse(502, "response_too_large", `A relayed response is at most ${MAX_MODULE_GITHUB_RESPONSE_BYTES} bytes.`); }
     const bytes = await readBounded(upstream.body, maxResponseBytes);
@@ -345,6 +356,8 @@ export function startModuleGitHubRelay(options: ModuleGitHubRelayOptions): Modul
       return stopped ??= (async () => {
         stopping = true;
         if (inFlight.size) await Promise.race([Promise.allSettled([...inFlight]), Bun.sleep(stopSettleMs)]);
+        // A write still unanswered when the window closes is recorded with an unknown status (0).
+        for (const key of [...pendingWrites.keys()]) record(key, 0);
         await server.stop(true);
         rmSync(dir, { recursive: true, force: true });
       })();
