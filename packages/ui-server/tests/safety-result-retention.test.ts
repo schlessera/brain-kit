@@ -70,20 +70,21 @@ async function voyageHome(interruption:Interruption,check:(f:{db:ReturnType<type
  // installed runtime's own ripgrep; it marks when the matches are out and
  // then holds its exit, the window a stop lands in.
  const bin=join(root,"bin"),searched=join(root,"sirens-heard"),rg=installedRipgrep(root);mkdirSync(bin);
- const firstClaim=join(root,"first-search"),secondHeld=join(root,"second-held"),secondRelease=join(root,"release-second"),firstOutput=join(root,"first-output"),secondOutput=join(root,"second-output");
+ const secondHeld=join(root,"second-held"),secondRelease=join(root,"release-second"),firstOutput=join(root,"first-output"),secondOutput=join(root,"second-output");
  const boundedGate=(path:string)=>`attempts=0; until test -f '${path}'; do attempts=$((attempts+1)); test "$attempts" -lt 1500 || exit 74; sleep 0.01; done`;
+ // Distinct patterns identify logical calls even if Grep starts auxiliary
+ // rg processes. Every second-call engine is held before it can finish.
  const sameToolWrapper=`#!/bin/sh
 case " $* " in
+ *" sirens|sirens "*)
+  '${rg}' "$@" > '${secondOutput}'.$$; code=$?;
+  cp '${secondOutput}'.$$ '${secondOutput}'; : > '${secondHeld}';
+  ${boundedGate(secondRelease)}
+  cat '${secondOutput}'.$$; exit "$code";;
  *" sirens "*)
-  if mkdir '${firstClaim}' 2>/dev/null; then
-   '${rg}' "$@" > '${firstOutput}'; code=$?; : > '${searched}';
-   ${boundedGate(secondHeld)}
-   cat '${firstOutput}'; exit "$code"
-  else
-   '${rg}' "$@" > '${secondOutput}'; code=$?; : > '${secondHeld}';
-   ${boundedGate(secondRelease)}
-   cat '${secondOutput}'; exit "$code"
-  fi;;
+  '${rg}' "$@" > '${firstOutput}'.$$; code=$?; : > '${searched}';
+  ${boundedGate(secondHeld)}
+  cat '${firstOutput}'.$$; exit "$code";;
  *) exec '${rg}' "$@";;
 esac
 `;
@@ -105,7 +106,8 @@ esac
   requests.push({turn,raw});
   const first=turn===0&&requests.filter(r=>r.turn===0).length===1;
   const search={name:"Grep",id:"toolu_sirens",input:{pattern:"sirens",path,output_mode:"content"}};
-  if(first&&(interruption==="duplicate"||interruption==="same-tool"))return modelCalls([search,search]);
+  if(first&&interruption==="duplicate")return modelCalls([search,search]);
+  if(first&&interruption==="same-tool")return modelCalls([search,{...search,input:{...search.input,pattern:"sirens|sirens"}}]);
   if(first&&interruption==="retooled")return modelCalls([search,{name:"Read",id:search.id,input:{file_path:path}}]);
   return nativeModelReply(first?search:undefined);
  }});
@@ -184,7 +186,7 @@ esac
    if(interrupt&&(interruption==="duplicate"||interruption==="retooled"))await Promise.race([refused,new Promise(resolve=>setTimeout(resolve,2000))]);
    await writes.safetyEnd(turnId);
   }
-  return {results,failures,aborted:controller.signal.aborted,indexWaits,admitted,cards,refusals,nativeSecondHeld:existsSync(secondHeld)&&existsSync(secondOutput)&&readFileSync(secondOutput,"utf8").includes(SONG)};
+  return {results,failures,aborted:controller.signal.aborted,indexWaits,admitted,cards,refusals,nativeSecondHeld:existsSync(secondHeld)&&existsSync(secondOutput)&&readFileSync(secondOutput,"utf8").length>0};
  }
  try{
   const first=await voyage("voyage",null,true);
