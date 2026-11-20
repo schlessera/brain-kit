@@ -50,7 +50,7 @@ public design or its fixtures. Fictional examples use the Odysseus world.
   (`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:132-161`).
   The privileged proposal writer already provides exact-base review,
   descriptor-bound publication, authority rechecks and crash receipts
-  (`createPolicyProposals`, `packages/ui-server/src/brain/policy-proposal.ts:100-275`).
+  (`createPolicyProposals`, `packages/ui-server/src/brain/policy-proposal.ts:101-254`).
 - Private reference access already matches canonical repository prefixes and
   live principal grants; that is access authority, not content trust
   ([reference-source grants](../decisions/reference-source-grants.md)). Its
