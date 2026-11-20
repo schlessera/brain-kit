@@ -22,14 +22,14 @@ function fixture() {
   let failure: "tracked" | "install" | "validation" | undefined;
   const run = spyOn(moduleMaintenanceExecution, "run").mockImplementation(async command => {
     const installing = command.command.includes("install"), tracking = command.command[0] === "/usr/bin/git";
-    if (failure === "tracked" && tracking || failure === "install" && installing || failure === "validation" && !installing && !tracking) return { exitCode: 1, stdout: "", stderr: "Odysseus deliberate failure" };
+    if (failure === "tracked" && tracking || failure === "install" && installing || failure === "validation" && !installing && !tracking) return { exitCode: 1, stdout: "", stderr: "Odysseus deliberate failure", killed: false };
     if (installing) {
       const dir = command.command[command.command.indexOf("--cwd") + 1]!;
       fs.mkdirSync(join(dir, "node_modules/.bin"), { recursive: true }); fs.writeFileSync(join(dir, "node_modules/.bin/brain"), "Odysseus CLI");
       expect(command.credentials).toBe(true); expect(command.env).toEqual({ PATH: "/usr/bin:/bin" }); expect(command.home).toBeUndefined();
       expect(command.command).toContain("--frozen-lockfile"); expect(command.command).toContain("--backend=copyfile");
     }
-    return { exitCode: 0, stdout: "Odysseus", stderr: "" };
+    return { exitCode: 0, stdout: "Odysseus", stderr: "", killed: false };
   }); cleanup.push(() => run.mockRestore());
   const command = { brainPath: brain, env: { PATH: "/usr/bin:/bin", ANTHROPIC_API_KEY: "fixture-secret" }, credentials: false, command: ["brain", "maintain"] };
   const view = { brain, root: brain } as WorkerStartupView;
