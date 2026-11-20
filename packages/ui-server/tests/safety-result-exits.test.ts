@@ -30,7 +30,7 @@ import { createPermissionWiring } from "../../ui-backend-claude/src/permission-h
 import { holdSafetyRecovery } from "./helpers/hold-safety-recovery";
 
 /** A search that names a workspace note: only its result's record carries the taint. */
-const SEARCH = "workspaces/voyage/raft.md:1: Sail past the sirens.";
+const SEARCH = "workspaces/voyage/raft.md:\0"+"1: Sail past the sirens.\n";
 
 /** Settles `work` on the normal event loop: a pending `expect().rejects` waits
  * synchronously and never sees the write worker's reply. */
@@ -535,7 +535,7 @@ for(const marked of [false,true])test(`real Pi grep bracket paths retain exactly
   const input={pattern:'sirens',path:'[voyage]'};
   await f.collector.begin('bracket_search','grep',input);
   const output=await searchRuns(f,'bracket_search',input);
-  expect(output.split('\n').sort(),'REAL_GREP_RETURNS_BOTH_BRACKET_FILENAMES').toEqual(paths.map(path=>`${path}:1:sirens`));
+  expect(output.split('\n').filter(Boolean).sort(),'REAL_GREP_RETURNS_BOTH_BRACKET_FILENAMES').toEqual(paths.map(path=>`${path}:\0`+"1:sirens"));
   const signals=outputTaintSignals('grep',output,f.brain,path=>isMarkedUntrusted(f.db,path),searchOutputContext('grep',input));
   expect(signals.sort((a,b)=>a.key.localeCompare(b.key)),'REAL_BRACKET_OUTPUT_HAS_EXACT_PATH_SIGNALS').toEqual(marked?paths.map(key=>({source:'user_marked',detector:'explicit_untrusted_input',key})):[]);
   await f.collector.result('bracket_search','grep',output,true);
@@ -560,5 +560,21 @@ for(const shape of ['exact','image','second-text','incomplete'] as const)test(`P
   await dispatcher(f)(report(1,id,converted));
   expect(f.db.query("SELECT source,detector FROM safety_records WHERE kind='occurrence'").all(),'ORIGINAL_MIXED_PI_RESULT_RETAINS_UNKNOWN').toEqual(shape==='exact'?[]:[{source:'legacy_unknown',detector:'tool_search_output'}]);
   expect(f.chat().restriction).toBe(shape==='exact'?'normal':'restricted');
+ }finally{await f.close();}
+});
+
+test('shipped Pi grep preserves a marked newline filename through the worker ledger',async()=>{
+ const f=await voyage();try{
+  const {untrustedMarkOperations,isMarkedUntrusted}=await import('../src/files/untrusted-marks');
+  const {outputTaintSignals,searchOutputContext}=await import('../src/activity/ingestion-taint');
+  const path='raft:1:sail\nloom.md',input={pattern:'nymph_signal'},id='newline_search';
+  writeFileSync(join(f.brain,path),'nymph_signal\n');
+  untrustedMarkOperations(f.db).mark(path,null,Date.UTC(2026,6,12));
+  await f.collector.begin(id,'grep',input);
+  const output=await searchRuns(f,id,input);
+  expect(outputTaintSignals('grep',output,f.brain,p=>isMarkedUntrusted(f.db,p),searchOutputContext('grep',input)),'PI_NEWLINE_PATH_KEEPS_ITS_EXACT_MARK').toEqual([{source:'user_marked',detector:'explicit_untrusted_input',key:path}]);
+  expect(output).toBe(`./${path}:\0`+'1:nymph_signal\n');
+  await dispatcher(f)(report(1,id,safetyResultInput('grep',[{type:'text',text:output}])));
+  expect(f.db.query("SELECT source,detector FROM safety_records WHERE kind='occurrence'").all(),'PI_NEWLINE_PATH_LEDGER_HAS_NO_FALSE_HEALTHY_OR_UNKNOWN').toEqual([{source:'user_marked',detector:'explicit_untrusted_input'}]);
  }finally{await f.close();}
 });

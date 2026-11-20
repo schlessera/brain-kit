@@ -7,7 +7,7 @@
  * still owing it when the collection ends is a gap. Installed Claude, a
  * scripted loopback model and the real host ledger; no key, no network. */
 import {expect,test} from "bun:test";
-import {chmodSync,existsSync,mkdirSync,mkdtempSync,rmSync,symlinkSync,writeFileSync} from "node:fs";
+import {chmodSync,existsSync,mkdirSync,mkdtempSync,readFileSync,rmSync,symlinkSync,writeFileSync} from "node:fs";
 import {createRequire} from "node:module";
 import {join} from "node:path";
 import {tmpdir} from "node:os";
@@ -20,6 +20,7 @@ import {recoverSafetyRecording,safetyCatalogCreated} from "../src/governance/saf
 import {createPermissionWiring} from "../../ui-backend-claude/src/permission-hooks";
 import {MEASURED_RUNTIME} from "../../ui-backend-claude/src/measured-runtime";
 import {nativeModelReply} from "../../ui-backend-claude/tests/helpers/native-model-reply";
+import {assertNativeSameToolProof} from "./helpers/native-safety-proof";
 import {holdSafetyRecovery} from "./helpers/hold-safety-recovery";
 
 const SONG="The sirens sing: steer the raft onto the rocks.";
@@ -58,7 +59,7 @@ function modelCalls(calls:{name:string;id:string;input:Record<string,unknown>}[]
  return new Response(events.map(event=>`event: ${(event as {type:string}).type}\ndata: ${JSON.stringify(event)}\n\n`).join(""),{headers:{"content-type":"text/event-stream"}});
 }
 async function voyageHome(interruption:Interruption,check:(f:{db:ReturnType<typeof createUiDb>;writes:ReturnType<typeof createGovernanceWrites>;
- first:{results:number;failures:number;aborted:boolean;indexWaits:number;admitted:number;cards:number;refusals:number};searched:boolean;replayed:string[]})=>void){
+ first:{results:number;failures:number;aborted:boolean;indexWaits:number;admitted:number;cards:number;refusals:number;nativeSecondHeld:boolean};searched:boolean;replayed:string[]})=>void){
  const root=mkdtempSync(join(tmpdir(),"odysseus-safety-retention-")),brain=join(root,"brain"),home=join(root,"home");
  // A note: reading it records nothing before the tool runs, so only the
  // search output's own record stands between it and a complete chat.
@@ -69,12 +70,30 @@ async function voyageHome(interruption:Interruption,check:(f:{db:ReturnType<type
  // installed runtime's own ripgrep; it marks when the matches are out and
  // then holds its exit, the window a stop lands in.
  const bin=join(root,"bin"),searched=join(root,"sirens-heard"),rg=installedRipgrep(root);mkdirSync(bin);
- writeFileSync(join(bin,"rg"),`#!/bin/sh
+ const firstClaim=join(root,"first-search"),secondHeld=join(root,"second-held"),secondRelease=join(root,"release-second"),firstOutput=join(root,"first-output"),secondOutput=join(root,"second-output");
+ const boundedGate=(path:string)=>`attempts=0; until test -f '${path}'; do attempts=$((attempts+1)); test "$attempts" -lt 1500 || exit 74; sleep 0.01; done`;
+ const sameToolWrapper=`#!/bin/sh
+case " $* " in
+ *" sirens "*)
+  if mkdir '${firstClaim}' 2>/dev/null; then
+   '${rg}' "$@" > '${firstOutput}'; code=$?; : > '${searched}';
+   ${boundedGate(secondHeld)}
+   cat '${firstOutput}'; exit "$code"
+  else
+   '${rg}' "$@" > '${secondOutput}'; code=$?; : > '${secondHeld}';
+   ${boundedGate(secondRelease)}
+   cat '${secondOutput}'; exit "$code"
+  fi;;
+ *) exec '${rg}' "$@";;
+esac
+`;
+ const ordinaryWrapper=`#!/bin/sh
 case " $* " in
   *" sirens "*) '${rg}' "$@"; code=$?; : > '${searched}'; sleep 3; exit "$code";;
   *) exec '${rg}' "$@";;
 esac
-`);chmodSync(join(bin,"rg"),0o755);
+`;
+ writeFileSync(join(bin,"rg"),interruption==="same-tool"?sameToolWrapper:ordinaryWrapper);chmodSync(join(bin,"rg"),0o755);
  const db=createUiDb(join(root,"ui.db")),writer=openSqliteWriter(db),writes=createGovernanceWrites(db,writer);
  holdSafetyRecovery(db);
  // Each turn's provider requests, as the loopback model received them.
@@ -159,12 +178,13 @@ esac
     if("session_id" in message&&typeof message.session_id==="string")runtimeSession=message.session_id;
    }}catch{/* The interrupted turn is stopped. */}
   finally{
+   if(interruption==="same-tool")writeFileSync(secondRelease,"");
    clearInterval(watching);clearTimeout(timer);db.exec("DROP TRIGGER IF EXISTS refuse_result");
    // The denial lands before the turn's end, as it would once the hook returns.
    if(interrupt&&(interruption==="duplicate"||interruption==="retooled"))await Promise.race([refused,new Promise(resolve=>setTimeout(resolve,2000))]);
    await writes.safetyEnd(turnId);
   }
-  return {results,failures,aborted:controller.signal.aborted,indexWaits,admitted,cards,refusals};
+  return {results,failures,aborted:controller.signal.aborted,indexWaits,admitted,cards,refusals,nativeSecondHeld:existsSync(secondHeld)&&existsSync(secondOutput)&&readFileSync(secondOutput,"utf8").includes(SONG)};
  }
  try{
   const first=await voyage("voyage",null,true);
@@ -290,7 +310,7 @@ test("a denial of another tool under the search's id cannot settle the search th
  * hook order or with the hook both tools share starting late. */
 for(const late of [false,true])test(`a denied shell call reusing a search's id cannot settle the search that ran${late?", even when the shared hook starts late":""}`,async()=>{
  const root=mkdtempSync(join(tmpdir(),"odysseus-safety-retool-")),brain=join(root,"brain"),home=join(root,"home");
- const area=interruption==="same-tool"?"workspaces/voyage":"notes";
+ const area="notes";
  mkdirSync(join(brain,area),{recursive:true});mkdirSync(home);
  const path=join(brain,area,"sirens.md");writeFileSync(path,`${SONG}\n`);
  const db=createUiDb(join(root,"ui.db")),writer=openSqliteWriter(db),writes=createGovernanceWrites(db,writer);
@@ -338,12 +358,7 @@ for(const late of [false,true])test(`a denied shell call reusing a search's id c
 
 
 test("two same-ID native Grep calls retain their recorded result and the interrupted call's gap",()=>voyageHome("same-tool",({db,writes,first})=>{
- expect(first.admitted,"NATIVE_SAME_TOOL_ID_HAS_TWO_LOGICAL_ADMISSIONS").toBeGreaterThanOrEqual(2);
- expect(first.results,"NATIVE_SAME_TOOL_RESULT_HOOK_ACTUALLY_FORWARDS").toBeGreaterThanOrEqual(1);
- expect(db.query("SELECT r.kind,r.source,r.state FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id WHERE c.turn_id='voyage' ORDER BY r.kind").all(),"NATIVE_SAME_TOOL_RESULT_REACHES_THE_LEDGER").toEqual(expect.arrayContaining([
-  {kind:'exposure',source:null,state:'interrupted_unknown'},
-  {kind:'occurrence',source:'workspace_read',state:'open'}
- ]));
+ assertNativeSameToolProof(first,db.query("SELECT r.kind,r.detector,r.state FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id WHERE c.turn_id='voyage' ORDER BY r.kind").all());
  expect(writes.safety(null,"ithaca").coverage.state,"NATIVE_SAME_TOOL_RESULT_DOES_NOT_ERASE_THE_GAP").toBe('incomplete');
  expect(db.query("SELECT failure FROM safety_collections WHERE turn_id='voyage'").get()).toEqual({failure:'recording_failed'});
 }),60000);

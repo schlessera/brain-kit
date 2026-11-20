@@ -566,7 +566,7 @@ for(const [name,tool,output,expected] of [
  ['wrapped mixed Pi match and empty sentinel','grep',JSON.stringify([{type:'text',text:'notes/voyage.md:1: sirens\nNo matches.'}]),['legacy_unknown']],
  ['structured numeric colon','Glob',JSON.stringify({durationMs:1,numFiles:1,filenames:['notes/voyage:2:home.md'],truncated:false}),['user_marked']],
  ['structured spaced colon','Glob',JSON.stringify({durationMs:1,numFiles:1,filenames:['notes/voyage home:map.md'],truncated:false}),['user_marked']],
- ['plain colon grep','grep','notes/voyage:home.md:7: Odysseus',['user_marked']],
+ ['plain colon grep','grep','notes/voyage:home.md:7: Odysseus',['user_marked','legacy_unknown']],
  ['ambiguous numeric colon','grep','notes/voyage:2:home.md:7: Odysseus',['user_marked','legacy_unknown']],
  ['malformed structured path','Glob',JSON.stringify({filenames:[123]}),['legacy_unknown']],
  ['unsupported empty wording','Grep','No matches.',['legacy_unknown']],

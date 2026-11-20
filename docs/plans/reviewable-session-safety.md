@@ -33,7 +33,12 @@ public design or its fixtures. Fictional examples use the Odysseus world.
   `outputTaintSignals`, `packages/ui-server/src/activity/ingestion-taint.ts:189`).
   Workspace paths taint regardless of repository ownership. Awaited backend
   hooks commit before tool dispatch/result delivery; display frames alone
-  never prove finalized delivery or complete coverage.
+  never prove finalized delivery or complete coverage. Pi's shipped search
+  preserves filename boundaries with GNU grep's NUL filename separator and a
+  retained visible colon. New result data can therefore name POSIX filenames
+  containing newlines without inventing separate paths. Older unframed text
+  remains restrictive. This changes tool result data, not the provider-facing
+  tool definition or any previously delivered provider history.
 - The turn proxy records each admitted non-provider connection and terminal
   exposure observation (`prepareTurnEgress`,
   `packages/ui-server/src/brain/turn-egress.ts:86-295`). Relay admissions join

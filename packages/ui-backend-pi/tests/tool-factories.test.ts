@@ -73,7 +73,7 @@ test("readFileTool reads one contained file and returns its base on a routed tur
 
 test("grepTool searches the repository and names each match", async () => {
   const result = await run(grepTool(kit({ exec: {} })), { pattern: "Odysseus" });
-  expect(resultText(result)).toBe("./notes/ithaca.md:3:Odysseus sails home.");
+  expect(resultText(result)).toBe("./notes/ithaca.md:\0"+"3:Odysseus sails home.\n");
   expect(resultText(await run(grepTool(kit({ exec: {} })), { pattern: "Cyclops" }))).toBe("No matches.");
 });
 

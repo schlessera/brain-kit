@@ -177,7 +177,7 @@ export function inputTaintSignals(tool: string, input: unknown, brainPath?: stri
 interface SearchOutputContext { backendId?: string; outputMode?: string; lineNumbers?: boolean; offset?: number; limit?: number }
 // Installed SDK: GlobInput/GrepInput and GlobOutput/GrepOutput in
 // @anthropic-ai/claude-agent-sdk/sdk-tools.d.ts:905-983,3506-3545. Pi's shipped grep and text
-// envelope are `grepTool` (packages/ui-backend-pi/src/file-tools.ts:52-91)
+// envelope are `grepTool` (packages/ui-backend-pi/src/file-tools.ts:44-82)
 // and `textResult` (packages/ui-backend-pi/src/tool-kit.ts:25-27).
 const natural = z.number().int().nonnegative().safe();
 const globOutput = z.object({ durationMs: z.number().finite().nonnegative(), numFiles: natural,
@@ -225,8 +225,26 @@ export function outputTaintSignals(tool: string, output: string, brainPath?: str
   if(tool==='grep'&&(context===undefined||context.backendId==='pi')){
     // `safetyResultInput` (packages/ui-backend-pi/src/worker-protocol.ts:92-99)
     // joins the shipped tool's text. No JSON envelope is part of this format.
-    if(parsed!==undefined)unknown=true; // An actual JSON value is not Pi's text-row envelope.
-    if(output!=='No matches.')for(const line of output.split('\n'))content(line,true);
+    if(output!=='No matches.'){
+      if(!output.includes('\0')){
+        // Retained text from older runtimes cannot prove filename boundaries:
+        // even several valid-looking rows can be one newline-bearing path.
+        unknown=true;for(const line of output.split('\n'))content(line,true);
+      }else{
+        let offset=0;
+        while(offset<output.length){
+          const nul=output.indexOf('\0',offset);if(nul<0){unknown=true;break;}
+          const prefix=output.slice(offset,nul);
+          if(!prefix.endsWith(':'))unknown=true;
+          add(prefix.endsWith(':')?prefix.slice(0,-1):prefix);
+          const end=output.indexOf('\n',nul+1);
+          const row=output.slice(nul+1,end<0?output.length:end);
+          if(!/^[1-9][0-9]*:[^\n\0]*$/.test(row)||end<0)unknown=true;
+          if(end<0)break;
+          offset=end+1;
+        }
+      }
+    }
   }else if((context?.backendId??'claude')==='claude'&&tool==='Glob'){
     const checked=globOutput.safeParse(parsed);
     if(!checked.success){unknown=true;salvage(parsed);}

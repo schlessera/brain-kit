@@ -60,7 +60,7 @@ export function grepTool(kit: BrainToolKit): ToolDefinition {
       const rel = params.path ?? ".";
       resolveOrThrow(rel);
       const exec = deps.exec ?? ambientExecConfig();
-      const proc = spawn(wrapCommand(["grep", "-rInE", "--", params.pattern, rel], exec.wrapper), {
+      const proc = spawn(wrapCommand(["grep", "-rInZE", "--", params.pattern, rel], exec.wrapper), {
         cwd: brain.root,
         env: subprocessEnv([...resolveEnabledWebSearchEnvNames(), ...WORKER_EGRESS_TRANSPORT_ENV]),
         stdout: "pipe",
@@ -71,7 +71,10 @@ export function grepTool(kit: BrainToolKit): ToolDefinition {
       signal?.addEventListener("abort", onAbort, { once: true });
       const [out] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
       signal?.removeEventListener("abort", onAbort);
-      const text = out.trim();
+      // Keep the visible colon layout and an unambiguous machine boundary.
+      // POSIX filenames may contain newlines, colons and edge whitespace.
+      // This changes result data only; provider tool definitions stay identical.
+      const text = out.replaceAll("\0", ":\0");
       return textResult(text ? clip(text) : "No matches.", { pattern: params.pattern });
     },
   } satisfies ToolDefinition;
