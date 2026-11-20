@@ -154,7 +154,7 @@ export function createTrustSettings(options: {
     liveCache = { observation, base, value }; return value;
   };
   const live = { read: freshProjection, revision: () => freshProjection().revision,
-    refresh: () => options.lock.withLock(BRAIN_LOCK_KEY, refresh), subscribe(changed: () => void) { listeners.add(changed); return () => { listeners.delete(changed); }; } };
+    refresh: (signal?: AbortSignal) => options.lock.withLock(BRAIN_LOCK_KEY, () => { signal?.throwIfAborted(); return refresh(); }, { signal }), subscribe(changed: () => void) { listeners.add(changed); return () => { listeners.delete(changed); }; } };
   const refresh = async (): Promise<Projection> => {
     const old = projection(), value = observePolicy();
     if (value.kind === "unavailable") {

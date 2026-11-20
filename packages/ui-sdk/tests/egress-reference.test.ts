@@ -9,9 +9,9 @@ test("managed reference shares the real turn counter with inference and refuses 
   const records: EgressRecord[] = [], proxy = await startEgressProxy(options(records)), signal = new AbortController().signal;
   try {
     const inference = proxy.inference("POST", new URL("https://api.anthropic.com/v1/messages"), signal);
-    expect(await inference.admit()).toBe(true); expect(inference.charge(10)).toBe(true); inference.finish("completed");
+    expect(await inference.admit()).toBe(true); expect(inference.charge(10).ok).toBe(true); inference.finish("completed");
     const reference = proxy.managedReference(github, signal);
-    expect(await reference.admit()).toBe(true); expect(reference.charge(22)).toBe(true); reference.finish("completed");
+    expect(await reference.admit()).toBe(true); expect(reference.charge(22).ok).toBe(true); reference.finish("completed");
     expect(proxy.usedBytes(), "REFERENCE_SHARES_TURN_WIRE_COUNTER").toBe(32);
     const refused = proxy.managedReference(github, signal);
     expect(await refused.admit(), "REFERENCE_EXHAUSTED_TURN_REFUSED").toBe(false);

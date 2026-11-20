@@ -515,3 +515,13 @@ test('review7: a second reader recovers after the writer commits the same file g
  writeFileSync(f.path,initial);expect(()=>second.live.read()).toThrow();await f.settings.live.refresh();
  expect(second.live.read().rules,'SECOND_READER_RECOVERS_WITHOUT_EXPLICIT_REFRESH').toEqual([]);expect(second.live.revision()).toBe('2');
 });
+
+for(const timeout of [false,true])test(`review10: turn trust refresh releases governed resources before the lock holder on ${timeout?'timeout':'cancel'}`,async()=>{
+ const f=await fixture({originEnforcement:true});const {WsHost}=await import('../src/ws/host');const {runSession}=await import('../src/ws/run-session');const {createSessionCatalog}=await import('../src/ws/session-catalog');const {createStaticBackendRegistry}=await import('../src/agent/backend');const {makeFakeBackend}=await import('./helpers/fake-backend');const {testAuthorization}=await import('./helpers/principal');
+ let held=0,entered!:()=>void,started=0;const reached=new Promise<void>(r=>{entered=r;});const original=f.lock.withLock.bind(f.lock);f.lock.withLock=(key,fn,opts)=>{if(key===BRAIN_LOCK_KEY)entered();return original(key,fn,opts);};
+ const policy=createGovernancePolicyReader(f.root).load();const backend=makeFakeBackend({id:'pi',async startTurn(){started++;}});const host=new WsHost({registry:createStaticBackendRegistry([backend],'pi'),catalog:createSessionCatalog(()=>f.db),turnTimeoutMs:5000,originTrust:f.settings.live,governedTurns:{async begin(){held++;return {sandbox:{profile:'strict',noteFacts:{}},policy,async end(){held--;return null;}};},refresh(){},async close(){},async bindSession(){},async exposures(){return [];},facts(){return {policyProfile:'strict',policy};}} as never});
+ const release=await f.lock.acquire(BRAIN_LOCK_KEY);let running:Promise<void>|undefined;
+ try{running=runSession(host,{authorization:testAuthorization(),text:'Plan Ithaca',attachments:[]});await reached;if(!timeout)host.coordinator.cancelAll('Odysseus cancels');const done=await Promise.race([running.then(()=>true),Bun.sleep(timeout?6000:200).then(()=>false)]);
+ expect(done,'CANCELLED_REFRESH_NEVER_WAITS_FOR_UNRELATED_HOLDER').toBe(true);expect(held).toBe(0);expect(host.coordinator.isTurnActive()).toBe(false);expect(started).toBe(0);expect(f.lock.heldKeys).toContain(BRAIN_LOCK_KEY);
+ }finally{release();await running;host.close();}
+});

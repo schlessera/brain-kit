@@ -1384,6 +1384,8 @@ export "./internal" (./src/internal.ts)
   type CompiledWorkerCommandPolicy
   DEFAULT_TURN_TEMP_BYTES
   EgressAdmissionRefused
+  type EgressChargeFailure
+  type EgressChargeResult
   type EgressDestinationPolicy
   type EgressRecord
   type EgressRefusal
@@ -1510,6 +1512,7 @@ export "./internal" (./src/internal.ts)
   describeClient
   egressAddressRefusal
   egressBootstrapEntry
+  egressChargeRefusal
   envMaskedPaths
   execWrapperSpawnOptions
   handleTurnTemp

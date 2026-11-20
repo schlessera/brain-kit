@@ -14,7 +14,7 @@ import { chmodSync, mkdtempSync, rmSync } from "node:fs";
 import { workerIdentityHelper } from "./worker-identity.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { startEgressProxy } from "./egress-proxy.js";
+import { egressChargeRefusal, type startEgressProxy, type EgressChargeFailure } from "./egress-proxy.js";
 import { INFERENCE_RELAY_PLACEHOLDER } from "@schlessera/brain-common/internal/provider-unavailable";
 
 /** Where the relay directory appears inside a restricted worker. */
@@ -122,6 +122,8 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
           operation?.finish("denied", reason);
           return refuse(request.method, path, status, reason === "max_bytes_per_turn" ? "Inference egress limit exceeded" : "Inference request refused", operation?.reason?.() ?? reason);
         };
+        const chargeFailure = (count: number) => { const result = operation?.charge(count); return result && !result.ok ? result : undefined; };
+        const chargeDenied = (failure: EgressChargeFailure) => { const detail = egressChargeRefusal(failure,"Inference"); return refuse(request.method,path,detail.status,detail.message,operation?.reason?.() ?? detail.reason); };
         if (operation && !await operation.admit()) {
           const cancelled = request.signal.aborted || operation.outcome() === "cancelled";
           operation.finish(cancelled ? "cancelled" : "denied", "inference_admission_refused");
@@ -142,10 +144,10 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
             const next = await reader.read();
             if (next.done) break;
             length += next.value.byteLength;
-            if (length > MAX_INFERENCE_REQUEST_BYTES || operation && !operation.charge(next.value.byteLength + 16)) {
+            const failure = length <= MAX_INFERENCE_REQUEST_BYTES ? chargeFailure(next.value.byteLength + 16) : undefined;
+            if (length > MAX_INFERENCE_REQUEST_BYTES || failure) {
               await reader.cancel().catch(() => {});
-              return denied(length > MAX_INFERENCE_REQUEST_BYTES ? "inference_request_too_large" : "max_bytes_per_turn",
-                length > MAX_INFERENCE_REQUEST_BYTES ? 413 : 403);
+              return failure ? chargeDenied(failure) : denied("inference_request_too_large",413);
             }
             chunks.push(next.value);
           }
@@ -185,9 +187,8 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
           for (const [name, value] of values) bytes += Buffer.byteLength(name) + Buffer.byteLength(value) + 4;
           return bytes;
         };
-        if (operation && !operation.charge(headerBytes(`${request.method} ${path}${url.search} HTTP/1.1`, headers))) {
-          return denied("max_bytes_per_turn");
-        }
+        const requestChargeFailure = chargeFailure(headerBytes(`${request.method} ${path}${url.search} HTTP/1.1`, headers));
+        if (requestChargeFailure) return chargeDenied(requestChargeFailure);
         // Body/credential waits may have crossed an input-recording failure.
         // Re-enter the concrete host admission at the last dispatch boundary.
         if(operation&&!await operation.admit())return denied("inference_admission_refused");
@@ -209,10 +210,10 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
         options.observe?.({ method: request.method, path, outcome: "forwarded", status: response.status });
         const out = new Headers();
         for (const [name, value] of response.headers) if (!RESPONSE_STRIPPED.has(name.toLowerCase())) out.set(name, value);
-        if (operation && !operation.charge(headerBytes(`HTTP/1.1 ${response.status} ${response.statusText}`, response.headers))) {
-          operation.finish("denied", "max_bytes_per_turn");
+        const responseChargeFailure = chargeFailure(headerBytes(`HTTP/1.1 ${response.status} ${response.statusText}`, response.headers));
+        if (responseChargeFailure) {
           await response.body?.cancel().catch(() => {});
-          return refuse(request.method, path, 403, "Inference egress limit exceeded");
+          return chargeDenied(responseChargeFailure);
         }
         if (!operation) return new Response(response.body, { status: response.status, headers: out });
         if (!response.body) {
@@ -227,11 +228,13 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
             try {
               const next = await upstreamReader.read();
               if (next.done) { operation.finish("completed"); release(); controller.close(); }
-              else if (!operation.charge(next.value.byteLength + 16)) {
-                operation.finish("denied", "max_bytes_per_turn");
-                await upstreamReader.cancel().catch(() => {}); release();
-                controller.error(new Error("Inference egress limit exceeded"));
-              } else controller.enqueue(next.value);
+              else {
+                const failure = chargeFailure(next.value.byteLength + 16);
+                if (failure) {
+                  await upstreamReader.cancel().catch(() => {}); release();
+                  controller.error(new Error(egressChargeRefusal(failure,"Inference").message));
+                } else controller.enqueue(next.value);
+              }
             } catch {
               operation.finish(signal.aborted ? "cancelled" : "failed", "upstream_response_failed");
               release(); controller.error(new Error("Inference response interrupted"));

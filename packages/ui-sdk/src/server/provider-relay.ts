@@ -37,7 +37,7 @@ import {
   PROVIDER_RELAY_FAMILY_HEADER, PROVIDER_RELAY_KEY_HEADER, PROVIDER_RELAY_ORIGIN_HEADER, type ProviderRelayFamily,
 } from "@schlessera/brain-common/internal/provider-relay";
 import { workerIdentityHelper } from "./worker-identity.js";
-import { WORKER_EGRESS_DIR, type EgressRefusal, type startEgressProxy } from "./egress-proxy.js";
+import { egressChargeRefusal, type EgressChargeFailure, WORKER_EGRESS_DIR, type EgressRefusal, type startEgressProxy } from "./egress-proxy.js";
 import { hostProviderCredential } from "../config/env.js";
 
 /** The relay's socket name inside the turn's egress directory. */
@@ -445,6 +445,8 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       return refuse(status, reason === "provider_request_too_large" ? "request_too_large" : "egress_refused",
         reason === "max_bytes_per_turn" ? "Provider egress limit exceeded" : "Provider request refused", operation?.refusal());
     };
+    const chargeFailure = (count: number) => { const result = operation?.charge(count); return result && !result.ok ? result : undefined; };
+    const chargeDenied = (failure: EgressChargeFailure) => { const detail = egressChargeRefusal(failure,"Provider"); return refuse(detail.status,"egress_refused",detail.message,operation?.refusal()); };
     if (Number(request.headers.get("content-length") ?? "0") > MAX_PROVIDER_REQUEST_BYTES) return denied("provider_request_too_large", 413);
     // Charge each received chunk before retaining or forwarding it, against
     // this request's ceiling, the turn's byte ceiling and the relay's
@@ -462,10 +464,10 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
         const next = await reader.read();
         if (next.done) break;
         length += next.value.byteLength;
-        if (length > MAX_PROVIDER_REQUEST_BYTES || operation && !operation.charge(next.value.byteLength + 16)) {
+        const failure = length <= MAX_PROVIDER_REQUEST_BYTES ? chargeFailure(next.value.byteLength + 16) : undefined;
+        if (length > MAX_PROVIDER_REQUEST_BYTES || failure) {
           await reader.cancel().catch(() => {});
-          return denied(length > MAX_PROVIDER_REQUEST_BYTES ? "provider_request_too_large" : "max_bytes_per_turn",
-            length > MAX_PROVIDER_REQUEST_BYTES ? 413 : 403);
+          return failure ? chargeDenied(failure) : denied("provider_request_too_large",413);
         }
         if (!reserve(next.value.byteLength)) {
           await reader.cancel().catch(() => {});
@@ -506,7 +508,8 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       operation?.finish("cancelled", "client_disconnected");
       return refuse(499, "cancelled", "Provider request cancelled");
     }
-    if (operation && !operation.charge(headerBytes(`${request.method} ${target.pathname}${target.search} HTTP/1.1`, headers))) return denied("max_bytes_per_turn");
+    const requestChargeFailure = chargeFailure(headerBytes(`${request.method} ${target.pathname}${target.search} HTTP/1.1`, headers));
+    if (requestChargeFailure) return chargeDenied(requestChargeFailure);
     // Admission again, after every wait: a scope may have blocked meanwhile.
     const now = budgeted ? await options.admit?.() ?? { allowed: true as const } : { allowed: true as const };
     if (!now.allowed) {
@@ -552,31 +555,30 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       if (!RESPONSE_STRIPPED.has(name.toLowerCase()) && name.toLowerCase() !== "x-goog-upload-url" && !value.includes(secret)) out.set(name, value);
     }
     const scrub = keyScrubber(secret);
-    if (operation && !operation.charge(headerBytes(`HTTP/1.1 ${response.status} ${response.statusText}`, response.headers))) {
-      operation.finish("denied", "max_bytes_per_turn");
+    const responseChargeFailure = chargeFailure(headerBytes(`HTTP/1.1 ${response.status} ${response.statusText}`, response.headers));
+    if (responseChargeFailure) {
       await response.body?.cancel().catch(() => {});
       report("cancelled", response.status, null);
-      return refuse(403, "egress_refused", "Provider egress limit exceeded", operation?.refusal());
+      return chargeDenied(responseChargeFailure);
     }
     if (files) {
       // A Files answer is small JSON, read whole: whatever it registers is in
       // place before the worker sees the answer.
       const chunks: Uint8Array[] = [];
-      let size = 0, failure: "large" | "egress" | "read" | undefined;
+      let size = 0, failure: "large" | EgressChargeFailure | "read" | undefined;
       try {
         if (response.body) for await (const chunk of response.body) {
           size += chunk.byteLength;
           if (size > MAX_FILES_RESPONSE_BYTES) { failure = "large"; break; }
-          if (operation && !operation.charge(chunk.byteLength + 16)) { failure = "egress"; break; }
+          const charged = chargeFailure(chunk.byteLength + 16); if (charged) { failure = charged; break; }
           chunks.push(chunk);
         }
-      } catch { failure = "read"; }
+      } catch { failure ??= "read"; }
       if (failure) {
         await response.body?.cancel().catch(() => {});
-        if (failure === "egress") {
-          operation?.finish("denied", "max_bytes_per_turn");
+        if (typeof failure === "object") {
           report("cancelled", response.status, null);
-          return refuse(403, "egress_refused", "Provider egress limit exceeded", operation?.refusal());
+          return chargeDenied(failure);
         }
         operation?.finish(signal.aborted ? "cancelled" : "failed", "upstream_response_failed");
         report(signal.aborted ? "cancelled" : "failed", response.status, null);
@@ -638,11 +640,11 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
             if (tail.byteLength) controller.enqueue(tail);
             controller.close(); return;
           }
-          if (operation && !operation.charge(next.value.byteLength + 16)) {
-            operation.finish("denied", "max_bytes_per_turn");
+          const failure = chargeFailure(next.value.byteLength + 16);
+          if (failure) {
             report("cancelled", response.status, null);
             await upstreamReader.cancel().catch(() => {}); release();
-            controller.error(new Error("Provider egress limit exceeded"));
+            controller.error(new Error(egressChargeRefusal(failure,"Provider").message));
             return;
           }
           capturedBytes += next.value.byteLength;
@@ -678,7 +680,8 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
     const operation = options.egress?.relayed("DELETE", target, signal);
     if (operation && !await operation.admit()) { operation.finish("denied", "provider_admission_refused"); return; }
     const headers = new Headers(PLACEMENT.gemini(secret));
-    if (operation && !operation.charge(headerBytes(`DELETE ${target.pathname} HTTP/1.1`, headers))) { operation.finish("denied", "max_bytes_per_turn"); return; }
+    const cleanupCharge = operation?.charge(headerBytes(`DELETE ${target.pathname} HTTP/1.1`, headers));
+    if (cleanupCharge && !cleanupCharge.ok) return;
     const attemptId = crypto.randomUUID();
     const observe = (outcome: ProviderRelayReceipt["outcome"], status: number): void => {
       try { options.observe?.({ attemptId, family: "gemini", operation: "files", origin: entry.origin, key: entry.key, model: null, outcome, status, usage: null, inlineMedia: false }); }

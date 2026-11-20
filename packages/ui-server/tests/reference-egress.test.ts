@@ -19,7 +19,7 @@ test("managed reference audit never gives worker traffic a contacted-host grant 
   const proxy = await prepareTurnEgress(input(db));
   try {
     const acquisition = proxy.managedReference(repository, new AbortController().signal);
-    expect(await acquisition.admit()).toBe(true); expect(acquisition.charge(12)).toBe(true); acquisition.finish("completed"); await proxy.settled();
+    expect(await acquisition.admit()).toBe(true); expect(acquisition.charge(12).ok).toBe(true); acquisition.finish("completed"); await proxy.settled();
     expect(sessionTaint(db, "turn-ithaca", "ithaca"), "REFERENCE_ACQUISITION_IS_NOT_A_MODEL_READ").toBeNull();
     expect(queryGovernanceEvents(db, { sessionId: "ithaca", kinds: ["egress_connection"], limit: 10 })[0]?.payload)
       .toMatchObject({ managedReference: true, bytes: 12, host: "github.com" });
@@ -43,9 +43,9 @@ test("managed reference uses the final recorder-health fence after its transport
     expect(await acquisition.admit()).toBe(true);
     available = false;
     expect(acquisition.commit(), "REFERENCE_FINAL_RECORDING_HEALTH_RECHECKED").toBe(false);
-    expect(acquisition.charge(1)).toBe(false);
+    expect(acquisition.charge(1)).toEqual({ok:false,reason:"unavailable"});
     await proxy.settled();
     expect(queryGovernanceEvents(db, { sessionId: "ithaca", kinds: ["egress_connection"], limit: 10 })[0]?.payload)
-      .toMatchObject({ managedReference: true, bytes: 0, outcome: "denied", reason: "safety_changed" });
+      .toMatchObject({ managedReference: true, bytes: 0, outcome: "denied", reason: "egress_unavailable" });
   } finally { proxy.stop(); db.close(); }
 });

@@ -173,7 +173,8 @@ export async function prepareRelayedEgress(run: TurnRun, bridge: BackendBridge, 
     sessionId: () => turn.sessionId ?? null, ...(host.governedTurns ? { exposures: ids => host.governedTurns!.exposures(ids) } : {}),
     ...(governedHold.typeFolders ? { typeFolders: governedHold.typeFolders } : {}), budgets: host.budgets, observe: observeAttempt,
     stopped: () => abortController.signal.aborted ? "The turn was stopped." : (stops.budget as Error | undefined)?.message ?? null });
-  await host.originTrust?.refresh?.();
+  await host.originTrust?.refresh?.(abortController.signal);
+  abortController.signal.throwIfAborted();
   held.turnEgress = await prepareTurnEgress({ policy: governedHold.policy.policy, bridge, controller: abortController,
     turnId: turn.turnId, sessionId: () => turn.sessionId ?? null, model: () => run.mainModel,
     trust: host.originTrust,

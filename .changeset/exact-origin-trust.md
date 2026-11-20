@@ -19,3 +19,5 @@ Validate complete trusted admission variants on the wire, avoid absent-approval 
 Record unmatched source hash and revision from the same live snapshot used for matching, and display IPv6 provenance with bracketed authorities.
 
 Preserve absolute DNS authorities during resolution/dialing separately from comparison keys, and retain the version-1 detector ID contract while strictly validating admission evidence.
+
+Cancel queued turn-start trust refreshes with the turn signal, and distinguish budget, safety and unavailable charge results across proxy, inference/provider relays and managed reference acquisition.

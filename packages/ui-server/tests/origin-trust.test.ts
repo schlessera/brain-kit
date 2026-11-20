@@ -193,7 +193,7 @@ test('review6: explicit recipient approval survives independently of a source-on
 for(const restricted of [false,true])test(`review7: streaming counters avoid history scans (restricted ${restricted})`,async()=>{
  const f=await fixture();try{if(restricted)await f.taint();f.decide(async()=>({behavior:'allow'}));const op=f.proxy.managedReference(new URL('https://github.com/'),new AbortController().signal);expect(await op.admit()).toBe(true);
  const query=f.db.query.bind(f.db);let scans=0;const spy=spyOn(f.db,'query').mockImplementation(((...args:Parameters<typeof f.db.query>)=>{if(String(args[0]).includes('FROM safety_records'))scans++;return Reflect.apply(query,f.db,args);}) as typeof f.db.query);
- try{expect(op.charge(1)).toBe(true);scans=0;for(let i=0;i<32;i++)expect(op.charge(1)).toBe(true);expect(scans,'STABLE_APPROVED_CHUNKS_NEVER_SCAN_HISTORY').toBe(0);await f.taint();expect(op.charge(1),'NEW_INPUT_STILL_WITHDRAWS_CACHED_APPROVAL').toBe(false);}finally{spy.mockRestore();op.finish('cancelled');}
+ try{expect(op.charge(1).ok).toBe(true);scans=0;for(let i=0;i<32;i++)expect(op.charge(1).ok).toBe(true);expect(scans,'STABLE_APPROVED_CHUNKS_NEVER_SCAN_HISTORY').toBe(0);await f.taint();expect(op.charge(1).ok,'NEW_INPUT_STILL_WITHDRAWS_CACHED_APPROVAL').toBe(false);}finally{spy.mockRestore();op.finish('cancelled');}
  }finally{await f.close();}
 });
 

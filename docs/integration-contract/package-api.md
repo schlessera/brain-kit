@@ -5983,3 +5983,16 @@ counts while keeping unrelated occurrences, coverage gaps and recording failures
 restrictive. Pruning preserves these minimal admission facts. The UI names
 historical source trust separately and offers no safe-verdict action for it.
 Provider history remains byte-identical as an earlier prefix.
+
+
+## Turn egress charge and cancellation
+
+The concrete turn proxy's `charge(bytes)` returns `{ok:true}` or
+`{ok:false,reason:"budget"|"safety"|"unavailable"}`. Callers preserve that
+classification: only budget refusal is byte exhaustion; authority/source or
+approval changes are safety refusals, and unverifiable recording/admission is
+unavailable. Inference/provider uploads, headers, streams and managed GitHub
+wire metering consume this result. `OriginTrust.refresh(signal?)` cancels a
+queued brain-lock acquisition on turn abort; it never releases another holder.
+Turn startup rechecks abort before creating egress resources and normal turn
+teardown releases its own governed hold and concurrency slot.

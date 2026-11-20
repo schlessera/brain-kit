@@ -1359,3 +1359,13 @@ Mixed history groups count trusted admissions and human safe verdicts separately
 An unresolved group names an actually unresolved input for review; a trusted or
 reviewed row cannot supply that label. Historical source trust is not relabelled
 as a human decision, and a human verdict is not relabelled as source trust.
+
+
+## Egress charge failures
+
+Egress charge refusals retain their cause. Before response headers, a changed
+safety/authority decision reports 403 (including `safety_changed`), and unavailable
+recording/admission reports 503 with `egress_unavailable`. These never claim a
+network byte limit was exhausted. A byte ceiling retains its existing refusal.
+A stream which already began terminates; its relay error and connection evidence
+retain the corresponding safety, unavailable or budget classification.

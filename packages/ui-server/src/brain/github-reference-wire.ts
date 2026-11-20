@@ -6,13 +6,14 @@ import { Agent, request as httpsRequest } from "node:https";
 import { connect, type Socket } from "node:net";
 import { Duplex, Transform } from "node:stream";
 import { connect as connectTls } from "node:tls";
-import { egressAddressRefusal } from "@schlessera/brain-ui-sdk/internal";
+import { egressAddressRefusal, egressChargeRefusal, type EgressChargeFailure } from "@schlessera/brain-ui-sdk/internal";
 import { githubReferenceOwner, githubReferenceRepository, type GitHubReferenceRepository } from "./github-reference-identity.js";
 import { ReferenceTransportError } from "./reference-transport.js";
 import type { prepareTurnEgress } from "./turn-egress.js";
 
 type Egress = Pick<Awaited<ReturnType<typeof prepareTurnEgress>>, "managedReference" | "remainingBytes">;
 type Recipient = "git" | "metadata";
+const chargeError = (failure:EgressChargeFailure) => new ReferenceTransportError(failure.reason === "budget" ? "capacity" : failure.reason === "safety" ? "denied" : "unavailable",egressChargeRefusal(failure,"Reference").message);
 const MAX_METADATA_BYTES = 65536;
 
 /** One acquisition owns this budget across metadata, discovery, auth retries and Git fetch. */
@@ -136,11 +137,11 @@ export async function createGitHubReferenceWire(options: ({ repository: unknown;
             if (chunk.length > remaining) {
               // Charge received wire up to the ceiling, then close every channel.
               // A rejected outbound chunk never reaches the upstream.
-              if (incoming && remaining > 0) { operation.charge(remaining); chargedBytes += remaining; }
+              if (incoming && remaining > 0) { const charged = operation.charge(remaining); if (!charged.ok) throw chargeError(charged); chargedBytes += remaining; }
               operation.finish("denied", "max_reference_wire_bytes");
               throw new ReferenceTransportError("capacity", "reference acquisition exhausted its network byte allowance");
             }
-            if (!operation.charge(chunk.length)) throw new ReferenceTransportError("capacity", "reference turn exhausted its network byte allowance");
+            const charged = operation.charge(chunk.length); if (!charged.ok) throw chargeError(charged);
             chargedBytes += chunk.length; done(null, chunk);
           } catch (error) { fail(error as Error); done(error as Error); }
         } });
