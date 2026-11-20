@@ -156,7 +156,11 @@ function refusedSync(local: ExecutionResult, reason: string): ExecutionResult {
       result.run.report = `${reason}\n${typeof result.run.report === "string" ? result.run.report : ""}`;
       stdout = JSON.stringify(result);
     }
-  } catch { /* Human-mode output keeps its report; stderr carries the reason. */ }
+    else stdout = "";
+  } catch {
+    // A human report would describe commits and a push that never published: the reason replaces it.
+    stdout = "";
+  }
   return { stdout, stderr: reason, exitCode: 1 };
 }
 

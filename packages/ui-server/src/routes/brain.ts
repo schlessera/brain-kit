@@ -151,7 +151,8 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono<AppEnv> {
     let text: string;
     try { text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(change.content); }
     catch { return { ok: false as const, message: `The incoming ${GOVERNANCE_POLICY_PATH} is not UTF-8 text, so it cannot be reviewed. Revert the upstream commit that changes it.` }; }
-    const rationale = `Incoming from the brain's remote${change.upstream ? ` at commit ${change.upstream.slice(0, 12)}` : ""}: the pull changes ${GOVERNANCE_POLICY_PATH}. Approving adopts it, and the next sync completes.`;
+    // Truthful whatever made the stage differ: the review offers exactly the upstream commit's own version.
+    const rationale = `The brain's remote has a different ${GOVERNANCE_POLICY_PATH}${change.upstream ? ` at commit ${change.upstream.slice(0, 12)}` : ""}. Approving adopts that version, and the next sync completes.`;
     try {
       // This sync's review is the current one: an older unanswered sync review is declined, never left to fill the cap.
       await deps.policyReviews!.supersede(principalId);

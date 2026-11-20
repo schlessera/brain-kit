@@ -628,7 +628,12 @@ concurrent attempts get 409 `{ error, heldMs }` before SSE starts, where
 the error text names it in seconds. The route invokes
 `brain sync --human`. Disconnecting the reader stops delivery but **does not
 cancel sync or release its reservation**; output continues draining until the
-child exits.
+child exits. Successful sync attempts voice keyterm rebuild; a rebuild failure
+is progress text and does not turn successful sync into failure. A degraded
+rebuild (no usable core peer, or an index core cannot read) is reported as
+progress text and not cached. A canonical
+root-resolution failure before admission can use the common 500. No idempotency
+key or SSE resumption promise exists.
 
 **Bounded start (additive, #4257).** Everything between admission and the
 sync's first worker starting (the CLI version probe, the writer gate, the
@@ -650,8 +655,8 @@ whose only tier A change is `context/policies/governance.md` publishes
 nothing. When the requesting principal is a current owner, the stream sends
 `{ type: "policy_review", turn_id, request_id, review }`, where `review` is the
 same `PolicyChangeReview` a chat policy card shows (base hash, frontmatter
-diff, changed sections, body diff, and a fixed host rationale naming the
-upstream commit), and ends with `{ type: "done", success: false, reason:
+diff, changed sections, body diff, and a fixed host rationale saying the
+brain's remote has this version at the named upstream commit), and ends with `{ type: "done", success: false, reason:
 "policy_review", text }`. The owner answers it through
 `POST /api/brain/sync/policy/:turnId/:requestId`. Approval writes exactly the
 incoming bytes through the existing policy writer (journal actor `user`, class
@@ -660,14 +665,11 @@ it, and the next sync completes. Decline writes nothing, and the next sync
 opens the review again. An incoming policy that is not UTF-8 or does not
 validate opens no review: a progress line names the next step and the sync
 fails. A scheduled sync opens no review; it fails naming the waiting change.
-Any other refused tier A change keeps its refusal, and its text says to revert
-the upstream commit (and, under `context/policies/`, to change the policy in
-chat with `propose_policy_change`). Successful sync attempts voice keyterm rebuild; a rebuild failure
-is progress text and does not turn successful sync into failure. A degraded
-rebuild (no usable core peer, or an index core cannot read) is reported as
-progress text and not cached. A canonical
-root-resolution failure before admission can use the common 500. No idempotency
-key or SSE resumption promise exists.
+Any other refused tier A change keeps its refusal, and its text says what to do
+next: revert the upstream commit, or remove a change the brain itself made
+(and, under `context/policies/`, change the policy in chat with
+`propose_policy_change`). A refused sync's human report is replaced by that
+reason, since nothing was published or pushed.
 
 ## Sessions and execution records
 
