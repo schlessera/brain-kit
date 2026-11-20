@@ -5579,6 +5579,89 @@ helpers remain on the existing brain-common internal governance-policy entry
 point and establish no new extension seam or runtime authority. No SDK safety
 capability, HTTP endpoint, history DTO or provider conversation changes here.
 
+### Human trust Settings publication
+
+The optional owner-only `/api/trust-settings` HTTP surface is a policy-publication
+building block. `GET /api/trust-settings` reads the current trust-only revision,
+exact policy hash, `origins`, `repositories`, repository-identity availability,
+and disabled runtime enforcement capabilities.
+`POST /api/trust-settings/prepare` accepts strict version-1 JSON with
+`expectedTrustRevision`, `expectedPolicyHash` and exactly one `change`:
+`{action:create|edit,rule}` or `{action:remove,ruleId}`. The host issues the
+request/operation/review IDs and retains exact base/proposed UTF-8 policy text,
+reviewed SHA-256 and a 15-minute expiry. A selector change requires remove/add.
+Repository creates/edits use the concrete fixed host metadata path. Browser
+stable IDs must match independently observed provider IDs. The review retains
+`repositoryIdentity` (or null) and `includesFutureRepositories`; owner rules
+explicitly include future repositories currently owned by that namespace.
+Every commit obtains fresh metadata inside the journal observation window,
+compares repository/owner IDs, canonical names and privacy with the reviewed
+identity, and checks its exact selected grant/credential authority at the final
+synchronous publication boundary. Unknown metadata, changed identity, missing
+private grants and lost API recipient permission withhold publication. No agent
+turn or generic relay is created. Existing repository rules can still be read
+and removed when metadata is unavailable.
+
+Each metadata operation has a 30-second deadline and a 1 MiB charged-wire
+allowance further bounded by the ordinary policy's egress byte limit. Host
+allow/deny rules remain effective; public metadata stays anonymous. HTTP
+cancellation ends that operation. The lookup establishes no incoming source
+trust, general recipient permission or Git acquisition/write capability.
+
+`POST /api/trust-settings/commit` accepts only `{version:1,requestId,reviewId,
+reviewedBytesHash}`; `GET /api/trust-settings/:request` only reads that caller's
+receipt/review and current policy. Both mutation routes require a present exact
+same-origin Origin and JSON, at most 65536 bytes, plus a live password-mode
+password/passkey owner. Agent, ambient, voice and body-supplied identity/channel
+fields supply no authority. Authority is checked after waits and at publication.
+
+Receipts bind principal/credential lifetime, served brain, operation, request,
+exact base/topology and reviewed hash. Prepared state precedes any write; the
+shared privileged publisher syncs staging bytes and the containing directory.
+Only a FULL durable proof written after this operation's publication establishes
+`publication:proved`. The same transaction retains a bounded current GitHub
+owner-boundary fact tied to the operation, principal, authority, exact reviewed
+bytes and selector. It survives bounded operation-receipt pruning, while rule
+removal/target change retires it. Equal current policy bytes and prepared
+metadata cannot create this evidence. It is historical publication evidence;
+a future source-rule verifier must still qualify the actual read and fresh
+current identity independently. The internal `repositoryApproval` reader is
+host-only and grants no runtime capability. The original v1 selector format is
+unchanged. A crash in writing/rename before that proof returns
+`unknown`, even if current file bytes match. Retries with identical commit data
+only read the original outcome; changed data conflicts. Expired handles can
+never create operations. Prepared/readback text survives stale-base refusal.
+
+The receipt stages are `prepared|file_published|committed|partial|unknown|refused`;
+`committed` is an internal publication-completion stage, never proof of live
+runtime enforcement. Current responses use `partial` for saved policy because
+`enforcement:unavailable` remains truthful until the admission implementation.
+`currentRule:present|removed|changed|unknown` is refreshed on reads, independently
+of historical publication proof. Readback loads the durable operation and policy
+projection within the same brain lock after any in-progress commit finishes. No removal receipt claims an enforcing fence.
+No agent turn, provider message or ordinary governance snapshot is changed.
+The journal awaits asynchronous metadata and publication before releasing its
+Settings observation window. It records intervening changes with their ordinary attribution before
+entering the synchronous approved write, and a failed lookup or a callback that
+publishes nothing cannot grant user-policy attribution. A missing publication
+callback cannot produce proof.
+The live trust projection retains last-valid rules on invalid policy, reports
+an error, and increments its decimal uint64 revision only for trust-list changes.
+Exhausted revisions refuse both new reviews and publication of retained reviews
+before any protected policy write; request revisions above uint64 also refuse.
+It is supplied for future admission integration; runtime capabilities remain off.
+
+The HTTP boundary admits at most 32 concurrent requests per principal and 256
+for the served brain, including lock waiters; excess requests return retryable
+`busy` (503) before joining another wait and recover as earlier requests finish.
+There are at most 32 outstanding reviews per principal, 256 per brain, 10000
+receipts and 16 MiB reserved payload/receipt storage. New requests fail at
+capacity; live receipts are not evicted. Terminal receipts survive at least
+24 hours. Unknown writes are never replayed, including after pruning. Settings
+migration 080 has no dependency on occurrence-ledger migration 079/081+;
+migration 094 adds the owner-boundary evidence without changing earlier applied
+migrations. The
+loader applies each unapplied filename in sorted order on every startup.
 ## Extraction classifier setting (additive, 0.45.0, #4088)
 
 The governance policy types reachable through ui-server's public signatures
