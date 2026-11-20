@@ -43,3 +43,28 @@ export function referenceAcquisitionMatches(db: Database, id: string, record: Na
     && (!expected.identity || row.repository_id === expected.identity.repositoryId && row.owner_id === expected.identity.ownerId
       && row.owner === expected.identity.owner && row.repository_name === expected.identity.repository));
 }
+
+/** One request's fixed-wire observation, including when it reuses an older sealed acquisition. */
+export interface ReferenceIdentityObservation {
+  operationId: string;
+  brain: string;
+  principalId: string;
+  turnId: string;
+  identity: GitHubReferenceIdentity;
+  ref: string;
+  commit: string;
+  rootId: string;
+  observedAt: number;
+}
+
+/** Recording checks correlation, never converts retained metadata into source trust. */
+export function referenceIdentityObservationMatches(observation: ReferenceIdentityObservation | undefined, acquisition: {
+  brain: string; repository_id: string; owner_id: string; owner: string; repository_name: string; ref: string; commit_id: string;
+}, expected: { brain: string; principalId: string; turnId: string; rootId: string }): boolean {
+  const o = observation;
+  return Boolean(o && /^[A-Za-z0-9_-]{1,128}$/u.test(o.operationId) && Number.isSafeInteger(o.observedAt) && o.observedAt > 0
+    && o.brain === expected.brain && o.brain === acquisition.brain && o.principalId === expected.principalId && o.turnId === expected.turnId
+    && o.rootId === expected.rootId && o.ref === acquisition.ref && o.commit === acquisition.commit_id
+    && o.identity.repositoryId === acquisition.repository_id && o.identity.ownerId === acquisition.owner_id
+    && o.identity.owner === acquisition.owner && o.identity.repository === acquisition.repository_name);
+}

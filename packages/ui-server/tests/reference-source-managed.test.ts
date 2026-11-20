@@ -118,6 +118,13 @@ test("a cached shared root still uses the requesting principal and turn's own me
     const second = await f.request(f.other.id, "telemachus-turn", f.secondEgress);
     try {
       expect(first.rootId).toBe(second.rootId);
+      expect(second.identityObservation, "CACHED_ROOT_RETAINS_REQUESTING_TURN_IDENTITY").toMatchObject({
+        brain, principalId: f.other.id, turnId: "telemachus-turn", rootId: second.rootId,
+        identity: { repositoryId: "101", ownerId: "201" }, ref: "refs/heads/main", commit,
+      });
+      expect(second.identityObservation!.operationId).not.toBe(first.identityObservation!.operationId);
+      expect(Object.isFrozen(second.identityObservation)).toBe(true);
+      expect(Object.isFrozen(second.identityObservation!.identity)).toBe(true);
       expect(f.state.fetches).toBe(1);
       expect(f.secondEgress.usedBytes(), "REFERENCE_SOURCE_CACHE_CANNOT_BORROW_TURN_BUDGET").toBeGreaterThan(0);
       expect(f.metadata).toHaveLength(4);

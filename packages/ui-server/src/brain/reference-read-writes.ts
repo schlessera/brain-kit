@@ -1,4 +1,5 @@
 /** Read evidence shares the reference writer FIFO; it never grants source trust. */
+import { referenceIdentityObservationMatches, type ReferenceIdentityObservation } from "./reference-acquisition.js";
 import type { Database } from "bun:sqlite";
 import { isLiveReferenceGrant } from "../db/reference-grants.js";
 import { sourceAuthorityCurrent, type SourceAuthority } from "./reference-source-authority.js";
@@ -22,6 +23,11 @@ export function readWrites(db: Database) {
         const source = db.query("SELECT 1 FROM reference_sources WHERE root_id = ? AND validated_at > 0").get(rootId);
         if (!source || JSON.stringify(acquisition) !== record.acquisition || !sourceAuthorityCurrent(db, authority)
           || grantId !== null && !isLiveReferenceGrant(db, grantId, Date.now())) throw new Error("Reference read authority changed before recording");
+        const evidence = JSON.parse(record.evidence) as { identityObservation?: ReferenceIdentityObservation };
+        const acquired = acquisition as Parameters<typeof referenceIdentityObservationMatches>[1];
+        if (!referenceIdentityObservationMatches(evidence.identityObservation, acquired, {
+          brain: acquired.brain, principalId: record.principalId, turnId: record.turnId, rootId,
+        })) throw new Error("Reference read transport identity changed before recording");
         const count = db.query("SELECT COUNT(*) AS n FROM reference_reads WHERE turn_id = ?").get(record.turnId) as { n: number };
         if (count.n >= 2000) throw new Error("Reference read record capacity exceeded");
         db.query(`INSERT INTO reference_reads (id, turn_id, tool_call_id, principal_id, acquisition, evidence, response_digest, created_at)

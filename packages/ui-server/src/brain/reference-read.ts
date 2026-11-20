@@ -2,7 +2,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { Database } from "bun:sqlite";
 import { REFERENCE_READ_INPUT_SCHEMA, type ReferenceReadInput, type ReferenceToolResult } from "@schlessera/brain-ui-sdk/tool-contracts";
-import { referenceAcquisitionMatches, type ReferenceAcquisitionContext } from "./reference-acquisition.js";
+import { referenceAcquisitionMatches, referenceIdentityObservationMatches, type ReferenceAcquisitionContext } from "./reference-acquisition.js";
 import { githubReferenceRepository } from "./github-reference-identity.js";
 import { validReferenceBlobInput } from "./reference-blob.js";
 import { ReferenceSourceError, type ReferenceSources, type ReferencePool } from "./reference-source.js";
@@ -77,12 +77,16 @@ export function createReferenceReads(options: {
         const record = await options.pool.poolSeal(lease.rootId, signal);
         assertAuthority();
         const acquired = db.query("SELECT * FROM reference_acquisitions WHERE root_id = ?").get(lease.rootId) as {
-          brain: string; acquisition_id: string; commit_id: string; tree_id: string; ref: string; owner: string; repository_name: string;
+          repository_id: string; owner_id: string; brain: string; acquisition_id: string; commit_id: string; tree_id: string; ref: string; owner: string; repository_name: string;
         } | null;
         if (!record.path || record.publicationRevoked !== false || lease.readGrantId === undefined || !acquired
           || lease.repository !== location.canonical || acquired.owner !== location.owner || acquired.repository_name !== location.repository
           || !referenceAcquisitionMatches(db, lease.rootId, record, { brain: options.brain, commit: lease.commit, ref: acquired.ref }))
           throw new ReferenceSourceError("unavailable", "No authoritative immutable acquisition is available for this read.");
+        const identityObservation = lease.identityObservation && structuredClone(lease.identityObservation);
+        if (!referenceIdentityObservationMatches(identityObservation, acquired, { brain: options.brain, principalId, turnId, rootId: lease.rootId }))
+          throw new ReferenceSourceError("unavailable", "No current transport identity is bound to this immutable read.");
+        const observationSnapshot = JSON.stringify(identityObservation);
         const acquisitionSnapshot = JSON.stringify(acquired), nativeRoot = JSON.stringify(record.root), rootPath = record.path;
         const authority = sourceAuthority(db, lease.domain === "public" ? "public" : `private:${principalId}`, lease.repository, lease.revision);
         const returned = await readBlob({ root: rootPath, commit: lease.commit, tree: acquired.tree_id, path: request.path,
@@ -93,8 +97,9 @@ export function createReferenceReads(options: {
         if (after.path !== rootPath || JSON.stringify(after.root) !== nativeRoot || after.publicationRevoked !== false
           || !referenceAcquisitionMatches(db, lease.rootId, after, { brain: options.brain, commit: lease.commit, ref: acquired.ref }))
           throw new ReferenceSourceError("unavailable", "The native source identity changed during the read.");
-        // Defensive copy: neither a transport-owned buffer nor its mutable
-        // object can change the bytes between recording and tool delivery.
+        if (JSON.stringify(lease.identityObservation) !== observationSnapshot)
+          throw new ReferenceSourceError("unavailable", "The read transport identity changed before delivery.");
+        // Defensive copy: transport-owned buffers cannot change recorded bytes.
         const bytes = Buffer.from(blob.bytes);
         if (bytes.length !== blob.length || blob.offset !== request.offset || blob.tree !== acquired.tree_id
           || digest(bytes) !== blob.digest || blob.length !== Math.min(request.maximum, blob.totalBytes - request.offset))
@@ -106,7 +111,7 @@ export function createReferenceReads(options: {
         await write("referenceReadPrepare", { id: randomUUID(), turnId, toolCallId, principalId, acquisition: acquisitionSnapshot,
           evidence: JSON.stringify({ version: 1, path: request.path, blob: blob.blob, mode: blob.mode, tree: blob.tree, offset: blob.offset,
             length: blob.length, totalBytes: blob.totalBytes, digest: blob.digest, grantId: lease.readGrantId, detectorVersion: 1,
-            trusted: false, trustRevision: "0" }), responseDigest: digest(JSON.stringify(result)), at: Date.now() }, lease.rootId, lease.readGrantId, authority);
+            trusted: false, trustRevision: "0", identityObservation }), responseDigest: digest(JSON.stringify(result)), at: Date.now() }, lease.rootId, lease.readGrantId, authority);
         assertAuthority();
         return result;
       } catch (error) {

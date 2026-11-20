@@ -8,6 +8,8 @@ import type { NativePoolRecord } from "@schlessera/brain-ui-sdk/internal";
 import { createUiDb } from "../src/db/client";
 import { createPrincipal } from "../src/db/principals";
 import { createReferenceReads } from "../src/brain/reference-read";
+import { readWrites } from "../src/brain/reference-read-writes";
+import { sourceAuthority } from "../src/brain/reference-source-authority";
 import { sourceWrites } from "../src/brain/reference-source-writes";
 import { ReferenceSourceError, type ReferenceSourceLease } from "../src/brain/reference-source";
 import { githubReferenceRepository } from "../src/brain/github-reference-identity";
@@ -51,7 +53,10 @@ async function fixture(worker = false) {
     bytes: Buffer.from("Odysseus charts Ithaca."), afterRead: () => {}, afterSeal: () => {} };
   const lease: ReferenceSourceLease = { domain: "public", view: "ithaca-view", viewPath: "/sealed", name: "ithaca@main", repository,
     repositoryUrl: `${repository}.git`, revision: "main", commit, rootId: native.id, refreshedAt: at, validatedAt: at,
-    stale: false, error: null, readGrantId: null, assertAuthority() {
+    stale: false, error: null, readGrantId: null,
+    identityObservation: { operationId: "reading-operation", brain: "ithaca-brain", principalId: principal.id, turnId: "reading-turn",
+      identity: { ...githubReferenceRepository(repository), repositoryId: "101", ownerId: "201", private: false },
+      ref: "refs/heads/main", commit, rootId: native.id, observedAt: at }, assertAuthority() {
       if (!state.authorized) throw new ReferenceSourceError("unauthorized", "Read authority was revoked.");
     }, release() { state.released++; } };
   const sources = { async request(input: { repository?: unknown }) { state.requests++; state.requested.push(String(input.repository)); return lease; } };
@@ -96,9 +101,20 @@ test("binary and split UTF-8 ranges preserve bytes instead of inserting replacem
   expect(JSON.parse(record.evidence).digest).toBe(sha256(f.state.bytes));
 });
 
+test("each read retains its own live transport identity apart from the acquiring turn", async () => {
+  const f = await fixture(true);
+  await f.call();
+  const row = f.db.query("SELECT evidence FROM reference_reads").get() as { evidence: string };
+  expect(JSON.parse(row.evidence).identityObservation, "READ_BINDS_FRESH_TRANSPORT_OBSERVATION").toMatchObject({
+    operationId: "reading-operation", brain: "ithaca-brain", principalId: f.principal.id, turnId: "reading-turn",
+    identity: { repositoryId: "101", ownerId: "201", owner: "odysseus", repository: "ithaca" },
+  });
+});
+
 test("repository names ending in .git reenter acquisition as an unambiguous clone location", async () => {
   const f = await fixture(), canonical = "https://github.com/odysseus/charts.git";
   f.lease.repository = canonical;
+  f.lease.identityObservation = { ...f.lease.identityObservation!, identity: { ...f.lease.identityObservation!.identity, ...githubReferenceRepository(`${canonical}.git`) } };
   f.db.query("UPDATE reference_acquisitions SET repository_name = 'charts.git'").run();
   f.db.query("UPDATE reference_sources SET repository = ?").run(canonical);
   f.db.query("UPDATE reference_roots SET repository = ?").run(canonical);
@@ -416,4 +432,37 @@ test("the tool entry withholds a read result when its turn ended while the reade
     input: { repository, revision: "main", path: "README.md", offset: 0, maximum: 64 } });
   tools.end("late-turn"); release();
   expect(await call, "TOOL_ENTRY_FENCES_LATE_CONTENT").toMatchObject({ ok: false, code: "cancelled" });
+});
+
+for (const kind of ["missing", "owner", "repository", "turn", "principal", "root", "ref", "commit", "after-read"]) {
+  test(`read refuses a ${kind} transport identity mismatch`, async () => {
+    const f = await fixture(true);
+    const observation = f.lease.identityObservation!;
+    if (kind === "missing") delete f.lease.identityObservation;
+    if (kind === "owner") observation.identity.ownerId = "202";
+    if (kind === "repository") observation.identity.repositoryId = "102";
+    if (kind === "turn") f.lease.identityObservation = { ...observation, turnId: "other-turn" };
+    if (kind === "principal") f.lease.identityObservation = { ...observation, principalId: "other-principal" };
+    if (kind === "root") f.lease.identityObservation = { ...observation, rootId: "other-root" };
+    if (kind === "ref") f.lease.identityObservation = { ...observation, ref: "refs/heads/other" };
+    if (kind === "commit") f.lease.identityObservation = { ...observation, commit: "e".repeat(40) };
+    if (kind === "after-read") f.state.afterRead = () => { observation.identity.ownerId = "202"; };
+    await expect(f.call(), "READ_IDENTITY_CANNOT_BORROW_ANOTHER_OBSERVATION").rejects.toThrow(/transport identity/);
+    expect(f.db.query("SELECT count(*) n FROM reference_reads").get()).toEqual({ n: 0 });
+  });
+}
+
+test("the writer independently refuses an observation for a different owner", async () => {
+  const f = await fixture();
+  await f.call();
+  const row = f.db.query("SELECT * FROM reference_reads").get() as { acquisition: string; evidence: string; response_digest: string };
+  const evidence = JSON.parse(row.evidence);
+  evidence.identityObservation.identity.ownerId = "202";
+  expect(() => readWrites(f.db).referenceReadPrepare({ id: "other-read", turnId: "reading-turn", toolCallId: "read-2",
+    principalId: f.principal.id, acquisition: row.acquisition, evidence: JSON.stringify(evidence), responseDigest: row.response_digest,
+    at: Date.now() }, f.native.id, null, sourceAuthority(f.db, "public", repository, "main")),
+    "WRITER_RECHECKS_TRANSPORT_IDENTITY").toThrow("transport identity");
+  expect(f.db.query("SELECT count(*) n FROM reference_reads").get()).toEqual({ n: 1 });
+  await f.call({ toolCallId: "read-3" });
+  expect(f.db.query("SELECT count(*) n FROM reference_reads").get()).toEqual({ n: 2 });
 });
