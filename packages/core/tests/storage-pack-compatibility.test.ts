@@ -18,9 +18,10 @@ test("the previous CLI schema parses packing additions and named preflight skips
     const init=Bun.spawnSync(["git","-C",root,"init","-q"],{stdout:"pipe",stderr:"pipe"});expect(init.exitCode).toBe(0);
     const actual=await runCli(root,["storage","pack","--json"]);
     expect(previousPack.safeParse(JSON.parse(actual.stdout)).success,"PREVIOUS_PACK_SCHEMA_ACCEPTS_ADDITIONS").toBe(true);
+    const observed=fs.statfsSync(root,{bigint:true});
     for(const available of [1n,null]) {
       let printed="";
-      const capacity=spyOn(fs,"statfsSync").mockImplementation((()=>{if(available===null)throw Error("capacity unknown");return {bavail:available,bsize:4096n};}) as typeof fs.statfsSync);
+      const capacity=spyOn(fs,"statfsSync").mockImplementation((()=>{if(available===null)throw Error("capacity unknown");return {...observed,bavail:available,bsize:4096n};}) as unknown as typeof fs.statfsSync);
       const output=spyOn(console,"log").mockImplementation(value=>{printed=String(value);});
       let code=-1;
       try{code=runStoragePack(["pack","--json"],root,true);}finally{output.mockRestore();capacity.mockRestore();}
