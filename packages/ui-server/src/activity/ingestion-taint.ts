@@ -211,24 +211,31 @@ export function outputTaintSignals(tool: string, output: string, brainPath?: str
       if(count!==1)unknown=true;
     }
   };
+  // Validation decides completeness, never whether an independently typed
+  // filename survives a malformed sibling or unrelated metadata field.
+  const salvage=(value:unknown,mode?:string)=>{
+    if(!value||typeof value!=='object'||Array.isArray(value))return;
+    const fields=value as Record<string,unknown>;
+    if(Array.isArray(fields.filenames))for(const path of fields.filenames)if(typeof path==='string')add(path);
+    if(typeof fields.content!=='string'||!fields.content)return;
+    if(mode==='content')content(fields.content,context?.lineNumbers!==false);
+    if(mode==='count')for(const line of fields.content.split('\n')){const split=/:([1-9][0-9]*)$/.exec(line);if(split)add(line.slice(0,split.index));}
+  };
   let parsed:unknown;try{parsed=JSON.parse(output);}catch{/* Pi returns raw text; Claude requires its structured schema. */}
   if(tool==='grep'&&(context===undefined||context.backendId==='pi')){
     // `safetyResultInput` (packages/ui-backend-pi/src/worker-protocol.ts:92-99)
     // joins the shipped tool's text. No JSON envelope is part of this format.
-    if(output!=='No matches.') {
-      // Suspicious/unsupported envelopes remain unknown, but never hide any
-      // independently parseable filename on this or a later line.
-      for(const line of output.split('\n')){if(/^[\s]*[\[{\"]/.test(line))unknown=true;content(line,true);}
-    }
+    if(parsed!==undefined)unknown=true; // An actual JSON value is not Pi's text-row envelope.
+    if(output!=='No matches.')for(const line of output.split('\n'))content(line,true);
   }else if((context?.backendId??'claude')==='claude'&&tool==='Glob'){
     const checked=globOutput.safeParse(parsed);
-    if(!checked.success)unknown=true;
+    if(!checked.success){unknown=true;salvage(parsed);}
     else {const value=checked.data;for(const path of value.filenames)add(path);
-      if(value.numFiles!==value.filenames.length||new Set(value.filenames).size!==value.filenames.length||value.truncated||value.countIsComplete===false||
+      if(value.numFiles>100||value.numFiles!==value.filenames.length||new Set(value.filenames).size!==value.filenames.length||value.truncated||value.countIsComplete===false||
         value.totalMatches!==undefined&&value.totalMatches!==value.numFiles||value.countIsComplete===true&&value.totalMatches===undefined)unknown=true;}
   }else if((context?.backendId??'claude')==='claude'&&tool==='Grep'){
     const checked=grepOutput.safeParse(parsed),mode=context?.outputMode;
-    if(!checked.success||!['files_with_matches','content','count'].includes(mode??''))unknown=true;
+    if(!checked.success||!['files_with_matches','content','count'].includes(mode??'')){unknown=true;salvage(parsed,mode);}
     else {const value=checked.data;for(const path of value.filenames)add(path);
       const lines=mode==='files_with_matches'?value.filenames.length:value.content?value.content.split('\n').length:0;
       const total=mode==='content'?value.totalLines:value.totalFiles;
@@ -239,7 +246,7 @@ export function outputTaintSignals(tool: string, output: string, brainPath?: str
         new Set(value.filenames).size!==value.filenames.length||
         value.totalFiles!==undefined&&value.totalFiles!==value.numFiles||
         (value.appliedOffset??0)>0||(context?.offset??0)>0||
-        limits.some(limit=>limit>0&&lines>=limit)&&total===undefined||
+        limits.some(limit=>limit>0&&(lines>limit||lines===limit&&total===undefined))||
         value.numLines!==undefined&&value.numLines!==lines||value.totalLines!==undefined&&value.totalLines!==lines)unknown=true;
       let matches=mode==='files_with_matches'?value.numFiles:lines;
       if(mode==='files_with_matches'){if(value.content!==undefined&&value.content!=='')unknown=true;}

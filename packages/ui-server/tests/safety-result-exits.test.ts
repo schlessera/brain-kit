@@ -495,19 +495,30 @@ test('real Pi grep empty output stays empty when the collector records its resul
  }finally{await f.close();}
 });
 
-test('real Pi grep bracket paths retain every independently marked source',async()=>{
+for(const marked of [false,true])test(`real Pi grep bracket paths retain exactly ${marked?'both marked sources':'healthy coverage'}`,async()=>{
  const f=await voyage();try{
-  const {untrustedMarkOperations}=await import('../src/files/untrusted-marks');
+  const {untrustedMarkOperations,isMarkedUntrusted}=await import('../src/files/untrusted-marks');
+  const {outputTaintSignals,searchOutputContext}=await import('../src/activity/ingestion-taint');
   mkdirSync(join(f.brain,'[voyage]'));
-  for(const name of ['log.md','raft.md']){
-   const path=`[voyage]/${name}`;writeFileSync(join(f.brain,path),'sirens\n');
-   untrustedMarkOperations(f.db).mark(path,null,Date.UTC(2026,6,12));
+  const paths=['[voyage]/log.md','[voyage]/raft.md'];
+  for(const path of paths){
+   writeFileSync(join(f.brain,path),'sirens\n');
+   if(marked)untrustedMarkOperations(f.db).mark(path,null,Date.UTC(2026,6,12));
   }
   const input={pattern:'sirens',path:'[voyage]'};
   await f.collector.begin('bracket_search','grep',input);
   const output=await searchRuns(f,'bracket_search',input);
-  expect(output.split('\n'),'REAL_GREP_RETURNS_BOTH_BRACKET_FILENAMES').toHaveLength(2);
+  expect(output.split('\n').sort(),'REAL_GREP_RETURNS_BOTH_BRACKET_FILENAMES').toEqual(paths.map(path=>`${path}:1:sirens`));
+  const signals=outputTaintSignals('grep',output,f.brain,path=>isMarkedUntrusted(f.db,path),searchOutputContext('grep',input));
+  expect(signals.sort((a,b)=>a.key.localeCompare(b.key)),'REAL_BRACKET_OUTPUT_HAS_EXACT_PATH_SIGNALS').toEqual(marked?paths.map(key=>({source:'user_marked',detector:'explicit_untrusted_input',key})):[]);
   await f.collector.result('bracket_search','grep',output,true);
-  expect(f.db.query("SELECT COUNT(*) n FROM safety_records WHERE kind='occurrence' AND source='user_marked'").get(),'REAL_BRACKET_PATHS_RETAIN_BOTH_MARKS').toEqual({n:2});
+  // The ledger intentionally retains no raw filename. Assert its exact
+  // occurrence/exposure inventory as well as the detector's actual paths.
+  expect(f.db.query("SELECT kind,source,detector FROM safety_records ORDER BY kind,length(sequence),sequence").all(),'REAL_BRACKET_LEDGER_HAS_NO_EXTRA_UNKNOWN').toEqual(marked?[
+   {kind:'exposure',source:null,detector:null},{kind:'exposure',source:null,detector:null},
+   {kind:'occurrence',source:'user_marked',detector:'explicit_untrusted_input'},
+   {kind:'occurrence',source:'user_marked',detector:'explicit_untrusted_input'}
+  ]:[]);
+  expect(f.chat().restriction).toBe(marked?'restricted':'normal');
  }finally{await f.close();}
 });
