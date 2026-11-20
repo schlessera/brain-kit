@@ -3887,12 +3887,17 @@ export function isPricingRoute(v: unknown): v is PricingRoute {
  * `name` is open vocabulary: consumers tolerate names they do not know.
  */
 export interface ActivityTurnSubPhase {
-  phase: "governed" | "journal" | "closing";
+  phase: "governed" | "journal";
   name: string;
   startedAt: number;
   /** Null while running; an unfinished step of a terminal record measures to its failure boundary. */
   endedAt: number | null;
   elapsedMs: number | null;
+}
+
+/** Additive timing phases use an open string vocabulary; consumers tolerate unknown phases. */
+export interface ActivityTurnOpenSubPhase extends Omit<ActivityTurnSubPhase, "phase"> {
+  phase: string;
   pending?: boolean;
 }
 
@@ -3948,6 +3953,8 @@ export interface ActivityTurnLifecycle {
   backendStartupMs: number | null;
   /** Additive (#3355): steps of the governed and journal phases, in start order. Absent on older records. */
   subPhases?: ActivityTurnSubPhase[];
+  /** Additive timing phases use an open string vocabulary; consumers tolerate unknown phases. */
+  openSubPhases?: ActivityTurnOpenSubPhase[];
 }
 
 export interface ActivityRunSummary {

@@ -1,6 +1,6 @@
 import packageInfo from "@schlessera/brain-ui-server/package.json" with { type: "json" };
 import { parseBuildRevision } from "../config/env.js";
-import type { ActivityTurnLifecycle, ActivitySpanOutcome } from "@schlessera/brain-ui-sdk/protocol";
+import type { ActivityTurnLifecycle, ActivityTurnSubPhase, ActivitySpanOutcome } from "@schlessera/brain-ui-sdk/protocol";
 import type { AwaitableActivityStore } from "./store.js";
 import { orderedWrites } from "./store-writes.js";
 
@@ -53,7 +53,8 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
       return name => {
         if (record.endedAt !== null) return () => {};
         const step = { phase, name, ...metadata, startedAt: clock(), endedAt: null as number | null, elapsedMs: null };
-        (record.subPhases ??= []).push(step);
+        if (phase === "closing") (record.openSubPhases ??= []).push(step);
+        else (record.subPhases ??= []).push(step as ActivityTurnSubPhase);
         return () => { if (record.endedAt === null && step.endedAt === null) step.endedAt = clock(); };
       };
     },
@@ -85,5 +86,6 @@ export function lifecycleTiming(record: ActivityTurnLifecycle): ActivityTurnLife
     backendStartupMs: phase(record.backendInvokedAt, record.firstFrameAt),
     // A step follows its phase's rules: unfinished, it measures to the failure boundary.
     ...(record.subPhases ? { subPhases: record.subPhases.map(step => ({ ...step, elapsedMs: phase(step.startedAt, step.endedAt) })) } : {}),
+    ...(record.openSubPhases ? { openSubPhases: record.openSubPhases.map(step => ({ ...step, elapsedMs: phase(step.startedAt, step.endedAt) })) } : {}),
   };
 }

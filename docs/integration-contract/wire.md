@@ -581,9 +581,9 @@ backend invocation to the first frame, or the observed failure boundary
 when startup fails before a frame (terminal time on interruption). Unobserved/in-progress boundaries remain null. These
 values do not redefine backend-run `startedAt` or `durationMs`.
 
-Optional `subPhases` (additive, #3355, #4281) attributes governed, journal and closing
+Optional `subPhases` (additive, #3355) attributes the governed and journal
 phases to their steps, in start order. Each entry is `{ phase, name, startedAt,
-endedAt, elapsedMs }`, where `phase` is `governed`, `journal` or `closing`. A step that has
+endedAt, elapsedMs }`, where `phase` is `governed` or `journal`. A step that has
 not finished has a null `endedAt`; its `elapsedMs` follows the phase rule above,
 measuring to `failureObservedAt` or terminal time once the record is terminal,
 and null before. Admission steps lie inside their phase's paired milestones, and the
@@ -606,6 +606,14 @@ not apply to a turn is absent. The current names are:
   earlier checkpoint releases; `observe_record`, `observe_publish` and
   `observe_facts` repeat once per other active turn the observation records,
   and are absent when there is none (#2915).
+
+Optional `openSubPhases` adds timing phases using an open string vocabulary;
+consumers tolerate unknown phases. Its entries have the same `{ phase, name,
+startedAt, endedAt, elapsedMs }` shape, start-order, null and failure rules as
+`subPhases`, and ride the same milestone or terminal writes. The schema
+accepts any string for `phase`. New phases never extend the closed
+`subPhases[].phase` enum, so previously published clients continue parsing
+activity snapshots and deltas. The current names are:
 
 - `closing`: `backend_exit` (zero-width confirmation when the backend returns
   or throws), `index_settle` (optional `pending` boolean records whether an

@@ -129,7 +129,7 @@ for (const mode of ["governed refusal","backend failure","revoked","budget refus
     expect(record.totalElapsedMs).toBe(mode === "backend failure" ? 600 : mode === "budget refusal" ? 500 : 400);
     expect(record.outcome).toBe(mode === "revoked" ? "cancelled" : mode === "budget refusal" ? "denied" : "error");
     expect(entered).toBe(mode === "backend failure");
-    if (mode === "backend failure") expect(record.subPhases?.find(step => step.name === "backend_exit"))
+    if (mode === "backend failure") expect(record.openSubPhases?.find(step => step.name === "backend_exit"))
       .toMatchObject({ phase: "closing", startedAt: 1600, endedAt: 1600, elapsedMs: 0 });
   }finally{clock.mockRestore();host.close();stream.close();db.close();}
 });
@@ -144,7 +144,7 @@ test("build identity validates revision and retains runtime evidence with termin
     const end = live.timer("closing")("journal_finish"); now = 1400; end(); live.finish("success");
     now = 1500; live.mark("recorderSettledAt"); now = 1600; live.mark("idleEmittedAt");
     expect(store.lifecycle("turn-build")).toMatchObject({ runtimeVersion: "2.1.343", endedAt: 1400, recorderSettledAt: 1500, idleEmittedAt: 1600,
-      subPhases: [{ phase: "closing", name: "journal_finish", startedAt: 1000, endedAt: 1400, elapsedMs: 400 }] });
+      openSubPhases: [{ phase: "closing", name: "journal_finish", startedAt: 1000, endedAt: 1400, elapsedMs: 400 }] });
     for (const [i, revision] of [undefined, "", "contains spaces", "x".repeat(65), "ithaca\n", "ithaca/secret"].entries()) {
       createTurnLifecycle(store, `turn-invalid-${i}`, null, now, () => {}, () => now, { buildRevision: revision });
       expect(store.lifecycle(`turn-invalid-${i}`)!.buildRevision).toBeUndefined();
@@ -187,10 +187,10 @@ test("real dispatch attributes a queued index delay and final observation only t
   try {
     await runSession(host, { authorization: testAuthorization("odysseus"), text: "Plan Ithaca", attachments: [] });
     const record = store.lifecycles()[0]!;
-    expect(record.subPhases?.filter(s => s.phase === "closing" && ["index_settle", "final_observation"].includes(s.name)), "CLOSING_DELAYS_ARE_ATTRIBUTED")
+    expect(record.openSubPhases?.filter(s => s.phase === "closing" && ["index_settle", "final_observation"].includes(s.name)), "CLOSING_DELAYS_ARE_ATTRIBUTED")
       .toEqual([{ phase: "closing", name: "index_settle", pending: true, startedAt: 1100, endedAt: 1600, elapsedMs: 500 },
         { phase: "closing", name: "final_observation", startedAt: 1600, endedAt: 1900, elapsedMs: 300 }]);
-    expect(record.subPhases?.filter(s => s.name === "journal_finish").map(s => s.elapsedMs)).toEqual([300, 0]);
+    expect(record.openSubPhases?.filter(s => s.name === "journal_finish").map(s => s.elapsedMs)).toEqual([300, 0]);
     expect(record).toMatchObject({ endedAt: 1900, recorderSettledAt: 1900, idleEmittedAt: 1900 });
   } finally { setup.mockRestore(); clock.mockRestore(); host.close(); stream.close(); db.close(); }
 });

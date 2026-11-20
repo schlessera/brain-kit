@@ -409,7 +409,7 @@ print(json.dumps(result))`;
         const span = (start: number | null, end: number | null) => start === null ? null : (end ?? record.failureObservedAt ?? record.endedAt) === null ? null
           : Math.max(0, (end ?? record.failureObservedAt ?? record.endedAt) - start);
         const steps: Record<string, number | null> = {};
-        for (const step of record.subPhases ?? []) {
+        for (const step of [...(record.subPhases ?? []), ...(record.openSubPhases ?? [])]) {
           const key = `${step.phase}.${step.name}`, ms = span(step.startedAt, step.endedAt);
           steps[key] = ms === null ? steps[key] ?? null : (steps[key] ?? 0) + ms;
         }
@@ -473,7 +473,7 @@ print(json.dumps(result))`;
       const steps = [...new Set(warm.flatMap(row => Object.keys(row?.steps ?? {})))];
       const stepMedians = Object.fromEntries(steps.map(name => [name, median(warm.map(row => row?.steps[name]).filter((n): n is number => typeof n === "number"))]));
       writeFileSync(join(ARTIFACTS, "observation-holds.json"), JSON.stringify(lifecycles().map(record => ({ turnId: record.turnId, holds: record.holds ?? [],
-        closing: (record.subPhases ?? []).filter((step: any) => step.phase === "closing"), recorderSettledAt: record.recorderSettledAt ?? null, idleEmittedAt: record.idleEmittedAt ?? null })), null, 2));
+        closing: (record.openSubPhases ?? []).filter((step: any) => step.phase === "closing"), recorderSettledAt: record.recorderSettledAt ?? null, idleEmittedAt: record.idleEmittedAt ?? null })), null, 2));
       const result = { ...(tree ? { tree: { ...tree, warmTurns: warm.length, stepMedians,
         observerBootstrap: eventLog.read("observer-bootstrap").filter(row => row.kind === "observer_bootstrap").map(row => ({ elapsedMs: row.elapsedMs, outcome: row.outcome })) } } : {}), backend: BACKEND, appUid: APP_UID, files: FILES, bytes: BYTES, loadBefore, loadAfter: load(), elapsedMs: performance.now() - timingStart, timelineTurnIds,
         tools: timeline?.tools ?? null, admission, journal: { begin: { medianMs: median(total("beginMs")), p95Ms: p95(total("beginMs")) }, finish: { medianMs: median(total("finishMs")), p95Ms: p95(total("finishMs")) },
