@@ -91,6 +91,12 @@ export type PiWorkerMessage = z.infer<typeof piWorkerMessage>;
 /** Text delivered to the host's safety collector, separate from provider history. */
 export function safetyResultInput(tool: string, content: readonly { type: string; text?: unknown }[], complete = true): { output: string; segments?: string[] } {
   const segments = content.filter(part => part.type === "text").map(part => part.text as string);
+  // The shipped grep returns exactly one text block. Preserve every text
+  // row, but add an unparseable empty row when the original result is not
+  // that complete shape. This host-only observation never changes provider
+  // content, and mixed/non-text output cannot impersonate the empty sentinel.
+  if(tool==="grep"&&(!complete||content.length!==1||content[0]?.type!=="text"||typeof content[0]?.text!=="string"))
+    return {output:segments.join("\n")+"\n",segments};
   // Omitted segments mean unprovable read delivery. Filtering an image or
   // resource out must not turn mixed content into one verified text part.
   if (tool === "reference_read" && (!complete || content.some(part => part.type !== "text" || typeof part.text !== "string")))

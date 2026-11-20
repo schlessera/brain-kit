@@ -46,7 +46,7 @@ function installedRipgrep(root:string):string {
  * same id. The Read's native-read hook, which never saw that id, waits until
  * the search has printed its matches, stops the turn and denies the Read;
  * the hook shared by both tools is held until that denial has landed. */
-type Interruption="refused"|"cancelled"|"running"|"duplicate"|"denied"|"retooled";
+type Interruption="refused"|"cancelled"|"running"|"duplicate"|"denied"|"retooled"|"same-tool";
 /** One model reply carrying each call as its own tool_use block. */
 function modelCalls(calls:{name:string;id:string;input:Record<string,unknown>}[]):Response {
  const events:unknown[]=[{type:"message_start",message:{id:"msg_ithaca",type:"message",role:"assistant",model:"claude-probe",content:[],stop_reason:null,stop_sequence:null,usage:{input_tokens:1,output_tokens:0}}}];
@@ -62,8 +62,9 @@ async function voyageHome(interruption:Interruption,check:(f:{db:ReturnType<type
  const root=mkdtempSync(join(tmpdir(),"odysseus-safety-retention-")),brain=join(root,"brain"),home=join(root,"home");
  // A note: reading it records nothing before the tool runs, so only the
  // search output's own record stands between it and a complete chat.
- mkdirSync(join(brain,"notes"),{recursive:true});mkdirSync(home);
- const path=join(brain,"notes","sirens.md");writeFileSync(path,`${SONG}\n`);
+ const area=interruption==="same-tool"?"workspaces/voyage":"notes";
+ mkdirSync(join(brain,area),{recursive:true});mkdirSync(home);
+ const path=join(brain,area,"sirens.md");writeFileSync(path,`${SONG}\n`);
  // The runtime searches with the `rg` on its PATH. This one is the
  // installed runtime's own ripgrep; it marks when the matches are out and
  // then holds its exit, the window a stop lands in.
@@ -85,7 +86,7 @@ esac
   requests.push({turn,raw});
   const first=turn===0&&requests.filter(r=>r.turn===0).length===1;
   const search={name:"Grep",id:"toolu_sirens",input:{pattern:"sirens",path,output_mode:"content"}};
-  if(first&&interruption==="duplicate")return modelCalls([search,search]);
+  if(first&&(interruption==="duplicate"||interruption==="same-tool"))return modelCalls([search,search]);
   if(first&&interruption==="retooled")return modelCalls([search,{name:"Read",id:search.id,input:{file_path:path}}]);
   return nativeModelReply(first?search:undefined);
  }});
@@ -141,7 +142,9 @@ esac
     results++;
     if(interruption==="refused")db.exec("CREATE TRIGGER refuse_result BEFORE INSERT ON safety_pending BEGIN SELECT RAISE(ABORT,'forced result reservation failure'); END");
     else if(interruption==="cancelled")controller.abort(new Error("Odysseus stopped the turn as the result arrived"));
-    return record(...args);
+    const result=await record(...args);
+    if(interruption==="same-tool")controller.abort(new Error("Odysseus stopped the second search after the first result was recorded"));
+    return result;
    }];
    const failureGroup=wiring.hooks!.PostToolUseFailure!.find(group=>!group.matcher)!,failed=failureGroup.hooks[0]!;
    failureGroup.hooks=[async(...args)=>{failures++;return failed(...args);}];
@@ -151,7 +154,7 @@ esac
   const timer=setTimeout(()=>controller.abort(),20000);
   try{for await(const message of query({prompt:"Listen for the sirens.",options:{cwd:brain,settingSources:[],model:"claude-sonnet-4-6",maxTurns:2,permissionMode:"default",allowedTools:tools,...wiring,abortController:controller,
    ...(resume?{resume}:{}),
-   env:{HOME:home,CLAUDE_CONFIG_DIR:join(home,".claude"),...(interruption==="running"||interruption==="duplicate"||interruption==="denied"||interruption==="retooled"?{PATH:`${bin}:${process.env.PATH??"/usr/bin:/bin"}`,USE_BUILTIN_RIPGREP:"0"}:{PATH:process.env.PATH??"/usr/bin:/bin"}),ANTHROPIC_BASE_URL:origin.url.origin,ANTHROPIC_API_KEY:"odysseus-offline-only-key",ANTHROPIC_AUTH_TOKEN:undefined,CLAUDE_CODE_OAUTH_TOKEN:undefined,CLAUDE_CODE_USE_BEDROCK:"",CLAUDE_CODE_USE_VERTEX:"",CLAUDE_CODE_USE_FOUNDRY:"",CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:"1"}}})){
+   env:{HOME:home,CLAUDE_CONFIG_DIR:join(home,".claude"),...(interruption==="running"||interruption==="duplicate"||interruption==="denied"||interruption==="retooled"||interruption==="same-tool"?{PATH:`${bin}:${process.env.PATH??"/usr/bin:/bin"}`,USE_BUILTIN_RIPGREP:"0"}:{PATH:process.env.PATH??"/usr/bin:/bin"}),ANTHROPIC_BASE_URL:origin.url.origin,ANTHROPIC_API_KEY:"odysseus-offline-only-key",ANTHROPIC_AUTH_TOKEN:undefined,CLAUDE_CODE_OAUTH_TOKEN:undefined,CLAUDE_CODE_USE_BEDROCK:"",CLAUDE_CODE_USE_VERTEX:"",CLAUDE_CODE_USE_FOUNDRY:"",CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:"1"}}})){
     if(message.type==="system"&&message.subtype==="init")version=message.claude_code_version;
     if("session_id" in message&&typeof message.session_id==="string")runtimeSession=message.session_id;
    }}catch{/* The interrupted turn is stopped. */}
@@ -287,8 +290,9 @@ test("a denial of another tool under the search's id cannot settle the search th
  * hook order or with the hook both tools share starting late. */
 for(const late of [false,true])test(`a denied shell call reusing a search's id cannot settle the search that ran${late?", even when the shared hook starts late":""}`,async()=>{
  const root=mkdtempSync(join(tmpdir(),"odysseus-safety-retool-")),brain=join(root,"brain"),home=join(root,"home");
- mkdirSync(join(brain,"notes"),{recursive:true});mkdirSync(home);
- const path=join(brain,"notes","sirens.md");writeFileSync(path,`${SONG}\n`);
+ const area=interruption==="same-tool"?"workspaces/voyage":"notes";
+ mkdirSync(join(brain,area),{recursive:true});mkdirSync(home);
+ const path=join(brain,area,"sirens.md");writeFileSync(path,`${SONG}\n`);
  const db=createUiDb(join(root,"ui.db")),writer=openSqliteWriter(db),writes=createGovernanceWrites(db,writer);
  holdSafetyRecovery(db);
  const controller=new AbortController(),bindingId=crypto.randomUUID();
@@ -331,3 +335,15 @@ for(const late of [false,true])test(`a denied shell call reusing a search's id c
   expect(admitted,"SAFETY_HOST_REPORTS_THE_SHELL_CALL_AS_A_SECOND_ADMISSION").toBeGreaterThanOrEqual(2);
  }finally{clearTimeout(timer);origin.stop(true);await writer.close();db.close();rmSync(root,{recursive:true,force:true});}
 },60000);
+
+
+test("two same-ID native Grep calls retain their recorded result and the interrupted call's gap",()=>voyageHome("same-tool",({db,writes,first})=>{
+ expect(first.admitted,"NATIVE_SAME_TOOL_ID_HAS_TWO_LOGICAL_ADMISSIONS").toBeGreaterThanOrEqual(2);
+ expect(first.results,"NATIVE_SAME_TOOL_RESULT_HOOK_ACTUALLY_FORWARDS").toBeGreaterThanOrEqual(1);
+ expect(db.query("SELECT r.kind,r.source,r.state FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id WHERE c.turn_id='voyage' ORDER BY r.kind").all(),"NATIVE_SAME_TOOL_RESULT_REACHES_THE_LEDGER").toEqual(expect.arrayContaining([
+  {kind:'exposure',source:null,state:'interrupted_unknown'},
+  {kind:'occurrence',source:'workspace_read',state:'open'}
+ ]));
+ expect(writes.safety(null,"ithaca").coverage.state,"NATIVE_SAME_TOOL_RESULT_DOES_NOT_ERASE_THE_GAP").toBe('incomplete');
+ expect(db.query("SELECT failure FROM safety_collections WHERE turn_id='voyage'").get()).toEqual({failure:'recording_failed'});
+}),60000);

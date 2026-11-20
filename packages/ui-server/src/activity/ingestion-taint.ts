@@ -191,7 +191,7 @@ export function outputTaintSignals(tool: string, output: string, brainPath?: str
   if(Buffer.byteLength(output)>1048576)throw new Error('Safety search output capacity exceeded');
   const result:IngestionSignal[]=[],seen=new Set<string>(),contentPaths=new Set<string>();let unknown=false;
   const add=(path:string)=>{
-    if(!path||/[\r\n\0]/.test(path)){unknown=true;return;}
+    if(!path||path.includes('\0')){unknown=true;return;}
     if(/truncat|omitted|\.\.\.|…/i.test(path))unknown=true;
     for(const signal of fileSignals(path,brainPath,marked,'tool_search_output')){
       const key=JSON.stringify([signal.detector,signal.key]);if(seen.has(key))continue;
@@ -258,7 +258,7 @@ export function outputTaintSignals(tool: string, output: string, brainPath?: str
           matches=0;
           for(const line of value.content?value.content.split('\n'):[]){
             const split=/:([1-9][0-9]*)$/.exec(line);
-            if(split){const path=line.slice(0,split.index);contentPaths.add(path);add(path);matches+=Number(split[1]);if(!Number.isSafeInteger(matches))unknown=true;}
+            if(split){const path=line.slice(0,split.index);if(contentPaths.has(path))unknown=true;contentPaths.add(path);add(path);matches+=Number(split[1]);if(!Number.isSafeInteger(matches))unknown=true;}
             else unknown=true;
           }
         }

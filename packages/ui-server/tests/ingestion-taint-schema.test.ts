@@ -1,4 +1,5 @@
 import {expect,test} from 'bun:test';
+import {safetyResultInput} from '../../ui-backend-pi/src/worker-protocol';
 import {outputTaintSignals,searchOutputContext} from '../src/activity/ingestion-taint';
 const glob=(filenames:string[],extra={})=>JSON.stringify({durationMs:1,numFiles:filenames.length,filenames,truncated:false,...extra});
 const grep=(filenames:string[],extra={})=>JSON.stringify({numFiles:filenames.length,filenames,...extra});
@@ -47,6 +48,14 @@ for(const [name,tool,input,output,expected] of [
  ['Grep count exceeds page limit','Grep',{head_limit:1,output_mode:'count'},grep(['notes/loom.md','notes/raft.md'],{content:'notes/loom.md:1\nnotes/raft.md:2',appliedLimit:1,totalFiles:2,totalLines:2}),['legacy_unknown']],
  ['Pi healthy bracket path','grep',{},'[raft]/log.md:1:sirens',[]],
  ['Glob exceeds installed file cap','Glob',{},glob(Array.from({length:101},(_,i)=>`notes/loom-${i}.md`)),['legacy_unknown']],
+ ['Glob legal CR LF filename','Glob',{},glob(['workspaces/voyage/log\r\n.md']),['workspace_read','user_marked']],
+ ['Grep legal CR LF filename','Grep',{},grep(['workspaces/voyage/log\r\n.md']),['workspace_read','user_marked']],
+ ['Pi sentinel plus image','grep',{},safetyResultInput('grep',[{type:'text',text:'No matches.'},{type:'image'}]).output,['legacy_unknown']],
+ ['Pi sentinel incomplete original','grep',{},safetyResultInput('grep',[{type:'text',text:'No matches.'}],false).output,['legacy_unknown']],
+ ['Pi marked row plus image','grep',{},safetyResultInput('grep',[{type:'text',text:'notes/voyage.md:1:sirens'},{type:'image'}]).output,['user_marked','legacy_unknown']],
+ ['Pi sentinel plus empty block','grep',{},safetyResultInput('grep',[{type:'text',text:'No matches.'},{type:'text',text:''}]).output,['legacy_unknown']],
+ ['Pi exact original sentinel','grep',{},safetyResultInput('grep',[{type:'text',text:'No matches.'}]).output,[]],
+ ['Grep duplicate per-file count rows','Grep',{output_mode:'count'},grep(['notes/loom.md'],{content:'notes/loom.md:1\nnotes/loom.md:1',numMatches:2}),['legacy_unknown']],
  ['overlapping numeric delimiters','grep',{},'notes/voyage:2:7:sirens',['user_marked','legacy_unknown']],
  ['Glob text block rejected','Glob',{},JSON.stringify([{type:'text',text:'notes/voyage:2:home.md'}]),['legacy_unknown']],
  ['plain clipped Glob rejected','Glob',{},'notes/voy...',['legacy_unknown']],
@@ -78,7 +87,7 @@ for(const [name,tool,input,output,expected] of [
  ['Pi malformed JSON','grep',{},'{"matches":',['legacy_unknown']],
  ['Pi quoted sentinel','grep',{},JSON.stringify('No matches.'),['legacy_unknown']],
 ] as const)test(`recognized search shape: ${name}`,()=>{
- const marked=(path:string)=>['[voyage]/log.md','notes/voyage.md','notes/voyage:2','notes/voyage:2:home.md'].includes(path);
+ const marked=(path:string)=>['workspaces/voyage/log\r\n.md','[voyage]/log.md','notes/voyage.md','notes/voyage:2','notes/voyage:2:home.md'].includes(path);
  const signals=outputTaintSignals(tool,output,'/srv/odysseus/brain',marked,searchOutputContext(tool,input));
  expect(signals.map(s=>s.source),'ONLY_RECOGNIZED_COMPLETE_SHAPES_CAN_REMAIN_HEALTHY').toEqual([...expected]);
 });

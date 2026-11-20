@@ -9,9 +9,10 @@ import { safetyResultInput } from "../../ui-backend-pi/src/worker-protocol";
  * `safety-result-retention.test.ts`; these drive the remaining exits against
  * the real host ledger. Keyless and offline. */
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {createRequire} from "node:module";
 import type { Agent } from "@earendil-works/pi-agent-core";
 import { createEffectiveSafety } from "../src/governance/effective-safety";
 import { createUiDb } from "../src/db/client";
@@ -38,19 +39,19 @@ const refusal = (work: Promise<unknown>) => work.then(() => null, (error: unknow
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
-async function voyage() {
+async function voyage(backendId:"pi"|"claude"="pi") {
   const root = mkdtempSync(join(tmpdir(), "odysseus-safety-exits-")); roots.push(root);
   const brain = join(root, "brain"); mkdirSync(join(brain, "workspaces/voyage"), { recursive: true });
   writeFileSync(join(brain, "workspaces/voyage/raft.md"), "Sail past the sirens.\n");
   const db = createUiDb(join(root, "ui.db")), writer = openSqliteWriter(db), writes = createGovernanceWrites(db, writer);
   holdSafetyRecovery(db);
   const bindingId = crypto.randomUUID(), controller = new AbortController();
-  await writes.safetyBegin({ turnId: "voyage", bindingId, sessionId: null, principalId: "odysseus", backendId: "pi", at: 0 });
+  await writes.safetyBegin({ turnId: "voyage", bindingId, sessionId: null, principalId: "odysseus", backendId, at: 0 });
   db.exec("INSERT INTO sessions(id,created_at,last_active_at) VALUES('ithaca',0,0); INSERT INTO chat_session_owners(session_id,principal_id,created_at) VALUES('ithaca','odysseus',0)");
   safetyCatalogCreated(db, "ithaca", "odysseus", "voyage"); await writes.bind("voyage", "ithaca");
-  const collector = createSafetyCollector(db, writes, { turnId: "voyage", bindingId, backendId: "pi", sessionId: () => "ithaca", brainPath: brain,
+  const collector = createSafetyCollector(db, writes, { turnId: "voyage", bindingId, backendId, sessionId: () => "ithaca", brainPath: brain,
     shellProxied: () => false, signal: controller.signal, stop: error => controller.abort(error) });
-  await collector.ready("pi", 1);
+  await collector.ready(backendId, 1);
   return { db, writes, collector, controller, brain, path: join(root, "ui.db"),
     /** Resolves once the writer has applied every write sent before it. */
     idle: () => writer.idle(),
@@ -457,25 +458,51 @@ test("a Pi grant is unusable until the collector's last check passes, and a call
   } finally { release(); await f.close(); }
 });
 
+/** Claude's installed native search executable, with a GrepOutput result for
+ * the real PostToolUse binding. This exercises the shipped search engine and
+ * host hooks; the full installed-session proof remains in retention tests. */
+async function claudeSearchRuns(f:Voyage){
+ const sdk=createRequire(createRequire(import.meta.url).resolve('@anthropic-ai/claude-agent-sdk'));
+ const bin=join(f.brain,'native-search');mkdirSync(bin,{recursive:true});
+ const rg=join(bin,'rg');if(!existsSync(rg))symlinkSync(sdk.resolve('@anthropic-ai/claude-agent-sdk-linux-x64/claude'),rg);
+ const path='workspaces/voyage/raft.md';
+ const child=Bun.spawn([rg,'--with-filename','-n','--no-heading','--color','never','sirens',path],{cwd:f.brain,env:{PATH:'/usr/bin:/bin'},stdout:'pipe',stderr:'pipe'});
+ const [content,errors,code]=await Promise.all([new Response(child.stdout).text(),new Response(child.stderr).text(),child.exited]);
+ expect(code,errors).toBe(0);
+ return {mode:'content',numFiles:1,filenames:[path],content:content.trimEnd(),numLines:1};
+}
+
 for(const binding of ['pi','claude'] as const)test(`${binding}: two allowed searches reusing an ID cannot share one result discharge`,async()=>{
- const f=await voyage();try{
+ const f=await voyage(binding);try{
   const input=binding==='claude'?{pattern:'sirens',output_mode:'content'}:{pattern:'sirens'},id='reused_search';
-  let admit:()=>Promise<unknown>;
+  let admit:()=>Promise<unknown>,run:()=>Promise<unknown>,deliver:(output:unknown)=>Promise<unknown>;
   if(binding==='pi'){
    const turn=createTurnContext();turn.bridge={inputSafety:f.collector,emit(){},requestPermission:async()=>({behavior:'allow'})} as never;turn.signal=f.controller.signal;
    let handler:((event:unknown)=>Promise<unknown>)|undefined;
    const gate=createPermissionGate({turn,allowedTools:new Set(['grep']),confirmPatterns:[]});
    (typeof gate==='function'?gate:gate.factory)({on:(name:string,callback:unknown)=>{if(name==='tool_call')handler=callback as typeof handler;}} as never);
    admit=async()=>{const result=await handler!({toolName:'grep',toolCallId:id,input});expect(result,'PI_REUSED_ID_CALL_REACHES_EXECUTION').toBeUndefined();};
+   run=()=>searchRuns(f,id,input);
+   const dispatch=dispatcher(f);
+   deliver=output=>dispatch(report(1,id,safetyResultInput('grep',[{type:'text',text:String(output)}])));
   }else{
    const wiring=createPermissionWiring({req:{prompt:'Listen for the sirens.',signal:f.controller.signal,bridge:{emit(){},requestPermission:async()=>({behavior:'allow'}),inputSafety:f.collector}} as never,
     allowedTools:['Grep'],confirmPatterns:[],brainPath:f.brain,childEnv:{PATH:'/usr/bin:/bin'},log(){},turnLock:{acquireForTool:async()=>({ok:true}),releaseForTool(){}} as never});
    const hook=wiring.hooks!.PreToolUse!.find(group=>!group.matcher)!.hooks[0]!;
    admit=async()=>{const result=await hook({hook_event_name:'PreToolUse',tool_name:'Grep',tool_input:input,tool_use_id:id} as never,id,{signal:f.controller.signal});expect((result as {hookSpecificOutput?:{permissionDecision?:string}}).hookSpecificOutput?.permissionDecision,'CLAUDE_REUSED_ID_CALL_REACHES_EXECUTION').not.toBe('deny');};
+   run=()=>claudeSearchRuns(f);
+   const post=wiring.hooks!.PostToolUse!.find(group=>!group.matcher)!.hooks[0]!;
+   deliver=output=>post({hook_event_name:'PostToolUse',tool_name:'Grep',tool_input:input,tool_use_id:id,tool_response:output} as never,id,{signal:f.controller.signal});
   }
-  await admit();const first=await searchRuns(f,id,input);
-  await admit();expect(await searchRuns(f,id,input),'SECOND_SAME_ID_SEARCH_ACTUALLY_EXECUTES').toContain('Sail past the sirens');
-  await f.collector.result(id,binding==='pi'?'grep':'Grep',first,true);
+  await admit();const first=await run();
+  await admit();expect(JSON.stringify(await run()),'SECOND_SAME_ID_SEARCH_ACTUALLY_EXECUTES').toContain('Sail past the sirens');
+  await deliver(first);
+  // The durable gap alone cannot prove forwarding: without a forwarded
+  // result it would still be owed. Require its actual occurrence/exposure.
+  expect(f.db.query("SELECT kind,source,detector,state FROM safety_records ORDER BY kind").all(),'BACKEND_RESULT_MUST_REACH_LEDGER_BEFORE_THE_GAP').toEqual([
+   {kind:'exposure',source:null,detector:null,state:'interrupted_unknown'},
+   {kind:'occurrence',source:'workspace_read',detector:'tool_search_output',state:'open'}
+  ]);
   expect(f.owed(),'ONE_RESULT_CANNOT_DISCHARGE_TWO_LOGICAL_CALLS').toBe(1);
   await f.writes.safetyEnd('voyage');
   expect(f.failure(),'RUNTIME_REUSED_ID_RESULT_LOSS_IS_DURABLE').toBe('recording_failed');
@@ -520,5 +547,18 @@ for(const marked of [false,true])test(`real Pi grep bracket paths retain exactly
    {kind:'occurrence',source:'user_marked',detector:'explicit_untrusted_input'}
   ]:[]);
   expect(f.chat().restriction).toBe(marked?'restricted':'normal');
+ }finally{await f.close();}
+});
+
+for(const shape of ['exact','image','second-text','incomplete'] as const)test(`Pi worker result ${shape}: only the original exact sentinel is empty`,async()=>{
+ const f=await voyage();try{
+  const input={pattern:'no_cyclops_matches_here'},id='original_empty';
+  await f.collector.begin(id,'grep',input);
+  const text=await searchRuns(f,id,input);expect(text).toBe('No matches.');
+  const content=[{type:'text',text},...(shape==='image'?[{type:'image'}]:shape==='second-text'?[{type:'text',text:''}]:[])];
+  const converted=safetyResultInput('grep',content,shape!=='incomplete');
+  await dispatcher(f)(report(1,id,converted));
+  expect(f.db.query("SELECT source,detector FROM safety_records WHERE kind='occurrence'").all(),'ORIGINAL_MIXED_PI_RESULT_RETAINS_UNKNOWN').toEqual(shape==='exact'?[]:[{source:'legacy_unknown',detector:'tool_search_output'}]);
+  expect(f.chat().restriction).toBe(shape==='exact'?'normal':'restricted');
  }finally{await f.close();}
 });
