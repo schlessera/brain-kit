@@ -1580,6 +1580,7 @@ export "./internal" (./src/internal.ts)
   resolveWebSearchConfigPath
   resolveWorkerProtection
   resolveWorkerStateLimits
+  resolveWorkspacesMount
   restrictedReadPaths
   retainWorkerStartupView
   rewriteWorkerRtk

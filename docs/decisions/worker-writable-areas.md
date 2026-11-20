@@ -83,7 +83,7 @@ on the transcript persist path and is not part of this record.
 
 **One resolution, two consumers.** `prepareWorkerSandbox` resolves the
 areas and per-turn XDG layout once per worker
-(`export function prepareWorkerSandbox`, `packages/ui-sdk/src/server/worker-launcher.ts:976-1017`).
+(`export function prepareWorkerSandbox`, `packages/ui-sdk/src/server/worker-launcher.ts:981-1048`).
 The backend passes the result both to the launcher, which turns it into
 bubblewrap arguments, and to `workerSandboxNote`, which renders the agent's
 note (`export function workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:625-690`).
@@ -91,7 +91,7 @@ The launcher re-checks the resolved layout against the actual launch: the
 same brain and envelope, each writable area still a real directory at its
 own path in the brain. The backend selects runtime HOME separately.
 A mismatch refuses the launch instead of binding something the note does not
-describe (`function sandboxMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:883-913`).
+describe (`function sandboxMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:884-925`).
 A launch without a resolved layout keeps the 0.41 view: only the per-turn
 scratch is writable.
 
@@ -158,7 +158,7 @@ through the roadblock path. This is a worker write boundary, not an immutable
 view: host-side changes to that directory remain visible. A backend may select a different runtime HOME
 as described below; it does not make the host home writable. `prepareWorkerSandbox` resolves this same XDG mode on every eligible
 host (`export function prepareWorkerSandbox`,
-`packages/ui-sdk/src/server/worker-launcher.ts:976-1017`). Host-backed overlay
+`packages/ui-sdk/src/server/worker-launcher.ts:981-1048`). Host-backed overlay
 uppers cannot live on the worker's private tmpfs; keeping them would leave
 an unbounded write area. Tools reading XDG config see the per-turn directory,
 while direct reads of real HOME retain the read-only host view.
@@ -405,11 +405,29 @@ in the [governed-writable-workers record](governed-writable-workers.md), under "
 
 ## Workspace inspection amendment, 2026-11-20 (#4295, #4298)
 
-Default governed and strict turns inspect `workspaces/` read-only. They exclude
+Default governed and strict turns inspect an existing `workspaces/` read-only. They exclude
 its paths from journal content capture, retained rows, ignore-policy reads and
 observed-byte charges. The exclusion belongs to each turn, so a concurrent
 session with code changes enabled keeps its own workspace retention and byte
 accounting. Previously retained workspace history remains readable.
+
+**Absent optional area (clarified during #4295 review):** if `workspaces/`
+is absent at launch, keep the ordinary governed writable brain. Create no
+live mountpoint and install no workspace overlay. Exclusion is not in force
+for that turn: anything it creates beneath `workspaces/` is ordinary brain
+content, journaled with retained versions and charged bytes and paths. The
+next default turn sees the directory and binds it read-only. The switch alone
+permits a writable existing workspace. Journal exclusion keys the qualified
+read-only workspace mount, never the path name or the saved preference alone.
+If absence changes before launch, retry admission rather than using a stale
+mount/coverage plan. An explicitly protected missing ancestor still needs the
+strict view when its protection cannot be enforced without creating content.
+
+Inspection metadata readers skip the mounted checkout before stat or descent,
+at initial inventory and at delta expansion. Shared observations include the
+checkout only while a participant covers it; a new writer inventories its
+baseline from the current sealed root. A failed writer-only inventory leaves
+an inspection turn usable.
 
 The authenticated code-changes preference survives resume and applies at the
 next admission. Changing it cannot change a running worker's mounts. Enabling

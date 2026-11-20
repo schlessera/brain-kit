@@ -230,9 +230,29 @@ test.each([false, true])("an attempted workspace install returns both write reme
     scratchAliasesRemoved: [], areas: [{ name: "workspaces", rel: "workspaces", mount: { writable: false, readOnlyPath: "/srv/odysseus-brain/workspaces", reason: "inspection" } }] };
   if (autonomous) ctx.req.autonomous = { origin: "autonomous", persistence: "none", allowedTools: ["Bash"], systemPromptAppend: "" };
   const hook = enforcementHookFor(ctx);
-  const result = await hook(...hookCall("Bash", { command: "cd workspaces/ithaca && npm install" }));
+  for (const command of ["cd workspaces/ithaca && npm install", "cd workspaces/ithaca && npm i", "npm install --prefix /tmp/brain-reference/public/ithaca"]) {
+  const result = await hook(...hookCall("Bash", { command }));
   expect(result, "INSTALL_TOOL_RESULT_IS_A_REFUSAL").toMatchObject({ hookSpecificOutput: { permissionDecision: "deny" } });
   expect(JSON.stringify(result)).toContain("code-changes switch");
   expect(JSON.stringify(result)).toContain("managed worktree");
-  expect(await hook(...hookCall("Bash", { command: "cat workspaces/ithaca/package.json" }))).toEqual({ continue: true });
+  }
+  for (const command of ["cat workspaces/ithaca/package.json", "cp workspaces/ithaca/README.md /tmp/readme.md", "cat workspaces/ithaca/README.md > /tmp/readme.md", "cd workspaces/ithaca && cat README.md > /tmp/readme.md"])
+    expect(await hook(...hookCall("Bash", { command })), "CHECKOUT_READS_ARE_NOT_WRITES").toEqual({ continue: true });
+});
+
+
+test.each(["cp workspaces/ithaca/README.md /tmp/readme.md", "cat workspaces/ithaca/README.md > /tmp/readme.md"])("checkout source-only shell commands remain usable: %s", async command => {
+  const { ctx } = contextFor({ allowedTools: ["Bash"] });
+  ctx.req.workerSandbox = { brain: "/srv/odysseus-brain", profile: "governed", restricted: false, scratchAliasesRemoved: [],
+    areas: [{ name: "workspaces", rel: "workspaces", mount: { writable: false, readOnlyPath: "/srv/odysseus-brain/workspaces", reason: "inspection" } }] };
+  expect(await enforcementHookFor(ctx)(...hookCall("Bash", { command })), "CHECKOUT_SOURCE_IS_NOT_A_WRITE_DESTINATION").toEqual({ continue: true });
+});
+
+test("reference source install refusal names both remedies even in code-change mode", async () => {
+  const { ctx } = contextFor({ allowedTools: ["Bash"] });
+  ctx.req.workerSandbox = { brain: "/srv/odysseus-brain", profile: "governed", restricted: false, scratchAliasesRemoved: [], codeChanges: true, areas: [], references: { public: "/srv/ithaca-source" } };
+  const answer = await enforcementHookFor(ctx)(...hookCall("Bash", { command: "cd /tmp/brain-reference/public/ithaca && npm install" }));
+  expect(answer, "REFERENCE_INSTALL_IS_ACTIONABLY_REFUSED").toMatchObject({ hookSpecificOutput: { permissionDecision: "deny" } });
+  expect(JSON.stringify(answer)).toContain("code-changes switch");
+  expect(JSON.stringify(answer)).toContain("managed worktree");
 });

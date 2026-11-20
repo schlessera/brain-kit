@@ -259,9 +259,16 @@ test("workspace installs refuse through the real permission dispatcher with both
   expect(result, "PI_INSTALL_TOOL_RESULT_IS_A_REFUSAL").toMatchObject({ behavior: "deny" });
   expect(JSON.stringify(result)).toContain("code-changes switch");
   expect(JSON.stringify(result)).toContain("managed worktree");
+  for (const command of ["cd workspaces/ithaca && npm i", "npm install --prefix /tmp/brain-reference/public/ithaca"]) {
+    const denied = await dispatch(rpc("permission", "bash", { command }, command));
+    expect(denied, "PI_INSTALL_ALIASES_AND_REFERENCE_SOURCE_REFUSE").toMatchObject({ behavior: "deny", message: expect.stringContaining("managed worktree") });
+  }
   expect(context.grants.has("call-1"), "WORKSPACE_DENIAL_CLEARS_OLD_GRANT").toBe(false);
-  expect(refused, "WORKSPACE_DENIAL_IS_RECORDED_BY_COLLECTOR").toEqual(["call-1"]);
+  expect(refused, "WORKSPACE_DENIAL_IS_RECORDED_BY_COLLECTOR").toEqual(["call-1", "cd workspaces/ithaca && npm i", "npm install --prefix /tmp/brain-reference/public/ithaca"]);
   expect(await dispatch(rpc("permission", "read_file", { path: "notes/ithaca.md" }, "call-read")), "OTHER_SCOPE_REMAINS_USABLE").toMatchObject({ behavior: "allow" });
+  for (const command of ["cp workspaces/ithaca/README.md /tmp/readme.md", "cat workspaces/ithaca/README.md > /tmp/readme.md"]) {
+    expect(await dispatch(rpc("permission", "bash", { command }, command)), "PI_CHECKOUT_SOURCE_READS_REMAIN_USABLE").toMatchObject({ behavior: "allow" });
+  }
   context.workerSandbox = { ...context.workerSandbox!, codeChanges: true, areas: [{ name: "workspaces", rel: "workspaces", mount: { writable: true, path: join(root, "workspaces") } }] };
   expect(await dispatch(rpc("permission", "bash", { command: "npm install --prefix workspaces/ithaca" }, "call-writer")), "OPTED_IN_WRITER_REMAINS_USABLE").toMatchObject({ behavior: "allow" });
 });

@@ -9,14 +9,14 @@
  * session id are replaced by placeholders before comparison.
  */
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { Options } from "@anthropic-ai/claude-agent-sdk";
 
-import { createClaudeSdkTurn } from "../../src/sdk-options.js";
+import { createClaudeSdkTurn, prepareClaudeTurnSandbox } from "../../src/sdk-options.js";
 
 export const SNAPSHOT_MODES = ["hosted-typed", "voice", "unhosted", "relayed", "autonomous-summary", "restricted"] as const;
 export type SnapshotMode = (typeof SNAPSHOT_MODES)[number];
@@ -69,19 +69,20 @@ function hooksShape(hooks: Options["hooks"]): Record<string, { matcher: string |
 const PINNED_WORKER_LIMITS = "data=4GiB,memory=4GiB";
 
 /** The normalised snapshot for one mode; the worker is finished before it returns. */
-export async function sdkOptionsSnapshot(mode: SnapshotMode): Promise<Record<string, unknown>> {
+export async function sdkOptionsSnapshot(mode: SnapshotMode, inputs: { populatedWorkspace?: boolean; prepareSandbox?: boolean } = {}): Promise<Record<string, unknown>> {
   const previous = process.env.BRAIN_UI_WORKER_LIMITS;
   process.env.BRAIN_UI_WORKER_LIMITS = PINNED_WORKER_LIMITS;
-  try { return await snapshotOnce(mode); } finally {
+  try { return await snapshotOnce(mode, inputs); } finally {
     if (previous === undefined) delete process.env.BRAIN_UI_WORKER_LIMITS;
     else process.env.BRAIN_UI_WORKER_LIMITS = previous;
   }
 }
 
-async function snapshotOnce(mode: SnapshotMode): Promise<Record<string, unknown>> {
+async function snapshotOnce(mode: SnapshotMode, inputs: { populatedWorkspace?: boolean; prepareSandbox?: boolean }): Promise<Record<string, unknown>> {
   const brain = mkdtempSync(join(tmpdir(), "odysseus-sdk-options-"));
+  if (inputs.populatedWorkspace) mkdirSync(join(brain, "workspaces/ithaca"), { recursive: true });
   const restricted = mode === "restricted";
-  const turn = createClaudeSdkTurn({
+  const options: Parameters<typeof createClaudeSdkTurn>[0] = {
     backend: { brainPath: brain } as never,
     req: requestFor(mode, brain) as never,
     ...(restricted ? {} : { turnEnvironment: {} }),
@@ -96,7 +97,9 @@ async function snapshotOnce(mode: SnapshotMode): Promise<Record<string, unknown>
     confirmPatterns: [/\brm\s+-rf\b/],
     turnLock: { acquireForTool: async () => ({ ok: true }), releaseForTool() {} } as never,
     log: () => undefined,
-  });
+  };
+  const own = inputs.prepareSandbox ? await prepareClaudeTurnSandbox(options) : undefined;
+  const turn = createClaudeSdkTurn({ ...options, ...(own ? { turnEnvironment: own.turnEnvironment, req: { ...options.req, workerSandbox: own.workerSandbox } } : {}) });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "sdk-options-snapshot", version: "1" });
   try {

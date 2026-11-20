@@ -1371,10 +1371,11 @@ byte charges; notes keep their existing before-images, durability and caps.
 This narrows the older coverage statements below; retained old history stays
 readable. The mode and refusal alternatives reach the worker only in the new
 turn's tail when first applicable or changed, preserving earlier provider
-history. A missing workspace root also selects the strict immutable view:
-creating a mountpoint under the writable brain would create a live directory.
-The owner can create the root outside a turn; the next admission requalifies
-without a restart. Workspace sealing precedes protected child masks, and its
+history. An absent optional workspace keeps the governed writable brain,
+without a workspace overlay or live mountpoint. Creation beneath that absent
+name remains ordinary retained and charged content for the whole turn; the
+next default admission seals it. Exclusion requires a qualified read-only
+workspace mount. Metadata readers omit that checkout before traversal. Workspace sealing precedes protected child masks, and its
 ancestor pins remain read-only, preserving quarantine and provider masks.
 Host applications keep workspace protection until a writable mount qualifies,
 even when the saved switch requests one. Inspect participants do not change a

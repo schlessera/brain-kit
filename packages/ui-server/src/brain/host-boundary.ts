@@ -39,7 +39,7 @@ import { createGovernancePolicyReader } from "./governance-policy.js";
 import type { GovernedStatus, GovernedUnavailableReason } from "@schlessera/brain-ui-sdk/protocol";
 import { runMirrorSync, syncMirrorPath } from "./sync-mirror.js";
 import { moduleRepositoryWorkerAccess, type ModuleRepositoryAccess } from "./module-repositories.js";
-import { resolveWorkerProtection } from "@schlessera/brain-ui-sdk/internal";
+import { resolveWorkspacesMount, resolveWorkerProtection } from "@schlessera/brain-ui-sdk/internal";
 import { prepareMaintenanceOutput } from "./maintenance-output.js";
 import { operationalStateMasks, operationalStateRefusal, workerIdentitySentinelDirectory, type OperationalStateLayout, type WorkerProbeState } from "./operational-state.js";
 import { prepareMaintenanceGit } from "./maintenance-git.js";
@@ -610,11 +610,17 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       const identity = ordinary.ok && ordinary.identity === "separate_uid"
         ? { identity: "separate_uid" as const, workerUid: ordinary.workerUid }
         : configuredIdentity ? {} : { identity: "shared_uid" as const };
-      const protection = resolveWorkerProtection(brain);
-      const profile = options.profile === "strict" || !availability.available || protection.reason ? "strict" : "governed";
+      const protection = resolveWorkerProtection(brain, { readOnlyRoots: ["workspaces"] });
+      let workspaceFallback: string | undefined;
+      try {
+        const workspace = resolveWorkspacesMount(brain);
+        if (!workspace.writable && !workspace.missing && !workspace.readOnlyPath) workspaceFallback = workspace.reason;
+      } catch { workspaceFallback = "workspaces/ could not be qualified"; }
+      const fallback = protection.reason ?? workspaceFallback;
+      const profile = options.profile === "strict" || !availability.available || fallback ? "strict" : "governed";
       return { hostExecution: isolated() ? "worker" : "host", ...availability, profile,
         protectedPaths: protection.protection.paths.map(({ rel, mode, reason }) => ({ path: rel, mode, reason })),
-        ...(protection.reason ? { profileFallback: protection.reason } : {}),
+        ...(fallback ? { profileFallback: fallback } : {}),
         ...identity, configurationView: profile === "governed" ? "live" : "startup",
         egress: hasManagedNativeStorage(brain) ? { active: true, detail: `${TURN_EGRESS_ACTIVE} ${options.providerRelay ? PROVIDERS_RELAYED : PROVIDERS_NOT_RELAYED}` }
           : { active: false, detail: TURN_EGRESS_INACTIVE } };

@@ -165,7 +165,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     return work;
   }
   /** Active turns; `sessionId` is the binding their record holds once earlier writes commit. */
-  const active = new Map<string, { policy: NativeJournalPolicy; stop: (error: Error) => void; sequence: number; sessionId: string | null }>();
+  const active = new Map<string, { policy: NativeJournalPolicy; stop: (error: Error) => void; sequence: number; sessionId: string | null; ordinaryWorkspaces: boolean }>();
   const retainVersion = async (source: number, bytes: number, signal?: AbortSignal) => {
     const hash = await retain(() => objects.putFileAsync(source, bytes, signal));
     // Pin the shared observation before another admission can collect objects.
@@ -395,7 +395,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     if (closing || active.size || holds) return Promise.resolve();
     return maintaining ??= serialize(async () => {
       if (closing || active.size) return;
-      await capture.initialize(shutdown.signal);
+      await capture.initialize(shutdown.signal, { workspaces: false });
       await observe(false, undefined, shutdown.signal);
       await expireBacklog();
     }).catch(() => {}).finally(() => { maintaining = undefined; });
@@ -504,7 +504,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
             WHERE turn_id=? AND NOT (path GLOB ? AND (SELECT after_json FROM turn_journal_changes WHERE turn_id=change.turn_id
               AND path=change.path ORDER BY sequence DESC LIMIT 1) IS NULL)) GROUP BY path
         )`).get(`${BRAIN_WORKSPACES_DIR}*`, DISPOSABLE_INDEX_PATHS, turnId, INDEX_PUBLICATION_COPY) as { changedPaths: number; observedBytes: number; workspaceCandidates: string };
-        const workspacePaths = (JSON.parse(facts.workspaceCandidates) as string[]).filter(path => isWithin(BRAIN_WORKSPACES_DIR, path, { includeRoot: false })).length;
+        const workspacePaths = turn.ordinaryWorkspaces ? 0 : (JSON.parse(facts.workspaceCandidates) as string[]).filter(path => isWithin(BRAIN_WORKSPACES_DIR, path, { includeRoot: false })).length;
         for (const observer of observers) observer(turnId, { changedPaths: facts.changedPaths, observedBytes: facts.observedBytes, workspacePaths, partial: summary(turnId).state === "partial" });
         step?.();
       }
@@ -524,19 +524,20 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   return {
     /**
      * @internal Host scope monitor consumes this same observation window.
-     * `changedPaths` counts every changed path; `workspacePaths` is how many
-     * of them lie below `workspaces/` (#3793).
+     * `changedPaths` counts every changed path; `workspacePaths` counts paths
+     * exempted as an admitted workspace (#3793). Content created beneath an
+     * absent optional area is ordinary content, so it receives no exemption.
      */
     onObservation(observer: (turnId: string, facts: { changedPaths: number; observedBytes: number; workspacePaths: number; partial: boolean }) => void, periodic?: { before(): void; after(completed: boolean): void }) {
       observers.add(observer); if (periodic) periodicObservers.add(periodic);
       return () => { if (periodic) periodicObservers.delete(periodic); return observers.delete(observer); };
     },
-    begin(turnId: string, metadata: { sessionId: string | null; actor: "interactive" | "voice" | "user"; model: string | null; profile: "strict" | "governed"; policyHash: string | null; coveredPaths?: readonly string[]; codeChanges?: boolean }, stop: (error: Error) => void, signal?: AbortSignal,
+    begin(turnId: string, metadata: { sessionId: string | null; actor: "interactive" | "voice" | "user"; model: string | null; profile: "strict" | "governed"; policyHash: string | null; coveredPaths?: readonly string[]; codeChanges?: boolean; workspaceReadOnly?: boolean; workspaceMissing?: boolean }, stop: (error: Error) => void, signal?: AbortSignal,
       /** Each step of the admission (#3355); a failed step is left unended. */ timing?: PhaseTimer) {
       return held(async steps => {
       signal?.throwIfAborted();
       let end = steps?.("initialize");
-      try { await capture.initialize(signal); }
+      try { await capture.initialize(signal, { workspaces: false }); }
       catch (error) { if (signal?.aborted) throw error; throw storageError(error); }
       end?.();
       if (failedAdmissions.size) { end = steps?.("refused_admissions"); for (const refused of failedAdmissions) await finalizeRefusedAdmission(refused); end?.(); }
@@ -552,10 +553,10 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       end?.();
       try {
       end = steps?.("policy");
-      const policy = await capture.policy(metadata.coveredPaths, { workspaces: metadata.codeChanges === true || metadata.actor === "user" });
+      const policy = await capture.policy(metadata.coveredPaths, { workspaces: metadata.workspaceReadOnly !== true || metadata.actor === "user" });
       end?.();
       signal?.throwIfAborted();
-      active.set(turnId, { policy, stop, sequence: 0, sessionId: metadata.sessionId }); publish(turnId);
+      active.set(turnId, { policy, stop, sequence: 0, sessionId: metadata.sessionId, ordinaryWorkspaces: metadata.workspaceMissing === true }); publish(turnId);
       if (!scopeTimer) {
         scopeTimer = setInterval(() => {
           void held(timing => observe(false, timing), false, options.observationTrace?.("periodic", null)).catch(error => {

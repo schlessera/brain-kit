@@ -28,7 +28,7 @@ export function authorizeProfile(db: Database, principalId: string, now: number)
 /** A preference may grant writes only to the proven owner of this chat. */
 export function authorizeCodeChanges(db: Database, principalId: string, sessionId: string): void {
   authorizeProfile(db, principalId, Date.now());
-  const chat = resolveChat(db, { sessionId });
+  const chat = resolveChat(db, { sessionId }, { ownershipOnly: true });
   if ("refused" in chat || !chatOwnedBy(db, chat, principalId))
     throw new SessionProfileError(404, "This chat is not available to this principal.");
 }

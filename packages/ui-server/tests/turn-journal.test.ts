@@ -25,7 +25,7 @@ function fixture(capBytes?: number) {
   writeFileSync(join(brain, "notes", "odysseus.md"), "# Ithaca\r\n");
   const native = createNativeJournalFixture(brain, root);
   const db = createUiDb(path), journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath: path, objectsRoot: join(root, "objects"), capBytes });
-  const begin = (id: string, codeChanges = false) => journal.begin(id, { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null, codeChanges }, error => { throw error; });
+  const begin = (id: string, codeChanges = false) => journal.begin(id, { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null, workspaceReadOnly: !codeChanges }, error => { throw error; });
   return { root, brain, db, journal, native, begin, async close() { await journal.close(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); } };
 }
 
@@ -856,7 +856,7 @@ test("overlapping inspect and change turns retain and charge checkout changes on
   const remove = f.journal.onObservation((id, value) => facts.set(id, value));
   try {
     const begin = (id: string, codeChanges: boolean) => f.journal.begin(id,
-      { sessionId: id, actor: "interactive", model: null, profile: "governed", policyHash: null, codeChanges }, error => { throw error; });
+      { sessionId: id, actor: "interactive", model: null, profile: "governed", policyHash: null, workspaceReadOnly: !codeChanges }, error => { throw error; });
     await begin("inspect", false);
     await begin("writer", true);
     writeFileSync(join(f.brain, "workspaces/ithaca/source.ts"), "Penelope returns\n");
@@ -877,4 +877,29 @@ test("overlapping inspect and change turns retain and charge checkout changes on
     }
     await f.journal.finish("inspect"); await f.journal.finish("writer");
   } finally { remove(); await f.close(); }
+});
+
+
+test("an absent workspace stays ordinary retained content until the next mounted inspection", async () => {
+  const f = fixture();
+  const observed: { changedPaths: number; observedBytes: number; workspacePaths: number }[] = [];
+  f.journal.onObservation((id, facts) => { if (id === "missing") observed.push(facts); });
+  try {
+    await f.journal.begin("missing", { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null, workspaceReadOnly: false, workspaceMissing: true }, error => { throw error; });
+    const command = Bun.spawn([process.execPath, "-e", 'const fs=require("node:fs");fs.mkdirSync("workspaces/ithaca",{recursive:true});fs.writeFileSync("workspaces/ithaca/source.md","Athena\\n");fs.writeFileSync("notes/odysseus.md","Ithaca\\n");'], { cwd: f.brain, stdout: "pipe", stderr: "pipe" });
+    expect(await command.exited, await new Response(command.stderr).text()).toBe(0);
+    await f.journal.observe();
+    const details = f.journal.details("ithaca", "missing")!;
+    const source = details.changes.find(change => change.path === "workspaces/ithaca/source.md");
+    expect(source, "CREATED_WORKSPACE_IS_RETAINED_ORDINARY_CONTENT").toBeDefined();
+    expect(f.journal.version("ithaca", "missing", source!.sequence, "after")!.bytes(1024).toString()).toBe("Athena\n");
+    expect(observed.at(-1)?.observedBytes, "CREATED_CHECKOUT_BYTES_ARE_CHARGED").toBe(14);
+    expect(observed.at(-1)?.workspacePaths, "CREATED_CHECKOUT_PATHS_ARE_ORDINARY_SCOPE").toBe(0);
+    await f.journal.finish("missing");
+    await f.journal.begin("mounted", { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null, workspaceReadOnly: true }, error => { throw error; });
+    writeFileSync(join(f.brain, "workspaces/ithaca/source.md"), "Odysseus returns\n");
+    await f.journal.observe();
+    expect(f.journal.details("ithaca", "mounted")!.changes, "NEXT_INSPECT_TURN_EXCLUDES_MOUNTED_WORKSPACE").toEqual([]);
+    await f.journal.finish("mounted");
+  } finally { await f.close(); }
 });

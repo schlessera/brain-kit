@@ -643,8 +643,9 @@ test("missing workspaces stay absent on the live brain after an actual worker", 
   const f = fixture({ workspaces: false });
   try {
     const sandbox = prepareFixtureWorkerSandbox(f.brain, { profile: "governed", codeChanges: false, areas: ["workspaces"] });
-    expect(sandbox.profile, "ABSENT_WORKSPACE_USES_EXISTING_STRICT_VIEW").toBe("strict");
-    expect(await run(f.brain, sandbox, 'console.log(JSON.stringify({ok:true}));', f.home)).toEqual({ ok: true });
+    expect(sandbox.profile, "ABSENT_OPTIONAL_WORKSPACE_KEEPS_GOVERNED").toBe("governed");
+    expect(await run(f.brain, sandbox, 'require("node:fs").writeFileSync("notes/voyage.md","Athena");console.log(JSON.stringify({ok:true}));', f.home)).toEqual({ ok: true });
+    expect(readFileSync(join(f.brain, "notes/voyage.md"), "utf8"), "MISSING_AREA_KEEPS_NOTE_WRITES_LIVE").toBe("Athena");
     expect(existsSync(join(f.brain, "workspaces")), "NO_LIVE_WORKSPACE_MOUNTPOINT_CREATED").toBe(false);
   } finally { f.cleanup(); }
 });
@@ -675,5 +676,26 @@ test.each([false, true])("workspace inspection never creates protected ancestors
     expect(await run(f.brain, sandbox, 'console.log(JSON.stringify({ok:true}));', f.home)).toEqual({ ok: true });
     expect(existsSync(path), "WORKER_DOES_NOT_CREATE_CHECKOUT_DIRECTORIES").toBe(false);
     expect(existsSync(join(f.brain, "workspaces")), "ROOT_EXISTENCE_UNCHANGED").toBe(existing);
+  } finally { f.cleanup(); }
+});
+
+
+test("a direct empty-area governed sandbox seals an existing checkout", async () => {
+  const f = fixture();
+  try {
+    const prepared = prepareFixtureWorkerSandbox(f.brain, { profile: "governed", areas: [] });
+    const direct = { ...prepared, areas: [] };
+    expect(await run(f.brain, direct, 'const fs=require("node:fs");let error="";try{fs.writeFileSync("workspaces/ithaca/new.md","attack")}catch(e){error=e.code}console.log(JSON.stringify({error}));', f.home), "DIRECT_SANDBOX_STILL_SEALS_WORKSPACE").toEqual({ error: "EROFS" });
+  } finally { f.cleanup(); }
+});
+
+test("a workspace created in an absent-area turn is read-only on the next default turn", async () => {
+  const f = fixture({ workspaces: false });
+  try {
+    const first = prepareFixtureWorkerSandbox(f.brain, { profile: "governed", codeChanges: false });
+    expect(first.profile).toBe("governed");
+    expect(await run(f.brain, first, 'const fs=require("node:fs");fs.mkdirSync("workspaces/ithaca",{recursive:true});fs.writeFileSync("workspaces/ithaca/source.md","Athena");console.log(JSON.stringify({ok:true}));', f.home)).toEqual({ok:true});
+    const next = prepareFixtureWorkerSandbox(f.brain, { profile: "governed", codeChanges: false });
+    expect(await run(f.brain, next, 'const fs=require("node:fs");let error="";try{fs.writeFileSync("workspaces/ithaca/source.md","attack")}catch(e){error=e.code}console.log(JSON.stringify({read:fs.readFileSync("workspaces/ithaca/source.md","utf8"),error}));', f.home), "NEXT_TURN_SEALS_NEW_WORKSPACE").toEqual({ read: "Athena", error: "EROFS" });
   } finally { f.cleanup(); }
 });

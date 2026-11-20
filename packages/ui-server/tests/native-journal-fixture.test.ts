@@ -96,3 +96,29 @@ test("an inspect overlap does not unignore a writer's checkout steering files", 
     await observation.commit();
   } finally { await capture.close(); await native.close(); rmSync(root, { recursive: true, force: true }); }
 });
+
+
+test("mounted workspace inspection never inventories a deep checkout, including new subtrees", async () => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-no-checkout-walk-")), brain = join(root, "brain");
+  mkdirSync(join(brain, "notes"), { recursive: true });
+  const deep = join(brain, "workspaces/ithaca", ...Array.from({length:260}, () => "x"));
+  mkdirSync(deep, { recursive: true }); writeFileSync(join(deep, "source.md"), "Odysseus");
+  writeFileSync(join(brain, "notes/voyage.md"), "Before");
+  const native = createNativeJournalFixture(brain, root);
+  const capture = createNativeJournalCapture(native.manager, async fd => readFileSync(fd, "utf8"));
+  try {
+    await capture.initialize(undefined, { workspaces: false });
+    const inspect = await capture.policy([], { workspaces: false });
+    mkdirSync(join(deep, "new")); writeFileSync(join(deep, "new/after.md"), "Athena");
+    writeFileSync(join(brain, "notes/voyage.md"), "After");
+    const result = await capture.observe(new Map([["inspect", inspect]]));
+    expect(result.changes.get("inspect")!.map(change => change.path), "DEEP_CHECKOUT_CANNOT_STOP_NOTE_OBSERVATION").toEqual(["notes/voyage.md"]);
+    expect(result.stats.walkedDirectories, "NO_NEW_CHECKOUT_SUBTREE_WALK").toBe(0);
+    expect(result.stats.readEntries, "CHECKOUT_METADATA_NOT_STAT_ED").toBeLessThan(10);
+    await result.commit();
+    await expect(capture.policy([], { workspaces: true })).rejects.toThrow("depth");
+    const healthy = await capture.observe(new Map([["inspect", inspect]]));
+    expect(healthy.changes.get("inspect"), "FAILED_WRITER_BASELINE_LEAVES_INSPECT_USABLE").toEqual([]);
+    await healthy.commit();
+  } finally { await capture.close(); await native.close(); rmSync(root, { recursive: true, force: true }); }
+});

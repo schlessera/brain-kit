@@ -98,6 +98,7 @@ export function createSessionProfiles(db: Database, turns: GovernedTurns, budget
     codeChanges(principalId: string, sessionId?: string, draftId?: string): boolean {
       authorize(principalId);
       if (sessionId) {
+        if (session(sessionId)?.codeChanges !== 1) return false;
         // Legacy/foreign ownership cannot carry a saved write grant into admission.
         try { authorizeCodeChanges(db, principalId, sessionId); } catch (error) {
           if (error instanceof SessionProfileError && error.status === 404) return false;

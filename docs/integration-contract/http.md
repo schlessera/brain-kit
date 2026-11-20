@@ -42,11 +42,16 @@ Those read helpers do not execute mutations.
 ### Default workspace inspection and code-changes preference (#4295)
 
 **Breaking narrowing, authorized 2026-11-20:** default governed and strict
-turns bind `workspaces/` read-only. Their retained journal coverage excludes
+turns bind an existing `workspaces/` read-only. Their retained journal coverage excludes
 workspace paths, checkout ignore-policy reads and observed workspace bytes.
 Notes keep their existing coverage. This applies per turn even during shared
 observations with an opted-in writer. Retained history from earlier turns
-remains readable with its existing routes and shapes.
+remains readable with its existing routes and shapes. If the optional area
+is absent at launch, governed note writes stay live, no mountpoint is created,
+and workspace exclusion does not apply: new content under that name is
+retained and charged as ordinary brain content for that turn. The next default
+turn binds the new directory read-only. Status describes the same default
+qualification, including an unqualified workspace root selecting strict.
 
 **Additive API:** authenticated `GET` and `PUT`
 `/api/sessions/:id/code-changes` and `/api/drafts/:id/code-changes` return
@@ -56,8 +61,8 @@ body gives 413, an unknown session or one without proven ownership by the
 authenticated principal gives 404, and unusable authentication gives 401.
 Session reads, writes and enabled draft binds all require proven ownership;
 legacy ownership gaps cannot grant writable admission. Drafts are scoped to
-the authenticated principal and share the existing bounded profile-draft storage (507 when full). Successful saves are durable
-before acknowledgement. All responses are `Cache-Control: no-store`.
+the authenticated principal and share the existing bounded profile-draft
+storage (507 when full). Successful saves are durable before acknowledgement. All responses are `Cache-Control: no-store`.
 
 The switch is independent of the worker profile, preserves that preference,
 and cannot weaken strict or provider restrictions. A first-send profile draft

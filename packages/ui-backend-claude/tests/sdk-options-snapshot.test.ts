@@ -49,3 +49,12 @@ for (const mode of SNAPSHOT_MODES) test(`the SDK options for a fixed ${mode} req
   expect(JSON.stringify(actual, null, 2), `SDK_OPTIONS_DRIFT_${mode}`)
     .toBe(JSON.stringify((expected as Record<string, unknown>)[mode], null, 2));
 });
+
+
+test("the real handoff preparation preserves its populated-workspace system prompt", async () => {
+  const direct = await sdkOptionsSnapshot("autonomous-summary", { populatedWorkspace: true });
+  const prepared = await sdkOptionsSnapshot("autonomous-summary", { populatedWorkspace: true, prepareSandbox: true });
+  expect(JSON.stringify(prepared.systemPrompt), "HANDOFF_STILL_DESCRIBES_THE_LEGACY_WRITABLE_AREA").toContain("is writable: clone, fetch and commit");
+  expect(JSON.stringify(prepared.systemPrompt)).not.toContain("code-changes switch");
+  expect(prepared.systemPrompt, "HANDOFF_PREPARATION_DOES_NOT_CHANGE_SYSTEM_PROMPT").toEqual(direct.systemPrompt);
+});

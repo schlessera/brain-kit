@@ -618,3 +618,54 @@ test("code changes require proven chat ownership for saves, reads, draft binds a
   await profiles.saveCodeChanges("telemachus", "draft", "foreign-draft", true);
   await expect(profiles.bind("telemachus", "foreign-draft", "owned-source")).rejects.toThrow("not available");
 });
+
+
+test("resume code-change checks never resolve task deletion inventories", async () => {
+  const f = fixture();
+  const owner = createPrincipal(f.db, { authMethod: "password", label: "Athena device", ttlSeconds: 3600 });
+  const catalog = createSessionCatalog(() => f.db), profiles = createSessionProfiles(f.db, f.turns);
+  catalog.persistSessionStub("resume-source", "Ithaca source.", "claude", "claude", owner.id);
+  f.db.query("INSERT INTO conversation_epochs(id,principal_id,principal_account,epoch,session_id,updated_at) VALUES(?,?,NULL,1,?,0)").run("resume-epoch", owner.id, "resume-source");
+  const query = f.db.query.bind(f.db);
+  const reads: string[] = [];
+  let refuseTasks = false;
+  const spy = spyOn(f.db, "query").mockImplementation((sql: string) => {
+    reads.push(sql);
+    if (refuseTasks && sql.includes("conversation_tasks")) throw new Error("Deletion inventory must not run on admission");
+    return query(sql);
+  });
+  try {
+    expect(profiles.codeChanges(owner.id, "resume-source")).toBe(false);
+    expect(reads.some(sql => sql.includes("dialogue_owners")), "DEFAULT_RESUME_READS_ONLY_ITS_SAVED_SWITCH").toBe(false);
+    await profiles.saveCodeChanges(owner.id, "session", "resume-source", true);
+    reads.length = 0; refuseTasks = true;
+    expect(profiles.codeChanges(owner.id, "resume-source"), "ENABLED_RESUME_PROVES_OWNERSHIP_WITHOUT_TASK_INVENTORY").toBe(true);
+    expect(reads.some(sql => sql.includes("conversation_tasks"))).toBe(false);
+  } finally { spy.mockRestore(); }
+});
+
+
+test("an absent-area admission permits ordinary host writes before the next turn seals the workspace", async () => {
+  const f = fixture();
+  const principal = createPrincipal(f.db, { authMethod: "password", label: "Athena device", ttlSeconds: 3600 });
+  const catalog = createSessionCatalog(() => f.db);
+  catalog.persistSessionStub("absent-source", "Ithaca source.", "claude", "claude", principal.id);
+  const profiles = createSessionProfiles(f.db, f.turns);
+  const results: import("@schlessera/brain-ui-sdk/server").BrainApplicationResult[] = [];
+  const backend = makeFakeBackend({ id: "claude", startTurn: async request => {
+    if (!results.length) mkdirSync(join(f.brain, "workspaces/ithaca"), { recursive: true });
+    results.push(await request.bridge.applyBrain!({ operation: "write", path: `workspaces/ithaca/${results.length ? "second" : "first"}.md`, content: "Athena inspects source.", expectedBaseHash: null }));
+    request.bridge.emit({ type: "session_info", sessionId: "absent-source", isNew: false });
+    request.bridge.emit({ type: "result", sessionId: "absent-source", durationMs: 1, numTurns: 1, isError: false });
+  } });
+  backend.brainApplicationPolicy = () => ({ autoAllowed: ["write"], available: ["write"], lock: createKeyedLock() });
+  const host = new WsHost({ brainPath: f.brain, governedTurns: f.turns, sessionProfiles: profiles, catalog, isPrincipalAuthorized: id => id === principal.id,
+    registry: createStaticBackendRegistry([backend], backend.id) });
+  host.clients.add({ send() {} }, principal.id);
+  try {
+    const input = { authorization: testAuthorization(principal.id), sessionId: "absent-source", text: "Odysseus inspects source.", attachments: [] };
+    await runSession(host, input); await runSession(host, input);
+    expect(results[0], "ABSENT_AREA_HOST_WRITE_IS_ORDINARY_CONTENT").toMatchObject({ ok: true });
+    expect(results[1], "NEXT_ADMISSION_HOST_WRITE_MEETS_READ_ONLY_MOUNT").toMatchObject({ ok: false, code: "policy_denied" });
+  } finally { host.close(); }
+});

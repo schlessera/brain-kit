@@ -750,5 +750,5 @@ export async function prepareClaudeTurnSandbox(options: Pick<ClaudeSdkTurnOption
   const { backend, req } = options;
   if (req.workerSandbox || options.hostInference || req.autonomous?.containment === "restricted") return undefined;
   const turnEnvironment = options.turnEnvironment ?? turnEnv(options.profile);
-  return { turnEnvironment, workerSandbox: await prepareWorkerSandboxAsync(backend.brainPath, { maintenance: backend.maintenance }) };
+  return { turnEnvironment, workerSandbox: { ...await prepareWorkerSandboxAsync(backend.brainPath, { maintenance: backend.maintenance, codeChanges: true }), codeChanges: undefined } };
 }

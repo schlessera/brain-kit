@@ -40,8 +40,9 @@ export function createNativeJournalCapture(manager: NativeJournalManager, retain
   /** Ignored and metadata-only versions keep their observed facts and never their bytes. */
   const retained = (entry: JournalSnapshotEntry) => entry.kind === "file" && !entry.ignored && !entry.metadataOnly;
   return {
-    async initialize(signal?: AbortSignal) { await observer.initialize(signal); },
+    async initialize(signal?: AbortSignal, options: { workspaces?: boolean } = {}) { await observer.initialize(signal, options); },
     async policy(covered: readonly string[] = [], options: { workspaces?: boolean } = {}): Promise<NativeJournalPolicy> {
+      if (options.workspaces !== false) await observer.includeWorkspaces();
       const root = observer.currentRoot();
       return freezeNativeJournalPolicy(observer.ignoreEntries(), (path, maximum) => readNativeJournalFile(root.path, path, maximum, context(root)), covered, options);
     },
@@ -64,7 +65,7 @@ export function createNativeJournalCapture(manager: NativeJournalManager, retain
       return { ...result, hash };
     },
     async observe(policies: ReadonlyMap<string, NativeJournalPolicy>, signal?: AbortSignal, timing?: PhaseTimer) {
-      const observation = await observer.observe(signal, timing);
+      const observation = await observer.observe(signal, timing, { workspaces: [...policies.values()].some(policy => !policy.excluded("workspaces")) });
       const end = timing?.("observe_capture");
       try {
         const captured = new Map<string, string>();

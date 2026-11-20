@@ -604,7 +604,9 @@ const AREA_LINES: Record<WorkerAreaName, (area: WorkerArea, target: string, code
   workspaces: ({ rel, mount }, target, codeChanges) => mount.writable
     ? `   - \`${target}/\` is writable: clone, fetch and commit other repositories there, never in \`/tmp\`.`
     : mount.missing
-      ? `   - There is no \`${rel}/\` directory, so a repository clone is lost at turn end. ${codeChanges === undefined ? `Creating \`${rel}/\` in the brain outside a hosted turn makes it writable in later turns.` : "Create it outside a hosted turn, then enable this session’s code-changes switch; or request a managed worktree."}`
+      ? codeChanges === undefined
+        ? `   - There is no \`${rel}/\` directory, so a repository clone is lost at turn end. Creating \`${rel}/\` in the brain outside a hosted turn makes it writable in later turns.`
+        : `   - There is no \`${rel}/\` directory at admission. Anything created there this turn is ordinary retained and charged brain content. The next default turn inspects it read-only; enable this session’s code-changes switch or request a managed worktree for later edits, installs or builds.`
       : `   - \`${rel}/\` is read-only this turn: ${mount.reason}.`,
 };
 

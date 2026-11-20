@@ -4,7 +4,9 @@
  * boot, and nothing here admits a turn: every turn runs its own probe, which
  * re-records the outcome (worker-host-gate.test.ts proves the turn half).
  */
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
+import { mkdirSync, symlinkSync } from "node:fs";
+import { prepareWorkerSandbox } from "../../ui-sdk/src/server/worker-launcher.js";
 import { mockQualifiedIdentityHelper } from "./helpers/qualified-identity-helper";
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
@@ -329,5 +331,20 @@ test("invalid helper configuration stays a recorded refusal rather than crashing
     expect((await t.fetch("/api/health")).status).toBe(200);
     expect((await workerHostOf(await t.fetch("/api/status")))?.ordinary).toMatchObject({ available: false });
     expect(observed).not.toHaveBeenCalled();
+  } finally { await t.teardown(); }
+});
+
+
+test.each(["absent", "existing", "unqualified"] as const)("status and default admission agree for %s workspaces", async state => {
+  probeAnswers({ ok: true });
+  const t = await createTestApp({ prepare(brain) {
+    if (state === "existing") mkdirSync(join(brain, "workspaces"));
+    if (state === "unqualified") symlinkSync(brain, join(brain, "workspaces"));
+  } });
+  try {
+    const profile = state === "unqualified" ? "strict" : "governed";
+    const admitted = prepareWorkerSandbox(t.brainPath, { profile: "governed", codeChanges: false });
+    expect(admitted.profile, "DEFAULT_ADMISSION_PROFILE").toBe(profile);
+    expect((await workerHostOf(await t.fetch("/api/status")))?.governed, "STATUS_DESCRIBES_THE_SAME_DEFAULT").toMatchObject({ profile, configurationView: profile === "governed" ? "live" : "startup" });
   } finally { await t.teardown(); }
 });
