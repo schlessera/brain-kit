@@ -435,3 +435,19 @@ test("Settings HTTP admission bounds queued lock waiters and recovers when reque
   expect((await app.request("http://localhost/api/trust-settings")).status, "SETTINGS_HTTP_BUSY_CLEARS_WHEN_WAITERS_DRAIN").toBe(200);
   expect(f.requests).toEqual([]);
 });
+
+test("qualified origin removal notifies live fences at the durable revision before its enforced receipt", async () => {
+  const f=await fixture({originEnforcement:true});const draft=await f.prepare();
+  const added=await f.commit(draft);expect(added.receipt).toMatchObject({stage:"committed",enforcement:"enforced"});
+  const removing=await f.prepare({action:"remove",ruleId:rule.id});let fenced=false;
+  const release=f.settings.live.subscribe(()=>{fenced=true;expect(f.settings.live.read().rules).toEqual([]);expect(f.settings.live.revision()).toBe("2");});
+  try {const removed=await f.commit(removing);expect(fenced,"ENFORCED_REMOVAL_JOINS_LIVE_FENCE").toBe(true);expect(removed.receipt).toMatchObject({stage:"committed",enforcement:"enforced",currentRule:"removed"});expect(removed.capabilities).toMatchObject({originRules:true,recipientRules:true,repositoryRules:false});}finally{release();}
+});
+
+test("post-publication invalid policy cannot claim an enforced origin removal",async()=>{
+ let invalidate=false,target="";
+ const f=await fixture({originEnforcement:true,checkpoint:stage=>{if(invalidate&&stage==="file_published")writeFileSync(target,"---\nschema_version: invalid\n---\n");}});target=f.path;
+ await f.commit(await f.prepare());const removal=await f.prepare({action:"remove",ruleId:rule.id});invalidate=true;
+ const saved=await f.commit(removal);expect(saved.receipt,"INVALID_CURRENT_POLICY_NEVER_CLAIMS_REMOVAL_ENFORCED").toMatchObject({publication:"proved",stage:"partial",enforcement:"unavailable",currentRule:"unknown"});
+ expect(f.settings.live.read().rules[0]?.id).toBe(rule.id);
+});

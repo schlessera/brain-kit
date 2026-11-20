@@ -5,11 +5,12 @@ import type { BrainUiServices } from "../root.js";
 export function createSafetyClient(root:BrainUiServices,send:(message:ClientMessage)=>boolean){
   let target:SafetyTarget|null=null,requestId:string|null=null,disposed=false,awaitingPage=false;
   const store=root.stores.safety;
+  let admissions=false;
   function read(next:SafetyTarget):void{
     if(disposed||!store.getState().supported)return;
     target=next;requestId=crypto.randomUUID();awaitingPage=true;store.getState().begin(requestId);
     send({type:"safety_unsubscribe",version:1});
-    send({type:"safety_read",version:1,requestId,target,...(store.getState().entryCorrelation?{includeEntries:true as const}:{})});
+    send({type:"safety_read",version:1,requestId,target,...(store.getState().entryCorrelation?{includeEntries:true as const}:{}),...(admissions?{includeAdmissions:true as const}:{})});
   }
   function selected(): void {
     const id = root.stores.chat.getState().activeSessionId;
@@ -28,6 +29,7 @@ export function createSafetyClient(root:BrainUiServices,send:(message:ClientMess
     frame(msg:ServerMessage):boolean{
       if(disposed)return false;
       if(msg.type==="server_hello"){
+        admissions=msg.capabilities?.sessionSafetyAdmissionEvidence===true;
         requestId=null;store.getState().reset(msg.capabilities?.sessionSafetyHistory===true&&msg.safetyCapabilities?.read===true,msg.safetyCapabilities??null,msg.capabilities?.sessionSafetyEntryCorrelation===true,msg.principalKey?`host:${msg.principalKey}`:`unbound:${crypto.randomUUID()}`);selected();return false;
       }
       if(msg.type==="chat_retired"){store.getState().retire(msg.sessionId,msg.historyOwnerIds);if(target&&"sessionId" in target&&target.sessionId===msg.sessionId){requestId=null;target=null;store.getState().unavailable("retired");}return false;}
@@ -35,7 +37,7 @@ export function createSafetyClient(root:BrainUiServices,send:(message:ClientMess
         if(msg.requestId!==requestId||!target||!awaitingPage)return true;
         if(msg.page.cursor!==store.getState().nextCursor)return true;
         if(!store.getState().page(msg.requestId,msg.page)){read(target);return true;}
-        if(msg.page.nextCursor)send({type:"safety_read",version:1,requestId:msg.requestId,target,cursor:msg.page.nextCursor,...(store.getState().entryCorrelation?{includeEntries:true as const}:{})});
+        if(msg.page.nextCursor)send({type:"safety_read",version:1,requestId:msg.requestId,target,cursor:msg.page.nextCursor,...(store.getState().entryCorrelation?{includeEntries:true as const}:{}),...(admissions?{includeAdmissions:true as const}:{})});
         else{awaitingPage=false;send({type:"safety_subscribe",version:1,requestId:msg.requestId,identity:msg.page.identity,afterRevision:msg.page.highWater,snapshotId:msg.page.snapshotId});}return true;
       }
       if(msg.type==="safety_update"){

@@ -39,6 +39,8 @@ export interface EgressRecord {
 export interface EgressProxyOptions {
   /** Host-owned effective state. No request header or concurrent operation supplies authority. */
   admissionSafety?: AdmissionSafety;
+  /** Host source decision remains valid before each delivered byte. */
+  inputCurrent?(connectionId: string): boolean;
   mode: "record" | "allowlist";
   /** Exact DNS names/IPs or *.suffix; deny always wins. */
   allow: readonly string[];
@@ -59,6 +61,7 @@ export interface EgressProxyOptions {
    * anything but `true`, refuses.
    */
   taint?: { allow: readonly string[]; tainted(connectionId?: string): boolean; contacted(host: string): boolean;
+    recipient?(destination: { host: string; port: number; method: string; protocol: string }): boolean;
     approve?(destination: { host: string; port: number; method: string }, signal: AbortSignal): Promise<boolean>;
     /** What tainted the session, as "it …" completes it, for a refusal's message (#3431). */
     cause?(): string | null };
@@ -70,7 +73,7 @@ export interface EgressProxyOptions {
    */
   admitted?(destination: { host: string; port: number; method: string; inference: boolean; provider: boolean; managedReference: boolean; connectionId: string; protocol?: string }): unknown;
   /** Synchronous notification only after final admission, immediately before dispatch. */
-  committed?(destination: { host: string; connectionId: string; inference: boolean; provider: boolean; managedReference: boolean }): void;
+  committed?(destination: { host: string; port: number; method: string; protocol: string; connectionId: string; inference: boolean; provider: boolean; managedReference: boolean }): void;
   signal?: AbortSignal;
   /**
    * Destination address policy (#3687). When set, the proxy resolves every
@@ -215,8 +218,10 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     chmodSync(dir, separateIdentity ? 0o750 : 0o700);
   } catch (error) { rmSync(dir, { recursive: true, force: true }); throw error; }
   const socketPath = join(dir, "proxy.sock");
+  const inputCurrent = (id: string) => { try { return options.inputCurrent?.(id) !== false; } catch { return false; } };
   const connections = new Set<Socket>();
   const controllers = new Set<AbortController>();
+  const inputs = new Map<string, AbortController>();
   let usedBytes = 0, stopped = false;
   const server = createServer();
   server.maxHeadersCount = 100;
@@ -233,7 +238,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     const connectionId = crypto.randomUUID();
     let snapshot: AdmissionSafetySnapshot | undefined;
     const started = performance.now();
-    const controller = new AbortController(); controllers.add(controller);
+    const controller = new AbortController(); controllers.add(controller); inputs.set(connectionId, controller);
     const host = hostname(url.hostname), port = Number(url.port || (url.protocol === "https:" ? "443" : "80"));
     let bytes = 0, finished = false;
     /** The checked address this connection is pinned to, under a destination policy. */
@@ -241,7 +246,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     let finalOutcome: EgressRecord["outcome"] | undefined, finalReason: string | undefined;
     const finish = (outcome: EgressRecord["outcome"], reason?: string) => {
       if (finished) return;
-      finished = true; finalOutcome = outcome; finalReason = reason; controllers.delete(controller); controller.abort();
+      finished = true; finalOutcome = outcome; finalReason = reason; controllers.delete(controller); inputs.delete(connectionId); controller.abort();
       // Records never contain request headers, content, credentials or query strings.
       try { options.observe({ connectionId, ...(inference ? { inference: true } : {}), ...(provider ? { provider: true } : {}), ...(managedReference ? { managedReference: true } : {}), method, host, port, ...(method === "CONNECT" ? {} : { path: url.pathname }), bytes,
         accounting: method === "CONNECT" ? "opaque_bytes" : "http_wire_bound",
@@ -252,6 +257,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     controller.signal.addEventListener("abort", () => finish("cancelled", "turn_cancelled"), { once: true });
     const charge = (count: number) => {
       if (finished || stopped) return false;
+      if (!inputCurrent(connectionId)) { finish("cancelled", "source_trust_changed"); return false; }
       if (count > options.maxBytes - usedBytes) { finish("denied", "max_bytes_per_turn"); return false; }
       usedBytes += count; bytes += count; return true;
     };
@@ -276,7 +282,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     // Checked again after an approval wait, during which another connection may taint the session.
     // Inference/provider relays retain G5. Managed references retain ordinary
     // G6 recipient narrowing; repository trust never grants outbound authority.
-    const narrowed = (final = false) => !granted && !inference && !provider && options.taint?.tainted(final ? connectionId : undefined) && !matches(host, options.taint.allow) && !options.taint.contacted(host);
+    const narrowed = (final = false) => !granted && !inference && !provider && options.taint?.tainted(final ? connectionId : undefined) && !matches(host, options.taint.allow) && !options.taint.contacted(host) && !options.taint.recipient?.({ host, port, method, protocol: url.protocol });
     const narrowing = async () => {
       if (!narrowed()) return true;
       if (options.taint?.approve) granted = await approval(options.taint.approve.bind(options.taint));
@@ -317,8 +323,9 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     const commit = () => {
       if (stopped || controller.signal.aborted || safetyAdmissionRefusal(options.admissionSafety, snapshot)) { finish("denied", "safety_changed"); return false; }
       if (usedBytes >= options.maxBytes) { finish("denied", "max_bytes_per_turn"); return false; }
+      if (!inputCurrent(connectionId)) { finish("denied", "source_trust_changed"); return false; }
       if (narrowed(true)) { finish("denied", "taint_not_allowed"); return false; }
-      options.committed?.({ host, connectionId, inference, provider, managedReference });
+      options.committed?.({ host, port, method, protocol: url.protocol, connectionId, inference, provider, managedReference });
       return true;
     };
     /** Why this connection was refused, for the tool that made it; undefined while admitted or for a bare refusal. */
@@ -339,6 +346,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (!Number(target.port || 80)) throw new Error();
     } catch { client.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n"); return; }
     const op = operation("CONNECT", target);
+    op.signal.addEventListener("abort", () => { if (connected) client.destroy(); }, { once: true });
     let connected = false;
     client.once("close", () => op.finish(stopped || !connected ? "cancelled" : "completed"));
     void (async () => {
@@ -373,6 +381,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (target.protocol !== "http:" || target.username || target.password || target.hash) throw new Error();
     } catch { response.writeHead(400); response.end(); return; }
     const op = operation(request.method ?? "GET", target);
+    op.signal.addEventListener("abort", () => { if (response.headersSent) response.destroy(); }, { once: true });
     response.once("close", () => op.finish(stopped ? "cancelled" : response.writableFinished ? "completed" : "cancelled"));
     const refuse = () => {
       const declined = refusalHead(op.refusal(), op.reason());
@@ -411,6 +420,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
         incoming.once("end", () => { if (!response.destroyed && !response.writableEnded) { writeHeaders(); response.end(); } });
         incoming.once("error", () => { op.finish("failed", "upstream_response_failed"); response.destroy(); });
       });
+      op.signal.addEventListener("abort", () => { outgoing.destroy(); if (op.outcome() === "cancelled") response.destroy(); }, { once: true });
       outgoing.once("error", () => { op.finish("failed", "upstream_unreachable"); if (!response.headersSent) response.writeHead(502); response.end(); });
       response.once("close", () => outgoing.destroy());
       request.on("data", chunk => { if (!op.charge(chunk.length + 16)) { outgoing.destroy(); response.destroy(); return; } if (!outgoing.write(chunk)) request.pause(); });
@@ -434,7 +444,10 @@ export async function startEgressProxy(options: EgressProxyOptions) {
   };
   options.signal?.addEventListener("abort", stop, { once: true });
   if (options.signal?.aborted) stop();
-  return { dir, socketPath, stop, usedBytes: () => usedBytes, remainingBytes: () => Math.max(0, options.maxBytes - usedBytes),
+  return { dir, socketPath, stop,
+    /** Fence only inputs whose host decision changed; unrelated traffic remains active. */
+    invalidateInputs() { for (const [id, controller] of inputs) if (!inputCurrent(id)) controller.abort(); },
+    usedBytes: () => usedBytes, remainingBytes: () => Math.max(0, options.maxBytes - usedBytes),
     /** The existing inference relay shares this turn's admission, counter and audit. */
     inference(method: string, target: URL, signal: AbortSignal) { return relayedOperation(method, target, signal, "inference"); },
     /**

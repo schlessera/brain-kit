@@ -16270,6 +16270,7 @@ signatures (every public export and the types it is made of)
         }>;
     }, z.core.$strict>, z.ZodObject<{
         cursor: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        includeAdmissions: z.ZodOptional<z.ZodLiteral<true>>;
         includeEntries: z.ZodOptional<z.ZodLiteral<true>>;
         limit: z.ZodOptional<z.ZodNumber>;
         requestId: z.ZodString;
@@ -16436,6 +16437,7 @@ signatures (every public export and the types it is made of)
   clientSafetyReadSchema (packages/ui-sdk/src/safety.ts)
     const clientSafetyReadSchema: z.ZodObject<{
         cursor: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        includeAdmissions: z.ZodOptional<z.ZodLiteral<true>>;
         includeEntries: z.ZodOptional<z.ZodLiteral<true>>;
         limit: z.ZodOptional<z.ZodNumber>;
         requestId: z.ZodString;
@@ -21301,6 +21303,13 @@ signatures (every public export and the types it is made of)
             unresolvedCount: z.ZodNumber;
         }, z.core.$strict>;
         records: z.ZodArray<z.ZodDiscriminatedUnion<[z.ZodObject<{
+            admission: z.ZodOptional<z.ZodObject<{
+                collectionRevision: z.ZodOptional<z.ZodString>;
+                policyHash: z.ZodNullable<z.ZodString>;
+                ruleId: z.ZodOptional<z.ZodString>;
+                trustRevision: z.ZodString;
+                trusted: z.ZodBoolean;
+            }, z.core.$strict>>;
             bindingId: z.ZodString;
             detailPruned: z.ZodBoolean;
             detector: z.ZodNullable<z.ZodString>;
@@ -21447,6 +21456,13 @@ signatures (every public export and the types it is made of)
     }, z.core.$strict>;
   safetyRecordSchema (packages/ui-sdk/src/safety.ts)
     const safetyRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
+        admission: z.ZodOptional<z.ZodObject<{
+            collectionRevision: z.ZodOptional<z.ZodString>;
+            policyHash: z.ZodNullable<z.ZodString>;
+            ruleId: z.ZodOptional<z.ZodString>;
+            trustRevision: z.ZodString;
+            trusted: z.ZodBoolean;
+        }, z.core.$strict>>;
         bindingId: z.ZodString;
         detailPruned: z.ZodBoolean;
         detector: z.ZodNullable<z.ZodString>;
@@ -21944,6 +21960,13 @@ signatures (every public export and the types it is made of)
             unresolvedCount: z.ZodNumber;
         }, z.core.$strict>;
         records: z.ZodArray<z.ZodDiscriminatedUnion<[z.ZodObject<{
+            admission: z.ZodOptional<z.ZodObject<{
+                collectionRevision: z.ZodOptional<z.ZodString>;
+                policyHash: z.ZodNullable<z.ZodString>;
+                ruleId: z.ZodOptional<z.ZodString>;
+                trustRevision: z.ZodString;
+                trusted: z.ZodBoolean;
+            }, z.core.$strict>>;
             bindingId: z.ZodString;
             detailPruned: z.ZodBoolean;
             detector: z.ZodNullable<z.ZodString>;
@@ -26855,6 +26878,13 @@ signatures (every public export and the types it is made of)
                 unresolvedCount: z.ZodNumber;
             }, z.core.$strict>;
             records: z.ZodArray<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                admission: z.ZodOptional<z.ZodObject<{
+                    collectionRevision: z.ZodOptional<z.ZodString>;
+                    policyHash: z.ZodNullable<z.ZodString>;
+                    ruleId: z.ZodOptional<z.ZodString>;
+                    trustRevision: z.ZodString;
+                    trusted: z.ZodBoolean;
+                }, z.core.$strict>>;
                 bindingId: z.ZodString;
                 detailPruned: z.ZodBoolean;
                 detector: z.ZodNullable<z.ZodString>;
@@ -27013,6 +27043,13 @@ signatures (every public export and the types it is made of)
                 unresolvedCount: z.ZodNumber;
             }, z.core.$strict>;
             records: z.ZodArray<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                admission: z.ZodOptional<z.ZodObject<{
+                    collectionRevision: z.ZodOptional<z.ZodString>;
+                    policyHash: z.ZodNullable<z.ZodString>;
+                    ruleId: z.ZodOptional<z.ZodString>;
+                    trustRevision: z.ZodString;
+                    trusted: z.ZodBoolean;
+                }, z.core.$strict>>;
                 bindingId: z.ZodString;
                 detailPruned: z.ZodBoolean;
                 detector: z.ZodNullable<z.ZodString>;
@@ -27692,6 +27729,13 @@ signatures (every public export and the types it is made of)
                 unresolvedCount: z.ZodNumber;
             }, z.core.$strict>;
             records: z.ZodArray<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                admission: z.ZodOptional<z.ZodObject<{
+                    collectionRevision: z.ZodOptional<z.ZodString>;
+                    policyHash: z.ZodNullable<z.ZodString>;
+                    ruleId: z.ZodOptional<z.ZodString>;
+                    trustRevision: z.ZodString;
+                    trusted: z.ZodBoolean;
+                }, z.core.$strict>>;
                 bindingId: z.ZodString;
                 detailPruned: z.ZodBoolean;
                 detector: z.ZodNullable<z.ZodString>;
@@ -27866,6 +27910,13 @@ signatures (every public export and the types it is made of)
                 unresolvedCount: z.ZodNumber;
             }, z.core.$strict>;
             records: z.ZodArray<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                admission: z.ZodOptional<z.ZodObject<{
+                    collectionRevision: z.ZodOptional<z.ZodString>;
+                    policyHash: z.ZodNullable<z.ZodString>;
+                    ruleId: z.ZodOptional<z.ZodString>;
+                    trustRevision: z.ZodString;
+                    trusted: z.ZodBoolean;
+                }, z.core.$strict>>;
                 bindingId: z.ZodString;
                 detailPruned: z.ZodBoolean;
                 detector: z.ZodNullable<z.ZodString>;

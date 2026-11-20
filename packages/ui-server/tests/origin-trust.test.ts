@@ -1,0 +1,113 @@
+import { expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { openSqliteWriter } from "../src/db/write-worker.js";
+import { connect } from "node:net";
+import { request } from "node:http";
+import { resolveGovernancePolicy, type TrustRule, type GovernancePolicyInput } from "@schlessera/brain-common/internal/governance-policy";
+import type { BackendBridge } from "@schlessera/brain-ui-sdk/server";
+import { createUiDb } from "../src/db/client.js";
+import { createGovernanceWrites } from "../src/governance/event-writes.js";
+import { queryGovernanceEvents } from "../src/governance/events.js";
+import { occurrence } from "../src/governance/occurrence.js";
+import { safetyProjection, pruneSafetyDetail } from "../src/governance/safety-store.js";
+import { prepareTurnEgress } from "../src/brain/turn-egress.js";
+import type { OriginTrust } from "../src/brain/origin-trust.js";
+import { connectedSafetySession } from "./helpers/connected-safety.js";
+function get(socketPath: string, target: string): Promise<number> {
+  return new Promise((resolve, reject) => { const r = request({ socketPath, path: target }, response => {
+    response.resume(); response.once("end", () => resolve(response.statusCode!)); response.once("error", reject);
+  }); r.once("error", reject); r.end(); });
+}
+function trust(rule: TrustRule) {
+  let revision = "1", rules = [rule]; const listeners = new Set<() => void>();
+  const live: OriginTrust = { revision: () => revision, read: () => ({revision,rules,policyHash:"a".repeat(64)}), subscribe: cb => {listeners.add(cb);return () => {listeners.delete(cb);};} };
+  return { live, remove() { rules=[];revision="2";for(const cb of listeners)cb(); } };
+}
+async function fixture(recipient = false, policy: GovernancePolicyInput = {schema_version:1}, response?: () => Response, full = false) {
+  const root=full?mkdtempSync(join(tmpdir(),"odysseus-origin-trust-")):null;
+  const db = createUiDb(root?join(root,"ui.db"):":memory:"); connectedSafetySession(db,"voyage","turn-voyage");
+  const writer=full?openSqliteWriter(db):undefined;
+  const writes = createGovernanceWrites(db,writer); let asks = 0, hits = 0;
+  let decide: BackendBridge["requestPermission"] = async () => ({behavior:"deny",message:"Athena declines"});
+  const origin = Bun.serve({hostname:"127.0.0.1",port:0,fetch(){hits++;return response?.() ?? new Response("Ithaca");}});
+  const rule: TrustRule = {id:"ithaca",label:"Ithaca",incomingContent:true,recipientWhileRestricted:recipient,
+    selector:{kind:"web_origin",scheme:"http",host:"127.0.0.1",port:origin.port!}};
+  const t=trust(rule);const controller=new AbortController();
+  const proxy=await prepareTurnEgress({policy:resolveGovernancePolicy(policy),trust:t.live,controller,turnId:"turn-voyage",sessionId:()=>"voyage",model:()=>null,profile:"governed",origin:"interactive",governanceDb:db,governanceWrites:writes,record:writes.record,
+    bridge:{emit(){},requestPermission:async(...args: Parameters<BackendBridge["requestPermission"]>)=>{asks++;return decide(...args);}} as unknown as BackendBridge});
+  const epoch=(db.query("SELECT id FROM safety_collections WHERE turn_id='turn-voyage'").get() as {id:string}).id;
+  const taint=()=>writes.firstTaint({kind:"taint",turnId:"turn-voyage",sessionId:"voyage",actor:"interactive",profile:"governed",model:null,payload:{source:"web_search",tool:null,detail:null,occurrence:occurrence(epoch,"tool_web_input",crypto.randomUUID(),"finalized")}});
+  return {db,writes,origin,proxy,t,taint,controller,decide(value: BackendBridge["requestPermission"]) { decide=value; },asks:()=>asks,hits:()=>hits,async close(){proxy.stop();origin.stop(true);await proxy.settled();await writer?.close();db.close();if(root)rmSync(root,{recursive:true,force:true});}};
+}
+test("verified future input retains its decision without creating an unresolved trigger or recipient grant",async()=>{
+ const f=await fixture();try{
+  expect(await get(f.proxy.socketPath,f.origin.url.href)).toBe(200);await f.proxy.settled();
+  expect(safetyProjection(f.db,"turn-voyage","voyage").unresolvedCount,"ORIGIN_TRUST_NO_UNRESOLVED").toBe(0);
+  const events=queryGovernanceEvents(f.db,{kinds:["taint"],limit:10});expect(events[0]?.payload).toMatchObject({occurrence:{admission:{trusted:true,ruleId:"ithaca",trustRevision:"1",policyHash:"a".repeat(64)}}});
+  await f.taint();expect(await get(f.proxy.socketPath,f.origin.url.href),"SOURCE_ONLY_STILL_ASKS").toBe(403);expect(f.asks()).toBe(1);expect(f.hits()).toBe(1);
+ }finally{await f.close();}
+});
+test("explicit exact recipient permits only the taint card while unrelated triggers remain",async()=>{
+ const f=await fixture(true);try{await f.taint();expect(await get(f.proxy.socketPath,f.origin.url.href),"EXPLICIT_RECIPIENT_ADMITTED").toBe(200);expect(f.asks()).toBe(0);await f.proxy.settled();expect(f.proxy.recordingFailure()).toBeUndefined();expect(queryGovernanceEvents(f.db,{kinds:["egress_connection"],limit:10})[0]?.payload).toMatchObject({recipientAdmission:{ruleId:"ithaca",trustRevision:"1"}});expect(safetyProjection(f.db,"turn-voyage","voyage").unresolvedCount).toBe(1);
+ }finally{await f.close();}
+});
+test("removal fences future admissions and preserves historical trust",async()=>{
+ const f=await fixture();try{expect(await get(f.proxy.socketPath,f.origin.url.href)).toBe(200);await f.proxy.settled();f.t.remove();
+  await f.taint();expect(await get(f.proxy.socketPath,f.origin.url.href)).toBe(403);
+  const events=queryGovernanceEvents(f.db,{kinds:["taint"],limit:10});expect(events.some(e=>(e.payload as any).occurrence?.admission?.trusted)).toBe(true);
+ }finally{await f.close();}
+});
+
+test("exact recipients cannot cover another port, a subdomain or opaque CONNECT",async()=>{
+ const f=await fixture(true);const other=Bun.serve({hostname:"127.0.0.1",port:0,fetch:()=>new Response("Troy")});
+ try{await f.taint();expect(await get(f.proxy.socketPath,other.url.href)).toBe(403);
+  expect(await get(f.proxy.socketPath,`http://sub.localhost:${f.origin.port}/`)).toBe(403);
+  const status=await new Promise<number>((resolve,reject)=>{const c=connect(f.proxy.socketPath);c.on("error",reject);c.on("connect",()=>c.write(`CONNECT 127.0.0.1:${f.origin.port} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n`));c.on("data",b=>{resolve(Number(/^HTTP\/1.1 (\d+)/.exec(b.toString())?.[1]));c.destroy();});});
+  expect(status,"HTTPS_RULE_NEVER_COVERS_OPAQUE_TUNNEL").toBe(403);expect(f.asks()).toBe(3);expect(f.hits()).toBe(0);
+ }finally{other.stop(true);await f.close();}
+});
+for(const policy of [{schema_version:1,egress:{deny:["127.0.0.1"]}},{schema_version:1,egress:{mode:"allowlist",allow:["ithaca.invalid"]}},{schema_version:1,egress:{max_bytes_per_turn:1}},{schema_version:1,outward:{hosts:["127.0.0.1"]}}] satisfies GovernancePolicyInput[])test(`trust retains independent controls ${JSON.stringify(policy)}`,async()=>{
+ const f=await fixture(true,policy);try{await f.taint();expect(await get(f.proxy.socketPath,f.origin.url.href)).toBe(403);expect(f.hits()).toBe(0);}finally{await f.close();}
+});
+test("source removal during durable admission refuses the actual upstream dispatch",async()=>{
+ const f=await fixture(false,{schema_version:1},undefined,true);let entered!:()=>void,release!:()=>void;const reached=new Promise<void>(r=>{entered=r;}),held=new Promise<void>(r=>{release=r;});const original=f.writes.firstTaint;
+ f.writes.firstTaint=async(...args)=>{entered();await held;return original(...args);};
+ try{const pending=get(f.proxy.socketPath,f.origin.url.href).catch(()=>0);await reached;f.t.remove();release();await pending;await f.proxy.settled();expect(f.hits(),"REMOVAL_AFTER_WRITE_WAIT_PREVENTS_DISPATCH").toBe(0);expect(f.proxy.recordingFailure(),"REMOVAL_DURING_WRITE_KEEPS_RECORDER_HEALTHY").toBeUndefined();expect(f.controller.signal.aborted).toBe(false);}finally{release();await f.close();}
+});
+test("removal interrupts an actual open trusted response before later input",async()=>{
+ let stream!:ReadableStreamDefaultController<Uint8Array>;
+ const f=await fixture(false,{schema_version:1},()=>new Response(new ReadableStream<Uint8Array>({start(c){stream=c;c.enqueue(new TextEncoder().encode("first"));}})));
+ const other=Bun.serve({hostname:"127.0.0.1",port:0,fetch:()=>new Response("Troy")});
+ let first!:()=>void;const received=new Promise<void>(r=>{first=r;});let text="";
+ const closed=new Promise<void>((resolve,reject)=>{const r=request({socketPath:f.proxy.socketPath,path:f.origin.url.href},response=>{response.on("data",b=>{text+=b;first();});response.on("close",resolve);response.on("error",()=>resolve());});r.on("error",reject);r.end();});
+ try{await received;expect(await get(f.proxy.socketPath,other.url.href)).toBe(200);f.t.remove();await f.proxy.settled();expect(queryGovernanceEvents(f.db,{kinds:["egress_connection"],limit:10}).find(e=>(e.payload as any).port===f.origin.port)?.payload,"REMOVAL_SYNCHRONOUSLY_STOPS_STREAM").toMatchObject({outcome:"cancelled"});expect(f.controller.signal.aborted).toBe(false);try{stream.enqueue(new TextEncoder().encode("later"));}catch{}await closed;expect(text).toBe("first");expect(await get(f.proxy.socketPath,other.url.href),"TRUST_REMOVAL_LEAVES_UNRELATED_TURN_TRAFFIC_USABLE").toBe(200);await f.proxy.settled();expect(queryGovernanceEvents(f.db,{kinds:["taint_exposure"],limit:10}).some(e=>(e.payload as any).state==="interrupted_unknown")).toBe(true);}finally{other.stop(true);await f.close();}
+});
+test("pruning retains historical admission facts without turning trusted input unresolved",async()=>{
+ const f=await fixture();try{expect(await get(f.proxy.socketPath,f.origin.url.href)).toBe(200);await f.proxy.settled();pruneSafetyDetail(f.db,Date.now()+1);expect(safetyProjection(f.db,"turn-voyage","voyage").unresolvedCount).toBe(0);const rows=f.db.query("SELECT payload FROM safety_records WHERE kind='occurrence'").all() as {payload:string}[];expect(JSON.parse(rows[0]!.payload).admission).toMatchObject({trusted:true,ruleId:"ithaca"});}finally{await f.close();}
+});
+test("recipient-only permission never turns into a legacy hostname grant after removal",async()=>{
+ const f=await fixture(true);try{f.t.live.read().rules[0]!.incomingContent=false;await f.taint();expect(await get(f.proxy.socketPath,f.origin.url.href)).toBe(200);await f.proxy.settled();f.t.remove();expect(await get(f.proxy.socketPath,f.origin.url.href),"RECIPIENT_REMOVAL_NO_LEGACY_GRANT").toBe(403);expect(f.asks()).toBe(1);expect(f.hits()).toBe(1);}finally{await f.close();}
+});
+test("a redirect destination and concurrent unrelated traffic cannot borrow an exact rule",async()=>{
+ const other=Bun.serve({hostname:"127.0.0.1",port:0,fetch:()=>new Response("Troy")});
+ const f=await fixture(true,{schema_version:1},()=>Response.redirect(other.url.href));try{await f.taint();const results=await Promise.all([get(f.proxy.socketPath,f.origin.url.href),get(f.proxy.socketPath,other.url.href)]);expect(results).toEqual([302,403]);expect(f.asks()).toBe(1);expect(safetyProjection(f.db,"turn-voyage","voyage").unresolvedCount).toBe(1);}finally{other.stop(true);await f.close();}
+});
+test("an explicitly reviewed tunnel matches its opaque authority without asserting HTTPS",async()=>{
+ const f=await fixture(true);try{f.t.live.read().rules[0]!.selector={kind:"tunnel_authority",host:"127.0.0.1",port:f.origin.port!};await f.taint();
+  const status=await new Promise<number>((resolve,reject)=>{const c=connect(f.proxy.socketPath);c.on("error",reject);c.on("connect",()=>c.write(`CONNECT 127.0.0.1:${f.origin.port} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n`));c.on("data",b=>{resolve(Number(/^HTTP\/1.1 (\d+)/.exec(b.toString())?.[1]));c.destroy();});});expect(status).toBe(200);expect(f.asks()).toBe(0);
+  const event=queryGovernanceEvents(f.db,{kinds:["taint"],limit:10}).find(e=>(e.payload as any).source==="egress_connection");expect(event?.payload).toMatchObject({occurrence:{provenance:{kind:"tunnel_authority"},admission:{trusted:true}}});
+  expect(await get(f.proxy.socketPath,f.origin.url.href)).toBe(403);expect(f.asks()).toBe(1);
+ }finally{await f.close();}
+});
+
+test("recipient removal during outward approval cannot carry the old rule across the wait",async()=>{
+ const f=await fixture(true,{schema_version:1,outward:{hosts:["127.0.0.1"]}});let entered!:()=>void,release!:()=>void;const reached=new Promise<void>(r=>{entered=r;}),held=new Promise<void>(r=>{release=r;});
+ try{f.t.live.read().rules[0]!.incomingContent=false;await f.taint();let asks=0;f.decide(async()=>{if(++asks===1){entered();await held;return {behavior:"allow"};}return {behavior:"deny",message:"Athena declines the new taint card"};});
+ const pending=get(f.proxy.socketPath,f.origin.url.href);await reached;f.t.remove();release();expect(await pending,"RECIPIENT_REMOVAL_REVALIDATES_AFTER_OUTWARD_WAIT").toBe(403);expect(asks).toBe(2);expect(f.hits()).toBe(0);
+ }finally{release();await f.close();}
+});
+test("removing incoming trust leaves its historical decision and makes a later input independently unresolved",async()=>{
+ const f=await fixture();try{expect(await get(f.proxy.socketPath,f.origin.url.href)).toBe(200);await f.proxy.settled();f.t.remove();expect(await get(f.proxy.socketPath,f.origin.url.href)).toBe(200);await f.proxy.settled();expect(safetyProjection(f.db,"turn-voyage","voyage").unresolvedCount,"REMOVAL_APPLIES_ONLY_TO_FUTURE_INPUT").toBe(1);const rows=queryGovernanceEvents(f.db,{kinds:["taint"],limit:10});expect(rows.map(e=>(e.payload as any).occurrence.admission.trusted).sort()).toEqual([false,true]);}finally{await f.close();}
+});

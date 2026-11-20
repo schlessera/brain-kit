@@ -14,7 +14,10 @@ export const OccurrenceSchema = z.strictObject({
     z.strictObject({kind:z.literal("web_origin"),origin:z.strictObject({scheme:z.enum(["http","https"]),host:z.string().max(253),port:z.number().int().min(1).max(65535)}),verifiedBy:z.literal("host_transport")}),
     z.strictObject({kind:z.literal("tunnel_authority"),authority:z.strictObject({host:z.string().max(253),port:z.number().int().min(1).max(65535)}),verifiedBy:z.literal("host_proxy")}),
   ]),
-  admission: z.strictObject({trusted:z.literal(false),policyHash:z.string().regex(/^[a-f0-9]{64}$/).nullable(),trustRevision:z.literal("0")}).optional(),
+  admission: z.discriminatedUnion("trusted", [
+    z.strictObject({trusted:z.literal(false),policyHash:z.string().regex(/^[a-f0-9]{64}$/).nullable(),trustRevision:z.string().regex(/^(0|[1-9][0-9]{0,19})$/)}),
+    z.strictObject({trusted:z.literal(true),ruleId:id,policyHash:z.string().regex(/^[a-f0-9]{64}$/),trustRevision:z.string().regex(/^(0|[1-9][0-9]{0,19})$/),collectionRevision:z.string().regex(/^(0|[1-9][0-9]{0,19})$/)}),
+  ]).optional(),
 });
 export type Occurrence = z.infer<typeof OccurrenceSchema>;
 

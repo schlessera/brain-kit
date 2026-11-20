@@ -2544,7 +2544,7 @@ reports which applies as `governed.egress`. Making the relay work without
 managed storage is follow-up work. Each connection is recorded as a governance event, and a recording
 failure ends the turn. Without a governance recorder the policy still applies
 and only the records are absent (`prepareTurnEgress`,
-`packages/ui-server/src/brain/turn-egress.ts:86-216`). The note says egress is
+`packages/ui-server/src/brain/turn-egress.ts:88-218`). The note says egress is
 recorded only when the backend actually routed the worker through the proxy.
 API-key Claude profiles (2026-10-22) and pi turns (2026-10-23) are routed
 too. A pi turn whose credential the relay cannot carry is refused rather than
@@ -4150,7 +4150,7 @@ outward host skips the card only while every classified call in progress is a
 visible read, or an approved outward action that names that host. A GitHub
 write names the GitHub API hosts, and a push or HTTP write names its target's
 host. Any unknown or opaque call in progress withholds the exception
-(`createOutwardCalls`, `packages/ui-server/src/brain/turn-egress.ts:62-84`).
+(`createOutwardCalls`, `packages/ui-server/src/brain/turn-egress.ts:64-86`).
 A background process left by an earlier call can still connect inside such a
 window; the proxy records it either way.
 
@@ -4344,7 +4344,7 @@ charges only after admission); otherwise it is refused and recorded as an
 `egress_denial` with reason `taint_allowlist` (an interactive turn asks first
 since 2026-11-03, see [below](#tainted-destinations-ask)). The taint list
 narrows and never widens: deny and `allowlist` mode still apply first (`prepareTurnEgress`,
-`packages/ui-server/src/brain/turn-egress.ts:86-242`). Hosts without managed
+`packages/ui-server/src/brain/turn-egress.ts:88-244`). Hosts without managed
 native storage have no proxy, so the Bash classifier remains their shell rule
 and nothing narrows their egress.
 
@@ -4392,7 +4392,7 @@ through the turn's tool-permission card (`toolName: "Network"`, `kind:
 (`const narrowing`, `packages/ui-sdk/src/server/egress-proxy.ts:198-203`). The
 card names the destination, the session's first taint source and the
 consequence of allowing it
-(`taintedDestinationDescription`, `packages/ui-server/src/brain/turn-egress.ts:41-46`).
+(`taintedDestinationDescription`, `packages/ui-server/src/brain/turn-egress.ts:43-48`).
 Concurrent connections to the same host share one card. An allowed
 connection's admission adds its host to the turn's contacted hosts, and its
 charged `egress_connection` record carries the host into the session's later

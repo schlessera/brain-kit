@@ -36,6 +36,8 @@ export function contactedHosts(db: Database, sessionId: string | null): string[]
   const rows = db.query(`SELECT DISTINCT json_extract(payload, '$.host') AS host FROM governance_events
     WHERE kind='egress_connection' AND session_id=? AND json_extract(payload, '$.bytes') > 0
       AND json_extract(payload, '$.inference') IS NULL AND json_extract(payload, '$.provider') IS NULL
-      AND json_extract(payload, '$.managedReference') IS NULL`).all(sessionId) as { host: string }[];
+      AND json_extract(payload, '$.managedReference') IS NULL
+      AND json_extract(payload, '$.trustedSource') IS NULL
+      AND json_extract(payload, '$.standingRecipient') IS NULL`).all(sessionId) as { host: string }[];
   return rows.map(row => row.host);
 }

@@ -73,6 +73,8 @@ export {
 
 export interface WsHostOptions {
   /** @internal Live trust publication input; no matching or publication authority. */
+  originTrust?: import("../brain/origin-trust.js").OriginTrust;
+  /** @internal Live trust publication revision and invalidation. */
   safetyTrust?: import("../governance/effective-safety.js").LiveTrustRevision;
   /** @internal Concrete read-only host evidence reader. */
   safetyHistory?: import("../governance/safety-history.js").SafetyHistory;
@@ -273,7 +275,9 @@ export interface ToolPermissions {
  */
 export class WsHost {
   /** @internal Live trust revision supplied by the concrete host publisher. */
-  readonly safetyTrust?: import("../governance/effective-safety.js").LiveTrustRevision;
+  originTrust?: import("../brain/origin-trust.js").OriginTrust;
+  /** @internal Live trust publication revision and invalidation. */
+  safetyTrust?: import("../governance/effective-safety.js").LiveTrustRevision;
   /** @internal Concrete user history service mounted by this host, not agent authority. */
   readonly turnReverts?: import("../brain/turn-revert.js").TurnReverts;
   /** Explicit local chat deletion (#3230); present when the host answers `POST /api/chat-deletions`. */
@@ -407,6 +411,7 @@ export class WsHost {
 
   constructor(options: WsHostOptions) {
     this.safetyTrust = options.safetyTrust;
+    this.originTrust = options.originTrust;
     this.safetyHistory = options.safetyHistory;
     this.ownerSafetyReviews = options.ownerSafetyReviews;
     this.turnReverts = options.turnReverts;

@@ -38,7 +38,7 @@ interface Projection { revision: string; rules: TrustRule[]; policyHash: string 
 interface Receipt {
   version: 1; requestId: string; operationId: string; stage: "prepared" | "file_published" | "committed" | "partial" | "unknown" | "refused";
   publication: "not_published" | "proved" | "unknown"; ruleId: string; publishedTrustRevision: string | null;
-  currentRule: "present" | "removed" | "changed" | "unknown"; enforcement: "unavailable"; reason: string | null;
+  currentRule: "present" | "removed" | "changed" | "unknown"; enforcement: "unavailable" | "enforced"; reason: string | null;
 }
 interface Payload { input: Prepare; reviewId: string; proposed: string; proposedHash: string; base: string | null; topology: string; rule: TrustRule | null; githubIdentity?: TrustGitHubIdentity }
 interface Row { principal_id: string; brain_id: string; authority: string; expires_at: number; retain_until: number; payload: string; stage: string; proof: string | null; receipt: string }
@@ -80,6 +80,8 @@ export function createTrustSettings(options: {
    * fingerprint includes credential/lifetime identity, never a body/channel claim. */
   authority(principalId: string): string | null;
   observe(operationId: string, operation: (publish?: (write: () => void) => Promise<void>) => void | Promise<void>): Promise<void>;
+  /** The composed host has installed the origin admission and stream fences. */
+  originEnforcement?: true;
   github?: ReturnType<typeof createTrustGitHubIdentity>;
   now?: () => number;
   /** Host-only deterministic crash/race injection, never wired from HTTP. */
@@ -89,7 +91,7 @@ export function createTrustSettings(options: {
   try { root = realpathSync(options.root); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; root = resolve(options.root); }
   const brain = hash(root);
   const capabilities = { ...TRUST_RUNTIME_CAPABILITIES, repositoryIdentity: !!options.github,
-    readOnlyReason: "Runtime trust enforcement is unavailable" };
+    originRules: options.originEnforcement === true, recipientRules: options.originEnforcement === true, readOnlyReason: options.originEnforcement ? null : "Runtime trust enforcement is unavailable" };
   const call = procedureCaller(options.db, writes, undefined, options.writer), now = options.now ?? Date.now;
   const authority = (principal: string, expected?: string) => {
     const value = options.authority(principal);
@@ -100,6 +102,8 @@ export function createTrustSettings(options: {
     const row = options.db.query("SELECT * FROM trust_settings_projection WHERE brain_id=?").get(brain) as { revision: string; rules: string; policy_hash: string | null; error: string | null } | null;
     return row ? { revision: row.revision, rules: JSON.parse(row.rules), policyHash: row.policy_hash, error: row.error } : { revision: "0", rules: [], policyHash: null, error: null };
   };
+  const listeners = new Set<() => void>();
+  const live = { read: projection, revision: () => projection().revision, subscribe(changed: () => void) { listeners.add(changed); return () => { listeners.delete(changed); }; } };
   const refresh = async (): Promise<Projection> => {
     const old = projection(); let target: AnchoredGovernancePolicy | undefined;
     let rules: TrustRule[], policyHash: string | null;
@@ -116,7 +120,9 @@ export function createTrustSettings(options: {
     const changed = JSON.stringify(old.rules) !== JSON.stringify(rules);
     if (changed && BigInt(old.revision) >= MAX_TRUST_REVISION) throw new TrustSettingsError("capacity", 503);
     const next = { revision: changed ? String(BigInt(old.revision) + 1n) : old.revision, rules, policyHash, error: null };
-    await call("projection", brain, next.revision, JSON.stringify(rules), policyHash, null); return next;
+    await call("projection", brain, next.revision, JSON.stringify(rules), policyHash, null);
+    if (changed) for (const listener of listeners) listener();
+    return next;
   };
   const row = (principal: string, request: string): Row => {
     authority(principal);
@@ -143,6 +149,7 @@ export function createTrustSettings(options: {
     });
   };
   return {
+    live,
     /** Live trust-only projection for future admissions. Ordinary policy snapshots
      * remain owned by their admitted turn; this never mutates them. */
     async snapshot() { return options.lock.withLock(BRAIN_LOCK_KEY, refresh); },
@@ -267,8 +274,11 @@ export function createTrustSettings(options: {
           await options.checkpoint?.("file_published");
           const latest = await refresh(); row(principal, input.requestId);
           if (latest.policyHash === payload.proposedHash) receipt.publishedTrustRevision = latest.revision;
-          // No runtime source/recipient enforcement exists in this slice (#3609).
-          receipt.stage = "partial"; receipt.reason = "policy_saved_runtime_enforcement_unavailable";
+          const changedRule = payload.rule ?? p.rules.find(rule => rule.id === receipt.ruleId);
+          const supported = options.originEnforcement === true && !latest.error && latest.policyHash === payload.proposedHash && (changedRule?.selector.kind === "web_origin" || changedRule?.selector.kind === "tunnel_authority");
+          receipt.enforcement = supported ? "enforced" : "unavailable";
+          receipt.stage = supported ? "committed" : "partial";
+          receipt.reason = supported ? null : "policy_saved_runtime_enforcement_unavailable";
           await save("committed"); await options.checkpoint?.("committed");
         } catch (error) {
           publicationOpen = false;

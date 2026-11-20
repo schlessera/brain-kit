@@ -475,9 +475,9 @@ function readSafetyProjection(db:Database,turnId:string|null,sessionId:string|nu
  const unknown=cs.length===0||cs.length>128||cs.some(c=>c.gap||c.failure||JSON.parse(c.acknowledged).length<SAFETY_DETECTORS.length)
    ||!!s&&s.classification!=="new";
  const aggregate=one<{n:number}>(db,`SELECT COUNT(*) n FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id
-   WHERE r.kind='occurrence' AND ${scope} AND NOT EXISTS(SELECT 1 FROM safety_decisions d WHERE d.occurrence_id=r.id)`,...args);
+   WHERE r.kind='occurrence' AND coalesce(json_extract(r.payload,'$.occurrence.admission.trusted'),json_extract(r.payload,'$.admission.trusted'),0) != 1 AND ${scope} AND NOT EXISTS(SELECT 1 FROM safety_decisions d WHERE d.occurrence_id=r.id)`,...args);
  const first=one<{id:string}|null>(db,`SELECT r.id FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id
-   WHERE r.kind='occurrence' AND ${scope} AND NOT EXISTS(SELECT 1 FROM safety_decisions d WHERE d.occurrence_id=r.id)
+   WHERE r.kind='occurrence' AND coalesce(json_extract(r.payload,'$.occurrence.admission.trusted'),json_extract(r.payload,'$.admission.trusted'),0) != 1 AND ${scope} AND NOT EXISTS(SELECT 1 FROM safety_decisions d WHERE d.occurrence_id=r.id)
    ORDER BY length(r.sequence),r.sequence LIMIT 1`,...args);
  const pending=one<{n:number}>(db,`SELECT COUNT(*) n FROM safety_pending p JOIN safety_collections c ON c.id=p.collection_id WHERE ${scope}`,...args).n;
  const reasons:string[]=[];
@@ -513,8 +513,9 @@ export function pruneSafetyDetail(db:Database,before:number):number {
  return db.transaction(()=>{
    const rows=db.query("SELECT id,payload FROM safety_records WHERE observed_at<? AND detail_pruned=0 LIMIT 1000").all(before) as {id:string;payload:string}[];
    for(const row of rows){
-     const entry=JSON.parse(row.payload).occurrence?.entry;
-     db.query("UPDATE safety_records SET payload=?,detail_pruned=1 WHERE id=?").run(JSON.stringify({sha256:new Bun.CryptoHasher("sha256").update(row.payload).digest("hex"),...(entry?{entry}:{})}),row.id);
+     const original=JSON.parse(row.payload).occurrence;
+     const entry=original?.entry, admission=original?.admission;
+     db.query("UPDATE safety_records SET payload=?,detail_pruned=1 WHERE id=?").run(JSON.stringify({sha256:new Bun.CryptoHasher("sha256").update(row.payload).digest("hex"),...(entry?{entry}:{}),...(admission?{admission}:{})}),row.id);
    }
    return rows.length;
  }).immediate();

@@ -58,3 +58,22 @@ test('opaque and unsupported tool identities never acquire a guessed entry',asyn
   for(const r of page.records.filter(r=>r.kind==='occurrence'))expect(r,'NO_NAME_OR_TIMING_ATTRIBUTION').not.toHaveProperty('entry');
  }finally{await f.close();}
 });
+
+test('admission evidence is independently negotiated and pinned across pages, deltas and pruning',async()=>{
+ const f=await safetyHistoryFixture(true,true);try{
+  const {occurrence}=await import('../src/governance/occurrence');
+  const add=async()=>{const o=occurrence(f.bindingId,'proxy_input',crypto.randomUUID(),'finalized');o.provenance={kind:'web_origin',origin:{scheme:'http',host:'127.0.0.1',port:80},verifiedBy:'host_transport'};o.admission={trusted:true,ruleId:'ithaca-source',policyHash:'a'.repeat(64),trustRevision:'7',collectionRevision:'3'};
+   await f.writes.record({kind:'taint',sessionId:'ithaca',turnId:'voyage',at:0,actor:'interactive',model:null,profile:'governed',payload:{source:'egress_connection',tool:null,detail:null,occurrence:o}});return o.id;};
+  await add();await add();
+  const old=await f.history.read(f.principal,{sessionId:'ithaca'},null,50,true);
+  expect(old.records.every(r=>!('admission' in r)),'OLD_READERS_RETAIN_STRICT_ADMISSION_SHAPE').toBe(true);
+  const opted=await f.history.read(f.principal,{sessionId:'ithaca'},null,1,false,true);expect(opted.records[0]).toHaveProperty('admission.trusted',true);expect(opted.nextCursor).not.toBeNull();
+  let refused:unknown;try{await f.history.read(f.principal,{sessionId:'ithaca'},opted.nextCursor,1,false,false);}catch(error){refused=error;}expect(refused,'CURSOR_PINS_ADMISSION_SHAPE').toHaveProperty('reason','expired');
+  const ws=await f.connect();expect(ws.hello.type==='server_hello'&&ws.hello.capabilities?.sessionSafetyAdmissionEvidence).toBe(true);
+  ws.send({type:'safety_read',version:1,requestId:'admissions',target:{sessionId:'ithaca'},includeAdmissions:true});const frame=await ws.until(m=>m.type==='safety_history');if(frame.type!=='safety_history')throw new Error('Missing page');
+  expect(frame.page.records[0]).toHaveProperty('admission.ruleId','ithaca-source');ws.send({type:'safety_subscribe',version:1,requestId:'admissions',identity:frame.page.identity,afterRevision:frame.page.highWater,snapshotId:frame.page.snapshotId});
+  const id=await add();f.history.poll();const update=await ws.until(m=>m.type==='safety_update'&&m.update.records.some(r=>r.id===id));expect(update.type==='safety_update'&&update.update.records.some(r=>r.kind==='occurrence'&&r.admission?.trusted),'SUBSCRIPTION_PINS_ADMISSION_EVIDENCE').toBe(true);
+  pruneSafetyDetail(f.db,Number.MAX_SAFE_INTEGER);const page=await f.history.read(f.principal,{sessionId:'ithaca'},null,50,false,true);expect(page.records[0]).toHaveProperty('admission.ruleId','ithaca-source');
+  const http=await f.get('?admissions=1');expect(http.status).toBe(200);expect((await http.json() as any).records[0]).toHaveProperty('admission.trusted',true);expect((await f.get('?admissions=0')).status).toBe(400);
+ }finally{await f.close();}
+});

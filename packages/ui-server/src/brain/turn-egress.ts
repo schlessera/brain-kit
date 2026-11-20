@@ -1,6 +1,7 @@
 /** One admitted turn's concrete proxy, approval surface and durable records. */
-import type { EffectiveGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
-import { startEgressProxy, type EgressRecord } from "@schlessera/brain-ui-sdk/internal";
+import { originTrustMatch, type OriginTrust, type OriginDestination } from "./origin-trust.js";
+import type { EffectiveGovernancePolicy, TrustMatch } from "@schlessera/brain-common/internal/governance-policy";
+import { startEgressProxy, EgressAdmissionRefused, type EgressRecord } from "@schlessera/brain-ui-sdk/internal";
 import { requestToolPermission, type BackendActivityEvent, type BackendBridge } from "@schlessera/brain-ui-sdk/server";
 import type { Database } from "bun:sqlite";
 import { occurrence, type Occurrence } from "../governance/occurrence.js";
@@ -85,6 +86,7 @@ export function createOutwardCalls() {
 }
 
 export async function prepareTurnEgress(options: {
+  trust?: OriginTrust;
   policy: EffectiveGovernancePolicy; policyHash?:string|null; bridge: BackendBridge; controller: AbortController;
   turnId: string; sessionId: () => string | null; model: () => string | null;
   profile: "governed" | "strict"; origin: "interactive" | "voice";
@@ -125,7 +127,11 @@ export async function prepareTurnEgress(options: {
   const contacted = new Set(db ? contactedHosts(db, options.sessionId()) : []);
   const collectionEpoch = (db?.query("SELECT id FROM safety_collections WHERE turn_id=?").get(options.turnId) as {id:string}|null)?.id??crypto.randomUUID();
   const exposures = new Map<string, Occurrence>();
+  const exposureCommits = new Map<string, Promise<unknown>>();
   const normalBefore = new Set<string>();
+  const standingRecipients = new Map<string, Pick<TrustMatch, "ruleId" | "policyHash" | "trustRevision" | "collectionRevision">>();
+  const trustedInputs = new Map<string, { destination: OriginDestination; revision: string }>();
+  let releaseTrust: (() => void) | undefined;
   const base = () => ({ turnId: options.turnId, sessionId: options.sessionId(), model: options.model(),
     actor: options.origin, profile: options.profile });
   const fail = () => {
@@ -140,15 +146,21 @@ export async function prepareTurnEgress(options: {
   const report = (record: EgressRecord): void => {
     if (!options.record) return;
     try {
-      track(options.record({ ...base(), kind: "egress_connection", payload: record }));
+      const trustedSource = record.connectionId ? trustedInputs.has(record.connectionId) : false;
+      track(options.record({ ...base(), kind: "egress_connection", payload: { ...record, ...(trustedSource ? { trustedSource: true } : {}), ...(record.connectionId && standingRecipients.has(record.connectionId) ? { standingRecipient: true, recipientAdmission: standingRecipients.get(record.connectionId) } : {}) } }));
+      if (record.connectionId) { trustedInputs.delete(record.connectionId); standingRecipients.delete(record.connectionId); }
       const exposure = record.connectionId ? exposures.get(record.connectionId) : undefined;
       if (exposure) {
         exposures.delete(record.connectionId!);
         normalBefore.delete(record.connectionId!);
         // A clean HTTP completion proves bounded input ended. A tunnel close
         // or cancellation alone cannot prove all opaque delivery completed.
-        track(options.record({ ...base(), kind: "taint_exposure", dedupeKey: exposure.id,
-          payload: { occurrenceId: exposure.id, state: record.method !== "CONNECT" && record.outcome === "completed" ? "finalized" : "interrupted_unknown" } }));
+        const terminal = () => options.record!({ ...base(), kind: "taint_exposure", dedupeKey: exposure.id,
+          payload: { occurrenceId: exposure.id, state: record.method !== "CONNECT" && record.outcome === "completed" ? "finalized" : "interrupted_unknown" } });
+        // Removal can close the transport while its initial occurrence is
+        // still committing. Terminal evidence must join that exact write.
+        const initial = exposureCommits.get(record.connectionId!);
+        track(initial ? initial.then(terminal) : terminal());
       }
       const denied = options.policy.egress.deny.some(pattern => {
         const normalized = pattern.toLowerCase().replace(/\.$/, "");
@@ -197,6 +209,7 @@ export async function prepareTurnEgress(options: {
     ...(options.policy.taint.judge.mode === "jev" && options.extractionJudge ? { judge: options.extractionJudge } : {}) }) : null;
   const taint = db ? {
     allow: options.policy.taint.egress.allow,
+    recipient: (destination: OriginDestination) => originTrustMatch(options.trust, destination, "recipientWhileRestricted", "0") !== null,
     tainted: (connectionId?: string) => {
       if (connectionId && normalBefore.has(connectionId)) {
         const projection = options.governanceWrites?.safety?.(options.turnId, options.sessionId()) ?? safetyProjection(db, options.turnId, options.sessionId());
@@ -233,16 +246,23 @@ export async function prepareTurnEgress(options: {
     if (firstTaint() === null) normalBefore.add(destination.connectionId);
     if (!writes) return;
     const exposure = occurrence(collectionEpoch, "proxy_input", destination.connectionId, "open");
-    exposure.admission={trusted:false,policyHash:options.policyHash??null,trustRevision:"0"};
+    const match = originTrustMatch(options.trust, destination, "incomingContent", options.bridge.admissionSafety?.read().evidenceRevision ?? "0");
+    exposure.admission = match ? { trusted: true, ruleId: match.ruleId, policyHash: match.policyHash, trustRevision: match.trustRevision, collectionRevision: match.collectionRevision }
+      : { trusted: false, policyHash: options.policyHash ?? null, trustRevision: options.trust?.revision() ?? "0" };
+    if (match) trustedInputs.set(destination.connectionId, { destination, revision: match.trustRevision });
     exposure.provenance=destination.method==="CONNECT"
       ? {kind:"tunnel_authority",authority:{host:destination.host,port:destination.port},verifiedBy:"host_proxy"}
       : destination.protocol==="http:"||destination.protocol==="https:"
         ? {kind:"web_origin",origin:{scheme:destination.protocol==="http:"?"http":"https",host:destination.host,port:destination.port},verifiedBy:"host_transport"}:null;
     exposures.set(destination.connectionId, exposure);
     try {
-      await writes.firstTaint({ ...base(), kind: "taint", payload: { source: "egress_connection", tool: null,
+      const initial = writes.firstTaint({ ...base(), kind: "taint", payload: { source: "egress_connection", tool: null,
         detail: `${destination.method} ${destination.host}:${destination.port}`, occurrence: exposure } });
+      exposureCommits.set(destination.connectionId, initial);
+      await initial;
     } catch (error) { fail(); throw error; }
+    finally { exposureCommits.delete(destination.connectionId); }
+    if (match && options.trust!.revision() !== match.trustRevision) throw new EgressAdmissionRefused("Source trust changed before dispatch");
   };
   /** Settles once every record submitted so far has committed or failed; `recordingFailure()` is final after it. */
   const settled = async () => { while (recording.size) await Promise.all([...recording]); };
@@ -252,7 +272,13 @@ export async function prepareTurnEgress(options: {
     outwardHosts: [...new Set([...GITHUB_API_HOSTS, ...MAIL_SUBMISSION_HOSTS, ...options.policy.outward.hosts])],
     outwardPorts: MAIL_SUBMISSION_PORTS,
     signal: options.controller.signal, observe: report, admitted,
-    committed: destination => { if (!destination.inference && !destination.provider && !destination.managedReference) contacted.add(destination.host); }, ...(taint ? { taint } : {}),
+    inputCurrent: connectionId => { const input = trustedInputs.get(connectionId); return !input || options.trust?.revision() === input.revision; },
+    committed: destination => {
+      if (destination.inference || destination.provider || destination.managedReference) return;
+      const recipient = originTrustMatch(options.trust, destination, "recipientWhileRestricted", options.bridge.admissionSafety?.read().evidenceRevision ?? "0");
+      if (recipient) { const { ruleId, policyHash, trustRevision, collectionRevision } = recipient; standingRecipients.set(destination.connectionId, { ruleId, policyHash, trustRevision, collectionRevision }); }
+      if (!trustedInputs.has(destination.connectionId) && !standingRecipients.has(destination.connectionId)) contacted.add(destination.host);
+    }, ...(taint ? { taint } : {}),
     approveOutward: async (destination, signal) => {
       if (calls.covers(destination.host)) return !signal.aborted;
       const decision = await requestToolPermission(options.bridge, { toolUseId: crypto.randomUUID(), toolName: "Network",
@@ -262,6 +288,8 @@ export async function prepareTurnEgress(options: {
       return !signal.aborted && decision.behavior === "allow";
     },
   });
+  releaseTrust = options.trust?.subscribe(() => proxy.invalidateInputs());
+  options.controller.signal.addEventListener("abort", () => releaseTrust?.(), { once: true });
   const original = options.bridge;
   /** The bridge the backend receives, so its classifications and results open and close each call. */
   const bridge: BackendBridge = { ...original,
@@ -302,7 +330,7 @@ export async function prepareTurnEgress(options: {
       } finally { if (abort) operation.signal.removeEventListener("abort", abort); }
     } };
   };
-  return { ...proxy, bridge, recordingFailure: () => recordingFailure, settled,
+  return { ...proxy, stop() { releaseTrust?.(); proxy.stop(); }, bridge, recordingFailure: () => recordingFailure, settled,
     inference: (method: string, target: URL, signal: AbortSignal) => relayOperation("inference", method, target, signal),
     relayed: (method: string, target: URL, signal: AbortSignal) => relayOperation("relayed", method, target, signal),
     managedReference: (target: URL, signal: AbortSignal) => settleOperation(proxy.managedReference(target, signal)) };

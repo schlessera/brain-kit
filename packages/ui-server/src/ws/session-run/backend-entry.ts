@@ -175,6 +175,7 @@ export async function prepareRelayedEgress(run: TurnRun, bridge: BackendBridge, 
     stopped: () => abortController.signal.aborted ? "The turn was stopped." : (stops.budget as Error | undefined)?.message ?? null });
   held.turnEgress = await prepareTurnEgress({ policy: governedHold.policy.policy, bridge, controller: abortController,
     turnId: turn.turnId, sessionId: () => turn.sessionId ?? null, model: () => run.mainModel,
+    trust: host.originTrust,
     profile: heldProfile(run), origin,policyHash:governedHold.policy.hash, brainPath: host.brainPath,
     // A record's commit failure stops the turn, as a synchronous one did (#2850).
     ...(governanceWrites ? { record: (event: Parameters<typeof governanceWrites.record>[0]) => governanceWrites.record(event), governanceWrites }

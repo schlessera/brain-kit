@@ -161,3 +161,19 @@ test('two live owner views keep independent review scope and converge after ever
   await disposeView();ui=first.ui;socket=first.socket;renderer=first.renderer;host=first.host;safetyClient=first.client;
  }
 });
+
+for(const width of [320,1280])for(const theme of ['light','dark'])test(`${width} ${theme}: historical source admission is distinct from a human verdict`,async()=>{
+ await scene(width,theme);
+ const initialWidth=document.documentElement.scrollWidth;
+ const records={...ui!.stores.safety.getState().records};
+ for(const [id,r] of Object.entries(records))if(r.kind==='occurrence')records[id]={...r,admission:{trusted:true,ruleId:'ithaca-source',policyHash:'a'.repeat(64),trustRevision:'7',collectionRevision:'3'}};
+ flushSync(()=>ui!.stores.safety.setState({records}));
+ const indicator=[...host!.querySelectorAll<HTMLButtonElement>('[data-safety-indicator] button')].find(b=>b.getAttribute('aria-label')?.startsWith('Trusted at admission'))!;
+ expect(indicator,'SOURCE_DECISION_NEVER_READS_AS_UNRESOLVED_OR_HUMAN_VERDICT').toBeTruthy();await userEvent.click(indicator);
+ await expect.poll(()=>document.querySelector('[data-safety-details]')?.textContent).toContain('Source rule ithaca-source · trust revision 7');
+ expect(document.querySelector('[data-safety-details]')?.textContent).toContain('grants no current recipient permission');
+ expect([...document.querySelectorAll('[data-safety-details] button')].some(b=>b.textContent==='Mark as safe')).toBe(false);
+ const bounds=document.querySelector('[data-safety-details]')!.getBoundingClientRect();
+ expect(bounds.left).toBeGreaterThanOrEqual(0);expect(bounds.right).toBeLessThanOrEqual(innerWidth);
+ expect(document.documentElement.scrollWidth,'ADMISSION_DETAILS_ADD_NO_PAGE_OVERFLOW').toBeLessThanOrEqual(initialWidth);
+});

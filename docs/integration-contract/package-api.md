@@ -5584,7 +5584,7 @@ capability, HTTP endpoint, history DTO or provider conversation changes here.
 The optional owner-only `/api/trust-settings` HTTP surface is a policy-publication
 building block. `GET /api/trust-settings` reads the current trust-only revision,
 exact policy hash, `origins`, `repositories`, repository-identity availability,
-and disabled runtime enforcement capabilities.
+and independently advertised runtime enforcement capabilities. The composed host enables origin/recipient enforcement; repository enforcement remains unavailable.
 `POST /api/trust-settings/prepare` accepts strict version-1 JSON with
 `expectedTrustRevision`, `expectedPolicyHash` and exactly one `change`:
 `{action:create|edit,rule}` or `{action:remove,ruleId}`. The host issues the
@@ -5633,12 +5633,10 @@ only read the original outcome; changed data conflicts. Expired handles can
 never create operations. Prepared/readback text survives stale-base refusal.
 
 The receipt stages are `prepared|file_published|committed|partial|unknown|refused`;
-`committed` is an internal publication-completion stage, never proof of live
-runtime enforcement. Current responses use `partial` for saved policy because
-`enforcement:unavailable` remains truthful until the admission implementation.
+`committed` with `enforcement:enforced` reports a qualified origin/tunnel publication only after the live revision and active input fences have updated. Repository publication and hosts without origin enforcement continue to return `partial` with `enforcement:unavailable`.
 `currentRule:present|removed|changed|unknown` is refreshed on reads, independently
 of historical publication proof. Readback loads the durable operation and policy
-projection within the same brain lock after any in-progress commit finishes. No removal receipt claims an enforcing fence.
+projection within the same brain lock after any in-progress commit finishes. An enforced origin removal has already fenced later active-turn admission and interrupted affected source streams.
 No agent turn, provider message or ordinary governance snapshot is changed.
 The journal awaits asynchronous metadata and publication before releasing its
 Settings observation window. It records intervening changes with their ordinary attribution before
@@ -5649,7 +5647,7 @@ The live trust projection retains last-valid rules on invalid policy, reports
 an error, and increments its decimal uint64 revision only for trust-list changes.
 Exhausted revisions refuse both new reviews and publication of retained reviews
 before any protected policy write; request revisions above uint64 also refuse.
-It is supplied for future admission integration; runtime capabilities remain off.
+The composed host shares its live trust revision with proxy and backend admission; ordinary turn budgets, commands and profiles retain their admitted snapshots.
 
 The HTTP boundary admits at most 32 concurrent requests per principal and 256
 for the served brain, including lock waiters; excess requests return retryable
@@ -5952,3 +5950,16 @@ for every interactive session, so a new session's retained append contains
 the bullet. A session retained earlier keeps its append byte for byte. The
 same-commit API report records the additive types. See
 [the MCP component](mcp.md#raw-connections-to-githubs-api-0450-3799).
+
+
+### Historical origin admission evidence (#3609)
+
+Safety occurrence DTOs add optional `admission` with `trusted`, `policyHash`
+and `trustRevision`; a true decision also carries `ruleId` and
+`collectionRevision`. It is host-owned historical evidence, never client
+permission or a human verdict. Older payloads without it retain conservative
+interpretation. The aggregate excludes trusted admissions from unresolved
+counts while keeping unrelated occurrences, coverage gaps and recording failures
+restrictive. Pruning preserves these minimal admission facts. The UI names
+historical source trust separately and offers no safe-verdict action for it.
+Provider history remains byte-identical as an earlier prefix.

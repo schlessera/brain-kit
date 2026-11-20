@@ -460,8 +460,7 @@ The version 1 governance taint payload optionally adds strict host occurrence
 metadata; the source enum adds `legacy_unknown`. Every input/output/path/mark
 signal is independent, including later signals from the same source. Exact
 host-key retries deduplicate; changed identity/payload retries refuse. Admission
-records `trusted: false`, the admitted policy hash (or `null`) and trust revision
-`"0"`. Runtime source trust remains disabled. Verified proxy provenance records
+records the host admission decision. Unmatched input retains `trusted:false`, the admitted policy hash (or `null`) and current trust revision. Since #3609, verified exact-origin/tunnel matches retain `trusted:true`, `ruleId`, exact trust policy hash, `trustRevision` and `collectionRevision`; these immutable facts survive rule removal and detail pruning. Trusted admissions remain inspectable and do not contribute unresolved triggers. Unknown or independent signals stay restrictive. Verified proxy provenance records
 only the actual web origin or opaque tunnel authority; worker tool arguments
 never establish transport or repository provenance. The proxy's optional
 `connectionId` relates its admission and receipt, without guessing a tool call.
@@ -1310,3 +1309,23 @@ Authenticated `GET /api/status` adds `journalCleanup`: `retained` contains
 `retrying: true` at the time it was recorded. The historical cause survives
 recovery and restart; it does not assert a currently blocked turn. Current
 charges remain separate in `retained`. No field changes public `/health`.
+
+
+### Prospective origin enforcement (breaking before 1.0, #3609)
+
+The composed host enables incoming-source and explicit restricted-recipient
+rules for verified exact web origins and explicitly selected opaque tunnel
+authorities. Repository enforcement stays unavailable pending its independent
+read qualification. A CONNECT authority never asserts HTTPS or a Git path.
+Redirects and concurrent traffic receive independent decisions; scheme, port
+and subdomain cannot borrow another selector's permission.
+
+Standing recipient permission bypasses only the taint-network card. Source-only
+trust grants no recipient permission after unrelated input restricts a chat.
+Egress evidence retains `trustedSource` and/or `standingRecipient` markers; a standing recipient decision also records `recipientAdmission` with its rule ID, exact policy hash, trust revision and collection revision. Connections covered by either standing capability do not create a legacy
+hostname grant; existing unrelated legacy grants retain their original scope.
+Deny/allowlists, byte ceilings, provider credentials and outward-action approval
+remain independent. Removing a standing capability affects future admissions;
+source streams stop on a trust revision change before subsequent input bytes.
+Approval and recording waits recheck live authority and recipient permission at
+final dispatch. No earlier trigger, verdict or provider message is rewritten.
