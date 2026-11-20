@@ -3,11 +3,13 @@ import { matchTrustRules, type TrustMatch, type TrustProvenance, type TrustRule 
 import type { LiveTrustRevision } from "../governance/effective-safety.js";
 
 export interface OriginTrust extends LiveTrustRevision {
+  refresh?(): Promise<unknown>;
   read(): { revision: string; rules: TrustRule[]; policyHash: string | null };
 }
-export interface OriginDestination { host: string; port: number; method: string; protocol?: string }
+export interface OriginDestination { host: string; port: number; method: string; protocol?: string; managedReference?: boolean }
 function originProvenance(destination: OriginDestination): TrustProvenance | null {
-  if (destination.method === "CONNECT") return { kind: "tunnel_authority", authority: { kind: "tunnel_authority", host: destination.host, port: destination.port }, verifiedBy: "host_proxy" };
+  if (destination.managedReference && destination.protocol !== "https:") return null;
+  if (destination.method === "CONNECT" && !destination.managedReference) return { kind: "tunnel_authority", authority: { kind: "tunnel_authority", host: destination.host, port: destination.port }, verifiedBy: "host_proxy" };
   if (destination.protocol === "http:" || destination.protocol === "https:") return { kind: "web_origin", origin: { kind: "web_origin", scheme: destination.protocol === "http:" ? "http" : "https", host: destination.host, port: destination.port }, verifiedBy: "host_transport" };
   return null;
 }

@@ -61,7 +61,9 @@ export interface EgressProxyOptions {
    * anything but `true`, refuses.
    */
   taint?: { allow: readonly string[]; tainted(connectionId?: string): boolean; contacted(host: string): boolean;
-    recipient?(destination: { host: string; port: number; method: string; protocol: string }): boolean;
+    /** Immutable evidence/authority marker; may exclude only this admission's own recorded input. */
+    approvalRevision?(connectionId?: string): string;
+    recipient?(destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }): boolean;
     approve?(destination: { host: string; port: number; method: string }, signal: AbortSignal): Promise<boolean>;
     /** What tainted the session, as "it …" completes it, for a refusal's message (#3431). */
     cause?(): string | null };
@@ -278,14 +280,18 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       return approved && !controller.signal.aborted && !stopped;
     };
     // An approval of this destination outside the taint allow-list (#3430).
-    let granted = false;
+    let granted = false, outwardApproved = false, grantRevision: string | undefined, outwardRevision: string | undefined;
+    const approvalRevision = (own = false) => options.taint?.approvalRevision?.(own ? connectionId : undefined) ?? JSON.stringify(options.admissionSafety?.read());
+    const grantCurrent = (own = false) => { try { const now = approvalRevision(own); return (!granted || grantRevision === now) && (!outwardApproved || outwardRevision === now); } catch { return false; } };
+    const recipient = { host, port, method, protocol: url.protocol, managedReference };
     // Checked again after an approval wait, during which another connection may taint the session.
     // Inference/provider relays retain G5. Managed references retain ordinary
     // G6 recipient narrowing; repository trust never grants outbound authority.
-    const narrowed = (final = false) => !granted && !inference && !provider && options.taint?.tainted(final ? connectionId : undefined) && !matches(host, options.taint.allow) && !options.taint.contacted(host) && !options.taint.recipient?.({ host, port, method, protocol: url.protocol });
+    const narrowed = (final = false) => !granted && !inference && !provider && options.taint?.tainted(final ? connectionId : undefined) && !matches(host, options.taint.allow) && !options.taint.contacted(host) && !options.taint.recipient?.(recipient);
     const narrowing = async () => {
       if (!narrowed()) return true;
-      if (options.taint?.approve) granted = await approval(options.taint.approve.bind(options.taint));
+      if (options.taint?.approve) { grantRevision = approvalRevision(); granted = await approval(options.taint.approve.bind(options.taint));
+        if (granted && !grantCurrent()) { finish("denied", "safety_changed"); return false; } }
       if (!granted) finish(stopped ? "cancelled" : "denied", options.taint?.approve ? "taint_not_approved" : "taint_not_allowed");
       return granted;
     };
@@ -310,7 +316,10 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       }
       if (!await narrowing()) return false;
       if (matches(host, options.outwardHosts) || options.outwardPorts?.includes(port)) {
+        outwardRevision = approvalRevision();
         if (!await approval(options.approveOutward)) { finish(stopped ? "cancelled" : "denied", "outward_not_approved"); return false; }
+        outwardApproved = true;
+        if (!grantCurrent()) { finish("denied", "safety_changed"); return false; }
       }
       if (!await narrowing()) return false;
       // A recorder failure aborts the turn through its own signal; it cannot admit.
@@ -321,12 +330,15 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     };
     // No await may intervene between this check and connect/request/fetch.
     const commit = () => {
+      try {
       if (stopped || controller.signal.aborted || safetyAdmissionRefusal(options.admissionSafety, snapshot)) { finish("denied", "safety_changed"); return false; }
+      if (!grantCurrent(true)) { finish("denied", "safety_changed"); return false; }
       if (usedBytes >= options.maxBytes) { finish("denied", "max_bytes_per_turn"); return false; }
       if (!inputCurrent(connectionId)) { finish("denied", "source_trust_changed"); return false; }
       if (narrowed(true)) { finish("denied", "taint_not_allowed"); return false; }
-      options.committed?.({ host, port, method, protocol: url.protocol, connectionId, inference, provider, managedReference });
+      options.committed?.({ ...recipient, connectionId, inference, provider });
       return true;
+      } catch { finish("denied", "safety_changed"); return false; }
     };
     /** Why this connection was refused, for the tool that made it; undefined while admitted or for a bare refusal. */
     const refusal = () => {
@@ -346,8 +358,8 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (!Number(target.port || 80)) throw new Error();
     } catch { client.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n"); return; }
     const op = operation("CONNECT", target);
-    op.signal.addEventListener("abort", () => { if (connected) client.destroy(); }, { once: true });
-    let connected = false;
+    let connected = false, upstream: Socket | undefined;
+    op.signal.addEventListener("abort", () => { if (upstream) { client.destroy(); upstream.destroy(); } }, { once: true });
     client.once("close", () => op.finish(stopped || !connected ? "cancelled" : "completed"));
     void (async () => {
       if (!await op.admit() || client.destroyed || !op.commit()) {
@@ -357,21 +369,22 @@ export async function startEgressProxy(options: EgressProxyOptions) {
         return;
       }
       const address = op.pinned();
-      const upstream = track(connect({ host: address?.address ?? target.hostname, port: Number(target.port || 80) }));
-      upstream.once("connect", () => {
-        if (stopped || client.destroyed) { upstream.destroy(); return; }
+      upstream = track(connect({ host: address?.address ?? target.hostname, port: Number(target.port || 80) }));
+      const tunnel = upstream;
+      tunnel.once("connect", () => {
+        if (stopped || op.signal.aborted || client.destroyed || !op.commit()) { tunnel.destroy(); return; }
         connected = true;
         client.write("HTTP/1.1 200 Connection Established\r\n\r\n");
-        if (head.length) { if (!op.charge(head.length)) { client.destroy(); upstream.destroy(); return; } upstream.write(head); }
-        client.on("data", chunk => { if (!op.charge(chunk.length)) { client.destroy(); upstream.destroy(); return; } if (!upstream.write(chunk)) client.pause(); });
-        upstream.on("data", chunk => { if (!op.charge(chunk.length)) { client.destroy(); upstream.destroy(); return; } if (!client.write(chunk)) upstream.pause(); });
-        upstream.on("drain", () => client.resume()); client.on("drain", () => upstream.resume());
+        if (head.length) { if (!op.charge(head.length)) { client.destroy(); tunnel.destroy(); return; } tunnel.write(head); }
+        client.on("data", chunk => { if (!op.charge(chunk.length)) { client.destroy(); tunnel.destroy(); return; } if (!tunnel.write(chunk)) client.pause(); });
+        tunnel.on("data", chunk => { if (!op.charge(chunk.length)) { client.destroy(); tunnel.destroy(); return; } if (!client.write(chunk)) tunnel.pause(); });
+        tunnel.on("drain", () => client.resume()); client.on("drain", () => tunnel.resume());
       });
-      upstream.once("error", () => { op.finish("failed", "upstream_unreachable"); client.destroy(); });
-      upstream.once("end", () => client.end());
-      client.once("end", () => upstream.end());
-      client.once("close", () => upstream.destroy());
-      upstream.once("close", () => client.destroy());
+      tunnel.once("error", () => { op.finish("failed", "upstream_unreachable"); client.destroy(); });
+      tunnel.once("end", () => client.end());
+      client.once("end", () => tunnel.end());
+      client.once("close", () => tunnel.destroy());
+      tunnel.once("close", () => client.destroy());
     })().catch(() => { op.finish("failed", "proxy_error"); client.destroy(); });
   });
   server.on("request", (request, response) => {

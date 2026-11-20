@@ -5647,7 +5647,7 @@ The live trust projection retains last-valid rules on invalid policy, reports
 an error, and increments its decimal uint64 revision only for trust-list changes.
 Exhausted revisions refuse both new reviews and publication of retained reviews
 before any protected policy write; request revisions above uint64 also refuse.
-The composed host shares its live trust revision with proxy and backend admission; ordinary turn budgets, commands and profiles retain their admitted snapshots.
+The composed host shares its live trust revision with proxy and backend admission. The protected policy proposal publisher refreshes the same projection under the shared brain lock before reporting updated; qualified turn preparation refreshes it too. A synchronous anchored trust-list check refuses stale disk/projection matches during that refresh gap. Invalid policy retains last-valid rules with an error. Ordinary turn budgets, commands and profiles retain their admitted snapshots.
 
 The HTTP boundary admits at most 32 concurrent requests per principal and 256
 for the served brain, including lock waiters; excess requests return retryable

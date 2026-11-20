@@ -331,3 +331,11 @@ test("publication rechecks strict boundaries after schema validation (#3666)", a
   expect(result.state).toBe("invalid"); expect(result.message).toContain("standalone ---");
   expect(readFileSync(f.path, "utf8")).toBe(original); expect(f.edits).toEqual([]); expect(f.events).toEqual([]);
 });
+
+test("review: another policy publisher joins the trust refresh before reporting updated",async()=>{
+ let entered!:()=>void,release!:()=>void,refreshed=false;const reached=new Promise<void>(r=>{entered=r;}),held=new Promise<void>(r=>{release=r;});
+ const f=fixture({afterPublication:async()=>{entered();await held;refreshed=true;}});const pending=f.service.propose(f.turn,"live-trust",input);await f.answer(true);
+ // A missing callback must fail the named assertion without waiting forever.
+ const state=await Promise.race([reached.then(()=>"refresh"),pending.then(()=>"returned")]);
+ try{expect(state,"POLICY_PUBLISHER_JOINS_TRUST_REFRESH").toBe("refresh");expect(refreshed).toBe(false);release();expect((await pending).state).toBe("updated");expect(refreshed).toBe(true);}finally{release();}
+});

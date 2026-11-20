@@ -376,3 +376,11 @@ test("each refusal tells the tool why in its status line and body (#3431)", asyn
     expect(calls).toBe(0);
   } finally { origin.stop(true); }
 });
+
+test("review: invalidation between TCP dispatch and connect closes both real tunnel sockets",async()=>{
+ const {Socket}=await import('node:net');const {spyOn}=await import('bun:test');let accepted:InstanceType<typeof Socket>|undefined,release!:()=>void,entered!:()=>void;const reached=new Promise<void>(r=>{entered=r;});
+ let serverClosed!:()=>void;const upstreamClosed=new Promise<void>(r=>{serverClosed=r;});const server=createServer(socket=>{accepted=socket;socket.once('close',serverClosed);});await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const port=(server.address() as {port:number}).port;
+ const original=Socket.prototype.emit;const event=spyOn(Socket.prototype,'emit').mockImplementation(function(this:InstanceType<typeof Socket>,name:string|symbol,...args:any[]){if(name==='connect'&&this.remotePort===port){release=()=>{original.call(this,name,...args);};entered();return true;}return original.call(this,name,...args);});
+ let current=true;const proxy=await startEgressProxy({...defaults([]),inputCurrent:()=>current});const client=connect(proxy.socketPath);const outcome=new Promise<string>(r=>{client.once('data',b=>r(b.toString()));client.once('close',()=>r('closed'));});client.on('error',()=>{});client.once('connect',()=>client.write(`CONNECT 127.0.0.1:${port} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n`));
+ try{await reached;current=false;proxy.invalidateInputs();release();expect(await outcome,'CANCELLED_CONNECT_NEVER_RETURNS_200').toBe('closed');await upstreamClosed;expect(accepted?.destroyed).toBe(true);}finally{event.mockRestore();client.destroy();accepted?.destroy();proxy.stop();await new Promise<void>(r=>server.close(()=>r()));}
+});

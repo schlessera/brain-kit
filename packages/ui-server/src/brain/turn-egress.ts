@@ -8,7 +8,7 @@ import { occurrence, type Occurrence } from "../governance/occurrence.js";
 import type { GovernanceEventInput } from "../governance/events.js";
 import { contactedHosts, recordFirstTaint, sessionTaint, type TaintSource } from "../governance/session-taint.js";
 import type { GovernanceWrites } from "../governance/event-writes.js";
-import { safetyProjection } from "../governance/safety-store.js";
+import { safetyProjection, safetyEvidenceSequence } from "../governance/safety-store.js";
 import { settleTurnSessionBinding } from "../ws/bridge-session-binding.js";
 import { isMarkedUntrusted } from "../files/untrusted-marks.js";
 import { createTurnExtraction } from "./turn-extraction.js";
@@ -209,6 +209,13 @@ export async function prepareTurnEgress(options: {
     ...(options.policy.taint.judge.mode === "jev" && options.extractionJudge ? { judge: options.extractionJudge } : {}) }) : null;
   const taint = db ? {
     allow: options.policy.taint.egress.allow,
+    approvalRevision: (connectionId?: string) => {
+      const safety = options.bridge.admissionSafety?.read();
+      const state = options.governanceWrites?.safety?.(options.turnId, options.sessionId()) ?? safetyProjection(db, options.turnId, options.sessionId());
+      return JSON.stringify([state.pendingCount, state.coverage.state, state.reasons.filter(reason => reason !== "unresolved"), safetyEvidenceSequence(db, options.turnId, options.sessionId(), connectionId ? exposures.get(connectionId)?.id ?? null : null),
+        options.trust?.revision() ?? "0", safety?.scope, safety?.authorityEpoch, safety?.authorityCurrent,
+        writes?.recordingAvailable?.(options.turnId, options.sessionId()) ?? safety?.recordingAvailable]);
+    },
     recipient: (destination: OriginDestination) => originTrustMatch(options.trust, destination, "recipientWhileRestricted", "0") !== null,
     tainted: (connectionId?: string) => {
       if (connectionId && normalBefore.has(connectionId)) {
@@ -274,10 +281,10 @@ export async function prepareTurnEgress(options: {
     signal: options.controller.signal, observe: report, admitted,
     inputCurrent: connectionId => { const input = trustedInputs.get(connectionId); return !input || options.trust?.revision() === input.revision; },
     committed: destination => {
-      if (destination.inference || destination.provider || destination.managedReference) return;
+      if (destination.inference || destination.provider) return;
       const recipient = originTrustMatch(options.trust, destination, "recipientWhileRestricted", options.bridge.admissionSafety?.read().evidenceRevision ?? "0");
       if (recipient) { const { ruleId, policyHash, trustRevision, collectionRevision } = recipient; standingRecipients.set(destination.connectionId, { ruleId, policyHash, trustRevision, collectionRevision }); }
-      if (!trustedInputs.has(destination.connectionId) && !standingRecipients.has(destination.connectionId)) contacted.add(destination.host);
+      if (!destination.managedReference && !trustedInputs.has(destination.connectionId) && !standingRecipients.has(destination.connectionId)) contacted.add(destination.host);
     }, ...(taint ? { taint } : {}),
     approveOutward: async (destination, signal) => {
       if (calls.covers(destination.host)) return !signal.aborted;

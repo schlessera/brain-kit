@@ -451,3 +451,16 @@ test("post-publication invalid policy cannot claim an enforced origin removal",a
  const saved=await f.commit(removal);expect(saved.receipt,"INVALID_CURRENT_POLICY_NEVER_CLAIMS_REMOVAL_ENFORCED").toMatchObject({publication:"proved",stage:"partial",enforcement:"unavailable",currentRule:"unknown"});
  expect(f.settings.live.read().rules[0]?.id).toBe(rule.id);
 });
+
+test("review: valid trust edits outside Settings cannot remain silently active",async()=>{
+ const f=await fixture({originEnforcement:true});await f.commit(await f.prepare());writeFileSync(f.path,initial);
+ expect(()=>f.settings.live.read(),"OUTSIDE_PUBLICATION_FENCES_STALE_TRUST").toThrow();
+ await f.settings.live.refresh();expect(f.settings.live.read().rules).toEqual([]);
+});
+
+test("review: real alternate policy publication refreshes durable trust under the same brain lock",async()=>{
+ const f=await fixture({originEnforcement:true});await f.commit(await f.prepare());const {createPolicyProposals}=await import('../src/brain/policy-proposal.js');
+ const service=createPolicyProposals({root:f.root,db:f.db,writer:f.writer,lock:f.lock,observeUserPolicy:(_id,write)=>write(),recordEvent:()=>{},afterPublication:()=>f.settings.refreshLocked()});
+ const result=await service.propose({principalId:'odysseus',turnId:'alternate-policy',sessionId:()=>null,signal:new AbortController().signal,isAuthorized:()=>true,isAvailable:()=>true,approve:async()=>true,emit(){}},'remove-origin',{content:initial,rationale:'Remove future source trust.'});
+ expect(result.state).toBe('updated');expect(f.settings.live.read().rules,'ALTERNATE_POLICY_WRITER_REMOVAL_IS_LIVE').toEqual([]);expect(f.settings.live.revision()).toBe('2');
+});

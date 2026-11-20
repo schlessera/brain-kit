@@ -769,7 +769,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   bootCleanup.push(() => journal.close());
   // Startup recovery commits, or refuses boot, before any turn can run.
   await journal.ready;
-  const policyProposals = createPolicyProposals({ root: config.brainPath, db, writer,
+  const policyProposals = createPolicyProposals({ afterPublication: () => trustSettings.refreshLocked(), root: config.brainPath, db, writer,
     lock: { withLock: (key, fn, admission) => host.workerLock.withLock(key, fn, admission) },
     observeUserPolicy: (turnId, write) => journal.observeUserPolicy(turnId, write),
     recordEvent: (review, turn) => activity.governanceWrites.record({ kind: "policy_change", actor: "user", turnId: turn.turnId, sessionId: turn.sessionId(), model: null, profile: null,

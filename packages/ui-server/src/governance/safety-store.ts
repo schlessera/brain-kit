@@ -452,16 +452,16 @@ export function safetyScopeTurns(db:Database,turnId:string|null,sessionId:string
  return turns;
 }
 /** Last immutable append in the same canonical scope as the aggregate. */
-export function safetyEvidenceSequence(db:Database,turnId:string|null,sessionId:string|null):string {
+export function safetyEvidenceSequence(db:Database,turnId:string|null,sessionId:string|null,excludedOccurrenceId:string|null=null):string {
  const {scope,args}=safetyScope(db,turnId,sessionId);
  return one<{sequence:string}|null>(db,`SELECT sequence FROM (
-   SELECT r.sequence FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id WHERE ${scope}
+   SELECT r.sequence FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id WHERE ${scope} AND (? IS NULL OR r.occurrence_id!=?)
    UNION ALL SELECT d.sequence FROM safety_decisions d JOIN safety_records r ON r.id=d.occurrence_id
      JOIN safety_collections c ON c.id=r.collection_id WHERE ${scope}
    UNION ALL SELECT b.sequence FROM safety_bindings b JOIN safety_collections c ON c.id=b.binding_id WHERE ${scope}
    UNION ALL SELECT c.start_revision FROM safety_collections c WHERE ${scope}
    UNION ALL SELECT c.end_revision FROM safety_collections c WHERE ${scope} AND c.end_revision IS NOT NULL
- ) ORDER BY length(sequence) DESC,sequence DESC LIMIT 1`,...args,...args,...args,...args,...args)?.sequence??"0";
+ ) ORDER BY length(sequence) DESC,sequence DESC LIMIT 1`,...args,excludedOccurrenceId,excludedOccurrenceId,...args,...args,...args,...args)?.sequence??"0";
 }
 function readSafetyProjection(db:Database,turnId:string|null,sessionId:string|null):SafetyProjection {
  const {s,scope,args}=safetyScope(db,turnId,sessionId);

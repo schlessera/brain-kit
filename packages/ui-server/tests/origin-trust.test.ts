@@ -1,3 +1,4 @@
+import { createEffectiveSafety } from "../src/governance/effective-safety.js";
 import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -35,11 +36,12 @@ async function fixture(recipient = false, policy: GovernancePolicyInput = {schem
   const rule: TrustRule = {id:"ithaca",label:"Ithaca",incomingContent:true,recipientWhileRestricted:recipient,
     selector:{kind:"web_origin",scheme:"http",host:"127.0.0.1",port:origin.port!}};
   const t=trust(rule);const controller=new AbortController();
+  const bridge={emit(){},requestPermission:async(...args: Parameters<BackendBridge["requestPermission"]>)=>{asks++;return decide(...args);},admissionSafety:createEffectiveSafety(db,{turnId:"turn-voyage",sessionId:()=>"voyage",policyHash:null,writes,trust:t.live,authority:()=>({current:true,epoch:"0"})})} as unknown as BackendBridge;
   const proxy=await prepareTurnEgress({policy:resolveGovernancePolicy(policy),trust:t.live,controller,turnId:"turn-voyage",sessionId:()=>"voyage",model:()=>null,profile:"governed",origin:"interactive",governanceDb:db,governanceWrites:writes,record:writes.record,
-    bridge:{emit(){},requestPermission:async(...args: Parameters<BackendBridge["requestPermission"]>)=>{asks++;return decide(...args);}} as unknown as BackendBridge});
+    bridge});
   const epoch=(db.query("SELECT id FROM safety_collections WHERE turn_id='turn-voyage'").get() as {id:string}).id;
   const taint=()=>writes.firstTaint({kind:"taint",turnId:"turn-voyage",sessionId:"voyage",actor:"interactive",profile:"governed",model:null,payload:{source:"web_search",tool:null,detail:null,occurrence:occurrence(epoch,"tool_web_input",crypto.randomUUID(),"finalized")}});
-  return {db,writes,origin,proxy,t,taint,controller,decide(value: BackendBridge["requestPermission"]) { decide=value; },asks:()=>asks,hits:()=>hits,async close(){proxy.stop();origin.stop(true);await proxy.settled();await writer?.close();db.close();if(root)rmSync(root,{recursive:true,force:true});}};
+  return {db,writes,writer,origin,proxy,t,taint,controller,decide(value: BackendBridge["requestPermission"]) { decide=value; },asks:()=>asks,hits:()=>hits,async close(){proxy.stop();origin.stop(true);await proxy.settled();await writer?.close();db.close();if(root)rmSync(root,{recursive:true,force:true});}};
 }
 test("verified future input retains its decision without creating an unresolved trigger or recipient grant",async()=>{
  const f=await fixture();try{
@@ -105,9 +107,36 @@ test("an explicitly reviewed tunnel matches its opaque authority without asserti
 test("recipient removal during outward approval cannot carry the old rule across the wait",async()=>{
  const f=await fixture(true,{schema_version:1,outward:{hosts:["127.0.0.1"]}});let entered!:()=>void,release!:()=>void;const reached=new Promise<void>(r=>{entered=r;}),held=new Promise<void>(r=>{release=r;});
  try{f.t.live.read().rules[0]!.incomingContent=false;await f.taint();let asks=0;f.decide(async()=>{if(++asks===1){entered();await held;return {behavior:"allow"};}return {behavior:"deny",message:"Athena declines the new taint card"};});
- const pending=get(f.proxy.socketPath,f.origin.url.href);await reached;f.t.remove();release();expect(await pending,"RECIPIENT_REMOVAL_REVALIDATES_AFTER_OUTWARD_WAIT").toBe(403);expect(asks).toBe(2);expect(f.hits()).toBe(0);
+ const pending=get(f.proxy.socketPath,f.origin.url.href);await reached;f.t.remove();release();expect(await pending,"RECIPIENT_REMOVAL_REVALIDATES_AFTER_OUTWARD_WAIT").toBe(403);expect(asks,"STALE_OUTWARD_CARD_TERMINATES_WITHOUT_AUTOMATIC_REPROMPT").toBe(1);expect(f.hits()).toBe(0);
  }finally{release();await f.close();}
 });
 test("removing incoming trust leaves its historical decision and makes a later input independently unresolved",async()=>{
  const f=await fixture();try{expect(await get(f.proxy.socketPath,f.origin.url.href)).toBe(200);await f.proxy.settled();f.t.remove();expect(await get(f.proxy.socketPath,f.origin.url.href)).toBe(200);await f.proxy.settled();expect(safetyProjection(f.db,"turn-voyage","voyage").unresolvedCount,"REMOVAL_APPLIES_ONLY_TO_FUTURE_INPUT").toBe(1);const rows=queryGovernanceEvents(f.db,{kinds:["taint"],limit:10});expect(rows.map(e=>(e.payload as any).occurrence.admission.trusted).sort()).toEqual([false,true]);}finally{await f.close();}
+});
+
+test("review: an approved card cannot survive independent input during its occurrence write",async()=>{
+ const f=await fixture(false,{schema_version:1},undefined,true);let entered!:()=>void,release!:()=>void;const reached=new Promise<void>(r=>{entered=r;}),held=new Promise<void>(r=>{release=r;});const original=f.writes.firstTaint;
+ try{await f.taint();f.decide(async()=>({behavior:"allow"}));f.writes.firstTaint=async(...args)=>{if(args[0].payload.source==="egress_connection"){entered();await held;}return original(...args);};
+ const pending=get(f.proxy.socketPath,f.origin.url.href);await reached;await f.taint();release();expect(await pending,"STALE_APPROVAL_AFTER_INDEPENDENT_WRITE_REFUSES_DISPATCH").toBe(403);expect(f.hits()).toBe(0);
+ }finally{release();await f.close();}
+});
+for(const trusted of [false,true])test(`review: a card remains usable across only its own durable occurrence write (trusted ${trusted})`,async()=>{
+ const f=await fixture(false,{schema_version:1},undefined,true);try{if(!trusted)f.t.live.read().rules[0]!.selector={kind:"web_origin",scheme:"http",host:"ithaca.invalid",port:f.origin.port!};await f.taint();f.decide(async()=>({behavior:"allow"}));expect(await get(f.proxy.socketPath,f.origin.url.href),"OWN_OCCURRENCE_DOES_NOT_WITHDRAW_APPROVAL").toBe(200);}finally{await f.close();}
+});
+for(const tunnel of [false,true])test(`review: managed HTTPS recipient uses actual transport identity (tunnel ${tunnel})`,async()=>{
+ const f=await fixture(true);try{await f.taint();f.t.live.read().rules[0]!.selector=tunnel?{kind:"tunnel_authority",host:"github.com",port:443}:{kind:"web_origin",scheme:"https",host:"github.com",port:443};
+ const op=f.proxy.managedReference(new URL("https://github.com/"),new AbortController().signal);const allowed=await op.admit();expect(allowed,"MANAGED_HTTPS_NEVER_BORROWS_OPAQUE_TUNNEL_PERMISSION").toBe(!tunnel);op.finish(allowed?"completed":"denied");await f.proxy.settled();if(allowed)expect(queryGovernanceEvents(f.db,{kinds:["egress_connection"],limit:10})[0]?.payload,"MANAGED_RECIPIENT_DECISION_RETAINS_AUDIT").toMatchObject({managedReference:true,standingRecipient:true,recipientAdmission:{ruleId:"ithaca"}});
+ }finally{await f.close();}
+});
+test("review: outward cards cannot survive independent input even on a taint-allowlisted host",async()=>{
+ const f=await fixture(false,{schema_version:1,taint:{egress:{allow:["127.0.0.1"]}},outward:{hosts:["127.0.0.1"]}},undefined,true);let entered!:()=>void,release!:()=>void;const reached=new Promise<void>(r=>{entered=r;}),held=new Promise<void>(r=>{release=r;});const original=f.writes.firstTaint;
+ try{await f.taint();f.decide(async()=>({behavior:"allow"}));f.writes.firstTaint=async(...args)=>{if(args[0].payload.source==="egress_connection"){entered();await held;}return original(...args);};const pending=get(f.proxy.socketPath,f.origin.url.href);await reached;await f.taint();release();expect(await pending,"STALE_OUTWARD_CARD_CANNOT_BORROW_TAINT_ALLOWLIST").toBe(403);expect(f.hits()).toBe(0);}finally{release();await f.close();}
+});
+test("review: independent pending input also withdraws a card on a permanently restricted turn",async()=>{
+ const f=await fixture(false,{schema_version:1},undefined,true);let entered!:()=>void,release!:()=>void;const reached=new Promise<void>(r=>{entered=r;}),held=new Promise<void>(r=>{release=r;});const original=f.writes.firstTaint;let slow:Promise<unknown>|undefined,pendingTaint:Promise<unknown>|undefined;
+ try{f.db.query("UPDATE safety_collections SET restricted_begin=1,gap='uninstrumented_backend_input' WHERE turn_id='turn-voyage'").run();await f.taint();f.decide(async()=>({behavior:"allow"}));
+  f.writes.firstTaint=async(...args)=>{const result=await original(...args);if(args[0].payload.source==="egress_connection"){entered();await held;}return result;};
+  const pending=get(f.proxy.socketPath,f.origin.url.href);await reached;const probe=await import('./fixtures/write-worker-probe');const channel=f.writer!.channel(probe,{table:'origin_pending_hold'});await channel.ready;const active=new Int32Array(new SharedArrayBuffer(4));slow=channel.call('slow','Calypso',400,active);await Atomics.waitAsync(active,0,0).value;
+  pendingTaint=f.taint();expect(f.writes.safety('turn-voyage','voyage').pendingCount).toBeGreaterThan(0);release();expect(await pending,'PENDING_INPUT_WITHDRAWS_CARD_WITHOUT_NORMALIZING_AWAY_OTHER_SIGNALS').toBe(403);expect(f.hits()).toBe(0);
+ }finally{release();await slow;await pendingTaint;await f.close();}
 });

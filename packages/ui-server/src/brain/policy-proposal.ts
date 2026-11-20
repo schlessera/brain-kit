@@ -106,6 +106,8 @@ export function createPolicyProposals(options: {
   recordEvent(review: PolicyChangeReview, turn: PolicyProposalTurn): unknown;
   /** Where a proposal's writes commit: the app's write worker (#2850). Absent: on `db`, at once. */
   writer?: SqliteWriter;
+  /** Join the live trust-only projection while this publisher owns the brain lock. */
+  afterPublication?(): Promise<unknown>;
   /** Deterministic race/revalidation fixtures, never wired to a worker. */
   beforeCommit?(): void;
   validate?: typeof parseGovernancePolicy;
@@ -232,6 +234,7 @@ export function createPolicyProposals(options: {
                 // Nothing was published and the observation, its hold and (on
                 // unwinding) the lock are released: wait out the pause and retry.
                 if (unpublished) throw new AuthorityHeld();
+                await options.afterPublication?.();
                 review.state = "updated"; review.message = "Policy updated. Applies from the next turn.";
                 await options.recordEvent(review, turn);
               } finally {

@@ -1329,3 +1329,19 @@ remain independent. Removing a standing capability affects future admissions;
 source streams stop on a trust revision change before subsequent input bytes.
 Approval and recording waits recheck live authority and recipient permission at
 final dispatch. No earlier trigger, verdict or provider message is rewritten.
+
+
+Origin admission also fences a valid disk/projection mismatch while publication
+is being durably projected. The other protected policy publisher joins the same
+trust refresh before reporting its update; each qualified proxy turn refreshes
+this slice before starting. Invalid policy retains last-valid rules and an
+honest error. No ordinary admitted governance setting reloads live.
+
+Both taint-network and outward cards bind committed evidence, independent
+pending/coverage state, trust and authority through later writes and connection
+setup. Only the exact connection's own immutable occurrence may be excluded
+from its marker; another signal never borrows that exclusion. Cancellation
+destroys both tunnel sockets before a delayed connect callback can return 200.
+Managed HTTPS reference traffic carries a host-only verified transport tag for
+recipient matching and audit, independently of its opaque wire accounting; it
+cannot borrow a raw CONNECT selector or grant source/private/write authority.

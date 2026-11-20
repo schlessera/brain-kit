@@ -103,7 +103,21 @@ export function createTrustSettings(options: {
     return row ? { revision: row.revision, rules: JSON.parse(row.rules), policyHash: row.policy_hash, error: row.error } : { revision: "0", rules: [], policyHash: null, error: null };
   };
   const listeners = new Set<() => void>();
-  const live = { read: projection, revision: () => projection().revision, subscribe(changed: () => void) { listeners.add(changed); return () => { listeners.delete(changed); }; } };
+  const freshProjection = () => {
+    const p = projection(); let target: AnchoredGovernancePolicy | undefined;
+    try {
+      target = openGovernancePolicyAnchored(root); verifyGovernancePolicyAnchored(target, target.bytes === null ? null : hash(target.bytes));
+      const checked = target.bytes === null ? null : parseGovernancePolicy(target.bytes);
+      if (checked && !checked.ok) return p; // Retain last-valid policy, never adopt invalid bytes.
+      if (JSON.stringify(checked?.effective.taint.trusted_sources ?? []) !== JSON.stringify(p.rules)) throw new TrustSettingsError("stale_revision");
+      return p;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT" && p.rules.length === 0) return p;
+      throw error;
+    } finally { target?.close(); }
+  };
+  const live = { read: freshProjection, revision: () => freshProjection().revision,
+    refresh: () => options.lock.withLock(BRAIN_LOCK_KEY, refresh), subscribe(changed: () => void) { listeners.add(changed); return () => { listeners.delete(changed); }; } };
   const refresh = async (): Promise<Projection> => {
     const old = projection(); let target: AnchoredGovernancePolicy | undefined;
     let rules: TrustRule[], policyHash: string | null;
@@ -150,6 +164,8 @@ export function createTrustSettings(options: {
   };
   return {
     live,
+    /** The other protected publisher already owns the shared brain lock. */
+    refreshLocked: refresh,
     /** Live trust-only projection for future admissions. Ordinary policy snapshots
      * remain owned by their admitted turn; this never mutates them. */
     async snapshot() { return options.lock.withLock(BRAIN_LOCK_KEY, refresh); },
