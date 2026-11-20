@@ -1,5 +1,5 @@
 /** Test-only OS boundary for installed native Claude processes (#4313). */
-import { existsSync, lstatSync, mkdtempSync, readlinkSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, readlinkSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 
@@ -7,6 +7,13 @@ const ROOT = resolve(import.meta.dir, "..");
 const SYSTEM = ["/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32"];
 const within = (root: string, path: string) => path === root || path.startsWith(`${root}/`);
 let qualified = false;
+let head: string | undefined;
+function receiptHead(): string {
+  if (head) return head;
+  const result = Bun.spawnSync(["git", "rev-parse", "HEAD"], { cwd: ROOT, env: { PATH: "/usr/bin:/bin", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" }, stdout: "pipe", stderr: "pipe" });
+  const value = result.stdout.toString().trim();
+  return head = result.exitCode === 0 && /^[0-9a-f]{40}$/.test(value) ? value : "unavailable";
+}
 
 export function isNativeClaude(command: string, args: readonly unknown[] = []): boolean {
   return /^(claude|claude-code)(\.exe)?$/.test(basename(command)) ||
@@ -16,7 +23,7 @@ export function isNativeClaude(command: string, args: readonly unknown[] = []): 
 function refuse(reason: string): never {
   // Fixed classifications only: arguments, settings, credentials and addresses
   // never enter a denial receipt.
-  console.error(JSON.stringify({ kind: "native-offline-boundary", success: false, nativeLaunched: false, reason }));
+  console.error(JSON.stringify({ kind: "native-offline-boundary", success: false, nativeLaunched: false, reason, head: receiptHead() }));
   throw new Error(`Offline native Claude refused before launch: ${reason}`);
 }
 
@@ -63,6 +70,9 @@ function relay(upstream: string | undefined) {
       target.pathname !== "/" || target.search || target.hash) refuse("invalid scripted loopback service");
   const directory = mkdtempSync(join(tmpdir(), "odysseus-native-relay-"));
   const socket = join(directory, "relay.sock");
+  const uid = process.getuid?.() ?? 0, gid = process.getgid?.() ?? 0;
+  writeFileSync(join(directory, "passwd"), `odysseus:x:${uid}:${gid}:Odysseus:/tmp/native-account:/bin/sh\n`);
+  writeFileSync(join(directory, "group"), `odysseus:x:${gid}:\n`);
   const server = Bun.serve({ unix: socket, async fetch(request) {
     const url = new URL(request.url);
     if (url.origin !== "http://localhost") {
@@ -86,7 +96,7 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
   if (!home || !within(tmpdir(), home) || home === tmpdir() || !within(tmpdir(), cwd) && !within(ROOT, cwd)) {
     refuse("native launch requires fixture-owned storage");
   }
-  const bridge = relay(env.ANTHROPIC_BASE_URL);
+  const bridge = relay(args.length === 1 && args[0] === "--version" ? "http://127.0.0.1:1" : env.ANTHROPIC_BASE_URL);
   try {
     const executable = realpathSync(command);
     const argv = ["bwrap", "--unshare-all", "--die-with-parent", "--new-session", "--cap-drop", "ALL", ...systemMounts(),
@@ -94,6 +104,7 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
       "--ro-bind", executable, command, "--bind", home, home,
       ...(within(ROOT, cwd) || within(home, cwd) ? [] : ["--bind", cwd, cwd]),
       "--ro-bind", bridge.directory, "/tmp/native-relay",
+      "--ro-bind", join(bridge.directory, "passwd"), "/etc/passwd", "--ro-bind", join(bridge.directory, "group"), "/etc/group",
       ...(options.managedSettings ? ["--ro-bind", options.managedSettings, "/etc/claude-code"] : []), "--clearenv"];
     const childEnv: Record<string, string> = { HOME: home, CLAUDE_CONFIG_DIR: env.CLAUDE_CONFIG_DIR ?? home,
       PATH: "/usr/bin:/bin", LANG: "C.UTF-8", ANTHROPIC_API_KEY: "offline-odysseus",
@@ -106,22 +117,30 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
 }
 
 /** Inspect the concrete existing worker bootstrap, including its exec payload. */
-export function nativeWorkerBoundary(env: Record<string, string | undefined>): Record<string, string | undefined> {
-  if (!env.BRAIN_WORKER_LAUNCH) return env;
-  const launch = JSON.parse(env.BRAIN_WORKER_LAUNCH) as { command?: string[]; argv?: string[] };
-  if (!launch.command?.[0] || !isNativeClaude(launch.command[0], launch.command.slice(1))) return env;
+export function nativeWorkerBoundary(env: Record<string, string | undefined>): { env: Record<string, string | undefined>; dispose(): void } {
+  const unchanged = { env, dispose() {} };
+  if (!env.BRAIN_WORKER_LAUNCH) return unchanged;
+  const launch = JSON.parse(env.BRAIN_WORKER_LAUNCH) as { command?: string[]; argv?: string[]; env?: Record<string, string> };
+  if (!launch.command?.[0] || !isNativeClaude(launch.command[0], launch.command.slice(1))) return unchanged;
   qualify();
-  // Existing worker egress uses a host-owned Unix relay and a private network.
-  // Refuse the old shared-network path; no settings option substitutes for it.
   const argv = launch.argv;
-  if (!argv || !argv.includes("--unshare-net")) refuse("native worker lacks a private network namespace");
+  if (!argv) refuse("native worker lacks the OS launcher");
   const bwrap = argv.findIndex(value => basename(value) === "bwrap");
   if (bwrap < 0) refuse("native worker lacks the OS launcher");
-  // Remove the broad host view. All concrete fixture/runtime mounts planned
-  // by the existing worker follow the system view and remain intact.
-  for (let i = bwrap + 1; i < argv.indexOf("--", bwrap); i++) {
-    if (argv[i] === "--ro-bind" && argv[i + 1] === "/" && argv[i + 2] === "/") argv.splice(i--, 3);
-  }
-  argv.splice(bwrap + 1, 0, ...systemMounts(), "--ro-bind", ROOT, ROOT, "--ro-bind", process.execPath, process.execPath);
-  return { ...env, BRAIN_WORKER_LAUNCH: JSON.stringify(launch) };
+  // Even ordinary test workers use a private network and a single bridge.
+  // Do not rely on SDK options or the production profile to establish this.
+  const bridge = relay(launch.env?.ANTHROPIC_BASE_URL);
+  try {
+    for (let i = bwrap + 1; i < argv.indexOf("--", bwrap); i++) {
+      if (argv[i] === "--ro-bind" && argv[i + 1] === "/" && argv[i + 2] === "/") argv.splice(i--, 3);
+    }
+    argv.splice(bwrap + 1, 0, "--unshare-net", ...systemMounts(), "--ro-bind", ROOT, ROOT, "--ro-bind", process.execPath, process.execPath);
+    const pinned = { ANTHROPIC_BASE_URL: "http://localhost", ANTHROPIC_UNIX_SOCKET: "/tmp/native-relay/relay.sock",
+      ANTHROPIC_API_KEY: "offline-odysseus", ANTHROPIC_AUTH_TOKEN: "", CLAUDE_CODE_OAUTH_TOKEN: "" };
+    const separator = argv.indexOf("--", bwrap);
+    argv.splice(separator, 0, "--ro-bind", bridge.directory, "/tmp/native-relay",
+      "--ro-bind", join(bridge.directory, "passwd"), "/etc/passwd", "--ro-bind", join(bridge.directory, "group"), "/etc/group",
+      ...Object.entries(pinned).flatMap(([key, value]) => ["--setenv", key, value]));
+    return { env: { ...env, BRAIN_WORKER_LAUNCH: JSON.stringify(launch) }, dispose: bridge.dispose };
+  } catch (error) { bridge.dispose(); throw error; }
 }

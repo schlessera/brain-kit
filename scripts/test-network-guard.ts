@@ -160,15 +160,17 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
         boundary = nativeClaudeBoundary(executable, cmd.slice(1), options);
         args[0] = Array.isArray(first) ? boundary.argv : { ...first, cmd: boundary.argv };
       }
-      const inherited = inheritWorkspaceLease({ ...options, env: boundary?.env ?? nativeWorkerBoundary(testGitEnvironment({ ...options.env ?? process.env,
-        ...(process.env.GITHUB_ACTIONS === "true" ? { GITHUB_ACTIONS: "true", RUNNER_ENVIRONMENT: process.env.RUNNER_ENVIRONMENT } : {}) })) }, defaultStderr, pipeOnly);
+      const workerBoundary = boundary ? undefined : nativeWorkerBoundary(testGitEnvironment({ ...options.env ?? process.env,
+        ...(process.env.GITHUB_ACTIONS === "true" ? { GITHUB_ACTIONS: "true", RUNNER_ENVIRONMENT: process.env.RUNNER_ENVIRONMENT } : {}) }));
+      const inherited = inheritWorkspaceLease({ ...options, env: boundary?.env ?? workerBoundary!.env }, defaultStderr, pipeOnly);
       if (Array.isArray(first)) args[1] = inherited;
       else args[0] = { ...inherited, cmd: (args[0] as { cmd: string[] }).cmd };
       try {
         const result = Reflect.apply(native, Bun, args);
-        if (boundary) void result.exited.finally(boundary.dispose);
+        if (key === "spawn") void result.exited.finally(() => { boundary?.dispose(); workerBoundary?.dispose(); });
+        else workerBoundary?.dispose();
         return result;
-      } catch (error) { boundary?.dispose(); throw error; }
+      } catch (error) { boundary?.dispose(); workerBoundary?.dispose(); throw error; }
     }) as typeof Bun.spawn & typeof Bun.spawnSync;
   }
 
