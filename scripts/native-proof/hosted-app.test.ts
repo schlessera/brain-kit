@@ -1,3 +1,4 @@
+import { lifecycleTimingSample } from "./lifecycle-timing.js";
 import { afterAll, expect, test } from "bun:test";
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -401,23 +402,16 @@ print(json.dumps(result))`;
         try { return (ui.query("SELECT record FROM activity_turn_lifecycles ORDER BY accepted_at").all() as { record: string }[]).map(row => JSON.parse(row.record)); }
         finally { ui.close(); }
       };
-      const phases = (record: any) => {
-        if (!record) return null;
-        const span = (start: number | null, end: number | null) => start === null ? null : (end ?? record.failureObservedAt ?? record.endedAt) === null ? null
-          : Math.max(0, (end ?? record.failureObservedAt ?? record.endedAt) - start);
-        const steps: Record<string, number | null> = {};
-        for (const step of record.subPhases ?? []) {
-          const key = `${step.phase}.${step.name}`, ms = span(step.startedAt, step.endedAt);
-          steps[key] = ms === null ? steps[key] ?? null : (steps[key] ?? 0) + ms;
-        }
-        return { turnId: record.turnId, queueWaitMs: span(record.acceptedAt, record.dequeuedAt), governedAdmissionMs: span(record.governedStartedAt, record.governedAcquiredAt),
-          budgetAdmissionMs: span(record.budgetStartedAt, record.budgetAdmittedAt), journalBeginMs: span(record.journalStartedAt, record.journalBeganAt),
-          backendStartupMs: span(record.backendInvokedAt, record.firstFrameAt), timeToFirstFrameMs: span(record.acceptedAt, record.firstFrameAt), steps };
-      };
+      const phases = lifecycleTimingSample;
       const lifecycleOf = (turnId: string) => phases(lifecycles().find(record => record.turnId === turnId));
       // (a) The process's first governed, journaled turn: the qualification's first admission.
       const firstAfterStart = phases(lifecycles().find(record => record.governedStartedAt !== null && record.journalStartedAt !== null));
       const warm = harbour.slice(-5).map(lifecycleOf);
+      expect(warm, "BACKEND_TIMING_FIVE_WARM_TURNS").toHaveLength(5);
+      for (const sample of [firstAfterStart, ...warm]) {
+        expect(sample?.backendSteps.length, "BACKEND_TIMING_OBSERVED_STEPS").toBeGreaterThan(0);
+        expect(sample?.invocationToRelayMs, "BACKEND_TIMING_FIRST_RELAY_RECEIPT").toBeGreaterThanOrEqual(0);
+      }
       // Past the hosted app's one-minute idle observation interval.
       const IDLE_WAIT_MS = 65_000;
       // (b) A few hundred notes change while no turn runs, as a sync or maintenance pass would.
@@ -468,7 +462,9 @@ print(json.dumps(result))`;
         traces: traces.length, managerSpans: managerSpans.length,
       };
       const result = { backend: BACKEND, appUid: APP_UID, files: FILES, bytes: BYTES, loadBefore, loadAfter: load(), elapsedMs: performance.now() - timingStart, timelineTurnIds,
-        tools: timeline?.tools ?? null, admission, journal: { begin: { medianMs: median(total("beginMs")), p95Ms: p95(total("beginMs")) }, finish: { medianMs: median(total("finishMs")), p95Ms: p95(total("finishMs")) },
+        tools: timeline?.tools ?? null, admission,
+        backendStartup: { clock: "host epoch timestamps; timeBase=worker uses workerElapsedMs, never subtracted from host time", firstAfterStart, warm },
+        journal: { begin: { medianMs: median(total("beginMs")), p95Ms: p95(total("beginMs")) }, finish: { medianMs: median(total("finishMs")), p95Ms: p95(total("finishMs")) },
           beginPlusFinish: { medianMs: median(total("totalMs")), p95Ms: p95(total("totalMs")) }, turns: beginFinish }, phases: observationSteps, calls: timeline?.calls ?? null };
       writeFileSync(join(ARTIFACTS, "observation-timing.json"), JSON.stringify(result, null, 2));
       console.log(JSON.stringify({ observationTiming: { ...result, calls: undefined, journal: { ...result.journal, turns: undefined } } }));

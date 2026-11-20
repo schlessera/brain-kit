@@ -58,6 +58,13 @@ phases and steps per scenario, and the host load before and after are in
 `observation-timing.json`. It is a measurement, not part of the default
 qualification.
 
+The `backendStartup` section (#4285/#4286) includes the first turn after
+server start and those five warm turns. Each sample carries invocation to
+first relay receipt, the backend steps, their host receipt timestamps and
+worker clock tags, and `backendMissingEvidence` for unavailable SDK marks.
+Worker durations are reported from `workerElapsedMs`, separately from host
+intervals. Nested resource/session/initialize samples overlap; do not sum them.
+
 Its `phases` section (#2915) attributes each observed writer's worker hold and
 each harbour turn's journal begin and finish to their steps: the queue for the
 journal, the wait for room behind earlier releases, checkpoint, delta,

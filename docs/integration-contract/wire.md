@@ -581,9 +581,9 @@ backend invocation to the first frame, or the observed failure boundary
 when startup fails before a frame (terminal time on interruption). Unobserved/in-progress boundaries remain null. These
 values do not redefine backend-run `startedAt` or `durationMs`.
 
-Optional `subPhases` (additive, #3355) attributes the governed and journal
+Optional `subPhases` (additive, #3355) attributes the governed, journal and backend
 phases to their steps, in start order. Each entry is `{ phase, name, startedAt,
-endedAt, elapsedMs }`, where `phase` is `governed` or `journal`. A step that has
+endedAt, elapsedMs }`, where `phase` is `governed`, `journal` or `backend`. A step that has
 not finished has a null `endedAt`; its `elapsedMs` follows the phase rule above,
 measuring to `failureObservedAt` or terminal time once the record is terminal,
 and null before. Every step lies inside its phase's paired milestones, and the
@@ -606,6 +606,39 @@ not apply to a turn is absent. The current names are:
   earlier checkpoint releases; `observe_record`, `observe_publish` and
   `observe_facts` repeat once per other active turn the observation records,
   and are absent when there is none (#2915).
+- `backend` (#4285/#4286): host `host_probe`, Claude's separate
+  `worker_host_probe`, `worker_launch` and `runtime_to_sdk_init`; Pi's
+  `preparation` and `worker_spawn`; worker-reported Pi `bootstrap_imports`,
+  `resources`, `session` and `initialize`; and host `first_backend_frame`
+  and `first_relay_request`. The last two measure from backend invocation
+  to the observed mark. `first_backend_frame` is absent if the first frame
+  follows relay receipt; the existing `backendStartupMs` still records it.
+
+The backend bracket ends at optional `firstRelayRequestAt` (host epoch
+milliseconds), the first model request received on an authorized inference
+relay route, before admission, body reading and dispatch. Token-count routes
+do not end it. Null means not observed; historical records omit the field.
+Backend steps start only after `backendInvokedAt`; new steps and completions
+after relay receipt are ignored. An unfinished backend step has a null
+`endedAt`; its elapsed value is bounded by relay receipt when observed,
+otherwise the same failure/interruption rule as other steps. The receipt
+persists a milestone; other startup observations add no writes of their own.
+
+For worker-reported durations, `timeBase: "worker"` and `workerElapsedMs`
+are additive fields. `elapsedMs` is that observed worker duration, while
+both timestamps are the host's receipt time. They do **not** identify a
+worker start on the host clock. Worker `bootstrap_imports` is measured from
+the worker process's monotonic time origin to its entry after static imports.
+Pi `session` includes resource loading, and `initialize` includes both; steps
+can overlap and must not be summed as disjoint costs.
+
+Optional `backendMissingEvidence` lists unavailable SDK marks, rather than
+inventing durations: Claude `first_enqueue`, `prompt_recorded`, and
+`mcp_connect:<server-name>` for the in-process server and each server named by
+system/init. The installed SDK exposes connection state without per-server
+start/end marks. Unknown marks have no timed step; an empty list does not
+claim complete runtime coverage. These observations stay in host storage and
+never enter provider history.
 
 Records written before this field have no `subPhases`; nothing is backfilled.
 

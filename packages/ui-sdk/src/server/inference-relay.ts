@@ -36,6 +36,8 @@ export interface InferenceRelayOptions {
   egress?: Pick<Awaited<ReturnType<typeof startEgressProxy>>, "inference">;
   /** Called for every request, forwarded or refused. Values are never logged. */
   observe?(event: InferenceRelayEvent): void;
+  /** Host receipt of an authorized route, before egress admission or reading its body. Observability only. */
+  received?(path: string): void;
   /**
    * The exact origin turn admission proved this turn's recipient from (#2695).
    * A relay whose upstream has another origin refuses to start, so a turn that
@@ -114,6 +116,7 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
         const path = url.pathname;
         if (request.method !== "POST") return refuse(request.method, path, 405, "Only inference requests are relayed");
         if (!routes.has(path)) return refuse(request.method, path, 403, "This path is not an authorized inference route");
+        try { options.received?.(path); } catch { /* Observability cannot fail inference. */ }
         const target = new URL(upstream.origin);
         target.pathname = path; target.search = url.search;
         const operation = options.egress?.inference(request.method, target, request.signal);

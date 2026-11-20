@@ -3883,16 +3883,19 @@ export function isPricingRoute(v: unknown): v is PricingRoute {
 }
 
 /**
- * One timed step inside the governed-admission or journal-begin phase (#3355).
+ * One timed step inside governed admission, journal begin or backend startup.
  * `name` is open vocabulary: consumers tolerate names they do not know.
  */
 export interface ActivityTurnSubPhase {
-  phase: "governed" | "journal";
+  phase: "governed" | "journal" | "backend";
   name: string;
   startedAt: number;
   /** Null while running; an unfinished step of a terminal record measures to its failure boundary. */
   endedAt: number | null;
   elapsedMs: number | null;
+  /** Worker durations use an independent clock; timestamps are host receipt, not worker start/end. */
+  timeBase?: "worker";
+  workerElapsedMs?: number;
 }
 
 /** Host-owned envelope; never contributes inference usage or cost. */
@@ -3912,6 +3915,10 @@ export interface ActivityTurnLifecycle {
   journalStartedAt: number | null;
   journalBeganAt: number | null;
   backendInvokedAt: number | null;
+  /** Absent on historical records, null until the first inference relay request is observed. */
+  firstRelayRequestAt?: number | null;
+  /** SDK stages unavailable to the host; never inferred from another mark. */
+  backendMissingEvidence?: string[];
   firstFrameAt: number | null;
   failureObservedAt: number | null;
   endedAt: number | null;
@@ -3924,7 +3931,7 @@ export interface ActivityTurnLifecycle {
   budgetAdmissionMs: number | null;
   journalBeginMs: number | null;
   backendStartupMs: number | null;
-  /** Additive (#3355): steps of the governed and journal phases, in start order. Absent on older records. */
+  /** Steps of the governed, journal and backend phases, in start order. Absent on older records. */
   subPhases?: ActivityTurnSubPhase[];
 }
 

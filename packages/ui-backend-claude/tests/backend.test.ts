@@ -22,6 +22,21 @@ import { defineProfiles } from "../src/profiles";
 
 type Gen = (options: Options) => AsyncGenerator<unknown>;
 
+test("Claude startup records its host probe and names unavailable SDK and per-server clocks", async () => {
+  const completed: string[] = [], missing: string[] = [];
+  const backend = createClaudeBackend({ brainPath: "/tmp/odyssey", queryFn: makeQueryFn(async function* () {
+    yield { type: "system", subtype: "init", session_id: "ithaca", model: "odyssey", tools: [], mcp_servers: [{ name: "brain", status: "connected" }] };
+    yield { type: "result", subtype: "success", session_id: "ithaca", duration_ms: 1, num_turns: 1, total_cost_usd: 0, usage: {} };
+  }) });
+  const { bridge, frames } = makeBridge();
+  await backend.startTurn(makeReq(bridge, new AbortController().signal, { startupTiming: {
+    start: name => () => { completed.push(name); }, missing: name => { missing.push(name); }, worker() {}, received() {},
+  } }));
+  expect(frames.at(-1)).toMatchObject({ type: "result", isError: false });
+  expect(completed, "CLAUDE_HOST_STARTUP_TIMING").toEqual(["host_probe"]);
+  expect(missing, "CLAUDE_MISSING_SDK_MARKS_ARE_EXPLICIT").toEqual(["first_enqueue", "prompt_recorded", "mcp_connect:brain-ui", "mcp_connect:brain"]);
+});
+
 test("configured live guidance selects personal/capture sections without copying host instructions", () => {
   const backend = createClaudeBackend({ brainPath: "/tmp/odyssey", systemPromptAppend: "# Personal Rules\nGive Odysseus short answers.\n# Capture policy\nAsk before saving preferences.\n# Turn lifecycle\nHOST_ONLY_EXECUTION\n# Response surface\nHOST_ONLY_RENDERING\n" });
   expect(backend.conversationGuidance).toEqual([

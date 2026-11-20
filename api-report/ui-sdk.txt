@@ -4496,6 +4496,8 @@ signatures (every public export and the types it is made of)
         journalStartedAt: number | null;
         journalBeganAt: number | null;
         backendInvokedAt: number | null;
+        firstRelayRequestAt?: number | null;
+        backendMissingEvidence?: string[];
         firstFrameAt: number | null;
         failureObservedAt: number | null;
         endedAt: number | null;
@@ -4512,11 +4514,13 @@ signatures (every public export and the types it is made of)
     }
   ActivityTurnSubPhase (packages/ui-sdk/src/protocol.ts)
     export interface ActivityTurnSubPhase {
-        phase: "governed" | "journal";
+        phase: "governed" | "journal" | "backend";
         name: string;
         startedAt: number;
         endedAt: number | null;
         elapsedMs: number | null;
+        timeBase?: "worker";
+        workerElapsedMs?: number;
     }
   ActivityView (packages/ui-sdk/src/protocol.ts)
     export type ActivityView = "index" | "session" | "run";
@@ -22055,6 +22059,7 @@ signatures (every public export and the types it is made of)
         lifecycle: z.ZodOptional<z.ZodObject<{
             acceptedAt: z.ZodNumber;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
+            backendMissingEvidence: z.ZodOptional<z.ZodArray<z.ZodString>>;
             backendRunId: z.ZodNullable<z.ZodString>;
             backendStartupMs: z.ZodNullable<z.ZodNumber>;
             budgetAdmissionMs: z.ZodNullable<z.ZodNumber>;
@@ -22064,6 +22069,7 @@ signatures (every public export and the types it is made of)
             endedAt: z.ZodNullable<z.ZodNumber>;
             failureObservedAt: z.ZodNullable<z.ZodNumber>;
             firstFrameAt: z.ZodNullable<z.ZodNumber>;
+            firstRelayRequestAt: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
             governedAcquiredAt: z.ZodNullable<z.ZodNumber>;
             governedAdmissionMs: z.ZodNullable<z.ZodNumber>;
             governedStartedAt: z.ZodNullable<z.ZodNumber>;
@@ -22102,10 +22108,13 @@ signatures (every public export and the types it is made of)
                 endedAt: z.ZodNullable<z.ZodNumber>;
                 name: z.ZodString;
                 phase: z.ZodEnum<{
+                    backend: "backend";
                     governed: "governed";
                     journal: "journal";
                 }>;
                 startedAt: z.ZodNumber;
+                timeBase: z.ZodOptional<z.ZodLiteral<"worker">>;
+                workerElapsedMs: z.ZodOptional<z.ZodNumber>;
             }, z.core.$loose>>>;
             timeToFirstFrameMs: z.ZodNullable<z.ZodNumber>;
             totalElapsedMs: z.ZodNullable<z.ZodNumber>;
@@ -22179,6 +22188,7 @@ signatures (every public export and the types it is made of)
         lifecycles: z.ZodOptional<z.ZodArray<z.ZodObject<{
             acceptedAt: z.ZodNumber;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
+            backendMissingEvidence: z.ZodOptional<z.ZodArray<z.ZodString>>;
             backendRunId: z.ZodNullable<z.ZodString>;
             backendStartupMs: z.ZodNullable<z.ZodNumber>;
             budgetAdmissionMs: z.ZodNullable<z.ZodNumber>;
@@ -22188,6 +22198,7 @@ signatures (every public export and the types it is made of)
             endedAt: z.ZodNullable<z.ZodNumber>;
             failureObservedAt: z.ZodNullable<z.ZodNumber>;
             firstFrameAt: z.ZodNullable<z.ZodNumber>;
+            firstRelayRequestAt: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
             governedAcquiredAt: z.ZodNullable<z.ZodNumber>;
             governedAdmissionMs: z.ZodNullable<z.ZodNumber>;
             governedStartedAt: z.ZodNullable<z.ZodNumber>;
@@ -22226,10 +22237,13 @@ signatures (every public export and the types it is made of)
                 endedAt: z.ZodNullable<z.ZodNumber>;
                 name: z.ZodString;
                 phase: z.ZodEnum<{
+                    backend: "backend";
                     governed: "governed";
                     journal: "journal";
                 }>;
                 startedAt: z.ZodNumber;
+                timeBase: z.ZodOptional<z.ZodLiteral<"worker">>;
+                workerElapsedMs: z.ZodOptional<z.ZodNumber>;
             }, z.core.$loose>>>;
             timeToFirstFrameMs: z.ZodNullable<z.ZodNumber>;
             totalElapsedMs: z.ZodNullable<z.ZodNumber>;
@@ -25183,6 +25197,7 @@ signatures (every public export and the types it is made of)
         lifecycles: z.ZodOptional<z.ZodArray<z.ZodObject<{
             acceptedAt: z.ZodNumber;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
+            backendMissingEvidence: z.ZodOptional<z.ZodArray<z.ZodString>>;
             backendRunId: z.ZodNullable<z.ZodString>;
             backendStartupMs: z.ZodNullable<z.ZodNumber>;
             budgetAdmissionMs: z.ZodNullable<z.ZodNumber>;
@@ -25192,6 +25207,7 @@ signatures (every public export and the types it is made of)
             endedAt: z.ZodNullable<z.ZodNumber>;
             failureObservedAt: z.ZodNullable<z.ZodNumber>;
             firstFrameAt: z.ZodNullable<z.ZodNumber>;
+            firstRelayRequestAt: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
             governedAcquiredAt: z.ZodNullable<z.ZodNumber>;
             governedAdmissionMs: z.ZodNullable<z.ZodNumber>;
             governedStartedAt: z.ZodNullable<z.ZodNumber>;
@@ -25230,10 +25246,13 @@ signatures (every public export and the types it is made of)
                 endedAt: z.ZodNullable<z.ZodNumber>;
                 name: z.ZodString;
                 phase: z.ZodEnum<{
+                    backend: "backend";
                     governed: "governed";
                     journal: "journal";
                 }>;
                 startedAt: z.ZodNumber;
+                timeBase: z.ZodOptional<z.ZodLiteral<"worker">>;
+                workerElapsedMs: z.ZodOptional<z.ZodNumber>;
             }, z.core.$loose>>>;
             timeToFirstFrameMs: z.ZodNullable<z.ZodNumber>;
             totalElapsedMs: z.ZodNullable<z.ZodNumber>;
@@ -25308,6 +25327,7 @@ signatures (every public export and the types it is made of)
         lifecycle: z.ZodOptional<z.ZodObject<{
             acceptedAt: z.ZodNumber;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
+            backendMissingEvidence: z.ZodOptional<z.ZodArray<z.ZodString>>;
             backendRunId: z.ZodNullable<z.ZodString>;
             backendStartupMs: z.ZodNullable<z.ZodNumber>;
             budgetAdmissionMs: z.ZodNullable<z.ZodNumber>;
@@ -25317,6 +25337,7 @@ signatures (every public export and the types it is made of)
             endedAt: z.ZodNullable<z.ZodNumber>;
             failureObservedAt: z.ZodNullable<z.ZodNumber>;
             firstFrameAt: z.ZodNullable<z.ZodNumber>;
+            firstRelayRequestAt: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
             governedAcquiredAt: z.ZodNullable<z.ZodNumber>;
             governedAdmissionMs: z.ZodNullable<z.ZodNumber>;
             governedStartedAt: z.ZodNullable<z.ZodNumber>;
@@ -25355,10 +25376,13 @@ signatures (every public export and the types it is made of)
                 endedAt: z.ZodNullable<z.ZodNumber>;
                 name: z.ZodString;
                 phase: z.ZodEnum<{
+                    backend: "backend";
                     governed: "governed";
                     journal: "journal";
                 }>;
                 startedAt: z.ZodNumber;
+                timeBase: z.ZodOptional<z.ZodLiteral<"worker">>;
+                workerElapsedMs: z.ZodOptional<z.ZodNumber>;
             }, z.core.$loose>>>;
             timeToFirstFrameMs: z.ZodNullable<z.ZodNumber>;
             totalElapsedMs: z.ZodNullable<z.ZodNumber>;

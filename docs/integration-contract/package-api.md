@@ -46,6 +46,17 @@ rather than an additive public-contract feature.
 
 ## Tool execution evidence (internal #2834)
 
+The optional internal `StartTurnRequest.startupTiming` observer (#4285/#4286)
+offers `start(name)` (returns an end callback), `worker(name, durationMs)`,
+`missing(name)` and `received()`. Both first-party backends use the host-owned
+lifecycle timer, including startup before the first bridge frame. The observer
+is stripped from Pi's serialized init environment. It supplies no authority,
+never reaches provider inputs, and is optional for older hosts. The internal
+inference relay's optional `received(path)` notification runs after method and
+route checks, before admission/body reading; its exception is ignored.
+See [Host turn lifecycle](wire.md#host-turn-lifecycle-additive) for the persisted
+fields, clocks and missing-evidence semantics.
+
 `StartTurnRequest` adds optional `@internal toolExecution(toolUseId, path)`, a
 server-only callback a backend calls before a call's `tool_result` with where
 that call actually ran: `host_bridge` (its body ran in the host's handler for

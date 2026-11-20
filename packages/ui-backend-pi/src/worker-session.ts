@@ -59,6 +59,7 @@ export async function piInferenceOrigin(backend: CreatePiBackendOptions, session
 export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessionDir: string,
   env: SessionEnv, profileId?: string, resumeId?: string, nativeSessions = new Map<string, NativeFileVersions>()) {
   const startupStarted = performance.now();
+  const prepared = env.startupTiming?.start("preparation");
   env.workerSignal?.throwIfAborted();
   const declared = resumeId ? undefined : toModel(resolveModelSpec(backend, profileId));
   const restricted = env.autonomous?.containment === "restricted";
@@ -115,7 +116,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   if (admission.webModel) turnContext.webModel = admission.webModel;
   const { workerSandbox, workerLock, workerSignal, toolExecution } = admission.hostEnv;
   const { child, sandbox, sandboxNote, turnTemp } = await launchPiWorker({ backend, env, admission, restricted, resumeId, execHelpers, confirmPatterns,
-    startupStarted, turnContext });
+    startupStarted, turnContext, prepared });
   const { closeTurnTemp, releases, claimTurnTempClose, teardown, diagnostic, reportLimitHits, limitEnded, send, stdioReleased } = superviseWorker({ child, reservation,
     turnTemp, env, turnContext, admission, answerText: () => receipts.answerText() });
   function live(): void {
@@ -147,7 +148,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     observeFile: path => child.observeFile?.(path), nativeVersions, relayed: Boolean(hostInference), agentDir, agentFiles, allowedTools,
     confirmPatterns, bridgeTools, capabilities: env.caps, receipts });
   const received = readPiWorkerProtocol({ child, state, ready, done, sessionId, backend, startupStarted, promptContext,
-    sessionBudgetLimits: env.sessionBudgetLimits, autonomous: Boolean(env.autonomous), resumed: Boolean(resumeId), turnContext, nativeVersions,
+    startupTiming: env.startupTiming, sessionBudgetLimits: env.sessionBudgetLimits, autonomous: Boolean(env.autonomous), resumed: Boolean(resumeId), turnContext, nativeVersions,
     receipts, resumedIds, listeners, proof, toolExecution, dispatch, send, fail, reportLimitHits, limitEnded, diagnostic }).catch(async error => {
     // A worker a limit killed mid-message ends the protocol with a partial
     // message: if the worker is gone, settle the limit before blaming the

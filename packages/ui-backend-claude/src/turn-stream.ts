@@ -21,7 +21,7 @@ export interface TurnStreamInputs {
   adapter: StreamAdapter;
   frames: TurnFrames;
   terminal: TurnTerminal;
-  req: Pick<StartTurnRequest, "sessionId" | "autonomous">;
+  req: Pick<StartTurnRequest, "sessionId" | "autonomous" | "startupTiming">;
   backendId: string;
   profileId: string;
   /** The account the CLI selected, for the per-turn runtime report. */
@@ -82,6 +82,8 @@ export async function runTurnStream(inputs: TurnStreamInputs): Promise<void> {
   let carried: CarriedResult | null = null;
   try {
     for await (const msg of inputs.stream) {
+      if (msg.type === "system" && msg.subtype === "init")
+        for (const server of msg.mcp_servers ?? []) inputs.req.startupTiming?.missing(`mcp_connect:${server.name}`);
       input.observe(msg);
       if (carried && CarriedResult.continues(msg)) carried.continued = true;
       // A withheld turn has already decided its outcome; nothing the stream

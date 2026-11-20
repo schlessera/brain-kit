@@ -171,7 +171,9 @@ async function startTurn(runner: TurnRunnerState, req: StartTurnRequest): Promis
     // Claim resumed input synchronously, then await collection before any
     // worker or SDK work. A refusal releases the claim through this catch.
     await req.bridge.inputSafety?.ready("claude",1);
+    const probed = req.startupTiming?.start("host_probe");
     workerHost = await requireWorkerHostAsync(options.backend.brainPath);
+    probed?.();
     profile = resolveProfile(options.resolveProfiles(), req.profileId);
     turnLock = createTurnLockBinding({
       turn,
@@ -279,12 +281,16 @@ async function runAdmittedTurn(runner: TurnRunnerState, claim: ClaimedTurn): Pro
     relay.routeInputs = relay.egress ? await retainNativeRouteInputs(req.workerSandbox?.profile === "governed"
       ? options.backend.brainPath : req.workerStartupView ?? options.backend.brainPath) : undefined;
     const result = runner.queryFn({ prompt, options: { ...sdkTurn.options, ...(req.maxBudgetUsd !== undefined ? { maxBudgetUsd: req.maxBudgetUsd } : {}) } });
+    // Neither the handshake nor system/init reports these durations. Never
+    // substitute prompt handoff or relay receipt for an internal runtime mark.
+    for (const name of ["first_enqueue", "prompt_recorded", "mcp_connect:brain-ui"])
+      req.startupTiming?.missing(name);
     resolveQuery(result);
     // The account the CLI selected, for the per-turn report. The SDK answers
     // every call from the one handshake, so this and the gate agree.
     const account = (
       typeof result.initializationResult === "function"
-        ? initialize(result).then((init) => init.account, () => undefined)
+        ? initialize(result).then((init) => { sdkTurn.sdkInitialized(); return init.account; }, () => undefined)
         : Promise.resolve(undefined)
     ) as Promise<AccountInfo | undefined>;
     await runTurnStream({ stream: result, input, adapter, frames, terminal, req, backendId: BACKEND_ID, profileId: profile.id,

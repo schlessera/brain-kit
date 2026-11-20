@@ -34,6 +34,7 @@ export interface PiWorkerTurnState {
 }
 
 export interface PiWorkerReader {
+  startupTiming?: import("@schlessera/brain-ui-sdk/server").StartTurnRequest["startupTiming"];
   child: LaunchedWorker;
   state: PiWorkerTurnState;
   ready: PromiseWithResolvers<void>;
@@ -81,6 +82,7 @@ export async function readPiWorkerProtocol(reader: PiWorkerReader): Promise<void
       throw error;
     }
     if (msg.type === "startup_timing") {
+      reader.startupTiming?.worker(msg.phase === "worker_started" ? "bootstrap_imports" : msg.phase, msg.durationMs);
       backend.log?.("debug", "Pi startup phase", { phase: msg.phase, durationMs: msg.durationMs, elapsedMs: performance.now() - startupStarted });
     } else if (msg.type === "ready") {
       backend.log?.("debug", "Pi startup ready", { elapsedMs: performance.now() - startupStarted });
