@@ -316,7 +316,7 @@ test("a tainted turn reaches only taint-allowed or already contacted hosts; the 
   } finally { proxy.stop(); origin.stop(true); }
 });
 test("a narrowed destination asks through taint.approve before refusing; a failed or absent approval refuses (#3430)", async () => {
-  let calls = 0; const records: EgressRecord[] = [], asked: Array<{ host: string; port: number; method: string }> = [];
+  let calls = 0; const records: EgressRecord[] = [], asked: Array<{ host: string; port: number; method: string; protocol: string; managedReference: boolean }> = [];
   const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { calls++; return new Response("Ithaca"); } });
   let answer: () => Promise<boolean> = async () => true;
   const proxy = await startEgressProxy({ ...defaults(records), maxBytes: 65536,
