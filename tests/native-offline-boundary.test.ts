@@ -356,6 +356,21 @@ test("a hard-link alias retains live guard-owned socket authority and loses it w
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 });
 
+test("a Node relay loses hard-link authority as soon as close starts", async () => {
+  const scratch = mkdtempSync(join(tmpdir(), "odysseus-node-alias-"));
+  try {
+    const result = await probe(`${imports}
+      import {linkSync} from "node:fs";import {createServer} from "node:http";
+      import {nativeScriptedService,nativeWorkerBoundary} from ${JSON.stringify(join(ROOT, "scripts/test-native-guard.ts"))};
+      nativeScriptedService("http://127.0.0.1:1");
+      const source=${JSON.stringify(join(scratch, "source.sock"))},alias=${JSON.stringify(join(scratch, "alias.sock"))};
+      const relay=createServer((req,res)=>res.end("Ithaca"));await new Promise(resolve=>relay.listen(source,resolve));linkSync(source,alias);
+      relay.close();nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify({command:[${JSON.stringify(runtime)}],env:{ANTHROPIC_UNIX_SOCKET:"/tmp/relay.sock"},argv:["bwrap","--ro-bind",alias,"/tmp/relay.sock","--",${JSON.stringify(runtime)}]})});`, scratch);
+    expect(result.code).not.toBe(0);
+    expect(result.output).toContain('"reason":"pre-existing native relay is not guard-owned"');
+  } finally { rmSync(scratch, { recursive: true, force: true }); }
+});
+
 test("an arbitrary same-user Unix relay is refused before namespace setup", async () => {
   const scratch = mkdtempSync(join(tmpdir(), "odysseus-unowned-relay-"));
   const socket = join(scratch, "relay.sock");

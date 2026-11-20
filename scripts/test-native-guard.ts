@@ -371,13 +371,13 @@ export function nativeScriptedQuery(query: typeof sdkQuery, origin: string): typ
 }
 
 const relayForwarding = new AsyncLocalStorage<Readonly<{ origin: string }>>();
-const ownedRelaySockets = new Map<string, { origin: string; dev: bigint; ino: bigint }>();
+const ownedRelaySockets = new Map<string, { origin: string; dev: bigint; ino: bigint; isLive(): boolean }>();
 const socketIdentity = (stat: { dev: bigint; ino: bigint }) => `${stat.dev}:${stat.ino}`;
 
 const ownedHttpServers = new WeakMap<object, Readonly<{ origin: string }>>();
-function rememberRelay(path: string, origin: string): () => void {
+function rememberRelay(path: string, origin: string, isLive: () => boolean = () => true): () => void {
   const stat = lstatSync(path, { bigint: true });
-  const key = socketIdentity(stat), authority = { origin, dev: stat.dev, ino: stat.ino };
+  const key = socketIdentity(stat), authority = { origin, dev: stat.dev, ino: stat.ino, isLive };
   ownedRelaySockets.set(key, authority);
   return () => { if (ownedRelaySockets.get(key) === authority) ownedRelaySockets.delete(key); };
 }
@@ -389,7 +389,7 @@ export function guardNativeHttpListen(server: object, args: unknown[]): void {
   if (!route || !path?.startsWith("/")) return;
   ownedHttpServers.set(server, route);
   const events = server as { once(event: string, callback: () => void): void };
-  events.once("listening", () => { const forget = rememberRelay(path, route.origin); events.once("close", forget); });
+  events.once("listening", () => { const forget = rememberRelay(path, route.origin, () => (server as { listening: boolean }).listening); events.once("close", forget); });
 }
 
 export function guardNativeHttpEvent(server: object, event: unknown, invoke: () => unknown): unknown {
@@ -454,7 +454,7 @@ function ownedSocketOrigin(path: string): string | undefined {
   try { real = realpathSync(path); } catch { return; }
   const stat = lstatSync(real, { bigint: true });
   const authority = ownedRelaySockets.get(socketIdentity(stat));
-  if (!authority) return;
+  if (!authority?.isLive()) return;
   return stat.isSocket() && stat.dev === authority.dev && stat.ino === authority.ino ? authority.origin : undefined;
 }
 
@@ -466,7 +466,7 @@ function admittedRelay(argv: string[], socket: string): string | undefined {
     try { real = realpathSync(path); } catch { continue; }
     const stat = lstatSync(real, { bigint: true });
     const authority = ownedRelaySockets.get(socketIdentity(stat));
-    if (!authority) continue;
+    if (!authority?.isLive()) continue;
     if (!stat.isSocket() || stat.dev !== authority.dev || stat.ino !== authority.ino) continue;
     // A directory mount exposes every socket it contains, not only the name
     // in ANTHROPIC_UNIX_SOCKET. Every such capability needs the same authority.
@@ -475,7 +475,7 @@ function admittedRelay(argv: string[], socket: string): string | undefined {
       const sibling = join(directory!, name), info = lstatSync(sibling, { bigint: true });
       if (!info.isSocket()) continue;
       const peer = ownedRelaySockets.get(socketIdentity(info));
-      if (!peer || peer.origin !== authority.origin || peer.dev !== info.dev || peer.ino !== info.ino) return;
+      if (!peer?.isLive() || peer.origin !== authority.origin || peer.dev !== info.dev || peer.ino !== info.ino) return;
     }
     return authority.origin;
   }
