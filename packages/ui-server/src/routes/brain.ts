@@ -16,6 +16,9 @@ import { requireJson } from "../middleware/origin.js";
 import type { AppEnv } from "../app-env.js";
 import type { AwaitableActivityStore } from "../activity/store.js";
 import { observeWrite } from "../activity/store-writes.js";
+import { GOVERNANCE_POLICY_PATH } from "@schlessera/brain-common/internal/governance-policy";
+import { OwnerPolicyReviewError, type OwnerPolicyProposal, type OwnerPolicyReviews } from "../brain/owner-policy-reviews.js";
+import type { IncomingPolicyChange } from "../brain/sync-mirror.js";
 
 /**
  * How long a UI sync may take from admission until its process has started
@@ -43,6 +46,11 @@ interface BrainRoutesDeps {
   syncOutputGraceMs?: number;
   /** Where each UI sync records its run (#4257), as scheduled syncs do. Fail-open. */
   activity?: AwaitableActivityStore;
+  /**
+   * Host-owned reviews of a policy change a sync's pull brings in (#4256).
+   * Absent: such a sync fails, naming the waiting change.
+   */
+  policyReviews?: OwnerPolicyReviews;
   brainCliMinimum?: string;
   log?: Logger;
   brain: BrainClient;
@@ -133,6 +141,20 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono<AppEnv> {
         } catch (error) { unavailable(error); }
       },
     };
+  }
+
+  /** Open the owner's review of an incoming policy change; never writes. */
+  async function openPolicyReview(principalId: string, change: IncomingPolicyChange) {
+    let text: string;
+    try { text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(change.content); }
+    catch { return { ok: false as const, message: `The incoming ${GOVERNANCE_POLICY_PATH} is not UTF-8 text, so it cannot be reviewed. Revert the upstream commit that changes it.` }; }
+    const rationale = `Incoming from the brain's remote${change.upstream ? ` at commit ${change.upstream.slice(0, 12)}` : ""}: the pull changes ${GOVERNANCE_POLICY_PATH}. Approving adopts it, and the next sync completes.`;
+    try {
+      return { ok: true as const, proposal: await deps.policyReviews!.propose(principalId, () => text, undefined, rationale,
+        `The incoming policy did not validate, so nothing was proposed. Revert the upstream commit that changes ${GOVERNANCE_POLICY_PATH}, or fix it there`) };
+    } catch (error) {
+      return { ok: false as const, message: error instanceof Error ? error.message : "The incoming policy change could not be reviewed." };
+    }
   }
 
   return new Hono<AppEnv>()
@@ -234,8 +256,8 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono<AppEnv> {
         text?: string;
         success?: boolean;
         reason?: string;
-      }) => {
-        if (data.type === "progress" && data.text) output = (output + data.text + "\n").slice(-SYNC_OUTPUT_TAIL_CHARS);
+      } | ({ type: "policy_review" } & OwnerPolicyProposal)) => {
+        if (data.type === "progress" && "text" in data && data.text) output = (output + data.text + "\n").slice(-SYNC_OUTPUT_TAIL_CHARS);
         return disconnected ? Promise.resolve() : stream.writeSSE({ data: JSON.stringify(data) })
           .catch(() => { disconnected = true; });
       };
@@ -259,6 +281,7 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono<AppEnv> {
         // Everything before the process starts is bounded (#4257): a probe or
         // launch that never settles must not hold the brain until a restart.
         const launching = new AbortController();
+        let incoming: IncomingPolicyChange | undefined;
         let markStarted!: () => void;
         const started = new Promise<void>(resolve => { markStarted = resolve; });
         let timedOut = false;
@@ -290,6 +313,7 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono<AppEnv> {
             sync: true,
             signal: launching.signal,
             onExecute: () => markStarted(),
+            ...(deps.policyReviews ? { onPolicyChange: (change: IncomingPolicyChange) => { incoming = change; } } : {}),
           });
           launched = proc;
           // A launch that settles after its bound was already refused: stop it.
@@ -364,6 +388,20 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono<AppEnv> {
           failure = `Sync failed (exit ${exitCode})${tail ? `: ${tail}` : ""}`;
         }
 
+        // The pull changes the governance policy (#4256): nothing was
+        // published. The owner who started this sync reviews the change.
+        const principalId = c.get("principal")?.id;
+        if (exitCode !== 0 && incoming && deps.policyReviews && principalId) {
+          const opened = await openPolicyReview(principalId, incoming);
+          if (opened.ok) {
+            await send({ type: "policy_review", ...opened.proposal });
+            await send({ type: "done", success: false, reason: "policy_review",
+              text: "Sync paused: the pull changes the governance policy. Review it; after you approve, sync again." });
+            return;
+          }
+          await send({ type: "progress", text: opened.message });
+        }
+
         await send({
           type: "done",
           success: exitCode === 0,
@@ -380,6 +418,25 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono<AppEnv> {
         run.end(failure, output);
       }
     });
+  })
+
+  // The owner's answer to a sync's incoming policy review (#4256).
+  .post("/brain/sync/policy/:turnId/:requestId", requireJson(), async (c) => {
+    if (!deps.policyReviews) return c.json({ error: "Policy reviews are not available on this server." }, 404);
+    const principal = c.get("principal");
+    if (!principal) return c.json({ error: "A signed-in owner answers a policy review." }, 403);
+    const { turnId, requestId } = c.req.param();
+    if (turnId.length > 200 || requestId.length > 200) return c.json({ error: "Invalid request identity." }, 400);
+    const result = await readJsonBody(c).catch(() => null);
+    if (result instanceof Response) return result;
+    const body = result as { approve?: unknown } | null;
+    if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some(key => key !== "approve") || typeof body.approve !== "boolean")
+      return c.json({ error: "Expected { approve } answering this review." }, 400);
+    try { return c.json(await deps.policyReviews.decide(principal.id, turnId, requestId, body.approve)); }
+    catch (error) {
+      if (error instanceof OwnerPolicyReviewError) return c.json({ error: error.message, code: error.code }, error.status);
+      throw error;
+    }
   })
 
   // Recovery after a successful capture whose indexing failed. Coalesce
