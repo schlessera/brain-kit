@@ -3,9 +3,11 @@
 // so a stray click cancelled the run. Same containment contract as
 // render-smoke.test.tsx: the DOM module first, `afterAll(unregisterDom)`,
 // queries off `render()` and never `screen`.
-import { unregisterSlidePanelDom as unregisterDom } from "./slide-panel-dom.js";
+import { registerSlidePanelDom, unregisterSlidePanelDom as unregisterDom } from "./slide-panel-dom.js";
 
-import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+// A repeated run of this file reuses its modules: register the DOM again before its tests.
+beforeAll(registerSlidePanelDom);
 import { overlayGeometry } from "./overlay-geometry.js";
 
 let restoreGeometry: () => void;
@@ -29,7 +31,8 @@ afterAll(async () => {
 });
 
 const realFetch = globalThis.fetch;
-const realMatchMedia = window.matchMedia;
+let realMatchMedia: typeof window.matchMedia;
+beforeAll(() => { realMatchMedia = window.matchMedia; });
 afterEach(() => {
   globalThis.fetch = realFetch;
   window.matchMedia = realMatchMedia;
@@ -396,6 +399,51 @@ describe("WhatsupPanel reads the briefing endpoint", () => {
       expect(view.getByText("Cancelled.")).toBeTruthy();
       fireEvent.click(view.getByRole("button", { name: "Retry" }));
       expect(requests).toHaveLength(3);
+    } finally { view.unmount(); root.dispose(); }
+  });
+});
+
+describe("StreamingPanel sync policy review (#4256)", () => {
+  const review = {
+    turnId: "sync-policy-ithaca", requestId: "sync-harbor", state: "pending", path: "context/policies/governance.md",
+    baseHash: null, proposedHash: "b".repeat(64), frontmatterDiff: "+ outward:\n+   github:\n+     repositories: [ithaca/*]",
+    sections: ["outward"], bodyChanged: false, bodyDiff: "", rationale: "Incoming from the brain's remote at commit 4b1d0c0ffee4: the pull changes context/policies/governance.md.",
+    warnings: [], message: "Review the incoming policy change.",
+  };
+  test("renders the incoming review below the log and sends the owner's one answer to its decide route", async () => {
+    const { root, requests } = transport();
+    const view = render(
+      <BrainUiProvider root={root}>
+        <StreamingPanel open title="Brain Sync" endpoint="/api/brain/sync" onClose={() => {}} />
+      </BrainUiProvider>
+    );
+    try {
+      const frames = [
+        { type: "progress", text: "Pulled 1 commit" },
+        { type: "policy_review", turn_id: review.turnId, request_id: review.requestId, review },
+        { type: "done", success: false, reason: "policy_review", text: "Sync paused: the pull changes the governance policy." },
+      ].map(frame => `data: ${JSON.stringify(frame)}\n\n`).join("");
+      await act(async () => { requests[0]!.response.resolve(new Response(frames)); await flushPromises(); });
+      expect(view.getByText("Sync paused: the pull changes the governance policy.")).toBeTruthy();
+      expect(view.getByText("Waiting for your policy review"), "PAUSED_SYNC_NOT_FAILED").toBeTruthy();
+      expect(view.queryByText("Failed")).toBeNull();
+      const card = view.baseElement.querySelector("[data-sync-policy-review]");
+      expect(card?.getAttribute("data-policy-state"), "SYNC_REVIEW_RENDERED").toBe("pending");
+      expect(card?.textContent).toContain("4b1d0c0ffee4");
+      expect(card?.textContent).toContain("repositories: [ithaca/*]");
+      fireEvent.click(view.getByRole("button", { name: "Approve and write" }));
+      await flushPromises();
+      expect(requests[1]?.url, "SYNC_REVIEW_DECIDE_ROUTE").toBe("https://sync.example/api/brain/sync/policy/sync-policy-ithaca/sync-harbor");
+      expect(requests[1]?.init?.method).toBe("POST");
+      expect(JSON.parse(String(requests[1]?.init?.body)), "SYNC_REVIEW_APPROVE_BODY").toEqual({ approve: true });
+      await act(async () => {
+        requests[1]!.response.resolve(Response.json({ ...review, state: "updated", message: "Policy updated." }));
+        await flushPromises(); await flushPromises();
+      });
+      expect(view.baseElement.querySelector("[data-sync-policy-review]")?.getAttribute("data-policy-state")).toBe("updated");
+      expect(view.getByText("The policy is adopted. Sync again to finish the sync.")).toBeTruthy();
+      expect(view.queryByRole("button", { name: "Approve and write" }), "SYNC_REVIEW_ANSWERED_ONCE").toBeNull();
+      expect(requests).toHaveLength(2);
     } finally { view.unmount(); root.dispose(); }
   });
 });

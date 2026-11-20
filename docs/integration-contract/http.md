@@ -271,6 +271,22 @@ Three additions ([HTTP reference](../http-api.md#corpus-queries-capture-and-sync
   terminal outcome carries the exit status and last output lines, and its
   `job_output` event carries the output tail.
 
+<a id="sync-incoming-policy-review-additive-4256"></a>
+
+### A sync's incoming policy change is reviewed, not failed (additive, #4256)
+
+`POST /api/brain/sync` may send one new frame,
+`{ type: "policy_review", turn_id, request_id, review: PolicyChangeReview }`,
+followed by `{ type: "done", success: false, reason: "policy_review", text }`,
+when a hosted pull's only tier A change is `context/policies/governance.md`
+([HTTP reference](../http-api.md#corpus-queries-capture-and-sync)). Nothing is
+published. The internal `POST /api/brain/sync/policy/:turnId/:requestId`
+takes `{ approve }` from the owner whose sync opened the review and returns the
+recorded `PolicyChangeReview`; only an approval writes, through the existing
+policy writer. `brainSync()` keeps mapping the terminal frame to
+`{ success: false, message }`, and clients that ignore unknown frame types are
+unaffected. No agent runtime proposes or answers these reviews.
+
 <a id="typed-status-software-identity-additive-598"></a>
 
 ### Typed status software identity (additive, #598)

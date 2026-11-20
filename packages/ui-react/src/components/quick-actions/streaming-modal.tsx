@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from "react";
 import { SlidePanel } from "../layout/slide-panel.js";
 import { linkifyPaths } from "../chat/brain-markdown.js";
 import { StreamingOutput, type StreamState } from "./streaming-output.js";
+import { isSyncPolicyReviewFrame, SyncPolicyReview, type SyncPolicyReviewFrame } from "./sync-policy-review.js";
 
 /**
  * The container (S6) for a streamed backend job: the request, the SSE reader
@@ -26,6 +27,8 @@ export function StreamingPanel({
   const root = useBrainUiRoot();
   const [state, setState] = useState<StreamState>("idle");
   const [lines, setLines] = useState<string[]>([]);
+  /** A sync's incoming policy review (#4256), shown below the log once the stream offers one. */
+  const [policyReview, setPolicyReview] = useState<SyncPolicyReviewFrame | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<AbortController | null>(null);
 
@@ -34,6 +37,7 @@ export function StreamingPanel({
 
     setState("running");
     setLines([]);
+    setPolicyReview(null);
 
     let disposed = false;
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
@@ -85,12 +89,16 @@ export function StreamingPanel({
 
             try {
               const data = JSON.parse(dataLine.slice(6));
+              if (isSyncPolicyReviewFrame(data)) {
+                setPolicyReview({ turn_id: data.turn_id, request_id: data.request_id, review: data.review });
+                continue;
+              }
               if (data.text !== undefined) {
                 setLines((l) => [...l, data.text]);
               }
               if (data.type === "done") {
                 finished = true;
-                setState(data.success ? "success" : "error");
+                setState(data.success ? "success" : data.reason === "policy_review" ? "waiting" : "error");
               }
             } catch {}
           }
@@ -149,6 +157,7 @@ export function StreamingPanel({
           setLines((lines) => [...lines, "Cancelled."]);
         }}
         onClose={onClose}
+        after={policyReview && <SyncPolicyReview key={`${policyReview.turn_id}:${policyReview.request_id}`} frame={policyReview} />}
       />
     </SlidePanel>
   );
