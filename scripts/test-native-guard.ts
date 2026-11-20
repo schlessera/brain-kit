@@ -223,7 +223,7 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
     // No other ambient OAuth value may enter the native environment.
     if (/^sk-ant-oat01-([a-z])\1{94}AA$/.test(env.CLAUDE_CODE_OAUTH_TOKEN ?? "")) {
       delete childEnv.ANTHROPIC_API_KEY;
-      childEnv.CLAUDE_CODE_OAUTH_TOKEN = env.CLAUDE_CODE_OAUTH_TOKEN;
+      childEnv.CLAUDE_CODE_OAUTH_TOKEN = env.CLAUDE_CODE_OAUTH_TOKEN!;
     }
     for (const [key, value] of Object.entries(childEnv)) argv.push("--setenv", key, value);
     argv.push("--chdir", cwd, "--", command, ...args);
