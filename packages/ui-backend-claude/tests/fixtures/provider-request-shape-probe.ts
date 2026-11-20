@@ -6,7 +6,7 @@
 import { chmodSync, linkSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import { startInferenceRelay } from "@schlessera/brain-ui-sdk/internal";
+import { INFERENCE_PLACEHOLDER, startInferenceRelay } from "@schlessera/brain-ui-sdk/internal";
 import { createClaudeSdkTurn } from "../../src/sdk-options.js";
 import { createTurnLockBinding } from "../../src/turn-lock.js";
 import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
@@ -87,7 +87,7 @@ try {
     }, profile: { id: "fixture", label: "Fixture", model: "claude-opus-5-5", billing: "api", requiredEnvKeys: [], buildEnv: () => ({}) },
       turnEnvironment: { GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", HOME: home, CLAUDE_CONFIG_DIR: join(home, ".claude"), CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1", MCP_CONNECTION_NONBLOCKING: "0",
         ...(scenario === "gateway" ? { ANTHROPIC_BASE_URL: "https://gateway.example.com" } : {}) },
-      hostInference: { proxyDir: relay.dir, placeholders: { ANTHROPIC_API_KEY: "offline-odysseus" } },
+      hostInference: { proxyDir: relay.dir, placeholders: { ANTHROPIC_API_KEY: INFERENCE_PLACEHOLDER } },
       abortController: controller, allowedTools: ["Read"], confirmPatterns: [], turnLock, log(level, message) { console.error(level, message); },
     });
     delete turn.options.spawnClaudeCodeProcess;
@@ -116,9 +116,9 @@ try {
       }
       if (scenario === "fast-subscription") {
         turn.options.env!.ANTHROPIC_API_KEY = "";
-        turn.options.env!.CLAUDE_CODE_OAUTH_TOKEN = "brain-inference-placeholder";
+        turn.options.env!.CLAUDE_CODE_OAUTH_TOKEN = INFERENCE_PLACEHOLDER;
         (turn.options.settings as any).env.ANTHROPIC_API_KEY = "";
-        (turn.options.settings as any).env.CLAUDE_CODE_OAUTH_TOKEN = "brain-inference-placeholder";
+        (turn.options.settings as any).env.CLAUDE_CODE_OAUTH_TOKEN = INFERENCE_PLACEHOLDER;
       }
     }
     turn.options.stderr = text => console.error(text);
