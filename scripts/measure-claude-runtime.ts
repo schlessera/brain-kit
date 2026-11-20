@@ -931,11 +931,12 @@ async function credentialRows(model: ReturnType<typeof scriptedModel>): Promise<
     BRAIN_UI_SUBPROCESS_ENV_EXTRA: "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
   });
   const worker = createMeasurementWorkerFixture(sc.cwd, sc.home);
+  const leaveRoute = nativeScriptedService(model.url);
   try {
     const backend = createClaudeBackend({
       maintenance: worker.maintenance,
       brainPath: sc.cwd,
-      profiles: defineProfiles([{ id: "claude", label: "Claude", source: "builtin" }]),
+      profiles: defineProfiles([{ id: "claude", label: "Claude", source: "builtin", baseUrl: model.url }]),
       log: () => {},
     });
     await backend.startTurn({
@@ -945,6 +946,7 @@ async function credentialRows(model: ReturnType<typeof scriptedModel>): Promise<
       bridge: { emit: () => {}, requestPermission: async () => ({ behavior: "deny", message: "probe" }) },
     });
   } finally {
+    leaveRoute();
     worker.cleanup();
     for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key];
     Object.assign(process.env, saved);

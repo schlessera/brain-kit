@@ -162,6 +162,33 @@ test("wrapper exec and auth inspection cannot fabricate native launch or injecte
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 });
 
+test("isolated plans preserve synthetic credential precedence and an unauthenticated row", async () => {
+  const scratch = mkdtempSync(join(tmpdir(), "odysseus-auth-plan-"));
+  try {
+    const result = await probe(`${imports}
+      import {writeFileSync} from "node:fs";
+      import {nativeWorkerBoundary,nativeScriptedService} from ${JSON.stringify(join(ROOT, "scripts/test-native-guard.ts"))};
+      const spawnSync=Bun.spawnSync,which=Bun.which;
+      Bun.which=((command,options)=>command==="strace"?"/synthetic/strace":which(command,options));
+      Bun.spawnSync=((argv,options)=>["bwrap","strace"].includes(argv[0])?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
+      process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";
+      const key="sk-ant-api03-"+"k".repeat(95)+"AA",token="sk-ant-oat01-"+"o".repeat(95)+"AA";
+      const leave=nativeScriptedService("http://127.0.0.1:1");
+      for(const creds of [{},{ANTHROPIC_API_KEY:key},{CLAUDE_CODE_OAUTH_TOKEN:token},{ANTHROPIC_API_KEY:key,CLAUDE_CODE_OAUTH_TOKEN:token}]){
+        const boundary=nativeClaudeBoundary(${JSON.stringify(runtime)},[],{cwd:${JSON.stringify(scratch)},env:{HOME:${JSON.stringify(scratch)},ANTHROPIC_BASE_URL:"http://127.0.0.1:1",...creds}});
+        const injected={};for(let i=0;i<boundary.argv.length;i++)if(boundary.argv[i]==="--setenv")injected[boundary.argv[i+1]]=boundary.argv[i+2];
+        if(injected.ANTHROPIC_API_KEY!==creds.ANTHROPIC_API_KEY||injected.CLAUDE_CODE_OAUTH_TOKEN!==creds.CLAUDE_CODE_OAUTH_TOKEN)throw Error("synthetic credential row changed");
+        writeFileSync(boundary.argv[boundary.argv.indexOf("-o")+1],${JSON.stringify(`1 execve(${JSON.stringify(runtime)}, [], 0x1) = 0`)});boundary.dispose();
+        const worker=nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify({command:[${JSON.stringify(runtime)}],brainPath:${JSON.stringify(scratch)},env:{HOME:${JSON.stringify(scratch)},...creds},argv:["bwrap","--",${JSON.stringify(runtime)}]})});
+        const argv=JSON.parse(worker.env.BRAIN_WORKER_LAUNCH).argv,workerEnv={};
+        for(let i=0;i<argv.length;i++)if(argv[i]==="--setenv")workerEnv[argv[i+1]]=argv[i+2];
+        if(workerEnv.ANTHROPIC_API_KEY!==(creds.ANTHROPIC_API_KEY??"")||workerEnv.CLAUDE_CODE_OAUTH_TOKEN!==(creds.CLAUDE_CODE_OAUTH_TOKEN??""))throw Error("synthetic worker credential row changed");
+        writeFileSync(argv[argv.indexOf("-o")+1],${JSON.stringify(`1 execve(${JSON.stringify(runtime)}, [], 0x1) = 0`)});worker.dispose();
+      }leave();`, scratch);
+    expect(result.code, result.output).toBe(0);
+  } finally { rmSync(scratch, { recursive: true, force: true }); }
+});
+
 test("an arbitrary same-user Unix relay is refused before namespace setup", async () => {
   const scratch = mkdtempSync(join(tmpdir(), "odysseus-unowned-relay-"));
   const socket = join(scratch, "relay.sock");

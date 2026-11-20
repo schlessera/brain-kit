@@ -164,6 +164,14 @@ function testRuntimeMounts(): string[] {
 interface AuditReceipt { kind: "native-offline-audit"; head: string; nativeLaunched: boolean; success: boolean; reason?: string; deniedConnects: number }
 interface Boundary { argv: string[]; env: Record<string, string>; dispose(): void; receipt(): AuditReceipt }
 
+/** Retain only public synthetic credentials, including their absent/both cases. */
+function syntheticCredentials(env: Record<string, string | undefined>): Record<string, string> {
+  const result: Record<string, string> = {};
+  if (env.ANTHROPIC_API_KEY) result.ANTHROPIC_API_KEY = /^sk-ant-api03-([a-z])\1{94}AA$/.test(env.ANTHROPIC_API_KEY) ? env.ANTHROPIC_API_KEY : "offline-fixture";
+  if (/^sk-ant-oat01-([a-z])\1{94}AA$/.test(env.CLAUDE_CODE_OAUTH_TOKEN ?? "")) result.CLAUDE_CODE_OAUTH_TOKEN = env.CLAUDE_CODE_OAUTH_TOKEN!;
+  return result;
+}
+
 /** Raw connect arguments are pointers/numbers: no addresses, paths or payloads. */
 export function deniedNativeConnects(trace: string): number {
   return trace.split("\n").filter(line => /(?:connect\(|connect resumed>).*?= -1 (?:EACCES|EPERM|ENETUNREACH|EHOSTUNREACH|ECONNREFUSED|ENOENT)\b/.test(line)).length;
@@ -261,20 +269,14 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
       ...(inheritedSocket && inheritedOrigin ? ["--ro-bind", inheritedSocket, "/tmp/native-relay/relay.sock", "--ro-bind", inheritedSocket, inheritedSocket] : []),
       ...(options.managedSettings ? ["--ro-bind", options.managedSettings, "/etc/claude-code"] : []), "--clearenv"];
     const childEnv: Record<string, string> = { HOME: home, CLAUDE_CONFIG_DIR: versionHome ?? env.CLAUDE_CONFIG_DIR ?? home,
-      PATH: "/usr/bin:/bin", LANG: "C.UTF-8", ANTHROPIC_API_KEY: "offline-fixture",
+      PATH: "/usr/bin:/bin", LANG: "C.UTF-8",
       ANTHROPIC_BASE_URL: "http://localhost", ANTHROPIC_UNIX_SOCKET: "/tmp/native-relay/relay.sock",
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", DISABLE_AUTOUPDATER: "1" };
     // These are public model selectors, never ambient provider credentials.
     for (const key of ["ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_SMALL_FAST_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_DISABLE_AUTO_MEMORY"]) {
       if (env[key]) childEnv[key] = env[key]!;
     }
-    if (/^sk-ant-api03-([a-z])\1{94}AA$/.test(env.ANTHROPIC_API_KEY ?? "")) childEnv.ANTHROPIC_API_KEY = env.ANTHROPIC_API_KEY!;
-    // The core runner's pinned synthetic OAuth fixture tests that auth route.
-    // No other ambient OAuth value may enter the native environment.
-    if (/^sk-ant-oat01-([a-z])\1{94}AA$/.test(env.CLAUDE_CODE_OAUTH_TOKEN ?? "")) {
-      delete childEnv.ANTHROPIC_API_KEY;
-      childEnv.CLAUDE_CODE_OAUTH_TOKEN = env.CLAUDE_CODE_OAUTH_TOKEN!;
-    }
+    Object.assign(childEnv, syntheticCredentials(env));
     if (inheritedOrigin) Object.assign(childEnv, relayCredentialPlaceholders(env));
     if (args.some((value, index) => value === "auth" && args[index + 1] === "status")) {
       // Auth status inspects the isolated fixture login; injecting an API key
@@ -429,7 +431,8 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
     }
     argv.splice(bwrap + 1, 0, "--unshare-net", ...systemMounts(), ...testRuntimeMounts(), "--ro-bind", process.execPath, process.execPath);
     const pinned = { ANTHROPIC_BASE_URL: "http://localhost", ANTHROPIC_UNIX_SOCKET: socket && ownedOrigin ? socket : "/tmp/native-relay/relay.sock",
-      ...(ownedOrigin ? relayCredentialPlaceholders(launch.env ?? {}) : { ANTHROPIC_API_KEY: "offline-fixture", ANTHROPIC_AUTH_TOKEN: "", CLAUDE_CODE_OAUTH_TOKEN: "" }) };
+      ANTHROPIC_API_KEY: "", ANTHROPIC_AUTH_TOKEN: "", CLAUDE_CODE_OAUTH_TOKEN: "",
+      ...(ownedOrigin ? relayCredentialPlaceholders(launch.env ?? {}) : syntheticCredentials(launch.env ?? {})) };
     const separator = argv.indexOf("--", bwrap);
     argv.splice(separator, 0, "--ro-bind", bridge.directory, "/tmp/native-relay",
       "--ro-bind", join(bridge.directory, "passwd"), "/etc/passwd", "--ro-bind", join(bridge.directory, "group"), "/etc/group",
