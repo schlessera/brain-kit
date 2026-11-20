@@ -3,6 +3,40 @@ import {outputTaintSignals,searchOutputContext} from '../src/activity/ingestion-
 const glob=(filenames:string[],extra={})=>JSON.stringify({durationMs:1,numFiles:filenames.length,filenames,truncated:false,...extra});
 const grep=(filenames:string[],extra={})=>JSON.stringify({numFiles:filenames.length,filenames,...extra});
 for(const [name,tool,input,output,expected] of [
+ ['Pi bracket filename and independent later mark','grep',{},'[voyage]/log.md:1:sirens\nnotes/voyage.md:2:echo',['user_marked','user_marked','legacy_unknown']],
+ ['Pi malformed line retains later mark','grep',{},'{malformed\nnotes/voyage.md:2:echo',['user_marked','legacy_unknown']],
+ ['Grep at page limit without total','Grep',{},grep(['notes/loom.md'],{appliedLimit:1}),['legacy_unknown']],
+ ['Grep known complete limit','Grep',{},grep(['notes/loom.md'],{appliedLimit:1,totalFiles:1}),[]],
+ ['Grep input limit without metadata','Grep',{head_limit:1},grep(['notes/loom.md']),['legacy_unknown']],
+ ['Grep empty count claims matches','Grep',{output_mode:'count'},grep([],{content:'',numMatches:3}),['legacy_unknown']],
+ ['Grep wrong sum','Grep',{output_mode:'count'},grep([],{content:'notes/loom.md:2',numMatches:3}),['legacy_unknown']],
+ ['Grep correct sum','Grep',{output_mode:'count'},grep(['notes/loom.md'],{content:'notes/loom.md:2',numMatches:2}),[]],
+ ['Grep empty content claims matches','Grep',{output_mode:'content'},grep([],{content:'',numMatches:3}),['legacy_unknown']],
+ ['Grep empty files claims matches','Grep',{},grep([],{numMatches:3}),['legacy_unknown']],
+ ['Grep files have missing content','Grep',{output_mode:'content'},grep(['notes/loom.md'],{content:''}),['legacy_unknown']],
+ ['Grep files have missing counts','Grep',{output_mode:'count'},grep(['notes/loom.md'],{content:''}),['legacy_unknown']],
+ ['Grep duplicate filenames','Grep',{},grep(['notes/loom.md','notes/loom.md']),['legacy_unknown']],
+ ['Glob duplicate filenames','Glob',{},glob(['notes/loom.md','notes/loom.md']),['legacy_unknown']],
+ ['Glob missing completed count','Glob',{},glob([],{countIsComplete:true}),['legacy_unknown']],
+ ['Glob bad duration','Glob',{},glob([],{durationMs:-1}),['legacy_unknown']],
+ ['Grep invalid optional number','Grep',{},grep([],{numMatches:-1}),['legacy_unknown']],
+ ['Grep unexpected key','Grep',{},grep([],{unexpected:true}),['legacy_unknown']],
+ ['Grep hidden line count in files','Grep',{},grep([],{numLines:3}),['legacy_unknown']],
+ ['Grep hidden total lines in files','Grep',{},grep([],{totalLines:3}),['legacy_unknown']],
+ ['Grep content at limit without total','Grep',{output_mode:'content'},grep([],{content:'notes/loom.md:1:sirens',appliedLimit:1}),['legacy_unknown']],
+ ['Grep count at limit without total','Grep',{output_mode:'count'},grep([],{content:'notes/loom.md:2',appliedLimit:1}),['legacy_unknown']],
+ ['Grep zero count entry','Grep',{output_mode:'count'},grep([],{content:'notes/loom.md:0',numMatches:0}),['legacy_unknown']],
+ ['Grep wrong reported offset','Grep',{offset:1},grep([],{appliedOffset:0}),['legacy_unknown']],
+ ['Grep unbounded limit','Grep',{head_limit:0},grep(['notes/loom.md'],{appliedLimit:0}),[]],
+ ['Grep zero reported files with identified content','Grep',{output_mode:'content'},grep([],{content:'notes/loom.md:1:sirens'}),['legacy_unknown']],
+ ['Grep count mismatched filenames','Grep',{output_mode:'count'},grep(['notes/other.md'],{content:'notes/loom.md:1',numMatches:1}),['legacy_unknown']],
+ ['Grep reported unlimited cannot hide input limit','Grep',{head_limit:1},grep(['notes/loom.md'],{appliedLimit:0}),['legacy_unknown']],
+ ['Grep content count contradicts lines','Grep',{output_mode:'content'},grep(['notes/loom.md'],{content:'notes/loom.md:1:sirens',numMatches:2}),['legacy_unknown']],
+ ['Grep filename count contradicts matches','Grep',{},grep(['notes/loom.md'],{numMatches:0}),['legacy_unknown']],
+ ['Grep null output selector','Grep',{output_mode:null},grep([]),['legacy_unknown']],
+ ['Grep null line selector','Grep',{'-n':null},grep([]),['legacy_unknown']],
+ ['Grep null limit selector','Grep',{head_limit:null},grep([]),['legacy_unknown']],
+ ['Grep null offset selector','Grep',{offset:null},grep([]),['legacy_unknown']],
  ['overlapping numeric delimiters','grep',{},'notes/voyage:2:7:sirens',['user_marked','legacy_unknown']],
  ['Glob text block rejected','Glob',{},JSON.stringify([{type:'text',text:'notes/voyage:2:home.md'}]),['legacy_unknown']],
  ['plain clipped Glob rejected','Glob',{},'notes/voy...',['legacy_unknown']],
@@ -24,8 +58,8 @@ for(const [name,tool,input,output,expected] of [
  ['Grep wrong mode','Grep',{},grep([],{mode:'content'}),['legacy_unknown']],
  ['Grep omitted lines','Grep',{output_mode:'content'},grep([],{content:'notes/loom.md:1:sirens',numLines:1,totalLines:2}),['legacy_unknown']],
  ['Grep offset','Grep',{offset:1},grep([]),['legacy_unknown']],
- ['Grep count colon filename','Grep',{output_mode:'count'},grep([],{content:'notes/voyage:2:7'}),['user_marked']],
- ['Grep numbered content','Grep',{output_mode:'content'},grep([],{content:'notes/voyage.md:1:sirens',numLines:1}),['user_marked']],
+ ['Grep count colon filename','Grep',{output_mode:'count'},grep(['notes/voyage:2'],{content:'notes/voyage:2:7'}),['user_marked']],
+ ['Grep numbered content','Grep',{output_mode:'content'},grep(['notes/voyage.md'],{content:'notes/voyage.md:1:sirens',numLines:1}),['user_marked']],
  ['Grep ambiguous content','Grep',{output_mode:'content'},grep([],{content:'notes/voyage:2:7:sirens',numLines:1}),['user_marked','legacy_unknown']],
  ['Pi exact sentinel','grep',{},'No matches.',[]],
  ['Pi transport sentinel','grep',{},JSON.stringify([{type:'text',text:'No matches.'}]),['legacy_unknown']],
@@ -34,7 +68,7 @@ for(const [name,tool,input,output,expected] of [
  ['Pi malformed JSON','grep',{},'{"matches":',['legacy_unknown']],
  ['Pi quoted sentinel','grep',{},JSON.stringify('No matches.'),['legacy_unknown']],
 ] as const)test(`recognized search shape: ${name}`,()=>{
- const marked=(path:string)=>['notes/voyage.md','notes/voyage:2','notes/voyage:2:home.md'].includes(path);
+ const marked=(path:string)=>['[voyage]/log.md','notes/voyage.md','notes/voyage:2','notes/voyage:2:home.md'].includes(path);
  const signals=outputTaintSignals(tool,output,'/srv/odysseus/brain',marked,searchOutputContext(tool,input));
  expect(signals.map(s=>s.source),'ONLY_RECOGNIZED_COMPLETE_SHAPES_CAN_REMAIN_HEALTHY').toEqual([...expected]);
 });

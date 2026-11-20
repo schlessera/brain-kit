@@ -174,7 +174,7 @@ export function inputTaintSignals(tool: string, input: unknown, brainPath?: stri
 }
 
 /** Admitted format only. Invalid or incomplete output always retains unknown coverage. */
-interface SearchOutputContext { backendId?: string; outputMode?: string; lineNumbers?: boolean; offset?: number }
+interface SearchOutputContext { backendId?: string; outputMode?: string; lineNumbers?: boolean; offset?: number; limit?: number }
 // Installed SDK: GlobInput/GrepInput and GlobOutput/GrepOutput in
 // @anthropic-ai/claude-agent-sdk/sdk-tools.d.ts:905-983,3506-3545. Pi's shipped grep and text
 // envelope are `grepTool` (packages/ui-backend-pi/src/file-tools.ts:52-91)
@@ -189,7 +189,7 @@ const grepOutput = z.object({ mode: z.enum(['content','files_with_matches','coun
 export function outputTaintSignals(tool: string, output: string, brainPath?: string, marked?: MarkedLookup, context?: SearchOutputContext): IngestionSignal[] {
   if (!SEARCH_TOOLS.has(tool)) return [];
   if(Buffer.byteLength(output)>1048576)throw new Error('Safety search output capacity exceeded');
-  const result:IngestionSignal[]=[],seen=new Set<string>();let unknown=false;
+  const result:IngestionSignal[]=[],seen=new Set<string>(),contentPaths=new Set<string>();let unknown=false;
   const add=(path:string)=>{
     if(!path||/[\r\n\0]/.test(path)){unknown=true;return;}
     if(/truncat|omitted|\.\.\.|…/i.test(path))unknown=true;
@@ -206,7 +206,7 @@ export function outputTaintSignals(tool: string, output: string, brainPath?: str
       // No line numbers: every colon could separate the filename and content.
       // With numbers: lookahead preserves overlapping `:2:7:` candidates.
       for(const split of line.matchAll(numbers?/(?=:[1-9][0-9]*:)/g:/(?=:)/g)){
-        if(count++>=256)throw new Error('Safety search candidate capacity exceeded');add(line.slice(0,split.index));
+        if(count++>=256)throw new Error('Safety search candidate capacity exceeded');const path=line.slice(0,split.index);contentPaths.add(path);add(path);
       }
       if(count!==1)unknown=true;
     }
@@ -215,31 +215,51 @@ export function outputTaintSignals(tool: string, output: string, brainPath?: str
   if(tool==='grep'&&(context===undefined||context.backendId==='pi')){
     // `safetyResultInput` (packages/ui-backend-pi/src/worker-protocol.ts:92-99)
     // joins the shipped tool's text. No JSON envelope is part of this format.
-    if(/^[\s]*[\[{\"]/.test(output))unknown=true;
-    else if(output!=='No matches.')content(output,true);
+    if(output!=='No matches.') {
+      // Suspicious/unsupported envelopes remain unknown, but never hide any
+      // independently parseable filename on this or a later line.
+      for(const line of output.split('\n')){if(/^[\s]*[\[{\"]/.test(line))unknown=true;content(line,true);}
+    }
   }else if((context?.backendId??'claude')==='claude'&&tool==='Glob'){
     const checked=globOutput.safeParse(parsed);
     if(!checked.success)unknown=true;
     else {const value=checked.data;for(const path of value.filenames)add(path);
-      if(value.numFiles!==value.filenames.length||value.truncated||value.countIsComplete===false||
-        value.totalMatches!==undefined&&value.totalMatches!==value.numFiles)unknown=true;}
+      if(value.numFiles!==value.filenames.length||new Set(value.filenames).size!==value.filenames.length||value.truncated||value.countIsComplete===false||
+        value.totalMatches!==undefined&&value.totalMatches!==value.numFiles||value.countIsComplete===true&&value.totalMatches===undefined)unknown=true;}
   }else if((context?.backendId??'claude')==='claude'&&tool==='Grep'){
     const checked=grepOutput.safeParse(parsed),mode=context?.outputMode;
     if(!checked.success||!['files_with_matches','content','count'].includes(mode??''))unknown=true;
     else {const value=checked.data;for(const path of value.filenames)add(path);
+      const lines=mode==='files_with_matches'?value.filenames.length:value.content?value.content.split('\n').length:0;
+      const total=mode==='content'?value.totalLines:value.totalFiles;
+      const limits=[value.appliedLimit??0,context?.limit??250];
+      // An optional total cannot be invented from a full page. Offset pages
+      // omit earlier sources even if their returned page is otherwise valid.
       if(value.mode!==undefined&&value.mode!==mode||value.numFiles!==value.filenames.length||
+        new Set(value.filenames).size!==value.filenames.length||
         value.totalFiles!==undefined&&value.totalFiles!==value.numFiles||
-        (value.appliedOffset??0)>0||(context?.offset??0)>0)unknown=true;
+        (value.appliedOffset??0)>0||(context?.offset??0)>0||
+        limits.some(limit=>limit>0&&lines>=limit)&&total===undefined||
+        value.numLines!==undefined&&value.numLines!==lines||value.totalLines!==undefined&&value.totalLines!==lines)unknown=true;
+      let matches=mode==='files_with_matches'?value.numFiles:lines;
       if(mode==='files_with_matches'){if(value.content!==undefined&&value.content!=='')unknown=true;}
       else if(value.content===undefined)unknown=true;
       else {
-        if(value.content) {
-          if(mode==='content')content(value.content,context?.lineNumbers!==false);
-          else for(const line of value.content.split('\n')){const split=/:([0-9]+)$/.exec(line);if(split)add(line.slice(0,split.index));else unknown=true;}
+        if(!value.content&&value.numFiles>0)unknown=true;
+        if(mode==='content'){if(value.content)content(value.content,context?.lineNumbers!==false);}
+        else {
+          matches=0;
+          for(const line of value.content?value.content.split('\n'):[]){
+            const split=/:([1-9][0-9]*)$/.exec(line);
+            if(split){const path=line.slice(0,split.index);contentPaths.add(path);add(path);matches+=Number(split[1]);if(!Number.isSafeInteger(matches))unknown=true;}
+            else unknown=true;
+          }
         }
-        const lines=value.content?value.content.split('\n').length:0;
-        if(value.numLines!==undefined&&value.numLines!==lines||value.totalLines!==undefined&&value.totalLines!==lines)unknown=true;
       }
+      if(mode!=='files_with_matches'&&(value.numFiles!==contentPaths.size||value.filenames.some(path=>!contentPaths.has(path))))unknown=true;
+      // Only counts accounted for by the identified output can establish
+      // completeness; unsupported count semantics remain restrictive.
+      if(value.numMatches!==undefined&&value.numMatches!==matches)unknown=true;
     }
   }else unknown=true;
   if(unknown){if(result.length>=256)throw new Error('Safety search signal capacity exceeded');result.push({source:'legacy_unknown',detector:'tool_search_output',key:'unknown_remainder'});}
@@ -250,6 +270,6 @@ export function outputTaintSignals(tool: string, output: string, brainPath?: str
 export function searchOutputContext(tool:string,input:unknown,backendId=tool==='grep'?'pi':'claude'):SearchOutputContext {
   if(tool!=='Grep')return {backendId};
   const value=input&&typeof input==='object'?input as Record<string,unknown>:{};
-  const mode=value.output_mode??'files_with_matches',numbers=value['-n']??true,offset=value.offset??0;
-  return {backendId,outputMode:typeof mode==='string'&&['content','files_with_matches','count'].includes(mode)&&typeof numbers==='boolean'&&Number.isSafeInteger(offset)&&Number(offset)>=0?mode:'unknown',lineNumbers:numbers===true,offset:typeof offset==='number'?offset:0};
+  const mode=value.output_mode===undefined?'files_with_matches':value.output_mode,numbers=value['-n']===undefined?true:value['-n'],offset=value.offset===undefined?0:value.offset,limit=value.head_limit===undefined?250:value.head_limit;
+  return {backendId,outputMode:typeof mode==='string'&&['content','files_with_matches','count'].includes(mode)&&typeof numbers==='boolean'&&Number.isSafeInteger(offset)&&Number(offset)>=0&&Number.isSafeInteger(limit)&&Number(limit)>=0?mode:'unknown',lineNumbers:numbers===true,offset:typeof offset==='number'?offset:0,limit:typeof limit==='number'?limit:250};
 }

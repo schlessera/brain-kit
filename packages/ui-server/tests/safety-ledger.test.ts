@@ -582,7 +582,7 @@ for(const [name,tool,output,expected] of [
 
 for(const [name,backend,tool,mode,output,expected] of [
  ['Claude filename mode','claude','Grep','files_with_matches',JSON.stringify({numFiles:1,filenames:['notes/voyage:2:home.md']}),['user_marked']],
- ['Claude count mode','claude','Grep','count',JSON.stringify({numFiles:0,filenames:[],content:'notes/voyage:2:7'}),['user_marked']],
+ ['Claude count mode','claude','Grep','count',JSON.stringify({numFiles:1,filenames:['notes/voyage:2'],content:'notes/voyage:2:7'}),['user_marked']],
  ['invalid Claude mode','claude','Grep','unsupported','notes/voyage:2:7:sirens',['legacy_unknown']],
  ['Pi sentinel cannot cross backend','claude','grep','content','No matches.',['legacy_unknown']],
 ] as const)test(`search parser identity: ${name}`,async()=>{

@@ -494,3 +494,20 @@ test('real Pi grep empty output stays empty when the collector records its resul
   expect(f.chat().restriction).toBe('normal');
  }finally{await f.close();}
 });
+
+test('real Pi grep bracket paths retain every independently marked source',async()=>{
+ const f=await voyage();try{
+  const {untrustedMarkOperations}=await import('../src/files/untrusted-marks');
+  mkdirSync(join(f.brain,'[voyage]'));
+  for(const name of ['log.md','raft.md']){
+   const path=`[voyage]/${name}`;writeFileSync(join(f.brain,path),'sirens\n');
+   untrustedMarkOperations(f.db).mark(path,null,Date.UTC(2026,6,12));
+  }
+  const input={pattern:'sirens',path:'[voyage]'};
+  await f.collector.begin('bracket_search','grep',input);
+  const output=await searchRuns(f,'bracket_search',input);
+  expect(output.split('\n'),'REAL_GREP_RETURNS_BOTH_BRACKET_FILENAMES').toHaveLength(2);
+  await f.collector.result('bracket_search','grep',output,true);
+  expect(f.db.query("SELECT COUNT(*) n FROM safety_records WHERE kind='occurrence' AND source='user_marked'").get(),'REAL_BRACKET_PATHS_RETAIN_BOTH_MARKS').toEqual({n:2});
+ }finally{await f.close();}
+});
