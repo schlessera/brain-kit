@@ -655,7 +655,7 @@ export function workerSandboxNote(sandbox: WorkerSandbox, facts: WorkerNoteFacts
       "",
       linkRule(scratch?.rel),
       `The brain's packaged CLI directory \`${join(sandbox.brain, "node_modules", ".bin")}\` is first on PATH.`,
-      ...(!existsSync(join(sandbox.brain, "node_modules", ".bin", "brain"))
+      ...(!sandbox.moduleGeneration && !existsSync(join(sandbox.brain, "node_modules", ".bin", "brain"))
         ? ["The packaged `brain` CLI is missing. Install `@schlessera/brain` in the brain repository and run `bun install` there before using `brain` commands."] : []),
       "",
       secretsNote(resolvedFacts.providerKeys ?? [], resolvedFacts.egress === true),

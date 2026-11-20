@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { collectModuleGenerations, currentModuleGeneration, holdModuleGeneration, moduleLockHash, publishModuleGeneration, validateModuleGeneration } from "../src/server/module-store.js";
 import { prepareNativeWorkerStartupView, retainWorkerStartupView, workerModuleGeneration } from "../src/server/worker-startup-view.js";
+import { workerSandboxNote } from "../src/server/worker-sandbox.js";
 import { prepareWorkerSandbox, workerCommand } from "../src/server/worker-launcher.js";
 import { resolveWorkerProtection } from "../src/server/worker-protection.js";
 const clean: (() => void)[] = [];
@@ -87,6 +88,7 @@ test("a real sandbox resolves its pinned package and refuses writes to the gener
   const view = await prepareNativeWorkerStartupView(f.brain, f.manager);
   try {
     const sandbox = prepareWorkerSandbox(f.brain, { profile: "governed", areas: [], maintenance: { startupView: view } });
+    expect(workerSandboxNote(sandbox), "ACTIVE_GENERATION_CLI_IS_AVAILABLE").not.toContain("packaged `brain` CLI is missing");
     const program = `const fs=require("node:fs");if(require("odysseus").default!==${JSON.stringify(next.receipt.generation)})process.exit(41);try{fs.appendFileSync("node_modules/odysseus/index.js","attack");process.exit(42)}catch(e){if(e.code!=="EROFS")throw e}console.log("PINNED_PACKAGE_READ_ONLY");`;
     const argv = workerCommand({ brainPath: f.brain, sandbox, command: [process.execPath, "--config=/dev/null", "--no-env-file", "-e", program], env: {} });
     const child = Bun.spawnSync(argv, { stdout: "pipe", stderr: "pipe" });
