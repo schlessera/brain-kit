@@ -1,4 +1,5 @@
 /** Read evidence shares the reference writer FIFO; it never grants source trust. */
+import { resolveReferenceOwners, type ReferenceOwnerRoot } from "./reference-owner-resolution.js";
 import { referenceIdentityObservationMatches, type ReferenceIdentityObservation } from "./reference-acquisition.js";
 import type { Database } from "bun:sqlite";
 import { isLiveReferenceGrant } from "../db/reference-grants.js";
@@ -6,6 +7,7 @@ import { sourceAuthorityCurrent, type SourceAuthority } from "./reference-source
 
 interface ReferenceReadRecord {
   id: string;
+  ownerRoot?: ReferenceOwnerRoot;
   operationId: string;
   turnId: string;
   toolCallId: string;
@@ -24,16 +26,19 @@ export function readWrites(db: Database) {
         const source = db.query("SELECT 1 FROM reference_sources WHERE root_id = ? AND validated_at > 0").get(rootId);
         if (!source || JSON.stringify(acquisition) !== record.acquisition || !sourceAuthorityCurrent(db, authority)
           || grantId !== null && !isLiveReferenceGrant(db, grantId, Date.now())) throw new Error("Reference read authority changed before recording");
-        const evidence = JSON.parse(record.evidence) as { identityObservation?: ReferenceIdentityObservation };
+        const evidence = JSON.parse(record.evidence) as { identityObservation?: ReferenceIdentityObservation; ownerResolution?: ReturnType<typeof resolveReferenceOwners> };
         const acquired = acquisition as Parameters<typeof referenceIdentityObservationMatches>[1];
         if (!referenceIdentityObservationMatches(evidence.identityObservation, acquired, {
           operationId: record.operationId, brain: acquired.brain, principalId: record.principalId, turnId: record.turnId, rootId,
         })) throw new Error("Reference read transport identity changed before recording");
+        // Resolve inside the acquired writer transaction, after queued waits.
+        // The result is historical qualification evidence, never a trust decision.
+        evidence.ownerResolution = resolveReferenceOwners(db, record.ownerRoot, evidence.identityObservation!);
         const count = db.query("SELECT COUNT(*) AS n FROM reference_reads WHERE turn_id = ?").get(record.turnId) as { n: number };
         if (count.n >= 2000) throw new Error("Reference read record capacity exceeded");
         db.query(`INSERT INTO reference_reads (id, turn_id, tool_call_id, principal_id, acquisition, evidence, response_digest, created_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(record.id, record.turnId, record.toolCallId, record.principalId,
-            record.acquisition, record.evidence, record.responseDigest, record.at);
+            record.acquisition, JSON.stringify(evidence), record.responseDigest, record.at);
       }).immediate();
     },
     referenceReadObserve(turnId: string, toolCallId: string, digest: string | null, finalized: boolean) {

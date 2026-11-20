@@ -1,5 +1,8 @@
 /** Actual managed Git/TLS acquisition, maintenance workers and native Btrfs publication. No read-trust exemption. */
 import { expect } from "bun:test";
+import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
+import { createTrustSettings } from "../../packages/ui-server/src/brain/trust-settings.js";
+import { createTrustGitHubIdentity } from "../../packages/ui-server/src/brain/trust-github-identity.js";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
 import { join } from "node:path";
@@ -110,7 +113,18 @@ export async function proveManagedReferenceSource(client: ReturnType<typeof crea
       const blob = await transport.readBlob!({ root: record.path!, commit, tree, path: "README.md", offset: 9, maximum: 13 });
       lease.assertAuthority();
       expect(Buffer.from(blob.bytes).toString(), "MANAGED_NATIVE_IMMUTABLE_OBJECT_RANGE").toBe("charts Ithaca");
-      const reads = createReferenceReads({ db, brain: servedBrain, sources, pool: client, transport });
+      const settings = createTrustSettings({ root: brain, db, lock: createKeyedLock(),
+        github: createTrustGitHubIdentity({ root: brain, access: github }), authority: id => id === principal.id ? "fixture-owner-epoch" : null,
+        observe: async (_id, publish) => { await publish(); } });
+      const beforePolicy = await settings.list(principal.id);
+      const rule = { id: "ithaca-native", label: "Ithaca", incomingContent: true, recipientWhileRestricted: false,
+        selector: { kind: "github_repository" as const, host: "github.com" as const, owner: "odysseus", repository: "ithaca", repositoryId: "101" } };
+      const preparedApproval = await settings.prepare(principal.id, { version: 1, expectedTrustRevision: beforePolicy.revision,
+        expectedPolicyHash: beforePolicy.policyHash, change: { action: "create", rule } });
+      const approved = await settings.commit(principal.id, { version: 1, requestId: preparedApproval.receipt.requestId,
+        reviewId: preparedApproval.review.reviewId, reviewedBytesHash: preparedApproval.review.reviewedBytesHash });
+      expect(approved.receipt.publication, "MANAGED_NATIVE_OWNER_APPROVAL_IS_REAL_PUBLICATION").toBe("proved");
+      const reads = createReferenceReads({ db, brainPath: brain, brain: servedBrain, sources, pool: client, transport });
       const tools = createReferenceTools({ sources, reads }), turnId = "odysseus-native-read";
       await tools.begin(turnId, { principalId: principal.id, posture: "interactive", generation: null });
       tools.attachEgress(turnId, principal.id, { egress, current: () => true });
@@ -126,10 +140,25 @@ export async function proveManagedReferenceSource(client: ReturnType<typeof crea
           identity: { repositoryId: "101", ownerId: "201" },
         });
         expect(evidence.identityObservation.operationId).not.toBe(lease.identityObservation!.operationId);
+        expect(evidence.ownerResolution, "MANAGED_NATIVE_READ_BINDS_PROVED_OWNER_APPROVAL").toMatchObject({ state: "available",
+          operationId: evidence.identityObservation.operationId, bindings: [{ ruleId: "ithaca-native", approvedOwnerId: "201",
+            sameOwnerRenameRevalidated: false }] });
         expect(evidence).toMatchObject({ blob: blob.blob, digest: blob.digest, offset: 9, length: 13, trusted: false });
         expect(JSON.parse(prepared.acquisition)).toMatchObject({ commit_id: commit, tree_id: tree, native_generation: record.root!.otransid });
         note("managed-source-native-host-read", { commit, tree, blob: evidence.blob, digest: evidence.digest, offset: 9, length: 13,
-          actualMaintenanceWorker: true, hostToolEntry: true, identityObservation: evidence.identityObservation, delivery: prepared.delivery, backendEquivalence: false, readTrustExemption: false });
+          actualMaintenanceWorker: true, hostToolEntry: true, identityObservation: evidence.identityObservation, ownerResolution: evidence.ownerResolution, delivery: prepared.delivery, backendEquivalence: false, readTrustExemption: false });
+        const currentPolicy = await settings.list(principal.id);
+        const removal = await settings.prepare(principal.id, { version: 1, expectedTrustRevision: currentPolicy.revision,
+          expectedPolicyHash: currentPolicy.policyHash, change: { action: "remove", ruleId: "ithaca-native" } });
+        await settings.commit(principal.id, { version: 1, requestId: removal.receipt.requestId,
+          reviewId: removal.review.reviewId, reviewedBytesHash: removal.review.reviewedBytesHash });
+        const later = await tools.call(turnId, principal.id, { tool: "reference_read", toolCallId: "native_ithaca_after_remove",
+          input: { repository, revision: "main", path: "README.md", offset: 9, maximum: 13 } });
+        expect(later.ok, "MANAGED_NATIVE_OWNER_REMOVAL_LEAVES_UNTRUSTED_READ_USABLE").toBe(true);
+        const laterRow = db.query("SELECT evidence FROM reference_reads WHERE tool_call_id='native_ithaca_after_remove'").get() as { evidence: string };
+        expect(JSON.parse(laterRow.evidence).ownerResolution.bindings, "MANAGED_NATIVE_OWNER_REMOVAL_FENCES_FUTURE_BINDINGS").toEqual([]);
+        note("managed-source-native-owner-removal", { priorResolution: evidence.ownerResolution,
+          laterResolution: JSON.parse(laterRow.evidence).ownerResolution, readTrustExemption: false });
       } finally { tools.end(turnId); }
       expect(blob).toMatchObject({ tree, mode: "100644", offset: 9, length: 13, totalBytes: 38 });
       note("managed-source-native-blob", { commit, tree, root: record.root, path: "README.md", blob: blob.blob, mode: blob.mode, offset: blob.offset,

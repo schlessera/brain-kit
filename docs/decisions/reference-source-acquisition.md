@@ -436,3 +436,32 @@ names together before recording. A changed or missing observation refuses that
 read; a fresh call can acquire again. Old receipts remain historical evidence,
 including across restart, and cannot establish current identity or source trust.
 Approved-owner rule evaluation remains independently required.
+
+## Approved-owner resolution for immutable reads
+
+The host read service resolves each actual transport observation against the
+protected Markdown policy, its matching durable trust projection and Settings'
+operation-bound approved-owner evidence. The policy root's directory identity is
+captured at service construction. Links, replaced roots, invalid or incoherent
+policy/projection data and missing/malformed publication proof produce unavailable
+qualification; they do not prevent an otherwise authorized untrusted read.
+
+Exact repository approval requires the freshly observed stable repository ID,
+current canonical owner and the independently approved owner ID. A same-owner
+repository rename can qualify only from that new transport observation. Transfer,
+repository name reuse and owner namespace reassignment cannot borrow approval.
+Owner rules deliberately include future repositories currently in that same
+canonical namespace and stable owner ID. A validated policy permits at most one
+matching repository and one matching owner rule. Other policy edits do not erase
+a retained approval of the same selector, and bounded operation-receipt pruning
+or approving-login deletion does not erase the durable owner evidence.
+
+Resolution runs provisionally before recording and again inside the acquired
+SQLite writer transaction. The recorded operation ID, policy hash/revision,
+approved owner, selector and publication operation/proof hash are historical
+qualification evidence. They are separate from the original acquisition and the
+prepared/observed/unknown delivery state. Removal affects later resolutions and
+retains earlier read evidence. This is neither a trust-at-admission decision nor
+a private-access, recipient, Git-write or mutable-content grant. Every read still
+produces workspace input; standing-rule enforcement and review targets remain
+separately qualified work.

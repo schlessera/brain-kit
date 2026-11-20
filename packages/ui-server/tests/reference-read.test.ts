@@ -482,3 +482,12 @@ test("another call in the same turn cannot substitute an earlier transport opera
   f.state.reuseObservation = true;
   await expect(f.call({ toolCallId: "read-2" }), "READ_REQUIRES_ITS_OWN_TRANSPORT_OPERATION").rejects.toThrow(/transport identity/);
 });
+
+test("read evidence explicitly withholds owner qualification without protected approval", async () => {
+  const f = await fixture();
+  await f.call();
+  const row = f.db.query("SELECT evidence FROM reference_reads").get() as { evidence: string };
+  expect(JSON.parse(row.evidence).ownerResolution, "READ_OWNER_RESOLUTION_IS_EXPLICITLY_UNAVAILABLE").toMatchObject({
+    version: 1, state: "unavailable", bindings: [],
+  });
+});
