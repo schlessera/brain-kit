@@ -223,3 +223,16 @@ describe("native edit versions", () => {
     expect(remembered).toEqual([["loom.md", createHash("sha256").update(literal, "utf8").digest("hex")]]);
   });
 });
+
+test.each([false, true])("an attempted workspace install returns both write remedies in the actual tool admission refusal (autonomous=%s)", async autonomous => {
+  const { ctx } = contextFor({ allowedTools: ["Bash", "Read"] });
+  ctx.req.workerSandbox = { brain: "/srv/odysseus-brain", profile: "governed", restricted: false, codeChanges: false,
+    scratchAliasesRemoved: [], areas: [{ name: "workspaces", rel: "workspaces", mount: { writable: false, readOnlyPath: "/srv/odysseus-brain/workspaces", reason: "inspection" } }] };
+  if (autonomous) ctx.req.autonomous = { origin: "autonomous", persistence: "none", allowedTools: ["Bash"], systemPromptAppend: "" };
+  const hook = enforcementHookFor(ctx);
+  const result = await hook(...hookCall("Bash", { command: "cd workspaces/ithaca && npm install" }));
+  expect(result, "INSTALL_TOOL_RESULT_IS_A_REFUSAL").toMatchObject({ hookSpecificOutput: { permissionDecision: "deny" } });
+  expect(JSON.stringify(result)).toContain("code-changes switch");
+  expect(JSON.stringify(result)).toContain("managed worktree");
+  expect(await hook(...hookCall("Bash", { command: "cat workspaces/ithaca/package.json" }))).toEqual({ continue: true });
+});

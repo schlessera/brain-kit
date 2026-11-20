@@ -151,7 +151,7 @@ test("permission denies an application tool without a server route, and gates ev
   expect(decision.behavior).toBe("allow");
   expect(context.grants.get("call-1")).toEqual({ name: "read_file", input: JSON.stringify({ path: "notes/ithaca.md" }) });
   // A governed host sandbox keeps native write_file: it is gated, not routed.
-  const governed = harness({ workerSandbox: { profile: "governed" } as PiWorkerRpcContext["workerSandbox"] }, { applyBrain: async () => ({ ok: true }) as never });
+  const governed = harness({ workerSandbox: { brain: root, restricted: false, profile: "governed", areas: [], scratchAliasesRemoved: [] } }, { applyBrain: async () => ({ ok: true }) as never });
   await governed.dispatch(rpc("permission", "write_file", { path: "notes/ithaca.md", content: "home" }));
   expect(governed.context.grants.get("call-1")?.name).toBe("write_file");
 });
@@ -248,4 +248,20 @@ test("an allow the collector's last check refuses is denied, and its grant never
   expect(answer, "PI_UNCHECKED_ALLOW_IS_DENIED").toMatchObject({ behavior: "deny", message: expect.stringContaining("does not run") });
   expect(context.grants.has("call-refused"), "PI_UNCHECKED_ALLOW_LEAVES_NO_GRANT").toBe(false);
   expect(refused, "PI_UNCHECKED_ALLOW_IS_REFUSED").toEqual([["call-refused", true]]);
+});
+
+test("workspace installs refuse through the real permission dispatcher with both remedies", async () => {
+  const refused: string[] = [];
+  const { context, dispatch } = harness({ workerSandbox: { brain: root, restricted: false, profile: "governed", codeChanges: false, scratchAliasesRemoved: [],
+    areas: [{ name: "workspaces", rel: "workspaces", mount: { writable: false, readOnlyPath: join(root, "workspaces"), reason: "inspection" } }] } }, { inputSafety: { ready: async () => {}, begin: async () => {}, allowed: async () => {}, refused: async (id: string) => { refused.push(id); } } as never });
+  context.grants.set("call-1", { name: "bash", input: JSON.stringify({ command: "echo Ithaca" }) });
+  const result = await dispatch(rpc("permission", "bash", { command: "npm install --prefix workspaces/ithaca" }));
+  expect(result, "PI_INSTALL_TOOL_RESULT_IS_A_REFUSAL").toMatchObject({ behavior: "deny" });
+  expect(JSON.stringify(result)).toContain("code-changes switch");
+  expect(JSON.stringify(result)).toContain("managed worktree");
+  expect(context.grants.has("call-1"), "WORKSPACE_DENIAL_CLEARS_OLD_GRANT").toBe(false);
+  expect(refused, "WORKSPACE_DENIAL_IS_RECORDED_BY_COLLECTOR").toEqual(["call-1"]);
+  expect(await dispatch(rpc("permission", "read_file", { path: "notes/ithaca.md" }, "call-read")), "OTHER_SCOPE_REMAINS_USABLE").toMatchObject({ behavior: "allow" });
+  context.workerSandbox = { ...context.workerSandbox!, codeChanges: true, areas: [{ name: "workspaces", rel: "workspaces", mount: { writable: true, path: join(root, "workspaces") } }] };
+  expect(await dispatch(rpc("permission", "bash", { command: "npm install --prefix workspaces/ithaca" }, "call-writer")), "OPTED_IN_WRITER_REMAINS_USABLE").toMatchObject({ behavior: "allow" });
 });

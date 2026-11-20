@@ -700,9 +700,10 @@ export function workerCommand(input: WorkerLaunch): string[] {
       }),
     ] : []),
     ...(sized ? ["--dir", scratch] : ["--tmpfs", scratch]), ...writable.binds,
-    ...(input.sandbox?.profile === "governed" && input.sandbox.protection ? protectedWorkerMounts(brain, input.sandbox.protection, input.sandbox.retainedFolders) : []),
-    // Keep workspace inspection read-only even if a protected child pins its ancestors.
     ...writable.readOnlyBinds,
+    // Workspace ancestor pins stay read-only; quarantine child masks come last.
+    ...(input.sandbox?.profile === "governed" && input.sandbox.protection ? protectedWorkerMounts(brain, input.sandbox.protection, input.sandbox.retainedFolders,
+      input.sandbox.areas.filter(area => !area.mount.writable && area.name === "workspaces").map(area => area.rel)) : []),
     ...(input.sandbox?.providerMasks && !maintenance && !transport
       ? providerMaskMounts(brain, input.startupView?.root ?? brain, input.sandbox.providerMasks) : []),
     // The turn's data tree: brain tools read documents and the index there,
@@ -897,8 +898,8 @@ function sandboxMounts(input: WorkerLaunch, brain: string, scratch: string, stat
       if (name === "workspaces" && sandbox.profile === "governed") {
         const qualified = resolveWorkspacesMount(brain);
         if (mount.missing) {
-          if (qualified.writable || !qualified.missing) throw new WorkerHostError("workspaces/ appeared before launch; retry admission");
-          out.readOnlyBinds.push("--tmpfs", join(brain, rel), "--remount-ro", join(brain, rel));
+          // Creating a mountpoint here would create it in the live writable brain.
+          throw new WorkerHostError("An absent workspace requires the strict view; retry admission.");
         } else {
           if (!mount.readOnlyPath || qualified.writable || qualified.readOnlyPath !== mount.readOnlyPath)
             throw new WorkerHostError("the read-only workspaces area could not be qualified at launch");
@@ -997,6 +998,7 @@ function* prepareWorkerSandboxSteps(brainPath: string, options: PrepareWorkerSan
   if (options.restricted) return { brain, restricted: true, areas: [], scratchAliasesRemoved: [] };
   const resolved = options.profile === "governed" ? resolveWorkerProtection(brain, {
     paths: options.protectedPaths, appeared: options.appearedPaths, folderPaths: options.folderPaths,
+    readOnlyRoots: options.codeChanges === true && (options.areas?.includes("workspaces") ?? true) ? [] : ["workspaces"],
   }) : undefined;
   const areas: WorkerArea[] = [];
   let removed: string[] = [];
@@ -1026,8 +1028,8 @@ function* prepareWorkerSandboxSteps(brainPath: string, options: PrepareWorkerSan
   // An unqualified root cannot be restored over a writable brain. Keep the
   // entire immutable view when a symlink or mount topology prevents sealing it.
   const workspaceFallback = options.profile === "governed" && workspace && !workspace.mount.writable
-    && !workspace.mount.missing && !workspace.mount.readOnlyPath ? workspace.mount.reason : undefined;
-  return { brain, restricted: false, codeChanges: options.codeChanges === true, areas, scratchAliasesRemoved: removed,
+    && !workspace.mount.readOnlyPath ? workspace.mount.reason : undefined;
+  return { brain, restricted: false, ...(options.codeChanges === undefined ? {} : { codeChanges: options.codeChanges }), areas, scratchAliasesRemoved: removed,
     ...(options.folderPaths?.length ? { retainedFolders: Object.freeze([...options.folderPaths]) } : {}),
     ...(options.profile ? { profile: resolved?.reason || workspaceFallback ? "strict" as const : options.profile,
       ...(resolved ? { protection: resolved.protection } : {}),

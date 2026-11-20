@@ -70,3 +70,29 @@ test("an inspect-only capture never retains checkout bytes while notes keep exac
     await observation.commit();
   } finally { await capture.close(); await native.close(); rmSync(root, { recursive: true, force: true }); }
 });
+
+test("an inspect overlap does not unignore a writer's checkout steering files", async () => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-ignore-overlap-")), brain = join(root, "brain");
+  mkdirSync(join(brain, "workspaces/ithaca"), { recursive: true });
+  writeFileSync(join(brain, "workspaces/ithaca/.gitignore"), "AGENTS.md\n");
+  writeFileSync(join(brain, "workspaces/ithaca/AGENTS.md"), "Before\n");
+  writeFileSync(join(brain, "workspaces/ithaca/guide.md"), "Athena guides the voyage.\n");
+  const native = createNativeJournalFixture(brain, root);
+  const captured: string[] = [];
+  const capture = createNativeJournalCapture(native.manager, async fd => { captured.push(readFileSync(fd, "utf8")); return String(captured.length); });
+  try {
+    await capture.initialize();
+    const writer = await capture.policy([], { workspaces: true }), inspect = await capture.policy([], { workspaces: false });
+    writeFileSync(join(brain, "workspaces/ithaca/AGENTS.md"), "@guide.md\n");
+    const alone = await capture.observe(new Map([["writer", writer]]));
+    expect(alone.steering.paths.has("workspaces/ithaca/guide.md"), "WRITER_ALONE_DOES_NOT_FOLLOW_IGNORED_INPUT").toBe(false);
+    await alone.commit();
+    writeFileSync(join(brain, "workspaces/ithaca/AGENTS.md"), "@guide.md\nThe voyage continues.\n");
+    const observation = await capture.observe(new Map([["writer", writer], ["inspect", inspect]]));
+    expect(observation.steering.unavailable, "INSPECT_DOES_NOT_OVERRIDE_WRITER_IGNORE").toContain("workspaces/ithaca/AGENTS.md");
+    expect(observation.steering.paths.has("workspaces/ithaca/guide.md"), "INSPECT_DOES_NOT_FOLLOW_IGNORED_REFERENCE").toBe(false);
+    expect(observation.steering.unavailable, "IGNORED_STEERING_REFERENCE_NOT_FOLLOWED").not.toContain("workspaces/ithaca/guide.md");
+    expect(captured).toEqual([]);
+    await observation.commit();
+  } finally { await capture.close(); await native.close(); rmSync(root, { recursive: true, force: true }); }
+});

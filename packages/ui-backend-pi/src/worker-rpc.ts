@@ -15,7 +15,7 @@ import type { SessionCaps } from "./backend-options.js";
 import { createPiBridgeTools, REQUEST_IMAGE_MASK_INPUT_SCHEMA } from "./bridge-tools.js";
 import { decidePiToolPermission } from "./permission-gate.js";
 import { revalidatePiAdmission } from "./tool-admission.js";
-import { safetyAdmissionRefusal } from "@schlessera/brain-ui-sdk/internal";
+import { workspaceWriteRefusal, safetyAdmissionRefusal } from "@schlessera/brain-ui-sdk/internal";
 import { syncPiAuth } from "./session-storage.js";
 import type { TurnContext } from "./turn-context.js";
 import type { PiWorkerMessage } from "./worker-protocol.js";
@@ -136,6 +136,8 @@ async function syncAuth(msg: PiWorkerRpc, _bridge: BackendBridge, { relayed, age
 async function permission(msg: PiWorkerRpc, bridge: BackendBridge, context: PiWorkerRpcContext): Promise<unknown> {
   const { admitTool, turn: turnContext, workerSandbox, grants, allowedTools, confirmPatterns, live } = context;
   admitTool(msg.toolName);
+  const workspaceRefusal = workspaceWriteRefusal(workerSandbox, msg.toolName, msg.input);
+  if (workspaceRefusal) { grants.delete(msg.toolCallId); return { behavior: "deny", message: workspaceRefusal }; }
   if (isCompletedAutonomousToolCall(turnContext.autonomous, msg.toolName, msg.input)) {
     return { behavior: "deny", message: "This call already completed before yielding; inspect its retained result instead of replaying it." };
   }

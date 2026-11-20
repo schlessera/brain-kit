@@ -528,7 +528,7 @@ test("code changes API persists a session preference without changing an admitte
   mkdirSync(join(f.brain, "workspaces/ithaca"), { recursive: true });
   const principal = createPrincipal(f.db, { authMethod: "password", label: "Athena device", ttlSeconds: 3600 });
   const catalog = createSessionCatalog(() => f.db);
-  catalog.persistSessionStub("ithaca-code", "Odysseus inspects source.", "claude", "claude");
+  catalog.persistSessionStub("ithaca-code", "Odysseus inspects source.", "claude", "claude", principal.id);
   const profiles = createSessionProfiles(f.db, f.turns);
   const app = new Hono<AppEnv>().use("*", (c, next) => { c.set("principal", principal); return next(); }).route("/api", createSessionProfileRoutes(profiles));
   const path = "/api/sessions/ithaca-code/code-changes";
@@ -538,7 +538,7 @@ test("code changes API persists a session preference without changing an admitte
   let refusedWrite: import("@schlessera/brain-ui-sdk/server").BrainApplicationResult | undefined;
   const backend = makeFakeBackend({ id: "claude", startTurn: async request => {
     observations.push(request.workerSandbox!.areas.find(area => area.name === "workspaces")!.mount.writable);
-    if (observations.length === 1) {
+    if (observations.length === 1 || observations.length === 3) {
       refusedWrite = await request.bridge.applyBrain!({ operation: "write", path: "workspaces/ithaca/readme.md", content: "Athena changes source.", expectedBaseHash: null });
       const saved = await app.request(path, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ enabled: true }) });
       expect(saved.status).toBe(200);
@@ -560,9 +560,18 @@ test("code changes API persists a session preference without changing an admitte
     expect(observations, "NEXT_ADMISSION_USES_SAVED_CODE_MODE").toEqual([false, true]);
     expect(inboxProtections[0], "INSPECT_INBOX_INTAKE_GETS_WORKSPACE_PROTECTION").toContain("workspaces");
     expect(inboxProtections[1], "WRITER_INBOX_INTAKE_KEEPS_EXISTING_POLICY").not.toContain("workspaces");
+    const begin = f.turns.begin.bind(f.turns);
+    f.turns.begin = async (...args) => {
+      const hold = await begin(...args);
+      return { ...hold, sandbox: { ...hold.sandbox, areas: hold.sandbox.areas.map(area => area.name === "workspaces"
+        ? { ...area, mount: { writable: false as const, reason: "over-limit scan", readOnlyPath: join(f.brain, "workspaces") } } : area) } };
+    };
+    await runSession(host, input);
+    expect(refusedWrite?.code, "REFUSED_WRITABLE_MOUNT_KEEPS_HOST_WRITE_GUARD").toBe("policy_denied");
+    expect(inboxProtections[2], "REFUSED_WRITABLE_MOUNT_KEEPS_ALL_HOST_GUARDS").toContain("workspaces");
     const reloaded = createSessionProfiles(f.db, f.turns);
     expect(reloaded.codeChanges(principal.id, "ithaca-code"), "CODE_MODE_SURVIVES_RESUME").toBe(true);
-    catalog.persistSessionStub("troy-code", "Athena inspects source.", "claude", "claude");
+    catalog.persistSessionStub("troy-code", "Athena inspects source.", "claude", "claude", principal.id);
     expect(reloaded.codeChanges(principal.id, "troy-code"), "CODE_MODE_IS_SESSION_LOCAL").toBe(false);
     revokePrincipal(f.db, principal.id, Date.now());
     expect((await app.request(path)).status, "CODE_MODE_RECHECKS_AUTH").toBe(401);
@@ -583,11 +592,29 @@ test("draft code changes are principal scoped, bind to a new session, and preser
   expect(profiles.codeChanges(principal.id, undefined, "ithaca-draft"), "PROFILE_SAVE_PRESERVES_CODE_MODE").toBe(true);
   expect(profiles.readCodeChanges(other.id, "draft", "ithaca-draft"), "FOREIGN_DRAFT_HAS_NO_CODE_GRANT").toEqual({ enabled: false });
   const catalog = createSessionCatalog(() => f.db);
-  catalog.persistSessionStub("ithaca-bound", "Odysseus changes source.", "claude", "claude");
+  catalog.persistSessionStub("ithaca-bound", "Odysseus changes source.", "claude", "claude", principal.id);
   await profiles.bind(principal.id, "ithaca-draft", "ithaca-bound");
   expect(profiles.codeChanges(principal.id, "ithaca-bound"), "DRAFT_CODE_MODE_BINDS_TO_SESSION").toBe(true);
   expect(profiles.read(principal.id, "session", "ithaca-bound").preference).toBe("strict");
   await profiles.saveCodeChanges(principal.id, "session", "ithaca-bound", false);
   expect(profiles.read(principal.id, "session", "ithaca-bound").preference, "CODE_SAVE_PRESERVES_PROFILE").toBe("strict");
   expect(profiles.readCodeChanges(principal.id, "draft", "ithaca-draft")).toEqual({ enabled: false });
+});
+
+test("code changes require proven chat ownership for saves, reads, draft binds and admission", async () => {
+  const f = fixture();
+  const owner = createPrincipal(f.db, { authMethod: "password", label: "Athena device", ttlSeconds: 3600 });
+  const otherLogin = createPrincipal(f.db, { authMethod: "password", label: "Athena tablet", ttlSeconds: 3600 });
+  f.db.query("INSERT INTO principals(id,kind,auth_method,label,created_at,expires_at) VALUES ('telemachus','agent','delegated','Telemachus',0,?)").run(Date.now() + 3600_000);
+  const profiles = createSessionProfiles(f.db, f.turns), catalog = createSessionCatalog(() => f.db);
+  catalog.persistSessionStub("owned-source", "Odysseus inspects source.", "claude", "claude", owner.id);
+  catalog.persistSessionStub("legacy-source", "Ithaca source.", "claude", "claude");
+  await expect(profiles.saveCodeChanges("telemachus", "session", "owned-source", true)).rejects.toThrow("not available");
+  await expect(profiles.saveCodeChanges(owner.id, "session", "legacy-source", true)).rejects.toThrow("not available");
+  expect(() => profiles.readCodeChanges("telemachus", "session", "owned-source")).toThrow("not available");
+  await profiles.saveCodeChanges(owner.id, "session", "owned-source", true);
+  expect(profiles.codeChanges("telemachus", "owned-source"), "FOREIGN_ADMISSION_CANNOT_INHERIT_WRITE_GRANT").toBe(false);
+  expect(profiles.codeChanges(otherLogin.id, "owned-source"), "SAME_ACCOUNT_RESUME_KEEPS_WRITE_GRANT").toBe(true);
+  await profiles.saveCodeChanges("telemachus", "draft", "foreign-draft", true);
+  await expect(profiles.bind("telemachus", "foreign-draft", "owned-source")).rejects.toThrow("not available");
 });

@@ -867,6 +867,14 @@ test("overlapping inspect and change turns retain and charge checkout changes on
     expect(paths("writer"), "WRITER_KEEPS_CHECKOUT_ROWS").toContain("workspaces/ithaca/source.ts");
     expect(facts.get("inspect")?.observedBytes, "INSPECT_CHARGES_ONLY_NOTE_BYTES").toBe(Buffer.byteLength("Athena\n"));
     expect(facts.get("writer")?.observedBytes, "WRITER_CHARGES_NOTE_AND_CHECKOUT_BYTES").toBe(Buffer.byteLength("Athena\nPenelope returns\n"));
+    writeFileSync(join(f.brain, "workspaces/ithaca/source.ts"), "Odysseus sails again\n");
+    await f.journal.observe();
+    const workspaceRows = f.db.query("SELECT overlaps,conflict_observations FROM turn_journal_changes WHERE turn_id='writer' AND path='workspaces/ithaca/source.ts'").all() as { overlaps: string; conflict_observations: string | null }[];
+    expect(workspaceRows.length).toBe(2);
+    for (const row of workspaceRows) {
+      expect(JSON.parse(row.overlaps), "INSPECT_IS_NOT_A_WORKSPACE_PARTICIPANT").toEqual([]);
+      expect(JSON.parse(row.conflict_observations ?? "[]"), "SOLE_WRITER_HAS_NO_SYNTHETIC_CONFLICT").toEqual([]);
+    }
     await f.journal.finish("inspect"); await f.journal.finish("writer");
   } finally { remove(); await f.close(); }
 });

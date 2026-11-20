@@ -52,9 +52,11 @@ remains readable with its existing routes and shapes.
 `/api/sessions/:id/code-changes` and `/api/drafts/:id/code-changes` return
 `{ enabled: boolean }`, default false. PUT accepts exactly that JSON object;
 unknown fields or a non-boolean give 400, non-JSON gives 415, an oversized
-body gives 413, an unknown session gives 404 and unusable authentication gives
-401. Drafts are scoped to the authenticated principal and share the existing
-bounded profile-draft storage (507 when full). Successful saves are durable
+body gives 413, an unknown session or one without proven ownership by the
+authenticated principal gives 404, and unusable authentication gives 401.
+Session reads, writes and enabled draft binds all require proven ownership;
+legacy ownership gaps cannot grant writable admission. Drafts are scoped to
+the authenticated principal and share the existing bounded profile-draft storage (507 when full). Successful saves are durable
 before acknowledgement. All responses are `Cache-Control: no-store`.
 
 The switch is independent of the worker profile, preserves that preference,
@@ -62,10 +64,14 @@ and cannot weaken strict or provider restrictions. A first-send profile draft
 carries its code-changes preference into the named session. Saves survive
 resume and are frozen before admission awaits; changing a save never changes
 an active turn. Enabled turns retain writable workspace qualification, the
-alias scan, per-file journaling and byte charges. Mode changes reach the
-worker through append-only new-turn context, without altering tools, the
+alias scan, per-file journaling and byte charges. The saved switch is intent:
+host application writes remain protected unless admission actually qualifies
+a writable mount. Mode changes reach the worker through append-only new-turn context, without altering tools, the
 system prompt or earlier messages. The refusal note names both writable
-alternatives: the session's code-changes switch and a managed worktree.
+alternatives: the session's code-changes switch and a managed worktree. Visible
+workspace installs and native writes are denied by existing tool permission
+responses with those remedies; opaque commands still meet the read-only mount.
+This adds no value to an existing wire/HTTP enum or required response field.
 
 <a id="untrusted-file-marks-additive-2673"></a>
 

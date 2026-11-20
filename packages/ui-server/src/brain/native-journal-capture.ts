@@ -111,7 +111,7 @@ export function createNativeJournalCapture(manager: NativeJournalManager, retain
         const changed = new Map(observation.changes.map(change => [change.path, change.after]));
         const snapshots: { entries: JournalSnapshotEntry[]; missing: never[] }[] = [];
         const roots = new Map<string, { id: string; path: string }>();
-        const included = { excluded(path: string) { return [...policies.values()].every(policy => policy.excluded(path)); }, ignored(path: string) { return [...policies.values()].every(policy => policy.ignored(path)); } } as NativeJournalPolicy;
+        const included = { excluded(path: string) { return [...policies.values()].every(policy => policy.excluded(path)); }, ignored(path: string) { return [...policies.values()].every(policy => policy.excluded(path) || policy.ignored(path)); } } as NativeJournalPolicy;
         const classified = (metadata: NativeJournalMetadata, root: typeof observation.beforeRoot) => {
           const value = entry(metadata, included);
           if (!value) return undefined;

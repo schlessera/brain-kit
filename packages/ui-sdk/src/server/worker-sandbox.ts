@@ -597,14 +597,14 @@ const PROFILE_LINES: Record<Exclude<WorkerProfile, "restricted">, (sandbox: Work
 };
 
 /** The line for each state an area's mount can be in, naming the area by its resolved path. */
-const AREA_LINES: Record<WorkerAreaName, (area: WorkerArea, target: string) => string> = {
+const AREA_LINES: Record<WorkerAreaName, (area: WorkerArea, target: string, codeChanges?: boolean) => string> = {
   scratch: ({ rel, mount }, target) => mount.writable
     ? `   - \`${target}/\` is writable. Write the file there, then link its repo-relative destination, such as \`${rel}/<name>.pdf\`.`
     : `   - \`${rel}/\` is read-only this turn: ${mount.reason}. There is nowhere to put a file for the reader; say so instead of linking a turn-temp file.`,
-  workspaces: ({ rel, mount }, target) => mount.writable
+  workspaces: ({ rel, mount }, target, codeChanges) => mount.writable
     ? `   - \`${target}/\` is writable: clone, fetch and commit other repositories there, never in \`/tmp\`.`
     : mount.missing
-      ? `   - There is no \`${rel}/\` directory, so a repository clone is lost at turn end. Create it outside a hosted turn, then enable this session’s code-changes switch; or request a managed worktree.`
+      ? `   - There is no \`${rel}/\` directory, so a repository clone is lost at turn end. ${codeChanges === undefined ? `Creating \`${rel}/\` in the brain outside a hosted turn makes it writable in later turns.` : "Create it outside a hosted turn, then enable this session’s code-changes switch; or request a managed worktree."}`
       : `   - \`${rel}/\` is read-only this turn: ${mount.reason}.`,
 };
 
@@ -647,7 +647,7 @@ export function workerSandboxNote(sandbox: WorkerSandbox, facts: WorkerNoteFacts
       sandbox.areas.some(area => area.mount.writable)
         ? "2. **Persistent areas: kept across turns.**"
         : "2. **Persistent areas: none writable this turn.**",
-      ...sandbox.areas.map(area => AREA_LINES[area.name](area, profile === "governed" ? area.rel : `${WORKER_AREA_ROOT}/${area.name}`)),
+      ...sandbox.areas.map(area => AREA_LINES[area.name](area, profile === "governed" ? area.rel : `${WORKER_AREA_ROOT}/${area.name}`, sandbox.codeChanges)),
       ...(profile === "strict" ? ["Configuration executes from an immutable startup view, including imported helpers and absent names.",
         ...sandbox.areas.filter(area => area.mount.writable).map(area =>
           `Write \`${area.rel}/\` through \`${WORKER_AREA_ROOT}/${area.name}/\`, outside that view; link the repo-relative destination.`),
@@ -684,7 +684,7 @@ export function workerSandboxNote(sandbox: WorkerSandbox, facts: WorkerNoteFacts
   }
   if (profile !== "restricted" && sandbox.scopePolicy) {
     const scope = sandbox.scopePolicy;
-    lines.push("", `Scope limits per turn: ${scope.max_tool_calls} tool calls, ${scope.max_minutes} wall minutes, ${scope.max_files_changed} distinct observed changed paths and ${scope.max_bytes_written} observed written bytes in brain and scratch${sandbox.codeChanges ? ", and workspaces" : ""}${sandbox.worktrees ? ", and managed worktrees" : ""}.`,
+    lines.push("", `Scope limits per turn: ${scope.max_tool_calls} tool calls, ${scope.max_minutes} wall minutes, ${scope.max_files_changed} distinct observed changed paths and ${scope.max_bytes_written} observed written bytes in ${sandbox.codeChanges === undefined ? "brain, scratch and workspaces" : `brain and scratch${sandbox.codeChanges ? ", and workspaces" : ""}`}${sandbox.worktrees ? ", and managed worktrees" : ""}.`,
       "One finite Continue grant per dimension adds its original cap. A second hit and the free-space floor max(5%, 2 GiB) allow Stop only. Voice stops without a grant. Observations cannot capture writes overwritten between snapshots.",
       ...(resolvedFacts.hardTimeoutMs === undefined ? [] : [`The independent host hard timeout is ${resolvedFacts.hardTimeoutMs / 60_000} minutes, including paused time. Resource and storage limits remain binding.`]));
   }

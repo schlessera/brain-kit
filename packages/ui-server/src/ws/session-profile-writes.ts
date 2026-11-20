@@ -8,6 +8,7 @@
 import type { Database } from "bun:sqlite";
 
 import type { WireError, WriteProcedures } from "../db/write-worker.js";
+import { resolveChat, chatOwnedBy } from "./chat-lifecycle.js";
 import { SESSION_DRAFT_LIMITS } from "@schlessera/brain-ui-sdk/protocol";
 import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
 
@@ -24,6 +25,14 @@ export function authorizeProfile(db: Database, principalId: string, now: number)
   if (!principal || !isUsablePrincipal(principal, now)) throw new SessionProfileError(401, "Authentication required.");
 }
 
+/** A preference may grant writes only to the proven owner of this chat. */
+export function authorizeCodeChanges(db: Database, principalId: string, sessionId: string): void {
+  authorizeProfile(db, principalId, Date.now());
+  const chat = resolveChat(db, { sessionId });
+  if ("refused" in chat || !chatOwnedBy(db, chat, principalId))
+    throw new SessionProfileError(404, "This chat is not available to this principal.");
+}
+
 export function draftProfile(db: Database, principalId: string, id: string) {
   return db.query("SELECT preference, code_changes AS codeChanges FROM draft_worker_profiles WHERE principal_id = ? AND draft_id = ?").get(principalId, id) as { preference: Profile; codeChanges: number } | null;
 }
@@ -38,6 +47,7 @@ export function bindDraftProfile(db: Database, principalId: string, draftId: str
     authorizeProfile(db, principalId, Date.now());
     if (!db.query("SELECT 1 FROM sessions WHERE id = ?").get(sessionId)) throw new SessionProfileError(404, "This chat is not known to the host.");
     const row = draftProfile(db, principalId, draftId);
+    if (row?.codeChanges === 1) authorizeCodeChanges(db, principalId, sessionId);
     if (!row) throw new SessionProfileError(409, "This draft preference is unavailable.");
     // A save during the first turn is for its NEXT admission; the running profile stays frozen.
     db.query("INSERT INTO session_worker_profiles (session_id, preference, updated_at, updated_by, code_changes) VALUES (?, ?, ?, ?, ?) ON CONFLICT(session_id) DO NOTHING")
@@ -90,7 +100,7 @@ export function saveCodeChanges(db: Database, principalId: string, kind: "sessio
   db.transaction(() => {
     authorizeProfile(db, principalId, Date.now());
     if (kind === "session") {
-      if (!db.query("SELECT 1 FROM sessions WHERE id=?").get(id)) throw new SessionProfileError(404, "This chat is not known to the host.");
+      authorizeCodeChanges(db, principalId, id);
       db.query("INSERT INTO session_worker_profiles (session_id,preference,updated_at,updated_by,code_changes) VALUES (?,'governed',?,?,?) ON CONFLICT(session_id) DO UPDATE SET code_changes=excluded.code_changes,updated_at=excluded.updated_at,updated_by=excluded.updated_by")
         .run(id, now, principalId, Number(enabled));
     } else {

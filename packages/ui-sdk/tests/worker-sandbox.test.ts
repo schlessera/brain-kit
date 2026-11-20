@@ -599,7 +599,7 @@ describe("workspace inspect default (#4295, #4298)", () => {
       expect(mount.writable, "INSPECT_DOES_NOT_REQUIRE_WRITABLE_SCAN").toBe(false);
       expect(mount).toHaveProperty("readOnlyPath", join(f.brain, "workspaces"));
       expect(mount).not.toHaveProperty("reason", "workspaces/ holds more than 3 entries, too many to verify");
-      const note = workerSandboxNote(prepareFixtureWorkerSandbox(f.brain, { areas: ["workspaces"] }));
+      const note = workerSandboxNote(prepareFixtureWorkerSandbox(f.brain, { codeChanges: false, areas: ["workspaces"] }));
       expect(note, "REFUSAL_NAMES_SESSION_OPT_IN").toContain("code-changes switch");
       expect(note, "INSTALL_REFUSAL_NAMES_MANAGED_WORKTREE").toContain("managed worktree");
       expect(note).toContain("write, install or build");
@@ -636,5 +636,44 @@ test("governed inspection still seals workspaces when the writable area list is 
     expect(sandbox.profile).toBe("governed");
     const program = `import * as fs from "node:fs";let error="";try{fs.writeFileSync(${JSON.stringify(join(f.brain, "workspaces/ithaca/new.md"))},"attack")}catch(e){error=e.code}console.log(JSON.stringify({error}));`;
     expect(await run(f.brain, sandbox, program, f.home), "OMITTED_WORKSPACE_AREA_STILL_READ_ONLY").toEqual({ error: "EROFS" });
+  } finally { f.cleanup(); }
+});
+
+test("missing workspaces stay absent on the live brain after an actual worker", async () => {
+  const f = fixture({ workspaces: false });
+  try {
+    const sandbox = prepareFixtureWorkerSandbox(f.brain, { profile: "governed", codeChanges: false, areas: ["workspaces"] });
+    expect(sandbox.profile, "ABSENT_WORKSPACE_USES_EXISTING_STRICT_VIEW").toBe("strict");
+    expect(await run(f.brain, sandbox, 'console.log(JSON.stringify({ok:true}));', f.home)).toEqual({ ok: true });
+    expect(existsSync(join(f.brain, "workspaces")), "NO_LIVE_WORKSPACE_MOUNTPOINT_CREATED").toBe(false);
+  } finally { f.cleanup(); }
+});
+
+test("workspace sealing preserves quarantine child masks and ordinary child write protection", async () => {
+  const f = fixture();
+  try {
+    writeFileSync(join(f.brain, "workspaces/ithaca/quarantined.md"), "Hidden crew instructions");
+    const sandbox = prepareFixtureWorkerSandbox(f.brain, { profile: "governed", codeChanges: false, areas: ["workspaces"],
+      appearedPaths: ["workspaces/ithaca/quarantined.md"] });
+    expect(sandbox.profile).toBe("governed");
+    const program = `const fs=require("node:fs");let error="";try{fs.writeFileSync("workspaces/ithaca/new.md","attack")}catch(e){error=e.code}console.log(JSON.stringify({hidden:(()=>{try{return fs.readFileSync("workspaces/ithaca/quarantined.md","utf8")}catch(e){return e.code}})(),error}));`;
+    const result = await run(f.brain, sandbox, program, f.home);
+    expect(["", "EACCES"], "WORKSPACE_QUARANTINE_STAYS_HIDDEN").toContain(result.hidden);
+    expect(result.error, "WORKSPACE_ANCESTOR_STAYS_READ_ONLY").toBe("EROFS");
+  } finally { f.cleanup(); }
+});
+
+
+test.each([false, true])("workspace inspection never creates protected ancestors (existing root=%s)", async existing => {
+  const f = fixture({ workspaces: existing });
+  try {
+    const path = join(f.brain, "workspaces/troy");
+    const sandbox = prepareFixtureWorkerSandbox(f.brain, { profile: "governed", codeChanges: false, areas: ["workspaces"],
+      protectedPaths: ["workspaces/troy/protected.md"] });
+    expect(sandbox.profile, "MISSING_PROTECTED_ANCESTOR_USES_STRICT_VIEW").toBe("strict");
+    expect(existsSync(path), "PREPARATION_DOES_NOT_CREATE_CHECKOUT_DIRECTORIES").toBe(false);
+    expect(await run(f.brain, sandbox, 'console.log(JSON.stringify({ok:true}));', f.home)).toEqual({ ok: true });
+    expect(existsSync(path), "WORKER_DOES_NOT_CREATE_CHECKOUT_DIRECTORIES").toBe(false);
+    expect(existsSync(join(f.brain, "workspaces")), "ROOT_EXISTENCE_UNCHANGED").toBe(existing);
   } finally { f.cleanup(); }
 });

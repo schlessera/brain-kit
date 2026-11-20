@@ -15,7 +15,7 @@ function fixture() {
   const db = createUiDb(dbPath), native = createNativeJournalFixture(root, directory);
   const journal = createTurnJournal(db, { brainPath: root, dbPath, objectsRoot: join(directory, "objects"), nativeManager: native.manager });
   return { root, directory, db, journal,
-    begin: () => journal.begin("odysseus", { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null }, () => {}),
+    begin: () => journal.begin("odysseus", { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null, codeChanges: true }, () => {}),
     async observe() { await journal.observe(); return journal.details("ithaca", "odysseus")!; },
     bytes(path: string, side: "before" | "after") {
       const change = journal.details("ithaca", "odysseus")!.changes.findLast(item => item.path === path)!;

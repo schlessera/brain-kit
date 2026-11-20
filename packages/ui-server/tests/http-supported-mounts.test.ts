@@ -190,7 +190,7 @@ async function prepare(operation: string, afterSeed?: (t: HttpContractApp) => vo
     }
     if (operation.includes("/reference-grants")) t.app.db.query("INSERT INTO principals (id, kind, auth_method, label, created_by, created_at, expires_at) VALUES ('odysseus-grantee', 'agent', 'delegated', 'Telemachus', NULL, 1, ?)").run(Date.now() + 3600_000);
     if ((operation.endsWith("/api/sessions/:id/profile") || operation.endsWith("/api/sessions/:id/code-changes"))) {
-      createSessionCatalog(() => t.app.db).persistSessionStub("fixture-session", "Odysseus reaches the harbor.", "fixture", "fixture");
+      createSessionCatalog(() => t.app.db).persistSessionStub("fixture-session", "Odysseus reaches the harbor.", "fixture", "fixture", owner.id);
     }
     const store = createActivityStore(t.app.db, { writer: "http-contract" });
     store.startSpan({ spanId: "fixture-span", runId: "fixture-run", name: "Fixture turn", kind: "turn", origin: "session", sessionId: "fixture-session", principalId: owner.id, startedAt: Date.now() - 1000 });

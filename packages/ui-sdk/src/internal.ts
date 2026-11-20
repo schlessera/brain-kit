@@ -101,3 +101,5 @@ export { nativeObservationIdentity } from "./server/native-observation-storage.j
 
 export { createCleanupReconciler, processCleanupReconciler, CLEANUP_RETRY_ATTEMPTS, CLEANUP_RETRY_BASE_MS, CLEANUP_RETRY_MAX_MS } from "./server/cleanup-reconciler.js";
 export type { CleanupNotice, CleanupReconciler, CleanupReconcilerOptions, RetainedCleanup } from "./server/cleanup-reconciler.js";
+
+export { workspaceWriteRefusal } from "./server/workspace-refusal.js";

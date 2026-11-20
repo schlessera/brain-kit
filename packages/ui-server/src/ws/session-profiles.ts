@@ -5,7 +5,7 @@ import type { SessionWorkerProfile } from "@schlessera/brain-ui-sdk/protocol";
 import type { GovernedTurns } from "../brain/governed-turn.js";
 import { procedureCaller, type SqliteWriter } from "../db/write-worker.js";
 import * as writes from "./session-profile-writes.js";
-import { authorizeProfile, draftProfile, SessionProfileError } from "./session-profile-writes.js";
+import { authorizeCodeChanges, authorizeProfile, draftProfile, SessionProfileError } from "./session-profile-writes.js";
 
 export { SessionProfileError };
 
@@ -87,6 +87,7 @@ export function createSessionProfiles(db: Database, turns: GovernedTurns, budget
     settled,
     readCodeChanges(principalId: string, kind: "session" | "draft", id: string): { enabled: boolean } {
       authorize(principalId);
+      if (kind === "session") authorizeCodeChanges(db, principalId, id);
       return { enabled: (kind === "session" ? session(id)?.codeChanges : draft(principalId, id)?.codeChanges) === 1 };
     },
     async saveCodeChanges(principalId: string, kind: "session" | "draft", id: string, enabled: boolean) {
@@ -96,7 +97,14 @@ export function createSessionProfiles(db: Database, turns: GovernedTurns, budget
     },
     codeChanges(principalId: string, sessionId?: string, draftId?: string): boolean {
       authorize(principalId);
-      if (sessionId) return session(sessionId)?.codeChanges === 1;
+      if (sessionId) {
+        // Legacy/foreign ownership cannot carry a saved write grant into admission.
+        try { authorizeCodeChanges(db, principalId, sessionId); } catch (error) {
+          if (error instanceof SessionProfileError && error.status === 404) return false;
+          throw error;
+        }
+        return session(sessionId)?.codeChanges === 1;
+      }
       if (!draftId) return false;
       const row = draft(principalId, draftId);
       if (!row) throw new SessionProfileError(409, "This draft preference is unavailable. Refresh before sending.");

@@ -1615,6 +1615,7 @@ export "./internal" (./src/internal.ts)
   workerProviderCredentials
   workerSandboxNote
   workerSandboxWarnings
+  workspaceWriteRefusal
 
 export "./internal/client" (./src/internal-client.ts)
   type FrontmatterBlock

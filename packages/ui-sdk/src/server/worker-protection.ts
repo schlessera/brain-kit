@@ -59,6 +59,8 @@ function checkTree(fd: number, rel: string, count: { value: number }, brain: str
 /** Prepare missing directories through descriptors; never create placeholder files. */
 export function resolveWorkerProtection(brain: string, options: {
   paths?: readonly string[]; appeared?: readonly string[]; folderPaths?: readonly string[];
+  /** Do not create protected ancestors inside an inspection mount. */
+  readOnlyRoots?: readonly string[];
 } = {}): { protection: WorkerProtection; reason?: string } {
   const paths: ProtectedWorkerPath[] = [];
   const ancestors = new Set<string>();
@@ -84,7 +86,12 @@ export function resolveWorkerProtection(brain: string, options: {
       try {
         for (let i = 0; i < segments.length - 1; i++) {
           const path = at(fd, segments[i]!);
-          if (!lstatSync(path, { throwIfNoEntry: false })) mkdirSync(path, { mode: 0o755 });
+          if (!lstatSync(path, { throwIfNoEntry: false })) {
+            const ancestor = segments.slice(0, i + 1).join("/");
+            if (options.readOnlyRoots?.some(area => isWithin(area, ancestor)))
+              throw new Error(`${ancestor} is read-only; cannot create a protected-path ancestor`);
+            mkdirSync(path, { mode: 0o755 });
+          }
           const next = openDirectory(path);
           closeSync(fd); fd = next;
           ancestors.add(segments.slice(0, i + 1).join("/"));
@@ -149,7 +156,7 @@ export function resolveWorkerProtection(brain: string, options: {
 }
 
 /** Fixed order: ancestor mount points first, then the protected names. */
-export function protectedWorkerMounts(brain: string, protection: WorkerProtection, retainedFolders: readonly string[] = []): string[] {
+export function protectedWorkerMounts(brain: string, protection: WorkerProtection, retainedFolders: readonly string[] = [], readOnlyRoots: readonly string[] = []): string[] {
   const qualified = qualifiedFolders.get(protection);
   if (retainedFolders.some(root => !qualified?.roots.includes(root)))
     throw new Error("provider folder topology was not qualified by the resolver");
@@ -167,7 +174,7 @@ export function protectedWorkerMounts(brain: string, protection: WorkerProtectio
   }
   const pins = [...new Set([...protection.ancestors, ...folderPins.map(pin => pin.rel)])]
     .sort((a,b) => a.split("/").length - b.split("/").length);
-  const argv = pins.flatMap(rel => ["--bind", join(brain, rel), join(brain, rel)]);
+  const argv = pins.flatMap(rel => [readOnlyRoots.some(root => isWithin(root, rel)) ? "--ro-bind" : "--bind", join(brain, rel), join(brain, rel)]);
   for (const { rel, mode } of protection.paths) {
     const path = join(brain, rel);
     if (mode === "read_only") argv.push("--ro-bind", path, path);

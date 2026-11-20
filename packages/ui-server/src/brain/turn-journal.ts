@@ -479,7 +479,8 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         let step = timing?.("observe_record");
         turn.sequence = await retain(() => call<number>("recordObservation", {
           turnId, sequence: turn.sequence, at: now(), userPolicy, changed: [...changed.values()].filter(item => !turn.policy.excluded(item.path)), steeringPaths: [...steering.paths].filter(path => !turn.policy.excluded(path)),
-          overlaps, worktree, steeringUnavailable: [...steering.unavailable].filter(path => !turn.policy.excluded(path)), steeringInventoried: steering.inventoried === true, unreadable: unreadable.filter(item => !turn.policy.excluded(item.path)),
+          overlaps, pathObservers: Object.fromEntries([...changed.values()].map(item => [item.path, [...active].filter(([, peer]) => !peer.policy.excluded(item.path)).map(([id]) => id)])),
+          worktree, steeringUnavailable: [...steering.unavailable].filter(path => !turn.policy.excluded(path)), steeringInventoried: steering.inventoried === true, unreadable: unreadable.filter(item => !turn.policy.excluded(item.path)),
         }));
         step?.(); step = timing?.("observe_publish");
         publish(turnId);
