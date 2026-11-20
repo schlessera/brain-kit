@@ -38,6 +38,8 @@ const MAX_MODULE_GITHUB_REQUEST_BYTES = 1024 * 1024;
 const MAX_MODULE_GITHUB_RESPONSE_BYTES = 16 * 1024 * 1024;
 /** Calls one run may make through the relay. */
 const MAX_MODULE_GITHUB_CALLS = 500;
+/** Calls in flight at once, so request and response buffers bound the runner's memory too. */
+const MAX_MODULE_GITHUB_CONCURRENT = 8;
 const RESPONSE_HEADERS = ["content-type", "link", "etag", "x-ratelimit-limit", "x-ratelimit-remaining", "x-ratelimit-reset", "x-github-request-id"];
 const NAME = /^[A-Za-z0-9_.-]{1,100}$/;
 
@@ -53,7 +55,7 @@ export interface ModuleGitHubRelayOptions {
   writes: ReadonlyMap<string, ReadonlySet<ModuleGitHubWrite>>;
   observe?: (write: ModuleGitHubWriteRecord) => void;
   /** @internal Test seams. */
-  fetch?: typeof fetch; origin?: string; maxCalls?: number; maxResponseBytes?: number;
+  fetch?: typeof fetch; origin?: string; maxCalls?: number; maxResponseBytes?: number; maxConcurrent?: number;
 }
 
 export interface ModuleGitHubRelay { dir: string; socketPath: string; stop(): Promise<void> }
@@ -223,6 +225,7 @@ export function startModuleGitHubRelay(options: ModuleGitHubRelayOptions): Modul
   const granted = new Map(options.repositories.map(repository => [lower(repository), repository]));
   const maxCalls = options.maxCalls ?? MAX_MODULE_GITHUB_CALLS;
   const maxResponseBytes = options.maxResponseBytes ?? MAX_MODULE_GITHUB_RESPONSE_BYTES;
+  const maxConcurrent = options.maxConcurrent ?? MAX_MODULE_GITHUB_CONCURRENT;
   let calls = 0;
   // Private to this server user; the one worker of this run sees only the bound socket.
   const dir = mkdtempSync(join(tmpdir(), "brain-module-github-"));
@@ -296,14 +299,20 @@ export function startModuleGitHubRelay(options: ModuleGitHubRelayOptions): Modul
     return new Response(Buffer.from(bytes!), { status: upstream.status, headers });
   }
 
+  let active = 0;
   const server = Bun.serve({
     unix: socketPath,
     async fetch(request) {
+      // Refused before any byte is read: at most this many requests are held at once.
+      if (active >= maxConcurrent) {
+        return Response.json({ message: `The module GitHub relay serves at most ${maxConcurrent} calls at once; retry after one finishes.`, brain_relay_refusal: "relay_busy" }, { status: 503 });
+      }
+      active++;
       try { return await handle(request); }
       catch (error) {
         if (error instanceof Refusal) return Response.json({ message: error.message, brain_relay_refusal: error.code }, { status: error.status });
         return Response.json({ message: "The module GitHub relay could not reach GitHub.", brain_relay_refusal: "upstream_unreachable" }, { status: 502 });
-      }
+      } finally { active--; }
     },
   });
   chmodSync(socketPath, separateIdentity ? 0o660 : 0o600);

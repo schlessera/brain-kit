@@ -12,11 +12,13 @@ let upstream: ReturnType<typeof Bun.serve>;
 const seen: Array<{ method: string; path: string; authorization: string | null; body: string }> = [];
 let redirect = false;
 let large = 0;
+let hold: Promise<void> | null = null;
 
 beforeAll(() => {
   upstream = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const url = new URL(request.url);
     seen.push({ method: request.method, path: `${url.pathname}${url.search}`, authorization: request.headers.get("authorization"), body: await request.text() });
+    if (hold) await hold;
     if (redirect) return new Response(null, { status: 302, headers: { location: "https://elsewhere.example/" } });
     if (large) {
       // A chunked body with no length: only reading it shows its size.
@@ -28,13 +30,13 @@ beforeAll(() => {
 });
 afterAll(() => { upstream.stop(true); });
 const relays: ModuleGitHubRelay[] = [];
-afterEach(async () => { for (const relay of relays.splice(0)) await relay.stop(); seen.length = 0; redirect = false; large = 0; });
+afterEach(async () => { for (const relay of relays.splice(0)) await relay.stop(); seen.length = 0; redirect = false; large = 0; hold = null; });
 
-function relay(options: { token?: string | undefined; writes?: string; maxCalls?: number; maxResponseBytes?: number } = {}) {
+function relay(options: { token?: string | undefined; writes?: string; maxCalls?: number; maxResponseBytes?: number; maxConcurrent?: number } = {}) {
   const writes: ModuleGitHubWriteRecord[] = [];
   const started = startModuleGitHubRelay({ token: () => "token" in options ? options.token : TOKEN, repositories: ["ithaca/watchtower"],
     writes: parseModuleGitHubWrites(options.writes ?? "").writes, observe: write => { writes.push(write); },
-    origin: upstream.url.origin, ...(options.maxCalls ? { maxCalls: options.maxCalls } : {}), ...(options.maxResponseBytes ? { maxResponseBytes: options.maxResponseBytes } : {}) });
+    origin: upstream.url.origin, ...(options.maxCalls ? { maxCalls: options.maxCalls } : {}), ...(options.maxResponseBytes ? { maxResponseBytes: options.maxResponseBytes } : {}), ...(options.maxConcurrent ? { maxConcurrent: options.maxConcurrent } : {}) });
   relays.push(started);
   const call = (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) => fetch(`http://localhost${path}`, {
     method, unix: started.socketPath, headers: { authorization: "Bearer worker-supplied", ...headers }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
@@ -109,6 +111,20 @@ describe("module GitHub relay reads (#4259)", () => {
     expect(seen).toEqual([]);
     expect(moduleGitHubTokenSource({ GITHUB_TOKEN: "x", BRAIN_UI_SYNC_GITHUB_TOKEN: "y", BRAIN_UI_GITHUB_TOOLS_TOKEN: "z" })(), "NO_TOKEN_FALLBACK").toBeUndefined();
     expect(moduleGitHubTokenSource({ BRAIN_UI_MODULE_GITHUB_TOKEN: ` ${TOKEN} ` })()).toBe(TOKEN);
+  });
+
+  test("calls beyond the in-flight bound are refused before they are read", async () => {
+    let release!: () => void;
+    hold = new Promise<void>(resolve => { release = resolve; });
+    const { call } = relay({ maxConcurrent: 2 });
+    const first = call("GET", "/repos/ithaca/watchtower/issues"), second = call("GET", "/repos/ithaca/watchtower/pulls");
+    while (seen.length < 2) await Bun.sleep(5);
+    const third = await call("GET", "/repos/ithaca/watchtower/labels");
+    expect(third.status, "IN_FLIGHT_BOUND").toBe(503);
+    expect((await third.json()).brain_relay_refusal).toBe("relay_busy");
+    release();
+    expect([(await first).status, (await second).status]).toEqual([200, 200]);
+    expect((await call("GET", "/repos/ithaca/watchtower/labels")).status, "BOUND_FREES_AFTER_FINISH").toBe(200);
   });
 
   test("a redirect is never followed, and the call budget is enforced", async () => {
