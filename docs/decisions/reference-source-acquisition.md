@@ -425,7 +425,11 @@ catalog lost, and deletions interrupted in `deleting` (`recover`, `packages/ui-s
 
 Each managed request retains its own frozen fixed-wire identity observation,
 including cache reuse by another principal or turn. The observation binds the
-operation, served brain, principal, turn, selected root, full ref and commit.
+host-generated read invocation ID, served brain, principal, turn, selected root,
+full ref and commit. The reader and writer compare that ID with the invocation
+that requested the transport, so another read of the same source cannot supply
+its observation. Observation time is captured when fixed metadata validation
+succeeds, before publication, recording or lease waits.
 Immutable read evidence snapshots this observation separately from the original
 acquisition and the writer checks their stable repository/current-owner IDs and
 names together before recording. A changed or missing observation refuses that

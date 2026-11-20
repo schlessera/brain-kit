@@ -7,6 +7,8 @@ import type { createGitHubReferenceAccess } from "./github-reference-access.js";
 export interface ReferenceAcquisitionContext {
   /** Both values come from the admitted host turn, never from tool input. */
   turnId: string;
+  /** Host read invocation identity, generated before requesting this transport. */
+  operationId?: string;
   egress: Parameters<ReturnType<typeof createGitHubReferenceAccess>["open"]>[0]["egress"];
   /** Principal/turn and shared recorder health, read again after host waits. */
   current(): boolean;
@@ -60,9 +62,9 @@ export interface ReferenceIdentityObservation {
 /** Recording checks correlation, never converts retained metadata into source trust. */
 export function referenceIdentityObservationMatches(observation: ReferenceIdentityObservation | undefined, acquisition: {
   brain: string; repository_id: string; owner_id: string; owner: string; repository_name: string; ref: string; commit_id: string;
-}, expected: { brain: string; principalId: string; turnId: string; rootId: string }): boolean {
+}, expected: { operationId: string; brain: string; principalId: string; turnId: string; rootId: string }): boolean {
   const o = observation;
-  return Boolean(o && typeof o.operationId === "string" && /^[A-Za-z0-9_-]{1,128}$/u.test(o.operationId) && Number.isSafeInteger(o.observedAt) && o.observedAt > 0
+  return Boolean(o && typeof o.operationId === "string" && /^[A-Za-z0-9_-]{1,128}$/u.test(o.operationId) && o.operationId === expected.operationId && Number.isSafeInteger(o.observedAt) && o.observedAt > 0
     && o.brain === expected.brain && o.brain === acquisition.brain && o.principalId === expected.principalId && o.turnId === expected.turnId
     && o.rootId === expected.rootId && o.ref === acquisition.ref && o.commit === acquisition.commit_id
     && o.identity.repositoryId === acquisition.repository_id && o.identity.ownerId === acquisition.owner_id

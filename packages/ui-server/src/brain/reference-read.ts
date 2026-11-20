@@ -65,11 +65,12 @@ export function createReferenceReads(options: {
       // Failed operations also consumed their runtime call identity. A retry
       // must be a new model call, rather than relabeling an earlier result.
       used.add(toolCallId);
+      const operationId = randomUUID();
       let lease: Awaited<ReturnType<ReferenceSources["request"]>> | undefined;
       try {
         // This API accepts a raw clone location, not an already-normalized
         // authority key. Preserve real repository names ending in `.git`.
-        lease = await options.sources.request({ principalId, repository: location.cloneUrl, revision: request.revision, acquisition: context, signal });
+        lease = await options.sources.request({ principalId, repository: location.cloneUrl, revision: request.revision, acquisition: { ...context!, operationId }, signal });
         const assertAuthority = () => { live(); lease!.assertAuthority(); };
         assertAuthority();
         // Only the selected native sealed root and retained acquisition may
@@ -84,7 +85,7 @@ export function createReferenceReads(options: {
           || !referenceAcquisitionMatches(db, lease.rootId, record, { brain: options.brain, commit: lease.commit, ref: acquired.ref }))
           throw new ReferenceSourceError("unavailable", "No authoritative immutable acquisition is available for this read.");
         const identityObservation = lease.identityObservation && structuredClone(lease.identityObservation);
-        if (!referenceIdentityObservationMatches(identityObservation, acquired, { brain: options.brain, principalId, turnId, rootId: lease.rootId }))
+        if (!referenceIdentityObservationMatches(identityObservation, acquired, { operationId, brain: options.brain, principalId, turnId, rootId: lease.rootId }))
           throw new ReferenceSourceError("unavailable", "No current transport identity is bound to this immutable read.");
         const observationSnapshot = JSON.stringify(identityObservation);
         const acquisitionSnapshot = JSON.stringify(acquired), nativeRoot = JSON.stringify(record.root), rootPath = record.path;
@@ -108,7 +109,7 @@ export function createReferenceReads(options: {
         const result: ReferenceToolResult = { ok: true, read: { repository: location.canonical, revision: request.revision, commit: lease.commit,
           path: request.path, offset: blob.offset, length: blob.length, totalBytes: blob.totalBytes, encoding: utf8 ? "utf8" : "base64",
           content: utf8 ? text : bytes.toString("base64") }, guidance };
-        await write("referenceReadPrepare", { id: randomUUID(), turnId, toolCallId, principalId, acquisition: acquisitionSnapshot,
+        await write("referenceReadPrepare", { id: randomUUID(), operationId, turnId, toolCallId, principalId, acquisition: acquisitionSnapshot,
           evidence: JSON.stringify({ version: 1, path: request.path, blob: blob.blob, mode: blob.mode, tree: blob.tree, offset: blob.offset,
             length: blob.length, totalBytes: blob.totalBytes, digest: blob.digest, grantId: lease.readGrantId, detectorVersion: 1,
             trusted: false, trustRevision: "0", identityObservation }), responseDigest: digest(JSON.stringify(result)), at: Date.now() }, lease.rootId, lease.readGrantId, authority);

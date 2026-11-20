@@ -49,7 +49,7 @@ async function fixture(worker = false) {
     { id: "ithaca-acquisition", brain: "ithaca-brain", principalId: principal.id, turnId: "acquiring-turn",
       identity: { ...githubReferenceRepository(repository), repositoryId: "101", ownerId: "201", private: false }, ref: "refs/heads/main",
       commit, tree, root: native.root!, grantId: null, networkBytes: 1500, at });
-  const state = { current: true, authorized: true, requests: 0, requested: [] as string[], released: 0, reads: 0, seals: 0,
+  const state = { reuseObservation: false, current: true, authorized: true, requests: 0, requested: [] as string[], released: 0, reads: 0, seals: 0,
     bytes: Buffer.from("Odysseus charts Ithaca."), afterRead: () => {}, afterSeal: () => {} };
   const lease: ReferenceSourceLease = { domain: "public", view: "ithaca-view", viewPath: "/sealed", name: "ithaca@main", repository,
     repositoryUrl: `${repository}.git`, revision: "main", commit, rootId: native.id, refreshedAt: at, validatedAt: at,
@@ -59,7 +59,12 @@ async function fixture(worker = false) {
       ref: "refs/heads/main", commit, rootId: native.id, observedAt: at }, assertAuthority() {
       if (!state.authorized) throw new ReferenceSourceError("unauthorized", "Read authority was revoked.");
     }, release() { state.released++; } };
-  const sources = { async request(input: { repository?: unknown }) { state.requests++; state.requested.push(String(input.repository)); return lease; } };
+  const sources = { async request(input: { repository?: unknown; acquisition?: { operationId?: string } }) {
+    state.requests++; state.requested.push(String(input.repository));
+    if (!state.reuseObservation && lease.identityObservation && input.acquisition?.operationId)
+      lease.identityObservation = { ...lease.identityObservation, operationId: input.acquisition.operationId };
+    return lease;
+  } };
   const pool = { async poolSeal() { state.seals++; state.afterSeal(); return native; } };
   const transport = { async readBlob(input: { offset: number; maximum: number }) {
     state.reads++;
@@ -106,7 +111,7 @@ test("each read retains its own live transport identity apart from the acquiring
   await f.call();
   const row = f.db.query("SELECT evidence FROM reference_reads").get() as { evidence: string };
   expect(JSON.parse(row.evidence).identityObservation, "READ_BINDS_FRESH_TRANSPORT_OBSERVATION").toMatchObject({
-    operationId: "reading-operation", brain: "ithaca-brain", principalId: f.principal.id, turnId: "reading-turn",
+    operationId: expect.any(String), brain: "ithaca-brain", principalId: f.principal.id, turnId: "reading-turn",
     identity: { repositoryId: "101", ownerId: "201", owner: "odysseus", repository: "ithaca" },
   });
 });
@@ -439,6 +444,7 @@ for (const kind of ["missing", "operation", "owner", "repository", "turn", "prin
     const f = await fixture(true);
     const observation = f.lease.identityObservation!;
     if (kind === "missing") delete f.lease.identityObservation;
+    if (kind === "operation") f.state.reuseObservation = true;
     if (kind === "operation") f.lease.identityObservation = { ...observation, operationId: undefined as never };
     if (kind === "owner") observation.identity.ownerId = "202";
     if (kind === "repository") observation.identity.repositoryId = "102";
@@ -453,17 +459,26 @@ for (const kind of ["missing", "operation", "owner", "repository", "turn", "prin
   });
 }
 
-test("the writer independently refuses an observation for a different owner", async () => {
+for (const mismatch of ["owner", "operation"]) test(`the writer independently refuses an observation for a different ${mismatch}`, async () => {
   const f = await fixture();
   await f.call();
   const row = f.db.query("SELECT * FROM reference_reads").get() as { acquisition: string; evidence: string; response_digest: string };
   const evidence = JSON.parse(row.evidence);
-  evidence.identityObservation.identity.ownerId = "202";
-  expect(() => readWrites(f.db).referenceReadPrepare({ id: "other-read", turnId: "reading-turn", toolCallId: "read-2",
+  const operationId = evidence.identityObservation.operationId;
+  if (mismatch === "owner") evidence.identityObservation.identity.ownerId = "202";
+  else evidence.identityObservation.operationId = "other-transport-operation";
+  expect(() => readWrites(f.db).referenceReadPrepare({ id: "other-read", operationId, turnId: "reading-turn", toolCallId: "read-2",
     principalId: f.principal.id, acquisition: row.acquisition, evidence: JSON.stringify(evidence), responseDigest: row.response_digest,
     at: Date.now() }, f.native.id, null, sourceAuthority(f.db, "public", repository, "main")),
     "WRITER_RECHECKS_TRANSPORT_IDENTITY").toThrow("transport identity");
   expect(f.db.query("SELECT count(*) n FROM reference_reads").get()).toEqual({ n: 1 });
   await f.call({ toolCallId: "read-3" });
   expect(f.db.query("SELECT count(*) n FROM reference_reads").get()).toEqual({ n: 2 });
+});
+
+test("another call in the same turn cannot substitute an earlier transport operation", async () => {
+  const f = await fixture();
+  await f.call();
+  f.state.reuseObservation = true;
+  await expect(f.call({ toolCallId: "read-2" }), "READ_REQUIRES_ITS_OWN_TRANSPORT_OPERATION").rejects.toThrow(/transport identity/);
 });

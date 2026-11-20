@@ -6,6 +6,7 @@ import { sourceAuthorityCurrent, type SourceAuthority } from "./reference-source
 
 interface ReferenceReadRecord {
   id: string;
+  operationId: string;
   turnId: string;
   toolCallId: string;
   principalId: string;
@@ -26,7 +27,7 @@ export function readWrites(db: Database) {
         const evidence = JSON.parse(record.evidence) as { identityObservation?: ReferenceIdentityObservation };
         const acquired = acquisition as Parameters<typeof referenceIdentityObservationMatches>[1];
         if (!referenceIdentityObservationMatches(evidence.identityObservation, acquired, {
-          brain: acquired.brain, principalId: record.principalId, turnId: record.turnId, rootId,
+          operationId: record.operationId, brain: acquired.brain, principalId: record.principalId, turnId: record.turnId, rootId,
         })) throw new Error("Reference read transport identity changed before recording");
         const count = db.query("SELECT COUNT(*) AS n FROM reference_reads WHERE turn_id = ?").get(record.turnId) as { n: number };
         if (count.n >= 2000) throw new Error("Reference read record capacity exceeded");

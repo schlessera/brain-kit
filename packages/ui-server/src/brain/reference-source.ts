@@ -654,7 +654,7 @@ export function createReferenceSources(options: {
     const context = input.acquisition;
     if (!context || !context.turnId || !context.current()) throw new ReferenceSourceError("unavailable", "Managed GitHub acquisition needs a live admitted turn and its network budget.");
     const controller = new AbortController(), signal = input.signal ? AbortSignal.any([input.signal, controller.signal]) : controller.signal;
-    const id = randomUUID();
+    const id = context.operationId ?? randomUUID();
     const publicFence = authorityFences.get(sourceKey(PUBLIC, repository.canonical, revision)) ?? 0;
     const privateFence = authorityFences.get(sourceKey(privateDomain(input.principalId), repository.canonical, revision)) ?? 0;
     const publicRepositoryFence = authorityFences.get(sourceKey(PUBLIC, repository.canonical, "")) ?? 0;
@@ -786,7 +786,7 @@ export function createReferenceSources(options: {
         result.readGrantId = currentAccess.grantId;
         result.identityObservation = Object.freeze({ operationId: id, brain: options.brain, principalId: input.principalId,
           turnId: context.turnId, identity: Object.freeze({ ...currentAccess.identity }), ref: check.ref, commit: check.commit,
-          rootId: selectedRoot, observedAt: now() });
+          rootId: selectedRoot, observedAt: currentAccess.identityObservedAt });
         assertCurrent();
         return { kind: "source", row: current, stale: false, error: null };
       } catch (error) {
