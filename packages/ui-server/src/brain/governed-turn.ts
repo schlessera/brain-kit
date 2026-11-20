@@ -1,3 +1,4 @@
+import { recordIndexUpdate, type IndexUpdateReceipt } from "./index-update-receipt.js";
 /** Hosted turn admission and reconciliation; no repository code runs here. */
 import { lstatSync, realpathSync } from "node:fs";
 import { join } from "node:path";
@@ -17,6 +18,7 @@ import { translateProviderTypesInView } from "./provider-types.js";
 import { providerHardlinks } from "./provider-hardlinks.js";
 import { ensureRetainedDirectories } from "./index-directory.js";
 import type { IndexBatch } from "./index-batch.js";
+import { nativeStartupReleases } from "./native-startup-releases.js";
 import { createTurnDataTree, type TurnDataTree } from "./turn-data-tree.js";
 
 export interface GovernedTurnHold {
@@ -70,7 +72,7 @@ export interface GovernedTurns {
   /** Display facts use the same process-local last-valid reader as admission. */
   facts(origin?: "interactive" | "voice"): { policyProfile: "governed" | "strict"; policy: TurnGovernancePolicy };
   /** Deferred maintenance, serialized with application/CLI mutations. */
-  refresh(lock: KeyedLock): void;
+  refresh(lock: KeyedLock, turnId?: string): void;
   /** Stop new deferred refreshes and drain the current worker before state closes. */
   close(): Promise<void>;
 }
@@ -80,6 +82,7 @@ export function createGovernedTurns(options: {
   brainPath: string; execution: HostExecution; profile: "governed" | "strict";
   maskPaths: readonly string[]; index: (lock: KeyedLock) => Promise<unknown>;
   report: (message: string) => void;
+  indexReceipt?: (receipt: IndexUpdateReceipt, turnIds: string[]) => void;
   /** Settles once the record has committed; admission waits for it (#2850). */
   recordPolicy?: (turnId: string, origin: "interactive" | "voice", profile: "governed" | "strict", policy: TurnGovernancePolicy) => void | Promise<unknown>;
   /** The CLI argv that reads a restricted turn's taxonomy and builds its private index; default: the brain's packaged CLI. */
@@ -103,6 +106,7 @@ export function createGovernedTurns(options: {
   turnIndexUpdate?: Parameters<typeof createTurnDataTree>[0]["update"];
   turnPlan?: Parameters<typeof createTurnDataTree>[0]["plan"];
 }): GovernedTurns {
+  const startupReleases = nativeStartupReleases(options.nativeManager);
   const policyReader = governancePolicyReaderFor(options.brainPath);
   const canonicalBrain = (() => { try { return realpathSync(options.brainPath); } catch { return options.brainPath; } })();
   const privateIndexes = createPrivateIndexCache({ report: options.report, ...(options.privateIndexDiffer ? { differ: options.privateIndexDiffer } : {}),
@@ -115,11 +119,14 @@ export function createGovernedTurns(options: {
   let current: Promise<unknown> | undefined;
   let again = false;
   let closing = false;
-  const refresh = (lock: KeyedLock): void => {
+  const refreshTurns = new Set<string>();
+  const refresh = (lock: KeyedLock, turnId?: string): void => {
     if (closing) return;
+    if (turnId) refreshTurns.add(turnId);
     if (current) { again = true; return; }
     again = false;
-    current = options.index(lock).catch(error => options.report(`governed index refresh failed: ${String(error)}`))
+    const turns = [...refreshTurns]; refreshTurns.clear();
+    current = recordIndexUpdate(() => options.index(lock), receipt => options.indexReceipt?.(receipt, turns)).catch(error => options.report(`governed index refresh failed: ${String(error)}`))
       .finally(() => { current = undefined; if (again) refresh(lock); else if (!closing) advance(); });
   };
   return {
@@ -128,7 +135,7 @@ export function createGovernedTurns(options: {
       const policy = policyReader.load();
       return { policyProfile: options.profile === "strict" ? "strict" : policy.policy.profiles[origin], policy };
     },
-    async close() { closing = true; again = false; await current; await privateIndexes.close(); },
+    async close() { closing = true; again = false; await current; await privateIndexes.close(); await startupReleases.close(); },
     // Exposure records commit on the write worker (#2850): a read waits for
     // every one submitted before it.
     bindSession(turnId, sessionId) { return options.exposures?.bind(turnId, sessionId) ?? Promise.resolve(); },
@@ -167,7 +174,9 @@ export function createGovernedTurns(options: {
       };
       // Marked before the checkpoint: its index may lack what is queued (#2848).
       const watermark = options.indexBatch?.watermark();
+      let releaseSlot: Awaited<ReturnType<typeof startupReleases.reserve>> | undefined;
       try {
+        releaseSlot = await step("startup_release_reserve", () => startupReleases.reserve(signal));
         startupView = await step("startup_checkpoint", () => prepareNativeWorkerStartupView(options.brainPath, options.nativeManager, signal));
         // Every governed and strict turn runs on the turn egress proxy and the
         // host inference relay (#1665), which need a view the configured native
@@ -322,7 +331,7 @@ export function createGovernedTurns(options: {
         for (const warning of policy.warnings) options.report(`Governance policy warning: ${warning}`);
         // The final checkpoint may have replaced the first; it must be managed too.
         assertManagedTurnStartupView(startupView);
-        if (governed) { if (dataTree) indexView = startupView; else await step("startup_view_cleanup", async () => { await startupView!.cleanup(); }); startupView = undefined; }
+        if (governed) { if (dataTree) indexView = startupView; else await step("startup_view_cleanup", async () => { releaseSlot!.handoff(turnId, startupView!); }); startupView = undefined; }
         signal.throwIfAborted();
         // Recorded before the turn can read anything; a new conversation's rows bind when it is named.
         const shown: ProviderExposure | undefined = inferenceRecipient ? { recipient: inferenceRecipient.name, visible: providerFolders, hidden: maskedFolders } : undefined;
@@ -346,7 +355,7 @@ export function createGovernedTurns(options: {
           } finally { await release(); }
         } };
       } catch (error) { await release(); throw error; }
-      finally { watermark?.release(); }
+      finally { releaseSlot?.release(); watermark?.release(); }
     },
   };
 }

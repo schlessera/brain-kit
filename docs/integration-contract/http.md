@@ -149,6 +149,30 @@ the bytes to the journal's capacity. The decision is recorded in
 [the governed-workers decision](../decisions/governed-writable-workers.md#metadata-only-index-history--2026-10-25-2873)
 and [its purge](../decisions/governed-writable-workers.md#purging-earlier-index-versions-and-the-embeddings-lock--2026-10-25-2903).
 
+### Index updates leave change history (breaking, pre-1.0 minor, #4302)
+
+For observations made after this change, the exact root index family and
+publication copies listed above contribute no journal change rows, changed-file
+counts or observed bytes. Notes, enrichment caches, similarly named paths and
+independently held worktrees retain their existing coverage. Previously written
+history remains readable in its existing metadata-only form, with the same
+preview, download and restore exclusions.
+
+Each host application batch and governed post-turn index update records one
+`index_update` Activity event for each causing turn. Its payload contains an
+opaque `generation`, `durationMs` and `outcome` (`complete`, `failed` or
+`index_capacity`); failures also carry a bounded `cause`. A retry is a new
+update with a new generation. These host receipts never enter provider history.
+
+Index writers remain independently bounded by maintenance temporary storage
+and output staging (256 MiB per command by default, with their existing
+configured aggregate budgets). Writes beyond a worker allowance return
+`ENOSPC`; unavailable admission returns `worker_state_busy`. An update that
+reports either condition has the named receipt outcome `index_capacity`.
+Committed Markdown remains authoritative, and pending application paths stay
+queued for the next retry. This restriction supersedes new index-version
+listing under #2873, with the maintainer's approval on #4302 (2026-11-20).
+
 ### User history restoration (additive, #1653)
 
 The four authenticated human `/revert` operations are specified in

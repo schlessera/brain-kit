@@ -1,3 +1,5 @@
+import { createNativeStartupReleases, setNativeStartupReleases } from "./brain/native-startup-releases.js";
+import type { IndexUpdateReceipt } from "./brain/index-update-receipt.js";
 import { createTrustSettings } from "./brain/trust-settings.js";
 import { createTrustSettingsRoutes } from "./routes/trust-settings.js";
 import { createTrustGitHubIdentity } from "./brain/trust-github-identity.js";
@@ -640,7 +642,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const applicationPlanner = boundaryPlanner(boundary, { afterIndex: keyedReindex });
   // Applications return after their Markdown commits; the paths they changed
   // are indexed together before the next read that needs them (#2835).
-  const indexBatch = createIndexBatch({ index: paths => applicationPlanner.index(config.brainPath, undefined, paths) });
+  const indexReceipt = (receipt: IndexUpdateReceipt, turnIds: string[]) => {
+    for (const turnId of turnIds) void Promise.resolve(activity.store.appendEvent(`${turnId}:turn`, "index_update", receipt)).catch(error => brainLog.emit({ severityText: "ERROR", body: `Index receipt could not be recorded: ${String(error)}` }));
+  };
+  const indexBatch = createIndexBatch({ index: paths => applicationPlanner.index(config.brainPath, undefined, paths), receipt: indexReceipt });
   bootCleanup.push(() => indexBatch.idle());
   // Managed worktree findings (#2431) reuse core's hygiene rules; without core there is no review to join.
   const hygieneCore = referenceWorktrees ? await import("@schlessera/brain/internal").catch(() => undefined) : undefined;
@@ -735,6 +740,13 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   bootCleanup.push(stopAttachmentSweep);
   const turnMaskPaths = [...operationalStateMasks({ brainPath: config.brainPath, dbPath: config.dbPath, privateStatePaths }), ...nativeMaskPaths];
   const governedRecords = procedureCaller(db, governedTurnWrites, undefined, writer);
+  setNativeStartupReleases(nativeManager, createNativeStartupReleases(result => {
+    void Promise.resolve(activity.store.appendEvent(`${result.turnId}:turn`, "startup_checkpoint_release", result)).catch(error => brainLog.emit({ severityText: "ERROR", body: `Checkpoint release result could not be recorded: ${String(error)}` }));
+    if (result.outcome === "retry") {
+      brainLog.emit({ severityText: "WARN", body: `Startup checkpoint ${result.checkpointId} release failed; retrying`, attributes: { cause: result.cause ?? "unknown" } });
+      void Promise.resolve(settingsWrites.setSetting("journal.cleanup.lastFailure", { kind: "checkpoint_release_retry", scope: "startup_checkpoint", ...result })).catch(() => {});
+    }
+  }));
   const governedTurns = createGovernedTurns({ nativeManager, brainPath: config.brainPath, execution: hostExecution,
       profile: options.workerProfile ?? "governed",
       // Admission records commit on the write worker before the turn goes on (#2850).
@@ -742,7 +754,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
         JSON.stringify(policy.policy), JSON.stringify(policy.errors), Date.now()),
       maskPaths: turnMaskPaths,
       index: lock => brain.index(requeueWhenBusy({ lock })).catch(ignoreShutdown), report: message => brainLog.emit({ severityText: "WARN", body: message }),
-      exposures: createProviderExposures(db, writer), ...(config.providerRecipientOrigins ? { recipientOrigins: config.providerRecipientOrigins } : {}), indexBatch });
+      indexReceipt, exposures: createProviderExposures(db, writer), ...(config.providerRecipientOrigins ? { recipientOrigins: config.providerRecipientOrigins } : {}), indexBatch });
   bootCleanup.push(() => governedTurns.close());
   // Budget writes commit on the write worker (#2850).
   // Apify (#3162, #3307): one ledger opener for the run service and the turn budgets. Until a run was ever

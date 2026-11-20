@@ -331,6 +331,11 @@ print(json.dumps(result))`;
     }
     if (OBSERVATION_TIMING) {
       const load = () => readFileSync("/proc/loadavg", "utf8").trim(), loadBefore = load(), timingStart = performance.now();
+      const matrixResponse = await fetch(origin + "/__native_observation_path_matrix");
+      const pathMatrix = await matrixResponse.json() as { turnId: string; samples: { changedPaths: number; sample: number; toolUseId: string; frozenMs: number }[]; admission: { name: string; ms: number }[] };
+      expect(matrixResponse.status, `OBSERVATION_PATH_MATRIX_SUCCEEDED ${JSON.stringify(pathMatrix)}`).toBe(200);
+      expect(pathMatrix.samples).toHaveLength(48);
+
       const median = (values: number[]) => values.length ? [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]! : null;
       const p95 = (values: number[]) => values.length ? [...values].sort((a, b) => a - b)[Math.ceil(values.length * 0.95) - 1]! : null;
       const turn = async (text: string, requestId: string, sessionId: string | undefined, deadline: number) => {
@@ -467,7 +472,16 @@ print(json.dumps(result))`;
         beginPlusFinish: { pairedHoldMedianMs: phaseMedian(pairedTotals), sumOfHoldMediansMs: begin.hold.medianMs !== null && finish.hold.medianMs !== null ? begin.hold.medianMs + finish.hold.medianMs : null, pairs: pairedTotals.length },
         traces: traces.length, managerSpans: managerSpans.length,
       };
-      const result = { backend: BACKEND, appUid: APP_UID, files: FILES, bytes: BYTES, loadBefore, loadAfter: load(), elapsedMs: performance.now() - timingStart, timelineTurnIds,
+      const pathCells = [0, 1, 20, 200].map(changedPaths => {
+        const samples = pathMatrix.samples.filter(sample => sample.changedPaths === changedPaths);
+        const attributed = samples.map(sample => {
+          const trace = traces.find(trace => trace.toolUseId === sample.toolUseId);
+          if (!trace) throw Error(`OBSERVATION_PATH_MATRIX_TRACE_MISSING ${sample.toolUseId}`);
+          return { phases: observationPhases(trace, managerSpans), measuredMs: sample.frozenMs };
+        });
+        return { changedPaths, samples: samples.length, medianMs: median(samples.map(sample => sample.frozenMs)), p95Ms: p95(samples.map(sample => sample.frozenMs)), phases: summarizePhases(attributed) };
+      });
+      const result = { backend: BACKEND, appUid: APP_UID, files: FILES, bytes: BYTES, loadBefore, loadAfter: load(), elapsedMs: performance.now() - timingStart, timelineTurnIds, pathMatrix: { ...pathMatrix, cells: pathCells },
         tools: timeline?.tools ?? null, admission, journal: { begin: { medianMs: median(total("beginMs")), p95Ms: p95(total("beginMs")) }, finish: { medianMs: median(total("finishMs")), p95Ms: p95(total("finishMs")) },
           beginPlusFinish: { medianMs: median(total("totalMs")), p95Ms: p95(total("totalMs")) }, turns: beginFinish }, phases: observationSteps, calls: timeline?.calls ?? null };
       writeFileSync(join(ARTIFACTS, "observation-timing.json"), JSON.stringify(result, null, 2));

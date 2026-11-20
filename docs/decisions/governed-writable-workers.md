@@ -1429,8 +1429,9 @@ runs on the host in a workspace.
 
 **What the journal does not snapshot:**
 
-- **Ignored paths.** Scratch, `brain.db` and staged shares are listed by name
-  and size, not stored.
+- **Ignored paths.** Scratch and staged shares are listed by name and size,
+  not stored. The exact root index family and publication copies have no new
+  journal rows or byte charge after the 2026-11-20 amendment (#4302).
 - **Commits, pushes and other egress.** They are recorded but cannot be
   reverted.
 
@@ -1821,6 +1822,68 @@ a launch mode that loads none. Even then, it would apply only to a brain whose
 `.mcp.json` declares no `brain` server. Turning hooks off for interactive
 turns, or dropping the brain MCP server from them, would change what a brain's
 own configuration does, and that needs a maintainer ruling first.
+
+### Index updates without version history — 2026-11-20 (#4302)
+
+> **Maintainer ruling (2026-11-20).** The index database is a generated,
+> disposable optimization. It needs no history. This amends #2873 and #2903
+> for new observations; existing history keeps its presentation.
+
+The exact root family and publication-copy matcher defined below now excludes
+these paths from new change rows altogether. They contribute neither observed
+bytes nor changed paths to the turn's scope. Another name beside the database,
+a workspace's index and a separately held worktree's index remain ordinary
+content. The worker's index protection is unchanged: omission from history
+never authorizes a worker to modify what a later reader will execute or read.
+
+The host records each application batch and governed post-turn refresh as an
+`index_update` Activity event on each causing turn: generation, duration and
+outcome, including a failed update. A retry has a fresh generation. These
+receipts stay in host storage. Existing index-version rows are served in their
+previous metadata-only form, including the existing byte purge and restoration
+exclusions; the upgrade does not erase their history.
+
+The index writer has independent storage admission. Its maintenance temporary
+allowance and aggregate budget both default to 256 MiB
+(`BRAIN_UI_MAINTENANCE_TEMP_BYTES` and
+`BRAIN_UI_MAINTENANCE_TEMP_BUDGET_BYTES`). Output staging has its separate
+256 MiB per-worker allowance (`BRAIN_UI_OUTPUT_STAGING_BYTES`) and configured
+aggregate budget (`BRAIN_UI_OUTPUT_STAGING_BUDGET_BYTES`). The native manager
+continues charging retained extents until deletion is confirmed. Exhausting a
+worker allowance returns `ENOSPC`; unavailable admission returns
+`worker_state_busy`. The index receipt names either refusal `index_capacity`,
+and queued application paths remain pending. Retrying after capacity returns
+needs no operator judgment. Markdown and note before-images are unaffected.
+
+### Observation commits and startup release — 2026-11-20 (#4294, #4304)
+
+Changed versions are captured with at most 32 open version reads (16 paths,
+two sides each). Ready object reservations share one FULL ledger transaction;
+ready completions share another that also pins each object to every active
+observer. Every file and its object directory remain synced before completion.
+The observation rows commit before advancing the native checkpoint or resuming
+workers. A failed batch joins all started readers before aborting its roots.
+Existing per-reservation startup recovery reconciles any interrupted batch;
+a quarantined hash refuses only that version, preserving healthy batch peers.
+
+Active-turn summary and scope counters advance from committed change rows.
+Distinct paths, steering/kept/shared state, repeated hashed versions, ignored
+maxima and disappearing legacy publication copies retain the prior SQL
+semantics. Historical reads use the existing aggregation; restart rebuilds
+active state from durable history rather than trusting a cached total.
+
+A governed admission that needs no data tree hands its unused startup view to
+a bounded background release owner. The durable native lease remains the same
+through handoff and deletion, so startup recovery still finds an interrupted
+release. At most two startup checkpoints are pending or being admitted through
+this owner. Later admission waits for a slot; observation's `observe_reserve`
+waits for an outstanding release attempt before requesting native capacity.
+Failed deletion keeps the lease and physical charge, retries automatically,
+and records `startup_checkpoint_release` in Activity and the last failure in
+`journal.cleanup.lastFailure`. That cleanup failure alone never fails an
+already running turn. `startup_view_cleanup` measures only handoff; each release
+attempt records its own duration and outcome. Strict and data-tree consumers
+keep their existing checkpoint lifetime.
 
 ### Metadata-only index history — 2026-10-25 (#2873)
 

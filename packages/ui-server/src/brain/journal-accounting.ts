@@ -38,6 +38,8 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
   afterCheckpoint?: () => void;
 } = {}): JournalObjectAccounting & {
   write<T>(operation: () => T): T;
+  reserveBatch(entries: { bytes: number; hash: string }[]): (string | null)[];
+  finishBatch(entries: { id: string; hash: string; bytes: number }[], turnIds: string[]): void;
   usage(): number;
   /** Admitted, retryable schema upgrade; false leaves integrity-checked collection usable. */
   ensureObjectRefIndex(): boolean;
@@ -309,6 +311,30 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
           errorClass: corrupt instanceof Error ? corrupt.name : "Error", message: corrupt instanceof Error ? corrupt.message : String(corrupt) }) + "\n");
       }
       return report;
+    },
+    reserveBatch(entries) {
+      const ids: (string | null)[] = entries.map(() => crypto.randomUUID());
+      write(() => {
+        for (const [i, entry] of entries.entries()) {
+          if (!Number.isSafeInteger(entry.bytes) || entry.bytes < 0 || !/^[a-f0-9]{64}$/.test(entry.hash)) throw new JournalStorageUnavailable("invalid batched content reservation");
+          if (db.query("SELECT 1 FROM turn_journal_object_quarantine WHERE hash=?").get(entry.hash)) { ids[i] = null; continue; }
+          db.query("INSERT OR IGNORE INTO turn_journal_objects VALUES (?,?,'pending')").run(entry.hash, entry.bytes);
+          db.query("INSERT INTO turn_journal_reservations (id,bytes,pid,pid_start,created_at,hash) VALUES (?,?,?,?,?,?)")
+            .run(ids[i]!, entry.bytes, SELF.pid, SELF.start, Date.now(), entry.hash);
+        }
+      });
+      return ids;
+    },
+    finishBatch(entries, turnIds) {
+      write(() => {
+        for (const entry of entries) {
+          const row = db.query("SELECT hash,bytes FROM turn_journal_reservations WHERE id=? AND kind='copy'").get(entry.id) as { hash: string; bytes: number } | null;
+          if (!row || row.hash !== entry.hash || row.bytes !== entry.bytes) throw new JournalStorageUnavailable("content does not match its batched reservation");
+          db.query("UPDATE turn_journal_objects SET state='present' WHERE hash=?").run(entry.hash);
+          for (const turnId of turnIds) db.query("INSERT OR IGNORE INTO turn_journal_object_refs VALUES (?,?)").run(turnId, entry.hash);
+          db.query("DELETE FROM turn_journal_reservations WHERE id=?").run(entry.id);
+        }
+      });
     },
     reserve(bytes, hash) {
       if (!Number.isSafeInteger(bytes) || bytes < 0) throw new JournalStorageUnavailable("invalid content reservation size");

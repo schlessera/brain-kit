@@ -1,4 +1,5 @@
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
+import { nativeStartupReleases } from "./native-startup-releases.js";
 import { isJournalSteeringPath } from "./journal-steering.js";
 /** One metadata index and rolling sealed roots; no initial content capture. */
 import { randomUUID } from "node:crypto";
@@ -395,6 +396,7 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
     await initialize(signal);
     // The wait for room behind earlier releases (#2915), before any checkpoint.
     let end = timing?.("observe_reserve");
+    await nativeStartupReleases(native).settled();
     await reserveRelease();
     end?.();
     const active = signalFor(signal), before = root!;

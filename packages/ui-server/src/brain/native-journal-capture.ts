@@ -33,7 +33,7 @@ export function createNativeJournalCapture(manager: NativeJournalManager, retain
   const observer = createNativeJournalObserver(manager, workerUid, releaseFailed);
   const entry = (metadata: NativeJournalMetadata, policy: NativeJournalPolicy): JournalSnapshotEntry | undefined => {
     const scope = journalPathScope(metadata.path);
-    if (!scope || metadata.kind === "directory") return undefined;
+    if (!scope || metadata.kind === "directory" || rootScope.index && journalMetadataOnlyPath(metadata.path)) return undefined;
     return { ...metadata, kind: metadata.kind, scope: scope.scope, ignored: policy.ignored(metadata.path),
       ...(rootScope.index && journalMetadataOnlyPath(metadata.path) ? { metadataOnly: true as const } : {}) };
   };
@@ -67,42 +67,58 @@ export function createNativeJournalCapture(manager: NativeJournalManager, retain
       const observation = await observer.observe(signal, timing);
       const end = timing?.("observe_capture");
       try {
-        const captured = new Map<string, string>();
+        const captured = new Map<string, Promise<string | undefined>>();
+        const unreadableKeys = new Map<string, NativeJournalUnreadable>();
         const unreadable = new Map<string, NativeJournalUnreadable>(observation.unreadable.map(item => [item.path, item]));
         async function version(metadata: NativeJournalMetadata | null, policy: NativeJournalPolicy, root: { id: string; path: string }): Promise<JournalSnapshotEntry | undefined> {
           if (!metadata) return undefined;
           const result = entry(metadata, policy);
           if (!result || !retained(result)) return result;
           const key = `${root.id}:${metadata.inode}`;
-          let hash = captured.get(key);
-          if (!hash) {
-            const privateRead = context(root, signal), started = performance.now();
-            try { hash = await withNativeJournalFile(root.path, metadata.path, metadata.bytes, privateRead, file => retain(file.fd, metadata.bytes, signal)); }
-            catch (error) {
-              if (error instanceof JournalObjectQuarantined) {
-                unreadable.set(metadata.path, {path:metadata.path, bytes:metadata.bytes, mode:metadata.mode, kind:metadata.kind,
-                  reason:"retained_object_corrupt", ms:0});
-                return result;
+          let pending = captured.get(key);
+          if (!pending) {
+            pending = (async () => {
+              const privateRead = context(root, signal), started = performance.now();
+              try { return await withNativeJournalFile(root.path, metadata.path, metadata.bytes, privateRead, file => retain(file.fd, metadata.bytes, signal)); }
+              catch (error) {
+                if (error instanceof JournalObjectQuarantined) {
+                  const cause = { path: metadata.path, bytes: metadata.bytes, mode: metadata.mode, kind: metadata.kind, reason: "retained_object_corrupt" as const, ms: 0 };
+                  unreadable.set(metadata.path, cause); unreadableKeys.set(key, cause);
+                  return undefined;
+                }
+                if (!privateRead || !nativeJournalPermissionDenied(error)) throw error;
+                const cause = { path: metadata.path, bytes: metadata.bytes, mode: metadata.mode, kind: metadata.kind, reason: "worker_reader_unavailable" as const, ms: Math.max(0, Math.round(performance.now() - started)) };
+                unreadable.set(metadata.path, cause); unreadableKeys.set(key, cause);
+                return undefined;
               }
-              if (!privateRead || !nativeJournalPermissionDenied(error)) throw error;
-              unreadable.set(metadata.path, { path: metadata.path, bytes: metadata.bytes, mode: metadata.mode, kind: metadata.kind, reason: "worker_reader_unavailable", ms: Math.max(0, Math.round(performance.now() - started)) });
-              return result;
-            }
-            captured.set(key, hash);
+            })();
+            captured.set(key, pending);
           }
+          const hash = await pending;
+          if (!hash) { const cause = unreadableKeys.get(key); if (cause) unreadable.set(metadata.path, { ...cause, path: metadata.path }); return result; }
           return { ...result, hash };
         }
         const changes = new Map<string, { path: string; before?: JournalSnapshotEntry; after?: JournalSnapshotEntry }[]>();
         for (const [turnId, policy] of policies) {
           const versions = [];
-          for (const change of observation.changes) {
-            signal?.throwIfAborted();
-            if (change.before?.kind === "directory" && change.after?.kind === "directory") continue;
-            if (change.before?.kind === change.after?.kind && change.before?.mode === change.after?.mode &&
-              change.before?.stamp === change.after?.stamp && change.before?.target === change.after?.target) continue;
-            const before = await version(change.before, policy, observation.beforeRoot);
-            const after = await version(change.after, policy, observation.afterRoot);
-            if (before || after) versions.push({ path: change.path, before, after });
+          // Bound descriptor/memory use while allowing the ready reservations
+          // and completions of this window to share their durable commits.
+          for (let offset = 0; offset < observation.changes.length; offset += 16) {
+            const batch = await Promise.allSettled(observation.changes.slice(offset, offset + 16).map(async change => {
+              signal?.throwIfAborted();
+              if (change.before?.kind === "directory" && change.after?.kind === "directory") return undefined;
+              if (change.before?.kind === change.after?.kind && change.before?.mode === change.after?.mode &&
+                change.before?.stamp === change.after?.stamp && change.before?.target === change.after?.target) return undefined;
+              const pair = await Promise.allSettled([version(change.before, policy, observation.beforeRoot), version(change.after, policy, observation.afterRoot)]);
+              for (const side of pair) if (side.status === "rejected") throw side.reason;
+              const [before, after] = pair.map(side => side.status === "fulfilled" ? side.value : undefined);
+              return before || after ? { path: change.path, before, after } : undefined;
+            }));
+            // Join every started retain before aborting a checkpoint: no file
+            // reader can outlive its sealed root, even when a peer failed.
+            const failure = batch.find(item => item.status === "rejected");
+            if (failure?.status === "rejected") throw failure.reason;
+            for (const item of batch) if (item.status === "fulfilled" && item.value) versions.push(item.value);
           }
           changes.set(turnId, versions);
         }
