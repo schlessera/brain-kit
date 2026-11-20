@@ -432,6 +432,49 @@ test("approved policy writes retain user attribution in the original active wind
   } finally { await f.close(); }
 });
 
+test("a failed asynchronous Settings operation cannot approve concurrent policy edits", async () => {
+  const f = fixture();
+  try {
+    mkdirSync(join(f.brain, "context/policies"), { recursive: true });
+    const policy = join(f.brain, "context/policies/governance.md");
+    writeFileSync(policy, "Athena's original policy\n");
+    await f.begin("odysseus");
+    let ready!: () => void, release!: () => void;
+    const reached = new Promise<void>(resolve => { ready = resolve; }), held = new Promise<void>(resolve => { release = resolve; });
+    const pending = f.journal.observeSettingsPolicy("ithaca-rejected", async () => { ready(); await held; throw new Error("metadata unavailable"); });
+    await reached;
+    writeFileSync(policy, "Unapproved policy during metadata lookup\n"); release();
+    await expectRejection(pending, "metadata unavailable");
+    const change = f.journal.details("ithaca", "odysseus")!.changes.find(change => change.path === "context/policies/governance.md");
+    expect(change, "SETTINGS_FAILED_ASYNC_LOOKUP_CANNOT_APPROVE_CONCURRENT_EDIT").toMatchObject({ class: "content", actor: "agent" });
+    expect(queryGovernanceEvents(f.db, { turnId: "odysseus", kinds: ["steering_change"], limit: 100 })).toHaveLength(0);
+    await f.journal.finish("odysseus");
+  } finally { await f.close(); }
+});
+
+for (const publishPolicy of [false, true]) test(`Settings metadata waits retain normal attribution before publication=${publishPolicy}`, async () => {
+  const f = fixture();
+  try {
+    mkdirSync(join(f.brain, "context/policies"), { recursive: true });
+    const policy = join(f.brain, "context/policies/governance.md");
+    writeFileSync(policy, "Athena's original policy\n");
+    await f.begin("odysseus");
+    let ready!: () => void, release!: () => void;
+    const reached = new Promise<void>(resolve => { ready = resolve; }), held = new Promise<void>(resolve => { release = resolve; });
+    const pending = f.journal.observeSettingsPolicy("ithaca-reviewed", async publish => {
+      ready(); await held;
+      if (publishPolicy) await publish!(() => writeFileSync(policy, "Odysseus approves this policy\n"));
+    });
+    await reached; writeFileSync(policy, "Unapproved edit during metadata lookup\n"); release(); await pending;
+    const changes = f.journal.details("ithaca", "odysseus")!.changes.filter(change => change.path === "context/policies/governance.md");
+    expect(changes.map(change => ({ actor: change.actor, class: change.class })), "SETTINGS_ONLY_SYNCHRONOUS_PUBLICATION_IS_USER_POLICY").toEqual([
+      { actor: "agent", class: "content" }, ...(publishPolicy ? [{ actor: "user" as const, class: "policy" as const }] : []),
+    ]);
+    expect(queryGovernanceEvents(f.db, { turnId: "odysseus", kinds: ["steering_change"], limit: 100 })).toHaveLength(0);
+    await f.journal.finish("odysseus");
+  } finally { await f.close(); }
+});
+
 test("actual journal classifies steering and local transitive configuration separately from content and policy", async () => {
   const f = fixture();
   try {

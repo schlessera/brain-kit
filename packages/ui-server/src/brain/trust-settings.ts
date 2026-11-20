@@ -79,7 +79,7 @@ export function createTrustSettings(options: {
   /** Null unless the current password-mode human principal remains usable. The
    * fingerprint includes credential/lifetime identity, never a body/channel claim. */
   authority(principalId: string): string | null;
-  observe(operationId: string, publish: () => void | Promise<void>): Promise<void>;
+  observe(operationId: string, operation: (publish?: (write: () => void) => Promise<void>) => void | Promise<void>): Promise<void>;
   github?: ReturnType<typeof createTrustGitHubIdentity>;
   now?: () => number;
   /** Host-only deterministic crash/race injection, never wired from HTTP. */
@@ -226,12 +226,12 @@ export function createTrustSettings(options: {
             if (!matchesTopology(root, payload.topology, true)) throw new TrustSettingsError("stale_base");
             verifyGovernancePolicyAnchored(target!, p.policyHash); };
           let publication: Promise<void> | undefined;
-          await options.observe(receipt.operationId, () => {
+          await options.observe(receipt.operationId, (publish = async write => { write(); }) => {
             if (publication || !publicationOpen) throw new TrustSettingsError("request_conflict");
             publication = (async () => {
               // The journal's own queue/observation waits precede the fresh
-              // metadata read. No further await separates its final authority
-              // fence from the synchronous descriptor-bound publication.
+              // metadata read. Journal attribution then checkpoints intervening
+              // edits before the synchronous authority/publication fence.
               if (payload.rule && (payload.rule.selector.kind === "github_repository" || payload.rule.selector.kind === "github_owner")) {
                 if (!payload.githubIdentity || !options.github) throw new TrustSettingsError("repository_identity_unavailable", 503);
                 const observed = await options.github.resolve({ principalId: principal, selector: payload.rule.selector, policyHash: p.policyHash, signal,
@@ -239,8 +239,10 @@ export function createTrustSettings(options: {
                 if (JSON.stringify(observed.identity) !== JSON.stringify(payload.githubIdentity)) throw new TrustSettingsError("repository_identity_changed");
                 identityAuthority = observed.assertAuthority;
               }
-              identityAuthority?.();
-              publishProtectedPolicy(target!, Buffer.from(payload.proposed), p.policyHash, check, () => { published = true; });
+              await publish(() => {
+                identityAuthority?.();
+                publishProtectedPolicy(target!, Buffer.from(payload.proposed), p.policyHash, check, () => { published = true; });
+              });
             })();
             // Preserve a rejected callback even if an older host observer
             // forgets to await it; this invocation still joins it below.

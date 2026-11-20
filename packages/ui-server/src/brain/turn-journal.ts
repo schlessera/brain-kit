@@ -674,16 +674,38 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     },
     /** Host Settings audit identity is retained by its durable operation store.
      * Observe user policy changes across existing turns without minting a turn. */
-    observeSettingsPolicy(_operationId: string, approvedWrite: () => void | Promise<void>): Promise<void> { return held(async () => {
+    observeSettingsPolicy(_operationId: string, operation: (publish?: (write: () => void) => Promise<void>) => void | Promise<void>): Promise<void> { return held(async () => {
       await observe();
-      try { await approvedWrite(); } finally { await observe(true); }
+      let open = true, publication: Promise<void> | undefined;
+      try {
+        await operation(write => {
+          if (!open || publication) throw new JournalStorageUnavailable("Settings publication window is no longer available");
+          publication = (async () => {
+            // Metadata waits are not approved writes. Attribute their changes
+            // before entering the synchronous descriptor publication boundary.
+            await observe();
+            if (!open) throw new JournalStorageUnavailable("Settings publication window ended");
+            let completed = false;
+            try { write(); completed = true; }
+            finally { await observe(completed); }
+          })();
+          void publication.catch(() => {});
+          return publication;
+        });
+        await publication;
+      } finally {
+        open = false;
+        await publication?.catch(() => {});
+        await observe();
+      }
     }); },
     /** The caller retains approval/current-principal authority; this never revives a completed turn. */
-    observeUserPolicy(turnId: string, approvedWrite: () => void | Promise<void>): Promise<void> { return held(async () => {
+    observeUserPolicy(turnId: string, approvedWrite: () => void): Promise<void> { return held(async () => {
       if (!active.has(turnId) || summary(turnId).state !== "recording") throw new JournalStorageUnavailable("approved policy write requires an active complete observation window");
       await observe();
       if (summary(turnId).state !== "recording") throw new JournalStorageUnavailable("policy observation became incomplete before the approved write");
-      try { await approvedWrite(); } finally { await observe(true); }
+      let completed = false;
+      try { approvedWrite(); completed = true; } finally { await observe(completed); }
     }); },
     finish(turnId: string) { return held(async timing => {
       if (!active.has(turnId)) { if (failedAdmissions.has(turnId)) await finalizeRefusedAdmission(turnId); return; }

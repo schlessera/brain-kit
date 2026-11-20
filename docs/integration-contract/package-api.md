@@ -5640,7 +5640,10 @@ runtime enforcement. Current responses use `partial` for saved policy because
 of historical publication proof. No removal receipt claims an enforcing fence.
 No agent turn, provider message or ordinary governance snapshot is changed.
 The journal awaits asynchronous metadata and publication before releasing its
-Settings observation window; a missing publication callback cannot produce proof.
+Settings observation window. It records intervening changes with their ordinary attribution before
+entering the synchronous approved write, and a failed lookup or a callback that
+publishes nothing cannot grant user-policy attribution. A missing publication
+callback cannot produce proof.
 The live trust projection retains last-valid rules on invalid policy, reports
 an error, and increments its decimal uint64 revision only for trust-list changes.
 Exhausted revisions refuse both new reviews and publication of retained reviews
