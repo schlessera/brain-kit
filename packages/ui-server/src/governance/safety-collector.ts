@@ -30,6 +30,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
  const calls=new Map<string,{tools:Map<string,number>;allowed:boolean}>();
  // A refusal can prove the call never ran only for an id admitted once,
  // under one tool name, and never allowed.
+ const ambiguous=(call:{tools:Map<string,number>}|undefined)=>!!call&&(call.tools.size>1||[...call.tools.values()].some(n=>n>1));
  const once=(call:{tools:Map<string,number>;allowed:boolean}|undefined)=>!!call&&!call.allowed&&call.tools.size===1&&[...call.tools.values()][0]===1;
  const operation=(tool:string):Operation=>({tool,inputHashes:new Set<string>(),id:crypto.randomUUID(),occurrences:[],done:false,admitted:false,signals:[],owed:false,refused:false,uncertain:false});
  const base=()=>({turnId:options.turnId,sessionId:options.sessionId(),actor:options.actor??"interactive" as const,model:null,profile:null});
@@ -114,6 +115,9 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
     if(previous&&(previous.tool!==tool||previous.done))throw new Error("Safety operation identity already completed or changed tool");
     if(!previous&&operations.size>=2000)throw new Error("Safety tool operation capacity exceeded");
     const op=previous??operation(tool);
+    // One result cannot identify which of several logical admissions ended.
+    // Repeated hooks of one admission do not increase the runtime's count.
+    if(ambiguous(calls.get(toolUseId)))op.uncertain=true;
     if(!op.inputHashes.has(inputHash)&&op.inputHashes.size>=16)throw new Error("Safety input revision capacity exceeded");
     op.inputHashes.add(inputHash);op.admitted=false;operations.set(toolUseId,op);
     for(const signal of inputTaintSignals(tool,input,options.brainPath,marked,options.shellProxied())){
@@ -152,12 +156,12 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
       await writes.firstTaint({...base(),kind:"taint",payload:{source:signal.source,tool,detail:null,occurrence:item}});op.occurrences.push(item.id);
     }
     await options.referenceReads?.observeResult(options.turnId,toolUseId,tool,output,finalized&&!op.uncertain,segments);
-    const state=finalized&&!['Bash','bash'].includes(tool)?"finalized":"interrupted_unknown";
+    const state=finalized&&!op.uncertain&&!['Bash','bash'].includes(tool)?"finalized":"interrupted_unknown";
     // The last exposure commits with the call's discharge, in one
     // transaction: no end and no restart can find the record durable and
     // the call still owed between them, and gap a recorded result.
     for(const [index,id] of op.occurrences.entries()){
-     const last=index===op.occurrences.length-1&&op.owed;
+     const last=index===op.occurrences.length-1&&op.owed&&!op.uncertain;
      const stored=await writes.record({...base(),kind:"taint_exposure",dedupeKey:id,payload:{occurrenceId:id,state}},last?{discharge:op.id}:undefined);
      if(last&&stored.discharged)op.owed=false;
     }
@@ -165,7 +169,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
     // A result with nothing to record is recorded by its discharge alone. A
     // discharge that cannot commit stays owed, which only gaps the chat; it
     // is no loss of this record.
-    await discharge(op);
+    if(!op.uncertain)await discharge(op);
    }catch(error){return reject(error);}
   },true,reject));},
   // The runtime asks to admit one call under this id, for this tool. Counted

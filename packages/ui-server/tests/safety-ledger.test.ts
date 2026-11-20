@@ -500,3 +500,69 @@ for(const boundary of ["rows","bytes"] as const)for(const admission of ["collect
  expect(sum.rows).toBeLessThanOrEqual(1000000);expect(sum.bytes).toBeLessThanOrEqual(536870912);
  expect(f.writes.safety("voyage","ithaca").restriction).toBe("restricted");
  }finally{await peerWriter?.close();peer?.close();await f.close();}});
+
+test("concurrent same-tool admissions cannot let one result discharge an interrupted reused ID",async()=>{
+ const f=fixture();try{const {collector}=await fresh(f);
+ for(const url of ['https://example.com/odyssey','https://example.com/loom']){
+  collector.admitting!('reused_fetch','WebFetch');
+  await collector.begin('reused_fetch','WebFetch',{url});
+  await collector.allowed!('reused_fetch');
+ }
+ await collector.result('reused_fetch','WebFetch','Odysseus retained the first notice.',true);
+ await f.writes.safetyEnd('voyage');
+ expect(f.db.query("SELECT failure FROM safety_collections WHERE turn_id='voyage'").get(),'REUSED_ID_INTERRUPTED_CALL_REMAINS_A_DURABLE_GAP').toEqual({failure:'recording_failed'});
+ expect(f.writes.safety(null,'ithaca').coverage.state).toBe('incomplete');
+ const exposures=safetyRecords(f.db,'ithaca').filter(r=>r.kind==='exposure');
+ expect(exposures.every(r=>r.kind==='exposure'&&(r.payload as {state:string}).state!=='finalized'),'AMBIGUOUS_RESULT_CANNOT_FINALIZE_REUSED_ID_EXPOSURES').toBe(true);
+ }finally{await f.close();}
+});
+
+test("structured Glob paths preserve a marked colon filename",async()=>{
+ const f=fixture();try{const {collector}=await fresh(f);
+ const {untrustedMarkOperations}=await import('../src/files/untrusted-marks');
+ untrustedMarkOperations(f.db).mark('notes/voyage:home.md',null,Date.UTC(2026,6,12));
+ await collector.begin('colon_glob','Glob',{path:'.'});
+ await collector.result('colon_glob','Glob',JSON.stringify({filenames:['notes/voyage:home.md']}),true);
+ expect(triggers(f).map(r=>(r.payload as {source:string}).source),'STRUCTURED_COLON_PATH_RETAINS_EXPLICIT_MARK').toContain('user_marked');
+ }finally{await f.close();}
+});
+
+test("the Pi grep known empty result does not manufacture unknown input",async()=>{
+ const f=fixture();try{const {collector}=await fresh(f);
+ await collector.begin('empty_grep','grep',{path:'.',pattern:'sirens'});
+ await collector.result('empty_grep','grep','No matches.',true);
+ expect(triggers(f),'PI_EMPTY_GREP_CREATES_NO_SPURIOUS_TRIGGER').toHaveLength(0);
+ expect(f.writes.safety(null,'ithaca').restriction).toBe('normal');
+ }finally{await f.close();}
+});
+
+test('one logical admission retains input revisions without inventing concurrent calls',async()=>{
+ const f=fixture();try{const {collector}=await fresh(f);
+ collector.admitting!('revised_fetch','WebFetch');
+ await collector.begin('revised_fetch','WebFetch',{url:'https://example.com/odyssey'});
+ await collector.begin('revised_fetch','WebFetch',{url:'https://example.com/loom'});
+ await collector.result('revised_fetch','WebFetch','Odysseus retained the revised notice.',true);
+ expect(f.db.query('SELECT COUNT(*) n FROM safety_obligations').get()).toEqual({n:0});
+ const exposures=safetyRecords(f.db,'ithaca').filter(r=>r.kind==='exposure');
+ expect(exposures).toHaveLength(2);
+ expect(exposures.every(r=>(r.payload as {state:string}).state==='finalized')).toBe(true);
+ await f.writes.safetyEnd('voyage');expect(f.writes.safety(null,'ithaca').coverage.state).toBe('complete');
+ }finally{await f.close();}
+});
+
+for(const [name,tool,output,expected] of [
+ ['structured numeric colon','Glob',JSON.stringify({filenames:['notes/voyage:2:home.md']}),['user_marked']],
+ ['structured spaced colon','Glob',JSON.stringify({filenames:['notes/voyage home:map.md']}),['user_marked']],
+ ['plain colon grep','grep','notes/voyage:home.md:7: Odysseus',['user_marked']],
+ ['ambiguous numeric colon','grep','notes/voyage:2:home.md:7: Odysseus',['legacy_unknown']],
+ ['malformed structured path','Glob',JSON.stringify({filenames:[123]}),['legacy_unknown']],
+ ['unsupported empty wording','Grep','No matches.',['legacy_unknown']],
+ ['empty plus malformed remainder','grep','No matches.\nunknown remainder',['legacy_unknown']],
+] as const)test(`search evidence format: ${name}`,async()=>{
+ const f=fixture();try{const {collector}=await fresh(f);
+ const {untrustedMarkOperations}=await import('../src/files/untrusted-marks');
+ for(const path of ['notes/voyage:home.md','notes/voyage:2:home.md','notes/voyage home:map.md'])untrustedMarkOperations(f.db).mark(path,null,Date.UTC(2026,6,12));
+ await collector.begin('format_search',tool,{path:'.'});await collector.result('format_search',tool,output,true);
+ expect(triggers(f).map(r=>(r.payload as {source:string}).source),'EXACT_PATH_OR_UNKNOWN_REMAINDER_IS_RETAINED').toEqual([...expected]);
+ }finally{await f.close();}
+});

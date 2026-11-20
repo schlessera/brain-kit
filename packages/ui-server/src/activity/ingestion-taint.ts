@@ -115,12 +115,12 @@ export function inputTaintSource(tool: string, input: unknown, brainPath?: strin
 
 /** A search from an ancestor directory taints when its output names a file in an untrusted area or a marked file. */
 export function outputTaintSource(tool: string, output: string, brainPath?: string, marked?: MarkedLookup): IngestionSource | null {
-  if (!SEARCH_TOOLS.has(tool)) return null;
-  for (const line of output.split("\n")) {
-    const source = fileSource(line.trim().split(":")[0]!, brainPath, marked);
-    if (source) return source;
-  }
-  return null;
+  // Legacy scalar callers report a known source, not collection completeness.
+  // Reuse exact path parsing; the collector retains the separate unknown signal.
+  const signals = outputTaintSignals(tool, output, brainPath, marked);
+  const known = signals.find(
+    signal => signal.source !== "legacy_unknown");
+  return known?.source ?? null;
 }
 
 /** Independent detector signals; `key` is local correlation, never persisted raw. */
@@ -180,28 +180,34 @@ export function outputTaintSignals(tool: string, output: string, brainPath?: str
   if(Buffer.byteLength(output)>1048576)throw new Error("Safety search output capacity exceeded");
   const result: IngestionSignal[] = [], seen = new Set<string>();
   let unknown = false;
-  let lines:string[]=[];
+  let lines:Array<{text:string;path:boolean;structured?:boolean}>=[];
   try{
-    const parsed=JSON.parse(output);const collect=(value:unknown,depth:number):void=>{
+    const parsed=JSON.parse(output);const collect=(value:unknown,depth:number,path=false):void=>{
       if(depth>8){unknown=true;return;}
-      if(typeof value==="string"){lines.push(...value.split("\n"));return;}
-      if(Array.isArray(value)){for(const item of value)collect(item,depth+1);return;}
+      if(typeof value==="string"){if(path)lines.push({text:value,path:true,structured:true});else lines.push(...value.split("\n").map(text=>({text,path:false})));return;}
+      if(Array.isArray(value)){for(const item of value)collect(item,depth+1,path);return;}
       if(value&&typeof value==="object"){
         let recognized=false;
         for(const [key,item] of Object.entries(value)){
           if(["truncated","has_more"].includes(key)&&item===true||key==="omitted"&&typeof item==="number"&&item>0)unknown=true;
-          if(["filenames","files","paths","matches","content","text","output","file_path","filePath","path"].includes(key)){recognized=true;collect(item,depth+1);}
+          if(["filenames","files","paths","matches","content","text","output","file_path","filePath","path"].includes(key)){recognized=true;collect(item,depth+1,["filenames","files","paths","file_path","filePath","path"].includes(key));}
         }
         if(!recognized)unknown=true;
-      }
+      }else unknown=true;
     };collect(parsed,0);
-  }catch{ lines=output.split("\n"); /* Plain runtime output uses the same path detector. */ }
+  }catch{ lines=output.split("\n").map(text=>({text,path:tool==="Glob"})); /* Plain runtime output uses the same path detector. */ }
   for (const line of lines) {
-    const text = line.trim();
-    if (!text) continue;
-    const path = text.split(":")[0]!;
-    if (/truncat|omitted|\.\.\./i.test(text)) unknown = true;
-    if (!/^(?:[^\s:]+\/[^:]+|[^\s:]+\.[A-Za-z0-9_-]+)$/.test(path)) { unknown = true; continue; }
+    const text = line.path ? line.text : line.text.trim();
+    if (!text) { if(line.structured)unknown=true; continue; }
+    if (!line.path && tool === "grep" && text === "No matches.") continue;
+    if (!line.path && /truncat|omitted|\.\.\./i.test(text)) unknown = true;
+    const match = !line.path && /^(.+?):[0-9]+:/.exec(text);
+    const path = match ? match[1]! : text;
+    if (match && /:[0-9]+:/.test(text.slice(match[0].length))) unknown = true;
+    // Structured path fields and Glob filenames are exact values, not grep
+    // excerpts. Ambiguous plain output never silently trusts a split prefix.
+    if (!line.path && !match && text.includes(":")) unknown = true;
+    if (/[\r\n\0]/.test(path) || !line.structured && !/^(?:[^\s]+\/[^\r\n]+|[^\s]+\.[A-Za-z0-9_-]+)$/.test(path)) { unknown = true; continue; }
     for (const signal of fileSignals(path, brainPath, marked, "tool_search_output")) {
       const id = JSON.stringify([signal.detector, signal.key]);
       if (seen.has(id)) continue;

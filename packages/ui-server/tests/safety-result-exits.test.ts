@@ -455,3 +455,41 @@ test("a Pi grant is unusable until the collector's last check passes, and a call
     expect(f.chat().coverage.state, "SAFETY_PI_REFUSED_ADMITTED_READ_NEVER_LOOKS_COMPLETE").toBe("incomplete");
   } finally { release(); await f.close(); }
 });
+
+for(const binding of ['pi','claude'] as const)test(`${binding}: two allowed searches reusing an ID cannot share one result discharge`,async()=>{
+ const f=await voyage();try{
+  const input={pattern:'sirens'},id='reused_search';
+  let admit:()=>Promise<unknown>;
+  if(binding==='pi'){
+   const turn=createTurnContext();turn.bridge={inputSafety:f.collector,emit(){},requestPermission:async()=>({behavior:'allow'})} as never;turn.signal=f.controller.signal;
+   let handler:((event:unknown)=>Promise<unknown>)|undefined;
+   const gate=createPermissionGate({turn,allowedTools:new Set(['grep']),confirmPatterns:[]});
+   (typeof gate==='function'?gate:gate.factory)({on:(name:string,callback:unknown)=>{if(name==='tool_call')handler=callback as typeof handler;}} as never);
+   admit=async()=>{const result=await handler!({toolName:'grep',toolCallId:id,input});expect(result,'PI_REUSED_ID_CALL_REACHES_EXECUTION').toBeUndefined();};
+  }else{
+   const wiring=createPermissionWiring({req:{prompt:'Listen for the sirens.',signal:f.controller.signal,bridge:{emit(){},requestPermission:async()=>({behavior:'allow'}),inputSafety:f.collector}} as never,
+    allowedTools:['Grep'],confirmPatterns:[],brainPath:f.brain,childEnv:{PATH:'/usr/bin:/bin'},log(){},turnLock:{acquireForTool:async()=>({ok:true}),releaseForTool(){}} as never});
+   const hook=wiring.hooks!.PreToolUse!.find(group=>!group.matcher)!.hooks[0]!;
+   admit=async()=>{const result=await hook({hook_event_name:'PreToolUse',tool_name:'Grep',tool_input:input,tool_use_id:id} as never,id,{signal:f.controller.signal});expect((result as {hookSpecificOutput?:{permissionDecision?:string}}).hookSpecificOutput?.permissionDecision,'CLAUDE_REUSED_ID_CALL_REACHES_EXECUTION').not.toBe('deny');};
+  }
+  await admit();const first=await searchRuns(f,id,input);
+  await admit();expect(await searchRuns(f,id,input),'SECOND_SAME_ID_SEARCH_ACTUALLY_EXECUTES').toContain('Sail past the sirens');
+  await f.collector.result(id,binding==='pi'?'grep':'Grep',first,true);
+  expect(f.owed(),'ONE_RESULT_CANNOT_DISCHARGE_TWO_LOGICAL_CALLS').toBe(1);
+  await f.writes.safetyEnd('voyage');
+  expect(f.failure(),'RUNTIME_REUSED_ID_RESULT_LOSS_IS_DURABLE').toBe('recording_failed');
+  const reopened=createUiDb(f.path);try{expect(reopened.query("SELECT failure FROM safety_collections WHERE turn_id='voyage'").get()).toEqual({failure:'recording_failed'});}finally{reopened.close();}
+ }finally{await f.close();}
+});
+
+test('real Pi grep empty output stays empty when the collector records its result',async()=>{
+ const f=await voyage();try{
+  const input={pattern:'no_cyclops_matches_here'};
+  await f.collector.begin('empty_search','grep',input);
+  const output=await searchRuns(f,'empty_search',input);
+  expect(JSON.parse(output),'SHIPPED_PI_EMPTY_SEARCH_FORMAT').toEqual([{type:'text',text:'No matches.'}]);
+  await f.collector.result('empty_search','grep',output,true);
+  expect(f.recorded(),'REAL_EMPTY_SEARCH_CREATES_NO_OCCURRENCE').toEqual([]);
+  expect(f.chat().restriction).toBe('normal');
+ }finally{await f.close();}
+});
