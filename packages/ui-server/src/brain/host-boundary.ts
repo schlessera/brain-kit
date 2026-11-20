@@ -654,7 +654,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         }
         return credentialed(admission, async () => {
           if (execution.sync) return outputLock.withLock(brain, () => runMirrorSync({ log: options.log, nativeManager: options.nativeManager, folderPaths: hold?.folderPaths, command: command(execution), transportEnv: execution.env, mirror: mirror ??= syncMirrorPath(brain, options.dbPath),
-            ...(execution.onPolicyChange ? { onPolicyChange: execution.onPolicyChange } : {}), ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) }), { signal: admissionSignal });
+            ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) }), { signal: admissionSignal });
           const run = async () => {
             admissionSignal?.throwIfAborted();
             execution.assertAuthorized?.();
@@ -730,7 +730,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
           const onAbort = () => abort.abort(execution.signal?.reason);
           execution.signal?.addEventListener("abort", onAbort, { once: true });
           const exited = runMirrorSync({ log: options.log, nativeManager: options.nativeManager, folderPaths: hold?.folderPaths, command: selectedCommand, transportEnv: execution.env, mirror: selectedMirror, signal: abort.signal,
-            ...(execution.onExecute ? { onExecute: execution.onExecute } : {}), ...(execution.onPolicyChange ? { onPolicyChange: execution.onPolicyChange } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) }).then(result => {
+            ...(execution.onExecute ? { onExecute: execution.onExecute } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) }).then(result => {
             stdout.write(result.stdout); stderr.write(result.stderr); return result.exitCode;
           }, error => { stderr.write(error instanceof Error ? error.message : String(error)); return 1; })
             .finally(async () => {
