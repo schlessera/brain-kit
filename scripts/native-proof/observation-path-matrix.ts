@@ -47,7 +47,7 @@ export async function observationPathMatrix(brain: string, journal: TurnJournal,
     assert.equal(samples.length, 48, "PATH_MATRIX_ALL_48_SAMPLES");
     return { turnId, samples, admission };
   } finally {
-    signal.removeEventListener("abort", abort); detach?.(); lines?.close(); worker?.kill("SIGKILL");
+    signal.removeEventListener("abort", abort); detach?.(); lines?.close(); worker?.stdout.resume(); worker?.kill("SIGKILL");
     if (worker) { await worker.exited; await worker.released(); worker.turnTemp?.close(); }
     try { await journal.finish(turnId); } finally { await hold.end(); }
   }

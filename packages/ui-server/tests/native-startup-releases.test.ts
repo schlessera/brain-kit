@@ -74,7 +74,7 @@ test("ten simultaneous admissions keep at most two startup releases pending", as
   });
   try {
     await full.promise;
-    expect(releases.pending()).toBe(2);
+    expect(releases.pending(), "STARTUP_RELEASE_BACKLOG_BOUNDED").toBe(2);
     deletion.resolve(); await Promise.all(work); await releases.drain();
     expect(maximum, "STARTUP_RELEASE_BACKLOG_BOUNDED").toBe(2);
   } finally { deletion.resolve(); await Promise.all(work); await releases.close(); }
