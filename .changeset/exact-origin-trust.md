@@ -5,3 +5,5 @@
 ---
 
 Enforce prospective exact-origin and explicit-tunnel source trust with separate restricted-recipient permission. This pre-1.0 semantic break lets qualified future inputs avoid unresolved triggers while retaining their historical rule, policy hash and revision. Removing a rule fences active admissions and interrupts trusted input streams; repository trust remains unavailable. Existing triggers, independent controls and provider history are preserved.
+
+Bind pending Network approvals to actual transport identity and record the hash of freshly verified valid policy bytes even when trust rules are unchanged.

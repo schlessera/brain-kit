@@ -110,9 +110,9 @@ export function createTrustSettings(options: {
       const checked = target.bytes === null ? null : parseGovernancePolicy(target.bytes);
       if (checked && !checked.ok) return p; // Retain last-valid policy, never adopt invalid bytes.
       if (JSON.stringify(checked?.effective.taint.trusted_sources ?? []) !== JSON.stringify(p.rules)) throw new TrustSettingsError("stale_revision");
-      return p;
+      return { ...p, policyHash: target.bytes === null ? null : hash(target.bytes) };
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT" && p.rules.length === 0) return p;
+      if ((error as NodeJS.ErrnoException).code === "ENOENT" && p.rules.length === 0) return { ...p, policyHash: null };
       throw error;
     } finally { target?.close(); }
   };

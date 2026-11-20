@@ -464,3 +464,10 @@ test("review: real alternate policy publication refreshes durable trust under th
  const result=await service.propose({principalId:'odysseus',turnId:'alternate-policy',sessionId:()=>null,signal:new AbortController().signal,isAuthorized:()=>true,isAvailable:()=>true,approve:async()=>true,emit(){}},'remove-origin',{content:initial,rationale:'Remove future source trust.'});
  expect(result.state).toBe('updated');expect(f.settings.live.read().rules,'ALTERNATE_POLICY_WRITER_REMOVAL_IS_LIVE').toEqual([]);expect(f.settings.live.revision()).toBe('2');
 });
+
+test('review3: live trust evidence uses verified bytes after an unrelated policy edit',async()=>{
+ const f=await fixture({originEnforcement:true});await f.commit(await f.prepare());const before=f.settings.live.read();
+ const changed=readFileSync(f.path,'utf8').replace('block_usd: 17','block_usd: 19');writeFileSync(f.path,changed);
+ const current=f.settings.live.read();expect(current.rules).toEqual(before.rules);expect(current.revision).toBe(before.revision);
+ expect(current.policyHash,'LIVE_ADMISSION_HASH_NAMES_VERIFIED_POLICY_BYTES').toBe(hash(changed));expect(current.policyHash).not.toBe(before.policyHash);
+});

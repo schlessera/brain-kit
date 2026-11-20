@@ -64,7 +64,7 @@ export interface EgressProxyOptions {
     /** Immutable evidence/authority marker; may exclude only this admission's own recorded input. */
     approvalRevision?(connectionId?: string): string;
     recipient?(destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }): boolean;
-    approve?(destination: { host: string; port: number; method: string }, signal: AbortSignal): Promise<boolean>;
+    approve?(destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }, signal: AbortSignal): Promise<boolean>;
     /** What tainted the session, as "it …" completes it, for a refusal's message (#3431). */
     cause?(): string | null };
   /**
@@ -264,7 +264,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       usedBytes += count; bytes += count; return true;
     };
     /** One approval wait; cancelling this connection or the turn resolves it as refused. */
-    const approval = async (ask: ((destination: { host: string; port: number; method: string }, signal: AbortSignal) => Promise<boolean>) | undefined) => {
+    const approval = async (ask: ((destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }, signal: AbortSignal) => Promise<boolean>) | undefined) => {
       if (!ask) return false;
       let approved = false;
       let cancelled: (() => void) | undefined;
@@ -274,7 +274,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
           controller.signal.addEventListener("abort", cancelled, { once: true });
           if (controller.signal.aborted) resolve(false);
         });
-        approved = await Promise.race([ask({ host, port, method }, controller.signal), cancellation]) === true;
+        approved = await Promise.race([ask({ host, port, method, protocol: url.protocol, managedReference }, controller.signal), cancellation]) === true;
       } catch { /* A failed approval denies. */ }
       finally { if (cancelled) controller.signal.removeEventListener("abort", cancelled); }
       return approved && !controller.signal.aborted && !stopped;

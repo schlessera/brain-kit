@@ -196,8 +196,8 @@ export async function prepareTurnEgress(options: {
         writes?.recordingAvailable?.(options.turnId, options.sessionId()) ?? safety?.recordingAvailable]);
     };
   const asking = new Map<string, Promise<boolean>>();
-  const approveTainted = async (destination: { host: string; port: number; method: string }, signal: AbortSignal): Promise<boolean> => {
-    const key = JSON.stringify([destination.host, destination.port, destination.method, approvalRevision()]);
+  const approveTainted = async (destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }, signal: AbortSignal): Promise<boolean> => {
+    const key = JSON.stringify([destination.host, destination.port, destination.method, destination.protocol, destination.managedReference, approvalRevision()]);
     let pending = asking.get(key);
     if (!pending) {
       pending = requestToolPermission(options.bridge, { toolUseId: crypto.randomUUID(), toolName: "Network", kind: "command",

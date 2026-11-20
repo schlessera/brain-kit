@@ -157,3 +157,13 @@ test('review2: unchanged context still shares one pending destination card',asyn
  try{await f.taint();f.decide(()=>new Promise(r=>{answers.push(r);firstReady();}));first=get(f.proxy.socketPath,f.origin.url.href);await firstCard;let announced=false;safety.read=()=>{const value=read();if(!announced){announced=true;queueMicrotask(secondReady);}return value;};second=get(f.proxy.socketPath,f.origin.url.href);await secondRequest;expect(f.asks(),'UNCHANGED_CONTEXT_COALESCES_ONE_PENDING_CARD').toBe(1);answers[0]!({behavior:'deny',message:'Athena declines'});expect(await first).toBe(403);expect(await second).toBe(403);
  }finally{safety.read=read;for(const answer of answers)answer({behavior:'deny',message:'Closed'});await Promise.allSettled([first,second]);await f.close();}
 });
+
+test('review3: managed HTTPS and opaque CONNECT never share a pending Network card',async()=>{
+ const f=await fixture();const answers:Array<(v:PermissionDecision)=>void>=[];let firstReady!:()=>void,secondReady!:()=>void;const firstCard=new Promise<void>(r=>{firstReady=r;}),secondRequest=new Promise<void>(r=>{secondReady=r;});const safety=f.bridge.admissionSafety!,read=safety.read;
+ let socket:ReturnType<typeof connect>|undefined,managed:Promise<boolean>|undefined,tunnel:Promise<number>|undefined;
+ try{await f.taint();f.decide(()=>new Promise(r=>{answers.push(r);firstReady();}));const op=f.proxy.managedReference(new URL("https://github.com/"),new AbortController().signal);managed=op.admit();await firstCard;
+ let announced=false;safety.read=()=>{const value=read();if(!announced){announced=true;queueMicrotask(secondReady);}return value;};
+ tunnel=new Promise<number>((resolve,reject)=>{socket=connect(f.proxy.socketPath);socket.on('error',reject);socket.on('connect',()=>socket!.write(`CONNECT github.com:443 HTTP/1.1\r\nHost: github.com\r\n\r\n`));socket.on('data',b=>{resolve(Number(/^HTTP\/1.1 (\d+)/.exec(b.toString())?.[1]));socket!.destroy();});});await secondRequest;
+ const cards=f.asks();for(const answer of answers)answer({behavior:'deny',message:'Athena declines'});expect(await managed).toBe(false);op.finish('denied');expect(await tunnel).toBe(403);expect(cards,'MANAGED_AND_OPAQUE_TRANSPORTS_REQUIRE_DISTINCT_CARDS').toBe(2);
+ }finally{safety.read=read;for(const answer of answers)answer({behavior:'deny',message:'Closed'});socket?.destroy();await Promise.allSettled([managed,tunnel]);await f.close();}
+});

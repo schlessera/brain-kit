@@ -323,7 +323,7 @@ test("a narrowed destination asks through taint.approve before refusing; a faile
     taint: { allow: [], tainted: () => true, contacted: () => false, approve: async destination => { asked.push(destination); return answer(); } } });
   try {
     expect((await get(proxy.socketPath, origin.url.href)).status, "EGRESS_TAINT_APPROVED_ADMITS").toBe(200);
-    expect(asked, "EGRESS_TAINT_APPROVE_NAMES_DESTINATION").toEqual([{ host: "127.0.0.1", port: origin.port!, method: "GET" }]);
+    expect(asked, "EGRESS_TAINT_APPROVE_NAMES_DESTINATION").toEqual([{ host: "127.0.0.1", port: origin.port!, method: "GET", protocol: "http:", managedReference: false }]);
     answer = async () => { throw new Error("Scylla"); };
     const refused = await get(proxy.socketPath, origin.url.href);
     expect(refused.status, "EGRESS_TAINT_FAILED_APPROVAL_REFUSES").toBe(403);
