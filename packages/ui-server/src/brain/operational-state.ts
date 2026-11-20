@@ -200,8 +200,7 @@ export function createOperationalStateProof(record: (proof: OperationalStateProo
         if (fields.length < 10 || !line.includes(" - ")) throw Error("Unreadable mount topology");
         return { path: decode(fields[4]!), root: decode(fields[3]!), device: fields[2]!, line };
       });
-      const visible = [brain];
-      mounted = rows.some(row => visible.some(root => within(root, row.path)));
+      mounted = rows.some(row => within(brain, row.path));
       // Conservatively requalify on any nested state/worker mount. A parent
       // bind can alias a state subtree too: compare kernel device/root names.
       const covering = (path: string) => rows.filter(row => within(row.path, path)).sort((a,b) => b.path.length-a.path.length)[0];

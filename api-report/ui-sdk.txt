@@ -1494,6 +1494,7 @@ export "./internal" (./src/internal.ts)
   canonicalModelId
   claudeMaskFilename
   claudeReportedMaskPath
+  collectModuleGenerations
   combineRemovalOutcomes
   commitOutwardPlan
   compileWorkerCommandPolicy
@@ -1506,6 +1507,7 @@ export "./internal" (./src/internal.ts)
   createTurnTempPressure
   createTurnTempPromoter
   createWorkerFileObserver
+  currentModuleGeneration
   denyWorkerCommand
   describeClient
   egressAddressRefusal
@@ -1532,6 +1534,8 @@ export "./internal" (./src/internal.ts)
   maintenanceLaunch
   mergeLimitReports
   mib
+  moduleLockHash
+  moduleStorePath
   mountPointsUnder
   nativeFileVersion
   nativeObservationIdentity
@@ -1563,6 +1567,7 @@ export "./internal" (./src/internal.ts)
   projectConversationGuidance
   promptPrefixFingerprint
   protectedPaths
+  publishModuleGeneration
   readWebSearchOverride
   readWebSearchRouting
   recoveredWorkerFile
@@ -10033,6 +10038,10 @@ signatures (every public export and the types it is made of)
     export type GithubWriteToolName = typeof GITHUB_TOOL_NAMES.create | typeof GITHUB_TOOL_NAMES.comment;
   GovernedStatus (packages/ui-sdk/src/protocol.ts)
     export type GovernedStatus = {
+        stateBoundary?: {
+            mode: "filesystem_identity" | "walk";
+            cause: string;
+        };
         hostExecution: "worker" | "host";
         profile?: "governed" | "strict";
         protectedPaths?: Array<{

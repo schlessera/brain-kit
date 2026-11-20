@@ -29,7 +29,7 @@ import type { Logger } from "@opentelemetry/api-logs";
 import {
   WorkerStateError, workerIdentityHelper, CREDENTIAL_FREE_ENV, HOST_GIT_CREDENTIAL_ENV, execWrapperSpawnOptions, prepareMaintenanceWorker, launchMaintenanceWorkerAsync, probeNativeMaintenanceWorker, restrictedReadPaths, runMaintenanceWorker, workerHostBoundary,
   type MaintenanceTempKind, runMaintenanceWorkerSync, workerHostProven, hostMaintenanceTempLimits, resolveMaintenanceTempLimits, type WorkerStateLimits, type MaintenanceCommand, type WorkerHostProbe,
-  prepareNativeWorkerStartupView, hasManagedNativeStorage, type WorkerStartupView,
+  prepareNativeWorkerStartupView, hasManagedNativeStorage, currentModuleGeneration, type WorkerStartupView,
   acquireHostCredentialExclusion, type HostCredentialDomain,
   startProviderRelay, relayedProviderKeys, hostProviderCredential, FIRST_PARTY_PROVIDER_RECIPIENTS, type ProviderRelay, type ProviderRelayReceipt,
 } from "@schlessera/brain-ui-sdk/internal";
@@ -302,11 +302,12 @@ export interface HostBoundaryOptions {
 }
 
 /** The program a worker runs, made absolute: in the brain, the server's Bun, or on the worker's PATH. */
-function absoluteArgv(brain: string, argv: readonly string[], path: string): string[] {
+export function absoluteArgv(brain: string, argv: readonly string[], path: string): string[] {
   const [program, ...args] = argv;
   if (!program) throw new Error("a maintenance command needs a program");
   // The server's own Bun, however it is named (a `latest` alias), is the binary the worker is given.
   if (isAbsolute(program)) return [real(program) === real(process.execPath) ? real(process.execPath) : program, ...args];
+  if (program === "brain" && hasManagedNativeStorage(brain) && currentModuleGeneration(brain)) return [join(brain, "node_modules/.bin/brain"), ...args];
   if (program === "bun") return [realpathSync(process.execPath), ...args];
   if (program.includes("/")) return [join(brain, program), ...args];
   const found = Bun.which(program, { PATH: path });

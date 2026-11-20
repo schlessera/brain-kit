@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { maintainModuleStore, moduleMaintenanceExecution, moduleMaintenanceRequested } from "../src/brain/module-maintenance.js";
+import { absoluteArgv } from "../src/brain/host-boundary.js";
 import { brainCliCommand } from "../src/brain/client.js";
 import { currentModuleGeneration, moduleLockHash } from "../../ui-sdk/src/server/module-store.js";
 import type { WorkerStartupView } from "@schlessera/brain-ui-sdk/internal";
@@ -41,6 +42,8 @@ test("first scheduled maintenance installs, validates, receipts and activates; u
   expect(first.result, "FIRST_MAINTENANCE_ACTIVATES_GENERATION").toBe("activated");
   expect(brainCliCommand(f.brain), "HOST_CLI_LOOKUP_USES_STORE_WITHOUT_OLD_MODULE_DIRECTORY").toEqual([join(f.brain, "node_modules/.bin/brain")]);
   expect(currentModuleGeneration(f.brain)).toMatchObject({ generation: first.generation, lockHash: moduleLockHash(fs.readFileSync(join(f.brain, "bun.lock"))), trigger: "scheduled maintain" });
+  expect(() => absoluteArgv(f.brain, ["brain", "maintain"], "/nonexistent"), "BARE_HOSTED_MAINTENANCE_USES_MOUNTED_CLI").not.toThrow();
+  expect(absoluteArgv(f.brain, ["brain", "maintain"], "/nonexistent")).toEqual([join(f.brain, "node_modules/.bin/brain"), "maintain"]);
   const calls = f.run.mock.calls.length;
   const second = await maintainModuleStore(f.brain, f.view, f.command, "manual maintain");
   expect(second.result).toBe("unchanged"); expect(f.run.mock.calls.length - calls, "UNCHANGED_LOCK_ONLY_CHECKS_TRACKING").toBe(1);
