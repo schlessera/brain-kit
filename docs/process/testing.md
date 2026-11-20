@@ -1145,7 +1145,9 @@ losing the broad read-only host root. An unavailable isolated view refuses.
 Restricted fixture code declares its scripted origin with
 `nativeScriptedService`. The guard creates Unix servers under that authority
 and pins all handler fetch/TCP/Unix transports to it. Socket ownership alone
-is never admission: a pre-existing, unregistered relay refuses. SDK runtime
+is never admission: a pre-existing, unregistered relay refuses. Admission follows
+the live guard-created socket inode across hard-link aliases and is revoked
+when that server stops. SDK runtime
 discovery includes every workspace owner and refuses unresolved declared SDKs.
 SDK fixture adapters pin the existing spawn callback
 to their declared service. Standalone native fixture entries load the preload,

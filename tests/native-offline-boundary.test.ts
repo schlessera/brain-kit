@@ -301,6 +301,32 @@ test("qualification metadata preserves explicit child environment overrides", as
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 });
 
+test("a hard-link alias retains live guard-owned socket authority and loses it when the server stops", async () => {
+  const scratch = mkdtempSync(join(tmpdir(), "odysseus-relay-alias-"));
+  try {
+    const result = await probe(`${imports}
+      import {writeFileSync,linkSync} from "node:fs";
+      import {nativeScriptedService,nativeWorkerBoundary} from ${JSON.stringify(join(ROOT, "scripts/test-native-guard.ts"))};
+      const spawnSync=Bun.spawnSync,which=Bun.which;
+      Bun.which=((command,options)=>command==="strace"?"/synthetic/strace":which(command,options));
+      Bun.spawnSync=((argv,options)=>["bwrap","strace"].includes(argv[0])?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
+      process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";
+      nativeScriptedService("http://127.0.0.1:1");
+      const source=${JSON.stringify(join(scratch, "source.sock"))},alias=${JSON.stringify(join(scratch, "alias.sock"))};
+      const relay=Bun.serve({unix:source,fetch(){return new Response("Ithaca");}});linkSync(source,alias);
+      const launch={BRAIN_WORKER_LAUNCH:JSON.stringify({command:[${JSON.stringify(runtime)}],env:{ANTHROPIC_UNIX_SOCKET:"/tmp/relay.sock"},argv:["bwrap","--ro-bind",alias,"/tmp/relay.sock","--",${JSON.stringify(runtime)}]})};
+      const worker=nativeWorkerBoundary(launch),argv=JSON.parse(worker.env.BRAIN_WORKER_LAUNCH).argv;
+      writeFileSync(argv[argv.indexOf("-o")+1],${JSON.stringify(`1 execve(${JSON.stringify(runtime)}, [], 0x1) = 0`)});worker.dispose();console.error("SCRIPTED_ALIAS_ADMITTED");
+      relay.stop(true);
+      const unexpected=nativeWorkerBoundary(launch),stoppedArgs=JSON.parse(unexpected.env.BRAIN_WORKER_LAUNCH).argv;
+      writeFileSync(stoppedArgs[stoppedArgs.indexOf("-o")+1],${JSON.stringify(`1 execve(${JSON.stringify(runtime)}, [], 0x1) = 0`)});unexpected.dispose();console.error("STOPPED_ALIAS_ADMITTED");`, scratch);
+    expect(result.code).not.toBe(0);
+    expect(result.output).toContain("SCRIPTED_ALIAS_ADMITTED");
+    expect(result.output).toContain('"reason":"pre-existing native relay is not guard-owned"');
+    expect(result.output).not.toContain("STOPPED_ALIAS_ADMITTED");
+  } finally { rmSync(scratch, { recursive: true, force: true }); }
+});
+
 test("an arbitrary same-user Unix relay is refused before namespace setup", async () => {
   const scratch = mkdtempSync(join(tmpdir(), "odysseus-unowned-relay-"));
   const socket = join(scratch, "relay.sock");

@@ -337,11 +337,14 @@ export function nativeScriptedQuery(query: typeof sdkQuery, origin: string): typ
 
 const relayForwarding = new AsyncLocalStorage<Readonly<{ origin: string }>>();
 const ownedRelaySockets = new Map<string, { origin: string; dev: bigint; ino: bigint }>();
+const socketIdentity = (stat: { dev: bigint; ino: bigint }) => `${stat.dev}:${stat.ino}`;
 
 const ownedHttpServers = new WeakMap<object, Readonly<{ origin: string }>>();
-function rememberRelay(path: string, origin: string): void {
+function rememberRelay(path: string, origin: string): () => void {
   const stat = lstatSync(path, { bigint: true });
-  ownedRelaySockets.set(realpathSync(path), { origin, dev: stat.dev, ino: stat.ino });
+  const key = socketIdentity(stat), authority = { origin, dev: stat.dev, ino: stat.ino };
+  ownedRelaySockets.set(key, authority);
+  return () => { if (ownedRelaySockets.get(key) === authority) ownedRelaySockets.delete(key); };
 }
 
 export function guardNativeHttpListen(server: object, args: unknown[]): void {
@@ -350,7 +353,8 @@ export function guardNativeHttpListen(server: object, args: unknown[]): void {
   const path = typeof first === "string" ? first : first?.path;
   if (!route || !path?.startsWith("/")) return;
   ownedHttpServers.set(server, route);
-  (server as { once(event: string, callback: () => void): void }).once("listening", () => rememberRelay(path, route.origin));
+  const events = server as { once(event: string, callback: () => void): void };
+  events.once("listening", () => { const forget = rememberRelay(path, route.origin); events.once("close", forget); });
 }
 
 export function guardNativeHttpEvent(server: object, event: unknown, invoke: () => unknown): unknown {
@@ -366,7 +370,10 @@ export function guardNativeRelayServer(options: any, create: (options: any) => a
   const server = create({ ...options, fetch: function(this: unknown, ...args: unknown[]) {
     return relayForwarding.run(route, () => Reflect.apply(original, this, args));
   } });
-  rememberRelay(options.unix, route.origin);
+  const forget = rememberRelay(options.unix, route.origin), stop = server.stop;
+  // A hard link names the same live socket; a stopped server never leaves
+  // admission authority behind for a later object that reuses its inode.
+  server.stop = function(...args: unknown[]) { forget(); return Reflect.apply(stop, server, args); };
   return server;
 }
 
@@ -410,9 +417,9 @@ function relayCredentialPlaceholders(env: Record<string, string | undefined>): R
 function ownedSocketOrigin(path: string): string | undefined {
   let real: string;
   try { real = realpathSync(path); } catch { return; }
-  const authority = ownedRelaySockets.get(real);
-  if (!authority) return;
   const stat = lstatSync(real, { bigint: true });
+  const authority = ownedRelaySockets.get(socketIdentity(stat));
+  if (!authority) return;
   return stat.isSocket() && stat.dev === authority.dev && stat.ino === authority.ino ? authority.origin : undefined;
 }
 
@@ -422,9 +429,9 @@ function admittedRelay(argv: string[], socket: string): string | undefined {
     const path = join(argv[i + 1]!, socket.slice(argv[i + 2]!.length));
     let real: string;
     try { real = realpathSync(path); } catch { continue; }
-    const authority = ownedRelaySockets.get(real);
-    if (!authority) continue;
     const stat = lstatSync(real, { bigint: true });
+    const authority = ownedRelaySockets.get(socketIdentity(stat));
+    if (!authority) continue;
     if (!stat.isSocket() || stat.dev !== authority.dev || stat.ino !== authority.ino) continue;
     // A directory mount exposes every socket it contains, not only the name
     // in ANTHROPIC_UNIX_SOCKET. Every such capability needs the same authority.
@@ -432,7 +439,7 @@ function admittedRelay(argv: string[], socket: string): string | undefined {
     for (const name of directory ? readdirSync(directory) : []) {
       const sibling = join(directory!, name), info = lstatSync(sibling, { bigint: true });
       if (!info.isSocket()) continue;
-      const peer = ownedRelaySockets.get(realpathSync(sibling));
+      const peer = ownedRelaySockets.get(socketIdentity(info));
       if (!peer || peer.origin !== authority.origin || peer.dev !== info.dev || peer.ino !== info.ino) return;
     }
     return authority.origin;
