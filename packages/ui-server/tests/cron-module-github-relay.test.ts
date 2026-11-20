@@ -50,8 +50,9 @@ test("a job granted a GitHub repository reaches its API through the run's relay,
     BRAIN_UI_SUBPROCESS_ENV_EXTRA: "BRAIN_UI_MODULE_GITHUB_TOKEN" }, ["BRAIN_UI_MODULE_GITHUB_TOKEN"]);
   expect(config.moduleGitHub.token(), "RUNNER_READS_TOKEN").toBe(TOKEN);
   expect(JSON.stringify(config.childEnv), "CHILD_ENV_HAS_NO_TOKEN").not.toContain(TOKEN);
+  let err = "";
   const code = await runJob({ ...JOB, dbPath, childEnv: config.childEnv, exec: {}, boundary,
-    stdout: { write() {} }, stderr: { write() {} },
+    stdout: { write() {} }, stderr: { write(text: string) { err += text; } },
     repositories: async () => ({ ok: true, notes: [], repositories: [{ url: "https://github.com/ithaca/watchtower", mirror: join(dir, "mirror.git") },
       { url: "http://127.0.0.1:9/ithaca/harbor", mirror: join(dir, "harbor.git") }] }),
     githubRelay: { token: () => TOKEN, writes: parseModuleGitHubWrites("https://github.com/ithaca/watchtower#issue_comment").writes, origin: upstream.url.origin } },
@@ -62,6 +63,7 @@ test("a job granted a GitHub repository reaches its API through the run's relay,
   expect(launched[0]!.env, "TOKEN_NOT_IN_JOB_ENV").not.toHaveProperty("BRAIN_UI_MODULE_GITHUB_TOKEN");
   expect(JSON.stringify(launched[0]!.env)).not.toContain(TOKEN);
   expect(existsSync(launched[0]!.githubRelay!), "RELAY_ENDS_WITH_RUN").toBe(false);
+  expect(err, "WRITE_IN_RUN_OUTPUT").toContain("github_write issue_comment ithaca/watchtower#7 status 200");
   const db = createUiDb(dbPath);
   try {
     const events = db.query("SELECT payload FROM activity_events WHERE event_type = 'github_write'").all() as { payload: string }[];

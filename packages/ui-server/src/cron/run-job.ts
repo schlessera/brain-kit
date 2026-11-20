@@ -333,7 +333,11 @@ export async function runJob(
           writeLine(stderr, `[cron-run] ${options.jobName}: BRAIN_UI_MODULE_GITHUB_WRITES ignores invalid entries (expected https://github.com/<owner>/<repo>#issue_comment or #issue_state): ${options.githubRelay.invalid.join(", ")}`);
         const { invalid: _invalid, ...relayOptions } = options.githubRelay;
         githubRelay = startModuleGitHubRelay({ ...relayOptions, repositories: githubRepositories,
-          observe: write => recorder?.event?.("github_write", write) });
+          // Each write reaches the run's own output too, so it is recorded even where Activity tracking is unavailable.
+          observe: write => {
+            writeLine(stderr, `[cron-run] ${options.jobName}: github_write ${write.operation} ${write.repository}#${write.number} status ${write.status}`);
+            recorder?.event?.("github_write", write);
+          } });
       }
       proc = await options.boundary.launch({ argv: options.command, env, ...cronJobClass(options.jobName),
         purpose: `cron ${options.jobName}`, writeFiles: [sinkPath], ...(syncJob ? { sync: true } : {}),
