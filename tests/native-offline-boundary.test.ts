@@ -153,7 +153,7 @@ test("wrapper exec and auth inspection cannot fabricate native launch or injecte
         {cwd:${JSON.stringify(scratch)},env:{HOME:${JSON.stringify(scratch)},ANTHROPIC_BASE_URL:"http://127.0.0.1:1"}});
       if(boundary.argv[0]!=="/synthetic/strace")throw Error("audit executable was not resolved");
       const setup=boundary.argv.slice(0,boundary.argv.lastIndexOf("--"));
-      for(let i=0;i<setup.length;i++)if(setup[i]==="--setenv"&&["ANTHROPIC_API_KEY","ANTHROPIC_AUTH_TOKEN","CLAUDE_CODE_OAUTH_TOKEN"].includes(setup[i+1]))throw Error("auth inspection received a synthetic credential override");
+      for(let i=0;i<setup.length;i++)if(setup[i]==="--setenv"&&["ANTHROPIC_API_KEY","ANTHROPIC_AUTH_TOKEN","CLAUDE_CODE_OAUTH_TOKEN","ANTHROPIC_BASE_URL","ANTHROPIC_UNIX_SOCKET"].includes(setup[i+1]))throw Error("auth inspection received credential or route overrides");
       writeFileSync(boundary.argv[boundary.argv.indexOf("-o")+1],'1 execve("/usr/bin/unshare", [], 0x1) = 0');
       boundary.dispose();process.exit(0);`, scratch);
     expect(result.code).not.toBe(0);

@@ -279,7 +279,7 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
     if (args.some((value, index) => value === "auth" && args[index + 1] === "status")) {
       // Auth status inspects the isolated fixture login; injecting an API key
       // would change the very authentication method the fixture is testing.
-      for (const key of ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"]) delete childEnv[key];
+      for (const key of ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_BASE_URL", "ANTHROPIC_UNIX_SOCKET"]) delete childEnv[key];
     }
     for (const [key, value] of Object.entries(childEnv)) argv.push("--setenv", key, value);
     argv.push("--chdir", cwd, "--", command, ...args);

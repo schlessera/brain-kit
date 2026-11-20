@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { BROWSER_DETERMINISM_REPORT, browserDeterminismPairs, categoryCommands, DETERMINISM_REPORT, determinismFiles, proofProblems, PROOF_JOBS, unitFiles } from "../scripts/ci-proof";
@@ -429,6 +429,28 @@ test("standalone native measurement commands load the same offline boundary as t
   for (const script of ["measure-claude-runtime", "measure-claude-enforcement", "measure-claude-delegation", "measure-claude-capability", "measure-claude-haiku"]) {
     const command = commands.find(command => command.argv.join(" ").includes(`scripts/${script}.ts`));
     expect(command, script).toBeDefined();
-    expect(command!.argv.join(" ")).toContain(`bun --no-install --preload scripts/test-network-child-preload.ts scripts/${script}.ts`);
+    expect(command!.argv.join(" ")).toContain(`bun --no-install --preload ./scripts/test-network-child-preload.ts scripts/${script}.ts`);
   }
+});
+
+test("native CLI command preload resolves as a file and latches refusal before any runtime launch", async () => {
+  const plan = planChecks(["scripts/test-network-guard.ts"], workspaces(ROOT));
+  const command = localChecks(plan, true).find(command => command.name === "measure-claude-runtime")!;
+  const prefix = /bun (--no-install --preload \S+) scripts\/measure-claude-runtime\.ts/.exec(command.argv.at(-1)!)?.[1];
+  expect(prefix).toBeDefined();
+  const root = mkdtempSync(join(tmpdir(), "odysseus-cli-preload-")); directories.push(root);
+  const alias = join(root, "probe-runtime"), program = join(root, "refusal.ts");
+  symlinkSync(process.execPath, alias);
+  writeFileSync(program, `import {nativeClaudeBoundary} from ${JSON.stringify(join(ROOT, "scripts/test-native-guard.ts"))};
+    if(globalThis.fetch.name!=="offlineFetch")throw Error("offline preload was not installed");
+    delete process.env.GITHUB_ACTIONS;delete process.env.RUNNER_ENVIRONMENT;
+    try{nativeClaudeBoundary("/synthetic/native",[],{});}catch{}process.exit(0);`);
+  // The alias is deliberately outside automatic Bun-child preload propagation.
+  // Use the actual configured CLI flags; the program never execs native Claude.
+  const child = Bun.spawn([alias, ...prefix!.split(" "), program], { cwd: ROOT,
+    env: { PATH: "/usr/bin:/bin", HOME: root }, stdout: "pipe", stderr: "pipe" });
+  const [code, output] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+  expect(code).not.toBe(0);
+  expect(output).toContain('"success":false,"nativeLaunched":false');
+  expect(output).toContain("positive native proof requires a hosted runner");
 });
