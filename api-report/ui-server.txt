@@ -1397,7 +1397,7 @@ signatures (every public export and the types it is made of)
             policyProfile: "governed" | "strict";
             policy: TurnGovernancePolicy;
         };
-        refresh(lock: KeyedLock): void;
+        refresh(lock: KeyedLock, turnId?: string): void;
         close(): Promise<void>;
     }
   HostChatStore (packages/ui-server/src/ws/chat-store-cleanup.ts)

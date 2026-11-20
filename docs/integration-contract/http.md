@@ -158,7 +158,9 @@ independently held worktrees retain their existing coverage. Previously written
 history remains readable in its existing metadata-only form, with the same
 preview, download and restore exclusions.
 
-Each host application batch and governed post-turn index update records one
+The host `GovernedTurns.refresh(lock, turnId?)` accepts an optional causing
+turn ID to correlate its index receipt. Each host application batch and
+governed post-turn index update records one
 `index_update` Activity event for each causing turn. Its payload contains an
 opaque `generation`, `durationMs` and `outcome` (`complete`, `failed` or
 `index_capacity`); failures also carry a bounded `cause`. A retry is a new
