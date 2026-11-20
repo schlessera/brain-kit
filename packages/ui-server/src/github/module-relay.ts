@@ -53,7 +53,7 @@ export interface ModuleGitHubRelayOptions {
   writes: ReadonlyMap<string, ReadonlySet<ModuleGitHubWrite>>;
   observe?: (write: ModuleGitHubWriteRecord) => void;
   /** @internal Test seams. */
-  fetch?: typeof fetch; origin?: string; maxCalls?: number;
+  fetch?: typeof fetch; origin?: string; maxCalls?: number; maxResponseBytes?: number;
 }
 
 export interface ModuleGitHubRelay { dir: string; socketPath: string; stop(): Promise<void> }
@@ -149,12 +149,31 @@ export function graphqlQueryRepository(query: string, variables: unknown, operat
   return owner && name ? `${owner}/${name}` : null;
 }
 
+/** A stream's bytes, read chunk by chunk and abandoned as soon as they pass `limit`: never held past the bound. */
+async function readBounded(stream: ReadableStream<Uint8Array> | null, limit: number): Promise<Uint8Array | null> {
+  if (!stream) return new Uint8Array();
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = []; let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > limit) { await reader.cancel().catch(() => {}); return null; }
+      chunks.push(value);
+    }
+  } finally { reader.releaseLock(); }
+  const bytes = new Uint8Array(total); let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  return bytes;
+}
+
 async function boundedBody(request: Request): Promise<string> {
   const declared = Number(request.headers.get("content-length") ?? "0");
   if (declared > MAX_MODULE_GITHUB_REQUEST_BYTES) refuse(413, "too_large", `A relayed request body is at most ${MAX_MODULE_GITHUB_REQUEST_BYTES} bytes.`);
-  const bytes = new Uint8Array(await request.arrayBuffer());
-  if (bytes.byteLength > MAX_MODULE_GITHUB_REQUEST_BYTES) refuse(413, "too_large", `A relayed request body is at most ${MAX_MODULE_GITHUB_REQUEST_BYTES} bytes.`);
-  return new TextDecoder().decode(bytes);
+  const bytes = await readBounded(request.body, MAX_MODULE_GITHUB_REQUEST_BYTES);
+  if (!bytes) refuse(413, "too_large", `A relayed request body is at most ${MAX_MODULE_GITHUB_REQUEST_BYTES} bytes.`);
+  return new TextDecoder().decode(bytes!);
 }
 
 function jsonObject(text: string): Record<string, unknown> {
@@ -168,6 +187,7 @@ export function startModuleGitHubRelay(options: ModuleGitHubRelayOptions): Modul
   const origin = options.origin ?? GITHUB_API_ORIGIN;
   const granted = new Map(options.repositories.map(repository => [lower(repository), repository]));
   const maxCalls = options.maxCalls ?? MAX_MODULE_GITHUB_CALLS;
+  const maxResponseBytes = options.maxResponseBytes ?? MAX_MODULE_GITHUB_RESPONSE_BYTES;
   let calls = 0;
   // Private to this server user; the one worker of this run sees only the bound socket.
   const dir = mkdtempSync(join(tmpdir(), "brain-module-github-"));
@@ -230,13 +250,15 @@ export function startModuleGitHubRelay(options: ModuleGitHubRelayOptions): Modul
       headers: { authorization: `Bearer ${token}`, accept: request.headers.get("accept")?.startsWith("application/vnd.github") ? request.headers.get("accept")! : "application/vnd.github+json",
         "x-github-api-version": "2022-11-28", "user-agent": "brain-ui-module", ...(body !== undefined ? { "content-type": "application/json" } : {}) },
     });
-    if (upstream.status >= 300 && upstream.status < 400) { await upstream.body?.cancel(); refuse(502, "redirect", "GitHub redirected; the relay never follows a redirect."); }
-    const bytes = new Uint8Array(await upstream.arrayBuffer());
-    if (bytes.byteLength > MAX_MODULE_GITHUB_RESPONSE_BYTES) refuse(502, "response_too_large", `A relayed response is at most ${MAX_MODULE_GITHUB_RESPONSE_BYTES} bytes.`);
+    // GitHub has answered: a write it may have performed is recorded now, whatever happens to its body.
     if (write) { try { options.observe?.({ ...write, repository: granted.get(write.repository)!, status: upstream.status }); } catch { /* Recording never fails the call. */ } }
+    if (upstream.status >= 300 && upstream.status < 400) { await upstream.body?.cancel(); refuse(502, "redirect", "GitHub redirected; the relay never follows a redirect."); }
+    if (Number(upstream.headers.get("content-length") ?? "0") > maxResponseBytes) { await upstream.body?.cancel(); refuse(502, "response_too_large", `A relayed response is at most ${MAX_MODULE_GITHUB_RESPONSE_BYTES} bytes.`); }
+    const bytes = await readBounded(upstream.body, maxResponseBytes);
+    if (!bytes) refuse(502, "response_too_large", `A relayed response is at most ${MAX_MODULE_GITHUB_RESPONSE_BYTES} bytes.`);
     const headers = new Headers();
     for (const name of RESPONSE_HEADERS) { const value = upstream.headers.get(name); if (value) headers.set(name, value); }
-    return new Response(bytes, { status: upstream.status, headers });
+    return new Response(Buffer.from(bytes!), { status: upstream.status, headers });
   }
 
   const server = Bun.serve({

@@ -11,24 +11,30 @@ const TOKEN = "odysseus-module-github-token";
 let upstream: ReturnType<typeof Bun.serve>;
 const seen: Array<{ method: string; path: string; authorization: string | null; body: string }> = [];
 let redirect = false;
+let large = 0;
 
 beforeAll(() => {
   upstream = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const url = new URL(request.url);
     seen.push({ method: request.method, path: `${url.pathname}${url.search}`, authorization: request.headers.get("authorization"), body: await request.text() });
     if (redirect) return new Response(null, { status: 302, headers: { location: "https://elsewhere.example/" } });
+    if (large) {
+      // A chunked body with no length: only reading it shows its size.
+      let sent = 0;
+      return new Response(new ReadableStream({ pull(controller) { if (sent >= large) return controller.close(); sent += 1024; controller.enqueue(new Uint8Array(1024)); } }), { status: 201 });
+    }
     return Response.json({ ok: true, path: url.pathname }, { headers: { link: '<https://api.github.com/repos/ithaca/watchtower/issues?page=2>; rel="next"' } });
   } });
 });
 afterAll(() => { upstream.stop(true); });
 const relays: ModuleGitHubRelay[] = [];
-afterEach(async () => { for (const relay of relays.splice(0)) await relay.stop(); seen.length = 0; redirect = false; });
+afterEach(async () => { for (const relay of relays.splice(0)) await relay.stop(); seen.length = 0; redirect = false; large = 0; });
 
-function relay(options: { token?: string | undefined; writes?: string; maxCalls?: number } = {}) {
+function relay(options: { token?: string | undefined; writes?: string; maxCalls?: number; maxResponseBytes?: number } = {}) {
   const writes: ModuleGitHubWriteRecord[] = [];
   const started = startModuleGitHubRelay({ token: () => "token" in options ? options.token : TOKEN, repositories: ["ithaca/watchtower"],
     writes: parseModuleGitHubWrites(options.writes ?? "").writes, observe: write => { writes.push(write); },
-    origin: upstream.url.origin, ...(options.maxCalls ? { maxCalls: options.maxCalls } : {}) });
+    origin: upstream.url.origin, ...(options.maxCalls ? { maxCalls: options.maxCalls } : {}), ...(options.maxResponseBytes ? { maxResponseBytes: options.maxResponseBytes } : {}) });
   relays.push(started);
   const call = (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) => fetch(`http://localhost${path}`, {
     method, unix: started.socketPath, headers: { authorization: "Bearer worker-supplied", ...headers }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
@@ -130,6 +136,23 @@ describe("module GitHub relay writes (#4259)", () => {
       { repository: "ithaca/watchtower", operation: "issue_comment", number: 7, status: 200 },
       { repository: "ithaca/watchtower", operation: "issue_state", number: 7, status: 200 },
     ]);
+  });
+
+  test("an oversized response is refused while it is read, and a write GitHub answered is still recorded", async () => {
+    const { call, writes } = relay({ writes: "https://github.com/ithaca/watchtower#issue_comment", maxResponseBytes: 8 * 1024 });
+    large = 64 * 1024;
+    const response = await call("POST", COMMENTS, { body: "Telemachus asks why this closed." });
+    expect(response.status, "OVERSIZED_RESPONSE_REFUSED").toBe(502);
+    expect((await response.json()).brain_relay_refusal).toBe("response_too_large");
+    expect(writes, "ANSWERED_WRITE_RECORDED").toEqual([{ repository: "ithaca/watchtower", operation: "issue_comment", number: 7, status: 201 }]);
+  });
+
+  test("a chunked request body past the bound is refused", async () => {
+    const { started } = relay({ writes: "https://github.com/ithaca/watchtower#issue_comment" });
+    const big = new ReadableStream({ start(controller) { for (let i = 0; i < 1100; i++) controller.enqueue(new Uint8Array(1024).fill(32)); controller.close(); } });
+    const response = await fetch(`http://localhost${COMMENTS}`, { method: "POST", unix: started.socketPath, body: big } as RequestInit);
+    expect(response.status, "CHUNKED_REQUEST_BOUNDED").toBe(413);
+    expect(seen).toEqual([]);
   });
 
   test("the operator list parses only GitHub repositories and known operations", () => {
