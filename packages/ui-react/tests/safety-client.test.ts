@@ -177,3 +177,53 @@ for (const reason of ["capacity", "unauthorized", "unavailable"] as const) {
     } finally { client.dispose(); }
   });
 }
+
+test("consecutive capacity refusals stop after one recovery snapshot until explicit refresh", () => {
+  const { safety, sent, client } = supportedClient("ithaca");
+  const complete = () => {
+    const read = sent.findLast(message => message.type === "safety_read");
+    if (read?.type !== "safety_read") throw new Error("Missing read");
+    client.frame({ type: "safety_history", requestId: read.requestId, page });
+    return read.requestId;
+  };
+  try {
+    client.frame(hello);
+    const initial = complete();
+    client.frame({ type: "safety_unavailable", version: 1, requestId: initial, reason: "capacity" });
+    const recovery = complete();
+    expect(recovery).not.toBe(initial);
+    const before = sent.length;
+    client.frame({ type: "safety_unavailable", version: 1, requestId: recovery, reason: "capacity" });
+    expect(sent.length, "CONSECUTIVE_CAPACITY_REFUSALS_HAVE_BOUNDED_RECOVERY").toBe(before);
+    expect(safety.getState()).toMatchObject({ status: "unavailable", reason: "capacity", normal: false });
+    client.frame({ type: "safety_unavailable", version: 1, reason: "capacity" });
+    expect(sent.length).toBe(before);
+    client.refresh();
+    expect(sent.filter(message => message.type === "safety_read")).toHaveLength(3);
+    expect(safety.getState().status).toBe("loading");
+  } finally { client.dispose(); }
+});
+
+test("only a valid advancing subscription update rearms capacity recovery", () => {
+  for (const advances of [false, true]) {
+    const { safety, sent, client } = supportedClient("ithaca");
+    try {
+      client.frame(hello);
+      const complete = () => {
+        const read = sent.findLast(message => message.type === "safety_read");
+        if (read?.type !== "safety_read") throw new Error("Missing read");
+        client.frame({ type: "safety_history", requestId: read.requestId, page });
+      };
+      complete();
+      client.frame({ type: "safety_unavailable", version: 1, reason: "capacity" });
+      complete();
+      const revision = advances ? "1" : "0";
+      client.frame({ type: "safety_update", update: { version: 1, identity: page.identity,
+        fromRevision: "0", toRevision: revision, records: [], projection: { ...page.projection, evidenceRevision: revision } } });
+      const before = sent.length;
+      client.frame({ type: "safety_unavailable", version: 1, reason: "capacity" });
+      expect(sent.length > before, "ONLY_ADVANCING_CONTIGUOUS_UPDATE_REARMS_CAPACITY_RECOVERY").toBe(advances);
+      expect(safety.getState().status).toBe(advances ? "loading" : "unavailable");
+    } finally { client.dispose(); }
+  }
+});
