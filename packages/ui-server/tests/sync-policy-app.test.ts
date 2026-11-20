@@ -17,6 +17,7 @@ import { createStaticBackendRegistry } from "../src/agent/backend";
 import { createRecordingObservability } from "../src/observability";
 import { resolveServerConfig } from "../src/config/env";
 import { makeFakeBackend } from "./helpers/fake-backend";
+import { journalDatabasePath } from "../src/db/journal-database";
 
 const ROOT = resolve(import.meta.dir, "../../..");
 const POLICY = "---\nschema_version: 1\noutward:\n  github:\n    repositories: [ithaca/*]\n---\nOdysseus decides what leaves Ithaca.\n";
@@ -77,10 +78,13 @@ test("an upstream policy commit is reviewed, approved through the real journal, 
   expect((await decided.json()).state, "APP_APPROVAL_WRITES").toBe("updated");
   expect(readFileSync(join(f.brain, "context/policies/governance.md"), "utf8"), "APP_INCOMING_BYTES_ADOPTED").toBe(POLICY);
 
+  const journal = new Database(journalDatabasePath(f.config.dbPath), { readonly: true });
+  try {
+    const change = journal.query("SELECT class, actor FROM turn_journal_changes WHERE turn_id = ? AND path = 'context/policies/governance.md'").get(review!.turn_id);
+    expect(change, "APP_JOURNAL_USER_POLICY").toEqual({ class: "policy", actor: "user" });
+  } finally { journal.close(); }
   const db = new Database(f.config.dbPath, { readonly: true });
   try {
-    const change = db.query("SELECT class, actor FROM turn_journal_changes WHERE turn_id = ? AND path = 'context/policies/governance.md'").get(review!.turn_id);
-    expect(change, "APP_JOURNAL_USER_POLICY").toEqual({ class: "policy", actor: "user" });
     const event = db.query("SELECT kind, actor FROM governance_events WHERE turn_id = ? AND kind = 'policy_change'").get(review!.turn_id);
     expect(event, "APP_POLICY_CHANGE_EVENT").toEqual({ kind: "policy_change", actor: "user" });
   } finally { db.close(); }
