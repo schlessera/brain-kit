@@ -28,7 +28,7 @@ import { coveringReferenceGrant, isLiveReferenceGrant, referenceRepository, refe
 import { referenceRevision, ReferenceTransportError, type ReferenceTransport } from "./reference-transport.js";
 import { GitHubReferenceMetadataError, type createGitHubReferenceAccess } from "./github-reference-access.js";
 import { githubReferenceRepository } from "./github-reference-identity.js";
-import { referenceAcquisitionMatches, type ReferenceAcquisition, type ReferenceAcquisitionContext } from "./reference-acquisition.js";
+import { referenceAcquisitionMatches, type ReferenceAcquisition, type ReferenceAcquisitionContext, type ReferenceIdentityObservation } from "./reference-acquisition.js";
 import { authorityRepository, sourceAuthority, sourceAuthorityCurrent, type SourceAuthority } from "./reference-source-authority.js";
 
 type GitHubAccess = Awaited<ReturnType<ReturnType<typeof createGitHubReferenceAccess>["open"]>>;
@@ -77,6 +77,8 @@ export interface ReferenceSourceLease {
   assertAuthority(): void;
   /** The exact live grant selected for this managed request; null for anonymous access. Host-only. */
   readGrantId?: string | null;
+  /** Fresh fixed-wire metadata for this request, never the cached acquisition timestamp. */
+  identityObservation?: Readonly<ReferenceIdentityObservation>;
   /** Ends this reader's protection against capacity eviction. Idempotent. */
   release(): void;
 }
@@ -652,7 +654,7 @@ export function createReferenceSources(options: {
     const context = input.acquisition;
     if (!context || !context.turnId || !context.current()) throw new ReferenceSourceError("unavailable", "Managed GitHub acquisition needs a live admitted turn and its network budget.");
     const controller = new AbortController(), signal = input.signal ? AbortSignal.any([input.signal, controller.signal]) : controller.signal;
-    const id = randomUUID();
+    const id = context.operationId ?? randomUUID();
     const publicFence = authorityFences.get(sourceKey(PUBLIC, repository.canonical, revision)) ?? 0;
     const privateFence = authorityFences.get(sourceKey(privateDomain(input.principalId), repository.canonical, revision)) ?? 0;
     const publicRepositoryFence = authorityFences.get(sourceKey(PUBLIC, repository.canonical, "")) ?? 0;
@@ -782,6 +784,9 @@ export function createReferenceSources(options: {
           assertTurn(); currentAccess.assertAuthority();
         });
         result.readGrantId = currentAccess.grantId;
+        result.identityObservation = Object.freeze({ operationId: id, brain: options.brain, principalId: input.principalId,
+          turnId: context.turnId, identity: Object.freeze({ ...currentAccess.identity }), ref: check.ref, commit: check.commit,
+          rootId: selectedRoot, observedAt: currentAccess.identityObservedAt });
         assertCurrent();
         return { kind: "source", row: current, stale: false, error: null };
       } catch (error) {
