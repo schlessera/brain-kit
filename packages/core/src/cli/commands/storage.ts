@@ -61,7 +61,7 @@ export function runStoragePack(args: string[], root: string, json: boolean): num
       else { started = true; result.packed = packRepository(root).packed; result.state = "complete"; }
     }
   } catch (error) {
-    result.state = started ? "partial" : "refused";
+    result.state = error instanceof GitPackingSkipped ? "refused" : started ? "partial" : "refused";
     result.reason = error instanceof GitPackingSkipped ? "packing_headroom" : error instanceof GitNoSpaceError || isNoSpaceFailure(String(error)) ? "no_space" : "git_maintenance_unavailable";
   }
   if (json) console.log(JSON.stringify(result));

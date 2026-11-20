@@ -1,3 +1,4 @@
+import { WorkerStateError } from "@schlessera/brain-ui-sdk/internal";
 import { expect, test } from "bun:test";
 import { maintenancePackingCommand, runHostedMaintenance } from "../src/brain/maintenance-packing.js";
 import type { BrainExecution, ExecutionResult } from "../src/brain/host-boundary.js";
@@ -25,7 +26,7 @@ test("a store capacity refusal names a retryable packing skip and retains index 
  const result=await runHostedMaintenance(execution,1,async()=>{
   if(++calls===1)return answer([{step:"index",result:"ok — 1 added"},{step:"git",result:"skipped — --no-git"}]);
   if(calls===2)return answer({state:"complete",reason:null,headroom:{packingRequiredBytes:400*1024**2}});
-  throw Error("packing_headroom: managed store cannot reserve stage above floor");
+  throw new WorkerStateError("worker_state_busy","packing_headroom: managed store cannot reserve stage above floor");
  });
  expect(JSON.parse(result.stdout),"PACKING_SKIP_RETAINS_OTHER_OUTPUTS").toMatchObject([{step:"index",result:"ok — 1 added"},{step:"git",result:expect.stringContaining("skipped — packing_headroom")}]);
  expect(result.exitCode).toBe(0);
@@ -35,4 +36,16 @@ test("a malformed plan never starts the packing command",async()=>{
  const result=await runHostedMaintenance(execution,1,async()=>++calls===1?answer([{step:"git",result:"skipped"}]):answer({state:"complete",headroom:{packingRequiredBytes:-1}}));
  expect(calls,"NO_GIT_WITH_UNKNOWN_SIZE").toBe(2);expect(result.stdout).toContain("packing_headroom");
  expect(maintenancePackingCommand({...execution,argv:["brain","maintain","--no-git"]})).toBe(-1);
+});
+
+
+test("an unknown staging failure keeps its cause and fails only the packing step",async()=>{
+ let calls=0;
+ const result=await runHostedMaintenance(execution,1,async()=>{
+  if(++calls===1)return answer([{step:"index",result:"ok — 1 added"},{step:"git",result:"skipped"}]);
+  throw Error("staging identity changed");
+ });
+ expect(result.exitCode).toBe(2);
+ expect(result.stdout,"PACKING_UNKNOWN_IS_NOT_CAPACITY").toContain("FAILED — git packing: staging identity changed");
+ expect(result.stdout).toContain("ok — 1 added");
 });
