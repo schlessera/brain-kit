@@ -193,6 +193,31 @@ describe("bounded sync launch (#4257)", () => {
     } finally { db.close(); }
   });
 
+  test("a sync silent past the grace before it exits still delivers the lines it writes at exit", async () => {
+    const root = brainRoot();
+    const encoder = new TextEncoder();
+    const app = routes(root, async execution => {
+      execution.onExecute?.();
+      let exit!: (code: number) => void;
+      const exited = new Promise<number>(resolve => { exit = resolve; });
+      return {
+        stdout: new ReadableStream({ async start(controller) {
+          controller.enqueue(encoder.encode("Pulling Ithaca\n"));
+          // Silent for longer than the grace, then the process exits just before its last write arrives.
+          await Bun.sleep(80);
+          exit(1);
+          await Bun.sleep(5);
+          controller.enqueue(encoder.encode("error: final refusal after silence\n"));
+          controller.close();
+        } }),
+        stderr: new ReadableStream({ start(controller) { controller.close(); } }),
+        exited, signalCode: null, kill() {},
+      };
+    }, { syncOutputGraceMs: 20 });
+    const all = await readFor(await app.request("/brain/sync", { method: "POST" }), 2_000);
+    expect(all.text, "SILENT_SYNC_FINAL_LINE_KEPT").toContain("error: final refusal after silence");
+  });
+
   test("a 409 names how long the current sync has held the brain", async () => {
     const root = brainRoot();
     let release!: () => void;

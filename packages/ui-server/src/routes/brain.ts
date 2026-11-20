@@ -319,13 +319,16 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono<AppEnv> {
         // every unfinished pipe has sat open with nothing to read for the
         // grace period. Time spent delivering output to a slow reader never
         // counts, so nothing the sync wrote is cut off.
+        const exitedAt = Date.now();
         await new Promise<void>(resolve => {
           let timer: ReturnType<typeof setTimeout> | undefined;
           const finish = () => { clearTimeout(timer); resolve(); };
           void Promise.all([stdout.done, stderrDone]).then(finish, finish);
           const check = () => {
             const idle = [stdout, stderr].filter(pipe => !pipe.finished()).map(pipe => pipe.idleSince());
-            if (idle.length && idle.every(since => since !== null && Date.now() - since >= outputGraceMs)) return finish();
+            // Idle time counts from the exit at the earliest: a read that began
+            // during a silent stretch before it says nothing about the pipe.
+            if (idle.length && idle.every(since => since !== null && Date.now() - Math.max(since, exitedAt) >= outputGraceMs)) return finish();
             timer = setTimeout(check, Math.max(1, Math.min(250, outputGraceMs)));
           };
           check();
