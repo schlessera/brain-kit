@@ -22,8 +22,8 @@ export function sessionRequestShapeLocation(root: string, brain: string, session
  * A legacy native session has no selection snapshot: keep its pre-upgrade list
  * unchanged. The runtime itself retains old stdio MCP definitions.
  */
-export function retainSessionRequestShape(brain: string, session: string, resumed: boolean, candidate: string[], legacy: string[]): string[] {
-  const env = envSnapshot();
+export function retainSessionRequestShape(brain: string, session: string, resumed: boolean, candidate: string[], legacy: string[],
+  env: Readonly<Record<string, string | undefined>> = envSnapshot()): string[] {
   const root = env.CLAUDE_CONFIG_DIR || join(env.HOME || homedir(), ".claude");
   const { dir, name } = sessionRequestShapeLocation(root, brain, session);
   if (realpathSync(dir) !== dir) throw new Error("Session request storage must not contain directory aliases");

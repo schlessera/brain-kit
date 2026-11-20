@@ -4,14 +4,17 @@ import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as context from "../../src/prompt-context.js";
+import * as shape from "../../src/session-request-shape.js";
 import { sessionPromptContext } from "@schlessera/brain-ui-sdk/internal";
 import * as workerRtk from "../../../ui-sdk/src/server/worker-rtk.js";
 import { rtkRewriteCommand } from "../../../ui-sdk/src/server/rtk.js";
 import { workerHostBoundary } from "@schlessera/brain-ui-sdk/internal";
+const retainSelection = shape.retainSessionRequestShape;
 export function mockWorkerHostForSdkStream() {
   let probe: ReturnType<typeof spyOn>;
   let root: string;
   let rewrite: ReturnType<typeof spyOn>;
+  let selection: ReturnType<typeof spyOn>;
   let prompt: ReturnType<typeof spyOn>, acknowledgement: ReturnType<typeof spyOn>;
   beforeEach(() => {
     probe = spyOn(workerHostBoundary, "probe").mockReturnValue({ ok: true });
@@ -24,9 +27,13 @@ export function mockWorkerHostForSdkStream() {
     // Keep their newly persistent host context in this test's own storage.
     prompt = spyOn(context, "claudePromptContext").mockImplementation((_brain, id) => sessionPromptContext(join(root, "host"), brain, id));
     acknowledgement = spyOn(context, "acknowledgeClaudeContext").mockImplementation(() => {});
+    // Match the existing fake brain/config context while exercising the real
+    // selection reader and writer; permission-only streams have no /brain.
+    selection = spyOn(shape, "retainSessionRequestShape").mockImplementation((_brain, id, resumed, candidate, legacy) =>
+      retainSelection(brain, id, resumed, candidate, legacy, { CLAUDE_CONFIG_DIR: join(root, "host") }));
   });
   afterEach(() => {
-    prompt.mockRestore(); acknowledgement.mockRestore(); probe.mockRestore(); rewrite.mockRestore();
+    selection.mockRestore(); prompt.mockRestore(); acknowledgement.mockRestore(); probe.mockRestore(); rewrite.mockRestore();
     rmSync(root, { recursive: true, force: true });
   });
 }

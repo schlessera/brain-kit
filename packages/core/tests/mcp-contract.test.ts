@@ -7,6 +7,7 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { ListToolsResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { readFileSync, rmSync, symlinkSync, writeFileSync } from "fs";
@@ -713,4 +714,17 @@ test("the five common brain reads stay inline under native tool search (#4306)",
   const { tools } = await client.listTools();
   const inline = tools.filter(tool => tool._meta?.["anthropic/alwaysLoad"] === true).map(tool => tool.name).sort();
   expect(inline, "CORE_READS_ALWAYS_LOADED").toEqual(["brain_context", "brain_list", "brain_read", "brain_read_many", "brain_search"]);
+});
+
+test("the unchanged previous MCP SDK schema still parses the metadata-bearing tool records", async () => {
+  // This branch does not change bun.lock: this is the same 1.30.1 schema
+  // consumed by clients before the additive alwaysLoad metadata was added.
+  const result = await client.listTools();
+  const previousClient = ListToolsResultSchema.parse(result);
+  expect(previousClient.tools.map(tool => tool.name)).toEqual(result.tools.map(tool => tool.name));
+  for (const [index, tool] of previousClient.tools.entries()) {
+    expect(tool.inputSchema).toEqual(result.tools[index]!.inputSchema);
+    expect(tool.annotations).toEqual(result.tools[index]!.annotations);
+  }
+  expect(previousClient.tools.find(tool => tool.name === "brain_search")?._meta).toEqual({ "anthropic/alwaysLoad": true });
 });
