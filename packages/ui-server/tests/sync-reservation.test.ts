@@ -35,7 +35,7 @@ describe("sync reservation", () => {
       appendFileSync(${JSON.stringify(events)}, 'end\\n'); process.exit(1);`);
     symlinkSync(root, link);
     const boundary = createHostBoundary({ brainPath: root, exec: {} });
-    const syncingRoots = new Set<string>();
+    const syncingRoots = new Map<string, number>();
     const route = (brainPath: string) => createBrainRoutes({
       syncingRoots, brainPath, brain: { cliCommand: () => [process.execPath, script] } as BrainClient,
       keyterms: { brainPath } as KeytermSettings, exec: {},
@@ -97,7 +97,7 @@ test("independent apps do not share sync admission (#1364)", async () => {
   const boundary = createHostBoundary({ brainPath: root, exec: {} });
   let calls = 0;
   const route = () => createBrainRoutes({
-    syncingRoots: new Set(), brainPath: root,
+    syncingRoots: new Map(), brainPath: root,
     brain: { cliCommand: () => [process.execPath, "sync.ts"] } as BrainClient,
     keyterms: { brainPath: root } as KeytermSettings, exec: {},
     boundary: { ...boundary, async launch() {
