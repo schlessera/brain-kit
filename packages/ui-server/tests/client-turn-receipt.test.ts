@@ -99,3 +99,37 @@ test("offloop completion settles ownership before the once-only receipt commits"
     expect(store.lifecycle("turn-ithaca")?.clientTiming).toEqual(pairs);
   } finally { await writer.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
 });
+
+test("the previous SDK schema parses receipt-enriched lifecycle snapshots and deltas", async () => {
+  const { previousActivityFrameSchema } = await import("./fixtures/previous-client-turn-schema.js");
+  const { createActivityStream } = await import("../src/activity/stream.js");
+  const db = createUiDb(":memory:");
+  const store = createActivityStore(db);
+  let now = 1000;
+  const lifecycle = createTurnLifecycle(store, "turn-ithaca", "ithaca", now, () => {}, () => now, "odysseus");
+  const stop = lifecycle.timer("governed")("inference_origin");
+  now = 1100; stop(); lifecycle.finish("success");
+  const stream = createActivityStream(store);
+  try {
+    const frames: Array<{ type: string; lifecycle?: unknown; lifecycles?: unknown[] }> = [];
+    const ws: WSContext = { send: text => frames.push(JSON.parse(text)) };
+    stream.handleSubscribe(ws, { type: "activity_subscribe", view: "session", sessionId: "ithaca" }, "odysseus");
+    expect(frames).toHaveLength(1);
+    expect(store.writeClientReceipt("turn-ithaca", "odysseus", pairs)).toBe(true);
+    stream.pump();
+    stream.handleSubscribe(ws, { type: "activity_subscribe", view: "session", sessionId: "ithaca" }, "odysseus");
+    const delta = frames.find(frame => frame.type === "activity_delta");
+    const snapshot = frames.at(-1)!;
+    expect(delta).toMatchObject({ lifecycle: { clientTiming: pairs } });
+    expect(snapshot).toMatchObject({ type: "activity_snapshot", lifecycles: [{ clientTiming: pairs }] });
+    expect(previousActivityFrameSchema.safeParse(delta)).toMatchObject({ success: true, data: delta });
+    expect(previousActivityFrameSchema.safeParse(snapshot)).toMatchObject({ success: true, data: snapshot });
+    // Negative control: the pinned old validator really retains its closed
+    // phase enum. A new enum value would make this compatibility test red.
+    const record = store.lifecycle("turn-ithaca")!;
+    expect(record.subPhases).toHaveLength(1);
+    expect(previousActivityFrameSchema.safeParse({ ...snapshot, lifecycles: [{ ...record,
+      subPhases: [{ ...record.subPhases![0], phase: "terminal" }],
+    }] }).success).toBe(false);
+  } finally { stream.close(); db.close(); }
+});
