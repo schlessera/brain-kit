@@ -219,6 +219,17 @@ and no fabricated agent turn. A human Settings operation has its own host audit
 identity and exact reviewed policy bytes/base hash. No personal accounts,
 configuration or real deployment details belong in the public tree.
 
+The v1 repository selector keeps its stable repository ID and canonical owner
+name. The independent provider owner ID is retained as host publication
+evidence, preserving that policy format. A prepared metadata observation or
+matching current file bytes cannot create an approved-owner boundary: the
+operation's descriptor-bound write and directory sync precede the FULL durable
+transaction that records its proof and owner identity together. Current boundary
+facts survive bounded operation-receipt pruning, and removal or selector change
+retires them. They establish the owner's historical reviewed choice, not current
+repository identity, private access or runtime permission. Every later qualified
+read still needs independently verified immutable provenance and fresh identity.
+
 Source trust and recipient permission are distinct. Incoming trust never
 silently permits sending data while another trigger restricts the chat.
 Recipient permission defaults off and needs its own explicit review. Exact
