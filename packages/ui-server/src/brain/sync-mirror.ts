@@ -171,14 +171,16 @@ async function protectedRefusal(local: ExecutionResult, error: ProtectedMaintena
     && error.paths.every(path => path === GOVERNANCE_POLICY_PATH || isWithin(path, GOVERNANCE_POLICY_PATH, { includeRoot: false }) && isWithin("context/policies", path));
   if (policyOnly && policy.upstream) {
     const content = await error.read(GOVERNANCE_POLICY_PATH, INCOMING_POLICY_READ_BOUND);
-    if (content && policy.onPolicyChange) {
+    if (content) {
       // A review offers only what the upstream commit itself carries: worker output is never a policy source.
+      // A scheduled sync decides the same way, so it never names a review a UI sync would refuse.
       if (!policy.verify || !await policy.verify(content))
         return refusedSync(local, `${error.message}. Nothing was published. The merged ${GOVERNANCE_POLICY_PATH} differs from the upstream commit's, so it cannot be reviewed: change the policy upstream so the brain's copy matches it, or revert the upstream commit.`);
+      if (!policy.onPolicyChange)
+        return refusedSync(local, `Sync stopped before publishing anything: the pull changes ${GOVERNANCE_POLICY_PATH}, and a policy change needs the owner's review. Run Sync in the app to review it.`);
       policy.onPolicyChange({ content, upstream: policy.upstream });
       return refusedSync(local, `Sync paused before publishing anything: the pull changes ${GOVERNANCE_POLICY_PATH}. Review the policy change; approving it adopts the policy, and the next sync completes.`);
     }
-    if (content) return refusedSync(local, `Sync stopped before publishing anything: the pull changes ${GOVERNANCE_POLICY_PATH}, and a policy change needs the owner's review. Run Sync in the app to review it.`);
   }
   const policies = error.paths.some(path => isWithin("context/policies", path));
   return refusedSync(local, `${error.message}. Nothing was published. A sync never adopts this change: revert the upstream commit that makes it${policies ? `, then change the policy in chat (propose_policy_change)` : ""}.`);
@@ -249,7 +251,7 @@ async function executeMirrorSync(input: Parameters<typeof runMirrorSync>[0]): Pr
     // and before any worker of this sync runs, so worker writes to the mirror
     // cannot change what it is compared with.
     const upstream = mirrorHead(mirror);
-    const upstreamPolicy = upstream && input.onPolicyChange ? await transport(["cat-file", "blob", `${upstream}:${GOVERNANCE_POLICY_PATH}`]) : null;
+    const upstreamPolicy = upstream ? await transport(["cat-file", "blob", `${upstream}:${GOVERNANCE_POLICY_PATH}`]) : null;
     const expected = upstreamPolicy?.exitCode === 0 ? upstreamPolicy.stdout : null;
     last = await runLocalSync({ ...command, credentials: false, upstream,
       ...(input.onPolicyChange ? { onPolicyChange: input.onPolicyChange } : {}),
