@@ -1043,7 +1043,8 @@ and `PATCH /repos/<r>/issues/<n>` with `{ state, state_reason? }`
 (`issue_state`). Every other request is refused before anything leaves the
 host, with `{ message, brain_relay_refusal }` and status 400, 403, 413, 429, 502
 or 503 (`unavailable` without the token). A call beyond 8 in flight is refused with 503 `relay_busy` before anything is
-read. Request bodies are bounded at 1 MiB, responses at 16 MiB and calls at 500
+read, and a call that arrives after the run ended, while calls in flight settle
+for up to 10 seconds, with 503 `relay_stopped`. Request bodies are bounded at 1 MiB, responses at 16 MiB and calls at 500
 per run. The response keeps GitHub's status,
 body and `content-type`, `link`, `etag`, rate-limit and request-id headers. Each
 forwarded write is a `github_write` event on the job's Activity root span:

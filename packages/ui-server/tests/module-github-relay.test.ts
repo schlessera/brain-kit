@@ -206,6 +206,9 @@ describe("module GitHub relay writes (#4259)", () => {
     while (seen.length < 1) await Bun.sleep(5);
     const stopping = started.stop();
     await Bun.sleep(20);
+    const late = await call("GET", "/repos/ithaca/watchtower/issues");
+    expect(late.status, "STOPPING_TAKES_NO_NEW_CALL").toBe(503);
+    expect((await late.json()).brain_relay_refusal).toBe("relay_stopped");
     release();
     await stopping;
     expect((await pending).status, "IN_FLIGHT_WRITE_FINISHES").toBe(200);
