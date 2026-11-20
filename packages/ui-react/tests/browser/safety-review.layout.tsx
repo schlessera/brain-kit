@@ -21,9 +21,9 @@ afterEach(async()=>{await disposeView();if(fixture)await commands.safetyServer({
 const patch=(patch:Record<string,unknown>={})=>commands.safetyServer({op:'set',id:fixture!.id,patch}) as Promise<{page:SafetyPage;commits:number;prepares:number;decisions:Array<{occurrence_id:string}>}>;
 const noop=()=>{};
 const message:ChatMessage={id:'odysseus-answer',turnId:'voyage',role:'assistant',content:'Voyage notes retained.',isStreaming:false,timestamp:Date.UTC(2026,6,12,10),
- toolCalls:[{id:'tool_a',name:'WebFetch',inputJson:'{}',input:{url:'https://example.com/odyssey'},output:'Odysseus voyage notes',status:'complete'},{id:'tool_c',name:'WebFetch',inputJson:'{}',input:{url:'https://example.com/odyssey'},output:'Penelope voyage notes',status:'complete'}],
+ toolCalls:[{id:'tool_a',name:'WebFetch',inputJson:'{}',input:{url:'https://example.com/odyssey'},output:'Odysseus voyage notes',status:'complete'},{id:'tool_c',name:'Read',inputJson:'{}',input:{file_path:'workspaces/ithaca/voyage.md'},output:'Penelope voyage notes',status:'complete'}],
  parts:[{kind:'tool',toolIndex:0},{kind:'tool',toolIndex:1},{kind:'text',text:'Voyage notes retained.'}]};
-async function view(){
+async function view(independentSocket=false){
  const f=fixture!;
  ui=createBrainUiRoot({storage:null,config:{backendUrl:f.url},request:async(url,init)=>{
   if(!String(url).includes('/safety/reviews/'))return Response.json({providers:[]});
@@ -34,14 +34,14 @@ async function view(){
  current.stores.connection.getState().setWsStatus('connected');
  socket=new WebSocket(f.url.replace('http:','ws:')+'/ws');const ws=socket;
  current.connection.send=(m:ClientMessage)=>{sent.push(m);if(ws.readyState!==WebSocket.OPEN)return false;ws.send(JSON.stringify(m));return true;};
- const client=safetyClient=createSafetyClient(current,m=>{sent.push(m);if(socket?.readyState!==WebSocket.OPEN)return false;socket.send(JSON.stringify(m));return true;});
+ const client=safetyClient=createSafetyClient(current,m=>{sent.push(m);const target=independentSocket?ws:socket;if(target?.readyState!==WebSocket.OPEN)return false;target.send(JSON.stringify(m));return true;});
  ws.onopen=()=>ws.send(JSON.stringify({type:'client_hello',protocolRev:5,capabilities:{sessionSafetyHistory:true,chatDeletion:true}}));
  ws.onmessage=e=>{frames.push(JSON.parse(String(e.data)));const parsed=parseServerMessage(String(e.data));if(!parsed.ok)throw new Error(parsed.error);client.frame(parsed.message);};
  host=document.createElement('div');host.style.maxWidth='100%';document.body.append(host);renderer=createRoot(host);
  flushSync(()=>renderer!.render(<BrainUiProvider root={current}><button type="button">Outside safety details</button><SessionSafety/><MessageBubble message={message} journalVisible={false} onToolApproval={noop} onAskUserSubmit={noop} onAskUserCancel={noop} onAskUserListSubmit={noop}/></BrainUiProvider>));
  try{await expect.poll(()=>current.stores.safety.getState().status,{timeout:5000}).toBe('ready');}catch(error){throw new Error(`${String(error)} Frames:${JSON.stringify(frames)} Sent:${JSON.stringify(sent)} Safety:${JSON.stringify(current.stores.safety.getState())} Session:${current.stores.chat.getState().activeSessionId}`);}
 }
-async function scene(width:number,theme:string){await page.viewport(width,900);document.documentElement.dataset.theme=theme;fixture=await commands.safetyServer({op:'start'}) as typeof fixture;await view();}
+async function scene(width:number,theme:string,independentSocket=false){await page.viewport(width,900);document.documentElement.dataset.theme=theme;fixture=await commands.safetyServer({op:'start'}) as typeof fixture;await view(independentSocket);}
 function buttonForTool(){const all=[...host!.querySelectorAll<HTMLButtonElement>('[data-safety-indicator] button')];return all.find(b=>b.getAttribute('aria-label')?.includes('2 unresolved'))!;}
 
 for(const width of [320,1280])for(const theme of ['light','dark'])test(`${width} ${theme}: collapsed counts, native touch, exact scope, A/B/C and reload`,async()=>{
@@ -129,4 +129,58 @@ test('same-owner disconnect and replay keep read-only evidence geometry without 
  expect(indicator.isConnected,'REPLAY_RETAINS_ORIGINAL_INDICATOR_NODE').toBe(true);
  expect(document.querySelector('[data-safety-details]')!.textContent,'RECONNECT_DISCARDS_UNSUBMITTED_SCOPE_CHOICE').not.toContain('Mark this trigger as safe');
  expect((await patch()).commits,'RECONNECT_DOES_NOT_SEND_A_DECISION').toBe(0);
+});
+
+test('two live owner views keep independent review scope and converge after every verdict',async()=>{
+ await scene(320,'light',true);
+ const first={ui:ui!,socket:socket!,renderer:renderer!,host:host!,client:safetyClient!};
+ // A second root and socket, with separate caches and UI state, read the same
+ // real writer. Disposal restores ownership so every resource is closed.
+ ui=undefined;socket=undefined;renderer=undefined;host=undefined;safetyClient=undefined;
+ try{
+  await view(true);const second={ui:ui!,host:host!};
+  for(let remaining=3;remaining>0;remaining--){
+   const active=remaining%2===1?first:second;
+   const indicator=[...active.host.querySelectorAll<HTMLButtonElement>('[data-safety-indicator] button')].find(button=>button.getClientRects().length>0&&button.getAttribute('aria-label')?.startsWith('Safety restrictions'))!;
+   await userEvent.click(indicator);
+   await userEvent.click(page.getByRole('button',{name:'Mark as safe',exact:true}).first());
+   await userEvent.click(page.getByRole('button',{name:'Mark this trigger as safe',exact:true}));
+   for(const current of [first,second]){
+    await expect.poll(()=>current.ui.stores.safety.getState().status==='ready'&&current.ui.stores.safety.getState().projection?.unresolvedCount===remaining-1,{timeout:5000}).toBe(true);
+    expect(current.host.textContent?.includes('Normal policy restored'),'TWO_VIEWS_RESTORE_ONLY_AFTER_LAST_VERDICT').toBe(remaining===1);
+   }
+   await userEvent.keyboard('{Escape}');
+  }
+  expect((await patch()).commits,'TWO_VIEWS_COMMIT_EXACTLY_ONE_VERDICT_PER_TRIGGER').toBe(3);
+  await patch({action:'add',id:'tool_d',finalized:false});
+  for(const current of [first,second]){
+   await expect.poll(()=>current.ui.stores.safety.getState().projection?.unresolvedCount,{timeout:5000}).toBe(1);
+   expect(current.host.textContent,'TWO_VIEWS_FUTURE_INPUT_RESTRICTS_AGAIN').not.toContain('Normal policy restored');
+  }
+ }finally{
+  await disposeView();ui=first.ui;socket=first.socket;renderer=first.renderer;host=first.host;safetyClient=first.client;
+ }
+});
+
+for(const theme of ['light','dark'])test(`${theme}: a mixed reviewed group names its remaining unresolved source on hover and focus`,async()=>{
+ await scene(320,theme);
+ const indicator=buttonForTool();
+ await userEvent.click(indicator);
+ await userEvent.click(page.getByRole('button',{name:'Mark as safe',exact:true}).first());
+ await userEvent.click(page.getByRole('button',{name:'Mark this trigger as safe',exact:true}));
+ await expect.poll(()=>ui!.stores.safety.getState().projection?.unresolvedCount).toBe(2);
+ await userEvent.keyboard('{Escape}');
+ const tooltip=indicator.parentElement!.querySelector<HTMLElement>('[role=tooltip]')!;
+ expect(indicator.getAttribute('aria-label'),'GROUP_REASON_NAMES_UNRESOLVED_SOURCE').toContain('Workspace read');
+ expect(indicator.getAttribute('aria-label')).not.toContain('Web fetch');
+ indicator.focus();
+ await expect.poll(()=>getComputedStyle(tooltip).opacity).toBe('1');
+ expect(tooltip.textContent,'FOCUS_REASON_NAMES_UNRESOLVED_SOURCE').toContain('Workspace read');
+ await userEvent.click(page.getByRole('button',{name:'Outside safety details'}));
+ await userEvent.hover(indicator);
+ await expect.poll(()=>getComputedStyle(tooltip).opacity).toBe('1');
+ expect(tooltip.textContent,'HOVER_REASON_NAMES_UNRESOLVED_SOURCE').toContain('Workspace read');
+ await userEvent.click(indicator);
+ expect(document.querySelectorAll('[data-safety-trigger]')).toHaveLength(2);
+ expect(document.querySelector('[data-safety-details]')!.textContent).toContain('Marked safe by you');
 });

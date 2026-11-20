@@ -1,4 +1,5 @@
 /** Keyless loopback browser fixture: real writer, owner HTTP and WS sidecars. */
+import {occurrence} from '../../../ui-server/src/governance/occurrence.js';
 import {retireChat} from '../../../ui-server/src/ws/chat-lifecycle.js';
 import {Hono} from 'hono';
 import {safetyHistoryFixture} from '../../../ui-server/tests/helpers/safety-history-fixture.js';
@@ -10,7 +11,11 @@ const f=await safetyHistoryFixture(true,true),at=Date.UTC(2026,6,12,10);
 const observedWrites={...f.writes,firstTaint:(input:Parameters<typeof f.writes.firstTaint>[0])=>f.writes.firstTaint({...input,at}),record:(input:Parameters<typeof f.writes.record>[0])=>f.writes.record({...input,at})};
 const collector=createSafetyCollector(f.db,observedWrites,{turnId:'voyage',bindingId:f.bindingId,backendId:'claude',sessionId:()=> 'ithaca',shellProxied:()=>true,signal:new AbortController().signal});
 async function tool(id:string,finalized=true){await collector.begin(id,'WebFetch',{url:'https://example.com/odyssey'});if(finalized)await collector.result(id,'WebFetch','Odysseus reviews voyage notes.',true);}
-await tool('tool_a');await f.add('B',true);await tool('tool_c');
+await tool('tool_a');await f.add('B',true);
+const workspace=occurrence(f.bindingId,'tool_file_input','tool_c','finalized');
+workspace.entry={kind:'tool',toolUseId:'tool_c'};
+await observedWrites.record({kind:'taint',sessionId:'ithaca',turnId:'voyage',actor:'interactive',model:null,profile:'governed',
+ payload:{source:'workspace_read',tool:'Read',detail:'Odysseus voyage notes',occurrence:workspace}});
 const app=new Hono<AppEnv>();
 // Test-only bootstrap supplies the fixture principal to a real WS host. HTTP
 // mutations below still traverse the actual cookie/Origin/owner route stack.

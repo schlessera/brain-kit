@@ -3,7 +3,7 @@ import { safetySessionKeySchema } from "@schlessera/brain-ui-sdk/schemas";
 import type { BrainUiServices } from "../root.js";
 /** One selected read subscription per socket. All reconnects start a fresh snapshot. */
 export function createSafetyClient(root:BrainUiServices,send:(message:ClientMessage)=>boolean){
-  let target:SafetyTarget|null=null,requestId:string|null=null,disposed=false,awaitingPage=false;
+  let target:SafetyTarget|null=null,requestId:string|null=null,disposed=false,awaitingPage=false,capacityRecoveryUsed=false;
   const store=root.stores.safety;
   function read(next:SafetyTarget):void{
     if(disposed||!store.getState().supported)return;
@@ -12,6 +12,7 @@ export function createSafetyClient(root:BrainUiServices,send:(message:ClientMess
     send({type:"safety_read",version:1,requestId,target,...(store.getState().entryCorrelation?{includeEntries:true as const}:{})});
   }
   function selected(): void {
+    capacityRecoveryUsed=false;
     const id = root.stores.chat.getState().activeSessionId;
     // Host-only voice histories and older persisted keys are chat selections.
     // Validate against the shared wire schema before starting a safety read.
@@ -43,12 +44,23 @@ export function createSafetyClient(root:BrainUiServices,send:(message:ClientMess
         // snapshot's final subscription replays everything after its watermark.
         if(awaitingPage)return true;
         if(JSON.stringify(store.getState().identity)!==JSON.stringify(msg.update.identity))return true;
-        if(!store.getState().update(msg.update)&&target)read(target);return true;
+        const revision=store.getState().revision;
+        if(!store.getState().update(msg.update)){if(target)read(target);}
+        else if(BigInt(msg.update.toRevision)>BigInt(revision))capacityRecoveryUsed=false;
+        return true;
       }
       if(msg.type==="safety_unavailable"){
         if(msg.requestId&&msg.requestId!==requestId)return true;
-        // Expiry/gap needs an explicit fresh snapshot; never replay a mutation.
-        const again=target&&["gap","expired","generation_changed"].includes(msg.reason);
+        const resync=["gap","expired","generation_changed"].includes(msg.reason);
+        // Uncorrelated loss notices may belong to the replaced subscription.
+        // A refusal of the active read must carry that read's request ID.
+        if(awaitingPage&&!msg.requestId&&(resync||msg.reason==="capacity"))return true;
+        // Lost subscriptions need a fresh snapshot; never replay a mutation.
+        // The wire does not distinguish a dropped delta from a refused subscribe.
+        // Allow one capacity resnapshot until live progress or explicit refresh;
+        // completing pages alone cannot prove the subscription was accepted.
+        const again=target&&(resync||msg.reason==="capacity"&&!awaitingPage&&!capacityRecoveryUsed);
+        if(msg.reason==="capacity")capacityRecoveryUsed=true;
         store.getState().unavailable(msg.reason);requestId=null;if(again&&target)read(target);return true;
       }
       return false;

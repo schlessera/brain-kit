@@ -420,3 +420,19 @@ catalog lost, and deletions interrupted in `deleting` (`recover`, `packages/ui-s
   against the simple-quota Btrfs pool. It acquires the 1,200-file repository
   into a quota-limited root and reads it through its view from a bubblewrap
   sandbox. The withdrawn root is reclaimed.
+
+## Read-bound identity observations
+
+Each managed request retains its own frozen fixed-wire identity observation,
+including cache reuse by another principal or turn. The observation binds the
+host-generated read invocation ID, served brain, principal, turn, selected root,
+full ref and commit. The reader and writer compare that ID with the invocation
+that requested the transport, so another read of the same source cannot supply
+its observation. Observation time is captured when fixed metadata validation
+succeeds, before publication, recording or lease waits.
+Immutable read evidence snapshots this observation separately from the original
+acquisition and the writer checks their stable repository/current-owner IDs and
+names together before recording. A changed or missing observation refuses that
+read; a fresh call can acquire again. Old receipts remain historical evidence,
+including across restart, and cannot establish current identity or source trust.
+Approved-owner rule evaluation remains independently required.
