@@ -1,6 +1,6 @@
 import { beforeAll, expect, test } from "bun:test";
 import { join } from "node:path";
-import { body, captureOffline, history, identical, main, messages, noInternalNotes, pairs, system, type Captures } from "../../../tests/helpers/provider-history.js";
+import { body, captureOffline, history, identical, identicalSystemPromptOptions, main, messages, noInternalNotes, pairs, system, type Captures } from "../../../tests/helpers/provider-history.js";
 
 let captures: Captures;
 beforeAll(async () => { captures = await captureOffline(join(import.meta.dir, "fixtures/provider-history-probe.ts")); }, 180_000);
@@ -60,9 +60,8 @@ test("Claude system stays identical across device and sandbox changes on resume 
 // append at the provider boundary. The SDK documents that recording as
 // account-gated, so the guard also holds the option brain-kit hands it.
 test("Claude system-prompt option stays identical on resume", () => {
-  for (const name of ["control", "repository", "promotion", "budget", "datatree"]) {
-    const [first, ...rest] = captures[name]!.appends;
-    for (const next of rest) identical(first, next, `systemPrompt option ${name}`);
+  for (const [name, capture] of Object.entries(captures)) {
+    identicalSystemPromptOptions(capture.appends, `systemPrompt option ${name}`);
   }
 });
 test("Claude system-prompt option stays identical across device and sandbox changes (#2047)", () => {

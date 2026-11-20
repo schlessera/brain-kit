@@ -143,12 +143,21 @@ try {
   sequence = 0;
   const home = join(scratch, "home-budget");
   mkdirSync(join(home, ".claude"), { recursive: true });
-  const hosted = historyHost(brain, createClaudeBackend({ brainPath: brain, allowedTools: ["Read", "Bash"], confirmBashPatterns: [],
+  const budgetBackend = createClaudeBackend({ brainPath: brain, allowedTools: ["Read", "Bash"], confirmBashPatterns: [],
     profiles: [{ id: "fixture", label: "Fixture", model: "claude-sonnet-4-6", billing: "api", requiredEnvKeys: [], buildEnv: () => ({
       HOME: home, CLAUDE_CONFIG_DIR: join(home, ".claude"), ANTHROPIC_BASE_URL: server.url.origin, ANTHROPIC_API_KEY: "offline-odysseus",
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
     }) }], log() {},
-  }));
+  });
+  // Hosted budget turns do not expose the turn object to this fixture. Capture
+  // the production fingerprint of that exact SDK systemPrompt option instead
+  // of leaving their option check vacuous behind the CLI's replayed system.
+  const hosted = historyHost(brain, { ...budgetBackend, async startTurn(req) {
+    return budgetBackend.startTurn({ ...req, bridge: { ...req.bridge, activity(event) {
+      if (event.kind === "prompt_prefix") capture.appends.push(event.prefix.system);
+      req.bridge.activity?.(event);
+    } } });
+  } });
   try {
     for (turnIndex = 0; turnIndex < 3; turnIndex++) {
       if (turnIndex) changeRepository(brain, turnIndex);

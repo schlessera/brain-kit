@@ -31,6 +31,16 @@ export function bytes(value: unknown): string {
 export function identical(expected: unknown, actual: unknown, label: string): void {
   compareBytes(bytes(expected), bytes(actual), label);
 }
+/** The local Claude CLI may replay old system bytes; also hold the actual
+ * SDK systemPrompt option (or its production fingerprint for hosted turns). */
+export function identicalSystemPromptOptions(appends: readonly unknown[], label: string): void {
+  expect(appends, `${label}: capture every turn`).toHaveLength(3);
+  const [first, ...rest] = appends;
+  expect(first, `${label}: present capture`).not.toBeNull();
+  expect(first, `${label}: defined capture`).not.toBeUndefined();
+  for (const next of rest) identical(first, next, label);
+}
+
 function compareBytes(expected: string, actual: string, label: string): void {
   const left = Buffer.from(expected), right = Buffer.from(actual);
   let offset = 0;
