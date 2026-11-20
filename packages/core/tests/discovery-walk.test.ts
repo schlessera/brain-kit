@@ -63,7 +63,7 @@ test("index discovery never opens an excluded tree containing an unreadable dire
     // Negative control: establish that this fixture's filesystem observes
     // a read made by the old whole-tree algorithm, even if Glob swallows
     // the unreadable descendant's EACCES.
-    try { [...new Glob("**/*.md").scanSync({cwd:root})]; }
+    try { Array.from(new Glob("**/*.md").scanSync({cwd:root})); }
     catch(error) { if((error as NodeJS.ErrnoException).code !== "EACCES") throw error; }
     expect(statSync(excluded).atimeMs,"OLD_GLOB_READS_EXCLUDED_DIRECTORY_CONTROL").toBeGreaterThan(0);
   } finally {chmodSync(unreadable,0o700);rmSync(root,{recursive:true,force:true});}
