@@ -9,3 +9,5 @@ Enforce prospective exact-origin and explicit-tunnel source trust with separate 
 Bind pending Network approvals to actual transport identity and record the hash of freshly verified valid policy bytes even when trust rules are unchanged.
 
 Enforce canonical bracketed IPv6 tunnels, retain last-valid live trust on bounded policy read failures, and prove DNS subdomains cannot inherit parent trust.
+
+Classify live trust observations consistently: stable invalid or unreadable policy retains last-valid rules with an error, verification races fence, and unchanged chunks use metadata generation checks instead of full policy reads. Refresh rechecks after its durable write.

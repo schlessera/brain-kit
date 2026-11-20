@@ -7,7 +7,7 @@ import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { openGovernancePolicyAnchored, verifyGovernancePolicyAnchored, parseGovernancePolicy, TrustedSourcesSchema, TrustRuleSchema,
-  TRUST_RUNTIME_CAPABILITIES, type TrustRule, type AnchoredGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
+  TRUST_RUNTIME_CAPABILITIES, GovernancePolicyReadError, type TrustRule, type AnchoredGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
 import { BRAIN_LOCK_KEY, type KeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { procedureCaller, type SqliteWriter } from "../db/write-worker.js";
 import { publishProtectedPolicy } from "./policy-publication.js";
@@ -103,42 +103,70 @@ export function createTrustSettings(options: {
     return row ? { revision: row.revision, rules: JSON.parse(row.rules), policyHash: row.policy_hash, error: row.error } : { revision: "0", rules: [], policyHash: null, error: null };
   };
   const listeners = new Set<() => void>();
-  const freshProjection = () => {
-    const p = projection(); let target: AnchoredGovernancePolicy | undefined;
+  type Observation = { kind: "valid"; rules: TrustRule[]; policyHash: string | null } | { kind: "unavailable" };
+  let observed: { generation: string; value: Observation } | undefined;
+  let retained: Projection | undefined, retainedFor: Observation | undefined;
+  let liveCache: { observation: Observation; base: Projection; value: Projection } | undefined;
+  // Metadata is the per-chunk fence. Include every ancestry identity and the
+  // file's nanosecond change identity, without reading policy bytes or SQLite.
+  const generation = () => [root, join(root, "context"), join(root, "context/policies"), join(root, "context/policies/governance.md")].map((path, index) => {
     try {
-      target = openGovernancePolicyAnchored(root); verifyGovernancePolicyAnchored(target, target.bytes === null ? null : hash(target.bytes));
+      const info = lstatSync(path, { bigint: true });
+      return [info.dev, info.ino, info.mode, info.nlink, ...(index === 3 ? [info.size, info.mtimeNs, info.ctimeNs] : [])].map(String).join(":");
+    } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return "missing"; throw error; }
+  }).join("|");
+  /** One state machine for live reads and durable refresh. Changed verification
+   * always fences; stable invalid/unreadable bytes retain last-valid evidence. */
+  const observePolicy = (): Observation => {
+    let before: string;
+    try { before = generation(); } catch { return { kind: "unavailable" }; }
+    if (observed?.generation === before) return observed.value;
+    let target: AnchoredGovernancePolicy | undefined, value: Observation;
+    try {
+      target = openGovernancePolicyAnchored(root);
+      const policyHash = target.bytes === null ? null : hash(target.bytes);
+      verifyGovernancePolicyAnchored(target, policyHash);
       const checked = target.bytes === null ? null : parseGovernancePolicy(target.bytes);
-      if (checked && !checked.ok) return p; // Retain last-valid policy, never adopt invalid bytes.
-      if (JSON.stringify(checked?.effective.taint.trusted_sources ?? []) !== JSON.stringify(p.rules)) throw new TrustSettingsError("stale_revision");
-      return { ...p, policyHash: target.bytes === null ? null : hash(target.bytes) };
+      value = checked && !checked.ok ? { kind: "unavailable" }
+        : { kind: "valid", rules: checked?.effective.taint.trusted_sources ?? [], policyHash };
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT" && p.rules.length === 0) return { ...p, policyHash: null };
-      if (error instanceof TrustSettingsError) throw error; // A valid changed rule list must fence.
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new TrustSettingsError("stale_revision");
-      return { ...p, error: "policy_unavailable" }; // Unreadable/invalid publication retains last-valid rules.
+      if (error instanceof GovernancePolicyReadError && ["changed", "mismatch", "ancestry"].includes(error.refusal))
+        throw new TrustSettingsError("stale_revision");
+      value = (error as NodeJS.ErrnoException).code === "ENOENT" ? { kind: "valid", rules: [], policyHash: null } : { kind: "unavailable" };
     } finally { target?.close(); }
+    // Also catch replacement around an unreadable/invalid snapshot or after
+    // the anchored verification. Never memoize a raced observation as stable.
+    let after: string;
+    try { after = generation(); } catch { throw new TrustSettingsError("stale_revision"); }
+    if (after !== before) throw new TrustSettingsError("stale_revision");
+    observed = { generation: after, value }; return value;
+  };
+  const freshProjection = (): Projection => {
+    const observation = observePolicy();
+    if (!retained || retainedFor !== observation) { retained = projection(); retainedFor = observation; }
+    if (liveCache?.observation === observation && liveCache.base === retained) return liveCache.value;
+    if (observation.kind === "valid" && JSON.stringify(observation.rules) !== JSON.stringify(retained.rules)) throw new TrustSettingsError("stale_revision");
+    const value = observation.kind === "unavailable" ? { ...retained, error: "policy_unavailable" }
+      : { ...retained, policyHash: observation.policyHash, error: null };
+    liveCache = { observation, base: retained, value }; return value;
   };
   const live = { read: freshProjection, revision: () => freshProjection().revision,
     refresh: () => options.lock.withLock(BRAIN_LOCK_KEY, refresh), subscribe(changed: () => void) { listeners.add(changed); return () => { listeners.delete(changed); }; } };
   const refresh = async (): Promise<Projection> => {
-    const old = projection(); let target: AnchoredGovernancePolicy | undefined;
-    let rules: TrustRule[], policyHash: string | null;
-    try {
-      target = openGovernancePolicyAnchored(root);
-      policyHash = target.bytes === null ? null : hash(target.bytes); verifyGovernancePolicyAnchored(target, policyHash);
-      const checked = target.bytes === null ? null : parseGovernancePolicy(target.bytes);
-      if (checked && !checked.ok) throw new Error("invalid");
-      rules = checked?.effective.taint.trusted_sources ?? [];
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") { rules = []; policyHash = null; }
-      else { await call("projection", brain, old.revision, JSON.stringify(old.rules), old.policyHash, "policy_unavailable"); return { ...old, error: "policy_unavailable" }; }
-    } finally { target?.close(); }
+    const old = projection(), value = observePolicy();
+    if (value.kind === "unavailable") {
+      const next = { ...old, error: "policy_unavailable" };
+      await call("projection", brain, old.revision, JSON.stringify(old.rules), old.policyHash, next.error);
+      retained = next; retainedFor = value; return freshProjection();
+    }
+    const { rules, policyHash } = value;
     const changed = JSON.stringify(old.rules) !== JSON.stringify(rules);
     if (changed && BigInt(old.revision) >= MAX_TRUST_REVISION) throw new TrustSettingsError("capacity", 503);
     const next = { revision: changed ? String(BigInt(old.revision) + 1n) : old.revision, rules, policyHash, error: null };
     await call("projection", brain, next.revision, JSON.stringify(rules), policyHash, null);
+    retained = next; retainedFor = value;
     if (changed) for (const listener of listeners) listener();
-    return next;
+    return freshProjection();
   };
   const row = (principal: string, request: string): Row => {
     authority(principal);

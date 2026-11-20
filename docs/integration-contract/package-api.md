@@ -83,6 +83,11 @@ managed HTTPS acquisition with an opaque CONNECT to the same authority.
 CONNECT accepts explicit bracketed IPv6 authorities as well as canonical DNS
 and IPv4 hosts. Trust evidence keeps brackets; socket dialing and destination
 IP checks use the unbracketed literal.
+Live trust reads and durable refresh share one policy observation state machine.
+Stable invalid or unreadable policy retains last-valid rules/hash with an error;
+a changed-file or ancestry verification mismatch fences. Unchanged-file chunk
+fences compare ancestry/file metadata generations without reading policy bytes
+or querying SQLite. Refresh rechecks the generation after its durable write.
 The internal entry also exports the existing
 `egressAddressRefusal` validator so the fixed acquisition wire validates every
 DNS address before connecting to a checked IP. These are implementation

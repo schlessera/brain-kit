@@ -1,7 +1,8 @@
 import { createGovernancePolicyReader } from "../src/brain/governance-policy.js";
 import { createTurnJournal } from "../src/brain/turn-journal.js";
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
-import { afterEach, expect, test } from "bun:test";
+import * as fs from "node:fs";
+import { afterEach, expect, test, spyOn } from "bun:test";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, renameSync, symlinkSync, openSync, closeSync, constants } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
@@ -480,4 +481,31 @@ test('review4: oversized policy retains last-valid live trust with honest error'
 
 for(const host of ['example.org','127.0.0.1','[::1]','xn--bcher-kva.example'])for(const kind of ['web_origin','tunnel_authority'] as const)test(`review4: Settings accepts enforced canonical ${kind} ${host}`,async()=>{
  const f=await fixture({originEnforcement:true});const selector=kind==='web_origin'?{kind,scheme:'https' as const,host,port:443}:{kind,host,port:443};const draft=await f.prepare({action:'create',rule:{...rule,selector}});const saved=await f.commit(draft);expect(saved.receipt).toMatchObject({enforcement:'enforced'});expect(f.settings.live.read().rules[0]?.selector).toEqual(selector);
+});
+
+
+test('review5: malformed live policy reports an error before any refresh',async()=>{
+ const f=await fixture({originEnforcement:true});await f.commit(await f.prepare());const before=f.settings.live.read(),valid=readFileSync(f.path,'utf8');writeFileSync(f.path,'---\nschema_version: [\n---\n');
+ expect(f.settings.live.read(),'MALFORMED_LIVE_POLICY_REPORTS_ERROR').toMatchObject({...before,error:'policy_unavailable'});
+ writeFileSync(f.path,valid);expect(f.settings.live.read()).toMatchObject({...before,error:null});
+});
+for(const refreshing of [false,true])test(`review5: removal during anchored verification fences ${refreshing?'refresh':'read'}`,async()=>{
+ const f=await fixture({originEnforcement:true});await f.commit(await f.prepare());writeFileSync(f.path,readFileSync(f.path,'utf8')+'\n');const read=fs.readSync;let swapped=false;
+ const spy=spyOn(fs,'readSync').mockImplementation(((...args:Parameters<typeof fs.readSync>)=>{const n=Reflect.apply(read,fs,args);if(n>0&&!swapped){swapped=true;renameSync(f.path,f.path+'.old');writeFileSync(f.path,initial);}return n;}) as typeof fs.readSync);
+ try{if(refreshing)await expect(f.settings.live.refresh(),'CHANGED_DURING_VERIFICATION_NEVER_RETAINS_RULE').rejects.toThrow();else expect(()=>f.settings.live.read(),'CHANGED_DURING_VERIFICATION_NEVER_RETAINS_RULE').toThrow();expect(swapped).toBe(true);}finally{spy.mockRestore();}
+});
+test('review5: unchanged large policy uses a cheap per-chunk revision fence',async()=>{
+ const f=await fixture({originEnforcement:true});await f.commit(await f.prepare());writeFileSync(f.path,readFileSync(f.path,'utf8')+'\n'+ 'Ithaca. '.repeat(12000));const p=f.settings.live.read();const read=fs.readSync;let reads=0;
+ const spy=spyOn(fs,'readSync').mockImplementation(((...args:Parameters<typeof fs.readSync>)=>{reads++;return Reflect.apply(read,fs,args);}) as typeof fs.readSync);
+ try{for(let i=0;i<16;i++)expect(f.settings.live.revision()).toBe(p.revision);expect(reads,'UNCHANGED_CHUNKS_NEVER_REREAD_POLICY').toBe(0);
+ writeFileSync(f.path,initial);expect(()=>f.settings.live.revision(),'CHEAP_FENCE_STILL_DETECTS_REMOVAL').toThrow();expect(reads).toBeGreaterThan(0);
+ }finally{spy.mockRestore();}
+});
+
+test('review5: refresh rechecks current generation after its durable projection wait',async()=>{
+ const f=await fixture({originEnforcement:true});await f.commit(await f.prepare());writeFileSync(f.path,readFileSync(f.path,'utf8')+'\nIthaca.');
+ const probe=await import('./fixtures/write-worker-probe');const channel=f.writer.channel(probe,{table:'trust_refresh_wait'});await channel.ready;const active=new Int32Array(new SharedArrayBuffer(4));const slow=channel.call('slow','Calypso',100,active);await Atomics.waitAsync(active,0,0).value;
+ let entered!:()=>void;const reached=new Promise<void>(r=>{entered=r;});const read=fs.readSync;const spy=spyOn(fs,'readSync').mockImplementation(((...args:Parameters<typeof fs.readSync>)=>{const n=Reflect.apply(read,fs,args);if(n>0)queueMicrotask(entered);return n;}) as typeof fs.readSync);
+ const pending=f.settings.live.refresh();try{await reached;}finally{spy.mockRestore();}writeFileSync(f.path,'---\nschema_version: [\n---\n');await slow;
+ expect((await pending).error,'REFRESH_NEVER_REPORTS_HEALTHY_AFTER_POLICY_CHANGES_DURING_COMMIT').toBe('policy_unavailable');
 });
