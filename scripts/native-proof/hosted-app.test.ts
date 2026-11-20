@@ -519,12 +519,12 @@ print(json.dumps(result))`;
       expect(packing.garbage.count, "NATIVE_PACKING_GARBAGE_FREE").toBe(0);
       // Exercise the real manager with only its kernel memory observation
       // controlled; no stage may launch after this named preflight refusal.
+      const client = createNativeBrainManagerClient({ socketPath: socket });
+      const checkpoint = await client.checkpoint(randomUUID()), stageId = randomUUID();
       const filesystem = await import("node:fs"), { spyOn } = await import("bun:test");
       const originalRead = filesystem.readFileSync;
       const memory = spyOn(filesystem, "readFileSync").mockImplementation(((...args: any[]) =>
         args[0] === "/proc/meminfo" ? "MemAvailable: 0 kB\n" : Reflect.apply(originalRead, filesystem, args)) as typeof originalRead);
-      const client = createNativeBrainManagerClient({ socketPath: socket });
-      const checkpoint = await client.checkpoint(randomUUID()), stageId = randomUUID();
       let created = false;
       try {
         try { await client.prepareStage(stageId, checkpoint.id, 16 * 1024 ** 2, undefined, true); created = true; throw Error("Memory refusal did not run"); }
