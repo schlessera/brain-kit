@@ -1041,7 +1041,8 @@ export interface ServerHello {
    * advertises resumable stop plus start/open/close request identity echoes.
    * `sessionDrafts: true` means the `/api/drafts` routes store drafts;
    * `sessionDraftLimits` then carries their bounds. `sessionRecovery: true`
-   * means `GET /api/sessions/:id/recovery` answers (#964). */
+   * means `GET /api/sessions/:id/recovery` answers (#964).
+   * `clientTurnReceipts: true` accepts best-effort client frame-arrival reports. */
   capabilities?: Record<string, boolean>;
   /**
    * Draft storage bounds (additive; #979). Present exactly when

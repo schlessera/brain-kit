@@ -561,8 +561,11 @@ aggregation continues to read backend rollups exactly once.
 
 #### Client frame-arrival receipt (additive, #4282)
 
-After receiving a turn's `status: idle`, the initiating client may send exactly
-one best-effort `{ type: "client_turn_receipt", turnId, timing }` frame.
+A host with Activity storage advertises the optional boolean capability
+`server_hello.capabilities.clientTurnReceipts: true`. Without this flag the
+client sends no receipt, so an older host never receives an unknown message.
+Negotiation resets with each socket. After receiving a turn's `status: idle`,
+the initiating client may send exactly one best-effort `{ type: "client_turn_receipt", turnId, timing }` frame.
 `timing` contains non-negative finite millisecond pairs measured entirely on
 the client's monotonic clock:
 

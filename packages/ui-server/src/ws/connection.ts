@@ -106,7 +106,7 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
           location: true,
           // Advertised only when this host records activity — a client on an
           // activity-less host knows subscribing would be pointless.
-          ...(host.activity ? { activity: true } : {}),
+          ...(host.activity ? { activity: true, clientTurnReceipts: true } : {}),
           ...(host.inbox ? { inbox: true } : {}),
           // Offered to clients that declare it in client_hello (#957).
           toolResolution: true,

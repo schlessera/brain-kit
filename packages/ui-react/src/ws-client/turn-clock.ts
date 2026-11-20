@@ -11,6 +11,7 @@ interface Observation {
 /** Arrival evidence only, before rendering/delta buffering. Nothing survives a
  * socket gap: a resumed client cannot establish the missing boundaries. */
 export function createTurnClock(report: (message: ClientMessage) => boolean, clock = () => performance.now()) {
+  let supported = false;
   const requests = new Map<string, Observation>();
   const arrivals = new Map<string, Omit<Observation, "sentAt">>();
   return {
@@ -21,8 +22,9 @@ export function createTurnClock(report: (message: ClientMessage) => boolean, clo
       requests.set(message.requestId, { sentAt });
     },
     now: clock,
-    disconnected() { requests.clear(); arrivals.clear(); },
+    disconnected() { supported = false; requests.clear(); arrivals.clear(); },
     frame(message: ServerMessage) {
+      if (message.type === "server_hello") { supported = message.capabilities?.clientTurnReceipts === true; return; }
       if (!requests.size) return;
       const at = clock();
       const { turnId, requestId } = message as { turnId?: string; requestId?: string };
@@ -56,6 +58,7 @@ export function createTurnClock(report: (message: ClientMessage) => boolean, clo
         ...(observation.firstContentAt === undefined ? {} : { sendToFirstContentFrameMs: Math.max(0, observation.firstContentAt - observation.sentAt) }),
         ...(observation.lastContentAt === undefined ? {} : { lastContentFrameToIdleMs: Math.max(0, at - observation.lastContentAt) }),
       };
+      if (!supported) return;
       // One attempt, no retry or retained outgoing queue. Loss affects only this measurement.
       try { report({ type: "client_turn_receipt", turnId, timing }); }
       catch { /* A transport exception must not interrupt idle handling. */ }

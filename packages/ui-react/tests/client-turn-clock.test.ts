@@ -2,10 +2,11 @@ import { expect, test } from "bun:test";
 import type { ClientMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { createTurnClock } from "../src/ws-client/turn-clock.js";
 
-function scene() {
+function scene(supported = true) {
   let now = 1000;
   const reports: ClientMessage[] = [];
   const clock = createTurnClock(message => { reports.push(message); return true; }, () => now);
+  clock.frame({ type: "server_hello", protocolRev: 5, capabilities: supported ? { clientTurnReceipts: true } : {} });
   const send = (requestId = "voyage") => clock.sent({ type: "chat_message", text: "Plan Ithaca", requestId }, clock.now());
   const frame = (at: number, message: Parameters<typeof clock.frame>[0] & { turnId?: string }) => { now = at; clock.frame(message); };
   return { reports, clock, send, frame };
@@ -31,6 +32,7 @@ test("disconnect discards incomplete evidence and a later turn can still report"
   s.clock.disconnected();
   s.frame(1200, { type: "status", status: "idle", turnId: "turn-ithaca" });
   expect(s.reports).toEqual([]);
+  s.frame(1200, { type: "server_hello", protocolRev: 5, capabilities: { clientTurnReceipts: true } });
   s.send("return");
   s.frame(1210, { type: "session_info", isNew: false, requestId: "return", turnId: "turn-return", sessionId: "ithaca" });
   s.frame(1220, { type: "status", status: "idle", turnId: "turn-return" });
@@ -52,6 +54,7 @@ test("frames before the request's identity are measured without adopting another
 test("a lost report is attempted once even when the socket throws, and later turns still report", () => {
   const attempts: ClientMessage[] = [];
   const clock = createTurnClock(message => { attempts.push(message); throw new Error("Socket closed"); }, () => 1100);
+  clock.frame({ type: "server_hello", protocolRev: 5, capabilities: { clientTurnReceipts: true } });
   clock.sent({ type: "chat_message", text: "Plan Ithaca", requestId: "voyage" }, 1000);
   const identity = { type: "session_info" as const, isNew: true, sessionId: "ithaca", turnId: "turn-ithaca", requestId: "voyage" };
   clock.frame(identity);
@@ -64,4 +67,19 @@ test("a lost report is attempted once even when the socket throws, and later tur
   clock.frame(returnIdentity);
   clock.frame({ ...idle, turnId: "turn-return" });
   expect(attempts).toHaveLength(2);
+});
+
+
+test("a host that does not advertise receipt support receives no unknown timing message", () => {
+  const s = scene(false); s.send();
+  s.frame(1010, { type: "session_info", isNew: true, requestId: "voyage", turnId: "turn-ithaca", sessionId: "ithaca" });
+  s.frame(1200, { type: "text_delta", text: "Sail at dawn", turnId: "turn-ithaca" });
+  s.frame(1220, { type: "status", status: "idle", turnId: "turn-ithaca" });
+  expect(s.reports).toEqual([]);
+  s.clock.disconnected();
+  s.frame(1230, { type: "server_hello", protocolRev: 5, capabilities: { clientTurnReceipts: true } });
+  s.send("return");
+  s.frame(1240, { type: "session_info", isNew: false, requestId: "return", turnId: "turn-return", sessionId: "ithaca" });
+  s.frame(1250, { type: "status", status: "idle", turnId: "turn-return" });
+  expect(s.reports).toEqual([{ type: "client_turn_receipt", turnId: "turn-return", timing: { sendToFirstHostFrameMs: 10 } }]);
 });
