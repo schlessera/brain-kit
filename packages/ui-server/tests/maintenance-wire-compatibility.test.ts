@@ -28,3 +28,23 @@ test("previous Activity schema accepts the scrub failure event and existing erro
  expect(previousDelta.safeParse(frame).success).toBe(true);
  expect(parseServerMessage(JSON.stringify(frame)).ok).toBe(true);
 });
+
+test("the previous schema parses actual host scrub Activity records",async()=>{
+ const {mkdtempSync,mkdirSync,rmSync,writeFileSync}=await import("node:fs"),{tmpdir}=await import("node:os"),{join}=await import("node:path");
+ const {createUiDb}=await import("../src/db/client.js"),{createTurnJournal}=await import("../src/brain/turn-journal.js");
+ const {createNativeJournalFixture}=await import("./helpers/native-journal-fixture.js");
+ const {createActivityStore}=await import("../src/activity/store.js"),{toWireSpan,toWireEvent}=await import("../src/activity/stream.js");
+ const root=mkdtempSync(join(tmpdir(),"odysseus-scrub-wire-")),brain=join(root,"brain");mkdirSync(brain);writeFileSync(join(brain,"ithaca.md"),"# Ithaca");
+ const native=createNativeJournalFixture(brain,root),path=join(root,"ui.db"),db=createUiDb(path);
+ const journal=createTurnJournal(db,{brainPath:brain,dbPath:path,objectsRoot:join(root,"objects"),nativeManager:native.manager});
+ try{
+  await journal.maintain();
+  const changes=createActivityStore(db).changesSince(0).filter(change=>change.runId.startsWith("cron-journal-scrub-"));
+  expect(changes.some(change=>change.kind==="event"),"ACTUAL_SCRUB_EVENT_EMITTED").toBe(true);
+  for(const change of changes){
+   const frame={type:"activity_delta",runId:change.runId,seq:change.seq,...(change.kind==="span"?{span:toWireSpan(change.span)}:{event:toWireEvent(change.event)})};
+   expect(previousDelta.safeParse(frame).success,"PREVIOUS_SCHEMA_ACCEPTS_ACTUAL_SCRUB_RECORD").toBe(true);
+   expect(parseServerMessage(JSON.stringify(frame)).ok).toBe(true);
+  }
+ }finally{await journal.close();await native.close();db.close();rmSync(root,{recursive:true,force:true});}
+});

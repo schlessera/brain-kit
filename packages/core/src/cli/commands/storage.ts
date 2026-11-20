@@ -47,7 +47,7 @@ export async function runStorageInventory(args: string[], json: boolean): Promis
 }
 
 export function runStoragePack(args: string[], root: string, json: boolean): number {
-  if (args[0] !== "pack" || args.slice(1).some(arg => arg !== "--json" && arg !== "--dry-run")) throw new UsageError("Usage: brain storage pack [--dry-run] --json");
+  if (args[0] !== "pack" || args.slice(1).some(arg => arg !== "--json" && arg !== "--human" && arg !== "--dry-run")) throw new UsageError("Usage: brain storage pack [--dry-run] --json");
   let started = false;
   const result: { schema_version: 1; action: "pack"; state: "complete" | "refused" | "partial"; packed: number | null; reason: string | null; skipReason?: "packing_headroom"; garbage: { count: number; bytes: number } | null; headroom: ReturnType<typeof gitPackingHeadroom> | null } =
     { schema_version: 1, action: "pack", state: "refused", packed: null, reason: null, headroom: null, garbage: null };
@@ -56,9 +56,8 @@ export function runStoragePack(args: string[], root: string, json: boolean): num
     else {
       result.garbage = gitObjectCounts(root).garbage;
       result.headroom = gitPackingHeadroom(root);
-      if (result.headroom.availableBytes === 0) result.reason = "no_space";
-      else if (args.includes("--dry-run")) { result.state = "complete"; }
-      else { started = true; result.packed = packRepository(root).packed; result.state = "complete"; }
+      if (args.includes("--dry-run")) { result.state = "complete"; }
+      else { started = true; result.packed = packRepository(root, result.headroom).packed; result.state = "complete"; }
     }
   } catch (error) {
     result.state = error instanceof GitPackingSkipped ? "refused" : started ? "partial" : "refused";
@@ -69,6 +68,6 @@ export function runStoragePack(args: string[], root: string, json: boolean): num
     } else result.reason = error instanceof GitNoSpaceError || isNoSpaceFailure(String(error)) ? "no_space" : "git_maintenance_unavailable";
   }
   if (json) console.log(JSON.stringify(result));
-  else console.log(result.state === "complete" ? `Packed ${result.packed} loose objects; history and refs retained.` : `Packing ${result.state}: ${result.reason}. Re-measure storage before trying again.`);
+  else console.log(result.state === "complete" && args.includes("--dry-run") ? `Packing plan: requires ${result.headroom!.packingRequiredBytes} bytes; available ${result.headroom!.availableBytes ?? "unknown"} bytes. No packing performed.` : result.state === "complete" ? `Packed ${result.packed} loose objects; history and refs retained.` : `Packing ${result.state}: ${result.reason}. Re-measure storage before trying again.`);
   return result.state === "complete" ? 0 : 2;
 }

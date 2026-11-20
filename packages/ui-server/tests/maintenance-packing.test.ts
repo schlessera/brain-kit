@@ -62,3 +62,10 @@ test("a hosted Git no-space failure names its dedicated allowance and starting h
  expect(git,"HOSTED_PACK_NO_SPACE_QUALIFIED").toStartWith("FAILED — no space:");
  expect(git).toContain(`allowance ${48*1024**2} bytes`);expect(git).toContain("12345 bytes available when the step started");
 });
+
+test("packing interception recognizes only the brain maintain command",()=>{
+ for(const argv of [["brain","search","maintain","--human"],["printf","maintain"],["/bin/echo","maintain"]])
+  expect(maintenancePackingCommand({...execution,argv}),"ONLY_BRAIN_MAINTAIN_IS_ORCHESTRATED").toBe(-1);
+ expect(maintenancePackingCommand(execution)).toBe(1);
+ expect(maintenancePackingCommand({...execution,argv:[process.execPath,"/opt/brain/packages/core/src/cli/brain.ts","maintain","--json"]})).toBe(2);
+});

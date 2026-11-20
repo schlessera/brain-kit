@@ -5992,5 +5992,4 @@ the host-calculated packing reservation; existing calls retain their generic
 stage bounds. No existing enum value or required field changes. Packing still
 requires the matching native manager runtime; an older manager can refuse the
 new optional request, and the host records the step failure without publishing
-Git output. See [worker hosting](../hosting/agent-workers.md) for the store and
-memory headroom rules and the current tmpfs limitation.
+Git output. See [worker hosting](../hosting/agent-workers.md) for the store reservation, running-turn floor and disk-backed quota rules.

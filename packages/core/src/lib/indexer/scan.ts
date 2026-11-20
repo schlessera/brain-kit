@@ -50,7 +50,7 @@ const MIME_TYPES: Record<string, string> = {
  */
 export function getAssetFiles(root: string, taxonomy: Taxonomy): Asset[] {
   const assets: Asset[] = [];
-  const ignored = gitIgnoredMatcher(root);
+  const ignored = gitIgnoredMatcher(root, path => taxonomy.isExcludedDirectory(path));
 
   for (const path of discoveryFiles(root, path => taxonomy.isExcludedDirectory(path) || ignored(`${path}/`))) {
     // The path as it is on disk, the way the markdown scan, the stats corpus
@@ -63,7 +63,9 @@ export function getAssetFiles(root: string, taxonomy: Taxonomy): Asset[] {
     // Skip Zone.Identifier files (Windows WSL metadata)
     if (path.includes(":Zone.Identifier")) continue;
 
-    const suffix = path.split(".").pop()!;
+    const dot = path.lastIndexOf(".");
+    if (dot <= path.lastIndexOf("/")) continue;
+    const suffix = path.slice(dot + 1);
     if (!ASSET_EXTENSIONS.some(ext => suffix === ext.slice(1) || suffix === ext.slice(1).toUpperCase())) continue;
     const ext = "." + suffix.toLowerCase();
     const mimeType = MIME_TYPES[ext];

@@ -941,14 +941,21 @@ The plan reads raw Git object sizes, including packed objects, and page-rounds
 non-destructive loose-object passes, indexes and auxiliary files with a safety
 margin while the old packs remain present. The dedicated stage adds another
 16 MiB for the frozen Git adapter and mount scaffolds. Its hard bound is the
-managed volume's configured capacity minus the recovery reserve and the 2 GiB
-free-space floor. Before creating it, the native manager reserves all outstanding
+managed volume's configured capacity minus the recovery reserve and the running
+turn's free-space floor (`max(5% of filesystem capacity, 2 GiB)`), divided by two
+for the image and publication copies. Before creating it, the native manager reserves all outstanding
 stage/tree allowances (including uncertain cleanup charges) plus this stage
 against observed free space, preserving that floor and recovery allocation.
-Native output uppers use tmpfs, so admission also reserves all outstanding
-stage allowances against Linux `MemAvailable`, preserving a 2 GiB memory
-reserve. Missing memory accounting skips packing; a large pack requires both
-store and memory headroom. The stage remains charged until its confirmed deletion. No new environment
+Packing uses an exclusively created, fully allocated fixed-size ext4 image on
+the managed store, mounted through an owned autoclear loop device. The image's
+capacity enforces the write quota without enabling Btrfs qgroups on the brain
+volume. Its reservation also covers one complete publication copy; later turn
+trees subtract that reservation and preserve the same floor. Ordinary stages
+keep their existing tmpfs budget. Memory headroom is not a packing skip condition.
+The stage stays charged until mount/device/image deletion is confirmed; an
+interrupted setup retains its durable intent and charge for recovery. The root
+broker needs trusted `mkfs.ext4` (e2fsprogs), ext4 support, `/dev/loop-control`
+and permission to create and use an available loop device. No new environment
 setting increases every turn's allowance.
 
 Insufficient or unknown headroom gives the named `skipped — packing_headroom`
@@ -963,7 +970,10 @@ temporary pack files are removed from the failed stage; outside a declared
 private stage, new names are conservatively left alone because another Git
 writer may own them. Historical garbage is
 never removed. Failed worker commands discard Git publication while retaining
-other validated output. `brain maintain`'s git result and
+other validated output. Successful publication installs and syncs pack data,
+then indexes/refs and their parent directories before deleting any superseded
+loose object; an interruption leaves redundant objects rather than missing ones.
+`brain maintain`'s git result and
 `brain storage pack --json` report existing garbage count and bytes from
 `git count-objects -v`. Cleanup of existing garbage requires a separate backed-up
 owner operation. The CLI's standalone packing preflight uses the same conservative
@@ -972,25 +982,34 @@ need and skips when it cannot establish enough space, without reserving it.
 The existing idle host-maintenance schedule also scrubs the journal object
 store, never admission or finish. Each pass lists at most 64 directory entries
 and resumes its held directory iterator on the next pass (a process restart
-starts a fresh sweep). Under the journal writer lock it excludes hashes with
+starts a fresh sweep). A full batch remains partial until the iterator reaches
+its end. Up to 32 pending reservations are retried separately with a rotating
+cursor; missing old candidates cannot starve newly discovered files. Each
+physical copy gets a separate destination name and durable byte charge. Under the journal writer lock it excludes hashes with
 any object row, reference or reservation, verifies remaining bytes against the
 SHA-256 filename, commits their quota charge, then moves verified orphans to
-`<objects-root>.quarantine`. Quarantined bytes stay charged until an explicit
+`<objects-root>/quarantine`. Quarantined bytes stay charged until an explicit
 owner action removes them. Interrupted moves retain their charge and reconcile
 on the next pass; unresolved reservations report `quarantine_pending` with
 pending counts and bytes rather than a clean pass. Corrupt files stay in place and are reported separately.
 A busy journal records `journal_busy` without waiting for the turn to end.
 Counts, bytes, skips and failure causes appear in the existing maintenance
-Activity record as `journal_scrub` / `journal_scrub_failed` events.
+Activity record as `journal_scrub` / `journal_scrub_failed` events under the
+`journal-scrub` host-maintenance job. Its results cannot reset the scheduled
+`maintain` job's failure streak. A scrub failure records its cause and still
+allows independent idle observation and retention expiry to run. Quarantine
+is inside the registered private journal root and ephemeral shutdown removes it
+with that root.
 
 A fixed trusted helper uses util-linux `unshare` and `mount` to create a
 copy-on-write overlay with immutable input as its lower layer and upper/work
-on the size-limited tmpfs. This is the separate private publication workspace,
+on the size-limited tmpfs (or the disk-backed packing image). This is the separate private publication workspace,
 not a writable mount over the brain's configuration execution path. The
 launcher uses `nsenter --user --mount --preserve-credentials` to start
 bubblewrap inside that completed helper namespace; bubblewrap still creates
 the worker's own namespaces, fresh `/proc`, masks and private turn temp, and
-drops its capabilities. No added host/container capabilities are needed.
+drops its capabilities. The dedicated packing image is created by the existing privileged native broker;
+its loop-device permissions are separate from the unprivileged worker's authority.
 
 The host needs kernel support for overlayfs in an unprivileged user namespace
 with `userxattr`, util-linux `unshare`, `mount` and `nsenter`, and `python3`

@@ -19,7 +19,7 @@ test("the previous CLI schema parses packing additions and named preflight skips
     const actual=await runCli(root,["storage","pack","--json"]);
     expect(previousPack.safeParse(JSON.parse(actual.stdout)).success,"PREVIOUS_PACK_SCHEMA_ACCEPTS_ADDITIONS").toBe(true);
     const observed=fs.statfsSync(root,{bigint:true});
-    for(const available of [1n,null]) {
+    for(const available of [0n,1n,null]) {
       let printed="";
       const capacity=spyOn(fs,"statfsSync").mockImplementation((()=>{if(available===null)throw Error("capacity unknown");return {...observed,bavail:available,bsize:4096n};}) as unknown as typeof fs.statfsSync);
       const output=spyOn(console,"log").mockImplementation(value=>{printed=String(value);});
@@ -33,4 +33,17 @@ test("the previous CLI schema parses packing additions and named preflight skips
     const maintained=await runCli(root,["maintain","--json"]);
     expect(previousMaintain.safeParse(JSON.parse(maintained.stdout)).success,"PREVIOUS_MAINTAIN_SCHEMA_ACCEPTS_RESULTS").toBe(true);
   } finally {cleanup(root);}
+});
+
+test("packing uses the single headroom measurement it reports",()=>{
+ const root=makeTempBrain();let output:ReturnType<typeof spyOn>|undefined,capacity:ReturnType<typeof spyOn>|undefined;
+ try{
+ expect(Bun.spawnSync(["git","-C",root,"init","-q"]).exitCode).toBe(0);
+ const actual=fs.statfsSync(root,{bigint:true});let reads=0,printed="";
+ capacity=spyOn(fs,"statfsSync").mockImplementation((()=>{reads++;return reads===1?actual:{...actual,bavail:0n};}) as typeof fs.statfsSync);
+ output=spyOn(console,"log").mockImplementation(value=>{printed=String(value);});
+ expect(runStoragePack(["pack","--json"],root,true),"PACK_USES_REPORTED_HEADROOM").toBe(0);
+ expect(reads,"PACK_PREFLIGHT_ENUMERATES_ONCE").toBe(1);
+ expect(JSON.parse(printed)).toMatchObject({state:"complete",headroom:{availableBytes:Number(actual.bavail*actual.bsize)}});
+ }finally{output?.mockRestore();capacity?.mockRestore();cleanup(root);}
 });

@@ -395,7 +395,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   // Closing abandons an idle pass rather than waiting for its native work.
   const shutdown = new AbortController();
   async function scrub(): Promise<JournalScrubResult> {
-    const span = startCronSpan(db, cleanupActivity, "maintain");
+    const span = startCronSpan(db, cleanupActivity, "journal-scrub");
     try {
       const result = active.size || holds
         ? { state: "skipped" as const, reason: "journal_busy" as const, listed: 0, unaccounted: 0, unaccountedBytes: 0, corrupt: 0, corruptBytes: 0, quarantined: 0, quarantinedBytes: 0, pending: 0, pendingBytes: 0 }
@@ -419,7 +419,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     if (active.size || holds) return maintaining ??= scrub().then(() => {}).catch(() => {}).finally(() => { maintaining = undefined; });
     return maintaining ??= serialize(async () => {
       if (closing) return;
-      await scrub();
+      await scrub().catch(() => {});
       if (active.size) return;
       await capture.initialize(shutdown.signal);
       await observe(false, undefined, shutdown.signal);

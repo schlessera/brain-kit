@@ -1,7 +1,7 @@
 /** Changed-only publication from a root-inspected trusted OverlayFS stage. */
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { INDEX_DB_PATH } from "@schlessera/brain-common/internal/index-location";
-import { closeSync, constants, fstatSync, fchmodSync, lstatSync, linkSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, rmdirSync, symlinkSync, unlinkSync } from "node:fs";
+import { closeSync, constants, fsyncSync, fstatSync, fchmodSync, lstatSync, linkSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, rmdirSync, symlinkSync, unlinkSync } from "node:fs";
 import { open } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
@@ -251,14 +251,6 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
     throw Error("Invalid retained provider folder path");
   const native = nativeWorkerStartupInput(options.startupView), view = retainWorkerStartupView(options.startupView);
   let limits = hostOutputStagingLimits();
-  if (options.packingAllowanceBytes !== undefined) {
-    const status = await native.manager.ready(options.signal);
-    const maximum = Math.floor((status.capacityBytes - status.recoveryReserveBytes - 2 * 1024 ** 3) / 4096) * 4096;
-    const bytes = options.packingAllowanceBytes;
-    if (!Number.isSafeInteger(bytes) || bytes <= 0 || bytes % 4096 || bytes > maximum)
-      throw new WorkerStateError(FIRST_PARTY_FAILURE_CLASSES.worker_state_busy, "packing_headroom: dedicated packing stage exceeds the managed store's finite capacity above its floor");
-    limits = { allowanceBytes: bytes, budgetBytes: maximum };
-  }
   let reservation: ReturnType<ReturnType<typeof processStateLedger>["reserve"]> | undefined;
   let discardGit = false;
   let prepared: PreparedWorkerOutput | undefined, stageRequested = false;
@@ -284,7 +276,18 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
     })().catch((error: unknown) => { cleanupFailed = true; throw error; });
   };
   try {
-    reservation = processStateLedger().reserve(undefined, undefined, limits);
+    if (options.packingAllowanceBytes !== undefined) {
+      const status = await native.manager.ready(options.signal);
+      const maximum = Math.floor((status.capacityBytes - status.recoveryReserveBytes - Math.max(status.capacityBytes * .05, 2 * 1024 ** 3)) / 2 / 4096) * 4096;
+      const bytes = options.packingAllowanceBytes;
+      if (!Number.isSafeInteger(bytes) || bytes <= 0 || bytes % 4096 || bytes > maximum)
+        throw new WorkerStateError(FIRST_PARTY_FAILURE_CLASSES.worker_state_busy, "packing_headroom: dedicated packing stage exceeds the managed store's finite capacity above its floor");
+      limits = { allowanceBytes: bytes, budgetBytes: maximum };
+    }
+    // Disk packing is charged by the durable manager reservation, including
+    // publication copies. It must not spend the ordinary tmpfs memory budget.
+    reservation = options.packingAllowanceBytes === undefined ? processStateLedger().reserve(undefined, undefined, limits)
+      : { bytes: 0, turnTempBytes: 0, outputStagingBytes: limits.allowanceBytes, release() {} };
     stageRequested = true;
     stage = await native.manager.prepareStage(id, native.checkpoint.id, reservation.outputStagingBytes, options.signal, options.packingAllowanceBytes !== undefined ? true : undefined);
     options.signal?.throwIfAborted();
@@ -479,7 +482,13 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
         // Changed-byte copies yield; the final inode/stat predicate immediately precedes publication.
         const pending: { rel: string; fd: number; name: string; temporary?: string; next?: Entry; recovery?: ReturnType<ReturnType<typeof processStateLedger>["reserve"]> }[] = [];
         const directoryModes: { fd: number; mode: number; rel: string; parent: number; name: string; temporaryMode: number }[] = [];
-        let publicationError: unknown;
+        let publicationError: unknown, packingCopyBytes = 0;
+        const reservePackingCopy = (bytes: number) => {
+          if (options.packingAllowanceBytes === undefined) return;
+          packingCopyBytes += bytes;
+          if (!Number.isSafeInteger(packingCopyBytes) || packingCopyBytes > options.packingAllowanceBytes)
+            throw Error("Packing publication exceeds its reserved copy allowance; no output was installed");
+        };
         const finalizeDirectory = (directory: (typeof directoryModes)[number]) => {
           const held = fstatSync(directory.fd), visible = lstatSync(at(directory.parent,directory.name));
           if (!visible.isDirectory() || held.dev !== visible.dev || held.ino !== visible.ino || (held.mode & 0o7777) !== directory.temporaryMode) throw Error(`stale maintenance output: ${directory.rel}`);
@@ -496,8 +505,9 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
               if (after.get(rel)!.stamp?.startsWith("worker:")) {
                 const beforeRead = await privateStat(true, rel);
                 if (`worker:${beforeRead?.stamp}:${beforeRead?.mode}:${beforeRead?.kind}` !== after.get(rel)!.stamp) throw Error(`Native private output changed before copy: ${rel} (inspected ${after.get(rel)!.stamp}, found worker:${beforeRead?.stamp}:${beforeRead?.mode}:${beforeRead?.kind})`);
+                reservePackingCopy(beforeRead!.bytes);
                 try {
-                  pending.at(-1)!.recovery = processStateLedger().reserve(undefined, undefined, { allowanceBytes: beforeRead!.bytes, budgetBytes: hostOutputStagingLimits().budgetBytes });
+                  if (options.packingAllowanceBytes === undefined) pending.at(-1)!.recovery = processStateLedger().reserve(undefined, undefined, { allowanceBytes: beforeRead!.bytes, budgetBytes: hostOutputStagingLimits().budgetBytes });
                 } catch { throw Error("Native private output recovery capacity unavailable; the turn already executed and its output was not published"); }
                 const target = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, next.mode);
                 try {
@@ -511,6 +521,7 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
                   }, beforeRead!.bytes);
                   if ((await privateStat(true, rel))?.stamp !== beforeRead!.stamp) throw Error(`Native private output changed during copy: ${rel}`);
                   await target.chmod(next.mode);
+                  await target.sync();
                 } finally { await target.close(); }
                 continue;
               }
@@ -520,7 +531,9 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
               catch (error) { closeSync(source.fd); throw error; }
               let target: Awaited<ReturnType<typeof open>> | undefined;
               try {
-                const found = stamp(await input.stat({ bigint: true }));
+                const inputInfo = await input.stat({ bigint: true });
+                reservePackingCopy(Number(inputInfo.size));
+                const found = stamp(inputInfo);
                 if (found !== after.get(rel)!.stamp) throw Error(`Native output changed before copy: ${rel} (inspected ${after.get(rel)!.stamp}, found ${found})`);
                 target = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, next.mode);
                 const buffer = Buffer.alloc(64 * 1024);
@@ -531,6 +544,7 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
                 const copied = stamp(await input.stat({ bigint: true }));
                 if (copied !== after.get(rel)!.stamp) throw Error(`Native output changed during copy: ${rel} (inspected ${after.get(rel)!.stamp}, found ${copied})`);
                 await target.chmod(next.mode);
+                await target.sync();
               } finally { closeSync(source.fd); await input.close(); await target?.close(); }
             }
           }
@@ -546,6 +560,34 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
             const directory = before.get(rel)!.entry?.type === "directory" && after.get(rel)!.entry?.type === "directory";
             if (directory ? current?.split(":").slice(0,3).join(":") !== expected?.split(":").slice(0,3).join(":") : current !== expected) throw Error(`stale maintenance output: ${rel}`);
           }
+          for (const rel of changed.filter(p => after.get(p)!.entry?.type === "directory").sort((a,b) => a.split("/").length-b.split("/").length)) {
+            const entry = after.get(rel)!.entry!, handle = parent(brain, rel);
+            try {
+              const current = versionAt(handle.fd, handle.name), expected = authoritative.get(rel)!.stamp;
+              if (current?.split(":").slice(0,3).join(":") !== expected?.split(":").slice(0,3).join(":")) throw Error(`stale maintenance output: ${rel}`);
+              if (!before.get(rel)!.entry) { mkdirSync(at(handle.fd, handle.name), { mode: entry.mode | 0o700 }); fsyncSync(handle.fd); }
+              const directory = openSync(at(handle.fd, handle.name), DIRECTORY), temporaryMode = entry.mode | 0o700;
+              fchmodSync(directory, temporaryMode); directoryModes.push({ fd: directory, mode: entry.mode, rel, parent: openSync(at(handle.fd, "."), DIRECTORY), name: handle.name, temporaryMode });
+            } finally { closeSync(handle.fd); }
+          }
+          // Publish object data before indexes/refs. All replacements become
+          // durable before any source object is removed: an interrupted publish
+          // may leave redundant loose objects, never refs to absent objects.
+          const priority = (rel: string) => /\.pack$/.test(rel) ? 0 : /\.(idx|rev)$/.test(rel) ? 1 : 2;
+          for (const item of pending.sort((a,b) => priority(a.rel)-priority(b.rel))) {
+            const destination = parent(brain, item.rel);
+            try {
+              if (item.rel === WAL_INDEX) {
+                const current = walIndexAt(destination.fd, destination.name);
+                if (current && current.type !== "file") throw Error(`stale maintenance output: ${item.rel}`);
+                renameSync(item.temporary!, at(destination.fd,destination.name)); continue;
+              }
+              if (versionAt(destination.fd, destination.name) !== authoritative.get(item.rel)!.stamp) throw Error(`stale maintenance output: ${item.rel}`);
+              if (before.get(item.rel)!.entry) renameSync(item.temporary!, at(destination.fd,destination.name));
+              else { try { linkSync(item.temporary!, at(destination.fd,destination.name)); } catch (error) { if ((error as NodeJS.ErrnoException).code === "EEXIST") throw Error(`stale maintenance output: ${item.rel}`); throw error; } }
+              fsyncSync(destination.fd);
+            } finally { closeSync(destination.fd); }
+          }
           for (const rel of changed.filter(p => !after.get(p)!.entry).sort((a,b) => b.split("/").length-a.split("/").length)) {
             const handle = parent(brain, rel); try {
               if (rel === WAL_INDEX) {
@@ -558,29 +600,6 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
               if (before.get(rel)!.entry!.type === "directory" ? current?.split(":").slice(0,3).join(":") !== expected?.split(":").slice(0,3).join(":") : current !== expected) throw Error(`stale maintenance output: ${rel}`);
               if (before.get(rel)!.entry!.type === "directory") rmdirSync(at(handle.fd, handle.name)); else unlinkSync(at(handle.fd, handle.name));
             } finally { closeSync(handle.fd); }
-          }
-          for (const rel of changed.filter(p => after.get(p)!.entry?.type === "directory").sort((a,b) => a.split("/").length-b.split("/").length)) {
-            const entry = after.get(rel)!.entry!, handle = parent(brain, rel);
-            try {
-              const current = versionAt(handle.fd, handle.name), expected = authoritative.get(rel)!.stamp;
-              if (current?.split(":").slice(0,3).join(":") !== expected?.split(":").slice(0,3).join(":")) throw Error(`stale maintenance output: ${rel}`);
-              if (!before.get(rel)!.entry) mkdirSync(at(handle.fd, handle.name), { mode: entry.mode | 0o700 });
-              const directory = openSync(at(handle.fd, handle.name), DIRECTORY), temporaryMode = entry.mode | 0o700;
-              fchmodSync(directory, temporaryMode); directoryModes.push({ fd: directory, mode: entry.mode, rel, parent: openSync(at(handle.fd, "."), DIRECTORY), name: handle.name, temporaryMode });
-            } finally { closeSync(handle.fd); }
-          }
-          for (const item of pending) {
-            const destination = parent(brain, item.rel);
-            try {
-              if (item.rel === WAL_INDEX) {
-                const current = walIndexAt(destination.fd, destination.name);
-                if (current && current.type !== "file") throw Error(`stale maintenance output: ${item.rel}`);
-                renameSync(item.temporary!, at(destination.fd,destination.name)); continue;
-              }
-              if (versionAt(destination.fd, destination.name) !== authoritative.get(item.rel)!.stamp) throw Error(`stale maintenance output: ${item.rel}`);
-              if (before.get(item.rel)!.entry) renameSync(item.temporary!, at(destination.fd,destination.name));
-              else { try { linkSync(item.temporary!, at(destination.fd,destination.name)); } catch (error) { if ((error as NodeJS.ErrnoException).code === "EEXIST") throw Error(`stale maintenance output: ${item.rel}`); throw error; } }
-            } finally { closeSync(destination.fd); }
           }
         } catch (error) { publicationError = error; }
         finally {

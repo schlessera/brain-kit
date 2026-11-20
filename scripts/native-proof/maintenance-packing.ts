@@ -27,8 +27,13 @@ export async function proveNativeMaintenancePacking(boundary: HostBoundary, sour
   if(check.exitCode!==0 || value.garbage?.count!==0)throw Error(`NATIVE_PACKING_NO_GARBAGE: ${check.stdout}`);
   const counts=await boundary.run({argv:["git","count-objects","-v"],env,credentials:false,gate:"shared",publish:false,purpose:"Odysseus packed object proof"});
   if(counts.exitCode!==0 || !/^count: 0$/m.test(counts.stdout) || !/^garbage: 0$/m.test(counts.stdout))throw Error(`NATIVE_PACKING_LOOSE_OBJECTS_DRAINED: ${counts.stdout}`);
-  const packKiB=Number(/^size-pack: (\d+)$/m.exec(counts.stdout)?.[1]);
-  if(packKiB*1024<=256*1024**2)throw Error("NATIVE_PACKING_OUTPUT_EXCEEDS_GENERIC_STAGE");
-  const receipt={bytes,packBytes:packKiB*1024,elapsedMs:performance.now()-started,git:git.result,garbage:value.garbage,plan:value.headroom};
+  const installed=await boundary.run({argv:[process.execPath,"--config=/dev/null","-e",
+    'const fs=require("node:fs");console.log(JSON.stringify(fs.readdirSync(".git/objects/pack").filter(n=>n.endsWith(".pack")).map(n=>({name:n,bytes:fs.statSync(".git/objects/pack/"+n).size}))));'],
+    env,credentials:false,gate:"shared",publish:false,purpose:"Odysseus individual installed pack proof"});
+  if(installed.exitCode!==0)throw Error(`NATIVE_PACKING_INSTALLED_FILES: ${installed.stderr}`);
+  const packs=JSON.parse(installed.stdout) as {name:string;bytes:number}[];
+  if(!Array.isArray(packs) || !packs.every(pack=>Number.isSafeInteger(pack.bytes)&&pack.bytes>=0)
+    || !packs.some(pack=>pack.bytes>256*1024**2))throw Error("NATIVE_PACKING_OUTPUT_EXCEEDS_GENERIC_STAGE");
+  const receipt={bytes,packBytes:Math.max(...packs.map(pack=>pack.bytes)),packs,elapsedMs:performance.now()-started,git:git.result,garbage:value.garbage,plan:value.headroom};
   return receipt;
 }

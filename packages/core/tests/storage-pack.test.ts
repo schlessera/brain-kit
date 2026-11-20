@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { writeFileSync } from "node:fs";
+import { writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { makeTempBrain, cleanup, keylessEnv, runCli } from "./cli-harness";
 
@@ -88,4 +88,23 @@ test("storage packing dry run reports its plan and garbage without packing",asyn
     expect(result.code).toBe(0);expect(JSON.parse(result.stdout)).toMatchObject({state:"complete",packed:null,garbage:{count:0,bytes:0},headroom:{requiredBytes:null,packingRequiredBytes:expect.any(Number)}});
     expect(git("count-objects","-v"),"PACK_DRY_RUN_WRITES_NOTHING").toBe(before);
   }finally{cleanup(root);}
+});
+
+test("a loose-only Git repository may create its pack directory during maintenance",async()=>{
+ const root=makeTempBrain();try{
+  expect(Bun.spawnSync(["git","-C",root,"init","-q"]).exitCode).toBe(0);
+  const object=Bun.spawnSync(["git","-C",root,"hash-object","-w","--stdin"],{stdin:Buffer.from("Ithaca harbour"),stdout:"pipe",stderr:"pipe"});expect(object.exitCode).toBe(0);
+  rmSync(join(root,".git/objects/pack"),{recursive:true});
+  const result=await runCli(root,["storage","pack","--json"]);
+  expect(result.code,"LOOSE_ONLY_PACK_DIRECTORY_CREATED").toBe(0);
+  expect(JSON.parse(result.stdout)).toMatchObject({state:"complete",packed:1});
+ }finally{cleanup(root);}
+});
+test("human packing dry run describes the plan",async()=>{
+ const root=makeTempBrain();try{
+ expect(Bun.spawnSync(["git","-C",root,"init","-q"]).exitCode).toBe(0);
+ const result=await runCli(root,["storage","pack","--dry-run","--human"]);
+ expect(result.code).toBe(0);expect(result.stdout,"PACK_DRY_RUN_DESCRIBES_PLAN").toMatch(/Packing plan: requires \d+ bytes; available \d+ bytes. No packing performed/);
+ expect(result.stdout).not.toContain("Packed null");
+ }finally{cleanup(root);}
 });

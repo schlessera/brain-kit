@@ -126,7 +126,11 @@ export function packRepository(root: string, headroom = gitPackingHeadroom(root)
   const common = git(root, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
   if (!common.ok) throw new GitStorageError("Git common store unavailable");
   const pack = `${common.stdout}/objects/pack`;
-  const previous = new Set(readdirSync(pack));
+  const packNames = () => {
+    try { return readdirSync(pack); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return []; throw error; }
+  };
+  const previous = new Set(packNames());
   try {
     const before = looseObjects(root).count;
     const repack = packCount(root) > 0 ? ["--task=incremental-repack"] : [];
@@ -136,7 +140,7 @@ export function packRepository(root: string, headroom = gitPackingHeadroom(root)
   } catch (error) {
     // Only a private output stage proves these new names belong to this
     // execution. A standalone Git writer may be racing another pack process.
-    if (workerOutputAllowance()) for (const name of readdirSync(pack))
+    if (workerOutputAllowance()) for (const name of packNames())
       if (!previous.has(name) && /^(tmp_pack_|\.tmp-)/.test(name)) unlinkSync(`${pack}/${name}`);
     throw error;
   }

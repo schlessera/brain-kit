@@ -143,7 +143,7 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig,
   }
   let closed = false, pending = Promise.resolve(), active = new Set<AbortController>(), backingPath: string | undefined;
   const activeStages = new Map<string, Awaited<ReturnType<typeof startNativeStage>>>();
-  const stageReservations = new Map<string, { checkpointId: string; allowanceBytes: number }>();
+  const stageReservations = new Map<string, { checkpointId: string; allowanceBytes: number; packing?: true }>();
   const checkpointReaders = new Map<string, { checkpointId: string; close(): Promise<void> }>();
   let stagedBytes = 0;
   /** Live turn trees' allowances (#2911), charged from intent creation until observed reclamation. */
@@ -329,13 +329,13 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig,
     if (intent.kind === "tree") return rememberTree(intent);
     if (intent.kind !== "stage") return;
     const old = stageReservations.get(intent.id);
-    if (old) { stagedBytes -= old.allowanceBytes; stageReservations.delete(intent.id); }
+    if (old) { stagedBytes -= old.allowanceBytes * (old.packing ? 2 : 1); stageReservations.delete(intent.id); }
     if (intent.state === "deleted") return;
     const request = intent.stageRequest;
     if (!request || !nativeCheckpointId.safeParse(request.checkpointId).success || !/^[0-9a-f]{32}$/.test(request.checkpointUuid)
       || !Number.isSafeInteger(request.allowanceBytes) || request.allowanceBytes <= 0 || request.allowanceBytes % 4096)
       throw new NativeBrainManagerError("unknown", "Native stage reservation receipt is incomplete; no new stage admission is authorized.");
-    stageReservations.set(intent.id, request); stagedBytes += request.allowanceBytes;
+    stageReservations.set(intent.id, request); stagedBytes += request.allowanceBytes * (request.packing ? 2 : 1);
     if (!Number.isSafeInteger(stagedBytes)) throw new NativeBrainManagerError("unknown", "Native stage reservation accounting overflowed.");
   }
   function rememberTree(intent: Intent): void {
@@ -632,18 +632,13 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig,
           await ensureReserve(signal);
           const { statfsSync } = await import("node:fs"), space = statfsSync(fixed.storePath);
           if (space.type !== BTRFS_MAGIC) throw new NativeBrainManagerError("unsupported", "Native store filesystem type changed.");
-          // Reserve every outstanding stage/tree plus the 2 GiB turn floor.
-          // Recovery allocation remains allocated and is not spendable headroom.
-          if (reserveConsumed || stagedBytes + quarantinedStageBytes + treeBytes + quarantinedTreeBytes + request.allowanceBytes + 2 * 1024 ** 3 + fixed.recoveryReserveBytes > space.bavail * space.bsize)
-            throw new NativeBrainManagerError("capacity", "packing_headroom: managed store cannot reserve the packing stage above its free-space floor; Git did not start.");
-          // Native output uppers are tmpfs. A store-sized allowance must also
-          // fit available memory; reserve every outstanding stage in full.
-          const memory = /^MemAvailable:\s+(\d+) kB$/m.exec(readFileSync("/proc/meminfo", "utf8"));
-          const availableMemory = memory ? Number(memory[1]) * 1024 : NaN;
-          if (!Number.isSafeInteger(availableMemory) || stagedBytes + quarantinedStageBytes + request.allowanceBytes + 2 * 1024 ** 3 > availableMemory)
-            throw new NativeBrainManagerError("capacity", "packing_headroom: the tmpfs packing stage cannot preserve 2 GiB of available memory; Git did not start.");
+          // Match the running-turn guard, including large-volume floors. The
+          // reservation covers both the bounded image and publication copies.
+          const floor = Math.max(space.blocks * space.bsize * .05, 2 * 1024 ** 3);
+          if (reserveConsumed || stagedBytes + 2 * quarantinedStageBytes + treeBytes + quarantinedTreeBytes + 2 * request.allowanceBytes + floor + fixed.recoveryReserveBytes > space.bavail * space.bsize)
+            throw new NativeBrainManagerError("capacity", "packing_headroom: managed store cannot reserve the packing stage and publication copy above its free-space floor; Git did not start.");
         }
-        if (!request.packing && stagedBytes + quarantinedStageBytes + request.allowanceBytes > fixed.stageBudgetBytes) throw new NativeBrainManagerError("capacity", "Native output staging aggregate budget is busy; nothing ran.");
+        if (!request.packing && [...stageReservations.values()].filter(stage => !stage.packing).reduce((sum,stage) => sum + stage.allowanceBytes, 0) + quarantinedStageBytes + request.allowanceBytes > fixed.stageBudgetBytes) throw new NativeBrainManagerError("capacity", "Native output staging aggregate budget is busy; nothing ran.");
         const path = join(stages, request.id);
         if (!intent) {
           if (existsSync(path)) throw new NativeBrainManagerError("unknown", "Unrecorded staging storage occupies this identity.");
@@ -657,7 +652,7 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig,
         try {
           handle = await startNativeStage({ id: request.id, checkpointId: request.checkpointId, checkpointUuid: checkpoint.uuid,
             sourceUuid: fixed.brainUuid, path, lower: checkpoint.path, workerUid: fixed.workerUid, appUid: fixed.appUid, appGid: fixed.appGid,
-            allowanceBytes: request.allowanceBytes, timeoutMs: fixed.operationTimeoutMs, signal });
+            allowanceBytes: request.allowanceBytes, packing: request.packing, timeoutMs: fixed.operationTimeoutMs, signal });
           activeStages.set(request.id, handle); await writeIntent({ ...intent, state: "sealed", stage: handle.stage });
           return Response.json(handle.stage);
         } catch (error) { await handle?.close(); activeStages.delete(request.id); throw plainError(error); }
@@ -675,6 +670,27 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig,
         await activeStages.get(request.id)?.close(); activeStages.delete(request.id);
         let info;
         try { info = lstatSync(path); } catch (error) { if (errorCode(error) !== "ENOENT") throw error; }
+        if (info && (!info.isDirectory() || info.uid !== 0 || (info.mode & 0o077)))
+          throw new NativeBrainManagerError("unknown", "Stage placeholder identity is unsafe; no removal is authorized.");
+        if (info && intent.stageRequest?.packing) {
+          // A failed helper can leave only these root-owned setup artifacts.
+          // Never unlink the image while an autoclear loop still references it.
+          const device = join(path, "packing.loop"), image = join(path, "packing.img");
+          const node = lstatSync(device, { throwIfNoEntry: false });
+          if (node) {
+            const deviceId = BigInt(node.rdev), minor = Number((deviceId & 255n) | ((deviceId >> 12n) & 0xffffff00n));
+            const major = Number(((deviceId >> 8n) & 0xfffn) | ((deviceId >> 32n) & 0xfffff000n));
+            if (!node.isBlockDevice() || major !== 7 || node.uid !== 0 || node.nlink !== 1 || existsSync(`/sys/dev/block/7:${minor}/loop/backing_file`))
+              throw new NativeBrainManagerError("unknown", "Packing device cleanup is not yet confirmed; its reservation remains charged.");
+            unlinkSync(device);
+          }
+          const backing = lstatSync(image, { throwIfNoEntry: false });
+          if (backing) {
+            if (!backing.isFile() || backing.uid !== 0 || backing.nlink !== 1 || backing.size > intent.stageRequest.allowanceBytes)
+              throw new NativeBrainManagerError("unknown", "Packing image identity is unsafe; its reservation remains charged.");
+            unlinkSync(image);
+          }
+        }
         if (info) {
           if (!info.isDirectory() || info.uid !== 0 || readdirSync(path).length)
             throw new NativeBrainManagerError("unknown", "Stage placeholder identity is unsafe; no removal is authorized.");
@@ -817,7 +833,9 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig,
     const { statfsSync } = await import("node:fs"), space = statfsSync(fixed.storePath);
     if (space.type !== BTRFS_MAGIC) throw new NativeBrainManagerError("unsupported", "Native store filesystem type changed.");
     const available = space.bavail * space.bsize;
-    if (treeBytes + quarantinedTreeBytes + allowanceBytes + fixed.recoveryReserveBytes > available)
+    const packingBytes = [...stageReservations.values()].filter(stage => stage.packing).reduce((sum,stage) => sum + 2 * stage.allowanceBytes, 0);
+    const packingFloor = packingBytes || quarantinedStageBytes ? Math.max(space.blocks * space.bsize * .05, 2 * 1024 ** 3) : 0;
+    if (treeBytes + quarantinedTreeBytes + packingBytes + 2 * quarantinedStageBytes + packingFloor + allowanceBytes + fixed.recoveryReserveBytes > available)
       throw new NativeBrainManagerError("capacity", "The managed volume has no room for another turn's data tree; nothing ran.");
     if (existsSync(path) || existsSync(allowancePath(id, trees))) throw new NativeBrainManagerError("unknown", "Unrecorded turn-tree storage occupies this identity.");
     const created: Intent = { version: 1, id, sourceUuid: fixed.brainUuid, kind: "tree", state: "creating", treeRequest: { allowanceBytes } };

@@ -1,5 +1,5 @@
 /** Bounded, host-private orphan quarantine. Only the journal write worker calls this. */
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { closeSync, constants, fstatSync, fsyncSync, mkdirSync, openSync, opendirSync, readSync, renameSync, type Dir } from "node:fs";
 import type { Database } from "bun:sqlite";
 
@@ -13,7 +13,8 @@ export interface JournalScrubResult {
 }
 export function createJournalScrub(db: Database, root: string, write: <T>(operation: () => T) => T) {
   let listing: Dir | undefined;
-  const quarantine = `${root}.quarantine`;
+  let retryAfter = "";
+  const quarantine = `${root}/quarantine`;
   function protectedHash(hash: string) {
     return Boolean(db.query(`SELECT 1 FROM turn_journal_objects WHERE hash=?1
       UNION ALL SELECT 1 FROM turn_journal_object_refs WHERE hash=?1
@@ -33,9 +34,10 @@ export function createJournalScrub(db: Database, root: string, write: <T>(operat
       try {
         if ((fstatSync(source).mode&0o077)||(fstatSync(target).mode&0o077)) throw Error("Journal scrub requires private directories");
         const at=(fd:number,hash:string)=>`/proc/self/fd/${fd}/${hash}`;
-        const verify=(directory:number,hash:string):number|null=>{
+        const verify=(directory:number,name:string):number|null=>{
+          const hash=name.slice(0,64);
           let fd:number;
-          try { fd=openSync(at(directory,hash),constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK); }
+          try { fd=openSync(at(directory,name),constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK); }
           catch(error) { if((error as NodeJS.ErrnoException).code==="ENOENT") return null;throw error; }
           try {
             const info=fstatSync(fd);
@@ -50,14 +52,22 @@ export function createJournalScrub(db: Database, root: string, write: <T>(operat
         // cannot make quarantined bytes disappear from the quota.
         const reserved=write(()=>{
           if(busy()) return null;
-          const rows=db.query("SELECT hash,bytes FROM turn_journal_scrub_quarantine WHERE state='reserved' LIMIT ?").all(JOURNAL_SCRUB_FILES) as {hash:string;bytes:number}[];
+          const retry = () => db.query("SELECT hash,bytes FROM turn_journal_scrub_quarantine WHERE state='reserved' AND hash>? ORDER BY hash LIMIT 32").all(retryAfter) as {hash:string;bytes:number}[];
+          let rows=retry();
+          if(!rows.length && retryAfter) {retryAfter="";rows=retry();}
+          retryAfter=rows.at(-1)?.hash ?? "";
           listing ??= opendirSync(root);
-          while(result.listed<JOURNAL_SCRUB_FILES && rows.length<JOURNAL_SCRUB_FILES) {
+          while(result.listed<JOURNAL_SCRUB_FILES) {
             const entry=listing.readSync();
             if(!entry) {listing.closeSync();listing=undefined;break;}
             result.listed++;
             const hash=entry.name;
-            if(!/^[a-f0-9]{64}$/.test(hash)||protectedHash(hash)||db.query("SELECT 1 FROM turn_journal_scrub_quarantine WHERE hash=?").get(hash)) continue;
+            if(!/^[a-f0-9]{64}$/.test(hash)||protectedHash(hash)) continue;
+            // Each physical copy owns its own charge and destination name.
+            // An interrupted unmoved reservation already owns the source;
+            // a moved copy must never hide a subsequently recreated source.
+            const prior=db.query("SELECT hash FROM turn_journal_scrub_quarantine WHERE substr(hash,1,64)=? AND state='reserved'").all(hash) as {hash:string}[];
+            if(prior.some(row=>verify(target,row.hash)===null)) continue;
             const corruptBefore=result.corrupt,corruptBytesBefore=result.corruptBytes;
             const bytes=verify(source,hash);
             if(bytes===null) {
@@ -65,8 +75,9 @@ export function createJournalScrub(db: Database, root: string, write: <T>(operat
               continue;
             }
             result.unaccounted++;result.unaccountedBytes+=bytes;
-            db.query("INSERT INTO turn_journal_scrub_quarantine VALUES (?,?,'reserved')").run(hash,bytes);
-            rows.push({hash,bytes});
+            const name=db.query("SELECT 1 FROM turn_journal_scrub_quarantine WHERE hash=?").get(hash) ? `${hash}-${randomUUID()}` : hash;
+            db.query("INSERT INTO turn_journal_scrub_quarantine VALUES (?,?,'reserved')").run(name,bytes);
+            rows.push({hash:name,bytes});
           }
           return rows;
         });
@@ -77,15 +88,15 @@ export function createJournalScrub(db: Database, root: string, write: <T>(operat
             const corruptBefore=result.corrupt;
             const already=verify(target,row.hash);
             if(result.corrupt!==corruptBefore)continue;
-            if(already===null && protectedHash(row.hash)) {
+            if(already===null && protectedHash(row.hash.slice(0,64))) {
               // Release only an unmoved reservation. An interrupted move may
               // already coexist with newly retained bytes of the same hash.
               db.query("DELETE FROM turn_journal_scrub_quarantine WHERE hash=? AND state='reserved'").run(row.hash);continue;
             }
             if(already===null) {
-              const bytes=verify(source,row.hash);if(bytes===null)continue;
+              const bytes=verify(source,row.hash.slice(0,64));if(bytes===null)continue;
               if(bytes!==row.bytes)throw Error("Journal scrub candidate changed after reservation");
-              renameSync(at(source,row.hash),at(target,row.hash));fsyncSync(target);fsyncSync(source);
+              renameSync(at(source,row.hash.slice(0,64)),at(target,row.hash));fsyncSync(target);fsyncSync(source);
             } else if(already!==row.bytes)throw Error("Journal scrub quarantine changed size");
             db.query("UPDATE turn_journal_scrub_quarantine SET state='quarantined' WHERE hash=?").run(row.hash);
             result.quarantined++;result.quarantinedBytes+=row.bytes;
@@ -93,7 +104,7 @@ export function createJournalScrub(db: Database, root: string, write: <T>(operat
         });
         const pending=db.query("SELECT count(*) AS count,coalesce(sum(bytes),0) AS bytes FROM turn_journal_scrub_quarantine WHERE state='reserved'").get() as {count:number;bytes:number};
         result.pending=pending.count;result.pendingBytes=pending.bytes;
-        if(pending.count && result.state!=="skipped") {result.state="partial";result.reason="quarantine_pending";}
+        if(result.state!=="skipped" && (pending.count || listing)) {result.state="partial";if(pending.count)result.reason="quarantine_pending";}
         return result;
       } finally {closeSync(source);closeSync(target);}
     },

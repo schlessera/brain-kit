@@ -14,7 +14,7 @@ ROOT = pathlib.Path("/proof")
 STORE = pathlib.Path("/brain-fixture")
 DEVICE = pathlib.Path("/dev/brain-native-proof-loop")
 MINOR = 1790
-CAPACITY = 4 * 1024 ** 3
+CAPACITY = (8 if os.environ.get("BRAIN_NATIVE_PROOF_OBSERVATION_TIMING") == "1" else 4) * 1024 ** 3
 BACKING = pathlib.Path("/native-backing/fixture.img")
 receipts = []
 

@@ -25,7 +25,7 @@ test("scrub quarantines only verified unaccounted files, retaining rows, referen
    const result=f.store.scrubObjects!();
    expect(result,"SCRUB_ORPHAN_QUARANTINE").toMatchObject({unaccounted:2,unaccountedBytes:13,quarantined:1,quarantinedBytes:6,corrupt:1,corruptBytes:7});
    expect(existsSync(join(f.objects,sha("orphan")))).toBe(false);
-   expect(existsSync(join(f.objects+".quarantine",sha("orphan")))).toBe(true);
+   expect(existsSync(join(join(f.objects,"quarantine"),sha("orphan")))).toBe(true);
    for(const text of ["present","pending","reserved"])expect(existsSync(join(f.objects,sha(text)))).toBe(true);
    expect(existsSync(join(f.objects,sha("bad"))),"SCRUB_NEVER_REMOVES_CORRUPT").toBe(true);
    expect(f.db.query("SELECT sum(bytes) AS bytes FROM turn_journal_scrub_quarantine").get()).toEqual({bytes:6});
@@ -84,7 +84,7 @@ for (const recreated of [false,true]) test(`an interrupted quarantine commit kee
   f.db.exec("CREATE TEMP TRIGGER interrupt_quarantine BEFORE UPDATE ON journal.turn_journal_scrub_quarantine BEGIN SELECT RAISE(ABORT,'interrupted quarantine commit'); END");
   expect(()=>f.store.scrubObjects(),"SCRUB_INTERRUPTED_AFTER_MOVE").toThrow("interrupted quarantine commit");
   expect(f.db.query("SELECT bytes,state FROM turn_journal_scrub_quarantine").get(),"SCRUB_INTERRUPTED_CHARGE_SURVIVES").toEqual({bytes:6,state:"reserved"});
-  expect(existsSync(join(f.objects+".quarantine",sha("orphan")))).toBe(true);
+  expect(existsSync(join(join(f.objects,"quarantine"),sha("orphan")))).toBe(true);
   if(recreated) {
     writeFileSync(join(f.objects,sha("orphan")),"orphan");
     f.store.statements([{sql:"INSERT INTO turn_journal_objects VALUES (?,6,'present')",params:[sha("orphan")]}]);
@@ -101,5 +101,27 @@ test("a missing interrupted candidate remains charged and reports an unresolved 
   f.store.statements([{sql:"INSERT INTO turn_journal_scrub_quarantine VALUES (?,6,'reserved')",params:[sha("orphan")]}]);
   expect(f.store.scrubObjects(),"SCRUB_UNKNOWN_STAYS_PENDING").toMatchObject({state:"partial",reason:"quarantine_pending",pending:1,pendingBytes:6});
   expect(f.db.query("SELECT bytes FROM turn_journal_scrub_quarantine").get()).toEqual({bytes:6});
+ }finally{f.close();}
+});
+
+test("pending reservations do not starve new orphans and a full batch stays partial",()=>{
+ const f=fixture();try{
+ for(let n=0;n<64;n++)f.store.statements([{sql:"INSERT INTO turn_journal_scrub_quarantine VALUES (?,6,'reserved')",params:[sha(`missing ${n}`)]}]);
+ writeFileSync(join(f.objects,sha("orphan")),"orphan");
+ expect(f.store.scrubObjects(),"SCRUB_PENDING_CANNOT_STARVE_LISTING").toMatchObject({quarantined:1,pending:64,state:"partial"});
+ }finally{f.close();}
+ const g=fixture();try{
+ for(let n=0;n<65;n++)writeFileSync(join(g.objects,sha(`Ithaca ${n}`)),`Ithaca ${n}`);
+ expect(g.store.scrubObjects(),"SCRUB_FULL_BATCH_IS_NOT_COMPLETE").toMatchObject({state:"partial"});
+ }finally{g.close();}
+});
+test("a recreated unaccounted source is quarantined and charged separately",()=>{
+ const f=fixture();try{
+ for(let n=0;n<3;n++){
+ writeFileSync(join(f.objects,sha("orphan")),"orphan");
+ expect(f.store.scrubObjects(),"SCRUB_RECREATED_ORPHAN_MOVES").toMatchObject({quarantined:1,unaccounted:1});
+ expect(f.db.query("SELECT sum(bytes) AS bytes FROM turn_journal_scrub_quarantine").get(),"SCRUB_EVERY_COPY_CHARGED").toEqual({bytes:6*(n+1)});
+ expect(existsSync(join(f.objects,sha("orphan")))).toBe(false);
+ }
  }finally{f.close();}
 });

@@ -11,22 +11,26 @@ import { createActivityStore } from "../src/activity/store.js";
 import { createUiDb } from "../src/db/client.js";
 import { createNativeJournalCapture } from "../src/brain/native-journal-capture.js";
 import { createTurnJournal } from "../src/brain/turn-journal.js";
-import { journalStatement } from "../src/brain/journal-store.js";
+import { openSqliteWriter, type SqliteWriter } from "../src/db/write-worker.js";
+import { JOURNAL_SCHEMA, journalDatabasePath } from "../src/db/journal-database.js";
+import { FINISH_REFERENCE_CLEANUP } from "../src/brain/journal-reference-cleanup.js";
+import { journalStatement, type JournalStatement } from "../src/brain/journal-store.js";
 import { configurationSet } from "../src/brain/journal-configuration-sets.js";
 import { recordGovernanceEvent, queryGovernanceEvents } from "../src/governance/events.js";
 import { createStatusRoutes } from "../src/routes/health.js";
 import { createJournalRoutes } from "../src/routes/journal.js";
 import { exportInboxSnapshot } from "../src/inbox/snapshot.js";
 
-function fixture(capBytes?: number) {
+function fixture(capBytes?: number, decorateWriter?: (writer: SqliteWriter) => SqliteWriter) {
   const root = mkdtempSync(join(tmpdir(), "turn-journal-odysseus-")), brain = join(root, "brain"), path = join(root, "ui.db");
   mkdirSync(join(brain, "notes"), { recursive: true });
   writeFileSync(join(brain, ".gitignore"), "ignored.txt\n");
   writeFileSync(join(brain, "notes", "odysseus.md"), "# Ithaca\r\n");
   const native = createNativeJournalFixture(brain, root);
-  const db = createUiDb(path), journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath: path, objectsRoot: join(root, "objects"), capBytes });
+  const db = createUiDb(path), writer = decorateWriter ? openSqliteWriter(db, { attach: [{ schema: JOURNAL_SCHEMA, path: journalDatabasePath(path) }] }) : undefined;
+  const journal = createTurnJournal(db, { ...(writer ? { writer: decorateWriter!(writer) } : {}), nativeManager: native.manager, brainPath: brain, dbPath: path, objectsRoot: join(root, "objects"), capBytes });
   const begin = (id: string) => journal.begin(id, { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null }, error => { throw error; });
-  return { root, brain, db, journal, native, begin, async close() { await journal.close(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); } };
+  return { root, brain, db, journal, native, begin, async close() { await journal.close(); await writer?.close(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); } };
 }
 
 test("reconstructed copied fixtures keep separate inode reservation lifetimes", async () => {
@@ -845,4 +849,43 @@ test("idle checkpoint cleanup records its cause durably before any turn exists a
     const status = await (await routes.request("/status")).json() as any;
     expect(status.journalCleanup).toMatchObject({ retained: { failed: 1 }, lastFailure: { cause: "Error: Odysseus idle checkpoint release refused" } });
   } finally { f.native.manager.release = release; await f.close(); }
+});
+
+test("actual finish rolls back its terminal record when reference cleanup refuses",async()=>{
+ let injected=0;
+ const f=fixture(undefined,writer=>({...writer,channel(module,options,revive){
+  const channel=writer.channel(module,options,revive);
+  return {...channel,call(name,...args){
+   if(name==="statements" && (args[0] as JournalStatement[]).some(row=>"sql" in row && row.sql===FINISH_REFERENCE_CLEANUP)) {
+    injected++;
+    // Refuse at the actual cleanup statement through the production writer
+    // and accounted transaction. Splitting finish into two writes exposes a
+    // committed terminal record and fails the rollback assertions below.
+    args[0]=(args[0] as JournalStatement[]).map(row=>"sql" in row && row.sql===FINISH_REFERENCE_CLEANUP
+      ? {check:"SELECT 1 WHERE 0",refusal:"actual finish cleanup interrupted"}:row);
+   }
+   return channel.call(name,...args);
+  }};
+ }}));
+ try{
+  await f.begin("finish-atomic");
+  const refs=f.db.query("SELECT count(*) AS n FROM turn_journal_object_refs WHERE turn_id='finish-atomic'").get();
+  await expect(f.journal.finish("finish-atomic"),"ACTUAL_FINISH_CLEANUP_FAULT").rejects.toThrow("actual finish cleanup interrupted");
+  expect(injected,"ACTUAL_FINISH_FAULT_EXECUTED").toBe(1);
+  expect(f.db.query("SELECT ended_at,state FROM turn_journal_turns WHERE turn_id='finish-atomic'").get(),"ACTUAL_FINISH_RECORD_ROLLS_BACK_WITH_REFS").toEqual({ended_at:null,state:"recording"});
+  expect(f.db.query("SELECT count(*) AS n FROM turn_journal_object_refs WHERE turn_id='finish-atomic'").get()).toEqual(refs);
+ }finally{await f.close();}
+});
+
+test("scrub faults retain their Activity cause without disabling idle expiry or scheduled-job failure history",async()=>{
+ const f=fixture();
+ try{
+  await f.begin("expired-voyage");await f.journal.finish("expired-voyage");
+  await f.journal.writeOperation([journalStatement("UPDATE turn_journal_turns SET ended_at=1 WHERE turn_id='expired-voyage'")]);
+  writeFileSync(join(f.root,"objects/quarantine"),"Ithaca scrub fault");
+  await f.journal.maintain();
+  expect(f.db.query("SELECT turn_id FROM turn_journal_turns WHERE turn_id='expired-voyage'").get(),"SCRUB_FAULT_DOES_NOT_DISABLE_EXPIRY").toBeNull();
+  expect(f.db.query("SELECT count(*) AS n FROM activity_spans WHERE job_name='maintain'").get(),"IDLE_SCRUB_NEVER_RESETS_MAINTAIN_FAILURE_STREAK").toEqual({n:0});
+  expect(f.db.query("SELECT outcome FROM activity_spans WHERE job_name='journal-scrub'").get()).toEqual({outcome:"error"});
+ }finally{await f.close();}
 });

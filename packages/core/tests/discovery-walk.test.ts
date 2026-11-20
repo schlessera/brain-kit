@@ -53,6 +53,7 @@ test("nested excludes, exact files and literal directory case preserve the forme
 
 test("index discovery never opens an excluded tree containing an unreadable directory", () => {
   const root=mkdtempSync(join(tmpdir(),"odysseus-discovery-access-")),excluded=join(root,"node_modules"),unreadable=join(excluded,"unreadable");
+  expect(Bun.spawnSync(["git","-C",root,"init","-q"]).exitCode).toBe(0);
   mkdirSync(unreadable,{recursive:true});writeFileSync(join(root,"ithaca.md"),"# Ithaca");
   chmodSync(unreadable,0);
   try {
@@ -67,4 +68,11 @@ test("index discovery never opens an excluded tree containing an unreadable dire
     catch(error) { if((error as NodeJS.ErrnoException).code !== "EACCES") throw error; }
     expect(statSync(excluded).atimeMs,"OLD_GLOB_READS_EXCLUDED_DIRECTORY_CONTROL").toBeGreaterThan(0);
   } finally {chmodSync(unreadable,0o700);rmSync(root,{recursive:true,force:true});}
+});
+
+test("extensionless asset names keep the former literal-dot requirement",()=>{
+ const root=mkdtempSync(join(tmpdir(),"odysseus-asset-extension-"));
+ try{for(const name of ["jpg","png","pdf","ithaca.jpg"])writeFileSync(join(root,name),"");
+ expect(getAssetFiles(root,buildTaxonomy({})).map(row=>row.path),"ASSET_REQUIRES_DOT").toEqual(["ithaca.jpg"]);
+ }finally{rmSync(root,{recursive:true,force:true});}
 });

@@ -1,9 +1,15 @@
 /** Host-selected maintenance stages; repository code and Git always run in workers. */
+import { basename } from "node:path";
 import { WorkerStateError } from "@schlessera/brain-ui-sdk/internal";
 import type { BrainExecution, ExecutionResult } from "./host-boundary.js";
 
 export function maintenancePackingCommand(execution: BrainExecution): number {
-  return execution.publish === false || execution.argv.includes("--no-git") ? -1 : execution.argv.indexOf("maintain");
+  if (execution.publish === false || execution.argv.includes("--no-git")) return -1;
+  const [program, entry] = execution.argv;
+  const name = basename(program ?? "");
+  const command = name === "brain" ? 1 : (name === "bun" || program === process.execPath)
+    && /(?:^|\/)brain\.(?:ts|js)$/.test(entry ?? "") ? 2 : -1;
+  return command >= 0 && execution.argv[command] === "maintain" ? command : -1;
 }
 export async function runHostedMaintenance(execution: BrainExecution, commandIndex: number,
   run: (execution: BrainExecution) => Promise<ExecutionResult>): Promise<ExecutionResult> {

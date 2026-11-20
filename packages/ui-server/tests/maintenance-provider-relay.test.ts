@@ -6,7 +6,7 @@
  * key, and each request is metered against the turn that started the run, or
  * its day. The upstream is a fictional loopback Gemini endpoint the operator lists.
  */
-import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createNativeBrainManagerClient, type ProviderRelayReceipt } from "@schlessera/brain-ui-sdk/internal";
@@ -71,7 +71,7 @@ async function execute(host: ReturnType<typeof createHostBoundary>, method: "run
   return { stdout, stderr, exitCode };
 }
 
-const hostEnv = () => ({ PATH: "/usr/bin:/bin", BRAIN_ROOT: brain, ...HOST_KEYS });
+const hostEnv = () => ({ PATH: "/usr/bin:/bin", BRAIN_ROOT: brain, ...HOST_KEYS, GOOGLE_GEMINI_BASE_URL: upstream.url.origin });
 const search = (turnId?: string): BrainExecution => ({ argv: [process.execPath, BRAIN_CLI, "search", "Ithaca harbour", "--json"],
   env: { ...hostEnv(), GOOGLE_GEMINI_BASE_URL: upstream.url.origin }, credentials: true, gate: "shared", purpose: "Odysseus maintenance search",
   ...(turnId ? { turnId } : {}) });
@@ -167,20 +167,21 @@ for arg in "$@"; do
    printf partial > "$data/.git/objects/pack/tmp_pack_Ithaca"
    printf companion > "$data/.git/objects/pack/tmp_pack_Athena"
    printf completed-first-task > "$data/.git/objects/pack/pack-0000000000000000000000000000000000000000.pack"
-   echo 'fatal: Out of diskspace' >&2
+   echo 'fatal: Out of diskspace (ITHACA_PACK_REFUSAL_INJECTED)' >&2
    exit 128
  fi
 done
 exec '${realGit}' "$@"
 `,{mode:0o755});
-  const saved=Object.getOwnPropertyDescriptor(process.env,"PATH");
-  process.env.PATH=`${bin}:${process.env.PATH}`;
+  const which=Bun.which;
+  const selectedGit=spyOn(Bun,"which").mockImplementation((name,options)=>name==="git"?join(bin,"git"):which(name,options));
   try {
     const {host}=boundary();
     const result=await host.run({argv:[process.execPath,BRAIN_CLI,"maintain","--json"],env:hostEnv(),credentials:true,gate:"exclusive",purpose:"Odysseus failed packing"});
+    expect(JSON.parse(result.stdout).find((row:{step:string})=>row.step==="git").result,"PACK_REFUSAL_INJECTION_EXECUTED").toStartWith("FAILED — no space: git packing ran out of space");
     expect(readdirSync(pack).sort(),"FAILED_PACK_PUBLISHES_NO_GIT_FILES").toEqual(before);
     expect(JSON.parse(result.stdout).find((row:{step:string})=>row.step==="index").result,"FAILED_PACK_INDEX_PUBLISHED").toContain("ok —");
     expect(statSync(index).mtimeMs,"FAILED_PACK_INDEX_BYTES_PUBLISHED").toBeGreaterThan(indexBefore);
     expect(result.exitCode).toBe(2);
-  }finally{if(saved)Object.defineProperty(process.env,"PATH",saved);else delete process.env.PATH;}
+  }finally{selectedGit.mockRestore();}
 });
