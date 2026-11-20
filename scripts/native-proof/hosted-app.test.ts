@@ -1,3 +1,4 @@
+import { seedObservationTree, type ObservationTree } from "./observation-tree.js";
 import { afterAll, expect, test } from "bun:test";
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -62,6 +63,8 @@ print(json.dumps(result))`;
     const motif = "Athena marks the voyage. ";
     writeFileSync(join(brain, "notes", `voyage-${String(i).padStart(4, "0")}.md`), header + motif.repeat(Math.ceil((BYTES - header.length) / motif.length)).slice(0, BYTES - header.length));
   }
+  const treeSizes = process.env.BRAIN_NATIVE_PROOF_TREE ? JSON.parse(process.env.BRAIN_NATIVE_PROOF_TREE) as ObservationTree : undefined;
+  const tree = treeSizes ? seedObservationTree(brain, join(dir, "ui.db.journal"), treeSizes) : undefined;
   const git = Bun.spawnSync(["git", "init", "--quiet", brain], { env: { PATH: "/usr/bin:/bin", HOME: join(dir, "home") } });
   expect(git.exitCode, "OFFLINE_FIXTURE_GIT_INITIALIZED").toBe(0);
   const { serveNativeBrainManager } = await import(join(SOURCE, "packages/ui-sdk/src/server/native-brain-manager.ts"));
@@ -467,7 +470,12 @@ print(json.dumps(result))`;
         beginPlusFinish: { pairedHoldMedianMs: phaseMedian(pairedTotals), sumOfHoldMediansMs: begin.hold.medianMs !== null && finish.hold.medianMs !== null ? begin.hold.medianMs + finish.hold.medianMs : null, pairs: pairedTotals.length },
         traces: traces.length, managerSpans: managerSpans.length,
       };
-      const result = { backend: BACKEND, appUid: APP_UID, files: FILES, bytes: BYTES, loadBefore, loadAfter: load(), elapsedMs: performance.now() - timingStart, timelineTurnIds,
+      const steps = [...new Set(warm.flatMap(row => Object.keys(row?.steps ?? {})))];
+      const stepMedians = Object.fromEntries(steps.map(name => [name, median(warm.map(row => row?.steps[name]).filter((n): n is number => typeof n === "number"))]));
+      writeFileSync(join(ARTIFACTS, "observation-holds.json"), JSON.stringify(lifecycles().map(record => ({ turnId: record.turnId, holds: record.holds ?? [],
+        closing: (record.subPhases ?? []).filter((step: any) => step.phase === "closing"), recorderSettledAt: record.recorderSettledAt ?? null, idleEmittedAt: record.idleEmittedAt ?? null })), null, 2));
+      const result = { ...(tree ? { tree: { ...tree, warmTurns: warm.length, stepMedians,
+        observerBootstrap: eventLog.read("observer-bootstrap").filter(row => row.kind === "observer_bootstrap").map(row => ({ elapsedMs: row.elapsedMs, outcome: row.outcome })) } } : {}), backend: BACKEND, appUid: APP_UID, files: FILES, bytes: BYTES, loadBefore, loadAfter: load(), elapsedMs: performance.now() - timingStart, timelineTurnIds,
         tools: timeline?.tools ?? null, admission, journal: { begin: { medianMs: median(total("beginMs")), p95Ms: p95(total("beginMs")) }, finish: { medianMs: median(total("finishMs")), p95Ms: p95(total("finishMs")) },
           beginPlusFinish: { medianMs: median(total("totalMs")), p95Ms: p95(total("totalMs")) }, turns: beginFinish }, phases: observationSteps, calls: timeline?.calls ?? null };
       writeFileSync(join(ARTIFACTS, "observation-timing.json"), JSON.stringify(result, null, 2));

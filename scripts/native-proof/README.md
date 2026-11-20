@@ -58,6 +58,23 @@ phases and steps per scenario, and the host load before and after are in
 `observation-timing.json`. It is a measurement, not part of the default
 qualification.
 
+`--tree=large` adds deterministic empty workspace/dependency files and tiny
+content-addressed journal objects before the app starts. Defaults:
+`--workspace-entries=80000 --dependency-entries=19000 --journal-objects=30000
+--checkouts=40`. Workspace leaves are spread across the named checkouts and
+nested `node_modules`, with `.git` directories and `.gitignore` files. Counts
+are generated entries, separate from the pre-existing CLI/notes fixture.
+The `tree` artifact section records these counts, five warm turns' per-step
+medians and observer bootstrap time. Compare a default run, a full large run,
+and a large run with `--workspace-entries=40000` on the same runner. The tenfold
+and proportional sensitivity criteria are qualification measurements, never
+shared-runner CI time budgets. Cold-cache evidence is explicitly unavailable:
+this harness cannot establish an isolated cache-drop condition and never
+mutates the shared runner cache. Default runs omit the `tree` section.
+
+`observation-holds.json` prints each lifecycle's hosted hold records, closing
+steps and recorder/idle milestones alongside the existing timing artifact.
+
 Its `phases` section (#2915) attributes each observed writer's worker hold and
 each harbour turn's journal begin and finish to their steps: the queue for the
 journal, the wait for room behind earlier releases, checkpoint, delta,
