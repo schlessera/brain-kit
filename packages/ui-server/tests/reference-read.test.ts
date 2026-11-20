@@ -434,11 +434,12 @@ test("the tool entry withholds a read result when its turn ended while the reade
   expect(await call, "TOOL_ENTRY_FENCES_LATE_CONTENT").toMatchObject({ ok: false, code: "cancelled" });
 });
 
-for (const kind of ["missing", "owner", "repository", "turn", "principal", "root", "ref", "commit", "after-read"]) {
+for (const kind of ["missing", "operation", "owner", "repository", "turn", "principal", "root", "ref", "commit", "after-read"]) {
   test(`read refuses a ${kind} transport identity mismatch`, async () => {
     const f = await fixture(true);
     const observation = f.lease.identityObservation!;
     if (kind === "missing") delete f.lease.identityObservation;
+    if (kind === "operation") f.lease.identityObservation = { ...observation, operationId: undefined as never };
     if (kind === "owner") observation.identity.ownerId = "202";
     if (kind === "repository") observation.identity.repositoryId = "102";
     if (kind === "turn") f.lease.identityObservation = { ...observation, turnId: "other-turn" };

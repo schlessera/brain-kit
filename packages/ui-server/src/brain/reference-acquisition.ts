@@ -62,7 +62,7 @@ export function referenceIdentityObservationMatches(observation: ReferenceIdenti
   brain: string; repository_id: string; owner_id: string; owner: string; repository_name: string; ref: string; commit_id: string;
 }, expected: { brain: string; principalId: string; turnId: string; rootId: string }): boolean {
   const o = observation;
-  return Boolean(o && /^[A-Za-z0-9_-]{1,128}$/u.test(o.operationId) && Number.isSafeInteger(o.observedAt) && o.observedAt > 0
+  return Boolean(o && typeof o.operationId === "string" && /^[A-Za-z0-9_-]{1,128}$/u.test(o.operationId) && Number.isSafeInteger(o.observedAt) && o.observedAt > 0
     && o.brain === expected.brain && o.brain === acquisition.brain && o.principalId === expected.principalId && o.turnId === expected.turnId
     && o.rootId === expected.rootId && o.ref === acquisition.ref && o.commit === acquisition.commit_id
     && o.identity.repositoryId === acquisition.repository_id && o.identity.ownerId === acquisition.owner_id
