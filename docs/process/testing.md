@@ -1122,8 +1122,10 @@ required. This partial composition does not replace complete PR proof.
 The test preload admits installed native Claude only on disposable hosted
 runners with working Linux namespaces. An unqualified launch fails before
 process creation with a `native-offline-boundary` receipt; it is never a skip.
-This includes SDK `node:child_process` launches (which use Bun's subprocess
-transport) and the existing worker bootstrap's exec payload.
+Runtime provenance uses resolved installed SDK/runtime paths and a size-filtered
+content hash to recognize renamed copies; harmless fixture scripts named
+`claude` remain ordinary test programs. This includes SDK `node:child_process`
+launches (which use Bun's subprocess transport) and the existing worker bootstrap's exec payload.
 
 Direct SDK children get an empty root filesystem, explicit system/runtime and
 fixture mounts, fresh PID and network namespaces, and one Unix socket bridged

@@ -1,7 +1,9 @@
 /** Test-only OS boundary for installed native Claude processes (#4313). */
-import { existsSync, lstatSync, mkdtempSync, readlinkSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, lstatSync, openSync, readFileSync, readSync, statSync, mkdtempSync, readlinkSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dir, "..");
 const SYSTEM = ["/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32"];
@@ -22,10 +24,47 @@ function receiptHead(): string {
   return head = result.exitCode === 0 && /^[0-9a-f]{40}$/.test(value) ? value : "unavailable";
 }
 
+// Resolve from the installed SDK, exactly as its native package lookup does.
+// This runs before test mocks can replace module resolution. No executable runs.
+const installedRuntimes: { path: string; size: number }[] = [];
+try {
+  const sdk = createRequire(import.meta.url).resolve("@anthropic-ai/claude-agent-sdk");
+  const fromSdk = createRequire(sdk);
+  const manifest = JSON.parse(readFileSync(join(dirname(sdk), "package.json"), "utf8")) as { optionalDependencies?: Record<string, string> };
+  for (const name of Object.keys(manifest.optionalDependencies ?? {}).filter(name => name.startsWith("@anthropic-ai/claude-agent-sdk-"))) {
+    try {
+      const path = realpathSync(fromSdk.resolve(`${name}/claude${name.includes("win32") ? ".exe" : ""}`));
+      installedRuntimes.push({ path, size: statSync(path).size });
+    } catch { /* Other-platform optional packages need not be installed. */ }
+  }
+  const cli = join(dirname(sdk), "cli.js");
+  if (existsSync(cli)) installedRuntimes.push({ path: realpathSync(cli), size: statSync(cli).size });
+} catch { /* Copied non-native harness fixtures need no installed SDK. */ }
+
+const hashes = new Map<string, string>();
+function fileHash(path: string): string {
+  const stat = statSync(path, { bigint: true });
+  const key = `${path}:${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`;
+  const cached = hashes.get(key);
+  if (cached) return cached;
+  const fd = openSync(path, "r"), chunk = Buffer.alloc(1024 * 1024), hash = createHash("sha256");
+  try { for (;;) { const count = readSync(fd, chunk); if (!count) break; hash.update(chunk.subarray(0, count)); } }
+  finally { closeSync(fd); }
+  const digest = hash.digest("hex"); hashes.set(key, digest); return digest;
+}
+
 export function isNativeClaude(command: string, args: readonly unknown[] = []): boolean {
-  return /^(claude|claude-code)(\.exe)?$/.test(basename(command)) ||
-    args.some(value => typeof value === "string" && (/claude-agent-sdk[^\n]*\/cli\.(js|mjs)$/.test(value) ||
-      value.startsWith("/") && /^(claude|claude-code)(\.exe)?$/.test(basename(value))));
+  for (const value of [command, ...args]) {
+    if (typeof value !== "string" || value.startsWith("-")) continue;
+    let path: string;
+    try { path = realpathSync(value.startsWith("/") ? value : Bun.which(value) ?? value); } catch { continue; }
+    if (installedRuntimes.some(runtime => runtime.path === path)) return true;
+    // Size eliminates ordinary fixture scripts and interpreters before hashing.
+    const size = statSync(path).size;
+    const candidates = installedRuntimes.filter(runtime => runtime.size === size);
+    if (candidates.length && candidates.some(runtime => fileHash(runtime.path) === fileHash(path))) return true;
+  }
+  return false;
 }
 
 function refuse(reason: string): never {
@@ -108,9 +147,11 @@ function relay(upstream: string | undefined) {
 export function nativeClaudeBoundary(command: string, args: string[], options: { cwd?: string; env?: Record<string, string | undefined>; managedSettings?: string }): Boundary {
   qualify();
   const env = options.env ?? process.env;
-  const cwd = realpathSync(options.cwd ?? process.cwd());
-  const home = env.HOME && realpathSync(env.HOME);
-  if (!home || !within(tmpdir(), home) || home === tmpdir() || !within(tmpdir(), cwd) && !within(ROOT, cwd)) {
+  const versionOnly = args.at(-1) === "--version";
+  const versionHome = versionOnly ? mkdtempSync(join(tmpdir(), "odysseus-native-version-")) : undefined;
+  const cwd = versionHome ?? realpathSync(options.cwd ?? process.cwd());
+  const home = versionHome ?? (env.HOME && realpathSync(env.HOME));
+  if (!home || !within(tmpdir(), home) || home === tmpdir() || cwd === tmpdir() || !within(tmpdir(), cwd) && !within(ROOT, cwd)) {
     refuse("native launch requires fixture-owned storage");
   }
   const bridge = relay(args.at(-1) === "--version" ? "http://127.0.0.1:1" : env.ANTHROPIC_BASE_URL);
@@ -124,7 +165,7 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
       "--ro-bind", bridge.directory, "/tmp/native-relay",
       "--ro-bind", join(bridge.directory, "passwd"), "/etc/passwd", "--ro-bind", join(bridge.directory, "group"), "/etc/group",
       ...(options.managedSettings ? ["--ro-bind", options.managedSettings, "/etc/claude-code"] : []), "--clearenv"];
-    const childEnv: Record<string, string> = { HOME: home, CLAUDE_CONFIG_DIR: env.CLAUDE_CONFIG_DIR ?? home,
+    const childEnv: Record<string, string> = { HOME: home, CLAUDE_CONFIG_DIR: versionHome ?? env.CLAUDE_CONFIG_DIR ?? home,
       PATH: "/usr/bin:/bin", LANG: "C.UTF-8", ANTHROPIC_API_KEY: "offline-odysseus",
       ANTHROPIC_BASE_URL: "http://localhost", ANTHROPIC_UNIX_SOCKET: "/tmp/native-relay/relay.sock",
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", DISABLE_AUTOUPDATER: "1" };
@@ -140,8 +181,8 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
     }
     for (const [key, value] of Object.entries(childEnv)) argv.push("--setenv", key, value);
     argv.push("--chdir", cwd, "--", command, ...args);
-    return { argv, env: {}, dispose: bridge.dispose };
-  } catch (error) { bridge.dispose(); throw error; }
+    return { argv, env: {}, dispose() { bridge.dispose(); if (versionHome) rmSync(versionHome, { recursive: true, force: true }); } };
+  } catch (error) { bridge.dispose(); if (versionHome) rmSync(versionHome, { recursive: true, force: true }); throw error; }
 }
 
 /** Inspect the concrete existing worker bootstrap, including its exec payload. */

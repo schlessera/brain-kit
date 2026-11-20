@@ -1,59 +1,72 @@
-/** Refusal tests use a synthetic executable, never the installed native runtime. */
+/** Local tests never execute the installed native runtime, including mutations. */
 import { expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { bundledClaudeBinary } from "../packages/core/src/providers/agents/claude-binary";
+import { isNativeClaude } from "../scripts/test-native-guard";
 
 const ROOT = join(import.meta.dir, "..");
+const runtime = bundledClaudeBinary();
+if (!runtime) throw new Error("Native boundary proof requires the installed SDK runtime identity");
 
-test("unqualified native SDK subprocess refuses before launch with a failed receipt", async () => {
-  const scratch = mkdtempSync(join(tmpdir(), "odysseus-native-refusal-"));
+async function probe(script: string, home: string) {
+  const path = join(home, "probe.ts"); writeFileSync(path, script);
+  const child = Bun.spawn([process.execPath, path], { env: { PATH: "/usr/bin:/bin", HOME: home }, stdout: "pipe", stderr: "pipe" });
+  const [code, output] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+  return { code, output };
+}
+const imports = `import {installNetworkGuard} from ${JSON.stringify(join(ROOT, "scripts/test-network-guard.ts"))};
+  import {nativeClaudeBoundary} from ${JSON.stringify(join(ROOT, "scripts/test-native-guard.ts"))};
+  delete process.env.GITHUB_ACTIONS; delete process.env.RUNNER_ENVIRONMENT; installNetworkGuard();`;
+
+test("a harmless fixture named claude runs without native admission", async () => {
+  const scratch = mkdtempSync(join(tmpdir(), "odysseus-fixture-runtime-"));
   try {
     const executable = join(scratch, "claude"), marker = join(scratch, "launched");
-    // Even a mutation that removes admission can only run this harmless shell.
-    writeFileSync(executable, `#!/bin/sh\nprintf launched > '${marker}'\n`);
-    chmodSync(executable, 0o700);
-    const script = join(scratch, "probe.ts");
-    writeFileSync(script, `import {installNetworkGuard} from ${JSON.stringify(join(ROOT, "scripts/test-network-guard.ts"))};
-      import {spawn} from "node:child_process";
-      delete process.env.GITHUB_ACTIONS; delete process.env.RUNNER_ENVIRONMENT;
-      installNetworkGuard(); spawn(${JSON.stringify(executable)}, []);`);
-    const child = Bun.spawn([process.execPath, script], { env: { PATH: "/usr/bin:/bin", HOME: scratch }, stdout: "pipe", stderr: "pipe" });
-    const [code, output] = await Promise.all([child.exited, new Response(child.stderr).text()]);
-    expect(code).not.toBe(0);
-    expect(existsSync(marker)).toBe(false);
-    expect(output).toContain('"success":false,"nativeLaunched":false');
-    expect(output).toContain("positive native proof requires a hosted runner");
+    writeFileSync(executable, `#!/bin/sh\nprintf launched > '${marker}'\n`); chmodSync(executable, 0o700);
+    expect(isNativeClaude(executable)).toBe(false);
+    const result = await probe(`${imports} import {spawn} from "node:child_process"; spawn(${JSON.stringify(executable)}, []);`, scratch);
+    expect(result.code, result.output).toBe(0); expect(existsSync(marker)).toBe(true);
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 });
 
-test("worker exec payload refuses before the trusted bootstrap starts", async () => {
+test("worker exec payload refuses before its synthetic bootstrap starts", async () => {
   const scratch = mkdtempSync(join(tmpdir(), "odysseus-worker-refusal-"));
   try {
-    const marker = join(scratch, "launched"), script = join(scratch, "probe.ts");
-    writeFileSync(script, `import {installNetworkGuard} from ${JSON.stringify(join(ROOT, "scripts/test-network-guard.ts"))};
-      delete process.env.GITHUB_ACTIONS; delete process.env.RUNNER_ENVIRONMENT;
-      installNetworkGuard(); Bun.spawn(["/bin/sh", "-c", ${JSON.stringify(`printf launched > '${marker}'`)}],
-      {env:{BRAIN_WORKER_LAUNCH:JSON.stringify({command:["/synthetic/claude"],argv:["bwrap","--","/synthetic/claude"]})}});`);
-    const child = Bun.spawn([process.execPath, script], { env: { PATH: "/usr/bin:/bin", HOME: scratch }, stdout: "pipe", stderr: "pipe" });
-    const [code, output] = await Promise.all([child.exited, new Response(child.stderr).text()]);
-    expect(code).not.toBe(0);
-    expect(existsSync(marker)).toBe(false);
-    expect(output).toContain('"success":false,"nativeLaunched":false');
+    const marker = join(scratch, "launched");
+    // The declared payload is real, but this bootstrap can only write a marker.
+    // Removing admission in a mutation can never launch the installed runtime.
+    const result = await probe(`${imports} Bun.spawn(["/bin/sh", "-c", ${JSON.stringify(`printf launched > '${marker}'`)}],
+      {env:{BRAIN_WORKER_LAUNCH:JSON.stringify({command:[${JSON.stringify(runtime)}],argv:["bwrap","--",${JSON.stringify(runtime)}]})}});`, scratch);
+    expect(result.code).not.toBe(0); expect(existsSync(marker)).toBe(false);
+    expect(result.output).toContain('"success":false,"nativeLaunched":false');
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 });
 
 test("catching a native refusal and exiting zero still fails the child", async () => {
   const scratch = mkdtempSync(join(tmpdir(), "odysseus-caught-refusal-"));
   try {
-    const script = join(scratch, "probe.ts");
-    writeFileSync(script, `import {installNetworkGuard} from ${JSON.stringify(join(ROOT, "scripts/test-network-guard.ts"))};
-      delete process.env.GITHUB_ACTIONS; delete process.env.RUNNER_ENVIRONMENT;
-      installNetworkGuard(); try { Bun.spawn(["/synthetic/claude"]); } catch {} process.exit(0);`);
-    const child = Bun.spawn([process.execPath, script], { env: { PATH: "/usr/bin:/bin", HOME: scratch }, stdout: "pipe", stderr: "pipe" });
-    const [code, output] = await Promise.all([child.exited, new Response(child.stderr).text()]);
-    expect(code).not.toBe(0);
-    expect(output).toContain('"success":false,"nativeLaunched":false');
+    // Plan admission only: no spawn of the installed runtime, even if broken.
+    const result = await probe(`${imports} try { nativeClaudeBoundary(${JSON.stringify(runtime)}, [], {}); } catch {} process.exit(0);`, scratch);
+    expect(result.code).not.toBe(0);
+    expect(result.output).toContain('"success":false,"nativeLaunched":false');
+  } finally { rmSync(scratch, { recursive: true, force: true }); }
+});
+
+test("runtime provenance follows a symlink and detects an arbitrarily named byte-identical copy", async () => {
+  const scratch = mkdtempSync(join(tmpdir(), "odysseus-runtime-identity-"));
+  try {
+    const linked = join(scratch, "odysseus-link"), copied = join(scratch, "odysseus-copy");
+    symlinkSync(runtime!, linked); copyFileSync(runtime!, copied);
+    for (const path of [linked, copied]) {
+      expect(isNativeClaude(path)).toBe(true);
+      // Refusal planning is safe even under a broken guard: it never execs.
+      const result = await probe(`${imports} nativeClaudeBoundary(${JSON.stringify(path)}, [], {});`, scratch);
+      expect(result.code).not.toBe(0);
+      expect(result.output).toContain('"success":false,"nativeLaunched":false');
+      expect(result.output).toContain("positive native proof requires a hosted runner");
+    }
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 });
 
