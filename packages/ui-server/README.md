@@ -362,6 +362,7 @@ under the [service terms](../geo/README.md#configuration).
 | `BRAIN_UI_AUTONOMOUS_TURNS_PER_DAY` | Daily model-bearing autonomous operation cap. Zero pauses admission until explicitly configured. Invalid values fail startup. | 0 |
 | `BRAIN_UI_AUTONOMOUS_UNPRICED_USD_PER_TOKEN` | Positive pessimistic rate for unpriced autonomous API tokens; missing usage retains the reservation. Invalid values fail startup. | 0.01 |
 | `BRAIN_UI_AUTONOMOUS_YIELD_AFTER_MS` | Continuous same-target interactive wait before an autonomous holder checkpoints and yields. Positive integer below 30000. | 20000 |
+| `BRAIN_UI_BUILD_REVISION` | Optional build revision token, 1–64 ASCII letters, digits, dot, underscore, plus or hyphen. Invalid values are absent. | — |
 | `BRAIN_UI_CLAUDE_DEFAULT_MODEL` | Model the built-in default Claude profile is pinned to. | claude-opus-5-5 |
 | `BRAIN_UI_CLAUDE_DEFAULT_THINKING_LEVEL` | Default Claude reasoning effort (off, minimal, low, medium, high, xhigh, max). Unsupported levels resolve to a supported choice. | medium |
 | `BRAIN_UI_CLAUDE_PROFILES` | JSON array of extra Anthropic-compatible inference profiles ({id,label,model?,baseUrl?,authTokenEnv?,apiKeyEnv?,modelAliases?}). | (none) |
@@ -433,7 +434,6 @@ under the [service terms](../geo/README.md#configuration).
 | `OVERPASS_USER_AGENT` | Identifying User-Agent for Overpass (usage-policy requirement). | brain-kit-ui/1.0 |
 | `PI_CODING_AGENT_DIR` | pi config dir override — where the web-search settings write the pi-web-access extension's web-search.json (same precedence the extension itself uses). | $XDG_CONFIG_HOME/pi, else $HOME/.pi |
 | `PROXY_AUTH_HEADER` | Header a fronting auth proxy sets for AUTH_MODE=proxy. | x-forwarded-user |
-| `BRAIN_UI_BUILD_REVISION` | Optional build revision on turn lifecycle records: 1–64 ASCII letters, digits, `.`, `_`, `+` or `-`. Invalid or unset values are absent. | unset |
 | `SOURCE_COMMIT` | Git SHA reported by /api/status (baked at image build time). | dev |
 | `TRUST_PROXY` | Set "1" to trust x-forwarded-for/x-real-ip and the proxy auth header; only safe behind a trusted reverse proxy. | **required** — AUTH_MODE=proxy |
 | `TRUST_PROXY_HOPS` | How many trusted proxies front the app (x-forwarded-for parse depth). | 1 |
