@@ -662,9 +662,8 @@ brain's remote has this version at the named upstream commit), and ends with `{ 
 incoming bytes through the existing policy writer (journal actor `user`, class
 `policy`, a `policy_change` governance event); the next admitted turn reads
 it, and the next sync completes. Decline writes nothing, and the next sync
-opens the review again. An incoming policy that is not UTF-8 or does not
-validate opens no review: a progress line names the next step and the sync
-fails. A scheduled sync opens no review; it fails naming the waiting change.
+opens the review again. An incoming policy that is not UTF-8, exceeds 1 MiB or does not validate
+opens no review: the sync fails, and its text names the next step. A scheduled sync opens no review; it fails naming the waiting change.
 Any other refused tier A change keeps its refusal, and its text says what to do
 next: revert the upstream commit, or remove a change the brain itself made
 (and, under `context/policies/`, change the policy in chat with

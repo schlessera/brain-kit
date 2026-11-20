@@ -178,6 +178,8 @@ async function protectedRefusal(local: ExecutionResult, error: ProtectedMaintena
     try { content = await error.read(GOVERNANCE_POLICY_PATH, INCOMING_POLICY_READ_BOUND); }
     catch { return refusedSync(local, `${error.message}. Nothing was published. The incoming ${GOVERNANCE_POLICY_PATH} exceeds the policy writer's 1 MiB bound, so it cannot be reviewed: shrink it upstream, or revert the upstream commit that makes it.`); }
     if (content) {
+      try { new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(content); }
+      catch { return refusedSync(local, `${error.message}. Nothing was published. The incoming ${GOVERNANCE_POLICY_PATH} is not UTF-8 text, so it cannot be reviewed: fix its encoding upstream, or revert the upstream commit that makes it.`); }
       // A review offers only what the upstream commit itself carries: worker output is never a policy source.
       // A scheduled sync decides the same way, so it never names a review a UI sync would refuse.
       if (!policy.verify || !await policy.verify(content))
