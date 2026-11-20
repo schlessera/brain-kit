@@ -10,7 +10,7 @@ import {createSafetyClient} from '../../src/lib/safety-client.js';
 import {SessionSafety} from '../../src/components/chat/safety-indicator.js';
 import {parseServerMessage} from '@schlessera/brain-ui-sdk/schemas';
 import type {ChatMessage} from '../../src/stores/chat-store.js';
-import type {ClientMessage,SafetyPage} from '@schlessera/brain-ui-sdk/protocol';
+import type {ClientMessage,SafetyPage,SafetyRecord} from '@schlessera/brain-ui-sdk/protocol';
 let fixture:{id:string;url:string}|undefined,ui:BrainUiRoot|undefined,socket:WebSocket|undefined,renderer:Root|undefined,host:HTMLDivElement|undefined;
 let safetyClient:ReturnType<typeof createSafetyClient>|undefined;
 let styles:HTMLStyleElement;const oldTheme=document.documentElement.dataset.theme,viewport={width:innerWidth,height:innerHeight};
@@ -199,4 +199,20 @@ for(const theme of ['light','dark'])test(`${theme}: a mixed reviewed group names
  await userEvent.click(indicator);
  expect(document.querySelectorAll('[data-safety-trigger]')).toHaveLength(2);
  expect(document.querySelector('[data-safety-details]')!.textContent).toContain('Marked safe by you');
+});
+
+for(const width of [320,1280])for(const theme of ['light','dark'])for(const mode of ['reviewed','unresolved','both'] as const)test(`${width} ${theme}: mixed trusted history keeps each verdict kind (${mode})`,async()=>{
+ await scene(width,theme);const state=ui!.stores.safety.getState(),rows=Object.values(state.records).filter(r=>r.kind==='occurrence');expect(rows.length).toBeGreaterThanOrEqual(3);
+ const at=Date.UTC(2026,6,12,10),hasReviewed=mode!=='unresolved',hasUnresolved=mode!=='reviewed';
+ const base=(r:typeof rows[number])=>({...r,turnId:message.turnId!,entry:{kind:'tool' as const,toolUseId:'tool_a'},observedAt:at});
+ const trusted={...base(rows[0]!),source:'web_fetch' as const,admission:{trusted:true,ruleId:'ithaca-source',policyHash:'a'.repeat(64),trustRevision:'7',collectionRevision:'3'}};
+ const reviewed={...base(rows[1]!),source:'mcp_document' as const,admission:{trusted:false,policyHash:null,trustRevision:'0'}};
+ const unresolved={...base(rows[2]!),source:'workspace_read' as const,admission:{trusted:false,policyHash:null,trustRevision:'0'}};
+ const records:Record<string,SafetyRecord>={[trusted.id]:trusted};if(hasReviewed){records[reviewed.id]=reviewed;const identity=state.identity;if(!identity||!('sessionId' in identity))throw new Error('Missing session');records.mixed_verdict={id:'mixed_verdict',sequence:'999999',observedAt:at,turnId:message.turnId!,bindingId:reviewed.bindingId,occurrenceId:reviewed.id,detailPruned:false,kind:'safe_decision',session:identity,requestId:'mixed_request',principalId:'odysseus',verdict:'safe',channel:'owner_history'};}if(hasUnresolved)records[unresolved.id]=unresolved;
+ flushSync(()=>ui!.stores.safety.setState({records,projection:{...state.projection!,unresolvedCount:hasUnresolved?1:0,earliestUnresolvedId:hasUnresolved?unresolved.id:null,restriction:hasUnresolved?'restricted':'normal',reasons:hasUnresolved?['unresolved']:[]},normal:!hasUnresolved&&state.projection?.coverage.state==='complete'}));
+ const indicator=[...host!.querySelectorAll<HTMLButtonElement>('[data-safety-indicator] button')].find(b=>b.getClientRects().length>0)!;expect(indicator).toBeTruthy();
+ if(hasUnresolved)expect(indicator.getAttribute('aria-label'),'MIXED_GROUP_NAMES_ONLY_ITS_UNRESOLVED_SOURCE').toContain('Workspace read · Only this trigger can be reviewed');
+ if(hasReviewed)expect(indicator.getAttribute('aria-label'),'MIXED_HISTORY_NAMES_BOTH_TRUST_AND_HUMAN_VERDICT').toContain('1 marked safe by you');
+ await userEvent.click(indicator);const panel=document.querySelector('[data-safety-details]')!;expect(panel.textContent).toContain('Trusted at admission');if(hasReviewed)expect(panel.textContent).toContain('Marked safe by you');
+ const bounds=panel.getBoundingClientRect();expect(bounds.left).toBeGreaterThanOrEqual(0);expect(bounds.right).toBeLessThanOrEqual(innerWidth);
 });

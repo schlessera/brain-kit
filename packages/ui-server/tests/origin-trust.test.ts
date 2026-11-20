@@ -7,7 +7,7 @@ import { openSqliteWriter } from "../src/db/write-worker.js";
 import { connect } from "node:net";
 import { request } from "node:http";
 import { resolveGovernancePolicy, type TrustRule, type GovernancePolicyInput } from "@schlessera/brain-common/internal/governance-policy";
-import type { BackendBridge } from "@schlessera/brain-ui-sdk/server";
+import type { BackendBridge, PermissionDecision } from "@schlessera/brain-ui-sdk/server";
 import { createUiDb } from "../src/db/client.js";
 import { createGovernanceWrites } from "../src/governance/event-writes.js";
 import { queryGovernanceEvents } from "../src/governance/events.js";
@@ -141,14 +141,19 @@ test("review: independent pending input also withdraws a card on a permanently r
  }finally{release();await slow;await pendingTaint;await f.close();}
 });
 test("review2: a later revision cannot join a hostname's earlier pending Network card",async()=>{
- const f=await fixture();const answers:Array<(v:{behavior:'allow'|'deny';message?:string})=>void>=[];let firstReady!:()=>void,secondReady!:()=>void;const firstCard=new Promise<void>(r=>{firstReady=r;}),secondRequest=new Promise<void>(r=>{secondReady=r;});let first:Promise<number>|undefined,second:Promise<number>|undefined;const safety=f.bridge.admissionSafety!,read=safety.read;
- try{await f.taint();f.decide(()=>new Promise(r=>{answers.push(r);firstReady();}));first=get(f.proxy.socketPath,f.origin.url.href);await firstCard;await f.taint();let announced=false;safety.read=()=>{const value=read();if(!announced){announced=true;queueMicrotask(secondReady);}return value;};second=get(f.proxy.socketPath,f.origin.url.href);await secondRequest;
- expect(f.asks(),'NEW_EVIDENCE_REQUIRES_A_NEW_NETWORK_CARD').toBe(2);answers[0]!({behavior:'allow'});expect(await first).toBe(403);expect(f.hits()).toBe(0);answers[1]!({behavior:'deny',message:'Athena declines the new context'});expect(await second).toBe(403);
- }finally{safety.read=read;for(const answer of answers)answer({behavior:'deny',message:'Closed'});await Promise.allSettled([first,second]);await f.close();}
+ const f=await fixture();const answers:Array<(v:PermissionDecision)=>void>=[];let firstReady!:()=>void,secondReady!:()=>void;const firstCard=new Promise<void>(r=>{firstReady=r;}),secondRequest=new Promise<void>(r=>{secondReady=r;});let first:Promise<number>|undefined,second:Promise<number>|undefined;const safety=f.bridge.admissionSafety!,read=safety.read;
+ try{delete f.bridge.admissionSafety;await f.taint();f.decide(()=>new Promise(r=>{answers.push(r);firstReady();}));first=get(f.proxy.socketPath,f.origin.url.href);await firstCard;await f.taint();let announced=false;safety.read=()=>{const value=read();if(!announced){announced=true;queueMicrotask(secondReady);}return value;};second=get(f.proxy.socketPath,f.origin.url.href);await secondRequest;
+ const cards=f.asks();answers[0]!({behavior:'allow'});expect(await first).toBe(403);if(cards===1){expect(await second,'OLDER_CARD_ANSWER_CANNOT_DISPATCH_A_LATER_CONTEXT').toBe(403);}else{expect(f.hits()).toBe(0);answers[1]!({behavior:'deny',message:'Athena declines the new context'});expect(await second).toBe(403);}expect(cards,'NEW_EVIDENCE_REQUIRES_A_NEW_NETWORK_CARD').toBe(2);
+ }finally{f.bridge.admissionSafety=safety;safety.read=read;for(const answer of answers)answer({behavior:'deny',message:'Closed'});await Promise.allSettled([first,second]);await f.close();}
 });
 for(const pruned of [false,true])test(`review2: forks inherit unresolved input only, regardless of pruning (${pruned})`,async()=>{
  const f=await fixture();try{expect(await get(f.proxy.socketPath,f.origin.url.href)).toBe(200);await f.proxy.settled();if(pruned)pruneSafetyDetail(f.db,Number.MAX_SAFE_INTEGER);expect(f.writes.safety(null,'voyage').unresolvedCount).toBe(0);
  await f.writes.safetyBegin({turnId:'fork-trusted',bindingId:crypto.randomUUID(),sessionId:null,principalId:'odysseus',backendId:'claude',sourceSessionId:'voyage',at:2});expect(f.writes.safety('fork-trusted',null).unresolvedCount,'FORK_NEVER_TURNS_TRUSTED_INPUT_INTO_AN_UNRESOLVED_SIGNAL').toBe(0);expect(f.writes.safety('fork-trusted',null).restriction).toBe('restricted');
  await f.taint();if(pruned)pruneSafetyDetail(f.db,Number.MAX_SAFE_INTEGER);await f.writes.safetyBegin({turnId:'fork-unresolved',bindingId:crypto.randomUUID(),sessionId:null,principalId:'odysseus',backendId:'claude',sourceSessionId:'voyage',at:3});expect(f.writes.safety('fork-unresolved',null).unresolvedCount).toBe(1);
  }finally{await f.close();}
+});
+test('review2: unchanged context still shares one pending destination card',async()=>{
+ const f=await fixture();const answers:Array<(v:PermissionDecision)=>void>=[];let firstReady!:()=>void,secondReady!:()=>void;const firstCard=new Promise<void>(r=>{firstReady=r;}),secondRequest=new Promise<void>(r=>{secondReady=r;});let first:Promise<number>|undefined,second:Promise<number>|undefined;const safety=f.bridge.admissionSafety!,read=safety.read;
+ try{await f.taint();f.decide(()=>new Promise(r=>{answers.push(r);firstReady();}));first=get(f.proxy.socketPath,f.origin.url.href);await firstCard;let announced=false;safety.read=()=>{const value=read();if(!announced){announced=true;queueMicrotask(secondReady);}return value;};second=get(f.proxy.socketPath,f.origin.url.href);await secondRequest;expect(f.asks(),'UNCHANGED_CONTEXT_COALESCES_ONE_PENDING_CARD').toBe(1);answers[0]!({behavior:'deny',message:'Athena declines'});expect(await first).toBe(403);expect(await second).toBe(403);
+ }finally{safety.read=read;for(const answer of answers)answer({behavior:'deny',message:'Closed'});await Promise.allSettled([first,second]);await f.close();}
 });

@@ -1351,3 +1351,8 @@ approval context; later evidence cannot join an earlier card. Fork reconstructio
 copies unresolved untrusted occurrences only, with identical admission handling
 before and after detail pruning. CONNECT and relay rechecks revalidate every time
 but notify the host's committed observer exactly once per operation.
+
+Mixed history groups count trusted admissions and human safe verdicts separately.
+An unresolved group names an actually unresolved input for review; a trusted or
+reviewed row cannot supply that label. Historical source trust is not relabelled
+as a human decision, and a human verdict is not relabelled as source trust.

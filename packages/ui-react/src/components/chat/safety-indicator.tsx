@@ -70,10 +70,17 @@ function SafetyIndicator({entries:currentEntries}:{entries:SafetyEvidence[]}) {
   const entries=allowed?(currentEntries.length?currentEntries:open||readStatus!=="ready"?held.current.entries:[]):[];
   useEffect(()=>{if(!allowed)setOpen(false);},[allowed]);
   useEffect(()=>{setOpen(false);},[scope,auth]);
-  const unresolved=entries.filter(e=>!e.decision&&!e.occurrence.admission?.trusted).length,unknown=entries.some(e=>e.occurrence.detailPruned||e.occurrence.source==="legacy_unknown");
-  const trusted=entries.some(e=>e.occurrence.admission?.trusted);
-  const name=unresolved?`Safety restrictions: ${unresolved} unresolved trigger${unresolved===1?"":"s"}`:`${trusted?"Trusted at admission":"Marked safe by you"}${entries.length>1?`: ${entries.length} triggers`:""}: show details`;
-  const reason=unresolved?`${sources[entries.find(e=>!e.decision)!.occurrence.source]} · Only this trigger can be reviewed`:trusted?"Historical source trust retained; current rules may differ":"Human decision retained; content remains in the model context";
+  const unresolvedEntries=entries.filter(e=>!e.decision&&!e.occurrence.admission?.trusted);
+  const unresolved=unresolvedEntries.length,unknown=entries.some(e=>e.occurrence.detailPruned||e.occurrence.source==="legacy_unknown");
+  const trusted=entries.filter(e=>e.occurrence.admission?.trusted).length,reviewed=entries.filter(e=>e.decision).length;
+  const accepted=[...(trusted?[`${trusted} trusted at admission`]:[]),...(reviewed?[`${reviewed} marked safe by you`]:[])].join("; ");
+  const name=unresolved?`Safety restrictions: ${unresolved} unresolved trigger${unresolved===1?"":"s"}${accepted?`; ${accepted}`:""}`
+    :trusted===entries.length&&!reviewed?`Trusted at admission${entries.length>1?`: ${entries.length} inputs`:""}: show details`
+    :reviewed===entries.length&&!trusted?`Marked safe by you${entries.length>1?`: ${entries.length} triggers`:""}: show details`
+    :`Safety history: ${accepted}: show details`;
+  const reason=unresolved?`${sources[unresolvedEntries[0]!.occurrence.source]} · Only this trigger can be reviewed`
+    :trusted&&reviewed?"Historical source trust and human decisions retained; current rules may differ"
+    :trusted?"Historical source trust retained; current rules may differ":"Human decision retained; content remains in the model context";
   useLayoutEffect(()=>{
     if(!open)return;
     const place=()=>{const r=trigger.current?.getBoundingClientRect();if(r)setPosition({left:Math.max(12,Math.min(r.left,innerWidth-Math.min(384,innerWidth-24)-12)),top:Math.max(12,Math.min(r.bottom+4,innerHeight-Math.min(520,innerHeight*.65)-12))});};
