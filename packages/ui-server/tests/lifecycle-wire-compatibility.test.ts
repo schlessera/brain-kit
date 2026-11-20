@@ -60,3 +60,19 @@ test("published activity schemas accept closing steps and other additive host ev
     expect(serverActivitySnapshotSchema.parse({ ...snapshot, lifecycles: [future] }).lifecycles?.[0]?.openSubPhases?.at(-1)?.phase).toBe("future_phase");
   } finally { db.close(); }
 });
+
+
+test("timers route every new phase to the open field with stable timestamp order", () => {
+  const db = createUiDb(":memory:");
+  try {
+    const store = createActivityStore(db); let now = 1000;
+    const life = createTurnLifecycle(store, "turn-ithaca", "ithaca", now, () => {}, () => now);
+    now = 1200; life.timer("closing")("later")();
+    now = 1100; life.timer("future_phase")("earlier")();
+    life.timer("backend")("same_time")();
+    now = 1300; life.timer("governed")("gate_acquire")(); life.finish("success");
+    expect(store.lifecycle("turn-ithaca")!.openSubPhases?.map(step => [step.phase, step.name]), "ALL_NEW_PHASES_USE_THE_OPEN_FIELD")
+      .toEqual([["future_phase", "earlier"], ["backend", "same_time"], ["closing", "later"]]);
+    expect(store.lifecycle("turn-ithaca")!.subPhases?.map(step => step.phase)).toEqual(["governed"]);
+  } finally { db.close(); }
+});

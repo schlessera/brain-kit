@@ -5,7 +5,7 @@ import type { AwaitableActivityStore } from "./store.js";
 import { orderedWrites } from "./store-writes.js";
 
 /**
- * Starts one named step of an admission phase and returns its end (#3355).
+ * Starts one named timing step and returns its end (#3355).
  * Steps ride on the record's next persisted milestone or terminal, so timing
  * adds no write to the turn path.
  */
@@ -49,12 +49,17 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
     },
     hold(hold: import("@schlessera/brain-ui-sdk/protocol").ActivityTurnHold) { if (record.endedAt === null) (record.holds ??= []).push(hold); },
     runtimeVersion(version: string) { if (record.endedAt === null) record.runtimeVersion = version; },
-    timer(phase: "governed" | "journal" | "closing", metadata: { pending?: boolean } = {}): PhaseTimer {
+    timer(phase: string, metadata: { pending?: boolean } = {}): PhaseTimer {
       return name => {
         if (record.endedAt !== null) return () => {};
         const step = { phase, name, ...metadata, startedAt: clock(), endedAt: null as number | null, elapsedMs: null };
-        if (phase === "closing") (record.openSubPhases ??= []).push(step);
-        else (record.subPhases ??= []).push(step as ActivityTurnSubPhase);
+        if (phase === "governed" || phase === "journal") {
+          (record.subPhases ??= []).push(step as ActivityTurnSubPhase);
+          record.subPhases.sort((a, b) => a.startedAt - b.startedAt);
+        } else {
+          (record.openSubPhases ??= []).push(step);
+          record.openSubPhases.sort((a, b) => a.startedAt - b.startedAt);
+        }
         return () => { if (record.endedAt === null && step.endedAt === null) step.endedAt = clock(); };
       };
     },

@@ -611,7 +611,8 @@ Optional `openSubPhases` adds timing phases using an open string vocabulary;
 consumers tolerate unknown phases. Its entries have the same `{ phase, name,
 startedAt, endedAt, elapsedMs }` shape, start-order, null and failure rules as
 `subPhases`, and ride the same milestone or terminal writes. The schema
-accepts any string for `phase`. New phases never extend the closed
+accepts any string for `phase`. Entries are stably ordered by `startedAt`;
+equal start times retain insertion order. New phases never extend the closed
 `subPhases[].phase` enum, so previously published clients continue parsing
 activity snapshots and deltas. The current names are:
 
