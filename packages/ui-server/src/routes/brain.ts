@@ -410,6 +410,8 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono<AppEnv> {
             return;
           }
           await send({ type: "progress", text: opened.message });
+          // The run records the real cause, not the paused text of a review that never opened.
+          failure = `Sync failed (exit ${exitCode}): ${opened.message}`;
         }
 
         await send({

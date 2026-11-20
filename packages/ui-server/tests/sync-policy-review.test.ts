@@ -190,7 +190,7 @@ describe("a sync's incoming policy change (#4256)", () => {
 
   test("an incoming policy that does not validate fails the sync with next steps and opens no review", async () => {
     const root = brain();
-    const { as } = setup(root, async execution => {
+    const { as, logs } = setup(root, async execution => {
       execution.onExecute?.();
       execution.onPolicyChange?.({ content: new TextEncoder().encode("---\nschema_version: 99\n---\n"), upstream: null });
       return failedProcess();
@@ -198,6 +198,8 @@ describe("a sync's incoming policy change (#4256)", () => {
     const all = await frames(await as(owner).request("/api/brain/sync", { method: "POST" }));
     expect(all.some(frame => frame.type === "policy_review"), "INVALID_OPENS_NO_REVIEW").toBe(false);
     expect(all.some(frame => frame.type === "progress" && String(frame.text).includes("Revert the upstream commit")), "INVALID_NAMES_NEXT_STEP").toBe(true);
+    const failed = logs.find(record => record.body === "ui sync failed");
+    expect(String(failed?.attributes?.error), "INVALID_RUN_RECORDS_REAL_CAUSE").toContain("did not validate");
     expect(all.at(-1)).toMatchObject({ type: "done", success: false });
     expect(readFileSync(join(root, "context/policies/governance.md"), "utf8")).toBe(CURRENT);
   });
