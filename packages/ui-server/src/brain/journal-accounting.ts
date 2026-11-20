@@ -81,8 +81,9 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
     const walCapacity = memory ? 0 : 32 + (pages + Math.ceil(pages / (pageSize / 4 - 2))) * (pageSize + 24);
     const physical = memory ? 0 : pages * pageSize;
     const objects = (db.query("SELECT coalesce(sum(bytes),0) AS bytes FROM turn_journal_objects WHERE state='present'").get() as { bytes: number }).bytes;
+    const quarantined = (db.query("SELECT coalesce(sum(bytes),0) AS bytes FROM turn_journal_scrub_quarantine").get() as { bytes: number }).bytes;
     const pending = (db.query("SELECT coalesce(sum(bytes),0) AS bytes FROM turn_journal_reservations").get() as { bytes: number }).bytes;
-    return { pages, free, walCapacity, bytes: physical + walCapacity + objects + pending };
+    return { pages, free, walCapacity, bytes: physical + walCapacity + objects + pending + quarantined };
   }
   class CheckpointRace extends Error {}
   class WalDebt extends Error {}

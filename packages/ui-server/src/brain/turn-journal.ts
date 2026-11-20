@@ -1,3 +1,5 @@
+import { startCronSpan } from "../cron/activity.js";
+import type { JournalScrubResult } from "./journal-scrub.js";
 import { FINISH_REFERENCE_CLEANUP } from "./journal-reference-cleanup.js";
 /** Concrete host journal: observations, durable ownership and completed-turn collection. */
 import type { JournalRecoveryStatus } from "@schlessera/brain-ui-sdk/protocol";
@@ -392,10 +394,33 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   let maintaining: Promise<void> | undefined, idleTimer: ReturnType<typeof setInterval> | undefined, closing = false;
   // Closing abandons an idle pass rather than waiting for its native work.
   const shutdown = new AbortController();
+  async function scrub(): Promise<JournalScrubResult> {
+    const span = startCronSpan(db, cleanupActivity, "maintain");
+    try {
+      const result = active.size || holds
+        ? { state: "skipped" as const, reason: "journal_busy" as const, listed: 0, unaccounted: 0, unaccountedBytes: 0, corrupt: 0, corruptBytes: 0, quarantined: 0, quarantinedBytes: 0 }
+        : await call<JournalScrubResult>("scrubObjects");
+      await cleanupActivity.appendEvent(span.rootSpanId, "journal_scrub", result);
+      await cleanupActivity.endSpan(span.rootSpanId, { outcome: "success", attrs: { "maintenance.journal_scrub": JSON.stringify(result) } });
+      await cleanupActivity.rollupRun(span.runId);
+      options.log?.emit({ severityText: result.corrupt ? "WARN" : "INFO", body: "Journal maintenance scrub", attributes: { "maintenance.journal_scrub": JSON.stringify(result) } });
+      return result;
+    } catch (error) {
+      const cause = { site: "journal.scrub", at: now(), errorClass: error instanceof Error ? error.name : "Error", message: String(error).slice(0,2000) };
+      await cleanupActivity.appendEvent(span.rootSpanId, "journal_scrub_failed", cause);
+      await cleanupActivity.endSpan(span.rootSpanId, { outcome: "error", reason: cause.message });
+      await cleanupActivity.rollupRun(span.runId);
+      options.log?.emit({ severityText: "WARN", body: "Journal maintenance scrub failed", attributes: cause });
+      throw error;
+    }
+  }
   function maintain(): Promise<void> {
-    if (closing || active.size || holds) return Promise.resolve();
+    if (closing) return Promise.resolve();
+    if (active.size || holds) return maintaining ??= scrub().then(() => {}).catch(() => {}).finally(() => { maintaining = undefined; });
     return maintaining ??= serialize(async () => {
-      if (closing || active.size) return;
+      if (closing) return;
+      await scrub();
+      if (active.size) return;
       await capture.initialize(shutdown.signal);
       await observe(false, undefined, shutdown.signal);
       await expireBacklog();
@@ -880,7 +905,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       closing = true; clearInterval(idleTimer); shutdown.abort(new Error("turn journal closed"));
       clearTimeout(worktreeRetryTimer); worktreeRetryTimer = undefined;
       clearInterval(scopeTimer);
-      try { await tail; await worktreeRetry; await Promise.allSettled([...unserialized]); await dropWorktrees(); await capture.close(); }
+      try { await maintaining; await tail; await worktreeRetry; await Promise.allSettled([...unserialized]); await dropWorktrees(); await capture.close(); }
       finally { await Promise.allSettled([...unserialized]); objects.close(); await ledger.close(); if (ownWriter) await writer.close(); }
     },
   };

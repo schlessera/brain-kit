@@ -115,3 +115,20 @@ test("closing abandons an idle pass instead of waiting for its native work", asy
     expect(closed, "CLOSE_ABANDONS_THE_IDLE_PASS").toBe("closed");
   } finally { f.blockCheckpoints(undefined); unblock(); await f.close().catch(() => {}); }
 });
+
+test("only host maintenance scrubs, and a busy turn records its skip in maintenance Activity", async()=>{
+ const f=fixture();
+ try {
+  await f.journal.ready;
+  const events=()=>f.db.query("SELECT payload FROM activity_events WHERE event_type='journal_scrub'").all() as {payload:string}[];
+  await f.begin("voyage");
+  expect(events(),"ADMISSION_DOES_NOT_SCRUB").toEqual([]);
+  await f.journal.maintain();
+  expect(JSON.parse(events().at(-1)!.payload).v,"SCRUB_BUSY_ACTIVITY").toMatchObject({state:"skipped",reason:"journal_busy",listed:0});
+  const beforeFinish=events().length;
+  await f.journal.finish("voyage");
+  expect(events(),"FINISH_DOES_NOT_SCRUB").toHaveLength(beforeFinish);
+  await f.journal.maintain();
+  expect(JSON.parse(events().at(-1)!.payload).v,"SCRUB_IDLE_ACTIVITY").toMatchObject({state:"complete",reason:null});
+ }finally{await f.close();}
+});
