@@ -21317,17 +21317,7 @@ signatures (every public export and the types it is made of)
             }, z.core.$strict>], "trusted">>;
             bindingId: z.ZodString;
             detailPruned: z.ZodBoolean;
-            detector: z.ZodNullable<z.ZodEnum<{
-                attachment_input: "attachment_input";
-                compute_input: "compute_input";
-                explicit_untrusted_input: "explicit_untrusted_input";
-                external_mcp_input: "external_mcp_input";
-                proxy_input: "proxy_input";
-                tool_file_input: "tool_file_input";
-                tool_search_output: "tool_search_output";
-                tool_web_input: "tool_web_input";
-                unproxied_shell_input: "unproxied_shell_input";
-            }>>;
+            detector: z.ZodNullable<z.ZodString>;
             entry: z.ZodOptional<z.ZodObject<{
                 kind: z.ZodLiteral<"tool">;
                 toolUseId: z.ZodString;
@@ -21484,17 +21474,7 @@ signatures (every public export and the types it is made of)
         }, z.core.$strict>], "trusted">>;
         bindingId: z.ZodString;
         detailPruned: z.ZodBoolean;
-        detector: z.ZodNullable<z.ZodEnum<{
-            attachment_input: "attachment_input";
-            compute_input: "compute_input";
-            explicit_untrusted_input: "explicit_untrusted_input";
-            external_mcp_input: "external_mcp_input";
-            proxy_input: "proxy_input";
-            tool_file_input: "tool_file_input";
-            tool_search_output: "tool_search_output";
-            tool_web_input: "tool_web_input";
-            unproxied_shell_input: "unproxied_shell_input";
-        }>>;
+        detector: z.ZodNullable<z.ZodString>;
         entry: z.ZodOptional<z.ZodObject<{
             kind: z.ZodLiteral<"tool">;
             toolUseId: z.ZodString;
@@ -22002,17 +21982,7 @@ signatures (every public export and the types it is made of)
             }, z.core.$strict>], "trusted">>;
             bindingId: z.ZodString;
             detailPruned: z.ZodBoolean;
-            detector: z.ZodNullable<z.ZodEnum<{
-                attachment_input: "attachment_input";
-                compute_input: "compute_input";
-                explicit_untrusted_input: "explicit_untrusted_input";
-                external_mcp_input: "external_mcp_input";
-                proxy_input: "proxy_input";
-                tool_file_input: "tool_file_input";
-                tool_search_output: "tool_search_output";
-                tool_web_input: "tool_web_input";
-                unproxied_shell_input: "unproxied_shell_input";
-            }>>;
+            detector: z.ZodNullable<z.ZodString>;
             entry: z.ZodOptional<z.ZodObject<{
                 kind: z.ZodLiteral<"tool">;
                 toolUseId: z.ZodString;
@@ -26934,17 +26904,7 @@ signatures (every public export and the types it is made of)
                 }, z.core.$strict>], "trusted">>;
                 bindingId: z.ZodString;
                 detailPruned: z.ZodBoolean;
-                detector: z.ZodNullable<z.ZodEnum<{
-                    attachment_input: "attachment_input";
-                    compute_input: "compute_input";
-                    explicit_untrusted_input: "explicit_untrusted_input";
-                    external_mcp_input: "external_mcp_input";
-                    proxy_input: "proxy_input";
-                    tool_file_input: "tool_file_input";
-                    tool_search_output: "tool_search_output";
-                    tool_web_input: "tool_web_input";
-                    unproxied_shell_input: "unproxied_shell_input";
-                }>>;
+                detector: z.ZodNullable<z.ZodString>;
                 entry: z.ZodOptional<z.ZodObject<{
                     kind: z.ZodLiteral<"tool">;
                     toolUseId: z.ZodString;
@@ -27113,17 +27073,7 @@ signatures (every public export and the types it is made of)
                 }, z.core.$strict>], "trusted">>;
                 bindingId: z.ZodString;
                 detailPruned: z.ZodBoolean;
-                detector: z.ZodNullable<z.ZodEnum<{
-                    attachment_input: "attachment_input";
-                    compute_input: "compute_input";
-                    explicit_untrusted_input: "explicit_untrusted_input";
-                    external_mcp_input: "external_mcp_input";
-                    proxy_input: "proxy_input";
-                    tool_file_input: "tool_file_input";
-                    tool_search_output: "tool_search_output";
-                    tool_web_input: "tool_web_input";
-                    unproxied_shell_input: "unproxied_shell_input";
-                }>>;
+                detector: z.ZodNullable<z.ZodString>;
                 entry: z.ZodOptional<z.ZodObject<{
                     kind: z.ZodLiteral<"tool">;
                     toolUseId: z.ZodString;
@@ -27813,17 +27763,7 @@ signatures (every public export and the types it is made of)
                 }, z.core.$strict>], "trusted">>;
                 bindingId: z.ZodString;
                 detailPruned: z.ZodBoolean;
-                detector: z.ZodNullable<z.ZodEnum<{
-                    attachment_input: "attachment_input";
-                    compute_input: "compute_input";
-                    explicit_untrusted_input: "explicit_untrusted_input";
-                    external_mcp_input: "external_mcp_input";
-                    proxy_input: "proxy_input";
-                    tool_file_input: "tool_file_input";
-                    tool_search_output: "tool_search_output";
-                    tool_web_input: "tool_web_input";
-                    unproxied_shell_input: "unproxied_shell_input";
-                }>>;
+                detector: z.ZodNullable<z.ZodString>;
                 entry: z.ZodOptional<z.ZodObject<{
                     kind: z.ZodLiteral<"tool">;
                     toolUseId: z.ZodString;
@@ -28008,17 +27948,7 @@ signatures (every public export and the types it is made of)
                 }, z.core.$strict>], "trusted">>;
                 bindingId: z.ZodString;
                 detailPruned: z.ZodBoolean;
-                detector: z.ZodNullable<z.ZodEnum<{
-                    attachment_input: "attachment_input";
-                    compute_input: "compute_input";
-                    explicit_untrusted_input: "explicit_untrusted_input";
-                    external_mcp_input: "external_mcp_input";
-                    proxy_input: "proxy_input";
-                    tool_file_input: "tool_file_input";
-                    tool_search_output: "tool_search_output";
-                    tool_web_input: "tool_web_input";
-                    unproxied_shell_input: "unproxied_shell_input";
-                }>>;
+                detector: z.ZodNullable<z.ZodString>;
                 entry: z.ZodOptional<z.ZodObject<{
                     kind: z.ZodLiteral<"tool">;
                     toolUseId: z.ZodString;

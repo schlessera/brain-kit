@@ -247,7 +247,9 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     let snapshot: AdmissionSafetySnapshot | undefined;
     const started = performance.now();
     const controller = new AbortController(); controllers.add(controller); inputs.set(connectionId, controller);
-    const host = canonicalEgressHost(url.hostname), port = Number(url.port || (url.protocol === "https:" ? "443" : "80"));
+    // Matching may ignore a DNS root dot; resolution must preserve it.
+    const dialHost = url.hostname.startsWith("[") ? url.hostname.slice(1, -1) : url.hostname;
+    const host = canonicalEgressHost(dialHost), port = Number(url.port || (url.protocol === "https:" ? "443" : "80"));
     let bytes = 0, finished = false, notified = false, granted = false;
     /** The checked address this connection is pinned to, under a destination policy. */
     let pinned: { address: string; family: number } | undefined;
@@ -305,7 +307,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (destinationPorts) {
         if (!destinationPorts.has(port)) { finish("denied", "destination_port"); return false; }
         let addresses: ReadonlyArray<{ address: string; family: number }>;
-        try { addresses = isIP(host) ? [{ address: host, family: isIP(host) }] : await resolve(host); }
+        try { addresses = isIP(dialHost) ? [{ address: dialHost, family: isIP(dialHost) }] : await resolve(dialHost); }
         catch { finish("denied", "unresolved_destination"); return false; }
         if (!addresses.length) { finish("denied", "unresolved_destination"); return false; }
         // Every address must pass: a mixed answer is refused, not narrowed.
@@ -350,7 +352,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (finalReason === "taint_not_allowed") try { cause = options.taint?.cause?.(); } catch { /* The message names no cause. */ }
       return describeRefusal(finalReason, host, matches(host, options.deny), cause);
     };
-    return { host, finish, charge, admit, commit, refusal, signal: controller.signal, outcome: () => finalOutcome, reason: () => finalReason, pinned: () => pinned };
+    return { host, dialHost, finish, charge, admit, commit, refusal, signal: controller.signal, outcome: () => finalOutcome, reason: () => finalReason, pinned: () => pinned };
   }
   server.on("connect", (request, client, head) => {
     client.on("error", () => {});
@@ -372,7 +374,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
         return;
       }
       const address = op.pinned();
-      upstream = track(connect({ host: address?.address ?? op.host, port: Number(target.port || 80) }));
+      upstream = track(connect({ host: address?.address ?? op.dialHost, port: Number(target.port || 80) }));
       const tunnel = upstream;
       tunnel.once("connect", () => {
         if (stopped || op.signal.aborted || client.destroyed || !op.commit()) { tunnel.destroy(); return; }

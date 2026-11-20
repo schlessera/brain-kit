@@ -424,3 +424,10 @@ test('review7: absent approvals never read approval history during a real HTTP e
  let reads=0;const origin=Bun.serve({hostname:'127.0.0.1',port:0,fetch:()=>new Response('Ithaca')});const proxy=await startEgressProxy({...defaults([]),taint:{allow:[],tainted:()=>false,contacted:()=>false,approvalRevision:()=>{reads++;return '1';}}});
  try{expect((await get(proxy.socketPath,origin.url.href)).status).toBe(200);expect(reads,'ABSENT_APPROVAL_NEVER_READS_REVISION').toBe(0);}finally{proxy.stop();origin.stop(true);}
 });
+
+for(const pinned of [false,true])test(`review9: absolute DNS authority survives ${pinned?'checked resolution':'unbound dialing'}`,async()=>{
+ const {Socket}=await import('node:net');const {spyOn}=await import('bun:test');const server=createServer(socket=>socket.on('data',b=>socket.write(b.toString().toUpperCase())));await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const port=(server.address() as {port:number}).port;const seen:string[]=[],records:EgressRecord[]=[];
+ const original=Socket.prototype.connect;const spy=spyOn(Socket.prototype,'connect').mockImplementation(function(this:InstanceType<typeof Socket>,...args:any[]){const values=Array.isArray(args[0])?args[0]:args,options=values[0];if(!pinned&&options&&typeof options==='object'&&options.port===port){seen.push(options.host);values[0]={...options,host:'127.0.0.1'};return Reflect.apply(original,this,args);}return Reflect.apply(original,this,args);});
+ const proxy=await startEgressProxy({...defaults(records),...(pinned?{destinations:{ports:[port],allowRanges:['127.0.0.0/8'],lookup:async(host:string)=>{seen.push(host);return [{address:'127.0.0.1',family:4}];}}}:{})});
+ try{expect(await tunnel(proxy.socketPath,`ithaca.example.org.:${port}`,'ithaca')).toContain('ITHACA');expect(seen,'ABSOLUTE_DNS_AUTHORITY_NEVER_LOSES_ITS_DOT').toEqual(['ithaca.example.org.']);await recorded(records,1);expect(records[0]?.host).toBe('ithaca.example.org');}finally{spy.mockRestore();proxy.stop();await new Promise<void>(r=>server.close(()=>r()));}
+});

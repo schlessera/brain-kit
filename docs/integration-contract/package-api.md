@@ -82,7 +82,9 @@ host-owned `managedReference` identity; pending approvals never coalesce a
 managed HTTPS acquisition with an opaque CONNECT to the same authority.
 CONNECT accepts explicit bracketed IPv6 authorities as well as canonical DNS
 and IPv4 hosts. `canonicalEgressHost` supplies one lowercase DNS or canonical bare
-IP identity for host checks, cards, receipts and dialing. Settings selectors
+IP comparison identity for host checks, cards and receipts. Resolution/dialing
+preserves the requested URL hostname, including a DNS root dot; destination
+policy resolves that exact hostname before pinning a checked IP. Settings selectors
 retain URL brackets for IPv6; the trust matcher adapts that schema boundary.
 Absent approvals never request an approval revision. Unchanged safety reads,
 approval markers and taint/projection reads use local-write, external SQLite

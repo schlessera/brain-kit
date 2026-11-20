@@ -17,3 +17,5 @@ Normalize all transport host identities, recheck send authority on every HTTP wr
 Validate complete trusted admission variants on the wire, avoid absent-approval and unchanged-stream evidence scans with live change counters, and let independent readers recover after projection publication races.
 
 Record unmatched source hash and revision from the same live snapshot used for matching, and display IPv6 provenance with bracketed authorities.
+
+Preserve absolute DNS authorities during resolution/dialing separately from comparison keys, and retain the version-1 detector ID contract while strictly validating admission evidence.
