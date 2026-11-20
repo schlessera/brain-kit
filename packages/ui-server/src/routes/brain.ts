@@ -65,6 +65,39 @@ function lastLines(output: string, count: number): string {
   return output.split("\n").map(line => line.trim()).filter(Boolean).slice(-count).join("\n");
 }
 
+/**
+ * Read a stream line by line, handing each non-empty line to `line` in order.
+ * `idleSince` is when the current read started while it waits for data with
+ * nothing pending, null while a line is being handled: it tells a pipe held
+ * open apart from output still being delivered.
+ */
+function drainLines(stream: ReadableStream<Uint8Array>, line: (text: string) => unknown) {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "", waiting: number | null = null, finished = false;
+  const done = (async () => {
+    try {
+      while (true) {
+        waiting = Date.now();
+        const { done, value } = await reader.read();
+        waiting = null;
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        for (const text of lines) if (text.trim()) await line(text);
+      }
+      if (buffer.trim()) await line(buffer);
+    } catch {} finally { waiting = null; finished = true; }
+  })();
+  return {
+    done,
+    finished: () => finished,
+    idleSince: () => waiting,
+    cancel: () => reader.cancel().catch(() => {}),
+  };
+}
+
 export function createBrainRoutes(deps: BrainRoutesDeps): Hono<AppEnv> {
   const { brain, brainPath, keyterms } = deps;
   const syncingRoots = deps.syncingRoots ?? new Map<string, number>();
@@ -274,46 +307,34 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono<AppEnv> {
 
         // Keep draining even when the SSE reader disconnects. The repository
         // stays reserved until the actual sync process has exited.
-        const stderrDone = new Response(proc.stderr).text().then(async text => {
-          if (text.trim()) await send({ type: "progress", text: text.trim() });
-          return text;
-        }).catch(() => "");
-        const reader = proc.stdout.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-        const drained = (async () => {
-          try {
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              buffer += decoder.decode(value, { stream: true });
-              const lines = buffer.split("\n");
-              buffer = lines.pop() || "";
-              for (const line of lines) {
-                if (line.trim()) {
-                  await send({ type: "progress", text: line });
-                }
-              }
-            }
-            if (buffer.trim()) {
-              await send({ type: "progress", text: buffer });
-            }
-          } catch {}
-        })();
+        const stdout = drainLines(proc.stdout, line => send({ type: "progress", text: line }));
+        // stderr is sent as one block once it ends, as before.
+        let stderrText = "";
+        const stderr = drainLines(proc.stderr, line => { stderrText += `${line}\n`; });
+        const stderrDone = stderr.done.then(() => stderrText.trim() ? send({ type: "progress", text: stderrText.trim() }) : undefined);
 
         const exitCode = await proc.exited;
         // A descendant that outlives the sync can hold its output pipes open
-        // (#4257): once the process has exited, its output gets a short grace
-        // period and the brain is released whether or not the pipes closed.
-        let grace: ReturnType<typeof setTimeout> | undefined;
-        const graceOver = new Promise<void>(resolve => { grace = setTimeout(resolve, outputGraceMs); });
-        await Promise.race([Promise.all([drained, stderrDone]), graceOver]);
-        clearTimeout(grace);
+        // (#4257). Once the process has exited, the brain is released when
+        // every unfinished pipe has sat open with nothing to read for the
+        // grace period. Time spent delivering output to a slow reader never
+        // counts, so nothing the sync wrote is cut off.
+        await new Promise<void>(resolve => {
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          const finish = () => { clearTimeout(timer); resolve(); };
+          void Promise.all([stdout.done, stderrDone]).then(finish, finish);
+          const check = () => {
+            const idle = [stdout, stderr].filter(pipe => !pipe.finished()).map(pipe => pipe.idleSince());
+            if (idle.length && idle.every(since => since !== null && Date.now() - since >= outputGraceMs)) return finish();
+            timer = setTimeout(check, Math.max(1, Math.min(250, outputGraceMs)));
+          };
+          check();
+        });
         clearInterval(keepalive);
         // Never awaited: a boundary's cancel can itself drain to EOF, keeping
         // the writer gate until the descendant lets go (the next sync waits on
         // that gate within its own launch bound), but not this reservation.
-        void reader.cancel().catch(() => {});
+        void stdout.cancel(); void stderr.cancel();
 
         // Rebuild voice keyterms cache after a successful sync.
         if (exitCode === 0) {

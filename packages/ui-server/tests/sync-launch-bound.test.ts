@@ -154,6 +154,45 @@ describe("bounded sync launch (#4257)", () => {
     expect((await app.request("/brain/sync", { method: "POST" })).status, "HELD_PIPE_NEXT_ADMITTED").toBe(200);
   });
 
+  test("a sync that has started is never bounded: it runs past the launch bound and is not killed", async () => {
+    const root = brainRoot();
+    let killed: string | undefined;
+    const app = routes(root, async execution => {
+      execution.onExecute?.();
+      return { ...fakeProcess(["Merged Ithaca"], 0), exited: Bun.sleep(150).then(() => 0), kill(signal?: NodeJS.Signals) { killed = signal ?? "SIGTERM"; } };
+    }, { syncLaunchTimeoutMs: 30 });
+    const result = await readFor(await app.request("/brain/sync", { method: "POST" }), 2_000);
+    expect(frames(result.text).at(-1), "STARTED_SYNC_COMPLETES").toMatchObject({ type: "done", success: true });
+    expect(killed, "STARTED_SYNC_NOT_KILLED").toBeUndefined();
+  });
+
+  test("a reader that drains slowly after exit still gets every line, and Activity keeps the last error", async () => {
+    const root = brainRoot();
+    const db = createUiDb(":memory:");
+    try {
+      const store = createActivityStore(db);
+      const lines = Array.from({ length: 40 }, (_, i) => `Ithaca ledger line ${i} ${"·".repeat(2_000)}`);
+      const app = routes(root, async execution => {
+        execution.onExecute?.();
+        return fakeProcess([...lines, "error: final refusal from Ithaca"], 1);
+      }, { syncOutputGraceMs: 20, activity: store });
+      const response = await app.request("/brain/sync", { method: "POST" });
+      // The reader is slow: nothing is read for well past the grace period.
+      await Bun.sleep(200);
+      const all = await readFor(response, 5_000);
+      expect(all.ended).toBe(true);
+      expect(all.text, "SLOW_READER_GETS_FINAL_LINE").toContain("error: final refusal from Ithaca");
+      const deadline = Date.now() + 2_000;
+      let ended: ReturnType<typeof store.getSpan> = null;
+      while (Date.now() < deadline && !ended?.endedAt) {
+        const span = store.changesSince(0).flatMap(change => change.kind === "span" ? [change.span] : []).find(span => span.jobName === "ui-sync");
+        ended = span ? store.getSpan(span.spanId) : null;
+        await Bun.sleep(10);
+      }
+      expect(ended?.outcomeReason ?? "", "SLOW_READER_ACTIVITY_KEEPS_FINAL_LINE").toContain("final refusal from Ithaca");
+    } finally { db.close(); }
+  });
+
   test("a 409 names how long the current sync has held the brain", async () => {
     const root = brainRoot();
     let release!: () => void;

@@ -410,13 +410,17 @@ test("a hosted sync launch reports its start only once its first worker starts, 
   try {
     execution.attach(db);
     const events: string[] = [];
-    const worker = await execution.boundary.launch({ argv: ["/bin/true"], env: { PATH: "/usr/bin:/bin" }, credentials: false,
-      gate: "exclusive", sync: true, purpose: "start-reporting sync", onExecute: () => { events.push("started"); } });
+    // The worker runs for two seconds: a start reported before it runs comes
+    // long before the exit, one reported at the end of the sync does not.
+    let startedAt = 0;
+    const worker = await execution.boundary.launch({ argv: ["/bin/sh", "-c", "sleep 2"], env: { PATH: "/usr/bin:/bin" }, credentials: false,
+      gate: "exclusive", sync: true, purpose: "start-reporting sync", onExecute: () => { startedAt = performance.now(); events.push("started"); } });
     // The launch returned with the mirror sync still preparing: nothing has started yet.
     events.push("launched");
     void new Response(worker.stdout).text().catch(() => {});
     const stderr = new Response(worker.stderr).text().catch(() => "");
     expect(await worker.exited, `START_SYNC_EXIT: ${await stderr}`).toBe(0);
+    expect(performance.now() - startedAt, "START_REPORTED_BEFORE_WORKER_RUNS").toBeGreaterThanOrEqual(1_500);
     expect(events, "START_REPORTED_ONCE_AFTER_LAUNCH").toEqual(["launched", "started"]);
   } finally { db.close(); }
 });
