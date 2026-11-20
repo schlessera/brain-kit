@@ -233,10 +233,10 @@ async function executeMirrorSync(input: Parameters<typeof runMirrorSync>[0]): Pr
   if (remote === null) return runLocalSync({ ...command, credentials: false,
     ...(input.signal ? { signal: input.signal } : {}), ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}) }, input.nativeManager, input.folderPaths, input.log);
   prepareMirror(mirror, brain);
-  const transport = async (args: readonly string[]) => {
+  const transport = async (args: readonly string[], outputBytes?: number) => {
     assertMirrorStorage(mirror);
     return runMaintenanceWorker({ ...syncTransportCommand({ brain, mirror, remote, env: input.transportEnv ?? command.env, args, tempLimits: command.tempLimits, tempDomain: command.tempDomain }),
-      ...(input.signal ? { signal: input.signal } : {}), timeoutMs: input.timeoutMs ?? 120_000 });
+      ...(input.signal ? { signal: input.signal } : {}), ...(outputBytes ? { outputBytes } : {}), timeoutMs: input.timeoutMs ?? 120_000 });
   };
   let last: ExecutionResult = { stdout: "", stderr: "", exitCode: 1 };
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -251,8 +251,9 @@ async function executeMirrorSync(input: Parameters<typeof runMirrorSync>[0]): Pr
     // and before any worker of this sync runs, so worker writes to the mirror
     // cannot change what it is compared with.
     const upstream = mirrorHead(mirror);
-    const upstreamPolicy = upstream ? await transport(["cat-file", "blob", `${upstream}:${GOVERNANCE_POLICY_PATH}`]) : null;
-    const expected = upstreamPolicy?.exitCode === 0 ? upstreamPolicy.stdout : null;
+    // Bounded like the stage read: a larger upstream policy is never held, and it cannot be reviewed.
+    const upstreamPolicy = upstream ? await transport(["cat-file", "blob", `${upstream}:${GOVERNANCE_POLICY_PATH}`], INCOMING_POLICY_READ_BOUND) : null;
+    const expected = upstreamPolicy?.exitCode === 0 && !upstreamPolicy.killed ? upstreamPolicy.stdout : null;
     last = await runLocalSync({ ...command, credentials: false, upstream,
       ...(input.onPolicyChange ? { onPolicyChange: input.onPolicyChange } : {}),
       verify: async content => {

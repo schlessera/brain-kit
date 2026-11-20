@@ -157,8 +157,8 @@ export function StreamingPanel({
           setLines((lines) => [...lines, "Cancelled."]);
         }}
         onClose={onClose}
+        after={policyReview && <SyncPolicyReview key={`${policyReview.turn_id}:${policyReview.request_id}`} frame={policyReview} />}
       />
-      {policyReview && <SyncPolicyReview key={`${policyReview.turn_id}:${policyReview.request_id}`} frame={policyReview} />}
     </SlidePanel>
   );
 }

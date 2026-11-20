@@ -35,6 +35,8 @@ interface StreamingOutputProps {
   onClose: () => void;
   /** Wire to the scroll anchor the container keeps in view. */
   anchor?: ReactNode;
+  /** Shown after the log, inside the same scrolling area, above the footer (a sync's policy review, #4256). */
+  after?: ReactNode;
 }
 
 export function StreamingOutput(p: StreamingOutputProps) {
@@ -54,6 +56,7 @@ export function StreamingOutput(p: StreamingOutputProps) {
           </div>
         ))}
         {running && p.lines.length === 0 && <div className="text-muted-foreground/50">Starting...</div>}
+        {p.after && <div className="font-[family-name:var(--font-sans)] text-sm">{p.after}</div>}
         {p.anchor}
       </div>
 
