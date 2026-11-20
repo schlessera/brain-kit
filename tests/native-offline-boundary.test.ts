@@ -113,6 +113,7 @@ test("relay paths cannot redirect headers and body to another loopback service",
       } finally {relay.dispose();} process.exit(0);`, scratch);
     expect(result.code).not.toBe(0);
     expect(result.output).toContain('"reason":"unintended native destination"');
+    expect(result.output).not.toContain('"nativeLaunched":true');
     expect(unintended).toBe(0); expect(intended).toBe(1);
   } finally { target.stop(true); other.stop(true); rmSync(scratch, { recursive: true, force: true }); }
 });

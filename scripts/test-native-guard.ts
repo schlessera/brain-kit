@@ -231,7 +231,7 @@ export function startNativeTestRelay(upstream: string | undefined) {
     if (url.origin !== "http://localhost" || !url.pathname.startsWith("/") || url.pathname.startsWith("//") ||
         url.pathname.includes("\\") || outbound.origin !== target.origin) {
       denied++;
-      console.error(JSON.stringify({ kind: "native-offline-boundary", success: false, nativeLaunched: true, reason: "unintended native destination", head: receiptHead() }));
+      console.error(JSON.stringify({ kind: "native-offline-route-denial", success: false, reason: "unintended native destination", head: receiptHead() }));
       return new Response("Offline native destination refused", { status: 403 });
     }
     // A redirect is returned to the isolated native process; it cannot make a
