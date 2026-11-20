@@ -49,3 +49,16 @@ test("an unknown staging failure keeps its cause and fails only the packing step
  expect(result.stdout,"PACKING_UNKNOWN_IS_NOT_CAPACITY").toContain("FAILED — git packing: staging identity changed");
  expect(result.stdout).toContain("ok — 1 added");
 });
+
+test("a hosted Git no-space failure names its dedicated allowance and starting headroom",async()=>{
+ let calls=0;
+ const result=await runHostedMaintenance(execution,1,async()=>{
+  if(++calls===1)return answer([{step:"git",result:"skipped"}]);
+  if(calls===2)return answer({state:"complete",headroom:{packingRequiredBytes:32*1024**2}});
+  return answer({state:"partial",reason:"no_space",packed:null,headroom:{availableBytes:12345},garbage:{count:0,bytes:0}},2);
+ });
+ expect(result.exitCode).toBe(2);
+ const git=JSON.parse(result.stdout)[0].result as string;
+ expect(git,"HOSTED_PACK_NO_SPACE_QUALIFIED").toStartWith("FAILED — no space:");
+ expect(git).toContain(`allowance ${48*1024**2} bytes`);expect(git).toContain("12345 bytes available when the step started");
+});

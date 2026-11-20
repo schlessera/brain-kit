@@ -30,10 +30,15 @@ export async function runHostedMaintenance(execution: BrainExecution, commandInd
       const packingAllowanceBytes=parsed.headroom!.packingRequiredBytes+16*1024**2;
       const packed=await run({...execution,argv:[...prefix,"storage","pack","--json"],credentials:false,
         outputAreas:[".git"],packingAllowanceBytes,onExecute:undefined});
-      const value=JSON.parse(packed.stdout) as {state:string;reason:string|null;packed:number|null;garbage:{count:number;bytes:number}|null};
+      const value=JSON.parse(packed.stdout) as {state:string;reason:string|null;packed:number|null;headroom?:{availableBytes:number|null};garbage:{count:number;bytes:number}|null};
       result=value.state==="complete" && packed.exitCode===0 ? `ok — packed ${value.packed} loose object(s)`
         : value.state==="refused" && (value.reason==="no_space" || value.reason==="packing_headroom") ? `skipped — packing_headroom: ${value.reason}; Git published nothing`
         : `FAILED — git packing: ${value.reason}; Git published nothing`;
+      if(value.state==="partial" && value.reason==="no_space") {
+        const available=value.headroom?.availableBytes;
+        const headroom=available===null || available===undefined ? "available space unknown when the step started" : `${available} bytes available when the step started`;
+        result=`FAILED — no space: git packing ran out of space in the dedicated maintenance packing stage (allowance ${packingAllowanceBytes} bytes; ${headroom}); Git published nothing`;
+      }
       garbage=value.garbage ?? garbage;
     }
   } catch(error) {
