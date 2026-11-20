@@ -338,10 +338,13 @@ test("workspace SDK discovery works without root resolution and fails closed for
       if(!isNativeClaude(${JSON.stringify(runtime)}))throw Error("workspace native SDK was missed");`, scratch);
     expect(available.code, available.output).toBe(0);
     rmSync(link);
-    const missing = await probe(`import {isNativeClaude} from ${JSON.stringify(module)};isNativeClaude("/usr/bin/true");`, scratch);
+    const missing = await probe(`import {isNativeClaude} from ${JSON.stringify(module)};
+      const spawnSync=Bun.spawnSync;Bun.spawnSync=((argv,options)=>{isNativeClaude(argv[0]);return Reflect.apply(spawnSync,Bun,[argv,options]);});
+      isNativeClaude("/usr/bin/true");`, scratch);
     expect(missing.code).not.toBe(0);
     expect(missing.output).toContain('"reason":"installed SDK runtime discovery failed"');
     expect(missing.output).toContain('"nativeLaunched":false');
+    expect(missing.output.match(/"kind":"native-offline-boundary"/g)).toHaveLength(1);
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 });
 
