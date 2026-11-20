@@ -242,7 +242,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     const started = performance.now();
     const controller = new AbortController(); controllers.add(controller); inputs.set(connectionId, controller);
     const host = hostname(url.hostname), port = Number(url.port || (url.protocol === "https:" ? "443" : "80"));
-    let bytes = 0, finished = false;
+    let bytes = 0, finished = false, notified = false;
     /** The checked address this connection is pinned to, under a destination policy. */
     let pinned: { address: string; family: number } | undefined;
     let finalOutcome: EgressRecord["outcome"] | undefined, finalReason: string | undefined;
@@ -336,7 +336,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (usedBytes >= options.maxBytes) { finish("denied", "max_bytes_per_turn"); return false; }
       if (!inputCurrent(connectionId)) { finish("denied", "source_trust_changed"); return false; }
       if (narrowed(true)) { finish("denied", "taint_not_allowed"); return false; }
-      options.committed?.({ ...recipient, connectionId, inference, provider });
+      if (!notified) { notified = true; options.committed?.({ ...recipient, connectionId, inference, provider }); }
       return true;
       } catch { finish("denied", "safety_changed"); return false; }
     };

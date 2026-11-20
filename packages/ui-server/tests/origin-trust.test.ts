@@ -41,7 +41,7 @@ async function fixture(recipient = false, policy: GovernancePolicyInput = {schem
     bridge});
   const epoch=(db.query("SELECT id FROM safety_collections WHERE turn_id='turn-voyage'").get() as {id:string}).id;
   const taint=()=>writes.firstTaint({kind:"taint",turnId:"turn-voyage",sessionId:"voyage",actor:"interactive",profile:"governed",model:null,payload:{source:"web_search",tool:null,detail:null,occurrence:occurrence(epoch,"tool_web_input",crypto.randomUUID(),"finalized")}});
-  return {db,writes,writer,origin,proxy,t,taint,controller,decide(value: BackendBridge["requestPermission"]) { decide=value; },asks:()=>asks,hits:()=>hits,async close(){proxy.stop();origin.stop(true);await proxy.settled();await writer?.close();db.close();if(root)rmSync(root,{recursive:true,force:true});}};
+  return {db,writes,writer,origin,proxy,t,taint,controller,bridge,decide(value: BackendBridge["requestPermission"]) { decide=value; },asks:()=>asks,hits:()=>hits,async close(){proxy.stop();origin.stop(true);await proxy.settled();await writer?.close();db.close();if(root)rmSync(root,{recursive:true,force:true});}};
 }
 test("verified future input retains its decision without creating an unresolved trigger or recipient grant",async()=>{
  const f=await fixture();try{
@@ -139,4 +139,16 @@ test("review: independent pending input also withdraws a card on a permanently r
   const pending=get(f.proxy.socketPath,f.origin.url.href);await reached;const probe=await import('./fixtures/write-worker-probe');const channel=f.writer!.channel(probe,{table:'origin_pending_hold'});await channel.ready;const active=new Int32Array(new SharedArrayBuffer(4));slow=channel.call('slow','Calypso',400,active);await Atomics.waitAsync(active,0,0).value;
   pendingTaint=f.taint();expect(f.writes.safety('turn-voyage','voyage').pendingCount).toBeGreaterThan(0);release();expect(await pending,'PENDING_INPUT_WITHDRAWS_CARD_WITHOUT_NORMALIZING_AWAY_OTHER_SIGNALS').toBe(403);expect(f.hits()).toBe(0);
  }finally{release();await slow;await pendingTaint;await f.close();}
+});
+test("review2: a later revision cannot join a hostname's earlier pending Network card",async()=>{
+ const f=await fixture();const answers:Array<(v:{behavior:'allow'|'deny';message?:string})=>void>=[];let firstReady!:()=>void,secondReady!:()=>void;const firstCard=new Promise<void>(r=>{firstReady=r;}),secondRequest=new Promise<void>(r=>{secondReady=r;});let first:Promise<number>|undefined,second:Promise<number>|undefined;const safety=f.bridge.admissionSafety!,read=safety.read;
+ try{await f.taint();f.decide(()=>new Promise(r=>{answers.push(r);firstReady();}));first=get(f.proxy.socketPath,f.origin.url.href);await firstCard;await f.taint();let announced=false;safety.read=()=>{const value=read();if(!announced){announced=true;queueMicrotask(secondReady);}return value;};second=get(f.proxy.socketPath,f.origin.url.href);await secondRequest;
+ expect(f.asks(),'NEW_EVIDENCE_REQUIRES_A_NEW_NETWORK_CARD').toBe(2);answers[0]!({behavior:'allow'});expect(await first).toBe(403);expect(f.hits()).toBe(0);answers[1]!({behavior:'deny',message:'Athena declines the new context'});expect(await second).toBe(403);
+ }finally{safety.read=read;for(const answer of answers)answer({behavior:'deny',message:'Closed'});await Promise.allSettled([first,second]);await f.close();}
+});
+for(const pruned of [false,true])test(`review2: forks inherit unresolved input only, regardless of pruning (${pruned})`,async()=>{
+ const f=await fixture();try{expect(await get(f.proxy.socketPath,f.origin.url.href)).toBe(200);await f.proxy.settled();if(pruned)pruneSafetyDetail(f.db,Number.MAX_SAFE_INTEGER);expect(f.writes.safety(null,'voyage').unresolvedCount).toBe(0);
+ await f.writes.safetyBegin({turnId:'fork-trusted',bindingId:crypto.randomUUID(),sessionId:null,principalId:'odysseus',backendId:'claude',sourceSessionId:'voyage',at:2});expect(f.writes.safety('fork-trusted',null).unresolvedCount,'FORK_NEVER_TURNS_TRUSTED_INPUT_INTO_AN_UNRESOLVED_SIGNAL').toBe(0);expect(f.writes.safety('fork-trusted',null).restriction).toBe('restricted');
+ await f.taint();if(pruned)pruneSafetyDetail(f.db,Number.MAX_SAFE_INTEGER);await f.writes.safetyBegin({turnId:'fork-unresolved',bindingId:crypto.randomUUID(),sessionId:null,principalId:'odysseus',backendId:'claude',sourceSessionId:'voyage',at:3});expect(f.writes.safety('fork-unresolved',null).unresolvedCount).toBe(1);
+ }finally{await f.close();}
 });

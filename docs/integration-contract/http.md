@@ -1345,3 +1345,9 @@ destroys both tunnel sockets before a delayed connect callback can return 200.
 Managed HTTPS reference traffic carries a host-only verified transport tag for
 recipient matching and audit, independently of its opaque wire accounting; it
 cannot borrow a raw CONNECT selector or grant source/private/write authority.
+
+Pending network cards coalesce only for the same destination and immutable live
+approval context; later evidence cannot join an earlier card. Fork reconstruction
+copies unresolved untrusted occurrences only, with identical admission handling
+before and after detail pruning. CONNECT and relay rechecks revalidate every time
+but notify the host's committed observer exactly once per operation.

@@ -181,21 +181,30 @@ export async function prepareTurnEgress(options: {
   // A taint submitted but not yet committed counts (#2850).
   const firstTaint = () => db ? writes ? writes.taint(options.turnId, options.sessionId()) : sessionTaint(db, options.turnId, options.sessionId()) : null;
   /**
-   * One card per destination host at a time: concurrent connections to the
-   * same new host share its answer. An allowed connection's admission adds
+   * One card per exact destination and live approval revision: concurrent
+   * connections share only the same reviewed context. An allowed connection's admission adds
    * its host to `contacted`, so the rest of this turn admits it, and its
    * charged `egress_connection` record carries it into later turns
    * (`contactedHosts`).
    */
+  const approvalRevision = (connectionId?: string) => {
+      if (!db) return "unrecorded";
+      const safety = options.bridge.admissionSafety?.read();
+      const state = options.governanceWrites?.safety?.(options.turnId, options.sessionId()) ?? safetyProjection(db, options.turnId, options.sessionId());
+      return JSON.stringify([state.pendingCount, state.coverage.state, state.reasons.filter(reason => reason !== "unresolved"), safetyEvidenceSequence(db, options.turnId, options.sessionId(), connectionId ? exposures.get(connectionId)?.id ?? null : null),
+        options.trust?.revision() ?? "0", safety?.scope, safety?.authorityEpoch, safety?.authorityCurrent,
+        writes?.recordingAvailable?.(options.turnId, options.sessionId()) ?? safety?.recordingAvailable]);
+    };
   const asking = new Map<string, Promise<boolean>>();
   const approveTainted = async (destination: { host: string; port: number; method: string }, signal: AbortSignal): Promise<boolean> => {
-    let pending = asking.get(destination.host);
+    const key = JSON.stringify([destination.host, destination.port, destination.method, approvalRevision()]);
+    let pending = asking.get(key);
     if (!pending) {
       pending = requestToolPermission(options.bridge, { toolUseId: crypto.randomUUID(), toolName: "Network", kind: "command",
         input: { ...destination, target: `${destination.host}:${destination.port}` },
         description: taintedDestinationDescription(destination, firstTaint()?.source ?? null),
-      }).then(decision => decision.behavior === "allow", () => false).finally(() => asking.delete(destination.host));
-      asking.set(destination.host, pending);
+      }).then(decision => decision.behavior === "allow", () => false).finally(() => asking.delete(key));
+      asking.set(key, pending);
     }
     const allowed = await pending;
     return allowed && !signal.aborted;
@@ -209,13 +218,7 @@ export async function prepareTurnEgress(options: {
     ...(options.policy.taint.judge.mode === "jev" && options.extractionJudge ? { judge: options.extractionJudge } : {}) }) : null;
   const taint = db ? {
     allow: options.policy.taint.egress.allow,
-    approvalRevision: (connectionId?: string) => {
-      const safety = options.bridge.admissionSafety?.read();
-      const state = options.governanceWrites?.safety?.(options.turnId, options.sessionId()) ?? safetyProjection(db, options.turnId, options.sessionId());
-      return JSON.stringify([state.pendingCount, state.coverage.state, state.reasons.filter(reason => reason !== "unresolved"), safetyEvidenceSequence(db, options.turnId, options.sessionId(), connectionId ? exposures.get(connectionId)?.id ?? null : null),
-        options.trust?.revision() ?? "0", safety?.scope, safety?.authorityEpoch, safety?.authorityCurrent,
-        writes?.recordingAvailable?.(options.turnId, options.sessionId()) ?? safety?.recordingAvailable]);
-    },
+    approvalRevision,
     recipient: (destination: OriginDestination) => originTrustMatch(options.trust, destination, "recipientWhileRestricted", "0") !== null,
     tainted: (connectionId?: string) => {
       if (connectionId && normalBefore.has(connectionId)) {

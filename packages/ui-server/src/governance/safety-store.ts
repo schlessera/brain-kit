@@ -247,7 +247,7 @@ export function beginSafetyCollection(db:Database,input:SafetyCollectionInput):s
     safetyProjection(db,null,input.sourceSessionId); // Also validates retirement.
     db.query("UPDATE safety_collections SET gap=CASE WHEN restricted_begin=1 THEN gap ELSE 'inherited_history_not_reconstructed' END WHERE id=?").run(input.bindingId);
     const records=db.query<RecordRow,[string]>(`SELECT r.* FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id
-      WHERE c.session_id=? AND r.kind='occurrence' AND NOT EXISTS(SELECT 1 FROM safety_decisions d WHERE d.occurrence_id=r.id)`).iterate(input.sourceSessionId);
+      WHERE c.session_id=? AND r.kind='occurrence' AND coalesce(json_extract(r.payload,'$.occurrence.admission.trusted'),json_extract(r.payload,'$.admission.trusted'),0) != 1 AND NOT EXISTS(SELECT 1 FROM safety_decisions d WHERE d.occurrence_id=r.id)`).iterate(input.sourceSessionId);
     for(const r of records){const payload=JSON.parse(r.payload);payload.occurrence=occurrence(input.bindingId,(r.detector??"tool_file_input") as Occurrence["detector"],null,"interrupted_unknown");
       appendRecord(db,collection(db,input.turnId)!,payload.occurrence.id,"occurrence",payload.occurrence.id,r.source,r.detector,"interrupted_unknown",payload,input.at);}
   }
