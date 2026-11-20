@@ -143,8 +143,13 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
    try{
     if(segments&&segments.length>256)throw new Error("Safety result segment capacity exceeded");
     const op=operations.get(toolUseId);if(!op||op.tool!==tool||!op.admitted)throw new Error("Safety result has no admitted operation");
-    const outputHash=hash(JSON.stringify([output,finalized,segments??null]));
-    if(op.done){if(op.outputHash!==outputHash)throw new Error("Conflicting safety result delivery");return;}
+    const outputHash=hash(JSON.stringify([output,finalized,segments??null,outputStatus??null]));
+    const conflicting=op.done&&op.outputHash!==outputHash;
+    if(op.done&&!conflicting)return;
+    if(conflicting){
+     op.uncertain=true;
+     if(!op.owed){await writes.safetyOblige(options.turnId,op.id,toolUseId,tool);op.owed=true;}
+    }
     // Each separately delivered external result segment has its own exposure.
     for(const _segment of (segments??[]).slice(1))for(const signal of op.signals.filter(signal=>["compute_input","external_mcp_input","attachment_input","tool_web_input"].includes(signal.detector))){
       const item=observed(toolUseId,signal.detector,op.id);
@@ -169,6 +174,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
      if(last&&stored.discharged)op.owed=false;
     }
     op.done=true;op.outputHash=outputHash;
+    if(conflicting)throw new Error("Conflicting safety result delivery");
     // A result with nothing to record is recorded by its discharge alone. A
     // discharge that cannot commit stays owed, which only gaps the chat; it
     // is no loss of this record.

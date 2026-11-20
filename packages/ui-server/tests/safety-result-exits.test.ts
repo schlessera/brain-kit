@@ -9,7 +9,7 @@ import { safetyResultInput } from "../../ui-backend-pi/src/worker-protocol";
  * `safety-result-retention.test.ts`; these drive the remaining exits against
  * the real host ledger. Keyless and offline. */
 import { afterEach, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {createRequire} from "node:module";
@@ -584,21 +584,20 @@ test('shipped Pi grep preserves a marked newline filename through the worker led
 });
 
 for(const mode of ['file','empty','regex','partial','warning'] as const)test(`Pi after-tool RPC preserves grep status: ${mode}`,async()=>{
- const f=await voyage();let unreadable:string|undefined;try{
+ const f=await voyage();try{
   const {untrustedMarkOperations}=await import('../src/files/untrusted-marks');
   mkdirSync(join(f.brain,'notes'));
   writeFileSync(join(f.brain,'notes/loom.md'),'nymph_signal\n');
   if(mode==='partial'){
-   unreadable=join(f.brain,'notes/raft.md');writeFileSync(unreadable,'nymph_signal\n');chmodSync(unreadable,0);
    untrustedMarkOperations(f.db).mark('notes/loom.md',null,Date.UTC(2026,6,12));
   }
-  const wrapper=mode==='warning'?join(f.brain,'warning-wrapper'):undefined;
-  if(wrapper)writeFileSync(wrapper,'#!/bin/sh\nprintf "search warning\\n" >&2\nexec "$@"\n',{mode:0o755});
+  const wrapper=['warning','partial'].includes(mode)?join(f.brain,'grep-wrapper'):undefined;
+  if(wrapper)writeFileSync(wrapper,mode==='partial'?"#!/bin/sh\nprintf \"notes/loom.md\\0001:nymph_signal\\n\"\nprintf \"search error\\n\" >&2\nexit 2\n":"#!/bin/sh\nprintf \"search warning\\n\" >&2\nexec \"$@\"\n",{mode:0o755});
   const input={pattern:mode==='regex'?'[':mode==='empty'?'no_cyclops_here':'nymph_signal',...(mode==='file'?{path:'notes/loom.md'}:{})},id='status_search';
   await f.collector.begin(id,'grep',input);
   const actual=await runSearchTool(f,id,input,wrapper);
   const expectedCode=mode==='empty'?1:mode==='regex'||mode==='partial'?2:0;
-  expect((actual.details as {search:unknown}).search,'GREP_EXIT_STATUS_AND_STDERR_ARE_OBSERVED').toEqual({exitCode:expectedCode,stderr:['regex','partial','warning'].includes(mode),truncated:false});
+  expect((actual.details as {search:unknown}).search,'GREP_EXIT_STATUS_AND_STDERR_ARE_OBSERVED').toMatchObject({exitCode:expectedCode,stderr:['regex','partial','warning'].includes(mode),truncated:false});
   let stopped=false,forwarded:unknown;
   const agent={abort(){stopped=true;},streamFunction:async()=>{}} as unknown as Agent;
   const dispatch=dispatcher(f);
@@ -614,5 +613,17 @@ for(const mode of ['file','empty','regex','partial','warning'] as const)test(`Pi
    {source:'user_marked',detector:'explicit_untrusted_input'},{source:'legacy_unknown',detector:'tool_search_output'}
   ]:incomplete?[{source:'legacy_unknown',detector:'tool_search_output'}]:[]);
   expect(f.chat().restriction).toBe(incomplete?'restricted':'normal');
- }finally{if(unreadable)chmodSync(unreadable,0o600);await f.close();}
+ }finally{await f.close();}
+});
+
+for(const status of [{complete:false},{complete:true,truncated:true}])test(`a stricter repeated result reopens its obligation: ${JSON.stringify(status)}`,async()=>{
+ const f=await voyage();try{
+  await f.collector.begin('status_conflict','grep',{});
+  await f.collector.result('status_conflict','grep','No matches.',true,undefined,{complete:true,exitCode:1,stderr:false,truncated:false});
+  expect(f.owed()).toBe(0);
+  await refusal(f.collector.result('status_conflict','grep','No matches.',true,undefined,{exitCode:1,stderr:false,truncated:false,...status}));
+  expect(f.owed(),'CONFLICTING_STATUS_REOPENS_DISCHARGED_RESULT').toBe(1);
+  expect(f.db.query("SELECT source,detector FROM safety_records WHERE kind='occurrence'").all(),'STRICTER_STATUS_RETAINS_UNKNOWN_EVIDENCE').toEqual([{source:'legacy_unknown',detector:'tool_search_output'}]);
+  expect(f.chat().coverage.state,'CONFLICTING_STATUS_CANNOT_LEAVE_COMPLETE_COVERAGE').toBe('incomplete');
+ }finally{await f.close();}
 });

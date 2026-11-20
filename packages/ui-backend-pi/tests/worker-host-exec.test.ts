@@ -60,7 +60,7 @@ for (const profile of ["governed", "strict", "restricted"] as const) {
       })).session;
       const report = JSON.parse(session.model!.id);
       expect(report.error, "HOST_HELPER_VISIBLE_IN_WORKER").toBeUndefined();
-      expect(report.grep).toContain("voyage.md:\0"+"1:The wine-dark sea");
+      expect(report.grep).toContain("voyage.md:1:The wine-dark sea");
       expect(report.bash).toBe("Ithaca");
       const wrapped = report.wrapperLog.split("\n");
       expect(wrapped, "WORKER_TOOLS_USED_HOST_WRAPPER").toEqual(expect.arrayContaining(["-rHInZE", "wine-dark", "--noprofile", "--norc", "-c", "echo Ithaca", "sleep 30"]));

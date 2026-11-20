@@ -83,6 +83,7 @@ for(const [name,tool,input,output,expected] of [
  ['Grep omitted lines','Grep',{output_mode:'content'},grep([],{content:'notes/loom.md:1:sirens',numLines:1,totalLines:2}),['legacy_unknown']],
  ['Grep offset','Grep',{offset:1},grep([]),['legacy_unknown']],
  ['Grep count colon filename','Grep',{output_mode:'count'},grep(['notes/voyage:2'],{content:'notes/voyage:2:7'}),['user_marked']],
+ ['Grep mode mismatch salvages content','Grep',{output_mode:'files_with_matches'},grep([],{mode:'content',content:'notes/voyage.md:1:sirens',numLines:1}),['user_marked','legacy_unknown']],
  ['Grep numbered content','Grep',{output_mode:'content'},grep(['notes/voyage.md'],{content:'notes/voyage.md:1:sirens',numLines:1}),['user_marked']],
  ['Grep ambiguous content','Grep',{output_mode:'content'},grep([],{content:'notes/voyage:2:7:sirens',numLines:1}),['user_marked','legacy_unknown']],
  ['Pi exact sentinel','grep',{},'No matches.',[]],

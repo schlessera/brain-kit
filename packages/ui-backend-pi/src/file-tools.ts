@@ -71,12 +71,15 @@ export function grepTool(kit: BrainToolKit): ToolDefinition {
       signal?.addEventListener("abort", onAbort, { once: true });
       const [out, stderr, exitCode] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
       signal?.removeEventListener("abort", onAbort);
-      // Keep the visible colon layout and an unambiguous machine boundary.
+      // Keep an unambiguous machine boundary in host-only result details.
       // POSIX filenames may contain newlines, colons and edge whitespace.
       // This changes result data only; provider tool definitions stay identical.
       const empty=exitCode===1&&out.length===0&&stderr.length===0;
-      const text=empty?"No matches.":out.replaceAll("\0", ":\0")||"Search output unavailable.";
-      return textResult(clip(text), {pattern:params.pattern,search:{exitCode,stderr:stderr.length>0,truncated:text.length>MAX_OUTPUT_BYTES}});
+      const framedOutput=empty?"No matches.":out.replaceAll("\0", ":\0")||"Search output unavailable.";
+      // Only the host observation carries framing; provider text keeps the
+      // advertised path:line:content format, byte for byte for ordinary paths.
+      const text=empty?"No matches.":out.replaceAll("\0", ":")||"Search output unavailable.";
+      return textResult(clip(text), {pattern:params.pattern,search:{exitCode,stderr:stderr.length>0,truncated:framedOutput.length>MAX_OUTPUT_BYTES,framedOutput:clip(framedOutput)}});
     },
   } satisfies ToolDefinition;
 }

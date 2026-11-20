@@ -253,8 +253,9 @@ export function outputTaintSignals(tool: string, output: string, brainPath?: str
         value.totalMatches!==undefined&&value.totalMatches!==value.numFiles||value.countIsComplete===true&&value.totalMatches===undefined)unknown=true;}
   }else if((context?.backendId??'claude')==='claude'&&tool==='Grep'){
     const checked=grepOutput.safeParse(parsed),mode=context?.outputMode;
-    if(!checked.success||!['files_with_matches','content','count'].includes(mode??'')){unknown=true;salvage(parsed,mode);}
+    if(!checked.success||!['files_with_matches','content','count'].includes(mode??'')){unknown=true;salvage(parsed,mode);if(parsed&&typeof parsed==='object'&&'mode' in parsed)salvage(parsed,String(parsed.mode));}
     else {const value=checked.data;for(const path of value.filenames)add(path);
+      if(value.mode!==undefined&&value.mode!==mode)salvage(value,value.mode);
       const lines=mode==='files_with_matches'?value.filenames.length:value.content?value.content.split('\n').length:0;
       const total=mode==='content'?value.totalLines:value.totalFiles;
       const limits=[value.appliedLimit??0,context?.limit??250];
@@ -267,7 +268,7 @@ export function outputTaintSignals(tool: string, output: string, brainPath?: str
         limits.some(limit=>limit>0&&(lines>limit||lines===limit&&total===undefined))||
         value.numLines!==undefined&&value.numLines!==lines||value.totalLines!==undefined&&value.totalLines!==lines)unknown=true;
       let matches=mode==='files_with_matches'?value.numFiles:lines;
-      if(mode==='files_with_matches'){if(value.content!==undefined&&value.content!=='')unknown=true;}
+      if(mode==='files_with_matches'){if(value.content!==undefined&&value.content!==''){unknown=true;salvage(value,value.mode==='count'?'count':'content');}}
       else if(value.content===undefined)unknown=true;
       else {
         if(!value.content&&value.numFiles>0)unknown=true;
