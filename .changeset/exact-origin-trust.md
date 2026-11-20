@@ -27,3 +27,5 @@ Revalidate only an active input’s admitted source rule across trust revisions,
 Retire source-rule instances durably across independent publishers, preserve typed commit/charge failures on managed streams, and classify post-write source revocation identically to notification and send fences.
 
 Allow HTTP and tunnel completion exactly at the byte ceiling while preserving terminal safety checks and refusing bytes beyond it.
+
+Separate preparation byte charging from dispatch notification and contacted-host grants, classify initial recording loss as unavailable, and preserve historical IPv6 session grants through canonical host lookup.

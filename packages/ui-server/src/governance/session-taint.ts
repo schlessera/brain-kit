@@ -1,4 +1,5 @@
 /** A session's untrusted-input state (G6), read from and written to its durable governance record. */
+import { canonicalEgressHost } from "@schlessera/brain-ui-sdk/internal";
 import { safetyProjection } from "./safety-store.js";
 import type { Database } from "bun:sqlite";
 import type { GovernanceEventInput, GovernanceEventPayload } from "./events.js";
@@ -35,9 +36,10 @@ export function contactedHosts(db: Database, sessionId: string | null): string[]
   if (!sessionId) return [];
   const rows = db.query(`SELECT DISTINCT json_extract(payload, '$.host') AS host FROM governance_events
     WHERE kind='egress_connection' AND session_id=? AND json_extract(payload, '$.bytes') > 0
+      AND coalesce(json_extract(payload, '$.dispatched'), 1) = 1
       AND json_extract(payload, '$.inference') IS NULL AND json_extract(payload, '$.provider') IS NULL
       AND json_extract(payload, '$.managedReference') IS NULL
       AND (json_extract(payload, '$.recipientApproved') = 1 OR
         (json_extract(payload, '$.trustedSource') IS NULL AND json_extract(payload, '$.standingRecipient') IS NULL))`).all(sessionId) as { host: string }[];
-  return rows.map(row => row.host);
+  return [...new Set(rows.map(row => canonicalEgressHost(row.host)))];
 }

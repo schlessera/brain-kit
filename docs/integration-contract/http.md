@@ -1384,3 +1384,10 @@ creation revision). Removing, disabling or retargeting that source retires the
 instance even if another publisher restores the same ID before the next chunk.
 Recipient-only edits preserve the source instance. Instance metadata stays out
 of Settings responses and never grants trust independently of policy files.
+
+New egress records carry optional `dispatched` evidence. Charged preparation
+with `dispatched:false` never grants contacted-host permission in later turns;
+older records without the field retain their existing interpretation. Historical
+contacted hosts use the same canonical comparison key as current destinations,
+including legacy bracketed IPv6 literals. Recording unavailability is always
+503 `egress_unavailable`, including initial admission.

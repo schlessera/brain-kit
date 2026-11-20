@@ -49,3 +49,13 @@ test("managed reference uses the final recorder-health fence after its transport
       .toMatchObject({ managedReference: true, bytes: 0, outcome: "denied", reason: "egress_unavailable" });
   } finally { proxy.stop(); db.close(); }
 });
+
+test('review14: pre-upgrade IPv6 session grants use the canonical lookup host',()=>{
+ const db=createUiDb(':memory:');connectedSafetySession(db,'ithaca','turn-ithaca');
+ try{recordGovernanceEvent(db,{kind:'egress_connection',turnId:'turn-ithaca',sessionId:'ithaca',actor:'interactive',profile:'governed',model:null,payload:{method:'CONNECT',host:'[0:0:0:0:0:0:0:1]',port:443,bytes:8,accounting:'opaque_bytes',outcome:'completed',durationMs:1}});expect(contactedHosts(db,'ithaca'),'PRE_UPGRADE_IPV6_GRANT_STILL_MATCHES').toEqual(['::1']);}finally{db.close();}
+});
+
+test('review14: charged preparation never becomes a durable session grant',()=>{
+ const db=createUiDb(':memory:');connectedSafetySession(db,'ithaca','turn-ithaca');
+ try{recordGovernanceEvent(db,{kind:'egress_connection',turnId:'turn-ithaca',sessionId:'ithaca',actor:'interactive',profile:'governed',model:null,payload:{method:'POST',host:'ithaca.example.org',port:80,bytes:8,accounting:'http_wire_bound',outcome:'denied',reason:'invalid_request',durationMs:1,dispatched:false}});expect(contactedHosts(db,'ithaca'),'UNDISPATCHED_PREPARATION_NEVER_GRANTS_LATER_TURNS').toEqual([]);}finally{db.close();}
+});

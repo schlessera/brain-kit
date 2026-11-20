@@ -678,6 +678,7 @@ signatures (every public export and the types it is made of)
                 }>;
                 bytes: z.ZodNumber;
                 connectionId: z.ZodOptional<z.ZodString>;
+                dispatched: z.ZodOptional<z.ZodBoolean>;
                 durationMs: z.ZodNumber;
                 host: z.ZodString;
                 inference: z.ZodOptional<z.ZodLiteral<true>>;

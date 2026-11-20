@@ -93,7 +93,7 @@ export async function createGitHubReferenceWire(options: ({ repository: unknown;
         if (operation.outcome() === "completed") return;
         upstream?.destroy(); client.destroy();
         if (operation.outcome() === "cancelled" && !controller.signal.aborted) {
-          const decision = operation.commit();
+          const decision = operation.charge(0);
           if (!decision.ok) fail(chargeError(decision));
         }
       };
@@ -103,7 +103,10 @@ export async function createGitHubReferenceWire(options: ({ repository: unknown;
       };
       client.once("close", () => { upstream?.destroy(); finish(controller.signal.aborted ? "cancelled" : "completed"); });
       try {
-        if (!await operation.admit()) throw new ReferenceTransportError("denied", "reference recipient was not admitted");
+        if (!await operation.admit()) {
+          if (["egress_unavailable","safety_changed","max_bytes_per_turn"].includes(operation.reason() ?? "")) { const decision=operation.charge(0);if (!decision.ok) throw chargeError(decision); }
+          throw new ReferenceTransportError("denied", "reference recipient was not admitted");
+        }
         const addresses = options.lookup ? await options.lookup(target.hostname, { all: true, verbatim: true })
           : await lookupHost(target.hostname, { all: true, verbatim: true });
         if (!addresses.length || addresses.some(value => egressAddressRefusal(value.address)))
@@ -130,7 +133,7 @@ export async function createGitHubReferenceWire(options: ({ repository: unknown;
           if (controller.signal.aborted) cancel();
         });
         check(recipient, capability.credentialed);
-        const afterConnection = operation.commit(); if (!afterConnection.ok) throw chargeError(afterConnection);
+        const afterConnection = operation.charge(0); if (!afterConnection.ok) throw chargeError(afterConnection);
         if (client.destroyed) throw new ReferenceTransportError("unavailable", "reference client closed after connection");
         const meter = (incoming: boolean) => new Transform({ transform(chunk: Buffer, _encoding, done) {
           if (incoming) observedIncomingBytes += chunk.length;

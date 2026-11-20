@@ -125,11 +125,12 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
         const chargeFailure = (count: number) => { const result = operation?.charge(count); return result && !result.ok ? result : undefined; };
         const chargeDenied = (failure: EgressChargeFailure) => { const detail = egressChargeRefusal(failure,"Inference"); return refuse(request.method,path,detail.status,detail.message,operation?.reason?.() ?? detail.reason); };
         if (operation && !await operation.admit()) {
+          if (["egress_unavailable","safety_changed","max_bytes_per_turn"].includes(operation.reason() ?? "")) { const decision=operation.charge(0); if (!decision.ok) return chargeDenied(decision); }
           const cancelled = request.signal.aborted || operation.outcome() === "cancelled";
           operation.finish(cancelled ? "cancelled" : "denied", "inference_admission_refused");
           return refuse(request.method, path, cancelled ? 499 : 403, "Inference network admission refused", operation.reason?.());
         }
-        const initialDecision = operation?.commit();
+        const initialDecision = operation?.charge(0);
         if (initialDecision && !initialDecision.ok) return chargeDenied(initialDecision);
         const declared = Number(request.headers.get("content-length") ?? "0");
         if (declared > MAX_INFERENCE_REQUEST_BYTES) return denied("inference_request_too_large", 413);

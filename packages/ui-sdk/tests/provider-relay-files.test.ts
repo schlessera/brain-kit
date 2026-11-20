@@ -203,3 +203,10 @@ describe("the Files lifecycle a relayed brain video watch needs", () => {
     expect(receipts.at(-1), "STOP_CLEANUP_RECORDED").toMatchObject({ operation: "files", outcome: "completed", status: 200 });
   });
 });
+
+for(const unavailable of [false,true])test(`review14: Files cleanup retains ${unavailable?'unavailable':'safety'} without a dispatch receipt`,async()=>{
+ const {startEgressProxy}=await import('../src/server/egress-proxy');let current=true;
+ const proxy=await startEgressProxy({mode:'record',allow:[],deny:[],maxBytes:65536,outwardHosts:[],observe(){},admissionSafety:{read:()=>({evidenceRevision:'1',trustRevision:'1',authorityEpoch:'1',scope:'ithaca',policyHash:null,restricted:false,recordingAvailable:unavailable?current:true,authorityCurrent:unavailable?true:current}),subscribe:()=>()=>{}}});
+ const all:ProviderRelayReceipt[]=[];const {relay,start,upload}=open({egress:proxy,observe:receipt=>all.push(receipt)});
+ try{const started=await start();await upload(String(started.headers['x-goog-upload-url']));seen.length=0;all.length=0;current=false;await relay.stop();expect(seen).toEqual([]);expect(all,'REFUSED_CLEANUP_HAS_TYPED_STATUS_AND_NEVER_DISPATCHED').toMatchObject([{operation:'files',outcome:'cancelled',status:unavailable?503:403}]);}finally{await relay.stop();proxy.stop();}
+});

@@ -466,3 +466,20 @@ for (const over of [false, true]) test(`review13: real tunnel close ${over ? 're
     else { expect(text, 'TUNNEL_EXACT_CAP_CLOSE_COMPLETES').toContain(payload); expect(records[0]).toMatchObject({ outcome: 'completed', bytes: payload.length }); }
   } finally { client.destroy(); proxy.stop(); await new Promise<void>(resolve => origin.close(() => resolve())); }
 });
+
+test('review14: oversized HTTP headers never publish a contacted-host grant', async () => {
+ let dispatched=0,hits=0;const records:EgressRecord[]=[];
+ const origin=Bun.serve({hostname:'127.0.0.1',port:0,fetch(){hits++;return new Response('Ithaca');}});
+ const proxy=await startEgressProxy({...defaults(records),maxBytes:128,committed:()=>{dispatched++;}});
+ try{expect((await get(proxy.socketPath,origin.url.href,'GET',undefined,{'x-odysseus':'x'.repeat(1024)})).status).toBe(403);expect(dispatched,'NO_CONTACTED_GRANT_BEFORE_HEADER_BUDGET_PASSES').toBe(0);expect(hits).toBe(0);}finally{proxy.stop();origin.stop(true);}
+});
+
+for(const method of ['GET','CONNECT'])test(`review14: initial recording loss is unavailable for ${method}`,async()=>{
+ const records:EgressRecord[]=[];const proxy=await startEgressProxy({...defaults(records),admissionSafety:{read:()=>({evidenceRevision:'1',trustRevision:'1',authorityEpoch:'1',scope:'ithaca',policyHash:null,restricted:false,recordingAvailable:false,authorityCurrent:true}),subscribe:()=>()=>{}}});
+ try{const status=method==='GET'?(await get(proxy.socketPath,'http://127.0.0.1:443/')).status:Number(/^HTTP\/1.1 (\d+)/.exec(await tunnel(proxy.socketPath,'127.0.0.1:443',''))?.[1]);expect(status,'INITIAL_RECORDING_LOSS_USES_SAME_503_CLASS').toBe(503);expect(records[0]).toMatchObject({outcome:'denied',reason:'egress_unavailable'});}finally{proxy.stop();}
+});
+
+test('review14: charged preparation does not commit until final dispatch',async()=>{
+ let commits=0;const records:EgressRecord[]=[];const proxy=await startEgressProxy({...defaults(records),committed:()=>{commits++;}});
+ try{const op=proxy.relayed('POST',new URL('http://127.0.0.1/'),new AbortController().signal);expect(await op.admit()).toBe(true);expect(op.charge(8)).toEqual({ok:true});expect(commits,'CHARGING_IS_NOT_DISPATCH').toBe(0);op.finish('denied','invalid_request');expect(records[0]).toMatchObject({bytes:8,dispatched:false});const sent=proxy.relayed('POST',new URL('http://127.0.0.1/'),new AbortController().signal);expect(await sent.admit()).toBe(true);expect(sent.charge(8)).toEqual({ok:true});expect(sent.commit()).toEqual({ok:true});expect(sent.commit()).toEqual({ok:true});expect(commits).toBe(1);sent.finish('completed');expect(records[1]).toMatchObject({dispatched:true});}finally{proxy.stop();}
+});
