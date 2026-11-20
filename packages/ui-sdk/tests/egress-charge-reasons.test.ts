@@ -41,7 +41,7 @@ for (const failure of ['safety','unavailable','source'] as const) test(`review13
  const proxy=await startEgressProxy({mode:'record',allow:[],deny:[],maxBytes:8,outwardHosts:[],observe(){},
   inputCurrent:()=>failure!=='source'||current,
   admissionSafety:{read:()=>({evidenceRevision:'1',trustRevision:'1',authorityEpoch:'1',scope:'ithaca',policyHash:null,restricted:false,recordingAvailable:failure!=='unavailable'||current,authorityCurrent:failure!=='safety'||current}),subscribe:()=>()=>{}}});
- try{const op=proxy.inference('POST',new URL('http://127.0.0.1/'),new AbortController().signal);expect(await op.admit()).toBe(true);expect(op.charge(8)).toEqual({ok:true});expect(op.charge(0),'ZERO_BYTE_TERMINAL_AT_CAP_IS_ALLOWED').toEqual({ok:true});current=false;expect(op.charge(0),'ZERO_BYTE_TERMINAL_REVALIDATES_SAFETY').toEqual({ok:false,reason:failure==='unavailable'?'unavailable':'safety_changed'});}finally{proxy.stop();}
+ try{const op=proxy.inference('POST',new URL('http://127.0.0.1/'),new AbortController().signal);expect(await op.admit()).toBe(true);expect(op.commit()).toEqual({ok:true});expect(op.charge(8)).toEqual({ok:true});expect(op.charge(0),'ZERO_BYTE_TERMINAL_AT_CAP_IS_ALLOWED').toEqual({ok:true});current=false;expect(op.charge(0),'ZERO_BYTE_TERMINAL_REVALIDATES_SAFETY').toEqual({ok:false,reason:failure==='unavailable'?'unavailable':'safety_changed'});}finally{proxy.stop();}
 });
 
 for(const provider of [false,true])test(`review14: ${provider?'provider':'inference'} initial recording loss is unavailable`,async()=>{

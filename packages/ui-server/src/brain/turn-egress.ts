@@ -161,16 +161,19 @@ export async function prepareTurnEgress(options: {
     const pending = committed.catch(fail).finally(() => recording.delete(pending));
     recording.add(pending);
   };
+  const releaseConnection = (connectionId?: string) => {
+    if (!connectionId) return;
+    trustedInputs.delete(connectionId);standingRecipients.delete(connectionId);
+    exposures.delete(connectionId);exposureCommits.delete(connectionId);normalBefore.delete(connectionId);
+    approvalMarkers.delete(`${connectionId}:network`);approvalMarkers.delete(`${connectionId}:outward`);
+  };
   const report = (record: EgressRecord): void => {
-    if (!options.record) return;
     try {
+      if (!options.record) return;
       const trustedSource = record.connectionId ? trustedInputs.has(record.connectionId) : false;
       track(options.record({ ...base(), kind: "egress_connection", payload: { ...record, ...(trustedSource ? { trustedSource: true } : {}), ...(record.connectionId && standingRecipients.has(record.connectionId) ? { standingRecipient: true, recipientAdmission: standingRecipients.get(record.connectionId) } : {}) } }));
-      if (record.connectionId) { trustedInputs.delete(record.connectionId); standingRecipients.delete(record.connectionId); approvalMarkers.delete(record.connectionId); }
       const exposure = record.connectionId ? exposures.get(record.connectionId) : undefined;
       if (exposure) {
-        exposures.delete(record.connectionId!);
-        normalBefore.delete(record.connectionId!);
         // A clean HTTP completion proves bounded input ended. A tunnel close
         // or cancellation alone cannot prove all opaque delivery completed.
         const terminal = () => options.record!({ ...base(), kind: "taint_exposure", dedupeKey: exposure.id,
@@ -190,7 +193,7 @@ export async function prepareTurnEgress(options: {
       if (reason) track(options.record({ ...base(), kind: "egress_denial", payload: {
         host: record.host, port: record.port, method: record.method, reason, bytes: record.bytes,
       } }));
-    } catch { fail(); }
+    } catch { fail(); } finally { releaseConnection(record.connectionId); }
   };
   /**
    * Any admitted connection other than a host relay taints the session (G6),
@@ -315,7 +318,7 @@ export async function prepareTurnEgress(options: {
     if (match && !inputCurrent(destination.connectionId)) throw new EgressAdmissionRefused("Source trust changed before dispatch","source_trust_changed");
   };
   /** Settles once every record submitted so far has committed or failed; `recordingFailure()` is final after it. */
-  const settled = async () => { while (recording.size) await Promise.all([...recording]); };
+  const settled = async () => { await proxy.settled(); while (recording.size) await Promise.all([...recording]); };
   const proxy = await startEgressProxy({ mode: options.policy.egress.mode, allow: options.policy.egress.allow,
     ...(options.bridge.admissionSafety ? { admissionSafety: options.bridge.admissionSafety } : {}),
     deny: options.policy.egress.deny, maxBytes: options.policy.egress.max_bytes_per_turn ?? Number.MAX_SAFE_INTEGER,

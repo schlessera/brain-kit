@@ -6007,3 +6007,11 @@ wire metering consume this result. `OriginTrust.refresh(signal?)` cancels a
 queued brain-lock acquisition on turn abort; it never releases another holder.
 Turn startup rechecks abort before creating egress resources and normal turn
 teardown releases its own governed hold and concurrency slot.
+
+The concrete operation lifecycle is pending → admitted → dispatched → finished
+or aborted. Admission after a terminal transition is a no-op. A new dispatch
+requires remaining byte capacity, including after approval or DNS waits; the
+zero-byte ceiling exception applies only to an already-dispatched stream.
+Admission effects already started are joined before terminal observation and
+cleanup. Proxy `settled()` joins those effects before the host joins its durable
+records. Each operation owns and releases all of its per-connection keys once.
