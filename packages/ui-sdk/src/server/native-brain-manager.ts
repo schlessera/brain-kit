@@ -636,6 +636,12 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig,
           // Recovery allocation remains allocated and is not spendable headroom.
           if (reserveConsumed || stagedBytes + quarantinedStageBytes + treeBytes + quarantinedTreeBytes + request.allowanceBytes + 2 * 1024 ** 3 + fixed.recoveryReserveBytes > space.bavail * space.bsize)
             throw new NativeBrainManagerError("capacity", "packing_headroom: managed store cannot reserve the packing stage above its free-space floor; Git did not start.");
+          // Native output uppers are tmpfs. A store-sized allowance must also
+          // fit available memory; reserve every outstanding stage in full.
+          const memory = /^MemAvailable:\s+(\d+) kB$/m.exec(readFileSync("/proc/meminfo", "utf8"));
+          const availableMemory = memory ? Number(memory[1]) * 1024 : NaN;
+          if (!Number.isSafeInteger(availableMemory) || stagedBytes + quarantinedStageBytes + request.allowanceBytes + 2 * 1024 ** 3 > availableMemory)
+            throw new NativeBrainManagerError("capacity", "packing_headroom: the tmpfs packing stage cannot preserve 2 GiB of available memory; Git did not start.");
         }
         if (!request.packing && stagedBytes + quarantinedStageBytes + request.allowanceBytes > fixed.stageBudgetBytes) throw new NativeBrainManagerError("capacity", "Native output staging aggregate budget is busy; nothing ran.");
         const path = join(stages, request.id);

@@ -945,7 +945,10 @@ managed volume's configured capacity minus the recovery reserve and the 2 GiB
 free-space floor. Before creating it, the native manager reserves all outstanding
 stage/tree allowances (including uncertain cleanup charges) plus this stage
 against observed free space, preserving that floor and recovery allocation.
-The stage remains charged until its confirmed deletion. No new environment
+Native output uppers use tmpfs, so admission also reserves all outstanding
+stage allowances against Linux `MemAvailable`, preserving a 2 GiB memory
+reserve. Missing memory accounting skips packing; a large pack requires both
+store and memory headroom. The stage remains charged until its confirmed deletion. No new environment
 setting increases every turn's allowance.
 
 Insufficient or unknown headroom gives the named `skipped — packing_headroom`
