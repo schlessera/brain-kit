@@ -29,7 +29,7 @@
  */
 import { prepareOutwardPlan } from "@schlessera/brain-ui-sdk/internal";
 import { requestToolPermission, type BackendBridge } from "@schlessera/brain-ui-sdk/server";
-import { inputTaintSignals, outputTaintSignals } from "../activity/ingestion-taint.js";
+import { inputTaintSignals, outputTaintSignals, searchOutputContext } from "../activity/ingestion-taint.js";
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { existsSync } from "node:fs";
 import { posix } from "node:path";
@@ -189,7 +189,7 @@ export function createTurnExtraction(options: {
       // (its connections taint the session at the proxy), another MCP server,
       // an untrusted area or a marked file.
       const tainting = !localTool(tool) || inputTaintSignals(tool, input, options.brainPath, options.marked, true).length > 0
-        || outputTaintSignals(tool, output, options.brainPath, options.marked).length > 0;
+        || outputTaintSignals(tool, output, options.brainPath, options.marked, searchOutputContext(tool,input)).length > 0;
       if (tainting) current.tainting(namedHosts(output));
     } catch { state.complete = false; }
   };

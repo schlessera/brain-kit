@@ -458,7 +458,7 @@ test("a Pi grant is unusable until the collector's last check passes, and a call
 
 for(const binding of ['pi','claude'] as const)test(`${binding}: two allowed searches reusing an ID cannot share one result discharge`,async()=>{
  const f=await voyage();try{
-  const input={pattern:'sirens'},id='reused_search';
+  const input=binding==='claude'?{pattern:'sirens',output_mode:'content'}:{pattern:'sirens'},id='reused_search';
   let admit:()=>Promise<unknown>;
   if(binding==='pi'){
    const turn=createTurnContext();turn.bridge={inputSafety:f.collector,emit(){},requestPermission:async()=>({behavior:'allow'})} as never;turn.signal=f.controller.signal;

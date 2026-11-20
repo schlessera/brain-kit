@@ -122,3 +122,17 @@ test("a collected external compute job's output is a taint source on both backen
     expect(queryGovernanceEvents(db, { turnId: "t-1", kinds: ["taint"], limit: 5 }).map(event => event.payload), "COMPUTE_OUTPUT_TAINT_RECORDED").toEqual([{ source: "compute_output", tool: "brain_compute_collect", detail: null }]);
   } finally { db.close(); }
 });
+
+test('the display recorder uses admitted Claude filename mode for colon paths',async()=>{
+ const db=createUiDb(':memory:');
+ const {untrustedMarkOperations}=await import('../src/files/untrusted-marks');
+ const sessionId='odysseus-colon-search';db.query("INSERT INTO sessions(id,title,created_at,last_active_at) VALUES(?,'Voyage',0,0)").run(sessionId);
+ untrustedMarkOperations(db).mark('notes/voyage:2:home.md',null,Date.UTC(2026,6,12));
+ const recorder=createTurnRecorder({store:createActivityStore(db,{writer:'test'}),governanceDb:db,brainPath:brain,governance:event=>{recordGovernanceEvent(db,event);}},{turnId:'colon-search',sessionId,profile:'governed'});
+ try{
+  recorder.observeFrame({type:'tool_use_start',sessionId,toolUseId:'colon_grep',toolName:'Grep'});
+  recorder.observeFrame({type:'tool_use_complete',sessionId,toolUseId:'colon_grep',toolName:'Grep',input:{path:'.',pattern:'sirens',output_mode:'files_with_matches'}});
+  recorder.observeFrame({type:'tool_result',sessionId,toolUseId:'colon_grep',isError:false,output:JSON.stringify([{type:'text',text:'notes/voyage:2:home.md'}])});
+  expect(queryGovernanceEvents(db,{sessionId,kinds:['taint'],limit:10}).map(e=>e.payload.source),'RECORDER_PRESERVES_ADMITTED_SEARCH_FORMAT').toEqual(['user_marked']);
+ }finally{recorder.finish('success');db.close();}
+});

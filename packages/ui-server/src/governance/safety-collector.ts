@@ -1,7 +1,7 @@
 /** Concrete turn-bound pre-delivery collector. All decisions remain restrictive. */
 import type { BackendBridge } from "@schlessera/brain-ui-sdk/server";
 import type { Database } from "bun:sqlite";
-import { inputTaintSignals, outputTaintSignals, type IngestionSignal } from "../activity/ingestion-taint.js";
+import { inputTaintSignals, outputTaintSignals, searchOutputContext, type IngestionSignal } from "../activity/ingestion-taint.js";
 import { isMarkedUntrusted } from "../files/untrusted-marks.js";
 import { occurrence } from "./occurrence.js";
 import type { GovernanceWrites } from "./event-writes.js";
@@ -17,7 +17,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
  // cannot be recorded faithfully. `owed`: its obligation is durable (#3812).
  // `refused`: the backend refused a call with this id, so nothing more for
  // that id is admitted or let run.
- type Operation={tool:string;inputHashes:Set<string>;id:string;occurrences:string[];done:boolean;admitted:boolean;signals:IngestionSignal[];outputHash?:string;owed:boolean;refused:boolean;uncertain:boolean};
+ type Operation={tool:string;inputHashes:Set<string>;id:string;occurrences:string[];done:boolean;admitted:boolean;signals:IngestionSignal[];outputHash?:string;owed:boolean;refused:boolean;uncertain:boolean;searchOutputMode?:string};
  const operations=new Map<string,Operation>();
  // What the backend reported about each id: how many times the runtime asked
  // to admit a call under it, for each tool name it came under, and whether
@@ -120,6 +120,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
     if(ambiguous(calls.get(toolUseId)))op.uncertain=true;
     if(!op.inputHashes.has(inputHash)&&op.inputHashes.size>=16)throw new Error("Safety input revision capacity exceeded");
     op.inputHashes.add(inputHash);op.admitted=false;operations.set(toolUseId,op);
+    op.searchOutputMode=searchOutputContext(tool,input,options.backendId).outputMode;
     for(const signal of inputTaintSignals(tool,input,options.brainPath,marked,options.shellProxied())){
      if(op.signals.some(prior=>prior.detector===signal.detector&&prior.key===signal.key))continue;
      const item=observed(toolUseId,signal.detector,op.id);
@@ -151,7 +152,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
     }
     // Record output independently, before the backend releases it to the
     // model. Its bytes already exist, so a refusal here is never "before delivery".
-    for(const signal of outputTaintSignals(tool,output,options.brainPath,marked)){
+    for(const signal of outputTaintSignals(tool,output,options.brainPath,marked,{backendId:options.backendId,outputMode:op.searchOutputMode})){
       const item=observed(toolUseId,signal.detector,op.id);
       await writes.firstTaint({...base(),kind:"taint",payload:{source:signal.source,tool,detail:null,occurrence:item}});op.occurrences.push(item.id);
     }

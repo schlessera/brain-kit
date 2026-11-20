@@ -16,14 +16,14 @@ import { openDialogue, bindDialogue } from "../src/ws/dialogue-storage";
 function fixture(){const root=mkdtempSync(join(tmpdir(),"odysseus-safety-ledger-")),path=join(root,"ui.db");
  const db=createUiDb(path),writer=openSqliteWriter(db),writes=createGovernanceWrites(db,writer);
  return {root,path,db,writer,writes,async close(){await writer.close();db.close();rmSync(root,{recursive:true,force:true});}};}
-async function fresh(f:ReturnType<typeof fixture>,turnId="voyage",sessionId="ithaca"){
- const bindingId=crypto.randomUUID();await f.writes.safetyBegin({turnId,bindingId,sessionId:null,principalId:"odysseus",backendId:"claude",at:0});
- f.db.query("INSERT INTO sessions(id,created_at,last_active_at,backend_id) VALUES(?,0,0,'claude')").run(sessionId);
+async function fresh(f:ReturnType<typeof fixture>,turnId="voyage",sessionId="ithaca",backendId="claude"){
+ const bindingId=crypto.randomUUID();await f.writes.safetyBegin({turnId,bindingId,sessionId:null,principalId:"odysseus",backendId,at:0});
+ f.db.query("INSERT INTO sessions(id,created_at,last_active_at,backend_id) VALUES(?,0,0,?)").run(sessionId,backendId);
  f.db.query("INSERT INTO chat_session_owners(session_id,principal_id,created_at) VALUES(?,'odysseus',0)").run(sessionId);
  safetyCatalogCreated(f.db,sessionId,"odysseus",turnId);
  await f.writes.bind(turnId,sessionId);
- const collector=createSafetyCollector(f.db,f.writes,{turnId,bindingId,sessionId:()=>sessionId,backendId:"claude",signal:new AbortController().signal,shellProxied:()=>true,brainPath:"/srv/ithaca"});
- await collector.ready("claude",1);return {bindingId,collector};
+ const collector=createSafetyCollector(f.db,f.writes,{turnId,bindingId,sessionId:()=>sessionId,backendId,signal:new AbortController().signal,shellProxied:()=>true,brainPath:"/srv/ithaca"});
+ await collector.ready(backendId,1);return {bindingId,collector};
 }
 const triggers=(f:ReturnType<typeof fixture>,sid="ithaca")=>safetyRecords(f.db,sid).filter(r=>r.kind==="occurrence");
 
@@ -361,7 +361,7 @@ test("an imported provisional alias binds its actual owner and generation withou
 for(const excerpt of ["Odysseus omitted the mast.","Odysseus repairs the truncated mast.\n... results truncated ..."])test(`search path signals survive excerpt ${excerpt.split(".")[0]}`,async()=>{
  const f=fixture();try{const {collector}=await fresh(f);
  const {untrustedMarkOperations}=await import("../src/files/untrusted-marks");untrustedMarkOperations(f.db).mark("workspaces/voyage/raft.md",null,0);
- await collector.begin("excerpt","Grep",{path:"notes"});
+ await collector.begin("excerpt","Grep",{path:"notes",output_mode:"content"});
  await collector.result("excerpt","Grep",`workspaces/voyage/raft.md:1: ${excerpt}`,true);
  const sources=triggers(f).map(r=>(r.payload as {source:string}).source);
  expect(sources,"SAFETY_EXCERPT_NEVER_SUPPRESSES_PATH_SIGNALS").toEqual(expect.arrayContaining(["workspace_read","user_marked"]));
@@ -528,7 +528,7 @@ test("structured Glob paths preserve a marked colon filename",async()=>{
 });
 
 test("the Pi grep known empty result does not manufacture unknown input",async()=>{
- const f=fixture();try{const {collector}=await fresh(f);
+ const f=fixture();try{const {collector}=await fresh(f,'voyage','ithaca','pi');
  await collector.begin('empty_grep','grep',{path:'.',pattern:'sirens'});
  await collector.result('empty_grep','grep','No matches.',true);
  expect(triggers(f),'PI_EMPTY_GREP_CREATES_NO_SPURIOUS_TRIGGER').toHaveLength(0);
@@ -551,18 +551,62 @@ test('one logical admission retains input revisions without inventing concurrent
 });
 
 for(const [name,tool,output,expected] of [
+ ['three overlapping delimiters','grep','notes/voyage:2:7:9:sirens',['user_marked','user_marked','legacy_unknown']],
+ ['zero line number','grep','notes/voyage:0:sirens',['legacy_unknown']],
+ ['padded wrapped Pi sentinel','grep',JSON.stringify([{type:'text',text:' No matches. '}]),['legacy_unknown']],
+ ['multiple Pi text blocks','grep',JSON.stringify([{type:'text',text:'No matches.'},{type:'text',text:''}]),['legacy_unknown']],
+ ['truncated Pi empty metadata','grep',JSON.stringify({content:[{type:'text',text:'No matches.'}],truncated:true}),['legacy_unknown']],
+ ['empty numeric candidate','grep',':2:7:sirens',['user_marked','legacy_unknown']],
+ ['overlapping numeric delimiters','grep','notes/voyage:2:7:sirens',['user_marked','legacy_unknown']],
+ ['Glob text content colon','Glob',JSON.stringify([{type:'text',text:'notes/voyage:2:home.md'}]),['user_marked']],
+ ['clipped plain Glob path','Glob','notes/voy...',['legacy_unknown']],
+ ['clipped structured Glob text','Glob',JSON.stringify([{type:'text',text:'notes/voy...'}]),['legacy_unknown']],
+ ['padded Pi empty sentinel','grep',' No matches. ',['legacy_unknown']],
+ ['mixed Pi match and empty sentinel','grep','notes/voyage.md:1: sirens\nNo matches.',['legacy_unknown']],
+ ['wrapped mixed Pi match and empty sentinel','grep',JSON.stringify([{type:'text',text:'notes/voyage.md:1: sirens\nNo matches.'}]),['legacy_unknown']],
  ['structured numeric colon','Glob',JSON.stringify({filenames:['notes/voyage:2:home.md']}),['user_marked']],
  ['structured spaced colon','Glob',JSON.stringify({filenames:['notes/voyage home:map.md']}),['user_marked']],
  ['plain colon grep','grep','notes/voyage:home.md:7: Odysseus',['user_marked']],
- ['ambiguous numeric colon','grep','notes/voyage:2:home.md:7: Odysseus',['legacy_unknown']],
+ ['ambiguous numeric colon','grep','notes/voyage:2:home.md:7: Odysseus',['user_marked','legacy_unknown']],
  ['malformed structured path','Glob',JSON.stringify({filenames:[123]}),['legacy_unknown']],
  ['unsupported empty wording','Grep','No matches.',['legacy_unknown']],
  ['empty plus malformed remainder','grep','No matches.\nunknown remainder',['legacy_unknown']],
 ] as const)test(`search evidence format: ${name}`,async()=>{
- const f=fixture();try{const {collector}=await fresh(f);
+ const f=fixture();try{const {collector}=await fresh(f,'voyage','ithaca',tool==='grep'?'pi':'claude');
  const {untrustedMarkOperations}=await import('../src/files/untrusted-marks');
- for(const path of ['notes/voyage:home.md','notes/voyage:2:home.md','notes/voyage home:map.md'])untrustedMarkOperations(f.db).mark(path,null,Date.UTC(2026,6,12));
- await collector.begin('format_search',tool,{path:'.'});await collector.result('format_search',tool,output,true);
+ for(const path of [':2','notes/voyage:home.md','notes/voyage:2','notes/voyage:2:7','notes/voyage:2:home.md','notes/voyage home:map.md'])untrustedMarkOperations(f.db).mark(path,null,Date.UTC(2026,6,12));
+ await collector.begin('format_search',tool,{path:'.',output_mode:'content'});await collector.result('format_search',tool,output,true);
  expect(triggers(f).map(r=>(r.payload as {source:string}).source),'EXACT_PATH_OR_UNKNOWN_REMAINDER_IS_RETAINED').toEqual([...expected]);
+ }finally{await f.close();}
+});
+
+for(const [name,backend,tool,mode,output,expected] of [
+ ['Claude filename mode','claude','Grep','files_with_matches',JSON.stringify([{type:'text',text:'notes/voyage:2:home.md'}]),['user_marked']],
+ ['Claude count mode','claude','Grep','count','notes/voyage:2:7',['user_marked']],
+ ['invalid Claude mode','claude','Grep','unsupported','notes/voyage:2:7:sirens',['user_marked','legacy_unknown']],
+ ['Pi sentinel cannot cross backend','claude','grep','content','No matches.',['legacy_unknown']],
+] as const)test(`search parser identity: ${name}`,async()=>{
+ const f=fixture();try{const {collector}=await fresh(f,'voyage','ithaca',backend);
+ const {untrustedMarkOperations}=await import('../src/files/untrusted-marks');
+ for(const path of ['notes/voyage:2','notes/voyage:2:home.md'])untrustedMarkOperations(f.db).mark(path,null,Date.UTC(2026,6,12));
+ await collector.begin('mode_search',tool,{path:'.',output_mode:mode});await collector.result('mode_search',tool,output,true);
+ expect(triggers(f).map(r=>(r.payload as {source:string}).source),'PARSER_FOLLOWS_ADMITTED_TOOL_AND_MODE').toEqual([...expected]);
+ }finally{await f.close();}
+});
+
+test('Pi empty output never suppresses an independent untrusted input signal',async()=>{
+ const f=fixture();try{const {collector}=await fresh(f,'voyage','ithaca','pi');
+ await collector.begin('empty_workspace','grep',{path:'workspaces',pattern:'sirens'});
+ await collector.result('empty_workspace','grep','No matches.',true);
+ expect(triggers(f).map(r=>(r.payload as {source:string}).source)).toEqual(['workspace_read']);
+ }finally{await f.close();}
+});
+
+test('excessive grep delimiter ambiguity refuses recording and retains a durable gap',async()=>{
+ const f=fixture();try{const {collector}=await fresh(f,'voyage','ithaca','pi');
+ await collector.begin('bounded_search','grep',{path:'.',pattern:'sirens'});
+ await expectRejection(collector.result('bounded_search','grep',`notes/voyage${':1'.repeat(300)}:sirens`,true),'Safety search candidate capacity exceeded','SEARCH_AMBIGUITY_CAPACITY_STOPS_RECORDING');
+ expect(f.db.query("SELECT failure FROM safety_collections WHERE turn_id='voyage'").get()).toEqual({failure:'recording_failed'});
+ expect(f.writes.safety(null,'ithaca').restriction).toBe('restricted');
  }finally{await f.close();}
 });
