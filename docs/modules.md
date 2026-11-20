@@ -189,8 +189,9 @@ const issues = await github("/repos/ithaca/watchtower/issues?state=closed").then
   Each write is recorded on the job's Activity run as a `github_write` event.
 - The host adds its own `BRAIN_UI_MODULE_GITHUB_TOKEN`, and no other token.
   Without it, every call is refused with a message that names the setting.
-  Anything else (another repository, another path or method, a redirect, more
-  than 500 calls in a run) is refused before any request leaves the host.
+  Anything else (another repository, another path or method, more than 500
+  calls in a run or 8 at once) is refused before any request leaves the host.
+  A redirect GitHub answers with is never followed, and the call fails.
 
 ### Hygiene checks read the index through `ctx.queries`
 
