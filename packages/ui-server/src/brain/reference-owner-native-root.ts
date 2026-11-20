@@ -1,9 +1,9 @@
 /** Existing Linux/Btrfs native identity, read from the actual held descriptor. */
 import { constants, openSync, closeSync, fstatSync, lstatSync, realpathSync } from "node:fs";
 import * as kernel from "./reference-owner-root-kernel.js";
-export interface ReferenceOwnerNativeIdentity { fsid: string; uuid: string }
+interface ReferenceOwnerNativeIdentity { fsid: string; uuid: string }
 export interface ReferenceOwnerRoot { path: string; device: number; inode: number; native: ReferenceOwnerNativeIdentity }
-export type ReferenceOwnerExpectedRoot = { fsid: string; brainUuid: string };
+type ReferenceOwnerExpectedRoot = { fsid: string; brainUuid: string };
 const unavailable = () => ({ root: undefined, close() {} });
 /** Qualification is host configuration, never a model-selected identity. */
 export async function createReferenceOwnerContinuity(path: string, expected?: ReferenceOwnerExpectedRoot): Promise<{ root: Readonly<ReferenceOwnerRoot> | undefined; close(): void }> {
