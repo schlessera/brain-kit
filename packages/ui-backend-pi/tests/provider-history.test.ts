@@ -1,6 +1,6 @@
 import { beforeAll, expect, test } from "bun:test";
 import { join } from "node:path";
-import { body, captureOffline, history, identical, main, noInternalNotes, pairs, system, type Captures } from "../../../tests/helpers/provider-history.js";
+import { body, captureOffline, history, identical, main, messages, noInternalNotes, pairs, system, type Captures } from "../../../tests/helpers/provider-history.js";
 
 let captures: Captures;
 beforeAll(async () => { captures = await captureOffline(join(import.meta.dir, "fixtures/provider-history-probe.ts")); }, 180_000);
@@ -153,4 +153,24 @@ test("Pi immutable reference reads carry actual call identity and preserve provi
   const results = main(capture).filter((_, index) => index % 2 === 1);
   for (const [index, name] of ["Odysseus", "Penelope", "Telemachus"].entries()) expect(results[index]!.raw).toContain(name);
   for (const exchange of main(capture)) { expect(exchange.raw).not.toContain("responseDigest"); expect(exchange.raw).not.toContain("acquisitionId"); }
+});
+
+test("retained legacy policy wording and earlier taint facts stay byte-identical after individual review", () => {
+  const capture = captures.safety!;
+  for (const [a, b] of pairs(capture)) {
+    identical(body(a).tools, body(b).tools, "SAFETY_UPGRADE_RETAINS_TOOLS");
+    identical(system(a), system(b), "SAFETY_UPGRADE_RETAINS_SYSTEM");
+    history(a, b);
+  }
+  const exchanges = main(capture);
+  for (const exchange of exchanges) {
+    expect(JSON.stringify(system(exchange)), "SAFETY_UPGRADE_RETAINS_LEGACY_WORDING").toContain("Legacy safety policy: this session stays restricted.");
+    expect(JSON.stringify(system(exchange))).not.toContain("Reviewed safety policy:");
+  }
+  expect(exchanges[0]!.raw, "SAFETY_UPGRADE_RECORDS_ORIGINAL_TAINT_FACT").toContain("This session is tainted");
+  // The final request retains that earlier fact as history, while the new
+  // turn's live policy no longer states it. The provider-prefix guard above
+  // asserts every old message, including that note, remains unchanged.
+  expect(exchanges.at(-1)!.raw, "SAFETY_REVIEW_NEVER_REWRITES_EARLIER_FACTS").toContain("This session is tainted");
+  expect(JSON.stringify(messages(exchanges.at(-1)!).at(-1)), "SAFETY_REVIEW_CHANGES_ONLY_NEW_TAIL_FACTS").not.toContain("This session is tainted");
 });

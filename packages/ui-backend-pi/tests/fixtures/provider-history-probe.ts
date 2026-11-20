@@ -63,14 +63,17 @@ writeFileSync(join(process.env.PI_CODING_AGENT_DIR!, "models.json"), JSON.string
 // credential only to an origin the operator lists for it: here, the loopback stub.
 process.env.BRAIN_UI_PI_CREDENTIAL_ORIGINS = `openai=${server.url.origin}`;
 try {
-  for (scenario of ["control", "repository", "facts", "promotion", "reference", "renewal", "freshness", "immutable", "datatree", "compute"]) {
+  for (scenario of ["control", "repository", "facts", "promotion", "reference", "renewal", "freshness", "immutable", "datatree", "compute", "safety"]) {
     brain = fixtureBrain(scratch, scenario);
     capture = captures[scenario] = { sessions: [], exchanges: [], appends: [] };
-    const backend = createPiBackend({ brainPath: brain, sessionDir: join(scratch, `sessions-${scenario}`), loadExtensions: false,
+    let backend = createPiBackend({ brainPath: brain, sessionDir: join(scratch, `sessions-${scenario}`), loadExtensions: false,
       profiles: [{ id: "fixture", label: "Fixture", vendor: "openai", model: "gpt-4o-mini", thinkingLevel: "off" }], confirmBashPatterns: [] });
     let sessionId: string | undefined;
     sequence = 0;
     for (turnIndex = 0; turnIndex < 3; turnIndex++) {
+      if (scenario === "safety") backend = createPiBackend({ brainPath: brain, sessionDir: join(scratch, `sessions-${scenario}`), loadExtensions: false,
+        systemPromptAppend: turnIndex === 0 ? "Legacy safety policy: this session stays restricted." : "Reviewed safety policy: finalized individual verdicts may restore normal.",
+        profiles: [{ id: "fixture", label: "Fixture", vendor: "openai", model: "gpt-4o-mini", thinkingLevel: "off" }], confirmBashPatterns: [] });
       turnOpen = true;
       if (scenario === "repository" && turnIndex) changeRepository(brain, turnIndex);
       const facts = scenario === "facts" ? turnIndex : 0;
@@ -81,7 +84,8 @@ try {
       try {
         await startFixtureTurn(backend, brain, { prompt: `Odysseus checks voyage step ${turnIndex}.`, profileId: "fixture", sessionId,
           signal: controller.signal, turnId: `odysseus-${turnIndex}`,
-          workerSandbox: { ...sandbox, noteFacts: { history: { journal: facts !== 1, userRevert: facts === 2 } },
+          workerSandbox: { ...sandbox, ...(scenario === "safety" ? { commandPolicy: { hash: null, deny: [], confirm: [], outwardAllow: [],
+            taint: () => turnIndex === 2 ? null : { eventId: 7, source: "web_fetch" } } } : {}), noteFacts: { history: { journal: facts !== 1, userRevert: facts === 2 } },
             ...(scenario === "datatree" ? { dataTree: turnDataTree(scratch, brain, scenario, turnIndex) } : {}) },
           client: { formFactor: facts === 1 ? "phone" : "tablet", viewportWidth: 800 + facts * 100, camera: facts !== 1 }, turnBudgetMs: 60_000 + facts * 1000,
           bridge: { emit(frame) { frames.push(frame); }, async requestPermission() { return { behavior: "allow" as const }; },

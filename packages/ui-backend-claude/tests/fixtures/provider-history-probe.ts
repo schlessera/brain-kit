@@ -63,7 +63,7 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
 } });
 const restore = replaceNativeStartupAcquisitionForFixture();
 try {
-  for (scenario of ["control", "repository", "facts", "posture", "promotion", "title", "reference", "renewal", "freshness", "immutable", "datatree", "compute"]) {
+  for (scenario of ["control", "repository", "facts", "posture", "promotion", "title", "reference", "renewal", "freshness", "immutable", "datatree", "compute", "safety"]) {
     brain = fixtureBrain(scratch, scenario);
     capture = captures[scenario] = { sessions: [], exchanges: [], appends: [] };
     const home = join(scratch, `home-${scenario}`);
@@ -77,9 +77,10 @@ try {
       const controller = new AbortController();
       const sandbox = prepareFixtureWorkerSandbox(brain, { home, profile: "strict", ...(scenario === "promotion" ? {} : { areas: [] }) });
       const view = createFixtureWorkerStartupView(brain);
-      const turn = createClaudeSdkTurn({ backend: { brainPath: brain }, req: {
+      const turn = createClaudeSdkTurn({ backend: { brainPath: brain, ...(scenario === "safety" ? { systemPromptAppend: turnIndex === 0 ? "Legacy safety policy: this session stays restricted." : "Reviewed safety policy: finalized individual verdicts may restore normal." } : {}) }, req: {
         prompt: `Odysseus checks voyage step ${turnIndex}.`, sessionId, signal: controller.signal, turnId: `odysseus-${turnIndex}`,
-        workerStartupView: view, workerSandbox: { ...sandbox, noteFacts: { history: { journal: facts !== 1, userRevert: facts === 2 } },
+        workerStartupView: view, workerSandbox: { ...sandbox, ...(scenario === "safety" ? { commandPolicy: { hash: null, deny: [], confirm: [], outwardAllow: [],
+            taint: () => turnIndex === 2 ? null : { eventId: 7, source: "web_fetch" } } } : {}), noteFacts: { history: { journal: facts !== 1, userRevert: facts === 2 } },
           ...(scenario === "datatree" ? { dataTree: turnDataTree(scratch, brain, scenario, turnIndex) } : {}) },
         client: { formFactor: facts === 1 ? "phone" : "tablet", viewportWidth: 800 + facts * 100, camera: facts !== 1 }, turnBudgetMs: 60_000 + facts * 1000,
         ...((scenario === "posture" || scenario === "compute") && turnIndex === 1 ? { posture: "voice" as const, enforceAllowedTools: true, noGrantSurface: true } : {}),
