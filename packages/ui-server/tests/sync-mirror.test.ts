@@ -202,6 +202,7 @@ test("an upstream change to another tier A input keeps its refusal and says what
     const text = await stderr;
     expect(text, "TIER_A_REFUSED").toContain("maintenance output cannot change protected input bunfig.toml");
     expect(text, "TIER_A_NEXT_STEP").toContain("revert the upstream commit");
+    expect(text, "TIER_A_NEXT_STEP_NAMES_LOCAL_SOURCE").toContain("remove the change from the brain's repository");
     expect(changes, "TIER_A_NOT_REVIEWABLE").toEqual([]);
     expect(existsSync(join(f.brain, "bunfig.toml"))).toBe(false);
   } finally { server.stop(true); }

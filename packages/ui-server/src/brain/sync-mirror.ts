@@ -170,7 +170,9 @@ async function protectedRefusal(local: ExecutionResult, error: ProtectedMaintena
   const policyOnly = error.paths.includes(GOVERNANCE_POLICY_PATH)
     && error.paths.every(path => path === GOVERNANCE_POLICY_PATH || isWithin(path, GOVERNANCE_POLICY_PATH, { includeRoot: false }) && isWithin("context/policies", path));
   if (policyOnly && policy.upstream) {
-    const content = await error.read(GOVERNANCE_POLICY_PATH, INCOMING_POLICY_READ_BOUND);
+    let content: Uint8Array | null;
+    try { content = await error.read(GOVERNANCE_POLICY_PATH, INCOMING_POLICY_READ_BOUND); }
+    catch { return refusedSync(local, `${error.message}. Nothing was published. The incoming ${GOVERNANCE_POLICY_PATH} exceeds the policy writer's 1 MiB bound, so it cannot be reviewed: shrink it upstream, or revert the upstream commit that makes it.`); }
     if (content) {
       // A review offers only what the upstream commit itself carries: worker output is never a policy source.
       // A scheduled sync decides the same way, so it never names a review a UI sync would refuse.
@@ -183,7 +185,10 @@ async function protectedRefusal(local: ExecutionResult, error: ProtectedMaintena
     }
   }
   const policies = error.paths.some(path => isWithin("context/policies", path));
-  return refusedSync(local, `${error.message}. Nothing was published. A sync never adopts this change: revert the upstream commit that makes it${policies ? `, then change the policy in chat (propose_policy_change)` : ""}.`);
+  // Only a sync that pulled has an upstream commit to name; otherwise the change came from the brain itself.
+  const source = policy.upstream ? "revert the upstream commit that makes it, or remove the change from the brain's repository if the sync made it"
+    : "remove the change from the brain's repository";
+  return refusedSync(local, `${error.message}. Nothing was published. A sync never adopts this change: ${source}${policies ? `, then change the policy in chat (propose_policy_change)` : ""}.`);
 }
 
 async function runLocalSync(command: MaintenanceCommand & { signal?: AbortSignal; timeoutMs?: number; onPolicyChange?: (change: IncomingPolicyChange) => void; upstream?: string | null;
