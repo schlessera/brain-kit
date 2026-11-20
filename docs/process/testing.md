@@ -1116,3 +1116,27 @@ The dedicated backend drives the real host bridge; it does not call an image
 provider. The ordinary native SDK fixture remains unchanged.
 All selected phase deadlines, final joins, diagnostics and owned cleanup remain
 required. This partial composition does not replace complete PR proof.
+
+## Native Claude test isolation
+
+The test preload admits installed native Claude only on disposable hosted
+runners with working Linux namespaces. An unqualified launch fails before
+process creation with a `native-offline-boundary` receipt; it is never a skip.
+This includes SDK `node:child_process` launches (which use Bun's subprocess
+transport) and the existing worker bootstrap's exec payload.
+
+Direct SDK children get an empty root filesystem, explicit system/runtime and
+fixture mounts, fresh PID and network namespaces, and one Unix socket bridged
+to the exact scripted IPv4 loopback service. They receive a synthetic API key.
+Host account databases, managed settings, homes and credential storage are not
+mounted. Managed settings supplied by a hostile fixture are synthetic. Existing
+workers retain their concrete fixture mounts and private egress namespace,
+but lose the broad read-only host root. A shared-network native worker refuses.
+No production authentication or managed-policy behavior changes.
+
+`tests/native-offline-boundary.test.ts` proves local refusal with harmless
+synthetic executables. Hosted proof additionally exercises hostile managed
+settings, an outside-HOME sentinel credential, helper descendants, denied TCP,
+and the one permitted scripted service. Run installed-native backend and
+provider-history cells only in hosted CI; a temporary HOME and SDK options
+alone do not establish isolation.

@@ -1,5 +1,5 @@
 /** Test-only subprocess and transport safeguards; never imported by a published package. */
-import { installNativeClaudeGuard, refuseNativeClaude } from "./test-native-guard";
+import { isNativeClaude, nativeClaudeBoundary, nativeWorkerBoundary, refuseNativeClaude } from "./test-native-guard";
 import { basename, join } from "node:path";
 import { isIP, Socket } from "node:net";
 import { inheritWorkspaceLease } from "./workspace-lease.mjs";
@@ -28,7 +28,6 @@ function testGitEnvironment(env: Record<string, string | undefined>): Record<str
 
 export function installNetworkGuard(): { assertNoEscapes(): void } {
   if (installed) return installed;
-  installNativeClaudeGuard();
   Object.assign(process.env, testGitEnvironment(process.env));
   const escapes: string[] = [];
   let reported = 0;
@@ -137,7 +136,6 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
       const first = args[0] as string[] | { cmd: string[] };
       const cmd = Array.isArray(first) ? first : first.cmd;
       const executable = String(cmd[0]);
-      refuseNativeClaude(executable, cmd.slice(1));
       if (basename(executable) === "curl") refuse(`${key} ${cmd.join(" ")}`);
       if (basename(executable) === "bun" || executable === process.execPath) {
         // Bun treats `bun --preload FILE test` as a package script. Keep the
@@ -153,14 +151,24 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
       // actual output owner in its ancestor, never pass its writable lock fd
       // into a pipe-only boundary. This is test coordination, not a worker flag.
       const pipeOnly = /\/ui-sdk\/(src|dist)\/server\/worker-entry\.(ts|js)$/.test(cmd[1] ?? "");
-      const options = (Array.isArray(first) ? args[1] ?? {} : args[0]) as { env?: Record<string, string | undefined> };
+      const options = (Array.isArray(first) ? args[1] ?? {} : args[0]) as { cwd?: string; env?: Record<string, string | undefined> };
       // Fixture helpers often replace env completely, including provider-history
       // probes. Carry test Git policy through those children as well as shells.
-      const inherited = inheritWorkspaceLease({ ...options, env: testGitEnvironment(options.env ?? process.env) }, defaultStderr, pipeOnly);
+      let boundary: ReturnType<typeof nativeClaudeBoundary> | undefined;
+      if (isNativeClaude(executable, cmd.slice(1))) {
+        if (key === "spawnSync") refuseNativeClaude(executable, cmd.slice(1));
+        boundary = nativeClaudeBoundary(executable, cmd.slice(1), options);
+        args[0] = Array.isArray(first) ? boundary.argv : { ...first, cmd: boundary.argv };
+      }
+      const inherited = inheritWorkspaceLease({ ...options, env: boundary?.env ?? nativeWorkerBoundary(testGitEnvironment({ ...options.env ?? process.env,
+        ...(process.env.GITHUB_ACTIONS === "true" ? { GITHUB_ACTIONS: "true", RUNNER_ENVIRONMENT: process.env.RUNNER_ENVIRONMENT } : {}) })) }, defaultStderr, pipeOnly);
       if (Array.isArray(first)) args[1] = inherited;
-      else args[0] = inherited;
-      const result = Reflect.apply(native, Bun, args);
-      return result;
+      else args[0] = { ...inherited, cmd: (args[0] as { cmd: string[] }).cmd };
+      try {
+        const result = Reflect.apply(native, Bun, args);
+        if (boundary) void result.exited.finally(boundary.dispose);
+        return result;
+      } catch (error) { boundary?.dispose(); throw error; }
     }) as typeof Bun.spawn & typeof Bun.spawnSync;
   }
 
