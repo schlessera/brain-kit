@@ -101,7 +101,7 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
     const executable = realpathSync(command);
     const argv = ["bwrap", "--unshare-all", "--die-with-parent", "--new-session", "--cap-drop", "ALL", ...systemMounts(),
       "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--ro-bind", ROOT, ROOT,
-      "--ro-bind", executable, command, "--bind", home, home,
+      "--ro-bind", executable, command, "--ro-bind", process.execPath, process.execPath, "--bind", home, home,
       ...(within(ROOT, cwd) || within(home, cwd) ? [] : ["--bind", cwd, cwd]),
       "--ro-bind", bridge.directory, "/tmp/native-relay",
       "--ro-bind", join(bridge.directory, "passwd"), "/etc/passwd", "--ro-bind", join(bridge.directory, "group"), "/etc/group",
@@ -110,6 +110,16 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
       PATH: "/usr/bin:/bin", LANG: "C.UTF-8", ANTHROPIC_API_KEY: "offline-odysseus",
       ANTHROPIC_BASE_URL: "http://localhost", ANTHROPIC_UNIX_SOCKET: "/tmp/native-relay/relay.sock",
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", DISABLE_AUTOUPDATER: "1" };
+    // These are public model selectors, never ambient provider credentials.
+    for (const key of ["ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_SMALL_FAST_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_DISABLE_AUTO_MEMORY"]) {
+      if (env[key]) childEnv[key] = env[key]!;
+    }
+    // The core runner's pinned synthetic OAuth fixture tests that auth route.
+    // No other ambient OAuth value may enter the native environment.
+    if (env.CLAUDE_CODE_OAUTH_TOKEN === `sk-ant-oat01-${"o".repeat(95)}AA`) {
+      delete childEnv.ANTHROPIC_API_KEY;
+      childEnv.CLAUDE_CODE_OAUTH_TOKEN = env.CLAUDE_CODE_OAUTH_TOKEN;
+    }
     for (const [key, value] of Object.entries(childEnv)) argv.push("--setenv", key, value);
     argv.push("--chdir", cwd, "--", command, ...args);
     return { argv, env: {}, dispose: bridge.dispose };
@@ -120,8 +130,9 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
 export function nativeWorkerBoundary(env: Record<string, string | undefined>): { env: Record<string, string | undefined>; dispose(): void } {
   const unchanged = { env, dispose() {} };
   if (!env.BRAIN_WORKER_LAUNCH) return unchanged;
-  const launch = JSON.parse(env.BRAIN_WORKER_LAUNCH) as { command?: string[]; argv?: string[]; env?: Record<string, string> };
-  if (!launch.command?.[0] || !isNativeClaude(launch.command[0], launch.command.slice(1))) return unchanged;
+  let launch: { command?: string[]; argv?: string[]; env?: Record<string, string> } | null;
+  try { launch = JSON.parse(env.BRAIN_WORKER_LAUNCH); } catch { return unchanged; }
+  if (!launch?.command?.[0] || !isNativeClaude(launch.command[0], launch.command.slice(1))) return unchanged;
   qualify();
   const argv = launch.argv;
   if (!argv) refuse("native worker lacks the OS launcher");
