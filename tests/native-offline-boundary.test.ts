@@ -178,6 +178,24 @@ test("an arbitrary same-user Unix relay is refused before namespace setup", asyn
   } finally { service.stop(true); rmSync(scratch, { recursive: true, force: true }); }
 });
 
+test("a guard-created relay from another scripted scope is not transferable", async () => {
+  const scratch = mkdtempSync(join(tmpdir(), "odysseus-relay-authority-"));
+  try {
+    const result = await probe(`${imports}
+      import {nativeScriptedService,nativeWorkerBoundary} from ${JSON.stringify(join(ROOT, "scripts/test-native-guard.ts"))};
+      const leave=nativeScriptedService("http://127.0.0.1:1");
+      const socket=${JSON.stringify(join(scratch, "relay.sock"))};
+      const relay=Bun.serve({unix:socket,fetch(){return new Response("owned");}});leave();
+      const restore=nativeScriptedService("http://127.0.0.1:2");
+      try{nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify({command:[${JSON.stringify(runtime)}],
+        env:{ANTHROPIC_BASE_URL:"http://localhost",ANTHROPIC_UNIX_SOCKET:"/tmp/relay/relay.sock"},
+        argv:["bwrap","--unshare-net","--ro-bind",${JSON.stringify(scratch)},"/tmp/relay","--",${JSON.stringify(runtime)}]})});}
+      finally{restore();relay.stop(true);}`, scratch);
+    expect(result.code).not.toBe(0);
+    expect(result.output).toContain('"reason":"native relay did not match scripted authority"');
+  } finally { rmSync(scratch, { recursive: true, force: true }); }
+});
+
 test("guard-created relay handlers cannot switch their pinned scripted destination", async () => {
   const scratch = mkdtempSync(join(tmpdir(), "odysseus-owned-relay-"));
   let unintended = 0;

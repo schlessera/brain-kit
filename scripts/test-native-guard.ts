@@ -247,6 +247,7 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
   const inheritedSocket = env.ANTHROPIC_UNIX_SOCKET;
   const inheritedOrigin = inheritedSocket && ownedSocketOrigin(inheritedSocket);
   if (inheritedSocket && !inheritedOrigin) refuse("pre-existing native relay is not guard-owned");
+  if (inheritedOrigin && (!scriptedRoute.getStore() || normalizedOrigin(inheritedOrigin) !== normalizedOrigin(scriptedRoute.getStore()!.origin))) refuse("native relay did not match scripted authority");
   const bridge = startNativeTestRelay(versionOnly ? "http://127.0.0.1:1" : inheritedOrigin ?? scriptedRoute.getStore()?.origin ?? env.ANTHROPIC_BASE_URL);
   try {
     command = resolveExecutable(command, options);
@@ -333,6 +334,12 @@ export function guardNativeRelayServer(options: any, create: (options: any) => a
   return server;
 }
 
+function normalizedOrigin(origin: string): string {
+  const url = new URL(origin);
+  if (url.hostname === "localhost") url.hostname = "127.0.0.1";
+  return url.origin;
+}
+
 export function assertNativeRelayDestination(url: URL): void {
   const route = relayForwarding.getStore();
   if (!route) return;
@@ -413,6 +420,7 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
   const route = scriptedRoute.getStore();
   const ownedOrigin = socket && admittedRelay(argv, socket);
   if (socket && !ownedOrigin) refuse("pre-existing native relay is not guard-owned");
+  if (ownedOrigin && (!route || normalizedOrigin(ownedOrigin) !== normalizedOrigin(route.origin))) refuse("native relay did not match scripted authority");
   qualify();
   const bridge = startNativeTestRelay(ownedOrigin ?? route?.origin ?? launch.env?.ANTHROPIC_BASE_URL);
   try {
