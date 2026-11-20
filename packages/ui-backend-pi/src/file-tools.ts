@@ -75,11 +75,21 @@ export function grepTool(kit: BrainToolKit): ToolDefinition {
       // POSIX filenames may contain newlines, colons and edge whitespace.
       // This changes result data only; provider tool definitions stay identical.
       const empty=exitCode===1&&out.length===0&&stderr.length===0;
-      const framedOutput=empty?"No matches.":out.replaceAll("\0", ":\0")||"Search output unavailable.";
-      // Only the host observation carries framing; provider text keeps the
-      // advertised path:line:content format, byte for byte for ordinary paths.
-      const text=empty?"No matches.":out.replaceAll("\0", ":")||"Search output unavailable.";
-      return textResult(clip(text), {pattern:params.pattern,search:{exitCode,stderr:stderr.length>0,truncated:framedOutput.length>MAX_OUTPUT_BYTES,framedOutput:clip(framedOutput)}});
+      const frame=empty?"No matches.":out.replaceAll("\0", ":\0")||"Search output unavailable.";
+      const rawText=frame.replaceAll("\0", ""),text=rawText.trim();
+      const visibleText=clip(text),truncated=text.length>MAX_OUTPUT_BYTES;
+      // Frame every character actually delivered before clip's annotation.
+      // Hidden separators do not consume the visible budget. Preserve raw
+      // filename whitespace and the final row terminator for host lookup.
+      let end=frame.length;
+      if(truncated){
+        const limit=rawText.length-rawText.trimStart().length+MAX_OUTPUT_BYTES;
+        let visible=0;end=0;
+        while(end<frame.length&&(visible<limit||frame[end]==="\0")){
+          if(frame[end]!=="\0")visible++;end++;
+        }
+      }
+      return textResult(visibleText, {pattern:params.pattern,search:{exitCode,stderr:stderr.length>0,truncated,framedOutput:frame.slice(0,end),visibleText}});
     },
   } satisfies ToolDefinition;
 }

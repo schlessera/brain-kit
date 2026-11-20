@@ -136,3 +136,16 @@ test('the display recorder uses admitted Claude filename mode for colon paths',a
   expect(queryGovernanceEvents(db,{sessionId,kinds:['taint'],limit:10}).map(e=>e.payload.source),'RECORDER_PRESERVES_ADMITTED_SEARCH_FORMAT').toEqual(['user_marked']);
  }finally{recorder.finish('success');db.close();}
 });
+
+test('display-only grep sentinel never proves complete empty evidence',()=>{
+ const output='No matches.';
+ const db=createUiDb(':memory:');const sessionId='ithaca-display';db.query("INSERT INTO sessions(id,created_at,last_active_at) VALUES(?,0,0)").run(sessionId);
+ const recorder=createTurnRecorder({store:createActivityStore(db,{writer:'test'}),governanceDb:db,brainPath:brain,governance:event=>{recordGovernanceEvent(db,event);}},{turnId:'voyage-display',sessionId,profile:'governed'});
+ try{
+  recorder.observeFrame({type:'tool_use_start',sessionId,toolUseId:'display_grep',toolName:'grep'});
+  recorder.observeFrame({type:'tool_use_complete',sessionId,toolUseId:'display_grep',toolName:'grep',input:{pattern:'sirens'}});
+  recorder.observeFrame({type:'tool_result',sessionId,toolUseId:'display_grep',output,isError:false});
+  expect(queryGovernanceEvents(db,{sessionId,kinds:['taint'],limit:10}).map(event=>event.payload.source),'DISPLAY_TEXT_CANNOT_VERIFY_ORIGINAL_EMPTY_RESULT').toEqual(['legacy_unknown']);
+  recorder.finish('success');
+ }finally{db.close();}
+});

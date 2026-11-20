@@ -382,7 +382,9 @@ export function createTurnRecorder(
             ingestions.delete(msg.toolUseId);
             let signals:IngestionSignal[]=[];
             if(!safetyHooked&&ingestion){
-              try { signals=[...ingestion.signals,...outputTaintSignals(ingestion.tool,msg.output,deps.brainPath,marked,ingestion.searchContext)]; }
+              // Display bytes cannot verify a backend's original result parts.
+              // Only structured collection can establish an empty Pi search.
+              try { signals=[...ingestion.signals,...outputTaintSignals(ingestion.tool,msg.output,deps.brainPath,marked,{...ingestion.searchContext,outputComplete:msg.output==="No matches."?false:undefined})]; }
               catch { deps.abort?.(new Error("Safety result detection failed; the turn was stopped."));if(governanceWrites)writes.after(()=>governanceWrites.safetyFail(runId)); }
             }
             if (!safetyHooked && ingestion && signals.length && !traced?.denied && firstTaint && deps.governance) {

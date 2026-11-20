@@ -627,3 +627,20 @@ for(const status of [{complete:false},{complete:true,truncated:true}])test(`a st
   expect(f.chat().coverage.state,'CONFLICTING_STATUS_CANNOT_LEAVE_COMPLETE_COVERAGE').toBe('incomplete');
  }finally{await f.close();}
 });
+
+test('clipped Pi observation checks every marked filename still delivered to the model',async()=>{
+ const f=await voyage();try{
+  const {untrustedMarkOperations}=await import('../src/files/untrusted-marks');
+  untrustedMarkOperations(f.db).mark('notes/raft\nloom.md',null,Date.UTC(2026,6,12));
+  let raw='';while(raw.replaceAll('\0',':').trim().length<29800)raw+='notes/loom.md\0'+'1:a\n';
+  raw+='notes/raft\nloom.md\0'+'1:sirens\n'+('notes/loom.md\0'+'1:a\n').repeat(100);
+  const wrapper=join(f.brain,'fake-grep');writeFileSync(join(f.brain,'grep-data'),raw);
+  writeFileSync(wrapper,'#!/bin/sh\ncat "$(dirname "$0")/grep-data"\n',{mode:0o755});
+  const input={pattern:'sirens'},id='clipped';await f.collector.begin(id,'grep',input);
+  const result=await runSearchTool(f,id,input,wrapper);
+  expect(result.content[0]?.type==='text'&&result.content[0].text,'MARKED_FILENAME_REALLY_REACHED_MODEL').toContain('notes/raft\nloom.md:1:sirens');
+  const observed=safetyResultInput('grep',result.content,true,result.details);
+  await f.collector.result(id,'grep',observed.output,true,observed.segments,observed.outputStatus);
+  expect(f.db.query("SELECT source,detector FROM safety_records WHERE kind='occurrence' ORDER BY length(sequence),sequence").all(),'ALL_DELIVERED_PATHS_ARE_CHECKED_DESPITE_FRAME_OVERHEAD').toEqual([{source:'user_marked',detector:'explicit_untrusted_input'},{source:'legacy_unknown',detector:'tool_search_output'}]);
+ }finally{await f.close();}
+});

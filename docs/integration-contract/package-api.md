@@ -5971,7 +5971,11 @@ reference read. Pi carries the original tool status through its result hook
 and worker RPC. Exit 1 with empty stdout and no stderr is its only empty
 sentinel; exit 0 requires matches. Missing search status is restrictive.
 Pi keeps NUL filename framing in host-only result details; provider text retains
-the advertised `path:line:content` format. Neither metadata nor completeness is
+the advertised `path:line:content` format, with the existing trim-then-clip
+pipeline. Hidden frame separators do not consume the delivered text budget;
+an inconsistent frame cannot replace the paths in delivered text. Display-only
+result frames cannot establish the verified empty-search exemption.
+Neither metadata nor completeness is
 encoded by changing result text, and
 neither changes prior provider history. The same-commit API report records
 the additive argument.

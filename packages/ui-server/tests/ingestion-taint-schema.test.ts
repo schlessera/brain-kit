@@ -54,6 +54,8 @@ for(const [name,tool,input,output,expected] of [
  ['Pi sentinel incomplete original','grep',{},safetyResultInput('grep',[{type:'text',text:'No matches.'}],false),['legacy_unknown']],
  ['Pi marked row plus image','grep',{},safetyResultInput('grep',[{type:'text',text:'notes/voyage.md:1:sirens'},{type:'image'}]),['user_marked','legacy_unknown']],
  ['Pi sentinel plus empty block','grep',{},safetyResultInput('grep',[{type:'text',text:'No matches.'},{type:'text',text:''}]),['legacy_unknown']],
+ ['Pi inconsistent frame salvages visible path','grep',{},safetyResultInput('grep',[{type:'text',text:'notes/voyage.md:1:sirens'}],true,{search:{exitCode:0,stderr:false,truncated:false,framedOutput:'notes/loom.md:\0'+'1:echo\n'}}),['user_marked','legacy_unknown']],
+ ['Pi truncated frame cannot omit visible paths','grep',{},safetyResultInput('grep',[{type:'text',text:'notes/loom.md:1:echo\nnotes/voyage.md:1:sirens'}],true,{search:{exitCode:0,stderr:false,truncated:true,framedOutput:'notes/loom.md:\0'+'1:echo\n',visibleText:'notes/loom.md:1:echo\nnotes/voyage.md:1:sirens'}}),['user_marked','legacy_unknown']],
  ['Pi exact original sentinel','grep',{},safetyResultInput('grep',[{type:'text',text:'No matches.'}],true,{search:{exitCode:1,stderr:false,truncated:false}}),[]],
  ['Grep duplicate per-file count rows','Grep',{output_mode:'count'},grep(['notes/loom.md'],{content:'notes/loom.md:1\nnotes/loom.md:1',numMatches:2}),['legacy_unknown']],
  ['Pi newline filename ambiguity is never healthy legacy evidence','grep',{},'./raft:1:sail\nloom.md:1:sirens',['legacy_unknown']],
