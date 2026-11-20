@@ -159,11 +159,21 @@ function refusedSync(local: ExecutionResult, reason: string): ExecutionResult {
 }
 
 /** What a refused tier A sync output says, and does, next (#4256). */
-async function protectedRefusal(local: ExecutionResult, error: ProtectedMaintenanceOutputError, policy: { onPolicyChange?: (change: IncomingPolicyChange) => void; upstream?: string | null }): Promise<ExecutionResult> {
-  if (error.paths.length === 1 && error.paths[0] === GOVERNANCE_POLICY_PATH) {
+async function protectedRefusal(local: ExecutionResult, error: ProtectedMaintenanceOutputError, policy: {
+  onPolicyChange?: (change: IncomingPolicyChange) => void; upstream?: string | null;
+  /** Whether `content` is exactly the upstream commit's policy blob, read by the host transport, never the worker. */
+  verify?: (content: Uint8Array) => Promise<boolean>;
+}): Promise<ExecutionResult> {
+  // Only the policy file, and the policy directory a first policy creates with it.
+  const policyOnly = error.paths.includes(GOVERNANCE_POLICY_PATH)
+    && error.paths.every(path => path === GOVERNANCE_POLICY_PATH || isWithin(path, GOVERNANCE_POLICY_PATH, { includeRoot: false }) && isWithin("context/policies", path));
+  if (policyOnly && policy.upstream) {
     const content = await error.read(GOVERNANCE_POLICY_PATH, INCOMING_POLICY_READ_BOUND);
     if (content && policy.onPolicyChange) {
-      policy.onPolicyChange({ content, upstream: policy.upstream ?? null });
+      // A review offers only what the upstream commit itself carries: worker output is never a policy source.
+      if (!policy.verify || !await policy.verify(content))
+        return refusedSync(local, `${error.message}. Nothing was published. The merged ${GOVERNANCE_POLICY_PATH} differs from the upstream commit's, so it cannot be reviewed: change the policy upstream so the brain's copy matches it, or revert the upstream commit.`);
+      policy.onPolicyChange({ content, upstream: policy.upstream });
       return refusedSync(local, `Sync paused before publishing anything: the pull changes ${GOVERNANCE_POLICY_PATH}. Review the policy change; approving it adopts the policy, and the next sync completes.`);
     }
     if (content) return refusedSync(local, `Sync stopped before publishing anything: the pull changes ${GOVERNANCE_POLICY_PATH}, and a policy change needs the owner's review. Run Sync in the app to review it.`);
@@ -172,7 +182,8 @@ async function protectedRefusal(local: ExecutionResult, error: ProtectedMaintena
   return refusedSync(local, `${error.message}. Nothing was published. A sync never adopts this change: revert the upstream commit that makes it${policies ? `, then change the policy in chat (propose_policy_change)` : ""}.`);
 }
 
-async function runLocalSync(command: MaintenanceCommand & { signal?: AbortSignal; timeoutMs?: number; onPolicyChange?: (change: IncomingPolicyChange) => void; upstream?: string | null }, nativeManager: Parameters<typeof prepareNativeWorkerStartupView>[1] | undefined, folderPaths?: readonly string[], log?: import("@opentelemetry/api-logs").Logger): Promise<ExecutionResult> {
+async function runLocalSync(command: MaintenanceCommand & { signal?: AbortSignal; timeoutMs?: number; onPolicyChange?: (change: IncomingPolicyChange) => void; upstream?: string | null;
+  verify?: (content: Uint8Array) => Promise<boolean> }, nativeManager: Parameters<typeof prepareNativeWorkerStartupView>[1] | undefined, folderPaths?: readonly string[], log?: import("@opentelemetry/api-logs").Logger): Promise<ExecutionResult> {
   if (!nativeManager) throw new Error("Local sync requires the configured native managed-storage manager; full-copy fallback is unavailable.");
   const view = await prepareNativeWorkerStartupView(command.brainPath, nativeManager, command.signal);
   let outputs: Awaited<ReturnType<typeof prepareMaintenanceOutput>> | undefined;
@@ -180,13 +191,13 @@ async function runLocalSync(command: MaintenanceCommand & { signal?: AbortSignal
     command.signal?.throwIfAborted();
     outputs = await prepareMaintenanceOutput(command.brainPath, { startupView: view, folderPaths, signal: command.signal });
     const git = await prepareMaintenanceGit(command, outputs, command.signal, log);
-    const { onPolicyChange, upstream, ...worker } = command;
+    const { onPolicyChange, upstream, verify, ...worker } = command;
     const result = await runMaintenanceWorker({ ...worker, tempKind: "sync", startupView: outputs.view, output: outputs.output, ...(git ? { git } : {}) });
     if (!result.killed) {
       try { await outputs.publish(); }
       catch (error) {
         if (!(error instanceof ProtectedMaintenanceOutputError) || result.exitCode !== 0) throw error;
-        return await protectedRefusal(result, error, { onPolicyChange, upstream });
+        return await protectedRefusal(result, error, { onPolicyChange, upstream, verify });
       }
     }
     return result;
@@ -214,7 +225,8 @@ async function executeMirrorSync(input: Parameters<typeof runMirrorSync>[0]): Pr
   finally { await originView.cleanup(); }
   input.signal?.throwIfAborted();
   input.onExecute?.();
-  if (remote === null) return runLocalSync({ ...command, credentials: false, ...(input.onPolicyChange ? { onPolicyChange: input.onPolicyChange } : {}),
+  // Without a remote nothing is pulled, so no policy change can arrive: none is reviewable.
+  if (remote === null) return runLocalSync({ ...command, credentials: false,
     ...(input.signal ? { signal: input.signal } : {}), ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}) }, input.nativeManager, input.folderPaths, input.log);
   prepareMirror(mirror, brain);
   const transport = async (args: readonly string[]) => {
@@ -231,8 +243,16 @@ async function executeMirrorSync(input: Parameters<typeof runMirrorSync>[0]): Pr
     // Entire config/commit/pull/merge/judgment/index flow stays in a worker
     // with no credential. Only objects and refs are writable in the mirror;
     // config, HEAD, hooks and the directory itself remain read-only.
-    last = await runLocalSync({ ...command, credentials: false, upstream: mirrorHead(mirror),
+    const upstream = mirrorHead(mirror);
+    last = await runLocalSync({ ...command, credentials: false, upstream,
       ...(input.onPolicyChange ? { onPolicyChange: input.onPolicyChange } : {}),
+      verify: async content => {
+        if (!upstream) return false;
+        const blob = await transport(["cat-file", "blob", `${upstream}:${GOVERNANCE_POLICY_PATH}`]);
+        let text: string;
+        try { text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(content); } catch { return false; }
+        return blob.exitCode === 0 && blob.stdout === text;
+      },
       readPaths: [...(command.readPaths ?? []), mirror],
       writeDirectories: [join(mirror, "objects"), join(mirror, "refs")],
       gitConfig: [["safe.directory", brain], ["safe.directory", mirror], [`url.file://${mirror}.insteadOf`, remote], ["remote.origin.pushurl", `file://${mirror}`]],

@@ -9,6 +9,9 @@ import { BrainSyncError, createBrainClient } from "../src/brain/client";
 import { assertMirrorStorage, syncMirrorPath, syncTransportCommand } from "../src/brain/sync-mirror";
 import { createHostExecution } from "../src/brain/host-execution";
 import { createUiDb } from "../src/db/client";
+import { createPolicyProposals } from "../src/brain/policy-proposal";
+import { createOwnerPolicyReviews, OwnerPolicyReviewError } from "../src/brain/owner-policy-reviews";
+import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { createNativeAppFixture } from "./helpers/native-app-fixture.js";
 import { privateMaintenanceTest } from "./helpers/private-maintenance-test.js";
 
@@ -160,9 +163,19 @@ test("an upstream governance policy commit pauses a hosted sync for review, and 
     expect(existsSync(join(f.brain, "context/policies/governance.md")), "UI_PUBLISHED_NOTHING").toBe(false);
     expect(existsSync(join(f.brain, "notes/sea.md")), "UI_PUBLISHED_NO_OTHER_FILE").toBe(false);
 
-    // What an approved review writes, through the policy writer, then the next sync completes.
-    mkdirSync(join(f.brain, "context/policies"), { recursive: true });
-    writeFileSync(join(f.brain, "context/policies/governance.md"), policy);
+    // The owner approves the review through the real policy writer, then the next sync completes.
+    const db = createUiDb(":memory:");
+    const active = new Set<string>();
+    const proposals = createPolicyProposals({ root: f.brain, db, lock: createKeyedLock(),
+      observeUserPolicy: (turnId, write) => { if (!active.has(turnId)) throw new Error("approved policy write requires a user window"); write(); },
+      recordEvent: () => undefined });
+    const reviews = createOwnerPolicyReviews({ root: f.brain, proposals, authorized: () => true, turnPrefix: "sync-policy", requestPrefix: "sync",
+      journal: { async begin(turnId) { active.add(turnId); }, async finish(turnId) { active.delete(turnId); } },
+      fail: (status, code, message) => new OwnerPolicyReviewError(status, code, message) });
+    try {
+      const opened = await reviews.propose("p-penelope", () => new TextDecoder().decode(changes[0]!.content), undefined, "Incoming from the remote", "invalid");
+      expect((await reviews.decide("p-penelope", opened.turn_id, opened.request_id, true)).state, "REAL_APPROVAL_WRITES").toBe("updated");
+    } finally { reviews.close(); db.close(); }
     const result = await client.sync().catch(error => { throw new Error(JSON.stringify(error.result) + "\n" + error.message); });
     expect(result.result?.run.status, "ADOPTED_SYNC_COMPLETES").toBe("complete");
     expect(readFileSync(join(f.brain, "context/policies/governance.md"), "utf8")).toBe(policy);

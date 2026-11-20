@@ -16,6 +16,8 @@ import { createUiDb } from "../src/db/client.js";
 import { createPolicyProposals } from "../src/brain/policy-proposal.js";
 import { createOwnerPolicyReviews, OwnerPolicyReviewError, type OwnerPolicyJournal } from "../src/brain/owner-policy-reviews.js";
 import { createBrainRoutes } from "../src/routes/brain";
+import { createActivityStore } from "../src/activity/store.js";
+import type { Logger, LogRecord } from "@opentelemetry/api-logs";
 import type { BrainClient } from "../src/brain/client";
 import type { HostBoundary, StreamingExecution } from "../src/brain/host-boundary";
 import type { KeytermSettings } from "../src/voice/keyterm-builder";
@@ -75,7 +77,10 @@ function setup(root: string, launch?: HostBoundary["launch"]) {
     turnPrefix: "sync-policy", requestPrefix: "sync", fail: (status, code, message) => new OwnerPolicyReviewError(status, code, message) });
   cleanup.push(() => reviews.close());
   let launched = 0;
-  const routes = createBrainRoutes({
+  const store = createActivityStore(db);
+  const logs: LogRecord[] = [];
+  const log = { emit: (record: LogRecord) => { logs.push(record); }, enabled: () => true } as unknown as Logger;
+  const routes = createBrainRoutes({ activity: store, log,
     brainPath: root, brain: { cliCommand: () => [process.execPath, "sync.ts"] } as BrainClient,
     keyterms: { brainPath: root } as KeytermSettings, exec: {}, policyReviews: reviews,
     boundary: { launch: launch ?? (async execution => {
@@ -88,7 +93,7 @@ function setup(root: string, launch?: HostBoundary["launch"]) {
   const as = (principal: Principal) => new Hono<AppEnv>().use("*", async (c, next) => { c.set("principal", principal); await next(); }).route("/api", routes);
   const family = (turnPrefix: string, requestPrefix: string) => createOwnerPolicyReviews({ root, proposals, journal, authorized: () => true,
     turnPrefix, requestPrefix, fail: (status, code, message) => new OwnerPolicyReviewError(status, code, message) });
-  return { as, windows, events, launched: () => launched, family };
+  return { as, windows, events, launched: () => launched, family, store, logs };
 }
 
 const frames = async (response: Response) => (await response.text()).split("\n").filter(line => line.startsWith("data: ")).map(line => JSON.parse(line.slice(6)) as Record<string, unknown>);
@@ -109,6 +114,18 @@ describe("a sync's incoming policy change (#4256)", () => {
     expect(shown.frontmatterDiff).toContain("+ outward:");
     expect(all.at(-1), "SYNC_ENDS_PAUSED").toMatchObject({ type: "done", success: false, reason: "policy_review" });
     expect(readFileSync(join(root, "context/policies/governance.md"), "utf8"), "NOTHING_WRITTEN_BEFORE_APPROVAL").toBe(CURRENT);
+  });
+
+  test("a paused sync's Activity run is not a failure, and nothing logs a sync failure", async () => {
+    const root = brain();
+    const { as, store, logs } = setup(root);
+    await frames(await as(owner).request("/api/brain/sync", { method: "POST" }));
+    const span = store.changesSince(0).flatMap(change => change.kind === "span" ? [change.span] : []).find(span => span.jobName === "ui-sync")!;
+    const ended = store.getSpan(span.spanId)!;
+    expect(ended.outcome, "PAUSED_RUN_NOT_FAILED").toBe("cancelled");
+    expect(ended.outcomeReason ?? "", "PAUSED_RUN_NAMES_REVIEW").toContain("Paused for the owner's review");
+    expect(logs.some(record => record.body === "ui sync failed"), "PAUSED_NOT_LOGGED_AS_FAILURE").toBe(false);
+    expect(logs.some(record => record.body === "ui sync paused for policy review")).toBe(true);
   });
 
   test("approval writes exactly the incoming bytes through the policy writer, in a user window", async () => {

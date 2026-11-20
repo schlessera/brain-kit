@@ -854,6 +854,7 @@ namespace mount points alone do not constrain the host publisher.
 > rationale shown is fixed host text. A Settings control for
 > `outward.github.repositories` was not taken: chat's `propose_policy_change`
 > already edits it.
+
 Within one server process, maintenance clients serialize preparation through
 publication per canonical brain. Even readers produce SQLite projections or
 Git attribute objects in their private outputs; concurrent copies of that

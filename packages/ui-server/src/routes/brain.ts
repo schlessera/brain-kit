@@ -131,12 +131,15 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono<AppEnv> {
       } catch (error) { unavailable(error); }
     }
     return {
-      end(failure: string | undefined, output: string) {
+      end(failure: string | undefined, output: string, paused?: string) {
         if (failure !== undefined) deps.log?.emit({ severityText: "ERROR", body: "ui sync failed", attributes: { error: failure.slice(0, 2_000) } });
+        else if (paused !== undefined) deps.log?.emit({ severityText: "INFO", body: "ui sync paused for policy review", attributes: { reason: paused } });
         if (!store || !started) return;
         try {
           if (output) observeWrite(store.appendEvent(spanId, "job_output", output, undefined, SYNC_OUTPUT_TAIL_CHARS), unavailable);
-          observeWrite(store.endSpan(spanId, failure === undefined ? { outcome: "success" } : { outcome: "error", reason: failure }), unavailable);
+          // A paused sync is not a failure (#4256): `cancelled` is the taxonomy's non-failure stop, with its reason.
+          observeWrite(store.endSpan(spanId, failure !== undefined ? { outcome: "error", reason: failure }
+            : paused !== undefined ? { outcome: "cancelled", reason: paused } : { outcome: "success" }), unavailable);
           observeWrite(store.rollupRun(runId), unavailable);
         } catch (error) { unavailable(error); }
       },
@@ -250,6 +253,7 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono<AppEnv> {
       let disconnected = false;
       let output = "";
       let failure: string | undefined;
+      let paused: string | undefined;
       stream.onAbort(() => { disconnected = true; });
       const send = (data: {
         type: string;
@@ -394,6 +398,9 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono<AppEnv> {
         if (exitCode !== 0 && incoming && deps.policyReviews && principalId) {
           const opened = await openPolicyReview(principalId, incoming);
           if (opened.ok) {
+            // Paused, not failed: the run records why it is waiting.
+            failure = undefined;
+            paused = `Paused for the owner's review of an incoming ${GOVERNANCE_POLICY_PATH} change (exit ${exitCode}).`;
             await send({ type: "policy_review", ...opened.proposal });
             await send({ type: "done", success: false, reason: "policy_review",
               text: "Sync paused: the pull changes the governance policy. Review it; after you approve, sync again." });
@@ -415,7 +422,7 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono<AppEnv> {
       } finally {
         clearInterval(keepalive);
         syncingRoots.delete(syncRoot);
-        run.end(failure, output);
+        run.end(failure, output, paused);
       }
     });
   })
