@@ -678,9 +678,10 @@ stored events keep their recorded sources.
 behind the proxy, a connection to a host outside `taint.egress.allow` and the
 session's contacted hosts now raises the existing tool-permission request
 before it is refused: `toolName: "Network"`, `kind: "command"`, `input` of
-`{ host, port, method, target }` with `target` as `host:port`, and a
+`{ host, port, method, protocol, managedReference, target }` with `target` as
+`host:port` (bracketed for IPv6), and a
 `description` naming what tainted the session and what allowing does. No
-request field, kind or card variant is added. An allowed connection records
+new card kind or variant is added. An allowed connection records
 `egress_connection` as any admitted one does; a declined one records
 `egress_connection` with `reason: "taint_not_approved"` and the existing
 `egress_denial` with `reason: "taint_allowlist"`. A turn stopped while the card
@@ -1322,8 +1323,10 @@ and subdomain cannot borrow another selector's permission.
 
 Standing recipient permission bypasses only the taint-network card. Source-only
 trust grants no recipient permission after unrelated input restricts a chat.
-Egress evidence retains `trustedSource` and/or `standingRecipient` markers; a standing recipient decision also records `recipientAdmission` with its rule ID, exact policy hash, trust revision and collection revision. Connections covered by either standing capability do not create a legacy
-hostname grant; existing unrelated legacy grants retain their original scope.
+Egress evidence retains `trustedSource` and/or `standingRecipient` markers; a standing recipient decision also records `recipientAdmission` with its rule ID, exact policy hash, trust revision and collection revision. A standing capability alone creates no legacy hostname grant. An explicit
+Network card approval independently records `recipientApproved:true` and
+retains its legacy session grant, including when source trust also matched.
+Transport receipt hosts use lowercase DNS or canonical bare IP literals.
 Deny/allowlists, byte ceilings, provider credentials and outward-action approval
 remain independent. Removing a standing capability affects future admissions;
 source streams stop on a trust revision change before subsequent input bytes.

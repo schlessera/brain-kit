@@ -1490,6 +1490,7 @@ export "./internal" (./src/internal.ts)
   assertManagedTurnStartupView
   assertScratchMaskAsync
   bashCommand
+  canonicalEgressHost
   canonicalModelId
   claudeMaskFilename
   claudeReportedMaskPath

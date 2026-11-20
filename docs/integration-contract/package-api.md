@@ -81,8 +81,11 @@ header selects it. Network approval destinations carry `protocol` and the
 host-owned `managedReference` identity; pending approvals never coalesce a
 managed HTTPS acquisition with an opaque CONNECT to the same authority.
 CONNECT accepts explicit bracketed IPv6 authorities as well as canonical DNS
-and IPv4 hosts. Trust evidence keeps brackets; socket dialing and destination
-IP checks use the unbracketed literal.
+and IPv4 hosts. `canonicalEgressHost` supplies one lowercase DNS or canonical bare
+IP identity for host checks, cards, receipts and dialing. Settings selectors
+retain URL brackets for IPv6; the trust matcher adapts that schema boundary.
+Every upstream write/end and tunnel chunk uses the same current authority,
+recipient, source-trust, approval-freshness and byte-budget fence.
 Live trust reads and durable refresh share one policy observation state machine.
 Stable invalid or unreadable policy retains last-valid rules/hash with an error;
 a changed-file or ancestry verification mismatch fences. Unchanged-file chunk

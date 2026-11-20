@@ -1,7 +1,7 @@
 /** One admitted turn's concrete proxy, approval surface and durable records. */
 import { originTrustMatch, type OriginTrust, type OriginDestination } from "./origin-trust.js";
 import type { EffectiveGovernancePolicy, TrustMatch } from "@schlessera/brain-common/internal/governance-policy";
-import { startEgressProxy, EgressAdmissionRefused, type EgressRecord } from "@schlessera/brain-ui-sdk/internal";
+import { startEgressProxy, canonicalEgressHost, EgressAdmissionRefused, type EgressRecord } from "@schlessera/brain-ui-sdk/internal";
 import { requestToolPermission, type BackendActivityEvent, type BackendBridge } from "@schlessera/brain-ui-sdk/server";
 import type { Database } from "bun:sqlite";
 import { occurrence, type Occurrence } from "../governance/occurrence.js";
@@ -35,6 +35,8 @@ const TAINT_SOURCE_WORDING: Readonly<Record<TaintSource, string>> = {
   chat_attachment: "opened a chat attachment", apify_result: "received Apify results", github_result: "read GitHub issues or pull requests", compute_output: "collected an external compute job's output",
 };
 
+const networkAuthority = (destination: {host:string;port:number}) => `${destination.host.includes(":") ? `[${destination.host}]` : destination.host}:${destination.port}`;
+
 /**
  * The card a tainted interactive session raises for a destination outside its
  * taint allow-list (#3430): the destination, what tainted the session, and
@@ -43,7 +45,7 @@ const TAINT_SOURCE_WORDING: Readonly<Record<TaintSource, string>> = {
 export function taintedDestinationDescription(destination: { host: string; port: number; method: string }, source: TaintSource | null): string {
   const cause = source ? `This session ${TAINT_SOURCE_WORDING[source]}, so content you did not write may be steering it.`
     : "This session read content you did not write, which may be steering it.";
-  return `${cause} Allow it to connect to ${destination.host}:${destination.port}? `
+  return `${cause} Allow it to connect to ${networkAuthority(destination)}? `
     + `Allowing lets it send data to ${destination.host} for the rest of this session without asking again.`;
 }
 
@@ -163,7 +165,7 @@ export async function prepareTurnEgress(options: {
         track(initial ? initial.then(terminal) : terminal());
       }
       const denied = options.policy.egress.deny.some(pattern => {
-        const normalized = pattern.toLowerCase().replace(/\.$/, "");
+        const normalized = canonicalEgressHost(pattern);
         return normalized.startsWith("*.") ? record.host.endsWith(normalized.slice(1)) && record.host !== normalized.slice(2) : record.host === normalized;
       });
       const reason = record.reason === "destination_not_allowed" ? denied ? "denied_host" : "not_allowlisted"
@@ -201,7 +203,7 @@ export async function prepareTurnEgress(options: {
     let pending = asking.get(key);
     if (!pending) {
       pending = requestToolPermission(options.bridge, { toolUseId: crypto.randomUUID(), toolName: "Network", kind: "command",
-        input: { ...destination, target: `${destination.host}:${destination.port}` },
+        input: { ...destination, target: networkAuthority(destination) },
         description: taintedDestinationDescription(destination, firstTaint()?.source ?? null),
       }).then(decision => decision.behavior === "allow", () => false).finally(() => asking.delete(key));
       asking.set(key, pending);
@@ -287,13 +289,13 @@ export async function prepareTurnEgress(options: {
       if (destination.inference || destination.provider) return;
       const recipient = originTrustMatch(options.trust, destination, "recipientWhileRestricted", options.bridge.admissionSafety?.read().evidenceRevision ?? "0");
       if (recipient) { const { ruleId, policyHash, trustRevision, collectionRevision } = recipient; standingRecipients.set(destination.connectionId, { ruleId, policyHash, trustRevision, collectionRevision }); }
-      if (!destination.managedReference && !trustedInputs.has(destination.connectionId) && !standingRecipients.has(destination.connectionId)) contacted.add(destination.host);
+      if (!destination.managedReference && (destination.recipientApproved || !trustedInputs.has(destination.connectionId) && !standingRecipients.has(destination.connectionId))) contacted.add(destination.host);
     }, ...(taint ? { taint } : {}),
     approveOutward: async (destination, signal) => {
       if (calls.covers(destination.host)) return !signal.aborted;
       const decision = await requestToolPermission(options.bridge, { toolUseId: crypto.randomUUID(), toolName: "Network",
         kind: "command", input: destination,
-        description: `${destination.method} to ${destination.host}:${destination.port}`,
+        description: `${destination.method} to ${networkAuthority(destination)}`,
       }, { noGrantSurface: options.origin === "voice" });
       return !signal.aborted && decision.behavior === "allow";
     },

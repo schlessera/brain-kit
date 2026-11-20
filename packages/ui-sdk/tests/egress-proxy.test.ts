@@ -395,7 +395,27 @@ test('review2: one successful real tunnel notifies committed exactly once',async
 test('review4: bracketed IPv6 keeps canonical trust identity and dials a checked IP',async()=>{
  const server=createServer(socket=>socket.on('data',b=>socket.write(b.toString().toUpperCase())));await new Promise<void>(r=>server.listen(0,'::1',r));const port=(server.address() as {port:number}).port;const records:EgressRecord[]=[];
  const proxy=await startEgressProxy({...defaults(records),destinations:{ports:[port],allowRanges:['::1/128'],lookup:async()=>{throw new Error('IPv6 literals must bypass DNS');}}});
- try{expect(await tunnel(proxy.socketPath,`[::1]:${port}`,'ithaca'),'CHECKED_IPV6_TUNNEL_REACHES_LOOPBACK').toContain('ITHACA');await recorded(records,1);expect(records[0]).toMatchObject({host:'[::1]',port,outcome:'completed'});
+ try{expect(await tunnel(proxy.socketPath,`[::1]:${port}`,'ithaca'),'CHECKED_IPV6_TUNNEL_REACHES_LOOPBACK').toContain('ITHACA');await recorded(records,1);expect(records[0]).toMatchObject({host:'::1',port,outcome:'completed'});
  for(const bad of ['::1:443','[::1]','[::1]:0','[::1]:65536','[::1]:443/path','[::1%25lo]:443'])expect(await tunnel(proxy.socketPath,bad,''),'MALFORMED_TUNNEL_REMAINS_BAD_REQUEST').toContain('400 Bad Request');
  }finally{proxy.stop();await new Promise<void>(r=>server.close(()=>r()));}
+});
+
+for(const approval of [false,true])for(const body of [false,true])test(`review6: delayed HTTP ${body?'write':'end'} fences stale ${approval?'card':'recipient rule'}`,async()=>{
+ let hits=0,current=true,revision='1',entered!:()=>void;const committed=new Promise<void>(r=>{entered=r;});const origin=Bun.serve({hostname:'127.0.0.1',port:0,fetch(){hits++;return new Response('Ithaca');}});
+ const proxy=await startEgressProxy({...defaults([]),committed:()=>entered(),taint:{allow:[],tainted:()=>true,contacted:()=>false,recipient:()=>!approval&&current,approvalRevision:()=>revision,approve:async()=>approval}});const client=connect(proxy.socketPath);client.on('error',()=>{});const closed=new Promise<void>(r=>client.once('close',()=>r()));client.on('data',()=>client.end());
+ try{client.write(`POST ${origin.url.href} HTTP/1.1\r\nHost: 127.0.0.1\r\nTransfer-Encoding: chunked\r\n\r\n`);await committed;current=false;revision='2';client.write(body?'4\r\nraft\r\n0\r\n\r\n':'0\r\n\r\n');await closed;expect(hits,'DELAYED_HTTP_NEVER_SENDS_UNDER_WITHDRAWN_AUTHORITY').toBe(0);
+ }finally{client.destroy();proxy.stop();origin.stop(true);}
+});
+
+for(const outward of [false,true])test(`review6: canonical IPv6 honors ${outward?'outward approval':'deny'} policies`,async()=>{
+ let asks=0;const records:EgressRecord[]=[];const server=createServer(socket=>socket.on('data',b=>socket.write(b.toString().toUpperCase())));await new Promise<void>(r=>server.listen(0,'::1',r));const port=(server.address() as {port:number}).port;
+ const proxy=await startEgressProxy({...defaults(records),...(outward?{outwardHosts:['0:0:0:0:0:0:0:1'],approveOutward:async()=>{asks++;return false;}}:{deny:['::1']})});
+ try{expect(await tunnel(proxy.socketPath,`[::1]:${port}`,'ithaca'),'CANONICAL_IPV6_NEVER_BYPASSES_HOST_POLICY').toContain('403');expect(asks).toBe(outward?1:0);expect(records[0]?.host,'IPV6_RECEIPTS_USE_CANONICAL_BARE_HOST').toBe('::1');}finally{proxy.stop();await new Promise<void>(r=>server.close(()=>r()));}
+});
+
+for(const approval of [false,true])test(`review6: tunnel chunks fence a withdrawn ${approval?'card':'recipient rule'}`,async()=>{
+ let bytes=0,current=true,revision='1',closed!:()=>void;const upstreamClosed=new Promise<void>(r=>{closed=r;});const server=createServer(socket=>{socket.on('data',b=>{bytes+=b.length;socket.end();});socket.once('close',closed);});await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const port=(server.address() as {port:number}).port;
+ const proxy=await startEgressProxy({...defaults([]),taint:{allow:[],tainted:()=>true,contacted:()=>false,recipient:()=>!approval&&current,approvalRevision:()=>revision,approve:async()=>approval}});const client=connect(proxy.socketPath);client.on('error',()=>{});const ended=new Promise<void>(r=>client.once('close',()=>r()));
+ try{const ready=new Promise<void>(r=>client.once('data',b=>{expect(b.toString()).toContain('200 Connection Established');r();}));client.write(`CONNECT 127.0.0.1:${port} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n`);await ready;current=false;revision='2';client.write('ithaca');await ended;await upstreamClosed;expect(bytes,'TUNNEL_CHUNKS_NEVER_BYPASS_RECIPIENT_OR_CARD_FENCE').toBe(0);
+ }finally{client.destroy();proxy.stop();await new Promise<void>(r=>server.close(()=>r()));}
 });

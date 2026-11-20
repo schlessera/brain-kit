@@ -8,9 +8,11 @@ export interface OriginTrust extends LiveTrustRevision {
 }
 export interface OriginDestination { host: string; port: number; method: string; protocol?: string; managedReference?: boolean }
 function originProvenance(destination: OriginDestination): TrustProvenance | null {
+  // Selectors encode IPv6 with URL brackets; transport identity is bare.
+  const host = destination.host.includes(":") && !destination.host.startsWith("[") ? `[${destination.host}]` : destination.host;
   if (destination.managedReference && destination.protocol !== "https:") return null;
-  if (destination.method === "CONNECT" && !destination.managedReference) return { kind: "tunnel_authority", authority: { kind: "tunnel_authority", host: destination.host, port: destination.port }, verifiedBy: "host_proxy" };
-  if (destination.protocol === "http:" || destination.protocol === "https:") return { kind: "web_origin", origin: { kind: "web_origin", scheme: destination.protocol === "http:" ? "http" : "https", host: destination.host, port: destination.port }, verifiedBy: "host_transport" };
+  if (destination.method === "CONNECT" && !destination.managedReference) return { kind: "tunnel_authority", authority: { kind: "tunnel_authority", host, port: destination.port }, verifiedBy: "host_proxy" };
+  if (destination.protocol === "http:" || destination.protocol === "https:") return { kind: "web_origin", origin: { kind: "web_origin", scheme: destination.protocol === "http:" ? "http" : "https", host, port: destination.port }, verifiedBy: "host_transport" };
   return null;
 }
 export function originTrustMatch(trust: OriginTrust | undefined, destination: OriginDestination, capability: TrustMatch["capability"], collectionRevision: string): TrustMatch | null {

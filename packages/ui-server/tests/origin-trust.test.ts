@@ -182,3 +182,9 @@ test('review4: exact DNS parent never authorizes its subdomain',()=>{
  expect(originTrustMatch(t.live,destination,'recipientWhileRestricted','0')).not.toBeNull();
  expect(originTrustMatch(t.live,{...destination,host:'sub.ithaca.example.org'},'recipientWhileRestricted','0'),'DNS_SUBDOMAIN_NEVER_INHERITS_PARENT_TRUST').toBeNull();
 });
+
+test('review6: explicit recipient approval survives independently of a source-only rule',async()=>{
+ const f=await fixture();try{await f.taint();f.decide(async()=>({behavior:'allow'}));expect(await get(f.proxy.socketPath,f.origin.url.href)).toBe(200);await f.proxy.settled();f.decide(async()=>({behavior:'deny',message:'No second card should appear'}));
+ expect(await get(f.proxy.socketPath,f.origin.url.href),'EXPLICIT_RECIPIENT_APPROVAL_SURVIVES_SOURCE_TRUST').toBe(200);expect(f.asks()).toBe(1);const {contactedHosts}=await import('../src/governance/session-taint');expect(contactedHosts(f.db,'voyage'),'EXPLICIT_RECIPIENT_APPROVAL_IS_DURABLE').toContain('127.0.0.1');
+ }finally{await f.close();}
+});

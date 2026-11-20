@@ -37,7 +37,7 @@ export function contactedHosts(db: Database, sessionId: string | null): string[]
     WHERE kind='egress_connection' AND session_id=? AND json_extract(payload, '$.bytes') > 0
       AND json_extract(payload, '$.inference') IS NULL AND json_extract(payload, '$.provider') IS NULL
       AND json_extract(payload, '$.managedReference') IS NULL
-      AND json_extract(payload, '$.trustedSource') IS NULL
-      AND json_extract(payload, '$.standingRecipient') IS NULL`).all(sessionId) as { host: string }[];
+      AND (json_extract(payload, '$.recipientApproved') = 1 OR
+        (json_extract(payload, '$.trustedSource') IS NULL AND json_extract(payload, '$.standingRecipient') IS NULL))`).all(sessionId) as { host: string }[];
   return rows.map(row => row.host);
 }

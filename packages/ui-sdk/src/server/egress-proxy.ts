@@ -24,6 +24,8 @@ export interface EgressRecord {
   provider?: true;
   /** Host-managed acquisition only; returned immutable content has its own read evidence. */
   managedReference?: true;
+  /** Explicit Network card approval, independent of source trust. */
+  recipientApproved?: true;
   method: string;
   host: string;
   port: number;
@@ -75,7 +77,7 @@ export interface EgressProxyOptions {
    */
   admitted?(destination: { host: string; port: number; method: string; inference: boolean; provider: boolean; managedReference: boolean; connectionId: string; protocol?: string }): unknown;
   /** Synchronous notification only after final admission, immediately before dispatch. */
-  committed?(destination: { host: string; port: number; method: string; protocol: string; connectionId: string; inference: boolean; provider: boolean; managedReference: boolean }): void;
+  committed?(destination: { host: string; port: number; method: string; protocol: string; connectionId: string; inference: boolean; provider: boolean; managedReference: boolean; recipientApproved: boolean }): void;
   signal?: AbortSignal;
   /**
    * Destination address policy (#3687). When set, the proxy resolves every
@@ -130,10 +132,13 @@ export function egressAddressRefusal(address: string, allow?: BlockList): "metad
   if (NON_PUBLIC.check(value, family) && !allow?.check(value, family)) return "private_destination";
   return null;
 }
-const hostname = (value: string) => value.toLowerCase().replace(/\.$/, "");
+export const canonicalEgressHost = (value: string) => {
+  const host = value.toLowerCase().replace(/\.$/, "").replace(/^\[|\]$/g, "");
+  return isIP(host) === 6 ? new URL(`http://[${host}]`).hostname.slice(1, -1) : host;
+};
 function matches(host: string, patterns: readonly string[]): boolean {
   return patterns.some(value => {
-    const pattern = hostname(value);
+    const pattern = canonicalEgressHost(value);
     return pattern.startsWith("*.") ? host.endsWith(pattern.slice(1)) && host !== pattern.slice(2) : host === pattern;
   });
 }
@@ -205,7 +210,7 @@ function headers(message: IncomingMessage): Record<string, string | string[]> {
 export async function startEgressProxy(options: EgressProxyOptions) {
   if (!Number.isSafeInteger(options.maxBytes) || options.maxBytes < 0) throw new Error("Egress maxBytes must be a finite nonnegative integer");
   for (const pattern of [...options.allow, ...options.deny, ...options.outwardHosts, ...options.taint?.allow ?? []]) {
-    if (!/^(?:\*\.)?[a-zA-Z0-9.-]+$/.test(pattern) || pattern.includes("..")) throw new Error("Invalid egress host pattern");
+    if ((!isIP(canonicalEgressHost(pattern)) && !/^(?:\*\.)?[a-zA-Z0-9.-]+$/.test(pattern)) || pattern.includes("..")) throw new Error("Invalid egress host pattern");
   }
   const destinationPorts = options.destinations ? new Set(options.destinations.ports ?? [80, 443]) : undefined;
   const allowRanges = options.destinations ? rangeList(options.destinations.allowRanges ?? []) : undefined;
@@ -241,8 +246,8 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     let snapshot: AdmissionSafetySnapshot | undefined;
     const started = performance.now();
     const controller = new AbortController(); controllers.add(controller); inputs.set(connectionId, controller);
-    const host = hostname(url.hostname), port = Number(url.port || (url.protocol === "https:" ? "443" : "80"));
-    let bytes = 0, finished = false, notified = false;
+    const host = canonicalEgressHost(url.hostname), port = Number(url.port || (url.protocol === "https:" ? "443" : "80"));
+    let bytes = 0, finished = false, notified = false, granted = false;
     /** The checked address this connection is pinned to, under a destination policy. */
     let pinned: { address: string; family: number } | undefined;
     let finalOutcome: EgressRecord["outcome"] | undefined, finalReason: string | undefined;
@@ -250,19 +255,14 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (finished) return;
       finished = true; finalOutcome = outcome; finalReason = reason; controllers.delete(controller); inputs.delete(connectionId); controller.abort();
       // Records never contain request headers, content, credentials or query strings.
-      try { options.observe({ connectionId, ...(inference ? { inference: true } : {}), ...(provider ? { provider: true } : {}), ...(managedReference ? { managedReference: true } : {}), method, host, port, ...(method === "CONNECT" ? {} : { path: url.pathname }), bytes,
+      try { options.observe({ connectionId, ...(inference ? { inference: true } : {}), ...(provider ? { provider: true } : {}), ...(managedReference ? { managedReference: true } : {}), method, host, port, ...(notified && granted ? { recipientApproved: true } : {}), ...(method === "CONNECT" ? {} : { path: url.pathname }), bytes,
         accounting: method === "CONNECT" ? "opaque_bytes" : "http_wire_bound",
         durationMs: performance.now() - started, outcome, ...(reason ? { reason } : {}) }); } catch { /* A recorder cannot keep a connection alive. */ }
     };
     // Turn cleanup must observe final audit failures before it publishes its
     // terminal outcome; socket close callbacks run only after stop returns.
     controller.signal.addEventListener("abort", () => finish("cancelled", "turn_cancelled"), { once: true });
-    const charge = (count: number) => {
-      if (finished || stopped) return false;
-      if (!inputCurrent(connectionId)) { finish("cancelled", "source_trust_changed"); return false; }
-      if (count > options.maxBytes - usedBytes) { finish("denied", "max_bytes_per_turn"); return false; }
-      usedBytes += count; bytes += count; return true;
-    };
+    const charge = (count: number) => maySendNow(count);
     /** One approval wait; cancelling this connection or the turn resolves it as refused. */
     const approval = async (ask: ((destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }, signal: AbortSignal) => Promise<boolean>) | undefined) => {
       if (!ask) return false;
@@ -280,7 +280,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       return approved && !controller.signal.aborted && !stopped;
     };
     // An approval of this destination outside the taint allow-list (#3430).
-    let granted = false, outwardApproved = false, grantRevision: string | undefined, outwardRevision: string | undefined;
+    let outwardApproved = false, grantRevision: string | undefined, outwardRevision: string | undefined;
     const approvalRevision = (own = false) => options.taint?.approvalRevision?.(own ? connectionId : undefined) ?? JSON.stringify(options.admissionSafety?.read());
     const grantCurrent = (own = false) => { try { const now = approvalRevision(own); return (!granted || grantRevision === now) && (!outwardApproved || outwardRevision === now); } catch { return false; } };
     const recipient = { host, port, method, protocol: url.protocol, managedReference };
@@ -304,7 +304,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (destinationPorts) {
         if (!destinationPorts.has(port)) { finish("denied", "destination_port"); return false; }
         let addresses: ReadonlyArray<{ address: string; family: number }>;
-        try { const addressHost = host.replace(/^\[|\]$/g, ""); addresses = isIP(addressHost) ? [{ address: addressHost, family: isIP(addressHost) }] : await resolve(addressHost); }
+        try { addresses = isIP(host) ? [{ address: host, family: isIP(host) }] : await resolve(host); }
         catch { finish("denied", "unresolved_destination"); return false; }
         if (!addresses.length) { finish("denied", "unresolved_destination"); return false; }
         // Every address must pass: a mixed answer is refused, not narrowed.
@@ -329,17 +329,19 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       return true;
     };
     // No await may intervene between this check and connect/request/fetch.
-    const commit = () => {
+    const maySendNow = (count: number, notify = false) => {
       try {
       if (stopped || controller.signal.aborted || safetyAdmissionRefusal(options.admissionSafety, snapshot)) { finish("denied", "safety_changed"); return false; }
       if (!grantCurrent(true)) { finish("denied", "safety_changed"); return false; }
-      if (usedBytes >= options.maxBytes) { finish("denied", "max_bytes_per_turn"); return false; }
+      if (count > options.maxBytes - usedBytes || notify && usedBytes >= options.maxBytes) { finish("denied", "max_bytes_per_turn"); return false; }
       if (!inputCurrent(connectionId)) { finish("denied", "source_trust_changed"); return false; }
       if (narrowed(true)) { finish("denied", "taint_not_allowed"); return false; }
-      if (!notified) { notified = true; options.committed?.({ ...recipient, connectionId, inference, provider }); }
+      if (notify && !notified) { notified = true; options.committed?.({ ...recipient, connectionId, inference, provider, recipientApproved: granted }); }
+      usedBytes += count; bytes += count;
       return true;
       } catch { finish("denied", "safety_changed"); return false; }
     };
+    const commit = () => maySendNow(0, true);
     /** Why this connection was refused, for the tool that made it; undefined while admitted or for a bare refusal. */
     const refusal = () => {
       if (finalOutcome !== "denied") return undefined;
@@ -347,7 +349,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (finalReason === "taint_not_allowed") try { cause = options.taint?.cause?.(); } catch { /* The message names no cause. */ }
       return describeRefusal(finalReason, host, matches(host, options.deny), cause);
     };
-    return { finish, charge, admit, commit, refusal, signal: controller.signal, outcome: () => finalOutcome, reason: () => finalReason, pinned: () => pinned };
+    return { host, finish, charge, admit, commit, refusal, signal: controller.signal, outcome: () => finalOutcome, reason: () => finalReason, pinned: () => pinned };
   }
   server.on("connect", (request, client, head) => {
     client.on("error", () => {});
@@ -369,7 +371,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
         return;
       }
       const address = op.pinned();
-      upstream = track(connect({ host: address?.address ?? target.hostname.replace(/^\[|\]$/g, ""), port: Number(target.port || 80) }));
+      upstream = track(connect({ host: address?.address ?? op.host, port: Number(target.port || 80) }));
       const tunnel = upstream;
       tunnel.once("connect", () => {
         if (stopped || op.signal.aborted || client.destroyed || !op.commit()) { tunnel.destroy(); return; }
@@ -381,8 +383,8 @@ export async function startEgressProxy(options: EgressProxyOptions) {
         tunnel.on("drain", () => client.resume()); client.on("drain", () => tunnel.resume());
       });
       tunnel.once("error", () => { op.finish("failed", "upstream_unreachable"); client.destroy(); });
-      tunnel.once("end", () => client.end());
-      client.once("end", () => tunnel.end());
+      tunnel.once("end", () => { if (!op.charge(0)) { client.destroy(); tunnel.destroy(); return; } client.end(); });
+      client.once("end", () => { if (!op.charge(0)) { client.destroy(); tunnel.destroy(); return; } tunnel.end(); });
       client.once("close", () => tunnel.destroy());
       tunnel.once("close", () => client.destroy());
     })().catch(() => { op.finish("failed", "proxy_error"); client.destroy(); });
@@ -430,7 +432,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
           writeHeaders(); if (!response.write(chunk)) incoming.pause();
         });
         response.on("drain", () => incoming.resume());
-        incoming.once("end", () => { if (!response.destroyed && !response.writableEnded) { writeHeaders(); response.end(); } });
+        incoming.once("end", () => { if (!response.destroyed && !response.writableEnded) { if (!op.charge(0)) { response.destroy(); return; } writeHeaders(); response.end(); } });
         incoming.once("error", () => { op.finish("failed", "upstream_response_failed"); response.destroy(); });
       });
       op.signal.addEventListener("abort", () => { outgoing.destroy(); if (op.outcome() === "cancelled") response.destroy(); }, { once: true });
@@ -438,7 +440,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       response.once("close", () => outgoing.destroy());
       request.on("data", chunk => { if (!op.charge(chunk.length + 16)) { outgoing.destroy(); response.destroy(); return; } if (!outgoing.write(chunk)) request.pause(); });
       outgoing.on("drain", () => request.resume());
-      request.once("end", () => outgoing.end());
+      request.once("end", () => { if (!op.charge(0)) { outgoing.destroy(); response.destroy(); return; } outgoing.end(); });
       request.once("error", () => { op.finish("cancelled", "client_disconnected"); outgoing.destroy(); });
     })().catch(() => { op.finish("failed", "proxy_error"); response.destroy(); });
   });
