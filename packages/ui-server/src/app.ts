@@ -1187,7 +1187,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   for (const path of INDEX_READ_ROUTES) app.use(path, indexReadBarrier(indexBatch));
   app.route(
     "/api",
-    createBrainRoutes({ syncingRoots: new Set(), brain, brainPath: config.brainPath, exec: config.exec, keyterms, brainCliMinimum, log: brainLog, boundary })
+    createBrainRoutes({ syncingRoots: new Map(), activity: activity.store, brain, brainPath: config.brainPath, exec: config.exec, keyterms, brainCliMinimum, log: brainLog, boundary })
   );
   app.route("/api", createSessionProfileRoutes(sessionProfiles));
   app.route("/api", createSessionRoutes({ registry, db, labels: host.labels !== null, prepareHistory: (id, messages) => host.prepareHistory(id, messages),

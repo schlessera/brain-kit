@@ -148,7 +148,9 @@ async function runLocalSync(command: MaintenanceCommand & { signal?: AbortSignal
 }
 
 /** Full deterministic sync with the same local merge behavior; remote races repeat its existing re-pull flow. */
-export async function runMirrorSync(input: { log?: import("@opentelemetry/api-logs").Logger; folderPaths?: readonly string[]; nativeManager?: Parameters<typeof prepareNativeWorkerStartupView>[1]; command: MaintenanceCommand; mirror: string; transportEnv?: MaintenanceCommand["env"]; signal?: AbortSignal; timeoutMs?: number }): Promise<ExecutionResult> {
+export async function runMirrorSync(input: { log?: import("@opentelemetry/api-logs").Logger; folderPaths?: readonly string[]; nativeManager?: Parameters<typeof prepareNativeWorkerStartupView>[1]; command: MaintenanceCommand; mirror: string; transportEnv?: MaintenanceCommand["env"]; signal?: AbortSignal; timeoutMs?: number;
+  /** Called once the sync's first worker is about to start: after the mirror lock, the startup view and the origin probe (#4257). */
+  onExecute?: () => void }): Promise<ExecutionResult> {
   // Standalone embedders have no attached database gate. Their private
   // mirror still serializes every local/transport phase in this process.
   return mirrorLocks.withLock(input.mirror, () => executeMirrorSync(input), { signal: input.signal });
@@ -162,6 +164,8 @@ async function executeMirrorSync(input: Parameters<typeof runMirrorSync>[0]): Pr
   let remote: string | null;
   try { input.signal?.throwIfAborted(); remote = await origin({ ...command, startupView: originView }); }
   finally { await originView.cleanup(); }
+  input.signal?.throwIfAborted();
+  input.onExecute?.();
   if (remote === null) return runLocalSync({ ...command, credentials: false,
     ...(input.signal ? { signal: input.signal } : {}), ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}) }, input.nativeManager, input.folderPaths, input.log);
   prepareMirror(mirror, brain);
