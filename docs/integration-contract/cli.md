@@ -334,7 +334,8 @@ The JSON result is `{schema_version: 1, action: "pack", state, packed, reason,
 headroom, garbage}`. `state` is `complete`, `refused` or `partial`; exit code is 0 for
 complete and 2 otherwise. `packed` counts loose objects packed by the owner or
 is null when no complete count is known. It is not reclaimed bytes. `reason`
-is null, `no_space`, `packing_headroom`, `not_a_git_worktree` or `git_maintenance_unavailable`.
+is null, `no_space`, `not_a_git_worktree` or `git_maintenance_unavailable`;
+these existing values remain unchanged.
 `headroom` is null before capacity inspection, or `{availableBytes, requiredBytes:
 null, reason}`. Availability is a nullable live statfs observation of the Git
 common store. Additive in #4287/#4288: `headroom.packingRequiredBytes`
@@ -343,8 +344,10 @@ object sizes plus 128 bytes per object, and ref text plus 128 bytes per ref,
 plus 16 MiB. `requiredBytes` retains its
 historical null value. Old/new packs coexist; the standalone CLI reserves no
 space. Unknown availability or availability below the conservative need refuses
-with `packing_headroom` before maintenance. Known zero retains `no_space`.
-`garbage` is null before Git accounting, otherwise `{count, bytes}` from
+before maintenance and adds optional `skipReason: "packing_headroom"`.
+The existing `reason` remains `no_space` for known insufficient space, or
+`git_maintenance_unavailable` for unknown capacity. Known zero retains `no_space`.
+Optional additive `garbage` is null before Git accounting, otherwise `{count, bytes}` from
 `git count-objects -v`'s `garbage` and `size-garbage` (KiB converted to bytes).
 It reports existing garbage; no existing garbage is deleted. Optional
 `brain storage pack --dry-run --json` returns this inspection without running

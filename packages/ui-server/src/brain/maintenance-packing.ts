@@ -17,10 +17,10 @@ export async function runHostedMaintenance(execution: BrainExecution, commandInd
   let garbage: {count:number;bytes:number}|null|undefined;
   try {
     const plan = await run({ ...execution, argv: [...prefix,"storage","pack","--dry-run","--json"], credentials:false,publish:false, onExecute:undefined });
-    const parsed=JSON.parse(plan.stdout) as {state:string;reason:string|null;garbage?:{count:number;bytes:number};headroom?:{packingRequiredBytes:number}};
+    const parsed=JSON.parse(plan.stdout) as {state:string;reason:string|null;skipReason?:string;garbage?:{count:number;bytes:number};headroom?:{packingRequiredBytes:number}};
     garbage=parsed.garbage;
     if(parsed.reason==="not_a_git_worktree") result="skipped — not a git repository";
-    else if(plan.exitCode!==0 && parsed.reason!=="no_space" && parsed.reason!=="packing_headroom")
+    else if(plan.exitCode!==0 && parsed.reason!=="no_space" && parsed.skipReason!=="packing_headroom")
       result=`FAILED — git packing inspection: ${parsed.reason ?? "unavailable"}; Git did not start`;
     else if(plan.exitCode!==0 || parsed.state!=="complete" || !Number.isSafeInteger(parsed.headroom?.packingRequiredBytes) || parsed.headroom!.packingRequiredBytes<=0)
       result="skipped — packing_headroom: packing size could not be established; Git did not start";
@@ -30,9 +30,9 @@ export async function runHostedMaintenance(execution: BrainExecution, commandInd
       const packingAllowanceBytes=parsed.headroom!.packingRequiredBytes+16*1024**2;
       const packed=await run({...execution,argv:[...prefix,"storage","pack","--json"],credentials:false,
         outputAreas:[".git"],packingAllowanceBytes,onExecute:undefined});
-      const value=JSON.parse(packed.stdout) as {state:string;reason:string|null;packed:number|null;headroom?:{availableBytes:number|null};garbage:{count:number;bytes:number}|null};
+      const value=JSON.parse(packed.stdout) as {state:string;reason:string|null;skipReason?:string;packed:number|null;headroom?:{availableBytes:number|null};garbage:{count:number;bytes:number}|null};
       result=value.state==="complete" && packed.exitCode===0 ? `ok — packed ${value.packed} loose object(s)`
-        : value.state==="refused" && (value.reason==="no_space" || value.reason==="packing_headroom") ? `skipped — packing_headroom: ${value.reason}; Git published nothing`
+        : value.state==="refused" && (value.reason==="no_space" || value.skipReason==="packing_headroom") ? `skipped — packing_headroom: ${value.reason}; Git published nothing`
         : `FAILED — git packing: ${value.reason}; Git published nothing`;
       if(value.state==="partial" && value.reason==="no_space") {
         const available=value.headroom?.availableBytes;

@@ -49,7 +49,7 @@ export async function runStorageInventory(args: string[], json: boolean): Promis
 export function runStoragePack(args: string[], root: string, json: boolean): number {
   if (args[0] !== "pack" || args.slice(1).some(arg => arg !== "--json" && arg !== "--dry-run")) throw new UsageError("Usage: brain storage pack [--dry-run] --json");
   let started = false;
-  const result: { schema_version: 1; action: "pack"; state: "complete" | "refused" | "partial"; packed: number | null; reason: string | null; garbage: { count: number; bytes: number } | null; headroom: ReturnType<typeof gitPackingHeadroom> | null } =
+  const result: { schema_version: 1; action: "pack"; state: "complete" | "refused" | "partial"; packed: number | null; reason: string | null; skipReason?: "packing_headroom"; garbage: { count: number; bytes: number } | null; headroom: ReturnType<typeof gitPackingHeadroom> | null } =
     { schema_version: 1, action: "pack", state: "refused", packed: null, reason: null, headroom: null, garbage: null };
   try {
     if (!isGitWorkTree(root)) result.reason = "not_a_git_worktree";
@@ -62,7 +62,11 @@ export function runStoragePack(args: string[], root: string, json: boolean): num
     }
   } catch (error) {
     result.state = error instanceof GitPackingSkipped ? "refused" : started ? "partial" : "refused";
-    result.reason = error instanceof GitPackingSkipped ? "packing_headroom" : error instanceof GitNoSpaceError || isNoSpaceFailure(String(error)) ? "no_space" : "git_maintenance_unavailable";
+    if (error instanceof GitPackingSkipped) {
+      result.skipReason = "packing_headroom";
+      result.reason = result.headroom?.availableBytes !== null && result.headroom?.availableBytes !== undefined
+        ? "no_space" : "git_maintenance_unavailable";
+    } else result.reason = error instanceof GitNoSpaceError || isNoSpaceFailure(String(error)) ? "no_space" : "git_maintenance_unavailable";
   }
   if (json) console.log(JSON.stringify(result));
   else console.log(result.state === "complete" ? `Packed ${result.packed} loose objects; history and refs retained.` : `Packing ${result.state}: ${result.reason}. Re-measure storage before trying again.`);
