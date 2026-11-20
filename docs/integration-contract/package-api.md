@@ -5637,7 +5637,8 @@ The receipt stages are `prepared|file_published|committed|partial|unknown|refuse
 runtime enforcement. Current responses use `partial` for saved policy because
 `enforcement:unavailable` remains truthful until the admission implementation.
 `currentRule:present|removed|changed|unknown` is refreshed on reads, independently
-of historical publication proof. No removal receipt claims an enforcing fence.
+of historical publication proof. Readback loads the durable operation and policy
+projection within the same brain lock after any in-progress commit finishes. No removal receipt claims an enforcing fence.
 No agent turn, provider message or ordinary governance snapshot is changed.
 The journal awaits asynchronous metadata and publication before releasing its
 Settings observation window. It records intervening changes with their ordinary attribution before

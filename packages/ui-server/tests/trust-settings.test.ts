@@ -56,6 +56,21 @@ test("real descriptor CRUD is exact, durable and creates no agent turn; readback
   expect(f.db.query("SELECT count(*) n FROM policy_proposals").get()).toEqual({ n: 0 });
   expect((await f.settings.list("odysseus")).capabilities.repositoryRules).toBe(false);
 });
+for (const stage of ["writing", "file_published"]) test(`readback waiting on a ${stage} commit returns its completed durable receipt`, async () => {
+  let ready!: () => void, release!: () => void;
+  const reached = new Promise<void>(resolve => { ready = resolve; }), held = new Promise<void>(resolve => { release = resolve; });
+  const f = await fixture({ checkpoint: async value => { if (value === stage) { ready(); await held; } } }), draft = await f.prepare();
+  const pendingCommit = f.commit(draft);
+  try {
+    await reached;
+    const pendingRead = f.settings.read("odysseus", draft.receipt.requestId);
+    release();
+    const [read, committed] = await Promise.all([pendingRead, pendingCommit]);
+    expect(read.receipt, "SETTINGS_READ_AFTER_LOCK_USES_COMPLETED_DURABLE_RECEIPT").toEqual(committed.receipt);
+    expect(read.receipt.publication).toBe("proved");
+  } finally { release(); await pendingCommit.catch(() => {}); }
+});
+
 test("changed request, foreign principal, arbitrary handles and expired reviews cannot replay", async () => {
   let now = 1000; const f = await fixture({ now: () => now }), draft = await f.prepare();
   await expect(f.commit(draft, { reviewedBytesHash: "a".repeat(64) })).rejects.toThrow("request_conflict");

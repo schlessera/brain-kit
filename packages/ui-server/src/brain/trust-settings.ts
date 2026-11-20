@@ -129,15 +129,18 @@ export function createTrustSettings(options: {
     return { ...receipt, currentRule: p.error ? "unknown" : !rule ? "removed" : JSON.stringify(rule) === JSON.stringify(payload.rule) ? "present" : "changed" };
   };
   const read = async (principal: string, request: string) => {
-    const r = row(principal, request), payload = JSON.parse(r.payload) as Payload;
-    let receipt = JSON.parse(r.receipt) as Receipt;
-    if (r.stage === "writing") receipt = { ...receipt, stage: "unknown", publication: "unknown", reason: "publication_completion_unknown" };
-    if (r.stage === "file_published") receipt = { ...receipt, stage: "partial", publication: r.proof ? "proved" : "unknown", reason: "publication_recorded_completion_incomplete" };
-    const p = await options.lock.withLock(BRAIN_LOCK_KEY, refresh); row(principal, request);
-    return { receipt: current(receipt, payload, p), review: { reviewId: payload.reviewId, base: payload.base, proposed: payload.proposed,
-      diff: exactDiff(payload.base, payload.proposed), reviewedBytesHash: payload.proposedHash, expiresAt: r.expires_at,
-      repositoryIdentity: payload.githubIdentity ?? null,
-      includesFutureRepositories: payload.rule?.selector.kind === "github_owner" }, policy: p, capabilities };
+    row(principal, request);
+    return options.lock.withLock(BRAIN_LOCK_KEY, async () => {
+      const p = await refresh();
+      const r = row(principal, request), payload = JSON.parse(r.payload) as Payload;
+      let receipt = JSON.parse(r.receipt) as Receipt;
+      if (r.stage === "writing") receipt = { ...receipt, stage: "unknown", publication: "unknown", reason: "publication_completion_unknown" };
+      if (r.stage === "file_published") receipt = { ...receipt, stage: "partial", publication: r.proof ? "proved" : "unknown", reason: "publication_recorded_completion_incomplete" };
+      return { receipt: current(receipt, payload, p), review: { reviewId: payload.reviewId, base: payload.base, proposed: payload.proposed,
+        diff: exactDiff(payload.base, payload.proposed), reviewedBytesHash: payload.proposedHash, expiresAt: r.expires_at,
+        repositoryIdentity: payload.githubIdentity ?? null,
+        includesFutureRepositories: payload.rule?.selector.kind === "github_owner" }, policy: p, capabilities };
+    });
   };
   return {
     /** Live trust-only projection for future admissions. Ordinary policy snapshots
