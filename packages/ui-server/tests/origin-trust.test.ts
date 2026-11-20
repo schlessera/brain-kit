@@ -24,7 +24,7 @@ function get(socketPath: string, target: string): Promise<number> {
 function trust(rule: TrustRule) {
   let revision = "1", rules = [rule], policyHash="a".repeat(64); const listeners = new Set<() => void>();
   const live: OriginTrust = { revision: () => revision, read: () => ({revision,rules,policyHash}), subscribe: cb => {listeners.add(cb);return () => {listeners.delete(cb);};} };
-  return { live, remove() { rules=[];revision="2";policyHash="b".repeat(64);for(const cb of listeners)cb(); } };
+  return { live, publish(next:TrustRule[]) {rules=next;revision=String(BigInt(revision)+1n);policyHash=revision.padStart(64,"0");for(const cb of listeners)cb();}, remove() { rules=[];revision=String(BigInt(revision)+1n);policyHash="b".repeat(64);for(const cb of listeners)cb(); } };
 }
 async function fixture(recipient = false, policy: GovernancePolicyInput = {schema_version:1}, response?: () => Response, full = false, listenHost = "127.0.0.1") {
   const root=full?mkdtempSync(join(tmpdir(),"odysseus-origin-trust-")):null;
@@ -208,4 +208,19 @@ test('review7: provisional safety reads never survive a rolled-back transaction'
 
 test('review8: unmatched input after removal records the current policy hash and revision',async()=>{
  const f=await fixture();try{f.t.remove();expect(await get(f.proxy.socketPath,f.origin.url.href)).toBe(200);await f.proxy.settled();const events=queryGovernanceEvents(f.db,{kinds:['taint'],limit:10});expect(events[0]?.payload,'UNMATCHED_ADMISSION_USES_ONE_LIVE_POLICY_SNAPSHOT').toMatchObject({occurrence:{admission:{trusted:false,policyHash:'b'.repeat(64),trustRevision:'2'}}});}finally{await f.close();}
+});
+
+
+for(const change of ['remove','replace','disable'] as const)test(`review11: an unrelated recipient edit keeps a real trusted source stream until ${change}`,async()=>{
+ let stream!:ReadableStreamDefaultController<Uint8Array>;const f=await fixture(false,{schema_version:1},()=>new Response(new ReadableStream<Uint8Array>({start(c){stream=c;c.enqueue(new TextEncoder().encode('first'));}})));let first!:()=>void,second!:()=>void;const received=new Promise<void>(r=>{first=r;}),later=new Promise<void>(r=>{second=r;});let text='';
+ const closed=new Promise<void>((resolve,reject)=>{const r=request({socketPath:f.proxy.socketPath,path:f.origin.url.href},response=>{response.on('data',b=>{text+=b;first();if(text.includes('second'))second();});response.on('close',resolve);response.on('error',()=>resolve());});r.on('error',reject);r.end();});
+ try{await received;const source=f.t.live.read().rules[0]!;f.t.publish([source,{...source,id:'troy-recipient',incomingContent:false,recipientWhileRestricted:true,selector:{kind:'web_origin',scheme:'https',host:'troy.example.org',port:443}}]);try{stream.enqueue(new TextEncoder().encode('second'));}catch{}
+ expect(await Promise.race([later.then(()=>true),closed.then(()=>false)]),'UNRELATED_RECIPIENT_EDIT_NEVER_REVOKES_SOURCE_INPUT').toBe(true);if(change==='remove')f.t.remove();else f.t.publish([{...source,...(change==='replace'?{id:'replacement-source'}:{incomingContent:false,recipientWhileRestricted:true})}]);await f.proxy.settled();expect(queryGovernanceEvents(f.db,{kinds:['egress_connection'],limit:10})[0]?.payload,'SOURCE_RULE_REPLACEMENT_NEVER_BORROWS_TRUST').toMatchObject({reason:'source_trust_changed'});await closed;expect(text).toBe('firstsecond');expect(f.controller.signal.aborted).toBe(false);expect(queryGovernanceEvents(f.db,{kinds:['taint'],limit:10})[0]?.payload).toMatchObject({occurrence:{admission:{trusted:true,ruleId:'ithaca',trustRevision:'1',policyHash:'a'.repeat(64)}}});
+ }finally{await f.close();}
+});
+
+
+test('review11: unrelated trust publication during occurrence COMMIT keeps the same source admission',async()=>{
+ const f=await fixture(false,{schema_version:1},undefined,true);const original=f.writes.firstTaint;let entered!:()=>void,release!:()=>void;const reached=new Promise<void>(r=>{entered=r;}),held=new Promise<void>(r=>{release=r;});f.writes.firstTaint=async(...args)=>{entered();await held;return original(...args);};
+ try{const pending=get(f.proxy.socketPath,f.origin.url.href);await reached;const source=f.t.live.read().rules[0]!;f.t.publish([source,{...source,id:'troy-recipient',incomingContent:false,recipientWhileRestricted:true,selector:{kind:'web_origin',scheme:'https',host:'troy.example.org',port:443}}]);release();expect(await pending,'UNRELATED_REVISION_DURING_COMMIT_KEEPS_SOURCE').toBe(200);expect(f.hits()).toBe(1);expect(f.proxy.recordingFailure()).toBeUndefined();}finally{release();await f.close();}
 });

@@ -133,7 +133,17 @@ export async function prepareTurnEgress(options: {
   const exposureCommits = new Map<string, Promise<unknown>>();
   const normalBefore = new Set<string>();
   const standingRecipients = new Map<string, Pick<TrustMatch, "ruleId" | "policyHash" | "trustRevision" | "collectionRevision">>();
-  const trustedInputs = new Map<string, { destination: OriginDestination; revision: string }>();
+  const trustedInputs = new Map<string, { destination: OriginDestination; revision: string; ruleId: string }>();
+  const inputCurrent = (connectionId: string) => {
+    const input = trustedInputs.get(connectionId); if (!input) return true;
+    const current = options.trust?.read(); if (!current) return false;
+    if (current.revision === input.revision) return true;
+    // Revalidate this admission's own source rule, never borrow a replacement
+    // rule or rewrite the historical admission. Recipient-only edits are independent.
+    const match = originTrustMatchSnapshot({ ...current, rules: current.rules.filter(rule => rule.id === input.ruleId) }, input.destination, "incomingContent", "0");
+    if (!match) return false;
+    input.revision = current.revision; return true;
+  };
   let releaseTrust: (() => void) | undefined;
   const base = () => ({ turnId: options.turnId, sessionId: options.sessionId(), model: options.model(),
     actor: options.origin, profile: options.profile });
@@ -281,7 +291,7 @@ export async function prepareTurnEgress(options: {
     const match = originTrustMatchSnapshot(trustSnapshot, destination, "incomingContent", options.bridge.admissionSafety?.read().evidenceRevision ?? "0");
     exposure.admission = match ? { trusted: true, ruleId: match.ruleId, policyHash: match.policyHash, trustRevision: match.trustRevision, collectionRevision: match.collectionRevision }
       : { trusted: false, policyHash: trustSnapshot ? trustSnapshot.policyHash : options.policyHash ?? null, trustRevision: trustSnapshot?.revision ?? "0" };
-    if (match) trustedInputs.set(destination.connectionId, { destination, revision: match.trustRevision });
+    if (match) trustedInputs.set(destination.connectionId, { destination, revision: match.trustRevision, ruleId: match.ruleId });
     exposure.provenance=destination.method==="CONNECT"
       ? {kind:"tunnel_authority",authority:{host:destination.host,port:destination.port},verifiedBy:"host_proxy"}
       : destination.protocol==="http:"||destination.protocol==="https:"
@@ -294,7 +304,7 @@ export async function prepareTurnEgress(options: {
       await initial;
     } catch (error) { fail(); throw error; }
     finally { exposureCommits.delete(destination.connectionId); }
-    if (match && options.trust!.revision() !== match.trustRevision) throw new EgressAdmissionRefused("Source trust changed before dispatch");
+    if (match && !inputCurrent(destination.connectionId)) throw new EgressAdmissionRefused("Source trust changed before dispatch");
   };
   /** Settles once every record submitted so far has committed or failed; `recordingFailure()` is final after it. */
   const settled = async () => { while (recording.size) await Promise.all([...recording]); };
@@ -304,7 +314,7 @@ export async function prepareTurnEgress(options: {
     outwardHosts: [...new Set([...GITHUB_API_HOSTS, ...MAIL_SUBMISSION_HOSTS, ...options.policy.outward.hosts])],
     outwardPorts: MAIL_SUBMISSION_PORTS,
     signal: options.controller.signal, observe: report, admitted,
-    inputCurrent: connectionId => { const input = trustedInputs.get(connectionId); return !input || options.trust?.revision() === input.revision; },
+    inputCurrent,
     committed: destination => {
       if (destination.inference || destination.provider) return;
       const recipient = originTrustMatch(options.trust, destination, "recipientWhileRestricted", options.bridge.admissionSafety?.read().evidenceRevision ?? "0");

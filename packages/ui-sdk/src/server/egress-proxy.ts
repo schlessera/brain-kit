@@ -239,7 +239,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
   const inputCurrent = (id: string) => { try { return options.inputCurrent?.(id) !== false; } catch { return false; } };
   const connections = new Set<Socket>();
   const controllers = new Set<AbortController>();
-  const inputs = new Map<string, AbortController>();
+  const inputs = new Map<string, () => void>();
   let usedBytes = 0, stopped = false;
   const server = createServer();
   server.maxHeadersCount = 100;
@@ -256,7 +256,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     const connectionId = crypto.randomUUID();
     let snapshot: AdmissionSafetySnapshot | undefined;
     const started = performance.now();
-    const controller = new AbortController(); controllers.add(controller); inputs.set(connectionId, controller);
+    const controller = new AbortController(); controllers.add(controller);
     // Matching may ignore a DNS root dot; resolution must preserve it.
     const dialHost = url.hostname.startsWith("[") ? url.hostname.slice(1, -1) : url.hostname;
     const host = canonicalEgressHost(dialHost), port = Number(url.port || (url.protocol === "https:" ? "443" : "80"));
@@ -273,10 +273,15 @@ export async function startEgressProxy(options: EgressProxyOptions) {
         accounting: method === "CONNECT" ? "opaque_bytes" : "http_wire_bound",
         durationMs: performance.now() - started, outcome, ...(reason ? { reason } : {}) }); } catch { /* A recorder cannot keep a connection alive. */ }
     };
+    const revokeInput = () => { chargeReason = "safety"; finish("cancelled", "source_trust_changed"); };
+    inputs.set(connectionId, revokeInput);
     // Turn cleanup must observe final audit failures before it publishes its
     // terminal outcome; socket close callbacks run only after stop returns.
     controller.signal.addEventListener("abort", () => finish("cancelled", "turn_cancelled"), { once: true });
-    const charge = (count: number): EgressChargeResult => maySendNow(count) ? { ok: true } : { ok: false, reason: finalReason === "max_bytes_per_turn" ? "budget" : chargeReason ?? "unavailable" };
+    const charge = (count: number): EgressChargeResult => {
+      if (!Number.isSafeInteger(count) || count < 0) throw new RangeError("Egress charge bytes must be a nonnegative safe integer");
+      return maySendNow(count) ? { ok: true } : { ok: false, reason: finalReason === "max_bytes_per_turn" ? "budget" : chargeReason ?? "unavailable" };
+    };
     /** One approval wait; cancelling this connection or the turn resolves it as refused. */
     const approval = async (ask: ((destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }, signal: AbortSignal) => Promise<boolean>) | undefined) => {
       if (!ask) return false;
@@ -351,7 +356,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (safetySnapshotRefusal(current, snapshot)) { chargeReason = "safety"; finish("denied", "safety_changed"); return false; }
       if (!grantCurrent(true)) { chargeReason = "safety"; finish("denied", "safety_changed"); return false; }
       if (count > options.maxBytes - usedBytes || notify && usedBytes >= options.maxBytes) { finish("denied", "max_bytes_per_turn"); return false; }
-      if (!inputCurrent(connectionId)) { chargeReason = "safety"; finish("denied", "source_trust_changed"); return false; }
+      if (!inputCurrent(connectionId)) { revokeInput(); return false; }
       if (narrowed(true)) { chargeReason = "safety"; finish("denied", "taint_not_allowed"); return false; }
       if (notify && !notified) { notified = true; options.committed?.({ ...recipient, connectionId, inference, provider, recipientApproved: granted }); }
       usedBytes += count; bytes += count;
@@ -361,7 +366,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     const commit = () => maySendNow(0, true);
     /** Why this connection was refused, for the tool that made it; undefined while admitted or for a bare refusal. */
     const refusal = () => {
-      if (finalOutcome !== "denied") return undefined;
+      if (finalOutcome !== "denied" && finalReason !== "source_trust_changed") return undefined;
       let cause: string | null | undefined;
       if (finalReason === "taint_not_allowed") try { cause = options.taint?.cause?.(); } catch { /* The message names no cause. */ }
       return describeRefusal(finalReason, host, matches(host, options.deny), cause);
@@ -478,7 +483,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
   if (options.signal?.aborted) stop();
   return { dir, socketPath, stop,
     /** Fence only inputs whose host decision changed; unrelated traffic remains active. */
-    invalidateInputs() { for (const [id, controller] of inputs) if (!inputCurrent(id)) controller.abort(); },
+    invalidateInputs() { for (const [id, revoke] of inputs) if (!inputCurrent(id)) revoke(); },
     usedBytes: () => usedBytes, remainingBytes: () => Math.max(0, options.maxBytes - usedBytes),
     /** The existing inference relay shares this turn's admission, counter and audit. */
     inference(method: string, target: URL, signal: AbortSignal) { return relayedOperation(method, target, signal, "inference"); },

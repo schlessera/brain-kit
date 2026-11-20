@@ -21,3 +21,5 @@ Record unmatched source hash and revision from the same live snapshot used for m
 Preserve absolute DNS authorities during resolution/dialing separately from comparison keys, and retain the version-1 detector ID contract while strictly validating admission evidence.
 
 Cancel queued turn-start trust refreshes with the turn signal, and distinguish budget, safety and unavailable charge results across proxy, inference/provider relays and managed reference acquisition.
+
+Revalidate only an active input’s admitted source rule across trust revisions, unify source revocation audit/safety results, and reject invalid byte counts before either charge counter changes.

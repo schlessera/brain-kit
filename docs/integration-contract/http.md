@@ -1329,7 +1329,10 @@ retains its legacy session grant, including when source trust also matched.
 Transport receipt hosts use lowercase DNS or canonical bare IP literals.
 Deny/allowlists, byte ceilings, provider credentials and outward-action approval
 remain independent. Removing a standing capability affects future admissions;
-source streams stop on a trust revision change before subsequent input bytes.
+source streams revalidate their admitted incoming-content rule when trust changes.
+They stop before later bytes if that same rule no longer matches; unrelated
+recipient edits alone do not revoke that source decision. Historical admission
+facts remain unchanged, and independent recipient/approval fences still apply.
 Approval and recording waits recheck live authority and recipient permission at
 final dispatch. No earlier trigger, verdict or provider message is rewritten.
 
@@ -1369,3 +1372,9 @@ recording/admission reports 503 with `egress_unavailable`. These never claim a
 network byte limit was exhausted. A byte ceiling retains its existing refusal.
 A stream which already began terminates; its relay error and connection evidence
 retain the corresponding safety, unavailable or budget classification.
+
+
+Source trust revocation uses one path whether a publication notification or a
+send fence observes it first: connection evidence records `source_trust_changed`
+and subsequent charge results classify it as safety, never turn cancellation
+or unavailable recording. The turn and unrelated connections remain active.

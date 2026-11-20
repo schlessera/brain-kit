@@ -5989,7 +5989,9 @@ Provider history remains byte-identical as an earlier prefix.
 
 The concrete turn proxy's `charge(bytes)` returns `{ok:true}` or
 `{ok:false,reason:"budget"|"safety"|"unavailable"}`. Callers preserve that
-classification: only budget refusal is byte exhaustion; authority/source or
+classification. `bytes` must be a nonnegative safe integer; invalid counts
+throw RangeError before changing either the turn or connection byte counter.
+Only budget refusal is byte exhaustion; authority/source or
 approval changes are safety refusals, and unverifiable recording/admission is
 unavailable. Inference/provider uploads, headers, streams and managed GitHub
 wire metering consume this result. `OriginTrust.refresh(signal?)` cancels a
