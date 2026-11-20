@@ -426,7 +426,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const nativeLeases = await createNativeBrainLeaseManager(nativeClient, { statePath: nativeLeasePath, brainPath: nativeReady.brainPath, fsid: nativeReady.fsid, brainUuid: nativeReady.brainUuid })
     .catch(error => { if (ephemeralJournal) rmSync(journalRoot, { recursive: true, force: true }); throw error; });
   const bootCleanup: (() => void | Promise<void>)[] = [];
-  const ownerContinuity = createReferenceOwnerContinuity(config.brainPath);
+  const ownerContinuity = await createReferenceOwnerContinuity(config.brainPath, nativeReady);
   bootCleanup.push(() => ownerContinuity.close());
   try {
   const nativeRecovery = await nativeLeases.recoverDeadOwners();
