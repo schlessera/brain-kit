@@ -21,6 +21,7 @@ import { ATTACHMENT_POOL_DEFAULT_BYTES, isThinkingLevel, type ThinkingLevel } fr
 
 import { CRON_CONTROL_ENV_NAMES } from "../cron/emit.js";
 import { parseRepositoryAllowList } from "../brain/module-repositories.js";
+import { parseModuleGitHubWrites, type ModuleGitHubWrite } from "../github/module-relay.js";
 import { parseProviderRecipientOrigins } from "../brain/provider-recipients.js";
 
 import { SEVERITIES, type Severity } from "../observability/types.js";
@@ -201,6 +202,26 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
       "the job's worker reads a host mirror and never holds the credential. Read by " +
       "the cron runner only, never forwarded to a job. Empty refuses every request.",
     default: "(empty — no module repository is fetched)",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_MODULE_GITHUB_TOKEN",
+    description:
+      "GitHub token for the module GitHub relay (#4259): the GitHub API calls a module cron job makes to the repositories it was granted " +
+      "(the module's `repositories` and BRAIN_UI_MODULE_REPOSITORIES). Use a fine-grained token limited to those repositories, with Issues read " +
+      "and, only where BRAIN_UI_MODULE_GITHUB_WRITES enables a write, Issues write. No fallback: GITHUB_TOKEN, the sync token and " +
+      "BRAIN_UI_GITHUB_TOOLS_TOKEN are never used, and without this one every relayed call is refused. Read by the cron runner only, " +
+      "never forwarded to a job or worker.",
+    default: null,
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_MODULE_GITHUB_WRITES",
+    description:
+      "Operator list of the GitHub writes a module cron job may make through the module GitHub relay (#4259), comma or whitespace separated, " +
+      "each `https://github.com/<owner>/<repo>#<operation>` with operation `issue_comment` or `issue_state`. A repository must also be granted " +
+      "to the job. Read by the cron runner only. Empty enables no write.",
+    default: "(empty — no write)",
     required: false,
   },
   {
@@ -1025,6 +1046,8 @@ export interface CronConfig {
   cliProviderOrigins: ReadonlyMap<string, readonly string[]>;
   /** BRAIN_UI_MODULE_REPOSITORIES: the operator's allow-list of repositories a module job may read (#3380). */
   moduleRepositories: { allowed: string[]; invalid: string[] };
+  /** The module GitHub relay's credential and enabled writes (#4259); the token is read only here. */
+  moduleGitHub: { token: () => string | undefined; writes: Map<string, Set<ModuleGitHubWrite>>; invalid: string[] };
 }
 
 function scheduleInferenceOrigins(raw: string | undefined): string[] | null {
@@ -1389,6 +1412,7 @@ export function resolveCronConfig(
     exec: execConfig(env),
     cliProviderOrigins: parseCliProviderOrigins(env.BRAIN_UI_CLI_PROVIDER_ORIGINS),
     moduleRepositories: parseRepositoryAllowList(env.BRAIN_UI_MODULE_REPOSITORIES),
+    moduleGitHub: { token: moduleGitHubTokenSource(env), ...parseModuleGitHubWrites(env.BRAIN_UI_MODULE_GITHUB_WRITES) },
   };
 }
 
@@ -1479,6 +1503,15 @@ export function apifyTokenSource(env: NodeJS.ProcessEnv = process.env): () => st
  */
 export function githubToolsTokenSource(env: NodeJS.ProcessEnv = process.env): () => string | undefined {
   const token = env.BRAIN_UI_GITHUB_TOOLS_TOKEN?.trim() || undefined;
+  return () => token;
+}
+
+/**
+ * The module GitHub relay's credential (#4259): `BRAIN_UI_MODULE_GITHUB_TOKEN`
+ * and nothing else, read once into a closure.
+ */
+export function moduleGitHubTokenSource(env: NodeJS.ProcessEnv = process.env): () => string | undefined {
+  const token = env.BRAIN_UI_MODULE_GITHUB_TOKEN?.trim() || undefined;
   return () => token;
 }
 

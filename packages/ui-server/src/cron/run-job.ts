@@ -16,6 +16,7 @@ import { cronJobClass, type HostBoundary } from "../brain/host-boundary.js";
 import { parseSyncResult, syncActivityAttrs, syncMessage } from "../brain/sync-result.js";
 import { execWrapperSpawnOptions } from "@schlessera/brain-ui-sdk/internal";
 import type { JobRepositories } from "./job-repositories.js";
+import { githubRepositoryOf, startModuleGitHubRelay, type ModuleGitHubRelay, type ModuleGitHubRelayOptions } from "../github/module-relay.js";
 import { wrapCommand } from "@schlessera/brain-ui-sdk/server";
 
 /** Tail of stderr retained for the cron_runs error row. */
@@ -65,6 +66,8 @@ interface SpawnedJob {
 interface RunRecorder {
   /** `attrs` join the root span's own on its terminal write. */
   finish(error: string | undefined, output: string, exitCode: number, attrs?: Record<string, string>): void;
+  /** One event on the run's root span; fail-open. */
+  event?(type: string, payload: unknown): void;
   close(): void;
 }
 
@@ -84,6 +87,12 @@ interface RunJobOptions {
    * before it launches. A refusal fails the run without starting the job.
    */
   repositories?: (jobName: string, command: readonly string[]) => Promise<JobRepositories>;
+  /**
+   * @internal The module GitHub relay (#4259): a job granted GitHub
+   * repositories reaches their API through a per-run host relay that holds
+   * this credential and allows only these writes.
+   */
+  githubRelay?: Pick<ModuleGitHubRelayOptions, "token" | "writes" | "fetch" | "origin">;
   stdout?: TextSink;
   stderr?: TextSink;
 }
@@ -205,6 +214,9 @@ async function startRecord(
     }, HEARTBEAT_MS);
 
     return {
+      event(type, payload) {
+        try { store.appendEvent(rootSpanId, type, payload); } catch { /* Enrichment only. */ }
+      },
       finish(error, output, exitCode, attrs) {
         record.finish(error);
         try {
@@ -276,6 +288,8 @@ export async function runJob(
   const held = syncJob ? holdStdout(stdout) : null;
   let spanAttrs: Record<string, string> | undefined = syncJob ? syncActivityAttrs(null) : undefined;
 
+  // A job's module GitHub relay (#4259) lives exactly as long as its run.
+  let githubRelay: ModuleGitHubRelay | undefined;
   try {
     const spawn = dependencies.spawn ?? ((command, spawnOptions) => Bun.spawn(command, spawnOptions));
     // Through the exec wrapper like every other child. A scheduled job runs a
@@ -309,9 +323,16 @@ export async function runJob(
       if (access && !access.ok) throw new JobRefusedError(access.reason);
       // The sink is the one host file the job may append to.
       closeSync(openSync(sinkPath, "a", 0o600));
+      // Its granted GitHub repositories' API, through a per-run host relay (#4259).
+      const githubRepositories = access?.ok ? access.repositories.map(repository => githubRepositoryOf(repository.url)).filter((name): name is string => name !== null) : [];
+      if (githubRepositories.length && options.githubRelay) {
+        githubRelay = startModuleGitHubRelay({ ...options.githubRelay, repositories: githubRepositories,
+          observe: write => recorder?.event?.("github_write", write) });
+      }
       proc = await options.boundary.launch({ argv: options.command, env, ...cronJobClass(options.jobName),
         purpose: `cron ${options.jobName}`, writeFiles: [sinkPath], ...(syncJob ? { sync: true } : {}),
-        ...(access?.ok && access.repositories.length ? { repositories: access.repositories } : {}) });
+        ...(access?.ok && access.repositories.length ? { repositories: access.repositories } : {}),
+        ...(githubRelay ? { githubRelay: githubRelay.dir } : {}) });
     } else {
       proc = spawn(wrapCommand(options.command, cronExec.wrapper), {
         stdin: "inherit",
@@ -378,6 +399,10 @@ export async function runJob(
       exitCode = 127;
       writeLine(stderr, `[cron-run] failed to start job command: ${errorMessage}`);
     }
+  }
+
+  try { await githubRelay?.stop(); } catch (error) {
+    writeLine(stderr, `[cron-run] failed to stop the module GitHub relay: ${messageOf(error)}`);
   }
 
   if (recorder) {

@@ -211,6 +211,13 @@ export interface MaintenanceEnvelope {
    */
   providerRelay?: string;
   /**
+   * The cron runner's private module GitHub relay directory (#4259), bound
+   * read-only at {@link WORKER_MODULE_GITHUB_DIR}; the launcher names its
+   * socket in `BRAIN_MODULE_GITHUB_SOCKET`. It holds no credential, so a
+   * credential-free worker may get one.
+   */
+  githubRelay?: string;
+  /**
    * The server's home, made visible again below the home masks. Only a
    * credentialed worker gets it (the interim exposure the decision record
    * names): a read-only bind. Writable tool directories live in bounded /tmp.
@@ -382,11 +389,15 @@ function rlimitPrefix(plan: WorkerLimitsPlan): string[] {
 
 /** Where a relayed maintenance worker reaches the CLI provider relay (#1673). */
 export const WORKER_PROVIDER_RELAY_DIR = "/run/brain-providers";
+/** Where a module cron job's worker reaches the host GitHub relay (#4259). */
+export const WORKER_MODULE_GITHUB_DIR = "/run/brain-github";
+/** The variable naming that relay's socket inside the worker. */
+export const MODULE_GITHUB_SOCKET_ENV = "BRAIN_MODULE_GITHUB_SOCKET";
 /**
  * A private server-owned directory holding one server-owned socket, outside
  * the brain: never a path a worker or the brain could have supplied.
  */
-function serverSocketDirectory(requested: string, socket: string, brain: string): string {
+function serverSocketDirectory(requested: string, socket: string, brain: string, purpose = "the provider relay"): string {
   const separateIdentity = Boolean(workerIdentityHelper());
   const serverUid = process.getuid?.(), serverGid = process.getgid?.();
   try {
@@ -399,7 +410,7 @@ function serverSocketDirectory(requested: string, socket: string, brain: string)
       && (!separateIdentity || directoryInfo.gid === serverGid && socketInfo.gid === serverGid)
       && !holds(brain, directory) && !holds(directory, brain)) return directory;
   } catch { /* Missing, aliased or unreadable IPC is never launch authority. */ }
-  throw new WorkerHostError("the provider relay requires its private server-owned directory and socket");
+  throw new WorkerHostError(`${purpose} requires its private server-owned directory and socket`);
 }
 
 /**
@@ -485,6 +496,7 @@ function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string, egressM
     if (!envelope.credentials) throw new WorkerHostError("only a credentialed maintenance worker reaches the provider relay");
     argv.push("--ro-bind", serverSocketDirectory(envelope.providerRelay, "relay.sock", brain), WORKER_PROVIDER_RELAY_DIR);
   }
+  if (envelope.githubRelay) argv.push("--ro-bind", serverSocketDirectory(envelope.githubRelay, "github.sock", brain, "the module GitHub relay"), WORKER_MODULE_GITHUB_DIR);
   if (envelope.network) {
     try {
       if (lstatSync("/etc/resolv.conf").isSymbolicLink() && statSync("/etc/resolv.conf").isFile()) bindBack("/etc/resolv.conf");
@@ -726,6 +738,7 @@ export function workerCommand(input: WorkerLaunch): string[] {
   if (withheld?.length) argv.push("--setenv", WITHHELD_KEYS_ENV, withheld.join(","));
   if (providerRelay) argv.push("--setenv", PROVIDER_RELAY_SOCKET_ENV, WORKER_PROVIDER_RELAY_SOCKET);
   else if (maintenance?.providerRelay) argv.push("--setenv", PROVIDER_RELAY_SOCKET_ENV, `${WORKER_PROVIDER_RELAY_DIR}/relay.sock`);
+  if (maintenance?.githubRelay) argv.push("--setenv", MODULE_GITHUB_SOCKET_ENV, `${WORKER_MODULE_GITHUB_DIR}/github.sock`);
   argv.push(...writable.env, "--setenv", "BRAIN_WORKER_SCRATCH", scratch,
     "--chdir", transport ? transport.mirror : brain, "--", ...rlimitPrefix(launchLimits(input)), ...(gated(input) ? [...STATE_GATE] : []),
     ...payloadCommand(input));

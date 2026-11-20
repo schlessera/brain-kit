@@ -699,6 +699,11 @@ refuses rather than run git on the host.
   into a private mirror beside the sync mirror, using the sync credential.
   The job's worker reads that mirror through a Git URL rewrite and holds no
   Git credential. Leave the setting empty to fetch nothing.
+- **A module job's GitHub API calls** to those granted GitHub repositories go
+  through a per-run host relay socket (#4259), never a token in the worker. The
+  relay adds `BRAIN_UI_MODULE_GITHUB_TOKEN` (no fallback) and allows writes only
+  where `BRAIN_UI_MODULE_GITHUB_WRITES` enables them per repository. Leave the
+  token unset to refuse every call.
 
 **When the boundary holds.** `governed` is the default profile, so the
 boundary holds wherever `governed` can run, and from then on for good: once

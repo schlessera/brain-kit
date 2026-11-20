@@ -319,6 +319,9 @@ export const CRON_CONTROL_ENV_NAMES: readonly string[] = [
   "BRAIN_UI_MAINTENANCE_TEMP_BUDGET_BYTES",
   // The operator's module repository allow-list (#3380): the runner reads it, no job receives it.
   "BRAIN_UI_MODULE_REPOSITORIES",
+  // The module GitHub relay's credential and enabled writes (#4259): the runner reads them, no job receives them.
+  "BRAIN_UI_MODULE_GITHUB_TOKEN",
+  "BRAIN_UI_MODULE_GITHUB_WRITES",
 ];
 
 export function emitEnvironment(

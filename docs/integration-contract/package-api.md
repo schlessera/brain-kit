@@ -1023,6 +1023,29 @@ the mirror read-only and `url.file://<mirror>.insteadOf` rewrites for the
 URL's plain, `/`, `.git` and `.git/` spellings. It never receives a Git
 credential. The crontab layout is unchanged.
 
+<a id="module-github-relay"></a>
+
+**Additive module GitHub relay (0.45.0, #4259).** A module job granted a
+`https://github.com/<owner>/<repo>` repository above also gets
+`BRAIN_MODULE_GITHUB_SOCKET=/run/brain-github/github.sock` in its maintenance
+worker: a per-run Unix socket bound read-only from a private server-owned
+directory, alive only for that run. HTTP requests to it are relayed to
+`https://api.github.com` with the host's `BRAIN_UI_MODULE_GITHUB_TOKEN` (no
+fallback), never following a redirect. Relayed: `GET /repos/<owner>/<repo>/…`
+for a granted repository; `POST /graphql` with `{ query, variables?,
+operationName? }` when the query is one query operation whose only root field
+is `repository(owner:, name:)` naming a granted repository; and, only where
+the operator's `BRAIN_UI_MODULE_GITHUB_WRITES` enables them for that repository,
+`POST /repos/<r>/issues/<n>/comments` with exactly `{ body }` (`issue_comment`)
+and `PATCH /repos/<r>/issues/<n>` with `{ state, state_reason? }`
+(`issue_state`). Every other request is refused before anything leaves the
+host, with `{ message, brain_relay_refusal }` and status 400, 403, 413, 429, 502
+or 503 (`unavailable` without the token). Request bodies are bounded at 1 MiB,
+responses at 16 MiB and calls at 500 per run. The response keeps GitHub's status,
+body and `content-type`, `link`, `etag`, rate-limit and request-id headers. Each
+forwarded write is a `github_write` event on the job's Activity root span:
+`{ repository, operation, number, status }`. Neither setting reaches a job.
+
 **Additive protected scratch retention (#1743).** The existing module helper
 `pruneScratch(root, now?, options?)` accepts optional
 `options.protectedPaths: readonly string[]`. These brain-relative or absolute

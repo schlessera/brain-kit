@@ -603,6 +603,22 @@ credential sent only to `https://github.com`, and a transport worker that
 never mounts the brain
 ([the contract](../integration-contract/package-api.md#module-repositories)).
 
+**The GitHub API of a granted repository — 2026-11-20
+([#4259](https://github.com/schlessera/brain-kit/issues/4259), maintainer ruling
+option 1).** A module job that must read issues or write to them reaches the
+GitHub API through a host relay, never a token in its worker. The relay's grant
+is the read grant above: only the job's granted `github.com` repositories. A
+dedicated host-only credential, `BRAIN_UI_MODULE_GITHUB_TOKEN`, has no fallback
+to `GITHUB_TOKEN`, the sync token or `BRAIN_UI_GITHUB_TOOLS_TOKEN`. Reads are
+REST `GET` and repository-rooted GraphQL queries. Writes are a fixed operation
+set (`issue_comment`, `issue_state`), each enabled per repository by the
+operator's `BRAIN_UI_MODULE_GITHUB_WRITES` in host configuration, so editing
+`brain.config.ts` cannot widen it. The relay is a per-run Unix socket in a
+private server-owned directory, bound read-only into that one worker, because
+a maintenance worker has no network namespace route to the host. A token placed
+in the job's worker and leaving API writes to the operator's own host jobs
+were both rejected.
+
 The protected list below keeps the policy intact, keeps secrets out of workers,
 and stops a turn from steering later turns' permissions or start-up code.
 

@@ -89,6 +89,11 @@ export interface BrainExecution {
    * mirror read-only, with a Git URL rewrite onto it. Never a credential.
    */
   repositories?: readonly ModuleRepositoryAccess[];
+  /**
+   * @internal The cron runner's module GitHub relay directory for this job
+   * (#4259), bound read-only into its worker. It holds no credential.
+   */
+  githubRelay?: string;
   /** @internal Take the contention lock after writer-gate admission, never before it. */
   lock?: { keyed: import("@schlessera/brain-ui-sdk/server").KeyedLock; key: string };
   /** @internal The turn whose tool started this run: its relayed provider spend is charged there (#1673). */
@@ -486,6 +491,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       env,
       credentials: execution.credentials,
       ...(relay ? { providerRelay: relay.dir, maskEnvFiles: true } : {}),
+      ...("githubRelay" in execution && execution.githubRelay ? { githubRelay: execution.githubRelay } : {}),
       ...(execution.credentials && options.home ? { home: options.home } : {}),
       readPaths: [...(exec.wrapper ? [exec.wrapper] : []), ...serverInstallation(), ...(repositories?.readPaths ?? [])],
       ...(repositories ? { gitConfig: repositories.gitConfig } : {}),

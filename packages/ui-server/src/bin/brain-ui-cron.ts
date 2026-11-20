@@ -177,6 +177,8 @@ if (subcommand === "run") {
       // Module jobs only: the operator's allow-list, never the brain, bounds what is fetched (#3380).
       repositories: cronJobRepositories({ boundary: host.boundary, dbPath: config.dbPath, moduleDiscoveryEnv: config.moduleDiscoveryEnv,
         env: config.childEnv, allowList: config.moduleRepositories.allowed }),
+      // Their granted GitHub repositories' API, through the module GitHub relay (#4259).
+      githubRelay: { token: config.moduleGitHub.token, writes: config.moduleGitHub.writes },
     });
   } finally { await host.close(); }
   process.exit(code);

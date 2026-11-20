@@ -162,6 +162,33 @@ modules: {
 This applies to scheduled jobs on a host that runs repository jobs in
 maintenance workers. A module command run by hand gets no mirror.
 
+### Calling the GitHub API from a scheduled job
+
+A job also gets the GitHub **API** of the GitHub repositories it was granted
+above, through a host relay (#4259). The worker still holds no token and has no
+network. The relay is a Unix socket named in `BRAIN_MODULE_GITHUB_SOCKET`
+(`/run/brain-github/github.sock`), and lives only as long as the run. Send it
+ordinary GitHub API requests:
+
+```ts
+const github = (path: string, init: RequestInit = {}) =>
+  fetch(`http://localhost${path}`, { ...init, unix: process.env.BRAIN_MODULE_GITHUB_SOCKET } as RequestInit);
+const issues = await github("/repos/ithaca/watchtower/issues?state=closed").then(r => r.json());
+```
+
+- **Reads:** `GET` under `/repos/<owner>/<repo>/…` for a granted repository,
+  and `POST /graphql` with a query (never a mutation) whose one root field is
+  `repository(owner:, name:)` naming a granted repository.
+- **Writes:** only what the operator enables per repository in
+  `BRAIN_UI_MODULE_GITHUB_WRITES`, as `https://github.com/<owner>/<repo>#<operation>`:
+  `issue_comment` (`POST /repos/<r>/issues/<n>/comments` with `{ body }`) and
+  `issue_state` (`PATCH /repos/<r>/issues/<n>` with `{ state, state_reason? }`).
+  Each write is recorded on the job's Activity run as a `github_write` event.
+- The host adds its own `BRAIN_UI_MODULE_GITHUB_TOKEN`, and no other token.
+  Without it, every call is refused with a message that names the setting.
+  Anything else (another repository, another path or method, a redirect, more
+  than 500 calls in a run) is refused before any request leaves the host.
+
 ### Hygiene checks read the index through `ctx.queries`
 
 A hygiene check receives `{ queries, root, config }`. `queries` is a frozen
