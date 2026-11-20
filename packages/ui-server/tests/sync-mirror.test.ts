@@ -187,7 +187,8 @@ test("an upstream commit that edits an existing governance policy pauses for rev
   const f = fixture();
   const before = "---\nschema_version: 1\n---\nOdysseus decides what leaves Ithaca.\n";
   const after = "---\nschema_version: 1\noutward:\n  github:\n    repositories: [ithaca/*]\n---\nOdysseus decides what leaves Ithaca.\n";
-  // The brain already has a policy, committed and pushed.
+  // The brain already has a policy, committed and pushed (after taking the fixture's upstream note).
+  git(f.brain, "pull", "--quiet", "--no-rebase", "origin", "main");
   mkdirSync(join(f.brain, "context/policies"), { recursive: true });
   writeFileSync(join(f.brain, "context/policies/governance.md"), before);
   git(f.brain, "add", "context/policies/governance.md"); git(f.brain, "commit", "-m", "Ithaca policy"); git(f.brain, "push", "origin", "main");
