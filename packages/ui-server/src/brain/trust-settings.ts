@@ -35,6 +35,10 @@ export class TrustSettingsError extends Error {
   constructor(readonly code: string, readonly status: 400 | 403 | 404 | 409 | 503 = 409) { super(code); }
 }
 interface Projection { revision: string; rules: TrustRule[]; policyHash: string | null; error: string | null }
+type LiveProjection = Projection & { readonly ruleInstances: Readonly<Record<string,string>> };
+/** Kept off every strict Settings JSON response; captured atomically with its projection. */
+const withInstances = (projection:Projection,instances:Readonly<Record<string,string>>):LiveProjection =>
+  Object.defineProperty(projection,"ruleInstances",{value:Object.freeze(instances),enumerable:false}) as LiveProjection;
 interface Receipt {
   version: 1; requestId: string; operationId: string; stage: "prepared" | "file_published" | "committed" | "partial" | "unknown" | "refused";
   publication: "not_published" | "proved" | "unknown"; ruleId: string; publishedTrustRevision: string | null;
@@ -98,15 +102,16 @@ export function createTrustSettings(options: {
     if (!value || (expected !== undefined && expected !== value)) throw new TrustSettingsError("unauthorized", 403);
     return value;
   };
-  const projection = (): Projection => {
-    const row = options.db.query("SELECT * FROM trust_settings_projection WHERE brain_id=?").get(brain) as { revision: string; rules: string; policy_hash: string | null; error: string | null } | null;
-    return row ? { revision: row.revision, rules: JSON.parse(row.rules), policyHash: row.policy_hash, error: row.error } : { revision: "0", rules: [], policyHash: null, error: null };
+  const projection = (): LiveProjection => {
+    const row = options.db.query("SELECT * FROM trust_settings_projection WHERE brain_id=?").get(brain) as { revision: string; rules: string; policy_hash: string | null; error: string | null; rule_instances:string } | null;
+    return row ? withInstances({ revision: row.revision, rules: JSON.parse(row.rules), policyHash: row.policy_hash, error: row.error },JSON.parse(row.rule_instances))
+      : withInstances({ revision: "0", rules: [], policyHash: null, error: null },{});
   };
   const listeners = new Set<() => void>();
   type Observation = { kind: "valid"; rules: TrustRule[]; policyHash: string | null } | { kind: "unavailable" };
   let observed: { generation: string; value: Observation } | undefined;
-  let retained: Projection | undefined, retainedFor: Observation | undefined;
-  let liveCache: { observation: Observation; base: Projection; value: Projection } | undefined;
+  let retained: LiveProjection | undefined, retainedFor: Observation | undefined;
+  let liveCache: { observation: Observation; base: LiveProjection; value: LiveProjection } | undefined;
   // Metadata is the per-chunk fence. Include every ancestry identity and the
   // file's nanosecond change identity, without reading policy bytes or SQLite.
   const generation = () => [root, join(root, "context"), join(root, "context/policies"), join(root, "context/policies/governance.md")].map((path, index) => {
@@ -141,16 +146,16 @@ export function createTrustSettings(options: {
     if (after !== before) throw new TrustSettingsError("stale_revision");
     observed = { generation: after, value }; return value;
   };
-  const freshProjection = (): Projection => {
+  const freshProjection = (): LiveProjection => {
     const observation = observePolicy();
-    if (observation.kind === "unavailable") return { ...projection(), error: "policy_unavailable" };
+    if (observation.kind === "unavailable") { const p = projection(); return withInstances({ ...p, error: "policy_unavailable" },p.ruleInstances); }
     // An unverified projection is never cached: another reader may be seeing
     // the published file while its writer is still committing the projection.
     const base = retained && retainedFor === observation ? retained : projection();
     if (liveCache?.observation === observation && liveCache.base === base) return liveCache.value;
     if (observation.kind === "valid" && JSON.stringify(observation.rules) !== JSON.stringify(base.rules)) throw new TrustSettingsError("stale_revision");
     retained = base; retainedFor = observation;
-    const value = { ...base, policyHash: observation.policyHash, error: null };
+    const value = withInstances({ ...base, policyHash: observation.policyHash, error: null },base.ruleInstances);
     liveCache = { observation, base, value }; return value;
   };
   const live = { read: freshProjection, revision: () => freshProjection().revision,
@@ -158,16 +163,16 @@ export function createTrustSettings(options: {
   const refresh = async (): Promise<Projection> => {
     const old = projection(), value = observePolicy();
     if (value.kind === "unavailable") {
-      const next = { ...old, error: "policy_unavailable" };
-      await call("projection", brain, old.revision, JSON.stringify(old.rules), old.policyHash, next.error);
+      const instances = await call<Record<string,string>>("projection", brain, old.revision, JSON.stringify(old.rules), old.policyHash, "policy_unavailable");
+      const next = withInstances({ ...old, error: "policy_unavailable" },instances);
       retained = next; retainedFor = value; return freshProjection();
     }
     const { rules, policyHash } = value;
     const changed = JSON.stringify(old.rules) !== JSON.stringify(rules);
     if (changed && BigInt(old.revision) >= MAX_TRUST_REVISION) throw new TrustSettingsError("capacity", 503);
     const next = { revision: changed ? String(BigInt(old.revision) + 1n) : old.revision, rules, policyHash, error: null };
-    await call("projection", brain, next.revision, JSON.stringify(rules), policyHash, null);
-    retained = next; retainedFor = value;
+    const instances = await call<Record<string,string>>("projection", brain, next.revision, JSON.stringify(rules), policyHash, null);
+    retained = withInstances(next,instances); retainedFor = value;
     if (changed) for (const listener of listeners) listener();
     return freshProjection();
   };

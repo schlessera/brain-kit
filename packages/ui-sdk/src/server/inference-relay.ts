@@ -129,6 +129,8 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
           operation.finish(cancelled ? "cancelled" : "denied", "inference_admission_refused");
           return refuse(request.method, path, cancelled ? 499 : 403, "Inference network admission refused", operation.reason?.());
         }
+        const initialDecision = operation?.commit();
+        if (initialDecision && !initialDecision.ok) return chargeDenied(initialDecision);
         const declared = Number(request.headers.get("content-length") ?? "0");
         if (declared > MAX_INFERENCE_REQUEST_BYTES) return denied("inference_request_too_large", 413);
         // Do not allocate an unbounded arrayBuffer before checking the ceiling.
@@ -192,7 +194,8 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
         // Body/credential waits may have crossed an input-recording failure.
         // Re-enter the concrete host admission at the last dispatch boundary.
         if(operation&&!await operation.admit())return denied("inference_admission_refused");
-        if(operation&&!operation.commit())return denied("inference_admission_refused");
+        const dispatchDecision = operation?.commit();
+        if (dispatchDecision && !dispatchDecision.ok) return chargeDenied(dispatchDecision);
         let response: Response;
         try {
           // Never follow a redirect: the upstream must not choose another host.

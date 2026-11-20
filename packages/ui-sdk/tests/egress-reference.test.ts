@@ -40,7 +40,7 @@ test("managed reference rechecks narrowing after its own final wait and still ho
       taint: { allow: [], tainted: () => restricted, contacted: () => false } });
     try {
       const ref = proxy.managedReference(github, new AbortController().signal);
-      if (mode === "final") { expect(await ref.admit()).toBe(true); restricted = true; expect(ref.commit(), "REFERENCE_FINAL_RECIPIENT_FENCE").toBe(false); }
+      if (mode === "final") { expect(await ref.admit()).toBe(true); restricted = true; expect(ref.commit(), "REFERENCE_FINAL_RECIPIENT_FENCE").toEqual({ok:false,reason:"safety"}); }
       else expect(await ref.admit(), "REFERENCE_ORDINARY_EGRESS_POLICY_RETAINS_AUTHORITY").toBe(false);
       expect(records.at(-1)?.outcome).toBe("denied");
     } finally { proxy.stop(); }

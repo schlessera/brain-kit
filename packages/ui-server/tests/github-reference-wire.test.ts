@@ -13,9 +13,10 @@ afterAll(() => rmSync(root, { recursive: true, force: true }));
 const publicAddress = "93.184.216.34";
 const metadata = { id: 101, owner: { id: 201, login: "Odysseus" }, name: "Ithaca", private: false };
 async function fixture(port: number, options: { owner?: string; maxBytes?: number; turnBytes?: number; timeoutMs?: number; signal?: AbortSignal; authorize?: (recipient: "git" | "metadata", credentialed: boolean) => void;
+  recordingAvailable?: () => boolean;
   lookup?: (host: string, options: { all: true; verbatim: true }) => Promise<{ address: string; family: number }[]> } = {}) {
   const records: EgressRecord[] = [], destinations: unknown[] = [];
-  const egress = await startEgressProxy({ mode: "record", allow: [], deny: [], outwardHosts: [], maxBytes: options.turnBytes ?? 1048576, observe: r => records.push(r) });
+  const egress = await startEgressProxy({ mode: "record", allow: [], deny: [], outwardHosts: [], maxBytes: options.turnBytes ?? 1048576, observe: r => records.push(r),...(options.recordingAvailable?{admissionSafety:{read:()=>({evidenceRevision:"1",trustRevision:"1",authorityEpoch:"1",scope:"ithaca",policyHash:null,restricted:false,recordingAvailable:options.recordingAvailable!(),authorityCurrent:true}),subscribe:()=>()=>{}}}:{}) });
   try {
     const wire = await createGitHubReferenceWire({ ...(options.owner ? { owner: options.owner } : { repository: "odysseus/ithaca" }), egress, maxBytes: options.maxBytes ?? 1048576,
       authorize: options.authorize ?? (() => {}), timeoutMs: options.timeoutMs, signal: options.signal, ca: readFileSync(tls.ca, "utf8"),
@@ -177,4 +178,11 @@ for (const kind of ["cancel", "deadline", "turn-stop"] as const) test(`reference
     expect(f.destinations, "REFERENCE_CANCELLED_DNS_NEVER_CONNECTS_LATER").toEqual([]);
     expect(f.wire.bytes().chargedBytes).toBe(0);
   } finally { release(); await pending.catch(() => {}); await f.close(); }
+});
+
+
+for(const unavailable of [false,true])test(`review12: managed chunks preserve ${unavailable?'unavailable':'capacity'} after an independent change`,async()=>{
+ let available=true,received!:()=>void;const reached=new Promise<void>(r=>{received=r;});const server=createServer(socket=>socket.on('data',b=>socket.write(b.toString().toUpperCase())));await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const f=await fixture((server.address() as {port:number}).port,{turnBytes:64,...(unavailable?{recordingAvailable:()=>available}:{})});const url=new URL(f.wire.gitProxyUrl(false)),client=connect({host:url.hostname,port:Number(url.port)});client.on('error',()=>{});let text='';const closed=new Promise<void>(r=>client.once('close',()=>r()));
+ try{client.on('data',b=>{text+=b;if(text.includes('FIRST'))received();});client.once('connect',()=>client.write(`CONNECT github.com:443 HTTP/1.1\r\nHost: github.com:443\r\nProxy-Authorization: Basic ${Buffer.from(`${url.username}:${url.password}`).toString('base64')}\r\n\r\nfirst`));await reached;if(unavailable)available=false;else{const other=f.egress.inference('POST',new URL('https://api.example.org/'),new AbortController().signal);expect(await other.admit()).toBe(true);expect(other.charge(f.egress.remainingBytes()).ok).toBe(true);other.finish('completed');}client.write('second');await closed;expect(f.wire.failure(),'MANAGED_CHUNKS_PRESERVE_TYPED_SEND_FAILURE').toMatchObject({reason:unavailable?'unavailable':'capacity'});expect(text).not.toContain('SECOND');
+ }finally{client.destroy();await f.close();await new Promise<void>(r=>server.close(()=>r()));}
 });

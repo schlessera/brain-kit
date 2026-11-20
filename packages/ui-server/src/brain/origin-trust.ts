@@ -4,7 +4,7 @@ import type { LiveTrustRevision } from "../governance/effective-safety.js";
 
 export interface OriginTrust extends LiveTrustRevision {
   refresh?(signal?: AbortSignal): Promise<unknown>;
-  read(): { revision: string; rules: TrustRule[]; policyHash: string | null };
+  read(): { revision: string; rules: TrustRule[]; policyHash: string | null; readonly ruleInstances: Readonly<Record<string,string>> };
 }
 export interface OriginDestination { host: string; port: number; method: string; protocol?: string; managedReference?: boolean }
 function originProvenance(destination: OriginDestination): TrustProvenance | null {

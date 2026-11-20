@@ -29,7 +29,17 @@ export function setup(db: Database): WriteProcedures {
     },
     projection(brain: string, revision: string, rules: string, hash: string | null, error: string | null) {
       return db.transaction(() => {
-        db.query("INSERT INTO trust_settings_projection VALUES (?,?,?,?,?) ON CONFLICT(brain_id) DO UPDATE SET revision=excluded.revision,rules=excluded.rules,policy_hash=excluded.policy_hash,error=excluded.error").run(brain, revision, rules, hash, error);
+        const prior = db.query("SELECT rules,rule_instances FROM trust_settings_projection WHERE brain_id=?").get(brain) as { rules:string;rule_instances:string } | null;
+        const oldRules = new Map((JSON.parse(prior?.rules ?? "[]") as {id:string;selector:unknown;incomingContent:boolean}[]).map(rule=>[rule.id,JSON.stringify([rule.selector,rule.incomingContent])]));
+        const oldInstances = JSON.parse(prior?.rule_instances ?? "{}") as Record<string,string>;
+        const instances:Record<string,string> = Object.create(null);
+        for (const rule of JSON.parse(rules) as {id:string;selector:unknown;incomingContent:boolean}[]) {
+          const same = oldRules.get(rule.id) === JSON.stringify([rule.selector,rule.incomingContent]);
+          instances[rule.id] = (error || same) && typeof oldInstances[rule.id] === "string" ? oldInstances[rule.id]! : revision;
+        }
+        db.query(`INSERT INTO trust_settings_projection (brain_id,revision,rules,policy_hash,error,rule_instances) VALUES (?,?,?,?,?,?)
+          ON CONFLICT(brain_id) DO UPDATE SET revision=excluded.revision,rules=excluded.rules,policy_hash=excluded.policy_hash,error=excluded.error,rule_instances=excluded.rule_instances`)
+          .run(brain, revision, rules, hash, error, JSON.stringify(instances));
         // At most one retained boundary per current rule; equal file bytes
         // alone never create one. Invalid policy retains last-valid facts.
         if (!error) {
@@ -38,6 +48,7 @@ export function setup(db: Database): WriteProcedures {
           for (const row of boundaries) if (current.get(row.rule_id) !== row.selector)
             db.query("DELETE FROM trust_settings_github_boundaries WHERE brain_id=? AND rule_id=?").run(brain, row.rule_id);
         }
+        return instances;
       }).immediate();
     },
   };

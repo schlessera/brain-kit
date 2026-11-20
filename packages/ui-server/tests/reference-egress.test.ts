@@ -42,7 +42,7 @@ test("managed reference uses the final recorder-health fence after its transport
     const acquisition = proxy.managedReference(repository, new AbortController().signal);
     expect(await acquisition.admit()).toBe(true);
     available = false;
-    expect(acquisition.commit(), "REFERENCE_FINAL_RECORDING_HEALTH_RECHECKED").toBe(false);
+    expect(acquisition.commit(), "REFERENCE_FINAL_RECORDING_HEALTH_RECHECKED").toEqual({ok:false,reason:"unavailable"});
     expect(acquisition.charge(1)).toEqual({ok:false,reason:"unavailable"});
     await proxy.settled();
     expect(queryGovernanceEvents(db, { sessionId: "ithaca", kinds: ["egress_connection"], limit: 10 })[0]?.payload)

@@ -1375,6 +1375,12 @@ retain the corresponding safety, unavailable or budget classification.
 
 
 Source trust revocation uses one path whether a publication notification or a
-send fence observes it first: connection evidence records `source_trust_changed`
+send fence or post-write admission check observes it first: connection evidence records `source_trust_changed`
 and subsequent charge results classify it as safety, never turn cancellation
 or unavailable recording. The turn and unrelated connections remain active.
+
+Active trusted inputs retain a durable source-rule instance (rule ID plus its
+creation revision). Removing, disabling or retargeting that source retires the
+instance even if another publisher restores the same ID before the next chunk.
+Recipient-only edits preserve the source instance. Instance metadata stays out
+of Settings responses and never grants trust independently of policy files.

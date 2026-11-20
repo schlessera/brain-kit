@@ -22,9 +22,9 @@ function get(socketPath: string, target: string): Promise<number> {
   }); r.once("error", reject); r.end(); });
 }
 function trust(rule: TrustRule) {
-  let revision = "1", rules = [rule], policyHash="a".repeat(64); const listeners = new Set<() => void>();
-  const live: OriginTrust = { revision: () => revision, read: () => ({revision,rules,policyHash}), subscribe: cb => {listeners.add(cb);return () => {listeners.delete(cb);};} };
-  return { live, publish(next:TrustRule[]) {rules=next;revision=String(BigInt(revision)+1n);policyHash=revision.padStart(64,"0");for(const cb of listeners)cb();}, remove() { rules=[];revision=String(BigInt(revision)+1n);policyHash="b".repeat(64);for(const cb of listeners)cb(); } };
+  let revision = "1", rules = [rule], policyHash="a".repeat(64),ruleInstances:Record<string,string>={[rule.id]:"1"}; const listeners = new Set<() => void>();
+  const live: OriginTrust = { revision: () => revision, read: () => ({revision,rules,policyHash,ruleInstances}), subscribe: cb => {listeners.add(cb);return () => {listeners.delete(cb);};} };
+  return { live, publish(next:TrustRule[]) {const old=new Map(rules.map(r=>[r.id,JSON.stringify([r.selector,r.incomingContent])]));revision=String(BigInt(revision)+1n);ruleInstances=Object.fromEntries(next.map(r=>[r.id,old.get(r.id)===JSON.stringify([r.selector,r.incomingContent])?ruleInstances[r.id]??revision:revision]));rules=next;policyHash=revision.padStart(64,"0");for(const cb of listeners)cb();}, remove(notify=true) { rules=[];ruleInstances={};revision=String(BigInt(revision)+1n);policyHash="b".repeat(64);if(notify)for(const cb of listeners)cb(); } };
 }
 async function fixture(recipient = false, policy: GovernancePolicyInput = {schema_version:1}, response?: () => Response, full = false, listenHost = "127.0.0.1") {
   const root=full?mkdtempSync(join(tmpdir(),"odysseus-origin-trust-")):null;
@@ -127,7 +127,7 @@ for(const trusted of [false,true])test(`review: a card remains usable across onl
 });
 for(const tunnel of [false,true])test(`review: managed HTTPS recipient uses actual transport identity (tunnel ${tunnel})`,async()=>{
  const f=await fixture(true);try{await f.taint();f.t.live.read().rules[0]!.selector=tunnel?{kind:"tunnel_authority",host:"github.com",port:443}:{kind:"web_origin",scheme:"https",host:"github.com",port:443};
- const op=f.proxy.managedReference(new URL("https://github.com/"),new AbortController().signal);const allowed=await op.admit();expect(allowed,"MANAGED_HTTPS_NEVER_BORROWS_OPAQUE_TUNNEL_PERMISSION").toBe(!tunnel);op.finish(allowed?"completed":"denied");await f.proxy.settled();if(allowed)expect(queryGovernanceEvents(f.db,{kinds:["egress_connection"],limit:10})[0]?.payload,"MANAGED_RECIPIENT_DECISION_RETAINS_AUDIT").toMatchObject({managedReference:true,standingRecipient:true,recipientAdmission:{ruleId:"ithaca"}});
+ const op=f.proxy.managedReference(new URL("https://github.com/"),new AbortController().signal);const allowed=await op.admit();if(allowed)expect(op.commit()).toEqual({ok:true});expect(allowed,"MANAGED_HTTPS_NEVER_BORROWS_OPAQUE_TUNNEL_PERMISSION").toBe(!tunnel);op.finish(allowed?"completed":"denied");await f.proxy.settled();if(allowed)expect(queryGovernanceEvents(f.db,{kinds:["egress_connection"],limit:10})[0]?.payload,"MANAGED_RECIPIENT_DECISION_RETAINS_AUDIT").toMatchObject({managedReference:true,standingRecipient:true,recipientAdmission:{ruleId:"ithaca"}});
  }finally{await f.close();}
 });
 test("review: outward cards cannot survive independent input even on a taint-allowlisted host",async()=>{
@@ -223,4 +223,13 @@ for(const change of ['remove','replace','disable'] as const)test(`review11: an u
 test('review11: unrelated trust publication during occurrence COMMIT keeps the same source admission',async()=>{
  const f=await fixture(false,{schema_version:1},undefined,true);const original=f.writes.firstTaint;let entered!:()=>void,release!:()=>void;const reached=new Promise<void>(r=>{entered=r;}),held=new Promise<void>(r=>{release=r;});f.writes.firstTaint=async(...args)=>{entered();await held;return original(...args);};
  try{const pending=get(f.proxy.socketPath,f.origin.url.href);await reached;const source=f.t.live.read().rules[0]!;f.t.publish([source,{...source,id:'troy-recipient',incomingContent:false,recipientWhileRestricted:true,selector:{kind:'web_origin',scheme:'https',host:'troy.example.org',port:443}}]);release();expect(await pending,'UNRELATED_REVISION_DURING_COMMIT_KEEPS_SOURCE').toBe(200);expect(f.hits()).toBe(1);expect(f.proxy.recordingFailure()).toBeUndefined();}finally{release();await f.close();}
+});
+
+
+for(const order of ['notification','chunk','post-write'] as const)test(`review12: source removal audit is identical when first detected by ${order}`,async()=>{
+ let stream:ReadableStreamDefaultController<Uint8Array>|undefined,first!:()=>void,release!:()=>void;const received=new Promise<void>(r=>{first=r;});const f=await fixture(false,{schema_version:1},order==='post-write'?undefined:()=>new Response(new ReadableStream<Uint8Array>({start(c){stream=c;c.enqueue(new TextEncoder().encode('first'));}})),order==='post-write');
+ let pending:Promise<unknown>|undefined;
+ try{if(order==='post-write'){const original=f.writes.firstTaint,held=new Promise<void>(r=>{release=r;});f.writes.firstTaint=async(...args)=>{first();await held;return original(...args);};pending=get(f.proxy.socketPath,f.origin.url.href).catch(()=>0);await received;f.t.remove(false);release();await pending;}else{pending=new Promise<void>((resolve,reject)=>{const r=request({socketPath:f.proxy.socketPath,path:f.origin.url.href},response=>{response.on('data',()=>first());response.on('close',resolve);response.on('error',()=>resolve());});r.on('error',reject);r.end();});await received;f.t.remove(order==='notification');if(order==='chunk')try{stream!.enqueue(new TextEncoder().encode('second'));}catch{}await pending;}
+ await f.proxy.settled();expect(queryGovernanceEvents(f.db,{kinds:['egress_connection'],limit:10})[0]?.payload,'EVERY_SOURCE_REMOVAL_ORDER_HAS_ONE_AUDIT_CLASS').toMatchObject({outcome:'cancelled',reason:'source_trust_changed',trustedSource:true,method:'GET'});expect(f.controller.signal.aborted).toBe(false);
+ }finally{release?.();f.proxy.stop();await pending;await f.close();}
 });

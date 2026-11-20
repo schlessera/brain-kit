@@ -435,18 +435,20 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
     if (!budget.allowed) return refuse(403, "budget_exceeded", budget.message);
     const operation = options.egress?.relayed(request.method, target, request.signal);
     const signal = operation ? AbortSignal.any([request.signal, operation.signal]) : request.signal;
+    const chargeFailure = (count: number) => { const result = operation?.charge(count); return result && !result.ok ? result : undefined; };
+    const chargeDenied = (failure: EgressChargeFailure) => { const detail = egressChargeRefusal(failure,"Provider"); return refuse(detail.status,"egress_refused",detail.message,operation?.refusal()); };
     if (operation && !await operation.admit()) {
       const cancelled = request.signal.aborted || operation.outcome() === "cancelled";
       operation.finish(cancelled ? "cancelled" : "denied", "provider_admission_refused");
       return refuse(cancelled ? 499 : 403, cancelled ? "cancelled" : "egress_refused", "Provider network admission refused", cancelled ? undefined : operation.refusal());
     }
+    const initialDecision = operation?.commit();
+    if (initialDecision && !initialDecision.ok) return chargeDenied(initialDecision);
     const denied = (reason: string, status = 403): Response => {
       operation?.finish("denied", reason);
       return refuse(status, reason === "provider_request_too_large" ? "request_too_large" : "egress_refused",
         reason === "max_bytes_per_turn" ? "Provider egress limit exceeded" : "Provider request refused", operation?.refusal());
     };
-    const chargeFailure = (count: number) => { const result = operation?.charge(count); return result && !result.ok ? result : undefined; };
-    const chargeDenied = (failure: EgressChargeFailure) => { const detail = egressChargeRefusal(failure,"Provider"); return refuse(detail.status,"egress_refused",detail.message,operation?.refusal()); };
     if (Number(request.headers.get("content-length") ?? "0") > MAX_PROVIDER_REQUEST_BYTES) return denied("provider_request_too_large", 413);
     // Charge each received chunk before retaining or forwarding it, against
     // this request's ceiling, the turn's byte ceiling and the relay's
@@ -516,7 +518,8 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       operation?.finish("denied", "budget_exceeded");
       return refuse(403, "budget_exceeded", now.message);
     }
-    if (operation && !operation.commit()) return denied("provider_admission_refused");
+    const dispatchDecision = operation?.commit();
+    if (dispatchDecision && !dispatchDecision.ok) return chargeDenied(dispatchDecision);
     const attemptId = crypto.randomUUID();
     let reported = false;
     const observe = (outcome: ProviderRelayReceipt["outcome"], status: number, usage: ProviderUsage | null): void => {
@@ -688,7 +691,8 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       catch { /* The host's own accounting reports its failure. */ }
     };
     observe("dispatched", 0);
-    if (operation && !operation.commit()) return;
+    const cleanupDecision = operation?.commit();
+    if (cleanupDecision && !cleanupDecision.ok) { observe("cancelled",egressChargeRefusal(cleanupDecision,"Provider").status); return; }
     try {
       const response = await fetch(target, { method: "DELETE", headers, redirect: "manual", signal });
       await response.body?.cancel().catch(() => {});

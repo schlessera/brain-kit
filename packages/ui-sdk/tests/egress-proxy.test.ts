@@ -388,7 +388,7 @@ test("review: invalidation between TCP dispatch and connect closes both real tun
 test('review2: one successful real tunnel notifies committed exactly once',async()=>{
  let serverSocket:import('node:net').Socket|undefined;const server=createServer(s=>{serverSocket=s;});await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const port=(server.address() as {port:number}).port;let commits=0;const proxy=await startEgressProxy({...defaults([]),committed:()=>{commits++;}});
  try{expect(await new Promise<number>((resolve,reject)=>{const client=connect(proxy.socketPath);client.on('error',reject);client.once('connect',()=>client.write(`CONNECT 127.0.0.1:${port} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n`));client.once('data',b=>{resolve(Number(/^HTTP\/1.1 (\d+)/.exec(b.toString())?.[1]));client.destroy();});})).toBe(200);expect(commits,'TUNNEL_COMMIT_NOTIFICATION_IS_EXACTLY_ONCE').toBe(1);
- const op=proxy.relayed('GET',new URL(`http://127.0.0.1:${port}/`),new AbortController().signal);expect(await op.admit()).toBe(true);expect(op.commit()).toBe(true);expect(op.commit()).toBe(true);expect(commits,'RELAY_RECHECKS_DO_NOT_REPEAT_COMMIT_NOTIFICATION').toBe(2);op.finish('completed');
+ const op=proxy.relayed('GET',new URL(`http://127.0.0.1:${port}/`),new AbortController().signal);expect(await op.admit()).toBe(true);expect(op.commit()).toEqual({ok:true});expect(op.commit()).toEqual({ok:true});expect(commits,'RELAY_RECHECKS_DO_NOT_REPEAT_COMMIT_NOTIFICATION').toBe(2);op.finish('completed');
  }finally{proxy.stop();serverSocket?.destroy();await new Promise<void>(r=>server.close(()=>r()));}
 });
 

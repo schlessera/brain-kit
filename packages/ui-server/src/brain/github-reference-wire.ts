@@ -92,8 +92,10 @@ export async function createGitHubReferenceWire(options: ({ repository: unknown;
       const operationStopped = () => {
         if (operation.outcome() === "completed") return;
         upstream?.destroy(); client.destroy();
-        if (operation.outcome() === "cancelled" && !controller.signal.aborted)
-          fail(new ReferenceTransportError("unavailable", "reference turn ended during acquisition"));
+        if (operation.outcome() === "cancelled" && !controller.signal.aborted) {
+          const decision = operation.commit();
+          if (!decision.ok) fail(chargeError(decision));
+        }
       };
       operation.signal.addEventListener("abort", operationStopped, { once: true });
       const finish = (outcome: "completed" | "failed" | "cancelled") => {
@@ -107,7 +109,8 @@ export async function createGitHubReferenceWire(options: ({ repository: unknown;
         if (!addresses.length || addresses.some(value => egressAddressRefusal(value.address)))
           throw new ReferenceTransportError("denied", "reference recipient did not resolve to public addresses");
         check(recipient, capability.credentialed);
-        if (!operation.commit() || client.destroyed) throw new ReferenceTransportError("denied", "reference authority changed before connection");
+        const beforeConnection = operation.commit(); if (!beforeConnection.ok) throw chargeError(beforeConnection);
+        if (client.destroyed) throw new ReferenceTransportError("unavailable", "reference client closed before connection");
         upstream = track((options.connect ?? connect)({ host: addresses[0]!.address, port: 443 }));
         const heldUpstream = upstream; upstreams.add(heldUpstream);
         heldUpstream.once("close", () => {
@@ -127,12 +130,12 @@ export async function createGitHubReferenceWire(options: ({ repository: unknown;
           if (controller.signal.aborted) cancel();
         });
         check(recipient, capability.credentialed);
-        if (!operation.commit() || client.destroyed) throw new ReferenceTransportError("denied", "reference authority changed after connection");
+        const afterConnection = operation.commit(); if (!afterConnection.ok) throw chargeError(afterConnection);
+        if (client.destroyed) throw new ReferenceTransportError("unavailable", "reference client closed after connection");
         const meter = (incoming: boolean) => new Transform({ transform(chunk: Buffer, _encoding, done) {
           if (incoming) observedIncomingBytes += chunk.length;
           try {
             check(recipient, capability.credentialed);
-            if (!operation.commit()) throw new ReferenceTransportError("denied", "reference authority changed during transfer");
             const remaining = Math.min(options.maxBytes - chargedBytes, options.egress.remainingBytes());
             if (chunk.length > remaining) {
               // Charge received wire up to the ceiling, then close every channel.

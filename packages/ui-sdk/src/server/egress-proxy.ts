@@ -203,7 +203,7 @@ const REFUSAL_STATUS: Readonly<Record<EgressRefusal["cause"], string>> = {
  * other failure of the hook is `failed` with `proxy_error`.
  */
 export class EgressAdmissionRefused extends Error {
-  constructor(message = "The host did not admit this connection.") { super(message); this.name = "EgressAdmissionRefused"; }
+  constructor(message = "The host did not admit this connection.", readonly reason: "call_not_admitted" | "source_trust_changed" = "call_not_admitted") { super(message); this.name = "EgressAdmissionRefused"; }
 }
 /** One refused connection's 403, with its reason when it has one. */
 function refusalHead(refusal: EgressRefusal | undefined, reason: string | undefined): { code: number; status: string; body: string } | undefined {
@@ -343,27 +343,27 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (!await narrowing()) return false;
       // A recorder failure aborts the turn through its own signal; it cannot admit.
       try { await options.admitted?.({ host, port, method, inference, provider, managedReference, connectionId, protocol:url.protocol }); }
-      catch (error) { if (error instanceof EgressAdmissionRefused) finish("denied", "call_not_admitted"); else finish("failed", "proxy_error"); return false; }
+      catch (error) { if (error instanceof EgressAdmissionRefused && error.reason === "source_trust_changed") revokeInput(); else if (error instanceof EgressAdmissionRefused) finish("denied", "call_not_admitted"); else finish("failed", "proxy_error"); return false; }
       if (stopped || controller.signal.aborted) { finish("cancelled", "turn_cancelled"); return false; }
       return true;
     };
     // No await may intervene between this check and connect/request/fetch.
-    const maySendNow = (count: number, notify = false) => {
+    const maySendNow = (count: number) => {
       try {
       if (stopped || controller.signal.aborted) { chargeReason ??= "unavailable"; finish("cancelled", "turn_cancelled"); return false; }
       const current = options.admissionSafety?.read();
       if (current && !current.recordingAvailable) { chargeReason = "unavailable"; finish("denied", "egress_unavailable"); return false; }
       if (safetySnapshotRefusal(current, snapshot)) { chargeReason = "safety"; finish("denied", "safety_changed"); return false; }
       if (!grantCurrent(true)) { chargeReason = "safety"; finish("denied", "safety_changed"); return false; }
-      if (count > options.maxBytes - usedBytes || notify && usedBytes >= options.maxBytes) { finish("denied", "max_bytes_per_turn"); return false; }
+      if (count > options.maxBytes - usedBytes || usedBytes >= options.maxBytes) { finish("denied", "max_bytes_per_turn"); return false; }
       if (!inputCurrent(connectionId)) { revokeInput(); return false; }
       if (narrowed(true)) { chargeReason = "safety"; finish("denied", "taint_not_allowed"); return false; }
-      if (notify && !notified) { notified = true; options.committed?.({ ...recipient, connectionId, inference, provider, recipientApproved: granted }); }
+      if (!notified) { notified = true; options.committed?.({ ...recipient, connectionId, inference, provider, recipientApproved: granted }); }
       usedBytes += count; bytes += count;
       return true;
       } catch { chargeReason = "unavailable"; finish("denied", "egress_unavailable"); return false; }
     };
-    const commit = () => maySendNow(0, true);
+    const commit = () => charge(0);
     /** Why this connection was refused, for the tool that made it; undefined while admitted or for a bare refusal. */
     const refusal = () => {
       if (finalOutcome !== "denied" && finalReason !== "source_trust_changed") return undefined;
@@ -386,7 +386,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     op.signal.addEventListener("abort", () => { if (upstream) { client.destroy(); upstream.destroy(); } }, { once: true });
     client.once("close", () => op.finish(stopped || !connected ? "cancelled" : "completed"));
     void (async () => {
-      if (!await op.admit() || client.destroyed || !op.commit()) {
+      if (!await op.admit() || client.destroyed || !op.commit().ok) {
         const declined = refusalHead(op.refusal(), op.reason());
         client.end(declined ? `HTTP/1.1 ${declined.code} ${declined.status}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: ${Buffer.byteLength(declined.body)}\r\nConnection: close\r\n\r\n${declined.body}`
           : "HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
@@ -396,7 +396,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       upstream = track(connect({ host: address?.address ?? op.dialHost, port: Number(target.port || 80) }));
       const tunnel = upstream;
       tunnel.once("connect", () => {
-        if (stopped || op.signal.aborted || client.destroyed || !op.commit()) { tunnel.destroy(); return; }
+        if (stopped || op.signal.aborted || client.destroyed || !op.commit().ok) { tunnel.destroy(); return; }
         connected = true;
         client.write("HTTP/1.1 200 Connection Established\r\n\r\n");
         if (head.length) { if (!op.charge(head.length).ok) { client.destroy(); tunnel.destroy(); return; } tunnel.write(head); }
@@ -426,7 +426,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       else { response.writeHead(403); response.end(); }
     };
     void (async () => {
-      if (!await op.admit() || response.destroyed || !op.commit()) { refuse(); return; }
+      if (!await op.admit() || response.destroyed || !op.commit().ok) { refuse(); return; }
       const outgoingHeaders = { ...headers(request), host: target.host, connection: "close" };
       // Include the complete observable target and headers: a body-only cap
       // would allow uncharged exfiltration in query strings or header values.
@@ -509,7 +509,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     signal.addEventListener("abort", abort, { once: true });
     if (signal.aborted) abort();
     return { charge: op.charge, signal: op.signal, outcome: op.outcome, refusal: op.refusal, reason: op.reason,
-      admit: async () => !op.signal.aborted && await op.admit() && op.commit(),
+      admit: async () => !op.signal.aborted && await op.admit(),
       /** The concrete relay calls this again after its own final async waits. */
       commit: op.commit,
       finish(outcome: EgressRecord["outcome"], reason?: string) {
