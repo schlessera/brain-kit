@@ -17,7 +17,8 @@ function receiptHead(): string {
 
 export function isNativeClaude(command: string, args: readonly unknown[] = []): boolean {
   return /^(claude|claude-code)(\.exe)?$/.test(basename(command)) ||
-    args.some(value => typeof value === "string" && /claude-agent-sdk[^\n]*\/cli\.(js|mjs)$/.test(value));
+    args.some(value => typeof value === "string" && (/claude-agent-sdk[^\n]*\/cli\.(js|mjs)$/.test(value) ||
+      value.startsWith("/") && /^(claude|claude-code)(\.exe)?$/.test(basename(value))));
 }
 
 function refuse(reason: string): never {
@@ -104,8 +105,9 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
   if (!home || !within(tmpdir(), home) || home === tmpdir() || !within(tmpdir(), cwd) && !within(ROOT, cwd)) {
     refuse("native launch requires fixture-owned storage");
   }
-  const bridge = relay(args.length === 1 && args[0] === "--version" ? "http://127.0.0.1:1" : env.ANTHROPIC_BASE_URL);
+  const bridge = relay(args.at(-1) === "--version" ? "http://127.0.0.1:1" : env.ANTHROPIC_BASE_URL);
   try {
+    command = Bun.which(command) ?? command;
     const executable = realpathSync(command);
     const argv = ["bwrap", "--unshare-all", "--die-with-parent", "--new-session", "--cap-drop", "ALL", ...systemMounts(),
       "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", ...testRuntimeMounts(),

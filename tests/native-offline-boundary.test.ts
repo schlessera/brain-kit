@@ -63,7 +63,7 @@ if (process.env.GITHUB_ACTIONS === "true" && process.env.RUNNER_ENVIRONMENT === 
     // Synthetic native reader exercises the OS boundary independently of SDK
     // settings precedence. The real installed runtime is covered by native
     // backend/provider-history cells under the same preload.
-    const executable = join(brain, "claude");
+    const executable = join(brain, "odysseus-native-probe");
     writeFileSync(executable, `#!/usr/bin/python3
 import http.client,json,os,socket,subprocess
 settings=json.load(open('/etc/claude-code/managed-settings.json'))
