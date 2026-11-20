@@ -73,7 +73,7 @@ function SafetyIndicator({entries:currentEntries}:{entries:SafetyEvidence[]}) {
   const unresolved=entries.filter(e=>!e.decision&&!e.occurrence.admission?.trusted).length,unknown=entries.some(e=>e.occurrence.detailPruned||e.occurrence.source==="legacy_unknown");
   const trusted=entries.some(e=>e.occurrence.admission?.trusted);
   const name=unresolved?`Safety restrictions: ${unresolved} unresolved trigger${unresolved===1?"":"s"}`:`${trusted?"Trusted at admission":"Marked safe by you"}${entries.length>1?`: ${entries.length} triggers`:""}: show details`;
-  const reason=unresolved?`${sources[entries[0]!.occurrence.source]} · Only this trigger can be reviewed`:trusted?"Historical source trust retained; current rules may differ":"Human decision retained; content remains in the model context";
+  const reason=unresolved?`${sources[entries.find(e=>!e.decision)!.occurrence.source]} · Only this trigger can be reviewed`:trusted?"Historical source trust retained; current rules may differ":"Human decision retained; content remains in the model context";
   useLayoutEffect(()=>{
     if(!open)return;
     const place=()=>{const r=trigger.current?.getBoundingClientRect();if(r)setPosition({left:Math.max(12,Math.min(r.left,innerWidth-Math.min(384,innerWidth-24)-12)),top:Math.max(12,Math.min(r.bottom+4,innerHeight-Math.min(520,innerHeight*.65)-12))});};
