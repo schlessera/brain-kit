@@ -32,11 +32,11 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
   Object.assign(process.env, testGitEnvironment(process.env));
   const nativeHttpListen = HttpServer.prototype.listen;
   const nativeHttpEmit = HttpServer.prototype.emit;
-  HttpServer.prototype.listen = function(...args: unknown[]) {
+  HttpServer.prototype.listen = function(this: HttpServer, ...args: unknown[]) {
     guardNativeHttpListen(this, args);
     return Reflect.apply(nativeHttpListen, this, args);
   } as typeof nativeHttpListen;
-  HttpServer.prototype.emit = function(...args: unknown[]) {
+  HttpServer.prototype.emit = function(this: HttpServer, ...args: unknown[]) {
     return guardNativeHttpEvent(this, args[0], () => Reflect.apply(nativeHttpEmit, this, args));
   } as typeof nativeHttpEmit;
   const nativeServe = Bun.serve;
