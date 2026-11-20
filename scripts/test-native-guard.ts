@@ -14,7 +14,7 @@ const SYSTEM = ["/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32"];
 const WORKER_RUNTIME_ENV = new Set(["HOME", "CLAUDE_CONFIG_DIR", "LANG", "LC_ALL", "TERM", "SHELL", "USER", "LOGNAME", "TMPDIR",
   "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_RUNTIME_DIR",
   "BRAIN_ROOT", "BRAIN_WORKER_DATA_ROOT", "BRAIN_WORKER_CONFIG_ROOT", "BRAIN_WORKER_SCRATCH", "BRAIN_WITHHELD_KEYS", "BRAIN_PROVIDER_RELAY_SOCKET",
-  "ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_SMALL_FAST_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_DISABLE_AUTO_MEMORY"]);
+  "ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_SMALL_FAST_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_DISABLE_AUTO_MEMORY", "ENABLE_TOOL_SEARCH"]);
 const within = (root: string, path: string) => path === root || path.startsWith(`${root}/`);
 let qualified = false;
 let bwrapExecutable = "bwrap", straceExecutable = "strace";
@@ -181,6 +181,38 @@ function testRuntimeMounts(): string[] {
   });
 }
 
+/** Read-only fixture tool directories, without exposing their sibling storage. */
+function fixtureToolView(env: Record<string, string | undefined>, cwd: string, home?: string): { mounts: string[]; path: string } {
+  const roots = new Set<string>(), storage = new Set<string>();
+  for (const input of [cwd, home]) {
+    if (!input) continue;
+    try {
+      const path = realpathSync(input);
+      storage.add(path);
+      if (!within(tmpdir(), path) || path === tmpdir()) continue;
+      roots.add(path);
+      const parent = dirname(path), info = statSync(parent);
+      if (parent !== tmpdir() && within(tmpdir(), parent) && info.uid === process.getuid?.() && (info.mode & 0o077) === 0) roots.add(parent);
+    } catch { /* A worker's fresh runtime home may not exist on the host. */ }
+  }
+  const directories = new Set<string>();
+  for (const input of env.PATH?.split(":") ?? []) {
+    if (!input) continue;
+    try {
+      const path = realpathSync(resolve(cwd, input)), info = statSync(path);
+      if (!info.isDirectory()) continue;
+      // Never expose a common fixture ancestor: it can hold a sentinel or
+      // unrelated storage outside HOME. Existing HOME/cwd mounts stay writable.
+      if (!storage.has(path) && [...storage].some(root => within(path, root))) continue;
+      const source = [join(ROOT, "packages"), join(ROOT, "tests/fixtures"), join(ROOT, "scripts/fixtures")].some(root => within(root, path));
+      const temporary = [...roots].some(root => within(root, path)) && info.uid === process.getuid?.();
+      if (source || temporary) directories.add(path);
+    } catch { /* Missing PATH entries do not grant filesystem authority. */ }
+  }
+  return { mounts: [...directories].filter(path => !storage.has(path)).flatMap(path => ["--ro-bind", path, path]),
+    path: [...new Set([...directories, dirname(process.execPath), "/usr/bin", "/bin"])].join(":") };
+}
+
 interface AuditReceipt { kind: "native-offline-audit"; head: string; nativeLaunched: boolean; success: boolean; reason?: string; deniedConnects: number }
 interface Boundary { argv: string[]; env: Record<string, string>; dispose(): void; receipt(): AuditReceipt }
 
@@ -279,25 +311,28 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
   if (inheritedOrigin && (!scriptedRoute.getStore() || normalizedOrigin(inheritedOrigin) !== normalizedOrigin(scriptedRoute.getStore()!.origin))) refuse("native relay did not match scripted authority");
   const bridge = startNativeTestRelay(versionOnly ? "http://127.0.0.1:1" : inheritedOrigin ?? env.ANTHROPIC_BASE_URL ?? scriptedRoute.getStore()?.origin);
   try {
+    const tools = fixtureToolView(env, cwd, home);
     command = resolveExecutable(command, options);
     const executable = realpathSync(command);
     const argv = [bwrapExecutable, "--unshare-all", "--die-with-parent", "--new-session", "--cap-drop", "ALL", ...systemMounts(),
       "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", ...testRuntimeMounts(),
       "--ro-bind", executable, command, "--ro-bind", process.execPath, process.execPath, "--bind", home, home,
       ...(cwd === ROOT || within(ROOT, cwd) || within(home, cwd) ? [] : ["--bind", cwd, cwd]),
+      ...tools.mounts,
       "--ro-bind", bridge.directory, "/tmp/native-relay",
       "--ro-bind", join(bridge.directory, "passwd"), "/etc/passwd", "--ro-bind", join(bridge.directory, "group"), "/etc/group",
       ...(inheritedSocket && inheritedOrigin ? ["--ro-bind", inheritedSocket, "/tmp/native-relay/relay.sock", "--ro-bind", inheritedSocket, inheritedSocket] : []),
       ...(options.managedSettings ? ["--ro-bind", options.managedSettings, "/etc/claude-code"] : []), "--clearenv"];
     const childEnv: Record<string, string> = { HOME: home, CLAUDE_CONFIG_DIR: versionHome ?? env.CLAUDE_CONFIG_DIR ?? home,
-      PATH: "/usr/bin:/bin", LANG: "C.UTF-8",
+      PATH: tools.path, LANG: "C.UTF-8",
       ANTHROPIC_BASE_URL: "http://localhost", ANTHROPIC_UNIX_SOCKET: "/tmp/native-relay/relay.sock",
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", DISABLE_AUTOUPDATER: "1" };
     // These are public model selectors, never ambient provider credentials.
-    for (const key of ["ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_SMALL_FAST_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_DISABLE_AUTO_MEMORY"]) {
+    for (const key of ["ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_SMALL_FAST_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_DISABLE_AUTO_MEMORY", "ENABLE_TOOL_SEARCH"]) {
       if (env[key]) childEnv[key] = env[key]!;
     }
     Object.assign(childEnv, syntheticCredentials(env));
+    if (["0", "1"].includes(env.USE_BUILTIN_RIPGREP ?? "")) childEnv.USE_BUILTIN_RIPGREP = env.USE_BUILTIN_RIPGREP!;
     if (inheritedOrigin) Object.assign(childEnv, relayCredentialPlaceholders(env));
     if (args.some((value, index) => value === "auth" && args[index + 1] === "status")) {
       // Auth status inspects the isolated fixture login; injecting an API key
@@ -450,7 +485,7 @@ function admittedRelay(argv: string[], socket: string): string | undefined {
 export function nativeWorkerBoundary(env: Record<string, string | undefined>): { env: Record<string, string | undefined>; dispose(): void } {
   const unchanged = { env, dispose() {} };
   if (!env.BRAIN_WORKER_LAUNCH) return unchanged;
-  let launch: { command?: string[]; argv?: string[]; env?: Record<string, string>; brainPath?: string } | null;
+  let launch: { command?: string[]; argv?: string[]; env?: Record<string, string>; brainPath?: string; hostHome?: string } | null;
   try { launch = JSON.parse(env.BRAIN_WORKER_LAUNCH); } catch { return unchanged; }
   if (!launch?.command?.[0] || !isNativeClaude(launch.command[0], launch.command.slice(1), { cwd: launch.brainPath, env: launch.env })) return unchanged;
   const argv = launch.argv;
@@ -480,13 +515,15 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
   qualify();
   const bridge = startNativeTestRelay(ownedOrigin ?? route?.origin ?? launch.env?.ANTHROPIC_BASE_URL);
   try {
+    const tools = fixtureToolView(launch.env ?? {}, launch.brainPath ?? ROOT, launch.hostHome ?? launch.env?.HOME);
     for (let i = bwrap + 1; i < workerArgv.indexOf("--", bwrap); i++) {
       if (workerArgv[i] === "--ro-bind" && workerArgv[i + 1] === "/" && workerArgv[i + 2] === "/") workerArgv.splice(i--, 3);
       else if (workerArgv[i] === "--setenv" && !WORKER_RUNTIME_ENV.has(workerArgv[i + 1]!)) workerArgv.splice(i--, 3);
     }
-    workerArgv.splice(bwrap + 1, 0, "--clearenv", "--unshare-net", ...systemMounts(), ...testRuntimeMounts(), "--ro-bind", process.execPath, process.execPath);
+    workerArgv.splice(bwrap + 1, 0, "--clearenv", "--unshare-net", ...systemMounts(), ...testRuntimeMounts(), ...tools.mounts, "--ro-bind", process.execPath, process.execPath);
     const pinned = { ANTHROPIC_BASE_URL: "http://localhost", ANTHROPIC_UNIX_SOCKET: socket && ownedOrigin ? socket : "/tmp/native-relay/relay.sock",
-      PATH: `${dirname(process.execPath)}:/usr/bin:/bin`, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", DISABLE_AUTOUPDATER: "1",
+      PATH: tools.path, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", DISABLE_AUTOUPDATER: "1",
+      ...(["0", "1"].includes(launch.env?.USE_BUILTIN_RIPGREP ?? "") ? { USE_BUILTIN_RIPGREP: launch.env!.USE_BUILTIN_RIPGREP! } : {}),
       ANTHROPIC_API_KEY: "", ANTHROPIC_AUTH_TOKEN: "", CLAUDE_CODE_OAUTH_TOKEN: "",
       ...(ownedOrigin ? relayCredentialPlaceholders(launch.env ?? {}) : syntheticCredentials(launch.env ?? {})) };
     const separator = workerArgv.indexOf("--", bwrap);

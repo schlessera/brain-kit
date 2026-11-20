@@ -1159,6 +1159,15 @@ containers inherit hosted-runner qualification only from an actual hosted run,
 plus the exact checkout head for receipts when Git metadata is not mounted.
 Worker environments retain only known runtime paths/selectors and pinned
 synthetic inference credentials; unrelated keys and loader overrides are removed.
+Fixture tool directories on PATH are mounted read-only only from public fixture
+sources or the private temporary storage containing the declared HOME/cwd.
+Common ancestors and unrelated directories are never exposed; witnesses belong
+inside an existing writable fixture HOME/cwd mount. `USE_BUILTIN_RIPGREP` and
+`ENABLE_TOOL_SEARCH` retain their test-selected behavior.
+The Unix inference transport deliberately has native tunnel authentication
+semantics: when both synthetic key and OAuth variables are present, it selects
+OAuth. Its measurement is labelled accordingly and does not prove ordinary TCP
+credential precedence.
 No production authentication or managed-policy behavior changes.
 
 `tests/native-offline-boundary.test.ts` proves local refusal with harmless
@@ -1166,8 +1175,9 @@ synthetic executables. Hosted proof additionally exercises hostile managed
 settings, an outside-HOME sentinel credential, helper descendants, denied TCP,
 and the one permitted scripted service; the child silently swallows denied
 connections, so the audit count comes from the boundary rather than child output.
-The retention fixtures in #4312 separately integrate their instrumented `rg`
-through the boundary PATH, `USE_BUILTIN_RIPGREP` and fixture mounts; their complete
-retention qualification remains with #4274. Run installed-native backend and
+The baseline retention fixture keeps its tool wrapper and runtime-rg alias
+together in a read-only tool directory and its invocation witness in HOME.
+PR #4312 changes that existing suite; its complete changed-head qualification
+remains with #4274. Run installed-native backend and
 provider-history cells only in hosted CI; a temporary HOME and SDK options
 alone do not establish isolation.

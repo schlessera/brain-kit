@@ -67,7 +67,8 @@ async function voyageHome(interruption:Interruption,check:(f:{db:ReturnType<type
  // The runtime searches with the `rg` on its PATH. This one is the
  // installed runtime's own ripgrep; it marks when the matches are out and
  // then holds its exit, the window a stop lands in.
- const bin=join(root,"bin"),searched=join(root,"sirens-heard"),rg=installedRipgrep(root);mkdirSync(bin);
+ const bin=join(root,"bin"),searched=join(home,"sirens-heard");mkdirSync(bin);
+ const rg=installedRipgrep(bin);
  writeFileSync(join(bin,"rg"),`#!/bin/sh
 case " $* " in
   *" sirens "*) '${rg}' "$@"; code=$?; : > '${searched}'; sleep 3; exit "$code";;

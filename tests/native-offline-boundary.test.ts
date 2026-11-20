@@ -191,6 +191,35 @@ test("isolated plans preserve synthetic credential precedence and an unauthentic
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 });
 
+test("fixture PATH tools are mounted selectively without exposing sibling credentials", async () => {
+  const scratch = mkdtempSync(join(tmpdir(), "odysseus-tool-plan-"));
+  const unrelated = mkdtempSync(join(tmpdir(), "odysseus-unrelated-tools-"));
+  const home = join(scratch, "home"), brain = join(scratch, "brain"), bin = join(scratch, "bin");
+  for (const path of [home, brain, bin]) mkdirSync(path);
+  writeFileSync(join(scratch, "outside-credential"), "odysseus-synthetic-credential");
+  try {
+    const result = await probe(`${imports}
+      import {writeFileSync} from "node:fs";
+      import {nativeWorkerBoundary,nativeScriptedService} from ${JSON.stringify(join(ROOT, "scripts/test-native-guard.ts"))};
+      const spawnSync=Bun.spawnSync,which=Bun.which;
+      Bun.which=((command,options)=>command==="strace"?"/synthetic/strace":which(command,options));
+      Bun.spawnSync=((argv,options)=>["bwrap","strace"].includes(argv[0])?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
+      process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";
+      nativeScriptedService("http://127.0.0.1:1");
+      const env={HOME:${JSON.stringify(home)},PATH:${JSON.stringify([bin, scratch, unrelated, "/usr/bin"].join(":"))},USE_BUILTIN_RIPGREP:"0",ENABLE_TOOL_SEARCH:"true",ANTHROPIC_BASE_URL:"http://127.0.0.1:1"};
+      const direct=nativeClaudeBoundary(${JSON.stringify(runtime)},[],{cwd:${JSON.stringify(brain)},env});
+      const worker=nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify({command:[${JSON.stringify(runtime)}],brainPath:${JSON.stringify(brain)},hostHome:${JSON.stringify(home)},env,argv:["bwrap","--setenv","ENABLE_TOOL_SEARCH","true","--",${JSON.stringify(runtime)}]})});
+      for(const [argv,dispose] of [[direct.argv,()=>direct.dispose()],[JSON.parse(worker.env.BRAIN_WORKER_LAUNCH).argv,()=>worker.dispose()]]){
+        const entries={};for(let i=0;i<argv.length;i++)if(argv[i]==="--setenv")entries[argv[i+1]]=argv[i+2];
+        if(entries.PATH.split(":")[0]!==${JSON.stringify(bin)}||entries.USE_BUILTIN_RIPGREP!=="0"||entries.ENABLE_TOOL_SEARCH!=="true")throw Error("fixture tool environment was lost");
+        if(!argv.some((arg,i)=>arg==="--ro-bind"&&argv[i+1]===${JSON.stringify(bin)}&&argv[i+2]===${JSON.stringify(bin)}))throw Error("fixture tool mount was lost");
+        if(argv.some((arg,i)=>["--bind","--ro-bind"].includes(arg)&&[${JSON.stringify(scratch)},${JSON.stringify(unrelated)}].includes(argv[i+1])))throw Error("fixture ancestor or unrelated tool storage was exposed");
+        writeFileSync(argv[argv.indexOf("-o")+1],${JSON.stringify(`1 execve(${JSON.stringify(runtime)}, [], 0x1) = 0`)});dispose();
+      }`, scratch);
+    expect(result.code, result.output).toBe(0);
+  } finally { rmSync(scratch, { recursive: true, force: true }); rmSync(unrelated, { recursive: true, force: true }); }
+});
+
 test("separate-UID plans trace the broker payload outside its hidden native audit view", async () => {
   const scratch = mkdtempSync(join(tmpdir(), "odysseus-identity-plan-"));
   try {
@@ -438,8 +467,10 @@ if (process.env.GITHUB_ACTIONS === "true" && process.env.RUNNER_ENVIRONMENT === 
   test("hostile managed helper and native descendants cannot read an outside credential or open TCP", async () => {
     const { nativeClaudeBoundary } = await import("../scripts/test-native-guard");
     const scratch = mkdtempSync(join(tmpdir(), "odysseus-native-hostile-"));
-    const home = join(scratch, "home"), brain = join(scratch, "brain"), managed = join(scratch, "managed");
-    for (const path of [home, brain, managed]) mkdirSync(path);
+    const home = join(scratch, "home"), brain = join(scratch, "brain"), managed = join(scratch, "managed"), bin = join(scratch, "bin");
+    for (const path of [home, brain, managed, bin]) mkdirSync(path);
+    const tool = join(bin, "odysseus-tool-witness"), toolSeen = join(home, "tool-seen");
+    writeFileSync(tool, '#!/bin/sh\nprintf Odysseus > "$HOME/tool-seen"\n'); chmodSync(tool, 0o700);
     const sentinel = join(scratch, "outside-home-credential");
     writeFileSync(sentinel, "odysseus-synthetic-credential");
     writeFileSync(join(managed, "managed-settings.json"), JSON.stringify({
@@ -457,6 +488,8 @@ import http.client,json,os,socket,subprocess
 settings=json.load(open('/etc/claude-code/managed-settings.json'))
 helper=subprocess.run(settings['apiKeyHelper'],shell=True,capture_output=True)
 assert helper.returncode != 0 and not helper.stdout, 'outside credential escaped'
+assert os.environ.get('USE_BUILTIN_RIPGREP') == '0'
+subprocess.run(['odysseus-tool-witness'],check=True)
 for host,port in [('127.0.0.1',${service.port}),('198.18.0.1',1)]:
  probe=socket.socket(socket.AF_INET,socket.SOCK_STREAM)
  try:
@@ -477,7 +510,7 @@ print('HOSTILE_MANAGED_BOUNDARY_HELD',flush=True)
     chmodSync(executable, 0o700);
     let boundary: ReturnType<typeof nativeClaudeBoundary> | undefined;
     try {
-      boundary = nativeClaudeBoundary(executable, [], { cwd: brain, env: { HOME: home, ANTHROPIC_BASE_URL: service.url.origin }, managedSettings: managed });
+      boundary = nativeClaudeBoundary(executable, [], { cwd: brain, env: { HOME: home, PATH: bin, USE_BUILTIN_RIPGREP: "0", ANTHROPIC_BASE_URL: service.url.origin }, managedSettings: managed });
       const child = Bun.spawn(boundary.argv, { env: boundary.env, stdout: "pipe", stderr: "pipe" });
       const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
       expect(code, err).toBe(0);
@@ -485,9 +518,10 @@ print('HOSTILE_MANAGED_BOUNDARY_HELD',flush=True)
       expect(out).toContain("HOSTILE_MANAGED_BOUNDARY_HELD");
       expect(out + err).not.toContain("odysseus-synthetic-credential");
       expect(requests).toBe(1);
+      expect(existsSync(toolSeen)).toBe(true);
       // Restored mutation: re-expose only the synthetic outside credential.
       // The same runtime assertion must now reject the managed helper escape.
-      const mutationBoundary = nativeClaudeBoundary(executable, [], { cwd: brain, env: { HOME: home, ANTHROPIC_BASE_URL: service.url.origin }, managedSettings: managed });
+      const mutationBoundary = nativeClaudeBoundary(executable, [], { cwd: brain, env: { HOME: home, PATH: bin, USE_BUILTIN_RIPGREP: "0", ANTHROPIC_BASE_URL: service.url.origin }, managedSettings: managed });
       const mutant = [...mutationBoundary.argv];
       mutant.splice(mutant.indexOf("--clearenv"), 0, "--ro-bind", sentinel, sentinel);
       const broken = Bun.spawn(mutant, { env: boundary.env, stdout: "pipe", stderr: "pipe" });
