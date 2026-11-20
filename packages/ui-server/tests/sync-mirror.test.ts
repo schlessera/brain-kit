@@ -183,6 +183,52 @@ test("an upstream governance policy commit pauses a hosted sync for review, and 
   } finally { server.stop(true); }
 }, 180_000);
 
+test("an upstream commit that edits an existing governance policy pauses for review, and its approval lets the next sync complete (#4256)", async () => {
+  const f = fixture();
+  const before = "---\nschema_version: 1\n---\nOdysseus decides what leaves Ithaca.\n";
+  const after = "---\nschema_version: 1\noutward:\n  github:\n    repositories: [ithaca/*]\n---\nOdysseus decides what leaves Ithaca.\n";
+  // The brain already has a policy, committed and pushed.
+  mkdirSync(join(f.brain, "context/policies"), { recursive: true });
+  writeFileSync(join(f.brain, "context/policies/governance.md"), before);
+  git(f.brain, "add", "context/policies/governance.md"); git(f.brain, "commit", "-m", "Ithaca policy"); git(f.brain, "push", "origin", "main");
+  const other = join(f.root, "other");
+  git(other, "pull", "--quiet", "origin", "main");
+  writeFileSync(join(other, "context/policies/governance.md"), after);
+  git(other, "add", "."); git(other, "commit", "-m", "Open GitHub writes to Ithaca"); git(other, "push", "origin", "main");
+  const boundary = createHostBoundary({ brainPath: f.brain, nativeManager: f.nativeManager, dbPath: f.dbPath });
+  const server = fixtureRemote(f.root, f.remote);
+  git(f.brain, "remote", "set-url", "origin", `${server.url}remote.git`);
+  try {
+    const changes: { content: Uint8Array; upstream: string | null }[] = [];
+    const proc = await boundary.launch({ argv: [join(f.brain, "node_modules/.bin/brain"), "sync", "--human"], env: { PATH: process.env.PATH },
+      credentials: false, gate: "exclusive", sync: true, purpose: "policy edit review sync", onPolicyChange: change => { changes.push(change); } });
+    void new Response(proc.stdout).text().catch(() => {});
+    const stderr = new Response(proc.stderr).text();
+    expect(await proc.exited, "EDIT_SYNC_PAUSED_EXIT").toBe(1);
+    expect(await stderr, "EDIT_SYNC_PAUSED_TEXT").toContain("Sync paused before publishing anything");
+    expect(changes.map(change => new TextDecoder().decode(change.content)), "EDIT_INCOMING_BYTES_EXACT").toEqual([after]);
+    expect(readFileSync(join(f.brain, "context/policies/governance.md"), "utf8"), "EDIT_PUBLISHED_NOTHING").toBe(before);
+
+    const db = createUiDb(":memory:");
+    const active = new Set<string>();
+    const proposals = createPolicyProposals({ root: f.brain, db, lock: createKeyedLock(),
+      observeUserPolicy: (turnId, write) => { if (!active.has(turnId)) throw new Error("approved policy write requires a user window"); write(); },
+      recordEvent: () => undefined });
+    const reviews = createOwnerPolicyReviews({ root: f.brain, proposals, authorized: () => true, turnPrefix: "sync-policy", requestPrefix: "sync",
+      journal: { async begin(turnId) { active.add(turnId); }, async finish(turnId) { active.delete(turnId); } },
+      fail: (status, code, message) => new OwnerPolicyReviewError(status, code, message) });
+    try {
+      const opened = await reviews.propose("p-penelope", () => after, undefined, "Remote policy", "invalid");
+      expect(opened.review.baseHash, "EDIT_REVIEW_HAS_BASE").not.toBeNull();
+      expect((await reviews.decide("p-penelope", opened.turn_id, opened.request_id, true)).state, "EDIT_APPROVAL_WRITES").toBe("updated");
+    } finally { reviews.close(); db.close(); }
+    const client = createBrainClient({ brainPath: f.brain, boundary, exec: {} });
+    const result = await client.sync().catch(error => { throw new Error(JSON.stringify(error.result) + "\n" + error.message); });
+    expect(result.result?.run.status, "EDIT_NEXT_SYNC_COMPLETES").toBe("complete");
+    expect(readFileSync(join(f.brain, "context/policies/governance.md"), "utf8")).toBe(after);
+  } finally { server.stop(true); }
+}, 180_000);
+
 test("an upstream change to another tier A input keeps its refusal and says what to do next (#4256)", async () => {
   const f = fixture();
   const boundary = createHostBoundary({ brainPath: f.brain, nativeManager: f.nativeManager, dbPath: f.dbPath });

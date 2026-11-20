@@ -176,7 +176,12 @@ async function protectedRefusal(local: ExecutionResult, error: ProtectedMaintena
   if (policyOnly && policy.upstream) {
     let content: Uint8Array | null;
     try { content = await error.read(GOVERNANCE_POLICY_PATH, INCOMING_POLICY_READ_BOUND); }
-    catch { return refusedSync(local, `${error.message}. Nothing was published. The incoming ${GOVERNANCE_POLICY_PATH} exceeds the policy writer's 1 MiB bound, so it cannot be reviewed: shrink it upstream, or revert the upstream commit that makes it.`); }
+    catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      return refusedSync(local, /exceeds \d+ bytes/.test(message)
+        ? `${error.message}. Nothing was published. The incoming ${GOVERNANCE_POLICY_PATH} exceeds the policy writer's 1 MiB bound, so it cannot be reviewed: shrink it upstream, or revert the upstream commit that makes it.`
+        : `${error.message}. Nothing was published. The incoming ${GOVERNANCE_POLICY_PATH} could not be read for review (${message.slice(0, 200)}); sync again, and if it persists, revert the upstream commit that makes it.`);
+    }
     if (content) {
       try { new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(content); }
       catch { return refusedSync(local, `${error.message}. Nothing was published. The incoming ${GOVERNANCE_POLICY_PATH} is not UTF-8 text, so it cannot be reviewed: fix its encoding upstream, or revert the upstream commit that makes it.`); }
