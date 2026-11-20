@@ -581,9 +581,9 @@ backend invocation to the first frame, or the observed failure boundary
 when startup fails before a frame (terminal time on interruption). Unobserved/in-progress boundaries remain null. These
 values do not redefine backend-run `startedAt` or `durationMs`.
 
-Optional `subPhases` (additive, #3355) attributes the governed, journal and backend
+Optional `subPhases` (additive, #3355) attributes the governed and journal
 phases to their steps, in start order. Each entry is `{ phase, name, startedAt,
-endedAt, elapsedMs }`, where `phase` is `governed`, `journal` or `backend`. A step that has
+endedAt, elapsedMs }`, where `phase` is `governed` or `journal`. A step that has
 not finished has a null `endedAt`; its `elapsedMs` follows the phase rule above,
 measuring to `failureObservedAt` or terminal time once the record is terminal,
 and null before. Every step lies inside its phase's paired milestones, and the
@@ -606,6 +606,23 @@ not apply to a turn is absent. The current names are:
   earlier checkpoint releases; `observe_record`, `observe_publish` and
   `observe_facts` repeat once per other active turn the observation records,
   and are absent when there is none (#2915).
+
+Optional `openSubPhases` (#4285/#4286) carries **all new phases**, using the
+same entry shape `{ phase, name, startedAt, endedAt, elapsedMs }` with an open
+string vocabulary for `phase` as well as `name`. Consumers must tolerate
+unknown phase names. The original `subPhases[].phase` enum is frozen at
+`governed` and `journal`: previously published SDKs reject a whole Activity
+snapshot or delta when that array contains an unknown phase. Their loose
+lifecycle object accepts the new optional field without dropping the frame.
+Never put a new phase into `subPhases`, or widen its enum.
+
+`openSubPhases` has the same pending, null, failure/interruption and persistence
+rules as `subPhases`. Each array is in nondecreasing `startedAt` order, keeping
+observation order for ties. A milestone interval learned after later-starting
+steps is inserted at its start position. The first-frame milestone and its
+step share one clock observation. Open steps are carried by the same milestone
+or terminal writes. The current open phase names are:
+
 - `backend` (#4285/#4286): host `host_probe`, Claude's separate
   `worker_host_probe`, `worker_launch` and `runtime_to_sdk_init`; Pi's
   `preparation` and `worker_spawn`; worker-reported Pi `bootstrap_imports`,
@@ -624,13 +641,15 @@ after relay receipt are ignored. An unfinished backend step has a null
 otherwise the same failure/interruption rule as other steps. The receipt
 persists a milestone; other startup observations add no writes of their own.
 
-For worker-reported durations, `timeBase: "worker"` and `workerElapsedMs`
+For worker-reported open steps, `timeBase: "worker"` and `workerElapsedMs`
 are additive fields. `elapsedMs` is that observed worker duration, while
 both timestamps are the host's receipt time. They do **not** identify a
 worker start on the host clock. Worker `bootstrap_imports` is measured from
 the worker process's monotonic time origin to its entry after static imports.
 Pi `session` includes resource loading, and `initialize` includes both; steps
-can overlap and must not be summed as disjoint costs.
+can overlap and must not be summed as disjoint costs. A Pi worker contributes
+at most one observation per startup phase (four total), before readiness;
+duplicate and post-readiness reports are ignored in both timing and debug totals.
 
 Optional `backendMissingEvidence` lists unavailable SDK marks, rather than
 inventing durations: Claude `first_enqueue`, `prompt_recorded`, and
@@ -640,7 +659,7 @@ start/end marks. Unknown marks have no timed step; an empty list does not
 claim complete runtime coverage. These observations stay in host storage and
 never enter provider history.
 
-Records written before this field have no `subPhases`; nothing is backfilled.
+Historical records may omit either timing array; neither is backfilled.
 
 The envelope terminates once with the existing outcome vocabulary: `success`,
 `error`, `timeout`, `cancelled`, `denied` or `interrupted`, optional explanation

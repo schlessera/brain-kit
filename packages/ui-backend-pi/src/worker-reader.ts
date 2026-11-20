@@ -67,6 +67,9 @@ export interface PiWorkerReader {
 export async function readPiWorkerProtocol(reader: PiWorkerReader): Promise<void> {
   const { child, state, ready, done, sessionId, backend, startupStarted, promptContext, sessionBudgetLimits, autonomous, resumed,
     turnContext, nativeVersions, receipts, resumedIds, listeners, proof, toolExecution, dispatch, send, fail, reportLimitHits, limitEnded, diagnostic } = reader;
+  // Startup diagnostics carry no authority. Retain at most the first of each
+  // of the protocol's four phases, and none once initialization is complete.
+  const startupPhases = new Set<string>();
   for await (const raw of pipeMessages(child.stdout)) {
     let msg: PiWorkerMessage;
     try {
@@ -82,6 +85,8 @@ export async function readPiWorkerProtocol(reader: PiWorkerReader): Promise<void
       throw error;
     }
     if (msg.type === "startup_timing") {
+      if (state.initialized || startupPhases.has(msg.phase)) continue;
+      startupPhases.add(msg.phase);
       reader.startupTiming?.worker(msg.phase === "worker_started" ? "bootstrap_imports" : msg.phase, msg.durationMs);
       backend.log?.("debug", "Pi startup phase", { phase: msg.phase, durationMs: msg.durationMs, elapsedMs: performance.now() - startupStarted });
     } else if (msg.type === "ready") {

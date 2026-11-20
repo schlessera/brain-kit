@@ -35,6 +35,7 @@ export "." (./src/index.ts)
   type ActivitySpanOrigin
   type ActivitySpanOutcome
   type ActivityTurnLifecycle
+  type ActivityTurnOpenSubPhase
   type ActivityTurnSubPhase
   type ActivityView
   type AgentPolicyRead
@@ -581,6 +582,7 @@ export "./client" (./src/client/index.ts)
   type ActivitySpanOrigin
   type ActivitySpanOutcome
   type ActivityTurnLifecycle
+  type ActivityTurnOpenSubPhase
   type ActivityTurnSubPhase
   type ActivityView
   type AgentPolicyRead
@@ -1673,6 +1675,7 @@ export "./protocol" (./src/protocol.ts)
   type ActivitySpanOrigin
   type ActivitySpanOutcome
   type ActivityTurnLifecycle
+  type ActivityTurnOpenSubPhase
   type ActivityTurnSubPhase
   type ActivityView
   type AgentPolicyRead
@@ -2413,6 +2416,7 @@ export "./server" (./src/server/index.ts)
   type ActivitySpanOrigin
   type ActivitySpanOutcome
   type ActivityTurnLifecycle
+  type ActivityTurnOpenSubPhase
   type ActivityTurnSubPhase
   type ActivityView
   type AgentBackend
@@ -4511,16 +4515,21 @@ signatures (every public export and the types it is made of)
         journalBeginMs: number | null;
         backendStartupMs: number | null;
         subPhases?: ActivityTurnSubPhase[];
+        openSubPhases?: ActivityTurnOpenSubPhase[];
+    }
+  ActivityTurnOpenSubPhase (packages/ui-sdk/src/protocol.ts)
+    export interface ActivityTurnOpenSubPhase extends Omit<ActivityTurnSubPhase, "phase"> {
+        phase: string;
+        timeBase?: "worker";
+        workerElapsedMs?: number;
     }
   ActivityTurnSubPhase (packages/ui-sdk/src/protocol.ts)
     export interface ActivityTurnSubPhase {
-        phase: "governed" | "journal" | "backend";
+        phase: "governed" | "journal";
         name: string;
         startedAt: number;
         endedAt: number | null;
         elapsedMs: number | null;
-        timeBase?: "worker";
-        workerElapsedMs?: number;
     }
   ActivityView (packages/ui-sdk/src/protocol.ts)
     export type ActivityView = "index" | "session" | "run";
@@ -22087,6 +22096,15 @@ signatures (every public export and the types it is made of)
             journalBeginMs: z.ZodNullable<z.ZodNumber>;
             journalStartedAt: z.ZodNullable<z.ZodNumber>;
             lifecycleId: z.ZodString;
+            openSubPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                elapsedMs: z.ZodNullable<z.ZodNumber>;
+                endedAt: z.ZodNullable<z.ZodNumber>;
+                name: z.ZodString;
+                phase: z.ZodString;
+                startedAt: z.ZodNumber;
+                timeBase: z.ZodOptional<z.ZodLiteral<"worker">>;
+                workerElapsedMs: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$loose>>>;
             outcome: z.ZodNullable<z.ZodEnum<{
                 cancelled: "cancelled";
                 denied: "denied";
@@ -22108,13 +22126,10 @@ signatures (every public export and the types it is made of)
                 endedAt: z.ZodNullable<z.ZodNumber>;
                 name: z.ZodString;
                 phase: z.ZodEnum<{
-                    backend: "backend";
                     governed: "governed";
                     journal: "journal";
                 }>;
                 startedAt: z.ZodNumber;
-                timeBase: z.ZodOptional<z.ZodLiteral<"worker">>;
-                workerElapsedMs: z.ZodOptional<z.ZodNumber>;
             }, z.core.$loose>>>;
             timeToFirstFrameMs: z.ZodNullable<z.ZodNumber>;
             totalElapsedMs: z.ZodNullable<z.ZodNumber>;
@@ -22216,6 +22231,15 @@ signatures (every public export and the types it is made of)
             journalBeginMs: z.ZodNullable<z.ZodNumber>;
             journalStartedAt: z.ZodNullable<z.ZodNumber>;
             lifecycleId: z.ZodString;
+            openSubPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                elapsedMs: z.ZodNullable<z.ZodNumber>;
+                endedAt: z.ZodNullable<z.ZodNumber>;
+                name: z.ZodString;
+                phase: z.ZodString;
+                startedAt: z.ZodNumber;
+                timeBase: z.ZodOptional<z.ZodLiteral<"worker">>;
+                workerElapsedMs: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$loose>>>;
             outcome: z.ZodNullable<z.ZodEnum<{
                 cancelled: "cancelled";
                 denied: "denied";
@@ -22237,13 +22261,10 @@ signatures (every public export and the types it is made of)
                 endedAt: z.ZodNullable<z.ZodNumber>;
                 name: z.ZodString;
                 phase: z.ZodEnum<{
-                    backend: "backend";
                     governed: "governed";
                     journal: "journal";
                 }>;
                 startedAt: z.ZodNumber;
-                timeBase: z.ZodOptional<z.ZodLiteral<"worker">>;
-                workerElapsedMs: z.ZodOptional<z.ZodNumber>;
             }, z.core.$loose>>>;
             timeToFirstFrameMs: z.ZodNullable<z.ZodNumber>;
             totalElapsedMs: z.ZodNullable<z.ZodNumber>;
@@ -25225,6 +25246,15 @@ signatures (every public export and the types it is made of)
             journalBeginMs: z.ZodNullable<z.ZodNumber>;
             journalStartedAt: z.ZodNullable<z.ZodNumber>;
             lifecycleId: z.ZodString;
+            openSubPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                elapsedMs: z.ZodNullable<z.ZodNumber>;
+                endedAt: z.ZodNullable<z.ZodNumber>;
+                name: z.ZodString;
+                phase: z.ZodString;
+                startedAt: z.ZodNumber;
+                timeBase: z.ZodOptional<z.ZodLiteral<"worker">>;
+                workerElapsedMs: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$loose>>>;
             outcome: z.ZodNullable<z.ZodEnum<{
                 cancelled: "cancelled";
                 denied: "denied";
@@ -25246,13 +25276,10 @@ signatures (every public export and the types it is made of)
                 endedAt: z.ZodNullable<z.ZodNumber>;
                 name: z.ZodString;
                 phase: z.ZodEnum<{
-                    backend: "backend";
                     governed: "governed";
                     journal: "journal";
                 }>;
                 startedAt: z.ZodNumber;
-                timeBase: z.ZodOptional<z.ZodLiteral<"worker">>;
-                workerElapsedMs: z.ZodOptional<z.ZodNumber>;
             }, z.core.$loose>>>;
             timeToFirstFrameMs: z.ZodNullable<z.ZodNumber>;
             totalElapsedMs: z.ZodNullable<z.ZodNumber>;
@@ -25355,6 +25382,15 @@ signatures (every public export and the types it is made of)
             journalBeginMs: z.ZodNullable<z.ZodNumber>;
             journalStartedAt: z.ZodNullable<z.ZodNumber>;
             lifecycleId: z.ZodString;
+            openSubPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                elapsedMs: z.ZodNullable<z.ZodNumber>;
+                endedAt: z.ZodNullable<z.ZodNumber>;
+                name: z.ZodString;
+                phase: z.ZodString;
+                startedAt: z.ZodNumber;
+                timeBase: z.ZodOptional<z.ZodLiteral<"worker">>;
+                workerElapsedMs: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$loose>>>;
             outcome: z.ZodNullable<z.ZodEnum<{
                 cancelled: "cancelled";
                 denied: "denied";
@@ -25376,13 +25412,10 @@ signatures (every public export and the types it is made of)
                 endedAt: z.ZodNullable<z.ZodNumber>;
                 name: z.ZodString;
                 phase: z.ZodEnum<{
-                    backend: "backend";
                     governed: "governed";
                     journal: "journal";
                 }>;
                 startedAt: z.ZodNumber;
-                timeBase: z.ZodOptional<z.ZodLiteral<"worker">>;
-                workerElapsedMs: z.ZodOptional<z.ZodNumber>;
             }, z.core.$loose>>>;
             timeToFirstFrameMs: z.ZodNullable<z.ZodNumber>;
             totalElapsedMs: z.ZodNullable<z.ZodNumber>;

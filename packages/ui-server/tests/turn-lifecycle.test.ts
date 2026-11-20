@@ -96,11 +96,11 @@ test("real dispatch records delayed governed admission and first frame, and link
   try {
     await runSession(host,{authorization:testAuthorization("odysseus"),text:"Plan Ithaca",attachments:[]});
     const record=store.lifecycles()[0]!;
-    expect(record.subPhases,"DISPATCH_PERSISTS_BACKEND_STEPS").toEqual([
-      {phase:"governed",name:"gate_acquire",startedAt:1000,endedAt:1400,elapsedMs:400},
+    expect(record.subPhases).toEqual([{phase:"governed",name:"gate_acquire",startedAt:1000,endedAt:1400,elapsedMs:400}]);
+    expect(record.openSubPhases,"DISPATCH_PERSISTS_BACKEND_STEPS").toEqual([
       {phase:"backend",name:"host_probe",startedAt:1400,endedAt:1500,elapsedMs:100},
-      {phase:"backend",name:"resources",startedAt:1500,endedAt:1500,elapsedMs:37,timeBase:"worker",workerElapsedMs:37},
       {phase:"backend",name:"first_relay_request",startedAt:1400,endedAt:1600,elapsedMs:200},
+      {phase:"backend",name:"resources",startedAt:1500,endedAt:1500,elapsedMs:37,timeBase:"worker",workerElapsedMs:37},
     ]);
     expect(record.backendMissingEvidence).toEqual(["mcp_connect:brain"]);
     expect(record.firstRelayRequestAt).toBe(1600);

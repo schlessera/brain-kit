@@ -60,10 +60,22 @@ qualification.
 
 The `backendStartup` section (#4285/#4286) includes the first turn after
 server start and those five warm turns. Each sample carries invocation to
-first relay receipt, the backend steps, their host receipt timestamps and
+first relay receipt when observed, the `openSubPhases` backend steps, their host receipt timestamps and
 worker clock tags, and `backendMissingEvidence` for unavailable SDK marks.
 Worker durations are reported from `workerElapsedMs`, separately from host
 intervals. Nested resource/session/initialize samples overlap; do not sum them.
+
+Coverage is explicit: the Claude qualification uses a hand-driven `queryFn`
+which launches a real shell worker and synthesizes SDK responses. It exercises
+`host_probe`, `worker_host_probe` and `worker_launch`; it does not run Claude's
+SDK process or send a model request. Its `coverage` and `unobserved` fields
+identify that limitation, and relay receipt stays null. It cannot qualify
+Claude SDK/MCP/enqueue/first-request timings; those still need a real SDK run.
+The Pi fixture runs its real SDK and must provide all seven startup steps
+(`preparation`, `host_probe`, `worker_spawn`, `bootstrap_imports`, `resources`,
+`session`, `initialize`) plus a relay receipt. Every required step must be
+complete on the first sample and each warm sample. A receipt alone cannot
+qualify a startup breakdown.
 
 Its `phases` section (#2915) attributes each observed writer's worker hold and
 each harbour turn's journal begin and finish to their steps: the queue for the

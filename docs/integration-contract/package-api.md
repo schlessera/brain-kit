@@ -55,7 +55,8 @@ never reaches provider inputs, and is optional for older hosts. The internal
 inference relay's optional `received(path)` notification runs after method and
 route checks, before admission/body reading; its exception is ignored.
 See [Host turn lifecycle](wire.md#host-turn-lifecycle-additive) for the persisted
-fields, clocks and missing-evidence semantics.
+fields, clocks and missing-evidence semantics. New phases are persisted in
+`openSubPhases`; the legacy `subPhases` enum remains unchanged for older SDKs.
 
 `StartTurnRequest` adds optional `@internal toolExecution(toolUseId, path)`, a
 server-only callback a backend calls before a call's `tool_result` with where

@@ -1,4 +1,4 @@
-import { lifecycleTimingSample } from "./lifecycle-timing.js";
+import { backendStartupSamples, lifecycleTimingSample } from "./lifecycle-timing.js";
 import { afterAll, expect, test } from "bun:test";
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -407,11 +407,7 @@ print(json.dumps(result))`;
       // (a) The process's first governed, journaled turn: the qualification's first admission.
       const firstAfterStart = phases(lifecycles().find(record => record.governedStartedAt !== null && record.journalStartedAt !== null));
       const warm = harbour.slice(-5).map(lifecycleOf);
-      expect(warm, "BACKEND_TIMING_FIVE_WARM_TURNS").toHaveLength(5);
-      for (const sample of [firstAfterStart, ...warm]) {
-        expect(sample?.backendSteps.length, "BACKEND_TIMING_OBSERVED_STEPS").toBeGreaterThan(0);
-        expect(sample?.invocationToRelayMs, "BACKEND_TIMING_FIRST_RELAY_RECEIPT").toBeGreaterThanOrEqual(0);
-      }
+      const backendStartup = backendStartupSamples(BACKEND === "claude" ? "claude" : "pi", firstAfterStart, warm);
       // Past the hosted app's one-minute idle observation interval.
       const IDLE_WAIT_MS = 65_000;
       // (b) A few hundred notes change while no turn runs, as a sync or maintenance pass would.
@@ -463,7 +459,7 @@ print(json.dumps(result))`;
       };
       const result = { backend: BACKEND, appUid: APP_UID, files: FILES, bytes: BYTES, loadBefore, loadAfter: load(), elapsedMs: performance.now() - timingStart, timelineTurnIds,
         tools: timeline?.tools ?? null, admission,
-        backendStartup: { clock: "host epoch timestamps; timeBase=worker uses workerElapsedMs, never subtracted from host time", firstAfterStart, warm },
+        backendStartup,
         journal: { begin: { medianMs: median(total("beginMs")), p95Ms: p95(total("beginMs")) }, finish: { medianMs: median(total("finishMs")), p95Ms: p95(total("finishMs")) },
           beginPlusFinish: { medianMs: median(total("totalMs")), p95Ms: p95(total("totalMs")) }, turns: beginFinish }, phases: observationSteps, calls: timeline?.calls ?? null };
       writeFileSync(join(ARTIFACTS, "observation-timing.json"), JSON.stringify(result, null, 2));

@@ -3883,16 +3883,21 @@ export function isPricingRoute(v: unknown): v is PricingRoute {
 }
 
 /**
- * One timed step inside governed admission, journal begin or backend startup.
+ * One timed step inside the original governed or journal phases.
  * `name` is open vocabulary: consumers tolerate names they do not know.
  */
 export interface ActivityTurnSubPhase {
-  phase: "governed" | "journal" | "backend";
+  phase: "governed" | "journal";
   name: string;
   startedAt: number;
   /** Null while running; an unfinished step of a terminal record measures to its failure boundary. */
   endedAt: number | null;
   elapsedMs: number | null;
+}
+
+/** Additive phases use an open vocabulary so older SDKs can retain the frame. */
+export interface ActivityTurnOpenSubPhase extends Omit<ActivityTurnSubPhase, "phase"> {
+  phase: string;
   /** Worker durations use an independent clock; timestamps are host receipt, not worker start/end. */
   timeBase?: "worker";
   workerElapsedMs?: number;
@@ -3931,8 +3936,10 @@ export interface ActivityTurnLifecycle {
   budgetAdmissionMs: number | null;
   journalBeginMs: number | null;
   backendStartupMs: number | null;
-  /** Steps of the governed, journal and backend phases, in start order. Absent on older records. */
+  /** Original governed/journal steps, in start order. The closed phase enum is frozen. */
   subPhases?: ActivityTurnSubPhase[];
+  /** New phases, including backend startup, in start order; tolerate unknown phase names. */
+  openSubPhases?: ActivityTurnOpenSubPhase[];
 }
 
 export interface ActivityRunSummary {
