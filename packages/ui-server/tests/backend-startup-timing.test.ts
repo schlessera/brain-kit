@@ -32,7 +32,11 @@ test("backend steps stay in invocation-to-relay and keep worker durations on the
     ]);
     expect(record.subPhases!.filter(step => step.startedAt < 1000 || (step.endedAt ?? 1400) > 1400)).toEqual([]);
     const parsed = serverActivityDeltaSchema.parse({ type: "activity_delta", runId: "turn-ithaca", seq: 1, lifecycle: record });
-    expect(parsed.lifecycle, "BACKEND_TIMING_SURVIVES_CLIENT_VALIDATION").toEqual(record);
+    expect(parsed.lifecycle?.firstRelayRequestAt).toBe(1400);
+    expect(parsed.lifecycle?.backendMissingEvidence).toEqual(["first_enqueue"]);
+    expect(parsed.lifecycle?.subPhases?.[1], "BACKEND_TIMING_SURVIVES_CLIENT_VALIDATION").toEqual({
+      phase: "backend", name: "resources", startedAt: 1100, endedAt: 1100, elapsedMs: 777, timeBase: "worker", workerElapsedMs: 777,
+    });
   } finally { db.close(); }
 });
 
