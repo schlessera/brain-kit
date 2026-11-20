@@ -100,7 +100,9 @@ export function syncTransportCommand(input: { brain: string; mirror: string; rem
   const readPaths: string[] = [];
   const writePaths: string[] = [];
   const env: Record<string, string> = { PATH: "/usr/bin:/bin", HOME: "/tmp/brain-maintenance-home", GIT_CONFIG_NOSYSTEM: "1",
-    GIT_CONFIG_GLOBAL: "/dev/null", GIT_TERMINAL_PROMPT: "0" };
+    GIT_CONFIG_GLOBAL: "/dev/null", GIT_TERMINAL_PROMPT: "0",
+    // A worker can write the mirror's refs: a replace ref must never change what an object reads as (#4256).
+    GIT_NO_REPLACE_OBJECTS: "1" };
   let remote = input.remote;
   if (remote.startsWith("/") || remote.startsWith("file://")) {
     const path = realpathSync(remote.startsWith("file://") ? new URL(remote).pathname : remote);
@@ -243,15 +245,17 @@ async function executeMirrorSync(input: Parameters<typeof runMirrorSync>[0]): Pr
     // Entire config/commit/pull/merge/judgment/index flow stays in a worker
     // with no credential. Only objects and refs are writable in the mirror;
     // config, HEAD, hooks and the directory itself remain read-only.
+    // The upstream policy is read now, after the integrity check and the fetch
+    // and before any worker of this sync runs, so worker writes to the mirror
+    // cannot change what it is compared with.
     const upstream = mirrorHead(mirror);
+    const upstreamPolicy = upstream && input.onPolicyChange ? await transport(["cat-file", "blob", `${upstream}:${GOVERNANCE_POLICY_PATH}`]) : null;
+    const expected = upstreamPolicy?.exitCode === 0 ? upstreamPolicy.stdout : null;
     last = await runLocalSync({ ...command, credentials: false, upstream,
       ...(input.onPolicyChange ? { onPolicyChange: input.onPolicyChange } : {}),
       verify: async content => {
-        if (!upstream) return false;
-        const blob = await transport(["cat-file", "blob", `${upstream}:${GOVERNANCE_POLICY_PATH}`]);
-        let text: string;
-        try { text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(content); } catch { return false; }
-        return blob.exitCode === 0 && blob.stdout === text;
+        if (expected === null) return false;
+        try { return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(content) === expected; } catch { return false; }
       },
       readPaths: [...(command.readPaths ?? []), mirror],
       writeDirectories: [join(mirror, "objects"), join(mirror, "refs")],
