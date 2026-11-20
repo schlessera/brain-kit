@@ -39,3 +39,29 @@ test("5000 changes and references clean up at least ten times faster than the co
     expect(oldMs/newMs,"FINISH_REFERENCE_RATIO").toBeGreaterThan(10);
   } finally { db.close(); }
 });
+
+test("a refusal in finish reference cleanup rolls back its terminal record and manifest deletion together",async()=>{
+  const {mkdtempSync,rmSync}=await import("node:fs");
+  const {tmpdir}=await import("node:os");
+  const {join}=await import("node:path");
+  const {createUiDb}=await import("../src/db/client.js");
+  const {setup}=await import("../src/brain/journal-store.js");
+  const root=mkdtempSync(join(tmpdir(),"odysseus-finish-atomic-")),db=createUiDb(":memory:");
+  const store=setup(db,{dbPath:":memory:",objectsRoot:join(root,"objects")}) as unknown as {statements(list:import("../src/brain/journal-store.js").JournalStatement[]):number[];close():void};
+  try {
+    store.statements([{sql:"INSERT INTO turn_journal_turns (turn_id,actor,profile,started_at,state) VALUES ('turn','interactive','governed',1,'recording')"},
+      {sql:"INSERT INTO turn_journal_manifests VALUES ('turn','[]')"},
+      {sql:"INSERT INTO turn_journal_objects VALUES (?,0,'present')",params:["a".repeat(64)]},
+      {sql:"INSERT INTO turn_journal_object_refs VALUES ('turn',?)",params:["a".repeat(64)]}]);
+    const finish=[{sql:"UPDATE turn_journal_turns SET ended_at=2,state='complete' WHERE turn_id='turn'"},
+      {sql:"DELETE FROM turn_journal_manifests WHERE turn_id='turn'"}, {sql:FINISH_REFERENCE_CLEANUP,params:["turn"]}];
+    db.exec("CREATE TEMP TRIGGER abort_finish_cleanup BEFORE DELETE ON journal.turn_journal_object_refs BEGIN SELECT RAISE(ABORT,'finish interrupted'); END");
+    expect(()=>store.statements(finish),"FINISH_CLEANUP_FAULT_IN_TRANSACTION").toThrow("finish interrupted");
+    expect(db.query("SELECT ended_at,state FROM turn_journal_turns WHERE turn_id='turn'").get(),"FINISH_RECORD_ROLLS_BACK_WITH_REFS").toEqual({ended_at:null,state:"recording"});
+    expect(db.query("SELECT count(*) AS n FROM turn_journal_manifests").get()).toEqual({n:1});
+    expect(db.query("SELECT count(*) AS n FROM turn_journal_object_refs").get()).toEqual({n:1});
+    db.exec("DROP TRIGGER abort_finish_cleanup");store.statements(finish);
+    expect(db.query("SELECT ended_at,state FROM turn_journal_turns WHERE turn_id='turn'").get()).toEqual({ended_at:2,state:"complete"});
+    expect(db.query("SELECT count(*) AS n FROM turn_journal_object_refs").get()).toEqual({n:0});
+  } finally {store.close();db.close();rmSync(root,{recursive:true,force:true});}
+});
