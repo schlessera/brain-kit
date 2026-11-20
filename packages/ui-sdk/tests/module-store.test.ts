@@ -94,3 +94,15 @@ test("a real sandbox resolves its pinned package and refuses writes to the gener
     expect(child.stdout.toString(), "REAL_SANDBOX_RESOLVES_READ_ONLY_GENERATION").toContain("PINNED_PACKAGE_READ_ONLY");
   } finally { await view.cleanup(); }
 });
+
+test("a directory sync failure after atomic publication retains the active generation", () => {
+  const f = fixture(), next = f.build(), sync = fs.fsyncSync;
+  const fault = spyOn(fs, "fsyncSync").mockImplementation(fd => {
+    if (fs.fstatSync(fd).isDirectory()) throw Error("Odysseus directory sync failure");
+    return sync(fd);
+  });
+  try {
+    expect(publishModuleGeneration(f.brain, next.receipt), "POST_PUBLICATION_FAILURE_IS_NAMED").toContain("durability is uncertain");
+    expect(currentModuleGeneration(f.brain), "PUBLISHED_GENERATION_MUST_NOT_BE_REMOVED").toEqual(next.receipt);
+  } finally { fault.mockRestore(); }
+});

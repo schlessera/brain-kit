@@ -18,7 +18,7 @@ export interface ModuleMaintenanceResult { result: "unchanged" | "activated" | "
 export const moduleMaintenanceExecution = { run: runMaintenanceWorker };
 export async function maintainModuleStore(brain: string, view: WorkerStartupView, command: MaintenanceCommand, trigger: string): Promise<ModuleMaintenanceResult> {
   if (!hasManagedNativeStorage(brain)) return { result: "unmanaged", trigger };
-  let generation: string | undefined, activated = false;
+  let generation: string | undefined, lockHash: string | undefined;
   try {
     const lock = join(view.root, "bun.lock"), manifest = join(view.root, "package.json");
     for (const path of [manifest, lock]) {
@@ -30,7 +30,8 @@ export async function maintainModuleStore(brain: string, view: WorkerStartupView
       command: ["/usr/bin/git", "ls-files", "--error-unmatch", "--", "package.json", "bun.lock"], output: undefined, git: undefined,
       timeoutMs: 30_000 });
     if (tracked.exitCode !== 0 || tracked.killed) throw Error("Module installation requires tracked package.json and bun.lock: " + tracked.stderr);
-    const lockBytes = readFileSync(lock), manifestBytes = readFileSync(manifest), lockHash = moduleLockHash(lockBytes);
+    const lockBytes = readFileSync(lock), manifestBytes = readFileSync(manifest);
+    lockHash = moduleLockHash(lockBytes);
     const current = currentModuleGeneration(brain);
     if (current?.lockHash === lockHash) {
       collectModuleGenerations(brain); return { result: "unchanged", generation: current.generation, lockHash, trigger };
@@ -52,13 +53,13 @@ export async function maintainModuleStore(brain: string, view: WorkerStartupView
     const validation = await moduleMaintenanceExecution.run({ ...installer, network: false,
       command: [process.execPath, "--config=/dev/null", "--no-env-file", join(root, "node_modules/.bin/brain"), "--version"] });
     if (validation.exitCode !== 0 || validation.killed) throw Error("Module generation CLI validation failed: " + validation.stderr);
-    publishModuleGeneration(brain, { generation, lockHash, trigger, installedAt: new Date().toISOString() });
-    activated = true;
+    const detail = publishModuleGeneration(brain, { generation, lockHash, trigger, installedAt: new Date().toISOString() });
     // Collection is a later pass: do not let cleanup disguise publication.
-    return { result: "activated", generation, lockHash, trigger };
+    return { result: "activated", generation, lockHash, trigger, ...(detail ? { detail } : {}) };
   } catch (error) {
-    return { result: "failed", trigger, detail: String(error) };
-  } finally {
-    if (generation && !activated) rmSync(join(moduleStorePath(brain), generation), { recursive: true, force: true });
+    let detail = String(error);
+    if (generation) try { rmSync(join(moduleStorePath(brain), generation), { recursive: true, force: true }); }
+    catch (cleanupError) { detail += `; incomplete generation retained: ${String(cleanupError)}`; }
+    return { result: "failed", trigger, ...(generation ? { generation } : {}), ...(lockHash ? { lockHash } : {}), detail };
   }
 }

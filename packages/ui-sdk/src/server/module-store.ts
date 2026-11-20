@@ -84,7 +84,7 @@ export function validateModuleGeneration(root: string): void {
   walk(modules, 0);
 }
 /** Atomic publication after complete validation; the old pointer survives every earlier failure. */
-export function publishModuleGeneration(brain: string, receipt: ModuleGeneration): void {
+export function publishModuleGeneration(brain: string, receipt: ModuleGeneration): string | undefined {
   if (!generationName(receipt.generation)) throw Error("Invalid module generation identity");
   const store = moduleStorePath(brain), root = join(store, receipt.generation);
   ownedDirectory(store); ownedDirectory(root);
@@ -98,9 +98,14 @@ export function publishModuleGeneration(brain: string, receipt: ModuleGeneration
   durable(join(root, "receipt.json"), bytes);
   const pending = join(store, `.current-${randomUUID()}`);
   try {
-    durable(pending, bytes); renameSync(pending, join(store, "current.json"));
+    durable(pending, bytes);
     const fd = openSync(store, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
-    try { fsyncSync(fd); } finally { closeSync(fd); }
+    try {
+      renameSync(pending, join(store, "current.json"));
+      // Rename is the publication point. A later directory-sync failure must
+      // never make the caller remove the generation now named by current.
+      try { fsyncSync(fd); } catch (error) { return `Generation activated; publication durability is uncertain: ${String(error)}`; }
+    } finally { closeSync(fd); }
   } finally { rmSync(pending, { force: true }); }
 }
 /** Later maintenance collects superseded generations only after every holder releases. Unknown leases retain storage. */
