@@ -199,7 +199,8 @@ export interface BackendBridge {
     unavailable?(): Promise<void>;
     begin(toolUseId: string, toolName: string, input: Readonly<Record<string, unknown>>): Promise<void>;
     /** `outputStatus.complete:false` retains an unknown search remainder even when
-     * known rows were delivered. Omission preserves the existing behavior;
+     * known rows were delivered. Omission grants no success exemption;
+     * process-qualified search without status remains unknown, and
      * it is independent of the result's finalized exposure lifecycle. */
     result(toolUseId: string, toolName: string, output: string, finalized: boolean, segments?: readonly string[], outputStatus?: InputSafetyOutputStatus): Promise<void>;
     /** @internal A tool ran, but its result report was refused before `result`

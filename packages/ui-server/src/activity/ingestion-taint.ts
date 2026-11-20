@@ -1,6 +1,7 @@
 /** Which completed tool calls ingested untrusted content (G6); this grants no tool authority. */
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { z } from "zod";
+import type {InputSafetyOutputStatus} from "@schlessera/brain-ui-sdk/server";
 import { posix } from "node:path";
 import { WORKER_AREA_ROOT, WORKER_REFERENCE_ROOT, WORKER_WORKTREE_ROOT } from "@schlessera/brain-ui-sdk/internal";
 import { commandTaintSource } from "./command-taint.js";
@@ -185,6 +186,14 @@ const globOutput = z.object({ durationMs: z.number().finite().nonnegative(), num
 const grepOutput = z.object({ mode: z.enum(['content','files_with_matches','count']).optional(), numFiles: natural,
   filenames: z.array(z.string()), content: z.string().optional(), numLines: natural.optional(), numMatches: natural.optional(),
   totalFiles: natural.optional(), totalLines: natural.optional(), appliedLimit: natural.optional(), appliedOffset: natural.optional() }).strict();
+
+/** Process evidence is mandatory for Pi search; omission never proves success. */
+export function searchOutputComplete(output:string,status:InputSafetyOutputStatus|undefined,requireProcess=false):boolean|undefined {
+  if(status===undefined)return requireProcess?false:undefined;
+  if(requireProcess&&(status.exitCode===undefined||status.stderr===undefined||status.truncated===undefined))return false;
+  return status.complete&&status.stderr!==true&&status.truncated!==true&&
+    (status.exitCode===undefined||status.exitCode===0&&output.length>0&&output!=="No matches."||status.exitCode===1&&output==="No matches.");
+}
 
 export function outputTaintSignals(tool: string, output: string, brainPath?: string, marked?: MarkedLookup, context?: SearchOutputContext): IngestionSignal[] {
   if (!SEARCH_TOOLS.has(tool)) return [];

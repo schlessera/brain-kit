@@ -5963,13 +5963,19 @@ and optional `exitCode: number`, `stderr: boolean`, `truncated: boolean`.
 `stderr` records presence, never the error bytes. This is host-only evidence,
 not a provider-facing tool definition or a permission grant.
 
-Omission preserves the existing collection behavior. `complete: false`, a
+Omission grants no success or empty-search exemption: Pi grep without explicit
+process status retains unknown evidence. Other observations preserve their
+existing behavior or become stricter. `complete: false`, a
 failed search exit, stderr or truncation retains an unknown search remainder
 alongside every identifiable source. It is independent of the existing
 `finalized` exposure argument; incomplete evidence cannot prove a managed
 reference read. Pi carries the original tool status through its result hook
 and worker RPC. Exit 1 with empty stdout and no stderr is its only empty
 sentinel; exit 0 requires matches. Missing search status is restrictive.
+Every wrapper forwards the complete typed callback tuple. Extraction also
+withholds its relaxation when result evidence is incomplete. Status identity
+uses canonical key order, and host frames have an independent byte bound;
+clipping that frame retains unknown instead of overflowing collection.
 Pi keeps NUL filename framing in host-only result details; provider text retains
 the advertised `path:line:content` format, with the existing trim-then-clip
 pipeline. Hidden frame separators do not consume the delivered text budget;

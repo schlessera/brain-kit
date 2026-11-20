@@ -99,7 +99,7 @@ export function safetyResultInput(tool:string,content:readonly {type:string;text
   const original=complete&&content.length===1&&content[0]?.type==='text'&&typeof content[0]?.text==='string';
   const framed=status.success?status.data.framedOutput:undefined;
   const rendered=framed?.replaceAll('\0','').trim();
-  const bound=framed===undefined?output==='No matches.':status.success&&status.data.truncated?status.data.visibleText===output&&framed.replaceAll('\0','').trimStart()===output.slice(0,MAX_OUTPUT_BYTES):rendered===output;
+  const bound=framed===undefined?output==='No matches.':status.success&&status.data.truncated?status.data.visibleText===output&&(output.length>MAX_OUTPUT_BYTES?framed.replaceAll('\0','').trimStart()===output.slice(0,MAX_OUTPUT_BYTES):rendered===output):rendered===output;
   const successful=bound&&status.success&&!status.data.stderr&&!status.data.truncated&&
    (status.data.exitCode===0&&output.length>0&&output!=='No matches.'||status.data.exitCode===1&&output==='No matches.');
   const processStatus=status.success?{exitCode:status.data.exitCode,stderr:status.data.stderr,truncated:status.data.truncated}:{};

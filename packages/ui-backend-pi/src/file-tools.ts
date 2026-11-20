@@ -77,19 +77,22 @@ export function grepTool(kit: BrainToolKit): ToolDefinition {
       const empty=exitCode===1&&out.length===0&&stderr.length===0;
       const frame=empty?"No matches.":out.replaceAll("\0", ":\0")||"Search output unavailable.";
       const rawText=frame.replaceAll("\0", ""),text=rawText.trim();
-      const visibleText=clip(text),truncated=text.length>MAX_OUTPUT_BYTES;
+      const visibleText=clip(text),displayTruncated=text.length>MAX_OUTPUT_BYTES;
       // Frame every character actually delivered before clip's annotation.
       // Hidden separators do not consume the visible budget. Preserve raw
       // filename whitespace and the final row terminator for host lookup.
       let end=frame.length;
-      if(truncated){
+      if(displayTruncated){
         const limit=rawText.length-rawText.trimStart().length+MAX_OUTPUT_BYTES;
         let visible=0;end=0;
         while(end<frame.length&&(visible<limit||frame[end]==="\0")){
           if(frame[end]!=="\0")visible++;end++;
         }
       }
-      return textResult(visibleText, {pattern:params.pattern,search:{exitCode,stderr:stderr.length>0,truncated,framedOutput:frame.slice(0,end),visibleText}});
+      const bytes=Buffer.from(frame.slice(0,end)),frameClipped=bytes.length>1048576;
+      // Leave room for a decoder replacement if the byte cut splits UTF-8.
+      const framedOutput=frameClipped?bytes.subarray(0,1048573).toString('utf8'):frame.slice(0,end);
+      return textResult(visibleText, {pattern:params.pattern,search:{exitCode,stderr:stderr.length>0,truncated:displayTruncated||frameClipped,framedOutput,visibleText}});
     },
   } satisfies ToolDefinition;
 }

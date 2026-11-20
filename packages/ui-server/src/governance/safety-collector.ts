@@ -1,7 +1,7 @@
 /** Concrete turn-bound pre-delivery collector. All decisions remain restrictive. */
 import type { BackendBridge } from "@schlessera/brain-ui-sdk/server";
 import type { Database } from "bun:sqlite";
-import { inputTaintSignals, outputTaintSignals, searchOutputContext, type IngestionSignal } from "../activity/ingestion-taint.js";
+import { inputTaintSignals, outputTaintSignals, searchOutputComplete, searchOutputContext, type IngestionSignal } from "../activity/ingestion-taint.js";
 import { isMarkedUntrusted } from "../files/untrusted-marks.js";
 import { occurrence } from "./occurrence.js";
 import type { GovernanceWrites } from "./event-writes.js";
@@ -143,7 +143,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
    try{
     if(segments&&segments.length>256)throw new Error("Safety result segment capacity exceeded");
     const op=operations.get(toolUseId);if(!op||op.tool!==tool||!op.admitted)throw new Error("Safety result has no admitted operation");
-    const outputHash=hash(JSON.stringify([output,finalized,segments??null,outputStatus??null]));
+    const outputHash=hash(JSON.stringify([output,finalized,segments??null,outputStatus===undefined?null:Object.fromEntries(Object.entries(outputStatus).sort(([a],[b])=>a<b?-1:a>b?1:0))]));
     const conflicting=op.done&&op.outputHash!==outputHash;
     if(op.done&&!conflicting)return;
     if(conflicting){
@@ -157,8 +157,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
     }
     // Record output independently, before the backend releases it to the
     // model. Its bytes already exist, so a refusal here is never "before delivery".
-    const outputComplete=outputStatus===undefined?undefined:outputStatus.complete&&outputStatus.stderr!==true&&outputStatus.truncated!==true&&
-     (outputStatus.exitCode===undefined||outputStatus.exitCode===0&&output.length>0&&output!=="No matches."||outputStatus.exitCode===1&&output==="No matches.");
+    const outputComplete=searchOutputComplete(output,outputStatus,tool==='grep'&&options.backendId==='pi');
     for(const signal of outputTaintSignals(tool,output,options.brainPath,marked,{...op.searchContext,outputComplete})){
       const item=observed(toolUseId,signal.detector,op.id);
       await writes.firstTaint({...base(),kind:"taint",payload:{source:signal.source,tool,detail:null,occurrence:item}});op.occurrences.push(item.id);

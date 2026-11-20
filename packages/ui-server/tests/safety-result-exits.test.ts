@@ -138,10 +138,10 @@ test("a Pi result is still reported when the session's own after-hook fails", as
     let stopped = 0;
     const agent = { afterToolCall: async () => { throw new Error("the session's after-hook failed"); }, abort() {} } as unknown as Agent;
     installPiToolSafety(agent, { permission: async () => ({ behavior: "allow" }), stop: () => { stopped++; },
-      result: (name, id, content) => f.collector.result(id, name, content.filter(p => p.type === "text").map(p => (p as { text: string }).text).join("\n"), true) }, () => false);
+      result: (name,id,content,complete,details)=>{const observation=safetyResultInput(name,content,complete,details);return f.collector.result(id,name,observation.output,true,observation.segments,observation.outputStatus);} }, () => false);
     expect((await refusal(agent.afterToolCall!({ toolCall: { name: "grep", id: "call_raft" }, result: { content: [{ type: "text", text: SEARCH }] } } as never, undefined)))?.message)
       .toBe("the session's after-hook failed");
-    expect(f.recorded(), "SAFETY_PI_RESULT_SURVIVES_A_FAILED_AFTER_HOOK").toEqual([{ detector: "tool_search_output" }]);
+    expect(f.db.query("SELECT source,detector FROM safety_records WHERE kind='occurrence' ORDER BY length(sequence),sequence").all(), "SAFETY_PI_RESULT_SURVIVES_A_FAILED_AFTER_HOOK").toEqual([{source:"workspace_read",detector:"tool_search_output"},{source:"legacy_unknown",detector:"tool_search_output"}]);
     expect(stopped, "SAFETY_PI_FAILED_AFTER_HOOK_STOPS_THE_WORKER").toBe(1);
   } finally { await f.close(); }
 });
@@ -376,7 +376,7 @@ test("a result's last record discharges its call in the same commit, so a host d
     // Hold the collector the moment the result's exposure has committed.
     const record = f.writes.record;
     f.writes.record = async (...args: Parameters<typeof record>) => { const stored = await record(...args); if (args[0].kind === "taint_exposure") { committed(); await hold; } return stored; };
-    reported = refusal(f.collector.result("call_raft", "grep", SEARCH, true));
+    reported = refusal(f.collector.result("call_raft", "grep", SEARCH, true,undefined,{complete:true,exitCode:0,stderr:false,truncated:false}));
     await recorded;
     expect(f.db.query("SELECT kind,state FROM safety_records ORDER BY rowid").all(), "SAFETY_RESULT_RECORD_IS_DURABLE").toContainEqual({ kind: "exposure", state: "finalized" });
     expect(f.owed(), "SAFETY_RECORDED_RESULT_IS_DISCHARGED_IN_ITS_OWN_COMMIT").toBe(0);
@@ -403,7 +403,7 @@ test("a collection's end waits for a stopped turn's result record already under 
     f.writes.record = async (...args: Parameters<typeof record>) => { if (args[0].kind === "taint_exposure") { reached(); await hold; } return record(...args); };
     // Odysseus stops the turn as the result arrives; teardown then ends its collection.
     f.controller.abort(new Error("Odysseus stopped the turn as the result arrived"));
-    reported = refusal(f.collector.result("call_raft", "grep", SEARCH, true));
+    reported = refusal(f.collector.result("call_raft", "grep", SEARCH, true,undefined,{complete:true,exitCode:0,stderr:false,truncated:false}));
     await midway;
     const ending = f.writes.safetyEnd("voyage");
     // The writer applies its writes in order: had the end been sent, it is applied now.
@@ -644,3 +644,52 @@ test('clipped Pi observation checks every marked filename still delivered to the
   expect(f.db.query("SELECT source,detector FROM safety_records WHERE kind='occurrence' ORDER BY length(sequence),sequence").all(),'ALL_DELIVERED_PATHS_ARE_CHECKED_DESPITE_FRAME_OVERHEAD').toEqual([{source:'user_marked',detector:'explicit_untrusted_input'},{source:'legacy_unknown',detector:'tool_search_output'}]);
  }finally{await f.close();}
 });
+
+ test('Pi legacy empty output without process status remains unknown',async()=>{
+ const f=await voyage();try{
+  await f.collector.begin('legacy_empty','grep',{});
+  await f.collector.result('legacy_empty','grep','No matches.',true);
+  expect(f.db.query("SELECT source FROM safety_records WHERE kind='occurrence'").all(),'EMPTY_EXEMPTION_REQUIRES_EXPLICIT_EXIT_ONE_AND_EMPTY_STDERR').toEqual([{source:'legacy_unknown'}]);
+ }finally{await f.close();}
+ });
+ test('status key order does not change result identity',async()=>{
+ const f=await voyage();try{
+  await f.collector.begin('canonical_status','grep',{});
+  await f.collector.result('canonical_status','grep','No matches.',true,undefined,{complete:true,exitCode:1,stderr:false,truncated:false});
+  await f.collector.result('canonical_status','grep','No matches.',true,undefined,{truncated:false,stderr:false,exitCode:1,complete:true});
+  expect(f.owed(),'CANONICAL_STATUS_RETRY_STAYS_DISCHARGED').toBe(0);
+  expect(f.failure()).toBeNull();
+ }finally{await f.close();}
+ });
+ test('extraction result wrapper preserves process status and withholds incomplete evidence',async()=>{
+ const f=await voyage();try{
+  const {createTurnExtraction}=await import('../src/brain/turn-extraction');
+  let forwarded:unknown;const original=f.collector.result;
+  f.collector.result=(...args)=>{forwarded=args[5];return original(...args);};
+  const extraction=createTurnExtraction({bridge:{emit(){},requestPermission:async()=>({behavior:'allow'}),inputSafety:f.collector},origin:'interactive',sessionId:()=>null,tainted:()=>true,contacted:new Set(),cause:()=>null,brainPath:f.brain});
+  const wrapped=extraction.inputSafety(f.collector)!;
+  await wrapped.begin('warning','grep',{pattern:'sirens'});
+  await wrapped.result('warning','grep','notes/loom.md:\0'+'1:sirens\n',true,undefined,{complete:false,exitCode:0,stderr:true,truncated:false});
+  expect(forwarded,'ALL_PROCESS_STATUS_FIELDS_SURVIVE_THE_WRAPPER').toEqual({complete:false,exitCode:0,stderr:true,truncated:false});
+  expect(f.db.query("SELECT source FROM safety_records WHERE kind='occurrence'").all(),'WRAPPER_FORWARDS_UNKNOWN_REMAINDER_TO_LEDGER').toEqual([{source:'legacy_unknown'}]);
+  await wrapped.begin('fetch','WebFetch',{url:'https://aeaea.invalid/notice'});
+  expect(extraction.relaxes('aeaea.invalid'),'EXTRACTION_CANNOT_RELAX_FROM_INCOMPLETE_RESULT').toBe(false);
+ }finally{await f.close();}
+ });
+ test('trailing grep whitespace cannot exceed host observation limits',async()=>{
+ const f=await voyage();try{
+  const {untrustedMarkOperations}=await import('../src/files/untrusted-marks');
+  untrustedMarkOperations(f.db).mark('notes/loom.md',null,Date.UTC(2026,6,12));
+  const wrapper=join(f.brain,'fake-grep');writeFileSync(join(f.brain,'grep-data'),'notes/loom.md\0'+'1:sirens'+ ' '.repeat(2*1024*1024)+'\n');
+  writeFileSync(wrapper,'#!/bin/sh\ncat "$(dirname "$0")/grep-data"\n',{mode:0o755});
+  const input={pattern:'sirens'},id='whitespace';await f.collector.begin(id,'grep',input);
+  const result=await runSearchTool(f,id,input,wrapper);
+  expect(result.content[0]?.type==='text'&&result.content[0].text).toBe('notes/loom.md:1:sirens');
+  const observed=safetyResultInput('grep',result.content,true,result.details);
+  expect(Buffer.byteLength(observed.output),'HOST_FRAME_IS_BOUNDED_IN_BYTES').toBeLessThanOrEqual(1048576);
+  expect(Buffer.byteLength(JSON.stringify(observed))).toBeLessThan(16*1024*1024);
+  await f.collector.result(id,'grep',observed.output,true,observed.segments,observed.outputStatus);
+  expect(f.db.query("SELECT source FROM safety_records WHERE kind='occurrence' ORDER BY length(sequence),sequence").all()).toEqual([{source:'user_marked'},{source:'legacy_unknown'}]);
+  expect(f.failure()).toBeNull();
+ }finally{await f.close();}
+ });

@@ -530,7 +530,7 @@ test("structured Glob paths preserve a marked colon filename",async()=>{
 test("the Pi grep known empty result does not manufacture unknown input",async()=>{
  const f=fixture();try{const {collector}=await fresh(f,'voyage','ithaca','pi');
  await collector.begin('empty_grep','grep',{path:'.',pattern:'sirens'});
- await collector.result('empty_grep','grep','No matches.',true);
+ await collector.result('empty_grep','grep','No matches.',true,undefined,{complete:true,exitCode:1,stderr:false,truncated:false});
  expect(triggers(f),'PI_EMPTY_GREP_CREATES_NO_SPURIOUS_TRIGGER').toHaveLength(0);
  expect(f.writes.safety(null,'ithaca').restriction).toBe('normal');
  }finally{await f.close();}
@@ -597,7 +597,7 @@ for(const [name,backend,tool,mode,output,expected] of [
 test('Pi empty output never suppresses an independent untrusted input signal',async()=>{
  const f=fixture();try{const {collector}=await fresh(f,'voyage','ithaca','pi');
  await collector.begin('empty_workspace','grep',{path:'workspaces',pattern:'sirens'});
- await collector.result('empty_workspace','grep','No matches.',true);
+ await collector.result('empty_workspace','grep','No matches.',true,undefined,{complete:true,exitCode:1,stderr:false,truncated:false});
  expect(triggers(f).map(r=>(r.payload as {source:string}).source)).toEqual(['workspace_read']);
  }finally{await f.close();}
 });
