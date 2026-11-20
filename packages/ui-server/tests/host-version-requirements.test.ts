@@ -1,3 +1,4 @@
+import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -118,6 +119,18 @@ describe("host version requirements at app startup", () => {
       const response = await app.fetch(new Request("http://localhost/api/brain/sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }));
       expect(await response.text()).toContain("incompatible");
       expect(f.invocations().filter(args => args[0] === "sync")).toEqual([]);
+      // The refused UI sync is an Activity run with its failure, and a log line (#4257).
+      type Run = { outcome: string | null; outcome_reason: string | null };
+      const read = () => {
+        const db = new Database(f.config.dbPath, { readonly: true });
+        try { return db.query("SELECT outcome, outcome_reason FROM activity_spans WHERE job_name = 'ui-sync' AND parent_span_id IS NULL").get() as Run | null; }
+        finally { db.close(); }
+      };
+      let run = read();
+      for (const deadline = Date.now() + 5_000; !run?.outcome && Date.now() < deadline; run = read()) await Bun.sleep(10);
+      expect(run, "APP_UI_SYNC_RUN").toMatchObject({ outcome: "error" });
+      expect(run!.outcome_reason ?? "").toContain("incompatible");
+      expect(f.observability.logs.find({ scope: "brain", body: "ui sync failed" }), "APP_UI_SYNC_LOGGED").toHaveLength(1);
     } finally { await app.close(); }
   });
 });

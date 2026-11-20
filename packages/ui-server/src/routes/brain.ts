@@ -13,10 +13,36 @@ import {
 import { realpathSync } from "fs";
 import { readJsonBody } from "../middleware/body-limit.js";
 import { requireJson } from "../middleware/origin.js";
+import type { AppEnv } from "../app-env.js";
+import type { AwaitableActivityStore } from "../activity/store.js";
+import { observeWrite } from "../activity/store-writes.js";
+
+/**
+ * How long a UI sync may take from admission until its process has started
+ * (#4257): the CLI probe, the writer gate and the worker launch. Past it the
+ * sync is refused by name and the brain is free again; a sync that has
+ * started is never bounded here.
+ */
+export const SYNC_LAUNCH_TIMEOUT_MS = 120_000;
+/** How long a sync's output may keep its pipes open after the process has exited. */
+export const SYNC_OUTPUT_GRACE_MS = 10_000;
+/** Combined output kept on a UI sync's Activity run, as a cron job keeps its own. */
+const SYNC_OUTPUT_TAIL_CHARS = 8_000;
+/** Non-empty output lines named in a failed UI sync's run reason and log line. */
+const SYNC_ERROR_LINES = 5;
 
 interface BrainRoutesDeps {
-  /** App-owned admission state; the host boundary still coordinates repository writers. */
-  syncingRoots?: Set<string>;
+  /**
+   * App-owned admission state, each admitted canonical root with when it was
+   * admitted; the host boundary still coordinates repository writers.
+   */
+  syncingRoots?: Map<string, number>;
+  /** @internal The launch bound; {@link SYNC_LAUNCH_TIMEOUT_MS} when omitted. */
+  syncLaunchTimeoutMs?: number;
+  /** @internal The output grace after exit; {@link SYNC_OUTPUT_GRACE_MS} when omitted. */
+  syncOutputGraceMs?: number;
+  /** Where each UI sync records its run (#4257), as scheduled syncs do. Fail-open. */
+  activity?: AwaitableActivityStore;
   brainCliMinimum?: string;
   log?: Logger;
   brain: BrainClient;
@@ -28,13 +54,55 @@ interface BrainRoutesDeps {
   exec: ExecWrapperConfig;
 }
 
-export function createBrainRoutes(deps: BrainRoutesDeps): Hono {
+class SyncLaunchTimeout extends Error {
+  constructor(ms: number) {
+    super(`Sync did not start within ${Math.round(ms / 1000)} s (the brain's writer may be busy, or the sync worker did not start). Nothing ran; try again.`);
+  }
+}
+
+/** The last few non-empty lines of a sync's output: what a failure says. */
+function lastLines(output: string, count: number): string {
+  return output.split("\n").map(line => line.trim()).filter(Boolean).slice(-count).join("\n");
+}
+
+export function createBrainRoutes(deps: BrainRoutesDeps): Hono<AppEnv> {
   const { brain, brainPath, keyterms } = deps;
-  const syncingRoots = deps.syncingRoots ?? new Set<string>();
+  const syncingRoots = deps.syncingRoots ?? new Map<string, number>();
+  const launchTimeoutMs = deps.syncLaunchTimeoutMs ?? SYNC_LAUNCH_TIMEOUT_MS;
+  const outputGraceMs = deps.syncOutputGraceMs ?? SYNC_OUTPUT_GRACE_MS;
   const boundary = deps.boundary ?? createHostBoundary({ brainPath, exec: deps.exec });
   let indexing: Promise<void> | null = null;
+  /**
+   * A UI sync's Activity run (#4257), so its outcome outlives the stream: a
+   * reader that disconnected is exactly the one who did not see the result.
+   * Recording is fail-open and never stops the sync it observes.
+   */
+  function startSyncRun(principalId: string | undefined) {
+    const store = deps.activity;
+    const unavailable = (error: unknown) => deps.log?.emit({ severityText: "WARN", body: "ui sync activity unavailable",
+      attributes: { error: error instanceof Error ? error.message : String(error) } });
+    const runId = `ui-sync-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, spanId = `${runId}:root`;
+    let started = false;
+    if (store) {
+      try {
+        observeWrite(store.startSpan({ spanId, runId, name: "cron ui-sync", kind: "cron", origin: "cron", jobName: "ui-sync", principalId }), unavailable);
+        started = true;
+      } catch (error) { unavailable(error); }
+    }
+    return {
+      end(failure: string | undefined, output: string) {
+        if (failure !== undefined) deps.log?.emit({ severityText: "ERROR", body: "ui sync failed", attributes: { error: failure.slice(0, 2_000) } });
+        if (!store || !started) return;
+        try {
+          if (output) observeWrite(store.appendEvent(spanId, "job_output", output, undefined, SYNC_OUTPUT_TAIL_CHARS), unavailable);
+          observeWrite(store.endSpan(spanId, failure === undefined ? { outcome: "success" } : { outcome: "error", reason: failure }), unavailable);
+          observeWrite(store.rollupRun(runId), unavailable);
+        } catch (error) { unavailable(error); }
+      },
+    };
+  }
 
-  return new Hono()
+  return new Hono<AppEnv>()
   .get("/brain/search", async (c) => {
     const q = c.req.query("q");
     if (!q) {
@@ -115,20 +183,29 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono {
     // brain sync spawns a nested Claude Code process that can take minutes.
 
     const syncRoot = realpathSync(brainPath);
-    if (syncingRoots.has(syncRoot)) {
-      return c.json({ error: "A sync is already running. Wait for it to finish before retrying." }, 409);
+    const since = syncingRoots.get(syncRoot);
+    if (since !== undefined) {
+      const heldMs = Math.max(0, Date.now() - since);
+      return c.json({ error: `A sync is already running (it has held the brain for ${Math.floor(heldMs / 1000)} s). Wait for it to finish before retrying.`, heldMs }, 409);
     }
-    syncingRoots.add(syncRoot);
+    syncingRoots.set(syncRoot, Date.now());
+    const run = startSyncRun(c.get("principal")?.id);
     return streamSSE(c, async (stream) => {
       let keepalive: ReturnType<typeof setInterval> | undefined;
       let disconnected = false;
+      let output = "";
+      let failure: string | undefined;
       stream.onAbort(() => { disconnected = true; });
       const send = (data: {
         type: string;
         text?: string;
         success?: boolean;
-      }) => disconnected ? Promise.resolve() : stream.writeSSE({ data: JSON.stringify(data) })
-        .catch(() => { disconnected = true; });
+        reason?: string;
+      }) => {
+        if (data.type === "progress" && data.text) output = (output + data.text + "\n").slice(-SYNC_OUTPUT_TAIL_CHARS);
+        return disconnected ? Promise.resolve() : stream.writeSSE({ data: JSON.stringify(data) })
+          .catch(() => { disconnected = true; });
+      };
 
       try {
         await send({ type: "start", text: "Starting brain sync..." });
@@ -146,21 +223,40 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono {
         // bash as positional args rather than interpolated into the script, so a
         // BRAIN_PATH containing spaces or shell metacharacters stays inert.
         const command = brain.cliCommand();
-        if (deps.brainCliMinimum !== undefined) {
-          await probeBrainCliVersion(brainPath, deps.log ?? { emit() {}, enabled: () => false }, { exec: deps.exec, minimumVersion: deps.brainCliMinimum, phase: "streaming sync invocation", command, boundary });
-        }
-        const [cliBin, ...cliArgs] = command;
-        // Through the host boundary (#1648): a credentialed maintenance worker
-        // holding the writer gate exclusively while the boundary holds.
-        const proc = await boundary.launch({
-          // `--human`: stdout is a pipe, which would make it the JSON
-          // result (#290); this route streams the readable report.
-          argv: ["bash", "-c", '"$0" "$@" 2>&1', cliBin!, ...cliArgs, "sync", "--human"],
-          env: subprocessEnv("brainCli", { NO_COLOR: "1" }),
-          ...brainCommandClass(["sync"]),
-          purpose: "brain sync",
-          sync: true,
+        // Everything before the process starts is bounded (#4257): a probe or
+        // launch that never settles must not hold the brain until a restart.
+        const launching = new AbortController();
+        let timedOut = false;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const bound = new Promise<never>((_, reject) => {
+          timer = setTimeout(() => { timedOut = true; launching.abort(); reject(new SyncLaunchTimeout(launchTimeoutMs)); }, launchTimeoutMs);
         });
+        const start = (async () => {
+          if (deps.brainCliMinimum !== undefined) {
+            await probeBrainCliVersion(brainPath, deps.log ?? { emit() {}, enabled: () => false }, { exec: deps.exec, minimumVersion: deps.brainCliMinimum, phase: "streaming sync invocation", command, boundary, signal: launching.signal });
+          }
+          launching.signal.throwIfAborted();
+          const [cliBin, ...cliArgs] = command;
+          // Through the host boundary (#1648): a credentialed maintenance worker
+          // holding the writer gate exclusively while the boundary holds.
+          const proc = await boundary.launch({
+            // `--human`: stdout is a pipe, which would make it the JSON
+            // result (#290); this route streams the readable report.
+            argv: ["bash", "-c", '"$0" "$@" 2>&1', cliBin!, ...cliArgs, "sync", "--human"],
+            env: subprocessEnv("brainCli", { NO_COLOR: "1" }),
+            ...brainCommandClass(["sync"]),
+            purpose: "brain sync",
+            sync: true,
+            signal: launching.signal,
+          });
+          // A launch that settles after its bound was already refused: stop it.
+          if (timedOut) { proc.kill("SIGTERM"); void proc.exited.catch(() => {}); }
+          return proc;
+        })();
+        start.catch(() => {});
+        let proc: Awaited<typeof start>;
+        try { proc = await Promise.race([start, bound]); }
+        finally { clearTimeout(timer); }
 
         // Keep draining even when the SSE reader disconnects. The repository
         // stays reserved until the actual sync process has exited.
@@ -171,28 +267,36 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono {
         const reader = proc.stdout.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
-            buffer = lines.pop() || "";
-            for (const line of lines) {
-              if (line.trim()) {
-                await send({ type: "progress", text: line });
+        const drained = (async () => {
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split("\n");
+              buffer = lines.pop() || "";
+              for (const line of lines) {
+                if (line.trim()) {
+                  await send({ type: "progress", text: line });
+                }
               }
             }
-          }
-          if (buffer.trim()) {
-            await send({ type: "progress", text: buffer });
-          }
-        } catch {} finally {
-          clearInterval(keepalive);
-        }
+            if (buffer.trim()) {
+              await send({ type: "progress", text: buffer });
+            }
+          } catch {}
+        })();
 
         const exitCode = await proc.exited;
-        await stderrDone;
+        // A descendant that outlives the sync can hold its output pipes open
+        // (#4257): once the process has exited, its output gets a short grace
+        // period and the brain is released whether or not the pipes closed.
+        let grace: ReturnType<typeof setTimeout> | undefined;
+        const graceOver = new Promise<void>(resolve => { grace = setTimeout(resolve, outputGraceMs); });
+        await Promise.race([Promise.all([drained, stderrDone]), graceOver]);
+        clearTimeout(grace);
+        clearInterval(keepalive);
+        await reader.cancel().catch(() => {});
 
         // Rebuild voice keyterms cache after a successful sync.
         if (exitCode === 0) {
@@ -214,6 +318,9 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono {
               }`,
             });
           }
+        } else {
+          const tail = lastLines(output, SYNC_ERROR_LINES);
+          failure = `Sync failed (exit ${exitCode})${tail ? `: ${tail}` : ""}`;
         }
 
         await send({
@@ -223,10 +330,13 @@ export function createBrainRoutes(deps: BrainRoutesDeps): Hono {
             exitCode === 0 ? "Sync completed" : `Sync failed (exit ${exitCode})`,
         });
       } catch (error) {
-        await send({ type: "done", success: false, text: error instanceof Error ? error.message : "Sync failed" });
+        const text = error instanceof Error ? error.message : "Sync failed";
+        failure = text;
+        await send({ type: "done", success: false, text, ...(error instanceof SyncLaunchTimeout ? { reason: "launch_timeout" } : {}) });
       } finally {
         clearInterval(keepalive);
         syncingRoots.delete(syncRoot);
+        run.end(failure, output);
       }
     });
   })

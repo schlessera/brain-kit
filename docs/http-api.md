@@ -618,10 +618,26 @@ with `type: "done", success: false`; transport termination without done is
 an incomplete result, not success.
 
 One HTTP sync per canonical brain root is admitted across app instances;
-concurrent attempts get 409 `{ error }` before SSE starts. The route invokes
+concurrent attempts get 409 `{ error, heldMs }` before SSE starts, where
+`heldMs` (additive, #4257) is how long the admitted sync has held the root and
+the error text names it in seconds. The route invokes
 `brain sync --human`. Disconnecting the reader stops delivery but **does not
 cancel sync or release its reservation**; output continues draining until the
-child exits. Successful sync attempts voice keyterm rebuild; a rebuild failure
+child exits.
+
+**Bounded start (additive, #4257).** Everything between admission and the
+sync process starting (the CLI version probe, the writer gate and the worker
+launch) is bounded at 120 seconds. Past it the stream ends with
+`{ type: "done", success: false, reason: "launch_timeout", text }`, the
+reservation is released, nothing has run, and a launch that settles later is
+killed. `reason` is present only on this refusal. After the child exits, its
+output pipes get 10 seconds to close; a descendant holding them open no longer
+holds the reservation. Each admitted sync is also an Activity run (root span
+kind and origin `cron`, `jobName: "ui-sync"`, attributed to the requesting
+principal) whose terminal outcome carries the exit status and the last
+non-empty output lines, with the combined output tail as its `job_output`
+event, so a result survives a disconnected reader. A failure also logs
+`ui sync failed` with the same text on the `brain` logger. Successful sync attempts voice keyterm rebuild; a rebuild failure
 is progress text and does not turn successful sync into failure. A degraded
 rebuild (no usable core peer, or an index core cannot read) is reported as
 progress text and not cached. A canonical
