@@ -1,3 +1,5 @@
+import packageInfo from "@schlessera/brain-ui-server/package.json" with { type: "json" };
+import { parseBuildRevision } from "../config/env.js";
 import type { ActivityTurnLifecycle, ActivitySpanOutcome } from "@schlessera/brain-ui-sdk/protocol";
 import type { AwaitableActivityStore } from "./store.js";
 import { orderedWrites } from "./store-writes.js";
@@ -9,11 +11,14 @@ import { orderedWrites } from "./store-writes.js";
  */
 export type PhaseTimer = (name: string) => () => void;
 
-type LifecycleMilestone = "dequeuedAt" | "governedStartedAt" | "governedAcquiredAt" | "budgetStartedAt" | "budgetAdmittedAt" | "journalStartedAt" | "journalBeganAt" | "backendInvokedAt" | "firstFrameAt" | "failureObservedAt";
+type LifecycleMilestone = "dequeuedAt" | "governedStartedAt" | "governedAcquiredAt" | "budgetStartedAt" | "budgetAdmittedAt" | "journalStartedAt" | "journalBeganAt" | "backendInvokedAt" | "firstFrameAt" | "failureObservedAt" | "recorderSettledAt" | "idleEmittedAt";
 
 export function createTurnLifecycle(store: AwaitableActivityStore, turnId: string, sessionId: string | null,
-  acceptedAt: number, onWrite: () => void, clock: () => number = Date.now) {
+  acceptedAt: number, onWrite: () => void, clock: () => number = Date.now, identity: { buildRevision?: string } = {}) {
+  const buildRevision = parseBuildRevision(identity.buildRevision);
   const record: ActivityTurnLifecycle = {
+    packageVersion: packageInfo.version, ...(buildRevision ? { buildRevision } : {}),
+    recorderSettledAt: null, idleEmittedAt: null,
     hostEvents: [], skippedPhases: [], lifecycleId: `lifecycle:${turnId}`, turnId, sessionId, backendRunId: null, acceptedAt, dequeuedAt: null,
     governedStartedAt: null, governedAcquiredAt: null, budgetStartedAt: null, budgetAdmittedAt: null,
     journalStartedAt: null, journalBeganAt: null, backendInvokedAt: null, firstFrameAt: null, failureObservedAt: null,
@@ -38,14 +43,16 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
       if (record.endedAt === null && !record.skippedPhases.includes(phase)) { record.skippedPhases.push(phase); persist(); }
     },
     mark(milestone: LifecycleMilestone, at = clock()) {
-      if (record.endedAt !== null || record[milestone] !== null) return;
+      if ((record.endedAt !== null && milestone !== "recorderSettledAt" && milestone !== "idleEmittedAt") || record[milestone] != null) return;
       record[milestone] = at;
       persist();
     },
-    timer(phase: "governed" | "journal"): PhaseTimer {
+    hold(hold: import("@schlessera/brain-ui-sdk/protocol").ActivityTurnHold) { if (record.endedAt === null) (record.holds ??= []).push(hold); },
+    runtimeVersion(version: string) { if (record.endedAt === null) record.runtimeVersion = version; },
+    timer(phase: "governed" | "journal" | "closing", metadata: { pending?: boolean } = {}): PhaseTimer {
       return name => {
         if (record.endedAt !== null) return () => {};
-        const step = { phase, name, startedAt: clock(), endedAt: null as number | null, elapsedMs: null };
+        const step = { phase, name, ...metadata, startedAt: clock(), endedAt: null as number | null, elapsedMs: null };
         (record.subPhases ??= []).push(step);
         return () => { if (record.endedAt === null && step.endedAt === null) step.endedAt = clock(); };
       };

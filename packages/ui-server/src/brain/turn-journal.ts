@@ -1,3 +1,4 @@
+import type { ActivityTurnHold } from "@schlessera/brain-ui-sdk/protocol";
 /** Concrete host journal: observations, durable ownership and completed-turn collection. */
 import type { JournalRecoveryStatus } from "@schlessera/brain-ui-sdk/protocol";
 import type { Logger } from "@opentelemetry/api-logs";
@@ -108,6 +109,10 @@ export interface TurnJournalOptions {
    * returned timer, `hold` last, spanning the whole worker hold.
    */
   observationTrace?: (kind: JournalTraceKind, turnId: string | null, toolUseId?: string) => PhaseTimer | undefined;
+}
+/** Internal shared interval; scope confirms each turn's physical boundaries. */
+export interface JournalHold {
+  records: Map<string, ActivityTurnHold>;
 }
 export type JournalTraceKind = "begin" | "finish" | "tool" | "periodic";
 /** Both timers see every step; either may be absent. */
@@ -274,8 +279,10 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       catch (error) { if (!(error instanceof JournalCapacityError) || !await collectOne()) throw error; }
     }
   }
-  const periodicObservers = new Set<{ before(): void; after(completed: boolean): void }>();
-  const observers = new Set<(turnId: string, facts: { changedPaths: number; observedBytes: number; workspacePaths: number; partial: boolean }) => void>();
+  const periodicObservers = new Set<{ before(hold?: JournalHold): void; after(completed: boolean, hold?: JournalHold): void }>();
+  const evidence = new Map<string, { record: (hold: ActivityTurnHold) => void; inference: () => boolean }>();
+  let currentHold: JournalHold | undefined;
+  const observers = new Set<(turnId: string, facts: { changedPaths: number; observedBytes: number; workspacePaths: number; partial: boolean; observationChangedPaths?: number }) => void>();
   const pendingReadReleases = new Set<string>();
   const failures = new Map<string, string>();
   const failedAdmissions = new Set<string>();
@@ -290,17 +297,26 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   let holds = 0;
   let observationFailures = 0;
   /** `trace` also times the hold itself; `lifecycle` sees every step but that one. */
-  function held<T>(operation: (timing?: PhaseTimer) => Promise<T>, admission = false, trace?: PhaseTimer, lifecycle?: PhaseTimer): Promise<T> {
+  function held<T>(operation: (timing?: PhaseTimer) => Promise<T>, admission = false, trace?: PhaseTimer, lifecycle?: PhaseTimer,
+    cause: { kind: ActivityTurnHold["cause"]; turnId: string | null; toolUseId?: string } = { kind: "scope", turnId: null }): Promise<T> {
+    const interval: JournalHold = { records: new Map() }, holdId = crypto.randomUUID(), requestedAt = Date.now();
+    for (const [id, sink] of evidence) {
+      const record: ActivityTurnHold = { holdId, cause: cause.kind, causeTurnId: cause.turnId === id ? id : null,
+        ...(cause.turnId === id && cause.toolUseId ? { toolUseId: cause.toolUseId } : {}), requestedAt,
+        stoppedAt: null, resumedAt: null, changedPaths: null, otherTurnsStopped: 0, inferenceInFlight: sink.inference() };
+      interval.records.set(id, record); sink.record(record);
+    }
     const hold = trace?.("hold"), timing = bothTimers(lifecycle, trace), waited = timing?.("hold_wait");
     // Backend event emission is synchronous: establish the hold before yielding
     // or queueing so a provider cannot launch another tool past this boundary.
     const holders = [...periodicObservers];
     holds++;
     let acquired = 0;
-    try { for (const holder of holders) { acquired++; holder.before(); } }
-    catch (error) { holds--; for (const holder of holders.slice(0, acquired)) holder.after(false); return Promise.reject(error); }
+    try { for (const holder of holders) { acquired++; holder.before(interval); } }
+    catch (error) { holds--; for (const holder of holders.slice(0, acquired)) holder.after(false, interval); return Promise.reject(error); }
     return serialize(async () => {
       waited?.();
+      currentHold = interval;
       let completed = false;
       const failedBefore = observationFailures;
       try { const result = await operation(timing); completed = true; return result; }
@@ -309,7 +325,8 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         // participants resume when their shared observation itself succeeded,
         // even if reclaiming a superseded checkpoint failed.
         const safe = (completed || admission && observationFailures === failedBefore);
-        holds--; for (const holder of holders) holder.after(safe);
+        holds--; for (const holder of holders) holder.after(safe, interval);
+        currentHold = undefined;
         hold?.();
       }
     });
@@ -504,12 +521,16 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
               AND path=change.path ORDER BY sequence DESC LIMIT 1) IS NULL)) GROUP BY path
         )`).get(`${BRAIN_WORKSPACES_DIR}*`, DISPOSABLE_INDEX_PATHS, turnId, INDEX_PUBLICATION_COPY) as { changedPaths: number; observedBytes: number; workspaceCandidates: string };
         const workspacePaths = (JSON.parse(facts.workspaceCandidates) as string[]).filter(path => isWithin(BRAIN_WORKSPACES_DIR, path, { includeRoot: false })).length;
-        for (const observer of observers) observer(turnId, { changedPaths: facts.changedPaths, observedBytes: facts.observedBytes, workspacePaths, partial: summary(turnId).state === "partial" });
+        for (const observer of observers) observer(turnId, { observationChangedPaths: new Set([...changed.values(), ...worktree].map(item => item.path)).size, changedPaths: facts.changedPaths, observedBytes: facts.observedBytes, workspacePaths, partial: summary(turnId).state === "partial" });
         step?.();
       }
       const committed = timing?.("observe_commit");
       await observation.commit();
       for (const root of separate) await root.observation.commit();
+      for (const [id, record] of currentHold?.records ?? []) {
+        const ownWorktrees = separate.filter(root => root.turnId === id).flatMap(root => root.observation.changes.get(id) ?? []);
+        record.changedPaths = new Set([...changed.values(), ...ownWorktrees].map(item => item.path)).size;
+      }
       committed?.();
     } catch (error) {
       observationFailures++;
@@ -526,7 +547,16 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
      * `changedPaths` counts every changed path; `workspacePaths` is how many
      * of them lie below `workspaces/` (#3793).
      */
-    onObservation(observer: (turnId: string, facts: { changedPaths: number; observedBytes: number; workspacePaths: number; partial: boolean }) => void, periodic?: { before(): void; after(completed: boolean): void }) {
+    scopeHold(turnId: string, requestedAt: number): ActivityTurnHold | undefined {
+      const sink = evidence.get(turnId); if (!sink) return;
+      const record: ActivityTurnHold = { holdId: crypto.randomUUID(), cause: "scope", causeTurnId: turnId, requestedAt,
+        stoppedAt: null, resumedAt: null, changedPaths: null, otherTurnsStopped: 0, inferenceInFlight: sink.inference() };
+      sink.record(record); return record;
+    },
+    evidence(turnId: string, record?: (hold: ActivityTurnHold) => void, inference: () => boolean = () => false) {
+      if (record) evidence.set(turnId, { record, inference }); else evidence.delete(turnId);
+    },
+    onObservation(observer: (turnId: string, facts: { changedPaths: number; observedBytes: number; workspacePaths: number; partial: boolean; observationChangedPaths?: number }) => void, periodic?: { before(hold?: JournalHold): void; after(completed: boolean, hold?: JournalHold): void }) {
       observers.add(observer); if (periodic) periodicObservers.add(periodic);
       return () => { if (periodic) periodicObservers.delete(periodic); return observers.delete(observer); };
     },
@@ -557,7 +587,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       active.set(turnId, { policy, stop, sequence: 0, sessionId: metadata.sessionId }); publish(turnId);
       if (!scopeTimer) {
         scopeTimer = setInterval(() => {
-          void held(timing => observe(false, timing), false, options.observationTrace?.("periodic", null)).catch(error => {
+          void held(timing => observe(false, timing), false, options.observationTrace?.("periodic", null), undefined, { kind: "periodic", turnId: null }).catch(error => {
             for (const [id, turn] of active) { void fail(id, error).catch(() => {}); turn.stop(error instanceof Error ? error : new Error(String(error))); }
           });
         }, 15_000);
@@ -571,7 +601,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         throw error instanceof JournalCapacityError || error instanceof JournalStorageUnavailable
           ? error : new JournalStorageUnavailable("native journal admission could not be prepared");
       }
-    }, true, options.observationTrace?.("begin", turnId), timing); },
+    }, true, options.observationTrace?.("begin", turnId), timing, { kind: "begin", turnId }); },
     async bindSession(turnId: string, sessionId: string): Promise<void> {
       const turn = active.get(turnId);
       if (!turn) return;
@@ -617,7 +647,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       const effect = call ? toolObservation(call.name, call.path) : "unproven";
       if (effect === "unproven" && active.has(turnId)) lasting.add(turnId);
       if (effect === "read" && !lasting.size && !calls.size) return Promise.resolve();
-      return held(timing => observe(false, timing), false, options.observationTrace?.("tool", turnId, toolUseId));
+      return held(timing => observe(false, timing), false, options.observationTrace?.("tool", turnId, toolUseId), undefined, { kind: "tool", turnId, toolUseId });
     },
     /**
      * Cover one managed worktree (#2430) for an active turn before any of its
@@ -707,9 +737,9 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       let completed = false;
       try { approvedWrite(); completed = true; } finally { await observe(completed); }
     }); },
-    finish(turnId: string) { return held(async timing => {
+    finish(turnId: string, lifecycle?: PhaseTimer) { return held(async timing => {
       if (!active.has(turnId)) { if (failedAdmissions.has(turnId)) await finalizeRefusedAdmission(turnId); return; }
-      try { await observe(false, timing); }
+      try { const end = timing?.("final_observation"); await observe(false, timing); end?.(); }
       finally {
         active.delete(turnId); lasting.delete(turnId);
         for (const [key, call] of calls) if (call.turnId === turnId) calls.delete(key);
@@ -730,7 +760,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         publish(turnId);
         step?.();
       }
-    }, false, options.observationTrace?.("finish", turnId)); },
+    }, false, options.observationTrace?.("finish", turnId), lifecycle, { kind: "finish", turnId }); },
     /** Ordinary current coverage only; never adds selected paths to ignored content. */
     removalCoverage(paths: readonly string[], signal?: AbortSignal, absent = false): Promise<boolean[]> { return held(async () => {
       if (paths.length > 32) throw new JournalStorageUnavailable("Too many selected attachments.");

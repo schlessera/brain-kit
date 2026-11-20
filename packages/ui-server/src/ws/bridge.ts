@@ -25,6 +25,8 @@ import { retainTurnSessionBinding } from "./bridge-session-binding.js";
 export { emitTurnError } from "./bridge-capabilities/turn-error.js";
 
 const turnIndexSettlers = new WeakMap<BackendBridge, () => Promise<void>>();
+const turnIndexPending = new WeakMap<BackendBridge, () => boolean>();
+export function hasPendingTurnIndex(bridge: BackendBridge): boolean { return turnIndexPending.get(bridge)?.() ?? false; }
 
 /**
  * At turn end: flush the index updates this turn's applications queued.
@@ -193,6 +195,7 @@ export function applyIndexReads(ctx: Pick<BridgeContext, "host" | "signal">, bri
       if (readsIndex(toolName)) await tree.barrier(signal);
     };
   } else if (indexBatch) bridge.awaitIndex = async toolName => { if (readsIndex(toolName)) await indexBatch.barrier(signal); };
+  if (indexBatch && turnIndex) turnIndexPending.set(bridge, () => turnIndex!.pending());
   if (indexBatch && turnIndex) turnIndexSettlers.set(bridge, () => turnIndex!.pending() ? turnIndex!.barrier() : Promise.resolve());
 }
 

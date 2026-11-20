@@ -15,7 +15,8 @@ export const WORKER_EGRESS_TRANSPORT_ENV = Object.freeze(["HTTP_PROXY", "HTTPS_P
   "http_proxy", "https_proxy", "all_proxy", "no_proxy", "GIT_SSH_COMMAND"]);
 /** The trusted in-namespace bootstrap that forwards loopback TCP to `WORKER_EGRESS_SOCKET`, then runs a command behind it. */
 export function egressBootstrapEntry(): string { return Bun.resolveSync("./egress-worker-entry", import.meta.dir); }
-export interface EgressRecord {
+export type InferenceTimingMark = "admitMs" | "bodyMs" | "credentialMs" | "dispatchMs" | "headersMs" | "firstChunkMs";
+export interface EgressRecord extends Partial<Record<InferenceTimingMark | "loopLagMaxMs", number>> {
   /** Host identity, shared with admission and terminal observation; never a tool correlation. */
   connectionId?: string;
   /** Only the server's concrete inference-relay admission supplies this tag. */
@@ -228,12 +229,25 @@ export async function startEgressProxy(options: EgressProxyOptions) {
    * `relay` names the host relay that sent this operation; worker HTTP and
    * CONNECT traffic has none and cannot claim one, whatever its destination.
    */
+  const inferenceControllers = new Set<AbortController>();
   function operation(method: string, url: URL, relay?: "inference" | "provider" | "reference") {
     const inference = relay === "inference", provider = relay === "provider", managedReference = relay === "reference";
     const connectionId = crypto.randomUUID();
     let snapshot: AdmissionSafetySnapshot | undefined;
     const started = performance.now();
+    const marks: Partial<Record<InferenceTimingMark | "loopLagMaxMs", number>> = {};
+    let lagExpected = started + 50;
+    const sampleLag = () => { const at = performance.now(); marks.loopLagMaxMs = Math.max(marks.loopLagMaxMs ?? 0, at - lagExpected); lagExpected = at + 50; };
+    let lagTimer = inference ? setInterval(sampleLag, 50) : undefined;
+    lagTimer?.unref();
+    const stopLag = () => { if (lagTimer) { sampleLag(); clearInterval(lagTimer); lagTimer = undefined; } };
+    const mark = (name: InferenceTimingMark) => {
+      if (!inference || finished || marks[name] !== undefined) return;
+      if (name === "dispatchMs") stopLag();
+      marks[name] = Math.max(0, performance.now() - started);
+    };
     const controller = new AbortController(); controllers.add(controller);
+    if (inference) inferenceControllers.add(controller);
     const host = hostname(url.hostname), port = Number(url.port || (url.protocol === "https:" ? "443" : "80"));
     let bytes = 0, finished = false;
     /** The checked address this connection is pinned to, under a destination policy. */
@@ -241,11 +255,12 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     let finalOutcome: EgressRecord["outcome"] | undefined, finalReason: string | undefined;
     const finish = (outcome: EgressRecord["outcome"], reason?: string) => {
       if (finished) return;
-      finished = true; finalOutcome = outcome; finalReason = reason; controllers.delete(controller); controller.abort();
+      stopLag();
+      finished = true; finalOutcome = outcome; finalReason = reason; controllers.delete(controller); inferenceControllers.delete(controller); controller.abort();
       // Records never contain request headers, content, credentials or query strings.
       try { options.observe({ connectionId, ...(inference ? { inference: true } : {}), ...(provider ? { provider: true } : {}), ...(managedReference ? { managedReference: true } : {}), method, host, port, ...(method === "CONNECT" ? {} : { path: url.pathname }), bytes,
         accounting: method === "CONNECT" ? "opaque_bytes" : "http_wire_bound",
-        durationMs: performance.now() - started, outcome, ...(reason ? { reason } : {}) }); } catch { /* A recorder cannot keep a connection alive. */ }
+        ...(inference ? marks : {}), durationMs: performance.now() - started, outcome, ...(reason ? { reason } : {}) }); } catch { /* A recorder cannot keep a connection alive. */ }
     };
     // Turn cleanup must observe final audit failures before it publishes its
     // terminal outcome; socket close callbacks run only after stop returns.
@@ -328,7 +343,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (finalReason === "taint_not_allowed") try { cause = options.taint?.cause?.(); } catch { /* The message names no cause. */ }
       return describeRefusal(finalReason, host, matches(host, options.deny), cause);
     };
-    return { finish, charge, admit, commit, refusal, signal: controller.signal, outcome: () => finalOutcome, reason: () => finalReason, pinned: () => pinned };
+    return { mark, finish, charge, admit, commit, refusal, signal: controller.signal, outcome: () => finalOutcome, reason: () => finalReason, pinned: () => pinned };
   }
   server.on("connect", (request, client, head) => {
     client.on("error", () => {});
@@ -434,7 +449,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
   };
   options.signal?.addEventListener("abort", stop, { once: true });
   if (options.signal?.aborted) stop();
-  return { dir, socketPath, stop, usedBytes: () => usedBytes, remainingBytes: () => Math.max(0, options.maxBytes - usedBytes),
+  return { dir, socketPath, stop, inferenceInFlight: () => inferenceControllers.size > 0, usedBytes: () => usedBytes, remainingBytes: () => Math.max(0, options.maxBytes - usedBytes),
     /** The existing inference relay shares this turn's admission, counter and audit. */
     inference(method: string, target: URL, signal: AbortSignal) { return relayedOperation(method, target, signal, "inference"); },
     /**
@@ -458,7 +473,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     const abort = () => op.finish("cancelled", "client_disconnected");
     signal.addEventListener("abort", abort, { once: true });
     if (signal.aborted) abort();
-    return { charge: op.charge, signal: op.signal, outcome: op.outcome, refusal: op.refusal, reason: op.reason,
+    return { mark: op.mark, charge: op.charge, signal: op.signal, outcome: op.outcome, refusal: op.refusal, reason: op.reason,
       admit: async () => !op.signal.aborted && await op.admit() && op.commit(),
       /** The concrete relay calls this again after its own final async waits. */
       commit: op.commit,

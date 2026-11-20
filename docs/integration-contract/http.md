@@ -463,7 +463,17 @@ payload fields.
 The additive `egress_connection` kind records the concrete turn proxy's host,
 port, visible HTTP method/path, bytes, accounting scope, duration and outcome.
 CONNECT records opaque bytes without a path or content claim; the inference
-tag comes only from the actual relay. Existing `egress_denial` remains named
+tag comes only from the actual relay. Inference records may carry monotonic
+millisecond offsets from the operation start: `admitMs` (first admission
+returned), `bodyMs` (body read), `credentialMs` (credential resolved),
+`dispatchMs` (immediately before upstream fetch), `headersMs` (fetch resolved)
+and `firstChunkMs` (first upstream read resolved). Reached offsets are
+nonnegative, ordered and bounded by `durationMs`. Unreached marks are absent,
+including on refused/failed attempts. `loopLagMaxMs` is independently the
+maximum nonnegative drift of a 50 ms timer before dispatch (also sampled at
+dispatch before a delayed callback can run); it is not a provider latency.
+These optional host fields never alter request or response bytes.
+Existing `egress_denial` remains named
 and versioned as before. Header values, query strings and bodies are excluded.
 
 The additive `provider_mask_refusal` kind (#2690) records a host bridge tool

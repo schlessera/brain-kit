@@ -19,10 +19,12 @@ export async function teardownTurn(run: TurnRun, outcome: TurnOutcome): Promise<
   const { host, slot, turn, current, lifecycle, timeoutHandle, recorder, failureRecording, held } = run;
   const { governedHold, worktreeGeneration } = held;
   const work = current.work;
+  const egressEnd = lifecycle?.timer("closing")("egress_settle");
   await held.providerRelay?.stop();
   held.turnEgress?.stop();
   // The session's next turn reads these hosts back as contacted (G6).
   await held.turnEgress?.settled();
+  egressEnd?.();
   await host.activity?.governanceWrites?.safetyEnd(turn.turnId).catch(error=>host.log.emit({severityText:"ERROR",body:`safety collection finalization failed: ${String(error)}`}));
   host.dialogue.retireTurn(turn.turnId);
   if (held.referenceTurn) host.referenceTools?.end(turn.turnId);
@@ -46,17 +48,24 @@ export async function teardownTurn(run: TurnRun, outcome: TurnOutcome): Promise<
     void host.apify.stop({ turnId: turn.turnId, sessionId: turn.sessionId }, budgetFailure ? "budget_exhausted" : turn.cancelled ? "cancelled" : "timeout");
   // No grant after this point: the final observation covers everything granted.
   if (worktreeGeneration) await host.referenceWorktrees!.retireGeneration(worktreeGeneration.id).catch(() => {});
+  const journalEnd = lifecycle?.timer("closing")("journal_finish");
   try {
     // Observe after backend writers stop, before quarantine and gate release.
-    await host.journal?.finish(turn.turnId);
+    await host.journal?.finish(turn.turnId, lifecycle?.timer("closing"));
+    journalEnd?.();
   } catch (error) { host.log.emit({ severityText: "ERROR", body: `journal final observation failed: ${String(error)}` }); }
+  const generationEnd = lifecycle?.timer("closing")("worktree_generation_close");
   if (worktreeGeneration) {
     // Its workers exited and the final observation is recorded: park what it held.
     host.referenceWorktreeGenerations.delete(turn.turnId);
     try { await host.referenceWorktrees!.closeGeneration(worktreeGeneration.id); await host.referenceWorktrees!.reconcile(); }
     catch (error) { host.log.emit({ severityText: "ERROR", body: `managed worktree generation close failed; startup recovery retries it: ${String(error)}` }); }
   }
+  generationEnd?.();
+  const scopeEnd = lifecycle?.timer("closing")("scope_finish");
   host.scope?.finish(turn.turnId);
+  scopeEnd?.();
+  const reconcileEnd = lifecycle?.timer("closing")("governed_reconcile");
   try {
     const reconciled = await governedHold?.end();
     for (const item of reconciled?.quarantined ?? []) {
@@ -70,6 +79,7 @@ export async function teardownTurn(run: TurnRun, outcome: TurnOutcome): Promise<
     }
   }
   catch (error) { host.log.emit({ severityText: "ERROR", body: `governed reconciliation failed: ${String(error)}` }); }
+  reconcileEnd?.();
   if (governedHold?.sandbox.profile === "governed") host.governedTurns?.refresh(host.workerLock);
   // The recorder has written the terminal: from here on the Activity
   // record, not this slot, answers for the request (#964).
@@ -79,7 +89,10 @@ export async function teardownTurn(run: TurnRun, outcome: TurnOutcome): Promise<
   turn.revision = undefined;
   turn.startedAt = undefined;
   turn.backendStarted = false;
+  const failureEnd = lifecycle?.timer("closing")("failure_recording");
   await failureRecording.finish(turn.sessionId);
+  failureEnd?.();
+  host.journal?.evidence?.(turn.turnId);
   lifecycle?.finish(outcome.lifecycle, outcome.reason ?? null);
   clearTimeout(timeoutHandle);
   turn.recorder = undefined;
@@ -90,6 +103,7 @@ export async function teardownTurn(run: TurnRun, outcome: TurnOutcome): Promise<
   // (#2814); recovery must see them before the final idle notification,
   // which the slot publishes with {@link publishTurnStatus}.
   await recorder?.settled();
+  lifecycle?.mark("recorderSettledAt");
 }
 
 /**

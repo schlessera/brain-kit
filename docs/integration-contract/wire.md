@@ -581,12 +581,12 @@ backend invocation to the first frame, or the observed failure boundary
 when startup fails before a frame (terminal time on interruption). Unobserved/in-progress boundaries remain null. These
 values do not redefine backend-run `startedAt` or `durationMs`.
 
-Optional `subPhases` (additive, #3355) attributes the governed and journal
+Optional `subPhases` (additive, #3355, #4281) attributes governed, journal and closing
 phases to their steps, in start order. Each entry is `{ phase, name, startedAt,
-endedAt, elapsedMs }`, where `phase` is `governed` or `journal`. A step that has
+endedAt, elapsedMs }`, where `phase` is `governed`, `journal` or `closing`. A step that has
 not finished has a null `endedAt`; its `elapsedMs` follows the phase rule above,
 measuring to `failureObservedAt` or terminal time once the record is terminal,
-and null before. Every step lies inside its phase's paired milestones, and the
+and null before. Admission steps lie inside their phase's paired milestones, and the
 `observe_*` steps lie inside `observe`. Steps are carried by the record's next
 milestone or terminal write, never written on their own. `name` is open
 vocabulary, so a consumer tolerates names it does not know. A step that does
@@ -607,7 +607,47 @@ not apply to a turn is absent. The current names are:
   `observe_facts` repeat once per other active turn the observation records,
   and are absent when there is none (#2915).
 
-Records written before this field have no `subPhases`; nothing is backfilled.
+- `closing`: `backend_exit` (zero-width confirmation when the backend returns
+  or throws), `index_settle` (optional `pending` boolean records whether an
+  update was queued), `egress_settle`, `journal_finish`,
+  `worktree_generation_close`, `scope_finish`, `governed_reconcile`,
+  `failure_recording`. The journal finish also carries its existing
+  `hold_wait`, `final_observation` (with the `observe_*` steps above),
+  `finish_worktrees`, `finish_record`, `finish_collect`, `finish_publish`
+  timers. Repeated cleanup calls remain repeated steps in start order.
+  Closing steps record reached work on failure/cancellation too; they lie
+  between backend exit (when a backend ran) and status emission.
+
+Optional nullable `recorderSettledAt` and `idleEmittedAt` milestones follow
+`endedAt`: they confirm recorder settlement and the actual idle emission,
+respectively. They never move the existing end stamp or backend duration.
+Cancelled-before-start status is not idle, so it has no idle timestamp. Only
+these trailing receipts may enrich a terminal record, once each; restart
+interruption remains terminal and cannot be enriched by a stale writer.
+
+Optional `packageVersion` identifies the running ui-server package. Optional
+`buildRevision` comes only from `BRAIN_UI_BUILD_REVISION`, a host-supplied
+1–64 character ASCII token (`[A-Za-z0-9._+-]`). Unset or invalid input is
+absent. Optional `runtimeVersion` is the selected backend's reported runtime
+version for this turn, absent when it reports none. These are host metadata
+and never enter the provider conversation.
+
+Optional `holds` lists observation intervals joinable by `holdId`. Each
+record has `cause` (`begin`, `finish`, `tool`, `periodic`, `scope`),
+`causeTurnId` (this turn when it caused the hold, otherwise null), optional
+`toolUseId` (only on the causing turn), `requestedAt`, nullable `stoppedAt`
+and `resumedAt`, nullable `changedPaths`, `otherTurnsStopped` and
+`inferenceInFlight`. Stop/resume timestamps are taken only after the
+corresponding worker operations confirm; failed or inapplicable boundaries
+remain null. Nested observations share the physical resume boundary.
+`changedPaths` counts distinct paths recorded by this observation, not the
+turn's cumulative scope count. Other turns' identities are never exposed.
+Inference overlap means a relay operation was in flight at stop,
+including request setup and response streaming. Evidence accumulates in
+memory and rides the next existing milestone/terminal write; it adds no
+awaited write before the hold or after a tool result.
+
+Records written before these fields have none of them; nothing is backfilled.
 
 The envelope terminates once with the existing outcome vocabulary: `success`,
 `error`, `timeout`, `cancelled`, `denied` or `interrupted`, optional explanation

@@ -3887,16 +3887,38 @@ export function isPricingRoute(v: unknown): v is PricingRoute {
  * `name` is open vocabulary: consumers tolerate names they do not know.
  */
 export interface ActivityTurnSubPhase {
-  phase: "governed" | "journal";
+  phase: "governed" | "journal" | "closing";
   name: string;
   startedAt: number;
   /** Null while running; an unfinished step of a terminal record measures to its failure boundary. */
   endedAt: number | null;
   elapsedMs: number | null;
+  pending?: boolean;
+}
+
+/** One observation hold as seen by this turn; other owners are counted, never identified. */
+export interface ActivityTurnHold {
+  holdId: string;
+  cause: "begin" | "finish" | "tool" | "periodic" | "scope";
+  causeTurnId: string | null;
+  toolUseId?: string;
+  requestedAt: number;
+  stoppedAt: number | null;
+  resumedAt: number | null;
+  changedPaths: number | null;
+  otherTurnsStopped: number;
+  inferenceInFlight: boolean;
 }
 
 /** Host-owned envelope; never contributes inference usage or cost. */
 export interface ActivityTurnLifecycle {
+  /** Running server identity; absent on historical records. */
+  holds?: ActivityTurnHold[];
+  packageVersion?: string;
+  buildRevision?: string;
+  runtimeVersion?: string;
+  recorderSettledAt?: number | null;
+  idleEmittedAt?: number | null;
   hostEvents: Array<{ principalId: string; kind: "turn_cancelled" | "ask_user_cancelled" | "principal_revoked" | "follow_up"; observedAt: number }>;
   skippedPhases: Array<"governed" | "budget" | "journal">;
   lifecycleId: string;

@@ -1,3 +1,4 @@
+import packageInfo from "@schlessera/brain-ui-server/package.json" with { type: "json" };
 import { expect, test } from "bun:test";
 import { createUiDb } from "../src/db/client.js";
 import { createActivityStore } from "../src/activity/store.js";
@@ -92,7 +93,7 @@ test("real dispatch records delayed governed admission and first frame, and link
   try {
     await runSession(host,{authorization:testAuthorization("odysseus"),text:"Plan Ithaca",attachments:[]});
     const record=store.lifecycles()[0]!;
-    expect(record.subPhases,"DISPATCH_PASSES_THE_GOVERNED_STEP_TIMER").toEqual([{phase:"governed",name:"gate_acquire",startedAt:1000,endedAt:1400,elapsedMs:400}]);
+    expect(record.subPhases?.filter(step => step.phase === "governed"),"DISPATCH_PASSES_THE_GOVERNED_STEP_TIMER").toEqual([{phase:"governed",name:"gate_acquire",startedAt:1000,endedAt:1400,elapsedMs:400}]);
     expect(record).toMatchObject({acceptedAt:1000,governedStartedAt:1000,governedAcquiredAt:1400,backendInvokedAt:1400,
       firstFrameAt:1700,endedAt:2000,sessionId:"ithaca",totalElapsedMs:1000,timeToFirstFrameMs:700,backendStartupMs:300,outcome:"success"});
     expect(record.backendRunId).toBe(record.turnId);
@@ -128,5 +129,68 @@ for (const mode of ["governed refusal","backend failure","revoked","budget refus
     expect(record.totalElapsedMs).toBe(mode === "backend failure" ? 600 : mode === "budget refusal" ? 500 : 400);
     expect(record.outcome).toBe(mode === "revoked" ? "cancelled" : mode === "budget refusal" ? "denied" : "error");
     expect(entered).toBe(mode === "backend failure");
+    if (mode === "backend failure") expect(record.subPhases?.find(step => step.name === "backend_exit"))
+      .toMatchObject({ phase: "closing", startedAt: 1600, endedAt: 1600, elapsedMs: 0 });
   }finally{clock.mockRestore();host.close();stream.close();db.close();}
+});
+
+test("build identity validates revision and retains runtime evidence with terminal milestones", () => {
+  const db = createUiDb(":memory:");
+  try {
+    const store = createActivityStore(db); let now = 1000;
+    const live = createTurnLifecycle(store, "turn-build", "ithaca", now, () => {}, () => now, { buildRevision: "ithaca+4278" });
+    expect(store.lifecycle("turn-build"), "BUILD_IDENTITY_STAMPED_AT_ACCEPT").toMatchObject({ packageVersion: packageInfo.version, buildRevision: "ithaca+4278" });
+    live.runtimeVersion("2.1.343");
+    const end = live.timer("closing")("journal_finish"); now = 1400; end(); live.finish("success");
+    now = 1500; live.mark("recorderSettledAt"); now = 1600; live.mark("idleEmittedAt");
+    expect(store.lifecycle("turn-build")).toMatchObject({ runtimeVersion: "2.1.343", endedAt: 1400, recorderSettledAt: 1500, idleEmittedAt: 1600,
+      subPhases: [{ phase: "closing", name: "journal_finish", startedAt: 1000, endedAt: 1400, elapsedMs: 400 }] });
+    for (const [i, revision] of [undefined, "", "contains spaces", "x".repeat(65), "ithaca\n", "ithaca/secret"].entries()) {
+      createTurnLifecycle(store, `turn-invalid-${i}`, null, now, () => {}, () => now, { buildRevision: revision });
+      expect(store.lifecycle(`turn-invalid-${i}`)!.buildRevision).toBeUndefined();
+    }
+  } finally { db.close(); }
+});
+
+test("real dispatch attributes a queued index delay and final observation only to their closing steps", async () => {
+  const { WsHost } = await import("../src/ws/host.js");
+  const { runSession } = await import("../src/ws/run-session.js");
+  const { createSessionCatalog } = await import("../src/ws/session-catalog.js");
+  const { createStaticBackendRegistry } = await import("../src/agent/backend.js");
+  const { createActivityStream } = await import("../src/activity/stream.js");
+  const { createGovernancePolicyReader } = await import("../src/brain/governance-policy.js");
+  const { makeFakeBackend } = await import("./helpers/fake-backend.js");
+  const { testAuthorization } = await import("./helpers/principal.js");
+  const { spyOn } = await import("bun:test");
+  const bridges = await import("../src/ws/bridge.js");
+  const db = createUiDb(":memory:"), store = createActivityStore(db), stream = createActivityStream(store);
+  let now = 1000, pending = true, finished = false;
+  const clock = spyOn(Date, "now").mockImplementation(() => now);
+  const makeBridge = bridges.makeBridge;
+  const setup = spyOn(bridges, "makeBridge").mockImplementation(async (...args) => {
+    const bridge = await makeBridge(...args);
+    bridges.applyIndexReads({ host: args[0], signal: new AbortController().signal }, bridge,
+      { pending: () => pending, async barrier() { now += 500; pending = false; } } as import("../src/brain/index-batch.js").IndexBatch, undefined);
+    return bridge;
+  });
+  const policy = createGovernancePolicyReader("/nonexistent-odysseus-fixture").load();
+  const backend = makeFakeBackend({ id: "pi", async startTurn(req) {
+    req.bridge.emit({ type: "session_info", sessionId: "ithaca", isNew: true });
+    now = 1100; req.bridge.emit({ type: "result", sessionId: "ithaca", durationMs: 100, numTurns: 1, isError: false, costUsd: 0 });
+  } });
+  const host = new WsHost({ registry: createStaticBackendRegistry([backend], "pi"), catalog: createSessionCatalog(() => db), activity: { store, stream },
+    governedTurns: { async begin() { return { sandbox: { profile: "strict", noteFacts: {} }, policy, async end() { return null; } }; }, refresh() {}, async close() {}, async bindSession() {}, async exposures() { return []; }, facts() { return { policyProfile: "strict", policy }; } } as unknown as import("../src/brain/governed-turn.js").GovernedTurns,
+    journal: { async begin() {}, async finish(_id: string, timing?: import("../src/activity/turn-lifecycle.js").PhaseTimer) {
+      if (finished) return; finished = true;
+      const end = timing?.("final_observation"); now += 300; end?.();
+    }, async bindSession() {}, summary() { return { state: "unknown" }; } } as unknown as import("../src/brain/turn-journal.js").TurnJournal });
+  try {
+    await runSession(host, { authorization: testAuthorization("odysseus"), text: "Plan Ithaca", attachments: [] });
+    const record = store.lifecycles()[0]!;
+    expect(record.subPhases?.filter(s => s.phase === "closing" && ["index_settle", "final_observation"].includes(s.name)), "CLOSING_DELAYS_ARE_ATTRIBUTED")
+      .toEqual([{ phase: "closing", name: "index_settle", pending: true, startedAt: 1100, endedAt: 1600, elapsedMs: 500 },
+        { phase: "closing", name: "final_observation", startedAt: 1600, endedAt: 1900, elapsedMs: 300 }]);
+    expect(record.subPhases?.filter(s => s.name === "journal_finish").map(s => s.elapsedMs)).toEqual([300, 0]);
+    expect(record).toMatchObject({ endedAt: 1900, recorderSettledAt: 1900, idleEmittedAt: 1900 });
+  } finally { setup.mockRestore(); clock.mockRestore(); host.close(); stream.close(); db.close(); }
 });

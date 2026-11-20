@@ -671,7 +671,13 @@ export function createActivityStore(
     writeLifecycle(record) {
       inWrite(() => {
         const previous = lifecycle(record.turnId);
-        if (previous?.endedAt !== null && previous !== null) return;
+        // A terminal stays immutable. Only its two trailing host receipts may
+        // fill an unknown timestamp; an orphan sweep cannot be reopened.
+        if (previous?.endedAt != null) {
+          if (previous.outcome === "interrupted" || previous.endedAt !== record.endedAt || previous.outcome !== record.outcome) return;
+          record = { ...previous, recorderSettledAt: previous.recorderSettledAt ?? record.recorderSettledAt,
+            idleEmittedAt: previous.idleEmittedAt ?? record.idleEmittedAt };
+        }
         const value = lifecycleTiming(record);
         db.query(`INSERT INTO activity_turn_lifecycles VALUES (?, ?, ?, ?, ?)
           ON CONFLICT(turn_id) DO UPDATE SET session_id=excluded.session_id, ended_at=excluded.ended_at, record=excluded.record`)

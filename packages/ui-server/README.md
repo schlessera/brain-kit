@@ -433,6 +433,7 @@ under the [service terms](../geo/README.md#configuration).
 | `OVERPASS_USER_AGENT` | Identifying User-Agent for Overpass (usage-policy requirement). | brain-kit-ui/1.0 |
 | `PI_CODING_AGENT_DIR` | pi config dir override — where the web-search settings write the pi-web-access extension's web-search.json (same precedence the extension itself uses). | $XDG_CONFIG_HOME/pi, else $HOME/.pi |
 | `PROXY_AUTH_HEADER` | Header a fronting auth proxy sets for AUTH_MODE=proxy. | x-forwarded-user |
+| `BRAIN_UI_BUILD_REVISION` | Optional build revision on turn lifecycle records: 1–64 ASCII letters, digits, `.`, `_`, `+` or `-`. Invalid or unset values are absent. | unset |
 | `SOURCE_COMMIT` | Git SHA reported by /api/status (baked at image build time). | dev |
 | `TRUST_PROXY` | Set "1" to trust x-forwarded-for/x-real-ip and the proxy auth header; only safe behind a trusted reverse proxy. | **required** — AUTH_MODE=proxy |
 | `TRUST_PROXY_HOPS` | How many trusted proxies front the app (x-forwarded-for parse depth). | 1 |

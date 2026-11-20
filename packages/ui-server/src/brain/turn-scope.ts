@@ -10,7 +10,8 @@ import type { GovernanceEventInput } from "../governance/events.js";
 import { createGovernanceWrites, type GovernanceWrites } from "../governance/event-writes.js";
 import { procedureCaller, type SqliteWriter } from "../db/write-worker.js";
 import { setup, url } from "./turn-scope-writes.js";
-import type { TurnJournal } from "./turn-journal.js";
+import type { ActivityTurnHold } from "@schlessera/brain-ui-sdk/protocol";
+import type { JournalHold, TurnJournal } from "./turn-journal.js";
 
 type Worker = Parameters<NonNullable<StartTurnRequest["workerStarted"]>>[0];
 type Live = { unrecorded?: boolean; sessionId: string | null; principalId: string; origin: "interactive" | "voice"; profile: "strict" | "governed";
@@ -93,6 +94,7 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
       receipt.reason = `The finite continuation ceiling of ${newCap.toLocaleString("en-US")} ${unit} is already exhausted. Stop only.`;
     } else { receipt.newCap = newCap; delete receipt.reason; }
   }
+  const scopeCapRecords = new Map<string, ActivityTurnHold>();
   function check(turnId: string, turn: Live) {
     if (!turn.current()) return;
     turn.summary.minutes = Math.max(0, (now() - turn.startedAt) / 60_000);
@@ -120,8 +122,10 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
     for (const [dimension, count] of counts) {
       const cap = dimension === "free_space_floor" ? floor : turn.summary.limits[dimension];
       if (count === null || (dimension === "free_space_floor" ? count >= cap : count < cap)) continue;
+      const hold = options.journal.scopeHold?.(turnId, now());
+      if (hold) scopeCapRecords.set(turnId, hold);
       let frozen = false, freezeFailure: string | undefined;
-      try { for (const worker of turn.workers) worker.freeze(); frozen = turn.workers.size > 0; }
+      try { for (const worker of turn.workers) worker.freeze(); frozen = turn.workers.size > 0; if (frozen && hold) hold.stoppedAt = now(); }
       catch (error) { freezeFailure = `Scope freeze failed; the turn stopped: ${String(error)}`; for (const worker of turn.workers) worker.kill("SIGKILL"); }
       // No worker means no proven pause; fail closed, never claim nothing is running.
       // A periodic snapshot was already taken after our confirmed hold.
@@ -156,21 +160,36 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
   const periodicHeld = new Map<string, { turn: Live; workers: Worker[] }>();
   let observationHolds = 0;
   let observationFailed = false;
+  const holdRecords = new Map<string, ActivityTurnHold[]>();
+  const intervals = new Set<JournalHold>();
+  function recordStops(hold?: JournalHold) {
+    if (!hold) return;
+    const stopped = [...periodicHeld].filter(([, entry]) => entry.workers.length > 0).map(([id]) => id);
+    for (const [id, record] of hold.records) {
+      record.otherTurnsStopped = stopped.filter(other => other !== id).length;
+      if (!stopped.includes(id)) continue;
+      record.stoppedAt ??= now();
+      holdRecords.set(id, [...(holdRecords.get(id) ?? []), record]);
+    }
+  }
   const periodic = {
-    before() {
-      if (observationHolds++ > 0) return;
+    before(hold?: JournalHold) {
+      if (hold) intervals.add(hold);
+      if (observationHolds++ > 0) { recordStops(hold); return; }
       observationFailed = false;
       for (const [turnId, turn] of active) {
         if (!turn.current() || turn.summary.receipts.some(receipt => receipt.state === "paused")) continue;
         const held: Worker[] = []; periodicHeld.set(turnId, { turn, workers: held });
         for (const worker of turn.workers) { held.push(worker); worker.freeze(); }
+        if (held.length && hold?.records.has(turnId)) hold.records.get(turnId)!.stoppedAt = now();
       }
+      recordStops(hold);
     },
     after(completed: boolean) {
       observationFailed ||= !completed;
       if (--observationHolds > 0) return;
       completed &&= !observationFailed;
-      for (const { turn, workers } of periodicHeld.values()) {
+      for (const [turnId, { turn, workers }] of periodicHeld) {
         // Storage/reporting may itself fail before the journal's stop callback.
         // A failed capture never resumes a productive temporary hold.
         if (!completed) {
@@ -180,17 +199,24 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
         }
         if (turn.summary.receipts.some(receipt => receipt.state === "paused") && turn.current()) continue;
         if (!turn.current()) { for (const worker of workers) worker.kill("SIGKILL"); continue; }
-        try { for (const worker of workers) worker.resume(); }
+        try {
+          for (const worker of workers) worker.resume();
+          for (const record of holdRecords.get(turnId) ?? []) record.resumedAt = now();
+          holdRecords.delete(turnId);
+        }
         catch (error) {
           for (const worker of turn.workers) worker.kill("SIGKILL");
           turn.stop(`The host could not resume the worker after scope observation; it stopped. Partial work remains. ${String(error)}`);
         }
       }
       periodicHeld.clear();
+      intervals.clear();
     },
   };
   const unsubscribe = options.journal.onObservation((turnId, facts) => {
     const turn = active.get(turnId); if (!turn) return;
+    const capHold = scopeCapRecords.get(turnId);
+    if (capHold) capHold.changedPaths = facts.observationChangedPaths ?? null;
     // The summary discloses every changed path; files_changed leaves out the
     // workspaces/ scratch, which turn_bytes and the free-space floor still bound.
     turn.summary.changedPaths = facts.partial ? null : facts.changedPaths;
@@ -221,6 +247,10 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
         if (observationHolds > 0) {
           const held = periodicHeld.get(turnId) ?? { turn, workers: [] };
           held.workers.push(worker); periodicHeld.set(turnId, held);
+          for (const interval of intervals) {
+            const record = interval.records.get(turnId);
+            if (record && record.stoppedAt === null) { record.stoppedAt = now(); holdRecords.set(turnId, [...(holdRecords.get(turnId) ?? []), record]); }
+          }
         }
       }
     },
@@ -250,6 +280,8 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
       for (const receipt of turn.summary.receipts) if (receipt.state === "paused") { receipt.state = "ended_before_answer"; receipt.reason = "The turn ended before an answer."; }
       const saved = save(turnId, turn), ended = call(turnId, "end", now()).catch(error => unrecorded(turnId, error));
       active.delete(turnId);
+      holdRecords.delete(turnId);
+      scopeCapRecords.delete(turnId);
       return Promise.all([saved, ended]).then(() => {});
     },
     close() { unsubscribe(); for (const [id, turn] of active) { for (const worker of turn.workers) worker.kill("SIGKILL"); turn.stop("Host closed; the turn was interrupted."); this.finish(id); } },
@@ -282,7 +314,14 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
         // Grant is consumed before resumption; a failed resume cannot issue another increment.
         turn.summary.limits[liveReceipt.dimension as Exclude<ScopeDimension,"free_space_floor">] = liveReceipt.newCap!;
         liveReceipt.state = "continued"; liveReceipt.submissionId = msg.submissionId; save(msg.turnId, turn);
-        if (observationHolds === 0) for (const worker of turn.workers) worker.resume();
+        if (observationHolds === 0) {
+          for (const worker of turn.workers) worker.resume();
+          for (const record of holdRecords.get(msg.turnId) ?? []) record.resumedAt = now();
+          holdRecords.delete(msg.turnId);
+          const capHold = scopeCapRecords.get(msg.turnId);
+          if (capHold) capHold.resumedAt = now();
+          scopeCapRecords.delete(msg.turnId);
+        }
       } else { liveReceipt.submissionId = msg.submissionId; stop(msg.turnId, turn, liveReceipt, "stopped", "You stopped the turn at its scope limit."); }
       return response("accepted");
     } catch (error) {
