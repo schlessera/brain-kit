@@ -142,6 +142,11 @@ unauthenticated.
    repository of one owner). A write anywhere else is refused before any card
    is shown. Every allowed write still asks for its own approval.
 
+A comment's approval card names the account the token posts as, and whether
+the comment goes on an issue or a pull request, when the host can look them
+up. When it cannot, the card says "The host's GitHub account" and names the
+target as `owner/repo #number`; the approval works the same either way.
+
 Reads see only what the token can see. Their results count as untrusted
 input for the session. A command that calls GitHub's API directly, such as a
 script or a compound `curl` line, waits on a `Network` approval card rather

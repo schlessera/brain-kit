@@ -16,6 +16,7 @@ import * as startup from "../../ui-sdk/src/server/worker-startup-view";
 import { prepareNativeWorkerStartupView } from "../../ui-sdk/src/server/worker-startup-view";
 import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture";
 import { createTurnDataTree, TURN_TREE_EFFECT_BYTES, turnTreeAllowance } from "../src/brain/turn-data-tree";
+import { usePrivateTmpdir } from "./helpers/private-tmpdir.js";
 
 const cleanups: Array<() => void | Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -67,7 +68,14 @@ async function fixture(options: { tree?: boolean } = {}) {
     await copy(from, to, (mode & ~fs.constants.COPYFILE_FICLONE_FORCE) | fs.constants.COPYFILE_FICLONE);
   }) as typeof fsp.copyFile);
   cleanups.push(() => spy.mockRestore());
-  const tmpTrees = () => fs.readdirSync(tmpdir()).filter(name => name.startsWith("brain-turn-data-"));
+  // A temporary copy would land in the temp directory, where other processes
+  // create trees of their own: list one only this fixture writes to (#4252).
+  const tmp = usePrivateTmpdir("odysseus-tree-placement-tmp-");
+  cleanups.push(() => tmp.restore());
+  const tmpTrees = () => {
+    expect(tmpdir(), "TREES_ARE_LISTED_IN_THIS_FIXTURES_OWN_TEMP_DIRECTORY").toBe(tmp.path);
+    return fs.readdirSync(tmpdir()).filter(name => name.startsWith("brain-turn-data-"));
+  };
   const before = new Set(tmpTrees());
   return { store, brain, view, calls, flags, refuse(code?: string) { refuse = code; },
     newTmpTrees: () => tmpTrees().filter(name => !before.has(name)),

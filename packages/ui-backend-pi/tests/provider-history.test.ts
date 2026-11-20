@@ -1,13 +1,13 @@
 import { beforeAll, expect, test } from "bun:test";
 import { join } from "node:path";
-import { body, captureOffline, history, identical, main, noInternalNotes, pairs, system, type Captures } from "../../../tests/helpers/provider-history.js";
+import { body, captureOffline, history, identical, main, messages, noInternalNotes, pairs, system, type Captures } from "../../../tests/helpers/provider-history.js";
 
 let captures: Captures;
 beforeAll(async () => { captures = await captureOffline(join(import.meta.dir, "fixtures/provider-history-probe.ts")); }, 180_000);
 
 test("Pi captures three real resumed interactive turns and a tool result through Responses", () => {
   for (const [name, capture] of Object.entries(captures)) {
-    if (["reference", "renewal", "freshness", "compute"].includes(name)) continue;
+    if (["reference", "renewal", "freshness", "immutable", "compute"].includes(name)) continue;
     expect(capture.sessions).toHaveLength(3);
     expect(new Set(capture.sessions).size).toBe(1);
     expect(main(capture).map(e => e.turn)).toEqual([0, 0, 1, 2]);
@@ -134,4 +134,43 @@ test("Pi compute tools keep tools, system and history stable across enabled, dis
     history(a, b);
   }
   expect(body(main(capture)[0]!).tools.map((tool: { name: string }) => tool.name), "COMPUTE_PI_HOST_TOOLS_PRESENT").toEqual(expect.arrayContaining(["brain_compute_run", "brain_compute_collect"]));
+});
+
+// Actual installed runtime: the host receives the backend's model-call id,
+// while read content changes without rewriting tools, system or prior input.
+test("Pi immutable reference reads carry actual call identity and preserve provider history", () => {
+  const capture = captures.immutable!;
+  expect(main(capture).map(e => e.turn)).toEqual([0, 0, 1, 1, 2, 2]);
+  expect(capture.calls).toEqual([0, 1, 2].map(turn => expect.objectContaining({
+    tool: "reference_read", toolCallId: expect.stringContaining(`call_odysseus_${turn}`),
+    input: { repository: "https://github.com/odysseus/ithaca", revision: "main", path: "README.md", offset: 0, maximum: 64 },
+  })));
+  for (const [a, b] of pairs(capture)) {
+    identical(body(a).tools, body(b).tools, "IMMUTABLE_READ_TOOLS_STABLE");
+    identical(system(a), system(b), "IMMUTABLE_READ_SYSTEM_STABLE");
+    history(a, b);
+  }
+  const results = main(capture).filter((_, index) => index % 2 === 1);
+  for (const [index, name] of ["Odysseus", "Penelope", "Telemachus"].entries()) expect(results[index]!.raw).toContain(name);
+  for (const exchange of main(capture)) { expect(exchange.raw).not.toContain("responseDigest"); expect(exchange.raw).not.toContain("acquisitionId"); }
+});
+
+test("retained legacy policy wording and earlier taint facts stay byte-identical after individual review", () => {
+  const capture = captures.safety!;
+  for (const [a, b] of pairs(capture)) {
+    identical(body(a).tools, body(b).tools, "SAFETY_UPGRADE_RETAINS_TOOLS");
+    identical(system(a), system(b), "SAFETY_UPGRADE_RETAINS_SYSTEM");
+    history(a, b);
+  }
+  const exchanges = main(capture);
+  for (const exchange of exchanges) {
+    expect(JSON.stringify(system(exchange)), "SAFETY_UPGRADE_RETAINS_LEGACY_WORDING").toContain("Legacy safety policy: this session stays restricted.");
+    expect(JSON.stringify(system(exchange))).not.toContain("Reviewed safety policy:");
+  }
+  expect(exchanges[0]!.raw, "SAFETY_UPGRADE_RECORDS_ORIGINAL_TAINT_FACT").toContain("This session is tainted");
+  // The final request retains that earlier fact as history, while the new
+  // turn's live policy no longer states it. The provider-prefix guard above
+  // asserts every old message, including that note, remains unchanged.
+  expect(exchanges.at(-1)!.raw, "SAFETY_REVIEW_NEVER_REWRITES_EARLIER_FACTS").toContain("This session is tainted");
+  expect(JSON.stringify(messages(exchanges.at(-1)!).at(-1)), "SAFETY_REVIEW_CHANGES_ONLY_NEW_TAIL_FACTS").not.toContain("This session is tainted");
 });

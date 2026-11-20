@@ -403,6 +403,28 @@ for (const output of ["stdout", "stderr"] as const) {
   });
 }
 
+test("a hosted sync launch reports its start only once its first worker starts, after the origin probe (#4257)", async () => {
+  const f = fixture();
+  const db = createUiDb(f.dbPath);
+  const execution = createHostExecution({ brainPath: f.brain, nativeManager: f.nativeManager, dbPath: f.dbPath, exec: {} });
+  try {
+    execution.attach(db);
+    const events: string[] = [];
+    // The worker runs for two seconds: a start reported before it runs comes
+    // long before the exit, one reported at the end of the sync does not.
+    let startedAt = 0;
+    const worker = await execution.boundary.launch({ argv: ["/bin/sh", "-c", "sleep 2"], env: { PATH: "/usr/bin:/bin" }, credentials: false,
+      gate: "exclusive", sync: true, purpose: "start-reporting sync", onExecute: () => { startedAt = performance.now(); events.push("started"); } });
+    // The launch returned with the mirror sync still preparing: nothing has started yet.
+    events.push("launched");
+    void new Response(worker.stdout).text().catch(() => {});
+    const stderr = new Response(worker.stderr).text().catch(() => "");
+    expect(await worker.exited, `START_SYNC_EXIT: ${await stderr}`).toBe(0);
+    expect(performance.now() - startedAt, "START_REPORTED_BEFORE_WORKER_RUNS").toBeGreaterThanOrEqual(1_500);
+    expect(events, "START_REPORTED_ONCE_AFTER_LAUNCH").toEqual(["launched", "started"]);
+  } finally { db.close(); }
+});
+
 test("an in-memory host uses its private temporary mirror for a real sync", async () => {
   if (await privateMaintenanceTest(import.meta.path, "an in-memory host uses its private temporary mirror for a real sync", 120_000)) return;
   const f = fixture();

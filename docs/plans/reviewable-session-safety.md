@@ -29,8 +29,8 @@ public design or its fixtures. Fictional examples use the Odysseus world.
   their own event, never a complete history. Owner review transport and its
   mutation capability remain disabled by this foundation.
 - Tool ingestion collects input and output signals independently (`inputTaintSignals`,
-  `packages/ui-server/src/activity/ingestion-taint.ts:154`;
-  `outputTaintSignals`, `packages/ui-server/src/activity/ingestion-taint.ts:176`).
+  `packages/ui-server/src/activity/ingestion-taint.ts:155`;
+  `outputTaintSignals`, `packages/ui-server/src/activity/ingestion-taint.ts:178`).
   Workspace paths taint regardless of repository ownership. Awaited backend
   hooks commit before tool dispatch/result delivery; display frames alone
   never prove finalized delivery or complete coverage.
@@ -50,7 +50,7 @@ public design or its fixtures. Fictional examples use the Odysseus world.
   (`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:132-161`).
   The privileged proposal writer already provides exact-base review,
   descriptor-bound publication, authority rechecks and crash receipts
-  (`createPolicyProposals`, `packages/ui-server/src/brain/policy-proposal.ts:100-275`).
+  (`createPolicyProposals`, `packages/ui-server/src/brain/policy-proposal.ts:101-254`).
 - Private reference access already matches canonical repository prefixes and
   live principal grants; that is access authority, not content trust
   ([reference-source grants](../decisions/reference-source-grants.md)). Its

@@ -50,6 +50,8 @@ export function approvalRequestFrame(
     description: req.description,
     ...(req.kind ? { kind: req.kind } : {}),
     ...(req.kind === "policy" || req.outsideEnforcedAllowlist || (!hasGrantStore && req.kind !== "actor") ? { rememberable: false } : {}),
+    // Display-only facts the host verified (#4154); a re-delivery carries the same ones.
+    ...(req.display ? { display: req.display } : {}),
   };
 }
 

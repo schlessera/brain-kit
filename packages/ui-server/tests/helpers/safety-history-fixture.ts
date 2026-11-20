@@ -73,6 +73,6 @@ export async function safetyHistoryFixture(bound=true,review=false,mode:AuthMode
   return {root,path,url:`ws://127.0.0.1:${server.port}/ws`,cookie,db,writer,writes,principal,history,reviews,brainKey,auth,host,bindingId,add,bind,get,connect,cookieFor,starts:()=>starts,
     advance(ms:number){clock+=ms;},
     hold(){let release!:()=>void;wait=new Promise<void>(r=>{release=r;});const arrived=new Promise<void>(r=>{entered=r;});return {arrived,release(){wait=undefined;entered=undefined;release();}};},
-    async close(){for(const s of sockets)s.close();server.stop(true);await host.close();await writer.close();db.close();rmSync(root,{recursive:true,force:true});},
+    async close(retainFiles=false){for(const s of sockets)s.close();server.stop(true);await host.close();await writer.close();db.close();if(!retainFiles)rmSync(root,{recursive:true,force:true});},
   };
 }

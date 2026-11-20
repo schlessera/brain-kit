@@ -12,7 +12,7 @@ import type { LaunchedWorker, NativeFileVersions, sessionPromptContext, WorkerRe
 
 import type { CreatePiBackendOptions, SessionEnv } from "./backend-options.js";
 import type { TurnContext } from "./turn-context.js";
-import { pipeMessages, piWorkerMessage, PiInputSafetyUnavailableError, SessionTooLargeError } from "./worker-protocol.js";
+import { pipeMessages, piWorkerMessage, PiInputSafetyUnavailableError, SessionTooLargeError, type PiWorkerMessage } from "./worker-protocol.js";
 import type { PiWorkerReceipts } from "./worker-receipts.js";
 import type { PiWorkerRpc } from "./worker-rpc.js";
 import type { provenToolExecution } from "./worker-session.js";
@@ -67,8 +67,19 @@ export async function readPiWorkerProtocol(reader: PiWorkerReader): Promise<void
   const { child, state, ready, done, sessionId, backend, startupStarted, promptContext, sessionBudgetLimits, autonomous, resumed,
     turnContext, nativeVersions, receipts, resumedIds, listeners, proof, toolExecution, dispatch, send, fail, reportLimitHits, limitEnded, diagnostic } = reader;
   for await (const raw of pipeMessages(child.stdout)) {
-    const msg = piWorkerMessage.parse(raw);
-    if (state.ended) throw new Error("Pi worker sent a message after turn completion");
+    let msg: PiWorkerMessage;
+    try {
+      msg = piWorkerMessage.parse(raw);
+      if (state.ended) throw new Error("Pi worker sent a message after turn completion");
+    } catch (error) {
+      // The dispatcher never sees a frame refused here. Retain loss for an
+      // identifiable result before stopping, including conflicting duplicates
+      // and late reports. These fields only scope invalidation, never authority.
+      const frame = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : undefined;
+      if (frame?.method === "safetyResult" && typeof frame.toolCallId === "string")
+        await turnContext.bridge?.inputSafety?.lost?.(frame.toolCallId, typeof frame.toolName === "string" ? frame.toolName : "unknown", error);
+      throw error;
+    }
     if (msg.type === "startup_timing") {
       backend.log?.("debug", "Pi startup phase", { phase: msg.phase, durationMs: msg.durationMs, elapsedMs: performance.now() - startupStarted });
     } else if (msg.type === "ready") {

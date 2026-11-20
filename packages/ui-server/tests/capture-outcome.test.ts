@@ -1,9 +1,10 @@
 import { expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { installNativeBrainClientFixtures } from "./helpers/native-brain-client-fixture.js";
 import { createBrainRoutes } from "../src/routes/brain";
+import { completeJsonLines } from "./helpers/json-lines.js";
 
 const { createFixtureBrainClient: createBrainClient } = installNativeBrainClientFixtures();
 
@@ -25,7 +26,7 @@ test("capture keeps partial success and retry runs only index through the actual
     expect(await saved.json()).toMatchObject({ success: true, path: "notes/topic.md", indexed: false, indexError: "database is locked" });
     const retries = await Promise.all(Array.from({ length: 3 }, () => app.request("/brain/index", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })));
     for (const retry of retries) expect(await retry.json()).toEqual({ success: true });
-    expect(readFileSync(calls, "utf8").trim().split("\n").map(line => JSON.parse(line)[0])).toEqual(["add", "index"]);
+    expect(completeJsonLines<string[]>(calls).map(args => args[0])).toEqual(["add", "index"]);
     const refused = await app.request("/brain/index", { method: "POST" });
     expect(refused.status).toBe(415);
     // A failed index never retries capture, and a later retry is not latched.

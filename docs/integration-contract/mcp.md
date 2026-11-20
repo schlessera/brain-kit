@@ -1297,6 +1297,38 @@ conversation. Cancellation selects nothing. This is agent orchestration, not a
 new admission mechanism: selecting an Actor neither approves a run nor creates
 a remembered approval.
 
+## Immutable reference read (additive, 0.45.0, #3613)
+
+`reference_read` (`mcp__brain-ui__reference_read` on Claude) is always registered
+alongside the existing reference tools. A host without immutable reading
+returns an executable refusal; capability or repository changes do not alter
+the roster during a conversation.
+
+Its strict input is `{repository, revision, path, offset?, maximum?}`. Repository
+is one canonical GitHub owner/repository or its HTTPS URL, revision is one
+short ordinary branch/tag, and path is a literal repository-relative regular
+file. The host refuses traversal, `.git`, symlinks, directories, submodule
+gitlinks and unsupported transports/refs. Offset defaults to zero (integer
+0–4194304); maximum defaults to 65536 (integer 1–65536). The full file must fit
+within 4 MiB; EOF returns an empty range and beyond EOF refuses.
+
+Success is `{ok:true, read:{repository, revision, commit, path, offset, length,
+totalBytes, encoding, content}, guidance}`. `encoding` is `utf8` only when the
+range round-trips without replacement bytes; otherwise `content` is exact
+base64. Each call freshly resolves the branch/tag and names its selected
+commit. A later call can select a newer commit. The existing bounded
+`{ok:false, code, message}` refusal envelope applies.
+
+The backend supplies its actual tool-call identity outside model input. The
+host refuses an unavailable/duplicate identity, checks the native acquisition
+and live authority across waits, and records range/digest evidence before
+returning content. A separately awaited final-result hook can observe the
+exact result; prepared, missing, altered, mixed or unfinished output is not
+proof of that observation. These host records never enter provider history.
+This tool remains workspace input, with no source-trust, private-access,
+recipient or Git execution exemption. Ordinary marked-file signals remain
+independent and unchanged.
+
 ## Reference source and managed worktree tools (additive, 0.44.0, #2432)
 
 Both first-party backends attach `reference_source` and `reference_worktree`
@@ -1591,7 +1623,9 @@ A refused call sends GitHub nothing, returns no GitHub text and taints
 nothing. The writes are not routed (maintainer ruling on #4029): each write's
 gate is its per-use card, which shows exactly what is sent, and
 `outward.github.repositories`. A write in a conversation whose reads are
-refused still reaches its card unchanged.
+refused still reaches its card unchanged; only the comment card's
+display-only target lookup (#4154) is routed, and a refusal leaves the
+target's kind unknown.
 
 ### GitHub writes (additive, 0.45.0, #3798)
 
@@ -1619,6 +1653,21 @@ the last step:
    with an absent field neither shown nor sent. Its description says the
    write is sent once, in the user's name, and cannot be undone, and notes a
    session that has read untrusted input. The card is never remembered.
+   A comment card also carries display-only facts beside its input
+   ([the wire component](wire.md#approval-display-facts-additive-0450-4154),
+   #4154): `poster`, the account `GET /user` names for the same credential
+   the write would use, and `target`, whether `GET /repos/{repository}/issues/{number}`
+   is an issue or a pull request, accepted only when GitHub's answer names
+   that same repository and number. The target lookup sends the
+   model-chosen repository and number before the card, so it asks the
+   turn's data routing first, as a read does; the write itself is not
+   routed. A verified poster is reused for that credential for ten
+   minutes, and a failed lookup is not repeated for it for one minute;
+   another credential never reads it, and a credential GitHub rejects on a
+   write keeps none. Both lookups share a three-second limit. Any failure,
+   refusal, rate limit, timeout or mismatch makes that fact `null`, and the
+   write continues unchanged. Neither fact reaches the tool's result or the
+   `outward_action` record.
 5. **Answer.** A denial is `approval_declined`, `reason: "declined"`. An
    approval that comes back with a changed input is `approval_declined`,
    `reason: "edited"`, and sends nothing; the model must make the call again,

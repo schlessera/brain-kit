@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery, attachment-read, interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark, chat-deletion, individual safety-review, safety-recording recovery, GitHub detail-page, live-persona and markup-upload routes (whose `/api/settings/voice` also carries the live-service default) mounted by `createApp`: 191 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery, attachment-read, interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark, chat-deletion, individual safety-review, safety-recording recovery, GitHub detail-page, live-persona and markup-upload and human trust Settings routes (whose `/api/settings/voice` also carries the live-service default) mounted by `createApp`: 195 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -158,6 +158,10 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/journal/configuration-coverage` | S | Read the brain's current untraced configuration-input set | Latest complete inventoried turn only; explicit `unknown`, never an empty list. |
 | GET | `/api/agent-policy` | I | Read shared admission policy and reported enforcing limits | Read-only Devices & agents facts; no editor or duplicate policy cache. |
 | GET | `/api/policy-proposals/:turnId/:requestId` | I | Read one principal-owned policy request receipt | Same-request reconciliation only; never writes or reactivates approval. |
+| GET | `/api/trust-settings` | I | Read trust policy data and publication availability | Paired Security settings transport (#3608); live password-mode human owners only; runtime trust remains disabled. |
+| GET | `/api/trust-settings/:request` | I | Read one owner-bound trust publication receipt and review | Same-request reconciliation only; never republishes or resolves a taint trigger. |
+| POST | `/api/trust-settings/prepare` | I | Prepare one exact-base trust change | Paired Security settings transport; same-origin JSON and live owner authority; repository create/edit independently verifies host metadata. |
+| POST | `/api/trust-settings/commit` | I | Publish the exact owner-reviewed trust change | Shared descriptor-bound publisher; bounded durable receipt; saved policy does not imply runtime enforcement. |
 | GET | `/api/sessions/:id/safety` | S | Read bounded revisioned host safety evidence | Authenticated principal of the history owner's account (#3952); immutable records, snapshot aggregate/high-water, scoped cursor, explicit coverage/unavailable, no mutation (#3604). |
 | POST | `/api/sessions/:id/safety/reviews/prepare` | S | Prepare review of one finalized safety occurrence | Live password-mode human owner, exact Origin and bounded JSON; host-issued body/brain/principal/generation-bound handle (#3603). |
 | POST | `/api/sessions/:id/safety/reviews/:requestId/commit` | S | Commit or read back one individual safe verdict | Live owner rechecked on the acquired FULL transaction and final response; immutable receipt plus fresh aggregate, no bulk clear or standing rule (#3603). |
@@ -224,7 +228,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 191 declared endpoints are mounted regardless of backend, renderer or
+All 195 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -618,10 +622,27 @@ with `type: "done", success: false`; transport termination without done is
 an incomplete result, not success.
 
 One HTTP sync per canonical brain root is admitted across app instances;
-concurrent attempts get 409 `{ error }` before SSE starts. The route invokes
+concurrent attempts get 409 `{ error, heldMs }` before SSE starts, where
+`heldMs` (additive, #4257) is how long the admitted sync has held the root and
+the error text names it in seconds. The route invokes
 `brain sync --human`. Disconnecting the reader stops delivery but **does not
 cancel sync or release its reservation**; output continues draining until the
-child exits. Successful sync attempts voice keyterm rebuild; a rebuild failure
+child exits.
+
+**Bounded start (additive, #4257).** Everything between admission and the
+sync's first worker starting (the CLI version probe, the writer gate, the
+worker launch and, on a hosted install, the mirror lock, startup view and
+origin probe) is bounded at 120 seconds. Past it the stream ends with
+`{ type: "done", success: false, reason: "launch_timeout", text }`, the
+reservation is released, nothing has run, and a launch that settles later is
+killed. `reason` is present only on this refusal. After the child exits, its
+output pipes get 10 seconds to close; a descendant holding them open no longer
+holds the reservation. Each admitted sync is also an Activity run (root span
+kind and origin `cron`, `jobName: "ui-sync"`, attributed to the requesting
+principal) whose terminal outcome carries the exit status and the last
+non-empty output lines, with the combined output tail as its `job_output`
+event, so a result survives a disconnected reader. A failure also logs
+`ui sync failed` with the same text on the `brain` logger. Successful sync attempts voice keyterm rebuild; a rebuild failure
 is progress text and does not turn successful sync into failure. A degraded
 rebuild (no usable core peer, or an index core cannot read) is reported as
 progress text and not cached. A canonical
@@ -2375,3 +2396,25 @@ current retained-checkpoint counts and bytes, plus `lastFailure`, a durable
 historical cause even when cleanup failed before the first turn. The historical
 record survives successful cleanup; current retained charges are reported
 separately. It is never part of public `/health`.
+
+## Human trust Settings publication
+
+The four `/api/trust-settings` operations are internal paired Security settings
+transport. Their exact review/receipt shapes and limits are described in the
+[publication contract](integration-contract/package-api.md#human-trust-settings-publication).
+They require a live password-mode human owner; mutation additionally requires a
+present exact same-origin Origin and bounded JSON. Principal, voice and channel
+claims in a body supply no authority. Receipts are private, no-store, scoped to
+the served brain and requesting owner, and readback never repeats a write.
+
+Publication reuses the protected policy writer without an agent turn. Prepared
+state, reviewed bytes/base, publication proof and partial/unknown completion
+survive restart. Saved origin/tunnel rules do not enable unbuilt trust admission;
+repository create/edit independently verifies fixed-endpoint metadata at review
+and again inside the publication observation window. Browser IDs cannot
+self-verify; unknown or changed identity withholds the write. Approved owner
+boundaries derive from this operation's durable publication proof and are not
+inferred from matching policy bytes. Owner-scope review explicitly covers
+future repositories currently in that namespace. Runtime trust remains disabled.
+Removal/readback remain available for existing rules. Revision exhaustion refuses
+before protected publication. No historical trigger is resolved by these routes.

@@ -239,7 +239,7 @@ if (import.meta.main) {
       const beforeTests = performance.now();
       console.error(JSON.stringify({ kind: "test-invocation", event: "tests-start", pid: process.pid, at: Date.now() }));
       invokingHome = createInvokingTestHome();
-      const tests = invocationChild([process.execPath, "test", "--preload", join(import.meta.dir, "test-network-preload.ts"), ...argv], { stdin: "inherit", env: { ...process.env, HOME: invokingHome.home, CLAUDE_CONFIG_DIR: invokingHome.config } });
+      const tests = invocationChild([process.execPath, "test", "--preload", join(import.meta.dir, "test-network-preload.ts"), ...argv], { stdin: "inherit", env: { ...process.env, HOME: invokingHome.home, CLAUDE_CONFIG_DIR: invokingHome.config, BRAIN_TEST_RESOURCE_ROOT: invokingHome.resources } });
       started(tests);
       await tests.ready;
       const relay = async (stream: ReadableStream<Uint8Array>, channel: "stdout" | "stderr") => { for await (const chunk of stream) process[channel].write(chunk); };

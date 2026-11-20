@@ -11,6 +11,28 @@ import { createTurnScope, SCOPE_DISCONNECTED_MS } from "../src/brain/turn-scope.
 import { scopeFixture } from "./helpers/scope-fixture.js";
 import { registeredInterval } from "./helpers/registered-interval.js";
 async function wait(check: () => boolean, timeout = 5000) { const end = Date.now() + timeout; while (!check()) { if (Date.now() > end) throw Error("Scope fixture timed out"); await Bun.sleep(10); } }
+/** Process names below `pid`, read from the host's /proc, which sees into the worker's PID namespace. */
+function descendantNames(pid: number): string[] {
+  const parents = new Map<number, number[]>(), names = new Map<number, string>();
+  for (const entry of readdirSync("/proc")) {
+    if (!/^\d+$/.test(entry)) continue;
+    let stat: string; try { stat = readFileSync(`/proc/${entry}/stat`, "utf8"); } catch { continue; }
+    const close = stat.lastIndexOf(")"), ppid = Number(stat.slice(close + 2).split(" ")[1]);
+    names.set(Number(entry), stat.slice(stat.indexOf("(") + 1, close));
+    parents.set(ppid, [...(parents.get(ppid) ?? []), Number(entry)]);
+  }
+  const found: string[] = [], queue = [...(parents.get(pid) ?? [])];
+  while (queue.length) { const next = queue.shift()!; found.push(names.get(next) ?? ""); queue.push(...(parents.get(next) ?? [])); }
+  return found;
+}
+/**
+ * Wait until a `while :; do sleep 1; done` worker is really running. Its
+ * sandbox's PID 1 forks the shell after launch, and a freeze before then
+ * cannot confirm a stopped tree: on a loaded runner the first observation
+ * outran the fork and failed "did not confirm its frozen state". The wait is
+ * a hang catch-all, not a timing claim.
+ */
+async function sleeping(child: { pid: number }) { await wait(() => descendantNames(child.pid).includes("sleep"), 60_000); }
 
 test("real process tree freezes, resumes once per dimension, then stops with event-bound replay and independent grants", async () => {
   const f = scopeFixture({ max_tool_calls: 2, max_bytes_written: 8 }); let child: ReturnType<typeof f.worker> | undefined;
@@ -68,7 +90,7 @@ test("real process tree freezes, resumes once per dimension, then stops with eve
 test("shared snapshots count ignored scratch, workspace bytes and repeated observed bytes, with independent finite grant", async () => {
   const f = scopeFixture({ max_bytes_written: 8, max_files_changed: 3 }); let child: ReturnType<typeof f.worker> | undefined;
   try {
-    await f.begin(); child = f.worker('while :; do sleep 1; done');
+    await f.begin(); child = f.worker('while :; do sleep 1; done'); await sleeping(child);
     writeFileSync(join(f.brain, ".brain/scratch/loom"), "12345678"); await f.journal.observe();
     expect(f.receipt()).toMatchObject({ dimension: "turn_bytes", count: 8, cap: 8, newCap: 16 });
     expect((await f.scope.decide(f.message("continue"), true)).state).toBe("accepted");
@@ -83,24 +105,26 @@ test("shared snapshots count ignored scratch, workspace bytes and repeated obser
 });
 
 test("files_changed leaves out a reference clone under workspaces/ but counts every path outside it (#3793)", async () => {
-  const f = scopeFixture({ max_files_changed: 1000 }); let child: ReturnType<typeof f.worker> | undefined;
+  // The cap is small so the file volume stays small: a 30 s hang limit on a
+  // loaded worker is no budget for writing thousands of files (#4249).
+  const f = scopeFixture({ max_files_changed: 20 }); let child: ReturnType<typeof f.worker> | undefined;
   try {
-    await f.begin(); child = f.worker('while :; do sleep 1; done');
-    // A fetch and checkout of a mid-sized repository, and nothing in the brain.
+    await f.begin(); child = f.worker('while :; do sleep 1; done'); await sleeping(child);
+    // A checkout far larger than the cap, and nothing in the brain.
     mkdirSync(join(f.brain, "workspaces/argo/src"), { recursive: true });
-    for (let index = 0; index < 1500; index++) writeFileSync(join(f.brain, "workspaces/argo/src", `oar-${index}.ts`), `export const oar = ${index};\n`);
+    for (let index = 0; index < 150; index++) writeFileSync(join(f.brain, "workspaces/argo/src", `oar-${index}.ts`), `export const oar = ${index};\n`);
     await f.journal.observe();
     const scope = () => f.journal.summary("voyage").scope!;
     expect(scope().receipts, "WORKSPACE_CLONE_DOES_NOT_PAUSE_FILES_CHANGED").toEqual([]);
-    expect(scope().changedPaths, "SUMMARY_STILL_DISCLOSES_WORKSPACE_PATHS").toBeGreaterThanOrEqual(1500);
-    for (let index = 0; index < 999; index++) writeFileSync(join(f.brain, `ithaca-${index}.md`), `Day ${index}\n`);
+    expect(scope().changedPaths, "SUMMARY_STILL_DISCLOSES_WORKSPACE_PATHS").toBeGreaterThanOrEqual(150);
+    for (let index = 0; index < 19; index++) writeFileSync(join(f.brain, `ithaca-${index}.md`), `Day ${index}\n`);
     await f.journal.observe();
     expect(scope().receipts, "BRAIN_PATHS_BELOW_THE_CAP_DO_NOT_PAUSE").toEqual([]);
     // A sibling sharing the prefix is outside workspaces/ and counts.
     mkdirSync(join(f.brain, "workspaces-old")); writeFileSync(join(f.brain, "workspaces-old/x.md"), "Old raft\n");
-    writeFileSync(join(f.brain, "ithaca-999.md"), "Day 999\n");
+    writeFileSync(join(f.brain, "ithaca-19.md"), "Day 19\n");
     await f.journal.observe();
-    expect(f.receipt(), "BRAIN_PATHS_PAST_THE_CAP_STILL_PAUSE").toMatchObject({ dimension: "files_changed", count: 1001, cap: 1000, state: "paused", frozen: true });
+    expect(f.receipt(), "BRAIN_PATHS_PAST_THE_CAP_STILL_PAUSE").toMatchObject({ dimension: "files_changed", count: 21, cap: 20, state: "paused", frozen: true });
     await f.scope.decide(f.message("stop"), true); await child.exited;
   } finally { child?.kill("SIGKILL"); if (child) await child.exited; await f.close(); }
 });
@@ -108,7 +132,7 @@ test("files_changed leaves out a reference clone under workspaces/ but counts ev
 test("workspace writes still count toward turn_bytes and pause the turn there (#3793)", async () => {
   const f = scopeFixture({ max_files_changed: 1, max_bytes_written: 1024 }); let child: ReturnType<typeof f.worker> | undefined;
   try {
-    await f.begin(); child = f.worker('while :; do sleep 1; done');
+    await f.begin(); child = f.worker('while :; do sleep 1; done'); await sleeping(child);
     mkdirSync(join(f.brain, "workspaces/argo"));
     writeFileSync(join(f.brain, "workspaces/argo/hull.bin"), Buffer.alloc(1024, 1)); writeFileSync(join(f.brain, "workspaces/argo/keel.bin"), Buffer.alloc(1024, 2));
     await f.journal.observe();
@@ -201,7 +225,7 @@ test("the disposable index counts once at its largest size, ignored or not, and 
 test("connected pause has no scope expiry; disconnect lifetime, reconnect and restart never resume automatically", async () => {
   let clock = Date.now(); const f = scopeFixture({ max_tool_calls: 1 }, () => clock); let child: ReturnType<typeof f.worker> | undefined;
   try {
-    await f.begin(); child = f.worker('while :; do sleep 1; done'); f.scope.toolCall("voyage", "loom");
+    await f.begin(); child = f.worker('while :; do sleep 1; done'); await sleeping(child); f.scope.toolCall("voyage", "loom");
     clock += SCOPE_DISCONNECTED_MS * 2; await f.journal.observe(); expect(f.receipt().state).toBe("paused");
     f.disconnect(); await f.journal.observe(); clock += SCOPE_DISCONNECTED_MS - 1; await f.journal.observe(); expect(f.receipt().state).toBe("paused");
     f.reconnect(); await f.journal.observe(); expect(f.receipt().state, "SCOPE_RECONNECT_NEVER_RESUMES").toBe("paused");
@@ -418,7 +442,7 @@ test("real host restart kills its paused namespace, records interruption and nev
 test("wall time uses the frozen policy independently of later edits and hard limits, then allows only one finite grant", async () => {
   let clock = Date.now(); const f = scopeFixture({ max_minutes: .25 }, () => clock); let child: ReturnType<typeof f.worker> | undefined;
   try {
-    await f.begin(); child = f.worker('while :; do sleep 1; done'); f.policy.scope.max_minutes = 90; clock += 15_001; await f.journal.observe();
+    await f.begin(); child = f.worker('while :; do sleep 1; done'); await sleeping(child); f.policy.scope.max_minutes = 90; clock += 15_001; await f.journal.observe();
     expect(f.receipt()).toMatchObject({ dimension: "minutes", cap: .25, newCap: .5, frozen: true });
     expect((await f.scope.decide(f.message("continue"), true)).state).toBe("accepted");
     clock += 15_001; await f.journal.observe(); expect(f.receipt()).toMatchObject({ cap: .5, state: "paused" }); expect(f.receipt().newCap).toBeUndefined();

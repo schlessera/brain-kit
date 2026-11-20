@@ -1,13 +1,13 @@
 import { beforeAll, expect, test } from "bun:test";
 import { join } from "node:path";
-import { body, captureOffline, history, identical, main, messages, noInternalNotes, pairs, system, type Captures } from "../../../tests/helpers/provider-history.js";
+import { body, captureOffline, history, identical, identicalSystemPromptOptions, main, messages, noInternalNotes, pairs, system, type Captures } from "../../../tests/helpers/provider-history.js";
 
 let captures: Captures;
 beforeAll(async () => { captures = await captureOffline(join(import.meta.dir, "fixtures/provider-history-probe.ts")); }, 180_000);
 
 test("Claude captures three real resumed interactive turns and a tool result", () => {
   for (const [name, capture] of Object.entries(captures)) {
-    if (["reference", "renewal", "freshness", "compute"].includes(name)) continue;
+    if (["reference", "renewal", "freshness", "immutable", "compute"].includes(name)) continue;
     expect(capture.sessions).toHaveLength(3);
     expect(new Set(capture.sessions).size).toBe(1);
     expect(main(capture).map(e => e.turn)).toEqual([0, 0, 1, 2]);
@@ -60,9 +60,8 @@ test("Claude system stays identical across device and sandbox changes on resume 
 // append at the provider boundary. The SDK documents that recording as
 // account-gated, so the guard also holds the option brain-kit hands it.
 test("Claude system-prompt option stays identical on resume", () => {
-  for (const name of ["control", "repository", "promotion", "budget", "datatree"]) {
-    const [first, ...rest] = captures[name]!.appends;
-    for (const next of rest) identical(first, next, `systemPrompt option ${name}`);
+  for (const [name, capture] of Object.entries(captures)) {
+    identicalSystemPromptOptions(capture.appends, `systemPrompt option ${name}`);
   }
 });
 test("Claude system-prompt option stays identical across device and sandbox changes (#2047)", () => {
@@ -171,4 +170,43 @@ test("Claude compute tools keep tools, system and history stable across enabled,
   const names = body(main(capture)[0]!).tools.map((tool: { name: string }) => tool.name);
   expect(names, "COMPUTE_CLAUDE_HOST_TOOLS_PRESENT").toEqual(expect.arrayContaining(["mcp__brain-ui__brain_compute_run", "mcp__brain-ui__brain_compute_collect"]));
   expect(names.some((name: string) => name.startsWith("mcp__brain__brain_compute_")), "COMPUTE_CLAUDE_WORKER_TOOLS_ABSENT").toBe(false);
+});
+
+// Actual installed runtime: the host receives the backend's model-call id,
+// while read content changes without rewriting tools, system or prior input.
+test("Claude immutable reference reads carry actual call identity and preserve provider history", () => {
+  const capture = captures.immutable!;
+  expect(main(capture).map(e => e.turn)).toEqual([0, 0, 1, 1, 2, 2]);
+  expect(capture.calls).toEqual([0, 1, 2].map(turn => expect.objectContaining({
+    tool: "reference_read", toolCallId: expect.stringContaining(`toolu_odysseus_${turn}`),
+    input: { repository: "https://github.com/odysseus/ithaca", revision: "main", path: "README.md", offset: 0, maximum: 64 },
+  })));
+  for (const [a, b] of pairs(capture)) {
+    identical(body(a).tools, body(b).tools, "IMMUTABLE_READ_TOOLS_STABLE");
+    identical(system(a), system(b), "IMMUTABLE_READ_SYSTEM_STABLE");
+    history(a, b);
+  }
+  const results = main(capture).filter((_, index) => index % 2 === 1);
+  for (const [index, name] of ["Odysseus", "Penelope", "Telemachus"].entries()) expect(results[index]!.raw).toContain(name);
+  for (const exchange of main(capture)) { expect(exchange.raw).not.toContain("responseDigest"); expect(exchange.raw).not.toContain("acquisitionId"); }
+});
+
+test("retained legacy policy wording and earlier taint facts stay byte-identical after individual review", () => {
+  const capture = captures.safety!;
+  for (const [a, b] of pairs(capture)) {
+    identical(body(a).tools, body(b).tools, "SAFETY_UPGRADE_RETAINS_TOOLS");
+    identical(system(a), system(b), "SAFETY_UPGRADE_RETAINS_SYSTEM");
+    history(a, b);
+  }
+  const exchanges = main(capture);
+  for (const exchange of exchanges) {
+    expect(JSON.stringify(system(exchange)), "SAFETY_UPGRADE_RETAINS_LEGACY_WORDING").toContain("Legacy safety policy: this session stays restricted.");
+    expect(JSON.stringify(system(exchange))).not.toContain("Reviewed safety policy:");
+  }
+  expect(exchanges[0]!.raw, "SAFETY_UPGRADE_RECORDS_ORIGINAL_TAINT_FACT").toContain("This session is tainted");
+  // The final request retains that earlier fact as history, while the new
+  // turn's live policy no longer states it. The provider-prefix guard above
+  // asserts every old message, including that note, remains unchanged.
+  expect(exchanges.at(-1)!.raw, "SAFETY_REVIEW_NEVER_REWRITES_EARLIER_FACTS").toContain("This session is tainted");
+  expect(JSON.stringify(messages(exchanges.at(-1)!).at(-1)), "SAFETY_REVIEW_CHANGES_ONLY_NEW_TAIL_FACTS").not.toContain("This session is tainted");
 });

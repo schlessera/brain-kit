@@ -34,6 +34,10 @@ export function cleanup(dir: string): void {
 }
 
 let binHome: string | null = null;
+let utilityRoot: string | undefined;
+
+/** The preload places process-lifetime utilities under launcher-owned storage. */
+export function setCliUtilityRoot(root: string): void { utilityRoot = root; }
 
 /**
  * `brain setup` and `brain doctor --fix` link `brain` into the shared test bin
@@ -70,7 +74,7 @@ process.on("exit", cleanupCliUtilities);
 /** Host account/configuration discovery must never be part of a CLI fixture. */
 function testHome(): string {
   if (home === null) {
-    const dir = mkdtempSync(join(tmpdir(), "brain-test-home-"));
+    const dir = mkdtempSync(join(utilityRoot ?? tmpdir(), "brain-test-home-"));
     for (const name of ["claude", "pi", "config", "cache", "data"]) {
       mkdirSync(join(dir, name));
     }
@@ -82,7 +86,7 @@ function testHome(): string {
 /** Local CLI/fixture tools only; no ambient Claude, gh or MCP commands. */
 function testCommandPath(): string {
   if (commandPath === null) {
-    const dir = mkdtempSync(join(tmpdir(), "brain-test-path-"));
+    const dir = mkdtempSync(join(utilityRoot ?? tmpdir(), "brain-test-path-"));
     symlinkSync(process.execPath, join(dir, "bun"));
     // The sync push-race fixture's git hook records its first invocation with touch.
     for (const name of ["git", "touch"]) {
@@ -102,7 +106,7 @@ function testCommandPath(): string {
  */
 export function testBinHome(): string {
   if (binHome === null) {
-    const dir = mkdtempSync(join(tmpdir(), "brain-test-bin-"));
+    const dir = mkdtempSync(join(utilityRoot ?? tmpdir(), "brain-test-bin-"));
     binHome = dir;
   }
   return binHome;

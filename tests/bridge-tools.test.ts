@@ -64,6 +64,7 @@ const VALID_INPUTS: Record<ToolName, unknown> = {
   inbox_list: { view: "queue" }, inbox_get: { itemId: "harbor" }, inbox_add: { text: "Odysseus", idempotencyKey: "harbor" },
   resolve_action: { sessionId: "harbor", itemId: "harbor", optionId: "approve", expectedVersion: 1 },
   complete_share: { receiptIds: ["harbor-receipt"], files: [] },
+  reference_read: { repository: "https://github.com/odysseus/ithaca", revision: "main", path: "README.md" },
   reference_source: { repository: "https://git.example/ithaca/charts.git", revision: "main" },
   reference_worktree: { action: "request", repository: "https://git.example/ithaca/charts.git", revision: "main" },
   brain_compute_health: {}, brain_compute_plan: { provider: "boat-small", argv: ["make", "charts"], source: ["notes/raft.md"] },
@@ -107,6 +108,21 @@ const VALID_INPUTS: Record<ToolName, unknown> = {
     },
   },
 };
+
+test("both reference readers forward runtime identity separately from model input", async () => {
+  const calls: unknown[] = [];
+  const bridge = { async referenceAccess(call: unknown) { calls.push(call); return { ok: false as const, code: "missing" as const, message: "Fixture refusal" }; } };
+  const input = { repository: "https://github.com/odysseus/ithaca", revision: "main", path: "README.md" };
+  const claude = createReferenceTools(bridge).find(tool => tool.name === "reference_read")!;
+  await claude.handler(input as never, { _meta: { "claudecode/toolUseId": "toolu_ithaca_read" } });
+  const piTool = pi.createPiBridgeTools({ brainPath: "/ithaca", turn: { bridge } as never, capabilities: { reference: true } }).find(tool => tool.name === "reference_read")!;
+  await expect(piTool.execute("call_ithaca|fc_chart", input as never, new AbortController().signal, undefined, undefined as never)).rejects.toThrow("Fixture refusal");
+  expect(calls).toEqual(["toolu_ithaca_read", "call_ithaca|fc_chart"].map(toolCallId => ({ tool: "reference_read", toolCallId,
+    input: { ...input, offset: 0, maximum: 65_536 } })));
+  calls.length = 0;
+  await claude.handler(input as never, {});
+  expect(calls).toEqual([{ tool: "reference_read", input: { ...input, offset: 0, maximum: 65_536 } }]);
+});
 
 function sha256(value: string): string {
   return new Bun.CryptoHasher("sha256").update(value).digest("hex");
@@ -451,6 +467,7 @@ describe("bridge tool adapter validation", () => {
     resolve_action: [{ sessionId: "harbor", itemId: "harbor", optionId: "approve" }],
     complete_share: [{ receiptIds: [], files: [] }, { receiptIds: ["harbor-receipt"], files: [], itemId: "unrelated" }],
     // Principal, path and generation are never inputs; each action takes exactly its own fields.
+    reference_read: [{ repository: "https://github.com/odysseus/ithaca", revision: "main" }, { repository: "https://github.com/odysseus/ithaca", revision: "main", path: "README.md", toolCallId: "forged" }, { repository: "https://github.com/odysseus/ithaca", revision: "main", path: "README.md", maximum: 65537 }],
     reference_source: [{ repository: "https://git.example/ithaca/charts.git" }, { repository: "https://git.example/ithaca/charts.git", revision: "main", principalId: "penelope" }],
     reference_worktree: [{ action: "request", repository: "https://git.example/ithaca/charts.git" }, { action: "renew" },
       { action: "list", worktreeId: "raft" }, { action: "access", worktreeId: "raft", path: "/tmp/brain-worktrees/raft" }, { action: "delete", worktreeId: "raft" }],

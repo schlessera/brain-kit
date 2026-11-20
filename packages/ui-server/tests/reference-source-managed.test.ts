@@ -33,9 +33,10 @@ async function fixture(options: { private?: boolean; worker?: boolean; repositor
   if (writer) registerReferenceWrites(db, writer);
   const credentials: Record<string, string | undefined> = { GITHUB_TOKEN: "odysseus-fixture-token" };
   const metadata: string[] = [], metadataPaths: string[] = [], git: unknown[] = [];
-  const state = { current: true, ownerId: 201, clock: Date.now(), fetches: 0, private: options.private ?? false, status: 200, invalidAt: 0, invalidJsonAt: 0, endOnPrivateMetadata: false, commit };
+  const state = { metadataClockStep: 0, current: true, ownerId: 201, clock: Date.now(), fetches: 0, private: options.private ?? false, status: 200, invalidAt: 0, invalidJsonAt: 0, endOnPrivateMetadata: false, commit };
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, tls: { cert: tls.cert, key: tls.key }, fetch(request) {
     metadata.push(request.headers.get("authorization") ?? "anonymous");
+    state.clock += state.metadataClockStep;
     metadataPaths.push(new URL(request.url).pathname);
     if (metadata.length === state.invalidJsonAt) return new Response("{", { headers: { "content-type": "application/json" } });
     if (metadata.length === state.invalidAt) return Response.json({ id: "invalid" });
@@ -56,7 +57,7 @@ async function fixture(options: { private?: boolean; worker?: boolean; repositor
     async tree() { return tree; },
   };
   const pool = referencePoolDouble(join(directory, "pool"));
-  const access = (database = db) => createGitHubReferenceAccess({ db: database, brain, credentials, transport,
+  const access = (database = db) => createGitHubReferenceAccess({ db: database, brain, credentials, transport, now: () => state.clock,
     wireTransport: { ca: readFileSync(tls.ca, "utf8"), lookup: async () => [{ address: "93.184.216.34", family: 4 }],
       connect: (() => connect({ host: "127.0.0.1", port: server.port! })) as typeof connect } });
   const github = access();
@@ -118,6 +119,13 @@ test("a cached shared root still uses the requesting principal and turn's own me
     const second = await f.request(f.other.id, "telemachus-turn", f.secondEgress);
     try {
       expect(first.rootId).toBe(second.rootId);
+      expect(second.identityObservation, "CACHED_ROOT_RETAINS_REQUESTING_TURN_IDENTITY").toMatchObject({
+        brain, principalId: f.other.id, turnId: "telemachus-turn", rootId: second.rootId,
+        identity: { repositoryId: "101", ownerId: "201" }, ref: "refs/heads/main", commit,
+      });
+      expect(second.identityObservation!.operationId).not.toBe(first.identityObservation!.operationId);
+      expect(Object.isFrozen(second.identityObservation)).toBe(true);
+      expect(Object.isFrozen(second.identityObservation!.identity)).toBe(true);
       expect(f.state.fetches).toBe(1);
       expect(f.secondEgress.usedBytes(), "REFERENCE_SOURCE_CACHE_CANNOT_BORROW_TURN_BUDGET").toBeGreaterThan(0);
       expect(f.metadata).toHaveLength(4);
@@ -1527,4 +1535,17 @@ describe("live managed authority", () => {
           "MANAGED_PRIVATE_REVOKED_ALLOCATION_LEAVES_NO_ROOT").toEqual([]);
       } finally { await worktrees.close(); await f.close(); }
     });
+});
+
+test("identity observation time precedes delayed publication and lease waits", async () => {
+  const f = await fixture(), observedAt = f.state.clock, publish = f.pool.poolPublish;
+  f.state.metadataClockStep = 10;
+  f.pool.poolPublish = async (...args) => { f.state.clock += 1000; return publish(...args); };
+  try {
+    const lease = await f.request();
+    try {
+      expect(lease.identityObservation!.observedAt, "IDENTITY_TIME_COMES_FROM_METADATA_RESPONSE").toBe(observedAt + 20);
+      expect(f.state.clock).toBeGreaterThan(observedAt);
+    } finally { lease.release(); }
+  } finally { await f.close(); }
 });

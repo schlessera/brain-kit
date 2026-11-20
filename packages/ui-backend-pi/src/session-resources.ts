@@ -206,6 +206,7 @@ function buildAppend(
         turnTemp: env.caps.turnTemp === true && "turn_temp",
         referenceSource: env.caps.reference === true && "reference_source",
         referenceWorktree: env.caps.reference === true && "reference_worktree",
+        referenceRead: env.caps.reference === true && "reference_read",
         computeHealth: env.caps.compute === true && "brain_compute_health", computePlan: env.caps.compute === true && "brain_compute_plan",
         computeRun: env.caps.compute === true && "brain_compute_run", computeStatus: env.caps.compute === true && "brain_compute_status",
         computeCancel: env.caps.compute === true && "brain_compute_cancel", computeCollect: env.caps.compute === true && "brain_compute_collect",

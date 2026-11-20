@@ -226,7 +226,7 @@ Stated before the requirements because five of them derive from it.
   that is the shape to copy, including its `close()` lifecycle.
 - R19. **The cron backstop has independent authorization before the general guard.**
   Mount it on the existing listener before
-  (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:1123`).
+  (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:1128`).
   Authorize a boot-minted ephemeral token, rotated each boot and stored in a
   0600 runtime file, with the actual socket address as an additional check.
   Proxy headers cannot authorize it. The poke succeeds in every auth mode
@@ -289,7 +289,7 @@ Stated before the requirements because five of them derive from it.
   AGENTS.md ("Testing expectations") records for the renderer.
 - R29. **Autonomous runs do not inherit ambient project configuration.** Claude loads project
   settings/instructions and also appends explicit bridge tools
-  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:122-511`). If containment fails once, `.claude/settings*`, `.mcp.json`,
+  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:132-521`). If containment fails once, `.claude/settings*`, `.mcp.json`,
   repo instructions, or a skill become durable escalation targets for later
   higher-privilege runs. Autonomous mode uses an explicit tool roster, `strictMcpConfig`, and
   a read-only trusted instruction snapshot.
@@ -359,7 +359,7 @@ Stated before the requirements because five of them derive from it.
   bounded reserve; when the reserve is spent, everything stops and one `fyi` is filed.
 - R44. **Cache stability requires an autonomous prompt mode.** The current prefix is assembled
   per turn from client environment, turn budget, and bridge tool availability
-  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:122-511`), and the SDK preset adds dynamic cwd/memory/git sections
+  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:132-521`), and the SDK preset adds dynamic cwd/memory/git sections
   unless `excludeDynamicSections: true`. Required: a fixed tool roster, dynamic sections
   excluded, deterministic trusted-instruction render (policy digest is v2), and an explicit static/dynamic boundary with every
   per-item value after it. Whether the provider honors cache reads across independent SDK

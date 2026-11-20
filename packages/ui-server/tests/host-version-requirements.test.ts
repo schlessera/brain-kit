@@ -1,5 +1,6 @@
+import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { type HostVersionRequirements } from "../src/app";
@@ -16,6 +17,7 @@ import { hostProcessAlive, waitForHostProcesses } from "./helpers/host-processes
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { registeredVersionDeadline } from "../../ui-sdk/tests/helpers/registered-version-deadline";
 import { MIN_BRAIN_CLI_VERSION } from "../src/brain/client";
+import { completeJsonLines } from "./helpers/json-lines.js";
 const roots: string[] = [];
 const closeNative: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const close of closeNative.splice(0)) await close(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -38,7 +40,7 @@ function fixture(version = MIN_BRAIN_CLI_VERSION) {
   const boundary = (exec: import("@schlessera/brain-ui-sdk/server").ExecWrapperConfig = {}) => createHostBoundary({ brainPath: root, dbPath: config.dbPath, exec, nativeManager });
   const observability = createRecordingObservability();
   const registry = createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]);
-  const invocations = () => existsSync(calls) ? readFileSync(calls, "utf8").trim().split("\n").map(line => JSON.parse(line) as string[]) : [];
+  const invocations = () => completeJsonLines<string[]>(calls);
   return { root, bin, install, config, observability, registry, invocations, boundary };
 }
 
@@ -111,12 +113,26 @@ describe("host version requirements at app startup", () => {
   });
   test("a replaced CLI is also refused before streaming sync's independent launch", async () => {
     const f = fixture();
+    // The Odysseus fixture corpus as the brain, so the UI sync runs against a real brain (#4257).
+    cpSync(join(import.meta.dir, "../../core/fixtures/corpus"), f.root, { recursive: true });
     const app = await createApp({ ...f, versionRequirements: { brainCli: "0.40.0" } });
     try {
       f.install("0.39.0");
       const response = await app.fetch(new Request("http://localhost/api/brain/sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }));
       expect(await response.text()).toContain("incompatible");
       expect(f.invocations().filter(args => args[0] === "sync")).toEqual([]);
+      // The refused UI sync is an Activity run with its failure, and a log line (#4257).
+      type Run = { outcome: string | null; outcome_reason: string | null };
+      const read = () => {
+        const db = new Database(f.config.dbPath, { readonly: true });
+        try { return db.query("SELECT outcome, outcome_reason FROM activity_spans WHERE job_name = 'ui-sync' AND parent_span_id IS NULL").get() as Run | null; }
+        finally { db.close(); }
+      };
+      let run = read();
+      for (const deadline = Date.now() + 5_000; !run?.outcome && Date.now() < deadline; run = read()) await Bun.sleep(10);
+      expect(run, "APP_UI_SYNC_RUN").toMatchObject({ outcome: "error" });
+      expect(run!.outcome_reason ?? "").toContain("incompatible");
+      expect(f.observability.logs.find({ scope: "brain", body: "ui sync failed" }), "APP_UI_SYNC_LOGGED").toHaveLength(1);
     } finally { await app.close(); }
   });
 });

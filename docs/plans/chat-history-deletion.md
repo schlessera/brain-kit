@@ -151,7 +151,7 @@ and [operational recovery](../inbox-recovery.md) remain binding.
 There is no general delete operation: `createSessionRoutes` only lists/reads
 (`createSessionRoutes`, `packages/ui-server/src/routes/sessions.ts:27-175`).
 `AgentBackend` exposes native list/read and read-only storage roots, not deletion
-(`AgentBackend`, `packages/ui-sdk/src/server/backend.ts:826-882`). A storage root
+(`AgentBackend`, `packages/ui-sdk/src/server/backend.ts:832-888`). A storage root
 is not removal authority. Future supported package/HTTP/wire changes need their
 actual contract assessment and a CONTRACT commit; additive capability negotiation
 ships in a minor. The approved retention exception is recorded before runtime
@@ -337,7 +337,7 @@ Preserve the existing bounded-wait ownership distinction during that drain.
 writers; rejection retains the original cleanup continuation, writer and reader
 until genuine settlement, rather than authorizing their replacement
 (`guardSqliteCleanup`, `packages/ui-server/src/db/write-worker.ts:206-234`;
-`close: () => closing ??= guardSqliteCleanup`, `packages/ui-server/src/app.ts:1474-1524`).
+`close: () => closing ??= guardSqliteCleanup`, `packages/ui-server/src/app.ts:1488-1538`).
 The native lease manager retains its own pending operations and durable unknown
 root outcomes through close (`return { client, writer, recoverDeadOwners`,
 `packages/ui-server/src/brain/native-brain-leases.ts:320-333`). A caller deadline

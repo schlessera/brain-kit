@@ -117,6 +117,23 @@ shape changes. See
 [the package API](integration-contract/package-api.md#start-card-persona-choice-3698).
 This ships in a minor.
 
+## Approval display facts for a GitHub comment (additive, 0.45.0, #4154)
+
+`tool_approval_request` gains optional `display` (`ApprovalDisplay`), and
+`PermissionRequest` in `@schlessera/brain-ui-sdk/server` gains the same
+optional field. A `brain_github_issue_comment` card carries the account the
+host's credential would post as and whether the target is an issue or a pull
+request, each `null` when the host could not verify it. The facts are
+display only: the approved input, the answer comparison, the tool's result
+and provider-facing history are unchanged. The comment card's target lookup
+asks the turn's data routing first. In `@schlessera/brain-ui-kit`,
+`GitHubComment` in `preview` accepts no `author` ("The host's GitHub
+account") and shows its whole draft, and `GitHubRef` accepts `kind: null`
+(`repository #number`, no kind, no chip, no link). See
+[the wire component](integration-contract/wire.md#approval-display-facts-additive-0450-4154)
+and [the MCP component](integration-contract/mcp.md#github-writes-additive-0450-3798).
+This ships in a minor; no breaking ruling is required.
+
 ## Data routing for the host GitHub reads (additive, 0.45.0, #4029)
 
 GitHub is a provider-policy recipient, named `github`. Before any request,
@@ -1849,6 +1866,15 @@ every file default when omitted; the hygiene review uses it for managed-worktree
 findings. Described in
 [the package API](integration-contract/package-api.md#hygiene-card-caller-copy-additive-0440-2837).
 
+
+## Immutable reference read tool (additive, 0.45.0, #3613)
+
+Both backends gain `reference_read`, a bounded regular-file read from a
+host-acquired GitHub commit. The [MCP contract](integration-contract/mcp.md#immutable-reference-read-additive-0450-3613)
+defines its strict inputs and byte-preserving content result. The
+[package API](integration-contract/package-api.md#immutable-reference-read-additive-0450-3613)
+records the additive shared contracts and runtime call identity. Host-only
+acquisition/read/result evidence supplies no repository trust exemption.
 
 ## Reference and worktree tools (additive, 0.44.0, #2432)
 

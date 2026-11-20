@@ -64,7 +64,7 @@ next to it.
   of this binary. The only version probe in the server is for the `brain` CLI
   (`Probe the selected content CLI`,
   `packages/ui-server/src/brain/client.ts:180-248`, called at
-  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:510`).
+  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:513`).
   `brain doctor` runs `claude mcp list` from `PATH` (`which("claude")`,
   `packages/core/src/cli/commands/doctor.ts:507-511`) — the user's own Claude
   Code on their own machine, to check the MCP registration, not the server's
@@ -459,7 +459,7 @@ into them.
   A turn's environment is the filtered agent environment plus the profile's
   additions (`export function turnEnv`, `packages/ui-backend-claude/src/sdk-options.ts:86-92`,
   `envSnapshot`, `packages/ui-backend-claude/src/config/env.ts:201-209`), handed to the SDK
-  whole (`sdkOptions.env = childEnv`, `sdk-options.ts:461`). A declared bearer-token profile clears both
+  whole (`sdkOptions.env = childEnv`, `sdk-options.ts:514`). A declared bearer-token profile clears both
   ambient credentials (`input.authTokenEnv !== undefined`, `profiles.ts:116-122`); a declared API-key profile sets
   the key on purpose (`input.apiKeyEnv !== undefined`, `profiles.ts:123-125`).
 - **Billing originally relied on ambient credential classification.** The
@@ -607,7 +607,7 @@ subscription authenticates.
    environment is necessary, whether or not a subscription credential is
    present. It is not sufficient: the CLI also takes an API key from an
    `apiKeyHelper` in settings — the backend loads the brain repo's project
-   settings (`settingSources: ["project"]`, `sdk-options.ts:329`) — and from a stored Console login, reported
+   settings (`settingSources: ["project"]`, `sdk-options.ts:438`) — and from a stored Console login, reported
    as `/login managed key` (`sdk.d.ts:5585`). So the turn has to check which
    credential the CLI selected **before the prompt is sent**, and end the turn
    if it is not a subscription. The check reads the account from the SDK's

@@ -138,6 +138,12 @@ export interface PermissionRequest {
    * @experimental
    */
   outsideEnforcedAllowlist?: boolean;
+  /**
+   * Host-verified facts the card shows, display only (#4154). Sent with the
+   * approval frame; never part of `input`, never compared with the answer,
+   * never authority.
+   */
+  display?: import("../protocol.js").ApprovalDisplay;
 }
 
 export interface AskUserResult {
@@ -294,7 +300,8 @@ export interface BackendBridge {
   /**
    * Shared reference source and managed worktrees (#2432). The host binds the
    * principal, turn and worker generation; the call carries only the tool and
-   * its parsed input. Refusals resolve as `{ ok: false }`.
+   * its parsed input. Immutable reads additionally carry the runtime's actual
+   * toolCallId separately from model-authored input. Refusals resolve as `{ ok: false }`.
    */
   referenceAccess?(call: import("../tool-contracts/reference.js").ReferenceToolCall): Promise<import("../tool-contracts/reference.js").ReferenceToolResult>;
   /**

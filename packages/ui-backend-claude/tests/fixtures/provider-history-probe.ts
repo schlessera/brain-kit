@@ -22,7 +22,7 @@ const REFERENCE_ACTIONS = [{ action: "request", repository: "https://github.com/
 const SOURCE_FRESHNESS = [{ commit: "1".repeat(40), freshness: "fresh", hour: 0, error: null }, { commit: "2".repeat(40), freshness: "fresh", hour: 1, error: null },
   { commit: "2".repeat(40), freshness: "stale", hour: 1, error: "The Ithaca remote did not answer." }] as const;
 /** Scenarios whose every turn calls a reference tool: `reference` withholds the handler on turn 1, the others answer every turn. */
-const REFERENCE_SCENARIOS = ["reference", "renewal", "freshness"];
+const REFERENCE_SCENARIOS = ["reference", "renewal", "freshness", "immutable"];
 /**
  * External compute (#3108): every turn asks the host for one job's status. Turn 1
  * has no host handler (compute disabled and the turn is voice), and the host's answer changes
@@ -42,6 +42,8 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
   if (main) turnOpen = false;
   const content = tool ? [scenario === "compute"
     ? { type: "tool_use", id: `toolu_odysseus_${turnIndex}`, name: "mcp__brain-ui__brain_compute_status", input: { job: "cj_ithaca" } }
+    : scenario === "immutable"
+    ? { type: "tool_use", id: `toolu_odysseus_${turnIndex}`, name: "mcp__brain-ui__reference_read", input: { repository: "https://github.com/odysseus/ithaca", revision: "main", path: "README.md", offset: 0, maximum: 64 } }
     : scenario === "freshness"
     ? { type: "tool_use", id: `toolu_odysseus_${turnIndex}`, name: "mcp__brain-ui__reference_source", input: { repository: "https://github.com/odysseus/ithaca", revision: "main" } }
     : REFERENCE_SCENARIOS.includes(scenario)
@@ -61,7 +63,7 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
 } });
 const restore = replaceNativeStartupAcquisitionForFixture();
 try {
-  for (scenario of ["control", "repository", "facts", "posture", "promotion", "title", "reference", "renewal", "freshness", "datatree", "compute"]) {
+  for (scenario of ["control", "repository", "facts", "posture", "promotion", "title", "reference", "renewal", "freshness", "immutable", "datatree", "compute", "safety"]) {
     brain = fixtureBrain(scratch, scenario);
     capture = captures[scenario] = { sessions: [], exchanges: [], appends: [] };
     const home = join(scratch, `home-${scenario}`);
@@ -75,9 +77,10 @@ try {
       const controller = new AbortController();
       const sandbox = prepareFixtureWorkerSandbox(brain, { home, profile: "strict", ...(scenario === "promotion" ? {} : { areas: [] }) });
       const view = createFixtureWorkerStartupView(brain);
-      const turn = createClaudeSdkTurn({ backend: { brainPath: brain }, req: {
+      const turn = createClaudeSdkTurn({ backend: { brainPath: brain, ...(scenario === "safety" ? { systemPromptAppend: turnIndex === 0 ? "Legacy safety policy: this session stays restricted." : "Reviewed safety policy: finalized individual verdicts may restore normal." } : {}) }, req: {
         prompt: `Odysseus checks voyage step ${turnIndex}.`, sessionId, signal: controller.signal, turnId: `odysseus-${turnIndex}`,
-        workerStartupView: view, workerSandbox: { ...sandbox, noteFacts: { history: { journal: facts !== 1, userRevert: facts === 2 } },
+        workerStartupView: view, workerSandbox: { ...sandbox, ...(scenario === "safety" ? { commandPolicy: { hash: null, deny: [], confirm: [], outwardAllow: [],
+            taint: () => turnIndex === 2 ? null : { eventId: 7, source: "web_fetch" } } } : {}), noteFacts: { history: { journal: facts !== 1, userRevert: facts === 2 } },
           ...(scenario === "datatree" ? { dataTree: turnDataTree(scratch, brain, scenario, turnIndex) } : {}) },
         client: { formFactor: facts === 1 ? "phone" : "tablet", viewportWidth: 800 + facts * 100, camera: facts !== 1 }, turnBudgetMs: 60_000 + facts * 1000,
         ...((scenario === "posture" || scenario === "compute") && turnIndex === 1 ? { posture: "voice" as const, enforceAllowedTools: true, noGrantSurface: true } : {}),
@@ -95,6 +98,11 @@ try {
           // The second turn has no host handler: the tool refuses, and the roster must not change.
           ...(REFERENCE_SCENARIOS.includes(scenario) && (scenario !== "reference" || turnIndex !== 1) ? { async referenceAccess(call: ReferenceToolCall) {
             (capture.calls ??= []).push(call);
+            if (scenario === "immutable") {
+              const content = ["Odysseus charts Ithaca.", "Penelope checks the chart.", "Telemachus stores the chart."][turnIndex]!;
+              return { ok: true as const, guidance: "Fixture immutable read.", read: { repository: "https://github.com/odysseus/ithaca", revision: "main", commit: String(turnIndex + 1).repeat(40),
+                path: "README.md", offset: 0, length: Buffer.byteLength(content), totalBytes: Buffer.byteLength(content), encoding: "utf8" as const, content } };
+            }
             if (scenario === "freshness") {
               const step = SOURCE_FRESHNESS[turnIndex]!;
               return { ok: true as const, guidance: "Fixture source step.", source: { repository: "https://github.com/odysseus/ithaca", revision: "main", domain: "public" as const,
@@ -135,12 +143,21 @@ try {
   sequence = 0;
   const home = join(scratch, "home-budget");
   mkdirSync(join(home, ".claude"), { recursive: true });
-  const hosted = historyHost(brain, createClaudeBackend({ brainPath: brain, allowedTools: ["Read", "Bash"], confirmBashPatterns: [],
+  const budgetBackend = createClaudeBackend({ brainPath: brain, allowedTools: ["Read", "Bash"], confirmBashPatterns: [],
     profiles: [{ id: "fixture", label: "Fixture", model: "claude-sonnet-4-6", billing: "api", requiredEnvKeys: [], buildEnv: () => ({
       HOME: home, CLAUDE_CONFIG_DIR: join(home, ".claude"), ANTHROPIC_BASE_URL: server.url.origin, ANTHROPIC_API_KEY: "offline-odysseus",
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
     }) }], log() {},
-  }));
+  });
+  // Hosted budget turns do not expose the turn object to this fixture. Capture
+  // the production fingerprint of that exact SDK systemPrompt option instead
+  // of leaving their option check vacuous behind the CLI's replayed system.
+  const hosted = historyHost(brain, { ...budgetBackend, async startTurn(req) {
+    return budgetBackend.startTurn({ ...req, bridge: { ...req.bridge, activity(event) {
+      if (event.kind === "prompt_prefix") capture.appends.push(event.prefix.system);
+      req.bridge.activity?.(event);
+    } } });
+  } });
   try {
     for (turnIndex = 0; turnIndex < 3; turnIndex++) {
       if (turnIndex) changeRepository(brain, turnIndex);

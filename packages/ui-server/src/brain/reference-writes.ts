@@ -7,10 +7,11 @@ import { procedureCaller, type SqliteWriter, type WriteProcedures } from "../db/
 import { worktreeWrites } from "./reference-worktree-writes.js";
 import { sourceWrites } from "./reference-source-writes.js";
 import { hygieneWrites } from "./reference-worktree-hygiene-writes.js";
+import { readWrites } from "./reference-read-writes.js";
 
 export const url = import.meta.url;
 export function setup(db: Database): WriteProcedures {
-  return { ...worktreeWrites(db), ...sourceWrites(db), ...hygieneWrites(db) };
+  return { ...worktreeWrites(db), ...sourceWrites(db), ...hygieneWrites(db), ...readWrites(db) };
 }
 
 type Call = {

@@ -1,3 +1,6 @@
+import { createTrustSettings } from "./brain/trust-settings.js";
+import { createTrustSettingsRoutes } from "./routes/trust-settings.js";
+import { createTrustGitHubIdentity } from "./brain/trust-github-identity.js";
 import { SafetyHistory } from "./governance/safety-history.js";
 import { createSessionSafetyRoutes } from "./routes/session-safety.js";
 import { createOwnerSafetyReviewRoutes } from "./routes/owner-safety-review.js";
@@ -190,6 +193,7 @@ import { registerReferenceWrites } from "./brain/reference-writes.js";
 import { createReferenceSources } from "./brain/reference-source.js";
 import { createGitHubReferenceAccess } from "./brain/github-reference-access.js";
 import { createReferenceTools } from "./brain/reference-tools.js";
+import { createReferenceReads } from "./brain/reference-read.js";
 import { createComputeHost, readHostedComputeConfig } from "./brain/compute-host.js";
 import { createReferenceTransport } from "./brain/reference-transport.js";
 import { createReferenceWorktreeHygiene } from "./brain/reference-worktree-hygiene.js";
@@ -541,8 +545,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const referenceCredentials = referenceCredentialValues();
   const referenceTransport = createReferenceTransport({ brainPath: config.brainPath, ...(config.maintenanceTemp ? { tempLimits: config.maintenanceTemp } : {}),
     ...(config.dbPath && config.dbPath !== ":memory:" ? { tempDomain: { statePath: resolve(config.dbPath) } } : {}) });
+  const githubReferenceAccess = createGitHubReferenceAccess({ db, brain: nativeReady.brainUuid, credentials: referenceCredentials, transport: referenceTransport });
   const referenceSources = referencePoolConfigured ? createReferenceSources({ db, pool: nativeManager, brain: nativeReady.brainUuid, credentials: referenceCredentials,
-    transport: referenceTransport, github: createGitHubReferenceAccess({ db, brain: nativeReady.brainUuid, credentials: referenceCredentials, transport: referenceTransport }),
+    transport: referenceTransport, github: githubReferenceAccess,
     ...(config.referenceSource ? { limits: config.referenceSource } : {}), log: brainLog,
     // Managed worktrees (#2430) keep the source roots they were snapshotted from.
     dependents: rootId => referenceWorktreeDependents(db, rootId) }) : undefined;
@@ -557,6 +562,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   }
   // The agent tools (#2432) reach both services only through the turn's own access.
   const referenceTools = referenceSources ? createReferenceTools({ sources: referenceSources, ...(referenceWorktrees ? { worktrees: referenceWorktrees } : {}),
+    reads: createReferenceReads({ db, brain: nativeReady.brainUuid, sources: referenceSources, pool: nativeManager, transport: referenceTransport }),
     log: brainLog }) : undefined;
   if (referenceWorktrees) {
     bootCleanup.push(() => referenceWorktrees.close());
@@ -1181,7 +1187,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   for (const path of INDEX_READ_ROUTES) app.use(path, indexReadBarrier(indexBatch));
   app.route(
     "/api",
-    createBrainRoutes({ syncingRoots: new Set(), brain, brainPath: config.brainPath, exec: config.exec, keyterms, brainCliMinimum, log: brainLog, boundary })
+    createBrainRoutes({ syncingRoots: new Map(), activity: activity.store, brain, brainPath: config.brainPath, exec: config.exec, keyterms, brainCliMinimum, log: brainLog, boundary })
   );
   app.route("/api", createSessionProfileRoutes(sessionProfiles));
   app.route("/api", createSessionRoutes({ registry, db, labels: host.labels !== null, prepareHistory: (id, messages) => host.prepareHistory(id, messages),
@@ -1328,6 +1334,15 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const piExcluded = () => unavailableBackends.some(failure => failure.backendId === "pi");
   app.route("/api", createPiAuthRoutes({ agent: config.agent, excluded: piExcluded }));
   app.route("/api", createWebSearchRoutes({ agent: config.agent, excluded: piExcluded }));
+  const trustSettings = createTrustSettings({ root: config.brainPath, db, writer, lock: workerLock,
+    github: createTrustGitHubIdentity({ root: config.brainPath, access: githubReferenceAccess }),
+    authority: id => {
+      if (authMode !== "password") return null;
+      const p = resolvePrincipal(db, id);
+      return p?.kind === "owner" && ["password", "passkey"].includes(p.authMethod) && isUsablePrincipal(p, Date.now())
+        ? JSON.stringify([p.id, p.authMethod, p.credentialId, p.createdAt, p.expiresAt]) : null;
+    }, observe: (id, publish) => journal.observeSettingsPolicy(id, publish) });
+  app.route("/api", createTrustSettingsRoutes({ settings: trustSettings, trustProxy: auth.trustProxy }));
   const apifyOwner = (id: string) => { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); };
   // Settings edits (#3163) go through the existing policy proposals, the only policy writer, in a user journal window.
   const apifyEdits = createApifyPolicyEdits({ root: config.brainPath, proposals: policyProposals, journal, authorized: apifyOwner });

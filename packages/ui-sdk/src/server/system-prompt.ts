@@ -220,6 +220,7 @@ export interface SurfaceTools {
   /** Names of the shared reference source and managed worktree tools (#2432), or false when absent. */
   referenceSource?: string | false;
   referenceWorktree?: string | false;
+  referenceRead?: string | false;
   /** Names of the external compute tools (#3108), or false when absent. */
   computeHealth?: string | false;
   computePlan?: string | false;
@@ -247,7 +248,7 @@ const SURFACE_TOOL_KEYS: Record<BridgeToolName, keyof SurfaceTools> = {
   [QUERY_ACTIVITY_CONTRACT.name]: "activity",
   [SHOW_BLOCK_CONTRACT.name]: "block",
   [TURN_TEMP_CONTRACT.name]: "turnTemp",
-  reference_source: "referenceSource", reference_worktree: "referenceWorktree",
+  reference_source: "referenceSource", reference_worktree: "referenceWorktree", reference_read: "referenceRead",
   brain_compute_health: "computeHealth", brain_compute_plan: "computePlan", brain_compute_run: "computeRun",
   brain_compute_status: "computeStatus", brain_compute_cancel: "computeCancel", brain_compute_collect: "computeCollect",
 };

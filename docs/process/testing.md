@@ -66,9 +66,22 @@ children finish, the launcher compares the invoking home's sentinel tree with
 its original path membership and metadata, including nanosecond change times.
 This detects retained creations and same-size overwrites without patching
 filesystem functions or observing unrelated sessions' storage activity.
-The preload restores both environment descriptors and removes its storage
-after all test files finish. Turns must await owned observation saves before
-settling so teardown cannot race storage writes.
+The launcher owns the working-home tree, shared CLI utilities and private
+admission ledger until the test process group drains, including all
+`--rerun-each` repetitions, failure and handled cancellation. Bun repeats the
+preload's `afterAll` on the last file, so that hook only asserts the network
+guard for launched tests. Nested `installTestHome` fixtures still restore both
+environment descriptors when explicitly disposed. The preload keeps the ledger
+named for the Bun test process's PID/start identity, so descendants with replaced
+environments still discover that process's private ledger; it records the identity
+in the owned tree for launcher cleanup. Bun watch reloads restore the launcher handoff
+and reattach to that tree. A pre-existing ledger
+must be a real directory owned by the current user with a matching process-owner
+marker; foreign/replaced entries are refused and retained. Parent cleanup also
+checks the recorded device/inode before removal. Raw `bun test` retains its
+preload cleanup fallback; use `bun run test` for repeated or cancellable runs.
+Turns must await owned observation saves before settling so teardown cannot
+race storage writes.
 
 ### Deliberate offline commands on Linux
 
@@ -317,6 +330,15 @@ bun scripts/test-determinism.ts --base origin/main --json   # the report on stdo
   `--bail=1`, so the offline preload is active and a non-loopback connection
   fails as it does in any test. One busy loop per CPU runs until the command
   exits; each is stopped by PID and exits by itself if the command is killed.
+- **Watchdogs under load.** The job multiplies each Vitest project's
+  `testTimeout` and `hookTimeout` by three (45 s and 90 s for the browser
+  defaults), and sets `BRAIN_TEST_DEADLINE_FACTOR` for browser-side
+  `watchdogMs(n)`. `BROWSER_DETERMINISM_PARTITIONS.deadlineFactor` owns the
+  number. `--deadline-factor 1` disables it for a comparison. Explicit test,
+  suite and hook timeout options, `expect.poll` and `vi.waitFor` timeouts and
+  polling intervals keep their own values; a hang-catching bound there can
+  opt in with `watchdogMs(n)`. Product timing assertions use controlled clocks
+  and never scale. The 20-minute step limit is unchanged.
 - **The bound.** Five repetitions, reduced uniformly to no fewer than two when
   the reviewed weights in `scripts/test-shard-costs.json` exceed 300 seconds.
   Ready confirmation runs two, because the merge lease is held while it runs
@@ -385,6 +407,15 @@ packages' built output.
   Node-side state of browser commands and the Vite server are kept, as they
   are between two files of an ordinary run. One busy loop per CPU runs inside
   the container until the command exits.
+- **Watchdogs under load.** The job multiplies each Vitest project's
+  `testTimeout` and `hookTimeout` by three (45 s and 90 s for the browser
+  defaults), and sets `BRAIN_TEST_DEADLINE_FACTOR` for browser-side
+  `watchdogMs(n)`. `BROWSER_DETERMINISM_PARTITIONS.deadlineFactor` owns the
+  number. `--deadline-factor 1` disables it for a comparison. Explicit test,
+  suite and hook timeout options, `expect.poll` and `vi.waitFor` timeouts and
+  polling intervals keep their own values; a hang-catching bound there can
+  opt in with `watchdogMs(n)`. Product timing assertions use controlled clocks
+  and never scale. The 20-minute step limit is unchanged.
 - **The bound.** Five repetitions, reduced uniformly to no fewer than two when
   the reviewed weights in `scripts/browser-shard-costs.json` exceed 300
   seconds. Ready confirmation runs two. A pair with no reviewed weight, which
@@ -400,8 +431,9 @@ packages' built output.
   Failure screenshots are written under `__screenshots__/` beside the spec, as
   in any browser run, and the hosted job uploads them. Fix the spec: wait for
   the state it asserts ([test waits](test-waits.md)), and do not leave state
-  in storage that its next pass will read. A longer deadline or a retry is not
-  a fix.
+  in storage that its next pass will read. If only a hang-catching deadline
+  tripped under load, raise it or use `watchdogMs`; see [the watchdog rule](#watchdogs-and-product-timings).
+  Never retry a failing repetition into a pass.
 - **Where it runs.** The hosted `browser_determinism` job, at every
   pull-request cadence including draft, and in draft heavy feedback. `draft
   gates` and `proof` require it when the change selects it. Never on main.
@@ -439,10 +471,14 @@ import { watchdogMs } from "../scripts/test-deadlines";
 const watchdog = setTimeout(stopChildren, watchdogMs(27_000));
 ```
 
-`watchdogMs` multiplies by `BRAIN_TEST_DEADLINE_FACTOR`, which
+`watchdogMs` works in Bun and Vitest browser specs. It multiplies by
+`BRAIN_TEST_DEADLINE_FACTOR`, which
 `scripts/test-determinism.ts` sets to the gate's factor of eight
 (`DETERMINISM_PARTITIONS.deadlineFactor`, `scripts/proof-shards.ts`) for the
-tests it repeats. Everywhere else the variable is unset and the duration is
+tests it repeats. The browser repetition runner sets its own factor of three
+(`BROWSER_DETERMINISM_PARTITIONS.deadlineFactor`) in each project's `test.env`,
+which Vitest exposes as `import.meta.env` in a spec. In ordinary runs the
+variable is unset and the duration is
 the one written. A malformed value fails the test instead of being read as
 one. Never pass a product timing through the helper.
 
@@ -658,7 +694,8 @@ pair with reason `other` through `scripts/ci-timings.ts record`
 | Variable | Meaning |
 | --- | --- |
 | `BRAIN_HOST_ADMISSION_LIMIT` | Concurrent heavy commands admitted on this host. Defaults to one per four CPUs, at least 1; anything but a positive integer is refused. |
-| `BRAIN_HOST_ADMISSION_DIR` | Ledger directory. Defaults to `brain-host-admission-<uid>` under the system temporary directory. The test preload gives each test process a private ledger, which its descendants also find through their ancestry; a test exercising the host ledger names its own. |
+| `BRAIN_TEST_RESOURCE_ROOT` | Internal, one-generation launcher/preload handoff for process-lifetime test storage. The preload consumes and removes it before tests run; the launcher deletes the tree after the child group drains. |
+| `BRAIN_HOST_ADMISSION_DIR` | Ledger directory. Defaults to `brain-host-admission-<uid>` under the system temporary directory. The test launcher (or standalone preload) gives each invocation a private ledger, which its descendants also find through their ancestry; a test exercising the host ledger names its own. |
 | `BRAIN_WORKER_ID`, `BRAIN_ORCHESTRATOR_ID` | Opaque worker and orchestrator IDs recorded with each slot. Without them a worker is `host-<pid>` and has no orchestrator; it still gets the admission limit. |
 | `BRAIN_RED_MAIN_FIX` | The PR number of a declared red-main fix. Its commands are admitted ahead of every queued ordinary command; they do not preempt running ones. Equivalent to `run --red-main-fix <pr>`. |
 | `BRAIN_HOST_ADMISSION` | Internal: the slot an admitted command's descendants inherit. Never set it by hand. |
@@ -927,10 +964,11 @@ Workflows reference each action by commit, with its release tag as a comment:
    tag and commit.
 
 Environment setup via `scripts/ci-runtime-setup.sh` has its own 12-minute
-step limit in `unit`, `runtime`, `runtime_host` and `determinism`. Proof retains a separate
-30-minute unit allowance or 15-minute runtime allowance. The job caps are
-45 and 30 minutes respectively, including three minutes for the remaining
-steps. The [timeout basis](../decisions/ci-utility.md#separate-environment-setup-and-proof-budgets)
+step limit in `unit`, `runtime`, `runtime_host` and `determinism`. Proof has a separate
+allowance: 30 minutes for unit, 15 for `runtime` and 45 for `runtime_host`.
+The job caps are 45, 30 and 60 minutes respectively, including three minutes
+for the remaining steps. A step limit is a watchdog: it is raised when green
+runs come near it ([#4242](../decisions/ci-utility.md#a-job-step-limit-is-a-watchdog-too)). The [timeout basis](../decisions/ci-utility.md#separate-environment-setup-and-proof-budgets)
 records the slow-mirror observations and margin. Each job always reports setup
 and proof outcomes separately in its summary: setup failure/cancellation is an
 infrastructure prerequisite failure with proof skipped, while proof failure

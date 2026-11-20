@@ -1298,6 +1298,32 @@ export interface ServerToolApprovalRequest extends SessionScoped {
    * refusal whatever the client sends.
    */
   rememberable?: boolean;
+  /**
+   * Facts the host verified for the card's display only (additive, #4154).
+   * They never change what is approved: `input` stays the exact content,
+   * and the answer is compared with it alone. They grant no authority and
+   * never reach the model. Absent, or a fact `null`, means unknown: the
+   * card shows its neutral state instead and the approval works as before.
+   */
+  display?: ApprovalDisplay;
+}
+
+/** Host-verified facts an approval card may show (#4154). Display only. */
+export interface ApprovalDisplay {
+  /** A GitHub comment approval: who would post it, and on what. */
+  github?: GithubApprovalDisplay;
+}
+
+/**
+ * What the host verified about a GitHub comment approval (#4154). `poster`
+ * is the account the host's GitHub tools credential posts as, resolved for
+ * that same credential; `target` is the kind of the object at the card's
+ * repository and number, read from GitHub for that same repository and
+ * number. Either is `null` when it could not be verified.
+ */
+export interface GithubApprovalDisplay {
+  poster: { login: string; is_bot: boolean } | null;
+  target: { kind: "issue" | "pull_request"; html_url: string | null } | null;
 }
 
 export interface ServerResultMessage {

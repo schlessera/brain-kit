@@ -189,7 +189,7 @@ reclamation is observed.
 ## Fixed GitHub wire and identity authority (#3613)
 
 The concrete access owner (`createGitHubReferenceAccess`,
-`packages/ui-server/src/brain/github-reference-access.ts:19-151`) uses the
+`packages/ui-server/src/brain/github-reference-access.ts:19-189`) uses the
 fixed transport (`createGitHubReferenceWire`,
 `packages/ui-server/src/brain/github-reference-wire.ts:19-254`).
 
@@ -204,6 +204,19 @@ anonymous even when the host holds a credential and the principal has a grant.
 Owner identity uses its own anonymous `/users/<owner>` operation, without a
 Git channel or credentialed mode. Parsed identity data carries no trust or
 approved-owner-boundary claim.
+
+Settings repository lookup shares that metadata authority without selecting a
+Git revision or fabricating an agent turn. Its separate owner-only operation
+returns fresh repository/owner IDs through the same fixed anonymous-first path,
+including the requesting owner's own grant for private metadata. Neither that
+result nor anonymous owner lookup approves a trust boundary. The Settings
+publisher must retain its independent human authority and bind a fresh identity
+observation to reviewed publication; changing names or IDs cannot inherit an
+old review. Cancellation and operation authority are retained before waits and
+rechecked before returning the identity, including after wire shutdown. A
+repository observation retains a synchronous authority check over its selected
+grant and credential for the final publication boundary; invoking it does not
+refresh metadata or approve the target.
 
 The fixed wire shares one operation allowance across metadata, Git discovery,
 authentication and fetch, and charges the real turn counter. It counts TLS
@@ -294,13 +307,49 @@ that durable acquisition/read correlation and approved-owner matching remain
 necessary for a source-trust decision. Ordinary file reads keep their existing
 workspace restrictions, and no directory, credential or hostname grants trust.
 
+### Turn-bound content delivery
+
+The `reference_read` tool composes the fixed reader with a fresh managed
+acquisition request. Its repository/ref/path/range are model input; principal,
+turn, network budget and actual backend tool-call identity are independent host
+context. Missing or reused call identity refuses. The selected lease pins the
+source while native sealing and immutable reading wait, and the service checks
+both native root generation and live authority after those waits.
+
+Before returning content, the shared SQLite writer records an acquisition
+snapshot and regular blob/path/range/digest, detector version, the selected
+read grant and digest of the exact content result. The transaction rechecks
+the acquisition mapping, durable authority fence and current private grant.
+The caller checks live turn/principal/source authority again after the writer
+returns. These records remain outside source files and provider history and
+survive eviction of the acquisition. The selected grant for a new read may
+differ from the original acquisition's grant; both facts retain their own
+meaning.
+
+The awaited input-safety result hook observes a read only when one finalized
+text segment exactly matches its prepared result at that turn/call identity.
+An absent hook leaves `prepared`, and altered, mixed or unfinished results
+become sticky `unknown`. Observation is evidence of that backend result,
+not proof of a later provider request. Every read still records workspace
+input; ordinary file marks keep their independent signals. Approved-owner
+matching and the full qualified source-trust route remain separate work.
+
+Observation compares the complete plain-text result or the fixed tool's
+single-text MCP envelope with that segment. Extra content, structured payloads
+and error envelopes cannot borrow a matching text part. Pi omits qualified
+segments for a mixed reference result instead of filtering away its non-text
+parts. Reports lost before the collector's result method, including malformed
+or replayed worker RPCs, invalidate that call before failure containment.
+An earlier loss also fences a read prepared afterward; another call's known
+observation remains independent.
+
 ## Admission
 
 At most `BRAIN_UI_REFERENCE_ACQUISITIONS` (default two) acquisitions or
 refreshes run across the host
 (`admit`, `packages/ui-server/src/brain/reference-source.ts:326-341`). Requests
 for the same legacy source in the same domain join one operation
-(`function join`, `packages/ui-server/src/brain/reference-source.ts:344-369`).
+(`function join`, `packages/ui-server/src/brain/reference-source.ts:346-371`).
 Each principal's private source is its own domain, so two principals requesting
 the same private repository at once run two operations, each with its own
 credential and view. Admitted operations finish independently: a stalled one
@@ -371,3 +420,19 @@ catalog lost, and deletions interrupted in `deleting` (`recover`, `packages/ui-s
   against the simple-quota Btrfs pool. It acquires the 1,200-file repository
   into a quota-limited root and reads it through its view from a bubblewrap
   sandbox. The withdrawn root is reclaimed.
+
+## Read-bound identity observations
+
+Each managed request retains its own frozen fixed-wire identity observation,
+including cache reuse by another principal or turn. The observation binds the
+host-generated read invocation ID, served brain, principal, turn, selected root,
+full ref and commit. The reader and writer compare that ID with the invocation
+that requested the transport, so another read of the same source cannot supply
+its observation. Observation time is captured when fixed metadata validation
+succeeds, before publication, recording or lease waits.
+Immutable read evidence snapshots this observation separately from the original
+acquisition and the writer checks their stable repository/current-owner IDs and
+names together before recording. A changed or missing observation refuses that
+read; a fresh call can acquire again. Old receipts remain historical evidence,
+including across restart, and cannot establish current identity or source trust.
+Approved-owner rule evaluation remains independently required.
