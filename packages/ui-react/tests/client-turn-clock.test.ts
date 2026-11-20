@@ -60,7 +60,8 @@ test("a lost report is attempted once even when the socket throws, and later tur
   clock.frame(idle);
   expect(attempts).toEqual([{ type: "client_turn_receipt", turnId: "turn-ithaca", timing: { sendToFirstHostFrameMs: 100 } }]);
   clock.sent({ type: "chat_message", text: "Return to Ithaca", requestId: "return" }, 1000);
-  clock.frame({ ...identity, turnId: "turn-return", requestId: "return" });
+  const returnIdentity = { ...identity, turnId: "turn-return", requestId: "return" };
+  clock.frame(returnIdentity);
   clock.frame({ ...idle, turnId: "turn-return" });
   expect(attempts).toHaveLength(2);
 });

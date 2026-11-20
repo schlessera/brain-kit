@@ -115,7 +115,8 @@ signatures (every public export and the types it is made of)
     };
   ActivityStore (packages/ui-server/src/activity/store.ts)
     export interface ActivityStore {
-        writeLifecycle(record: ActivityTurnLifecycle): void;
+        writeLifecycle(record: ActivityTurnLifecycle, principalId?: string): void;
+        writeClientReceipt(turnId: string, principalId: string, timing: import("@schlessera/brain-ui-sdk/protocol").ClientTurnTiming): boolean;
         lifecycleChangesSince(cursor: number, limit?: number): Array<{
             changeId: number;
             runId: string;
@@ -174,7 +175,7 @@ signatures (every public export and the types it is made of)
         close(): void;
     }
   ActivityWriteMethod (packages/ui-server/src/activity/store.ts)
-    export type ActivityWriteMethod = "writeLifecycle" | "startSpan" | "endSpan" | "patchSpan" | "appendEvent" | "heartbeat" | "cascadeClose" | "sweepOwnOrphans" | "sweepStale" | "rollupRun" | "prune";
+    export type ActivityWriteMethod = "writeClientReceipt" | "writeLifecycle" | "startSpan" | "endSpan" | "patchSpan" | "appendEvent" | "heartbeat" | "cascadeClose" | "sweepOwnOrphans" | "sweepStale" | "rollupRun" | "prune";
   AgentConfig (packages/ui-server/src/config/env.ts)
     export interface AgentConfig {
         backend: string | null;
