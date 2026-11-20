@@ -213,6 +213,183 @@ test("owner Settings identity is anonymous and owner-scoped, without approval or
   } finally { await f.close(); }
 });
 
+test("Settings repository identity has no Git phase or revision and stays anonymous", async () => {
+  const f = await fixture(); f.grant({ principalId: f.owner.id });
+  try {
+    const pending = Promise.resolve().then(() => f.service().repository({ ...f.bounds, principalId: f.owner.id, repository: "odysseus/ithaca" }));
+    await expect(pending, "SETTINGS_REPOSITORY_RESOLVES_WITHOUT_GIT_OR_AGENT_TURN").resolves.toEqual({
+      owner: "odysseus", repository: "ithaca", canonical: "https://github.com/odysseus/ithaca", cloneUrl: "https://github.com/odysseus/ithaca.git",
+      metadataUrl: "https://api.github.com/repos/odysseus/ithaca", repositoryId: "101", ownerId: "201", private: false,
+      assertAuthority: expect.any(Function),
+    });
+    expect(f.received).toEqual([{ path: "/repos/odysseus/ithaca", authorization: null }]);
+    expect(f.git, "SETTINGS_METADATA_NEVER_DISPATCHES_GIT").toEqual([]);
+    await expect(f.service().repository({ ...f.bounds, principalId: f.agent.id, repository: "odysseus/ithaca" }),
+      "SETTINGS_PUBLIC_METADATA_REQUIRES_OWNER").rejects.toMatchObject({ reason: "denied" });
+    expect(f.received).toHaveLength(1);
+  } finally { await f.close(); }
+});
+
+test("owner metadata rechecks the Settings operation after its actual DNS wait", async () => {
+  let release!: () => void, ready!: () => void, current = true;
+  const reached = new Promise<void>(resolve => { ready = resolve; }), held = new Promise<void>(resolve => { release = resolve; });
+  const f = await fixture({ lookup: async () => { ready(); await held; return [{ address: "93.184.216.34", family: 4 }]; },
+    metadata: () => Response.json({ id: 201, login: "Odysseus", type: "User", url: "https://api.github.com/users/Odysseus", html_url: "https://github.com/Odysseus" }) });
+  const pending = f.service().owner({ ...f.bounds, principalId: f.owner.id, owner: "odysseus", current: () => current });
+  try {
+    await reached; current = false; release();
+    const result = await pending.then(value => ({ ok: true, value }), () => ({ ok: false }));
+    expect(result, "SETTINGS_OWNER_OPERATION_RECHECKED_AFTER_DNS").toEqual({ ok: false });
+    expect(f.connections, "SETTINGS_ENDED_OWNER_OPERATION_NEVER_CONNECTS").toEqual([]);
+    expect(f.received).toEqual([]);
+  } finally { release(); await pending.catch(() => {}); await f.close(); }
+});
+
+test("private Settings metadata uses the owner's own live grant and separately permitted API recipient", async () => {
+  const f = await fixture({ private: true });
+  f.grant({ principalId: f.owner.id });
+  try {
+    await expect(f.service().repository({ ...f.bounds, principalId: f.owner.id, repository: "odysseus/ithaca" }),
+      "SETTINGS_PRIVATE_METADATA_USES_OWN_GRANT").resolves.toMatchObject({ repositoryId: "101", ownerId: "201", private: true });
+    expect(f.received).toEqual([{ path: "/repos/odysseus/ithaca", authorization: null },
+      { path: "/repos/odysseus/ithaca", authorization: `Bearer ${token}` }]);
+    await expect(f.service().repository({ ...f.bounds, principalId: f.agent.id, repository: "odysseus/ithaca" }),
+      "SETTINGS_METADATA_REQUIRES_OWNER").rejects.toMatchObject({ reason: "denied" });
+    expect(f.received).toHaveLength(2);
+    expect(f.git).toEqual([]);
+  } finally { await f.close(); }
+});
+
+for (const kind of ["grant", "replace", "narrower", "recipient", "credential", "principal", "operation", "cancel"] as const)
+  test(`Settings metadata retains a final synchronous ${kind} authority fence after wire cleanup`, async () => {
+    let current = true;
+    const credentials: Record<string, string> = { GITHUB_TOKEN: token }, controller = new AbortController();
+    const f = await fixture({ private: true, credentials }), grant = f.grant({ principalId: f.owner.id });
+    try {
+      const result = await f.service().repository({ ...f.bounds, principalId: f.owner.id, repository: "odysseus/ithaca",
+        current: () => current, signal: controller.signal });
+      expect(() => result.assertAuthority(), "SETTINGS_FRESH_METADATA_AUTHORITY_REMAINS_USABLE_AFTER_CLEANUP").not.toThrow();
+      if (kind === "grant" || kind === "replace") {
+        revokeReferenceGrant(f.db, { brain, principalId: f.owner.id, id: grant.id, now: Date.now() });
+        if (kind === "replace") f.grant({ principalId: f.owner.id });
+      } else if (kind === "narrower") f.grant({ principalId: f.owner.id, repositoryPrefix: "https://github.com/odysseus/ithaca" });
+      else if (kind === "recipient") f.db.query("UPDATE reference_grants SET metadata_credential_recipient=NULL WHERE id=?").run(grant.id);
+      else if (kind === "credential") credentials.GITHUB_TOKEN = "changed-fixture-token";
+      else if (kind === "principal") revokePrincipal(f.db, f.owner.id, Date.now());
+      else if (kind === "operation") current = false;
+      else controller.abort();
+      expect(() => result.assertAuthority(), "SETTINGS_FINAL_PUBLICATION_FENCE_RETAINS_LOOKUP_AUTHORITY").toThrow();
+      expect(f.received).toHaveLength(2); expect(f.git).toEqual([]);
+    } finally { await f.close(); }
+  });
+
+for (const kind of ["absent", "legacy", "other-brain", "other-principal", "sibling-repository", "revoked", "credentialless"] as const)
+  test(`Settings private metadata refuses ${kind} authority without credential probing`, async () => {
+    let tokenReads = 0;
+    const f = await fixture({ private: true, credentials: { get GITHUB_TOKEN() { tokenReads++; return token; } } });
+    try {
+      if (kind !== "absent") {
+        const grant = f.grant({ principalId: f.owner.id, ...(kind === "legacy" ? { metadataCredentialRecipient: null }
+          : kind === "other-brain" ? { brain: "troy-brain" }
+          : kind === "other-principal" ? { principalId: f.agent.id }
+          : kind === "sibling-repository" ? { repositoryPrefix: "https://github.com/odysseus-crew" }
+          : kind === "credentialless" ? { credential: null, metadataCredentialRecipient: null } : {}) });
+        if (kind === "revoked") revokeReferenceGrant(f.db, { brain, principalId: f.owner.id, id: grant.id, now: Date.now() });
+      }
+      await expect(f.service().repository({ ...f.bounds, principalId: f.owner.id, repository: "odysseus/ithaca" }),
+        "SETTINGS_METADATA_NEEDS_OWN_LIVE_GRANT_AND_API_PERMISSION").rejects.toMatchObject({ reason: "denied" });
+      expect(tokenReads, "SETTINGS_METADATA_REFUSAL_NEVER_PROBES_CREDENTIAL").toBe(0);
+      expect(f.received).toEqual([{ path: "/repos/odysseus/ithaca", authorization: null }]);
+      expect(f.git).toEqual([]);
+    } finally { await f.close(); }
+  });
+
+for (const kind of ["operation", "principal", "grant", "recipient", "credential", "cancel"] as const)
+  test(`Settings private metadata fences ${kind} loss during credentialed DNS`, async () => {
+    let release!: () => void, ready!: () => void, lookups = 0, current = true;
+    const reached = new Promise<void>(resolve => { ready = resolve; }), held = new Promise<void>(resolve => { release = resolve; });
+    const credentials: Record<string, string> = { GITHUB_TOKEN: token }, controller = new AbortController();
+    const f = await fixture({ private: true, credentials, lookup: async () => {
+      if (++lookups === 2) { ready(); await held; } return [{ address: "93.184.216.34", family: 4 }];
+    } });
+    const grant = f.grant({ principalId: f.owner.id });
+    const pending = f.service().repository({ ...f.bounds, principalId: f.owner.id, repository: "odysseus/ithaca", current: () => current, signal: controller.signal });
+    try {
+      await reached;
+      if (kind === "operation") current = false;
+      else if (kind === "principal") revokePrincipal(f.db, f.owner.id, Date.now());
+      else if (kind === "grant") revokeReferenceGrant(f.db, { brain, principalId: f.owner.id, id: grant.id, now: Date.now() });
+      else if (kind === "recipient") f.db.query("UPDATE reference_grants SET metadata_credential_recipient=NULL WHERE id=?").run(grant.id);
+      else if (kind === "credential") credentials.GITHUB_TOKEN = "changed-fixture-token";
+      else controller.abort();
+      release();
+      const result = await pending.then(value => ({ ok: true, value }), () => ({ ok: false }));
+      expect(result, "SETTINGS_AUTHORITY_RECHECKED_AFTER_CREDENTIALED_DNS").toEqual({ ok: false });
+      expect(f.connections, "SETTINGS_LOST_AUTHORITY_NEVER_REACHES_CREDENTIALED_TCP").toHaveLength(1);
+      expect(f.received).toEqual([{ path: "/repos/odysseus/ithaca", authorization: null }]);
+      expect(f.git).toEqual([]);
+    } finally { release(); await pending.catch(() => {}); await f.close(); }
+  });
+
+for (const kind of ["owner", "repository"] as const)
+  test(`Settings ${kind} identity retains its original caller and operation across waits`, async () => {
+    let release!: () => void, ready!: () => void, current = true;
+    const reached = new Promise<void>(resolve => { ready = resolve; }), held = new Promise<void>(resolve => { release = resolve; });
+    const f = await fixture({ lookup: async () => { ready(); await held; return [{ address: "93.184.216.34", family: 4 }]; } });
+    const input = { ...f.bounds, principalId: f.owner.id, owner: "odysseus", repository: "odysseus/ithaca", current: () => current };
+    const pending = kind === "owner" ? f.service().owner(input) : f.service().repository(input);
+    try {
+      await reached; current = false;
+      input.principalId = f.agent.id; input.current = () => true; input.owner = "penelope"; input.repository = "penelope/loom";
+      release();
+      expect(await pending.then(() => true, () => false), "SETTINGS_CALLER_MUTATION_CANNOT_REPLACE_OPERATION").toBe(false);
+      expect(f.connections).toEqual([]); expect(f.received).toEqual([]);
+    } finally { release(); await pending.catch(() => {}); await f.close(); }
+  });
+
+test("each Settings lookup observes fresh provider identity and refuses redirects or unknown metadata", async () => {
+  const changes = [identity(), { ...identity(), id: 102 }, { ...identity(), owner: { id: 202, login: "Odysseus" } },
+    { ...identity(), name: "Fleet", full_name: "Odysseus/Fleet", clone_url: "https://github.com/Odysseus/Fleet.git", url: "https://api.github.com/repos/Odysseus/Fleet" }];
+  let selected = 0;
+  const f = await fixture({ metadata: () => Response.json(changes[selected]) });
+  try {
+    const lookup = (repository = "odysseus/ithaca") => f.service().repository({ ...f.bounds, principalId: f.owner.id, repository });
+    expect(await lookup()).toMatchObject({ repositoryId: "101", ownerId: "201" });
+    selected = 1; expect(await lookup(), "SETTINGS_NAME_REUSE_RETURNS_NEW_IDENTITY").toMatchObject({ repositoryId: "102", ownerId: "201" });
+    selected = 2; expect(await lookup(), "SETTINGS_OWNER_REUSE_RETURNS_NEW_BOUNDARY").toMatchObject({ repositoryId: "101", ownerId: "202" });
+    selected = 3;
+    await expect(lookup(), "SETTINGS_RENAME_CANNOT_BORROW_OLD_NAME_RESPONSE").rejects.toThrow();
+    expect(await lookup("odysseus/fleet"), "SETTINGS_RENAME_REQUIRES_FRESH_EXACT_NAME_OBSERVATION").toMatchObject({ repositoryId: "101", ownerId: "201", repository: "fleet" });
+    expect(f.git).toEqual([]);
+  } finally { await f.close(); }
+  for (const status of [302, 403, 429, 500]) {
+    let tokenReads = 0;
+    const control = await fixture({ metadata: () => new Response(null, { status }), credentials: { get GITHUB_TOKEN() { tokenReads++; return token; } } });
+    control.grant({ principalId: control.owner.id });
+    try {
+      await expect(control.service().repository({ ...control.bounds, principalId: control.owner.id, repository: "odysseus/ithaca" }),
+        "SETTINGS_UNKNOWN_METADATA_CANNOT_DISPATCH_CREDENTIAL").rejects.toThrow();
+      expect(tokenReads).toBe(0); expect(control.received).toHaveLength(1); expect(control.git).toEqual([]);
+    } finally { await control.close(); }
+  }
+});
+
+test("Settings cancellation closes a pending DNS operation before that lookup finishes", async () => {
+  let release!: () => void, ready!: () => void;
+  const reached = new Promise<void>(resolve => { ready = resolve; }), held = new Promise<void>(resolve => { release = resolve; });
+  const controller = new AbortController();
+  const f = await fixture({ lookup: async () => { ready(); await held; return [{ address: "93.184.216.34", family: 4 }]; } });
+  const pending = f.service().repository({ ...f.bounds, principalId: f.owner.id, repository: "odysseus/ithaca", signal: controller.signal });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await reached; controller.abort();
+    const result = await Promise.race([pending.then(() => "identity", () => "cancelled"),
+      new Promise<string>(resolve => { timer = setTimeout(() => resolve("still_waiting"), 5000); })]);
+    expect(result, "SETTINGS_CANCEL_DOES_NOT_WAIT_FOR_DNS").toBe("cancelled");
+    expect(f.connections).toEqual([]); expect(f.received).toEqual([]);
+  } finally { if (timer) clearTimeout(timer); release(); await pending.catch(() => {}); await f.close(); }
+});
+
 test("one acquisition binds a short revision before network and refuses a moved fetched commit before checkout", async () => {
   const f = await fixture({ fetchCommit: "b".repeat(40) });
   try {
