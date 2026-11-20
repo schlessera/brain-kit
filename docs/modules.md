@@ -178,7 +178,10 @@ const issues = await github("/repos/ithaca/watchtower/issues?state=closed").then
 
 - **Reads:** `GET` under `/repos/<owner>/<repo>/…` for a granted repository,
   and `POST /graphql` with a query (never a mutation) whose one root field is
-  `repository(owner:, name:)` naming a granted repository.
+  `repository(owner:, name:)` naming a granted repository. Fields that select
+  another repository or owner by name are refused below the root. Other
+  nested data (an author's other issues, a cross-reference) is bounded by the
+  token's own scope, so limit the token to the granted repositories.
 - **Writes:** only what the operator enables per repository in
   `BRAIN_UI_MODULE_GITHUB_WRITES`, as `https://github.com/<owner>/<repo>#<operation>`:
   `issue_comment` (`POST /repos/<r>/issues/<n>/comments` with `{ body }`) and

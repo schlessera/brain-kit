@@ -1034,7 +1034,9 @@ directory, alive only for that run. HTTP requests to it are relayed to
 fallback), never following a redirect. Relayed: `GET /repos/<owner>/<repo>/…`
 for a granted repository; `POST /graphql` with `{ query, variables?,
 operationName? }` when the query is one query operation whose only root field
-is `repository(owner:, name:)` naming a granted repository; and, only where
+is `repository(owner:, name:)` naming a granted repository and no field below it
+selects another repository, owner or account by name (nested traversal is
+otherwise bounded by the token's scope); and, only where
 the operator's `BRAIN_UI_MODULE_GITHUB_WRITES` enables them for that repository,
 `POST /repos/<r>/issues/<n>/comments` with exactly `{ body }` (`issue_comment`)
 and `PATCH /repos/<r>/issues/<n>` with `{ state, state_reason? }`

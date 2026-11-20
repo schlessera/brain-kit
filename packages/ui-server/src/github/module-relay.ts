@@ -153,12 +153,13 @@ export function graphqlQueryRepository(query: string, variables: unknown, operat
 }
 
 /**
- * Fields that select another repository, an owner's repositories, an account
- * or a global node or search, wherever they appear below the granted root.
+ * Fields that select another repository, owner or account by name, wherever
+ * they appear below the granted root. Not every traversal GitHub's schema
+ * offers: the token's own scope bounds the rest (docs/modules.md).
  */
-const CROSS_REPOSITORY_FIELDS = new Set(["repository", "repositories", "repositoryOwner", "owner", "organization", "user", "viewer",
-  "forks", "parent", "templateRepository", "search", "node", "nodes_by_id", "resource", "topic", "enterprise", "sponsorable",
-  "pinnedItems", "starredRepositories", "watching", "repositoriesContributedTo", "topRepositories", "mergeQueue"]);
+const CROSS_REPOSITORY_FIELDS = new Set(["repository", "repositories", "repositoryOwner", "owner", "organization", "organizations", "user", "viewer",
+  "forks", "parent", "templateRepository", "headRepository", "baseRepository", "headRepositoryOwner", "search", "node", "resource", "topic",
+  "enterprise", "sponsorable", "pinnedItems", "starredRepositories", "watching", "repositoriesContributedTo", "topRepositories", "gists"]);
 
 /**
  * Every selected field name in GraphQL selection text whose strings are

@@ -619,10 +619,15 @@ a maintenance worker has no network namespace route to the host. A token placed
 in the job's worker and leaving API writes to the operator's own host jobs
 were both rejected.
 
-A GraphQL read must stay inside its granted repository: below the
-`repository(owner:, name:)` root, no field that reaches another repository,
-an owner or the account (`owner`, `repositories`, `forks`, `parent`, `search`,
-`viewer` and the like) is relayed. Every host-view worker, agent and
+A GraphQL read is rooted at a granted repository, as the ruling states.
+Below that root, the relay also refuses fields that select another repository,
+owner or account by name (`repository`, `repositories`, `owner`, `forks`,
+`parent`, `search`, `viewer`, `headRepository` and the like). That denylist
+cannot close every traversal GitHub's schema offers: an author's other issues,
+or a cross-referencing issue elsewhere, still answer with whatever the token
+can read, as the REST timeline does. The token's own scope is therefore the
+read boundary below the root, and the operator limits
+`BRAIN_UI_MODULE_GITHUB_TOKEN` to the repositories module jobs are granted. Every host-view worker, agent and
 maintenance alike, also covers `/etc/environment`. A container writes the cron
 runner's environment there for pam_env, host-only credentials included, and a
 worker builds its environment explicitly and never reads that file.
