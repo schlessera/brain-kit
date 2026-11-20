@@ -39,6 +39,34 @@ hash directly. Missing/expired raw details never grant a download bypass.
 links use the embedding root's configured API base.
 Those read helpers do not execute mutations.
 
+### Default workspace inspection and code-changes preference (#4295)
+
+**Breaking narrowing, authorized 2026-11-20:** default governed and strict
+turns bind `workspaces/` read-only. Their retained journal coverage excludes
+workspace paths, checkout ignore-policy reads and observed workspace bytes.
+Notes keep their existing coverage. This applies per turn even during shared
+observations with an opted-in writer. Retained history from earlier turns
+remains readable with its existing routes and shapes.
+
+**Additive API:** authenticated `GET` and `PUT`
+`/api/sessions/:id/code-changes` and `/api/drafts/:id/code-changes` return
+`{ enabled: boolean }`, default false. PUT accepts exactly that JSON object;
+unknown fields or a non-boolean give 400, non-JSON gives 415, an oversized
+body gives 413, an unknown session gives 404 and unusable authentication gives
+401. Drafts are scoped to the authenticated principal and share the existing
+bounded profile-draft storage (507 when full). Successful saves are durable
+before acknowledgement. All responses are `Cache-Control: no-store`.
+
+The switch is independent of the worker profile, preserves that preference,
+and cannot weaken strict or provider restrictions. A first-send profile draft
+carries its code-changes preference into the named session. Saves survive
+resume and are frozen before admission awaits; changing a save never changes
+an active turn. Enabled turns retain writable workspace qualification, the
+alias scan, per-file journaling and byte charges. Mode changes reach the
+worker through append-only new-turn context, without altering tools, the
+system prompt or earlier messages. The refusal note names both writable
+alternatives: the session's code-changes switch and a managed worktree.
+
 <a id="untrusted-file-marks-additive-2673"></a>
 
 ### Untrusted file marks (additive, #2673)

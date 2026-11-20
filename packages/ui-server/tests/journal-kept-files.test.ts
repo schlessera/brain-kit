@@ -25,7 +25,7 @@ function fixture(capBytes?: number) {
   for (const name of ["brain.db", "brain.db-wal", "brain.db-shm"]) writeFileSync(join(brain, ".brain-index", name), "initial index");
   const native = createNativeJournalFixture(brain, root);
   const db = createUiDb(path), journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath: path, objectsRoot: join(root, "objects"), capBytes });
-  const begin = (id: string) => journal.begin(id, { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null }, error => { throw error; });
+  const begin = (id: string) => journal.begin(id, { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null, codeChanges: true }, error => { throw error; });
   return { brain, db, journal, begin, write: (path: string, bytes: string | Buffer) => writeFileSync(join(brain, path), bytes),
     async close() { await journal.close(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); } };
 }

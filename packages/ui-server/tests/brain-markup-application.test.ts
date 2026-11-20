@@ -291,3 +291,13 @@ test("cancellation and revocation recheck immediately before the layer is linked
   beforeCommit = () => { authorized = false; };
   await refused(request(), "authority_revoked");
 });
+
+
+test("workspace inspection protection cannot be bypassed by a scratch markup alias", async () => {
+  mkdirSync(join(root, "workspaces/ithaca"), { recursive: true });
+  symlinkSync(join(root, "workspaces/ithaca"), join(root, dir));
+  const result = await app(["workspaces"])(request());
+  expect(result.ok, "INSPECT_MARKUP_ALIAS_REFUSED").toBe(false);
+  expect(result.changes).toEqual([]);
+  expect(readdirSync(join(root, "workspaces/ithaca")), "INSPECT_MARKUP_ALIAS_HAS_NO_BYTES").toEqual([]);
+});

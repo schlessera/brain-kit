@@ -43,6 +43,8 @@ export interface GovernedTurnHold {
 }
 /** Who a turn's inference reaches and which conversation it continues (#2695). */
 export interface GovernedTurnRoute {
+  /** Session preference frozen before the first admission await. */
+  readonly codeChanges?: boolean;
   /**
    * The exact origin the turn's host inference relay will forward to, from
    * its backend. It names the recipient only on managed native storage, where
@@ -235,7 +237,7 @@ export function createGovernedTurns(options: {
         try { ensureRetainedDirectories(options.brainPath, folderPaths); } catch { /* resolver refuses */ }
         const requested = options.profile === "strict" || (origin === "interactive" && preference === "strict") ? "strict" : policy.policy.profiles[origin];
         const selected = requested === "governed" && !availability.available ? "strict" : requested;
-        const resolveSandbox = () => prepareWorkerSandboxAsync(options.brainPath, { profile: selected,
+        const resolveSandbox = () => prepareWorkerSandboxAsync(options.brainPath, { profile: selected, codeChanges: route?.codeChanges === true,
           protectedPaths: protectedPaths(policy.policy), folderPaths,
           maskPaths: options.maskPaths, maintenance: { ...options.execution.boundary.maintenance, startupView } });
         let resolved = await step("sandbox_resolve", resolveSandbox);

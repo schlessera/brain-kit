@@ -49,12 +49,14 @@ export function journalPathScope(path: string): { scope: string; local: string; 
   return { scope, local, refs: true };
 }
 
-export async function freezeNativeJournalPolicy(entries: Iterable<Entry>, read: (path: string, maximum: number) => Promise<Buffer>, covered: readonly string[] = []) {
+export async function freezeNativeJournalPolicy(entries: Iterable<Entry>, read: (path: string, maximum: number) => Promise<Buffer>, covered: readonly string[] = [], options: { workspaces?: boolean } = {}) {
+  const excluded = (path: string) => options.workspaces === false && isWithin("workspaces", path);
   const rules = new Map<string, Rule[]>();
   const admitted = new Set(covered);
   // Metadata is already indexed. Only ignore files are read here; no baseline
   // content, object hashes or per-turn content manifest is produced.
   for (const entry of entries) {
+    if (excluded(entry.path)) continue;
     const location = journalPathScope(entry.path);
     if (!location || location.refs) continue;
     if (location.local.split("/").at(-1) !== ".gitignore") continue;
@@ -86,5 +88,5 @@ export async function freezeNativeJournalPolicy(entries: Iterable<Entry>, read: 
     }
     return false;
   }
-  return { ignored, cover(paths: readonly string[]) { for (const path of paths) admitted.add(path); } };
+  return { ignored, excluded, cover(paths: readonly string[]) { for (const path of paths) admitted.add(path); } };
 }

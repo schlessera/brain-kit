@@ -210,3 +210,19 @@ test("retained legacy policy wording and earlier taint facts stay byte-identical
   expect(exchanges.at(-1)!.raw, "SAFETY_REVIEW_NEVER_REWRITES_EARLIER_FACTS").toContain("This session is tainted");
   expect(JSON.stringify(messages(exchanges.at(-1)!).at(-1)), "SAFETY_REVIEW_CHANGES_ONLY_NEW_TAIL_FACTS").not.toContain("This session is tainted");
 });
+
+
+test("workspace mode changes appear only in the new tail and preserve the provider prefix (#4295)", () => {
+  const capture = captures.facts!;
+  const first = main(capture).find(exchange => exchange.turn === 0)!;
+  expect(first.raw, "INSPECT_FIRST_TAIL_NAMES_WRITE_OPT_IN").toContain("code-changes switch");
+  for (const [a, b] of pairs(capture)) {
+    identical(body(a).tools, body(b).tools, "WORKSPACE_MODE_TOOLS_STABLE");
+    identical(system(a), system(b), "WORKSPACE_MODE_SYSTEM_STABLE");
+    history(a, b);
+  }
+  const changed = main(capture).find(exchange => exchange.turn === 1)!;
+  expect(JSON.stringify(messages(changed).at(-1)), "CHANGE_MODE_IN_NEW_TAIL").toContain("is writable: clone, fetch and commit");
+  const inspect = main(capture).find(exchange => exchange.turn === 2)!;
+  expect(JSON.stringify(messages(inspect).at(-1)), "INSPECT_MODE_RETURNS_IN_NEW_TAIL").toContain("code-changes switch");
+});

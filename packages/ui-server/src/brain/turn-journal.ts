@@ -478,8 +478,8 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
           .map(item => ({ ...item, path: referenceWorktreeJournalPath(root.worktreeId, item.path === "." ? "" : item.path) })))];
         let step = timing?.("observe_record");
         turn.sequence = await retain(() => call<number>("recordObservation", {
-          turnId, sequence: turn.sequence, at: now(), userPolicy, changed: [...changed.values()], steeringPaths: [...steering.paths],
-          overlaps, worktree, steeringUnavailable: [...steering.unavailable], steeringInventoried: steering.inventoried === true, unreadable,
+          turnId, sequence: turn.sequence, at: now(), userPolicy, changed: [...changed.values()].filter(item => !turn.policy.excluded(item.path)), steeringPaths: [...steering.paths].filter(path => !turn.policy.excluded(path)),
+          overlaps, worktree, steeringUnavailable: [...steering.unavailable].filter(path => !turn.policy.excluded(path)), steeringInventoried: steering.inventoried === true, unreadable: unreadable.filter(item => !turn.policy.excluded(item.path)),
         }));
         step?.(); step = timing?.("observe_publish");
         publish(turnId);
@@ -530,7 +530,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       observers.add(observer); if (periodic) periodicObservers.add(periodic);
       return () => { if (periodic) periodicObservers.delete(periodic); return observers.delete(observer); };
     },
-    begin(turnId: string, metadata: { sessionId: string | null; actor: "interactive" | "voice" | "user"; model: string | null; profile: "strict" | "governed"; policyHash: string | null; coveredPaths?: readonly string[] }, stop: (error: Error) => void, signal?: AbortSignal,
+    begin(turnId: string, metadata: { sessionId: string | null; actor: "interactive" | "voice" | "user"; model: string | null; profile: "strict" | "governed"; policyHash: string | null; coveredPaths?: readonly string[]; codeChanges?: boolean }, stop: (error: Error) => void, signal?: AbortSignal,
       /** Each step of the admission (#3355); a failed step is left unended. */ timing?: PhaseTimer) {
       return held(async steps => {
       signal?.throwIfAborted();
@@ -551,7 +551,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       end?.();
       try {
       end = steps?.("policy");
-      const policy = await capture.policy(metadata.coveredPaths);
+      const policy = await capture.policy(metadata.coveredPaths, { workspaces: metadata.codeChanges === true || metadata.actor === "user" });
       end?.();
       signal?.throwIfAborted();
       active.set(turnId, { policy, stop, sequence: 0, sessionId: metadata.sessionId }); publish(turnId);

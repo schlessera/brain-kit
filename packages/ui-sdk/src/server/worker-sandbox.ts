@@ -1,6 +1,6 @@
 /**
  * The writable areas of an interactive agent worker (#1626): the brain's own
- * scratch area and its repository workspaces, bound read-write over the
+ * scratch area and opted-in repository workspaces, bound read-write over the
  * read-only brain, and per-turn XDG directories in turn temp. Everything here is
  * resolved once per worker by `prepareWorkerSandbox`
  * (`packages/ui-sdk/src/server/worker-launcher.ts`), which both builds the
@@ -18,7 +18,7 @@
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, unlinkSync } from "node:fs";
 import { join, relative } from "node:path";
-import { BRAIN_SCRATCH_DIR, BRAIN_WORKSPACES_DIR, linkRule, READ_ONLY_BRAIN_RULE, TURN_TEMP_RULE } from "@schlessera/brain-common/internal/worker-areas";
+import { BRAIN_SCRATCH_DIR, BRAIN_WORKSPACES_DIR, linkRule, READ_ONLY_BRAIN_RULE, TURN_TEMP_RULE, WORKSPACES_READ_ONLY_REASON } from "@schlessera/brain-common/internal/worker-areas";
 import { brainGitSteps } from "./maintenance-worker.js";
 import { MaintenanceTempBusyError } from "./maintenance-temp-budget.js";
 import { runWorkerStepsSync, workerStep, type WorkerSteps } from "./worker-steps.js";
@@ -41,7 +41,7 @@ export const WORKER_MOUNT_SCAN_LIMIT = 200_000;
 export type WorkerHome = { mode: "xdg" };
 
 /** One writable area: bound read-write, or named with why it is not. `missing`: the directory does not exist. */
-export type WorkerMount = { writable: true; path: string } | { writable: false; reason: string; missing?: true };
+export type WorkerMount = { writable: true; path: string } | { writable: false; reason: string; missing?: true; readOnlyPath?: string };
 
 /**
  * The named writable areas a worker may receive inside the read-only brain.
@@ -141,6 +141,8 @@ export interface WorkerSandbox {
   readonly noteFacts?: WorkerNoteFacts;
   /** Canonical brain path the layout was resolved for. */
   readonly brain: string;
+  /** Frozen at admission; changing a saved preference never changes this turn. */
+  readonly codeChanges?: boolean;
   readonly restricted: boolean;
   /** Resolved filesystem profile. Omitted legacy layouts are strict. */
   readonly profile?: WorkerProfile;
@@ -490,22 +492,24 @@ export function* resolveScratchMountSteps(brain: string, maintenance?: import(".
 }
 
 /**
- * `<brain>/workspaces`, bound read-write only when it already exists as a
- * real directory: creating it outside a hosted turn is the opt-in. Core
+ * `<brain>/workspaces` is inspected read-only by default. The session must
+ * opt in to code changes before the writable alias scan runs. A writable
+ * mount also requires an existing real directory. Core
  * always excludes it from the index, so it holds no authoritative document.
  * Any file in it with a name outside it, a mount below it or a walk past the
  * limit leaves it read-only for the turn.
  */
-export function resolveWorkspacesMount(brain: string, limit = WORKER_MOUNT_SCAN_LIMIT): WorkerMount {
+export function resolveWorkspacesMount(brain: string, limit = WORKER_MOUNT_SCAN_LIMIT, codeChanges = false): WorkerMount {
   const dir = realBrainDirectory(brain, BRAIN_WORKSPACES_DIR, false);
   if (dir === null) return { writable: false, reason: "workspaces/ does not exist", missing: true };
   if (typeof dir === "object") return { writable: false, reason: dir.refused };
   if (mountPointsUnder(dir).length) return { writable: false, reason: "workspaces/ is or contains a mount point" };
+  if (!codeChanges) return { writable: false, readOnlyPath: dir, reason: WORKSPACES_READ_ONLY_REASON };
   const scan = scanForOutsideLinks(brain, dir, limit);
-  if (scan.overLimit) return { writable: false, reason: `workspaces/ holds more than ${limit} entries, too many to verify` };
-  if (scan.unverified) return { writable: false, reason: `workspaces/ could not be verified: ${scan.unverified}` };
-  if (scan.brainInside) return { writable: false, reason: "workspaces/ contains the brain itself" };
-  if (scan.outside.length) return { writable: false, reason: `hard-linked to files outside workspaces/: ${shown(scan.outside)}` };
+  if (scan.overLimit) return { writable: false, readOnlyPath: dir, reason: `workspaces/ holds more than ${limit} entries, too many to verify` };
+  if (scan.unverified) return { writable: false, readOnlyPath: dir, reason: `workspaces/ could not be verified: ${scan.unverified}` };
+  if (scan.brainInside) return { writable: false, readOnlyPath: dir, reason: "workspaces/ contains the brain itself" };
+  if (scan.outside.length) return { writable: false, readOnlyPath: dir, reason: `hard-linked to files outside workspaces/: ${shown(scan.outside)}` };
   return { writable: true, path: dir };
 }
 
@@ -600,7 +604,7 @@ const AREA_LINES: Record<WorkerAreaName, (area: WorkerArea, target: string) => s
   workspaces: ({ rel, mount }, target) => mount.writable
     ? `   - \`${target}/\` is writable: clone, fetch and commit other repositories there, never in \`/tmp\`.`
     : mount.missing
-      ? `   - There is no \`${rel}/\` directory, so a repository clone is lost at turn end. Creating \`${rel}/\` in the brain outside a hosted turn makes it writable in later turns.`
+      ? `   - There is no \`${rel}/\` directory, so a repository clone is lost at turn end. Create it outside a hosted turn, then enable this session’s code-changes switch; or request a managed worktree.`
       : `   - \`${rel}/\` is read-only this turn: ${mount.reason}.`,
 };
 
@@ -680,7 +684,7 @@ export function workerSandboxNote(sandbox: WorkerSandbox, facts: WorkerNoteFacts
   }
   if (profile !== "restricted" && sandbox.scopePolicy) {
     const scope = sandbox.scopePolicy;
-    lines.push("", `Scope limits per turn: ${scope.max_tool_calls} tool calls, ${scope.max_minutes} wall minutes, ${scope.max_files_changed} distinct observed changed paths and ${scope.max_bytes_written} observed written bytes in brain, scratch and workspaces${sandbox.worktrees ? ", and managed worktrees" : ""}.`,
+    lines.push("", `Scope limits per turn: ${scope.max_tool_calls} tool calls, ${scope.max_minutes} wall minutes, ${scope.max_files_changed} distinct observed changed paths and ${scope.max_bytes_written} observed written bytes in brain and scratch${sandbox.codeChanges ? ", and workspaces" : ""}${sandbox.worktrees ? ", and managed worktrees" : ""}.`,
       "One finite Continue grant per dimension adds its original cap. A second hit and the free-space floor max(5%, 2 GiB) allow Stop only. Voice stops without a grant. Observations cannot capture writes overwritten between snapshots.",
       ...(resolvedFacts.hardTimeoutMs === undefined ? [] : [`The independent host hard timeout is ${resolvedFacts.hardTimeoutMs / 60_000} minutes, including paused time. Resource and storage limits remain binding.`]));
   }

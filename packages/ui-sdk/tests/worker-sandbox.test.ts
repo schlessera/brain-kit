@@ -1,10 +1,14 @@
-import { launchFixtureAgentWorker as launchAgentWorker, prepareFixtureWorkerSandbox as prepareWorkerSandbox, createFixtureMaintenanceHost } from "./helpers/worker-startup-view-fixture.js";
+import { launchFixtureAgentWorker as launchAgentWorker, prepareFixtureWorkerSandbox, createFixtureMaintenanceHost } from "./helpers/worker-startup-view-fixture.js";
 import { describe, expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
 import { chmodSync, existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { workerCommand } from "../src/server/worker-launcher";
 import { resolveScratchMount, WORKER_XDG_DIRS, workerSandboxNote, workerSandboxWarnings, type WorkerSandbox } from "../src/server/worker-sandbox";
+
+// The historical writable-area cases exercise the explicit code-changes mode.
+const prepareCodeChangesSandbox = (brain: string, options: Parameters<typeof prepareFixtureWorkerSandbox>[1] = {}) =>
+  prepareFixtureWorkerSandbox(brain, { codeChanges: true, ...options });
 
 const GOLDEN = "Odysseus: only the server owns policy writes.\n";
 const ROOT = resolve(import.meta.dir, "../../..");
@@ -45,7 +49,7 @@ describe("worker sandbox writable areas (#1626)", () => {
   test("scratch and workspaces persist; the rest of the brain survives write, rename, hardlink and symlink escapes", async () => {
     const f = fixture();
     try {
-      const sandbox = prepareWorkerSandbox(f.brain, { home: f.home });
+      const sandbox = prepareCodeChangesSandbox(f.brain, { home: f.home });
       expect(sandbox.areas.map(a => [a.name, a.mount.writable])).toEqual([["scratch", true], ["workspaces", true]]);
       const program = `import * as fs from "node:fs";
         const brain=${JSON.stringify(f.brain)}, policy=${JSON.stringify(f.policy)};
@@ -90,7 +94,7 @@ describe("worker sandbox writable areas (#1626)", () => {
   test("the home stays read-only and per-turn XDG directories are writable (#1703)", async () => {
     const f = fixture();
     try {
-      const sandbox = prepareWorkerSandbox(f.brain, { home: f.home });
+      const sandbox = prepareCodeChangesSandbox(f.brain, { home: f.home });
       expect(sandbox.home).toEqual({ mode: "xdg" });
       const program = `import * as fs from "node:fs";
         const attempt=(fn)=>{try{fn();return "ok"}catch(e){return e.code}};
@@ -106,10 +110,10 @@ describe("worker sandbox writable areas (#1626)", () => {
   test("every interactive home is the XDG fallback, without probing the home", () => {
     const f = fixture();
     try {
-      expect(prepareWorkerSandbox(f.brain, { home: f.home }).home).toEqual({ mode: "xdg" });
+      expect(prepareCodeChangesSandbox(f.brain, { home: f.home }).home).toEqual({ mode: "xdg" });
       expect(readdirSync(f.home)).toEqual([".gitconfig"]);
-      expect(prepareWorkerSandbox(f.brain, { home: join(f.brain, "notes") }).home?.mode).toBe("xdg");
-      expect(prepareWorkerSandbox(f.brain, {}).home?.mode).toBe("xdg");
+      expect(prepareCodeChangesSandbox(f.brain, { home: join(f.brain, "notes") }).home?.mode).toBe("xdg");
+      expect(prepareCodeChangesSandbox(f.brain, {}).home?.mode).toBe("xdg");
     } finally { f.cleanup(); }
   });
 
@@ -119,11 +123,11 @@ describe("worker sandbox writable areas (#1626)", () => {
       const repo = join(f.brain, "workspaces/ithaca/palace");
       writeFileSync(join(repo, "object"), "loom");
       linkSync(join(repo, "object"), join(f.brain, "workspaces/ithaca/object-clone"));
-      expect(prepareWorkerSandbox(f.brain, { home: f.home }).areas[1], "CONTAINED_LINK").toEqual({ name: "workspaces", rel: "workspaces",
+      expect(prepareCodeChangesSandbox(f.brain, { home: f.home }).areas[1], "CONTAINED_LINK").toEqual({ name: "workspaces", rel: "workspaces",
         mount: { writable: true, path: join(f.brain, "workspaces") } });
       linkSync(f.policy, join(repo, "policy-alias.md"));
-      const sandbox = prepareWorkerSandbox(f.brain, { home: f.home });
-      expect(sandbox.areas[1], "OUTSIDE_LINK").toEqual({ name: "workspaces", rel: "workspaces", mount: { writable: false,
+      const sandbox = prepareCodeChangesSandbox(f.brain, { home: f.home });
+      expect(sandbox.areas[1], "OUTSIDE_LINK").toEqual({ name: "workspaces", rel: "workspaces", mount: { writable: false, readOnlyPath: join(f.brain, "workspaces"),
         reason: "hard-linked to files outside workspaces/: workspaces/ithaca/palace/policy-alias.md" } });
       expect(mountsIn(workerCommand({ brainPath: f.brain, command: [process.execPath], env: { HOME: f.home }, sandbox })).binds)
         .toEqual([join(f.brain, ".brain/scratch")]);
@@ -139,7 +143,7 @@ describe("worker sandbox writable areas (#1626)", () => {
       mkdirSync(scratch, { recursive: true });
       writeFileSync(join(scratch, "draft.pdf"), "draft"); linkSync(join(scratch, "draft.pdf"), join(scratch, "draft-copy.pdf"));
       linkSync(f.policy, join(scratch, "policy-alias.md"));
-      const sandbox = prepareWorkerSandbox(f.brain, { home: f.home });
+      const sandbox = prepareCodeChangesSandbox(f.brain, { home: f.home });
       expect(sandbox.scratchAliasesRemoved, "SCRATCH_ALIAS").toEqual([".brain/scratch/policy-alias.md"]);
       expect(sandbox.areas[0]?.mount.writable).toBe(true);
       expect(readdirSync(scratch).sort()).toEqual(["draft-copy.pdf", "draft.pdf"]);
@@ -156,10 +160,10 @@ describe("worker sandbox writable areas (#1626)", () => {
       mkdirSync(hidden); mkdirSync(scratchHidden, { recursive: true });
       linkSync(f.policy, join(hidden, "policy-alias.md")); linkSync(f.policy, join(scratchHidden, "policy-alias.md"));
       chmodSync(hidden, 0o100); chmodSync(scratchHidden, 0o100);
-      const sandbox = prepareWorkerSandbox(f.brain, { home: f.home });
+      const sandbox = prepareCodeChangesSandbox(f.brain, { home: f.home });
       expect(sandbox.areas, "UNREADABLE_DIR").toEqual([
         { name: "scratch", rel: ".brain/scratch", mount: { writable: false, reason: ".brain/scratch/ could not be verified: .brain/scratch/hidden cannot be opened (EACCES)" } },
-        { name: "workspaces", rel: "workspaces", mount: { writable: false, reason: "workspaces/ could not be verified: workspaces/ithaca/hidden cannot be opened (EACCES)" } },
+        { name: "workspaces", rel: "workspaces", mount: { writable: false, readOnlyPath: join(f.brain, "workspaces"), reason: "workspaces/ could not be verified: workspaces/ithaca/hidden cannot be opened (EACCES)" } },
       ]);
       expect(mountsIn(workerCommand({ brainPath: f.brain, command: [process.execPath], env: { HOME: f.home }, sandbox })).binds).toEqual([]);
     } finally { chmodSync(hidden, 0o700); chmodSync(scratchHidden, 0o700); f.cleanup(); }
@@ -216,7 +220,7 @@ describe("worker sandbox writable areas (#1626)", () => {
       const odd = Buffer.concat([Buffer.from(join(f.brain, "workspaces/")), Buffer.from([0xff])]);
       mkdirSync(odd);
       linkSync(f.policy, Buffer.concat([odd, Buffer.from("/b"), Buffer.from([0xfe])]));
-      const mount = prepareWorkerSandbox(f.brain, { home: f.home }).areas[1]?.mount;
+      const mount = prepareCodeChangesSandbox(f.brain, { home: f.home }).areas[1]?.mount;
       expect(mount?.writable, "BYTE_NAMES").toBe(false);
       expect(mount && !mount.writable && mount.reason).toStartWith("hard-linked to files outside workspaces/: workspaces/");
     } finally { f.cleanup(); }
@@ -237,7 +241,7 @@ describe("worker sandbox writable areas (#1626)", () => {
     try {
       linkSync(f.policy, join(f.brain, "workspaces/ithaca/palace/alias.md"));
       const { resolveWorkspacesMount } = require("../src/server/worker-sandbox") as typeof import("../src/server/worker-sandbox");
-      expect(resolveWorkspacesMount(f.brain), "MOVED_ALIAS").toEqual({ writable: false,
+      expect(resolveWorkspacesMount(f.brain, undefined, true), "MOVED_ALIAS").toEqual({ writable: false, readOnlyPath: join(f.brain, "workspaces"),
         reason: "hard-linked to files outside workspaces/: workspaces/alias.md" });
       expect(moved).toBe(true);
     } finally { spy.mockRestore(); f.cleanup(); }
@@ -249,8 +253,8 @@ describe("worker sandbox writable areas (#1626)", () => {
       for (let i = 0; i < 5; i++) writeFileSync(join(f.brain, `workspaces/ithaca/f${i}`), "x");
       const { resolveWorkspacesMount, scanForOutsideLinks } = require("../src/server/worker-sandbox") as typeof import("../src/server/worker-sandbox");
       expect(scanForOutsideLinks(f.brain, join(f.brain, "workspaces"), 3).overLimit).toBe(true);
-      expect(resolveWorkspacesMount(f.brain, 3), "OVER_LIMIT").toEqual({ writable: false, reason: "workspaces/ holds more than 3 entries, too many to verify" });
-      expect(resolveWorkspacesMount(f.brain).writable).toBe(true);
+      expect(resolveWorkspacesMount(f.brain, 3, true), "OVER_LIMIT").toEqual({ writable: false, readOnlyPath: join(f.brain, "workspaces"), reason: "workspaces/ holds more than 3 entries, too many to verify" });
+      expect(resolveWorkspacesMount(f.brain, undefined, true).writable).toBe(true);
     } finally { f.cleanup(); }
   });
 
@@ -260,7 +264,7 @@ describe("worker sandbox writable areas (#1626)", () => {
       const target = join(f.root, "elsewhere"); mkdirSync(target);
       if (link === ".brain/scratch") mkdirSync(join(f.brain, ".brain"));
       symlinkSync(target, join(f.brain, link));
-      const sandbox = prepareWorkerSandbox(f.brain, { home: f.home });
+      const sandbox = prepareCodeChangesSandbox(f.brain, { home: f.home });
       expect(sandbox.areas[0]).toEqual({ name: "scratch", rel: ".brain/scratch", mount: { writable: false, reason: `${link} is a symlink` } });
       expect(readdirSync(target)).toEqual([]);
       expect(mountsIn(workerCommand({ brainPath: f.brain, command: [process.execPath], env: { HOME: f.home }, sandbox })).binds)
@@ -272,7 +276,7 @@ describe("worker sandbox writable areas (#1626)", () => {
     const f = fixture({ workspaces: false });
     try {
       mkdirSync(join(f.root, "repos")); symlinkSync(join(f.root, "repos"), join(f.brain, "workspaces"));
-      expect(prepareWorkerSandbox(f.brain, { home: f.home }).areas[1]).toEqual({ name: "workspaces", rel: "workspaces",
+      expect(prepareCodeChangesSandbox(f.brain, { home: f.home }).areas[1]).toEqual({ name: "workspaces", rel: "workspaces",
         mount: { writable: false, reason: "workspaces is a symlink" } });
     } finally { f.cleanup(); }
   });
@@ -281,10 +285,10 @@ describe("worker sandbox writable areas (#1626)", () => {
     const f = fixture();
     try {
       expect(Bun.spawnSync(["git", "init", "-q", f.brain]).exitCode).toBe(0);
-      expect(prepareWorkerSandbox(f.brain, { home: f.home }).areas[0]?.mount, "SCRATCH_IGNORED").toMatchObject({ writable: false,
+      expect(prepareCodeChangesSandbox(f.brain, { home: f.home }).areas[0]?.mount, "SCRATCH_IGNORED").toMatchObject({ writable: false,
         reason: expect.stringContaining("not gitignored") });
       writeFileSync(join(f.brain, ".gitignore"), ".brain/scratch/\n");
-      expect(prepareWorkerSandbox(f.brain, { home: f.home }).areas[0]?.mount.writable).toBe(true);
+      expect(prepareCodeChangesSandbox(f.brain, { home: f.home }).areas[0]?.mount.writable).toBe(true);
     } finally { f.cleanup(); }
   });
 
@@ -292,10 +296,10 @@ describe("worker sandbox writable areas (#1626)", () => {
     const f = fixture();
     try {
       expect(Bun.spawnSync(["git", "init", "-q", f.root]).exitCode).toBe(0);
-      expect(prepareWorkerSandbox(f.brain, { home: f.home }).areas[0]?.mount, "PARENT_REPO").toMatchObject({ writable: false,
+      expect(prepareCodeChangesSandbox(f.brain, { home: f.home }).areas[0]?.mount, "PARENT_REPO").toMatchObject({ writable: false,
         reason: expect.stringContaining("not gitignored") });
       writeFileSync(join(f.brain, ".gitignore"), ".brain/scratch/\n");
-      expect(prepareWorkerSandbox(f.brain, { home: f.home }).areas[0]?.mount.writable).toBe(true);
+      expect(prepareCodeChangesSandbox(f.brain, { home: f.home }).areas[0]?.mount.writable).toBe(true);
     } finally { f.cleanup(); }
   });
 
@@ -303,14 +307,14 @@ describe("worker sandbox writable areas (#1626)", () => {
     const f = fixture({ workspaces: false });
     try {
       const variants: WorkerSandbox[] = [
-        prepareWorkerSandbox(f.brain, { home: f.home }),
-        prepareWorkerSandbox(f.brain, { home: f.home, areas: [] }),
+        prepareCodeChangesSandbox(f.brain, { home: f.home }),
+        prepareCodeChangesSandbox(f.brain, { home: f.home, areas: [] }),
       ];
       mkdirSync(join(f.brain, "workspaces"));
-      variants.push(prepareWorkerSandbox(f.brain, { home: f.home, areas: ["workspaces"] }), prepareWorkerSandbox(f.brain, { home: f.home }));
+      variants.push(prepareCodeChangesSandbox(f.brain, { home: f.home, areas: ["workspaces"] }), prepareCodeChangesSandbox(f.brain, { home: f.home }));
       // A repository that does not ignore scratch: the scratch area stays read-only.
       expect(Bun.spawnSync(["git", "init", "-q", f.brain]).exitCode).toBe(0);
-      variants.push(prepareWorkerSandbox(f.brain, { home: f.home }));
+      variants.push(prepareCodeChangesSandbox(f.brain, { home: f.home }));
       expect(variants.at(-1)!.areas[0]?.mount.writable).toBe(false);
       for (const sandbox of variants) {
         const mounts = mountsIn(workerCommand({ brainPath: f.brain, command: [process.execPath], env: { HOME: f.home }, sandbox }));
@@ -330,7 +334,7 @@ describe("worker sandbox writable areas (#1626)", () => {
         expect(note).toContain("**Profile: `strict`.** The brain is read-only here");
         expect(note).toContain("3. **The brain: canonical and versioned.**");
       }
-      const restricted = prepareWorkerSandbox(f.brain, { restricted: true });
+      const restricted = prepareCodeChangesSandbox(f.brain, { restricted: true });
       expect(restricted).toEqual({ brain: f.brain, restricted: true, areas: [], scratchAliasesRemoved: [] });
       expect(workerSandboxNote(restricted)).toContain("restricted (autonomous) turn");
       // A restricted worker's argv is unchanged by its (empty) sandbox.
@@ -348,7 +352,7 @@ describe("worker sandbox writable areas (#1626)", () => {
   test("a sandbox resolved for another brain, envelope or home refuses the launch", () => {
     const f = fixture(), g = fixture();
     try {
-      const sandbox = prepareWorkerSandbox(f.brain, { home: f.home });
+      const sandbox = prepareCodeChangesSandbox(f.brain, { home: f.home });
       expect(() => workerCommand({ brainPath: g.brain, command: [process.execPath], env: { HOME: f.home }, sandbox })).toThrow("another brain");
       rmSync(join(f.brain, "workspaces"), { recursive: true }); symlinkSync(g.brain, join(f.brain, "workspaces"));
       expect(() => workerCommand({ brainPath: f.brain, command: [process.execPath], env: { HOME: f.home }, sandbox }), "RELAUNCH_RECHECK")
@@ -430,7 +434,7 @@ describe("the sandbox note's wording (#1654)", () => {
     // The launcher binds an area only at its own path, so a moved area never reaches a worker.
     const f = fixture();
     try {
-      const resolved = prepareWorkerSandbox(f.brain, { home: f.home });
+      const resolved = prepareCodeChangesSandbox(f.brain, { home: f.home });
       const relabelled = { ...resolved, areas: resolved.areas.map(area => area.name === "scratch" ? { ...area, rel: ".brain/loom" } : area) };
       expect(() => workerCommand({ brainPath: f.brain, command: [process.execPath], env: { HOME: f.home }, sandbox: relabelled }))
         .toThrow("the scratch area is not at .brain/scratch/");
@@ -481,7 +485,7 @@ describe("managed worktree generations (#2430)", () => {
   test("a generation is bound whole, only into an interactive worker, and only from a root-owned directory outside the brain", async () => {
     const f = fixture();
     try {
-      const sandbox = prepareWorkerSandbox(f.brain, { home: f.home });
+      const sandbox = prepareCodeChangesSandbox(f.brain, { home: f.home });
       const owned = join(f.root, "generation"); mkdirSync(owned); chmodSync(owned, 0o755);
       // The pool's access generation is root-owned. A host directory such as
       // /usr is not a stand-in: an unprivileged user namespace (the CI unit
@@ -509,7 +513,7 @@ describe("managed worktree generations (#2430)", () => {
       // The same directory, owned by this unprivileged uid, is refused.
       expect(() => workerCommand({ brainPath: f.brain, command: [process.execPath], env: { HOME: f.home }, sandbox: generation }),
         "REFERENCE_WORKTREE_GENERATION_MUST_BE_ROOT_OWNED").toThrow("root-owned directory outside the brain");
-      const restricted = prepareWorkerSandbox(f.brain, { restricted: true });
+      const restricted = prepareCodeChangesSandbox(f.brain, { restricted: true });
       expect(() => workerCommand({ brainPath: f.brain, command: [process.execPath], env: {}, restricted: { readPaths: [process.execPath], inferenceDir: f.root },
         sandbox: { ...restricted, worktrees: { source: "/usr" } } }), "REFERENCE_WORKTREE_NEVER_IN_A_RESTRICTED_WORKER").toThrow("only an interactive governed or strict worker");
     } finally { f.cleanup(); }
@@ -521,7 +525,7 @@ describe("shared reference source views (#2432)", () => {
   test("each view is bound whole and read-only, only into an interactive worker, and only from a root-owned directory outside the brain", async () => {
     const f = fixture();
     try {
-      const sandbox = prepareWorkerSandbox(f.brain, { home: f.home });
+      const sandbox = prepareCodeChangesSandbox(f.brain, { home: f.home });
       const publicView = join(f.root, "public-view"), privateView = join(f.root, "private-view");
       for (const view of [publicView, privateView]) { mkdirSync(view); chmodSync(view, 0o755); }
       const inBrain = join(f.brain, "notes"); chmodSync(inBrain, 0o755);
@@ -548,7 +552,7 @@ describe("shared reference source views (#2432)", () => {
       }
       expect(() => workerCommand({ brainPath: f.brain, command: [process.execPath], env: { HOME: f.home }, sandbox: { ...sandbox, references: { public: publicView } } }),
         "REFERENCE_VIEW_MUST_BE_ROOT_OWNED").toThrow("root-owned directory outside the brain");
-      const restricted = prepareWorkerSandbox(f.brain, { restricted: true });
+      const restricted = prepareCodeChangesSandbox(f.brain, { restricted: true });
       expect(() => workerCommand({ brainPath: f.brain, command: [process.execPath], env: {}, restricted: { readPaths: [process.execPath], inferenceDir: f.root },
         sandbox: { ...restricted, references: { public: "/usr" } } }), "REFERENCE_VIEW_NEVER_IN_A_RESTRICTED_WORKER").toThrow("only an interactive governed or strict worker");
     } finally { f.cleanup(); }
@@ -582,4 +586,55 @@ describe("managed worktree guidance (#2430)", () => {
       "never delete unfinished work", "Release a worktree once you no longer need it", "and managed worktrees."])
       expect(first, `REFERENCE_WORKTREE_GUIDANCE ${phrase}`).toContain(phrase);
   });
+});
+
+
+describe("workspace inspect default (#4295, #4298)", () => {
+  test("inspection skips the alias walk even past its entry limit and names both write alternatives", () => {
+    const f = fixture();
+    try {
+      const { resolveWorkspacesMount } = require("../src/server/worker-sandbox") as typeof import("../src/server/worker-sandbox");
+      for (let i = 0; i < 5; i++) writeFileSync(join(f.brain, `workspaces/ithaca/file-${i}`), "Ithaca");
+      const mount = resolveWorkspacesMount(f.brain, 3);
+      expect(mount.writable, "INSPECT_DOES_NOT_REQUIRE_WRITABLE_SCAN").toBe(false);
+      expect(mount).toHaveProperty("readOnlyPath", join(f.brain, "workspaces"));
+      expect(mount).not.toHaveProperty("reason", "workspaces/ holds more than 3 entries, too many to verify");
+      const note = workerSandboxNote(prepareFixtureWorkerSandbox(f.brain, { areas: ["workspaces"] }));
+      expect(note, "REFUSAL_NAMES_SESSION_OPT_IN").toContain("code-changes switch");
+      expect(note, "INSTALL_REFUSAL_NAMES_MANAGED_WORKTREE").toContain("managed worktree");
+      expect(note).toContain("write, install or build");
+    } finally { f.cleanup(); }
+  });
+
+  test.each(["strict", "governed"] as const)("%s default reads workspaces and refuses a pre-existing hard-link write", async profile => {
+    const f = fixture();
+    try {
+      const note = join(f.brain, "notes/voyage.md");
+      writeFileSync(note, GOLDEN);
+      linkSync(note, join(f.brain, "workspaces/ithaca/policy-alias.md"));
+      writeFileSync(join(f.brain, "workspaces/ithaca/pinned.md"), "Athena protects this file.");
+      const sandbox = prepareFixtureWorkerSandbox(f.brain, { profile, areas: ["workspaces"],
+        // Pinning a protected child's ancestors must not reopen its workspace.
+        ...(profile === "governed" ? { protectedPaths: ["workspaces/ithaca/pinned.md"] } : {}) });
+      expect(sandbox.profile, "REQUESTED_WORKSPACE_PROFILE_ACTUALLY_RUNS").toBe(profile);
+      // No alias scan: this is the qualified inspect mount, not a scan refusal.
+      expect(sandbox.areas[0]!.mount, "DEFAULT_WORKSPACE_INSPECT_MOUNT").toMatchObject({ writable: false, readOnlyPath: join(f.brain, "workspaces") });
+      const program = `import * as fs from "node:fs";
+        const path=${JSON.stringify(join(f.brain, "workspaces/ithaca/policy-alias.md"))};
+        const read=fs.readFileSync(path,"utf8");let error="";try{fs.writeFileSync(path,"attack")}catch(e){error=e.code}
+        console.log(JSON.stringify({read,error}));`;
+      expect(await run(f.brain, sandbox, program, f.home), "INSPECT_HARDLINK_WRITE_REFUSED").toEqual({ read: GOLDEN, error: "EROFS" });
+      expect(readFileSync(note, "utf8"), "OUTSIDE_ALIAS_UNCHANGED").toBe(GOLDEN);
+    } finally { f.cleanup(); }
+  });
+});
+
+test("governed inspection still seals workspaces when the writable area list is empty", async () => {
+  const f = fixture();
+  try {
+    const sandbox = prepareFixtureWorkerSandbox(f.brain, { profile: "governed", areas: [] });
+    expect(sandbox.profile).toBe("governed");
+    const program = `import * as fs from "node:fs";let error="";try{fs.writeFileSync(${JSON.stringify(join(f.brain, "workspaces/ithaca/new.md"))},"attack")}catch(e){error=e.code}console.log(JSON.stringify({error}));`;
+    expect(await run(f.brain, sandbox, program, f.home), "OMITTED_WORKSPACE_AREA_STILL_READ_ONLY").toEqual({ error: "EROFS" });
+  } finally { f.cleanup(); }
 });

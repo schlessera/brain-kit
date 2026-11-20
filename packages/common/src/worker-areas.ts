@@ -46,3 +46,6 @@ export function linkRule(scratchDir: string | undefined): string {
 /** Why a direct write into a read-only brain fails, and the way to change it instead. */
 export const READ_ONLY_BRAIN_RULE =
   "The brain is read-only here: change it through `write_file`, `edit_file` and the curated brain tools.";
+
+/** Inspection never writes source, including installs/builds (#4295, #4298). */
+export const WORKSPACES_READ_ONLY_REASON = "inspect mode; enable this session’s code-changes switch or request a managed worktree to write, install or build";

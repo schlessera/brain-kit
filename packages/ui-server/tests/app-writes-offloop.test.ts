@@ -338,6 +338,9 @@ test("a saved worker preference commits on the write worker, and its refusals ke
     const profiles = createSessionProfiles(f.db, profileFacts, undefined, undefined, { writer: f.writer, catalog });
     expect((await profiles.save(athena.id, "session", "troy", "strict")).preference, "PROFILE_SAVE_ANSWERS_COMMITTED_ROW").toBe("strict");
     expect((await profiles.save(athena.id, "draft", "troy-draft", "strict")).preference, "PROFILE_DRAFT_SAVE_COMMITS").toBe("strict");
+    expect(await profiles.saveCodeChanges(athena.id, "session", "troy", true), "CODE_CHANGES_SAVE_ANSWERS_COMMITTED_ROW").toEqual({ enabled: true });
+    expect(await profiles.saveCodeChanges(athena.id, "draft", "troy-draft", true), "CODE_CHANGES_DRAFT_SAVE_COMMITS").toEqual({ enabled: true });
+    expect(profiles.read(athena.id, "session", "troy").preference, "CODE_CHANGES_KEEP_PROFILE_PREFERENCE").toBe("strict");
     const refusal = await expectRejection(profiles.save(athena.id, "session", "ithaca", "strict"), SessionProfileError, "PROFILE_REFUSAL_CLASS_KEPT") as SessionProfileError;
     expect(refusal.status, "PROFILE_REFUSAL_STATUS_KEPT").toBe(409);
     expect(new Set(await sites.log()), "PROFILE_SAVES_WRITTEN_ON_WORKER").toEqual(new Set(["session_worker_profiles", "draft_worker_profiles"]));

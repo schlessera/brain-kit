@@ -303,3 +303,19 @@ describe("server-owned application boundary", () => {
     } finally { release(); }
   });
 });
+
+test("workspace inspection also refuses privileged Markdown applications with both writable alternatives", async () => {
+  const target = "workspaces/ithaca/readme.md";
+  mkdirSync(join(root, "workspaces/ithaca"), { recursive: true });
+  const apply = createBrainApplication({ root, planner: boundaryPlanner(createFixtureHostBoundary({ brainPath: root })),
+    principalId: "odysseus", turnId: "turn-raft", signal: signal.signal, workspaceReadOnly: true,
+    isAuthorized: () => true, policy: { autoAllowed: ["write"], available: ["write"], lock },
+    approve: async () => true, record() {},
+  });
+  const result = await apply(request(write(target, "Athena changes the source.\n", null)));
+  expect(result.ok, "INSPECT_HOST_APPLICATION_REFUSED").toBe(false);
+  expect(result.code).toBe("policy_denied");
+  expect(result.message).toContain("code-changes switch");
+  expect(result.message).toContain("managed worktree");
+  expect(existsSync(join(root, target)), "INSPECT_HOST_APPLICATION_HAS_NO_BYTES").toBe(false);
+});

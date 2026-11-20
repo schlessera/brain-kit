@@ -48,3 +48,25 @@ test("copied checkpoint deltas retain actual bytes across a live overwrite", asy
     await capture.close(); await native.close(); objects.close(); rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("an inspect-only capture never retains checkout bytes while notes keep exact before and after versions", async () => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-inspect-capture-")), brain = join(root, "brain");
+  mkdirSync(join(brain, "notes"), { recursive: true }); mkdirSync(join(brain, "workspaces/ithaca"), { recursive: true });
+  writeFileSync(join(brain, "notes/voyage.md"), "Odysseus");
+  writeFileSync(join(brain, "workspaces/ithaca/source.ts"), "checkout before");
+  const native = createNativeJournalFixture(brain, root);
+  const retained: string[] = [];
+  const capture = createNativeJournalCapture(native.manager, async fd => {
+    retained.push(readFileSync(fd, "utf8")); return String(retained.length);
+  });
+  try {
+    await capture.initialize();
+    const policy = await capture.policy([], { workspaces: false });
+    writeFileSync(join(brain, "notes/voyage.md"), "Athena");
+    writeFileSync(join(brain, "workspaces/ithaca/source.ts"), "checkout after");
+    const observation = await capture.observe(new Map([["inspect", policy]]));
+    expect(observation.changes.get("inspect")!.map(change => change.path), "INSPECT_CAPTURE_HAS_NO_CHECKOUT_ROWS").toEqual(["notes/voyage.md"]);
+    expect(retained, "INSPECT_RETAINS_ONLY_EXACT_NOTE_BYTES").toEqual(["Odysseus", "Athena"]);
+    await observation.commit();
+  } finally { await capture.close(); await native.close(); rmSync(root, { recursive: true, force: true }); }
+});

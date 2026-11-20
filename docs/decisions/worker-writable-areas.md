@@ -43,9 +43,11 @@ built and measured, and the alternatives they replaced.
    (`brain render --scratch`, `brain image --scratch`, `brain scratch prune`,
    a link for the reader) works unchanged. The per-turn
    `BRAIN_WORKER_SCRATCH` tmpfs stays as it is.
-2. **Workspaces.** The index-excluded workspace directory is bound read-write
-   only when it exists, and never the brain root, an ancestor of it or
-   anything holding authoritative documents.
+2. **Workspaces.** **Amended 2026-11-20 (#4295):** the index-excluded
+   workspace directory is read-only in default governed and strict turns.
+   A durable per-session code-changes switch, frozen at admission, opts in to
+   the previous writable mount and its alias scan. The directory must already
+   exist and cannot be the brain root, an ancestor or an authoritative area.
 3. **A writable `$HOME` for the turn.** A per-turn `bwrap --tmp-overlay` over
    `$HOME`: existing configuration such as `.gitconfig` still reads, and every
    write is discarded when the turn ends. Where the overlay is unavailable,
@@ -81,15 +83,15 @@ on the transcript persist path and is not part of this record.
 
 **One resolution, two consumers.** `prepareWorkerSandbox` resolves the
 areas and per-turn XDG layout once per worker
-(`export function prepareWorkerSandbox`, `packages/ui-sdk/src/server/worker-launcher.ts:935-976`).
+(`export function prepareWorkerSandbox`, `packages/ui-sdk/src/server/worker-launcher.ts:976-1017`).
 The backend passes the result both to the launcher, which turns it into
 bubblewrap arguments, and to `workerSandboxNote`, which renders the agent's
-note (`export function workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:592-657`).
+note (`export function workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:625-690`).
 The launcher re-checks the resolved layout against the actual launch: the
 same brain and envelope, each writable area still a real directory at its
 own path in the brain. The backend selects runtime HOME separately.
 A mismatch refuses the launch instead of binding something the note does not
-describe (`function sandboxMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:857-887`).
+describe (`function sandboxMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:883-913`).
 A launch without a resolved layout keeps the 0.41 view: only the per-turn
 scratch is writable.
 
@@ -101,13 +103,13 @@ brain, as core's `isGitRepo` counts it) it is bound only while git ignores
 it, as core's own scratch writes already require; otherwise a file written
 there by any tool could be committed. Git runs with the server's `HOME`, so
 the operator's `safe.directory` applies
-(`export function resolveScratchMount`, `packages/ui-sdk/src/server/worker-sandbox.ts:437-456`).
+(`export function resolveScratchMount`, `packages/ui-sdk/src/server/worker-sandbox.ts:468-487`).
 
 **Workspaces.** The directory is `workspaces/`, a fixed name. Core excludes
 it from the index in every brain: `exclude.dirs` adds to the defaults and
 cannot remove `workspaces`, so it never holds an indexed document. Its
-existence is the opt-in: someone creates it outside a hosted turn, and every
-later turn binds it (`export function resolveWorkspacesMount`, `packages/ui-sdk/src/server/worker-sandbox.ts:470-481`).
+existence permits a mount; since the 2026-11-20 ruling, only a session
+whose code-changes switch is on binds it writable at its next admission (`export function resolveWorkspacesMount`, `packages/ui-sdk/src/server/worker-sandbox.ts:502-513`).
 It needs no gitignore line, unlike scratch: the ruling's condition is the
 index exclusion, and committing a clone or a work file from `workspaces/` is
 the user's choice, as it was before 0.41, not something a turn's output
@@ -117,12 +119,15 @@ lands in by default.
 creating a new hard link, rename or symlink write into the rest of the brain.
 It does not stop a link that already exists on the host: `git clone --local`
 of the brain into `workspaces/`, or a hand-made link, would make that brain
-file writable through the mount. So each area is walked with `lstat` before
+file writable through the mount. Since the 2026-11-20 ruling (#4295), a
+qualified read-only workspace mount needs no writable-alias walk: reads cannot
+change either name. Root, symlink and mount-topology checks remain. Scratch
+and opted-in writable workspaces still run the existing `lstat` walk before
 the launch, counting the names each regular file's inode has inside the area.
 A file is offending only when its link count is higher than the names found
 inside: links wholly within the area (local clones between workspace
 repositories, package-manager stores) are harmless
-(`export function scanForOutsideLinks`, `packages/ui-sdk/src/server/worker-sandbox.ts:291-301`).
+(`export function scanForOutsideLinks`, `packages/ui-sdk/src/server/worker-sandbox.ts:295-305`).
 An offending scratch name is unlinked, because scratch is disposable and the
 other name keeps the data. An offending workspace file, or a walk over 200 000
 entries, leaves `workspaces/` read-only for that turn, named in the note and
@@ -153,7 +158,7 @@ through the roadblock path. This is a worker write boundary, not an immutable
 view: host-side changes to that directory remain visible. A backend may select a different runtime HOME
 as described below; it does not make the host home writable. `prepareWorkerSandbox` resolves this same XDG mode on every eligible
 host (`export function prepareWorkerSandbox`,
-`packages/ui-sdk/src/server/worker-launcher.ts:935-976`). Host-backed overlay
+`packages/ui-sdk/src/server/worker-launcher.ts:976-1017`). Host-backed overlay
 uppers cannot live on the worker's private tmpfs; keeping them would leave
 an unbounded write area. Tools reading XDG config see the per-turn directory,
 while direct reads of real HOME retain the read-only host view.
@@ -397,3 +402,23 @@ directory it cannot search, and the server reads only the nested
 `.gitattributes` of directories it owns, from the retained checkpoint. Aliases,
 foreign owners and changed identities refuse. The bounds and the rationale are
 in the [governed-writable-workers record](governed-writable-workers.md), under "Server-owned strict output".
+
+## Workspace inspection amendment, 2026-11-20 (#4295, #4298)
+
+Default governed and strict turns inspect `workspaces/` read-only. They exclude
+its paths from journal content capture, retained rows, ignore-policy reads and
+observed-byte charges. The exclusion belongs to each turn, so a concurrent
+session with code changes enabled keeps its own workspace retention and byte
+accounting. Previously retained workspace history remains readable.
+
+The authenticated code-changes preference survives resume and applies at the
+next admission. Changing it cannot change a running worker's mounts. Enabling
+it retains the existing alias scan and per-file journaling; the Git receipt
+transition is separate work. The worker's sandbox note names the mode and both
+ways to obtain writable checkout access: the session's code-changes switch or
+a managed worktree. Arbitrary tools still return the kernel's read-only error;
+the note supplies the actionable alternative. Inspecting source never writes,
+including dependency installation and builds. This information travels once
+in new-turn context when it first applies or changes, using the existing
+append-only prompt context; tools, fixed system append and earlier messages
+are never rewritten.

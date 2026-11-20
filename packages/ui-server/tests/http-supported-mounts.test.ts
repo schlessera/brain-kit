@@ -89,6 +89,10 @@ const checks: Record<string, Check> = {
   "PUT /api/models/hidden": { init: json("PUT", { hidden: ["fixture"] }), body: { models: [{ id: "fixture", hidden: true }] } },
   "POST /api/models/refresh": { init: { method: "POST" }, status: 409, verify: async (r) => { expect((await r.json()).error).toBeString(); } },
   "GET /api/providers": { body: { providers: [{ id: "fixture" }], backends: { fixture: { id: "fixture" } } } },
+  "GET /api/sessions/:id/code-changes": { path: "/api/sessions/fixture-session/code-changes", body: { enabled: false } },
+  "PUT /api/sessions/:id/code-changes": { path: "/api/sessions/fixture-session/code-changes", init: json("PUT", { enabled: true }), body: { enabled: true } },
+  "GET /api/drafts/:id/code-changes": { path: "/api/drafts/draft-ithaca/code-changes", body: { enabled: false } },
+  "PUT /api/drafts/:id/code-changes": { path: "/api/drafts/draft-ithaca/code-changes", init: json("PUT", { enabled: true }), body: { enabled: true } },
   "GET /api/sessions/:id/profile": { path: "/api/sessions/fixture-session/profile", body: { preference: "governed", origin: "interactive" } },
   "PUT /api/sessions/:id/profile": { path: "/api/sessions/fixture-session/profile", init: json("PUT", { preference: "strict" }), body: { preference: "strict" } },
   "GET /api/drafts/:id/profile": { path: "/api/drafts/draft-ithaca/profile", body: { preference: "governed", draftPreferenceStored: false } },
@@ -185,7 +189,7 @@ async function prepare(operation: string, afterSeed?: (t: HttpContractApp) => vo
       t.app.db.query("INSERT INTO principals (id, kind, auth_method, label, created_at, expires_at) VALUES ('owner-to-revoke', 'owner', 'password', 'Other fixture device', 1, ?)").run(Date.now() + 3600_000);
     }
     if (operation.includes("/reference-grants")) t.app.db.query("INSERT INTO principals (id, kind, auth_method, label, created_by, created_at, expires_at) VALUES ('odysseus-grantee', 'agent', 'delegated', 'Telemachus', NULL, 1, ?)").run(Date.now() + 3600_000);
-    if (operation.endsWith("/api/sessions/:id/profile")) {
+    if ((operation.endsWith("/api/sessions/:id/profile") || operation.endsWith("/api/sessions/:id/code-changes"))) {
       createSessionCatalog(() => t.app.db).persistSessionStub("fixture-session", "Odysseus reaches the harbor.", "fixture", "fixture");
     }
     const store = createActivityStore(t.app.db, { writer: "http-contract" });

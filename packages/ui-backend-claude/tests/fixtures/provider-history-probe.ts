@@ -65,6 +65,7 @@ const restore = replaceNativeStartupAcquisitionForFixture();
 try {
   for (scenario of ["control", "repository", "facts", "posture", "promotion", "title", "reference", "renewal", "freshness", "immutable", "datatree", "compute", "safety"]) {
     brain = fixtureBrain(scratch, scenario);
+    if (scenario === "facts") mkdirSync(join(brain, "workspaces/ithaca"), { recursive: true });
     capture = captures[scenario] = { sessions: [], exchanges: [], appends: [] };
     const home = join(scratch, `home-${scenario}`);
     mkdirSync(join(home, ".claude"), { recursive: true });
@@ -75,7 +76,7 @@ try {
       if (scenario === "repository" && turnIndex) changeRepository(brain, turnIndex);
       const facts = scenario === "facts" ? turnIndex : 0;
       const controller = new AbortController();
-      const sandbox = prepareFixtureWorkerSandbox(brain, { home, profile: "strict", ...(scenario === "promotion" ? {} : { areas: [] }) });
+      const sandbox = prepareFixtureWorkerSandbox(brain, { home, profile: "strict", ...(scenario === "facts" ? { areas: ["workspaces"], codeChanges: turnIndex === 1 } : scenario === "promotion" ? {} : { areas: [] }) });
       const view = createFixtureWorkerStartupView(brain);
       const turn = createClaudeSdkTurn({ backend: { brainPath: brain, ...(scenario === "safety" ? { systemPromptAppend: turnIndex === 0 ? "Legacy safety policy: this session stays restricted." : "Reviewed safety policy: finalized individual verdicts may restore normal." } : {}) }, req: {
         prompt: `Odysseus checks voyage step ${turnIndex}.`, sessionId, signal: controller.signal, turnId: `odysseus-${turnIndex}`,
@@ -139,6 +140,7 @@ try {
   }
   scenario = "budget";
   brain = fixtureBrain(scratch, scenario);
+    if (scenario === "facts") mkdirSync(join(brain, "workspaces/ithaca"), { recursive: true });
   capture = captures[scenario] = { sessions: [], exchanges: [], appends: [] };
   sequence = 0;
   const home = join(scratch, "home-budget");

@@ -33,7 +33,7 @@ export function createNativeJournalCapture(manager: NativeJournalManager, retain
   const observer = createNativeJournalObserver(manager, workerUid, releaseFailed);
   const entry = (metadata: NativeJournalMetadata, policy: NativeJournalPolicy): JournalSnapshotEntry | undefined => {
     const scope = journalPathScope(metadata.path);
-    if (!scope || metadata.kind === "directory") return undefined;
+    if (policy.excluded(metadata.path) || !scope || metadata.kind === "directory") return undefined;
     return { ...metadata, kind: metadata.kind, scope: scope.scope, ignored: policy.ignored(metadata.path),
       ...(rootScope.index && journalMetadataOnlyPath(metadata.path) ? { metadataOnly: true as const } : {}) };
   };
@@ -41,14 +41,14 @@ export function createNativeJournalCapture(manager: NativeJournalManager, retain
   const retained = (entry: JournalSnapshotEntry) => entry.kind === "file" && !entry.ignored && !entry.metadataOnly;
   return {
     async initialize(signal?: AbortSignal) { await observer.initialize(signal); },
-    async policy(covered: readonly string[] = []): Promise<NativeJournalPolicy> {
+    async policy(covered: readonly string[] = [], options: { workspaces?: boolean } = {}): Promise<NativeJournalPolicy> {
       const root = observer.currentRoot();
-      return freezeNativeJournalPolicy(observer.ignoreEntries(), (path, maximum) => readNativeJournalFile(root.path, path, maximum, context(root)), covered);
+      return freezeNativeJournalPolicy(observer.ignoreEntries(), (path, maximum) => readNativeJournalFile(root.path, path, maximum, context(root)), covered, options);
     },
-    allowed(path: string, policy: NativeJournalPolicy): boolean { return !!journalPathScope(path) && !policy.ignored(path) && !(rootScope.index && journalMetadataOnlyPath(path)); },
+    allowed(path: string, policy: NativeJournalPolicy): boolean { return !policy.excluded(path) && !!journalPathScope(path) && !policy.ignored(path) && !(rootScope.index && journalMetadataOnlyPath(path)); },
     eligible(path: string, policy: NativeJournalPolicy): boolean {
       const metadata = observer.get(path);
-      return !!metadata && metadata.kind === "file" && metadata.bytes <= 64 * 1024 * 1024 && !policy.ignored(path) && !!journalPathScope(path) && !(rootScope.index && journalMetadataOnlyPath(path));
+      return !policy.excluded(path) && !!metadata && metadata.kind === "file" && metadata.bytes <= 64 * 1024 * 1024 && !policy.ignored(path) && !!journalPathScope(path) && !(rootScope.index && journalMetadataOnlyPath(path));
     },
     /** Exact current sealed before-version; the caller keeps the ordinary policy and storage owner. */
     async retainBefore(path: string, policy: NativeJournalPolicy, signal?: AbortSignal): Promise<JournalSnapshotEntry | undefined> {
@@ -111,7 +111,7 @@ export function createNativeJournalCapture(manager: NativeJournalManager, retain
         const changed = new Map(observation.changes.map(change => [change.path, change.after]));
         const snapshots: { entries: JournalSnapshotEntry[]; missing: never[] }[] = [];
         const roots = new Map<string, { id: string; path: string }>();
-        const included = { ignored(path: string) { return [...policies.values()].every(policy => policy.ignored(path)); } } as NativeJournalPolicy;
+        const included = { excluded(path: string) { return [...policies.values()].every(policy => policy.excluded(path)); }, ignored(path: string) { return [...policies.values()].every(policy => policy.ignored(path)); } } as NativeJournalPolicy;
         const classified = (metadata: NativeJournalMetadata, root: typeof observation.beforeRoot) => {
           const value = entry(metadata, included);
           if (!value) return undefined;

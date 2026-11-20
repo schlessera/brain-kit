@@ -25,7 +25,7 @@ function fixture(capBytes?: number) {
   writeFileSync(join(brain, "notes", "odysseus.md"), "# Ithaca\r\n");
   const native = createNativeJournalFixture(brain, root);
   const db = createUiDb(path), journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath: path, objectsRoot: join(root, "objects"), capBytes });
-  const begin = (id: string) => journal.begin(id, { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null }, error => { throw error; });
+  const begin = (id: string, codeChanges = false) => journal.begin(id, { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null, codeChanges }, error => { throw error; });
   return { root, brain, db, journal, native, begin, async close() { await journal.close(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); } };
 }
 
@@ -676,7 +676,7 @@ test("native capture journals consumed nested configuration and ordinary exclude
     };
     writeFileSync(join(f.brain, ".gitignore"), "node_modules/\n");
     for (const [path, text] of Object.entries(inputs)) { mkdirSync(join(f.brain, path, ".."), {recursive:true}); writeFileSync(join(f.brain, path), text); }
-    await f.begin("consumer-seeds");
+    await f.begin("consumer-seeds", true);
     for (const [path, text] of Object.entries(inputs)) writeFileSync(join(f.brain, path), text + "\n");
     await f.journal.finish("consumer-seeds");
     const details = f.journal.details("ithaca", "consumer-seeds")!;
@@ -845,4 +845,28 @@ test("idle checkpoint cleanup records its cause durably before any turn exists a
     const status = await (await routes.request("/status")).json() as any;
     expect(status.journalCleanup).toMatchObject({ retained: { failed: 1 }, lastFailure: { cause: "Error: Odysseus idle checkpoint release refused" } });
   } finally { f.native.manager.release = release; await f.close(); }
+});
+
+test("overlapping inspect and change turns retain and charge checkout changes only to the writer", async () => {
+  const f = fixture();
+  mkdirSync(join(f.brain, "workspaces/ithaca"), { recursive: true });
+  writeFileSync(join(f.brain, "workspaces/ithaca/.gitignore"), "ignored.txt\n");
+  writeFileSync(join(f.brain, "workspaces/ithaca/source.ts"), "Odysseus\n");
+  const facts = new Map<string, { observedBytes: number }>();
+  const remove = f.journal.onObservation((id, value) => facts.set(id, value));
+  try {
+    const begin = (id: string, codeChanges: boolean) => f.journal.begin(id,
+      { sessionId: id, actor: "interactive", model: null, profile: "governed", policyHash: null, codeChanges }, error => { throw error; });
+    await begin("inspect", false);
+    await begin("writer", true);
+    writeFileSync(join(f.brain, "workspaces/ithaca/source.ts"), "Penelope returns\n");
+    writeFileSync(join(f.brain, "notes/odysseus.md"), "Athena\n");
+    await f.journal.observe();
+    const paths = (id: string) => (f.db.query("SELECT path FROM turn_journal_changes WHERE turn_id=?").all(id) as { path: string }[]).map(row => row.path);
+    expect(paths("inspect"), "INSPECT_HAS_ONLY_NOTE_ROWS").toEqual(["notes/odysseus.md"]);
+    expect(paths("writer"), "WRITER_KEEPS_CHECKOUT_ROWS").toContain("workspaces/ithaca/source.ts");
+    expect(facts.get("inspect")?.observedBytes, "INSPECT_CHARGES_ONLY_NOTE_BYTES").toBe(Buffer.byteLength("Athena\n"));
+    expect(facts.get("writer")?.observedBytes, "WRITER_CHARGES_NOTE_AND_CHECKOUT_BYTES").toBe(Buffer.byteLength("Athena\nPenelope returns\n"));
+    await f.journal.finish("inspect"); await f.journal.finish("writer");
+  } finally { remove(); await f.close(); }
 });

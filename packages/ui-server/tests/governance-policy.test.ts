@@ -3,6 +3,7 @@ import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js"
 import { installFixtureNativeStartupViews } from "./helpers/fixture-native-startup.js";
 installFixtureNativeStartupViews();
 import { Hono } from "hono";
+import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 import type { AppEnv } from "../src/app-env";
 import { createPrincipal, revokePrincipal } from "../src/db/principals";
 import { createSessionProfiles } from "../src/ws/session-profiles";
@@ -520,4 +521,73 @@ test("a strict turn's policy record has committed when admission settles, and a 
   await manifests.end("ithaca-close");
   expect((f.db.query("SELECT ended_at FROM governed_turn_manifests WHERE turn_id = 'ithaca-close'").get() as { ended_at: number | null }).ended_at, "MANIFEST_CLOSE_SETTLES_AFTER_ITS_RECORD").not.toBeNull();
   await slow;
+});
+
+test("code changes API persists a session preference without changing an admitted worker", async () => {
+  const f = fixture();
+  mkdirSync(join(f.brain, "workspaces/ithaca"), { recursive: true });
+  const principal = createPrincipal(f.db, { authMethod: "password", label: "Athena device", ttlSeconds: 3600 });
+  const catalog = createSessionCatalog(() => f.db);
+  catalog.persistSessionStub("ithaca-code", "Odysseus inspects source.", "claude", "claude");
+  const profiles = createSessionProfiles(f.db, f.turns);
+  const app = new Hono<AppEnv>().use("*", (c, next) => { c.set("principal", principal); return next(); }).route("/api", createSessionProfileRoutes(profiles));
+  const path = "/api/sessions/ithaca-code/code-changes";
+  expect(await (await app.request(path)).json(), "CODE_CHANGES_DEFAULT_OFF").toEqual({ enabled: false });
+  const observations: boolean[] = [];
+  const inboxProtections: (readonly string[] | undefined)[] = [];
+  let refusedWrite: import("@schlessera/brain-ui-sdk/server").BrainApplicationResult | undefined;
+  const backend = makeFakeBackend({ id: "claude", startTurn: async request => {
+    observations.push(request.workerSandbox!.areas.find(area => area.name === "workspaces")!.mount.writable);
+    if (observations.length === 1) {
+      refusedWrite = await request.bridge.applyBrain!({ operation: "write", path: "workspaces/ithaca/readme.md", content: "Athena changes source.", expectedBaseHash: null });
+      const saved = await app.request(path, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ enabled: true }) });
+      expect(saved.status).toBe(200);
+      expect(request.workerSandbox!.areas.find(area => area.name === "workspaces")!.mount.writable, "RUNNING_MOUNT_STAYS_FROZEN").toBe(false);
+    }
+    request.bridge.emit({ type: "session_info", sessionId: "ithaca-code", isNew: false });
+    request.bridge.emit({ type: "result", sessionId: "ithaca-code", durationMs: 1, numTurns: 1, isError: false });
+  } });
+  backend.brainApplicationPolicy = () => ({ autoAllowed: ["write"], available: ["write"], lock: createKeyedLock() });
+  const host = new WsHost({ brainPath: f.brain, governedTurns: f.turns, sessionProfiles: profiles, catalog, isPrincipalAuthorized: id => id === principal.id,
+    inboxTools: { forTurn(context: { protectedPaths?: readonly string[] }) { inboxProtections.push(context.protectedPaths); return {}; } } as never,
+    registry: createStaticBackendRegistry([backend], backend.id) });
+  host.clients.add({ send() {} }, principal.id);
+  try {
+    const input = { authorization: testAuthorization(principal.id), sessionId: "ithaca-code", text: "Odysseus inspects the source.", attachments: [] };
+    await runSession(host, input); await runSession(host, input);
+    expect(refusedWrite?.code, "INSPECT_SESSION_BRIDGE_REFUSES_CHECKOUT_WRITE").toBe("policy_denied");
+    expect(refusedWrite?.message).toContain("code-changes switch");
+    expect(observations, "NEXT_ADMISSION_USES_SAVED_CODE_MODE").toEqual([false, true]);
+    expect(inboxProtections[0], "INSPECT_INBOX_INTAKE_GETS_WORKSPACE_PROTECTION").toContain("workspaces");
+    expect(inboxProtections[1], "WRITER_INBOX_INTAKE_KEEPS_EXISTING_POLICY").not.toContain("workspaces");
+    const reloaded = createSessionProfiles(f.db, f.turns);
+    expect(reloaded.codeChanges(principal.id, "ithaca-code"), "CODE_MODE_SURVIVES_RESUME").toBe(true);
+    catalog.persistSessionStub("troy-code", "Athena inspects source.", "claude", "claude");
+    expect(reloaded.codeChanges(principal.id, "troy-code"), "CODE_MODE_IS_SESSION_LOCAL").toBe(false);
+    revokePrincipal(f.db, principal.id, Date.now());
+    expect((await app.request(path)).status, "CODE_MODE_RECHECKS_AUTH").toBe(401);
+  } finally { host.close(); }
+});
+
+test("draft code changes are principal scoped, bind to a new session, and preserve independent profile saves", async () => {
+  const f = fixture();
+  const principal = createPrincipal(f.db, { authMethod: "password", label: "Athena device", ttlSeconds: 3600 });
+  const other = createPrincipal(f.db, { authMethod: "password", label: "Penelope device", ttlSeconds: 3600 });
+  const profiles = createSessionProfiles(f.db, f.turns);
+  const app = new Hono<AppEnv>().use("*", (c, next) => { c.set("principal", principal); return next(); }).route("/api", createSessionProfileRoutes(profiles));
+  const save = (body: unknown) => app.request("/api/drafts/ithaca-draft/code-changes", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  for (const body of [null, [], {}, { enabled: "true" }, { enabled: true, profile: "governed" }])
+    expect((await save(body)).status, "CODE_MODE_REJECTS_MALFORMED_INPUT").toBe(400);
+  expect(await (await save({ enabled: true })).json()).toEqual({ enabled: true });
+  await profiles.save(principal.id, "draft", "ithaca-draft", "strict");
+  expect(profiles.codeChanges(principal.id, undefined, "ithaca-draft"), "PROFILE_SAVE_PRESERVES_CODE_MODE").toBe(true);
+  expect(profiles.readCodeChanges(other.id, "draft", "ithaca-draft"), "FOREIGN_DRAFT_HAS_NO_CODE_GRANT").toEqual({ enabled: false });
+  const catalog = createSessionCatalog(() => f.db);
+  catalog.persistSessionStub("ithaca-bound", "Odysseus changes source.", "claude", "claude");
+  await profiles.bind(principal.id, "ithaca-draft", "ithaca-bound");
+  expect(profiles.codeChanges(principal.id, "ithaca-bound"), "DRAFT_CODE_MODE_BINDS_TO_SESSION").toBe(true);
+  expect(profiles.read(principal.id, "session", "ithaca-bound").preference).toBe("strict");
+  await profiles.saveCodeChanges(principal.id, "session", "ithaca-bound", false);
+  expect(profiles.read(principal.id, "session", "ithaca-bound").preference, "CODE_SAVE_PRESERVES_PROFILE").toBe("strict");
+  expect(profiles.readCodeChanges(principal.id, "draft", "ithaca-draft")).toEqual({ enabled: false });
 });
