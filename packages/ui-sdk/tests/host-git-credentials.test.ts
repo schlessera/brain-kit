@@ -14,6 +14,7 @@ const hostEnv = {
   BRAIN_UI_SYNC_GITHUB_TOKEN: "odysseus-sync-git-token",
   BRAIN_UI_SKILLS_GITHUB_TOKEN: "odysseus-skills-git-token",
   BRAIN_UI_GITHUB_TOOLS_TOKEN: "odysseus-github-tools-token",
+  BRAIN_UI_MODULE_GITHUB_TOKEN: "odysseus-module-github-token",
   OPENAI_API_KEY: "odysseus-provider-key",
 };
 
@@ -25,6 +26,7 @@ for (const credentials of [true, false]) {
     expect(launch.env.GITHUB_TOKEN).toBeUndefined();
     expect(launch.env.BRAIN_UI_SYNC_GITHUB_TOKEN).toBeUndefined();
     expect(launch.env.BRAIN_UI_GITHUB_TOOLS_TOKEN, "SDK_MAINTENANCE_GITHUB_TOOLS_TOKEN_ABSENT").toBeUndefined();
+    expect(launch.env.BRAIN_UI_MODULE_GITHUB_TOKEN, "SDK_MAINTENANCE_MODULE_GITHUB_TOKEN_ABSENT").toBeUndefined();
     if (credentials) expect(launch.env.OPENAI_API_KEY).toBe(hostEnv.OPENAI_API_KEY);
     else expect(launch.env.OPENAI_API_KEY).toBeUndefined();
     expect(env).toEqual(hostEnv);

@@ -44,7 +44,13 @@ test("a job granted a GitHub repository reaches its API through the run's relay,
     return finished();
   } } as unknown as HostBoundary;
   const dbPath = join(dir, "ui.db");
-  const code = await runJob({ ...JOB, dbPath, childEnv: { PATH: "/usr/bin:/bin" }, exec: {}, boundary,
+  // The runner's own configuration never forwards the relay's token to a job.
+  const { resolveCronConfig } = await import("../src/config/env.js");
+  const config = resolveCronConfig({ BRAIN_PATH: dir, DB_PATH: dbPath, PATH: "/usr/bin:/bin", BRAIN_UI_MODULE_GITHUB_TOKEN: TOKEN,
+    BRAIN_UI_SUBPROCESS_ENV_EXTRA: "BRAIN_UI_MODULE_GITHUB_TOKEN" }, ["BRAIN_UI_MODULE_GITHUB_TOKEN"]);
+  expect(config.moduleGitHub.token(), "RUNNER_READS_TOKEN").toBe(TOKEN);
+  expect(JSON.stringify(config.childEnv), "CHILD_ENV_HAS_NO_TOKEN").not.toContain(TOKEN);
+  const code = await runJob({ ...JOB, dbPath, childEnv: config.childEnv, exec: {}, boundary,
     stdout: { write() {} }, stderr: { write() {} },
     repositories: async () => ({ ok: true, notes: [], repositories: [{ url: "https://github.com/ithaca/watchtower", mirror: join(dir, "mirror.git") },
       { url: "http://127.0.0.1:9/ithaca/harbor", mirror: join(dir, "harbor.git") }] }),

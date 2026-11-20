@@ -101,7 +101,11 @@ function graphqlStructure(query: string): string {
  * selection is `repository(owner:, name:)`; null otherwise. Arguments are
  * string literals or `$variables` resolved from `variables`.
  */
-export function graphqlQueryRepository(query: string, variables: unknown): string | null {
+export function graphqlQueryRepository(query: string, variables: unknown, operationName?: unknown): string | null {
+  // A strict subset, so this reader and GitHub's parser cannot disagree about
+  // where a string or comment ends: no comments, block strings, escapes,
+  // carriage returns or other control characters.
+  if (/[#\\\r]|"""|[\u0000-\u0008\u000b-\u001f\u007f]/.test(query)) return null;
   const text = graphqlStructure(query);
   // Top-level definitions: exactly one operation, and it is a query (or the `{ … }` shorthand).
   let depth = 0, operations = 0, start = -1, end = -1, header = "";
@@ -113,7 +117,10 @@ export function graphqlQueryRepository(query: string, variables: unknown): strin
     else if (depth === 0) buffer += char;
   }
   if (depth !== 0 || operations !== 1 || buffer.trim() || start < 0 || end < 0) return null;
-  if (header && !/^query(?:\s+[_A-Za-z][_0-9A-Za-z]*)?\s*(?:\([^)]*\))?$/.test(header)) return null;
+  const operation = /^query(?:\s+([_A-Za-z][_0-9A-Za-z]*))?\s*(?:\([^)]*\))?$/.exec(header);
+  if (header && !operation) return null;
+  // GitHub runs the operation `operationName` names: it must be this one.
+  if (operationName !== undefined && operationName !== null && operationName !== operation?.[1]) return null;
   // The root selection set: one field, `repository`, with no alias, spread or directive.
   const root = text.slice(start + 1, end);
   let inner = 0, fields = "";
@@ -192,8 +199,8 @@ export function startModuleGitHubRelay(options: ModuleGitHubRelayOptions): Modul
       const value = jsonObject(body);
       if (typeof value.query !== "string" || Object.keys(value).some(key => !["query", "variables", "operationName"].includes(key)))
         refuse(400, "invalid_body", "A relayed GraphQL request is { query, variables?, operationName? }.");
-      const target = graphqlQueryRepository(value.query as string, value.variables);
-      if (!target) refuse(403, "graphql_not_allowed", "Only a GraphQL query whose one root field is repository(owner:, name:) on a granted repository is relayed; mutations and other roots are refused.");
+      const target = graphqlQueryRepository(value.query as string, value.variables, value.operationName);
+      if (!target) refuse(403, "graphql_not_allowed", "Only one GraphQL query whose one root field is repository(owner:, name:), without comments, block strings or escapes, is relayed; mutations and other roots are refused. The repository must be granted through the module's repositories and BRAIN_UI_MODULE_REPOSITORIES.");
       repositoryOf(...(target!.split("/") as [string, string]));
     } else if (method === "POST" && repo && /^\/issues\/[1-9][0-9]{0,9}\/comments$/.test(repo[3] ?? "") && !url.search) {
       const repository = repositoryOf(decodeURIComponent(repo[1]!), decodeURIComponent(repo[2]!));
@@ -213,7 +220,7 @@ export function startModuleGitHubRelay(options: ModuleGitHubRelayOptions): Modul
         refuse(400, "invalid_body", "An issue state change is { state: open|closed, state_reason? } and nothing else.");
       write = { repository, operation: "issue_state", number: Number(repo[3]!.split("/")[2]) };
     } else {
-      refuse(403, "not_relayed", `${method} ${path} is not relayed: reads are GET under a granted /repos/<owner>/<repo>/ or a repository GraphQL query; writes are issue_comment and issue_state.`);
+      refuse(403, "not_relayed", `${method} ${path} is not relayed: reads are GET under a /repos/<owner>/<repo>/ granted through BRAIN_UI_MODULE_REPOSITORIES, or a repository GraphQL query; the only writes are issue_comment and issue_state, enabled in BRAIN_UI_MODULE_GITHUB_WRITES.`);
     }
     const token = options.token();
     if (!token) refuse(503, "unavailable", "The module GitHub relay has no credential: set BRAIN_UI_MODULE_GITHUB_TOKEN on the host.");

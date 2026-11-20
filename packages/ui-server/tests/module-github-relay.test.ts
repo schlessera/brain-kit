@@ -51,7 +51,9 @@ describe("module GitHub relay reads (#4259)", () => {
     expect(foreign.status, "FOREIGN_REPOSITORY_REFUSED").toBe(403);
     expect((await foreign.json()).brain_relay_refusal).toBe("repository_not_granted");
     expect((await call("GET", "/user")).status, "NON_REPOSITORY_PATH_REFUSED").toBe(403);
-    expect((await call("DELETE", "/repos/ithaca/watchtower")).status, "DELETE_REFUSED").toBe(403);
+    const removal = await call("DELETE", "/repos/ithaca/watchtower");
+    expect(removal.status, "DELETE_REFUSED").toBe(403);
+    expect((await removal.json()).message, "NOT_RELAYED_NAMES_SETTINGS").toMatch(/BRAIN_UI_MODULE_REPOSITORIES.*BRAIN_UI_MODULE_GITHUB_WRITES/);
     expect((await call("GET", "/repos/ithaca/watchtower/../../sparta/barracks")).status).not.toBe(200);
     expect(seen, "NOTHING_FORWARDED").toEqual([]);
   });
@@ -61,7 +63,7 @@ describe("module GitHub relay reads (#4259)", () => {
     const query = "query Closed($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { issues(last: 5, states: CLOSED) { nodes { number } } } }";
     expect((await call("POST", "/graphql", { query, variables: { owner: "ithaca", name: "watchtower" } })).status, "GRAPHQL_QUERY_FORWARDED").toBe(200);
     expect(seen).toHaveLength(1);
-    const refused = [
+    const refused: Array<{ query: string; variables?: unknown; operationName?: string }> = [
       { query: 'mutation { closeIssue(input: { issueId: "I_1" }) { clientMutationId } }' },
       { query: "{ viewer { login } }" },
       { query: '{ r: repository(owner: "ithaca", name: "watchtower") { id } }' },
@@ -69,11 +71,21 @@ describe("module GitHub relay reads (#4259)", () => {
       { query: query, variables: { owner: "sparta", name: "barracks" } },
       { query: '{ repository(owner: "ithaca", name: "watchtower") { id } } mutation { addComment(input: {}) { clientMutationId } }' },
     ];
+    // Strings and comments this reader and GitHub's parser could end in different places (review of #4265).
+    refused.push(
+      { query: 'query Q { repository(owner: "ithaca", name: "watchtower") { id } } # x\r mutation M { closeIssue(input: { issueId: "I_1" }) { clientMutationId } }', operationName: "M" } as never,
+      { query: '{ repository(owner: "ithaca", name: "watchtower") { label(name: """a \\""" b""") { id } } } """ repository(owner: "sparta", name: "barracks") { id } """' },
+      { query: '{ repository(owner: "ithaca", name: "watchtower") { label(name: "a\\"b") { id } } }' },
+    );
     for (const body of refused) {
       const response = await call("POST", "/graphql", body);
       expect(response.status, `GRAPHQL_REFUSED: ${body.query}`).toBe(403);
+      expect((await response.json()).message, "GRAPHQL_REFUSAL_NAMES_SETTING").toContain("BRAIN_UI_MODULE_REPOSITORIES");
     }
-    expect(seen, "REFUSED_GRAPHQL_NOT_FORWARDED").toHaveLength(1);
+    // operationName must name the one query.
+    expect((await call("POST", "/graphql", { query, operationName: "Other", variables: { owner: "ithaca", name: "watchtower" } })).status, "OPERATION_NAME_MISMATCH_REFUSED").toBe(403);
+    expect((await call("POST", "/graphql", { query, operationName: "Closed", variables: { owner: "ithaca", name: "watchtower" } })).status, "OPERATION_NAME_MATCH_FORWARDED").toBe(200);
+    expect(seen, "REFUSED_GRAPHQL_NOT_FORWARDED").toHaveLength(2);
   });
 
   test("without BRAIN_UI_MODULE_GITHUB_TOKEN every call is refused, naming the setting", async () => {
@@ -127,9 +139,10 @@ describe("module GitHub relay writes (#4259)", () => {
   });
 });
 
-test("graphqlQueryRepository reads literal and variable arguments and ignores strings and comments", () => {
+test("graphqlQueryRepository reads literal and variable arguments, and refuses comments, escapes and block strings", () => {
   expect(graphqlQueryRepository('{ repository(owner: "ithaca", name: "watchtower") { id } }', {})).toBe("ithaca/watchtower");
-  expect(graphqlQueryRepository('# mutation { x }\nquery { repository(name: $n, owner: $o) { description } }', { o: "ithaca", n: "watchtower" })).toBe("ithaca/watchtower");
+  expect(graphqlQueryRepository('query {\n  repository(name: $n, owner: $o) { label(name: "bug") { id } }\n}', { o: "ithaca", n: "watchtower" })).toBe("ithaca/watchtower");
+  expect(graphqlQueryRepository('# mutation { x }\nquery { repository(name: $n, owner: $o) { description } }', { o: "ithaca", n: "watchtower" }), "COMMENT_REFUSED").toBeNull();
   expect(graphqlQueryRepository('{ repository(owner: "ithaca", name: "watchtower") { ...Fields } } fragment Fields on Repository { id }', {})).toBeNull();
   expect(graphqlQueryRepository("subscription { repository(owner: \"ithaca\", name: \"watchtower\") { id } }", {})).toBeNull();
 });
