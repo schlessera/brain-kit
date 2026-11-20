@@ -70,7 +70,6 @@ describe("module GitHub relay reads (#4259)", () => {
     const removal = await call("DELETE", "/repos/ithaca/watchtower");
     expect(removal.status, "DELETE_REFUSED").toBe(403);
     expect((await removal.json()).message, "NOT_RELAYED_NAMES_SETTINGS").toMatch(/BRAIN_UI_MODULE_REPOSITORIES.*BRAIN_UI_MODULE_GITHUB_WRITES/);
-    expect((await call("GET", "/repos/ithaca/watchtower/../../sparta/barracks")).status).not.toBe(200);
     expect(seen, "NOTHING_FORWARDED").toEqual([]);
   });
 

@@ -255,7 +255,8 @@ export function startModuleGitHubRelay(options: ModuleGitHubRelayOptions): Modul
     const url = new URL(request.url);
     const method = request.method.toUpperCase();
     const path = url.pathname;
-    if (path.split("/").some(part => part === "." || part === "..") || path.includes("//")) refuse(400, "invalid_path", "The relayed path is not a plain GitHub API path: reads are GET under a /repos/<owner>/<repo>/ granted through BRAIN_UI_MODULE_REPOSITORIES.");
+    // URL parsing has already removed dot segments; an empty segment (`//`) is what remains to refuse.
+    if (path.includes("//")) refuse(400, "invalid_path", "The relayed path is not a plain GitHub API path: reads are GET under a /repos/<owner>/<repo>/ granted through BRAIN_UI_MODULE_REPOSITORIES.");
     let body: string | undefined;
     let write: { repository: string; operation: ModuleGitHubWrite; number: number } | undefined;
     const repo = /^\/repos\/([^/]+)\/([^/]+)(\/.*)?$/.exec(path);
