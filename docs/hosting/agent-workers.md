@@ -972,7 +972,8 @@ any object row, reference or reservation, verifies remaining bytes against the
 SHA-256 filename, commits their quota charge, then moves verified orphans to
 `<objects-root>.quarantine`. Quarantined bytes stay charged until an explicit
 owner action removes them. Interrupted moves retain their charge and reconcile
-on the next pass; corrupt files stay in place and are reported separately.
+on the next pass; unresolved reservations report `quarantine_pending` with
+pending counts and bytes rather than a clean pass. Corrupt files stay in place and are reported separately.
 A busy journal records `journal_busy` without waiting for the turn to end.
 Counts, bytes, skips and failure causes appear in the existing maintenance
 Activity record as `journal_scrub` / `journal_scrub_failed` events.

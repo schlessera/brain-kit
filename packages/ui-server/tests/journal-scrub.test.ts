@@ -95,3 +95,11 @@ for (const recreated of [false,true]) test(`an interrupted quarantine commit kee
   if(recreated)expect(existsSync(join(f.objects,sha("orphan")))).toBe(true);
  }finally{f.close();}
 });
+
+test("a missing interrupted candidate remains charged and reports an unresolved quarantine",()=>{
+ const f=fixture();try{
+  f.store.statements([{sql:"INSERT INTO turn_journal_scrub_quarantine VALUES (?,6,'reserved')",params:[sha("orphan")]}]);
+  expect(f.store.scrubObjects(),"SCRUB_UNKNOWN_STAYS_PENDING").toMatchObject({state:"partial",reason:"quarantine_pending",pending:1,pendingBytes:6});
+  expect(f.db.query("SELECT bytes FROM turn_journal_scrub_quarantine").get()).toEqual({bytes:6});
+ }finally{f.close();}
+});

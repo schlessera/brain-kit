@@ -5,10 +5,11 @@ import type { Database } from "bun:sqlite";
 
 const JOURNAL_SCRUB_FILES = 64;
 export interface JournalScrubResult {
-  state: "complete" | "skipped";
-  reason: "journal_busy" | null;
+  state: "complete" | "partial" | "skipped";
+  reason: "journal_busy" | "quarantine_pending" | null;
   listed: number; unaccounted: number; unaccountedBytes: number;
   corrupt: number; corruptBytes: number; quarantined: number; quarantinedBytes: number;
+  pending: number; pendingBytes: number;
 }
 export function createJournalScrub(db: Database, root: string, write: <T>(operation: () => T) => T) {
   let listing: Dir | undefined;
@@ -21,7 +22,7 @@ export function createJournalScrub(db: Database, root: string, write: <T>(operat
   const busy = () => Boolean(db.query("SELECT 1 FROM turn_journal_turns WHERE ended_at IS NULL LIMIT 1").get());
   return {
     run(): JournalScrubResult {
-      const result: JournalScrubResult = { state:"complete",reason:null,listed:0,unaccounted:0,unaccountedBytes:0,corrupt:0,corruptBytes:0,quarantined:0,quarantinedBytes:0 };
+      const result: JournalScrubResult = { state:"complete",reason:null,listed:0,unaccounted:0,unaccountedBytes:0,corrupt:0,corruptBytes:0,quarantined:0,quarantinedBytes:0,pending:0,pendingBytes:0 };
       const skip = () => { result.state="skipped";result.reason="journal_busy";return result; };
       if (busy()) return skip();
       mkdirSync(quarantine,{mode:0o700,recursive:true});
@@ -90,6 +91,9 @@ export function createJournalScrub(db: Database, root: string, write: <T>(operat
             result.quarantined++;result.quarantinedBytes+=row.bytes;
           }
         });
+        const pending=db.query("SELECT count(*) AS count,coalesce(sum(bytes),0) AS bytes FROM turn_journal_scrub_quarantine WHERE state='reserved'").get() as {count:number;bytes:number};
+        result.pending=pending.count;result.pendingBytes=pending.bytes;
+        if(pending.count && result.state!=="skipped") {result.state="partial";result.reason="quarantine_pending";}
         return result;
       } finally {closeSync(source);closeSync(target);}
     },

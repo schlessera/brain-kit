@@ -398,12 +398,12 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     const span = startCronSpan(db, cleanupActivity, "maintain");
     try {
       const result = active.size || holds
-        ? { state: "skipped" as const, reason: "journal_busy" as const, listed: 0, unaccounted: 0, unaccountedBytes: 0, corrupt: 0, corruptBytes: 0, quarantined: 0, quarantinedBytes: 0 }
+        ? { state: "skipped" as const, reason: "journal_busy" as const, listed: 0, unaccounted: 0, unaccountedBytes: 0, corrupt: 0, corruptBytes: 0, quarantined: 0, quarantinedBytes: 0, pending: 0, pendingBytes: 0 }
         : await call<JournalScrubResult>("scrubObjects");
       await cleanupActivity.appendEvent(span.rootSpanId, "journal_scrub", result);
       await cleanupActivity.endSpan(span.rootSpanId, { outcome: "success", attrs: { "maintenance.journal_scrub": JSON.stringify(result) } });
       await cleanupActivity.rollupRun(span.runId);
-      options.log?.emit({ severityText: result.corrupt ? "WARN" : "INFO", body: "Journal maintenance scrub", attributes: { "maintenance.journal_scrub": JSON.stringify(result) } });
+      options.log?.emit({ severityText: result.corrupt || result.pending ? "WARN" : "INFO", body: "Journal maintenance scrub", attributes: { "maintenance.journal_scrub": JSON.stringify(result) } });
       return result;
     } catch (error) {
       const cause = { site: "journal.scrub", at: now(), errorClass: error instanceof Error ? error.name : "Error", message: String(error).slice(0,2000) };
