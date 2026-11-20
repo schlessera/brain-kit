@@ -140,13 +140,30 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
   if (bwrap < 0) refuse("native worker lacks the OS launcher");
   // Even ordinary test workers use a private network and a single bridge.
   // Do not rely on SDK options or the production profile to establish this.
-  const bridge = relay(launch.env?.ANTHROPIC_BASE_URL);
+  const socket = launch.env?.ANTHROPIC_UNIX_SOCKET;
+  const existingRelay = socket && launch.env?.ANTHROPIC_BASE_URL === "http://localhost";
+  if (existingRelay) {
+    const separator = argv.indexOf("--", bwrap);
+    let admitted = false;
+    for (let i = bwrap + 1; i < separator; i++) {
+      if (argv[i] !== "--ro-bind" || !argv[i + 1] || !argv[i + 2] || !within(argv[i + 2]!, socket)) continue;
+      const source = argv[i + 1]!, directory = realpathSync(source);
+      if (!within(tmpdir(), directory) || directory === tmpdir() || directory !== source) continue;
+      const path = join(directory, socket.slice(argv[i + 2]!.length));
+      const info = lstatSync(path);
+      if (info.isSocket() && info.uid === process.getuid?.()) admitted = true;
+    }
+    if (!admitted || !argv.includes("--unshare-net")) refuse("native worker relay is not fixture-owned isolated IPC");
+  }
+  // Existing restricted workers already have a server-owned exact-route relay.
+  // The unused bridge in that case supplies only synthetic account files.
+  const bridge = relay(existingRelay ? "http://127.0.0.1:1" : launch.env?.ANTHROPIC_BASE_URL);
   try {
     for (let i = bwrap + 1; i < argv.indexOf("--", bwrap); i++) {
       if (argv[i] === "--ro-bind" && argv[i + 1] === "/" && argv[i + 2] === "/") argv.splice(i--, 3);
     }
     argv.splice(bwrap + 1, 0, "--unshare-net", ...systemMounts(), "--ro-bind", ROOT, ROOT, "--ro-bind", process.execPath, process.execPath);
-    const pinned = { ANTHROPIC_BASE_URL: "http://localhost", ANTHROPIC_UNIX_SOCKET: "/tmp/native-relay/relay.sock",
+    const pinned = { ANTHROPIC_BASE_URL: "http://localhost", ANTHROPIC_UNIX_SOCKET: existingRelay ? socket : "/tmp/native-relay/relay.sock",
       ANTHROPIC_API_KEY: "offline-odysseus", ANTHROPIC_AUTH_TOKEN: "", CLAUDE_CODE_OAUTH_TOKEN: "" };
     const separator = argv.indexOf("--", bwrap);
     argv.splice(separator, 0, "--ro-bind", bridge.directory, "/tmp/native-relay",
