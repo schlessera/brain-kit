@@ -157,6 +157,8 @@ function gitOutOfSpace(root: string): string {
   writeFileSync(join(bin, "git"), `#!/bin/sh
 for arg in "$@"; do
   if [ "$arg" = maintenance ]; then
+    printf incomplete > '${root}/.git/objects/pack/tmp_pack_Attempt'
+    printf companion > '${root}/.git/objects/pack/.tmp-Attempt'
     echo "warning: packing 2 loose objects" >&2
     echo "fatal: sha1 file '.git/objects/pack/tmp_pack_Ithaca' write error. Out of diskspace" >&2
     exit 128
@@ -406,4 +408,16 @@ test("existing temporary pack garbage is reported by both maintenance and storag
   expect(step?.result,"MAINTAIN_EXISTING_GARBAGE").toContain("garbage: 1 file(s), 8192 bytes");
   const result=await runCli(root,["storage","pack","--json"]);
   expect(JSON.parse(result.stdout).garbage,"STORAGE_PACK_EXISTING_GARBAGE").toEqual({count:1,bytes:8192});
+});
+
+
+test("a failed pack removes its new temporary outputs and preserves historical garbage",async()=>{
+  const { readdirSync }=await import("node:fs");
+  const root=tempBrain();initRepo(root);
+  const pack=join(root,".git/objects/pack");
+  writeFileSync(join(pack,"tmp_pack_Previous"),"historical garbage");
+  const before=readdirSync(pack).sort();
+  const result=await maintain(root,[],{PATH:gitOutOfSpace(root)});
+  expect(result.code).toBe(2);
+  expect(readdirSync(pack).sort(),"FAILED_PACK_REMOVES_ONLY_NEW_TEMPORARIES").toEqual(before);
 });
