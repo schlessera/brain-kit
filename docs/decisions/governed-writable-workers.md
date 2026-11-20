@@ -619,6 +619,14 @@ a maintenance worker has no network namespace route to the host. A token placed
 in the job's worker and leaving API writes to the operator's own host jobs
 were both rejected.
 
+A GraphQL read must stay inside its granted repository: below the
+`repository(owner:, name:)` root, no field that reaches another repository,
+an owner or the account (`owner`, `repositories`, `forks`, `parent`, `search`,
+`viewer` and the like) is relayed. Every host-view worker, agent and
+maintenance alike, also covers `/etc/environment`. A container writes the cron
+runner's environment there for pam_env, host-only credentials included, and a
+worker builds its environment explicitly and never reads that file.
+
 The protected list below keeps the policy intact, keeps secrets out of workers,
 and stops a turn from steering later turns' permissions or start-up code.
 

@@ -130,6 +130,9 @@ export function graphqlQueryRepository(query: string, variables: unknown, operat
     if (char === "}" || char === ")") inner--;
   }
   if (!/^\s*repository\s*$/.test(fields)) return null;
+  // Below the root, no field may reach another repository, owner or the
+  // account: the grant names repositories, not what the token can traverse to.
+  if (selectedFields(root.slice(root.indexOf("repository") + "repository".length)).some(name => CROSS_REPOSITORY_FIELDS.has(name))) return null;
   const open = root.indexOf("("), close = root.indexOf(")");
   if (!/^\s*repository\s*$/.test(root.slice(0, open)) || open < 0 || close < open) return null;
   // The argument text itself, from the original query (blanking keeps every offset).
@@ -147,6 +150,36 @@ export function graphqlQueryRepository(query: string, variables: unknown, operat
   }
   const owner = parsed.get("owner"), name = parsed.get("name");
   return owner && name ? `${owner}/${name}` : null;
+}
+
+/**
+ * Fields that select another repository, an owner's repositories, an account
+ * or a global node or search, wherever they appear below the granted root.
+ */
+const CROSS_REPOSITORY_FIELDS = new Set(["repository", "repositories", "repositoryOwner", "owner", "organization", "user", "viewer",
+  "forks", "parent", "templateRepository", "search", "node", "nodes_by_id", "resource", "topic", "enterprise", "sponsorable",
+  "pinnedItems", "starredRepositories", "watching", "repositoriesContributedTo", "topRepositories", "mergeQueue"]);
+
+/**
+ * Every selected field name in GraphQL selection text whose strings are
+ * blanked: identifiers outside argument lists that are not alias or argument
+ * names (`name:`), variables, fragment spreads or directives.
+ */
+function selectedFields(text: string): string[] {
+  const names: string[] = [];
+  let args = 0;
+  const token = /\$?[_A-Za-z][_0-9A-Za-z]*|\.\.\.|@|[(){}:]/g;
+  const tokens = [...text.matchAll(token)].map(match => match[0]);
+  for (let i = 0; i < tokens.length; i++) {
+    const current = tokens[i]!;
+    if (current === "(") { args++; continue; }
+    if (current === ")") { args--; continue; }
+    if (args > 0 || current.startsWith("$") || /^[(){}:@]$|^\.\.\.$/.test(current)) continue;
+    if (tokens[i - 1] === "@" || tokens[i - 1] === "...") continue;
+    if (tokens[i + 1] === ":") continue;
+    names.push(current);
+  }
+  return names;
 }
 
 /** A stream's bytes, read chunk by chunk and abandoned as soon as they pass `limit`: never held past the bound. */

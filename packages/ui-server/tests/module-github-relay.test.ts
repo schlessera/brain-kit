@@ -77,6 +77,13 @@ describe("module GitHub relay reads (#4259)", () => {
       { query: query, variables: { owner: "sparta", name: "barracks" } },
       { query: '{ repository(owner: "ithaca", name: "watchtower") { id } } mutation { addComment(input: {}) { clientMutationId } }' },
     ];
+    // Nested traversal to another repository or owner (third review of #4265).
+    refused.push(
+      { query: '{ repository(owner: "ithaca", name: "watchtower") { owner { repository(name: "barracks") { issues(first: 5) { nodes { title } } } } } }' },
+      { query: '{ repository(owner: "ithaca", name: "watchtower") { owner { repositories(first: 5) { nodes { name } } } } }' },
+      { query: '{ repository(owner: "ithaca", name: "watchtower") { forks(first: 5) { nodes { name } } parent { name } } }' },
+      { query: '{ repository(owner: "ithaca", name: "watchtower") { issue(number: 7) { repository { name } } } }' },
+    );
     // Strings and comments this reader and GitHub's parser could end in different places (review of #4265).
     refused.push(
       { query: 'query Q { repository(owner: "ithaca", name: "watchtower") { id } } # x\r mutation M { closeIssue(input: { issueId: "I_1" }) { clientMutationId } }', operationName: "M" } as never,
@@ -163,6 +170,9 @@ describe("module GitHub relay writes (#4259)", () => {
 });
 
 test("graphqlQueryRepository reads literal and variable arguments, and refuses comments, escapes and block strings", () => {
+  // A close event's closer, as a heartbeat check reads it, stays inside the repository.
+  expect(graphqlQueryRepository('query Closed($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { issue(number: $number) { timelineItems(last: 5, itemTypes: [CLOSED_EVENT]) { nodes { ... on ClosedEvent { createdAt actor { login } closer { __typename ... on PullRequest { number merged } } } } } } } }',
+    { owner: "ithaca", name: "watchtower", number: 7 }), "NESTED_IN_REPOSITORY_ALLOWED").toBe("ithaca/watchtower");
   expect(graphqlQueryRepository('{ repository(owner: "ithaca", name: "watchtower") { id } }', {})).toBe("ithaca/watchtower");
   expect(graphqlQueryRepository('query {\n  repository(name: $n, owner: $o) { label(name: "bug") { id } }\n}', { o: "ithaca", n: "watchtower" })).toBe("ithaca/watchtower");
   expect(graphqlQueryRepository('# mutation { x }\nquery { repository(name: $n, owner: $o) { description } }', { o: "ithaca", n: "watchtower" }), "COMMENT_REFUSED").toBeNull();

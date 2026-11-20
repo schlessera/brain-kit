@@ -177,6 +177,13 @@ export interface WorkerLaunch {
  * `/tmp/.X11-unix`.
  */
 export const HOST_MASKS = ["/run", "/var", "/home", "/root", "/mnt", "/media", "/srv"] as const;
+/**
+ * Host files covered in every host-view worker (#4259): a container's
+ * `/etc/environment` carries the cron runner's environment, its host-only
+ * credentials included, for pam_env. A worker's environment is built
+ * explicitly and never reads it.
+ */
+export const HOST_FILE_MASKS = ["/etc/environment"] as const;
 
 /** The private, empty `$HOME` of a credential-free maintenance worker, on its own `/tmp`. */
 export const MAINTENANCE_HOME = "/tmp/brain-maintenance-home";
@@ -447,7 +454,7 @@ function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string, egressM
     }))) throw new WorkerHostError("a private mask ancestor overlaps the brain or required runtime");
     return covered;
   };
-  for (const requested of [...HOST_MASKS, ...(envelope.maskPaths ?? [])]) {
+  for (const requested of [...HOST_MASKS, ...HOST_FILE_MASKS, ...(envelope.maskPaths ?? [])]) {
     if (!isAbsolute(requested)) throw new WorkerHostError("maintenance worker masks must be absolute paths");
     let path: string;
     try { path = realpathSync(requested); } catch { continue; }
@@ -706,7 +713,11 @@ export function workerCommand(input: WorkerLaunch): string[] {
     const clear = argv.pop();
     const copies = input.areaOutput && input.sandbox?.profile === "strict"
       ? input.sandbox.areas.filter(area => area.mount.writable).map(area => ({ from: join(brain, area.rel), to: `${WORKER_AREA_ROOT}/${area.name}` })) : [];
-    argv.push(...maintenanceEnvMasks(input.startupView?.root ?? brain, brain, copies), clear!);
+    // An agent worker's host view covers the host files too (#4259); a restricted or transport root has none of them.
+    const hostFiles = input.restricted || transport ? [] : HOST_FILE_MASKS.flatMap(path => {
+      try { return statSync(path).isFile() ? ["--ro-bind", "/dev/null", path] : []; } catch { return []; }
+    });
+    argv.push(...maintenanceEnvMasks(input.startupView?.root ?? brain, brain, copies), ...hostFiles, clear!);
   }
 
   // A private tmpfs of exactly the allowance. Nothing on the host backs it,

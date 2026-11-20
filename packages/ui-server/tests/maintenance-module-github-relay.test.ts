@@ -43,7 +43,8 @@ test("a credential-free maintenance worker reaches the relay through its socket,
     const relayed = await fetch("http://localhost/repos/ithaca/watchtower/issues", { unix: socket }).then(r => r.status, e => String(e));
     const direct = await fetch(${JSON.stringify(upstream.url.origin)} + "/repos/ithaca/watchtower/issues").then(r => r.status, () => "unreachable");
     const fs = require("node:fs");
-    const proc = { environ: fs.readFileSync("/proc/self/environ", "utf8"), cmdline: fs.readFileSync("/proc/self/cmdline", "utf8") };
+    const proc = { environ: fs.readFileSync("/proc/self/environ", "utf8"), cmdline: fs.readFileSync("/proc/self/cmdline", "utf8"),
+      etcEnvironment: (() => { try { return fs.readFileSync("/etc/environment", "utf8"); } catch (error) { return error.code; } })() };
     console.log(JSON.stringify({ socket, relayed, direct, env: process.env, proc, relayDir: fs.readdirSync("/run/brain-github") }));`;
   // A misconfigured host that hands the job the relay's token anyway: it never reaches the worker.
   const child = await host.launch({ argv: [process.execPath, "--config=/dev/null", "-e", program], env: { PATH: "/usr/bin:/bin", BRAIN_UI_MODULE_GITHUB_TOKEN: TOKEN },
@@ -51,9 +52,11 @@ test("a credential-free maintenance worker reaches the relay through its socket,
   const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   expect(exitCode, stderr).toBe(0);
   const observed = JSON.parse(stdout.trim().split("\n").at(-1)!) as { socket: string; relayed: number | string; direct: number | string; env: Record<string, string>;
-    proc: { environ: string; cmdline: string }; relayDir: string[] };
+    proc: { environ: string; cmdline: string; etcEnvironment: string }; relayDir: string[] };
   expect(observed.env.BRAIN_UI_MODULE_GITHUB_TOKEN, "WORKER_ENV_HAS_NO_TOKEN").toBeUndefined();
   expect(`${observed.proc.environ}${observed.proc.cmdline}`, "WORKER_PROCESS_HAS_NO_TOKEN").not.toContain(TOKEN);
+  // The cron runner's environment file is covered: empty, never the host's.
+  expect([ "", "ENOENT" ], "WORKER_ETC_ENVIRONMENT_COVERED").toContain((observed.proc as { etcEnvironment: string }).etcEnvironment);
   expect(observed.relayDir, "RELAY_DIR_HOLDS_ONLY_THE_SOCKET").toEqual(["github.sock"]);
   expect(observed.socket, "WORKER_SOCKET_PATH").toBe("/run/brain-github/github.sock");
   expect(observed.relayed, "WORKER_REACHES_RELAY").toBe(200);

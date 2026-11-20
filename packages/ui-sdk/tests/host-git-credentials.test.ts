@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { maintenanceLaunch } from "../src/server/maintenance-worker.js";
@@ -49,3 +49,14 @@ for (const maintenance of [false, true]) {
     });
   });
 }
+
+test("every host-view worker covers /etc/environment, where a container keeps the cron runner's credentials (#4259)", () => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-worker-etc-environment-")); roots.push(root);
+  const brain = join(root, "brain"); mkdirSync(brain);
+  for (const maintenance of [undefined, { credentials: false, network: false, readPaths: [process.execPath] }]) {
+    const argv = workerCommand({ brainPath: brain, command: ["/bin/true"], env: { PATH: "/usr/bin:/bin" }, ...(maintenance ? { maintenance } : {}) });
+    const covered = argv.some((arg, i) => arg === "--ro-bind" && argv[i + 1] === "/dev/null" && argv[i + 2] === "/etc/environment");
+    // A host without the file has nothing to cover.
+    expect(covered, `ETC_ENVIRONMENT_COVERED: ${maintenance ? "maintenance" : "agent"}`).toBe(existsSync("/etc/environment"));
+  }
+});
