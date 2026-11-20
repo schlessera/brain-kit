@@ -693,3 +693,16 @@ test('clipped Pi observation checks every marked filename still delivered to the
   expect(f.failure()).toBeNull();
  }finally{await f.close();}
  });
+
+test('Pi grep preserves a BOM-prefixed directory in the host filename evidence',async()=>{
+ const f=await voyage();try{
+  const {untrustedMarkOperations}=await import('../src/files/untrusted-marks');
+  const folder='\ufeffvoyage',path=`${folder}/log.md`;mkdirSync(join(f.brain,folder));writeFileSync(join(f.brain,path),'sirens\n');
+  untrustedMarkOperations(f.db).mark(path,null,Date.UTC(2026,6,12));
+  const id='bom_search',input={pattern:'sirens',path:folder};await f.collector.begin(id,'grep',input);
+  const actual=await runSearchTool(f,id,input),observed=safetyResultInput('grep',actual.content,true,actual.details);
+  expect(observed.output,'GREP_DECODER_PRESERVES_FILENAME_BOM').toStartWith(path+':\0');
+  await f.collector.result(id,'grep',observed.output,true,observed.segments,observed.outputStatus);
+  expect(f.db.query("SELECT source,detector FROM safety_records WHERE kind='occurrence'").all()).toEqual([{source:'user_marked',detector:'explicit_untrusted_input'}]);
+ }finally{await f.close();}
+});

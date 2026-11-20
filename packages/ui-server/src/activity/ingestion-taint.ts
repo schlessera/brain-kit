@@ -201,14 +201,12 @@ export function outputTaintSignals(tool: string, output: string, brainPath?: str
   const result:IngestionSignal[]=[],seen=new Set<string>(),contentPaths=new Set<string>();let unknown=context?.outputComplete===false;
   const add=(path:string)=>{
     if(!path||path.includes('\0')){unknown=true;return;}
-    if(/truncat|omitted|\.\.\.|…/i.test(path))unknown=true;
     for(const signal of fileSignals(path,brainPath,marked,'tool_search_output')){
       const key=JSON.stringify([signal.detector,signal.key]);if(seen.has(key))continue;
       if(result.length>=256)throw new Error('Safety search signal capacity exceeded');seen.add(key);result.push(signal);
     }
   };
   const content=(text:string,numbers:boolean)=>{
-    if(/truncat|omitted|\.\.\.|…/i.test(text))unknown=true;
     for(const line of text.split('\n')){
       if(!line){unknown=true;continue;}
       let count=0;

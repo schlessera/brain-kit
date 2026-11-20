@@ -69,7 +69,10 @@ export function grepTool(kit: BrainToolKit): ToolDefinition {
       });
       const onAbort = () => killWrapped(proc, exec);
       signal?.addEventListener("abort", onAbort, { once: true });
-      const [out, stderr, exitCode] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+      const [outBytes,stderrBytes,exitCode]=await Promise.all([new Response(proc.stdout).arrayBuffer(),new Response(proc.stderr).arrayBuffer(),proc.exited]);
+      // A leading BOM can be part of a POSIX filename, not stream metadata.
+      const decoder=new TextDecoder("utf-8",{ignoreBOM:true});
+      const out=decoder.decode(outBytes),stderr=decoder.decode(stderrBytes);
       signal?.removeEventListener("abort", onAbort);
       // Keep an unambiguous machine boundary in host-only result details.
       // POSIX filenames may contain newlines, colons and edge whitespace.
