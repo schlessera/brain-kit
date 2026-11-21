@@ -1407,6 +1407,8 @@ export "./internal" (./src/internal.ts)
   INFERENCE_PLACEHOLDER
   type InferenceRelay
   type InferenceRelayEvent
+  type InferenceTimingMark
+  type InferenceUsage
   type LaunchedWorker
   MAINTENANCE_HOME
   type MaintenanceCommand
