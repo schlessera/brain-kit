@@ -8,7 +8,7 @@ import { resolveGovernancePolicy } from "@schlessera/brain-common/internal/gover
 import type { BackendActivityEvent, BackendBridge, PermissionRequest } from "@schlessera/brain-ui-sdk/server";
 import { createPermissionWiring } from "../../ui-backend-claude/src/permission-hooks";
 import { MUTATING_TOOL_MATCHER } from "../../ui-backend-claude/src/tool-policy";
-import { createPermissionGate, decidePiToolPermission } from "../../ui-backend-pi/src/permission-gate";
+import { createPermissionGate } from "../../ui-backend-pi/src/permission-gate";
 import { createTurnContext } from "../../ui-backend-pi/src/turn-context";
 import { createBrainAccess } from "../../ui-backend-pi/src/brain-access";
 import { createBrainToolKit } from "../../ui-backend-pi/src/tool-kit";
@@ -95,14 +95,15 @@ async function execute(f: Fixture, binding: Binding, options: {
   const bridge: BackendBridge = { emit() {}, admissionSafety: f.safety, activity: e => { events.push(e); },
     async requestPermission(req) { requests.push(req); await pause("approval"); return { behavior: "allow" }; },
     async awaitIndex() { await pause("index"); },
-    inputSafety: { ...f.collector, async begin(id, tool, input) { await f.collector.begin(id, tool, input); await pause("input"); }, async allowed(id) {await f.collector.allowed!(id);await pause("allowed");} } };
+    inputSafety: { ...f.collector, async begin(id, tool, input) { await f.collector.begin(id, tool, input); await pause("input"); }, async allowed(id,validate) {await pause("allowed");await f.collector.allowed!(id,validate);} } };
   const policy = { hash: null, deny: [], confirm: options.phase === "approval" && binding === "claude-hook" && !options.explicit
     ? [{ pattern: "^git push ", reason: "Review this command", index: 0 }] : [], outwardAllow: options.explicit ? [] : allow,
     taint: () => f.writes.taint("voyage", "ithaca") };
   const id = crypto.randomUUID(), input = { command };
-  let allowed = false;
+  let allowed = false,piRun:(()=>Promise<unknown>)|undefined;
   if (binding === "pi") {
     const turn={...createTurnContext(),bridge,signal:f.controller.signal,commandPolicy:policy};
+    piRun=()=>bashTool(createBrainToolKit({brain:createBrainAccess(f.root),turn,exec:{},lock:{withKey:async(_key,body)=>body()}})).execute(id,input,f.controller.signal,undefined,{} as never);
     const gate=createPermissionGate({turn,allowedTools:new Set(options.phase==="approval"&&!options.explicit?[]:["bash"]),confirmPatterns:[]});
     let handler:((event:unknown)=>Promise<{block?:boolean}|undefined>)|undefined;
     (typeof gate==='function'?gate:gate.factory)({on:(name:string,callback:unknown)=>{if(name==='tool_call')handler=callback as typeof handler;}} as never);
@@ -125,9 +126,12 @@ async function execute(f: Fixture, binding: Binding, options: {
   const bin = join(f.root, "bin"), marker = join(f.root, "executed"); mkdirSync(bin, { recursive: true });
   writeFileSync(join(bin, "git"), `#!/bin/sh\nprintf 'Ithaca\\n' >> '${marker}'\n`, { mode: 0o755 });
   const before = existsSync(marker) ? readFileSync(marker, "utf8") : "";
-  if (allowed) {
-    const child = Bun.spawn(["/bin/sh", "-c", command], { cwd: f.root, env: { PATH: bin }, stdout: "pipe", stderr: "pipe" });
-    expect(await child.exited, await new Response(child.stderr).text()).toBe(0);
+  if(allowed&&piRun){
+    const saved=Object.getOwnPropertyDescriptor(process.env,"PATH");process.env.PATH=`${bin}:/usr/bin:/bin`;
+    try{await piRun();}catch{allowed=false;}finally{if(saved)Object.defineProperty(process.env,"PATH",saved);else delete process.env.PATH;}
+  }else if(allowed){
+    const child=Bun.spawn(["/bin/sh","-c",command],{cwd:f.root,env:{PATH:bin},stdout:"pipe",stderr:"pipe"});
+    expect(await child.exited,await new Response(child.stderr).text()).toBe(0);
   }
   return { allowed, requests, events, interleaved, executed: (existsSync(marker) ? readFileSync(marker, "utf8") : "") !== before };
 }
@@ -144,7 +148,10 @@ for (const mode of ["in-process-lock", "rpc-lock", "rpc-final"] as const) for (c
     const interleave = () => f.add("post-gate-input");
     try {
       if (mode === "in-process-lock") {
-        expect((await decidePiToolPermission({ turn, allowedTools: new Set(["bash"]), confirmPatterns: [] }, "bash", input, id)).behavior).toBe("allow");
+        const gate=createPermissionGate({turn,allowedTools:new Set(["bash"]),confirmPatterns:[]});
+        let handler:((event:unknown)=>Promise<unknown>)|undefined;
+        (typeof gate==='function'?gate:gate.factory)({on(name:string,callback:unknown){if(name==='tool_call')handler=callback as typeof handler;}} as never);
+        expect(await handler!({toolName:'bash',toolCallId:id,input})).toBeUndefined();
         const tool = bashTool(createBrainToolKit({ brain: createBrainAccess(f.root), turn, exec: {}, lock: { async withKey(_key, body) { await interleave(); return body(); } } }));
         try { await tool.execute(id, input, f.controller.signal, undefined, {} as never); } catch (error) { refused = error; }
       } else {
@@ -167,6 +174,7 @@ for (const mode of ["in-process-lock", "rpc-lock", "rpc-final"] as const) for (c
       }
       expect(existsSync(marker), "LIVE_PI_POST_GATE_WAITS_REVALIDATE_BEFORE_PROCESS_EFFECT").toBe(false);
       expect(String(refused)).toContain("Safety or authority changed");
+      expect(f.db.query("SELECT COUNT(*) n FROM safety_obligations").get(),"STALE_UNUSED_BASH_TICKET_IS_NOT_A_LOST_RESULT").toEqual({n:0});
     } finally {
       if (saved) Object.defineProperty(process.env, "PATH", saved); else delete process.env.PATH;
       await f.close();
@@ -652,6 +660,7 @@ for(const binding of ['claude-callback','pi'] as const)for(const change of ['hea
   const result=await execute(f,binding,{explicit:true,phase:'allowed',interleave:async()=>{if(change==='evidence')await f.add('post_allowed');if(change==='trust')f.remove();}});
   expect(result.interleaved,'FINAL_ALLOWANCE_WAIT_IS_REACHED').toBe(true);
   expect(result.executed,'FINAL_ALLOWANCE_WAIT_CANNOT_DISPATCH_STALE_AUTHORITY').toBe(change==='healthy');
+  expect(f.db.query('SELECT COUNT(*) n FROM safety_obligations').get(),'REFUSED_BEFORE_DISPATCH_HAS_NO_FALSE_RESULT_OBLIGATION').toEqual({n:change==='healthy'?1:0});
  }finally{await f.close();}
 });
 
@@ -682,4 +691,99 @@ for(const binding of ['claude-hook','claude-callback','pi'] as const)test(`${bin
   }});
   expect(result.executed,'REVIEW_DECISIONS_REMAIN_IN_THE_CAUSAL_VIEW').toBe(false);
  }finally{await f.close();}
+});
+
+for(const change of ['evidence','trust'] as const)test(`Claude hook approval keeps its original snapshot across callback handoff: ${change}`,async()=>{
+ const f=await fixture(false);try{
+  const requests:PermissionRequest[]=[];
+  const bridge:BackendBridge={emit(){},admissionSafety:f.safety,inputSafety:f.collector,requestPermission:async request=>{requests.push(request);return {behavior:'allow'};}};
+  const wiring=createPermissionWiring({req:{prompt:'Return to Ithaca',bridge,signal:f.controller.signal,workerSandbox:{brain:f.root,profile:'governed',commandPolicy:{hash:null,deny:[],confirm:[],outwardAllow:[],taint:()=>f.writes.taint('voyage','ithaca')}} as never},allowedTools:['Bash'],confirmPatterns:[],brainPath:f.root,turnLock:{async acquireForTool(){return {ok:true};},releaseForTool(){}} as never,childEnv:{},log(){}});
+  const id='handoff',input={command};
+  const hook=wiring.hooks!.PreToolUse!.find(group=>group.matcher===MUTATING_TOOL_MATCHER)!.hooks[0]!;
+  const result=await hook({hook_event_name:'PreToolUse',tool_name:'Bash',tool_input:input,tool_use_id:id} as never,id,{signal:f.controller.signal});
+  expect(result).toMatchObject({continue:true});expect(requests.filter(request=>request.kind==='command')).toHaveLength(1);
+  if(change==='evidence')await f.add('between_hook_and_callback');else f.remove();
+  const answer=await wiring.canUseTool!('Bash',input,{toolUseID:id,signal:f.controller.signal} as never);
+  expect(answer,'HOOK_APPROVAL_CANNOT_RESET_ITS_REVISION_BASELINE').toMatchObject({behavior:'deny'});
+  expect(requests,'STALE_HOOK_CARD_DOES_NOT_ASK_FOR_AN_UNUSABLE_TOOL_GRANT').toHaveLength(1);
+ }finally{await f.close();}
+});
+for(const binding of ['hook','callback'] as const)for(const why of ['identity','capacity'] as const)test(`Claude ${binding} turns causal view ${why} errors into explicit refusal`,async()=>{
+ const f=await fixture();try{
+  if(why==='capacity')for(let i=0;i<2000;i++)f.collector.forAdmission!(`view_${i}`,'Read',f.safety);
+  else f.collector.forAdmission!('view_failure','Read',f.safety);
+  const releases:string[]=[],refusals:string[]=[];const original=f.collector.refused;
+  f.collector.refused=async(id,denied)=>{refusals.push(id);await original!(id,denied);};
+  const wiring=createPermissionWiring({req:{prompt:'Return to Ithaca',signal:f.controller.signal,bridge:{emit(){},admissionSafety:f.safety,inputSafety:f.collector,requestPermission:async()=>({behavior:'allow'})}},allowedTools:['Bash'],confirmPatterns:[],brainPath:f.root,turnLock:{async acquireForTool(){return {ok:true};},releaseForTool(id:string){releases.push(id);}} as never,childEnv:{},log(){}});
+  if(binding==='callback')expect(await wiring.canUseTool!('Bash',{command},{toolUseID:'view_failure',signal:f.controller.signal} as never)).toMatchObject({behavior:'deny'});
+  else{
+   const hook=wiring.hooks!.PreToolUse!.find(group=>group.matcher===MUTATING_TOOL_MATCHER)!.hooks[0]!;
+   expect(await hook({hook_event_name:'PreToolUse',tool_name:'Bash',tool_input:{command},tool_use_id:'view_failure'} as never,'view_failure',{signal:f.controller.signal})).toMatchObject({hookSpecificOutput:{permissionDecision:'deny'}});
+  }
+  expect(releases,'CAUSAL_VIEW_ERROR_RELEASES_ANY_HELD_LOCK').toContain('view_failure');
+  expect(refusals,'CAUSAL_VIEW_ERROR_RECORDS_THE_REFUSAL').toContain('view_failure');
+ }finally{await f.close();}
+});
+
+test('causal view capacity in one turn leaves a fresh turn usable',async()=>{
+ const f=await fixture();try{
+  for(let i=0;i<2000;i++)f.collector.forAdmission!(`view_${i}`,'Read',f.safety);
+  expect(()=>f.collector.forAdmission!('full','Bash',f.safety)).toThrow('capacity');
+  const bindingId=crypto.randomUUID();
+  await f.writes.safetyBegin({turnId:'fresh-voyage',bindingId,sessionId:null,principalId:f.principal.id,backendId:'claude',at:0});
+  await f.writes.bind('fresh-voyage','ithaca');
+  const collector=createSafetyCollector(f.db,f.writes,{turnId:'fresh-voyage',bindingId,sessionId:()=> 'ithaca',backendId:'claude',brainPath:f.root,shellProxied:()=>true,signal:f.controller.signal});
+  await collector.ready('claude',1);
+  const result=await execute({...f,collector},'claude-callback',{explicit:true});
+  expect(result.executed,'CAUSAL_CAPACITY_FAILURE_IS_LOCAL_TO_ITS_TURN').toBe(true);
+ }finally{await f.close();}
+});
+
+for(const route of ['gate','rpc'] as const)test(`Pi ${route} returns a denial when the causal view identity changed`,async()=>{
+ const f=await fixture();try{
+  f.collector.forAdmission!('view_failure','read_file',f.safety);
+  const refusals:string[]=[],original=f.collector.refused;
+  f.collector.refused=async(id,denied)=>{refusals.push(id);await original!(id,denied);};
+  const turn={...createTurnContext(),bridge:{emit(){},admissionSafety:f.safety,inputSafety:f.collector,requestPermission:async()=>({behavior:'allow' as const})},signal:f.controller.signal};
+  if(route==='rpc'){
+   const dispatch=createPiWorkerRpcDispatcher({turn,live(){},brainPath:f.root,grants:new Map(),releases:new Map(),admitTool(){},autonomous:false,allowedTools:new Set(['bash']),confirmPatterns:[]} as unknown as PiWorkerRpcContext);
+   expect(await dispatch({type:'rpc',id:1,method:'permission',toolName:'bash',toolCallId:'view_failure',input:{command}})).toMatchObject({behavior:'deny'});
+  }else{
+   const gate=createPermissionGate({turn,allowedTools:new Set(['bash']),confirmPatterns:[]});let handler:((event:unknown)=>Promise<unknown>)|undefined;
+   (typeof gate==='function'?gate:gate.factory)({on(name:string,callback:unknown){if(name==='tool_call')handler=callback as typeof handler;}} as never);
+   expect(await handler!({toolName:'bash',toolCallId:'view_failure',input:{command}})).toMatchObject({block:true});
+  }
+  expect(refusals).toContain('view_failure');
+ }finally{await f.close();}
+});
+
+test('Claude callback returns an explicit denial when unavailable-state diagnostics also fail',async()=>{
+ const f=await fixture();try{
+  const unavailable={read(){throw new Error('Causal state is unavailable.');},subscribe(){return ()=>{};}};
+  const releases:string[]=[];
+  const wiring=createPermissionWiring({req:{prompt:'Return to Ithaca',signal:f.controller.signal,bridge:{emit(){},admissionSafety:unavailable,inputSafety:f.collector,requestPermission:async()=>({behavior:'allow'})}},allowedTools:['Bash'],confirmPatterns:[],brainPath:f.root,turnLock:{async acquireForTool(){return {ok:true};},releaseForTool(id:string){releases.push(id);}} as never,childEnv:{},log(){}});
+  expect(await wiring.canUseTool!('Bash',{command},{toolUseID:'unavailable',signal:f.controller.signal} as never)).toMatchObject({behavior:'deny',message:'Causal state is unavailable.'});
+  expect(releases).toContain('unavailable');
+ }finally{await f.close();}
+});
+
+
+test('Pi final RPC allowance queue rechecks revisions before recording allowance',async()=>{
+ const f=await fixture(false);let release=()=>{};let pending:Promise<Error|null>|undefined;try{
+  const entered=Promise.withResolvers<void>(),gate=Promise.withResolvers<void>();release=()=>gate.resolve();let finalAdmission=false;
+  const safety={...f.collector,async allowed(id:string,validate?:()=>string|null){if(!finalAdmission)throw new Error("Bash allowance preceded final admission");entered.resolve();await gate.promise;await f.collector.allowed!(id,validate);}};
+  const turn={...createTurnContext(),bridge:{emit(){},admissionSafety:f.safety,inputSafety:safety,requestPermission:async()=>({behavior:'allow' as const})},signal:f.controller.signal,commandPolicy:{hash:null,deny:[],confirm:[],outwardAllow:[]}};
+  const context={brainPath:f.root,turn,live(){},grants:new Map(),releases:new Map(),admitTool(){},autonomous:false,allowedTools:new Set(['bash']),confirmPatterns:[],workerLock:{async acquire(){return ()=>{};}},executed:()=>({name:'bash',lock:false,host:false,phases:new Set()})} as unknown as PiWorkerRpcContext;
+  const dispatch=createPiWorkerRpcDispatcher(context),id='rpc-queued';
+  const message=(n:number,method:'permission'|'lock'|'admission',input:Record<string,unknown>)=>({type:'rpc' as const,id:n,method,toolName:'bash',toolCallId:id,input});
+  expect(await dispatch(message(1,'permission',{command}))).toMatchObject({behavior:'allow'});
+  await dispatch(message(2,'lock',{key:bashLockKey(command)}));
+  finalAdmission=true;
+  pending=dispatch(message(3,'admission',{command})).then(()=>null,error=>error as Error);
+  await Promise.race([entered.promise,pending.then(()=>{throw new Error('Final RPC did not reach its allowance wait');})]);await f.add('during_final_rpc_queue');gate.resolve();
+  expect(String(await pending),'RPC_QUEUE_CANNOT_AUTHORIZE_STALE_DISPATCH').toContain('Safety or authority changed');
+  expect(f.db.query('SELECT COUNT(*) n FROM safety_obligations').get(),'RPC_QUEUE_REFUSAL_PRECEDES_ALLOWED_STATE').toEqual({n:0});
+  expect(context.grants.has(id)).toBe(false);
+  for(const unlock of context.releases.values())unlock();
+ }finally{release();await pending;await f.close();}
 });

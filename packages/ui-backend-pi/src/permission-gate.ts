@@ -116,22 +116,24 @@ export function createPermissionGate(options: PermissionGateOptions): InlineExte
         // anything is decided (#3812).
         const safety = turn.bridge?.inputSafety;
         safety?.admitting?.(event.toolCallId, event.toolName);
-        const answer = await admit(event);
+        let answer:ToolCallEventResult|undefined;
+        try{answer=await admit(event);}catch(error){await safety?.refused?.(event.toolCallId,true);return {block:true,reason:error instanceof Error?error.message:'Host tool admission is unavailable.'};}
         // A block is this host's denial before the call runs. It refuses the
         // id at the collector, so nothing later under it is admitted or let
         // through, and for the id's only admission, never let through, it
         // discharges the call's result obligation.
         if (answer?.block) { await safety?.refused?.(event.toolCallId, true); return answer; }
-        // The collector's last check before the call runs: one it can no
-        // longer let run is blocked instead.
-        try { await safety?.allowed?.(event.toolCallId); }
-        catch (error) {
-          await safety?.refused?.(event.toolCallId, true);
-          return { block: true, reason: error instanceof Error ? error.message : "Safety recording refused this call." };
+        const validate=()=>{
+          const visible=prepareOutwardPlan({toolName:event.toolName,shellToolName:"bash",input:event.input,autonomous:!!turn.autonomous}).classification.actions.length>0;
+          return visible?revalidatePiAdmission(turn,event.toolName,event.toolCallId,event.input??{}):null;
+        };
+        try{
+          const stale=validate();if(stale)throw new Error(stale);
+          if(event.toolName!=="bash")await safety?.allowed?.(event.toolCallId,validate);
+        }catch(error){
+          await safety?.refused?.(event.toolCallId,true);
+          return {block:true,reason:error instanceof Error?error.message:'Safety recording refused this call.'};
         }
-        const visible=prepareOutwardPlan({toolName:event.toolName,shellToolName:"bash",input:event.input,autonomous:!!turn.autonomous}).classification.actions.length>0;
-        const stale=visible?revalidatePiAdmission(turn,event.toolName,event.toolCallId,event.input??{}):null;
-        if(stale){await safety?.refused?.(event.toolCallId,true);return {block:true,reason:stale};}
         return answer;
       });
       async function admit(event: ToolCallEvent): Promise<ToolCallEventResult | undefined> {
@@ -168,7 +170,12 @@ export function createPermissionGate(options: PermissionGateOptions): InlineExte
 }
 
 /** Host admission shared by the native worker RPC and the in-process binding. */
-export async function decidePiToolPermission(options: PermissionGateOptions, toolName: string,
+export async function decidePiToolPermission(options:PermissionGateOptions,toolName:string,input:Record<string,unknown>,toolUseId:string):Promise<PermissionDecision>{
+  try{return await decidePiToolPermissionUnchecked(options,toolName,input,toolUseId);}
+  catch(error){return {behavior:"deny",message:error instanceof Error?error.message:"Host tool admission is unavailable."};}
+}
+
+async function decidePiToolPermissionUnchecked(options: PermissionGateOptions, toolName: string,
   input: Record<string, unknown>, toolUseId: string): Promise<PermissionDecision> {
   const { turn, allowedTools } = options;
   const unavailable = piToolAvailabilityRefusal(turn, toolName);

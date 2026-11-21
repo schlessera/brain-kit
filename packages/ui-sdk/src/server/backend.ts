@@ -167,6 +167,9 @@ export interface LocationFix {
   timestamp: number;
 }
 
+/** Synchronous final host check, run before an allowance becomes usable. */
+export type InputSafetyAdmissionCheck = () => string | null;
+
 /** Host-owned causal view factory for an exact logical tool call. Never a grant. */
 export type InputSafetyAdmissionView = (
   toolUseId: string,
@@ -230,8 +233,9 @@ export interface BackendBridge {
      * grant, a capability) until it resolves; a backend that calls `refused`
      * must call this too. Rejects when the call's id was refused or its
      * latest `begin` did not complete; the backend then refuses the call
-     * instead. */
-    allowed?(toolUseId: string): Promise<void>;
+     * instead. `validate` runs synchronously inside the serialized step,
+     * before the allowance is marked; a refusal never marks the call allowed. */
+    allowed?(toolUseId: string, validate?: InputSafetyAdmissionCheck): Promise<void>;
   };
   /** Validated, exact-base policy proposal; the server owns its explicit approval and write. */
   proposePolicyChange?(requestId: string, input: import("../tool-contracts/policy.js").PolicyChangeInput): Promise<import("../tool-contracts/policy.js").PolicyChangeReview>;

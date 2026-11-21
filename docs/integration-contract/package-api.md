@@ -5972,3 +5972,13 @@ Without the callback the backend uses the unfiltered root facade, preserving
 strict revision checks and granting no exclusion. Provider tool definitions,
 prompts and earlier conversation bytes are unchanged. The same-commit API
 report records the additive callback type.
+
+
+The optional `inputSafety.allowed(toolUseId, validate?)` argument uses exported
+`InputSafetyAdmissionCheck`, a synchronous host-only refusal check returning a
+reason or null. The collector invokes it inside the serialized allowance step,
+before marking a call allowed. A refusal leaves a unique never-dispatched call
+eligible for discharge instead of inventing a missing result. Omission preserves
+the existing allowance behavior. Backends also check before entering that step.
+Bash on Pi records allowance at its final execution admission after rewrites and
+locks; an earlier permission ticket alone is not evidence that Bash ran.

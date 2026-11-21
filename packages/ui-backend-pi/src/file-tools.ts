@@ -16,7 +16,7 @@ import { RTK_WORKER_ENV, execWrapperSpawnOptions, WORKER_DATA_ROOT, WORKER_EGRES
 
 import { resolveEnabledWebSearchEnvNames, ambientExecConfig, subprocessEnv } from "./config/env.js";
 import { clip, MAX_READ_BYTES, textResult, type BrainToolKit } from "./tool-kit.js";
-import { revalidatePiAdmission } from "./tool-admission.js";
+import { revalidatePiAdmission, forgetPiAdmission } from "./tool-admission.js";
 
 /** `read_file`: one repo-contained UTF-8 file, remembered as a same-turn base. */
 export function readFileTool(kit: BrainToolKit): ToolDefinition {
@@ -186,8 +186,16 @@ export function bashTool(kit: BrainToolKit): ToolDefinition {
         if (signal?.aborted) throw new DOMException("Tool cancelled before subprocess execution", "AbortError");
         if (turn.bridge?.commitToolAdmission) await turn.bridge.commitToolAdmission(_id, "bash", params);
         else {
-          const stale = revalidatePiAdmission(turn, "bash", _id, params, true);
-          if (stale) throw new Error(stale);
+          try {
+            const validate=()=>revalidatePiAdmission(turn,"bash",_id,params);
+            const stale=validate();if(stale)throw new Error(stale);
+            await turn.bridge?.inputSafety?.allowed?.(_id,validate);
+            forgetPiAdmission(turn,"bash",_id);
+          }catch(error){
+            forgetPiAdmission(turn,"bash",_id);
+            await turn.bridge?.inputSafety?.refused?.(_id,true);
+            throw error;
+          }
         }
         const exec = deps.exec ?? ambientExecConfig();
         // Not a login shell (#2960): `-l` sourced /etc/profile and the first

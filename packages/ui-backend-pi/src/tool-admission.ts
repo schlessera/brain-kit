@@ -27,3 +27,8 @@ export function revalidatePiAdmission(turn: TurnContext, tool: string, id: strin
   if (!refused && consume) state!.calls.delete(key(tool, id));
   return refused;
 }
+
+/** Revoke a consumed or refused ticket; this never grants authority. */
+export function forgetPiAdmission(turn:TurnContext,tool:string,id:string):void {
+  admissions.get(turn)?.calls.delete(key(tool,id));
+}

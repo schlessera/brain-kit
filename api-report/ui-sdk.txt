@@ -2871,6 +2871,7 @@ export "./server" (./src/server/index.ts)
   type InboxToolName
   type InboxView
   type InboxWorkPayload
+  type InputSafetyAdmissionCheck
   type InputSafetyAdmissionView
   type JournalObservationReference
   type JournalOutwardAction
@@ -10717,6 +10718,8 @@ signatures (every public export and the types it is made of)
         instruction: string;
         operation?: InboxOperation;
     }
+  InputSafetyAdmissionCheck (packages/ui-sdk/src/server/backend.ts)
+    export type InputSafetyAdmissionCheck = () => string | null;
   InputSafetyAdmissionView (packages/ui-sdk/src/server/backend.ts)
     export type InputSafetyAdmissionView = (toolUseId: string, toolName: string, safety: import("./admission-safety.js").AdmissionSafety) => import("./admission-safety.js").AdmissionSafety;
   JournalObservationReference (packages/ui-sdk/src/turn-journal.ts)

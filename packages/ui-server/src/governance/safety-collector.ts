@@ -216,9 +216,10 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
   // was refused, or whose latest begin() did not complete, must not run: the
   // backend refuses it instead, and hands out nothing the call could use
   // until this resolves.
-  allowed(toolUseId){return serial(toolUseId,async()=>{
+  allowed(toolUseId,validate){return serial(toolUseId,async()=>{
    const op=operations.get(toolUseId);
    if(op&&(op.refused||!op.admitted))throw new Error("Safety operation was refused or not admitted; the call does not run");
+   const refusal=validate?.();if(refusal)throw new Error(refusal);
    const call=calls.get(toolUseId);
    if(call)call.allowed=true;
    else if(calls.size<2000)calls.set(toolUseId,{tools:new Map(),allowed:true});

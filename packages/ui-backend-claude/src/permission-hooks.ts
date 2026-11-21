@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { relative, resolve } from "node:path";
 import { createWorkerFileObserver, NativeFileVersions, WORKER_AREA_ROOT, type ObservedWorkerFile } from "@schlessera/brain-ui-sdk/internal";
 import type { HookCallback, Options, PermissionResult } from "@anthropic-ai/claude-agent-sdk";
-import { type AdmissionSafetySnapshot, type CompiledWorkerCommandPolicy, compileWorkerCommandPolicy, denyWorkerCommand, requestPolicyPermission, prepareOutwardPlan, commitOutwardPlan, safetyAdmissionRefusal, toolAdmissionSafety, outwardAdmissionRefusal, observeOutwardPlan, OUTWARD_VOICE_REFUSAL } from "@schlessera/brain-ui-sdk/internal";
+import { type AdmissionSafety, type AdmissionSafetySnapshot, type CompiledWorkerCommandPolicy, compileWorkerCommandPolicy, denyWorkerCommand, requestPolicyPermission, prepareOutwardPlan, commitOutwardPlan, safetyAdmissionRefusal, toolAdmissionSafety, outwardAdmissionRefusal, observeOutwardPlan, OUTWARD_VOICE_REFUSAL } from "@schlessera/brain-ui-sdk/internal";
 import type { StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
 import {
   checkEditedApproval,
@@ -196,8 +196,10 @@ export function createPermissionContext(options: PermissionWiringOptions, native
     decision: Parameters<typeof observeOutwardPlan>[1]["decision"]) => observeOutwardPlan(plan, { bridge: req.bridge, toolName, input, toolUseId, decision });
   // Only a host-completed per-use admission, with exact input identity, may
   // suppress the same command card when the runtime subsequently asks for its
-  // separate tool grant. Never borrowed across turns, retries or edited input.
-  const shownOutward = new Map<string, string>();
+  // separate tool grant. Its approval-time facade and snapshot travel with
+  // it: the callback must never rebase an old card on a fresh revision.
+  // Never borrowed across turns, retries or edited input.
+  const shownOutward = new Map<string,{tool:string;input:string;safety?:AdmissionSafety;snapshot?:AdmissionSafetySnapshot}>();
   const denyCommand = (toolName: string, input: unknown, toolUseId: string) => {
     const refusal = backgroundBashRefusal(toolName, input) ?? denyWorkerCommand(commandPolicy, { bridge: req.bridge, toolName, shellToolName: "Bash", input, toolUseId });
     if (refusal) observe(prepareOutwardPlan({ toolName, shellToolName: "Bash", input, taint: req.workerSandbox?.commandPolicy?.taint, autonomous: Boolean(req.autonomous) }), toolName, input, toolUseId, "refused");
@@ -364,10 +366,11 @@ export function canUseToolFor(ctx: PermissionContext): NonNullable<Options["canU
     // once the tool is actually approved.
     turnLock.releaseForTool(opts.toolUseID);
     const outwardPlan = outward(toolName, input);
-    const safety=toolAdmissionSafety(req.bridge,opts.toolUseID,toolName);
-    const snapshot = safety?.read();
+    const cached=shownOutward.get(opts.toolUseID);
+    const shown=cached?.tool===toolName&&cached.input===JSON.stringify(input);
+    const safety=shown?cached.safety:toolAdmissionSafety(req.bridge,opts.toolUseID,toolName);
+    const snapshot=shown?cached.snapshot:safety?.read();
     if (outwardPlan.voiceRefusal) { observe(outwardPlan, toolName, input, opts.toolUseID, "refused"); return { behavior: "deny", message: OUTWARD_VOICE_REFUSAL }; }
-    const shown = shownOutward.get(opts.toolUseID) === JSON.stringify(input);
     shownOutward.delete(opts.toolUseID);
     let perUseDecision: Awaited<ReturnType<typeof requestPolicyPermission>> | undefined;
     if (outwardPlan.pattern && !shown) {
@@ -588,7 +591,7 @@ export function mutatingHookFor(ctx: PermissionContext): HookCallback {
     const refusal = commitOutwardPlan(finalPlan, { bridge: req.bridge, safety, before: snapshot, approved, signal: req.signal });
     observe(finalPlan, hookInput.tool_name, finalInput, hookInput.tool_use_id, refusal ? "refused" : { behavior: "allow" });
     if (refusal) { turnLock.releaseForTool(hookInput.tool_use_id); return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: refusal } }; }
-    if (approved) shownOutward.set(hookInput.tool_use_id, JSON.stringify(finalInput));
+    if (approved) shownOutward.set(hookInput.tool_use_id,{tool:hookInput.tool_name,input:JSON.stringify(finalInput),safety,snapshot});
     if (edited !== undefined) {
       // Applied by returning `updatedInput` with NO permissionDecision. A
       // PreToolUse hook's rewrite takes effect without one — measured for #124
@@ -705,24 +708,28 @@ export function createPermissionWiring(options: PermissionWiringOptions): Pick<O
   // proves the call never ran; one it can no longer let run is denied
   // instead.
   const callbackAdmissions=new Map<string,number>();
-  const canUseTool: typeof decideToolUse = async (toolName, input, opts) => {
-    admit(opts.toolUseID,toolName,callbackAdmissions);
-    const safety=toolAdmissionSafety(req.bridge,opts.toolUseID,toolName),before=safety?.read();
-    const result = await decideToolUse(toolName, input, opts);
-    if (result?.behavior === "deny") await refuse(opts.toolUseID);
-    else if (result?.behavior === "allow" && req.bridge.inputSafety?.allowed) {
-      try { await req.bridge.inputSafety.allowed(opts.toolUseID); }
-      catch (error) {
-        turnLock.releaseForTool(opts.toolUseID);
-        await refuse(opts.toolUseID);
-        return { behavior: "deny", message: error instanceof Error ? error.message : "Safety recording refused this call." };
+  const canUseTool: typeof decideToolUse = async (toolName,input,opts) => {
+    try {
+      admit(opts.toolUseID,toolName,callbackAdmissions);
+      const cached=ctx.shownOutward.get(opts.toolUseID);
+      const shown=cached?.tool===toolName&&cached.input===JSON.stringify(input);
+      const safety=shown?cached.safety:toolAdmissionSafety(req.bridge,opts.toolUseID,toolName);
+      const before=shown?cached.snapshot:safety?.read();
+      if(shown){const stale=outwardAdmissionRefusal(safety,before);if(stale)throw new Error(stale);}
+      const result=await decideToolUse(toolName,input,opts);
+      if(result?.behavior==='deny'){turnLock.releaseForTool(opts.toolUseID);await refuse(opts.toolUseID);return result;}
+      if(result?.behavior==='allow'){
+        const effective=result.updatedInput??input;
+        const validate=()=>outward(toolName,effective).classification.actions.length?outwardAdmissionRefusal(safety,before):null;
+        const stale=validate();if(stale)throw new Error(stale);
+        await req.bridge.inputSafety?.allowed?.(opts.toolUseID,validate);
       }
+      return result;
+    }catch(error){
+      turnLock.releaseForTool(opts.toolUseID);await refuse(opts.toolUseID);
+      try{ctx.observe(outward(toolName,input),toolName,input,opts.toolUseID,'refused');}catch{/* Unavailable diagnostics cannot turn a deny into a rejected hook. */}
+      return {behavior:'deny',message:error instanceof Error?error.message:'Host tool admission is unavailable.'};
     }
-    if(result?.behavior==="allow"&&outward(toolName,result.updatedInput??input).classification.actions.length){
-      const stale=outwardAdmissionRefusal(safety,before);
-      if(stale){turnLock.releaseForTool(opts.toolUseID);await refuse(opts.toolUseID);return {behavior:"deny",message:stale};}
-    }
-    return result;
   };
   const mutatingHook = mutatingHookFor(ctx);
   const { agentHook, rtkHook } = createRewriteHooks(ctx, options);
@@ -737,10 +744,11 @@ export function createPermissionWiring(options: PermissionWiringOptions): Pick<O
     return output;
   }; };
   async function fenced(hook: HookCallback, args: Parameters<HookCallback>): Promise<Awaited<ReturnType<HookCallback>>> {
-    const safety=args[0].hook_event_name==="PreToolUse"?toolAdmissionSafety(req.bridge,args[0].tool_use_id,args[0].tool_name):req.bridge.admissionSafety;
+    let safety:AdmissionSafety|undefined;
     let snapshot: AdmissionSafetySnapshot | undefined;
     let output: Awaited<ReturnType<HookCallback>>;
     try {
+      safety=args[0].hook_event_name==="PreToolUse"?toolAdmissionSafety(req.bridge,args[0].tool_use_id,args[0].tool_name):req.bridge.admissionSafety;
       snapshot = safety?.read();
       output = await hook(...args);
     } catch (error) {
