@@ -1,4 +1,5 @@
-import { statfsSync } from "node:fs";
+import { readdirSync, unlinkSync, statfsSync } from "node:fs";
+import { workerOutputAllowance } from "../config/env.js";
 
 /**
  * Git storage upkeep for a brain repository: the non-destructive packing
@@ -18,6 +19,8 @@ export class GitUnavailableError extends GitStorageError {}
 
 /** A git write ran out of space; the message is git's own line saying so. */
 export class GitNoSpaceError extends GitStorageError {}
+
+export class GitPackingSkipped extends GitStorageError {}
 
 /**
  * Whether a failure's text reports a full filesystem. Git words its own write
@@ -64,8 +67,8 @@ export interface LooseObjects {
   bytes: number;
 }
 
-/** Loose objects from `git count-objects -v`. */
-export function looseObjects(root: string): LooseObjects {
+/** One read of Git's own storage accounting, including existing garbage. */
+export function gitObjectCounts(root: string): { count: number; bytes: number; garbage: { count: number; bytes: number } } {
   const out = git(root, ["count-objects", "-v"]);
   if (!out.ok) throw new GitStorageError(firstLine(out.stderr, "git count-objects failed"));
   const field = (name: string) => {
@@ -73,7 +76,12 @@ export function looseObjects(root: string): LooseObjects {
     if (!match) throw new GitStorageError(`git count-objects -v printed no ${name}`);
     return Number(match[1]);
   };
-  return { count: field("count"), bytes: field("size") * 1024 };
+  return { count: field("count"), bytes: field("size") * 1024, garbage: { count: field("garbage"), bytes: field("size-garbage") * 1024 } };
+}
+
+export function looseObjects(root: string): LooseObjects {
+  const { count, bytes } = gitObjectCounts(root);
+  return { count, bytes };
 }
 
 /** Local pack files, from `git count-objects -v`. */
@@ -112,12 +120,38 @@ function runMaintenance(root: string, tasks: string[]): void {
  * no objects at all gets no pack and has nothing to do. A repository that
  * already has a pack runs exactly the tasks it always did.
  */
-export function packRepository(root: string): { packed: number } {
-  const before = looseObjects(root).count;
-  const repack = packCount(root) > 0 ? ["--task=incremental-repack"] : [];
-  runMaintenance(root, ["--task=loose-objects", ...repack, "--task=pack-refs"]);
-  runMaintenance(root, ["--task=loose-objects"]);
-  return { packed: Math.max(0, before - looseObjects(root).count) };
+export function packRepository(root: string, headroom = gitPackingHeadroom(root)): { packed: number } {
+  if (headroom.availableBytes === null || headroom.availableBytes < headroom.packingRequiredBytes)
+    throw new GitPackingSkipped(`packing_headroom — requires ${headroom.packingRequiredBytes} bytes; available ${headroom.availableBytes ?? "unknown"}`);
+  const objects = git(root, ["rev-parse", "--path-format=absolute", "--git-path", "objects"]);
+  if (!objects.ok) throw new GitStorageError("Git object store unavailable");
+  const pack = `${objects.stdout}/pack`;
+  const packNames = () => {
+    try {
+      const entries=readdirSync(pack,{withFileTypes:true}),names=entries.map(entry=>entry.name);
+      // Incremental MIDX writes its temporary companion in this Git-owned
+      // child directory. Never follow an arbitrary directory or symlink.
+      if(entries.some(entry=>entry.name==="multi-pack-index.d"&&entry.isDirectory()))
+        names.push(...readdirSync(`${pack}/multi-pack-index.d`).map(name=>`multi-pack-index.d/${name}`));
+      return names;
+    }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return []; throw error; }
+  };
+  const privateStage=Boolean(workerOutputAllowance());
+  const previous = new Set(privateStage?packNames():[]);
+  try {
+    const before = looseObjects(root).count;
+    const repack = packCount(root) > 0 ? ["--task=incremental-repack"] : [];
+    runMaintenance(root, ["--task=loose-objects", ...repack, "--task=pack-refs"]);
+    runMaintenance(root, ["--task=loose-objects"]);
+    return { packed: Math.max(0, before - looseObjects(root).count) };
+  } catch (error) {
+    // Only a private output stage proves these new names belong to this
+    // execution. A standalone Git writer may be racing another pack process.
+    if (privateStage) for (const name of packNames())
+      if (!previous.has(name) && /^(tmp_|\.tmp-)/.test(name.split("/").at(-1)!)) unlinkSync(`${pack}/${name}`);
+    throw error;
+  }
 }
 
 /** Refs under `refs/original/`, the backups `git filter-branch` leaves behind. */
@@ -127,14 +161,31 @@ export function originalRefs(root: string): string[] {
   return out.stdout ? out.stdout.split("\n") : [];
 }
 
-/** Capacity of the Git common store, resolved inside the caller's execution boundary. */
-export function gitPackingHeadroom(root: string): { availableBytes: number | null; requiredBytes: null; reason: string } {
-  const common = git(root, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
-  if (!common.ok) throw new GitStorageError("Git common store unavailable");
+/** Capacity of the Git object store, resolved inside the caller's execution boundary. */
+export function gitPackingHeadroom(root: string): { availableBytes: number | null; requiredBytes: null; packingRequiredBytes: number; reason: string } {
+  const objects = git(root, ["rev-parse", "--path-format=absolute", "--git-path", "objects"]);
+  if (!objects.ok) throw new GitStorageError("Git object store unavailable");
+  // Raw object sizes avoid treating highly compressible loose data as cheap.
+  // Three copies cover both maintenance passes, indexes and auxiliary files;
+  // 16 MiB covers fixed Git overhead. Existing packs remain alongside output.
+  const sizes = git(root, ["cat-file", "--batch-all-objects", "--batch-check=%(objectsize)"]);
+  if (!sizes.ok) throw new GitStorageError("Git packing size unavailable");
+  let raw = 0;
+  for (const line of sizes.stdout.split("\n").filter(Boolean)) {
+    if (!/^\d+$/.test(line)) throw new GitStorageError("Git packing size unavailable");
+    raw += Number(line) + 128;
+  }
+  const refs = git(root, ["for-each-ref", "--format=%(objectname) %(refname)"]);
+  if (!refs.ok) throw new GitStorageError("Git packing ref size unavailable");
+  // Packed refs can dwarf object bytes when many long names share one object.
+  // Include their text plus room for one peeled object line per reference.
+  const refBytes = Buffer.byteLength(refs.stdout) + refs.stdout.split("\n").filter(Boolean).length * 128;
+  const requiredBytes = Math.ceil((3 * (raw + refBytes) + 16 * 1024 ** 2) / 4096) * 4096;
+  if (!Number.isSafeInteger(requiredBytes)) throw new GitStorageError("Git packing size exceeds safe accounting");
   let availableBytes: number | null = null;
   try {
-    const info = statfsSync(common.stdout, { bigint: true }), bytes = info.bavail * info.bsize;
+    const info = statfsSync(objects.stdout, { bigint: true }), bytes = info.bavail * info.bsize;
     if (bytes >= 0n && bytes <= BigInt(Number.MAX_SAFE_INTEGER)) availableBytes = Number(bytes);
-  } catch { /* An unknown capacity is not zero. Git still reports write refusals. */ }
-  return { availableBytes, requiredBytes: null, reason: "Old and new packs coexist; required temporary bytes depend on the workload. No space is reserved." };
+  } catch { /* Unknown capacity skips packing. */ }
+  return { availableBytes, requiredBytes: null, packingRequiredBytes: requiredBytes, reason: "Three times raw object bytes plus 128 bytes per object and ref text plus 128 bytes per ref, plus 16 MiB fixed overhead; old packs coexist. No space is reserved by the CLI." };
 }

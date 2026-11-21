@@ -115,3 +115,39 @@ test("closing abandons an idle pass instead of waiting for its native work", asy
     expect(closed, "CLOSE_ABANDONS_THE_IDLE_PASS").toBe("closed");
   } finally { f.blockCheckpoints(undefined); unblock(); await f.close().catch(() => {}); }
 });
+
+test("only host maintenance scrubs, and a busy turn records its skip in maintenance Activity", async()=>{
+ const f=fixture();
+ try {
+  await f.journal.ready;
+  const events=()=>f.db.query("SELECT payload FROM activity_events WHERE event_type='journal_scrub'").all() as {payload:string}[];
+  await f.begin("voyage");
+  expect(events(),"ADMISSION_DOES_NOT_SCRUB").toEqual([]);
+  await f.journal.maintain();
+  expect(JSON.parse(events().at(-1)!.payload).v,"SCRUB_BUSY_ACTIVITY").toMatchObject({state:"skipped",reason:"journal_busy",listed:0});
+  const beforeFinish=events().length;
+  await f.journal.finish("voyage");
+  expect(events(),"FINISH_DOES_NOT_SCRUB").toHaveLength(beforeFinish);
+  await f.journal.maintain();
+  expect(JSON.parse(events().at(-1)!.payload).v,"SCRUB_IDLE_ACTIVITY").toMatchObject({state:"complete",reason:null});
+ }finally{await f.close();}
+});
+
+test("idle maintenance retries a transient startup recovery fsync and refreshes its status",async()=>{
+ const fs=await import("node:fs"),{spyOn}=await import("bun:test");
+ const {createJournalAccounting}=await import("../src/brain/journal-accounting.js");
+ const root=mkdtempSync(join(tmpdir(),"odysseus-idle-recovery-")),brain=join(root,"brain"),objects=join(root,"objects");mkdirSync(brain);mkdirSync(objects,{mode:0o700});
+ const native=createNativeJournalFixture(brain,root),db=createUiDb(":memory:"),accounting=createJournalAccounting(db,":memory:");
+ const held=accounting.reserveTemporary(6);writeFileSync(join(objects,`pending-${held.id}`),"Ithaca");
+ accounting.write(()=>db.query("UPDATE turn_journal_reservations SET pid_start='gone' WHERE id=?").run(held.id));
+ const sync=spyOn(fs,"fsyncSync").mockImplementation(()=>{throw Error("Ithaca startup sync refused");});
+ // An in-memory writer runs the actual production accounting procedures inline,
+ // allowing the filesystem fault to hit both startup and idle recovery.
+ const journal=createTurnJournal(db,{brainPath:brain,dbPath:":memory:",objectsRoot:objects,nativeManager:native.manager});
+ try {
+  await journal.ready;expect(journal.recoveryStatus(),"STARTUP_RECOVERY_FAILURE_RETAINED").toMatchObject({unresolvedRecords:1,firstCause:{message:"Ithaca startup sync refused"}});
+  sync.mockRestore();await journal.maintain();
+  expect(journal.recoveryStatus(),"IDLE_RECOVERY_REFRESHES_STATUS").toEqual({unresolvedRecords:0,firstCause:null});
+  expect(db.query("SELECT count(*) AS n FROM turn_journal_reservations").get(),"IDLE_RECOVERY_RELEASES_DURABLE_RESERVATION").toEqual({n:0});
+ }finally{sync.mockRestore();await journal.close();await native.close();db.close();rmSync(root,{recursive:true,force:true});}
+});

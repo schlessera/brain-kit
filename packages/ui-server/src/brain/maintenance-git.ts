@@ -57,6 +57,9 @@ export async function prepareMaintenanceGit(command: MaintenanceCommand, outputs
   const metadata = join(outputs.view.root, ".git");
   if (privateInputs ? !privateInputs.repository : !lstatSync(metadata, { throwIfNoEntry: false })?.isDirectory() || !existsSync(join(metadata, "config"))) return undefined;
   if (!binary) throw new Error("maintenance needs Git");
+  // Every preparation and the final launch must restore this exact selected
+  // executable before readonly runtime mounts make missing parents immutable.
+  command.readPaths=[...new Set([...(command.readPaths??[]),binary])];
   let config: [string, string][];
   if (privateInputs) config = privateInputs.config;
   else {

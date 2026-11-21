@@ -1,3 +1,4 @@
+import { createJournalScrub } from "./journal-scrub.js";
 /**
  * The turn journal's writes, run on the write worker's connection (#2814).
  * Each procedure is one accounted transaction of `createJournalAccounting`,
@@ -108,6 +109,7 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
   try { conflictsReady = accounting.ensureConflictTables(); }
   catch (error) { if (!(error instanceof JournalCapacityError || error instanceof JournalStorageUnavailable)) throw error; }
   const objects = createJournalObjects(options.objectsRoot, accounting);
+  const scrub = createJournalScrub(db, options.objectsRoot, accounting);
   const reservations = new Map<string, JournalObjectReservation>();
   const temporary = new Map<string, { release(): void }>();
   const pin = (turnId: string, entry: JournalVersion | null) => {
@@ -121,7 +123,8 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
   const collect = () => {
     const unused = db.query("SELECT hash,bytes FROM turn_journal_objects WHERE state='present' AND hash NOT IN (SELECT hash FROM turn_journal_object_refs) AND hash NOT IN (SELECT hash FROM turn_journal_reservations WHERE hash IS NOT NULL)").all() as { hash: string; bytes: number }[];
     for (const row of unused) {
-      if (objects.has(row.hash)) objects.remove(row.hash);
+      objects.has(row.hash); // Validate type/link count; absence still needs the retry barrier.
+      objects.remove(row.hash);
       db.query("DELETE FROM turn_journal_object_quarantine WHERE hash=?").run(row.hash);
       db.query("DELETE FROM turn_journal_objects WHERE hash=?").run(row.hash);
     }
@@ -178,6 +181,7 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
         return true;
       });
     },
+    scrubObjects() { return scrub.run(); },
     collectObjects(): void {
       const indexed = accounting.ensureObjectRefIndex();
       accounting.write(collect);
@@ -394,7 +398,7 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
     releaseRead(id: string): void { accounting.releaseRead(id); },
     recover(): JournalRecoveryStatus { return accounting.recover(objects); },
     usage(): number { return accounting.usage(); },
-    close(): void { objects.close(); },
+    close(): void { scrub.close(); objects.close(); },
   };
 }
 
