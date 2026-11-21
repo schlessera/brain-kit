@@ -1,5 +1,5 @@
 import { chargeReceivedBytes } from "./egress-accounting.js";
-import { readRelayResponse, relayHeaderBytes } from "./relay-response.js";
+import { readRelayResponse, readRelayRequestHead } from "./relay-response.js";
 /**
  * The one network path out of a restricted (autonomous) worker (#676).
  *
@@ -132,6 +132,8 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
         if (initialAdmissionFailure) return chargeDenied(initialAdmissionFailure);
         const initialDecision = operation?.charge(0);
         if (initialDecision && !initialDecision.ok) return chargeDenied(initialDecision);
+        const requestHead=readRelayRequestHead(`${request.method} ${url.pathname}${url.search} HTTP/1.1`,request.headers,{charge:chargeFailure,remaining:()=>options.egress?options.egress.remainingBytes():Infinity});
+        if(requestHead.failure)return chargeDenied(requestHead.failure);
         const declared = Number(request.headers.get("content-length") ?? "0");
         if (declared > MAX_INFERENCE_REQUEST_BYTES) return denied("inference_request_too_large", 413);
         // Do not allocate an unbounded arrayBuffer before checking the ceiling.
@@ -188,7 +190,7 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
         // HTTP application framing before provider TLS: never describe this as
         // measured TLS ciphertext/handshake bytes. Include every observable
         // query/header byte plus a conservative runtime framing allowance.
-        const requestChargeFailure = chargeFailure(relayHeaderBytes(`${request.method} ${path}${url.search} HTTP/1.1`, headers));
+        const requestChargeFailure = requestHead.forward(`${request.method} ${path}${url.search} HTTP/1.1`,headers);
         if (requestChargeFailure) return chargeDenied(requestChargeFailure);
         // Body/credential waits may have crossed an input-recording failure.
         // Re-enter the concrete host admission at the last dispatch boundary.

@@ -157,3 +157,15 @@ for(const path of ['proxy','proxy request','inference','provider','Files','clean
   expect(proxy.remainingBytes(),'RECEIVED_HOP_BY_HOP_HEADERS_EXHAUST_ALLOWANCE').toBe(0);expect(rows.at(-1)).toMatchObject({outcome:'denied',reason:'max_bytes_per_turn',bytes:4096,dispatched:path!=='proxy request'});if(path==='proxy request')expect(contacts,'FILTERED_REQUEST_HEADERS_ARE_METERED_BEFORE_CONTACT').toBe(0);if(path==='provider'||path==='Files'||path==='cleanup')expect(receipts.at(-1)).toMatchObject({outcome:'cancelled',status:200});
  }finally{await relay?.stop();proxy.stop();fetchSpy?.mockRestore();await new Promise<void>(r=>server.close(()=>r()));}
 });
+
+for(const provider of [false,true])test(`review29: stripped worker headers exhaust ${provider?'provider':'inference'} allowance before filtering`,async()=>{
+ let contacts=0;const rows:EgressRecord[]=[];const proxy=await startEgressProxy({mode:'record',allow:[],deny:[],maxBytes:4096,outwardHosts:[],observe:r=>rows.push(r)});const original=globalThis.fetch;const spy=spyOn(globalThis,'fetch').mockImplementation(Object.assign(async()=>{contacts++;return Response.json({});},{preconnect:original.preconnect}));
+ const relay=provider?startProviderRelay({origins:new Map([['ANTHROPIC_API_KEY',[origin]]]),credential:()=> 'odysseus-key',egress:proxy}):startInferenceRelay({upstream:origin,routes:['/v1/messages'],credentials:{'x-api-key':'odysseus-key'},egress:proxy});
+ try{const headers={authorization:'x'.repeat(8192),...(provider?{'x-brain-provider':'anthropic','x-brain-provider-key':'ANTHROPIC_API_KEY','x-brain-provider-origin':origin}:{})};const answer=await send(relay.socketPath,'/v1/messages','{}',headers);expect(answer.status,'STRIPPED_RECEIVED_HEADER_BYTES_STILL_DEBIT_ALLOWANCE').toBe(403);expect(proxy.remainingBytes()).toBe(0);expect(contacts).toBe(0);expect(rows.at(-1)).toMatchObject({reason:'max_bytes_per_turn',dispatched:false});}finally{await relay.stop();proxy.stop();spy.mockRestore();}
+});
+
+for(const provider of [false,true])test(`review29: injected credential head growth remains charged in ${provider?'provider':'inference'}`,async()=>{
+ let contacts=0;const proxy=await startEgressProxy({mode:'record',allow:[],deny:[],maxBytes:4096,outwardHosts:[],observe(){}});const original=globalThis.fetch;const spy=spyOn(globalThis,'fetch').mockImplementation(Object.assign(async()=>{contacts++;return Response.json({});},{preconnect:original.preconnect}));const secret='x'.repeat(8192);
+ const relay=provider?startProviderRelay({origins:new Map([['ANTHROPIC_API_KEY',[origin]]]),credential:()=>secret,egress:proxy}):startInferenceRelay({upstream:origin,routes:['/v1/messages'],credentials:{'x-api-key':secret},egress:proxy});
+ try{const answer=await send(relay.socketPath,'/v1/messages','{}',provider?{'x-brain-provider':'anthropic','x-brain-provider-key':'ANTHROPIC_API_KEY','x-brain-provider-origin':origin}:{});expect(answer.status,'UPSTREAM_HEAD_GROWTH_CANNOT_ESCAPE_RECEIVED_HEAD_BOUND').toBe(403);expect(contacts).toBe(0);}finally{await relay.stop();proxy.stop();spy.mockRestore();}
+});

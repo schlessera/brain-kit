@@ -1,5 +1,5 @@
 import { chargeReceivedBytes } from "./egress-accounting.js";
-import { readRelayResponse } from "./relay-response.js";
+import { readRelayResponse, readRelayRequestHead, relayHeaderBytes } from "./relay-response.js";
 /**
  * The metered host relay for the `brain` CLI's paid providers (#1673).
  *
@@ -449,6 +449,8 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       return refuse(status, reason === "provider_request_too_large" ? "request_too_large" : "egress_refused",
         reason === "max_bytes_per_turn" ? "Provider egress limit exceeded" : "Provider request refused", operation?.refusal());
     };
+    const requestHead=readRelayRequestHead(`${request.method} ${url.pathname}${url.search} HTTP/1.1`,request.headers,{charge:chargeFailure,remaining:()=>options.egress?options.egress.remainingBytes():Infinity});
+    if(requestHead.failure)return chargeDenied(requestHead.failure);
     if (Number(request.headers.get("content-length") ?? "0") > MAX_PROVIDER_REQUEST_BYTES) return denied("provider_request_too_large", 413);
     // Charge each received chunk before retaining or forwarding it, against
     // this request's ceiling, the turn's byte ceiling and the relay's
@@ -511,7 +513,7 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       operation?.finish(cause.outcome,"client_disconnected");
       return chargeDenied(cause.failure ?? {ok:false,reason:"cancelled"});
     }
-    const requestChargeFailure = chargeFailure(headerBytes(`${request.method} ${target.pathname}${target.search} HTTP/1.1`, headers));
+    const requestChargeFailure = requestHead.forward(`${request.method} ${target.pathname}${target.search} HTTP/1.1`,headers);
     if (requestChargeFailure) return chargeDenied(requestChargeFailure);
     // Admission again, after every wait: a scope may have blocked meanwhile.
     const now = budgeted ? await options.admit?.() ?? { allowed: true as const } : { allowed: true as const };
@@ -700,7 +702,7 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       observe("cancelled"); return;
     }
     const headers = new Headers(PLACEMENT.gemini(secret));
-    const cleanupCharge = operation?.charge(headerBytes(`DELETE ${target.pathname} HTTP/1.1`, headers));
+    const cleanupCharge = operation?.charge(relayHeaderBytes(`DELETE ${target.pathname} HTTP/1.1`, headers));
     if (cleanupCharge && !cleanupCharge.ok) { observe("cancelled"); return; }
     const cleanupDecision = operation?.prepare();
     if (cleanupDecision && !cleanupDecision.ok) { observe("cancelled"); return; }
@@ -749,12 +751,7 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
   };
 }
 
-/** Bytes a request or response head costs against the turn's egress ceiling. */
-function headerBytes(first: string, values: Headers): number {
-  let bytes = Buffer.byteLength(first) + 1028;
-  for (const [name, value] of values) bytes += Buffer.byteLength(name) + Buffer.byteLength(value) + 4;
-  return bytes;
-}
+
 
 /**
  * Replace every occurrence of `secret` in a byte stream, including one split

@@ -246,7 +246,7 @@ test('review15: unrelated call changes do not withdraw an explicit Network card'
 
 test('review16: terminal cleanup releases both suffixed per-connection approval keys',async()=>{
  const seen:Array<{map:Map<unknown,unknown>;key:string}>=[];const original=Map.prototype.set;const spy=spyOn(Map.prototype,'set').mockImplementation(function(this:Map<unknown,unknown>,key:unknown,value:unknown){if(typeof key==='string'&&/^[a-f0-9-]+:(network|outward)$/.test(key)&&typeof value==='object'&&value!==null&&'marker' in value)seen.push({map:this,key});return original.call(this,key,value);});const f=await fixture(false,{schema_version:1,outward:{hosts:['127.0.0.1']}});
- try{f.decide(async()=>({behavior:'allow'}));for(let i=0;i<8;i++){expect(await get(f.proxy.socketPath,f.origin.url.href)).toBe(200);await f.proxy.settled();}expect(seen.length).toBeGreaterThan(0);for(const {map,key} of seen)expect(map.has(key),'TERMINAL_OWNER_RELEASES_SUFFIXED_APPROVAL_KEYS').toBe(false);}finally{spy.mockRestore();await f.close();}
+ try{await f.taint();f.decide(async()=>({behavior:'allow'}));for(let i=0;i<8;i++){expect(await get(f.proxy.socketPath,f.origin.url.href)).toBe(200);await f.proxy.settled();}for(const kind of ['network','outward']){const keys=seen.filter(({key})=>key.endsWith(':'+kind));expect(keys.length,'APPROVAL_KEY_EXERCISED_'+kind).toBeGreaterThan(0);for(const {map,key} of keys)expect(map.has(key),'TERMINAL_OWNER_RELEASES_'+kind+'_APPROVAL_KEY').toBe(false);}}finally{spy.mockRestore();await f.close();}
 });
 
 test('review16: terminal owner joins the real occurrence write before cleanup',async()=>{

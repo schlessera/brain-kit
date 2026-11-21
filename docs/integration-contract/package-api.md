@@ -6102,3 +6102,10 @@ bytes and CRLF framing plus the existing runtime allowance. `http_wire_bound`
 is conservative application-level accounting: it does not claim exact TLS,
 transport wire bytes, or original header formatting discarded by Fetch. This
 clarifies the existing bound; forwarding policy never determines received cost.
+
+Relay request accounting charges the unfiltered worker head before any body read,
+forwarding filter or credential injection. The logical request head costs at
+least the larger of that received head and the constructed upstream head,
+including the framing allowance; upstream growth is charged before dispatch.
+The local relay hop does not count the same logical head twice. Generated
+cleanup requests have no worker head and charge their constructed upstream head.

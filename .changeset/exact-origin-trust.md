@@ -57,3 +57,5 @@ Meter raw proxy header pairs and all observable Fetch headers before forwarding 
 Publish dispatched exposure and contacted-host grants only after the transport constructor or fetch call returns successfully; synchronous construction failures remain upstream failures without granting recipient permission.
 
 Bind recipient receipts to the final dispatch authority and share verified, bounded admission validation between durable ingestion, projection and history, including retained provenance after pruning.
+
+Meter relay worker request headers before filtering and cover upstream credential/header growth with the same shared head meter.

@@ -15,6 +15,12 @@ export function relayHeaderBytes(first:string,headers:Headers):number {
 export function readReceivedHead(first:string,rawHeaders:readonly string[],options:Parameters<typeof chargeReceivedBytes>[1],allowance=64) {
  return chargeReceivedBytes(receivedHeadBytes(first,rawHeaders,allowance),options);
 }
+/** One logical request head: retain received cost and cover any upstream growth. */
+export function readRelayRequestHead(first:string,headers:Headers,options:Parameters<typeof chargeReceivedBytes>[1]) {
+ const receivedBytes=relayHeaderBytes(first,headers);
+ const failure=readReceivedHead(first,[...headers].flat(),options,1024);
+ return {failure,forward(first:string,headers:Headers){return failure??options.charge(Math.max(0,relayHeaderBytes(first,headers)-receivedBytes));}};
+}
 export class RelayResponseRefused extends Error {
  constructor(readonly failure:EgressChargeFailure){super('Relay response refused');}
 }
