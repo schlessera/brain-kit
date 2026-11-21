@@ -45,7 +45,7 @@ test("failed credentials keep reached clocks and never invent dispatch or header
       const req = request({ socketPath: relay.socketPath, method: "POST", path: "/v1/messages" }, res => { res.resume(); res.on("end", () => resolve(res.statusCode!)); });
       req.on("error", reject); req.end("{}");
     });
-    expect(status).toBe(499); expect(records).toHaveLength(1);
+    expect(status).toBe(502); expect(records).toHaveLength(1);
     expect(records[0]).toMatchObject({ outcome: "failed", reason: "inference_credentials_unavailable" });
     expect(typeof records[0]!.bodyMs, "FAILED_REQUEST_RETAINS_BODY_CLOCK").toBe("number");
     expect(records[0]!.dispatchMs).toBeUndefined(); expect(records[0]!.headersMs).toBeUndefined();
@@ -93,7 +93,7 @@ test("a denied first admission records the completed decision before its termina
   } finally { proxy.stop(); clock.mockRestore(); }
 });
 
-test("cancellation during an unresolved admission emits immediately without inventing its return clock", async () => {
+test("cancellation joins its unresolved admission effect without inventing its return clock", async () => {
   const entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
   const records: EgressRecord[] = [];
   const proxy = await startEgressProxy({ mode: "record", allow: [], deny: [], outwardHosts: [], maxBytes: 100000,
@@ -103,19 +103,21 @@ test("cancellation during an unresolved admission emits immediately without inve
     const operation = proxy.inference("POST", new URL("https://ithaca.invalid/v1/messages"), new AbortController().signal);
     admitting = operation.admit(); await entered.promise;
     operation.finish("cancelled", "turn_cancelled");
-    expect(records, "CANCELLATION_NEVER_WAITS_FOR_AN_ADMISSION_CLOCK").toHaveLength(1);
+    expect(operation.signal.aborted, "CANCELLATION_ABORTS_BEFORE_ADMISSION_EFFECT_SETTLES").toBe(true);
+    expect(records, "TERMINAL_AUDIT_JOINS_ADMISSION_EFFECT").toHaveLength(0);
+    release.resolve(); await admitting; await proxy.settled();
+    expect(records).toHaveLength(1);
     expect(records[0]).toMatchObject({ outcome: "cancelled", reason: "turn_cancelled" });
-    expect(records[0]!.admitMs).toBeUndefined(); release.resolve(); await admitting;
-    expect(records).toHaveLength(1); expect(records[0]!.admitMs).toBeUndefined();
+    expect(records[0]!.admitMs).toBeUndefined();
   } finally { release.resolve(); await admitting; proxy.stop(); }
 });
 
-test("the first admission clock includes its final synchronous commit check", async () => {
+test("dispatch clock includes preparation and excludes the post-dispatch notification", async () => {
   let now = 1000, commits = 0;
   const clock = spyOn(performance, "now").mockImplementation(() => now), records: EgressRecord[] = [];
   const upstream = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { return new Response("Ithaca"); } });
   const proxy = await startEgressProxy({ mode: "record", allow: [], deny: [], outwardHosts: [], maxBytes: 100000,
-    committed() { if (++commits === 1) now += 250; }, observe: record => records.push(record) });
+    preparing() { now += 125; }, committed() { commits++; now += 250; }, observe: record => records.push(record) });
   const relay = startInferenceRelay({ upstream: upstream.url.origin, routes: ["/v1/messages"], egress: proxy, credentials: {} });
   try {
     const body = await new Promise<string>((resolve, reject) => {
@@ -124,7 +126,7 @@ test("the first admission clock includes its final synchronous commit check", as
       }); req.on("error", reject); req.end("{}");
     });
     expect(body).toBe("Ithaca");
-    expect(records[0], "ADMISSION_CLOCK_INCLUDES_FINAL_COMMIT_CHECK").toMatchObject({ admitMs: 250, bodyMs: 250, dispatchMs: 250 });
-    expect(commits, "ADMISSION_CHECKS_ARE_NOT_DUPLICATED").toBe(3);
+    expect(records[0], "DISPATCH_CLOCK_FOLLOWS_PREPARATION_BEFORE_TRANSPORT_HANDOFF").toMatchObject({ admitMs: 0, bodyMs: 0, dispatchMs: 125, headersMs: 375, dispatched: true });
+    expect(commits, "DISPATCH_NOTIFICATION_IS_NOT_DUPLICATED").toBe(1);
   } finally { relay.stop(); proxy.stop(); await upstream.stop(true); clock.mockRestore(); }
 });

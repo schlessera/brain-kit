@@ -93,7 +93,7 @@ for (const [reason, egress] of refusalCases) test(`a real turn refusal durably r
     expect(await get(proxy.socketPath, origin.url.href)).toBe(403);
     expect(calls, "TURN_EGRESS_REFUSAL_BEFORE_CONTACT").toBe(0);
     expect(queryGovernanceEvents(db, { kinds: ["egress_denial"], limit: 10 }), "TURN_EGRESS_DURABLE_DENIAL").toMatchObject([
-      { payload: { host: "127.0.0.1", port: origin.port, method: "GET", reason, bytes: 0 } },
+      { payload: { host: "127.0.0.1", port: origin.port, method: "GET", reason, bytes: reason === "byte_cap" ? 1 : 0 } },
     ]);
     expect(proxy.recordingFailure()).toBeUndefined();
   } finally { proxy.stop(); origin.stop(true); db.close(); }

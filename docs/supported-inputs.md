@@ -110,11 +110,13 @@ repeated hyphens; repository tokens are 1–100 ASCII alphanumeric/`_.-` bytes,
 excluding `.` and `..`. Stable provider IDs are nonzero decimal strings of
 at most 20 digits. A parsed worker remote never proves provider identity.
 
-These are policy data and pure candidate matching only. All runtime origin,
-recipient and repository rule capabilities remain **disabled**, with an
-explicit reason in the internal availability facts. There is no new Settings
-writer, transport, admission exemption, historical reclassification or safe
-verdict. Incoming-only rules cannot authorize a restricted destination; repo
+Schema parsing and pure candidate matching alone enable no runtime authority.
+The data-only availability defaults remain disabled. Since #3609, the composed
+host independently advertises qualified exact-origin/tunnel source and recipient
+enforcement; repository enforcement remains disabled. See the
+[admission contract](integration-contract/http.md#prospective-origin-enforcement-breaking-before-10-3609)
+and [owner Settings publication](integration-contract/package-api.md#human-trust-settings-publication).
+No rule retrospectively reclassifies a trigger or supplies a safe verdict. Incoming-only rules cannot authorize a restricted destination; repo
 rules cannot authorize a generic host, outward write or private acquisition.
 The existing `taint.egress.allow` list is not populated from these entries.
 

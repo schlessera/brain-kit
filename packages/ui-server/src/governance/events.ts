@@ -1,3 +1,4 @@
+import { safetyAdmissionSchema } from "@schlessera/brain-ui-sdk/internal";
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import { appendSafetyEvent, bindSafetyCollection } from "./safety-store.js";
@@ -81,7 +82,7 @@ export const GOVERNANCE_EVENT_SCHEMAS = {
     admitMs: amount.optional(), bodyMs: amount.optional(), credentialMs: amount.optional(), dispatchMs: amount.optional(),
     headersMs: amount.optional(), firstChunkMs: amount.optional(), loopLagMaxMs: amount.optional(),
     outcome: z.enum(["completed", "denied", "failed", "cancelled"]),
-    inference: z.literal(true).optional(), provider: z.literal(true).optional(), managedReference: z.literal(true).optional(), reason: z.string().max(200).optional(),
+    inference: z.literal(true).optional(), provider: z.literal(true).optional(), managedReference: z.literal(true).optional(), trustedSource: z.literal(true).optional(), recipientApproved: z.literal(true).optional(), dispatched: z.boolean().optional(), failureReason: z.enum(["budget","safety_changed","policy_denied","unavailable","cancelled"]).optional(), standingRecipient: z.literal(true).optional(), recipientAdmission: safetyAdmissionSchema.options[1].omit({trusted:true}).extend({instance:safetyAdmissionSchema.options[1].shape.trustRevision.optional()}).optional(), reason: z.string().max(200).optional(),
   })),
   steering_change: kind(1, z.strictObject({ path, sequence: count,
     tainted: z.literal(true).optional(),

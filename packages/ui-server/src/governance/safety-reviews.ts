@@ -75,15 +75,16 @@ export function safetyReviewTarget(db: Database, body: SafetyReviewBody, princip
   return null;
 }
 function eligible(db: Database, body: SafetyReviewBody, actor: SafetyReviewer): string | null {
-  const r = db.query(`SELECT c.turn_id,c.principal_id,c.principal_account,c.generation,r.state,COALESCE((SELECT x.state FROM safety_records x
+  const r = db.query(`SELECT c.turn_id,c.principal_id,c.principal_account,c.generation,r.state,coalesce(json_extract(r.payload,'$.occurrence.admission.trusted'),json_extract(r.payload,'$.admission.trusted'),0) trusted,COALESCE((SELECT x.state FROM safety_records x
     WHERE x.occurrence_id=r.id AND x.kind='exposure' ORDER BY length(x.sequence) DESC,x.sequence DESC LIMIT 1),r.state) final_state
     FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id
     WHERE r.id=? AND r.kind='occurrence'`)
-    .get(body.occurrenceId) as { turn_id: string; principal_id: string | null; principal_account: string | null; generation: string; final_state: string } | null;
+    .get(body.occurrenceId) as { turn_id: string; principal_id: string | null; principal_account: string | null; generation: string; final_state: string; trusted: number } | null;
   // The aggregate also includes adopted provisional collections. Use its
   // canonical membership; a direct session_id filter strands those events.
   if (!r || !sameAccount(db, { principalId: r.principal_id, account: r.principal_account }, actor.principalId) || r.generation !== body.session.historyGeneration || !safetyScopeTurns(db, null, body.session.sessionId).has(r.turn_id)
     || db.query("SELECT 1 FROM safety_retired_turns WHERE turn_id=?").get(r.turn_id)) return "unavailable";
+  if (r.trusted) return "already_resolved";
   if (db.query("SELECT 1 FROM safety_decisions WHERE occurrence_id=?").get(body.occurrenceId)) return "already_resolved";
   return r.final_state === "finalized" ? null : "not_finalized";
 }

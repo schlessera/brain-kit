@@ -3,6 +3,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { CODE_CHANGE_PROGRAM } from "../src/brain/code-change-program.js";
+import { processAlive, SELF } from "../src/brain/writer-gate.js";
 
 const env = { PATH: "/usr/bin:/bin", HOME: "/nonexistent", GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" };
 function git(root: string, ...args: string[]) {
@@ -678,10 +679,77 @@ test("startup skips malformed ended receipts, records their cause and lets reten
   } finally { await journal.close(); f.maintenance.cleanup(); await f.native.close(); f.db.close(); rmSync(f.root, { recursive: true, force: true }); }
 });
 
+for (const step of ["recording_receipts", "receipt_quarantine", "interrupted_turn", "interrupted_code_revert"] as const) test(`full journal defers startup ${step} and recovers on the next open with headroom`, async () => {
+  const f = inBrainCodeJournal(); let journal = f.journal;
+  const open = (capBytes?: number) => createTurnJournal(f.db, { nativeManager: f.native.manager, brainPath: f.brain, dbPath: f.dbPath,
+    objectsRoot: join(f.root, "objects"), codeChanges: { maintenance: f.maintenance }, ...(capBytes === undefined ? {} : { capBytes }),
+    log: { emit() { throw Error("Diagnostic sink unavailable"); }, enabled: () => true } });
+  const receipt = () => f.db.query("SELECT receipt FROM turn_journal_code_receipts WHERE turn_id='sail'").get() as { receipt: string } | null;
+  try {
+    await journal.begin("sail", codeMetadata, () => {}); await journal.finish("sail");
+    await journal.begin("healthy", { ...codeMetadata, workspaceReadOnly: true, workspacesWritable: false }, () => {}); await journal.finish("healthy");
+    if (step === "recording_receipts") await journal.writeOperation([{ sql: "UPDATE turn_journal_code_receipts SET receipt=json_set(receipt,'$.state','recording') WHERE turn_id='sail'" }]);
+    if (step === "receipt_quarantine") await journal.writeOperation([{ sql: "UPDATE turn_journal_code_receipts SET receipt='{malformed' WHERE turn_id='sail'" }]);
+    if (step === "interrupted_turn" || step === "interrupted_code_revert") expect(processAlive(SELF.pid, "retired-owner"), "RECOVERY_FIXTURE_HAS_A_DEAD_PROCESS_IDENTITY").toBe(false);
+    if (step === "interrupted_turn") await journal.writeOperation([{ sql: "UPDATE turn_journal_turns SET ended_at=NULL,state='recording',pid=?,pid_start='retired-owner' WHERE turn_id='sail'", params: [SELF.pid] }]);
+    if (step === "interrupted_code_revert") await journal.writeOperation([{ sql: "INSERT INTO turn_journal_code_reverts(id,principal_id,session_id,turn_id,checkout,state,pid,pid_start) VALUES ('restore','odysseus','ithaca','sail','workspaces/argo','applying',?,'retired-owner')", params: [SELF.pid] }]);
+    const before = receipt(); await journal.close(); journal = open(0);
+    const failure = await journal.ready.then(() => undefined, error => error);
+    expect(failure, "FULL_JOURNAL_RECOVERY_NEVER_REFUSES_READY").toBeUndefined();
+    expect(receipt(), "DEFERRED_RECOVERY_NEVER_REWRITES_THE_RECEIPT").toEqual(before);
+    expect(journal.cleanupStatus().lastFailure, "DEFERRED_RECOVERY_CAUSE_IS_DURABLE_AND_OWNER_VISIBLE").toMatchObject({
+      kind: "journal_recovery_deferred", scope: "journal_recovery", step, errorClass: "JournalCapacityError",
+      cause: expect.stringContaining("storage cap"), callSite: "turn-journal.ready", retrying: true,
+    });
+    expect(journal.details("ithaca", "healthy")!.summary.state, "ONE_DEFERRED_RECORD_LEAVES_OTHER_HISTORY_READABLE").toBe("complete");
+    if (step === "interrupted_turn") expect(f.db.query("SELECT ended_at,state FROM turn_journal_turns WHERE turn_id='sail'").get()).toEqual({ ended_at: null, state: "recording" });
+    if (step === "interrupted_code_revert") expect(f.db.query("SELECT state FROM turn_journal_code_reverts WHERE id='restore'").get()).toEqual({ state: "applying" });
+    await journal.close(); journal = open(); await journal.ready;
+    if (step === "recording_receipts") expect(JSON.parse(receipt()!.receipt).state, "NEXT_OPEN_RETRIES_RECORDING_RECEIPT_RECOVERY").toBe("partial");
+    if (step === "receipt_quarantine") {
+      expect(receipt(), "NEXT_OPEN_RETRIES_RECEIPT_QUARANTINE").toBeNull();
+      expect(f.db.query("SELECT checkout FROM turn_journal_code_failures WHERE turn_id='sail'").get()).toEqual({ checkout: "workspaces/argo" });
+    }
+    if (step === "interrupted_turn") expect(f.db.query("SELECT ended_at,state FROM turn_journal_turns WHERE turn_id='sail'").get()).toMatchObject({ ended_at: expect.any(Number), state: "partial" });
+    if (step === "interrupted_code_revert") expect(f.db.query("SELECT state FROM turn_journal_code_reverts WHERE id='restore'").get()).toEqual({ state: "unknown" });
+  } finally { await journal.close(); f.maintenance.cleanup(); await f.native.close(); f.db.close(); rmSync(f.root, { recursive: true, force: true }); }
+});
+
 
 import { openSqliteWriter } from "../src/db/write-worker.js";
 import { journalDatabasePath } from "../src/db/journal-database.js";
 import { JournalCapacityError } from "../src/brain/journal-objects.js";
+import { JournalStorageUnavailable } from "../src/brain/journal-accounting.js";
+for (const recoverable of [true, false]) test(`startup receipt recovery defers only known storage refusals: ${recoverable}`, async () => {
+  const f = inBrainCodeJournal(); let journal = f.journal;
+  let writer: ReturnType<typeof openSqliteWriter> | undefined, intercepted: ReturnType<typeof spyOn> | undefined, reached = 0;
+  const refusal = recoverable ? new JournalStorageUnavailable("Fixture recovery storage is unavailable") : new Error("Unexpected recovery failure");
+  try {
+    await journal.begin("sail", codeMetadata, () => {}); await journal.finish("sail");
+    await journal.writeOperation([{ sql: "UPDATE turn_journal_code_receipts SET receipt=json_set(receipt,'$.state','recording') WHERE turn_id='sail'" }]);
+    await journal.close();
+    writer = openSqliteWriter(f.db, { attach: [{ schema: "journal", path: journalDatabasePath(f.dbPath) }] });
+    const channel = writer.channel.bind(writer);
+    intercepted = spyOn(writer, "channel").mockImplementation((module, options, revive) => {
+      const real = channel(module, options, revive);
+      return { ...real, call<T>(name: string, ...args: unknown[]): Promise<T> {
+        if (name === "statements" && (args[0] as { sql: string }[]).some(entry => entry.sql.startsWith("UPDATE turn_journal_code_receipts SET receipt="))) {
+          reached++; return Promise.reject(refusal);
+        }
+        return real.call<T>(name, ...args);
+      } };
+    });
+    journal = createTurnJournal(f.db, { nativeManager: f.native.manager, brainPath: f.brain, dbPath: f.dbPath, objectsRoot: join(f.root, "objects"), writer });
+    const failure = await journal.ready.then(() => undefined, error => error);
+    expect(reached, "RECOVERY_STORAGE_REFUSAL_REACHED_THE_WRITE_BOUNDARY").toBe(1);
+    if (recoverable) {
+      expect(failure, "UNAVAILABLE_RECOVERY_STORAGE_DOES_NOT_REFUSE_READY").toBeUndefined();
+      expect(journal.cleanupStatus().lastFailure).toMatchObject({ step: "recording_receipts", errorClass: "JournalStorageUnavailable", cause: expect.stringContaining("Fixture recovery storage is unavailable") });
+    } else expect(failure, "UNEXPECTED_RECOVERY_FAILURE_IS_NOT_HIDDEN").toBe(refusal);
+    expect(f.db.query("SELECT json_extract(receipt,'$.state') AS state FROM turn_journal_code_receipts WHERE turn_id='sail'").get()).toEqual({ state: "recording" });
+  } finally { await journal.close(); intercepted?.mockRestore(); await writer?.close(); f.maintenance.cleanup(); await f.native.close(); f.db.close(); rmSync(f.root, { recursive: true, force: true }); }
+});
+
 for (const stage of ["startup", "history", "capacity", "admission"] as const) test(`unusable receipt quarantine protects ${stage}`, async () => {
   const f = inBrainCodeJournal(); let journal = f.journal;
   const invalid = ["{", "null", "[]", '{"paths":null}', '{"paths":null,"state":"complete","checkout":"workspaces/argo"}', '{"paths":[],"state":1,"checkout":"workspaces/argo"}', '{"paths":[],"state":"complete","checkout":null}'];

@@ -88,17 +88,28 @@ test("a conflicted path stores one relation as a thousand solo versions follow",
 
 test("new conflict metadata cannot bypass physical journal admission on a full existing journal", async () => {
   const { createJournalAccounting } = await import("../src/brain/journal-accounting.js"), { JournalCapacityError } = await import("../src/brain/journal-objects.js");
+  const { spyOn } = await import("bun:test"), { openSqliteWriter } = await import("../src/db/write-worker.js"), { journalDatabasePath } = await import("../src/db/journal-database.js");
   const root = mkdtempSync(join(tmpdir(), "odysseus-conflict-admission-")), path = join(root, "ui.db"), db = createUiDb(path), ledger = createJournalAccounting(db, path);
   ledger.write(() => db.query("INSERT INTO turn_journal_turns(turn_id,session_id,actor,profile,started_at,ended_at,state) VALUES ('voyage','ithaca','interactive','governed',0,1,'complete')").run());
   const store = setup(db, { dbPath: path, objectsRoot: join(root, "objects"), capBytes: 0 });
   let journal: ReturnType<typeof createTurnJournal> | undefined; const brain = join(root, "brain"); mkdirSync(brain); const native = createNativeJournalFixture(brain, root);
+  const writer = openSqliteWriter(db, { attach: [{ schema: "journal", path: journalDatabasePath(path) }] }), channel = writer.channel.bind(writer);
+  let receiptUpdates = 0;
+  const intercepted = spyOn(writer, "channel").mockImplementation((module, options, revive) => {
+    const real = channel(module, options, revive);
+    return { ...real, call<T>(name: string, ...args: unknown[]): Promise<T> {
+      if (name === "statements" && (args[0] as { sql: string }[]).some(entry => entry.sql.startsWith("UPDATE turn_journal_code_receipts SET receipt="))) receiptUpdates++;
+      return real.call<T>(name, ...args);
+    } };
+  });
   try {
     expect(db.query("SELECT count(*) AS n FROM journal.sqlite_schema WHERE name IN ('turn_journal_path_peers','turn_journal_path_conflicts')").get(), "CONFLICT_SCHEMA_NEVER_ESCAPES_CAPACITY_ADMISSION").toEqual({ n: 0 });
     expect(db.query("SELECT state FROM turn_journal_turns WHERE turn_id='voyage'").get()).toEqual({ state: "complete" });
     expect(() => recordObservation(store, { turnId: "voyage", sequence: 0, at: 1, userPolicy: false, changed: [], overlaps: ["voyage"], steeringPaths: [], worktree: [], steeringUnavailable: [], unreadable: [] }), "FULL_JOURNAL_REFUSES_ONLY_NEW_OBSERVATION").toThrow(JournalCapacityError);
-    journal = createTurnJournal(db, { brainPath: brain, dbPath: path, objectsRoot: join(root, "objects"), capBytes: 0, nativeManager: native.manager }); await journal.ready;
+    journal = createTurnJournal(db, { brainPath: brain, dbPath: path, objectsRoot: join(root, "objects"), capBytes: 0, nativeManager: native.manager, writer }); await journal.ready;
     expect(journal.details("ithaca", "voyage")?.summary.state, "FULL_JOURNAL_STILL_BOOTS_TO_SERVE_HISTORICAL_RECORDS").toBe("complete");
-  } finally { await journal?.close(); await store.close?.(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
+    expect(receiptUpdates, "EMPTY_RECEIPT_TABLE_STARTUP_HAS_NO_ACCOUNTED_RECEIPT_UPDATE").toBe(0);
+  } finally { await journal?.close(); intercepted.mockRestore(); await writer.close(); await store.close?.(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
 });
 
 

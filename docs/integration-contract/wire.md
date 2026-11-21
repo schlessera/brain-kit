@@ -3656,3 +3656,13 @@ the existing `error` outcome and the named `git_publication_discarded` reason;
 the recorded child exit code is unchanged. Other discard conditions retain the
 normal command outcome and carry their cause in this optional metadata. No
 existing outcome or reason enum gains a value. This ships in a minor.
+
+### Historical admission evidence (additive, #3609)
+
+A server advertising `sessionSafetyAdmissionEvidence:true` accepts optional
+`includeAdmissions:true` on `safety_read`. Only opted-in snapshot pages and
+their subscriptions include occurrence `admission` evidence. Cursor continuation
+pins this choice alongside entry correlation; changing it requires a fresh
+snapshot. Older readers retain their strict record shape and conservative
+interpretation. New clients omit the field when the server capability is absent.
+HTTP readers explicitly opt in with `admissions=1`; repeated/invalid query values are refused. This affects host UI sidecars only; it never changes provider history.

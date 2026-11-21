@@ -6,13 +6,14 @@ import { Agent, request as httpsRequest } from "node:https";
 import { connect, type Socket } from "node:net";
 import { Duplex, Transform } from "node:stream";
 import { connect as connectTls } from "node:tls";
-import { egressAddressRefusal } from "@schlessera/brain-ui-sdk/internal";
+import { egressAddressRefusal, egressChargeRefusal, type EgressChargeFailure } from "@schlessera/brain-ui-sdk/internal";
 import { githubReferenceOwner, githubReferenceRepository, type GitHubReferenceRepository } from "./github-reference-identity.js";
 import { ReferenceTransportError } from "./reference-transport.js";
 import type { prepareTurnEgress } from "./turn-egress.js";
 
 type Egress = Pick<Awaited<ReturnType<typeof prepareTurnEgress>>, "managedReference" | "remainingBytes">;
 type Recipient = "git" | "metadata";
+const chargeError = (failure:EgressChargeFailure) => new ReferenceTransportError(failure.reason === "budget" ? "capacity" : failure.reason === "safety_changed" || failure.reason === "policy_denied" ? "denied" : "unavailable",egressChargeRefusal(failure,"Reference").message);
 const MAX_METADATA_BYTES = 65536;
 
 /** One acquisition owns this budget across metadata, discovery, auth retries and Git fetch. */
@@ -91,8 +92,10 @@ export async function createGitHubReferenceWire(options: ({ repository: unknown;
       const operationStopped = () => {
         if (operation.outcome() === "completed") return;
         upstream?.destroy(); client.destroy();
-        if (operation.outcome() === "cancelled" && !controller.signal.aborted)
-          fail(new ReferenceTransportError("unavailable", "reference turn ended during acquisition"));
+        if (operation.outcome() === "cancelled" && !controller.signal.aborted) {
+          const decision = operation.failure();
+          if (decision) fail(chargeError(decision));
+        }
       };
       operation.signal.addEventListener("abort", operationStopped, { once: true });
       const finish = (outcome: "completed" | "failed" | "cancelled") => {
@@ -100,15 +103,17 @@ export async function createGitHubReferenceWire(options: ({ repository: unknown;
       };
       client.once("close", () => { upstream?.destroy(); finish(controller.signal.aborted ? "cancelled" : "completed"); });
       try {
-        if (!await operation.admit()) throw new ReferenceTransportError("denied", "reference recipient was not admitted");
+        if (!await operation.admit()) throw chargeError(operation.failure() ?? {ok:false,reason:"unavailable"});
         const addresses = options.lookup ? await options.lookup(target.hostname, { all: true, verbatim: true })
           : await lookupHost(target.hostname, { all: true, verbatim: true });
         if (!addresses.length || addresses.some(value => egressAddressRefusal(value.address)))
           throw new ReferenceTransportError("denied", "reference recipient did not resolve to public addresses");
         check(recipient, capability.credentialed);
-        if (!operation.commit() || client.destroyed) throw new ReferenceTransportError("denied", "reference authority changed before connection");
-        upstream = track((options.connect ?? connect)({ host: addresses[0]!.address, port: 443 }));
-        const heldUpstream = upstream; upstreams.add(heldUpstream);
+        const beforeConnection = operation.prepare(); if (!beforeConnection.ok) throw chargeError(beforeConnection);
+        if (client.destroyed) throw new ReferenceTransportError("unavailable", "reference client closed before connection");
+        const dispatched=operation.dispatch(()=>{upstream=track((options.connect??connect)({host:addresses[0]!.address,port:443,signal:AbortSignal.any([controller.signal,operation.signal])}));});
+        if(!dispatched.ok)throw chargeError(dispatched);
+        const heldUpstream = upstream!; upstreams.add(heldUpstream);
         heldUpstream.once("close", () => {
           upstreams.delete(heldUpstream); outgoingWireBytes += heldUpstream.bytesWritten; incomingWireBytes += heldUpstream.bytesRead;
         });
@@ -126,35 +131,35 @@ export async function createGitHubReferenceWire(options: ({ repository: unknown;
           if (controller.signal.aborted) cancel();
         });
         check(recipient, capability.credentialed);
-        if (!operation.commit() || client.destroyed) throw new ReferenceTransportError("denied", "reference authority changed after connection");
+        const afterConnection = operation.charge(0); if (!afterConnection.ok) throw chargeError(afterConnection);
+        if (client.destroyed) throw new ReferenceTransportError("unavailable", "reference client closed after connection");
         const meter = (incoming: boolean) => new Transform({ transform(chunk: Buffer, _encoding, done) {
           if (incoming) observedIncomingBytes += chunk.length;
           try {
             check(recipient, capability.credentialed);
-            if (!operation.commit()) throw new ReferenceTransportError("denied", "reference authority changed during transfer");
             const remaining = Math.min(options.maxBytes - chargedBytes, options.egress.remainingBytes());
             if (chunk.length > remaining) {
               // Charge received wire up to the ceiling, then close every channel.
               // A rejected outbound chunk never reaches the upstream.
-              if (incoming && remaining > 0) { operation.charge(remaining); chargedBytes += remaining; }
+              if (incoming && remaining > 0) { const charged = operation.charge(remaining); if (!charged.ok) throw chargeError(charged); chargedBytes += remaining; }
               operation.finish("denied", "max_reference_wire_bytes");
               throw new ReferenceTransportError("capacity", "reference acquisition exhausted its network byte allowance");
             }
-            if (!operation.charge(chunk.length)) throw new ReferenceTransportError("capacity", "reference turn exhausted its network byte allowance");
+            const charged = operation.charge(chunk.length); if (!charged.ok) throw chargeError(charged);
             chargedBytes += chunk.length; done(null, chunk);
           } catch (error) { fail(error as Error); done(error as Error); }
         } });
         const outgoing = meter(false), incoming = meter(true);
         outgoing.on("error", () => { upstream?.destroy(); client.destroy(); });
         incoming.on("error", () => { upstream?.destroy(); client.destroy(); });
-        upstream.once("error", () => { finish("failed"); client.destroy(); });
-        upstream.once("close", () => {
+        heldUpstream.once("error", () => { finish("failed"); client.destroy(); });
+        heldUpstream.once("close", () => {
           finish(controller.signal.aborted ? "cancelled" : upstream?.readableEnded ? "completed" : "failed");
           if (!upstream?.readableEnded) client.destroy();
         });
         client.write("HTTP/1.1 200 Connection Established\r\n\r\n");
         if (head.length) outgoing.write(head);
-        client.pipe(outgoing).pipe(upstream); upstream.pipe(incoming).pipe(client);
+        client.pipe(outgoing).pipe(heldUpstream); heldUpstream.pipe(incoming).pipe(client);
         client.resume();
       } catch (error) {
         finish(controller.signal.aborted ? "cancelled" : "failed");
