@@ -12,12 +12,14 @@ export function createSafetyReviewer(root:BrainUiServices,changed:(value:SafetyR
     if(!disposed)changed({stage:committing?"unknown":"refused",message:committing?"Review cancelled; the result is unknown. Refresh evidence to check. No decision will be sent again.":"Review cancelled because its owner or evidence changed. No decision was sent."});
   };
   const offSafety=root.stores.safety.subscribe((s,old)=>{
-    if(s.status!=="ready"||s.requestId!==old.requestId||s.revision!==old.revision||JSON.stringify(s.identity)!==JSON.stringify(old.identity)||!s.capabilities?.review)cancel();
+    if(s.status!=="ready"||s.requestId!==old.requestId||(!controller&&s.revision!==old.revision)||JSON.stringify(s.identity)!==JSON.stringify(old.identity)||!s.capabilities?.review)cancel();
   });
   const offChat=root.stores.chat.subscribe((s,old)=>{if(s.activeSessionId!==old.activeSessionId)cancel();});
   const offAuth=root.authLock.state.subscribe(s=>{if(s.phase!=="active")cancel();});
   let prepared:SafetyFuturePrepared|null=null,preparedEpoch:number|null=null,preparedRevision:string|null=null,preparedTarget:{session:SafetyReviewBody["session"];occurrenceId:string}|null=null;
+  const discardFuture=()=>{prepared=null;preparedTarget=null;preparedEpoch=null;preparedRevision=null;};
   return {
+    cancelFuture:discardFuture,
     async prepareFuture(occurrenceId:string,recipientWhileRestricted:boolean):Promise<SafetyFuturePrepared|null>{
       const s=root.stores.safety.getState(),identity=s.identity,epoch=root.authLock.epoch();
       if(disposed||controller||s.status!=="ready"||!s.capabilities?.review||!s.capabilities?.originRules||!identity||!("sessionId" in identity)||root.stores.chat.getState().activeSessionId!==identity.sessionId||root.authLock.state.getState().phase!=="active")return null;
@@ -52,6 +54,7 @@ export function createSafetyReviewer(root:BrainUiServices,changed:(value:SafetyR
     },
     async markSafe(occurrenceId:string):Promise<void> {
       if(disposed||controller)return;
+      discardFuture();
       const s=root.stores.safety.getState(),identity=s.identity,epoch=root.authLock.epoch(),requestId=s.requestId;
       const evidence=safetyEvidence(s.records).get(occurrenceId);
       if(s.status!=="ready"||!s.capabilities?.review||!identity||!("sessionId" in identity)||root.stores.chat.getState().activeSessionId!==identity.sessionId||

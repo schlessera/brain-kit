@@ -17,12 +17,13 @@ let styles:HTMLStyleElement;const oldTheme=document.documentElement.dataset.them
 beforeAll(async()=>{styles=document.createElement('style');styles.textContent=await commands.formConsumerStyles();document.head.append(styles);});
 afterAll(async()=>{styles.remove();await page.viewport(viewport.width,viewport.height);});
 async function disposeView(){safetyClient?.dispose();safetyClient=undefined;if(renderer)flushSync(()=>renderer!.unmount());renderer=undefined;ui?.dispose();ui=undefined;socket?.close();socket=undefined;host?.remove();host=undefined;}
-afterEach(async()=>{statusBarrier=undefined;await disposeView();if(fixture)await commands.safetyServer({op:'stop',id:fixture.id});fixture=undefined;if(oldTheme===undefined)delete document.documentElement.dataset.theme;else document.documentElement.dataset.theme=oldTheme;});
+afterEach(async()=>{statusBarrier=undefined;commitBarrier=undefined;await disposeView();if(fixture)await commands.safetyServer({op:'stop',id:fixture.id});fixture=undefined;if(oldTheme===undefined)delete document.documentElement.dataset.theme;else document.documentElement.dataset.theme=oldTheme;});
 const patch=(patch:Record<string,unknown>={})=>commands.safetyServer({op:'set',id:fixture!.id,patch}) as Promise<{page:SafetyPage;commits:number;prepares:number;decisions:Array<{occurrence_id:string}>}>;
 const noop=()=>{};
 const message:ChatMessage={id:'odysseus-answer',turnId:'voyage',role:'assistant',content:'Voyage notes retained.',isStreaming:false,timestamp:Date.UTC(2026,6,12,10),
  toolCalls:[{id:'tool_a',name:'WebFetch',inputJson:'{}',input:{url:'https://example.com/odyssey'},output:'Odysseus voyage notes',status:'complete'},{id:'tool_c',name:'Read',inputJson:'{}',input:{file_path:'workspaces/ithaca/voyage.md'},output:'Penelope voyage notes',status:'complete'}],
  parts:[{kind:'tool',toolIndex:0},{kind:'tool',toolIndex:1},{kind:'text',text:'Voyage notes retained.'}]};
+let commitBarrier:((result:{status:number;body:unknown})=>Promise<void>)|undefined;
 let statusBarrier:((body:Record<string,unknown>,result:{status:number;body:unknown})=>Promise<void>)|undefined;
 async function view(independentSocket=false){
  const f=fixture!;
@@ -30,6 +31,7 @@ async function view(independentSocket=false){
   if(!String(url).includes('/safety/reviews/'))return Response.json({providers:[]});
   const result=await patch({action:'request',path:new URL(url).pathname,body:init?.body}) as unknown as {status:number;body:unknown};
   if(String(url).endsWith('/future/status')&&statusBarrier)await statusBarrier(JSON.parse(String(init?.body)),result);
+  if(String(url).endsWith('/commit')&&commitBarrier)await commitBarrier(result);
   if(init?.signal?.aborted)throw new DOMException('Aborted','AbortError');return Response.json(result.body,{status:result.status});
  }});
  const frames:unknown[]=[],sent:unknown[]=[];const current=ui;current.stores.chat.setState({activeSessionId:'ithaca',buffers:{ithaca:{messages:[message],isStreaming:false,askUser:null,lastTouched:message.timestamp}}});
@@ -330,4 +332,24 @@ for(const width of [320,1280])test(`${width} matrix CS-F later / CS-E: expired r
  await expect.poll(()=>section().textContent).toContain('Could not verify');
  await patch({action:'expire_future_receipts'});statusBarrier=undefined;window.dispatchEvent(new Event('focus'));
  await expect.poll(()=>section().textContent).not.toContain('Could not verify');expect(section().textContent).not.toContain('Future rule:');expect(ui!.stores.safety.getState().projection?.unresolvedCount).toBe(4);
+});
+
+for(const future of [false,true])test(`fable F1 browser: ${future?'combined':'individual'} live update precedes commit response`,async()=>{
+ await page.viewport(320,900);fixture=await commands.safetyServer({op:'start'}) as typeof fixture;await view();
+ await patch({action:'add_verified'});await expect.poll(()=>ui!.stores.safety.getState().projection?.unresolvedCount).toBe(4);
+ await userEvent.click(host!.querySelector<HTMLButtonElement>('[data-safety-turn-event] button')!);
+ const section=()=>[...document.querySelectorAll<HTMLElement>('[data-safety-trigger]')].find(e=>e.textContent?.includes('https://ithaca.invalid'))!;
+ commitBarrier=async result=>{const p=(result.body as {currentProjection:{evidenceRevision:string}}).currentProjection;await expect.poll(()=>ui!.stores.safety.getState().revision).toBe(p.evidenceRevision);};
+ await userEvent.click(section().querySelector<HTMLElement>('[role=button],button')!);
+ if(future){await userEvent.click(page.getByRole('radio',{name:'Trust this origin'}));await userEvent.click(page.getByRole('button',{name:'Review future rule',exact:true}));await expect.element(page.getByRole('group',{name:'Exact future rule review'})).toBeVisible();await userEvent.click(page.getByRole('button',{name:'Save future source rule and mark this trigger safe',exact:true}));}
+ else await userEvent.click(page.getByRole('button',{name:'Mark this trigger as safe',exact:true}));
+ await expect.poll(()=>section().textContent).toContain(future?'This operation recorded a safe verdict':'Decision recorded');expect(section().textContent).not.toContain('Review cancelled');
+});
+test('fable F2 browser: cancel future preparation then individual review remains Decision recorded',async()=>{
+ await page.viewport(320,900);fixture=await commands.safetyServer({op:'start'}) as typeof fixture;await view();await patch({action:'add_verified'});await expect.poll(()=>ui!.stores.safety.getState().projection?.unresolvedCount).toBe(4);
+ await userEvent.click(host!.querySelector<HTMLButtonElement>('[data-safety-turn-event] button')!);
+ const section=()=>[...document.querySelectorAll<HTMLElement>('[data-safety-trigger]')].find(e=>e.textContent?.includes('https://ithaca.invalid'))!;
+ await userEvent.click(section().querySelector<HTMLElement>('[role=button],button')!);await userEvent.click(page.getByRole('radio',{name:'Trust this origin'}));await userEvent.click(page.getByRole('button',{name:'Review future rule',exact:true}));await expect.element(page.getByRole('group',{name:'Exact future rule review'})).toBeVisible();await userEvent.click(page.getByRole('button',{name:'Cancel future rule review',exact:true}));
+ await userEvent.click(section().querySelector<HTMLElement>('[role=button],button')!);await userEvent.click(page.getByRole('radio',{name:'Only this trigger',exact:true}));await userEvent.click(page.getByRole('button',{name:'Mark this trigger as safe',exact:true}));
+ await expect.poll(()=>section().textContent).toContain('Decision recorded');ui!.stores.safety.getState().refresh();await expect.poll(()=>ui!.stores.safety.getState().status).toBe('ready');expect(section().textContent).not.toContain('No decision was sent');
 });

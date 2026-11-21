@@ -174,3 +174,20 @@ for(const field of ['requestId','session','occurrenceId','nestedSession','nested
 for(const boundary of ['before','after'] as const)test(`matrix CB-F ${boundary}: lost commit response is unknown with no replay`,async()=>{
  const f=await fixture(true);try{await f.reviewer.prepareFuture(f.a.id,false);f.setTransport(async(url,init)=>{if(boundary==='after')await fetch(url,init);throw new Error('Commit response lost');});await f.reviewer.commitFuture();await f.reviewer.commitFuture();expect(f.progress.at(-1)?.stage).toBe('unknown');expect(f.requests.filter(u=>u.endsWith('/future/commit'))).toHaveLength(1);expect(f.safety.getState().projection?.unresolvedCount).toBe(3);expect(f.host.db.query('SELECT count(*) n FROM safety_decisions').get()).toEqual({n:boundary==='after'?1:0});}finally{await f.close();}
 });
+
+for(const future of [false,true])test(`fable F1: ${future?'combined':'individual'} own live verdict update before HTTP response still commits`,async()=>{
+ const f=await fixture(future);try{
+ f.setTransport(async(url,init)=>{const response=await fetch(url,init);if(url.endsWith('/commit')){const result=await response.clone().json();const projection=result.currentProjection;f.safety.setState({revision:projection.evidenceRevision,projection});}return response;});
+ if(future){await f.reviewer.prepareFuture(f.a.id,false);await f.reviewer.commitFuture();}else await f.reviewer.markSafe(f.a.id);
+ expect(f.progress.at(-1)?.stage,'OWN_LIVE_UPDATE_MUST_NOT_ABORT_COMMIT').toBe('committed');
+ }finally{await f.close();}
+});
+for(const cancel of [false,true])test(`fable F2: prepared future ${cancel?'cancel then ':''}individual review stays recorded after refresh`,async()=>{
+ const f=await fixture(true);try{
+ await f.reviewer.prepareFuture(f.a.id,false);
+ if(cancel)f.reviewer.cancelFuture();
+ await f.reviewer.markSafe(f.a.id);expect(f.progress.at(-1)?.stage).toBe('committed');
+ const page=await f.host.history.read(f.host.principal,{sessionId:'ithaca'});f.safety.setState({revision:page.highWater});
+ expect(f.progress.at(-1)?.message,'UNUSED_FUTURE_HANDLE_CANNOT_RELABEL_COMMITTED_VERDICT').toContain('Decision recorded');
+ }finally{await f.close();}
+});
