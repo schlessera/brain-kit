@@ -200,3 +200,46 @@ test("the synchronous dispatch predicate rechecks coverage after preparation (D1
     await observed;
   } finally { operation?.finish("cancelled"); await f.close(); }
 });
+
+test("a token-count request cannot dispatch after its immediate observation hit a cap (R2 A1)", async () => {
+  const f = await fixture(1); let upstream = 0;
+  const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { upstream++; return new Response("Ithaca"); } });
+  const relay = startInferenceRelay({ upstream: origin.url.origin, routes: ["/v1/messages", "/v1/messages/count_tokens"], credentials: {}, egress: f.proxy });
+  try {
+    writeFileSync(join(f.brain, "note.md"), "Penelope");
+    const observed = f.result(), response = send(relay.socketPath, body(), "/v1/messages/count_tokens");
+    expect((await response).status).toBe(403); await observed;
+    expect(upstream, "CAPPED_IMMEDIATE_BOUNDARY_CANNOT_DISPATCH_AUXILIARY_REQUEST").toBe(0);
+    expect(f.journal.summary("voyage").scope!.receipts.at(-1)).toMatchObject({ dimension: "files_changed", state: "paused" });
+  } finally { relay.stop(); origin.stop(true); await f.close(); }
+});
+
+for (const phase of ["arming", "dispatch"] as const) test(`a predicate read failure takes the immediate hold at ${phase} (R2 A2)`, async () => {
+  const f = await fixture();
+  const saved = (f.db.query("SELECT summary FROM turn_scope WHERE turn_id='voyage'").get() as { summary: string }).summary;
+  let observed: Promise<void> | undefined, operation: ReturnType<typeof f.proxy.inference> | undefined;
+  try {
+    if (phase === "dispatch") {
+      observed = f.result(); void observed.catch(() => {});
+      operation = f.proxy.inference("POST", new URL("http://127.0.0.1/v1/messages"), new AbortController().signal);
+      expect(await operation.prepareDispatch(Buffer.from(body()))).toBe(true);
+    }
+    f.db.query("UPDATE turn_scope SET summary='{' WHERE turn_id='voyage'").run();
+    expect(() => {
+      if (phase === "arming") { observed = f.result(); void observed.catch(() => {}); }
+      else expect(operation!.dispatch()).toBe(false);
+    }, "PREDICATE_READ_FAILURE_RETURNS_TO_IMMEDIATE_HOLD").not.toThrow();
+    expect(f.frozen, "PREDICATE_READ_FAILURE_SYNCHRONOUSLY_TAKES_HOLD").toBe(true);
+    expect(observed, "REQUIRED_OBSERVATION_RETURNS_A_PROMISE").toBeInstanceOf(Promise);
+    // Repair the read before the queued capture starts. The guard failure
+    // must still keep this turn immediate after a healthy observation.
+    f.db.query("UPDATE turn_scope SET summary=? WHERE turn_id='voyage'").run(saved);
+    await observed!;
+    operation?.finish("cancelled");
+    const later = f.result("sail");
+    expect(f.frozen, "PREDICATE_READ_FAILURE_LATCH_REMAINS_IMMEDIATE_ONLY").toBe(true); await later;
+  } finally {
+    f.db.query("UPDATE turn_scope SET summary=? WHERE turn_id='voyage'").run(saved);
+    operation?.finish("cancelled"); await f.close();
+  }
+});

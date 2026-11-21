@@ -312,7 +312,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   const callKey = (turnId: string, toolUseId: string) => JSON.stringify([turnId, toolUseId]);
   const relays = new Map<string, { messages: boolean; generation: number; operations: Set<object>; eligible(): boolean; allowed(): boolean }>();
   const immediateOnly = new Set<string>();
-  type Boundary = { turnId: string; toolUseId: string; generation: number; claimed: boolean; settled: boolean; observation: ReturnType<typeof deferredObservation>; verdict: Promise<boolean> };
+  type Boundary = { turnId: string; toolUseId: string; generation: number; claimed: boolean; settled: boolean; allowed: boolean; observation: ReturnType<typeof deferredObservation>; verdict: Promise<boolean> };
   const claimed = new Map<string, Boundary>();
   let deferred: Boundary | undefined;
   /** @internal */
@@ -328,15 +328,19 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   }
   /** One control predicate, used at arming and at the synchronous dispatch boundary. */
   function mayDefer(turnId: string, boundary?: Boundary, operation?: object): boolean {
-    const relay = relays.get(turnId);
-    if (failures.has(turnId) || summary(turnId).state !== "recording") immediateOnly.add(turnId);
-    if (!relay || !relay.messages || immediateOnly.has(turnId)) return false;
-    if (boundary && (boundary.observation.expired() || relay.generation !== boundary.generation + 1)) {
+    try {
+      const relay = relays.get(turnId);
+      if (failures.has(turnId) || summary(turnId).state !== "recording") immediateOnly.add(turnId);
+      if (!relay || !relay.messages || immediateOnly.has(turnId)) return false;
+      if (boundary && (boundary.observation.expired() || relay.generation !== boundary.generation + 1)) {
+        immediateOnly.add(turnId); return false;
+      }
+      return !closing && !holds && active.size === 1 && active.has(turnId) && !calls.size
+        && ![...lasting].some(id => id !== turnId) && relay.eligible()
+        && (operation ? relay.operations.size === 1 && relay.operations.has(operation) : relay.operations.size === 0);
+    } catch {
       immediateOnly.add(turnId); return false;
     }
-    return !closing && !holds && active.size === 1 && active.has(turnId) && !calls.size
-      && ![...lasting].some(id => id !== turnId) && relay.eligible()
-      && (operation ? relay.operations.size === 1 && relay.operations.has(operation) : relay.operations.size === 0);
   }
   let holds = 0;
   let observationFailures = 0;
@@ -658,7 +662,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         },
         dispatch() {
           if (!boundary) return true;
-          if (boundary.claimed) return boundary.settled;
+          if (boundary.claimed) return boundary.settled && boundary.allowed;
           if (!matched || !mayDefer(turnId, boundary, operation)) {
             void claimBoundary(boundary).catch(() => {}); return false;
           }
@@ -792,13 +796,13 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       const start = (confirmed?: { stopped: boolean }) => held(timing => observe(false, timing), false,
         traceFor("tool", turnId, toolUseId), undefined, { kind: "tool", turnId, toolUseId }, confirmed);
       if (call?.started && call.name !== null && mayDefer(turnId)) {
-        const pending: Boundary = { turnId, toolUseId, generation: relays.get(turnId)!.generation, claimed: false, settled: false,
+        const pending: Boundary = { turnId, toolUseId, generation: relays.get(turnId)!.generation, claimed: false, settled: false, allowed: false,
           observation: deferredObservation(confirmed => {
             if (deferred === pending) deferred = undefined;
             pending.claimed = true; claimed.set(turnId, pending);
             return start(confirmed);
           }), verdict: Promise.resolve(false) };
-        pending.verdict = pending.observation.done.then(() => { pending.settled = true; return relays.get(turnId)?.allowed() === true; });
+        pending.verdict = pending.observation.done.then(() => { pending.allowed = relays.get(turnId)?.allowed() === true; pending.settled = true; return pending.allowed; });
         void pending.verdict.finally(() => { if (claimed.get(turnId) === pending) claimed.delete(turnId); }).catch(() => {});
         deferred = pending;
         return pending.observation.done;

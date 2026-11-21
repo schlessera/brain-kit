@@ -107,19 +107,35 @@ for (const requestKind of ["token count", "title", "wrong result", "parallel res
 
 for (const ack of [false, undefined] as const) {
   test(`a ${String(ack)} stop receipt falls back to the base immediate hold`, async () => {
-    const f = await fixture(); let upstream = 0;
-    const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { upstream++; return new Response("Ithaca"); } });
-    const relay = startInferenceRelay({ upstream: origin.url.origin, routes: ["/v1/messages"], credentials: {}, egress: f.proxy });
+    const f = await fixture(), entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+    const checkpoint = f.native.manager.checkpoint;
+    const arrived = Promise.withResolvers<void>(), fallbackGate = Promise.withResolvers<void>();
+    // Establish ordering before either event can happen; no polling or sleep
+    // stands in for observing an actual upstream request during the hold.
+    const firstBoundary = Promise.race([arrived.promise.then(() => "upstream"), fallbackGate.promise.then(() => "fallback")]);
+    let upstream = 0;
+    const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { upstream++; arrived.resolve(); return new Response("Ithaca"); } });
+    const relay = startInferenceRelay({ upstream: origin.url.origin, routes: ["/v1/messages"], credentials: {}, egress: {
+      ...f.proxy, inference(...args) {
+        const operation = f.proxy.inference(...args);
+        return { ...operation, responseReady() { fallbackGate.resolve(); return operation.responseReady(); } };
+      },
+    } });
     try {
+      f.native.manager.checkpoint = async (...args) => { entered.resolve(); await release.promise; return checkpoint(...args); };
       f.ack(ack);
-      const observed = f.result();
-      let committed = false; void observed.then(() => { committed = true; }, () => {});
-      expect((await send(relay.socketPath)).status, "UNCONFIRMED_STOP_FALLS_BACK_WITHOUT_NEW_REFUSAL").toBe(200);
-      await observed; expect(committed).toBe(true);
+      const observed = f.result(), response = send(relay.socketPath); void response.catch(() => {});
+      await entered.promise;
+      const first = await firstBoundary;
+      expect(upstream, "UPSTREAM_STAYS_EMPTY_WHILE_FALLBACK_OBSERVATION_IS_HELD").toBe(0);
+      expect(first, "UNCONFIRMED_STOP_CANNOT_DISPATCH_BEFORE_FALLBACK_COMMIT").toBe("fallback");
+      release.resolve();
+      expect((await response).status, "UNCONFIRMED_STOP_FALLS_BACK_WITHOUT_NEW_REFUSAL").toBe(200);
+      await observed;
       expect(upstream).toBe(1);
       expect(f.controller.signal.aborted).toBe(false);
       expect(f.journal.summary("voyage").state, "LEGACY_STOP_RETAINS_BASE_JOURNAL_BEHAVIOR").toBe("recording");
-    } finally { relay.stop(); origin.stop(true); await f.close(); }
+    } finally { release.resolve(); f.native.manager.checkpoint = checkpoint; relay.stop(); origin.stop(true); await f.close(); }
   });
 }
 
