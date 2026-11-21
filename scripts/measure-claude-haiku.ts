@@ -1,3 +1,4 @@
+import { watchdogMs } from "./test-deadlines";
 import "./measurement-entry-preload.ts";
 import { nativeFixtureDirectory, nativeScriptedService, nativeScriptedQuery } from "./test-native-guard";
 // #1238: actual bundled runtime, production model assembly, fixture inference.
@@ -25,7 +26,7 @@ const env = { ...CLEARED_API_CREDENTIALS, HOME: root, PATH: process.env.PATH ?? 
   CLAUDE_CONFIG_DIR: join(root, "config"), CLAUDE_CODE_OAUTH_TOKEN: "",
   ANTHROPIC_API_KEY: "offline-fixture", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" };
 const controller = new AbortController();
-const deadline = setTimeout(() => controller.abort(), 25_000);
+const deadline = setTimeout(() => controller.abort(), watchdogMs(25_000));
 const requests: Array<Record<string, unknown>> = [];
 const otherRequests: Array<{ path: string; method: string }> = [];
 let server: ReturnType<typeof Bun.serve> | undefined;

@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../../scripts/test-deadlines";
 import { writePrivateProofArtifact } from "./private-proof-artifact.js";
 import { PRIVATE_FIXTURE_DIRECTORY_ACCESS } from "./private-fixture-directory-access.js";
 import { defaultIdentityPhase } from "./default-identity-phases.js";
@@ -213,7 +214,7 @@ if (process.argv[2] === "--index-child") {
       const started = performance.now();
       const child = Bun.spawn(["/usr/bin/setpriv", "--reuid=21001", "--regid=21001", "--groups=21003", process.execPath, "--preload", "/repo/scripts/test-network-child-preload.ts", import.meta.filename,
         process.argv[2] === "--index-controls" ? "--index-child" : "--child", ...(sharedGit ? ["--shared-git"] : []), ...(omitProbeStatePlacement ? ["--omit-probe-state-placement"] : []), ...(privateGitInputs ? ["--private-git-inputs"] : []), ...(bootPruneCapture ? ["--boot-prune-capture"] : []), ...(applicationScenario === "db-repeat" && phase === "warm" ? ["--db-repeat-index"] : []), ...(phase ? [sharedGit ? `--shared-phase=${phase}` : `--default-phase=${phase}`] : [])], {
-        env: { PATH: "/usr/local/bin:/usr/bin:/bin", HOME: "/identity-server-private", BRAIN_UI_WORKER_IDENTITY_HELPER: "/usr/local/bin/identity-helper" }, stdout: "pipe", stderr: "pipe", timeout: IDENTITY_PHASE_TIMEOUT_MS });
+        env: { PATH: "/usr/local/bin:/usr/bin:/bin", HOME: "/identity-server-private", BRAIN_UI_WORKER_IDENTITY_HELPER: "/usr/local/bin/identity-helper" }, stdout: "pipe", stderr: "pipe", timeout: watchdogMs(IDENTITY_PHASE_TIMEOUT_MS) });
       const [capturedOutput, capturedErrors, code] = await Promise.all([
         phase ? retainFixtureStream(child.stdout, `/proof/${sharedGit ? "shared-git" : "default"}-${phase}-server.stdout`) : new Response(child.stdout).text().then((text): Awaited<ReturnType<typeof retainFixtureStream>> => ({ text })),
         phase ? retainFixtureStream(child.stderr, `/proof/${sharedGit ? "shared-git" : "default"}-${phase}-server.stderr`) : new Response(child.stderr).text().then((text): Awaited<ReturnType<typeof retainFixtureStream>> => ({ text })), child.exited]);
@@ -247,7 +248,7 @@ if (process.argv[2] === "--index-child") {
     }
   } finally {
     foreign.stop(true); for (const relay of restrictedRelays) relay.stop(true); await service.close();
-    const deadline = Date.now() + IDENTITY_CLEANUP_TIMEOUT_MS;
+    const deadline = Date.now() + watchdogMs(IDENTITY_CLEANUP_TIMEOUT_MS);
     for (;;) {
       const records = readdirSync("/run/brain-identity-fixture");
       const sources = existsSync("/run/brain-identity-mounts") ? readdirSync("/run/brain-identity-mounts") : [];

@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../scripts/test-deadlines";
 /**
  * #2284, ruling (c): while a provider folder policy is active, the legacy
  * never-governed host fallback is refused before any host process exists. No
@@ -33,7 +34,7 @@ test.each(cases)("%s (descendant %s, replaces %s, owner %s): a folder policy ref
   const ownerOutput = Promise.all([new Response(owner.stdout).text(), new Response(owner.stderr).text()]);
   const at = (name: string) => join(brain, name);
   const ready = async (...names: string[]) => {
-    const deadline = Date.now() + 10_000;
+    const deadline = Date.now() + watchdogMs(10_000);
     for (;;) {
       const found = names.find(name => existsSync(at(name)));
       if (found) return found;

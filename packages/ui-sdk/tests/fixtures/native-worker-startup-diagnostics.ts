@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../../scripts/test-deadlines";
 /** Test-only startup evidence; never write raw stderr, argv or environment. */
 import type { Readable } from "node:stream";
 import { createRedactor } from "../../../compute-boat/src/redact.js";
@@ -33,5 +34,5 @@ export function observeNativeWorkerStartup(worker: StartupWorker, bootstrap: Boo
     console.error(JSON.stringify({kind:"native-fixture-worker-exit",exitCode:code,signal:bootstrap.signalCode,signalScope:"worker-bootstrap",bootstrapExitCode:bootstrap.exitCode}));
   },error=>{
     console.error(JSON.stringify({kind:"native-fixture-worker-exit",exitCode:null,signal:bootstrap.signalCode,signalScope:"worker-bootstrap",bootstrapExitCode:bootstrap.exitCode,message:scrub(String(error))}));
-  }).finally(()=>{setTimeout(flush,2000).unref();});
+  }).finally(()=>{setTimeout(flush,watchdogMs(2000)).unref();});
 }

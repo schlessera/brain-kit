@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../scripts/test-deadlines";
 import "../../scripts/test-network-child-preload.ts";
 import { nativeScriptedService } from "../../scripts/test-native-guard.ts";
 import { createFixtureTurnHost } from "./turn-host-fixture.js";
@@ -46,7 +47,7 @@ let voyageLog = "---\ntype: note\ntitle: Voyage log\n---\n";
 for (let day = 1; voyageLog.length < 67_000; day++) voyageLog += `Day ${day}: Odysseus logs "the wind", the oars and what Athena advised at dusk.\n`;
 if (scenario === "read-base") writeFileSync(join(brainPath, "notes/voyage-log.md"), voyageLog);
 const actions = scenario === "exceeded" ? [{ name: "Bash", input: { command: 'head -c 100000000 /dev/zero > "$CLAUDE_CONFIG_DIR/filler"; df -B1 "$CLAUDE_CONFIG_DIR" | tail -1' } }]
-  : scenario === "read-base" ? [{ name: "mcp__brain-ui__brain_read_base", input: { path: "notes/voyage-log.md" } }] : scenario === "abort" ? [{ name: "Bash", input: { command: `"${nativeBun}" -e 'import {spawn} from "node:child_process";import {writeFileSync} from "node:fs";const c=spawn("sleep",["120"],{detached:true,stdio:"ignore",argv0:${JSON.stringify(childMarker)}});writeFileSync(process.env.BRAIN_WORKER_SCRATCH+"/child-pid",String(c.pid));await Bun.sleep(120000)'`, timeout: 120000 } }] : [
+  : scenario === "read-base" ? [{ name: "mcp__brain-ui__brain_read_base", input: { path: "notes/voyage-log.md" } }] : scenario === "abort" ? [{ name: "Bash", input: { command: `"${nativeBun}" -e 'import {spawn} from "node:child_process";import {writeFileSync} from "node:fs";const c=spawn("sleep",["120"],{detached:true,stdio:"ignore",argv0:${JSON.stringify(childMarker)}});writeFileSync(process.env.BRAIN_WORKER_SCRATCH+"/child-pid",String(c.pid));await Bun.sleep(120000)'`, timeout: /* native-product-timing: Bash tool-input execution budget is a product parameter, not a fixture watchdog. */ 120000 } }] : [
   { name: "Write", input: { file_path: policyPath, content: "Write changed policy" } },
   { name: "Edit", input: { file_path: policyPath, old_string: "Athena", new_string: "Untrusted" } },
   { name: "NotebookEdit", input: { notebook_path: join(brainPath, "context/policies/crew.ipynb"), cell_id: "crew", new_source: "Untrusted notebook", cell_type: "markdown", edit_mode: "replace" } },
@@ -92,7 +93,7 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
   const body = await request.json(); requests.push({ tools: body.tools?.map((t: any) => t.name), results: body.messages?.flatMap((m: any) => Array.isArray(m.content) ? m.content.filter((c: any) => c.type === "tool_result") : []) }); calls++;
   const action = actions[step++];
   if (scenario === "abort" && action) {
-    const deadline = Date.now() + 5000;
+    const deadline = Date.now() + watchdogMs(5000);
     const check = () => {
       sawDetachedChild = readdirSync("/proc").some(pid => { try { return readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0")[0] === childMarker; } catch { return false; } });
       // A live tool is not proof of a durable transcript: the native runtime

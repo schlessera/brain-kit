@@ -1,3 +1,4 @@
+import { watchdogMs } from "./test-deadlines";
 import "./measurement-entry-preload.ts";
 import {nativeScriptedService,nativeSyntheticCredential} from "./test-native-guard";
 /** Private #587 research entrypoint. Never changes a production router/default. */
@@ -142,7 +143,7 @@ export async function measureLiveSurface(params: { manifestPath: string; reviewP
       const started = performance.now(), observation = new TurnObservation(started, SURFACE_MODEL);
       const beforeJev = jevReceipts.length;
       activeDeadline = new AbortController();
-      const routingTimer = setTimeout(() => activeDeadline.abort(), 2000);
+      const routingTimer = setTimeout(() => activeDeadline.abort(), /* native-product-timing: Fixed experimental router decision budget; changing it changes the measured product behavior. */ 2000);
       const routing = classifySurface({ client: jev, prompt: task.test.prompt, previousTail: "",
         catalogue: { tools: measuredRoutingTools([...brain.tools, ...prepared.peer.tools]), skills: catalogue.skills }, enabled: task.arm !== "baseline", deadline: activeDeadline.signal,
       }).finally(() => clearTimeout(routingTimer));
@@ -151,7 +152,7 @@ export async function measureLiveSurface(params: { manifestPath: string; reviewP
       const bridge = gatedSurfaceServer("brain-ui", prepared.peer, decision);
       const core = gatedSurfaceServer("brain", brain, decision);
       const abort = prepared.turn.options.abortController!;
-      const timeout = setTimeout(() => abort.abort(), 180_000);
+      const timeout = setTimeout(() => abort.abort(), watchdogMs(180_000));
       const admission = new SurfaceAdmission(abort, SURFACE_MODEL, runtime.claudeCode);
       const audit: MeasurementToolAccess[] = [];
       let rawResult: any, error: string | null = null, spawnedMs: number | null = null;
@@ -224,7 +225,7 @@ export async function measureLiveSurface(params: { manifestPath: string; reviewP
         clearTimeout(timeout); clearTimeout(routingTimer); activeDeadline.abort(); turn?.spare.close();
         abort.abort();
         if (childExited) {
-          const killTimer = setTimeout(() => child?.kill("SIGKILL"), 5000);
+          const killTimer = setTimeout(() => child?.kill("SIGKILL"), watchdogMs(5000));
           await childExited; clearTimeout(killTimer);
         }
         await bridge.instance.close(); await core.instance.close(); await brain.client.close(); await prepared.close();

@@ -1,3 +1,4 @@
+import { watchdogMs } from "./test-deadlines";
 /** Real cross-UID broker proof; fixture elevation exists only in this container. */
 import { chmodSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -355,7 +356,7 @@ exit "$case_code"
     const forward = (signal: NodeJS.Signals) => child.kill(signal);
     for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, forward);
     let code: number | undefined, cleanupFailure: Error | undefined, captureFailure: unknown;
-    const timeout = setTimeout(() => child.kill("SIGTERM"), containerTimeoutMs);
+    const timeout = setTimeout(() => child.kill("SIGTERM"), watchdogMs(containerTimeoutMs));
     const capture = async (stream: ReadableStream<Uint8Array>, channel: "stdout" | "stderr") => {
       let text = "";
       for await (const chunk of stream) { const current = new TextDecoder().decode(chunk); text += current; if (channel === "stdout") process.stdout.write(current); else process.stderr.write(current); writeFileSync(join(artifact, channel + ".log"), text); }

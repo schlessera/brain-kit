@@ -1,3 +1,4 @@
+import { watchdogMs } from "./test-deadlines";
 import "./measurement-entry-preload.ts";
 import { nativeFixtureDirectory, nativeScriptedQuery } from "./test-native-guard.ts";
 // #901: real production wiring, real CLI, scripted loopback inference.
@@ -71,7 +72,7 @@ try {
       let toolUseSeen = false, error: string | undefined;
       let matchingHooks: string[] = [];
       const controller = new AbortController();
-      const deadline = setTimeout(() => controller.abort(), 20_000);
+      const deadline = setTimeout(() => controller.abort(), watchdogMs(20_000));
       const worker = createMeasurementWorkerFixture(cwd, home);
       try {
         const observedQuery: typeof query = (params) => {

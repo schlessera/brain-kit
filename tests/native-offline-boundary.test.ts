@@ -341,7 +341,9 @@ test("guard worker binds follow every covering mount", async()=>{
    if(!mounts.some((arg,i)=>arg==="--setenv"&&mounts[i+1]==="PATH"&&mounts[i+2]==="/usr/local/bin:/usr/bin:/bin"))throw Error("GUARD_PLAN_PRESERVES_READONLY_SYSTEM_PATH");
    const payload=argv.slice(split+1);if(payload[1]!==${JSON.stringify(join(ROOT,"packages/ui-sdk/src/server/egress-worker-entry.ts"))}||payload[2]!=="--direct-loopback"||!payload[3]?.endsWith("/native-connect"))throw Error("PRODUCTION_TRANSPORT_OUTSIDE_PAYLOAD_FILTER");
    if(!mounts.some((arg,i)=>arg==="--ro-bind"&&mounts[i+1]?.endsWith("/native-connect"))||!mounts.includes("/tmp/native-relay"))throw Error("guard input missing from plan");
-   plan.beforeLaunch();writeFileSync(argv[argv.indexOf("-o")+1],${JSON.stringify(`1 execve(${JSON.stringify(runtime)}, [], 0x1) = 0`)});plan.dispose();require("node:fs").rmSync(managedRoot,{recursive:true,force:true});`,scratch);
+   if(typeof plan.nativeExecuted!=="function"||plan.nativeExecuted())throw Error("WORKER_PLAN_EXEC_EVIDENCE_REACHES_CALLER");
+   plan.beforeLaunch();writeFileSync(argv[argv.indexOf("-o")+1],${JSON.stringify(`1 execve(${JSON.stringify(runtime)}, [], 0x1) = 0`)});
+   if(!plan.nativeExecuted())throw Error("WORKER_PLAN_EXEC_EVIDENCE_REACHES_CALLER");plan.dispose();require("node:fs").rmSync(managedRoot,{recursive:true,force:true});`,scratch);
   expect(result.code,result.output).toBe(0);
   const receipt=JSON.parse(result.output.split("\n").find(line=>line.startsWith('{"kind":"native-offline-worker-plan"'))!);
   expect(Object.keys(receipt).sort()).toEqual(["kind","head","bootstrapArgc","bootstrapArgvBytes","sandboxArgc","sandboxArgvBytes","metadataBytes"].sort());
@@ -810,7 +812,7 @@ print('HOSTILE_MANAGED_BOUNDARY_HELD',flush=True)
       boundary = nativeClaudeBoundary(executable, [], { cwd: brain, env: { HOME: home, PATH: bin, USE_BUILTIN_RIPGREP: "0", ANTHROPIC_BASE_URL: service.url.origin }, managedSettings: managed });
       const child = spawnGuardFixture(boundary.argv, { env: boundary.env, stdout: "pipe", stderr: "pipe" });
       const output=Promise.all([child.exited,new Response(child.stdout).text(),child.guardOutput()]);
-      const deadline=Date.now()+10000;
+      const deadline=Date.now()+watchdogMs(10000);
       while(!existsSync(join(home,"boundary-ready"))&&child.exitCode===null&&Date.now()<deadline)await Bun.sleep(10);
       if(!existsSync(join(home,"boundary-ready"))){child.kill();const failed=await output;throw Error("native policy failed before late socket proof: "+failed[2]);}
       const {createServer}=await import("node:net");

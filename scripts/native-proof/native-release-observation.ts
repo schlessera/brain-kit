@@ -93,7 +93,7 @@ export function nativeReleaseObservations(directory: string) {
       const root = roots.get(argv[4]!); if (!root) return;
       return child => {
         const started = performance.now(), samples: ReturnType<typeof snapshot>[] = [], signals: object[] = [];
-        const timers = [1_000, 5_000, 15_000].map(delay => setTimeout(() => samples.push(snapshot(root, child.pid)), delay));
+        const timers = [1_000, 5_000, 15_000].map(delay => setTimeout(() => samples.push(snapshot(root, child.pid)), /* native-product-timing: Fixed diagnostic sampling offsets, not a completion watchdog. */ delay));
         const descriptor = Object.getOwnPropertyDescriptor(child, "kill"), originalKill = child.kill;
         Object.defineProperty(child, "kill", { configurable: true, value(signal?: NodeJS.Signals | number) {
           const evidence = { signal: signal ?? "SIGTERM", at: performance.now(), wallAt: Date.now(), abort: currentAbort, stack: new Error("Native release termination").stack?.slice(0, 4096) };

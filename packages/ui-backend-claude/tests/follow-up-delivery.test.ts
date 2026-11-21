@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../scripts/test-deadlines";
 import { nativeFixtureDirectory } from "../../../scripts/test-native-guard.ts";
 import { nativeScriptedService } from "../../../scripts/test-native-guard.ts";
 import { createFixtureWorkerStartupView, prepareFixtureWorkerSandbox } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
@@ -279,7 +280,7 @@ async function runScenario(scenario: Scenario): Promise<Observed> {
     }
     // Give the CLI time to read it before the step completes. A delivering
     // run reports it read; the control never will, so it waits out the bound.
-    const deadline = Date.now() + 2_000;
+    const deadline = Date.now() + watchdogMs(2_000);
     while (Date.now() < deadline && !observed.sdk.some(isQueued)) await Bun.sleep(25);
   };
 

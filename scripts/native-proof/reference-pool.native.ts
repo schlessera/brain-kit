@@ -1,3 +1,4 @@
+import { watchdogMs } from "../test-deadlines";
 /** Real reference-pool qualification on owned Btrfs loop volumes (#2428). Runs only inside reference-pool-fixture.py. */
 import { expect, spyOn } from "bun:test";
 import { closeSync, existsSync, linkSync, mkdirSync, openSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, truncateSync, unlinkSync, writeFileSync, writeSync, chmodSync, renameSync } from "node:fs";
@@ -676,7 +677,7 @@ const shapes = await create("staging", 32 * MIB);
   mkdirSync(state, { recursive: true });
   await manager.close();
   const served = await serveNativeBrainManager(config);
-  const client = createNativeBrainManagerClient({ socketPath: config.socketPath, timeoutMs: 20_000 });
+  const client = createNativeBrainManagerClient({ socketPath: config.socketPath, timeoutMs: watchdogMs(20_000) });
   const db = createUiDb(join(state, "ui.db"));
   try {
     const penelope = createPrincipal(db, { authMethod: "password", label: "Penelope", ttlSeconds: 86_400 });
@@ -882,7 +883,7 @@ const shapes = await create("staging", 32 * MIB);
   await manager.close();
   const served = await serveNativeBrainManager(config);
   try {
-    await runReferenceEfficiency({ client: createNativeBrainManagerClient({ socketPath: config.socketPath, timeoutMs: 20_000 }), socketPath: config.socketPath, artifacts: ARTIFACTS, note, command, sync });
+    await runReferenceEfficiency({ client: createNativeBrainManagerClient({ socketPath: config.socketPath, timeoutMs: watchdogMs(20_000) }), socketPath: config.socketPath, artifacts: ARTIFACTS, note, command, sync });
   } finally { await served.close(); }
   manager = await createNativeBrainManager(config);
 }
@@ -978,7 +979,7 @@ const shapes = await create("staging", 32 * MIB);
   const { proveManagedReferenceSource } = await import("./managed-reference-source.js");
   await manager.close();
   const served = await serveNativeBrainManager(config);
-  try { await proveManagedReferenceSource(createNativeBrainManagerClient({ socketPath: config.socketPath, timeoutMs: 20_000 }), "/brain-fixture/brain", note); }
+  try { await proveManagedReferenceSource(createNativeBrainManagerClient({ socketPath: config.socketPath, timeoutMs: watchdogMs(20_000) }), "/brain-fixture/brain", note); }
   finally { await served.close(); }
   manager = await createNativeBrainManager(config);
 }
@@ -990,7 +991,7 @@ const shapes = await create("staging", 32 * MIB);
   await manager.close();
   const served = await serveNativeBrainManager(config);
   try {
-    const client = createNativeBrainManagerClient({ socketPath: config.socketPath, timeoutMs: 20_000 });
+    const client = createNativeBrainManagerClient({ socketPath: config.socketPath, timeoutMs: watchdogMs(20_000) });
     expect((await client.listPoolRecovery()).records, "REFERENCE_POOL_RESTART_RECONSTRUCTS").toEqual(before.records);
     writeFileSync("/native-runtime/config.json", JSON.stringify(config)); chmodSync("/native-runtime/config.json", 0o600);
     // The manager serves from this process: a synchronous child would block its event loop.

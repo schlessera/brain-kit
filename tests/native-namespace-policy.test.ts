@@ -1,3 +1,4 @@
+import { watchdogMs } from "../scripts/test-deadlines";
 /** Real bubblewrap mount construction with /usr/bin/true only; never Claude. */
 import { expect, test } from "bun:test";
 import ts from "typescript";
@@ -34,7 +35,7 @@ for(const [file,source] of fixtureSources(root))for(const [index,plan] of namesp
    }
   }
   expect(mounted,"POLICY_MOUNT_PRESENT").toBe(true);
-  const child=Bun.spawnSync([...argv,"/usr/bin/true"],{env:{PATH:"/usr/bin:/bin"},stdout:"pipe",stderr:"pipe",timeout:5000});
+  const child=Bun.spawnSync([...argv,"/usr/bin/true"],{env:{PATH:"/usr/bin:/bin"},stdout:"pipe",stderr:"pipe",timeout:watchdogMs(5000)});
   expect(child.exitCode,child.stderr.toString()).toBe(0);
  }finally{rmSync(scratch,{recursive:true,force:true});}
 });

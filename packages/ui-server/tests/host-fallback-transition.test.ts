@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../scripts/test-deadlines";
 /** Actual host/bubblewrap transition; fixture input acquisition is not Btrfs qualification. */
 import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync, existsSync, rmSync } from "node:fs";
@@ -22,10 +23,10 @@ test("a never-governed host fallback cannot evade peer accounting during transit
   const turns = createGovernedTurns({ nativeManager: createNativeJournalFixture(brain, root).client, brainPath: brain, execution, profile: "governed", maskPaths: [], index: async () => {}, report() {} });
   let old: Awaited<ReturnType<typeof fallback.launch>> | undefined, oldOutput: Promise<string[]> | undefined;
   let admitted: Awaited<ReturnType<typeof turns.begin>> | undefined, next: ReturnType<typeof launchAgentWorker> | undefined, nextOutput: Promise<string[]> | undefined, refusal: unknown;
-  const ready = async (path: string) => { const deadline = Date.now() + 5000; while (!existsSync(join(brain, path))) { if (Date.now() >= deadline) throw Error(`readiness timeout ${path}`); await Bun.sleep(5); } };
+  const ready = async (path: string) => { const deadline = Date.now() + watchdogMs(5000); while (!existsSync(join(brain, path))) { if (Date.now() >= deadline) throw Error(`readiness timeout ${path}`); await Bun.sleep(5); } };
   try {
     expect(fallback.isolated()).toBe(false);
-    old = await fallback.launch({ argv: ["/bin/sh", "-c", "printf ready > old-ready.md; while ! test -f old-go.md; do sleep 0.01; done; mv group/private group/retired-private || exit 44; mkdir group/private || exit 45; printf Athena > group/private/born.md"], env: { PATH: "/usr/bin:/bin" }, credentials: false, gate: "shared", purpose: "old host maintenance", timeoutMs: 15000 });
+    old = await fallback.launch({ argv: ["/bin/sh", "-c", "printf ready > old-ready.md; while ! test -f old-go.md; do sleep 0.01; done; mv group/private group/retired-private || exit 44; mkdir group/private || exit 45; printf Athena > group/private/born.md"], env: { PATH: "/usr/bin:/bin" }, credentials: false, gate: "shared", purpose: "old host maintenance", timeoutMs: watchdogMs(15000) });
     oldOutput = Promise.all([new Response(old.stdout).text(), new Response(old.stderr).text()]); await ready("old-ready.md");
     const peersBefore = execution.gate()!.holders();
     writeFileSync(policy, "---\nschema_version: 1\nproviders: [{ paths: [group/private/**], allow: [anthropic] }]\n---\nAthena reviews policy.\n");

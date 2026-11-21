@@ -177,7 +177,7 @@ try {
       try { await bounded(refreshEnded); }
       catch { closeRefresh?.(); } // The parent requires refreshCancelled=true.
       cancellationRetainedHostBytes = readFileSync(join(host, ".credentials.json")).equals(before);
-      const lock = await acquireHostCredentialExclusion({ domain: { directory }, timeoutMs: 1000 });
+      const lock = await acquireHostCredentialExclusion({ domain: { directory }, timeoutMs: watchdogMs(1000) });
       lock.release(); cancellationReleasedLock = true;
     }
   }

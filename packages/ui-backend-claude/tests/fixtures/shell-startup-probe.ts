@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../../scripts/test-deadlines";
 import "../../../../scripts/test-network-child-preload.ts";
 import { nativeScriptedService } from "../../../../scripts/test-native-guard.ts";
 /** Real SDK-selected CLI in the production worker; caller supplies an offline namespace. */
@@ -68,7 +69,7 @@ if (!expectedGit) throw new Error("The shell fixture requires an installed git e
 let worker: LaunchedWorker | undefined;
 let sent = false, selected: { command: string; args: string[] } | undefined;
 const messages: unknown[] = [], requests: unknown[] = [], stderr: string[] = [];
-const abort = new AbortController(), timer = setTimeout(() => abort.abort(), 25_000);
+const abort = new AbortController(), timer = setTimeout(() => abort.abort(), watchdogMs(25_000));
 const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
   if (!new URL(request.url).pathname.endsWith("/messages")) return Response.json({});
   const body = await request.json() as { messages: unknown[]; tools?: { name: string }[] };
@@ -122,7 +123,7 @@ function capture() {
 async function captureTool() {
   // The native debug sink flushes asynchronously. Keep the live worker's
   // descriptors held until the branch receipt has reached the actual file.
-  const path = join(worker!.state!.root, "shell-debug.log"), deadline = Date.now() + 5_000;
+  const path = join(worker!.state!.root, "shell-debug.log"), deadline = Date.now() + watchdogMs(5_000);
   while (!(existsSync(path) && readFileSync(path, "utf8").includes(fallback ? "EEXIST" : "Spawning shell without login (-l flag skipped)"))) {
     if (Date.now() >= deadline) throw new Error("Native shell branch diagnostic did not flush.");
     await Bun.sleep(10);

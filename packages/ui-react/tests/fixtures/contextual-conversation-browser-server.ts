@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../../scripts/test-deadlines";
 /** #3070: real adapters/host/application policy with scripted inference and synthetic PCM.
  * A release barrier, not elapsed time, keeps the actual backend task pending. */
 import { workerHostBoundary } from "../../../ui-sdk/src/server/worker-launcher.js";
@@ -158,7 +159,7 @@ const awaitSettledWork = (deadlineMs = 5000) => new Promise<"settled" | "deadlin
   if (workSettled()) return resolve("settled");
   const finish = (result: "settled" | "deadline") => { clearTimeout(timer); receiptWaiters.delete(wake); resolve(result); };
   const wake = () => { if (workSettled()) finish("settled"); };
-  const timer = setTimeout(() => finish("deadline"), deadlineMs);
+  const timer = setTimeout(() => finish("deadline"), watchdogMs(deadlineMs));
   receiptWaiters.add(wake);
 });
 await handlers.onOpen(undefined as never, ws);

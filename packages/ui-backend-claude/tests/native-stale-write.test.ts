@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../scripts/test-deadlines";
 import { nativeFixtureDirectory } from "../../../scripts/test-native-guard.ts";
 import { nativeScriptedService } from "../../../scripts/test-native-guard.ts";
 /** Real installed CLI file tools, a scripted loopback model, and fictional credentials only. */
@@ -25,7 +26,7 @@ for (const toolName of ["Write", "Edit", "NotebookEdit"] as const) for (const mo
     { name: toolName, input: toolName === "Write" ? { file_path: path, content: "Athena charts.\n" } : toolName === "NotebookEdit" ? { notebook_path: path, cell_id: "loom", new_source: "Athena charts.", edit_mode: "replace" } : { file_path: path, old_string: "Penelope", new_string: "Odysseus" }, id: "toolu_ithaca_write" }];
   if (reread) calls.splice(1, 0, { name: "Read", input: { file_path: path }, id: "toolu_ithaca_reread" });
   let sent = 0, reads = 0, rereadContent: string | undefined, nativeDenial = false, version: string | undefined;
-  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 20_000);
+  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), watchdogMs(20_000));
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     if (new URL(request.url).pathname !== "/v1/messages") return Response.json({});
     const body = await request.json() as { tools?: { name: string }[] };

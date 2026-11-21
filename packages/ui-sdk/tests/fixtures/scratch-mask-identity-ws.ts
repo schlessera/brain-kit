@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../../scripts/test-deadlines";
 import "../../../../scripts/test-network-child-preload.ts";
 import {nativeScriptedService} from "../../../../scripts/test-native-guard.ts";
 import { prepareNativeScratchMask, answerNativeScratchMask, exerciseNativeScratchMask } from "./scratch-mask-native.js";
@@ -93,7 +94,7 @@ function recordFixtureRootMetadata(phase: "before-app" | "after-app") {
   console.log(receipt);
 }
 async function until(check: () => boolean, label: string) {
-  const deadline = Date.now() + 30000;
+  const deadline = Date.now() + watchdogMs(30000);
   while (!check()) { if (Date.now() > deadline) throw Error(label); await Bun.sleep(10); }
 }
 try {

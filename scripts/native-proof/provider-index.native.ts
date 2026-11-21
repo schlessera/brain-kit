@@ -1,3 +1,4 @@
+import { watchdogMs } from "../test-deadlines";
 /** Provider-folder admission on real Btrfs, including the strict output keeper. */
 import { expect } from "bun:test";
 import { existsSync, linkSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -120,7 +121,7 @@ export async function proveNativeProviderIndex(brain: string, manager: ReturnTyp
           env: { PATH: "/usr/local/bin:/usr/bin:/bin", BRAIN_ROOT: brain, HOME: "/tmp", NO_COLOR: "1" },
           command: [process.execPath, "/repo/scripts/native-proof/provider-index-worker.ts", profile, `${info.dev}:${info.ino}`, `applied:${applied}:notes/provider-applied-${profile}.md`, peerTree] };
         const result = await (async () => {
-          const worker = launchAgentWorker(launch), timer = setTimeout(() => worker.kill("SIGKILL"), 30_000);
+          const worker = launchAgentWorker(launch), timer = setTimeout(() => worker.kill("SIGKILL"), watchdogMs(30_000));
           worker.stdin.end();
           const stdout = text(worker.stdout), stderr = text(worker.stderr);
           let code: number;
@@ -188,7 +189,7 @@ export async function proveNativeProviderIndex(brain: string, manager: ReturnTyp
           ...(prepared ? { startupView: prepared.view, preparedOutput: prepared } : {}), stateBytes: MIB, turnTempBytes: 16 * MIB,
           env: { PATH: "/usr/local/bin:/usr/bin:/bin", BRAIN_ROOT: brain, HOME: "/tmp", NO_COLOR: "1" },
           command: [process.execPath, "/repo/scripts/native-proof/provider-index-worker.ts", profile, index, "allowed"] });
-        const timer = setTimeout(() => worker.kill("SIGKILL"), 30_000);
+        const timer = setTimeout(() => worker.kill("SIGKILL"), watchdogMs(30_000));
         worker.stdin.end();
         const stdout = text(worker.stdout), stderr = text(worker.stderr);
         let code: number;

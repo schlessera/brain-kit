@@ -1,3 +1,4 @@
+import { watchdogMs } from "../test-deadlines";
 /**
  * The crashed app instance of case 19 (#3513). It opens the case's database
  * and the served pool, requests the pending changed refresh and is killed by
@@ -13,7 +14,7 @@ import { createNativeBrainManagerClient } from "../../packages/ui-sdk/src/server
 
 const [dbPath, socketPath, repository, principalId, clock] = process.argv.slice(2) as [string, string, string, string, string];
 const db = createUiDb(dbPath);
-const sources = createReferenceSources({ db, pool: createNativeBrainManagerClient({ socketPath, timeoutMs: 20_000 }),
+const sources = createReferenceSources({ db, pool: createNativeBrainManagerClient({ socketPath, timeoutMs: watchdogMs(20_000) }),
   transport: createReferenceTransport({ brainPath: "/brain-fixture/brain" }), brain: "ithaca", credentials: {}, now: () => Number(clock),
   dependents: rootId => referenceWorktreeDependents(db, rootId) });
 console.log("requesting");

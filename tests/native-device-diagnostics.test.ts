@@ -7,9 +7,9 @@ test("device metadata is collected by the harmless payload inside its actual vie
  const root=mkdtempSync(join(tmpdir(),"odysseus-device-metadata-"));
  try{
   const log=join(root,"trace"),strace=Bun.which("strace");expect(strace,"strace required for device metadata proof").toBeTruthy();
-  const child=Bun.spawn([strace!,"-f","-qq","-e","trace=newfstatat","-e","abbrev=!newfstatat,statx","-o",log,"--","bwrap","--unshare-user","--uid","21002","--gid","21002","--unshare-net","--ro-bind","/","/","--dev","/dev","--",...nativeDeviceMetadataCommand(["/usr/bin/python3","-I","-S","-c",'import os; fd=os.open("/dev/urandom",os.O_RDONLY);os.close(fd)'])],{env:{PATH:"/usr/bin:/bin"},stdout:"pipe",stderr:"pipe"});
+  const child=Bun.spawn([strace!,"-f","-qq","-e","trace=newfstatat","-e","abbrev=!newfstatat,statx","-o",log,"--","bwrap","--unshare-user","--uid","21002","--gid","21002","--unshare-net","--ro-bind","/","/","--dev","/dev","--",...nativeDeviceMetadataCommand(["python3","-I","-S","-c",'import os; fd=os.open("/dev/urandom",os.O_RDONLY);os.close(fd)'])],{env:{PATH:"/usr/bin:/bin"},stdout:"pipe",stderr:"pipe"});
   const [code,out,err]=await Promise.all([child.exited,new Response(child.stdout).text(),new Response(child.stderr).text()]);
-  expect(code,err).toBe(0);expect(out).toBe("");
+  expect(code,"DEVICE_PROBE_PRESERVES_PATH_SEARCH "+err).toBe(0);expect(out).toBe("");
   const records=nativeDeviceMetadata(readFileSync(log,"utf8"));
   expect(records.map(value=>value.device),"ACTUAL_CHILD_DEVICE_METADATA").toEqual(["dev","urandom"]);
   expect(records.find(value=>value.device==="dev")?.uid).toBe(21002);

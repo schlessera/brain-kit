@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../scripts/test-deadlines";
 import { nativeScriptedService } from "../../../scripts/test-native-guard";
 import { launchFixtureAgentWorker as launchAgentWorker } from "./helpers/worker-startup-view-fixture.js";
 import { describe, expect, spyOn, test } from "bun:test";
@@ -88,7 +89,7 @@ signal.signal(signal.SIGRTMIN, signal.SIG_IGN)
 os.closerange(3, os.sysconf("SC_OPEN_MAX"))
 os.execve(${JSON.stringify(boot.command[0])}, ${JSON.stringify(boot.command)}, ${JSON.stringify(boot.env)})`;
       const child = Bun.spawnSync([python!, "-c", program], { env: {}, stdin: pipes.child[0],
-        stdout: pipes.child[1], stderr: pipes.child[2], timeout: 5_000 });
+        stdout: pipes.child[1], stderr: pipes.child[2], timeout: watchdogMs(5_000) });
       pipes.closeChild(); pipes.closeInput();
       const output = readFileSync(pipes.parent[1], "utf8");
       expect(readFileSync(pipes.parent[2], "utf8")).toBe("");

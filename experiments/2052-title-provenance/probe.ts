@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../scripts/test-deadlines";
 import "../../scripts/test-network-child-preload.ts";
 import { nativeScriptedService } from "../../scripts/test-native-guard.ts";
 /** Run through run.ts: the SDK, CLI and tool descendants share an offline netns. */
@@ -56,7 +57,7 @@ try {
       turnLock: { acquire: () => undefined, release: () => undefined } as never, log() {},
     });
     const messages: unknown[] = [];
-    const timer = setTimeout(() => controller.abort(), 45_000);
+    const timer = setTimeout(() => controller.abort(), watchdogMs(45_000));
     try {
       let succeeded = false;
       for await (const msg of query({ prompt: turn.prompt, options: turn.options })) {

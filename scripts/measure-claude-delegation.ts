@@ -1,3 +1,4 @@
+import { watchdogMs } from "./test-deadlines";
 import "./measurement-entry-preload.ts";
 import { nativeFixtureDirectory, nativeScriptedService, nativeScriptedQuery } from "./test-native-guard.ts";
 // #1213: production enforcement and foreground rewrite inherited by a real subagent.
@@ -97,7 +98,7 @@ nativeScriptedService(server.url.origin);
             } });
     };
     const controller = new AbortController();
-    const deadline = setTimeout(() => controller.abort(), 20000);
+    const deadline = setTimeout(() => controller.abort(), watchdogMs(20000));
     const worker = createMeasurementWorkerFixture(cwd, home);
     try {
         const profile: InferenceProfile = { id: "fixture", label: "Fixture", model: "claude-sonnet-5-5", billing: "api", requiredEnvKeys: [], buildEnv: () => ({ ...CLEARED_API_CREDENTIALS,

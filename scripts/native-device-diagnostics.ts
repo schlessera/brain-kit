@@ -1,6 +1,6 @@
 /** Temporary identity-only metadata probe: fixed paths, no permissions changed. */
 export function nativeDeviceMetadataCommand(command:readonly string[]):string[] {
- return ["/usr/bin/python3","-I","-S","-c",'import os,sys\nfor path in ["/dev","/dev/urandom"]:\n try: os.stat(path)\n except OSError: pass\nos.execv(sys.argv[1],sys.argv[1:])',...command];
+ return ["/usr/bin/python3","-I","-S","-c",'import os,sys\nfor path in ["/dev","/dev/urandom"]:\n try: os.stat(path)\n except OSError: pass\nos.execvp(sys.argv[1],sys.argv[1:])',...command];
 }
 export function nativeDeviceMetadata(trace:string):Array<Record<string,string|number>> {
  const records=new Map<string,Record<string,string|number>>();

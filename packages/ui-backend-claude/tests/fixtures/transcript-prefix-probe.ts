@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../../scripts/test-deadlines";
 import "../../../../scripts/test-network-child-preload.ts";
 import { nativeScriptedService } from "../../../../scripts/test-native-guard.ts";
 /** Narrow #2049 proof; follows the offline CLI pattern from #2053/#2047. */
@@ -56,7 +57,7 @@ try {
       profile: { id: "fixture", label: "Fixture", model: "claude-sonnet-4-6", billing: "api", requiredEnvKeys: [], buildEnv: () => ({
         ANTHROPIC_BASE_URL: server.url.origin, ANTHROPIC_API_KEY: "offline-odysseus", ...(!cacheEnabled ? { DISABLE_PROMPT_CACHING: "1" } : {}), CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" }) },
       abortController: controller, allowedTools: ["Read", "Bash"], confirmPatterns: [], turnLock: { acquire() {}, release() {} } as never, log() {} });
-    const deadline = setTimeout(() => controller.abort(), 45000);
+    const deadline = setTimeout(() => controller.abort(), watchdogMs(45000));
     try {
       let success = false;
       for await (const message of query({ prompt: turn.prompt, options: turn.options })) {

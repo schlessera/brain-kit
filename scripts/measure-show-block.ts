@@ -1,3 +1,4 @@
+import { watchdogMs } from "./test-deadlines";
 import "./measurement-entry-preload.ts";
 /**
  * Measure the `show_block` call rate on the Claude backend, with and without
@@ -497,7 +498,7 @@ export async function runTurn(
   const isolation: MeasurementToolAccess[] = [];
   const started = Date.now();
   const abortController = new AbortController();
-  const deadline = setTimeout(() => abortController.abort(), TURN_BUDGET_MS);
+  const deadline = setTimeout(() => abortController.abort(), watchdogMs(TURN_BUDGET_MS));
   const kinds: string[] = [];
   const otherTools = new Set<string>();
   const suggestions: SuggestionTurn["suggestions"] = [];

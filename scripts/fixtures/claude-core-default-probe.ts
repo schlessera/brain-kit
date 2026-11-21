@@ -1,3 +1,4 @@
+import { watchdogMs } from "../test-deadlines";
 import "../test-network-child-preload.ts";
 import { nativeScriptedService } from "../test-native-guard.ts";
 /** Actual core factory, actual bundled CLI, networkless fictional control only. */
@@ -34,13 +35,13 @@ for(const arm of ["allow","deny"]){
  observedSpawn=(command:any,options:any)=>{
   args=command;writeFileSync(join(output,arm+"-args.json"),JSON.stringify(command));const child:any=Reflect.apply(original,Bun,[command,options]);const [out,copy]=child.stdout.tee(),[err,errcopy]=child.stderr!.tee();
   const collect=async(stream:any,path:string)=>{let text="",reader=stream.getReader(),decoder=new TextDecoder();for(;;){const {done,value}=await reader.read();if(done)break;appendFileSync(path,value);text+=decoder.decode(value,{stream:true});}return text+decoder.decode();};stdout=collect(copy,join(output,arm+"-stdout.jsonl"));stderr=collect(errcopy,join(output,arm+"-stderr.bin"));close=child.exited;
-  const watchdog=setTimeout(()=>{forcedKill=true;child.kill("SIGKILL");},20000);void child.exited.then(()=>clearTimeout(watchdog));
+  const watchdog=setTimeout(()=>{forcedKill=true;child.kill("SIGKILL");},watchdogMs(20000));void child.exited.then(()=>clearTimeout(watchdog));
   const sink=child.stdin!;
   return {stdout:out,stderr:err,exited:child.exited,kill:child.kill.bind(child),stdin:{write(chunk:any){stdin+=typeof chunk==="string"?chunk:Buffer.from(chunk).toString("utf8");writeFileSync(join(output,arm+"-stdin.jsonl"),stdin);return sink.write(chunk);},flush:sink.flush.bind(sink),end:sink.end.bind(sink)}};
 
  };
  let result:string|null=null,error:string|null=null;const events:any[]=[],runtimes:any[]=[];
- try{const runner=claudeRunner();result=arm==="allow"?await runner.runStreaming!("Inspect and maintain the fictional raft.",{cwd,onEvent:e=>events.push(e),onRuntime:r=>runtimes.push(r)}):await runner.run("Respect the operator's denied Write.",{cwd,timeoutMs:25000,onRuntime:r=>runtimes.push(r)});}catch(e){error=String(e);}
+ try{const runner=claudeRunner();result=arm==="allow"?await runner.runStreaming!("Inspect and maintain the fictional raft.",{cwd,onEvent:e=>events.push(e),onRuntime:r=>runtimes.push(r)}):await runner.run("Respect the operator's denied Write.",{cwd,timeoutMs:watchdogMs(25000),onRuntime:r=>runtimes.push(r)});}catch(e){error=String(e);}
  const [exitCode,rawStdout,rawStderr]=await Promise.all([close,stdout,stderr]);await server.stop(true);
  const record={arm,args,stdin,forcedKill,rawStdout,rawStderr,exitCode,result,error,events,runtimes,physical,bashMarker:existsSync(join(cwd,"bash-marker.txt")),bashContent:existsSync(join(cwd,"bash-marker.txt"))?readFileSync(join(cwd,"bash-marker.txt"),"utf8"):null,allowedContent:existsSync(join(cwd,"allowed.md"))?readFileSync(join(cwd,"allowed.md"),"utf8"):null,deniedWritten:existsSync(join(cwd,"denied.md")),ownedDrained:exitCode!==undefined&&rawStdout!==undefined&&rawStderr!==undefined};observations.push(record);
 }

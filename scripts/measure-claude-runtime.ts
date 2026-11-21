@@ -772,7 +772,7 @@ async function permissionCases(model: ReturnType<typeof scriptedModel>): Promise
   // always starts after the release.
   const releasingHook = (release: string) => (record: HookRecorder): HookCallback => async (input) => {
     const call = record.start(input as PreToolUseHookInput);
-    await new Promise((r) => setTimeout(r, 300));
+    await new Promise((r) => setTimeout(r, /* native-product-timing: Controlled hook-ordering stimulus; the RELEASE witness, not elapsed time, proves ordering. */ 300));
     writeFileSync(release, "");
     call.endedAt = performance.now();
     return { continue: true };

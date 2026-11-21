@@ -1,3 +1,5 @@
+import { recordNativeRelayTurn } from "./helpers/native-relay-turn-diagnostic";
+import { watchdogMs } from "../../../scripts/test-deadlines";
 import { nativeFixtureDirectory } from "../../../scripts/test-native-guard.ts";
 import { nativeScriptedService } from "../../../scripts/test-native-guard.ts";
 /** Actual installed native tools through the production runner; only the worker transport is replaced. */
@@ -20,9 +22,10 @@ for (const tool of ["Write", "Edit", "NotebookEdit"] as const) test(`restarted C
   writeFileSync(path, tool === "NotebookEdit" ? notebook("Penelope weaves.\n") : "Penelope weaves.\n");
   utimesSync(path, new Date("2026-07-12T00:00:00Z"), new Date("2026-07-12T00:00:00Z"));
   const stamp = statSync(path);
-  let mode = "read", sent = 0, runtime: string | undefined, environmentCalls = 0, turns = 0;
+  let mode = "read", sent = 0, runtime: string | undefined, environmentCalls = 0, turns = 0, requests = 0;
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     if (new URL(request.url).pathname !== "/v1/messages") return Response.json({});
+    requests++;
     const body = await request.json() as { tools?: { name: string }[] };
     const name = mode === "read" || (mode === "recover" && sent === 0) ? "Read" : tool;
     if (sent >= (mode === "recover" ? 2 : 1) || !body.tools?.some(item => item.name === name)) return nativeModelReply();
@@ -55,7 +58,8 @@ for (const tool of ["Write", "Edit", "NotebookEdit"] as const) test(`restarted C
   let backend = makeBackend(), sessionId: string | undefined;
   async function turn(next: string) {
     mode = next; sent = 0; turns++;
-    const frames: ServerMessage[] = [], controller = new AbortController(), timer = setTimeout(() => controller.abort(), 20_000);
+    const turnStarted=performance.now(),requestStart=requests;
+    const frames: ServerMessage[] = [], controller = new AbortController(), timer = setTimeout(() => controller.abort(), watchdogMs(20_000));
     try {
       await backend.startTurn({ sessionId, prompt: next, signal: controller.signal,
         workerSandbox: { brain, profile: "governed", restricted: false, areas: [], scratchAliasesRemoved: [] },
@@ -66,7 +70,12 @@ for (const tool of ["Write", "Edit", "NotebookEdit"] as const) test(`restarted C
       expect(sent, "ACTUAL_NATIVE_OPERATION_REQUESTED").toBe(next === "recover" ? 2 : 1);
       expect(frames.some(frame => frame.type === "result" && frame.outcome === "success")).toBe(true);
       return frames;
-    } finally { clearTimeout(timer); controller.abort(); }
+    } finally {
+      const terminal=frames.slice().reverse().find(frame=>frame.type==="result"||frame.type==="error");
+      recordNativeRelayTurn({elapsedMs:performance.now()-turnStarted,aborted:controller.signal.aborted,requestDelta:requests-requestStart,refreshDelta:0,
+        outcome:terminal?.type==="result"?terminal.outcome:undefined,errorClass:terminal?.type==="result"?terminal.failure?.errorClass:terminal?.type==="error"?terminal.failure?.errorClass:undefined});
+      clearTimeout(timer); controller.abort();
+    }
   }
   try {
     await turn("read"); expect(sessionId).toBeDefined();

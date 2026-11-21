@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../../scripts/test-deadlines";
 import "../../../../scripts/test-network-child-preload.ts";
 import { nativeScriptedService } from "../../../../scripts/test-native-guard.ts";
 /** Real installed CLI, fictional credentials and a loopback-only namespace. */
@@ -31,7 +32,7 @@ for (const enforced of [false, true]) {
     await request.json(); return reply(calls[sent++]);
   } });
   nativeScriptedService(server.url.origin);
-  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 20_000);
+  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), watchdogMs(20_000));
   const lock = createTurnLockBinding({ turn: { ended: false, pendingReleases: new Map() }, writeLock: createKeyedLock(), lockWaitMs: 1000, log: () => {} });
   const allowedTools = enforced ? [] : ["Bash"];
   const wiring = createPermissionWiring({ req: { prompt: "Return to Ithaca.", signal: controller.signal, enforceAllowedTools: enforced,
@@ -65,7 +66,7 @@ for (const enforced of [false, true]) {
     await request.json(); return reply(sent++ === 0 ? { name: "Bash", id: "toolu_legacy", input: { command: "sleep 30", run_in_background: true } } : undefined);
   } });
   nativeScriptedService(server.url.origin);
-  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 20_000);
+  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), watchdogMs(20_000));
   const env = { HOME: home, CLAUDE_CONFIG_DIR: join(home, ".claude"), PATH: process.env.PATH!, ANTHROPIC_BASE_URL: `http://127.0.0.1:${server.port}`, ANTHROPIC_API_KEY: "odysseus-offline-only-key", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" };
   try {
     for (const resume of [false, true]) for await (const message of query({ prompt: resume ? "Keep Penelope's words." : "Return to Ithaca.", options: {

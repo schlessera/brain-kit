@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../scripts/test-deadlines";
 import { describe, expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
 import { tmpdir } from "node:os";
@@ -99,7 +100,7 @@ describe("actual filesystem ioctl filter runtime", () => {
     // Run the actual filter even on non-Btrfs test hosts.
     const child = Bun.spawnSync([python!, "-I", "-S", "-c", WORKER_FILESYSTEM_FILTER_PROGRAM,
       "/usr/bin/cat", "/proc/self/status"], {
-      cwd: "/", env: {}, stdout: "pipe", stderr: "pipe", timeout: 5_000,
+      cwd: "/", env: {}, stdout: "pipe", stderr: "pipe", timeout: watchdogMs(5_000),
     });
     expect(child.stderr.toString()).toBe("");
     expect(child.exitCode).toBe(0);
@@ -133,7 +134,7 @@ with open(sys.argv[1] + "/odysseus.md", "w") as output:
 print(json.dumps(errors))`;
       const child = Bun.spawnSync([python!, "-I", "-S", "-c", WORKER_FILESYSTEM_FILTER_PROGRAM,
         python!, "-I", "-S", "-c", program, f.root], {
-        cwd: "/", env: { PYTHONPATH: f.root, PYTHONHOME: f.root }, stdout: "pipe", stderr: "pipe", timeout: 5_000,
+        cwd: "/", env: { PYTHONPATH: f.root, PYTHONHOME: f.root }, stdout: "pipe", stderr: "pipe", timeout: watchdogMs(5_000),
       });
       expect(child.stderr.toString()).toBe("");
       expect(child.exitCode).toBe(0);

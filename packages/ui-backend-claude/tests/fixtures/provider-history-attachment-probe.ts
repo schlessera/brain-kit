@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../../scripts/test-deadlines";
 import "../../../../scripts/test-network-child-preload.ts";
 import { nativeScriptedService } from "../../../../scripts/test-native-guard.ts";
 /**
@@ -80,7 +81,7 @@ try {
         turnLock: { acquire: () => undefined, release: () => undefined } as never, log() {},
       });
       capture.appends.push(turn.options.systemPrompt);
-      const timer = setTimeout(() => controller.abort(), 30_000);
+      const timer = setTimeout(() => controller.abort(), watchdogMs(30_000));
       try {
         let success = false;
         for await (const message of query({ prompt: turn.prompt, options: turn.options })) {

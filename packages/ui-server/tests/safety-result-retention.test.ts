@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../scripts/test-deadlines";
 import { nativeFixtureDirectory } from "../../../scripts/test-native-guard.ts";
 import {searchWitnessScript} from "./helpers/search-witness";
 import {nativeScriptedService} from "../../../scripts/test-native-guard.ts";
@@ -104,7 +105,7 @@ async function voyageHome(interruption:Interruption,check:(f:{db:ReturnType<type
   const refused=new Promise<void>(resolve=>{refusal=resolve;});
   const awaitIndex=async()=>{
    if(!interrupt||interruption!=="duplicate"||++indexWaits<2)return;
-   const deadline=Date.now()+15000;
+   const deadline=Date.now()+watchdogMs(15000);
    while(!existsSync(searched)&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,5));
    if(!existsSync(searched))throw new Error("The first search never ran");
    controller.abort(new Error("Odysseus stopped the turn while the first search ran"));
@@ -123,7 +124,7 @@ async function voyageHome(interruption:Interruption,check:(f:{db:ReturnType<type
   // search has printed its matches, and refuses the Read.
   const retooling=interrupt&&interruption==="retooled",tools=retooling?["Grep","Read"]:["Grep"];
   const fileVersions={beginRead:async()=>{
-   const deadline=Date.now()+15000;
+   const deadline=Date.now()+watchdogMs(15000);
    while(!existsSync(searched)&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,5));
    if(!existsSync(searched))throw new Error("The search never ran");
    controller.abort(new Error("Odysseus stopped the turn after the search ran"));
@@ -147,7 +148,7 @@ async function voyageHome(interruption:Interruption,check:(f:{db:ReturnType<type
   }
   // Stop the turn the moment the search has printed its matches.
   const watching=interrupt&&interruption==="running"?setInterval(()=>{if(existsSync(searched))controller.abort(new Error("Odysseus stopped the turn while the search ran"));},5):undefined;
-  const timer=setTimeout(()=>controller.abort(),20000);
+  const timer=setTimeout(()=>controller.abort(),watchdogMs(20000));
   nativeScriptedService(origin.url.origin);
   try{for await(const message of query({prompt:"Listen for the sirens.",options:{cwd:brain,settingSources:[],model:"claude-sonnet-4-6",maxTurns:2,permissionMode:"default",allowedTools:tools,...wiring,abortController:controller,
    ...(resume?{resume}:{}),
@@ -158,7 +159,7 @@ async function voyageHome(interruption:Interruption,check:(f:{db:ReturnType<type
   finally{
    clearInterval(watching);clearTimeout(timer);db.exec("DROP TRIGGER IF EXISTS refuse_result");
    // The denial lands before the turn's end, as it would once the hook returns.
-   if(interrupt&&(interruption==="duplicate"||interruption==="retooled"))await Promise.race([refused,new Promise(resolve=>setTimeout(resolve,2000))]);
+   if(interrupt&&(interruption==="duplicate"||interruption==="retooled"))await Promise.race([refused,new Promise(resolve=>setTimeout(resolve,watchdogMs(2000)))]);
    await writes.safetyEnd(turnId);
   }
   return {results,failures,aborted:controller.signal.aborted,indexWaits,admitted,cards,refusals};
@@ -304,7 +305,7 @@ for(const late of [false,true])test(`a denied shell call reusing a search's id c
   // The search's result never reaches the host.
   result:async()=>{}};
  const wiring=createPermissionWiring({req:{prompt:"Listen for the sirens.",signal:controller.signal,bridge:{emit(){},requestPermission:async()=>({behavior:"allow"}),inputSafety}},allowedTools:["Grep","Bash"],confirmPatterns:[],brainPath:brain,turnLock:{acquireForTool:async()=>({ok:true}),releaseForTool(){}} as never,childEnv:{PATH:"/usr/bin:/bin"},log(){}});
- if(late)for(const group of wiring.hooks!.PreToolUse!)if(!group.matcher)group.hooks=group.hooks.map(hook=>async(...args)=>{if((args[0] as {tool_name?:string}).tool_name==="Bash")await new Promise(resolve=>setTimeout(resolve,150));return hook(...args);});
+ if(late)for(const group of wiring.hooks!.PreToolUse!)if(!group.matcher)group.hooks=group.hooks.map(hook=>async(...args)=>{if((args[0] as {tool_name?:string}).tool_name==="Bash")await new Promise(resolve=>setTimeout(resolve,/* native-product-timing: Deliberate late-hook ordering stimulus; not an upper deadline. */ 150));return hook(...args);});
  const origin=Bun.serve({hostname:"127.0.0.1",port:0,async fetch(request){
   if(new URL(request.url).pathname!=="/v1/messages")return Response.json({});
   const raw=await request.text(),body=JSON.parse(raw);
@@ -313,7 +314,7 @@ for(const late of [false,true])test(`a denied shell call reusing a search's id c
   return nativeModelReply(requests===1?{name:"Grep",id:"toolu_sirens",input:{pattern:"sirens",path,output_mode:"content"}}
    :requests===2?{name:"Bash",id:"toolu_sirens",input:{command:"echo rafts",run_in_background:true}}:undefined);
  }});
- const timer=setTimeout(()=>controller.abort(),20000);
+ const timer=setTimeout(()=>controller.abort(),watchdogMs(20000));
  try{
   nativeScriptedService(origin.url.origin);
   for await(const message of query({prompt:"Listen for the sirens.",options:{cwd:brain,settingSources:[],model:"claude-sonnet-4-6",maxTurns:4,permissionMode:"default",allowedTools:["Grep","Bash"],...wiring,abortController:controller,

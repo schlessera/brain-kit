@@ -1,3 +1,4 @@
+import { watchdogMs } from "../test-deadlines";
 /** Actual Btrfs publication control; invoked by the existing owned native fixture. */
 import { strict as assert } from "node:assert";
 import { mkdirSync, writeFileSync, existsSync, chmodSync, statSync, rmSync } from "node:fs";
@@ -65,7 +66,7 @@ export async function proveScheduleFolderAdmission(artifacts: string): Promise<v
         'printf ready > reader-ready.md; IFS= read -r go || exit 46; if mv group/private group/moved 2>/dev/null; then exit 41; fi; if mv group group-moved 2>/dev/null; then exit 42; fi; printf Penelope > group/private/peer.md; printf Odysseus > notes/peer.md; printf ROOTS_RETAINED'] });
       output = Promise.all([streamText(peer.stdout),
         streamText(peer.stderr)]);
-      const deadline = Date.now() + 5000;
+      const deadline = Date.now() + watchdogMs(5000);
       while (!existsSync(join(brain, "reader-ready.md"))) {
         if (Date.now() > deadline) throw Error("Native schedule peer readiness deadline");
         await Bun.sleep(5);

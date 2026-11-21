@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../scripts/test-deadlines";
 import { tmpdir } from "node:os";
 import { text as streamText } from "node:stream/consumers";
 import { afterEach, describe, expect, test } from "bun:test";
@@ -166,7 +167,7 @@ describe("operational state boot refusal (#1649)", () => {
       console.log("ODYSSEUS_STATE_RECEIPT:"+JSON.stringify({name:failure?.name,sameInode:original.dev===alias.dev&&original.ino===alias.ino}));`;
     const run = Bun.spawnSync(["bwrap", "--unshare-user", "--unshare-net", "--bind", "/", "/", "--bind", f.state, mounted,
       "--proc", "/proc", "--dev", "/dev", process.execPath, "--config=/dev/null", "--no-env-file", "-e", program],
-      { env: { PATH: `${dirname(process.execPath)}:/usr/bin:/bin` }, stdout: "pipe", stderr: "pipe", timeout: 30_000 });
+      { env: { PATH: `${dirname(process.execPath)}:/usr/bin:/bin` }, stdout: "pipe", stderr: "pipe", timeout: watchdogMs(30_000) });
     expect(run.exitCode, run.stderr.toString()).toBe(0);
     const line = run.stdout.toString().split("\n").find(value => value.startsWith("ODYSSEUS_STATE_RECEIPT:"));
     expect(line).toBeDefined();

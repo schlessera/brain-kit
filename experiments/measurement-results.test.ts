@@ -1,3 +1,4 @@
+import { watchdogMs } from "../scripts/test-deadlines";
 import { expect, test } from "bun:test";
 import { runTurn, report, costRows } from "../scripts/measure-show-block";
 import { MeasurementResults, priceCoverage } from "../scripts/measurement-results";
@@ -107,11 +108,11 @@ test("drain timeout force-kills and awaits an owned native child ignoring SIGTER
   });
   const output = child.stdout[Symbol.asyncIterator]();
   // Keep the deliberate missing-kill mutation bounded without hiding its receipt.
-  let watchdog = setTimeout(() => child.kill("SIGKILL"), 5000);
+  let watchdog = setTimeout(() => child.kill("SIGKILL"), watchdogMs(5000));
   try {
     expect(String((await output.next()).value)).toContain("ready");
     clearTimeout(watchdog);
-    watchdog = setTimeout(() => child.kill("SIGKILL"), 500);
+    watchdog = setTimeout(() => child.kill("SIGKILL"), watchdogMs(500));
     child.kill("SIGTERM");
     expect(await observed.drain(50)).toBe(false);
     expect(observed.processes).toEqual([{ closed: true, stdoutFinished: true, code: null, signal: "SIGKILL", forcedKill: true }]);

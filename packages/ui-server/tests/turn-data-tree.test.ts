@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../scripts/test-deadlines";
 /**
  * A turn's own applications reach its worker's same-turn reads (#2848) and,
  * under provider rules, its private index without any masked byte (#2846).
@@ -110,7 +111,7 @@ async function hostedTurn(f: Fixture, profile: "strict" | "governed", script: Sc
   let failure: unknown, ws: WsHost | undefined, painted: Uint8Array | undefined;
   /** Approve the one destructive application `pending` waits on, as the user would. */
   const approve = async <T>(pending: Promise<T>): Promise<T> => {
-    const deadline = Date.now() + 10_000;
+    const deadline = Date.now() + watchdogMs(10_000);
     while (!ws!.coordinator.pendingApprovals.size) { if (Date.now() > deadline) throw new Error("no approval requested"); await Bun.sleep(5); }
     for (const id of [...ws!.coordinator.pendingApprovals.keys()]) ws!.coordinator.claimApproval(id)!.resolve({ behavior: "allow" });
     return pending;

@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../scripts/test-deadlines";
 /** Actual helper/Unix/HTTP qualification; invoked only inside the disposable identity fixture. */
 import { expect } from "bun:test";
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
@@ -27,7 +28,7 @@ async function run(proxyDir: string, program: string) {
       command: ["/usr/bin/python3", "-I", "-S", "-c", program], env: { PATH: "/usr/bin:/bin", HOME: "/tmp" },
       egress: { proxyDir }, stateBytes: 1024 * 1024, turnTempBytes: 1024 * 1024 });
     worker.stdin.end(); output = collect(worker.stdout); errors = collect(worker.stderr);
-    timer = setTimeout(() => worker?.kill("SIGKILL"), 10000);
+    timer = setTimeout(() => worker?.kill("SIGKILL"), watchdogMs(10000));
     const exit = await worker.exited; settled = true;
     // The real supervisor retains pipe writers while these handles remain held.
     worker.state?.close(); worker.turnTemp?.close();

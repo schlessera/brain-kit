@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../../scripts/test-deadlines";
 import "../../../../scripts/test-network-child-preload.ts";
 import { nativeScriptedService } from "../../../../scripts/test-native-guard.ts";
 /** Installed CLI/SDK, isolated by the caller's offline network namespace. */
@@ -93,7 +94,7 @@ try {
       if ("hookSpecificOutput" in result && result.hookSpecificOutput?.hookEventName === "PreToolUse" && result.hookSpecificOutput.permissionDecision === "deny" && args[0].hook_event_name === "PreToolUse") active.denials.push(args[0].tool_name);
       return result;
     }) }));
-    const timer = setTimeout(() => controller.abort(), 30_000);
+    const timer = setTimeout(() => controller.abort(), watchdogMs(30_000));
     try {
       for await (const message of query({ prompt: turn.prompt, options: turn.options })) {
         if (message.type === "system" && message.subtype === "init") Object.assign(active, { mcp: message.mcp_servers });

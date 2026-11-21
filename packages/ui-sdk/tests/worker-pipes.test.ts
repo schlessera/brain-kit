@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../scripts/test-deadlines";
 /**
  * #1648: a worker's output pipes are read without holding a thread. Node's fs
  * read streams park a thread-pool thread on every pending FIFO read, and the
@@ -45,7 +46,7 @@ test("many idle worker outputs leave asynchronous file I/O free", async () => {
     await writeFile(join(dir, "harbor.md"), "Ithaca\n");
     return readFile(join(dir, "harbor.md"), "utf8");
   })();
-  const stalled = new Promise<string>(resolve => setTimeout(() => resolve("stalled"), 5_000));
+  const stalled = new Promise<string>(resolve => setTimeout(() => resolve("stalled"), watchdogMs(5_000)));
   expect(await Promise.race([io, stalled])).toBe("Ithaca\n");
 });
 

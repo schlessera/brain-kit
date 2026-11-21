@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../scripts/test-deadlines";
 import { nativeFixtureDirectory } from "../../../scripts/test-native-guard.ts";
 import {nativeScriptedService} from "../../../scripts/test-native-guard.ts";
 /** Installed Claude file tools against a scripted loopback model and the real host ledger. */
@@ -26,7 +27,7 @@ for(const mode of ["complete","writer-loss"] as const)test(`installed Claude ${m
  const db=createUiDb(join(root,"ui.db")),writer=openSqliteWriter(db),writes=createGovernanceWrites(db,writer),controller=new AbortController();
  const bindingId=crypto.randomUUID();let version:string|undefined,requests=0,postReached=false,finalizedBeforeProvider=false;
  const trace:string[]=[];
- const timer=setTimeout(()=>controller.abort(),20000);
+ const timer=setTimeout(()=>controller.abort(),watchdogMs(20000));
  const origin=Bun.serve({hostname:"127.0.0.1",port:0,async fetch(request){
   if(new URL(request.url).pathname!=="/v1/messages")return Response.json({});
   const body=JSON.stringify(await request.json());requests++;trace.push(`provider-${requests}:${body.includes("Odysseus repairs the raft")}`);
