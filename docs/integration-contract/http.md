@@ -1405,3 +1405,9 @@ evidence. They cannot poison a safety-history page or stop later valid
 requests in the turn. Failed session binding remains 503 `egress_unavailable`
 on both initial and repeated inference admission. A cancelled cleanup cannot
 send its credentialed DELETE, and cancellation interrupts an in-flight DELETE.
+
+A credential resolver or upstream transport failure is a failed attempt, not
+cancellation caused by the proxy closing its own signal. Before response
+headers it reports 502; cancellation reports 499 and existing admission
+refusals retain their typed cause. Provider receipts keep 0 when no upstream
+HTTP status was observed, or the observed status for interrupted responses.

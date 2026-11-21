@@ -14,7 +14,7 @@ import { chmodSync, mkdtempSync, rmSync } from "node:fs";
 import { workerIdentityHelper } from "./worker-identity.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { egressChargeRefusal, type startEgressProxy, type EgressChargeFailure } from "./egress-proxy.js";
+import { captureEgressFailure, egressChargeRefusal, type startEgressProxy, type EgressChargeFailure } from "./egress-proxy.js";
 import { INFERENCE_RELAY_PLACEHOLDER } from "@schlessera/brain-common/internal/provider-unavailable";
 
 /** Where the relay directory appears inside a restricted worker. */
@@ -152,8 +152,9 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
             chunks.push(next.value);
           }
         } catch {
-          operation?.finish("cancelled", "client_disconnected");
-          return refuse(request.method, path, 499, "Inference request cancelled");
+          const cause=captureEgressFailure(signal,operation);
+          operation?.finish(cause.outcome,"request_body_failed");
+          return cause.failure?chargeDenied(cause.failure):refuse(request.method,path,cause.status,"Inference request interrupted");
         } finally { signal.removeEventListener("abort", cancelBody); reader?.releaseLock(); }
         const body = new Uint8Array(length);
         let offset = 0;
@@ -162,22 +163,24 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
         for (const [name, value] of request.headers) if (!STRIPPED.has(name.toLowerCase())) headers.set(name, value);
         let credentials: Readonly<Record<string, string>>;
         if (signal.aborted) {
-          operation?.finish("cancelled", "client_disconnected");
-          return refuse(request.method, path, 499, "Inference request cancelled");
+          const cause=captureEgressFailure(signal,operation);
+          operation?.finish(cause.outcome,"client_disconnected");
+          return chargeDenied(cause.failure ?? {ok:false,reason:"cancelled"});
         }
         try {
           credentials = typeof options.credentials === "function" ? await options.credentials(signal, new URL(target)) : options.credentials;
           validateCredentials(credentials);
           if (signal.aborted) {
-            operation?.finish("cancelled", "client_disconnected");
-            return refuse(request.method, path, 499, "Inference request cancelled");
+            const cause=captureEgressFailure(signal,operation);
+            operation?.finish(cause.outcome,"client_disconnected");
+            return chargeDenied(cause.failure ?? {ok:false,reason:"cancelled"});
           }
           for (const [name, value] of Object.entries(credentials)) headers.set(name, value);
         } catch {
           // A resolver error may carry a provider reply, credential or host path.
-          operation?.finish(signal.aborted ? "cancelled" : "failed", "inference_credentials_unavailable");
-          return refuse(request.method, path, signal.aborted ? 499 : 503,
-            signal.aborted ? "Inference request cancelled" : "Inference credentials unavailable");
+          const cause=captureEgressFailure(signal,operation);
+          operation?.finish(cause.outcome,"inference_credentials_unavailable");
+          return cause.failure?chargeDenied(cause.failure):refuse(request.method,path,cause.status,"Inference credentials unavailable");
         }
         // HTTP application framing before provider TLS: never describe this as
         // measured TLS ciphertext/handshake bytes. Include every observable
@@ -201,9 +204,9 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
           signal.throwIfAborted();
           response = await fetch(target, { method: "POST", headers, body, redirect: "manual", signal });
         } catch {
-          operation?.finish(signal.aborted ? "cancelled" : "failed", "upstream_unreachable");
-          if (signal.aborted) return chargeDenied(operation?.failure() ?? {ok:false,reason:"cancelled"});
-          return refuse(request.method,path,502,"Inference upstream unreachable");
+          const cause=captureEgressFailure(signal,operation);
+          operation?.finish(cause.outcome,"upstream_unreachable");
+          return cause.failure?chargeDenied(cause.failure):refuse(request.method,path,cause.status,"Inference upstream unreachable");
         }
         if (response.status >= 300 && response.status < 400) {
           operation?.finish("failed", "upstream_redirected");
@@ -228,19 +231,20 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
         const release = () => { if (!released) { released = true; upstreamReader.releaseLock(); } };
         const output = new ReadableStream<Uint8Array>({
           async pull(controller) {
-            try {
-              const next = await upstreamReader.read();
-              if (next.done) { operation.finish("completed"); release(); controller.close(); }
-              else {
-                const failure = chargeFailure(next.value.byteLength + 16);
-                if (failure) {
-                  await upstreamReader.cancel().catch(() => {}); release();
-                  controller.error(new Error(egressChargeRefusal(failure,"Inference").message));
-                } else controller.enqueue(next.value);
-              }
-            } catch {
-              operation.finish(signal.aborted ? "cancelled" : "failed", "upstream_response_failed");
-              release(); controller.error(new Error("Inference response interrupted"));
+            let next:Awaited<ReturnType<typeof upstreamReader.read>>;
+            try { next=await upstreamReader.read(); }
+            catch {
+              const cause=captureEgressFailure(signal,operation);
+              operation.finish(cause.outcome,"upstream_response_failed");
+              release();controller.error(new Error(cause.failure?egressChargeRefusal(cause.failure,"Inference").message:"Inference response interrupted"));return;
+            }
+            if (next.done) { operation.finish("completed"); release(); controller.close(); }
+            else {
+              const failure = chargeFailure(next.value.byteLength + 16);
+              if (failure) {
+                await upstreamReader.cancel().catch(() => {}); release();
+                controller.error(new Error(egressChargeRefusal(failure,"Inference").message));
+              } else controller.enqueue(next.value);
             }
           },
           async cancel() {

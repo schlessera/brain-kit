@@ -39,3 +39,8 @@ test('lifecycle: a declined admission cannot remain live and pending',async()=>{
  const rows:EgressOperationTerminal[]=[];const op=createEgressOperation({decide(){},abort(){},observe:t=>{rows.push(t);}});
  expect(await op.admit(async()=>false)).toBe(false);expect(op.state()).toBe('aborted');expect(rows).toEqual([{outcome:'denied',reason:'call_not_admitted',dispatched:false}]);
 });
+
+test('lifecycle: terminal cleanup releases every owner once before abort, including a throwing release',()=>{
+ const order:string[]=[];const op=createEgressOperation({decide:()=>{order.push('decide');},abort:()=>{order.push('abort');},observe:()=>{order.push('observe');}});
+ op.ownCleanup(()=>{order.push('first');});op.ownCleanup(()=>{order.push('throw');throw new Error('Odysseus release failed');});op.ownCleanup(()=>{order.push('last');});op.finish('denied','call_not_admitted');op.finish('failed','proxy_error');op.ownCleanup(()=>{order.push('late');});expect(order).toEqual(['decide','first','throw','last','abort','observe','late']);
+});

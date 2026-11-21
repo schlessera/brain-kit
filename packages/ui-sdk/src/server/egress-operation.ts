@@ -14,6 +14,7 @@ export function createEgressOperation(options: {
   let terminal: EgressOperationTerminal | undefined, observed = false;
   let admission: Promise<boolean> | undefined, effectCount = 0;
   const effects = new Set<Promise<unknown>>();
+  const cleanups=new Set<()=>void>();
   const active = () => state !== 'finished' && state !== 'aborted';
   const flush = () => {
     if (!terminal || observed || effectCount) return;
@@ -24,7 +25,9 @@ export function createEgressOperation(options: {
     if (outcome === 'completed' && state !== 'dispatched') { outcome='cancelled';reason ??= 'not_dispatched'; }
     terminal = { outcome, reason, dispatched: state === 'dispatched' };
     state = outcome === 'completed' ? 'finished' : 'aborted';
-    options.decide(terminal); options.abort(); flush();
+    options.decide(terminal);
+    for(const release of cleanups)try{release();}catch{/* One failed release cannot retain the others. */}
+    cleanups.clear();options.abort();flush();
   };
   const sendRefusal = (count:number,remaining:number) => {
     if (!active()) return 'turn_cancelled' as const;
@@ -34,6 +37,7 @@ export function createEgressOperation(options: {
   };
   return {
     sendRefusal,
+    ownCleanup(release:()=>void) { if(active())cleanups.add(release);else release(); },
     state: () => state, active,
     canCharge: () => state === 'admitted' || state === 'dispatched',
     dispatched: () => state === 'dispatched' || terminal?.dispatched === true,

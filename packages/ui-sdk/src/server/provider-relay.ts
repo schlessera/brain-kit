@@ -37,7 +37,7 @@ import {
   PROVIDER_RELAY_FAMILY_HEADER, PROVIDER_RELAY_KEY_HEADER, PROVIDER_RELAY_ORIGIN_HEADER, type ProviderRelayFamily,
 } from "@schlessera/brain-common/internal/provider-relay";
 import { workerIdentityHelper } from "./worker-identity.js";
-import { egressChargeRefusal, type EgressChargeFailure, WORKER_EGRESS_DIR, type EgressRefusal, type startEgressProxy } from "./egress-proxy.js";
+import { captureEgressFailure, egressChargeRefusal, type EgressChargeFailure, WORKER_EGRESS_DIR, type EgressRefusal, type startEgressProxy } from "./egress-proxy.js";
 import { hostProviderCredential } from "../config/env.js";
 
 /** The relay's socket name inside the turn's egress directory. */
@@ -476,10 +476,10 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       }
       if (uploadDeadline.aborted) throw new Error("upload deadline");
     } catch {
-      const late = uploadDeadline.aborted && !signal.aborted;
-      operation?.finish(late ? "denied" : "cancelled", late ? "provider_upload_timeout" : "client_disconnected");
-      return late ? refuse(408, "upload_timeout", "Provider request body did not arrive in time")
-        : refuse(499, "cancelled", "Provider request cancelled");
+      const late = uploadDeadline.aborted && !signal.aborted,cause=captureEgressFailure(signal,operation);
+      operation?.finish(late?"denied":cause.outcome,late?"provider_upload_timeout":"request_body_failed");
+      if(late)return refuse(408,"upload_timeout","Provider request body did not arrive in time");
+      return cause.failure?chargeDenied(cause.failure):refuse(cause.status,"upstream_unreachable","Provider request interrupted");
     } finally {
       signal.removeEventListener("abort", cancelBody); uploadDeadline.removeEventListener("abort", cancelBody); reader?.releaseLock();
     }
@@ -503,8 +503,9 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
     }
     const inlineMedia = family === "gemini" && !files && /"inlineData"|"inline_data"/.test(new TextDecoder().decode(body.subarray(0, Math.min(body.byteLength, 8 * 1024 * 1024))));
     if (signal.aborted) {
-      operation?.finish("cancelled", "client_disconnected");
-      return refuse(499, "cancelled", "Provider request cancelled");
+      const cause=captureEgressFailure(signal,operation);
+      operation?.finish(cause.outcome,"client_disconnected");
+      return chargeDenied(cause.failure ?? {ok:false,reason:"cancelled"});
     }
     const requestChargeFailure = chargeFailure(headerBytes(`${request.method} ${target.pathname}${target.search} HTTP/1.1`, headers));
     if (requestChargeFailure) return chargeDenied(requestChargeFailure);
@@ -538,13 +539,11 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       }
       response = await fetch(target, { method: request.method, headers, ...(request.method === "POST" ? { body } : {}), redirect: "manual", signal });
     } catch {
-      operation?.finish(signal.aborted ? "cancelled" : "failed", "upstream_unreachable");
-      // The request may have reached the provider: its spend is unknown, never zero.
-      if (signal.aborted) {
-        const failure=operation?.failure() ?? {ok:false as const,reason:"cancelled" as const};
-        report("cancelled",egressChargeRefusal(failure,"Provider").status,null);return chargeDenied(failure);
-      }
-      report("failed",0,null);return refuse(502,"upstream_unreachable","Provider upstream unreachable");
+      const cause=captureEgressFailure(signal,operation);
+      operation?.finish(cause.outcome,"upstream_unreachable");
+      // No upstream HTTP status or usage was observed for a transport failure.
+      report(cause.outcome,cause.failure?cause.status:0,null);
+      return cause.failure?chargeDenied(cause.failure):refuse(cause.status,"upstream_unreachable","Provider upstream unreachable");
     }
     free();
     if (response.status >= 300 && response.status < 400) {
@@ -571,6 +570,7 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       // place before the worker sees the answer.
       const chunks: Uint8Array[] = [];
       let size = 0, failure: "large" | EgressChargeFailure | "read" | undefined;
+      let readCause:ReturnType<typeof captureEgressFailure>|undefined;
       try {
         if (response.body) for await (const chunk of response.body) {
           size += chunk.byteLength;
@@ -578,16 +578,17 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
           const charged = chargeFailure(chunk.byteLength + 16); if (charged) { failure = charged; break; }
           chunks.push(chunk);
         }
-      } catch { failure ??= "read"; }
+      } catch { readCause=captureEgressFailure(signal,operation);failure ??= "read"; }
       if (failure) {
+        const cause=readCause??captureEgressFailure(signal,operation);
         await response.body?.cancel().catch(() => {});
         if (typeof failure === "object") {
           report("cancelled", response.status, null);
           return chargeDenied(failure);
         }
-        operation?.finish(signal.aborted ? "cancelled" : "failed", "upstream_response_failed");
-        report(signal.aborted ? "cancelled" : "failed", response.status, null);
-        return refuse(signal.aborted ? 499 : 502, signal.aborted ? "cancelled" : "upstream_unreachable", "Provider response interrupted");
+        operation?.finish(cause.outcome,"upstream_response_failed");
+        report(cause.outcome,response.status,null);
+        return cause.failure?chargeDenied(cause.failure):refuse(cause.status,"upstream_unreachable","Provider response interrupted");
       }
       operation?.finish("completed");
       report(response.ok ? "completed" : "failed", response.status, null);
@@ -637,8 +638,15 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       async pull(controller) {
         // Read until something is enqueued, the upstream ends or fails: a chunk
         // the scrubber holds back whole must not leave this pull empty.
-        try { for (;;) {
-          const next = await upstreamReader.read();
+        for (;;) {
+          let next:Awaited<ReturnType<typeof upstreamReader.read>>;
+          try { next=await upstreamReader.read(); }
+          catch {
+            const cause=captureEgressFailure(signal,operation);
+            operation?.finish(cause.outcome,"upstream_response_failed");
+            report(cause.outcome,response.status,null);
+            release();controller.error(new Error(cause.failure?egressChargeRefusal(cause.failure,"Provider").message:"Provider response interrupted"));return;
+          }
           if (next.done) {
             operation?.finish("completed"); settle(); release();
             const tail = scrub(new Uint8Array(0), true);
@@ -658,10 +666,6 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
           else if (capturing) { capturing = false; captured.length = 0; }
           const clean = scrub(next.value, false);
           if (clean.byteLength) { controller.enqueue(clean); return; }
-        } } catch {
-          operation?.finish(signal.aborted ? "cancelled" : "failed", "upstream_response_failed");
-          report(signal.aborted ? "cancelled" : "failed", response.status, null);
-          release(); controller.error(new Error("Provider response interrupted"));
         }
       },
       async cancel() {
@@ -705,8 +709,9 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       operation?.finish("completed");
       observe(response.ok ? "completed" : "failed", response.status);
     } catch {
-      operation?.finish(signal.aborted ? "cancelled" : "failed", "upstream_unreachable");
-      observe(signal.aborted?"cancelled":"failed",signal.aborted?egressChargeRefusal(operation?.failure() ?? {ok:false,reason:"cancelled"},"Provider").status:0);
+      const cause=captureEgressFailure(signal,operation);
+      operation?.finish(cause.outcome,"upstream_unreachable");
+      observe(cause.outcome,cause.failure?cause.status:0);
     }
   }
   chmodSync(socketPath, separateIdentity ? 0o660 : 0o600);

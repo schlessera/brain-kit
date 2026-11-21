@@ -30,6 +30,12 @@ const FAILURE_DETAILS = {
 export function egressChargeRefusal(failure: EgressChargeFailure, subject: string) {
   const detail=FAILURE_DETAILS[failure.reason];return {...detail,message:`${subject} ${detail.message}`};
 }
+/** Snapshot the failure site before finish() aborts its own operation signal. */
+export function captureEgressFailure(signal:AbortSignal,operation?:{failure():EgressChargeFailure|undefined}) {
+  const failure=operation?.failure() ?? (signal.aborted?{ok:false as const,reason:"cancelled" as const}:undefined);
+  return failure?{failure,outcome:"cancelled" as const,status:egressChargeRefusal(failure,"Network").status}
+    :{failure:undefined,outcome:"failed" as const,status:502 as const};
+}
 /** Capture the category with the terminal audit decision, before abort listeners run. */
 function terminalFailure(outcome: EgressRecord["outcome"], reason?: string): EgressChargeFailure | undefined {
   if (outcome === "completed") return undefined;
@@ -433,7 +439,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (finalReason === "taint_not_allowed") try { cause = options.taint?.cause?.(); } catch { /* The message names no cause. */ }
       return describeRefusal(finalReason, host, matches(host, options.deny), cause);
     };
-    return { host, dialHost, finish, charge, admit, commit, refusal, failure:()=>failure, signal: controller.signal, outcome: () => finalOutcome, reason: () => finalReason, pinned: () => pinned };
+    return { host, dialHost, finish, ownCleanup:lifecycle.ownCleanup, charge, admit, commit, refusal, failure:()=>failure, signal: controller.signal, outcome: () => finalOutcome, reason: () => finalReason, pinned: () => pinned };
   }
   server.on("connect", (request, client, head) => {
     client.on("error", () => {});
@@ -573,14 +579,13 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     const op = operation(method, new URL(target), relay);
     const abort = () => op.finish("cancelled", "client_disconnected");
     signal.addEventListener("abort", abort, { once: true });
+    op.ownCleanup(()=>signal.removeEventListener("abort",abort));
     if (signal.aborted) abort();
     return { charge: op.charge, signal: op.signal, outcome: op.outcome, refusal: op.refusal, reason: op.reason, failure: op.failure,
       admit: async () => !op.signal.aborted && await op.admit(),
       /** The concrete relay calls this again after its own final async waits. */
       commit: op.commit,
-      finish(outcome: EgressRecord["outcome"], reason?: string) {
-        signal.removeEventListener("abort", abort); op.finish(outcome, reason);
-      },
+      finish:op.finish,
     };
   }
 }

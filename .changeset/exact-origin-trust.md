@@ -35,3 +35,5 @@ Capture one immutable typed refusal per egress operation before abort, preserve 
 Guard the concrete proxy lifecycle through pending, admitted, dispatched and terminal states; distinguish exhausted new dispatch from exact-cap stream completion, fence closed wait continuations, and release all per-operation admission keys after terminal evidence.
 
 Validate destination provenance through the wire schema before durable writes, cancel every upstream cleanup/request with its operation and deadline, and preserve unavailable classifications through repeated inference admission.
+
+Capture relay error causes before terminal signal cleanup, preserve failed versus cancelled receipts and statuses across every response path, and release caller listeners from every operation termination path.

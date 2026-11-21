@@ -6023,3 +6023,11 @@ or durable occurrence writes. Relay retries use the same stored-failure
 classification as initial admission. All upstream requests use operation
 cancellation together with their existing request/deadline signal, and check
 cancellation again after observer callbacks immediately before dispatch.
+
+Relay failure classification snapshots the failure site before terminal
+cleanup aborts the operation signal. Credential or upstream request failures
+return 502, actual cancellation returns 499, and a previously decided policy
+or safety refusal retains its typed status. Interrupted streams keep their
+already-sent HTTP status and terminate with failed or cancelled evidence.
+Caller-signal listeners belong to the operation lifecycle and are released
+by every terminal transition, including internal admit/charge/commit refusals.
