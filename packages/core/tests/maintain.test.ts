@@ -438,3 +438,14 @@ test("without a private stage declaration failure cleanup preserves unowned pack
   expect(result.code).toBe(2);
   expect(existsSync(join(root,".git/objects/pack/tmp_pack_Attempt")),"UNHOSTED_PACK_TEMPORARY_OWNERSHIP_IS_UNKNOWN").toBe(true);
 });
+
+test("standalone packing never inventories an unreadable temporary MIDX directory",async()=>{
+ const fs=await import("node:fs"),{spyOn}=await import("bun:test"),{packRepository}=await import("../src/lib/git-storage.js");
+ const root=tempBrain();initRepo(root);writeLooseBlobs(root,2);
+ mkdirSync(join(root,".git/objects/pack/multi-pack-index.d"));
+ const readdir=spyOn(fs,"readdirSync").mockImplementation(()=>{throw Object.assign(Error("Ithaca inventory refused"),{code:"EACCES"});});
+ try {
+  let packed=0;expect(()=>{packed=packRepository(root).packed;},"STANDALONE_PACK_NEEDS_NO_TEMP_INVENTORY").not.toThrow();
+  expect(packed).toBeGreaterThanOrEqual(2);expect(readdir,"STANDALONE_TEMP_INVENTORY_NOT_CALLED").not.toHaveBeenCalled();
+ }finally{readdir.mockRestore();}
+});

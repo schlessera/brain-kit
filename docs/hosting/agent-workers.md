@@ -957,8 +957,11 @@ need and skips when it cannot establish enough space, without reserving it.
 
 The existing idle host-maintenance schedule also scrubs the journal object
 store, never admission or finish. Each pass lists at most 32 new directory entries
-and resumes its held directory iterator on the next pass (a process restart
-starts a fresh sweep). A full batch remains partial until the iterator reaches
+and reads at most 4 KiB of directory records per pass through Linux `getdents64`
+(the qualified Linux host libc), retaining only a fixed 4 KiB buffer and its
+directory descriptor across passes. Bun 1.4.4 eagerly enumerates a whole
+directory through `Dir.readSync`, so it cannot supply this I/O bound. A process
+restart starts a fresh sweep. A full batch remains partial until the cursor reaches
 its end. Up to 32 pending reservations are retried separately with a rotating
 cursor, sharing the combined 64-entry/row work bound and leaving half
 for new entries; missing old candidates cannot starve newly discovered files. Each
@@ -974,7 +977,16 @@ before path use; nonregular entries stay in place without starving valid files.
 Unresolved reservations report `quarantine_pending` with
 pending counts and bytes rather than a clean pass. A quota-refused batch retries
 its bounded candidates individually, so an oversized orphan cannot block small
-siblings. Optional `capacityBlocked` counts candidates left for a future sweep. Corrupt files stay in place and are reported separately.
+siblings. Optional `capacityBlocked` counts candidates left for a future sweep; their
+verified counts and bytes still appear in `unaccounted` / `unaccountedBytes`
+for that pass. Individual stat/open/read errors stay local, retain the file,
+and produce optional `readFailures` diagnostics (relative path, error class
+and message), with `partial` / `quarantine_pending`; an I/O refusal is not
+proof of corruption. Corrupt files stay in place and are reported separately.
+Idle maintenance also retries interrupted-producer recovery and refreshes its
+status, including directory sync barriers previously refused at startup. A
+crash between content link and pending unlink is recovered by removing and
+syncing the dead producer’s pending alias before validating the hash inode.
 A busy journal records `journal_busy` without waiting for the turn to end.
 Counts, bytes, skips and failure causes appear in the existing maintenance
 Activity record as `journal_scrub` / `journal_scrub_failed` events under the

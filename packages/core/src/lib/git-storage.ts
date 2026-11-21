@@ -137,7 +137,8 @@ export function packRepository(root: string, headroom = gitPackingHeadroom(root)
     }
     catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return []; throw error; }
   };
-  const previous = new Set(packNames());
+  const privateStage=Boolean(workerOutputAllowance());
+  const previous = new Set(privateStage?packNames():[]);
   try {
     const before = looseObjects(root).count;
     const repack = packCount(root) > 0 ? ["--task=incremental-repack"] : [];
@@ -147,7 +148,7 @@ export function packRepository(root: string, headroom = gitPackingHeadroom(root)
   } catch (error) {
     // Only a private output stage proves these new names belong to this
     // execution. A standalone Git writer may be racing another pack process.
-    if (workerOutputAllowance()) for (const name of packNames())
+    if (privateStage) for (const name of packNames())
       if (!previous.has(name) && /^(tmp_|\.tmp-)/.test(name.split("/").at(-1)!)) unlinkSync(`${pack}/${name}`);
     throw error;
   }

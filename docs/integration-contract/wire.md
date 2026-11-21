@@ -3420,6 +3420,11 @@ by the prior maintainer ruling in the session-safety ADR.
 
 Idle journal maintenance records scrub results in the existing `journal_scrub`
 Activity event payload. The optional numeric `capacityBlocked` field counts
-candidates whose quarantine charge could not fit this pass; the result remains
-`partial` with the existing `quarantine_pending` reason. No existing event,
-outcome or reason discriminator changes.
+candidates whose quarantine charge could not fit this pass; those verified
+candidates still contribute to `unaccounted` / `unaccountedBytes`. Optional
+`readFailures` is an array of `{ path, errorClass, message }` diagnostics for
+individual stat/open/read refusals; paths are relative to the private object
+root (with `quarantine/` when applicable), and messages are bounded to 2000
+characters. Either condition leaves the result `partial` with the existing
+`quarantine_pending` reason. Read refusals do not assert corruption. No existing
+event, outcome or reason discriminator changes.

@@ -117,7 +117,7 @@ test("directory exclusion segments do not apply to a regular asset basename",()=
  }finally{rmSync(root,{recursive:true,force:true});}
 });
 
-test("wildcard filenames remain literal and one Git batch serves a hundred directories",()=>{
+test("wildcard filenames remain literal and one stdin ignore batch serves a hundred directories",()=>{
  const root=mkdtempSync(join(tmpdir(),"odysseus-ignore-batch-"));
  try {
   expect(Bun.spawnSync(["git","-C",root,"init","-q"]).exitCode).toBe(0);
@@ -128,7 +128,7 @@ test("wildcard filenames remain literal and one Git batch serves a hundred direc
   const expected=["chart1.jpg"], spawn=spyOn(Bun,"spawnSync");
   try {
    expect(getAssetFiles(root,buildTaxonomy({})).map(row=>row.path),"LITERAL_WILDCARD_IGNORE").toEqual(expected);
-   expect(spawn.mock.calls.filter(([argv])=>Array.isArray(argv)&&argv[0]==="git"),"ONE_GIT_BATCH_PER_WORKTREE").toHaveLength(1);
+   expect(spawn.mock.calls.filter(([argv])=>Array.isArray(argv)&&argv[0]==="git"),"FIXED_GIT_PROCESS_COUNT_PER_WORKTREE").toHaveLength(2);
   }finally{spawn.mockRestore();}
  }finally{rmSync(root,{recursive:true,force:true});}
 });
@@ -172,5 +172,59 @@ test("tracked descendants cannot make Git open taxonomy-excluded trees",()=>{
   // Establish that Git's old unrestricted listing reads the tracked subtree.
   expect(Bun.spawnSync(["git","-C",root,"ls-files","--others","--ignored","--exclude-standard","--directory","--exclude=node_modules/","-z"]).exitCode).toBe(0);
   expect(statSync(join(root,"node_modules")).atimeMs,"GIT_READ_COUNTER_NEGATIVE_CONTROL").toBeGreaterThan(0);
+ }finally{rmSync(root,{recursive:true,force:true});}
+});
+
+test("stdin ignore batching remains effective beyond the operating system argv limit",async()=>{
+ const {gitIgnoredMatcher}=await import("../src/lib/git-ignore.js");
+ const root=mkdtempSync(join(tmpdir(),"odysseus-ignore-argmax-"));
+ try {
+  expect(Bun.spawnSync(["git","-C",root,"init","-q"]).exitCode).toBe(0);writeFileSync(join(root,".gitignore"),"*.jpg\n");
+  const candidates=["chart.jpg",...Array.from({length:12000},(_,n)=>`${"a".repeat(180)}${n}/chart.jpg`)];
+  expect(Buffer.byteLength(candidates.join("\u0000")),"ARGMAX_FIXTURE_EXCEEDS_TWO_MIB").toBeGreaterThan(2*1024**2);
+  const ignored=gitIgnoredMatcher(root,candidates);
+  expect(ignored("chart.jpg"),"STDIN_GIT_IGNORE_SURVIVES_ARGMAX").toBe(true);
+  expect(ignored(candidates.at(-1)!)).toBe(true);
+ }finally{rmSync(root,{recursive:true,force:true});}
+});
+
+test("asset and statistics ignore matchers neutralize inherited Git pathspec modes",async()=>{
+ const {gitIgnoredMatcher}=await import("../src/lib/git-ignore.js");
+ const modes=["GIT_LITERAL_PATHSPECS","GIT_GLOB_PATHSPECS","GIT_NOGLOB_PATHSPECS","GIT_ICASE_PATHSPECS"];
+ const saved=modes.map(key=>[key,Object.getOwnPropertyDescriptor(process.env,key)] as const);
+ const root=mkdtempSync(join(tmpdir(),"odysseus-ignore-environment-"));
+ try {
+  for(const key of modes)delete process.env[key];
+  expect(Bun.spawnSync(["git","-C",root,"init","-q"]).exitCode).toBe(0);writeFileSync(join(root,".gitignore"),"*.jpg\n");
+  for(const path of ["chart.jpg","chart[1].jpg","chart1.jpg",":(literal)athena.png"])writeFileSync(join(root,path),"");
+  expect(Bun.spawnSync(["git","-C",root,"add","-f","chart1.jpg"]).exitCode).toBe(0);
+  for(const enabled of [...modes.map(key=>[key]),modes]){
+   for(const key of modes)delete process.env[key];for(const key of enabled)process.env[key]="1";
+   const asset=gitIgnoredMatcher(root,["chart.jpg","chart[1].jpg","chart1.jpg",":(literal)athena.png"]),statistics=gitIgnoredMatcher(root);
+   for(const matcher of [asset,statistics]){
+    expect(matcher("chart.jpg"),`GIT_PATHSPEC_ENVIRONMENT_SANITIZED ${enabled}`).toBe(true);
+    expect(matcher("chart[1].jpg")).toBe(true);expect(matcher("chart1.jpg")).toBe(false);expect(matcher(":(literal)athena.png")).toBe(false);
+   }
+  }
+ }finally{for(const [key,descriptor]of saved)if(descriptor)Object.defineProperty(process.env,key,descriptor);else delete process.env[key];rmSync(root,{recursive:true,force:true});}
+});
+
+test("declared submodules outside the pruned candidate list never enter Git ignore queries",async()=>{
+ const root=mkdtempSync(join(tmpdir(),"odysseus-pruned-module-"));
+ try {
+  expect(Bun.spawnSync(["git","-C",root,"init","-q"]).exitCode).toBe(0);
+  mkdirSync(join(root,"workspaces/harbour"),{recursive:true});
+  expect(Bun.spawnSync(["git","-C",join(root,"workspaces/harbour"),"init","-q"]).exitCode).toBe(0);
+  writeFileSync(join(root,".gitmodules"),'[submodule "harbour"]\n path = workspaces/harbour\n');writeFileSync(join(root,"chart.jpg"),"");
+  const spawn=spyOn(Bun,"spawnSync");
+  try {
+   expect(getAssetFiles(root,buildTaxonomy({})).map(row=>row.path)).toEqual(["chart.jpg"]);
+   const calls=spawn.mock.calls.filter(([argv])=>Array.isArray(argv)&&argv[0]==="git");
+   expect(calls).toHaveLength(2);
+   for(const [argv,options]of calls){
+    expect((argv as string[]).join(" "),"EXCLUDED_MODULE_NEVER_QUERIED").not.toContain("workspaces");
+    expect(String(options?.stdin??""),"EXCLUDED_MODULE_NEVER_QUERIED").not.toContain("workspaces");
+   }
+  }finally{spawn.mockRestore();}
  }finally{rmSync(root,{recursive:true,force:true});}
 });

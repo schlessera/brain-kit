@@ -414,7 +414,9 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
       const isGitControl = (rel: string) => [...gitControls.keys()].some(root => isWithin(root, rel));
       function add(rel: string) { if (isGitControl(rel)) return; if (++count > 200_000) throw Error("Native output exceeds existing 200000 entry bound"); candidates.add(rel); }
       for await (const change of receipt.changes) {
-        const rel = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.from(change.pathHex, "hex"));
+        const raw=Buffer.from(change.pathHex,"hex");
+        if(discardGit&&(raw.equals(Buffer.from(".git"))||raw.subarray(0,5).equals(Buffer.from(".git/"))))continue;
+        const rel = new TextDecoder("utf-8", { fatal: true }).decode(raw);
         if (isGitControl(rel)) continue;
         if ([...gitScaffolds.keys()].some(name => rel === `.git/${name}`)) continue;
         // Validate components before any host path walk.

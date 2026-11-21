@@ -271,6 +271,12 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
           });
           continue;
         }
+        // The completed link can still share its inode with pending-ID after
+        // a crash. Remove/sync that known producer alias before nlink validation.
+        write(()=>{
+          const current=db.query("SELECT pid,pid_start FROM turn_journal_reservations WHERE id=?").get(row.id) as {pid:number;pid_start:string}|null;
+          if(current&&!processAlive(current.pid,current.pid_start))objects.discardPending(row.id);
+        });
         let published = false, corrupt: unknown;
         published = objects.has(row.hash);
         if (published && !objects.verify(row.hash, row.bytes)) corrupt = new Error("Published interrupted object failed integrity verification");
@@ -282,7 +288,6 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
           // writer nor a new reservation sharing this hash is collected.
           const current = db.query("SELECT pid,pid_start FROM turn_journal_reservations WHERE id=?").get(row.id) as { pid: number; pid_start: string } | null;
           if (!current || processAlive(current.pid, current.pid_start)) return;
-          objects.discardPending(row.id);
           if (corrupt) {
             const cause = { errorClass: corrupt instanceof Error ? corrupt.name : "Error", message: (corrupt instanceof Error ? corrupt.message : String(corrupt)).slice(0, 2000) };
             db.query("INSERT OR IGNORE INTO turn_journal_object_quarantine VALUES (?,?,?,?,?)").run(row.hash, Date.now(), cause.errorClass, cause.message, "journal-accounting.recover");

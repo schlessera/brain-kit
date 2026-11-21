@@ -250,15 +250,15 @@ test("an oversized orphan does not consume the whole batch quota or starve a sma
  try {
   for(const text of ["large-orphan","ok"])writeFileSync(join(objects,sha(text)),text);
   let result:unknown;expect(()=>{result=store.scrubObjects!();},"SCRUB_QUOTA_IS_PER_CANDIDATE").not.toThrow();
-  expect(result).toMatchObject({quarantined:1,capacityBlocked:1,state:"partial"});
+  expect(result,"SCRUB_OVER_QUOTA_ORPHANS_ARE_REPORTED").toMatchObject({quarantined:1,capacityBlocked:1,state:"partial",unaccounted:2,unaccountedBytes:14});
   expect(existsSync(join(objects,"quarantine",sha("ok")))).toBe(true);expect(existsSync(join(objects,sha("large-orphan")))).toBe(true);
-  expect(store.scrubObjects!(),"SCRUB_QUOTA_NEXT_PASS_IS_USABLE").toMatchObject({capacityBlocked:1,state:"partial"});
+  expect(store.scrubObjects!(),"SCRUB_QUOTA_NEXT_PASS_IS_USABLE").toMatchObject({capacityBlocked:1,state:"partial",unaccounted:1,unaccountedBytes:12});
   expect(store.usage!()).toBe(2);
  }finally{store.close!();db.close();rmSync(root,{recursive:true,force:true});}
 });
 test("a nonregular reserved destination cannot suppress or overwrite a valid second source copy",()=>{
  const f=fixture();try {
-  fs.mkdirSync(join(f.objects,"quarantine"));fs.mkdirSync(join(f.objects,"quarantine",sha("orphan")));
+  fs.mkdirSync(join(f.objects,"quarantine"),{mode:0o700});fs.chmodSync(join(f.objects,"quarantine"),0o700);fs.mkdirSync(join(f.objects,"quarantine",sha("orphan")),{mode:0o700});
   f.store.statements([{sql:"INSERT INTO turn_journal_scrub_quarantine VALUES (?,6,'reserved')",params:[sha("orphan")]}]);
   writeFileSync(join(f.objects,sha("orphan")),"orphan");
   expect(f.store.scrubObjects(),"SCRUB_NONREGULAR_TARGET_DOES_NOT_HIDE_SOURCE").toMatchObject({unaccounted:1,quarantined:1,pending:1,corrupt:1});
@@ -273,5 +273,25 @@ for(const kind of ["symlink","hardlink"])test(`collection retains unexpected ${k
   f.store.statements([{sql:"INSERT INTO turn_journal_objects VALUES (?,6,'present')",params:[hash]}]);
   expect(()=>f.store.collectObjects(),"COLLECTION_RETAINS_UNEXPECTED_OBJECT").toThrow(kind==="symlink"?"ELOOP":"Journal object is not a private regular file");
   expect(fs.lstatSync(join(f.objects,hash))).toBeDefined();expect(f.db.query("SELECT bytes FROM turn_journal_objects WHERE hash=?").get(hash)).toEqual({bytes:6});
+ }finally{f.close();}
+});
+
+for(const operation of ["readSync","openSync","lstatSync"] as const)test(`scrub contains one ${operation} EIO and continues with a healthy sibling`,()=>{
+ const f=fixture();try {
+  for(const text of ["orphan","faulty"])writeFileSync(join(f.objects,sha(text)),text);
+  const actual=fs[operation];
+  const fault=spyOn(fs,operation).mockImplementation(((...args:unknown[])=>{
+   const path=operation==="readSync"?fs.readlinkSync(`/proc/self/fd/${args[0]}`):String(args[0]);
+   if(path.endsWith(sha("faulty")))throw Object.assign(Error("Ithaca read refused"),{code:"EIO"});
+   return Reflect.apply(actual,fs,args);
+  }) as typeof actual);
+  try {
+   let result!:ReturnType<typeof f.store.scrubObjects>;
+   expect(()=>{result=f.store.scrubObjects();},"SCRUB_READ_FAILURE_IS_LOCAL").not.toThrow();
+   expect(result,"SCRUB_READ_FAILURE_REPORTED").toMatchObject({quarantined:1,state:"partial",corrupt:0,readFailures:[{path:sha("faulty"),errorClass:"Error",message:"Ithaca read refused"}]});
+   expect(existsSync(join(f.objects,"quarantine",sha("orphan")))).toBe(true);
+   expect(existsSync(join(f.objects,sha("faulty")))).toBe(true);
+  }finally{fault.mockRestore();}
+  expect(f.store.scrubObjects(),"SCRUB_READ_TRANSIENT_RESOLVES").toMatchObject({quarantined:1});
  }finally{f.close();}
 });

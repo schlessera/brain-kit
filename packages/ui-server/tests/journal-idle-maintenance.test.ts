@@ -132,3 +132,22 @@ test("only host maintenance scrubs, and a busy turn records its skip in maintena
   expect(JSON.parse(events().at(-1)!.payload).v,"SCRUB_IDLE_ACTIVITY").toMatchObject({state:"complete",reason:null});
  }finally{await f.close();}
 });
+
+test("idle maintenance retries a transient startup recovery fsync and refreshes its status",async()=>{
+ const fs=await import("node:fs"),{spyOn}=await import("bun:test");
+ const {createJournalAccounting}=await import("../src/brain/journal-accounting.js");
+ const root=mkdtempSync(join(tmpdir(),"odysseus-idle-recovery-")),brain=join(root,"brain"),objects=join(root,"objects");mkdirSync(brain);mkdirSync(objects,{mode:0o700});
+ const native=createNativeJournalFixture(brain,root),db=createUiDb(":memory:"),accounting=createJournalAccounting(db,":memory:");
+ const held=accounting.reserveTemporary(6);writeFileSync(join(objects,`pending-${held.id}`),"Ithaca");
+ accounting.write(()=>db.query("UPDATE turn_journal_reservations SET pid_start='gone' WHERE id=?").run(held.id));
+ const sync=spyOn(fs,"fsyncSync").mockImplementation(()=>{throw Error("Ithaca startup sync refused");});
+ // An in-memory writer runs the actual production accounting procedures inline,
+ // allowing the filesystem fault to hit both startup and idle recovery.
+ const journal=createTurnJournal(db,{brainPath:brain,dbPath:":memory:",objectsRoot:objects,nativeManager:native.manager});
+ try {
+  await journal.ready;expect(journal.recoveryStatus(),"STARTUP_RECOVERY_FAILURE_RETAINED").toMatchObject({unresolvedRecords:1,firstCause:{message:"Ithaca startup sync refused"}});
+  sync.mockRestore();await journal.maintain();
+  expect(journal.recoveryStatus(),"IDLE_RECOVERY_REFRESHES_STATUS").toEqual({unresolvedRecords:0,firstCause:null});
+  expect(db.query("SELECT count(*) AS n FROM turn_journal_reservations").get(),"IDLE_RECOVERY_RELEASES_DURABLE_RESERVATION").toEqual({n:0});
+ }finally{sync.mockRestore();await journal.close();await native.close();db.close();rmSync(root,{recursive:true,force:true});}
+});

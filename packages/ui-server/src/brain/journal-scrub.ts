@@ -1,10 +1,12 @@
+import {journalDirectory} from "./journal-directory.js";
 /** Bounded, host-private orphan quarantine. Only the journal write worker calls this. */
 import { createHash, randomUUID } from "node:crypto";
-import { closeSync, constants, fstatSync, fsyncSync, mkdirSync, lstatSync, openSync, opendirSync, readSync, renameSync, type Dir } from "node:fs";
+import { closeSync, constants, fstatSync, fsyncSync, mkdirSync, lstatSync, openSync, readSync, renameSync } from "node:fs";
 import {JournalCapacityError} from "./journal-objects.js";
 import type { Database } from "bun:sqlite";
 
 const JOURNAL_SCRUB_FILES = 64;
+type ReadFailure={path:string;errorClass:string;message:string};
 const SCRUB_NAME = /^[a-f0-9]{64}(?:-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})?$/;
 export interface JournalScrubResult {
   state: "complete" | "partial" | "skipped";
@@ -13,9 +15,10 @@ export interface JournalScrubResult {
   corrupt: number; corruptBytes: number; quarantined: number; quarantinedBytes: number;
   pending: number; pendingBytes: number;
   capacityBlocked?: number;
+  readFailures?: ReadFailure[];
 }
 export function createJournalScrub(db: Database, root: string, write: <T>(operation: () => T) => T) {
-  let listing: Dir | undefined;
+  const directory=journalDirectory(root);let more=false;
   let batch: readonly {name:string;alternate:string}[] | undefined, retryAfter="";
   const quarantine=`${root}/quarantine`;
   const protectedHash=(hash:string)=>Boolean(db.query(`SELECT 1 FROM turn_journal_objects WHERE hash=?1
@@ -34,12 +37,18 @@ export function createJournalScrub(db: Database, root: string, write: <T>(operat
       try{
         if((fstatSync(source).mode&0o077)||(fstatSync(target).mode&0o077))throw Error("Journal scrub requires private directories");
         const at=(fd:number,name:string)=>`/proc/self/fd/${fd}/${name}`;
-        const verify=(directory:number,name:string,corruptCopies:Map<string,number>):{bytes:number|null;corrupt:boolean}=>{
+        const verify=(directory:number,name:string,corruptCopies:Map<string,number>,readFailures:Map<string,ReadFailure>):{bytes:number|null;corrupt:boolean}=>{
           // Persisted rows are untrusted restored data. Validate before even
           // constructing a descriptor-relative pathname.
           if(!SCRUB_NAME.test(name)) {
             corruptCopies.set(`invalid:${name}`,0);return {bytes:null,corrupt:true};
           }
+          const failed=(error:unknown)=>{
+            const path=(directory===source?"":"quarantine/")+name;
+            readFailures.set(path,{path,errorClass:error instanceof Error?error.name:"Error",message:(error instanceof Error?error.message:String(error)).slice(0,2000)});
+            // Unknown I/O state blocks this file; it does not prove corruption.
+            return {bytes:null,corrupt:true};
+          };
           let fd:number;
           try{
             const info=lstatSync(at(directory,name));
@@ -48,8 +57,7 @@ export function createJournalScrub(db: Database, root: string, write: <T>(operat
           catch(error){
             const code=(error as NodeJS.ErrnoException).code;
             if(code==="ENOENT")return {bytes:null,corrupt:false};
-            if(["ELOOP","EACCES","EPERM","EISDIR","ENXIO"].includes(code??"")){corruptCopies.set(`unreadable:${name}`,0);return {bytes:null,corrupt:true};}
-            throw error;
+            return failed(error);
           }
           try{
             const info=fstatSync(fd);
@@ -59,38 +67,39 @@ export function createJournalScrub(db: Database, root: string, write: <T>(operat
             const corrupt=digest.digest("hex")!==name.slice(0,64);
             if(corrupt)corruptCopies.set(`${info.dev}:${info.ino}`,info.size);
             return {bytes:info.size,corrupt};
-          }finally{closeSync(fd);}
+          }catch(error){return failed(error);}finally{closeSync(fd);}
         };
         // Directory iteration and random identities cannot be rolled back.
         // Freeze both before any replayable accounting callback, and retain
         // uncommitted input across a failed run.
         if(!batch){
-          const names:{name:string;alternate:string}[]=[];listing??=opendirSync(root);
-          while(names.length<JOURNAL_SCRUB_FILES/2){
-            const entry=listing.readSync();if(!entry){listing.closeSync();listing=undefined;break;}
-            names.push({name:entry.name,alternate:`${entry.name}-${randomUUID()}`});
-          }
+          const listed=directory.next(JOURNAL_SCRUB_FILES/2);more=listed.more;
+          const names=listed.names.map(name=>({name,alternate:`${name}-${randomUUID()}`}));
           batch=Object.freeze(names);
         }
         const frozen=batch;
+        const observation:{current?:{unaccounted:number;unaccountedBytes:number;corruptCopies:Map<string,number>;readFailures:Map<string,ReadFailure>}}={};
         const reserve=(entries=frozen,includeRetries=true)=>write(()=>{
+          observation.current=undefined;
           if(busy())return null;
           const retry=(after:string)=>db.query("SELECT hash,bytes FROM turn_journal_scrub_quarantine WHERE state='reserved' AND hash>? ORDER BY hash LIMIT ?")
             .all(after,JOURNAL_SCRUB_FILES/2) as {hash:string;bytes:number}[];
           let rows=includeRetries?retry(retryAfter):[];if(includeRetries&&!rows.length&&retryAfter)rows=retry("");
           const nextRetry=rows.at(-1)?.hash??"",selected=entries.slice(0,JOURNAL_SCRUB_FILES-rows.length);
-          const corruptCopies=new Map<string,number>();let unaccounted=0,unaccountedBytes=0;
+          const corruptCopies=new Map<string,number>(),readFailures=new Map<string,ReadFailure>();let unaccounted=0,unaccountedBytes=0;
           for(const entry of selected){
             const hash=entry.name;if(!/^[a-f0-9]{64}$/.test(hash)||protectedHash(hash))continue;
             const prior=db.query("SELECT hash FROM turn_journal_scrub_quarantine WHERE substr(hash,1,64)=? AND state='reserved' ORDER BY rowid DESC LIMIT 1").get(hash) as {hash:string}|null;
-            if(prior&&SCRUB_NAME.test(prior.hash)){const destination=verify(target,prior.hash,corruptCopies);if(destination.bytes===null&&!destination.corrupt)continue;}
-            const candidate=verify(source,hash,corruptCopies);if(candidate.bytes===null)continue;
+            if(prior&&SCRUB_NAME.test(prior.hash)){const destination=verify(target,prior.hash,corruptCopies,readFailures);if(destination.bytes===null&&!destination.corrupt)continue;}
+            const candidate=verify(source,hash,corruptCopies,readFailures);if(candidate.bytes===null)continue;
             unaccounted++;unaccountedBytes+=candidate.bytes;if(candidate.corrupt)continue;
+            observation.current={unaccounted,unaccountedBytes,corruptCopies,readFailures};
             const name=db.query("SELECT 1 FROM turn_journal_scrub_quarantine WHERE hash=?").get(hash)?entry.alternate:hash;
             db.query("INSERT INTO turn_journal_scrub_quarantine VALUES (?,?,'reserved')").run(name,candidate.bytes);
             rows.push({hash:name,bytes:candidate.bytes});
           }
-          return {rows,nextRetry,consumed:selected.length,corruptCopies,unaccounted,unaccountedBytes};
+          observation.current={unaccounted,unaccountedBytes,corruptCopies,readFailures};
+          return {rows,nextRetry,consumed:selected.length,corruptCopies,readFailures,unaccounted,unaccountedBytes};
         });
         let reserved:ReturnType<typeof reserve>,capacityBlocked=0;
         try{reserved=reserve();}
@@ -104,7 +113,12 @@ export function createJournalScrub(db: Database, root: string, write: <T>(operat
               const part=reserve([entry],false);if(!part)return skip();
               reserved.rows.push(...part.rows);reserved.unaccounted+=part.unaccounted;reserved.unaccountedBytes+=part.unaccountedBytes;
               for(const [key,bytes]of part.corruptCopies)reserved.corruptCopies.set(key,bytes);
-            }catch(failure){if(!(failure instanceof JournalCapacityError))throw failure;capacityBlocked++;}
+              for(const [key,value]of part.readFailures)reserved.readFailures.set(key,value);
+            }catch(failure){
+              if(!(failure instanceof JournalCapacityError))throw failure;capacityBlocked++;
+              const observed=observation.current;
+              if(observed){reserved.unaccounted+=observed.unaccounted;reserved.unaccountedBytes+=observed.unaccountedBytes;for(const [key,bytes]of observed.corruptCopies)reserved.corruptCopies.set(key,bytes);for(const [key,value]of observed.readFailures)reserved.readFailures.set(key,value);}
+            }
             reserved.consumed++;
           }
         }
@@ -116,14 +130,14 @@ export function createJournalScrub(db: Database, root: string, write: <T>(operat
         // verified and reused, while all counters are local to that attempt.
         const moved=write(()=>{
           if(busy())return null;
-          const corruptCopies=new Map(reserved.corruptCopies);let count=0,bytes=0;
+          const corruptCopies=new Map(reserved.corruptCopies),readFailures=new Map(reserved.readFailures);let count=0,bytes=0;
           for(const row of reserved.rows){
             const state=db.query("SELECT state FROM turn_journal_scrub_quarantine WHERE hash=?").get(row.hash) as {state:string}|null;
             if(state?.state!=="reserved")continue;
-            const already=verify(target,row.hash,corruptCopies);if(already.corrupt)continue;
+            const already=verify(target,row.hash,corruptCopies,readFailures);if(already.corrupt)continue;
             if(already.bytes===null&&protectedHash(row.hash.slice(0,64))){db.query("DELETE FROM turn_journal_scrub_quarantine WHERE hash=? AND state='reserved'").run(row.hash);continue;}
             if(already.bytes===null){
-              const candidate=verify(source,row.hash.slice(0,64),corruptCopies);if(candidate.bytes===null||candidate.corrupt)continue;
+              const candidate=verify(source,row.hash.slice(0,64),corruptCopies,readFailures);if(candidate.bytes===null||candidate.corrupt)continue;
               if(candidate.bytes!==row.bytes){corruptCopies.set(`reservation:${row.hash}`,candidate.bytes);continue;}
               renameSync(at(source,row.hash.slice(0,64)),at(target,row.hash));
             }else if(already.bytes!==row.bytes){corruptCopies.set(`reservation:${row.hash}`,already.bytes);continue;}
@@ -132,18 +146,19 @@ export function createJournalScrub(db: Database, root: string, write: <T>(operat
             fsyncSync(target);fsyncSync(source);
             db.query("UPDATE turn_journal_scrub_quarantine SET state='quarantined' WHERE hash=?").run(row.hash);count++;bytes+=row.bytes;
           }
-          return {count,bytes,corruptCopies};
+          return {count,bytes,corruptCopies,readFailures};
         });
         if(!moved)return skip();
         result.listed=reserved.consumed;result.unaccounted=reserved.unaccounted;result.unaccountedBytes=reserved.unaccountedBytes;
         result.quarantined=moved.count;result.quarantinedBytes=moved.bytes;
         result.corrupt=moved.corruptCopies.size;result.corruptBytes=[...moved.corruptCopies.values()].reduce((sum,bytes)=>sum+bytes,0);
+        if(moved.readFailures.size)result.readFailures=[...moved.readFailures.values()];
         const pending=db.query("SELECT count(*) AS count,coalesce(sum(bytes),0) AS bytes FROM turn_journal_scrub_quarantine WHERE state='reserved'").get() as {count:number;bytes:number};
         result.pending=pending.count;result.pendingBytes=pending.bytes;
-        if(pending.count||listing||batch||capacityBlocked){result.state="partial";if(pending.count||capacityBlocked)result.reason="quarantine_pending";}
+        if(pending.count||more||batch||capacityBlocked||moved.readFailures.size){result.state="partial";if(pending.count||capacityBlocked||moved.readFailures.size)result.reason="quarantine_pending";}
         return result;
       }finally{closeSync(source);closeSync(target);}
     },
-    close(){listing?.closeSync();listing=undefined;batch=undefined;},
+    close(){directory.close();more=false;batch=undefined;},
   };
 }

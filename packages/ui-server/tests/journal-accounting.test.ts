@@ -281,3 +281,31 @@ for(const kind of ["copy","temporary"])test(`pending-file fsync failure in ${kin
   expect(ledger.recover(objects),"RECOVERY_SYNC_TRANSIENT_RESOLVES").toEqual({unresolvedRecords:0,firstCause:null});
  }finally{objects.close();db.close();rmSync(root,{recursive:true,force:true});}
 });
+
+test("recovery removes the dead producer's pending hardlink before validating the published inode",()=>{
+ const root=mkdtempSync(join(tmpdir(),"odysseus-recovery-hardlink-")),path=join(root,"ui.db"),db=createUiDb(path);
+ const modules=["../src/db/client.ts","../src/brain/journal-accounting.ts"].map(path=>new URL(path,import.meta.url).pathname);
+ const child=`
+ import {createUiDb} from ${JSON.stringify(modules[0])};import {createJournalAccounting} from ${JSON.stringify(modules[1])};
+ import {createHash} from "node:crypto";import {mkdirSync,writeFileSync,linkSync,openSync,fsyncSync,closeSync} from "node:fs";
+ const root=process.argv[1],db=createUiDb(root+"/ui.db"),ledger=createJournalAccounting(db,root+"/ui.db");
+ const bytes=Buffer.from("Ithaca"),hash=createHash("sha256").update(bytes).digest("hex"),held=ledger.reserve(bytes.length,hash);
+ mkdirSync(root+"/objects",{mode:0o700});const pending=root+"/objects/pending-"+held.id;
+ writeFileSync(pending,bytes);const fd=openSync(pending,"r");fsyncSync(fd);closeSync(fd);
+ linkSync(pending,root+"/objects/"+hash);
+ // This is the publication crash window: durable charge and two names for
+ // one valid inode, before the normal pending unlink and finish transaction.
+ process.kill(process.pid,"SIGKILL");`;
+ let objects:ReturnType<typeof createJournalObjects>|undefined;
+ try {
+  const killed=Bun.spawnSync([process.execPath,"--no-env-file","-e",child,root],{env:{PATH:"/usr/bin:/bin"},stdout:"pipe",stderr:"pipe"});
+  expect(killed.signalCode,killed.stderr.toString()).toBe("SIGKILL");
+  const row=db.query("SELECT id,hash FROM turn_journal_reservations").get() as {id:string;hash:string};
+  expect(statSync(join(root,"objects",row.hash)).nlink).toBe(2);
+  const ledger=createJournalAccounting(db,path);objects=createJournalObjects(join(root,"objects"),ledger);
+  expect(ledger.recover(objects),"RECOVERY_PENDING_ALIAS_RESOLVES").toEqual({unresolvedRecords:0,firstCause:null});
+  expect(statSync(join(root,"objects",row.hash)).nlink).toBe(1);
+  expect(db.query("SELECT count(*) AS n FROM turn_journal_reservations").get()).toEqual({n:0});
+  expect(objects.read(row.hash,6),"RECOVERY_HARDLINK_WINDOW_PRESERVES_BYTES").toEqual(Buffer.from("Ithaca"));
+ }finally{objects?.close();db.close();rmSync(root,{recursive:true,force:true});}
+});

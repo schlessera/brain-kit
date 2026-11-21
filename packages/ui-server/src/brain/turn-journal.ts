@@ -419,6 +419,9 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     if (active.size || holds) return maintaining ??= scrub().then(() => {}).catch(() => {}).finally(() => { maintaining = undefined; });
     return maintaining ??= serialize(async () => {
       if (closing) return;
+      // Retry unresolved dead-producer barriers while idle, not on admission.
+      // Refresh the authenticated status once the existing recovery path settles.
+      recoveryStatus=await call<JournalRecoveryStatus>("recover");
       await scrub().catch(() => {});
       if (active.size) return;
       await capture.initialize(shutdown.signal);
@@ -665,7 +668,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     /** Worktrees an active turn's journal observes. */
     worktrees(turnId: string): string[] { return [...worktrees].filter(([, root]) => root.turnId === turnId).map(([id]) => id); },
     isHeld(): boolean { return holds > 0; },
-    /** Unresolved object verification from the most recent boot recovery pass. */
+    /** Unresolved object verification from the most recent startup or idle recovery pass. */
     recoveryStatus(): JournalRecoveryStatus { return recoveryStatus; },
     /** Current retained charges, plus the durable historical cause even before any turn existed. */
     cleanupStatus() {
