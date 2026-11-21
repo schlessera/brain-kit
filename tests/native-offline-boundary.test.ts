@@ -568,6 +568,12 @@ test("all direct bind sources reject unowned sockets, including PATH, managed se
         }finally{foreign?.stop(true);if(plan){writeFileSync(plan.argv[plan.argv.indexOf("-o")+1],${JSON.stringify(`1 execve(${JSON.stringify(runtime)}, [], 0x1) = 0`)});plan.dispose();}}`, scratch);
       expect(result.code).not.toBe(0);
       expect(result.output).toContain('"reason":"fixture storage contains an unowned Unix socket or directory alias"');
+      const receipt=JSON.parse(result.output.split("\n").find(line=>line.startsWith('{"kind":"native-offline-boundary"'))!);
+      expect(receipt.mountEvidence.refusedSocket.relativePath).toBe("foreign.sock");
+      expect(receipt.mountEvidence.refusedSocket.device).toMatch(/^\d+$/);
+      expect(receipt.mountEvidence.refusedSocket.inode).toMatch(/^\d+$/);
+      expect(receipt.mountEvidence.ownedSockets.length).toBeGreaterThan(0);
+      expect(JSON.stringify(receipt.mountEvidence)).not.toContain(scratch);
     }
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 });

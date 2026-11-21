@@ -123,11 +123,11 @@ export function isNativeClaude(command: string, args: readonly unknown[] = [], o
   return false;
 }
 
-function refuse(reason: string): never {
+function refuse(reason: string, mountEvidence?: Record<string, unknown>): never {
   denied++;
   // Fixed classifications only: arguments, settings, credentials and addresses
   // never enter a denial receipt.
-  console.error(JSON.stringify({ kind: "native-offline-boundary", success: false, nativeLaunched: false, reason, head: nativeTestHead() }));
+  console.error(JSON.stringify({ kind: "native-offline-boundary", success: false, nativeLaunched: false, reason, head: nativeTestHead(), ...(mountEvidence ? { mountEvidence } : {}) }));
   throw new Error(`Offline native Claude refused before launch: ${reason}`);
 }
 
@@ -440,13 +440,13 @@ export function nativeScriptedQuery(query: typeof sdkQuery, origin: string): typ
 }
 
 const relayForwarding = new AsyncLocalStorage<Readonly<{ origin: string }>>();
-const ownedRelaySockets = new Map<string, { origin: string; dev: bigint; ino: bigint; isLive(): boolean }>();
+const ownedRelaySockets = new Map<string, { path: string; origin: string; dev: bigint; ino: bigint; isLive(): boolean }>();
 const socketIdentity = (stat: { dev: bigint; ino: bigint }) => `${stat.dev}:${stat.ino}`;
 
 const ownedHttpServers = new WeakMap<object, Readonly<{ origin: string }>>();
 function rememberRelay(path: string, origin: string, isLive: () => boolean = () => true): () => void {
   const stat = lstatSync(path, { bigint: true });
-  const key = socketIdentity(stat), authority = { origin, dev: stat.dev, ino: stat.ino, isLive };
+  const key = socketIdentity(stat), authority = { path, origin, dev: stat.dev, ino: stat.ino, isLive };
   ownedRelaySockets.set(key, authority);
   return () => { if (ownedRelaySockets.get(key) === authority) ownedRelaySockets.delete(key); };
 }
@@ -556,19 +556,29 @@ function assertNativeMountSockets(mounts: readonly string[], origin: string): vo
       i += 2;
     }
   }
+  const fixturePath = (path: string) => {
+    const root = roots.filter(root => (within(ROOT, root) || within(tmpdir(), root)) && within(root, path)).sort((a,b) => b.length-a.length)[0];
+    return root ? { mount: roots.indexOf(root), storage: within(ROOT, root) ? "workspace-fixture" : "temporary-fixture", relativePath: path.slice(root.length).replace(/^\//, "") || "." } : { storage: "outside-fixture" };
+  };
+  let refusedSocket: Record<string, unknown> | undefined;
+  let inspected = "", metadataError: string | undefined;
   const visited = new Set<string>();
   const visit = (path: string): boolean => {
+    inspected = path;
     let real: string;
     try { real = realpathSync(path); } catch (error) {
       // Only proven absence is harmless; permission and I/O uncertainty refuse.
-      return (error as NodeJS.ErrnoException).code === "ENOENT" && lstatSync(path).isSymbolicLink();
+      metadataError = (error as NodeJS.ErrnoException).code ?? "UNKNOWN";
+      return metadataError === "ENOENT" && lstatSync(path).isSymbolicLink();
     }
     // An absolute alias into unmounted storage is inaccessible in the child.
     if (!roots.some(root => within(root, real))) return true;
     const info = lstatSync(real, { bigint: true });
     if (info.isSocket()) {
       const peer = ownedSocketOrigin(real);
-      return Boolean(peer && normalizedOrigin(peer) === normalizedOrigin(origin));
+      const allowed = Boolean(peer && normalizedOrigin(peer) === normalizedOrigin(origin));
+      if (!allowed) refusedSocket = { ...fixturePath(real), device: String(info.dev), inode: String(info.ino) };
+      return allowed;
     }
     if (!info.isDirectory()) return true;
     const key = socketIdentity(info);
@@ -576,8 +586,11 @@ function assertNativeMountSockets(mounts: readonly string[], origin: string): vo
     visited.add(key);
     return readdirSync(real).every(name => visit(join(real, name)));
   };
-  try { if (roots.every(visit)) return; } catch { /* Unknown view refuses. */ }
-  refuse("fixture storage contains an unowned Unix socket or directory alias");
+  try { if (roots.every(visit)) return; } catch (error) { metadataError = (error as NodeJS.ErrnoException).code ?? "UNKNOWN"; }
+  refuse("fixture storage contains an unowned Unix socket or directory alias", {
+    refusedSocket: refusedSocket ?? { ...fixturePath(inspected), metadataError: metadataError ?? "UNKNOWN" },
+    ownedSockets: [...ownedRelaySockets.values()].map(socket => ({ ...fixturePath(socket.path), device: String(socket.dev), inode: String(socket.ino), live: socket.isLive() })),
+  });
 }
 
 function relaySubtreeOwned(directory: string, origin: string): boolean {
