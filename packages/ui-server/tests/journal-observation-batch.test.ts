@@ -48,7 +48,12 @@ for (const boundary of ["reserved", "first_published", "all_published", "finishe
     const published = boundary === "reserved" ? [] : boundary === "first_published" ? entries.slice(0,1) : entries;
     expect(published.map(entry => store.read(entry.hash, 100).toString()), "STARTUP_RECOVERS_ONLY_ACTUALLY_PUBLISHED_BYTES").toEqual(content.slice(0,published.length));
     expect(entries.map(entry => store.has(entry.hash)), "UNPUBLISHED_VERSION_IS_NEVER_FABRICATED_FROM_LIVE_BYTES").toEqual(entries.map(entry => published.includes(entry)));
-    expect(db.query("SELECT count(*) AS n FROM turn_journal_object_refs WHERE turn_id='voyage'").get(), "COPY_INTENT_DURABLY_PINS_BOTH_VERSIONS_BEFORE_COMPLETION_BATCH").toEqual({ n: 2 });
+    expect(db.query("SELECT count(*) AS n FROM turn_journal_object_quarantine").get(), "UNPUBLISHED_INTENTS_NEVER_QUARANTINE_HEALTHY_HASHES").toEqual({ n: 0 });
+    expect(db.query("SELECT count(*) AS n FROM turn_journal_object_refs WHERE turn_id='voyage'").get(), "RECOVERY_KEEPS_ONLY_PUBLISHED_COPY_INTENT_PINS").toEqual({ n: published.length });
+    if (boundary === "reserved") {
+      const retry = accounting.reserveBatch([{ ...entries[0]!, turnIds: ["voyage"] }]);
+      expect(typeof retry[0], "HEALTHY_HASH_CAN_BE_RESERVED_AFTER_UNPUBLISHED_CRASH").toBe("string");
+    }
     expect(journal.details("ithaca", "voyage")!.changes, "UNCOMMITTED_WINDOW_IS_NOT_REPORTED_AS_CAPTURED_HISTORY").toEqual([]);
     // Exercise the ordinary collector after production startup, rather than
     // merely reading objects before collection has a chance to remove them.
@@ -126,16 +131,16 @@ test("recovery removes the dead pending link before validating a published diges
 });
 
 
-test("cancelling an unpublished copy preserves its admitted owner pins and conservative charge", async () => {
+test("cancelling an unpublished copy releases only its intent pins and charge", async () => {
   const { setup } = await import("../src/brain/journal-store.js");
   const root = mkdtempSync(join(tmpdir(), "odysseus-pinned-cancel-")), db = createUiDb(":memory:"), ledger = createJournalAccounting(db, ":memory:"), store = setup(db, { dbPath: ":memory:", objectsRoot: join(root, "objects") });
   const hash = sha("Ithaca"), bytes = 6;
   try {
     ledger.write(() => db.query("INSERT INTO turn_journal_turns(turn_id,actor,profile,started_at,state) VALUES ('voyage','interactive','governed',0,'partial')").run());
     const [id] = ledger.reserveBatch([{ hash, bytes, turnIds: ["voyage"] }]);
-    expect(() => (store.cancelBatchReservation as (id: string) => void)(id!), "CANCELLED_INTENT_NEVER_DROPS_A_PINNED_OBJECT_ROW").not.toThrow();
-    expect(db.query("SELECT * FROM turn_journal_object_refs").all(), "CANCELLED_COPY_KEEPS_INTENT_OWNER_PIN").toEqual([{ turn_id: "voyage", hash }]);
-    expect(db.query("SELECT state,bytes FROM turn_journal_objects").get(), "CANCELLED_COPY_REMAINS_CONSERVATIVELY_CHARGED").toEqual({ state: "present", bytes });
+    expect(() => (store.cancelBatchReservation as (id: string) => void)(id!), "CANCELLED_INTENT_RECONCILES_PINS_AND_OBJECT_TOGETHER").not.toThrow();
+    expect(db.query("SELECT * FROM turn_journal_object_refs").all(), "CANCELLED_UNPUBLISHED_INTENT_PINS_ARE_RELEASED").toEqual([]);
+    expect(db.query("SELECT state,bytes FROM turn_journal_objects").get(), "CANCELLED_UNPUBLISHED_COPY_DOES_NOT_MASQUERADE_AS_PUBLISHED").toBeNull();
     expect(db.query("SELECT count(*) AS n FROM turn_journal_reservations").get()).toEqual({ n: 0 });
   } finally { await store.close?.(); db.close(); rmSync(root, { recursive: true, force: true }); }
 });
@@ -161,4 +166,19 @@ test("the real journal capture commits its actual owner pins before publication 
     writeFileSync(note, "Ithaca after"); await journal.observe();
     expect([...seen].sort(), "REAL_CAPTURE_RETAINS_BOTH_RAW_VERSIONS").toEqual([sha("Ithaca before"), sha("Ithaca after")].sort());
   } finally { await journal.close(); intercepted.mockRestore(); await writer.close(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test("cancelling a copy already published before completion keeps its bytes and owner pin", async () => {
+  const { setup } = await import("../src/brain/journal-store.js");
+  const root = mkdtempSync(join(tmpdir(), "odysseus-published-cancel-")), db = createUiDb(":memory:"), ledger = createJournalAccounting(db, ":memory:"), objectsRoot = join(root, "objects"), store = setup(db, { dbPath: ":memory:", objectsRoot });
+  const text = "Ithaca", hash = sha(text);
+  try {
+    ledger.write(() => db.query("INSERT INTO turn_journal_turns(turn_id,actor,profile,started_at,state) VALUES ('voyage','interactive','governed',0,'partial')").run());
+    const [id] = ledger.reserveBatch([{ hash, bytes: text.length, turnIds: ["voyage"] }]);
+    writeFileSync(join(objectsRoot, hash), text);
+    (store.cancelBatchReservation as (id: string) => void)(id!);
+    expect(db.query("SELECT * FROM turn_journal_object_refs").all(), "CANCELLING_PUBLISHED_COPY_NEVER_DROPS_ITS_OWNER").toEqual([{ turn_id: "voyage", hash }]);
+    expect(db.query("SELECT state,bytes FROM turn_journal_objects").get(), "CANCELLING_PUBLISHED_COPY_KEEPS_A_RETAINED_CHARGE").toEqual({ state: "present", bytes: text.length });
+    expect(db.query("SELECT count(*) AS n FROM turn_journal_reservations").get()).toEqual({ n: 0 });
+  } finally { await store.close?.(); db.close(); rmSync(root, { recursive: true, force: true }); }
 });

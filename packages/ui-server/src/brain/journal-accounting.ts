@@ -40,6 +40,7 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
   write<T>(operation: () => T): T;
   reserveBatch(entries: { bytes: number; hash: string; turnIds?: readonly string[] }[]): (string | null)[];
   finishBatch(entries: { id: string; hash: string; bytes: number; turnIds?: readonly string[] }[], turnIds: string[]): void;
+  cancelBatchReservation(id: string, objects: { has(hash: string): boolean }): void;
   usage(): number;
   /** Admitted, retryable schema upgrade; false leaves integrity-checked collection usable. */
   ensureObjectRefIndex(): boolean;
@@ -155,6 +156,27 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
       throw new JournalStorageUnavailable("another database writer repeatedly won checkpoint admission");
     } finally { db.exec(`PRAGMA cache_spill = ${spill}`); db.exec(`PRAGMA ${JOURNAL_SCHEMA}.synchronous = ${synchronous}`); }
   };
+  /** Inside one admitted transaction: absence plus pending state is only an intent. */
+  function discardUnpublishedIntent(id: string, hash: string): boolean {
+    const object = db.query("SELECT state FROM turn_journal_objects WHERE hash=?").get(hash) as { state: string } | null;
+    // A present row or committed version metadata proves earlier publication;
+    // its absent bytes must still quarantine, never become a clean intent.
+    const committed = object?.state === "present" || db.query(`SELECT 1 FROM (
+      SELECT json_extract(before_json,'$.hash') AS hash FROM turn_journal_changes UNION ALL SELECT json_extract(after_json,'$.hash') FROM turn_journal_changes
+      UNION ALL SELECT json_extract(before_json,'$.hash') FROM turn_journal_claude_memory UNION ALL SELECT json_extract(after_json,'$.hash') FROM turn_journal_claude_memory
+      UNION ALL SELECT json_extract(before_json,'$.hash') FROM turn_journal_revert_paths UNION ALL SELECT json_extract(after_json,'$.hash') FROM turn_journal_revert_paths
+      UNION ALL SELECT json_extract(file.value,'$.retained.hash') FROM turn_journal_storage_operations s, json_each(s.private_versions) file
+    ) WHERE hash=? LIMIT 1`).get(hash);
+    if (committed) return false;
+    db.query("DELETE FROM turn_journal_reservations WHERE id=?").run(id);
+    // Another copy may still own its intent pins. Only the last unpublished
+    // reservation releases those pins and the never-published object row.
+    if (!db.query("SELECT 1 FROM turn_journal_reservations WHERE hash=? LIMIT 1").get(hash)) {
+      db.query("DELETE FROM turn_journal_object_refs WHERE hash=?").run(hash);
+      db.query("DELETE FROM turn_journal_objects WHERE hash=? AND state='pending'").run(hash);
+    }
+    return true;
+  }
   const usage = (): number => {
     const measured = measure();
     // The standing charge keeps at least one commit of WAL headroom reserved.
@@ -298,8 +320,6 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
             ...(cause !== fresh ? { currentErrorClass: fresh.errorClass, currentError: fresh.message } : {}), ...(diagnosticError ? { diagnosticError } : {}) }) + "\n");
           continue;
         }
-        if (!published && db.query("SELECT 1 FROM turn_journal_object_refs WHERE hash=? LIMIT 1").get(row.hash))
-          corrupt = new Error("Retained interrupted object is absent");
         let quarantined = false;
         write(() => {
           // Verify liveness again under the database write lock; neither a live
@@ -307,6 +327,10 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
           const current = db.query("SELECT pid,pid_start FROM turn_journal_reservations WHERE id=?").get(row.id) as { pid: number; pid_start: string } | null;
           if (!current || processAlive(current.pid, current.pid_start)) return;
           objects.discardPending(row.id);
+          if (!published && !corrupt) {
+            if (discardUnpublishedIntent(row.id, row.hash)) return;
+            corrupt = new Error("Retained interrupted object is absent");
+          }
           if (corrupt) {
             const cause = { errorClass: corrupt instanceof Error ? corrupt.name : "Error", message: (corrupt instanceof Error ? corrupt.message : String(corrupt)).slice(0, 2000) };
             db.query("INSERT OR IGNORE INTO turn_journal_object_quarantine VALUES (?,?,?,?,?)").run(row.hash, Date.now(), cause.errorClass, cause.message, "journal-accounting.recover");
@@ -359,6 +383,16 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
           for (const turnId of entry.turnIds ?? turnIds) db.query("INSERT OR IGNORE INTO turn_journal_object_refs VALUES (?,?)").run(turnId, entry.hash);
           db.query("DELETE FROM turn_journal_reservations WHERE id=?").run(entry.id);
         }
+      });
+    },
+    cancelBatchReservation(id, objects) {
+      write(() => {
+        const row = db.query("SELECT hash FROM turn_journal_reservations WHERE id=? AND kind='copy'").get(id) as { hash: string } | null;
+        if (!row) throw new JournalStorageUnavailable("the batched content reservation is unknown");
+        if (!objects.has(row.hash) && discardUnpublishedIntent(id, row.hash)) return;
+        // A duplicate or already published copy keeps its owner pins/charge.
+        db.query("UPDATE turn_journal_objects SET state='present' WHERE hash=?").run(row.hash);
+        db.query("DELETE FROM turn_journal_reservations WHERE id=?").run(id);
       });
     },
     reserve(bytes, hash) {

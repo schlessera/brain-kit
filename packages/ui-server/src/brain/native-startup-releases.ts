@@ -8,36 +8,54 @@ export interface StartupReleaseResult {
   turnId: string; checkpointId: string; durationMs: number; attempt: number;
   outcome: "released" | "retry"; at: number; errorClass?: string; retrying?: boolean; cause?: string;
 }
+type ReleaseEntry = { turnId: string; view: WorkerStartupView; attempt: number; ordinary: boolean; slotOwned: boolean; work?: Promise<void>; error?: unknown };
 export function createNativeStartupReleases(report: (result: StartupReleaseResult) => unknown = () => {}, retryMs = 30_000) {
-  let owners = 0, qualifications = 0, completed = 0, closing = false;
+  let owners = 0, failedRunning = 0, qualifications = 0, completed = 0, closing = false;
   const waiters = new Set<() => void>();
   const attempts = new Set<Promise<void>>();
-  const pending = new Map<string, { turnId: string; view: WorkerStartupView; attempt: number; work?: Promise<void>; error?: unknown }>();
+  const pending = new Map<string, ReleaseEntry>();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const changed = () => { for (const wake of waiters) wake(); waiters.clear(); };
   function retryLater(): void {
     if (closing || timer || ![...pending.values()].some(entry => entry.error)) return;
-    timer = setTimeout(() => { timer = undefined; for (const [id, entry] of pending) if (entry.error) start(id, entry); }, retryMs);
+    timer = setTimeout(() => { timer = undefined; for (const [id, entry] of pending) if (entry.error) start(id, entry); retryLater(); }, retryMs);
     timer.unref?.();
   }
-  function start(key: string, entry: { turnId: string; view: WorkerStartupView; attempt: number; work?: Promise<void>; error?: unknown }): Promise<void> {
+  function failure(entry: ReleaseEntry, durationMs: number, error: unknown): Promise<void> {
+    const result: StartupReleaseResult = { at: Date.now(), errorClass: error instanceof Error ? error.name : "UnknownError", retrying: true, turnId: entry.turnId,
+      checkpointId: entry.view.root.split("/").at(-1)!, durationMs, attempt: entry.attempt, outcome: "retry", cause: String(error).slice(0, 2000) };
+    return Promise.resolve().then(async () => { try { await report(result); } catch { /* The owner retains the failed view. */ } });
+  }
+  function track(work: Promise<void>): void {
+    attempts.add(work); void work.finally(() => attempts.delete(work)).catch(() => {});
+  }
+  function start(key: string, entry: ReleaseEntry): Promise<void> {
     if (entry.work) return entry.work;
+    if (!entry.slotOwned) {
+      // Failed excluded consumers have their own bounded retry execution;
+      // two unrelated ordinary release owners cannot prevent their recovery.
+      if (failedRunning >= STARTUP_RELEASE_BACKLOG) return Promise.resolve();
+      failedRunning++; entry.slotOwned = true;
+    }
     const started = performance.now(); entry.attempt++; entry.error = undefined;
     entry.work = Promise.resolve().then(() => entry.view.cleanup()).then(async () => {
-      pending.delete(key); owners--; completed++; changed();
+      pending.delete(key); if (entry.ordinary) owners--; else failedRunning--; entry.slotOwned = false; completed++; changed();
       try { await report({ at: Date.now(), turnId: entry.turnId, checkpointId: entry.view.root.split("/").at(-1)!, durationMs: performance.now() - started, attempt: entry.attempt, outcome: "released" }); } catch { /* Diagnostics never own the release. */ }
     }, async error => {
       entry.error = error;
-      try { await report({ at: Date.now(), errorClass: error instanceof Error ? error.name : "UnknownError", retrying: true, turnId: entry.turnId, checkpointId: entry.view.root.split("/").at(-1)!, durationMs: performance.now() - started, attempt: entry.attempt, outcome: "retry", cause: String(error).slice(0, 2000) }); } catch { /* Keep the checkpoint for retry. */ }
+      // Excluded consumers already owned their view. A failed retry keeps
+      // that owner without consuming an ordinary admission release slot.
+      if (!entry.ordinary) { failedRunning--; entry.slotOwned = false; changed(); }
+      await failure(entry, performance.now() - started, error);
     }).finally(() => { entry.work = undefined; changed(); retryLater(); });
-    const work = entry.work; attempts.add(work);
-    void work.finally(() => attempts.delete(work)).catch(() => {});
+    const work = entry.work; track(work);
     return work;
   }
   async function drain(): Promise<void> {
     try {
       for (const [id, entry] of [...pending]) {
         if (pending.get(id) !== entry) continue;
+        while (!entry.slotOwned && failedRunning >= STARTUP_RELEASE_BACKLOG) await waitForChange();
         await (entry.work ?? start(id, entry));
         if (entry.error) throw entry.error;
       }
@@ -60,13 +78,20 @@ export function createNativeStartupReleases(report: (result: StartupReleaseResul
     return {
       handoff(turnId: string, view: WorkerStartupView) {
         if (!owned || pending.has(view.root)) throw new Error("Startup checkpoint already has a release owner");
-        const entry = { turnId, view, attempt: 0 }; pending.set(view.root, entry); owned = false;
+        const entry: ReleaseEntry = { turnId, view, attempt: 0, ordinary: true, slotOwned: true }; pending.set(view.root, entry); owned = false;
         void start(view.root, entry);
       },
       release() { if (owned) { owned = false; owners--; changed(); } },
     };
   }
   return {
+    /** A failed excluded cleanup transfers ownership immediately, without a slot wait. */
+    adoptFailed(turnId: string, view: WorkerStartupView, error: unknown, durationMs = 0): void {
+      if (pending.has(view.root)) return;
+      const entry: ReleaseEntry = { turnId, view, attempt: 1, ordinary: false, slotOwned: false, error };
+      pending.set(view.root, entry); track(failure(entry, durationMs, error));
+      changed(); retryLater();
+    },
     tryReserve,
     async qualify(signal?: AbortSignal) {
       while (qualifications >= STARTUP_QUALIFICATION_BACKLOG) await waitForChange(signal);

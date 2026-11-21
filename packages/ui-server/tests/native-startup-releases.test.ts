@@ -64,7 +64,7 @@ test("startup release failure is recorded and retried while reservation retains 
   } finally { await releases.close(); }
 });
 
-test("ten simultaneous admissions bound every pinned qualification and retried release", async () => {
+test("ten simultaneous healthy admissions bound every pinned qualification and ordinary release", async () => {
   const { createUiDb } = await import("../src/db/client.js"), { createWriterGate } = await import("../src/brain/writer-gate.js");
   const root = mkdtempSync(join(tmpdir(), "odysseus-ten-qualifications-")), brain = join(root, "brain"); mkdirSync(brain);
   const native = createNativeJournalFixture(brain, root), db = createUiDb(":memory:"), gate = createWriterGate(db, brain, { pollMs: 1 });
@@ -72,22 +72,20 @@ test("ten simultaneous admissions bound every pinned qualification and retried r
   const queue = createNativeStartupReleases(result => results.push(result), 1); setNativeStartupReleases(native.client, queue);
   let views = 0, maximum = 0, deleting = 0, maxDeleting = 0, created = 0, waits = 0;
   const reserveOriginal = queue.reserve.bind(queue), reserve = spyOn(queue, "reserve").mockImplementation((signal, disposal) => { if (++waits === 2) waiting.resolve(); return reserveOriginal(signal, disposal); });
-  const ids = new Map<string, number>(), attempts = new Map<string, number>();
   const witness = () => { maximum = Math.max(maximum, views); expect(views, "QUALIFICATION_PLUS_RELEASE_TOTAL_PIN_BOUND_AT_EVERY_TRANSITION").toBeLessThanOrEqual(STARTUP_RELEASE_BACKLOG + STARTUP_QUALIFICATION_BACKLOG); };
   const acquire = spyOn(startup, "prepareNativeWorkerStartupView").mockImplementation(async () => {
-    const cp = await native.client.checkpoint(crypto.randomUUID()); views++; ids.set(cp.path, ++created); witness();
+    const cp = await native.client.checkpoint(crypto.randomUUID()); views++; ++created; witness();
     if (created === STARTUP_RELEASE_BACKLOG + STARTUP_QUALIFICATION_BACKLOG) full.resolve();
     return { brain, root: cp.path, storage: { root: cp.path, retain() {}, release() {} }, async cleanup() {
-      const attempt = (attempts.get(cp.path) ?? 0) + 1; attempts.set(cp.path, attempt);
       deleting++; maxDeleting = Math.max(maxDeleting, deleting);
       expect(deleting, "EVERY_DELETION_USES_THE_TWO_RELEASE_OWNERS").toBeLessThanOrEqual(STARTUP_RELEASE_BACKLOG);
-      try { await deletion.promise; if (ids.get(cp.path) === 3 && attempt === 1) throw new Error("discarded qualification EIO"); await native.client.release(cp.id); views--; witness(); }
+      try { await deletion.promise; await native.client.release(cp.id); views--; witness(); }
       finally { deleting--; }
     } };
   });
   const managed = spyOn(startup, "assertManagedTurnStartupView").mockImplementation(() => {}), resolve = spyOn(sandbox, "prepareWorkerSandboxAsync").mockResolvedValue({ profile: "governed", areas: [], protection: { paths: [] } } as never);
   const turns = createGovernedTurns({ nativeManager: native.client, brainPath: brain, profile: "governed", maskPaths: [], async index() {}, report() {}, execution: {
-    gate() { return gate; }, boundary: { async prepare(_signal: AbortSignal, view: startup.WorkerStartupView) { if (ids.get(view.root) === 3) throw new Error("discard qualification"); return { available: true }; }, maintenance: {} }, manifests() { return { async begin() {}, async end() { return null; } }; },
+    gate() { return gate; }, boundary: { async prepare() { return { available: true }; }, maintenance: {} }, manifests() { return { async begin() {}, async end() { return null; } }; },
   } as never });
   const work = Array.from({ length: 10 }, (_, i) => turns.begin(`voyage-${i}`, new AbortController().signal).then(async hold => { await hold.end(); return { hold, error: null }; }, error => ({ hold: null, error: String(error) })));
   try {
@@ -99,8 +97,7 @@ test("ten simultaneous admissions bound every pinned qualification and retried r
     deletion.resolve(); const settled = await Promise.all(work);
     for (const row of settled) await row.hold?.end();
     await queue.drain();
-    expect(results.some(row => row.outcome === "retry" && row.cause?.includes("discarded qualification EIO")), "DISCARDED_QUALIFICATION_FAILURE_HAS_A_DURABLE_RETRY_OWNER").toBe(true);
-    expect(settled.filter(row => row.error).map(row => row.error)).toEqual(["Error: discard qualification"]);
+    expect(settled.map(row => row.error)).toEqual(Array(10).fill(null));
     expect(results.filter(row => row.outcome === "released")).toHaveLength(10);
     expect(views).toBe(0); expect(maximum).toBe(4); expect(maxDeleting).toBe(2);
     expect((await native.client.listRecovery()).records).toEqual([]);
@@ -202,7 +199,8 @@ for (const mode of ["strict", "masked"] as const) test(`${mode} admission retain
     expect(result.error, "RETAINED_VIEW_ADMISSION_IGNORES_RELEASE_BACKLOG").toBeNull();
     expect(reserve, "RETAINED_VIEW_ADMISSION_TAKES_NO_RELEASE_SLOT").not.toHaveBeenCalled();
     expect(result.hold?.dataTree).toBeDefined(); expect(queue.pending()).toBe(2);
-    reserve.mockRestore(); deletion.resolve(); await result.hold!.end();
+    await expect(result.hold!.end(), "RETAINED_CONSUMER_END_NEVER_RESERVES_A_RELEASE_SLOT").resolves.toBeNull();
+    expect(queue.pending()).toBe(2);
   } finally { deletion.resolve(); await turns.close(); reserve.mockRestore(); acquire.mockRestore(); managed.mockRestore(); resolve.mockRestore(); tree.mockRestore(); cache.mockRestore(); await native.close(); rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -261,7 +259,8 @@ for (const mode of ["empty_paths", "boundary_fallback"] as const) test(`resolved
     expect(reserve).not.toHaveBeenCalled();
     if (mode === "boundary_fallback") { expect(tryReserve, "FALLBACK_RETAINS_VIEW_WITHOUT_RELEASE_SLOT").not.toHaveBeenCalled(); expect(result.hold?.dataTree).toBeDefined(); }
     else expect(tryReserve, "UNMASKED_EMPTY_RULE_HANDS_OFF_VIEW").toHaveBeenCalledTimes(1);
-    reserve.mockRestore(); deletion.resolve(); await result.hold!.end();
+    await expect(result.hold!.end(), "RETAINED_CONSUMER_END_NEVER_RESERVES_A_RELEASE_SLOT").resolves.toBeNull();
+    if (mode !== "empty_paths") expect(queue.pending()).toBe(2);
   } finally { deletion.resolve(); await turns.close(); tryReserve.mockRestore(); reserve.mockRestore(); acquire.mockRestore(); managed.mockRestore(); resolve.mockRestore(); tree.mockRestore(); await native.close(); rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -299,4 +298,73 @@ test("three type-selector admissions finish peer plans before waiting outside th
     expect(recordedPolicies.sort(), "THROWAWAY_PROBE_DOES_NOT_RECORD_A_TURN_POLICY").toEqual(["voyage-0", "voyage-1", "voyage-2"]);
     for (const item of result) await item.hold!.end();
   } finally { clearTimeout(timer); prepared.resolve(); deletion.resolve(); abort.abort(); for (const item of await Promise.all(work)) await item.hold?.end(); await turns.close(); reserve.mockRestore(); acquire.mockRestore(); managed.mockRestore(); resolve.mockRestore(); translated.mockRestore(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+
+for (const mode of ["strict", "masked", "failed_admission"] as const) test(`excluded cleanup never waits for ordinary release slots and owns failed retries: ${mode}`, async () => {
+  const trees = await import("../src/brain/turn-data-tree.js"), caches = await import("../src/brain/private-index-cache.js");
+  const root = mkdtempSync(join(tmpdir(), "odysseus-excluded-cleanup-")), brain = join(root, "brain"); mkdirSync(brain);
+  if (mode === "masked") { mkdirSync(join(brain, "context/policies"), { recursive: true }); mkdirSync(join(brain, "me")); writeFileSync(join(brain, "context/policies/governance.md"), "---\nschema_version: 1\nproviders: [{ paths: [me/**], allow: [anthropic] }]\n---\n"); }
+  const native = createNativeJournalFixture(brain, root), normalDeletion = deferred(), retryEntered = deferred(), retryDeletion = deferred(), retryDone = deferred(), results: StartupReleaseResult[] = [];
+  const queue = createNativeStartupReleases(row => results.push(row), 1); setNativeStartupReleases(native.client, queue);
+  for (const id of ["earlier-one", "earlier-two"]) (await queue.reserve()).handoff(id, { root: id, cleanup: () => normalDeletion.promise } as startup.WorkerStartupView);
+  const reserve = spyOn(queue, "reserve").mockRejectedValue(new Error("excluded cleanup requested a release slot")); let attempts = 0;
+  const acquire = spyOn(startup, "prepareNativeWorkerStartupView").mockImplementation(async () => {
+    const cp = await native.client.checkpoint(crypto.randomUUID());
+    return { brain, root: cp.path, storage: { root: cp.path, retain() {}, release() {} }, async cleanup() { if (++attempts === 1) throw new Error("excluded view EIO"); retryEntered.resolve(); await retryDeletion.promise; await native.client.release(cp.id); retryDone.resolve(); } };
+  });
+  const managed = spyOn(startup, "assertManagedTurnStartupView").mockImplementation(() => {}), resolve = spyOn(sandbox, "prepareWorkerSandboxAsync").mockResolvedValue({ profile: mode === "strict" ? "strict" : "governed", areas: [], protection: { paths: [] } } as never);
+  const tree = spyOn(trees, "createTurnDataTree").mockResolvedValue({ async close() {} } as never), cache = spyOn(caches, "createPrivateIndexCache").mockReturnValue({ async prepare() { return { kind: "reused" }; }, async close() {}, async advance() {} } as never);
+  const turns = createGovernedTurns({ nativeManager: native.client, brainPath: brain, profile: mode === "strict" ? "strict" : "governed", maskPaths: [], async index() {}, report() {}, execution: {
+    boundary: { async prepare() { if (mode === "failed_admission") throw new Error("qualification refused"); return { available: true }; }, maintenance: {} },
+    gate() { return { async acquire() { return { release() {}, assertPeerFolderPlans() {} }; } }; }, manifests() { return { async begin() {}, async end() { return null; } }; },
+  } as never });
+  let hold: Awaited<ReturnType<typeof turns.begin>> | undefined, timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const end = mode === "failed_admission" ? turns.begin("voyage", new AbortController().signal).then(() => "unexpected admission", error => String(error))
+      : turns.begin("voyage", new AbortController().signal).then(async value => { hold = value; await value.end(); return "ended"; }).catch(error => String(error));
+    const outcome = await Promise.race([end, new Promise<string>(r => { timer = setTimeout(() => r("still waiting"), watchdogMs(5000)); })]); clearTimeout(timer);
+    expect(outcome, "EXCLUDED_END_SETTLES_WITH_UNRELATED_RELEASES_STILL_BLOCKED").toBe(mode === "failed_admission" ? "Error: qualification refused" : "ended");
+    expect(reserve, "EXCLUDED_END_DOES_NOT_RESERVE_A_RELEASE_SLOT").not.toHaveBeenCalled();
+    expect(queue.pending(), "FAILED_EXCLUDED_VIEW_HAS_AN_OWNER_WITHOUT_A_SLOT").toBe(3);
+    const retried = await Promise.race([retryEntered.promise.then(() => true), new Promise<boolean>(r => { timer = setTimeout(() => r(false), watchdogMs(5000)); })]); clearTimeout(timer);
+    expect(retried, "FAILED_EXCLUDED_VIEW_RETRIES_BEFORE_UNRELATED_RELEASES_COMPLETE").toBe(true);
+    retryDeletion.resolve(); await retryDone.promise; await new Promise<void>(r => setImmediate(r));
+    expect(queue.pending()).toBe(2);
+    expect(results.filter(row => row.turnId === "voyage").map(row => [row.outcome, row.attempt]), "EXCLUDED_RETRY_RECORDS_CAUSE_AND_SUCCESS").toEqual([["retry", 1], ["released", 2]]);
+    expect((await native.client.listRecovery()).records).toEqual([]);
+  } finally { clearTimeout(timer); normalDeletion.resolve(); retryDeletion.resolve(); await hold?.end(); await turns.close(); reserve.mockRestore(); acquire.mockRestore(); managed.mockRestore(); resolve.mockRestore(); tree.mockRestore(); cache.mockRestore(); await native.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+for (const mode of ["release_wait", "checkpoint_refresh"] as const) test(`reacquired peer folder plans cannot launch the old sandbox: ${mode}`, async () => {
+  const trees = await import("../src/brain/turn-data-tree.js");
+  const { createUiDb } = await import("../src/db/client.js"), { createWriterGate } = await import("../src/brain/writer-gate.js");
+  const root = mkdtempSync(join(tmpdir(), "odysseus-reacquired-plan-")), brain = join(root, "brain"); mkdirSync(brain);
+  const db = createUiDb(":memory:"), gate = createWriterGate(db, brain, { pollMs: 1 }), native = createNativeJournalFixture(brain, root), queue = createNativeStartupReleases(); setNativeStartupReleases(native.client, queue);
+  const first = deferred(), second = deferred(), waiting = deferred(); let peer: Awaited<ReturnType<typeof gate.acquire>> | undefined, checkpoints = 0, policies = 0;
+  if (mode === "release_wait") for (const [i, deletion] of [first, second].entries()) (await queue.reserve()).handoff(`earlier-${i}`, { root: `earlier-${i}`, cleanup: () => deletion.promise } as startup.WorkerStartupView);
+  const reserveOriginal = queue.reserve.bind(queue), reserve = spyOn(queue, "reserve").mockImplementation((signal, disposal) => { if (!disposal) waiting.resolve(); return reserveOriginal(signal, disposal); });
+  const addPeerPlan = async () => { peer = await gate.acquire("shared", "turn:athena", { turn: true }); await peer.retainFolders!(["peer-root"]); };
+  const acquire = spyOn(startup, "prepareNativeWorkerStartupView").mockImplementation(async () => {
+    const cp = await native.client.checkpoint(crypto.randomUUID()); checkpoints++;
+    return { brain, root: cp.path, storage: { root: cp.path, retain() {}, release() {} }, async cleanup() { await native.client.release(cp.id); if (mode === "checkpoint_refresh" && !peer) await addPeerPlan(); } };
+  });
+  const managed = spyOn(startup, "assertManagedTurnStartupView").mockImplementation(() => {});
+  const resolve = spyOn(sandbox, "prepareWorkerSandboxAsync").mockImplementation(async () => {
+    if (mode === "checkpoint_refresh") { mkdirSync(join(brain, ".brain/scratch"), { recursive: true }); return { profile: "strict", areas: [{ rel: ".brain/scratch", mount: { writable: true } }], protection: { paths: [] } } as never; }
+    return { profile: "governed", areas: [], protection: { paths: [] } } as never;
+  });
+  const tree = spyOn(trees, "createTurnDataTree").mockResolvedValue({ async close() {} } as never);
+  const turns = createGovernedTurns({ nativeManager: native.client, brainPath: brain, profile: mode === "checkpoint_refresh" ? "strict" : "governed", maskPaths: [], async index() {}, report() {}, recordPolicy() { policies++; }, execution: {
+    gate() { return gate; }, boundary: { async prepare() { return { available: true }; }, maintenance: {} }, manifests() { return { async begin() {}, async end() { return null; } }; },
+  } as never });
+  const admission = turns.begin("voyage", new AbortController().signal).then(hold => ({ hold, error: null }), error => ({ hold: null, error: String(error) }));
+  try {
+    if (mode === "release_wait") { await waiting.promise; await addPeerPlan(); first.resolve(); }
+    const result = await admission;
+    expect(result.error ?? "", "REACQUIRED_FOLDER_PLAN_REQUIRES_FRESH_ADMISSION").toContain("Writer folder plan changed");
+    expect(result.hold, "OLD_MOUNTS_ARE_NEVER_LAUNCHED_AGAINST_A_NEW_RECORDED_PLAN").toBeNull();
+    expect(policies).toBe(0); expect(checkpoints).toBe(1);
+    expect(db.query("SELECT count(*) AS n FROM writer_gate WHERE purpose='turn:voyage'").get()).toEqual({ n: 0 });
+  } finally { first.resolve(); second.resolve(); await peer?.release(); await admission.then(value => value.hold?.end()); await turns.close(); reserve.mockRestore(); acquire.mockRestore(); managed.mockRestore(); resolve.mockRestore(); tree.mockRestore(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
 });

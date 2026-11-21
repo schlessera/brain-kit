@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createUiDb } from "../src/db/client.js";
@@ -161,7 +161,7 @@ test("a killed private reader owner leaves a recoverable reservation without cla
   } finally { db.close(); rmSync(root, { recursive: true, force: true }); }
 });
 
-for (const absent of [false, true]) test(`a ${absent ? "missing" : "corrupt"} published interrupted object is quarantined without poisoning other history`, async () => {
+for (const ledgerState of ["present", "pending"] as const) for (const absent of [false, true]) test(`a ${absent ? "missing" : "corrupt"} published interrupted object is quarantined without poisoning other history: ${ledgerState}`, async () => {
   const root = mkdtempSync(join(tmpdir(), "journal-quarantine-odysseus-")), path = join(root, "ui.db");
   const db = createUiDb(path), ledger = createJournalAccounting(db, path), objects = createJournalObjects(join(root, "objects"), ledger);
   try {
@@ -172,14 +172,16 @@ for (const absent of [false, true]) test(`a ${absent ? "missing" : "corrupt"} pu
         db.query("INSERT INTO turn_journal_object_refs VALUES (?,?)").run(id, hash);
         db.query("INSERT INTO turn_journal_changes (turn_id,sequence,path,scope,before_json) VALUES (?,1,?,'brain',?)").run(id, `notes/${id}.md`, JSON.stringify({kind:"file",hash,bytes}));
       }
+      db.query("UPDATE turn_journal_objects SET state=? WHERE hash=?").run(ledgerState, bad);
       db.query("INSERT INTO turn_journal_reservations (id,bytes,pid,pid_start,created_at,hash) VALUES (?,8,?,'gone',0,?)").run(crypto.randomUUID(), process.pid, bad);
     });
     if (absent) rmSync(join(root,"objects",bad)); else writeFileSync(join(root, "objects", bad), "damaged!");
     expect(() => ledger.recover(objects), "JOURNAL_CORRUPT_OBJECT_DOES_NOT_REFUSE_BOOT").not.toThrow();
+    expect(db.query("SELECT hash FROM turn_journal_object_quarantine").all(), "PUBLISHED_ABSENT_OR_CORRUPT_BYTES_STILL_QUARANTINE").toEqual([{hash:bad}]);
     expect(db.query("SELECT * FROM turn_journal_reservations").all()).toEqual([]);
     expect(db.query("SELECT turn_id,state FROM turn_journal_turns ORDER BY turn_id").all()).toEqual([
       {turn_id:"athena",state:"complete"},{turn_id:"odysseus",state:"partial"},{turn_id:"penelope",state:"partial"}]);
-    expect(db.query("SELECT hash FROM turn_journal_object_quarantine").all()).toEqual([{hash:bad}]);
+
     expect(() => ledger.openRead(bad), "JOURNAL_QUARANTINE_DENIES_RESTORE").toThrow("quarantined");
     const lease = ledger.openRead(good);
     expect(objects.read(good, 6), "JOURNAL_UNRELATED_VERSION_RESTORES").toEqual(Buffer.from("Athena")); ledger.releaseRead(lease);
@@ -263,18 +265,26 @@ test("a damaged stored recovery cause is replaced by the current cause instead o
 });
 
 
-test("recovery releases a dead over-cap copy charge in the same admitted transaction", () => {
+test("recovery releases a dead over-cap copy charge and intent pins before boot", async () => {
   const root = mkdtempSync(join(tmpdir(), "odysseus-recovery-charge-")), path = join(root, "ui.db"), db = createUiDb(path);
   const original = createJournalAccounting(db, path), store = createJournalObjects(join(root, "objects"), original), hash = "a".repeat(64), bytes = 4 * 1024 * 1024;
+  const brain = join(root, "brain"); mkdirSync(brain);
+  const { createNativeJournalFixture } = await import("./helpers/native-journal-fixture.js"), { createTurnJournal } = await import("../src/brain/turn-journal.js");
+  const native = createNativeJournalFixture(brain, root); let journal: ReturnType<typeof createTurnJournal> | undefined;
   try {
-    original.reserveBatch([{ hash, bytes }]);
+    original.write(() => db.query("INSERT INTO turn_journal_turns(turn_id,actor,profile,started_at,state,pid,pid_start) VALUES ('voyage','interactive','governed',0,'recording',2147483647,'dead')").run());
+    original.reserveBatch([{ hash, bytes, turnIds: ["voyage"] }]);
     original.write(() => db.query("UPDATE turn_journal_reservations SET pid=2147483647,pid_start='dead'").run());
     const bounded = createJournalAccounting(db, path, { capBytes: original.usage() - bytes + 512 * 1024 });
     expect(() => bounded.write(() => {}), "DEAD_RESERVATION_ALONE_EXCEEDS_CURRENT_CAP").toThrow(JournalCapacityError);
+    journal = createTurnJournal(db, { brainPath: brain, dbPath: path, objectsRoot: join(root, "objects"), capBytes: original.usage() - bytes + 512 * 1024, nativeManager: native.manager });
+    await expect(journal.ready, "INTENT_ONLY_OVER_CAP_RESERVATION_CANNOT_BLOCK_BOOT").resolves.toBeUndefined();
     expect(bounded.recover(store), "DEAD_COPY_RECOVERY_RELEASES_CHARGE_ATOMICALLY").toEqual({ unresolvedRecords: 0, firstCause: null });
+    expect(db.query("SELECT count(*) AS n FROM turn_journal_object_refs").get(), "UNPUBLISHED_INTENT_PINS_ARE_RELEASED_ATOMICALLY").toEqual({ n: 0 });
+    expect(db.query("SELECT count(*) AS n FROM turn_journal_object_quarantine").get(), "UNPUBLISHED_OVER_CAP_INTENT_IS_NOT_CORRUPTION").toEqual({ n: 0 });
     expect(db.query("SELECT count(*) AS n FROM turn_journal_reservations").get(), "DEAD_COPY_CHARGE_REMOVED").toEqual({ n: 0 });
     expect(db.query("SELECT count(*) AS n FROM turn_journal_objects WHERE hash=?").get(hash)).toEqual({ n: 0 });
-  } finally { store.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
+  } finally { await journal?.close(); await native.close(); store.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
 });
 
 test("late admitted conflict guards protect a main connection that was already open", () => {

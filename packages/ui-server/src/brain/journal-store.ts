@@ -280,6 +280,11 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
             actor: actor === "user" ? "user" : metadata.actor, model: metadata.model, profile: metadata.profile, at, dedupeKey: `${turnId}:${sequence}`,
             payload: { path: item.path, sequence, beforeHash: item.before?.hash ?? null, afterHash: item.after?.hash ?? null, taintSourceEventId: source, overlappingTurnIds, ...(restricted ? { tainted: true } : {}) } });
           pin(turnId, item.before); pin(turnId, item.after);
+          // The owner's own first baseline marks rows produced by this
+          // relation-backed writer. Earlier legacy rows keep their stored
+          // conflict lists, including empty lists, when this turn continues.
+          db.query("INSERT OR IGNORE INTO turn_journal_path_peers (turn_id,path,peer_id,first_sequence,after_json) VALUES (?,?,?,?,?)")
+            .run(turnId, item.path, turnId, sequence, item.after ? JSON.stringify(item.after) : "null");
           // Solo writes need no history lookup. One peer baseline detects a
           // conflict; one per-path boundary serves all subsequent versions.
           for (const other of overlappingTurnIds) {
@@ -353,18 +358,7 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
     },
     reserveBatch(entries: { bytes: number; hash: string; turnIds?: readonly string[] }[]): (string | null)[] { return accounting.reserveBatch(entries); },
     finishBatch(entries: { id: string; hash: string; bytes: number; turnIds?: readonly string[] }[], turnIds: string[]): void { accounting.finishBatch(entries, turnIds); },
-    cancelBatchReservation(id: string): void {
-      accounting.write(() => {
-        const row = db.query("SELECT hash FROM turn_journal_reservations WHERE id=? AND kind='copy'").get(id) as { hash: string } | null;
-        if (!row) throw new JournalStorageUnavailable("the batched content reservation is unknown");
-        db.query("DELETE FROM turn_journal_reservations WHERE id=?").run(id);
-        // Intent pins already belong to the failing partial turn. Preserve
-        // those pins and a conservative byte charge until retry or expiry;
-        // cancelling an unpublished copy cannot violate their foreign key.
-        db.query("UPDATE turn_journal_objects SET state='present' WHERE hash=? AND EXISTS (SELECT 1 FROM turn_journal_object_refs WHERE hash=?)").run(row.hash, row.hash);
-        db.query("DELETE FROM turn_journal_objects WHERE hash=? AND state='pending' AND NOT EXISTS (SELECT 1 FROM turn_journal_reservations WHERE hash=?)").run(row.hash, row.hash);
-      });
-    },
+    cancelBatchReservation(id: string): void { accounting.cancelBatchReservation(id, objects); },
     reserve(bytes: number, hash: string): string {
       // This ledger commits on this connection: its reservation is synchronous.
       const reservation = accounting.reserve(bytes, hash) as JournalObjectReservation;

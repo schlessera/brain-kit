@@ -594,7 +594,7 @@ vocabulary, so a consumer tolerates names it does not know. A step that does
 not apply to a turn is absent. The current names are:
 
 - `governed`: `inference_origin` (the backend's relay origin, looked up before
-  admission), `gate_acquire`, `startup_release_reserve`, `startup_checkpoint`, `boundary_prepare`,
+  admission), `gate_acquire`, `gate_reacquire`, `gate_reacquire_refresh`, `startup_release_reserve`, `startup_checkpoint`, `boundary_prepare`,
   `type_translation`, `exposure_settle`, `folder_retention`, `sandbox_resolve`,
   `startup_checkpoint_refresh`, `sandbox_resolve_refresh`,
   `type_translation_refresh`, `peer_folder_plans`, `private_index`, `data_tree`,

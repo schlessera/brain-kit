@@ -225,12 +225,14 @@ test("a refused continuation leaves Stop available without waiting for a retry",
 });
 
 
-test("an older selected observation resolves the single compact path conflict relation", async () => {
+test("a selected legacy observation keeps its released per-row conflict relation", async () => {
   const refs = [1, 2, 3].map(sequence => ({ turnId: "voyage", sequence, side: "after" as const }));
-  const changes: TurnJournalChange[] = refs.map(ref => ({ sequence: ref.sequence, path: "notes/ithaca.md", scope: "", class: "content", actor: "agent", before: null, after: { kind: "file", bytes: 6, mode: 420, ignored: false, hash: "a".repeat(64) }, overlappingTurnIds: ref.sequence <= 2 ? ["peer"] : [], ...(ref.sequence === 3 ? { conflict: { versions: refs, latest: refs[2]! } } : {}) }));
+  const changes: TurnJournalChange[] = refs.map(ref => ({ sequence: ref.sequence, path: "notes/ithaca.md", scope: "", class: "content", actor: "agent", before: null, after: { kind: "file", bytes: 6, mode: 420, ignored: false, hash: "a".repeat(64) }, overlappingTurnIds: ref.sequence <= 2 ? ["peer"] : [], conflict: { versions: ref.sequence === 1 ? refs.slice(0, 2) : refs.slice(1), latest: refs[2]! } }));
   await mount(1280, "dark", changes);
   host.querySelector<HTMLElement>('[data-turn-journal] > div > [role="button"]')!.click();
   await expect.poll(() => host.querySelector('[data-journal-review="1"] [role="button"]')).not.toBeNull();
   host.querySelector<HTMLElement>('[data-journal-review="1"] [role="button"]')!.click();
-  await expect.poll(() => document.querySelector('[aria-label="Observed conflict versions"]')?.textContent, { message: "OLDER_REVIEW_RESOLVES_THE_ONCE_PER_PATH_CONFLICT_RELATION" }).toContain("Review observation 3");
+  await expect.poll(() => document.querySelector('[aria-label="Observed conflict versions"]')?.textContent).toContain("Review observation 2");
+  expect(document.querySelector('[aria-label="Observed conflict versions"]')?.textContent, "LEGACY_SELECTION_USES_ITS_STORED_PER_ROW_CONFLICT").toContain("Review observation 1");
+  expect(document.querySelector('[aria-label="Observed conflict versions"]')?.textContent, "LEGACY_SELECTION_DOES_NOT_BORROW_LATEST_ROW_CONFLICT").not.toContain("Review observation 3");
 });

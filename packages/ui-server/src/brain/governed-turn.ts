@@ -155,17 +155,19 @@ export function createGovernedTurns(options: {
     const discardPrivateIndex = () => { if (privateIndex) { const dir = privateIndex; privateIndex = undefined; removePrivateIndexDirectory(dir); } };
     let gateReleased = false;
     const releaseGate = async () => { if (!gateReleased) { gateReleased = true; await hold.release(); } };
-    const handoffView = async (view: WorkerStartupView) => {
-      // The qualifying admission/retaining consumer stays the owner until the
-      // bounded release owner accepts the view. Never delete it independently.
-      releaseSlot ??= await startupReleases.reserve(undefined, true);
-      releaseSlot.handoff(turnId, view); releaseSlot = undefined;
+    const disposeOwnedView = async (view: WorkerStartupView) => {
+      // Retained consumers and failed admissions are excluded from the
+      // ordinary release backlog. Try their own deletion without a slot.
+      const started = performance.now();
+      try { await view.cleanup(); }
+      catch (error) { startupReleases.adoptFailed(turnId, view, error, performance.now() - started); }
     };
     const release = async () => {
       await releaseGate();
+      releaseSlot?.release(); releaseSlot = undefined;
       try { await dataTree?.close(); } finally {
-        try { if (startupView) { await handoffView(startupView); startupView = undefined; } }
-        finally { try { if (indexView) { await handoffView(indexView); indexView = undefined; } } finally { discardPrivateIndex(); } }
+        try { if (startupView) { await disposeOwnedView(startupView); startupView = undefined; } }
+        finally { try { if (indexView) { await disposeOwnedView(indexView); indexView = undefined; } } finally { discardPrivateIndex(); } }
       }
     };
     // Marked before the checkpoint: its index may lack what is queued (#2848).
@@ -231,6 +233,12 @@ export function createGovernedTurns(options: {
         : lineages.every(always => always !== undefined) ? lineages.reduce<string[]>((kept, always) => maskedInBoth(kept, always!), maskedFolders) : undefined;
       const folderPaths = await step("folder_retention", async () => hold.retainFolders?.(retainedFolderRoots(policy.policy, typeFolderList)))
         ?? [...new Set([...(hold.folderPaths ?? []), ...retainedFolderRoots(policy.policy, typeFolderList)])];
+      const confirmReacquiredPlan = async () => {
+        const returned = await hold.retainFolders?.(folderPaths) ?? hold.folderPaths ?? folderPaths;
+        const canonical = (paths: readonly string[]) => JSON.stringify([...new Set(paths)].sort());
+        if (canonical(returned) !== canonical(folderPaths))
+          throw new Error("Writer folder plan changed while admission reacquired its gate; retry with a fresh admission.");
+      };
       // Retention needs the directory to exist; the host creates the index
       // and cache directories (never a provider folder) before the layout
       // is resolved. An alias or file under a name stays for the resolver
@@ -249,10 +257,10 @@ export function createGovernedTurns(options: {
       // the refreshed complete view. Two fixed area roots, no inventory walk.
       if (workerProfile(resolved) !== "governed" && missingWritableRoot()) {
         await releaseGate();
-        await handoffView(startupView); startupView = undefined;
+        await disposeOwnedView(startupView); startupView = undefined;
         hold = await step("gate_reacquire_refresh", () => gate.acquire("shared", `turn:${turnId}`, { signal, turn: true })); gateReleased = false;
         if (policyReader.load().hash !== policy.hash) throw new Error("Governance policy changed during admission; retry with its current policy.");
-        await hold.retainFolders?.(folderPaths);
+        await confirmReacquiredPlan();
         startupView = await step("startup_checkpoint_refresh", () => prepareNativeWorkerStartupView(options.brainPath, options.nativeManager, signal));
         signal.throwIfAborted(); resolved = await step("sandbox_resolve_refresh", resolveSandbox);
         const missing = missingWritableRoot();
@@ -334,7 +342,7 @@ export function createGovernedTurns(options: {
           releaseSlot = await step("startup_release_reserve", () => startupReleases.reserve(signal));
           hold = await step("gate_reacquire", () => gate.acquire("shared", `turn:${turnId}`, { signal, turn: true })); gateReleased = false;
           if (policyReader.load().hash !== policy.hash) throw new Error("Governance policy changed during admission; retry with its current policy.");
-          await hold.retainFolders?.(folderPaths);
+          await confirmReacquiredPlan();
           if (folderPaths.length) {
             if (hold.waitForPeerFolderPlans) await hold.waitForPeerFolderPlans(folderPaths, { signal, ...(options.peerFolderPlanWaitMs !== undefined ? { timeoutMs: options.peerFolderPlanWaitMs } : {}) });
             else await hold.assertPeerFolderPlans!(folderPaths);

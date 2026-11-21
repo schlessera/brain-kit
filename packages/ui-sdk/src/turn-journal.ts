@@ -95,11 +95,7 @@ export interface TurnJournalChange {
   /** Effective restriction at this observation; unknown coverage may have no source event. Historical attribution is unchanged. */
   tainted?: true;
   taintSourceEventId?: number;
-  /**
-   * At least two distinct retained after-versions observed in one shared window.
-   * Serialized once per path on its latest change. Resolve older observations
-   * through that relation; earlier change rows omit this optional field.
-   */
+  /** At least two distinct retained after-versions observed in one shared window. */
   conflict?: { versions: JournalObservationReference[]; latest: JournalObservationReference };
 }
 

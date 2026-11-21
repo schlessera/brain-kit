@@ -61,13 +61,13 @@ test("a conflicted path stores one relation as a thousand solo versions follow",
       if (n === 20) expect(db.query("SELECT sum(length(conflict_observations)) AS bytes FROM turn_journal_changes").get(), "SOLO_SUCCESSORS_DO_NOT_COPY_CONFLICT_LISTS").toEqual({ bytes: 2 * n });
     }
     expect(db.query("SELECT count(*) AS n FROM turn_journal_path_conflicts").get(), "CONFLICT_RELATION_STORED_ONCE").toEqual({ n: 1 });
-    expect(db.query("SELECT count(*) AS n FROM turn_journal_path_peers").get()).toEqual({ n: 1 });
+    expect(db.query("SELECT count(*) AS n FROM turn_journal_path_peers").get()).toEqual({ n: 2 });
     expect(db.query("SELECT sum(length(conflict_observations)) AS bytes FROM turn_journal_changes").get(), "SOLO_SUCCESSORS_DO_NOT_COPY_CONFLICT_LISTS").toEqual({ bytes: 2 * 1002 });
     const { exportInboxSnapshot } = await import("../src/inbox/snapshot.js"), { Database } = await import("bun:sqlite");
     const backup = await exportInboxSnapshot(db, root, 1000), image = Database.deserialize(Buffer.from(backup.database.data, "base64"));
     try {
       expect(image.query("SELECT * FROM turn_journal_path_conflicts").all(), "BACKUP_PRESERVES_SINGLE_CONFLICT_BOUNDARY").toEqual([{ turn_id: "voyage", path: "notes/ithaca.md", first_sequence: 1 }]);
-      expect(image.query("SELECT count(*) AS n FROM turn_journal_path_peers").get(), "BACKUP_PRESERVES_PEER_BASELINE").toEqual({ n: 1 });
+      expect(image.query("SELECT count(*) AS n FROM turn_journal_path_peers").get(), "BACKUP_PRESERVES_PEER_BASELINE_AND_NEW_ROW_ORIGIN").toEqual({ n: 2 });
     } finally { image.close(); }
     const { JOURNAL_CONFLICT_GUARDS } = await import("../src/db/journal-database.js");
     ledger.write(() => db.exec(`DROP TRIGGER journal.${JOURNAL_CONFLICT_GUARDS[0]!.name}`));
@@ -102,22 +102,40 @@ test("new conflict metadata cannot bypass physical journal admission on a full e
 });
 
 
-test("serialized conflict history grows linearly and keeps one relation per path", async () => {
+test("new relation-backed rows retain the released per-row conflict wire contract", async () => {
   const root = mkdtempSync(join(tmpdir(), "odysseus-conflict-wire-")), brain = join(root, "brain"); mkdirSync(brain);
   const db = createUiDb(":memory:"), native = createNativeJournalFixture(brain, root), objectsRoot = join(root, "objects");
   const journal = createTurnJournal(db, { brainPath: brain, dbPath: ":memory:", objectsRoot, nativeManager: native.manager });
   const store = setup(db, { dbPath: ":memory:", objectsRoot });
   try {
     await journal.begin("voyage", { sessionId: "ithaca", actor: "interactive", profile: "governed", model: null, policyHash: null }, () => {});
-    let firstBytes = 0;
     for (let n = 1; n <= 200; n++) {
       recordObservation(store, { turnId: "voyage", sequence: n - 1, at: n, userPolicy: false, changed: [{ path: "notes/ithaca.md", scope: "", before: null, after: { kind: "file", bytes: n, mode: 420, ignored: false } }], overlaps: n <= 2 ? ["voyage", "peer"] : ["voyage"], steeringPaths: [], worktree: [], steeringUnavailable: [], unreadable: [] });
-      if (n === 100) firstBytes = JSON.stringify(journal.details("ithaca", "voyage")).length;
     }
-    const details = journal.details("ithaca", "voyage")!, bytes = JSON.stringify(details).length;
-    expect(details.changes.filter(change => change.conflict).length, "CONFLICT_WIRE_RELATION_IS_SERIALIZED_ONCE_PER_PATH").toBe(1);
-    expect(details.changes.at(-1)?.conflict?.versions).toHaveLength(200);
-    expect(bytes, "DOUBLING_VERSION_HISTORY_DOES_NOT_QUADRUPLE_WIRE_BYTES").toBeLessThan(firstBytes * 2.3);
+    const details = JSON.parse(JSON.stringify(journal.details("ithaca", "voyage"))) as NonNullable<ReturnType<typeof journal.details>>;
+    expect(details.changes.map(change => change.conflict?.versions.length), "RELEASED_CLIENT_FINDS_CONFLICT_ON_EVERY_SELECTED_NEW_ROW").toEqual(Array(200).fill(200));
+    expect(db.query("SELECT count(*) AS n FROM turn_journal_path_conflicts").get(), "DURABLE_RELATION_STILL_STORED_ONCE_PER_PATH").toEqual({ n: 1 });
+    expect(db.query("SELECT DISTINCT conflict_observations FROM turn_journal_changes").all(), "PER_ROW_WIRE_RESTORATION_DOES_NOT_COPY_DURABLE_LISTS").toEqual([{ conflict_observations: "[]" }]);
     expect(details.changes.at(-1)?.conflict?.latest).toEqual({ turnId: "voyage", sequence: 200, side: "after" });
+  } finally { await journal.close(); await store.close?.(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+
+test("stored legacy conflict lists including empty rows survive a relation-backed continuation unchanged", async () => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-legacy-conflict-")), brain = join(root, "brain"); mkdirSync(brain);
+  const db = createUiDb(":memory:"), native = createNativeJournalFixture(brain, root), objectsRoot = join(root, "objects");
+  const journal = createTurnJournal(db, { brainPath: brain, dbPath: ":memory:", objectsRoot, nativeManager: native.manager });
+  const store = setup(db, { dbPath: ":memory:", objectsRoot });
+  const legacy = [{ turnId: "voyage", sequence: 2, side: "after" as const }, { turnId: "voyage", sequence: 1, side: "after" as const }];
+  try {
+    await journal.begin("voyage", { sessionId: "ithaca", actor: "interactive", profile: "governed", model: null, policyHash: null }, () => {});
+    await journal.writeOperation([journalStatement("INSERT INTO turn_journal_changes(turn_id,sequence,path,scope,conflict_observations) VALUES ('voyage',1,'notes/ithaca.md','',?)", JSON.stringify(legacy)), journalStatement("INSERT INTO turn_journal_changes(turn_id,sequence,path,scope) VALUES ('voyage',2,'notes/ithaca.md','')")]);
+    const stored = db.query("SELECT sequence,conflict_observations FROM turn_journal_changes ORDER BY sequence").all();
+    for (const n of [3, 4]) recordObservation(store, { turnId: "voyage", sequence: n - 1, at: n, userPolicy: false, changed: [{ path: "notes/ithaca.md", scope: "", before: null, after: { kind: "file", bytes: n, mode: 420, ignored: false } }], overlaps: ["voyage", "peer"], steeringPaths: [], worktree: [], steeringUnavailable: [], unreadable: [] });
+    const rows = JSON.parse(JSON.stringify(journal.details("ithaca", "voyage"))) as NonNullable<ReturnType<typeof journal.details>>;
+    expect(rows.changes[0]!.conflict?.versions, "PRE_UPGRADE_SELECTED_ROW_RETAINS_ITS_STORED_LIST_AND_ORDER").toEqual(legacy);
+    expect(rows.changes[1]!.conflict, "PRE_UPGRADE_EMPTY_LIST_STAYS_EMPTY_AFTER_NEW_RELATION").toBeUndefined();
+    expect(rows.changes.slice(2).map(row => row.conflict?.versions.map(ref => ref.sequence)), "NEW_ROWS_HAVE_THE_RELEASED_SELECTED_CONFLICT_FIELD").toEqual([[3, 4], [3, 4]]);
+    expect(db.query("SELECT sequence,conflict_observations FROM turn_journal_changes WHERE sequence<=2 ORDER BY sequence").all(), "SERVING_HISTORY_NEVER_REWRITES_LEGACY_ROWS").toEqual(stored);
   } finally { await journal.close(); await store.close?.(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
 });

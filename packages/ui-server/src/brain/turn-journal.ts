@@ -857,6 +857,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       const recorded = db.query("SELECT * FROM turn_journal_changes WHERE turn_id=? ORDER BY sequence,path").all(turnId) as ChangeRow[];
       const hasConflicts = db.query("SELECT 1 FROM journal.sqlite_schema WHERE type='table' AND name='turn_journal_path_conflicts'").get();
       const boundaries = new Map((hasConflicts ? db.query("SELECT path,first_sequence FROM turn_journal_path_conflicts WHERE turn_id=?").all(turnId) as {path:string;first_sequence:number}[] : []).map(item => [item.path,item.first_sequence]));
+      const newRowsFrom = new Map((hasConflicts ? db.query("SELECT path,first_sequence FROM turn_journal_path_peers WHERE turn_id=? AND peer_id=?").all(turnId, turnId) as {path:string;first_sequence:number}[] : []).map(item => [item.path,item.first_sequence]));
       const conflicts = new Map<string, JournalObservationReference[]>(), latest = new Map<string, number>();
       for (const item of recorded) {
         latest.set(item.path, item.sequence);
@@ -867,10 +868,11 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         }
       }
       const changes = recorded.map(item => {
-        const refs = latest.get(item.path) === item.sequence ? conflicts.get(item.path) ?? JSON.parse(item.conflict_observations) as JournalObservationReference[] : [];
+        const stored = JSON.parse(item.conflict_observations) as JournalObservationReference[];
+        const refs = item.sequence >= (newRowsFrom.get(item.path) ?? Infinity) && !stored.length ? conflicts.get(item.path) ?? stored : stored;
         return { sequence: item.sequence, path: item.path, scope: item.scope, class: item.class, actor: item.actor,
           before: presented(item.path, item.before_json), after: presented(item.path, item.after_json), overlappingTurnIds: JSON.parse(item.overlaps) as string[], ...(item.effective_taint === 1 || item.taint_source_event_id ? { tainted: true as const } : {}), ...(item.taint_source_event_id ? { taintSourceEventId: item.taint_source_event_id } : {}),
-          ...(refs.length && latest.get(item.path) === item.sequence && !journalMetadataOnlyPath(item.path) ? { conflict: { versions: refs,
+          ...(refs.length && !journalMetadataOnlyPath(item.path) ? { conflict: { versions: refs,
             latest: { turnId, sequence: latest.get(item.path)!, side:"after" as const } } } : {}) };
       });
       const failure = failures.get(turnId) ?? row.failure.trim();

@@ -28,7 +28,7 @@ that no pre-charge covers. The evidence is on the issue.
   `DB_PATH` names one journal.
   Every page in it is the journal's, so the measurement is the file's page
   count and the journal's own WAL, read without walking
-  (`function measure(`, `packages/ui-server/src/brain/journal-accounting.ts:77-91`).
+  (`function measure(`, `packages/ui-server/src/brain/journal-accounting.ts:78-92`).
   Other components' pages and WAL frames are no longer the journal's charge.
 - **The tables move on start.** Migrations up to `063` create journal tables
   in the UI database. Before any later migration, and again after the last,
