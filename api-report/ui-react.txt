@@ -1001,6 +1001,7 @@ signatures (every public export and the types it is made of)
         repositories: TrustRule[];
         capabilities: TrustCapabilities;
         mutationAllowed?: boolean;
+        instances?: Record<string, string>;
     }
   TurnNotice (packages/ui-react/src/stores/chat-state.ts)
     export interface TurnNotice {

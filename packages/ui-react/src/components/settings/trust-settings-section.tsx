@@ -7,169 +7,231 @@ import { ApiRequestError } from "../../lib/api-client.js";
 import { trustTarget, type TrustChange, type TrustOperation, type TrustRule, type TrustSettingsRead } from "../../lib/trust-settings.js";
 import { AgentPolicyGroup } from "./agent-policy-group.js";
 
-type Draft = { action: "create" | "edit" | "remove"; rule: TrustRule | null; kind: TrustRule["selector"]["kind"]; target: string; providerId: string; label: string; incoming: boolean; recipient: boolean; revision: string; hash: string | null };
-
-type Session = { draft: Draft | null; operation: TrustOperation | null; uncertain: boolean };
+type Draft = { focusField?: string; focused?: boolean; action: "create" | "edit" | "remove"; rule: TrustRule | null; instance: string | null; kind: TrustRule["selector"]["kind"]; target: string; providerId: string; label: string; incoming: boolean; recipient: boolean; revision: string; hash: string | null };
+type Edit = { phase: "draft" | "preparing"; draft: Draft; operation: null }
+  | { phase: "review" | "committing" | "uncertain" | "receipt-lost"; draft: Draft; operation: TrustOperation };
+type Session = { edit: Edit | null; unknownOutcomes: number };
 const sessions = new WeakMap<object, { epoch: number; store: StoreApi<Session> }>();
+const draftEdit = (draft: Draft): Edit => ({ phase: "draft", draft, operation: null });
 function sessionFor(root: object, epoch: number) {
   let session = sessions.get(root);
-  if (!session || session.epoch !== epoch) { session = { epoch, store: createStore<Session>(() => ({ draft: null, operation: null, uncertain: false })) }; sessions.set(root, session); }
+  if (!session || session.epoch !== epoch) { session = { epoch, store: createStore<Session>(() => ({ edit: null, unknownOutcomes: 0 })) }; sessions.set(root, session); }
   return session.store;
 }
+const instanceAt = (read: TrustSettingsRead, id: string) => typeof read.instances?.[id] === "string" ? read.instances[id]! : null;
+function selectionMatches(draft: Draft, read: TrustSettingsRead) {
+  if (!draft.rule) return true;
+  if (JSON.stringify(read.rules.find(rule => rule.id === draft.rule!.id)) !== JSON.stringify(draft.rule)) return false;
+  const instance = instanceAt(read, draft.rule.id);
+  return draft.instance !== null && instance !== null ? draft.instance === instance : draft.revision === read.revision;
+}
+function capabilitiesAllow(draft: Pick<Draft, "action" | "kind" | "incoming" | "recipient">, read: TrustSettingsRead) {
+  if (draft.action === "remove") return true;
+  const caps = read.capabilities;
+  if (draft.kind.startsWith("github_")) return caps.repositoryRules && caps.repositoryIdentity;
+  return (!draft.incoming || caps.originRules) && (!draft.recipient || caps.recipientRules);
+}
 
-/** Owner review uses the host's exact bytes. Lost commits are read, never replayed. */
+/** The transition table and its browser cases live in hit-reach.trust-settings.pointer.tsx. */
 export function TrustSettingsSection({ active }: { active: boolean }) {
   const root = useBrainUiRoot(), api = root.api;
-  const [read, setRead] = useState<TrustSettingsRead | null>(null);
+  const [readState, setReadState] = useState<{ root: object; epoch: number; value: TrustSettingsRead } | null>(null);
+  const read = readState?.root === root && readState.epoch === root.authLock.epoch() ? readState.value : null;
+  const setRead = useCallback((value: TrustSettingsRead | null) => setReadState(value ? { root, epoch: root.authLock.epoch(), value } : null), [root]);
+  const frameScope = useRef({ root, epoch: root.authLock.epoch() });
+  const currentFrame = frameScope.current.root === root && frameScope.current.epoch === root.authLock.epoch();
+  const [policyRefresh, setPolicyRefresh] = useState(0);
   const session = sessionFor(root, root.authLock.epoch());
-  const { draft, operation, uncertain } = useStore(session);
-  const setDraft = (value: SetStateAction<Draft | null>) => session.setState(state => ({ draft: typeof value === "function" ? value(state.draft) : value }));
-  const setOperation = (operation: TrustOperation | null) => session.setState({ operation });
-  const setUncertain = (uncertain: boolean) => session.setState({ uncertain });
-  const [error, setError] = useState("");
-  const [readError, setReadError] = useState("");
-  const [notice, setNotice] = useState("");
-  const [busy, setBusy] = useState(false);
-  const readRequest = useRef(0);
-  const generation = useRef(0), epoch = useRef(root.authLock.epoch()), controller = useRef(new AbortController());
+  const { edit, unknownOutcomes } = useStore(session);
+  const draft = edit?.draft ?? null, operation = edit?.operation ?? null;
+  const uncertain = edit?.phase === "uncertain" || edit?.phase === "receipt-lost";
+  const [checking, setChecking] = useState(false);
+  const busy = checking || edit?.phase === "preparing" || edit?.phase === "committing";
+  const setDraft = (value: SetStateAction<Draft | null>) => session.setState(state => {
+    const next = typeof value === "function" ? value(state.edit?.draft ?? null) : value;
+    return { edit: next ? state.edit ? { ...state.edit, draft: next } : draftEdit(next) : null };
+  });
+  const [error, setError] = useState(""), [readError, setReadError] = useState(""), [notice, setNotice] = useState("");
+  const readRequest = useRef(0), generation = useRef(0), epoch = useRef(root.authLock.epoch()), controller = useRef(new AbortController());
   const opener = useRef<HTMLElement | null>(null), heading = useRef<HTMLHeadingElement>(null), editor = useRef<HTMLDivElement>(null);
-  const focusEditor = useRef(false), restoreFocus = useRef(false), focusReview = useRef(false);
+  const focusEditor = useRef(draft?.focused ?? false), restoreFocus = useRef(false), focusReview = useRef(false);
   const current = useCallback((token: number) => token === generation.current && epoch.current === root.authLock.epoch() && !controller.current.signal.aborted, [root]);
   const ownerMessage = "Read-only: a live password or passkey owner login is required to manage trust.";
-  const invalidateReview = useCallback(() => {
-    generation.current++; session.setState({ operation: null, uncertain: false });
-    setBusy(false); setError(""); setNotice("");
+  const invalidatePrivate = useCallback((readDenied: boolean) => {
+    generation.current++; session.setState(state => ({
+      edit: readDenied || !state.edit ? null : draftEdit(state.edit.draft),
+      unknownOutcomes: readDenied ? 0 : state.unknownOutcomes + (state.edit && ["committing", "uncertain", "receipt-lost"].includes(state.edit.phase) ? 1 : 0),
+    }));
+    setChecking(false); setError(""); setNotice("");
   }, [session]);
   function ownerRefused(err: unknown) {
     if (!(err instanceof ApiRequestError) || ![401, 403].includes(err.status)) return false;
-    invalidateReview(); setRead(null); setReadError(ownerMessage); return true;
+    invalidatePrivate(true); setRead(null); setReadError(ownerMessage); return true;
   }
   const load = useCallback(async () => {
     const token = generation.current, request = ++readRequest.current;
     try {
       const next = await api.trustSettings(controller.current.signal);
       if (current(token) && request === readRequest.current) {
-        if (next.mutationAllowed !== true) {
-          // Drop owner-only bytes and fence every pending mutation continuation.
-          invalidateReview();
+        const pending = session.getState().edit;
+        if (next.mutationAllowed !== true) invalidatePrivate(false);
+        else if (pending && ["preparing", "review"].includes(pending.phase) && (pending.draft.revision !== next.revision || pending.draft.hash !== next.policyHash)) {
+          generation.current++; session.setState({ edit: draftEdit(pending.draft) }); setChecking(false);
+          setNotice("Policy changed. Refresh base and review again; your draft is kept.");
         }
-        setRead(next); setReadError(""); return next;
+        setRead(next); setReadError(""); setPolicyRefresh(request); return next;
       }
     } catch (err) {
       if (current(token) && request === readRequest.current) {
         setRead(null);
-        if (err instanceof ApiRequestError && [401, 403].includes(err.status)) { invalidateReview(); setReadError(ownerMessage); }
-        else { generation.current++; setBusy(false); setReadError("Trust settings unavailable. No configured rule is confirmed active."); }
+        if (err instanceof ApiRequestError && [401, 403].includes(err.status)) { invalidatePrivate(true); setReadError(ownerMessage); }
+        else {
+          generation.current++; setChecking(false);
+          session.setState(state => ({ edit: !state.edit ? null : state.edit.phase === "preparing" ? draftEdit(state.edit.draft)
+            : state.edit.phase === "committing" ? { ...state.edit, phase: "uncertain" } : state.edit }));
+          setReadError("Trust settings unavailable. No configured rule is confirmed active.");
+        }
       }
     }
     return null;
-  }, [api, current, invalidateReview]);
+  }, [api, current, invalidatePrivate, session, setRead]);
   useEffect(() => {
+    frameScope.current = { root, epoch: root.authLock.epoch() };
     generation.current++; epoch.current = root.authLock.epoch(); const lifetime = new AbortController(); controller.current = lifetime;
-    setRead(null); setError(""); setReadError(""); setNotice(""); setBusy(false);
+    setRead(null); setError(""); setReadError(""); setNotice(""); setChecking(false);
     if (!active) return () => lifetime.abort();
     void load();
     const refresh = () => { if (document.visibilityState === "visible") void load(); };
     const timer = setInterval(refresh, 30_000); window.addEventListener("focus", refresh);
     const stop = root.authLock.state.subscribe(state => {
-      if (state.phase !== "active") { generation.current++; lifetime.abort(); setRead(null); session.setState({ draft: null, operation: null, uncertain: false }); setError(""); setReadError(""); setNotice(""); setBusy(false); opener.current = null; }
+      if (state.phase !== "active") { lifetime.abort(); invalidatePrivate(true); setRead(null); setReadError(""); opener.current = null; }
     });
-    return () => { generation.current++; lifetime.abort(); clearInterval(timer); window.removeEventListener("focus", refresh); stop(); };
-  }, [active, root, load, session]);
+    return () => {
+      generation.current++; lifetime.abort(); clearInterval(timer); window.removeEventListener("focus", refresh); stop();
+      session.setState(state => ({ edit: !state.edit ? null : state.edit.phase === "preparing" ? draftEdit(state.edit.draft)
+        : state.edit.phase === "committing" ? { ...state.edit, phase: "uncertain" } : state.edit }));
+    };
+  }, [active, root, load, session, invalidatePrivate, setRead]);
   useLayoutEffect(() => {
     if (focusReview.current && operation) { focusReview.current = false; editor.current?.querySelector<HTMLElement>("[data-trust-review]")?.focus(); }
-    if (focusEditor.current && draft) { focusEditor.current = false; editor.current?.querySelector<HTMLElement>("input, [tabindex='-1']")?.focus(); }
+    if (focusEditor.current && draft && read) {
+      focusEditor.current = false;
+      const field = [...(editor.current?.querySelectorAll<HTMLElement>("[data-trust-focus]") ?? [])].find(node => node.dataset.trustFocus === draft.focusField && !node.matches(":disabled"));
+      (field ?? editor.current?.querySelector<HTMLElement>("[data-trust-review], h4"))?.focus();
+    }
     if (restoreFocus.current && !draft) { restoreFocus.current = false; (opener.current?.isConnected ? opener.current : heading.current)?.focus(); }
-  }, [draft, operation]);
-  function close() { setDraft(null); setOperation(null); setError(""); setUncertain(false); restoreFocus.current = true; }
+  }, [draft, operation, read]);
+  function rememberFocus(target: EventTarget | null, focused: boolean) {
+    const field = target instanceof HTMLElement ? target.closest<HTMLElement>("[data-trust-focus]")?.dataset.trustFocus : undefined;
+    session.setState(state => !state.edit || state.edit.draft.focused === focused && (!field || state.edit.draft.focusField === field) ? {} : {
+      edit: { ...state.edit, draft: { ...state.edit.draft, focused, focusField: field ?? state.edit.draft.focusField } },
+    });
+  }
+  function close() { session.setState({ edit: null }); setError(""); setChecking(false); restoreFocus.current = true; }
+  function leaveUnknown() {
+    const pending = session.getState().edit;
+    if (!pending?.operation || !["uncertain", "receipt-lost", "committing"].includes(pending.phase)) return;
+    generation.current++; setChecking(false); setRead(null);
+    session.setState(state => ({ edit: null, unknownOutcomes: state.unknownOutcomes + 1 }));
+    setError(""); setNotice(""); restoreFocus.current = true; void load();
+  }
   function start(action: Draft["action"], rule: TrustRule | null = null, repository = false) {
-    if (!read || busy) return;
+    if (!read || !canMutate || busy || edit) return;
     opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    setError(""); setNotice(""); setOperation(null); setUncertain(false); focusEditor.current = true;
-    setDraft({ action, rule, kind: rule?.selector.kind ?? (repository ? "github_repository" : "web_origin"), providerId: "", target: rule ? trustTarget(rule.selector).replace(" · opaque tunnel", "") : "", label: rule?.label ?? "", incoming: rule?.incomingContent ?? true, recipient: rule?.recipientWhileRestricted ?? false, revision: read.revision, hash: read.policyHash });
+    setError(""); setNotice(""); focusEditor.current = true;
+    session.setState({ edit: draftEdit({ action, rule, instance: rule ? instanceAt(read, rule.id) : null,
+      kind: rule?.selector.kind ?? (repository ? "github_repository" : "web_origin"), providerId: "", target: rule ? trustTarget(rule.selector).replace(" · opaque tunnel", "") : "",
+      label: rule?.label ?? "", incoming: rule?.incomingContent ?? true, recipient: rule?.recipientWhileRestricted ?? false, revision: read.revision, hash: read.policyHash }) });
   }
   async function prepare() {
-    if (!draft || !read || busy || !canMutate || selectedChanged) return;
-    let change: TrustChange;
+    const pending = session.getState().edit;
+    if (!pending || pending.phase !== "draft" || !read || busy || !canWrite || selectedChanged) return;
+    const value = pending.draft; let change: TrustChange;
     try {
-      if (draft.action === "remove") change = { action: "remove", ruleId: draft.rule!.id };
+      if (value.action === "remove") change = { action: "remove", ruleId: value.rule!.id };
       else {
-        const rule = TrustRuleSchema.parse({ id: draft.rule?.id ?? crypto.randomUUID(), label: draft.label,
-          selector: draft.rule?.selector ?? (() => {
-            if (draft.kind === "web_origin") return parseTrustOrigin(draft.target);
-            if (draft.kind === "tunnel_authority") return parseTrustTunnel(draft.target);
-            const names = parseTrustGithub(draft.target);
-            if (draft.kind === "github_repository") {
+        const rule = TrustRuleSchema.parse({ id: value.rule?.id ?? crypto.randomUUID(), label: value.label,
+          selector: value.rule?.selector ?? (() => {
+            if (value.kind === "web_origin") return parseTrustOrigin(value.target);
+            if (value.kind === "tunnel_authority") return parseTrustTunnel(value.target);
+            const names = parseTrustGithub(value.target);
+            if (value.kind === "github_repository") {
               if (!names.repository) throw new Error("Enter owner/repository for an exact repository rule.");
-              return { kind: draft.kind, host: names.host, owner: names.owner, repository: names.repository, repositoryId: draft.providerId };
+              return { kind: value.kind, host: names.host, owner: names.owner, repository: names.repository, repositoryId: value.providerId };
             }
             if (names.repository) throw new Error("Enter only the owner for an organization rule.");
-            return { kind: draft.kind, host: names.host, owner: names.owner, ownerId: draft.providerId };
-          })(), incomingContent: draft.incoming, recipientWhileRestricted: draft.recipient });
-        TrustedSourcesSchema.parse([...read.rules.filter(r => r.id !== rule.id), rule]);
-        change = { action: draft.action, rule };
+            return { kind: value.kind, host: names.host, owner: names.owner, ownerId: value.providerId };
+          })(), incomingContent: value.incoming, recipientWhileRestricted: value.recipient });
+        TrustedSourcesSchema.parse([...read.rules.filter(r => r.id !== rule.id), rule]); change = { action: value.action, rule };
       }
     } catch (err) { setError(err instanceof Error ? err.message.includes("Duplicate trust") ? "This canonical target already has a rule. Edit that rule instead." : err.message : "Check the fields."); return; }
-    const token = generation.current; setBusy(true); setError("");
-    try { const next = await api.trustPrepare(change, draft.revision, draft.hash, controller.current.signal); if (current(token)) { focusReview.current = true; setOperation(next); } }
-    catch (err) { if (current(token) && !ownerRefused(err)) { setError(`Nothing saved. ${err instanceof Error ? err.message : "Review failed"}. Refresh the base and review again; your draft is kept.`); } }
-    finally { if (current(token)) setBusy(false); }
+    const token = generation.current; session.setState({ edit: { phase: "preparing", draft: value, operation: null } }); setError("");
+    try {
+      const next = await api.trustPrepare(change, value.revision, value.hash, controller.current.signal);
+      if (current(token)) { focusReview.current = true; session.setState({ edit: { phase: "review", draft: value, operation: next } }); }
+    } catch (err) { if (current(token) && !ownerRefused(err)) { session.setState({ edit: draftEdit(value) }); setError(`Nothing saved. ${err instanceof Error ? err.message : "Review failed"}. Refresh the base and review again; your draft is kept.`); } }
   }
-  function expiredReview() {
-    setOperation(null); setUncertain(false);
+  function expiredReview(value: Draft) {
+    session.setState({ edit: draftEdit(value) }); setChecking(false);
     setError("Review expired. Nothing was published. Refresh base and review again; your draft is kept.");
   }
   async function settle(next: TrustOperation) {
-    setOperation(next);
+    const pending = session.getState().edit; if (!pending) return;
     const receipt = next.receipt;
-    if (receipt.stage === "prepared" && receipt.publication === "not_published" && next.review.expiresAt < Date.now()) { expiredReview(); return; }
-    if (receipt.stage === "prepared" || receipt.stage === "unknown" || receipt.stage === "file_published") { setUncertain(true); setNotice("Save is not confirmed. Check the same receipt; no automatic retry will publish again."); return; }
+    if (receipt.stage === "prepared" && receipt.publication === "not_published" && next.review.expiresAt < Date.now()) { expiredReview(pending.draft); return; }
+    if (["prepared", "unknown", "file_published"].includes(receipt.stage)) {
+      session.setState({ edit: { phase: "uncertain", draft: pending.draft, operation: next } });
+      setNotice("Save is not confirmed. Check its receipt or leave its outcome unknown; no automatic retry will publish again."); return;
+    }
     if (receipt.publication === "proved") {
       setNotice(`Publication proved. ${receipt.enforcement === "enforced" ? "Future admissions updated." : "Runtime enforcement unavailable."} Current rule: ${receipt.currentRule}. Historical events are unchanged.`);
-      await load(); close();
-    } else if (receipt.stage === "refused") { setOperation(null); setUncertain(false); setError(`Nothing saved: ${receipt.reason ?? "refused"}. Refresh the base and review again; your draft is kept.`);
-    } else { setUncertain(true); setError(`Change not confirmed: ${receipt.reason ?? receipt.stage}. Your draft is kept.`); }
+      close(); setRead(null); await load();
+    } else if (receipt.stage === "refused") { session.setState({ edit: draftEdit(pending.draft) }); setError(`Nothing saved: ${receipt.reason ?? "refused"}. Refresh the base and review again; your draft is kept.`); }
+    else { session.setState({ edit: { phase: "uncertain", draft: pending.draft, operation: next } }); setError(`Change not confirmed: ${receipt.reason ?? receipt.stage}. Your draft is kept.`); }
   }
   async function commit() {
-    if (!operation || busy || uncertain || !canMutate || selectedChanged) return;
-    if (operation.receipt.stage === "prepared" && operation.receipt.publication === "not_published" && operation.review.expiresAt < Date.now()) { expiredReview(); return; }
-    const token = generation.current; setBusy(true); setUncertain(true);
-    try { const next = await api.trustCommit(operation, controller.current.signal); if (current(token)) await settle(next); }
+    const pending = session.getState().edit;
+    if (!pending || pending.phase !== "review" || busy || !canWrite || selectedChanged) return;
+    if (pending.operation.receipt.stage === "prepared" && pending.operation.receipt.publication === "not_published" && pending.operation.review.expiresAt < Date.now()) { expiredReview(pending.draft); return; }
+    const token = generation.current; session.setState({ edit: { ...pending, phase: "committing" } });
+    try { const next = await api.trustCommit(pending.operation, controller.current.signal); if (current(token)) await settle(next); }
     catch (err) { if (current(token)) {
       if (ownerRefused(err)) return;
-      if (err instanceof ApiRequestError && err.message === "request_expired") expiredReview();
-      else { setUncertain(true); setError("Save outcome unknown. Check the receipt before making another change."); }
+      if (err instanceof ApiRequestError && err.message === "request_expired") expiredReview(pending.draft);
+      else { session.setState({ edit: { ...pending, phase: "uncertain" } }); setError("Save outcome unknown. Check the receipt or leave it unknown without replaying it."); }
     } }
-    finally { if (current(token)) setBusy(false); }
   }
   async function check() {
-    if (!operation || busy) return; const token = generation.current; setBusy(true);
-    try { const next = await api.trustReceipt(operation.receipt.requestId, controller.current.signal); if (current(token)) await settle(next); }
-    catch (err) { if (current(token) && !ownerRefused(err)) setError("Receipt unavailable. Save remains unconfirmed; your draft is kept."); }
-    finally { if (current(token)) setBusy(false); }
+    const pending = session.getState().edit;
+    if (!pending?.operation || busy) return; const token = generation.current; setChecking(true);
+    try { const next = await api.trustReceipt(pending.operation.receipt.requestId, controller.current.signal); if (current(token)) await settle(next); }
+    catch (err) { if (current(token) && !ownerRefused(err)) {
+      session.setState({ edit: { ...pending, operation: pending.operation, phase: err instanceof ApiRequestError && err.status === 404 ? "receipt-lost" : "uncertain" } });
+      setError("Receipt unavailable. Save outcome remains unknown. You can leave without replaying or confirming it.");
+    } }
+    finally { if (current(token)) setChecking(false); }
   }
   const canMutate = !!read && read.mutationAllowed === true && !read.error;
-  const conflict = "Trust rules changed. Your draft is kept; cancel and select the current rule before reviewing again.";
-  const selectedChanged = !!draft?.rule && !!read && (draft.revision !== read.revision || JSON.stringify(read.rules.find(rule => rule.id === draft.rule!.id)) !== JSON.stringify(draft.rule));
-  const message = readError || error || (selectedChanged ? conflict : "");
+  const canWrite = canMutate && !!draft && !!read && capabilitiesAllow(draft, read);
+  const conflict = "Selected rule changed or cannot be verified. Your draft is kept; cancel and select the current rule before reviewing again.";
+  const selectedChanged = !!draft && !!read && !selectionMatches(draft, read);
+  const capabilityError = canMutate && draft && !canWrite ? "Required enforcement capability is unavailable. Your draft is kept; review and Save are disabled." : "";
+  const message = currentFrame ? readError || error || (selectedChanged ? conflict : capabilityError) : "";
   async function refreshBase() {
-    if (busy) return;
-    const token = generation.current; setBusy(true);
+    if (busy) return; const token = generation.current; setChecking(true);
     try {
-      const next = await load(), value = session.getState().draft;
-      if (!current(token) || !next || next.mutationAllowed !== true || next.error || !value) return;
-      // A trust revision can hide remove/recreate even when the bytes match.
-      // Re-select explicitly instead of applying stale grant/removal intent.
-      if (value.rule && (value.revision !== next.revision || JSON.stringify(next.rules.find(rule => rule.id === value.rule!.id)) !== JSON.stringify(value.rule))) { setError(conflict); return; }
-      setDraft({ ...value, revision: next.revision, hash: next.policyHash }); setError("");
-    } finally { if (current(token)) setBusy(false); }
+      const next = await load(), pending = session.getState().edit;
+      if (!current(token) || !next || next.mutationAllowed !== true || next.error || !pending || pending.phase !== "draft") return;
+      if (!selectionMatches(pending.draft, next)) { setError(conflict); return; }
+      setDraft({ ...pending.draft, revision: next.revision, hash: next.policyHash, instance: pending.draft.rule ? instanceAt(next, pending.draft.rule.id) : null }); setError("");
+    } finally { if (current(token)) setChecking(false); }
   }
   if (!active) return null;
   return <section data-trust-settings className="my-5 min-w-0 space-y-4" style={{ overflowWrap: "anywhere" }}>
     <h3 ref={heading} tabIndex={-1} className="text-sm font-semibold">Source trust and data sending</h3>
     <p className="text-xs">Rules apply to future input only. Settings never marks historical events safe or clears a chat's restrictions.</p>
     {message && <div role="alert"><Callout tone="gold" variant="banner" text={message} /></div>}
-    <p role="status" className="text-xs">{notice}</p>
+    <p role="status" className="text-xs">{unknownOutcomes > 0 && `${unknownOutcomes === 1 ? "A previous save outcome remains unknown" : `${unknownOutcomes} save outcomes remain unknown`}. No operation was replayed. `}{currentFrame ? notice : ""}</p>
     {!read ? <p className="text-xs">No trust policy loaded.</p> : <>
       {!canMutate && <p className="text-xs">Read-only. {read.error ? "Policy invalid or unavailable; last-valid rules (or empty defaults if none) are shown. No new rule can be saved." : "Only a live password or passkey owner can change these rules."}</p>}
       <p className="text-xs">Trust revision {read.revision} · Policy {read.policyHash ?? "built-in empty defaults"}</p>
@@ -183,20 +245,22 @@ export function TrustSettingsSection({ active }: { active: boolean }) {
           <p className="text-sm font-medium">{rule.label}</p><p className="font-mono text-xs">{trustTarget(rule.selector)}</p>
           <p className="text-xs">Source trust: {rule.incomingContent ? "configured" : "off"} · Sending data while restricted: {rule.recipientWhileRestricted ? "configured" : "off"}</p>
           {rule.selector.kind === "tunnel_authority" && <p className="text-xs">Opaque connection scope; this is not verified HTTPS.</p>}
-          <div className="flex flex-wrap gap-4"><Button label="Edit" ariaLabel={`Edit ${trustTarget(rule.selector)}`} reach block={false} disabled={!canMutate || busy || !!draft || rule.selector.kind.startsWith("github_") && !read.capabilities.repositoryRules} onClick={() => start("edit", rule)} />
+          <div className="flex flex-wrap gap-4"><Button label="Edit" ariaLabel={`Edit ${trustTarget(rule.selector)}`} reach block={false} disabled={!canMutate || busy || !!draft || rule.selector.kind.startsWith("github_") && (!read.capabilities.repositoryRules || !read.capabilities.repositoryIdentity)} onClick={() => start("edit", rule)} />
             <Button label="Remove" ariaLabel={`Remove ${trustTarget(rule.selector)}`} reach block={false} disabled={!canMutate || busy || !!draft} onClick={() => start("remove", rule)} /></div>
         </div></Surface>)}
-        <Button label={title === "Trusted origins" ? "Add origin" : "Add repository or organization"} reach block={false} disabled={!canMutate || busy || !!draft || (title === "Trusted origins" ? !read.capabilities.originRules : !read.capabilities.repositoryRules)} onClick={() => start("create", null, title !== "Trusted origins")} />
+        <Button label={title === "Trusted origins" ? "Add origin" : "Add repository or organization"} reach block={false} disabled={!canMutate || busy || !!draft || (title === "Trusted origins" ? !read.capabilities.originRules : !read.capabilities.repositoryRules || !read.capabilities.repositoryIdentity)} onClick={() => start("create", null, title !== "Trusted origins")} />
       </div>)}
     </>}
-    {draft && <div ref={editor} className="space-y-4 rounded-lg border border-border p-3" aria-label="Trust rule editor">
+    {draft && <div ref={editor} className="space-y-4 rounded-lg border border-border p-3" aria-label="Trust rule editor" onFocusCapture={event => rememberFocus(event.target, true)} onBlurCapture={event => {
+      if (event.relatedTarget instanceof Node && !event.currentTarget.contains(event.relatedTarget)) rememberFocus(null, false);
+    }}>
       <h4 tabIndex={-1} className="text-sm font-semibold">{draft.action === "remove" ? "Review removal" : "Trust rule"}</h4>
       {draft.action === "remove" ? <p className="text-xs">Remove {trustTarget(draft.rule!.selector)}? This affects future input and data sending only. Historical events remain unchanged; already dispatched operations cannot be recalled.</p> : <>
-        <label className="block text-xs">Label<input className="mt-1 min-h-11 w-full rounded border border-border bg-surface p-2 text-sm" value={draft.label} disabled={busy || !!operation} onChange={e => setDraft({ ...draft, label: e.target.value })} /></label>
+        <label className="block text-xs">Label<input className="mt-1 min-h-11 w-full rounded border border-border bg-surface p-2 text-sm" data-trust-focus="label" value={draft.label} disabled={busy || !!operation} onChange={e => setDraft({ ...draft, label: e.target.value })} /></label>
         {draft.rule ? <p className="text-xs">Target: {trustTarget(draft.rule.selector)}. To change a target, remove it and add the new one.</p> : <>
-          <label className="block text-xs">Target type<select className="mt-1 min-h-11 w-full rounded border border-border bg-surface p-2 text-sm" value={draft.kind} disabled={busy || !!operation} onChange={e => setDraft({ ...draft, kind: e.target.value as Draft["kind"] })}>{draft.kind.startsWith("github_") ? <><option value="github_repository">Exact GitHub repository</option><option value="github_owner">GitHub owner / organization</option></> : <><option value="web_origin">HTTP(S) origin</option><option value="tunnel_authority">Opaque tunnel</option></>}</select></label>
-          <label className="block text-xs">{draft.kind === "web_origin" ? "Origin" : draft.kind === "tunnel_authority" ? "Tunnel host:port" : draft.kind === "github_repository" ? "GitHub owner/repository" : "GitHub owner"}<input className="mt-1 min-h-11 w-full rounded border border-border bg-surface p-2 text-sm" value={draft.target} disabled={busy || !!operation} onChange={e => setDraft({ ...draft, target: e.target.value })} /></label>
-          {draft.kind.startsWith("github_") && <label className="block text-xs">Stable provider ID (verified independently by the host)<input className="mt-1 min-h-11 w-full rounded border border-border bg-surface p-2 text-sm" value={draft.providerId} disabled={busy || !!operation} onChange={e => setDraft({ ...draft, providerId: e.target.value })} /></label>}
+          <label className="block text-xs">Target type<select className="mt-1 min-h-11 w-full rounded border border-border bg-surface p-2 text-sm" data-trust-focus="type" value={draft.kind} disabled={busy || !!operation} onChange={e => setDraft({ ...draft, kind: e.target.value as Draft["kind"] })}>{draft.kind.startsWith("github_") ? <><option value="github_repository">Exact GitHub repository</option><option value="github_owner">GitHub owner / organization</option></> : <><option value="web_origin">HTTP(S) origin</option><option value="tunnel_authority">Opaque tunnel</option></>}</select></label>
+          <label className="block text-xs">{draft.kind === "web_origin" ? "Origin" : draft.kind === "tunnel_authority" ? "Tunnel host:port" : draft.kind === "github_repository" ? "GitHub owner/repository" : "GitHub owner"}<input className="mt-1 min-h-11 w-full rounded border border-border bg-surface p-2 text-sm" data-trust-focus="target" value={draft.target} disabled={busy || !!operation} onChange={e => setDraft({ ...draft, target: e.target.value })} /></label>
+          {draft.kind.startsWith("github_") && <label className="block text-xs">Stable provider ID (verified independently by the host)<input className="mt-1 min-h-11 w-full rounded border border-border bg-surface p-2 text-sm" data-trust-focus="provider" value={draft.providerId} disabled={busy || !!operation} onChange={e => setDraft({ ...draft, providerId: e.target.value })} /></label>}
           {draft.kind === "github_owner" && <p className="text-xs">This broad scope includes present and future repositories currently owned by this namespace.</p>}
           {draft.kind === "tunnel_authority" && <p className="text-xs">Trust covers the whole opaque connection, not verified HTTPS content.</p>}
         </>}
@@ -206,10 +270,12 @@ export function TrustSettingsSection({ active }: { active: boolean }) {
       {operation && canMutate && <div className="space-y-3"><h4 data-trust-review tabIndex={-1} className="text-sm font-semibold">Review exact policy change</h4><p className="text-xs">Source trust and recipient permission are independent. Review both in these exact bytes before Save. This does not resolve historical events.</p><pre tabIndex={0} className="max-h-64 overflow-auto whitespace-pre-wrap break-all text-xs">{operation.review.diff}</pre></div>}
       <div className="flex flex-wrap gap-4">
         <Button label="Cancel" reach block={false} disabled={busy || uncertain} onClick={close} />
-        {!operation ? <><Button label="Review change" reach block={false} disabled={busy || !canMutate || selectedChanged} onClick={() => void prepare()} /><Button label="Refresh base" reach block={false} disabled={busy} onClick={() => void refreshBase()} /></>
-          : uncertain ? <Button label="Check save receipt" reach block={false} disabled={busy} onClick={() => void check()} /> : <Button label={draft.action === "remove" ? "Remove rule" : "Save rule"} reach block={false} disabled={busy || !canMutate || selectedChanged} onClick={() => void commit()} />}
+        {!operation ? <><Button label="Review change" reach block={false} disabled={busy || !canWrite || selectedChanged} onClick={() => void prepare()} /><Button label="Refresh base" reach block={false} disabled={busy} onClick={() => void refreshBase()} /></>
+          : uncertain ? <><Button label="Check save receipt" reach block={false} disabled={busy} onClick={() => void check()} /></> : <Button label={draft.action === "remove" ? "Remove rule" : "Save rule"} reach block={false} disabled={busy || !canWrite || selectedChanged} onClick={() => void commit()} />}
+        {(uncertain || edit?.phase === "committing") && <Button label="Leave as outcome unknown" reach block={false} onClick={leaveUnknown} />}
       </div>
+      {edit?.phase === "committing" && <p className="text-xs">Save is pending. It may still finish if you leave its outcome unknown.</p>}
     </div>}
-    <AgentPolicyGroup active={active} />
+    <AgentPolicyGroup active={active && read !== null} refreshKey={policyRefresh} />
   </section>;
 }

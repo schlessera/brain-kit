@@ -5642,9 +5642,17 @@ principal usability after the brain-lock wait: a revoked or expired caller gets
 no policy facts. Losing owner availability invalidates private review bytes and
 pending mutation replies; a failed list refresh disables writes until a fresh
 successful read. Expired, uncommitted prepared reviews can be discarded without
-republishing, while unknown publication remains uncertain. Edit/remove drafts
-cannot refresh onto a changed trust revision: the owner must explicitly select
-the current rule again, including after ID reuse. Missing runtime capabilities
+republishing, while unknown publication remains uncertain. The list's optional `instances` maps each rule ID to an observation-only source
+incarnation token captured with that policy. It grants no publication authority.
+An edit/remove draft can refresh across unrelated trust revisions only when its
+selected rule bytes and incarnation are unchanged. A changed/missing incarnation
+or selected rule requires explicit re-selection; older hosts without tokens keep
+the conservative same-revision requirement. A denied read clears every protected
+draft field. Missing retained receipts can be left as outcome unknown, without
+replay or a success claim. Required enforcement capabilities are rechecked for
+both Review and Save; removing a rule remains available when enforcement is
+unavailable. Enforcing policy facts refresh with list reads and after Save; old
+facts during refresh are labeled last-read, never current enforcing facts. Missing runtime capabilities
 never imply active trust; repository rows remain disabled/unverified while
 repository enforcement is unavailable. Settings edits are prospective and never
 commit historical safety verdicts. The SDK schemas entry point exposes the

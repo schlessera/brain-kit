@@ -7,7 +7,7 @@ export type TrustSelector =
 export interface TrustRule { id: string; label: string; selector: TrustSelector; incomingContent: boolean; recipientWhileRestricted: boolean }
 export interface TrustPolicy { revision: string; policyHash: string | null; error: string | null; rules: TrustRule[] }
 export interface TrustCapabilities { originRules: boolean; repositoryRules: boolean; recipientRules: boolean; repositoryIdentity: boolean; readOnlyReason: string | null }
-export interface TrustSettingsRead extends TrustPolicy { origins: TrustRule[]; repositories: TrustRule[]; capabilities: TrustCapabilities; mutationAllowed?: boolean }
+export interface TrustSettingsRead extends TrustPolicy { origins: TrustRule[]; repositories: TrustRule[]; capabilities: TrustCapabilities; mutationAllowed?: boolean; instances?: Record<string, string> }
 export type TrustChange = { action: "create" | "edit"; rule: TrustRule } | { action: "remove"; ruleId: string };
 export interface TrustOperation {
   receipt: { requestId: string; stage: "prepared" | "file_published" | "committed" | "partial" | "unknown" | "refused"; publication: "not_published" | "proved" | "unknown"; currentRule: "present" | "removed" | "changed" | "unknown"; enforcement: "enforced" | "unavailable"; reason: string | null };

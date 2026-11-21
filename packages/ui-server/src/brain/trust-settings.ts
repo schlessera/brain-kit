@@ -239,7 +239,12 @@ export function createTrustSettings(options: {
         return mutationAllowed;
       };
       access();
-      const p = await options.lock.withLock(BRAIN_LOCK_KEY, refresh);
+      const p = await options.lock.withLock(BRAIN_LOCK_KEY, async () => {
+        const snapshot = await refresh();
+        // Observation-only incarnation tokens, captured with the same policy.
+        // The internal stream-fence projection remains non-enumerable.
+        return { ...snapshot, instances: { ...(snapshot as LiveProjection).ruleInstances } };
+      });
       const mutationAllowed = access();
       return { ...p, mutationAllowed, origins: p.rules.filter(r => !r.selector.kind.startsWith("github_")), repositories: p.rules.filter(r => r.selector.kind.startsWith("github_")), capabilities }; },
     read,

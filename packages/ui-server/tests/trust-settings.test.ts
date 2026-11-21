@@ -652,3 +652,14 @@ for (const transition of ["revoke-owner", "revoke-agent", "expire-owner", "delet
   try { await pending; } catch (error) { refusal = (error as Error).message; }
   expect(refusal).toBe("unauthorized");
 });
+
+test("round2 F4 list exposes stable observation instances and retires reused IDs", async () => {
+  const f = await fixture(); await f.commit(await f.prepare());
+  const first = await f.settings.list("odysseus"); expect("instances" in first).toBe(true);
+  const birth = first.instances[rule.id]; expect(typeof birth).toBe("string");
+  await f.commit(await f.prepare({ action: "create", rule: { ...rule, id: "argo", selector: { ...rule.selector, host: "troy.example.org" } } }));
+  expect((await f.settings.list("odysseus")).instances[rule.id]).toBe(birth);
+  await f.commit(await f.prepare({ action: "remove", ruleId: rule.id }));
+  await f.commit(await f.prepare());
+  expect((await f.settings.list("odysseus")).instances[rule.id]).not.toBe(birth);
+});

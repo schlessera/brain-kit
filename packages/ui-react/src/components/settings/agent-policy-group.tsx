@@ -5,21 +5,28 @@ import { useBrainApi, useBrainUiRoot } from "../../root-context.js";
 import { rememberFileEntry } from "../../lib/file-entry-focus.js";
 
 /** Read-only facts: the host's admission reader and actual resource-limit report. */
-export function AgentPolicyGroup({ active }: { active: boolean }) {
+export function AgentPolicyGroup({ active, refreshKey = 0 }: { active: boolean; refreshKey?: number }) {
   const api = useBrainApi(), root = useBrainUiRoot();
-  const [facts, setFacts] = useState<AgentPolicyRead | null>(null), [error, setError] = useState("");
+  const [loaded, setLoaded] = useState<{ facts: AgentPolicyRead; refreshKey: number; root: object; epoch: number } | null>(null);
+  const [failure, setFailure] = useState<{ text: string; refreshKey: number } | null>(null);
+  const facts = loaded?.root === root && loaded.epoch === root.authLock.epoch() ? loaded.facts : null;
+  const currentFacts = !!facts && loaded?.refreshKey === refreshKey;
+  const error = failure?.refreshKey === refreshKey ? failure.text : "";
   const generation = useRef(0), owner = useRef(root.authLock.epoch());
   useEffect(() => {
     const token = ++generation.current, controller = new AbortController(); owner.current = root.authLock.epoch();
-    setFacts(null); setError("");
+    setFailure(null);
+    if (!active) setLoaded(null);
     if (active) void api.agentPolicy(controller.signal).then(result => {
-      if (token === generation.current && owner.current === root.authLock.epoch()) setFacts(result);
-    }, () => { if (!controller.signal.aborted && token === generation.current && owner.current === root.authLock.epoch()) setError("Could not read this brain's enforcing policy. Open Settings again to check."); });
-    const invalidate = () => { generation.current++; controller.abort(); }; return invalidate;
-  }, [api, active, root]);
+      if (token === generation.current && owner.current === root.authLock.epoch()) setLoaded({ facts: result, refreshKey, root, epoch: owner.current });
+    }, () => { if (!controller.signal.aborted && token === generation.current && owner.current === root.authLock.epoch()) setFailure({ text: "Could not read this brain's enforcing policy. Refresh Settings to check again.", refreshKey }); });
+    const stop = root.authLock.state.subscribe(state => { if (state.phase !== "active") { generation.current++; controller.abort(); setLoaded(null); setFailure(null); } });
+    const invalidate = () => { generation.current++; controller.abort(); stop(); }; return invalidate;
+  }, [api, active, root, refreshKey]);
   const warning = facts?.errors.length
     ? `The policy file does not validate: ${facts.errors.join("; ")}. ${facts.source === "last_valid" ? `Enforcing the last valid version ${facts.hash}.` : "No valid policy has been loaded; built-in defaults apply."}`
     : facts?.source === "default" ? "No policy file. Built-in defaults apply." : "";
+  if (!active) return null;
   return <section data-agent-policy className="my-5 min-w-0 space-y-2" style={{ overflowWrap: "anywhere" }}>
     <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Agent policy</h4>
     {error ? <Callout tone="gold" variant="banner" text={error} /> : !facts ? <Placeholder variant="loading" lines={3} /> : <>
@@ -33,7 +40,8 @@ export function AgentPolicyGroup({ active }: { active: boolean }) {
               const opener = document.activeElement; if (opener instanceof HTMLElement) rememberFileEntry(root, opener, opener.matches(":focus-visible"));
               root.stores.ui.getState().openPanel("files"); void root.stores.file.getState().openFile(facts.path);
             }} /></div>
-          <p className="font-mono text-xs">Enforcing version: {facts.hash ?? "built-in defaults"}</p>
+          <p className="font-mono text-xs">{currentFacts ? "Enforcing version" : "Last read version"}: {facts.hash ?? "built-in defaults"}</p>
+          {!currentFacts && <p role="status" className="text-xs">Refreshing enforcing policy…</p>}
           <p className="text-xs">Policy minimum — Interactive: {facts.profiles.interactive} · Voice: {facts.profiles.voice}</p>
           <div className="[&_[role=button]]:min-h-11"><Disclosure label="Enforcing limits and protected paths">
             <p className="text-xs">Only reported enforcing limits are shown.</p>
