@@ -4,11 +4,19 @@
  * above it never sees argv or gog's JSON, so one operation can move to direct
  * REST without changing anything there.
  *
- * Per call: strict input, the pin (verified once, its file identity
- * re-checked before every call), the account's concurrency limit (reads 4,
- * writes 1), one process under a timeout (reads 30 s, writes 60 s), one
- * retry of a read that gog called retryable, never a retry of a write, and
- * the codec.
+ * Per call: strict input, the pin (verified once, its identity re-checked
+ * before every call), the account's concurrency limit (reads 4, writes 1),
+ * one process under a timeout (reads 30 s, writes 60 s), one retry of a read
+ * that gog called retryable, never a retry of a write, and the codec.
+ *
+ * The pin is scoped to the one binary and recovers by itself. A changed
+ * identity refuses that call and verifies the file again on the next. A
+ * refusal stands while the file and its directory keep the identity it was
+ * about, so repairing a mode, owner or file is seen at once; a transient one
+ * (a probe that timed out, was killed or could not start, a file that moved
+ * while it was read) is verified again after {@link GOG_PIN_RETRY_MS}, and
+ * again after each further backoff, never given up. The reason is in every
+ * refusal the call returns.
  *
  * A `gmail.search` is the search and then one thread read per hit: gog's
  * search output carries only the first message's labels, by name, so the
@@ -147,13 +155,18 @@ export interface GogTransportInternals extends GogTransport {
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+/** How long a transient pin refusal stands before the next call verifies the binary again. */
+export const GOG_PIN_RETRY_MS = 30_000;
+
 /** Builds the transport. Never throws: a bad option makes every call answer `unavailable` with its reason. */
 export function createGogTransport(options: GogTransportOptions): GogTransport {
   return createGogTransportInternals(options);
 }
 
-/** Internal: the transport with its runner exposed, and the pin's parameters replaceable for tests. */
-export function createGogTransportInternals(options: GogTransportOptions & { pinParameters?: GogPinParameters }): GogTransportInternals {
+/** Internal: the transport with its runner exposed, and the pin's parameters and the backoff's clock replaceable for tests. */
+export function createGogTransportInternals(
+  options: GogTransportOptions & { pinParameters?: GogPinParameters; now?: () => number },
+): GogTransportInternals {
   const { binary, account } = options;
   const readMs = options.timeouts?.readMs ?? 30_000;
   const writeMs = options.timeouts?.writeMs ?? 60_000;
@@ -165,19 +178,22 @@ export function createGogTransportInternals(options: GogTransportOptions & { pin
         : null;
   const env: GogEnvironment | null = environment.ok ? environment.environment : null;
 
-  // The pin: verified once; a failure is kept until the file changes.
+  // The pin: verified once, then its identity re-checked before each call.
+  const now = options.now ?? (() => performance.now());
   let pin: Promise<GogPinResult> | null = null;
-  let failedIdentity: ReturnType<typeof gogBinaryIdentity> = null;
+  let retryAt = 0;
+  const refused = (reason: string) => ({ ok: false as const, error: gogError("transport_incompatible", reason) });
 
   async function pinned(): Promise<{ ok: true; path: string } | { ok: false; error: GoogleError }> {
     if (binary.kind === "fake") return { ok: true, path: binary.path };
-    if (pin) {
-      const result = await pin;
+    const held = pin;
+    if (held) {
+      const result = await held;
       if (!result.ok) {
-        const now = gogBinaryIdentity(result.path);
-        const unchanged = now === null ? failedIdentity === null : failedIdentity !== null && sameGogIdentity(now, failedIdentity);
-        if (unchanged) return { ok: false, error: gogError("transport_incompatible", result.reason) };
-        pin = null;
+        // A refusal stands while what it was about is unchanged, and a transient one until its backoff ends.
+        const unchanged = sameGogIdentity(gogBinaryIdentity(result.path), result.identity);
+        if (unchanged && !(result.transient && now() >= retryAt)) return refused(result.reason);
+        if (pin === held) pin = null;
       }
     }
     if (!pin) {
@@ -186,16 +202,15 @@ export function createGogTransportInternals(options: GogTransportOptions & { pin
         : verifyGogBinary(binary.path, { env: env! });
       pin = started;
       const result = await started;
-      if (!result.ok) failedIdentity = gogBinaryIdentity(result.path);
+      if (!result.ok && result.transient) retryAt = now() + GOG_PIN_RETRY_MS;
     }
-    const result = await pin;
-    if (!result.ok) return { ok: false, error: gogError("transport_incompatible", result.reason) };
-    // The file must still be the one that was hashed.
-    const now = gogBinaryIdentity(result.path);
-    if (!now || !sameGogIdentity(now, result.identity)) {
-      pin = null;
-      failedIdentity = null;
-      return { ok: false, error: gogError("transport_incompatible", "binary_changed") };
+    const current = pin!;
+    const result = await current;
+    if (!result.ok) return refused(result.reason);
+    // The file and its directory must still be what was verified.
+    if (!sameGogIdentity(gogBinaryIdentity(result.path), result.identity)) {
+      if (pin === current) pin = null;
+      return refused("binary_changed");
     }
     return { ok: true, path: result.path };
   }

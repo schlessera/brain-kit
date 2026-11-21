@@ -10,6 +10,14 @@ import type { GogProcessEnd } from "./errors.js";
 /** Operation answers are capped at 8 MiB (plan §8). */
 export const GOG_STDOUT_CAP = 8 * 1024 * 1024;
 
+/**
+ * The one exception: the pin's `gog schema --json`, which describes every
+ * gog command and is about 6.7 MB for v0.48.1, so 8 MiB would leave little
+ * room for the next release. No operation answer and no live shape-check read
+ * uses it.
+ */
+export const GOG_SCHEMA_STDOUT_CAP = 32 * 1024 * 1024;
+
 export interface GogProcessOptions {
   env: Readonly<Record<string, string>>;
   stdin: Uint8Array | null;

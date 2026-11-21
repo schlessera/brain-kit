@@ -4,14 +4,14 @@
  * every refusal is proven against a binary that otherwise passes.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, copyFileSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { chmodSync, chownSync, copyFileSync, readFileSync, renameSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { GOG_PINS, gogPlatform, verifyGogBinary } from "@schlessera/brain-common/internal/google-gog";
 import { gogInvocation } from "../src/google/gog/argv.ts";
 import { gogEnvironment } from "../src/google/gog/environment.ts";
 import { checkGogSchema, verifyGogBinaryWith, type GogPinParameters } from "../src/google/gog/pin.ts";
 import { GOG_SCHEMA_SNAPSHOT } from "../src/google/gog/snapshot.ts";
-import { createGogTransportInternals } from "../src/google/gog/transport.ts";
+import { createGogTransportInternals, GOG_PIN_RETRY_MS } from "../src/google/gog/transport.ts";
 import { createFakeGog, type FakeGog, type FakeGogScenario } from "./support/fake-gog.ts";
 import { schemaFromSnapshot } from "./support/gog-schema.ts";
 
@@ -155,6 +155,17 @@ describe("the schema check", () => {
     expect(checkGogSchema("not a schema", GOG_SCHEMA_SNAPSHOT, "0.48.1")).toBe("schema_unreadable");
   });
 
+  test("only the schema may pass the 8 MiB answer cap: every operation after it is still held to it", async () => {
+    // Whitespace after the document: still JSON, now over 8 MiB, as the real one (6.7 MB) may grow to be.
+    const schema = `${JSON.stringify(schemaFromSnapshot(GOG_SCHEMA_SNAPSHOT))}${" ".repeat(9 * 1024 * 1024)}`;
+    const { fake, parameters } = setup({ schema: { stdout: schema }, "gmail.labels.list": { stdout_bytes: 8 * 1024 * 1024 + 1 } });
+    const transport = createGogTransportInternals({
+      binary: { kind: "pinned", path: fake.executable }, account: "ithaca-pin", environment: fake.environment, pinParameters: parameters,
+    });
+    expect(await transport.availability()).toMatchObject({ ok: true, fake: false });
+    expect(await transport.execute("gmail.labels.list", {})).toMatchObject({ ok: false, error: { code: "transport_incompatible", reason: "output_too_large" } });
+  });
+
   test("a schema the binary cannot print is unreadable", async () => {
     const { verify } = setup({ schema: { stdout: "{ not json" } });
     expect(await verify()).toMatchObject({ ok: false, reason: "schema_unreadable" });
@@ -197,6 +208,110 @@ describe("the transport re-checks the binary's identity", () => {
     writeFileSync(fake.executable, pinnedBytes);
     expect(await transport.execute("gmail.labels.list", {})).toMatchObject({ ok: true });
     expect(await transport.availability()).toMatchObject({ ok: true, fake: false, pin: { version: "0.48.1" } });
+  });
+
+  // The backoff is a product timing (30 s), driven here on a controlled clock.
+  const pinnedTransport = (fake: FakeGog, parameters: GogPinParameters, now?: () => number) => createGogTransportInternals({
+    binary: { kind: "pinned", path: fake.executable }, account: "ithaca-pin", environment: fake.environment, pinParameters: parameters, now,
+  });
+  const refusedWith = (reason: string) => ({ ok: false as const, error: { code: "transport_incompatible" as const, reason, message: expect.any(String) } });
+
+  test("a same-size rewrite with its mtime restored is a changed binary: refused, then verified again", async () => {
+    const { fake, parameters } = setup({ "gmail.labels.list": { stdout: labels }, "gmail.batch.modify": { stdout: {} } });
+    // Whole-second times, so putting them back afterwards is exact.
+    const stamp = new Date("2026-07-12T08:00:00Z");
+    utimesSync(fake.executable, stamp, stamp);
+    const transport = pinnedTransport(fake, parameters);
+    expect((await transport.execute("gmail.labels.list", {})).ok).toBe(true);
+    // The same bytes written in place, and the mtime put back: only the ctime, which no user can set, moves.
+    const before = statSync(fake.executable, { bigint: true });
+    await Bun.sleep(20);
+    writeFileSync(fake.executable, readFileSync(fake.executable));
+    utimesSync(fake.executable, stamp, stamp);
+    const after = statSync(fake.executable, { bigint: true });
+    expect([after.ino, after.size, after.mtimeNs]).toEqual([before.ino, before.size, before.mtimeNs]);
+    expect(after.ctimeNs).not.toBe(before.ctimeNs);
+    expect(await transport.invoke("gmail.modify", modify)).toEqual(refusedWith("binary_changed"));
+    expect(fake.callsOf("gmail.batch.modify")).toEqual([]);
+    expect((await transport.invoke("gmail.modify", modify)).ok).toBe(true);
+    expect(fake.callsOf("schema")).toHaveLength(2);
+  });
+
+  test("a chmod or chgrp after verification is a changed binary, and a mode refusal clears when the mode is repaired", async () => {
+    const { fake, parameters } = setup({ "gmail.labels.list": { stdout: labels } });
+    const transport = pinnedTransport(fake, parameters);
+    expect((await transport.execute("gmail.labels.list", {})).ok).toBe(true);
+    chmodSync(fake.executable, 0o720);
+    expect(await transport.execute("gmail.labels.list", {})).toEqual(refusedWith("binary_changed"));
+    expect(await transport.execute("gmail.labels.list", {})).toEqual(refusedWith("binary_writable"));
+    expect(fake.callsOf("gmail.labels.list")).toHaveLength(1);
+    chmodSync(fake.executable, 0o700);
+    expect((await transport.execute("gmail.labels.list", {})).ok).toBe(true);
+    // Another group the host user is in: the file's group is part of what was verified.
+    const other = process.getgroups!().find(gid => gid !== statSync(fake.executable).gid);
+    if (other !== undefined) {
+      chownSync(fake.executable, process.getuid!(), other);
+      expect(await transport.execute("gmail.labels.list", {})).toEqual(refusedWith("binary_changed"));
+      expect((await transport.execute("gmail.labels.list", {})).ok).toBe(true);
+    }
+    expect(fake.callsOf("gmail.labels.list")).toHaveLength(other === undefined ? 2 : 3);
+  });
+
+  test("a directory made writable after verification is a change, and its refusal clears when the directory is repaired", async () => {
+    const { fake, parameters } = setup({ "gmail.labels.list": { stdout: labels } });
+    const transport = pinnedTransport(fake, parameters);
+    expect((await transport.execute("gmail.labels.list", {})).ok).toBe(true);
+    chmodSync(dirname(fake.executable), 0o770);
+    expect(await transport.execute("gmail.labels.list", {})).toEqual(refusedWith("binary_changed"));
+    expect(await transport.execute("gmail.labels.list", {})).toEqual(refusedWith("directory_writable"));
+    expect(fake.callsOf("gmail.labels.list")).toHaveLength(1);
+    chmodSync(dirname(fake.executable), 0o700);
+    expect((await transport.execute("gmail.labels.list", {})).ok).toBe(true);
+    expect(fake.callsOf("gmail.labels.list")).toHaveLength(2);
+  });
+
+  test("a binary or directory refused for its mode at first use recovers once the mode is repaired", async () => {
+    for (const target of ["binary", "directory"] as const) {
+      const { fake, parameters } = setup({ "gmail.labels.list": { stdout: labels } });
+      const path = target === "binary" ? fake.executable : dirname(fake.executable);
+      const transport = pinnedTransport(fake, parameters);
+      chmodSync(path, target === "binary" ? 0o720 : 0o770);
+      expect(await transport.execute("gmail.labels.list", {})).toEqual(refusedWith(`${target}_writable`));
+      expect(await transport.execute("gmail.labels.list", {})).toEqual(refusedWith(`${target}_writable`));
+      expect(fake.calls()).toEqual([]);
+      chmodSync(path, 0o700);
+      expect((await transport.execute("gmail.labels.list", {}))).toMatchObject({ ok: true });
+    }
+  });
+
+  test("a version probe that timed out or was killed is tried again after the backoff, and not before", async () => {
+    expect(GOG_PIN_RETRY_MS).toBe(30_000);
+    for (const [interrupted, reason] of [[{ delay_ms: 60_000 }, "probe_timeout"], [{ signal: "SIGKILL" }, "probe_signal"]] as const) {
+      const { fake, parameters } = setup({ version: [interrupted, VERSION], "gmail.labels.list": { stdout: labels } });
+      let clock = 1_000;
+      const transport = pinnedTransport(fake, { ...parameters, timeoutMs: 300 }, () => clock);
+      expect(await transport.execute("gmail.labels.list", {})).toMatchObject({ ok: false, error: { code: "transport_incompatible" } });
+      clock += GOG_PIN_RETRY_MS - 1;
+      expect(await transport.execute("gmail.labels.list", {})).toMatchObject({ ok: false, error: { code: "transport_incompatible" } });
+      expect(fake.callsOf("version")).toHaveLength(1);
+      clock += 1;
+      expect((await transport.execute("gmail.labels.list", {})).ok).toBe(true);
+      expect(fake.callsOf("version")).toHaveLength(2);
+      expect(fake.callsOf("gmail.labels.list")).toHaveLength(1);
+      // And the refusal named what happened to the probe.
+      const again = setup({ version: interrupted });
+      expect(await pinnedTransport(again.fake, { ...again.parameters, timeoutMs: 300 }).availability()).toMatchObject({ ok: false, error: { reason } });
+    }
+  });
+
+  test("a definitive refusal is not tried again on time alone", async () => {
+    const { fake, parameters } = setup({ version: { stdout: "v0.48.1 (deadbeef 2026-11-16T05:55:59Z)\n" } });
+    let clock = 1_000;
+    const transport = pinnedTransport(fake, parameters, () => clock);
+    expect(await transport.execute("gmail.labels.list", {})).toEqual(refusedWith("version_mismatch"));
+    clock += 10 * GOG_PIN_RETRY_MS;
+    expect(await transport.execute("gmail.labels.list", {})).toEqual(refusedWith("version_mismatch"));
+    expect(fake.callsOf("version")).toHaveLength(1);
   });
 
   test("a fake skips the pin: no version or schema call", async () => {

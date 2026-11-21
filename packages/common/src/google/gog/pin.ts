@@ -7,20 +7,43 @@
  * 2. the binary and its directory: absolute, a regular executable file,
  *    owned by root or the host user and writable by no one else;
  * 3. the sha256 of the bytes read from one open descriptor, against the pin
- *    list, with the file's identity unchanged while it was read;
+ *    list, with that descriptor's file the one step 2 checked and its
+ *    identity unchanged while it was read;
  * 4. `gog version`: exactly the pinned version and commit;
  * 5. `gog schema --json`: schema version, build, exit codes, and every
  *    command path, flag and positional of the snapshot, with its type.
  *
- * The identity (device, inode, size, mtime) the hash was taken over is what
- * the transport re-checks before each call. Every failure is
- * `transport_incompatible` with one of {@link GOG_PIN_REFUSALS} as its reason.
+ * The identity the checks and the hash were taken over is what the
+ * transport re-checks before each call: the file's device, inode, size,
+ * mtime, ctime, mode, owner and group, and its directory's device, inode,
+ * mode, owner and group. The ctime is the part no user can set: any write,
+ * rename, chmod or chown moves it, even one that puts the mtime back. A
+ * changed identity refuses that call and verifies the file again from step
+ * 2, so a mode or owner repaired after a refusal is seen by the next call.
+ *
+ * What it cannot close: the descriptor is closed after hashing, and every
+ * run (`version`, `schema` and each operation) executes the path. Between
+ * the last identity check and the exec, a process that can write the
+ * directory could swap the file and swap it back. Step 2 allows that only to
+ * root and the host user, who could equally replace the binary between two
+ * calls or change the host's own code; the swap also moves the ctime, so the
+ * next call sees it. Executing the hashed descriptor itself is not done:
+ * `Bun.spawn` takes a path, and a `/proc/self/fd` path exists on Linux only,
+ * not on the macOS platforms the pins cover.
+ *
+ * Every failure is `transport_incompatible` with one of
+ * {@link GOG_PIN_REFUSALS} as its reason, and the result says whether it is
+ * transient ({@link GOG_PIN_TRANSIENT_REFUSALS}): a probe that timed out, was
+ * killed or could not be spawned, or a file that changed while it was being
+ * verified, which the transport tries again after a backoff. Any other
+ * refusal stands until the file's identity changes.
  */
-import { closeSync, fstatSync, openSync, readSync, realpathSync, statSync, type Stats } from "node:fs";
+import { closeSync, fstatSync, openSync, readSync, realpathSync, statSync, type BigIntStats } from "node:fs";
 import { dirname } from "node:path";
 import { GOG_EXIT_CODES } from "./errors.js";
+import type { GogProcessEnd } from "./errors.js";
 import { GOG_PINS, gogPlatform, type GogPin, type GogPlatform } from "./pins.js";
-import { runGogProcess } from "./runner.js";
+import { GOG_SCHEMA_STDOUT_CAP, runGogProcess } from "./runner.js";
 import type { GogSchemaSnapshot } from "./commands.js";
 import { GOG_SCHEMA_SNAPSHOT } from "./snapshot.js";
 
@@ -28,21 +51,32 @@ export const GOG_PIN_REFUSALS = [
   "platform_not_pinned", "not_absolute", "binary_missing", "not_regular_file", "not_executable", "binary_owner",
   "binary_writable", "directory_owner", "directory_writable", "binary_changed", "hash_not_pinned", "version_failed",
   "version_not_pinned", "version_mismatch", "schema_unreadable", "schema_version", "schema_build", "exit_codes",
-  "missing_command", "missing_flag", "flag_type", "missing_positional",
+  "missing_command", "missing_flag", "flag_type", "missing_positional", "probe_timeout", "probe_signal", "probe_spawn_failed",
 ] as const;
 export type GogPinRefusal = typeof GOG_PIN_REFUSALS[number];
 
-/** What the transport re-checks before each call. */
+/** Refusals that say nothing lasting about the file: the transport verifies it again after a backoff. */
+export const GOG_PIN_TRANSIENT_REFUSALS: readonly GogPinRefusal[] = Object.freeze(["binary_changed", "probe_timeout", "probe_signal", "probe_spawn_failed"]);
+
+/** One file's identity, as `stat` reports it; nanosecond times and 64-bit numbers as decimal strings. */
+export interface GogFileIdentity {
+  dev: string;
+  ino: string;
+  mode: number;
+  uid: number;
+  gid: number;
+}
+
+/** What the transport re-checks before each call: the binary, and the directory that holds it. */
 export interface GogBinaryIdentity {
-  dev: number;
-  ino: number;
-  size: number;
-  mtimeMs: number;
+  file: GogFileIdentity & { size: string; mtimeNs: string; ctimeNs: string };
+  directory: GogFileIdentity;
 }
 
 export type GogPinResult =
   | { ok: true; path: string; version: string; commit: string; platform: GogPlatform; sha256: string; identity: GogBinaryIdentity }
-  | { ok: false; reason: GogPinRefusal; path: string };
+  /** `identity` is what the refusal was about, or null when it came before the file was read. */
+  | { ok: false; reason: GogPinRefusal; path: string; transient: boolean; identity: GogBinaryIdentity | null };
 
 export interface GogPinOptions {
   /** The environment gog runs `version` and `schema --json` with: the same allow-list as every call. */
@@ -67,15 +101,25 @@ const productionParameters = (): GogPinParameters => ({
   timeoutMs: 30_000,
 });
 
-const identityOf = (stats: Stats): GogBinaryIdentity => ({ dev: stats.dev, ino: stats.ino, size: stats.size, mtimeMs: stats.mtimeMs });
+const ownerOf = (stats: BigIntStats): GogFileIdentity => ({
+  dev: String(stats.dev), ino: String(stats.ino), mode: Number(stats.mode), uid: Number(stats.uid), gid: Number(stats.gid),
+});
+const fileOf = (stats: BigIntStats): GogBinaryIdentity["file"] => ({
+  ...ownerOf(stats), size: String(stats.size), mtimeNs: String(stats.mtimeNs), ctimeNs: String(stats.ctimeNs),
+});
 
-export const sameGogIdentity = (a: GogBinaryIdentity, b: GogBinaryIdentity): boolean =>
-  a.dev === b.dev && a.ino === b.ino && a.size === b.size && a.mtimeMs === b.mtimeMs;
+const sameOwner = (a: GogFileIdentity, b: GogFileIdentity) => a.dev === b.dev && a.ino === b.ino && a.mode === b.mode && a.uid === b.uid && a.gid === b.gid;
+const sameFile = (a: GogBinaryIdentity["file"], b: GogBinaryIdentity["file"]) =>
+  sameOwner(a, b) && a.size === b.size && a.mtimeNs === b.mtimeNs && a.ctimeNs === b.ctimeNs;
 
-/** The current identity of a file, or null when it cannot be read. */
+/** Whether two identities are the same file in the same directory state; two nulls (no file) are the same. */
+export const sameGogIdentity = (a: GogBinaryIdentity | null, b: GogBinaryIdentity | null): boolean =>
+  a === null || b === null ? a === b : sameFile(a.file, b.file) && sameOwner(a.directory, b.directory);
+
+/** The current identity of a file and its directory, or null when either cannot be read. */
 export function gogBinaryIdentity(path: string): GogBinaryIdentity | null {
   try {
-    return identityOf(statSync(path));
+    return { file: fileOf(statSync(path, { bigint: true })), directory: ownerOf(statSync(dirname(path), { bigint: true })) };
   } catch {
     return null;
   }
@@ -83,7 +127,20 @@ export function gogBinaryIdentity(path: string): GogBinaryIdentity | null {
 
 const WRITABLE_BY_OTHERS = 0o022;
 
-function hashOpen(path: string): { sha256: string; identity: GogBinaryIdentity } | "binary_missing" | "binary_changed" {
+/** Step 2 on one identity: what the file and its directory must be. */
+function checkPlace(identity: GogBinaryIdentity, uid: number): GogPinRefusal | null {
+  const { file, directory } = identity;
+  if ((file.mode & 0o170000) !== 0o100000) return "not_regular_file";
+  if ((file.mode & 0o111) === 0) return "not_executable";
+  if (file.uid !== 0 && file.uid !== uid) return "binary_owner";
+  if (file.mode & WRITABLE_BY_OTHERS) return "binary_writable";
+  if (directory.uid !== 0 && directory.uid !== uid) return "directory_owner";
+  if (directory.mode & WRITABLE_BY_OTHERS) return "directory_writable";
+  return null;
+}
+
+/** The sha256 of the file `identity` describes, read through one descriptor; `binary_changed` if it is not that file or moved while read. */
+function hashOpen(path: string, identity: GogBinaryIdentity): { sha256: string } | "binary_missing" | "binary_changed" {
   let fd: number;
   try {
     fd = openSync(path, "r");
@@ -91,7 +148,8 @@ function hashOpen(path: string): { sha256: string; identity: GogBinaryIdentity }
     return "binary_missing";
   }
   try {
-    const before = identityOf(fstatSync(fd));
+    const before = fileOf(fstatSync(fd, { bigint: true }));
+    if (!sameFile(before, identity.file)) return "binary_changed";
     const hasher = new Bun.CryptoHasher("sha256");
     const buffer = new Uint8Array(1024 * 1024);
     let read = 0;
@@ -101,11 +159,21 @@ function hashOpen(path: string): { sha256: string; identity: GogBinaryIdentity }
       hasher.update(buffer.subarray(0, count));
       read += count;
     }
-    const after = identityOf(fstatSync(fd));
-    if (read !== before.size || !sameGogIdentity(before, after)) return "binary_changed";
-    return { sha256: hasher.digest("hex"), identity: before };
+    const after = fileOf(fstatSync(fd, { bigint: true }));
+    if (String(read) !== before.size || !sameFile(before, after)) return "binary_changed";
+    return { sha256: hasher.digest("hex") };
   } finally {
     closeSync(fd);
+  }
+}
+
+/** A probe that did not run to an exit says nothing lasting about the binary. */
+function interrupted(end: GogProcessEnd): GogPinRefusal | null {
+  switch (end.kind) {
+    case "timeout": return "probe_timeout";
+    case "signal": return "probe_signal";
+    case "spawn_failed": return "probe_spawn_failed";
+    default: return null;
   }
 }
 
@@ -171,31 +239,11 @@ export function checkGogSchema(schema: unknown, snapshot: GogSchemaSnapshot, ver
   return null;
 }
 
-function checkPlace(path: string, uid: number): GogPinRefusal | null {
-  let stats: Stats;
-  try {
-    stats = statSync(path);
-  } catch {
-    return "binary_missing";
-  }
-  if (!stats.isFile()) return "not_regular_file";
-  if ((stats.mode & 0o111) === 0) return "not_executable";
-  if (stats.uid !== 0 && stats.uid !== uid) return "binary_owner";
-  if (stats.mode & WRITABLE_BY_OTHERS) return "binary_writable";
-  let directory: Stats;
-  try {
-    directory = statSync(dirname(path));
-  } catch {
-    return "binary_missing";
-  }
-  if (directory.uid !== 0 && directory.uid !== uid) return "directory_owner";
-  if (directory.mode & WRITABLE_BY_OTHERS) return "directory_writable";
-  return null;
-}
-
 /** The pin check with its parameters given. Internal: tests reach it through this module directly. */
 export async function verifyGogBinaryWith(path: string, options: GogPinOptions, parameters: GogPinParameters): Promise<GogPinResult> {
-  const refuse = (reason: GogPinRefusal): GogPinResult => ({ ok: false, reason, path });
+  let identity: GogBinaryIdentity | null = null;
+  const refuse = (reason: GogPinRefusal): GogPinResult =>
+    ({ ok: false, reason, path, transient: GOG_PIN_TRANSIENT_REFUSALS.includes(reason), identity });
   const platform = parameters.platform;
   if (!platform || !parameters.pins.some(pin => pin.sha256[platform])) return refuse("platform_not_pinned");
   if (!path.startsWith("/")) return refuse("not_absolute");
@@ -205,10 +253,12 @@ export async function verifyGogBinaryWith(path: string, options: GogPinOptions, 
   } catch {
     return refuse("binary_missing");
   }
-  const place = checkPlace(real, parameters.uid);
+  identity = gogBinaryIdentity(real);
+  if (!identity) return refuse("binary_missing");
+  const place = checkPlace(identity, parameters.uid);
   if (place) return refuse(place);
 
-  const hashed = hashOpen(real);
+  const hashed = hashOpen(real, identity);
   if (typeof hashed === "string") return refuse(hashed);
   const pin = parameters.pins.find(candidate => candidate.sha256[platform] === hashed.sha256);
   if (!pin) return refuse("hash_not_pinned");
@@ -216,6 +266,8 @@ export async function verifyGogBinaryWith(path: string, options: GogPinOptions, 
   // Only now, with the bytes known, does anything run.
   const limits = { env: options.env, stdin: null, timeoutMs: parameters.timeoutMs };
   const version = await runGogProcess(real, ["version"], { ...limits, stdoutCap: 64 * 1024 });
+  const versionInterrupted = interrupted(version.end);
+  if (versionInterrupted) return refuse(versionInterrupted);
   if (version.end.kind !== "exit" || version.end.exitCode !== GOG_EXIT_CODES.ok || !version.stdout) return refuse("version_failed");
   const match = VERSION_LINE.exec(new TextDecoder().decode(version.stdout));
   if (!match) return refuse("version_failed");
@@ -225,7 +277,9 @@ export async function verifyGogBinaryWith(path: string, options: GogPinOptions, 
   }
   if (!pin.commit.startsWith(commit) && !commit.startsWith(pin.commit)) return refuse("version_mismatch");
 
-  const schemaRun = await runGogProcess(real, ["schema", "--json"], { ...limits, stdoutCap: 32 * 1024 * 1024 });
+  const schemaRun = await runGogProcess(real, ["schema", "--json"], { ...limits, stdoutCap: GOG_SCHEMA_STDOUT_CAP });
+  const schemaInterrupted = interrupted(schemaRun.end);
+  if (schemaInterrupted) return refuse(schemaInterrupted);
   if (schemaRun.end.kind !== "exit" || schemaRun.end.exitCode !== GOG_EXIT_CODES.ok || !schemaRun.stdout) return refuse("schema_unreadable");
   let schema: unknown;
   try {
@@ -236,9 +290,8 @@ export async function verifyGogBinaryWith(path: string, options: GogPinOptions, 
   const schemaRefusal = checkGogSchema(schema, parameters.snapshot, pin.version);
   if (schemaRefusal) return refuse(schemaRefusal);
 
-  const now = gogBinaryIdentity(real);
-  if (!now || !sameGogIdentity(now, hashed.identity)) return refuse("binary_changed");
-  return { ok: true, path: real, version: pin.version, commit: pin.commit, platform, sha256: hashed.sha256, identity: hashed.identity };
+  if (!sameGogIdentity(gogBinaryIdentity(real), identity)) return refuse("binary_changed");
+  return { ok: true, path: real, version: pin.version, commit: pin.commit, platform, sha256: hashed.sha256, identity };
 }
 
 /**
