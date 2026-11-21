@@ -125,7 +125,11 @@ export const HEADER_CONTROL = /[\u0000-\u0008\u000a-\u001f\u007f-\u009f\u202A-\u
  * and a carriage return that starts a CRLF; DEL; C1 controls; and the
  * bidirectional controls. Joiners, marks and other ordinary text stay
  * displayable. The draft input schema and the raw-draft parser both apply
- * it, so a draft brain-kit writes is one the card can show.
+ * it, so a draft brain-kit writes is one the card can show. Balanced
+ * isolates (U+2066-U+2069) are refused too: they are among the controls the
+ * Trojan Source attacks (CVE-2021-42574) use to reorder displayed text, and
+ * the send card is the approval boundary, so a draft holding them is not
+ * displayable here; the owner can still send it from Gmail.
  */
 export const BODY_CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u202A-\u202E\u2066-\u2069]|\r(?!\n)/;
 
