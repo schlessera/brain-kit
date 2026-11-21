@@ -1,6 +1,6 @@
 /** Linux directory publication: a pack family becomes visible in one rename. */
 import { createRequire } from "node:module";
-import { closeSync, constants, copyFileSync, fchmodSync, fstatSync, fsyncSync, mkdirSync, openSync, readdirSync, rmSync, rmdirSync } from "node:fs";
+import { closeSync, constants, copyFileSync, fchmodSync, fstatSync, fsyncSync, futimesSync, mkdirSync, openSync, readdirSync, rmSync, rmdirSync } from "node:fs";
 const DIRECTORY = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
 const at = (fd: number, name: string) => `/proc/self/fd/${fd}/${name}`;
 let exchange: ((from: number, name: string, to: number, target: string, flags: number) => void) | undefined;
@@ -30,12 +30,17 @@ export function clonePackDirectory(source: number, target: number, depth = 0): v
     } else {
       const input = openSync(at(source, entry.name), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
       try {
-        if (!fstatSync(input).isFile()) throw Error("Git pack member is not a regular file");
+        const info=fstatSync(input);
+        if (!info.isFile()) throw Error("Git pack member is not a regular file");
         // Qualification requires Btrfs. Refuse a failed reflink rather than
         // silently duplicating an unbounded existing pack on the live store.
         copyFileSync(`/proc/self/fd/${input}`, at(target, entry.name), constants.COPYFILE_FICLONE_FORCE);
         const output = openSync(at(target, entry.name), constants.O_RDONLY | constants.O_NOFOLLOW);
-        try { fsyncSync(output); } finally { closeSync(output); }
+        try {
+          // Git uses pack age for expiration; cloning an unchanged pack must
+          // not make it young again on every maintenance publication.
+          futimesSync(output,info.atimeMs/1000,info.mtimeMs/1000);fsyncSync(output);
+        } finally { closeSync(output); }
       } finally { closeSync(input); }
     }
   }

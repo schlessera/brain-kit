@@ -20,6 +20,10 @@ for (const interrupt of [false,".idx",".pack","multi-pack-index","flush"] as con
   const added=Bun.spawnSync(["git","-C",brain,"hash-object","-w","--stdin"],{stdin:Buffer.from("Athena revises the chart."),stdout:"pipe",stderr:"pipe"});expect(added.exitCode).toBe(0);hash=added.stdout.toString().trim();
   expect(git(brain,"update-ref","refs/athena/chart",hash).exitCode).toBe(0);
  }
+ const oldPacks=fs.readdirSync(join(brain,".git/objects/pack")).filter(name=>name.endsWith(".pack"));
+ const age=new Date("2026-07-12T09:00:00Z");
+ // Product semantics: old packs must remain eligible for Git expiration.
+ for(const name of oldPacks)fs.utimesSync(join(brain,".git/objects/pack",name),age,age);
  const loose=join(brain,".git/objects",hash.slice(0,2),hash.slice(2));
  const fixture=await packingFixture(root,brain),output=fixture.output;
  let rename:ReturnType<typeof spyOn>|undefined,sync:ReturnType<typeof spyOn>|undefined,exchange:ReturnType<typeof spyOn>|undefined;
@@ -42,6 +46,7 @@ for (const interrupt of [false,".idx",".pack","multi-pack-index","flush"] as con
   if(!interrupt){expect(git(brain,"rev-parse","refs/telemachus/chart").stdout.toString().trim()).toBe(newHash);expect(git(brain,"cat-file","-e",newHash).exitCode,"NEW_REF_HAS_OBJECT").toBe(0);}
   else expect(git(brain,"rev-parse","--verify","refs/telemachus/chart").exitCode,"FAILED_PACK_INSTALL_PUBLISHES_NO_REF").not.toBe(0);
   expect(fs.existsSync(loose)).toBe(Boolean(interrupt));
+  for(const name of oldPacks)expect(fs.statSync(join(brain,".git/objects/pack",name)).mtimeMs,"PACK_CLONE_PRESERVES_EXPIRATION_AGE").toBe(age.getTime());
   if(interrupt==="flush")expect(fs.readdirSync(join(brain,".git/objects")).some(name=>name.startsWith(".brain-maintenance-")),"UNCONFIRMED_ACTIVATION_RETAINS_OLD_GENERATION").toBe(true);
   expect(git(brain,"count-objects","-v").stdout.toString(),"FAILED_PUBLICATION_LEAVES_NO_GIT_GARBAGE").toMatch(/^garbage: 0$/m);
  }finally{rename?.mockRestore();sync?.mockRestore();exchange?.mockRestore();await fixture.close();fs.rmSync(root,{recursive:true,force:true});}
