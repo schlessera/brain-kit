@@ -29,8 +29,8 @@ test("an ambiguous call identity keeps later results immediate (F5)", async () =
 
 for (const phase of ["arming", "dispatch"] as const) test(`partial coverage forbids deferral at ${phase} (F7)`, async () => {
   const f = await fixture(), entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
-  const checkpoint = f.native.manager.checkpoint; let upstream = 0;
-  const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { upstream++; return new Response("Ithaca"); } });
+  const checkpoint = f.native.manager.checkpoint;
+  const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("Ithaca") });
   const relay = startInferenceRelay({ upstream: origin.url.origin, routes: ["/v1/messages"], credentials: {}, egress: f.proxy });
   try {
     if (phase === "arming") await f.journal.writeOperation([{ sql: "UPDATE turn_journal_turns SET state='partial' WHERE turn_id=?", params: ["voyage"] }]);
@@ -69,8 +69,8 @@ test("a second inference arrival remains ambiguous after it disconnects (F11)", 
 
 test("elapsed deadline takes the immediate path before its timer callback runs (D1)", async () => {
   const f = await fixture(), entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
-  const checkpoint = f.native.manager.checkpoint; let upstream = 0;
-  const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { upstream++; return new Response("Ithaca"); } });
+  const checkpoint = f.native.manager.checkpoint;
+  const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("Ithaca") });
   const relay = startInferenceRelay({ upstream: origin.url.origin, routes: ["/v1/messages"], credentials: {}, egress: f.proxy });
   try {
     const observed = f.result(); f.elapseDeadline(51);
