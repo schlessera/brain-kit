@@ -22110,7 +22110,7 @@ signatures (every public export and the types it is made of)
                 sendToFirstContentFrameMs: z.ZodOptional<z.ZodNumber>;
                 sendToFirstHostFrameMs: z.ZodNumber;
                 sendToFirstPhaseStatusFrameMs: z.ZodOptional<z.ZodNumber>;
-            }, z.core.$strict>>;
+            }, z.core.$loose>>;
             clientTimingUnavailable: z.ZodOptional<z.ZodLiteral<"invalid_receipt">>;
             dequeuedAt: z.ZodNullable<z.ZodNumber>;
             endedAt: z.ZodNullable<z.ZodNumber>;
@@ -22241,7 +22241,7 @@ signatures (every public export and the types it is made of)
                 sendToFirstContentFrameMs: z.ZodOptional<z.ZodNumber>;
                 sendToFirstHostFrameMs: z.ZodNumber;
                 sendToFirstPhaseStatusFrameMs: z.ZodOptional<z.ZodNumber>;
-            }, z.core.$strict>>;
+            }, z.core.$loose>>;
             clientTimingUnavailable: z.ZodOptional<z.ZodLiteral<"invalid_receipt">>;
             dequeuedAt: z.ZodNullable<z.ZodNumber>;
             endedAt: z.ZodNullable<z.ZodNumber>;
@@ -25253,7 +25253,7 @@ signatures (every public export and the types it is made of)
                 sendToFirstContentFrameMs: z.ZodOptional<z.ZodNumber>;
                 sendToFirstHostFrameMs: z.ZodNumber;
                 sendToFirstPhaseStatusFrameMs: z.ZodOptional<z.ZodNumber>;
-            }, z.core.$strict>>;
+            }, z.core.$loose>>;
             clientTimingUnavailable: z.ZodOptional<z.ZodLiteral<"invalid_receipt">>;
             dequeuedAt: z.ZodNullable<z.ZodNumber>;
             endedAt: z.ZodNullable<z.ZodNumber>;
@@ -25385,7 +25385,7 @@ signatures (every public export and the types it is made of)
                 sendToFirstContentFrameMs: z.ZodOptional<z.ZodNumber>;
                 sendToFirstHostFrameMs: z.ZodNumber;
                 sendToFirstPhaseStatusFrameMs: z.ZodOptional<z.ZodNumber>;
-            }, z.core.$strict>>;
+            }, z.core.$loose>>;
             clientTimingUnavailable: z.ZodOptional<z.ZodLiteral<"invalid_receipt">>;
             dequeuedAt: z.ZodNullable<z.ZodNumber>;
             endedAt: z.ZodNullable<z.ZodNumber>;
