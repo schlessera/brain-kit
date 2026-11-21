@@ -175,6 +175,8 @@ export "./internal/google-operations" (./src/google/index.ts)
   GMAIL_DRAFT_ACTIONS
   GMAIL_DRAFT_ID_PATTERN
   GMAIL_DRAFT_INPUT
+  GMAIL_LABEL_NAME_ESCAPED_MAX
+  GMAIL_LABEL_TYPES
   GMAIL_LIMITS
   GMAIL_MESSAGE_ID_PATTERN
   GMAIL_MODIFY_INPUT
@@ -186,6 +188,7 @@ export "./internal/google-operations" (./src/google/index.ts)
   GMAIL_REVERSIBLE_SYSTEM_LABELS
   GMAIL_SEARCH_INPUT
   GMAIL_SEND_INPUT
+  GMAIL_SIZE_BUCKETS
   GMAIL_SYSTEM_LABELS
   GMAIL_SYSTEM_LABEL_ID_PATTERN
   GMAIL_THREAD_ID_PATTERN
@@ -207,22 +210,52 @@ export "./internal/google-operations" (./src/google/index.ts)
   GOOGLE_SERVICES
   GOOGLE_TOOL_NAMES
   GOOGLE_VIEWS
+  type GmailAttachmentRecord
   type GmailCallFacts
+  type GmailContentDraft
+  type GmailContentMessage
+  type GmailContentMessageResult
+  type GmailContentSearch
+  type GmailContentSearchHit
+  type GmailContentThread
   type GmailDraftAction
   type GmailDraftFacts
   type GmailDraftInput
+  type GmailDraftRecord
+  type GmailLabelDirectory
   type GmailLabelKind
+  type GmailLabelRecord
+  type GmailLabelType
+  type GmailMessageRecord
   type GmailModifyInput
   type GmailOperation
+  type GmailProjectionContext
   type GmailRawDraft
   type GmailRawDraftProblem
   type GmailReadInput
   type GmailReadTarget
+  type GmailSearchHitRecord
   type GmailSearchInput
+  type GmailSearchPageRecord
+  type GmailSearchProjectionContext
   type GmailSendInput
+  type GmailSizeBucket
+  type GmailStructuredDraft
+  type GmailStructuredLabel
+  type GmailStructuredLabelEntry
+  type GmailStructuredLabelList
+  type GmailStructuredMessage
+  type GmailStructuredMessageResult
+  type GmailStructuredSearch
+  type GmailStructuredSearchHit
+  type GmailStructuredThread
   type GmailSystemLabel
+  type GmailThreadRecord
   type GmailToolName
   type GmailTrashInput
+  type GmailUntrustedAttachment
+  type GmailUntrustedMessage
+  type GmailUntrustedSearchHit
   type GoogleAddressRefusal
   type GoogleAllowListEntry
   type GoogleAllowListEntryResult
@@ -245,9 +278,17 @@ export "./internal/google-operations" (./src/google/index.ts)
   type GoogleToolName
   type GoogleView
   classifyGoogleCall
+  contentGmailDraft
+  contentGmailMessage
+  contentGmailMessageResult
+  contentGmailSearch
+  contentGmailThread
   escalateGoogleEffect
+  escapeGmailLabelName
+  gmailLabelDirectory
   gmailLabelKind
   gmailModifyActions
+  gmailSizeBucket
   googleOperationOf
   isGmailDraftId
   isGmailLabelId
@@ -258,6 +299,8 @@ export "./internal/google-operations" (./src/google/index.ts)
   isGoogleOperation
   isGoogleToolName
   isKnownGmailLabelId
+  isNonNegativeInteger
+  isRfc3339Timestamp
   matchGoogleAllowList
   matchesAllowList
   normalizeGoogleDomain
@@ -266,6 +309,12 @@ export "./internal/google-operations" (./src/google/index.ts)
   parseGoogleMailbox
   parseGoogleMailboxList
   parseGoogleToolCall
+  structuredGmailDraft
+  structuredGmailLabels
+  structuredGmailMessage
+  structuredGmailMessageResult
+  structuredGmailSearch
+  structuredGmailThread
 
 export "./internal/governance-policy" (./src/governance-policy.ts)
   APIFY_LIMIT_BOUNDS

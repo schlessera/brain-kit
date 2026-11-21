@@ -20,7 +20,7 @@ const files = sources(MODULE);
 describe("@schlessera/brain-common/internal/google-operations is pure", () => {
   test("it has the files of the module", () => {
     expect(files.map(file => relative(MODULE, file)).sort()).toEqual(
-      ["address.ts", "catalog.ts", "classify.ts", "encoding.ts", "ids.ts", "index.ts", "mime.ts"]);
+      ["address.ts", "catalog.ts", "classify.ts", "encoding.ts", "ids.ts", "index.ts", "mime.ts", "projection.ts", "records.ts"]);
   });
 
   test("it imports nothing but its own files and zod: no Node built-in, no Bun module", () => {

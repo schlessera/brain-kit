@@ -20,3 +20,5 @@ export * from "./ids.js";
 export * from "./classify.js";
 export * from "./address.js";
 export * from "./mime.js";
+export type * from "./records.js";
+export * from "./projection.js";
