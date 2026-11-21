@@ -35,16 +35,29 @@ describe("Google catalog", () => {
     });
   });
 
-  test("the six tools are named brain_google_gmail_<verb> and each has a strict schema", () => {
+  test("the six tools are named brain_google_gmail_<verb> and each has a schema", () => {
     expect(GOOGLE_TOOL_NAMES).toEqual([
       "brain_google_gmail_search", "brain_google_gmail_read", "brain_google_gmail_modify",
       "brain_google_gmail_trash", "brain_google_gmail_draft", "brain_google_gmail_send",
     ]);
     expect(Object.keys(GOOGLE_INPUT_SCHEMAS).sort()).toEqual([...GOOGLE_TOOL_NAMES].sort());
-    for (const tool of GOOGLE_TOOL_NAMES) {
-      expect(GOOGLE_INPUT_SCHEMAS[tool].safeParse({ unexpected: true }).success).toBe(false);
-    }
   });
+
+  // A fully valid input, so an unknown key is the only thing that can refuse it.
+  const VALID: Record<string, Record<string, unknown>> = {
+    [GMAIL_TOOL_NAMES.search]: { query: "is:unread" },
+    [GMAIL_TOOL_NAMES.read]: { target: "thread", id: THREAD },
+    [GMAIL_TOOL_NAMES.modify]: { message_ids: [MESSAGE], remove_label_ids: ["INBOX"] },
+    [GMAIL_TOOL_NAMES.trash]: { thread_ids: [THREAD] },
+    [GMAIL_TOOL_NAMES.draft]: { action: "delete", draft_id: DRAFT },
+    [GMAIL_TOOL_NAMES.send]: { draft_id: DRAFT },
+  };
+  for (const tool of GOOGLE_TOOL_NAMES) {
+    test(`${tool} is strict: a valid input passes and the same input with an unknown key is refused`, () => {
+      const schema = GOOGLE_INPUT_SCHEMAS[tool];
+      expect([schema.safeParse(VALID[tool]).success, schema.safeParse({ ...VALID[tool], account: "work" }).success]).toEqual([true, false]);
+    });
+  }
 
   test("the error codes include every code the plan names and the may-have-happened code", () => {
     expect(GOOGLE_ERROR_CODES).toEqual(expect.arrayContaining([
