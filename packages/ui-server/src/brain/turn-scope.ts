@@ -10,7 +10,8 @@ import type { GovernanceEventInput } from "../governance/events.js";
 import { createGovernanceWrites, type GovernanceWrites } from "../governance/event-writes.js";
 import { procedureCaller, type SqliteWriter } from "../db/write-worker.js";
 import { setup, url } from "./turn-scope-writes.js";
-import type { TurnJournal } from "./turn-journal.js";
+import type { ActivityTurnHold } from "@schlessera/brain-ui-sdk/protocol";
+import type { JournalHold, TurnJournal } from "./turn-journal.js";
 
 type Worker = Parameters<NonNullable<StartTurnRequest["workerStarted"]>>[0];
 type Live = { unrecorded?: boolean; sessionId: string | null; principalId: string; origin: "interactive" | "voice"; profile: "strict" | "governed";
@@ -61,9 +62,9 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
   };
   // The summary is taken now; the client hears of it once the row has
   // committed, because the journal summary it is sent with reads it back.
-  const save = (turnId: string, turn: Live): Promise<void> => {
+  const save = (turnId: string, turn: Live): Promise<boolean> => {
     const sessionId = turn.sessionId;
-    return call(turnId, "save", sessionId, JSON.stringify(turn.summary)).then(() => { if (sessionId) options.changed(turnId, sessionId); }, error => unrecorded(turnId, error));
+    return call(turnId, "save", sessionId, JSON.stringify(turn.summary)).then(stored => { if (sessionId) options.changed(turnId, sessionId); return stored === true; }, error => { unrecorded(turnId, error); return false; });
   };
   const scopeEvent = (turnId: string, input: GovernanceEventInput<"scope_cap">) => {
     try { governance.record(input).catch(error => unrecorded(turnId, error)); } catch (error) { unrecorded(turnId, error); }
@@ -98,7 +99,29 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
       receipt.reason = `The finite continuation ceiling of ${newCap.toLocaleString("en-US")} ${unit} is already exhausted. Stop only.`;
     } else { receipt.newCap = newCap; delete receipt.reason; }
   }
-  function check(turnId: string, turn: Live) {
+  const timing = <T>(read: () => T): T | undefined => { try { return read(); } catch { return undefined; } };
+  const stamp = () => timing(now) ?? null;
+  const overlap = (record: ActivityTurnHold, read: () => boolean | null | undefined) => {
+    const value = timing(read);
+    record.inferenceInFlight = record.inferenceInFlight === true || value === true ? true : value == null ? null : record.inferenceInFlight;
+  };
+  const scopeCapRecords = new Map<string, ActivityTurnHold>();
+  const confirmedStops = new WeakMap<Worker, number | null>();
+  const stoppedWorkers = new WeakMap<ActivityTurnHold, Set<Worker>>();
+  const attachStopped = (record: ActivityTurnHold, workers: Worker[], at: number | null) => {
+    if (!workers.length) return;
+    record.stoppedAt ??= at;
+    const owned = stoppedWorkers.get(record) ?? new Set<Worker>();
+    for (const worker of workers) owned.add(worker);
+    stoppedWorkers.set(record, owned);
+  };
+  const confirmed = (worker: Worker) => confirmedStops.has(worker);
+  const freeze = (worker: Worker) => {
+    const result = worker.freeze();
+    if (result === true) confirmedStops.set(worker, stamp()); else confirmedStops.delete(worker);
+    return result !== false; // Preserve legacy void control semantics without a timing mark.
+  };
+  function check(turnId: string, turn: Live, cause: { toolUseId?: string; changedPaths?: number } = {}) {
     if (!turn.current()) return;
     turn.summary.minutes = Math.max(0, (now() - turn.startedAt) / 60_000);
     const fs = space(), floor = Math.max(fs.total * .05, SCOPE_FREE_BYTES);
@@ -153,14 +176,20 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
     for (const [dimension, count, result] of counts) {
       const cap = result ? turn.summary.indexLimitBytes! : dimension === "free_space_floor" ? floor : turn.summary.limits[dimension];
       if (result ? count !== null && count <= cap : count === null || (dimension === "free_space_floor" ? count >= cap : count < cap)) continue;
+      const hold = timing(() => options.journal.scopeHold?.(turnId, stamp() ?? Date.now(), cause.toolUseId, cause.changedPaths ?? null));
+      if (hold) scopeCapRecords.set(turnId, hold);
       let frozen = false, freezeFailure: string | undefined;
-      try { for (const worker of turn.workers) worker.freeze(); frozen = turn.workers.size > 0; }
+      try { const results = [...turn.workers].map(worker => {
+        const result = freeze(worker);
+        if (hold && confirmed(worker)) timing(() => { attachStopped(hold, [worker], confirmedStops.get(worker) ?? null); overlap(hold, () => options.journal.inferenceInFlight?.(turnId)); });
+        return result;
+      }); frozen = results.some(Boolean); }
       catch (error) { freezeFailure = `Scope freeze failed; the turn stopped: ${String(error)}`; for (const worker of turn.workers) worker.kill("SIGKILL"); }
       // No worker means no proven pause; fail closed, never claim nothing is running.
       // A periodic snapshot was already taken after our confirmed hold.
       if (frozen && !periodicHeld.has(turnId)) {
         turn.checking = true;
-        void options.journal.observe().catch(error => {
+        void options.journal.observe({ turnId, ...(cause.toolUseId ? { toolUseId: cause.toolUseId } : {}), ...(hold ? { hold } : {}) }).catch(error => {
           for (const worker of turn.workers) worker.kill("SIGKILL");
           if (turn.current()) turn.stop(`Scope observation failed; the turn stopped. ${String(error)}`);
         }).finally(() => { turn.checking = false; });
@@ -189,21 +218,57 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
   const periodicHeld = new Map<string, { turn: Live; workers: Worker[] }>();
   let observationHolds = 0;
   let observationFailed = false;
+  const holdRecords = new Map<string, ActivityTurnHold[]>();
+  const intervals = new Set<JournalHold>();
+  function recordStop(hold: JournalHold, turnId: string, workers: Worker[]) {
+    if (!workers.length) return;
+    hold.stoppedTurns.add(turnId);
+    const record = hold.participant(turnId);
+    if (record) {
+      for (const worker of workers) attachStopped(record, [worker], confirmedStops.get(worker) ?? null);
+      overlap(record, () => hold.inferenceInFlight(turnId));
+      const records = holdRecords.get(turnId) ?? [];
+      if (!records.includes(record)) records.push(record);
+      holdRecords.set(turnId, records);
+    }
+    for (const [id, item] of hold.records) item.otherTurnsStopped = [...hold.stoppedTurns].filter(other => other !== id).length;
+  }
+  function recordStops(hold?: JournalHold) {
+    if (!hold) return;
+    for (const [id, entry] of periodicHeld) recordStop(hold, id, entry.workers.filter(worker => entry.turn.workers.has(worker) && confirmed(worker)));
+  }
+  function resumeWorkers(turnId: string, workers: Worker[]) {
+    for (const worker of workers) {
+      const acknowledged = worker.resume();
+      confirmedStops.delete(worker);
+      if (acknowledged !== true) continue;
+      timing(() => {
+        const at = stamp();
+        for (const record of new Set([...(holdRecords.get(turnId) ?? []), ...(scopeCapRecords.has(turnId) ? [scopeCapRecords.get(turnId)!] : [])])) {
+          if (record.stoppedAt !== null && stoppedWorkers.get(record)?.has(worker)) record.resumedAt ??= at;
+        }
+      });
+    }
+    holdRecords.delete(turnId); scopeCapRecords.delete(turnId);
+  }
   const periodic = {
-    before() {
-      if (observationHolds++ > 0) return;
+    before(hold?: JournalHold) {
+      if (hold) intervals.add(hold);
+      if (observationHolds++ > 0) { timing(() => recordStops(hold)); return; }
       observationFailed = false;
       for (const [turnId, turn] of active) {
         if (!turn.current() || turn.summary.receipts.some(receipt => receipt.state === "paused")) continue;
         const held: Worker[] = []; periodicHeld.set(turnId, { turn, workers: held });
-        for (const worker of turn.workers) { held.push(worker); worker.freeze(); }
+        for (const worker of turn.workers) { held.push(worker); freeze(worker); }
+        if (hold) timing(() => recordStop(hold, turnId, held.filter(confirmed)));
       }
     },
-    after(completed: boolean) {
+    after(completed: boolean, hold?: JournalHold) {
+      if (hold) intervals.delete(hold);
       observationFailed ||= !completed;
       if (--observationHolds > 0) return;
       completed &&= !observationFailed;
-      for (const { turn, workers } of periodicHeld.values()) {
+      for (const [turnId, { turn, workers }] of periodicHeld) {
         // Storage/reporting may itself fail before the journal's stop callback.
         // A failed capture never resumes a productive temporary hold.
         if (!completed) {
@@ -213,13 +278,17 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
         }
         if (turn.summary.receipts.some(receipt => receipt.state === "paused") && turn.current()) continue;
         if (!turn.current()) { for (const worker of workers) worker.kill("SIGKILL"); continue; }
-        try { for (const worker of workers) worker.resume(); }
+        try {
+          const live = workers.filter(worker => turn.workers.has(worker));
+          resumeWorkers(turnId, live);
+        }
         catch (error) {
           for (const worker of turn.workers) worker.kill("SIGKILL");
           turn.stop(`The host could not resume the worker after scope observation; it stopped. Partial work remains. ${String(error)}`);
         }
       }
       periodicHeld.clear();
+      intervals.clear();
     },
   };
   const unsubscribe = options.journal.onObservation((turnId, facts) => {
@@ -231,7 +300,7 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
     turn.summary.observedBytes = facts.partial ? null : facts.observedBytes;
     if (turn.liveIndexWritable && facts.indexBytes !== undefined) turn.summary.indexBytes = facts.indexBytes;
     turn.summary.coverage = facts.partial ? "partial" : "observed_versions";
-    turn.summary.observedAt = now(); check(turnId, turn);
+    turn.summary.observedAt = now(); check(turnId, turn, { toolUseId: facts.observationToolUseId, changedPaths: facts.observationChangedPaths });
   }, periodic);
   return {
     begin(turnId: string, input: { sessionId: string | null; principalId: string; origin: Live["origin"]; profile: Live["profile"];
@@ -250,19 +319,22 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
     workerStarted(turnId: string, worker: Worker) {
       const turn = active.get(turnId); if (!turn || !turn.current()) { worker.kill("SIGKILL"); return; }
       turn.workers.add(worker);
-      void worker.exited.finally(() => turn.workers.delete(worker)).catch(() => {});
+      void worker.exited.finally(() => { turn.workers.delete(worker); confirmedStops.delete(worker); }).catch(() => {});
       if (turn.summary.receipts.some(receipt => receipt.state === "paused") || observationHolds > 0) {
-        worker.freeze();
+        freeze(worker);
+        const cap = scopeCapRecords.get(turnId);
+        if (cap && confirmed(worker)) timing(() => { attachStopped(cap, [worker], confirmedStops.get(worker) ?? null); overlap(cap, () => options.journal.inferenceInFlight?.(turnId)); });
         if (observationHolds > 0) {
           const held = periodicHeld.get(turnId) ?? { turn, workers: [] };
           held.workers.push(worker); periodicHeld.set(turnId, held);
+          if (confirmed(worker)) for (const interval of intervals) timing(() => recordStop(interval, turnId, [worker]));
         }
       }
     },
     bindSession(turnId: string, sessionId: string) { const turn = active.get(turnId); if (turn) { turn.sessionId = sessionId; save(turnId, turn); } },
     toolCall(turnId: string, toolUseId: string) {
       const turn = active.get(turnId); if (!turn || turn.calls.has(toolUseId)) return;
-      turn.calls.add(toolUseId); turn.summary.calls = turn.calls.size; check(turnId, turn);
+      turn.calls.add(toolUseId); turn.summary.calls = turn.calls.size; check(turnId, turn, { toolUseId });
     },
     isPaused(turnId: string) { return active.get(turnId)?.summary.receipts.some(receipt => receipt.state === "paused") ?? false; },
     /**
@@ -280,12 +352,14 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
       return receipt;
     },
     /** Settles once the turn's final summary and end have committed. */
-    finish(turnId: string): Promise<void> {
-      const turn = active.get(turnId); if (!turn) return Promise.resolve();
+    finish(turnId: string): Promise<boolean> {
+      const turn = active.get(turnId); if (!turn) return Promise.resolve(false);
       for (const receipt of turn.summary.receipts) if (receipt.state === "paused") { receipt.state = "ended_before_answer"; receipt.reason = "The turn ended before an answer."; }
-      const saved = save(turnId, turn), ended = call(turnId, "end", now()).catch(error => unrecorded(turnId, error));
+      const saved = save(turnId, turn), ended = call(turnId, "end", now()).then(stored => stored === true, error => { unrecorded(turnId, error); return false; });
       active.delete(turnId);
-      return Promise.all([saved, ended]).then(() => {});
+      holdRecords.delete(turnId);
+      scopeCapRecords.delete(turnId);
+      return Promise.all([saved, ended]).then(results => results.every(Boolean));
     },
     close() { unsubscribe(); for (const [id, turn] of active) { for (const worker of turn.workers) worker.kill("SIGKILL"); turn.stop("Host closed; the turn was interrupted."); this.finish(id); } },
   };
@@ -318,7 +392,10 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
         if (liveReceipt.result === "index_capacity") turn.summary.indexLimitBytes = liveReceipt.newCap!;
         else turn.summary.limits[liveReceipt.dimension as Exclude<ScopeDimension,"free_space_floor">] = liveReceipt.newCap!;
         liveReceipt.state = "continued"; liveReceipt.submissionId = msg.submissionId; save(msg.turnId, turn);
-        if (observationHolds === 0 && !turn.summary.receipts.some(item => item.state === "paused")) for (const worker of turn.workers) worker.resume();
+        if (observationHolds === 0 && !turn.summary.receipts.some(item => item.state === "paused")) {
+          const workers = [...turn.workers];
+          resumeWorkers(msg.turnId, workers);
+        }
       } else { liveReceipt.submissionId = msg.submissionId; stop(msg.turnId, turn, liveReceipt, "stopped", "You stopped the turn at its scope limit."); }
       return response("accepted");
     } catch (error) {

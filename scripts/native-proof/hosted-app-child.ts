@@ -1,3 +1,4 @@
+import { traceObserverBootstrap } from "./observation-tree.js";
 import { recordingCursors, recordedWindows } from "./observation-recording.js";
 import { appendFileSync, existsSync, readFileSync, renameSync, writeFileSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -83,6 +84,13 @@ if (APPLY_TIMING) {
 // #2834: time every tool frame and every journal observation, without changing either.
 const OBSERVATION_TIMING = process.env.BRAIN_NATIVE_PROOF_OBSERVATION_TIMING === "1";
 if (OBSERVATION_TIMING) {
+  const captures = await import(join(source!, "packages/ui-server/src/brain/native-journal-capture.ts"));
+  const createCapture = captures.createNativeJournalCapture;
+  spyOn(captures, "createNativeJournalCapture").mockImplementation((...args: Parameters<typeof createCapture>) => {
+    const capture = createCapture(...args);
+    capture.initialize = traceObserverBootstrap(capture.initialize.bind(capture), span => event("observer_bootstrap", span));
+    return capture;
+  });
   // #3355 retention backlog: while the test holds this file, the journal's own
   // clock reads 31 days earlier, so the turns it records end past retention.
   const journals = await import(join(source!, "packages/ui-server/src/brain/turn-journal.ts"));
@@ -302,7 +310,7 @@ try {
   }
   if (OBSERVATION_TIMING) {
     const journal = app.wsHost.journal, observe = journal.observe.bind(journal), ended = journal.toolEnded?.bind(journal);
-    journal.observe = async () => { const start = performance.now(); try { return await observe(); } finally { event("timeline_observe", { start, ms: performance.now() - start }); } };
+    journal.observe = async (...args: Parameters<typeof observe>) => { const start = performance.now(); try { return await observe(...args); } finally { event("timeline_observe", { start, ms: performance.now() - start }); } };
     // Every completed capture, periodic and scope-limit ones included, reports here once per active turn.
     journal.onObservation?.((turnId: string) => event("timeline_capture", { turnId, at: performance.now() }));
     if (ended) journal.toolEnded = (turnId: string, toolUseId: string) => {

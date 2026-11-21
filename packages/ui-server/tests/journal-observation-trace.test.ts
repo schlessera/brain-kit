@@ -61,7 +61,8 @@ test("admission, a writer's result and finish trace each step inside the hold; t
     journal.toolStarted("turn-penelope", "write-1", "write_file", true);
     journal.toolExecuted("turn-penelope", "write-1", "worker_write");
     await journal.toolEnded("turn-penelope", "write-1");
-    await journal.finish("turn-penelope");
+    await journal.finish("turn-penelope", lifecycle.timer("closing"));
+    lifecycle.finish("success");
     await journal.finish("turn-telemachus");
 
     expect(traces.map(trace => trace.kind), "TRACE_EVERY_HELD_OBSERVATION").toEqual(["begin", "begin", "tool", "finish", "finish"]);
@@ -79,6 +80,8 @@ test("admission, a writer's result and finish trace each step inside the hold; t
     const finish = traces.find(trace => trace.kind === "finish" && trace.turnId === "turn-penelope")!;
     expect(names(finish), "TRACE_FINISH_STEPS").toEqual(["hold", "hold_wait", ...OBSERVE, ...RECORD, ...RECORD, "observe_commit",
       "finish_record", "finish_collect", "finish_publish"]);
+    expect(names(finish), "FINAL_OBSERVATION_IS_NOT_A_NATIVE_LEAF").not.toContain("final_observation");
+    expect(store.lifecycle("turn-penelope")!.openSubPhases?.filter(step => step.name === "final_observation"), "FINAL_OBSERVATION_REMAINS_A_LIFECYCLE_CONTAINER").toHaveLength(1);
     for (const trace of traces) expectNested(trace);
   } finally { await journal.close(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
 });

@@ -58,6 +58,33 @@ phases and steps per scenario, and the host load before and after are in
 `observation-timing.json`. It is a measurement, not part of the default
 qualification.
 
+`--tree=large` adds deterministic empty workspace/dependency files and tiny
+content-addressed journal objects before the app starts. Defaults:
+`--workspace-entries=80000 --dependency-entries=19000 --journal-objects=30000
+--checkouts=40`. Workspace leaves are spread across the named checkouts and
+nested `node_modules`, with `.git` directories and `.gitignore` files. Counts
+are generated entries, separate from the pre-existing CLI/notes fixture.
+The `tree` artifact section records these counts, five warm turns' per-step
+medians and observer bootstrap time. Compare a default run, a full large run,
+and a large run with `--workspace-entries=40000` on the same runner. The tenfold
+and proportional sensitivity criteria are qualification measurements, never
+shared-runner CI time budgets. Cold-cache evidence is explicitly unavailable:
+this harness cannot establish an isolated cache-drop condition and never
+mutates the shared runner cache. Default runs omit the `tree` section. Admission scenarios and warm samples
+retain the integration base's backend milestones, backend steps and missing
+evidence; closing steps remain in their sibling artifact. Parameter values
+are whole decimal integers and each size option may appear only once.
+Large-tree health, WebSocket, admission, Stop and settlement waits use a measurement
+watchdog sized as 120,000 ms plus 2 ms per configured leaf/object and four
+entries per checkout; the per-test timeout scales with that watchdog. The Python fixture derives
+its outer process timeout from the same size model and test load factor,
+leaving at least two minutes beyond the effective inner timeout. This is
+a hang bound, not a performance promise. The small qualification keeps its
+existing one-second health/WebSocket, ten-second admission and Stop assertions.
+
+`observation-holds.json` prints each lifecycle's hosted hold records, closing
+steps and recorder/idle milestones alongside the existing timing artifact.
+
 The path matrix records 12 physical worker-freeze samples for each actual 0,
 1, 20 and 200 changed-path window, then 12 one-path windows after 10,000 rows.
 Counts come from committed sequence deltas, not requested writes. A periodic
@@ -626,7 +653,10 @@ then reopened; a later sample cannot establish the state at the failed ioctl.
 Neither state identifies its holder by itself.
 
 `bun run test tests/owned-loop-evidence.test.ts tests/identity-native-fixture.test.ts`
-runs file-only protocol controls and fixture composition checks. These controls
+runs file-only protocol controls and fixture composition checks. Each rewritten
+identity fixture embeds the pure timeout helper and executes its configuration
+prefix in a separate directory without neighboring helpers, before any native
+filesystem setup. These controls
 are not kernel admission. Controlled held-descriptor/release proof and actual
 runner admission still require the reviewed privileged offline native harness;
 neither establishes historical attribution for #2420.

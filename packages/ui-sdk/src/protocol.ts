@@ -3920,13 +3920,35 @@ export interface ActivityTurnSubPhase {
 /** Additive phases use an open vocabulary so older SDKs can retain the frame. */
 export interface ActivityTurnOpenSubPhase extends Omit<ActivityTurnSubPhase, "phase"> {
   phase: string;
+  pending?: boolean;
   /** Worker durations use an independent clock; timestamps are host receipt, not worker start/end. */
   timeBase?: "worker";
   workerElapsedMs?: number;
 }
 
+/** One observation hold as seen by this turn; other owners are counted, never identified. */
+export interface ActivityTurnHold {
+  holdId: string;
+  cause: "begin" | "finish" | "tool" | "periodic" | "scope";
+  causeTurnId: string | null;
+  toolUseId?: string;
+  requestedAt: number;
+  stoppedAt: number | null;
+  resumedAt: number | null;
+  changedPaths: number | null;
+  otherTurnsStopped: number;
+  inferenceInFlight: boolean | null;
+}
+
 /** Host-owned envelope; never contributes inference usage or cost. */
 export interface ActivityTurnLifecycle {
+  /** Running server identity; absent on historical records. */
+  holds?: ActivityTurnHold[];
+  packageVersion?: string;
+  buildRevision?: string;
+  runtimeVersion?: string;
+  recorderSettledAt?: number | null;
+  idleEmittedAt?: number | null;
   /** Separate owner-bound receipt joined on read; absent when unobserved or lost. */
   clientTiming?: ClientTurnTiming;
   /** The separate receipt is retained but invalid; host lifecycle remains usable. */

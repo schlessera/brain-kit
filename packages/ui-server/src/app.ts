@@ -940,6 +940,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
         settingsWrites.addAutoAllowedTool(toolName),
     },
     activity: {
+      buildRevision: config.buildRevision,
       store: activity.store,
       stream: activity.stream,
       pushSender: activity.pushSender,

@@ -1,3 +1,4 @@
+import type { ActivityTurnHold } from "@schlessera/brain-ui-sdk/protocol";
 /** Concrete host journal: observations, durable ownership and completed-turn collection. */
 import type { JournalRecoveryStatus } from "@schlessera/brain-ui-sdk/protocol";
 import type { Logger } from "@opentelemetry/api-logs";
@@ -102,15 +103,26 @@ export interface TurnJournalOptions {
    */
   observationTrace?: (kind: JournalTraceKind, turnId: string | null, toolUseId?: string) => PhaseTimer | undefined;
 }
+/** Internal shared interval; scope records each turn's control acknowledgements. */
+export interface JournalHold {
+  records: Map<string, ActivityTurnHold>;
+  stoppedTurns: Set<string>;
+  paths: Map<string, Set<string>>;
+  inferenceInFlight(turnId: string): boolean | null;
+  participant(turnId: string): ActivityTurnHold | undefined;
+}
 export type JournalTraceKind = "begin" | "finish" | "tool" | "periodic";
-/** Both timers see every step; either may be absent. */
-const bothTimers = (a?: PhaseTimer, b?: PhaseTimer): PhaseTimer | undefined => !a ? b : !b ? a : name => {
-  const first = a(name), second = b(name);
-  return () => { first(); second(); };
+/** Diagnostics never enter the control/capture failure path. */
+const diagnostic = <T>(read: () => T): T | undefined => { try { return read(); } catch { return undefined; } };
+/** Both timers see every step independently; a failed mark stays missing. */
+const bothTimers = (a?: PhaseTimer, b?: PhaseTimer): PhaseTimer | undefined => !a && !b ? undefined : name => {
+  const first = diagnostic(() => a?.(name)), second = diagnostic(() => b?.(name));
+  return () => { diagnostic(() => first?.()); diagnostic(() => second?.()); };
 };
 
 export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   const now = options.now ?? Date.now;
+  const traceFor = (kind: JournalTraceKind, turnId: string | null, toolUseId?: string) => diagnostic(() => options.observationTrace?.(kind, turnId, toolUseId));
   // Every journal write is an accounted transaction on the write worker's
   // connection, committed at synchronous=FULL off the event loop and in
   // submission order (#2814). This connection only reads; its own guard
@@ -227,7 +239,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   const worktrees = new Map<string, { turnId: string; capture: ReturnType<typeof createNativeJournalCapture>; policy: NativeJournalPolicy }>();
   /** Closed captures still own their failed releases after their turn ends. */
   const retiredWorktrees = new Set<ReturnType<typeof createNativeJournalCapture>>();
-  const worktreeCloses = new Map<ReturnType<typeof createNativeJournalCapture>, Promise<void>>();
+  const worktreeCloses = new Map<ReturnType<typeof createNativeJournalCapture>, Promise<boolean>>();
   let worktreeRetryTimer: ReturnType<typeof setTimeout> | undefined;
   let worktreeRetry: Promise<void> | undefined;
   function retryWorktreesLater(): void {
@@ -243,21 +255,24 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     }, 30_000);
     worktreeRetryTimer.unref?.();
   }
-  function retireWorktree(root: ReturnType<typeof createNativeJournalCapture>): Promise<void> {
+  function retireWorktree(root: ReturnType<typeof createNativeJournalCapture>): Promise<boolean> {
     const pendingClose = worktreeCloses.get(root);
     if (pendingClose) return pendingClose;
     retiredWorktrees.add(root);
-    const work = root.close().then(() => { retiredWorktrees.delete(root); }, () => {
+    const work = root.close().then(() => { retiredWorktrees.delete(root); return true; }, () => {
       // Keep the capture, its charge and its recorded cause until deletion is confirmed.
+      return false;
     }).finally(() => { worktreeCloses.delete(root); retryWorktreesLater(); });
     worktreeCloses.set(root, work);
     return work;
   }
   async function dropWorktrees(turnId?: string) {
+    let completed = true;
     for (const [id, root] of [...worktrees]) if (turnId === undefined || root.turnId === turnId) {
       worktrees.delete(id);
-      await retireWorktree(root.capture);
+      completed = await retireWorktree(root.capture) && completed;
     }
+    return completed;
   }
   let tail: Promise<unknown> = Promise.resolve();
   function serialize<T>(operation: () => Promise<T>): Promise<T> {
@@ -273,8 +288,10 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       catch (error) { if (!(error instanceof JournalCapacityError) || !await collectOne()) throw error; }
     }
   }
-  const periodicObservers = new Set<{ before(): void; after(completed: boolean): void }>();
-  const observers = new Set<(turnId: string, facts: { changedPaths: number; observedBytes: number; workspacePaths: number; indexBytes?: number | null; partial: boolean }) => void>();
+  const periodicObservers = new Set<{ before(hold?: JournalHold): void; after(completed: boolean, hold?: JournalHold): void }>();
+  const evidence = new Map<string, { record: (hold: ActivityTurnHold) => void; inference: () => boolean }>();
+  let currentHold: JournalHold | undefined;
+  const observers = new Set<(turnId: string, facts: { changedPaths: number; observedBytes: number; workspacePaths: number; indexBytes?: number | null; partial: boolean; observationChangedPaths?: number; observationToolUseId?: string }) => void>();
   const pendingReadReleases = new Set<string>();
   const failures = new Map<string, string>();
   const failedAdmissions = new Set<string>();
@@ -289,17 +306,34 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   let holds = 0;
   let observationFailures = 0;
   /** `trace` also times the hold itself; `lifecycle` sees every step but that one. */
-  function held<T>(operation: (timing?: PhaseTimer) => Promise<T>, admission = false, trace?: PhaseTimer, lifecycle?: PhaseTimer): Promise<T> {
-    const hold = trace?.("hold"), timing = bothTimers(lifecycle, trace), waited = timing?.("hold_wait");
+  function held<T>(operation: (timing?: PhaseTimer) => Promise<T>, admission = false, trace?: PhaseTimer, lifecycle?: PhaseTimer,
+    cause: { kind: ActivityTurnHold["cause"]; turnId: string | null; toolUseId?: string; hold?: ActivityTurnHold } = { kind: "scope", turnId: null }): Promise<T> {
+    const holdId = cause.hold?.holdId ?? crypto.randomUUID(), requestedAt = Date.now();
+    const interval: JournalHold = { records: new Map(), stoppedTurns: new Set(), paths: new Map(),
+      inferenceInFlight: id => diagnostic(() => evidence.get(id)?.inference() ?? false) ?? null,
+      participant(id) {
+        const previous = interval.records.get(id); if (previous) return previous;
+        const sink = evidence.get(id);
+        if (!sink || !active.has(id) && !(cause.kind === "begin" && cause.turnId === id)) return;
+        const record: ActivityTurnHold = cause.hold && cause.turnId === id ? cause.hold : { holdId, cause: cause.kind, causeTurnId: cause.turnId === id ? id : null,
+          ...(cause.turnId === id && cause.toolUseId ? { toolUseId: cause.toolUseId } : {}), requestedAt,
+          stoppedAt: null, resumedAt: null, changedPaths: null, otherTurnsStopped: interval.stoppedTurns.size, inferenceInFlight: false };
+        interval.records.set(id, record);
+        if (record !== cause.hold) diagnostic(() => sink.record(record));
+        return record;
+      } };
+    for (const id of evidence.keys()) interval.participant(id);
+    const timing = bothTimers(lifecycle, trace), hold = bothTimers(trace)?.("hold"), waited = timing?.("hold_wait");
     // Backend event emission is synchronous: establish the hold before yielding
     // or queueing so a provider cannot launch another tool past this boundary.
     const holders = [...periodicObservers];
     holds++;
     let acquired = 0;
-    try { for (const holder of holders) { acquired++; holder.before(); } }
-    catch (error) { holds--; for (const holder of holders.slice(0, acquired)) holder.after(false); return Promise.reject(error); }
+    try { for (const holder of holders) { acquired++; holder.before(interval); } }
+    catch (error) { holds--; for (const holder of holders.slice(0, acquired)) holder.after(false, interval); return Promise.reject(error); }
     return serialize(async () => {
       waited?.();
+      currentHold = interval;
       let completed = false;
       const failedBefore = observationFailures;
       try { const result = await operation(timing); completed = true; return result; }
@@ -308,7 +342,8 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         // participants resume when their shared observation itself succeeded,
         // even if reclaiming a superseded checkpoint failed.
         const safe = (completed || admission && observationFailures === failedBefore);
-        holds--; for (const holder of holders) holder.after(safe);
+        holds--; for (const holder of holders) holder.after(safe, interval);
+        currentHold = undefined;
         hold?.();
       }
     });
@@ -494,12 +529,23 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         publish(turnId);
         step?.(); step = timing?.("observe_facts");
         const facts = advanceCounters(turnId).facts;
-        for (const observer of observers) observer(turnId, { ...facts, workspacePaths: turn.ordinaryWorkspaces ? 0 : facts.workspacePaths, indexBytes: observation.indexBytes, partial: summary(turnId).state === "partial" });
+        for (const observer of observers) observer(turnId, { ...(currentHold?.records.get(turnId)?.toolUseId ? { observationToolUseId: currentHold.records.get(turnId)!.toolUseId } : {}), observationChangedPaths: new Set([...changedPaths, ...worktree.map(item => item.path)]).size, ...facts, workspacePaths: turn.ordinaryWorkspaces ? 0 : facts.workspacePaths, indexBytes: observation.indexBytes, partial: summary(turnId).state === "partial" });
         step?.();
       }
       const committed = timing?.("observe_commit");
       await observation.commit();
       for (const root of separate) await root.observation.commit();
+      diagnostic(() => { for (const [id, record] of currentHold?.records ?? []) {
+        const paths = currentHold!.paths.get(id) ?? new Set<string>();
+        for (const path of changedPaths) paths.add(path);
+        for (const root of separate.filter(root => root.turnId === id)) {
+          for (const item of root.observation.changes.get(id) ?? []) {
+            if (identity(item.before) !== identity(item.after)) paths.add(referenceWorktreeJournalPath(root.worktreeId, item.path));
+          }
+        }
+        currentHold!.paths.set(id, paths);
+        record.changedPaths = paths.size;
+      } });
       committed?.();
     } catch (error) {
       observationFailures++;
@@ -517,7 +563,17 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
      * exempted as an admitted workspace (#3793). Content created beneath an
      * absent optional area is ordinary content, so it receives no exemption.
      */
-    onObservation(observer: (turnId: string, facts: { changedPaths: number; observedBytes: number; workspacePaths: number; indexBytes?: number | null; partial: boolean }) => void, periodic?: { before(): void; after(completed: boolean): void }) {
+    scopeHold(turnId: string, requestedAt: number, toolUseId?: string, changedPaths: number | null = null): ActivityTurnHold | undefined {
+      const sink = evidence.get(turnId); if (!sink || !active.has(turnId)) return;
+      const record: ActivityTurnHold = { holdId: crypto.randomUUID(), cause: "scope", causeTurnId: turnId, requestedAt,
+        ...(toolUseId ? { toolUseId } : {}), stoppedAt: null, resumedAt: null, changedPaths, otherTurnsStopped: 0, inferenceInFlight: false };
+      diagnostic(() => sink.record(record)); return record;
+    },
+    inferenceInFlight(turnId: string): boolean | null { return diagnostic(() => evidence.get(turnId)?.inference() ?? false) ?? null; },
+    evidence(turnId: string, record?: (hold: ActivityTurnHold) => void, inference: () => boolean = () => false) {
+      if (record) evidence.set(turnId, { record, inference }); else evidence.delete(turnId);
+    },
+    onObservation(observer: (turnId: string, facts: { changedPaths: number; observedBytes: number; workspacePaths: number; indexBytes?: number | null; partial: boolean; observationChangedPaths?: number; observationToolUseId?: string }) => void, periodic?: { before(hold?: JournalHold): void; after(completed: boolean, hold?: JournalHold): void }) {
       observers.add(observer); if (periodic) periodicObservers.add(periodic);
       return () => { if (periodic) periodicObservers.delete(periodic); return observers.delete(observer); };
     },
@@ -548,7 +604,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       active.set(turnId, { policy, stop, sequence: 0, sessionId: metadata.sessionId, ordinaryWorkspaces: metadata.workspaceMissing === true }); publish(turnId);
       if (!scopeTimer) {
         scopeTimer = setInterval(() => {
-          void held(timing => observe(false, timing), false, options.observationTrace?.("periodic", null)).catch(error => {
+          void held(timing => observe(false, timing), false, traceFor("periodic", null), undefined, { kind: "periodic", turnId: null }).catch(error => {
             for (const [id, turn] of active) { void fail(id, error).catch(() => {}); turn.stop(error instanceof Error ? error : new Error(String(error))); }
           });
         }, 15_000);
@@ -562,7 +618,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         throw error instanceof JournalCapacityError || error instanceof JournalStorageUnavailable
           ? error : new JournalStorageUnavailable("native journal admission could not be prepared");
       }
-    }, true, options.observationTrace?.("begin", turnId), timing); },
+    }, true, traceFor("begin", turnId), timing, { kind: "begin", turnId }); },
     async bindSession(turnId: string, sessionId: string): Promise<void> {
       const turn = active.get(turnId);
       if (!turn) return;
@@ -579,7 +635,10 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       void tracked(call<boolean>("bindModel", turnId, sessionId, model)).then(bound => { if (bound) publish(turnId); }, () => {});
       return true;
     },
-    observe(): Promise<void> { return held(() => observe()); },
+    observe(cause?: { turnId: string; toolUseId?: string; hold?: ActivityTurnHold }): Promise<void> {
+      return held(() => observe(), false, undefined, undefined, { kind: "scope", turnId: cause?.turnId ?? null,
+        ...(cause?.toolUseId ? { toolUseId: cause.toolUseId } : {}), ...(cause?.hold ? { hold: cause.hold } : {}) });
+    },
     /**
      * @internal A call of an active turn started (`start`) or was described; only its
      * own ending settles it. A second start under a running call's identity,
@@ -608,7 +667,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       const effect = call ? toolObservation(call.name, call.path) : "unproven";
       if (effect === "unproven" && active.has(turnId)) lasting.add(turnId);
       if (effect === "read" && !lasting.size && !calls.size) return Promise.resolve();
-      return held(timing => observe(false, timing), false, options.observationTrace?.("tool", turnId, toolUseId));
+      return held(timing => observe(false, timing), false, traceFor("tool", turnId, toolUseId), undefined, { kind: "tool", turnId, toolUseId });
     },
     /**
      * Cover one managed worktree (#2430) for an active turn before any of its
@@ -698,16 +757,15 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       if (summary(turnId).state !== "recording") throw new JournalStorageUnavailable("policy observation became incomplete before the approved write");
       let completed = false;
       try { approvedWrite(); completed = true; } finally { await observe(completed); }
-    }); },
-    finish(turnId: string) { return held(async timing => {
+    }, false, undefined, undefined, { kind: "scope", turnId }); },
+    finish(turnId: string, lifecycle?: PhaseTimer) { return held(async timing => {
       if (!active.has(turnId)) { if (failedAdmissions.has(turnId)) await finalizeRefusedAdmission(turnId); return; }
-      try { await observe(false, timing); }
+      try { const end = bothTimers(lifecycle)?.("final_observation"); await observe(false, timing); end?.(); }
       finally {
         active.delete(turnId); counters.delete(turnId); lasting.delete(turnId);
         for (const [key, call] of calls) if (call.turnId === turnId) calls.delete(key);
-        let step = worktrees.size ? timing?.("finish_worktrees") : undefined;
-        await dropWorktrees(turnId);
-        step?.();
+        let step = [...worktrees.values()].some(root => root.turnId === turnId) ? timing?.("finish_worktrees") : undefined;
+        if (await dropWorktrees(turnId)) step?.();
         if (!active.size) { clearInterval(scopeTimer); scopeTimer = undefined; }
         step = timing?.("finish_record");
         await write([
@@ -722,7 +780,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         publish(turnId);
         step?.();
       }
-    }, false, options.observationTrace?.("finish", turnId)); },
+    }, false, traceFor("finish", turnId), lifecycle, { kind: "finish", turnId }); },
     /** Ordinary current coverage only; never adds selected paths to ignored content. */
     removalCoverage(paths: readonly string[], signal?: AbortSignal, absent = false): Promise<boolean[]> { return held(async () => {
       if (paths.length > 32) throw new JournalStorageUnavailable("Too many selected attachments.");
@@ -739,7 +797,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       await write(pin(turnId, before));
       if (!objects.verify(before.hash, before.bytes)) throw new JournalStorageUnavailable("The retained original could not be verified.");
       return before;
-    }); },
+    }, false, undefined, undefined, { kind: "scope", turnId }); },
     hasRetainedVersion(turnId: string, selected: JournalVersion): boolean {
       if (!selected.hash || selected.ignored || selected.metadataOnly || selected.kind !== "file" || ["unknown", "expired"].includes(summary(turnId).state)) return false;
       if (!db.query("SELECT 1 FROM turn_journal_object_refs WHERE turn_id=? AND hash=?").get(turnId, selected.hash)
