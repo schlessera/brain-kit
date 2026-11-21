@@ -62,7 +62,12 @@ test("checkout hooks, filter programs and fsmonitor never run during capture", (
 
     writeFileSync(join(f.checkout, "chart.md"), "Scheria\n");
     expect(capture(f.checkout).paths).toContainEqual({ path: "chart.md", kind: "modified", untracked: false });
-    expect(Bun.file(canary).size, "GIT_PROGRAM_CANARY_NEVER_EXECUTED").toBe(0);
+    expect(existsSync(canary), "GIT_PROGRAM_CANARY_NEVER_EXECUTED").toBe(false);
+    writeFileSync(join(f.checkout, ".git/info/attributes"), "*.md filter=odyssey\n");
+    const filtered = Bun.spawnSync(["python3", "-I", "-S", "-c", CODE_CHANGE_PROGRAM, f.checkout, String(16 * 1024 * 1024)], { env, stdin: Buffer.from("{}") });
+    expect(filtered.exitCode, "FILTER_CHECKOUT_REMAINS_RESTRICTED").not.toBe(0);
+    expect(filtered.stderr.toString()).toContain("Filter and encoding receipts are unsupported");
+    expect(existsSync(canary), "FILTER_PROGRAM_NEVER_EXECUTED").toBe(false);
   } finally { f.close(); }
 });
 
