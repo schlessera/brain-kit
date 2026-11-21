@@ -9,7 +9,7 @@ import { BudgetExceeded, BudgetUnavailable, inferenceBudgetContext, inferenceBud
 import { createSafetyCollector } from "../../governance/safety-collector.js";
 import { sessionTaint } from "../../governance/session-taint.js";
 import { withChatFiles } from "../../attachments/context.js";
-import { makeBridge, settleTurnIndex } from "../bridge.js";
+import { makeBridge, settleTurnIndex, hasPendingTurnIndex } from "../bridge.js";
 import { withLocalContext } from "../local-exchanges.js";
 import { acceptRequest } from "../recovery.js";
 import type { WsHost } from "../host.js";
@@ -127,7 +127,10 @@ export async function openTurnBridge(
   }
   // A failed update is already on each application's Activity record,
   // and its paths stay queued for the next reader; the turn still ends.
-  held.settleIndex = () => settleTurnIndex(bridge).catch(() => {});
+  held.settleIndex = async () => {
+    const end = run.lifecycle?.timer("closing", { pending: hasPendingTurnIndex(bridge) })("index_settle");
+    try { await settleTurnIndex(bridge); end?.(); } catch { /* Failed flush remains queued; the step stays unended. */ }
+  };
   const fallback = governedHold?.sandbox.fallbackReason;
   if (fallback) {
     const match = /Error: (.+?) is (?:a )?(symlink|hardlinked)/.exec(fallback);

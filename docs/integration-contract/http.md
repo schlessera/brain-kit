@@ -566,7 +566,40 @@ payload fields.
 The additive `egress_connection` kind records the concrete turn proxy's host,
 port, visible HTTP method/path, bytes, accounting scope, duration and outcome.
 CONNECT records opaque bytes without a path or content claim; the inference
-tag comes only from the actual relay. Existing `egress_denial` remains named
+tag comes only from the actual relay. Inference records may carry monotonic
+millisecond offsets from the operation start: `admitMs` (first admission returned after its final synchronous commit check), `bodyMs` (body read), `credentialMs` (credential resolved),
+`dispatchMs` (immediately before upstream fetch), `headersMs` (fetch resolved)
+and `firstChunkMs` (first upstream read resolved, including EOF). Its mark is
+attempted once: a failed first mark remains absent and is never retried on a
+later read. Reached offsets are
+nonnegative, ordered and bounded by `durationMs`. Unreached marks are absent,
+including on refused/failed attempts. `loopLagMaxMs` is independently the
+maximum nonnegative drift of a 50 ms timer before dispatch (also sampled at
+dispatch before a delayed callback can run); it is not a provider latency.
+These optional host fields never alter request or response bytes. Timing and
+per-request usage callbacks are best-effort: a failed callback leaves its mark
+absent and cannot prevent dispatch or interrupt a response. A refused
+first admission carries `admitMs` at the completed refusal decision, including
+session-binding waits before proxy admission. A denied audit is submitted
+synchronously at that boundary, so turn stop and settlement cannot outrun it.
+
+Inference records also optionally carry provider-reported `inputTokens`,
+`cacheReadTokens` and `cacheCreationTokens` per request. The relay inspects the
+initial Messages SSE `message_start.message.usage` block, mapping
+`input_tokens`, `cache_read_input_tokens` and `cache_creation_input_tokens`.
+Only nonnegative safe integers actually reported by the provider are kept;
+missing or provider-null fields are not inferred as zero. A missing, malformed, unsupported or
+unreadable initial block leaves these fields absent. LF, CRLF and bare CR
+line endings are accepted across chunk boundaries. Comment and ping frames
+may precede the start; content, errors or another substantive frame end the
+initial-usage window. The last `event:` field in a frame supplies its effective label. Parsing
+consumes each retained character once, without rescanning the prefix after
+each chunk. The event label (when supplied) and JSON type must both
+identify `message_start`. Inspection is bounded to
+the first 64 KiB, deferred outside the forwarding stack and never awaited; it
+reads only chunks already forwarded and never alters or delays a chunk. The
+record stores no stream text, and terminal observation never waits for parsing.
+Existing `egress_denial` remains named
 and versioned as before. Header values, query strings and bodies are excluded.
 
 The additive `provider_mask_refusal` kind (#2690) records a host bridge tool

@@ -79,6 +79,8 @@ describe("the runtime status over the ws path", () => {
         at: "2026-09-23T12:00:00.000Z",
       });
       expect(store.getSpan(`${snapshot.lastAuthFailure!.runId}:turn`)).toBeDefined();
+      await until(() => store.lifecycle(snapshot.lastObserved!.runId)?.endedAt != null);
+      expect(store.lifecycle(snapshot.lastObserved!.runId)?.runtimeVersion, "SELECTED_RUNTIME_VERSION_ON_LIFECYCLE").toBe("2.1.999");
     } finally {
       host.close();
       stream.close();

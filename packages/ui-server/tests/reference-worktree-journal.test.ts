@@ -283,3 +283,44 @@ test("the worktree retry owner joins a capture still closing at turn end", async
     expect(attempts, "WORKTREE_RETRY_JOINS_PENDING_CLOSE").toBe(2);
   } finally { resume.resolve(); await finishing; f.pool.poolRelease = release; await f.close(); timers.restore(); }
 });
+
+test("hold path counts distinguish the brain and every managed worktree namespace", async () => {
+  const f = await fixture();
+  const holds: import("@schlessera/brain-ui-sdk/protocol").ActivityTurnHold[] = [];
+  try {
+    const first = await f.worktree(), second = await f.worktree();
+    await f.begin("turn-ithaca");
+    await f.journal.attachWorktree("turn-ithaca", first.id); await f.journal.attachWorktree("turn-ithaca", second.id);
+    f.journal.evidence("turn-ithaca", hold => holds.push(hold));
+    writeFileSync(join(f.brain, "README.md"), "Odysseus returns to Ithaca.\n");
+    writeFileSync(join(first.path!, "README.md"), "Penelope records the loom.\n");
+    writeFileSync(join(second.path!, "README.md"), "Telemachus records the voyage.\n");
+    await f.journal.observe();
+    expect(holds).toHaveLength(1);
+    expect(holds[0]!.changedPaths, "HOLD_COUNTS_QUALIFIED_WORKTREE_PATHS").toBe(3);
+    expect(f.rows("turn-ithaca").map(row => row.path).sort()).toEqual(["README.md",
+      referenceWorktreeJournalPath(first.id, "README.md"), referenceWorktreeJournalPath(second.id, "README.md")].sort());
+  } finally { await f.close(); }
+});
+
+test("finish_worktrees stays incomplete when retained checkpoint close fails", async () => {
+  const timers = cleanupTimers(), f = await fixture(), release = f.pool.poolRelease;
+  const steps: Array<{ name: string; ended: boolean }> = [];
+  try {
+    const tree = await f.worktree(); await f.begin("turn-ithaca"); await f.journal.attachWorktree("turn-ithaca", tree.id);
+    f.pool.poolRelease = async () => { throw Error("Odysseus checkpoint remains pinned"); };
+    await f.journal.finish("turn-ithaca", name => { const step = { name, ended: false }; steps.push(step); return () => { step.ended = true; }; });
+    expect(steps.find(step => step.name === "finish_worktrees"), "FAILED_WORKTREE_CLOSE_HAS_NO_COMPLETION").toEqual({ name: "finish_worktrees", ended: false });
+    expect(f.ledger.size).toBeGreaterThan(0);
+  } finally { f.pool.poolRelease = release; await f.close(); timers.restore(); }
+});
+
+test("finish_worktrees never attributes another active turn's worktree", async () => {
+  const f = await fixture(), steps: string[] = [];
+  try {
+    const tree = await f.worktree(); await f.begin("turn-ithaca"); await f.begin("turn-other"); await f.journal.attachWorktree("turn-other", tree.id);
+    await f.journal.finish("turn-ithaca", name => { steps.push(name); return () => {}; });
+    expect(steps, "OTHER_TURNS_WORKTREES_HAVE_NO_FINISH_STEP").not.toContain("finish_worktrees");
+    expect(f.journal.worktrees("turn-other")).toEqual([tree.id]);
+  } finally { await f.close(); }
+});

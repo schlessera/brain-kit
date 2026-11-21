@@ -47,7 +47,8 @@ export async function runSlotTurn(slot: SessionSlot, current: QueuedFollowUp, li
   if (!turn.authorization.valid) {
     host.budgets?.end(turn.turnId);
     turn.revision = undefined;
-    await failureRecording.finish();
+    const failureEnd = lifecycle?.timer("closing")("failure_recording");
+    if (await failureRecording.finish()) failureEnd?.();
     clearTimeout(timeoutHandle);
     // A cancellation accepted while billing was in flight is already a
     // decision someone made; losing it because the turn's own principal
@@ -98,21 +99,26 @@ async function executeTurn(run: TurnRun): Promise<TurnOutcome> {
     held.enteredBackend = true;
     turn.backendStarted = true;
     lifecycle?.mark("backendInvokedAt");
-    await backend.startTurn(turnRequest(run, prompt, bridge));
+    try { await backend.startTurn(turnRequest(run, prompt, bridge)); }
+    finally { lifecycle?.backendExit(); }
     turn.backendStarted = false;
     await held.settleIndex?.();
     // Every relayed attempt reports before the turn's accounting closes.
+    const egressEnd = held.providerRelay || held.turnEgress ? lifecycle?.timer("closing")("egress_settle") : undefined;
     await held.providerRelay?.stop();
     held.turnEgress?.stop();
     // Every egress record commits, or fails the turn, before its outcome (#2850).
     await held.turnEgress?.settled();
+    try { if (!held.turnEgress?.recordingFailure()) egressEnd?.(); } catch { /* A missing timing mark cannot fail cleanup. */ }
     const egressFailure = held.turnEgress?.recordingFailure();
     if (egressFailure) throw egressFailure;
     // Final observation is part of this host outcome, after worker writes
     // stop and before its Activity terminal, quarantine or gate release.
     // A worktree generation retires first: no grant can follow that observation.
     if (held.worktreeGeneration) await host.referenceWorktrees!.retireGeneration(held.worktreeGeneration.id);
-    await host.journal?.finish(turn.turnId);
+    const journalEnd = host.journal ? lifecycle?.timer("closing")("journal_finish") : undefined;
+    await host.journal?.finish(turn.turnId, lifecycle?.timer("closing"));
+    journalEnd?.();
     await settleBudgetWrites(run);
     if (stops.budget) throw stops.budget;
     if (stops.journal) throw stops.journal;
@@ -124,7 +130,9 @@ async function executeTurn(run: TurnRun): Promise<TurnOutcome> {
   } catch (err) {
     lifecycle?.mark("failureObservedAt");
     await held.settleIndex?.();
+    const egressEnd = held.turnEgress ? lifecycle?.timer("closing")("egress_settle") : undefined;
     await held.turnEgress?.settled();
+    try { if (!held.turnEgress?.recordingFailure()) egressEnd?.(); } catch { /* A missing timing mark cannot fail cleanup. */ }
     await settleBudgetWrites(run);
     const failed = classifyFailedTurn({
       cancelled: turn.cancelled, aborted: abortController.signal.aborted, lastResult: turn.lastResult, stops,
