@@ -101,7 +101,7 @@ try {
     const turnLock = createTurnLockBinding({ turn: { pendingReleases: new Map(), ended: false }, writeLock: createKeyedLock(), lockWaitMs: 1000, log() {} });
     const environment: Record<string, string> = { GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", HOME: home, CLAUDE_CONFIG_DIR: join(home, ".claude"), CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
       ...(legacy || scenario === "authority-upgrade" ? { MCP_CONNECTION_NONBLOCKING: "0" } : {}),
-      ...(scenario === "legacy-inherited" ? { ENABLE_TOOL_SEARCH: turnIndex === 2 ? "false" : "true" } : {}),
+      ...(scenario === "legacy-inherited" ? { ENABLE_TOOL_SEARCH: turnIndex === 0 ? "true" : "false" } : {}),
       ...(scenario.endsWith("gateway") ? { ANTHROPIC_BASE_URL: "https://gateway.example.com" } : {}) };
     const turn = legacy && turnIndex === 0 ? legacySdkTurn(brain, sessionId!, environment, relay.socketPath, controller) : createClaudeSdkTurn({ backend: { brainPath: brain }, req: { prompt: `Odysseus checks Ithaca step ${turnIndex}.`, sessionId,
       applicationAuthority: scenario === "authority-upgrade" && turnIndex === 0 ? undefined : "server", signal: controller.signal, turnId: `ithaca-${turnIndex}`, workerStartupView: view,
@@ -118,9 +118,11 @@ try {
     // Route only the transport socket into this direct-runtime probe. Never
     // override production tool-search selection for gateway or removal cases.
     const contextFile = sessionPromptContextLocation(process.env.CLAUDE_CONFIG_DIR || join(process.env.HOME!, ".claude"), brain, sessionId ?? turn.options.sessionId!);
-    const initialized = JSON.parse(readFileSync(join(contextFile.dir, contextFile.name), "utf8")).claudeRequestShapeInitialized === true;
+    const savedContext = JSON.parse(readFileSync(join(contextFile.dir, contextFile.name), "utf8"));
+    const initialized = savedContext.claudeRequestShapeInitialized === true;
     capture.qualification ??= {};
     capture.qualification.watchdogMs = watchdogMs(45_000);
+    if (legacy && turnIndex > 0) capture.qualification.legacyOriginalSetting = savedContext.claudeRequestShape.toolSearch === null ? "unknown" : "known";
     capture.qualification.projectToolSearch = JSON.parse(readFileSync(join(brain, ".claude/settings.json"), "utf8")).env.ENABLE_TOOL_SEARCH;
     if (legacy && turnIndex === 0) capture.qualification.baseline = { source: baseline.source, initialized };
     if (legacy) turn.options.mcpServers = { ...turn.options.mcpServers, brain: { command: process.execPath, args: [resolve(import.meta.dir, "request-shape-mcp.ts"), marker] } };

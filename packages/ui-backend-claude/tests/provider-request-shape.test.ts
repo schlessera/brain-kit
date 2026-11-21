@@ -124,11 +124,19 @@ test("#4324 qualification evidence: strict history rejects the native earlier-me
   expect(violations).toBeGreaterThan(0);
 });
 
-test("legacy inherited tool search retains original SDK input and provider roster", () => {
+// A pre-upgrade session has no recorded original environment. This is
+// qualification of existing configuration-dependent behavior, not valid history.
+test("legacy original tool-search value stays unknown when configuration changes before migration", () => {
   const capture = captures["legacy-inherited"]!;
-  expect((capture.budgets as any[]).map(input => input.inheritedRequested)).toEqual(["true", "true", "false"]);
-  for (const input of capture.budgets as any[]) { expect(input.env).toBe("true"); expect(input.settings).toBeUndefined(); }
-  for (const [a, b] of pairs(capture)) identical(body(a).tools, body(b).tools, "INHERITED_LEGACY_WIRE_ROSTER");
+  expect((capture.budgets as any[]).map(input => input.inheritedRequested)).toEqual(["true", "false", "false"]);
+  expect((capture.budgets as any[]).map(input => input.env), "LEGACY_MIGRATION_DOES_NOT_INVENT_ORIGINAL_ENV").toEqual(["true", "false", "false"]);
+  expect(capture.qualification!.legacyOriginalSetting).toBe("unknown");
+  for (const input of capture.budgets as any[]) expect(input.settings).toBeUndefined();
+  const exchanges = main(capture);
+  expect(body(exchanges[0]!).tools.some((tool: any) => tool.name === "ToolSearch")).toBe(true);
+  expect(body(exchanges[1]!).tools.some((tool: any) => tool.name === "ToolSearch")).toBe(false);
+  // The same behavior was present before upgrade; it does not prove stability.
+  for (const [a, b] of pairs(capture).slice(1)) identical(body(a).tools, body(b).tools, "UNCHANGED_CURRENT_LEGACY_ENV_ROSTER");
 });
 
 test("production gateway pin and deadline factor reach the runtime unchanged", () => {

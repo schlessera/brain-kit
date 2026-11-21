@@ -69,6 +69,14 @@ export function promptGateCheck(inputs: PromptGateInputs): () => Promise<boolean
     inputs.log("warn", "inference transport check refused the turn", { "profile.id": inputs.profileId, reason });
     return terminal.withhold();
   };
+  const refuseSettings = (): false => {
+    const message = "Claude native settings refused the retained tool-search selection. Correct the conflicting settings before retrying.";
+    terminal.refused = { code: "CLAUDE_ERROR", message, failure: { errorClass: FIRST_PARTY_FAILURE_CLASSES.settings_conflict, message } };
+    // This is configuration, not failed authentication. No auth_failure event
+    // may poison subscription status before runtime billing has been observed.
+    inputs.log("warn", "native settings check refused the turn", { "profile.id": inputs.profileId, reason: "settings_conflict" });
+    return terminal.withhold();
+  };
   return async () => {
     const cli = await inputs.queryHandle;
     let account: AccountInfo | undefined;
@@ -95,6 +103,9 @@ export function promptGateCheck(inputs: PromptGateInputs): () => Promise<boolean
       return terminal.withhold();
     }
     if (abortController.signal.aborted) return terminal.withhold();
+    const discovery = sdkTurn.pinnedSettingsEnv?.ENABLE_TOOL_SEARCH;
+    if (discovery !== undefined && settings?.effective?.env?.ENABLE_TOOL_SEARCH !== discovery)
+      return refuseSettings();
     if (sdkTurn.subscriptionOnly) {
       const verdict = subscriptionVerdict(account);
       const conflict = verdict.ok ? settingsRefusal(settings, sdkTurn.pinnedSettingsEnv) : null;
@@ -105,9 +116,6 @@ export function promptGateCheck(inputs: PromptGateInputs): () => Promise<boolean
         return refuseSubscription(verdict.ok ? conflict! : verdict.reason);
       }
     }
-    const discovery = sdkTurn.pinnedSettingsEnv?.ENABLE_TOOL_SEARCH;
-    if (discovery !== undefined && settings?.effective?.env?.ENABLE_TOOL_SEARCH !== discovery)
-      return refuseTransport("native settings refused the retained tool-search selection");
     if (relay?.egress) {
       // An API-billed turn is not a subscription refusal: name the transport instead.
       const refuse = sdkTurn.subscriptionOnly ? refuseSubscription : refuseTransport;

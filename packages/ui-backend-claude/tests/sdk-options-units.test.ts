@@ -106,7 +106,7 @@ describe("assemblePromptContext", () => {
       expect(a.append).toBe(b.append);
       expect(a.append, "CLAUDE_FIXED_APPEND_BATCHES_INDEPENDENT_READS").toContain("Batch your");
       expect(a.append).not.toContain("SANDBOX NOTE");
-      expect(a.owned?.text).toContain("SANDBOX NOTE");
+      expect(a.prepare?.().text).toContain("SANDBOX NOTE");
       expect(a.context).toBeDefined();
     } finally { rmSync(brain, { recursive: true, force: true }); }
   });
@@ -129,7 +129,7 @@ describe("assemblePromptContext", () => {
       const req = request({ autonomous: { origin: "autonomous", allowedTools: [], systemPromptAppend: "Tally the herds." } });
       const prompt = assemblePromptContext({ brainPath: brain }, req, computeToolRoster(req, []), { brain } as never, "SANDBOX NOTE");
       expect(prompt.context).toBeUndefined();
-      expect(prompt.owned).toBeUndefined();
+      expect(prompt.prepare).toBeUndefined();
       expect(prompt.append).toBe("Tally the herds.\n\nSANDBOX NOTE");
     } finally { rmSync(brain, { recursive: true, force: true }); }
   });

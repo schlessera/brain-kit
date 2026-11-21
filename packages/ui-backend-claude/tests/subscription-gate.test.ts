@@ -148,7 +148,7 @@ describe("the subscription gate", () => {
       async () => ({ account: { tokenSource: "CLAUDE_CODE_OAUTH_TOKEN", apiProvider: "firstParty" } }),
       [],
       async () => ({
-        effective: { apiKeyHelper: "" },
+        effective: { apiKeyHelper: "", env: { ENABLE_TOOL_SEARCH: "false" } },
         sources: [{ source: "policySettings", settings: { apiKeyHelper: "sleep 1; echo key" } }],
       })
     );
@@ -167,7 +167,7 @@ describe("the subscription gate", () => {
     const frames = await turn(d);
 
     expect(d.released).toEqual([]);
-    expect(frames.at(-1)).toMatchObject({ type: "error", code: "CLAUDE_AUTH" });
+    expect(frames.at(-1)).toMatchObject({ type: "error", code: "CLAUDE_ERROR", failure: { errorClass: "settings_conflict" } });
   });
 
   test("a handshake that fails on its own is a CLAUDE_ERROR, and nothing is released", async () => {
@@ -193,6 +193,6 @@ test("direct API runner with no runtime floor verifies the effective off pin bef
     const frames = await turn(d, new AbortController().signal, undefined, true);
     expect(settingsRead, "DIRECT_API_RUNNER_READS_SETTINGS").toBe(1);
     expect(d.released.length, "DIRECT_API_RUNNER_WITHHOLDS_UNQUALIFIED_INPUT").toBe(effective === "false" ? 1 : 0);
-    if (effective !== "false") expect(frames.some(frame => frame.type === "error" && frame.message.includes("retained tool-search selection"))).toBe(true);
+    if (effective !== "false") expect(frames.find(frame => frame.type === "error" && frame.message.includes("retained tool-search selection"))).toMatchObject({ failure: { errorClass: "settings_conflict" } });
   }
 });

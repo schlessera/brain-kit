@@ -1552,8 +1552,9 @@ selection in host prompt-context storage for every later resume:
 NotebookEdit remains registered for governed typed native writes; a strict-mode
 refusal is not evidence that the governed contract is unusable. Reference tools
 remain registered and retain their existing scoped refusals. Selection and its
-initialization marker share the atomic prompt-context record. A roster digest
-validates the recorded session list independently of later removal lists.
+initialization marker share the atomic prompt-context record. A selection digest
+validates the version, recorded session list and tool-search pin independently
+of later removal lists.
 Missing marked selection or a missing whole context refuses before any state
 is recreated, rather than silently adopting legacy. A genuine legacy
 context without either field uses the legacy disallow list;
@@ -1584,11 +1585,19 @@ no user-facing mode, pricing or budget change ships here.
 ### 2026-11-21 — Off-state retention and mandatory authority
 
 Interactive turns always pass the production prompt gate, including direct API
-turns without a runtime minimum. A legacy selection records its inherited
-tool-search environment value once (including absence); later configuration
-changes cannot replace it. Selection and route validation precede persistence
-of a pending prompt, so a refused retry leaves the original context bytes
-unchanged.
+turns without a runtime minimum. A legacy session has no recorded original
+tool-search environment value: its retained pin is explicitly unknown. It keeps
+the pre-upgrade behavior of using the current environment without a host flag
+pin, after relay credential filtering. No environment value is persisted or
+restored from the retention record. A configuration change can therefore alter
+that legacy runtime's roster, as it could before upgrade; migration does not
+claim to recover or qualify its missing original value.
+
+Selection and route validation precede prompt preparation. Prompt ownership is
+persisted only when the gated input is pulled after native-settings checks, so
+refused retries leave the original prompt bytes unchanged. The selection digest
+covers its version, entire roster and tool-search pin. Settings conflicts use
+`settings_conflict` without an authentication event or login action.
 
 The stored roster records historical optional membership. Current mandatory
 exclusions still apply on top, including the three project MCP writers when a

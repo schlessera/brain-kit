@@ -41,3 +41,16 @@ test("the strict history guard rejects #4324 rewrites on the same turn and resum
   const after = JSON.parse(next.raw); after.messages.pop(); next.raw = JSON.stringify(after);
   expect(() => history(previous, next)).toThrow();
 });
+
+
+test("cache breakpoint movement cannot hide a schema property or tool input edit", () => {
+  const tool = { ...read, cache_control: { type: "ephemeral" }, input_schema: { type: "object", properties: {} } };
+  providerTools(...pair([tool], [{ ...tool, cache_control: undefined }], "Read"), "top-level breakpoint");
+  const edited = { ...tool, input_schema: { ...tool.input_schema, properties: { cache_control: { type: "string" } } } };
+  expect(() => providerTools(...pair([tool], [edited], "Read"), "schema property"), "CACHE_CONTROL_SCHEMA_EDIT_IS_REAL_HISTORY").toThrow("first differing byte");
+  const [a, b] = pair([read], [read]);
+  const request = JSON.parse(b.raw);
+  request.messages[1].content[0].input.cache_control = "changed tool input";
+  b.raw = JSON.stringify(request);
+  expect(() => history(a, b), "CACHE_CONTROL_TOOL_INPUT_IS_REAL_HISTORY").toThrow("first differing byte");
+});

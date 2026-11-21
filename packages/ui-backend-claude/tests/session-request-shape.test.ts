@@ -13,8 +13,8 @@ beforeEach(() => { home = installTestHome(); brain = mkdtempSync(join(tmpdir(), 
 afterEach(() => { rmSync(brain, { recursive: true, force: true }); home.dispose(); });
 const legacy = ["AskUserQuestion", "mcp__brain__brain_add", "mcp__brain__brain_update", "mcp__brain__brain_archive"];
 const current = [...legacy, ...HOST_UNUSED_BUILTINS];
-const rosterDigest = (tools: string[]) => createHash("sha256").update(JSON.stringify(tools)).digest("hex");
-const expected = { version: 3, inheritedToolSearch: null, rosterDigest: rosterDigest(current), disallowedTools: current, toolSearch: "true" } satisfies ClaudeSessionRequestShape;
+const selectionDigest = (tools: string[], toolSearch: string | null) => createHash("sha256").update(JSON.stringify({ version: 4, disallowedTools: tools, toolSearch })).digest("hex");
+const expected = { version: 4, selectionDigest: selectionDigest(current, "true"), disallowedTools: current, toolSearch: "true" } satisfies ClaudeSessionRequestShape;
 function session() { const id = crypto.randomUUID(); claudePromptContext(brain, id).retainAppend("Odysseus checks Ithaca."); return id; }
 function path(id: string) { const { dir, name } = sessionPromptContextLocation(process.env.CLAUDE_CONFIG_DIR!, brain, id); return join(dir, name); }
 const retain = (id: string, resumed = false, candidate = current) => retainSessionRequestShape(brain, id, resumed, candidate, legacy, undefined, "true");
@@ -27,7 +27,7 @@ test("new sessions retain the exact native selection and tool-search pin across 
 test("a genuine legacy prompt snapshot gains the exact legacy roster and no new SDK pin", () => {
   const id = session(), before = readFileSync(path(id), "utf8");
   expect(before).not.toContain("claudeRequestShape");
-  expect(retain(id, true), "LEGACY_BUILTIN_SELECTION_RETAINED").toEqual({ version: 3, inheritedToolSearch: null, rosterDigest: rosterDigest(legacy), disallowedTools: legacy, toolSearch: null });
+  expect(retain(id, true), "LEGACY_BUILTIN_SELECTION_RETAINED").toEqual({ version: 4, selectionDigest: selectionDigest(legacy, null), disallowedTools: legacy, toolSearch: null });
 });
 test("empty, arbitrary and incomplete snapshots cannot drop mandatory exclusions", () => {
   const other = session();
@@ -92,13 +92,13 @@ test("production assembly retains a gateway pin and confines a changed-upstream 
     try { expect(legacyTurn.options.env!.ENABLE_TOOL_SEARCH, "INHERITED_LEGACY_SELECTION_PRESERVED").toBe("true"); expect((legacyTurn.options.settings as any).env.ENABLE_TOOL_SEARCH).toBeUndefined(); }
     finally { await legacyTurn.finishWorker(); }
     const drift = assemble("https://api.anthropic.com", legacyId, true, "false");
-    try { expect(drift.options.env!.ENABLE_TOOL_SEARCH, "RECORDED_LEGACY_ENV_DOES_NOT_DRIFT").toBe("true"); }
+    try { expect(drift.options.env!.ENABLE_TOOL_SEARCH, "UNKNOWN_LEGACY_ENV_KEEPS_CURRENT_BEHAVIOR").toBe("false"); }
     finally { await drift.finishWorker(); }
     const absentId = session();
     const absent = assemble("https://api.anthropic.com", absentId);
     await absent.finishWorker();
     const laterEnv = assemble("https://api.anthropic.com", absentId, true, "true");
-    try { expect(laterEnv.options.env!.ENABLE_TOOL_SEARCH, "ABSENT_LEGACY_ENV_STAYS_ABSENT").toBeUndefined(); }
+    try { expect(laterEnv.options.env!.ENABLE_TOOL_SEARCH, "UNKNOWN_LEGACY_ENV_IS_NOT_SNAPSHOTTED").toBe("true"); }
     finally { await laterEnv.finishWorker(); }
     const missingId = firstParty.options.sessionId!;
     rmSync(path(missingId));
@@ -116,7 +116,7 @@ test("production assembly retains a gateway pin and confines a changed-upstream 
     const corrupt = assemble("https://api.anthropic.com");
     const corruptId = corrupt.options.sessionId!; await corrupt.finishWorker();
     const corruptState = JSON.parse(readFileSync(path(corruptId), "utf8"));
-    corruptState.claudeRequestShape.rosterDigest = "invalid";
+    corruptState.claudeRequestShape.selectionDigest = "invalid";
     const corruptBytes = JSON.stringify(corruptState); writeFileSync(path(corruptId), corruptBytes);
     for (let retry = 0; retry < 2; retry++) {
       expect(() => assemble("https://api.anthropic.com", corruptId)).toThrow("Invalid saved Claude session request shape");
@@ -132,4 +132,13 @@ test("a later release's removal list cannot invalidate a recorded roster", () =>
   const id = session(), future = [...current, "FutureBuiltIn"];
   const recorded = retain(id, false, future);
   expect(retain(id, true, legacy), "RECORDED_ROSTER_SURVIVES_REMOVAL_LIST_CHANGE").toEqual(recorded);
+});
+
+
+test("the retained digest covers the tool-search pin, including a forged legacy null", () => {
+  const id = session(); retainSessionRequestShape(brain, id, false, current, legacy, undefined, "false");
+  const state = JSON.parse(readFileSync(path(id), "utf8"));
+  state.claudeRequestShape.toolSearch = null;
+  writeFileSync(path(id), JSON.stringify(state));
+  expect(() => retain(id, true), "TOOL_SEARCH_PIN_IS_DIGESTED").toThrow("Invalid saved Claude session request shape");
 });

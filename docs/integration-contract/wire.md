@@ -1024,6 +1024,12 @@ SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the fa
   does not update subscription authentication status. Its message names a
   known, unambiguous host denial cause; conflicting observed causes and replay
   with only relay text claim no finer cause.
+  `settings_conflict` means the native runtime could not honor a retained host
+  setting before prompt release. It carries no `authAction`, emits no
+  `auth_failure` event and does not update subscription authentication status.
+  Correcting the conflicting settings permits the next attempt; changing login
+  credentials does not resolve it. It uses the existing free-form failure-class
+  field, with no new frame kind or required field.
   `worker_host_unsupported` means
   the host refused before runtime initialization because its required worker
   boundary probe failed; the message names the requirement and the verified

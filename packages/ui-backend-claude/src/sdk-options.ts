@@ -321,17 +321,18 @@ export function turnChildEnvironment(
     ENABLE_TOOL_SEARCH: "false",
   } : undefined;
   // The relay holds the profile's credential, so the variables it names stay on the host.
-  const childEnv: Record<string, string | undefined> = inferenceEnv ? { ...Object.fromEntries(Object.entries(inheritedEnv)
+  const filteredEnv = inferenceEnv ? Object.fromEntries(Object.entries(inheritedEnv)
     .filter(([name]) => !profile.requiredEnvKeys.includes(name)
       // An operator who admits an agent-only key explicitly keeps it.
-      && !(AGENT_INFERENCE_CREDENTIAL_ENV.includes(name) && !operatorAdmittedEnvNames().includes(name)))), ...inferenceEnv } : { ...inheritedEnv };
+      && !(AGENT_INFERENCE_CREDENTIAL_ENV.includes(name) && !operatorAdmittedEnvNames().includes(name)))) : { ...inheritedEnv };
+  const childEnv: Record<string, string | undefined> = { ...filteredEnv, ...inferenceEnv };
   // The provider keys a governed or strict worker keeps (#1666): the Claude
   // CLI's own inference variables (placeholders on a relayed turn), the
   // profile's declared credential and what an operator admits. The launcher
   // withholds every other provider key, and the note names what stays.
   const credentialEnv = [...CLAUDE_INFERENCE_ENV, ...profile.requiredEnvKeys, ...operatorAdmittedEnvNames()];
   const providerKeys = workerProviderCredentials(childEnv, credentialEnv).kept.filter(name => !inferenceEnv || !(name in inferenceEnv));
-  return { inferenceEnv, inheritedEnv, childEnv, credentialEnv, providerKeys };
+  return { inferenceEnv, inheritedEnv, filteredEnv, childEnv, credentialEnv, providerKeys };
 }
 
 /** The worker's writable areas and limits, and the note the agent reads about them. */
@@ -406,7 +407,7 @@ export function assemblePromptContext(
   }, undefined), req.sessionBudgetLimits].filter(Boolean).join("\n\n"), req.sessionBudgetLimits ? { limits: req.sessionBudgetLimits } : {}) : candidate;
   if (context) beforePrepare?.(contextId);
   const available = (name: string) => toolAvailabilityRefusal({ ...req, workerSandbox: sandbox }, name) === undefined;
-  const owned = context?.prepare(req.prompt, {
+  const prepare = context ? () => context.prepare(req.prompt, {
     device: req.client ? describeClient(req.client) : "Device unknown; hardware probe results are withheld until known.",
     sandbox: sandboxNote,
     capabilities: JSON.stringify({ posture: req.posture ?? "default", noGrantSurface: req.noGrantSurface === true,
@@ -419,8 +420,8 @@ export function assemblePromptContext(
     ...(req.turnBudgetMs && req.turnBudgetMs > 0 ? { timeout: `The host hard budget for this turn is ${req.turnBudgetMs} ms (about ${Math.round(req.turnBudgetMs / 60000)} minutes); finish inside this cap.` } : {}),
     ...(req.sessionBudgetLimits ? { limits: req.sessionBudgetLimits } : {}),
     ...(req.budgetContext ? { budget: req.budgetContext } : {}),
-  });
-  return { contextId, context, append, owned };
+  }) : undefined;
+  return { contextId, context, append, prepare };
 }
 
 function assembleClaudeSdkTurn(
@@ -430,17 +431,17 @@ function assembleClaudeSdkTurn(
   const { backend, req, profile, abortController, confirmPatterns, turnLock, log } = options;
   const roster = computeToolRoster(req, options.allowedTools);
   const { turnTempTool, hosted, allowed } = roster;
-  const { inferenceEnv, inheritedEnv, childEnv, credentialEnv, providerKeys } = turnChildEnvironment(options, envelope);
+  const { inferenceEnv, inheritedEnv, filteredEnv, childEnv, credentialEnv, providerKeys } = turnChildEnvironment(options, envelope);
   const { sandbox, limits, stateLimits, turnTempLimits, sandboxNote } = prepareSandboxNote(options, envelope, providerKeys, turnTempTool);
   const mandatory = ["AskUserQuestion", ...IN_WORKER_COMPUTE_TOOLS, ...IN_WORKER_APIFY_TOOLS, ...((hosted || req.autonomous) ? [
       "mcp__brain__brain_add", "mcp__brain__brain_update", "mcp__brain__brain_archive",
     ] : []), ...(hosted && req.autonomous && (sandbox.profile !== "governed" || req.posture === "voice") ? ["Write", "Edit", "NotebookEdit"] : [])];
   let retained: ReturnType<typeof retainSessionRequestShape> | undefined;
-  const { contextId, context, append, owned } = assemblePromptContext(backend, req, roster, sandbox, sandboxNote, id => {
+  const { contextId, context, append, prepare } = assemblePromptContext(backend, req, roster, sandbox, sandboxNote, id => {
     // Validate before prepare() persists this turn. Refused retries must leave
     // the saved prompt and pending-turn journal byte-identical.
     retained = retainSessionRequestShape(backend.brainPath, id, req.sessionId !== undefined,
-      [...mandatory, ...(hosted ? HOST_UNUSED_BUILTINS : [])], mandatory, undefined, "false", inheritedEnv.ENABLE_TOOL_SEARCH);
+      [...mandatory, ...(hosted ? HOST_UNUSED_BUILTINS : [])], mandatory, undefined, "false");
     if (retained.toolSearch === "true") {
       if (!firstPartyInferenceUpstream(inheritedEnv))
         throw new Error("This session's tool search requires its qualified first-party inference upstream.");
@@ -545,11 +546,12 @@ function assembleClaudeSdkTurn(
     sdkOptions.disallowedTools = [...new Set([...retained.disallowedTools, ...mandatory])];
     selectionPin = retained.toolSearch ?? undefined;
     if (selectionPin === undefined) {
-      // No host pin existed for genuine legacy sessions. Preserve the inherited
-      // SDK environment, including true/false/auto values, and add no flag pin.
+      // The original legacy setting is unknown. Keep its pre-upgrade behavior:
+      // use this turn's already-filtered environment and add no host flag pin.
+      // Never restore a variable that the relay withheld as a credential.
       if (inferenceEnv) delete (inferenceEnv as Record<string, string>).ENABLE_TOOL_SEARCH;
-      if (retained.inheritedToolSearch === null) delete childEnv.ENABLE_TOOL_SEARCH;
-      else childEnv.ENABLE_TOOL_SEARCH = retained.inheritedToolSearch;
+      if (filteredEnv.ENABLE_TOOL_SEARCH === undefined) delete childEnv.ENABLE_TOOL_SEARCH;
+      else childEnv.ENABLE_TOOL_SEARCH = filteredEnv.ENABLE_TOOL_SEARCH;
     } else {
       childEnv.ENABLE_TOOL_SEARCH = selectionPin;
       if (inferenceEnv) inferenceEnv.ENABLE_TOOL_SEARCH = selectionPin;
@@ -566,6 +568,9 @@ function assembleClaudeSdkTurn(
   // The selected relay origin makes the CLI coalesce custom system blocks.
   // Keep all per-item context in the user message, after the marked prefix.
   const prompt = envelope ? `${req.autonomous!.systemPromptAppend}\n\n${req.prompt}` : req.prompt;
+  // Persist ownership only when the gated input actually releases this prompt.
+  // A native-settings refusal never pulls this inner iterable.
+  let owned: ReturnType<NonNullable<typeof prepare>> | undefined;
   return {
     options: sdkOptions,
     subscriptionOnly,
@@ -584,7 +589,8 @@ function assembleClaudeSdkTurn(
     workerStateRoom: worker.stateRoom,
     /** Each streamed piece of the answer, for the turn-temp purge's linked-file guard (#1703). */
     observeAnswerText: (text: string) => { answerText += text; },
-    prompt: owned ? (async function* () {
+    prompt: prepare ? (async function* () {
+      owned = prepare();
       yield { ...userMessage(owned.text, req.attachments), uuid: owned.id as SDKUserMessage["uuid"] };
     })() :
       req.attachments && req.attachments.length > 0

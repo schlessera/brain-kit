@@ -37,8 +37,8 @@ export function mockWorkerHostForSdkStream() {
     acknowledgement = spyOn(context, "acknowledgeClaudeContext").mockImplementation(() => {});
     // Match the existing fake brain/config context while exercising the real
     // selection reader and writer; permission-only streams have no /brain.
-    selection = spyOn(shape, "retainSessionRequestShape").mockImplementation((_brain, id, resumed, candidate, legacy, _env, toolSearch, inheritedToolSearch) =>
-      retainSelection(brain, id, resumed, candidate, legacy, { CLAUDE_CONFIG_DIR: join(root, "host") }, toolSearch, inheritedToolSearch));
+    selection = spyOn(shape, "retainSessionRequestShape").mockImplementation((_brain, id, resumed, candidate, legacy, _env, toolSearch) =>
+      retainSelection(brain, id, resumed, candidate, legacy, { CLAUDE_CONFIG_DIR: join(root, "host") }, toolSearch));
   });
   afterEach(() => {
     selection.mockRestore(); prompt.mockRestore(); acknowledgement.mockRestore(); probe.mockRestore(); rewrite.mockRestore();

@@ -221,7 +221,7 @@ claim.
 
 New hosted sessions retain their native disallow selection and tool-search pin
 atomically in private prompt-context storage, beside an initialization marker.
-Each recorded roster carries its own digest, validated independently of later
+Each recorded selection carries its own digest, validated independently of later
 releases' removal lists. An initialized record with a missing or malformed
 selection refuses only that session. A wholly missing context refuses resume
 before any append or selection is recreated. A genuine older prompt-context record without either field adopts the
@@ -232,11 +232,19 @@ deployment adds a brief. These internal fields never enter provider content.
 ### 2026-11-21 — Off-state retention and mandatory authority
 
 Interactive turns always pass the production prompt gate, including direct API
-turns without a runtime minimum. A legacy selection records its inherited
-tool-search environment value once (including absence); later configuration
-changes cannot replace it. Selection and route validation precede persistence
-of a pending prompt, so a refused retry leaves the original context bytes
-unchanged.
+turns without a runtime minimum. A legacy session has no recorded original
+tool-search environment value: its retained pin is explicitly unknown. It keeps
+the pre-upgrade behavior of using the current environment without a host flag
+pin, after relay credential filtering. No environment value is persisted or
+restored from the retention record. A configuration change can therefore alter
+that legacy runtime's roster, as it could before upgrade; migration does not
+claim to recover or qualify its missing original value.
+
+Selection and route validation precede prompt preparation. Prompt ownership is
+persisted only when the gated input is pulled after native-settings checks, so
+refused retries leave the original prompt bytes unchanged. The selection digest
+covers its version, entire roster and tool-search pin. Settings conflicts use
+`settings_conflict` without an authentication event or login action.
 
 The stored roster records historical optional membership. Current mandatory
 exclusions still apply on top, including the three project MCP writers when a
@@ -251,3 +259,8 @@ strict tool guard rejects the reorder. This remains evidence against enablement,
 exception. The maintainer keeps tool search off in #4319. Follow-up #4325
 registers static host bridge definitions and forwards execution to a per-turn
 sandboxed `brain mcp` process; enablement waits for that path's qualification.
+
+Cache-breakpoint normalization is limited to API tool definitions, system blocks
+and message content blocks (including tool-result content). Arbitrary nested
+JSON stays exact: an input-schema property or tool input named `cache_control`
+is content, not a cache breakpoint.

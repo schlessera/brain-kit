@@ -26,9 +26,20 @@ export interface HistoryCapture {
 }
 export type Captures = Record<string, HistoryCapture>;
 
-/** Preserve insertion order and every content byte; only cache breakpoints may move. */
-export function bytes(value: unknown): string {
-  return JSON.stringify(value, (key, item) => key === "cache_control" ? undefined : item);
+/** Preserve every content byte, including schema/input properties named cache_control. */
+export function bytes(value: unknown): string { return JSON.stringify(value); }
+
+/** Only API cache-breakpoint positions may move; never walk arbitrary payloads. */
+function cacheBlock(block: any): any {
+  if (!block || typeof block !== "object" || Array.isArray(block)) return block;
+  const { cache_control: _breakpoint, ...rest } = block;
+  // Tool-result content is a list of API content blocks too. Tool-use input,
+  // schema properties, document data and other nested JSON remain untouched.
+  if (rest.type === "tool_result" && Array.isArray(rest.content)) rest.content = rest.content.map(cacheBlock);
+  return rest;
+}
+export function withoutMessageCacheControls(items: any[]): any[] {
+  return items.map(item => item && Array.isArray(item.content) ? { ...item, content: item.content.map(cacheBlock) } : item);
 }
 
 export function identical(expected: unknown, actual: unknown, label: string): void {
@@ -86,7 +97,13 @@ export function pairs(capture: HistoryCapture): Array<[Exchange, Exchange]> {
   const requests = main(capture);
   return requests.slice(1).map((next, i) => [requests[i]!, next]);
 }
-export function body(exchange: Exchange): any { return JSON.parse(exchange.raw); }
+export function body(exchange: Exchange): any {
+  const request = JSON.parse(exchange.raw);
+  if (Array.isArray(request.tools)) request.tools = request.tools.map(cacheBlock);
+  if (Array.isArray(request.system)) request.system = request.system.map(cacheBlock);
+  if (Array.isArray(request.messages)) request.messages = withoutMessageCacheControls(request.messages);
+  return request;
+}
 function instructionCount(input: any[]): number {
   const index = input.findIndex(item => item.role !== "system" && item.role !== "developer");
   return index === -1 ? input.length : index;
