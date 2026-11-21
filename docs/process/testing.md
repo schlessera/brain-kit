@@ -1203,3 +1203,20 @@ PR #4312 changes that existing suite; its complete changed-head qualification
 remains with #4274. Run installed-native backend and
 provider-history cells only in hosted CI; a temporary HOME and SDK options
 alone do not establish isolation.
+
+The native test boundary binds only these distribution directories read-only:
+`/usr`, `/bin`, `/sbin`, `/lib`, `/lib32`, `/lib64`, `/libx32` (when present).
+Its distribution metadata is limited to `/etc/ld.so.cache`, `/etc/localtime`
+and `/etc/os-release`. These fixed distribution mounts are exempt from recursive
+socket discovery; they are not host-writable service storage. Writable mounts
+of distribution sources are refused. `/etc/alternatives` is omitted from the
+test worker view rather than walking aliases back into the distribution tree.
+Every non-system bind keeps the socket walk and refuses missing (`ENOENT`)
+or inaccessible (`EACCES`) entries. The lifetime socket broker remains active
+for every mount, including the distribution view.
+
+The bind inventory refuses the host roots `/run`, `/var/run`, `/tmp`, `/dev`,
+`/dev/shm`, `/home`, `/var/lib`, `/etc`, `/var` and `/` as either bind source or
+destination. Private `--tmpfs` and `--dev` mounts are newly created views;
+fixture subdirectories are separate non-system sources, never broad host-root
+binds. Any needed service-storage data must be copied into a fixture first.

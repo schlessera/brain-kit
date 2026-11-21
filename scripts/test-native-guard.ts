@@ -10,7 +10,10 @@ import type { query as sdkQuery } from "@anthropic-ai/claude-agent-sdk";
 const ROOT = resolve(import.meta.dir, "..");
 // Fixed Git metadata only. Discovery refusal must not recurse through admission.
 const metadataSpawnSync = Bun.spawnSync.bind(Bun);
+// Distribution-owned, read-only runtime bytes; never service/cache storage.
 const SYSTEM = ["/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32"];
+const SYSTEM_FILES = ["/etc/ld.so.cache", "/etc/localtime", "/etc/os-release"];
+const FORBIDDEN_BIND_ROOTS = new Set(["/", "/run", "/var/run", "/tmp", "/dev", "/dev/shm", "/home", "/var/lib", "/etc", "/var"]);
 const WORKER_RUNTIME_ENV = new Set(["HOME", "CLAUDE_CONFIG_DIR", "LANG", "LC_ALL", "TERM", "SHELL", "USER", "LOGNAME", "TMPDIR",
   "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_RUNTIME_DIR",
   "BRAIN_ROOT", "BRAIN_WORKER_DATA_ROOT", "BRAIN_WORKER_CONFIG_ROOT", "BRAIN_WORKER_SCRATCH", "BRAIN_WITHHELD_KEYS", "BRAIN_PROVIDER_RELAY_SOCKET",
@@ -196,8 +199,7 @@ function systemMounts(): string[] {
     else argv.push("--ro-bind", path, path);
   }
   // No host account database or managed configuration enters the native view.
-  for (const name of ["ld.so.cache", "alternatives", "localtime", "os-release"]) {
-    const path = `/etc/${name}`;
+  for (const path of SYSTEM_FILES) {
     if (existsSync(path)) argv.push("--ro-bind", realpathSync(path), path);
   }
   return argv;
@@ -552,7 +554,18 @@ function assertNativeMountSockets(mounts: readonly string[], origin: string): vo
     const flag = mounts[i]!;
     if (flag.startsWith("--overlay") || flag.includes("bind-fd")) refuse("unsupported native mount source");
     if (["--bind", "--ro-bind", "--dev-bind", "--bind-try", "--ro-bind-try", "--dev-bind-try"].includes(flag)) {
-      try { const source = realpathSync(mounts[i + 1]!); if (source === "/") refuse("native mount exposes the host root"); roots.push(source); } catch { refuse("native mount source is unavailable"); }
+      const input = mounts[i + 1]!, destination = resolve(mounts[i + 2]!);
+      if (FORBIDDEN_BIND_ROOTS.has(resolve(input)) || FORBIDDEN_BIND_ROOTS.has(destination)) refuse("native bind exposes a forbidden host service root");
+      let source: string;
+      try { source = realpathSync(input); } catch { refuse("native mount source is unavailable"); }
+      if (FORBIDDEN_BIND_ROOTS.has(source)) refuse("native bind exposes a forbidden host service root");
+      const system = [...SYSTEM, ...SYSTEM_FILES].some(path => {
+        try { return destination === path && source === realpathSync(path); } catch { return false; }
+      });
+      if (flag !== "--ro-bind" && (system || SYSTEM.some(root => { try { return within(realpathSync(root), source); } catch { return false; } }))) refuse("native system mounts must be read-only");
+      // No recursive walk of the fixed distribution view. All other binds,
+      // including fixture tools, homes, caches and relay storage, fail closed.
+      if (!system) roots.push(source);
       i += 2;
     }
   }
@@ -574,12 +587,13 @@ function assertNativeMountSockets(mounts: readonly string[], origin: string): vo
     inspected = path;
     let real: string;
     try { real = realpathSync(path); } catch (error) {
-      // Only proven absence is harmless; permission and I/O uncertainty refuse.
+      // Every missing or unreadable non-system entry refuses.
       metadataError = (error as NodeJS.ErrnoException).code ?? "UNKNOWN";
-      return metadataError === "ENOENT" && lstatSync(path).isSymbolicLink();
+      return false;
     }
-    // An absolute alias into unmounted storage is inaccessible in the child.
-    if (!roots.some(root => within(root, real))) return true;
+    // Aliases into fixed distribution roots follow the same read-only policy;
+    // aliases into unmounted storage are inaccessible in the child.
+    if (real !== path && SYSTEM.some(root => { try { return within(realpathSync(root), real); } catch { return false; } }) || !roots.some(root => within(root, real))) return true;
     const info = lstatSync(real, { bigint: true });
     if (info.isSocket()) {
       const peer = ownedSocketOrigin(real);
@@ -659,6 +673,7 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
     assertNativeMountSockets(tools.mounts, route.origin);
     for (let i = bwrap + 1; i < workerArgv.indexOf("--", bwrap); i++) {
       if (workerArgv[i] === "--ro-bind" && workerArgv[i + 1] === "/" && workerArgv[i + 2] === "/") workerArgv.splice(i--, 3);
+      else if (workerArgv[i] === "--ro-bind" && workerArgv[i + 2] === "/etc/alternatives") workerArgv.splice(i--, 3);
       else if (workerArgv[i] === "--setenv" && !WORKER_RUNTIME_ENV.has(workerArgv[i + 1]!)) workerArgv.splice(i--, 3);
     }
     workerArgv.splice(bwrap + 1, 0, "--clearenv", "--unshare-net", "--unshare-pid", ...systemMounts(), ...testRuntimeMounts(), ...tools.mounts, "--ro-bind", process.execPath, process.execPath, "--ro-bind", compileSocketPolicy(), compileSocketPolicy());

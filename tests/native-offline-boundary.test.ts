@@ -722,3 +722,61 @@ print('HOSTILE_MANAGED_BOUNDARY_HELD',flush=True)
       mutationBoundary.dispose();
     } finally { lateServer?.close(); boundary?.dispose(); service.stop(true); rmSync(scratch, { recursive: true, force: true }); }
   });
+
+test("native bind inventory rejects every forbidden host service root", async()=>{
+ const scratch=mkdtempSync(join(tmpdir(),"odysseus-forbidden-bind-"));
+ try {
+  const result=await probe(`${imports}
+   import {nativeWorkerBoundary} from ${JSON.stringify(join(ROOT,"scripts/test-native-guard.ts"))};
+   const spawnSync=Bun.spawnSync,which=Bun.which;
+   Bun.which=((command,options)=>command==="strace"?"/synthetic/strace":which(command,options));
+   Bun.spawnSync=((argv,options)=>(["bwrap","strace"].includes(argv[0])||argv[0]?.endsWith("/native-connect"))?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
+   process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";
+   registerScriptedService("http://127.0.0.1:1");let refused=0;
+   for(const root of ["/","/run","/var/run","/tmp","/dev","/dev/shm","/home","/var/lib","/etc","/var"])for(const source of [false,true]){
+    try{nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify({command:[${JSON.stringify(runtime)}],argv:["bwrap","--ro-bind",source?root:${JSON.stringify(scratch)},source?${JSON.stringify(scratch)}:root,"--",${JSON.stringify(runtime)}]})});}
+    catch(error){if(String(error).includes("forbidden host service root"))refused++;else throw error;}
+   }if(refused!==20)throw Error("forbidden root admitted");console.error("FORBIDDEN_BIND_ROOTS_REFUSED:20");`,scratch);
+  expect(result.code).not.toBe(0);expect(result.output.split("\n")).toContain("FORBIDDEN_BIND_ROOTS_REFUSED:20");
+  expect(result.output).not.toContain('"nativeLaunched":true');
+ }finally{rmSync(scratch,{recursive:true,force:true});}
+});
+
+test("fixed read-only system mounts are never recursively walked",async()=>{
+ const scratch=mkdtempSync(join(tmpdir(),"odysseus-system-policy-"));
+ try{
+  const result=await probe(`${imports}
+   import {mock} from "bun:test";
+   import * as fs from "node:fs";
+   const read=fs.readdirSync;
+   mock.module("node:fs",()=>({...fs,readdirSync(path,...args){if(String(path)==="/usr")throw Object.assign(Error("system walk forbidden"),{code:"EACCES"});return read(path,...args);}}));
+   const spawnSync=Bun.spawnSync,which=Bun.which;
+   Bun.which=((command,options)=>command==="strace"?"/synthetic/strace":which(command,options));
+   Bun.spawnSync=((argv,options)=>(["bwrap","strace"].includes(argv[0])||argv[0]?.endsWith("/native-connect"))?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
+   process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";registerScriptedService("http://127.0.0.1:1");
+   const plan=nativeClaudeBoundary(${JSON.stringify(runtime)},[],{cwd:${JSON.stringify(scratch)},env:{HOME:${JSON.stringify(scratch)}}});
+   if(!plan.argv.some((value,index)=>value==="--ro-bind"&&plan.argv[index+1]==="/usr"&&plan.argv[index+2]==="/usr"))throw Error("fixed system mount absent");
+   fs.writeFileSync(plan.argv[plan.argv.indexOf("-o")+1],${JSON.stringify(`1 execve(${JSON.stringify(runtime)}, [], 0x1) = 0`)});plan.dispose();`,scratch);
+  expect(result.code,result.output).toBe(0);
+ }finally{rmSync(scratch,{recursive:true,force:true});}
+});
+
+test("non-system missing and inaccessible entries remain failed receipts",async()=>{
+ for(const code of ["ENOENT","EACCES"]){
+  const scratch=mkdtempSync(join(tmpdir(),"odysseus-nonsystem-policy-"));
+  try{
+   const result=await probe(`${imports}
+    import {mock} from "bun:test";import * as fs from "node:fs";
+    const read=fs.readdirSync;
+    if(${JSON.stringify(code)}==="ENOENT")fs.symlinkSync(${JSON.stringify(join(scratch,"absent"))},${JSON.stringify(join(scratch,"missing"))});
+    else mock.module("node:fs",()=>({...fs,readdirSync(path,...args){if(String(path)===${JSON.stringify(scratch)})throw Object.assign(Error("synthetic unreadable fixture"),{code:"EACCES"});return read(path,...args);}}));
+    const spawnSync=Bun.spawnSync,which=Bun.which;
+    Bun.which=((command,options)=>command==="strace"?"/synthetic/strace":which(command,options));
+    Bun.spawnSync=((argv,options)=>(["bwrap","strace"].includes(argv[0])||argv[0]?.endsWith("/native-connect"))?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
+    process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";registerScriptedService("http://127.0.0.1:1");
+    const plan=nativeClaudeBoundary(${JSON.stringify(runtime)},[],{cwd:${JSON.stringify(scratch)},env:{HOME:${JSON.stringify(scratch)}}});
+    fs.writeFileSync(plan.argv[plan.argv.indexOf("-o")+1],${JSON.stringify(`1 execve(${JSON.stringify(runtime)}, [], 0x1) = 0`)});plan.dispose();`,scratch);
+   expect(result.code).not.toBe(0);expect(result.output).toContain('"metadataError":"'+code+'"');expect(result.output).toContain('"nativeLaunched":false');
+  }finally{rmSync(scratch,{recursive:true,force:true});}
+ }
+});
