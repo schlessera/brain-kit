@@ -42,7 +42,7 @@ for(const writeFailure of [false,true]) test(`identity audit snapshots sanitized
   const audit=JSON.parse(err.split("\n").find(line=>line.startsWith('{"kind":"native-offline-audit"'))!);expect(audit.deniedConnects).toBe(0);
   const snapshots=JSON.parse(out);expect(snapshots).toHaveLength(writeFailure?0:1);
   if(writeFailure) { expect(err).toContain('"kind":"native-fixture-startup-audit-failure"');expect(err).toContain('"nativeLaunched":true,"success":true'); }
-  else {expect(snapshots[0].deviceMetadata,"RETAINED_DEVICE_METADATA_SURVIVES_CHANNEL_TEARDOWN").toEqual([{device:"urandom",mode:0o666,uid:65534,gid:65534,nodev:true,nosuid:true,ro:false}]);expect(snapshots[0].failedOpenStages,"RETAINED_OPEN_STAGE_SURVIVES_CHANNEL_TEARDOWN").toEqual([{stage:"payload",execPosition:1,device:"urandom",error:"EACCES"}]);expect(snapshots[0].text).toContain("EAGAIN");expect(snapshots[0].text).not.toContain("SIRENS_PRIVATE_PROMPT");expect(snapshots[0].text).not.toContain("sk-ant-");}
+  else {expect(snapshots[0].verdict,"RETAINED_FINAL_AUDIT_VERDICT_SURVIVES_CHANNEL_TEARDOWN").toMatchObject({kind:"native-offline-audit",nativeLaunched:true,success:true});expect(snapshots[0].deviceMetadata,"RETAINED_DEVICE_METADATA_SURVIVES_CHANNEL_TEARDOWN").toEqual([{device:"urandom",mode:0o666,uid:65534,gid:65534,nodev:true,nosuid:true,ro:false}]);expect(snapshots[0].failedOpenStages,"RETAINED_OPEN_STAGE_SURVIVES_CHANNEL_TEARDOWN").toEqual([{stage:"payload",execPosition:1,device:"urandom",error:"EACCES"}]);expect(snapshots[0].text).toContain("EAGAIN");expect(snapshots[0].text).not.toContain("SIRENS_PRIVATE_PROMPT");expect(snapshots[0].text).not.toContain("sk-ant-");}
  }finally{fs.rmSync(root,{recursive:true,force:true});}
 });
 

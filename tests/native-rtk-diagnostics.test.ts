@@ -1,6 +1,6 @@
 import { expect,test } from "bun:test";
 import { join } from "node:path";
-import { nativeRtkFailureCategory,nativeRtkExecutableLabel } from "../scripts/native-rtk-diagnostics";
+import { nativeRtkFailureCategory,nativeRtkExecutableLabel,nativeRtkUnavailableLabels } from "../scripts/native-rtk-diagnostics";
 import { spawnGuardFixture } from "./helpers/native-receipt-fixture";
 const cases={"no-owned-match":"native fixture RTK payload missing","multiple-match":"native fixture RTK payload ambiguous","start-mismatch":"native fixture RTK audited identity changed","exe-mismatch":"native fixture RTK executable changed","launch-mismatch":"native fixture RTK spawn is unregistered","register-refused":"unrecognized adapter failure"};
 for(const [category,message] of Object.entries(cases))test(`RTK diagnostic emits ${category} and rethrows`,async()=>{
@@ -24,4 +24,9 @@ test("RTK executable labels retain only fixed mismatch predicates",()=>{
  for(const label of ["basename-equal-but-path-differs","different-basename","unavailable"])expect(nativeRtkExecutableLabel(Error("native fixture RTK executable changed",{cause:label}))).toBe(label);
  expect(nativeRtkExecutableLabel(Error("native fixture RTK executable changed",{cause:"/home/private-owner/runtime"}))).toBe("unavailable");
  expect(nativeRtkExecutableLabel(Error("other",{cause:"different-basename"}))).toBeUndefined();
+});
+
+test("RTK unavailable source and errno are fixed labels",()=>{
+ for(const source of ["canonicalize-selected","read-proc-exe"])for(const errno of ["ENOENT","EACCES","EPERM","ESRCH","ELOOP","ENOTDIR"])expect(nativeRtkUnavailableLabels(Error("native fixture RTK executable unavailable",{cause:{source,errno}}))).toEqual({source,errno});
+ expect(nativeRtkUnavailableLabels(Error("native fixture RTK executable unavailable",{cause:{source:"/home/private-owner",errno:"secret"}}))).toEqual({source:"unknown",errno:"unknown"});
 });

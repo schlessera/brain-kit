@@ -472,13 +472,6 @@ export function auditNativeLaunch(argv: string[], expected: readonly string[], c
       }
       let trace = "";
       try { trace = readFileSync(log, "utf8"); } catch { /* Missing evidence is a failed receipt. */ }
-      if (diagnosticRoot) {
-        for(const failure of nativeStartupOpenStages(trace,expected,process.execPath))nativeReceipt({kind:"native-fixture-startup-open",head:nativeTestHead(),...failure});
-        for(const metadata of nativeDeviceMetadata(trace))nativeReceipt({kind:"native-fixture-device-metadata",head:nativeTestHead(),...metadata});
-        try { writeFileSync(join(diagnosticRoot, `native-startup-audit-${directoryStamp.ino}.json`),
-          JSON.stringify({ kind: "native-fixture-startup-audit", head: nativeTestHead(), text: scrubNativeStartupTrace(trace,diagnosticFixtureRoots),deviceMetadata:nativeDeviceMetadata(trace),failedOpenStages:nativeStartupOpenStages(trace,expected,process.execPath) }), { flag: "wx", mode: 0o600 }); }
-        catch { nativeReceipt({kind:"native-fixture-startup-audit-failure",head:nativeTestHead(),success:false,reason:"startup audit snapshot unavailable"}); }
-      }
       // Wider diagnostics may contain syscall-looking filenames; only actual
       // connect/exec records participate in the security receipt.
       const auditTrace = diagnosticRoot ? trace.split("\n").filter(line => /^\s*(?:[0-9]+\s+)?(?:execve\(|(?:connect|sendto|sendmsg|sendmmsg|bind|listen|accept|accept4)\(|<\.\.\. (?:connect|sendto|sendmsg|sendmmsg|bind|listen|accept|accept4) resumed>)/.test(line)).join("\n") : trace;
@@ -486,6 +479,13 @@ export function auditNativeLaunch(argv: string[], expected: readonly string[], c
       if (!nativeLaunched) denied++;
       receipt = { kind: "native-offline-audit", head: nativeTestHead(), nativeLaunched, success: nativeLaunched,
         ...(!nativeLaunched ? { reason: "native exec was not observed" } : {}), deniedConnects: deniedNativeConnects(auditTrace) };
+      if (diagnosticRoot) {
+        for(const failure of nativeStartupOpenStages(trace,expected,process.execPath))nativeReceipt({kind:"native-fixture-startup-open",head:nativeTestHead(),...failure});
+        for(const metadata of nativeDeviceMetadata(trace))nativeReceipt({kind:"native-fixture-device-metadata",head:nativeTestHead(),...metadata});
+        try { writeFileSync(join(diagnosticRoot, `native-startup-audit-${directoryStamp.ino}.json`),
+          JSON.stringify({ kind: "native-fixture-startup-audit", head: nativeTestHead(), text: scrubNativeStartupTrace(trace,diagnosticFixtureRoots),deviceMetadata:nativeDeviceMetadata(trace),failedOpenStages:nativeStartupOpenStages(trace,expected,process.execPath), verdict:receipt }), { flag: "wx", mode: 0o600 }); }
+        catch { nativeReceipt({kind:"native-fixture-startup-audit-failure",head:nativeTestHead(),success:false,reason:"startup audit snapshot unavailable"}); }
+      }
       const socketDenials=deniedNativeSocketOperations(auditTrace);
       if(socketDenials)nativeReceipt({kind:"native-offline-socket-denial",head:nativeTestHead(),success:false,reason:"native socket operation denied",count:socketDenials});
       nativeReceipt({...receipt});
@@ -943,7 +943,7 @@ export function registerNativeFixtureRtk(worker:import("../packages/ui-sdk/src/s
   const record=nativeFixtureRtkSpawns.get(worker.pid);
   if(!record)throw Error("native fixture RTK spawn is unregistered");
   if(processStart(worker.pid)!==record.start)throw Error("native fixture RTK root identity changed");
-  const expected=[...new Set(record.expected.map(path=>{try{return realpathSync(path);}catch{throw Error("native fixture RTK executable unavailable",{cause:"unavailable"});}}))];
+  const expected=[...new Set(record.expected.map(path=>{try{return realpathSync(path);}catch(error){throw Error("native fixture RTK executable unavailable",{cause:{source:"canonicalize-selected",errno:(error as NodeJS.ErrnoException).code}});}}))];
   if(expected.length!==1)throw Error("native fixture RTK runtime selection ambiguous");
   const owned=new Map<number,string>(),pending=[worker.pid];
   while(pending.length){
@@ -954,7 +954,7 @@ export function registerNativeFixtureRtk(worker:import("../packages/ui-sdk/src/s
   for(const [pid,auditedStart] of record.liveExecs()){
     const start=owned.get(pid);if(!start)continue;
     if(start!==auditedStart)throw Error("native fixture RTK audited identity changed");
-    let executable:string;try{executable=realpathSync(`/proc/${pid}/exe`);}catch{throw Error("native fixture RTK executable unavailable",{cause:"unavailable"});}
+    let executable:string;try{executable=realpathSync(`/proc/${pid}/exe`);}catch(error){throw Error("native fixture RTK executable unavailable",{cause:{source:"read-proc-exe",errno:(error as NodeJS.ErrnoException).code}});}
     if(!expected.includes(executable))throw Error("native fixture RTK executable changed",{cause:expected.some(path=>basename(path)===basename(executable))?"basename-equal-but-path-differs":"different-basename"});
     if(processStart(pid)!==start)throw Error("native fixture RTK payload identity changed");selected.push(pid);
   }

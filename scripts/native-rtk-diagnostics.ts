@@ -14,6 +14,11 @@ export function nativeRtkExecutableLabel(error:unknown):string|undefined {
  if(nativeRtkFailureCategory(error)!=="exe-mismatch"||!(error instanceof Error))return;
  return ["basename-equal-but-path-differs","different-basename","unavailable"].includes(String(error.cause))?String(error.cause):"unavailable";
 }
+export function nativeRtkUnavailableLabels(error:unknown):{source:string;errno:string}|undefined {
+ if(!(error instanceof Error)||error.message!=="native fixture RTK executable unavailable")return;
+ const cause=error.cause as {source?:unknown;errno?:unknown}|undefined;
+ return {source:["canonicalize-selected","read-proc-exe"].includes(String(cause?.source))?String(cause?.source):"unknown",errno:["ENOENT","EACCES","EPERM","ESRCH","ELOOP","ENOTDIR"].includes(String(cause?.errno))?String(cause?.errno):"unknown"};
+}
 export function diagnoseNativeFixtureRtk(register:()=>void):void {
- try{register();}catch(error){nativeReceipt({kind:"native-fixture-rtk-registration",head:nativeTestHead(),success:false,category:nativeRtkFailureCategory(error),...(nativeRtkExecutableLabel(error)?{executableLabel:nativeRtkExecutableLabel(error)}:{})});throw error;}
+ try{register();}catch(error){nativeReceipt({kind:"native-fixture-rtk-registration",head:nativeTestHead(),success:false,category:nativeRtkFailureCategory(error),...nativeRtkUnavailableLabels(error),...(nativeRtkExecutableLabel(error)?{executableLabel:nativeRtkExecutableLabel(error)}:{})});throw error;}
 }
