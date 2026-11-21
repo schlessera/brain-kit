@@ -494,6 +494,15 @@ unless the file sets `"heuristics"`.
 Since #4089 (additive), `effective.taint` also includes `judge`,
 `{ "mode": "off", "floor": 0.9 }` unless the file sets `mode: jev` or a
 `floor` from 0.5 to 1.
+Since #4204 (additive), `effective` also includes `google`, the resolved
+[Google block](../supported-inputs.md#governance-policy): `enabled` (`false`
+unless the file enables it), `account` (`null` unless named), `services`,
+`modes`, `operations`, `gmail` (`send_to`, `max_recipients`, `hidden_labels`),
+`standalone` and `limits`, every field present with its default filled in and
+list entries in their order and spelling. An invalid `google` block makes the
+policy invalid like any other key; its errors name their path, such as
+`google.modes.irreversible`, `google.operations["gmail.trash"]`,
+`google.gmail.send_to[1]` or `google.account`.
 Valid and missing inputs exit 0 with `ok: true`, and invalid inputs exit 1 with
 `ok: false`. Missing inputs have a null hash, no errors and built-in defaults.
 Invalid input returns defaults, its validation errors, and a hash when its bytes

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { githubWriteAllowance, parseGovernancePolicy, providerAllows } from "../src/lib/governance-policy";
+import { githubWriteAllowance, parseGovernancePolicy, providerAllows, type EffectiveGovernancePolicy } from "../src/lib/governance-policy";
 
 const parse = (yaml: string, body = "Odysseus keeps policy prose separate.\n") => parseGovernancePolicy(Buffer.from(`---\nschema_version: 1\n${yaml}\n---\n${body}`));
 
@@ -181,4 +181,124 @@ test("taint.judge is off with a 0.9 floor by default, and takes only off or jev 
     expect(invalid.ok, `JUDGE_STRICT_VALUE: ${yaml}`).toBe(false);
     expect(invalid.effective.taint.judge, "JUDGE_INVALID_POLICY_FALLS_BACK_OFF").toEqual({ mode: "off", floor: 0.9 });
   }
+});
+
+const GOOGLE_DEFAULTS: EffectiveGovernancePolicy["google"] = {
+  enabled: false, account: null, services: [], modes: { read: "allow", reversible: "ask", irreversible: "ask" }, operations: {},
+  gmail: { send_to: [], max_recipients: 10, hidden_labels: [] }, standalone: { reversible: "deny" }, limits: { items_per_call: 25, reversible_per_turn: 25 },
+};
+const GOOGLE_BLOCK = `google:
+  enabled: true
+  account: ithaca
+  services: [gmail]
+  modes: { read: allow, reversible: ask, irreversible: ask }
+  operations: { gmail.draft.delete: deny, gmail.modify: allow, gmail.trash: ask }
+  gmail:
+    send_to: [self, "*@example.com", penelope@example.com]
+    max_recipients: 5
+    hidden_labels: [Label_7, CATEGORY_PROMOTIONS]
+  standalone: { reversible: allow }
+  limits: { items_per_call: 10, reversible_per_turn: 40 }`;
+
+test("Google stays disabled without a google block, and an empty block resolves to the defaults (#4204)", () => {
+  expect(parse("profiles: { interactive: governed }").effective.google, "GOOGLE_ABSENT_DISABLED").toEqual(GOOGLE_DEFAULTS);
+  expect(parse("google: {}").effective.google, "GOOGLE_EMPTY_DEFAULTS").toEqual(GOOGLE_DEFAULTS);
+  expect(parse("google: { enabled: false, account: ithaca }").effective.google).toEqual({ ...GOOGLE_DEFAULTS, account: "ithaca" });
+});
+
+test("a full google block resolves exactly as written (#4204)", () => {
+  const parsed = parse(GOOGLE_BLOCK);
+  expect(parsed.ok, parsed.errors.join(" ")).toBe(true);
+  expect(parsed.effective.google).toEqual({
+    enabled: true, account: "ithaca", services: ["gmail"], modes: { read: "allow", reversible: "ask", irreversible: "ask" },
+    operations: { "gmail.draft.delete": "deny", "gmail.modify": "allow", "gmail.trash": "ask" },
+    gmail: { send_to: ["self", "*@example.com", "penelope@example.com"], max_recipients: 5, hidden_labels: ["Label_7", "CATEGORY_PROMOTIONS"] },
+    standalone: { reversible: "allow" }, limits: { items_per_call: 10, reversible_per_turn: 40 },
+  });
+});
+
+test("google nested objects merge with their defaults per field (#4204)", () => {
+  const parsed = parse("google: { enabled: true, modes: { reversible: allow }, gmail: { send_to: [self] }, limits: { reversible_per_turn: 0 } }");
+  expect(parsed.ok, parsed.errors.join(" ")).toBe(true);
+  expect(parsed.effective.google).toEqual({ ...GOOGLE_DEFAULTS, enabled: true, modes: { read: "allow", reversible: "allow", irreversible: "ask" },
+    gmail: { send_to: ["self"], max_recipients: 10, hidden_labels: [] }, limits: { items_per_call: 25, reversible_per_turn: 0 } });
+});
+
+test("google refuses irreversible allow, allow on an irreversible operation and ask on a read, each at its path (#4204)", () => {
+  for (const [yaml, path] of [
+    ["google: { modes: { irreversible: allow } }", "google.modes.irreversible"],
+    ["google: { modes: { read: ask } }", "google.modes.read"],
+    ["google: { operations: { gmail.trash: allow } }", 'google.operations["gmail.trash"]'],
+    ["google: { operations: { gmail.draft.delete: allow } }", 'google.operations["gmail.draft.delete"]'],
+    ["google: { operations: { gmail.draft.send: allow } }", 'google.operations["gmail.draft.send"]'],
+    ["google: { operations: { gmail.search: ask } }", 'google.operations["gmail.search"]'],
+    ["google: { operations: { gmail.labels.list: ask } }", 'google.operations["gmail.labels.list"]'],
+  ] as const) {
+    const parsed = parse(yaml);
+    expect(parsed.ok, `GOOGLE_MODE_REFUSED: ${yaml}`).toBe(false);
+    expect(parsed.errors.join(" "), `GOOGLE_MODE_PATH: ${yaml}`).toContain(`at ${path}`);
+    expect(parsed.effective.google, `GOOGLE_INVALID_DISABLED: ${yaml}`).toEqual(GOOGLE_DEFAULTS);
+  }
+  for (const yaml of ["google: { operations: { gmail.trash: ask, gmail.draft.send: deny, gmail.modify: allow, gmail.draft.save: ask, gmail.search: deny } }",
+    "google: { modes: { read: deny, reversible: deny, irreversible: deny } }"]) {
+    expect(parse(yaml).ok, `GOOGLE_MODE_ACCEPTED: ${yaml}`).toBe(true);
+  }
+});
+
+test("google account names a gog alias, never auto and never an address (#4204)", () => {
+  for (const account of ["auto", "AUTO", "Auto", "penelope@example.com", "", "-ithaca", "ithaca house", "i".repeat(65)]) {
+    const parsed = parse(`google: { enabled: true, account: ${JSON.stringify(account)} }`);
+    expect(parsed.ok, `GOOGLE_ACCOUNT_REFUSED: ${account}`).toBe(false);
+    expect(parsed.errors.join(" "), `GOOGLE_ACCOUNT_PATH: ${account}`).toContain("at google.account");
+  }
+  for (const account of ["ithaca", "household.mail", "odysseus_2", "I"]) expect(parse(`google: { account: ${account} }`).ok, `GOOGLE_ACCOUNT_ACCEPTED: ${account}`).toBe(true);
+});
+
+test("google send_to takes only self, *@domain and plain addresses, at their index (#4204)", () => {
+  for (const entry of ["Penelope <penelope@example.com>", "*.example.com", "*@*.example.com", "pen*@example.com", "suitors: antinous@example.com;",
+    "penelope@example.com (queen)", "\"penelope q\"@example.com", "penelope", "", "SELF@"]) {
+    const parsed = parse(`google: { gmail: { send_to: [self, ${JSON.stringify(entry)}] } }`);
+    expect(parsed.ok, `GOOGLE_SEND_TO_REFUSED: ${entry}`).toBe(false);
+    expect(parsed.errors.join(" "), `GOOGLE_SEND_TO_PATH: ${entry}`).toContain("at google.gmail.send_to[1]");
+  }
+  expect(parse(`google: { gmail: { send_to: ${JSON.stringify(Array.from({ length: 257 }, (_, index) => `crew${index}@example.com`))} } }`).ok, "GOOGLE_SEND_TO_BOUNDED").toBe(false);
+});
+
+test("google hidden_labels takes label ids, never names (#4204)", () => {
+  for (const label of ["Receipts", "Label_", "label_7", "Label_7 ", ""]) {
+    const parsed = parse(`google: { gmail: { hidden_labels: [${JSON.stringify(label)}] } }`);
+    expect(parsed.ok, `GOOGLE_HIDDEN_LABEL_REFUSED: ${label}`).toBe(false);
+    expect(parsed.errors.join(" ")).toContain("at google.gmail.hidden_labels[0]");
+  }
+  expect(parse("google: { gmail: { hidden_labels: [Label_7, INBOX, CATEGORY_PROMOTIONS, NEW_SYSTEM_LABEL] } }").ok).toBe(true);
+});
+
+test("google limits and max_recipients are bounded whole numbers; items_per_call never exceeds the catalog's 25 (#4204)", () => {
+  for (const [yaml, path] of [
+    ["google: { limits: { items_per_call: 26 } }", "google.limits.items_per_call"], ["google: { limits: { items_per_call: -1 } }", "google.limits.items_per_call"],
+    ["google: { limits: { items_per_call: 1.5 } }", "google.limits.items_per_call"], ["google: { limits: { reversible_per_turn: 1001 } }", "google.limits.reversible_per_turn"],
+    ["google: { limits: { reversible_per_turn: \"5\" } }", "google.limits.reversible_per_turn"], ["google: { gmail: { max_recipients: 151 } }", "google.gmail.max_recipients"],
+  ] as const) {
+    const parsed = parse(yaml);
+    expect(parsed.ok, `GOOGLE_LIMIT_REFUSED: ${yaml}`).toBe(false);
+    expect(parsed.errors.join(" ")).toContain(`at ${path}`);
+  }
+  expect(parse("google: { limits: { items_per_call: 25, reversible_per_turn: 1000 }, gmail: { max_recipients: 150 } }").ok).toBe(true);
+  expect(parse("google: { limits: { items_per_call: 0, reversible_per_turn: 0 }, gmail: { max_recipients: 0 } }").ok, "GOOGLE_ZERO_LIMITS_VALID").toBe(true);
+});
+
+test("google is strict at every depth; calendar keys and services wait for the Calendar operations (#4204)", () => {
+  for (const [yaml, path] of [
+    ["google: { enabled: true, token: x }", "google"], ["google: { modes: { send: ask } }", "google.modes"],
+    ["google: { gmail: { forward_to: [penelope@example.com] } }", "google.gmail"], ["google: { standalone: { irreversible: allow } }", "google.standalone"],
+    ["google: { limits: { per_day: 5 } }", "google.limits"], ["google: { calendar: { invite: [\"*@example.com\"] } }", "google"],
+    ["google: { services: [gmail, calendar] }", "google.services[1]"], ["google: { operations: { gmail.filters.create: deny } }", "google.operations"],
+    ["google: { operations: { calendar.events.list: allow } }", "google.operations"], ["google: { standalone: { reversible: ask } }", "google.standalone.reversible"],
+    ["google: { enabled: yes-please }", "google.enabled"],
+  ] as const) {
+    const parsed = parse(yaml);
+    expect(parsed.ok, `GOOGLE_STRICT: ${yaml}`).toBe(false);
+    expect(parsed.errors.join(" "), `GOOGLE_STRICT_PATH: ${yaml}`).toContain(`at ${path}`);
+  }
+  expect(parse("google: true").ok, "GOOGLE_BLOCK_IS_AN_OBJECT").toBe(false);
 });

@@ -33,6 +33,21 @@ Field names, inputs and existing meanings are unchanged. See
 [the MCP component](integration-contract/mcp.md#per-review-line-comment-counts-additive-0450-4147).
 This ships in a minor.
 
+## Google policy block (additive, 0.45.0, #4204)
+
+The governance policy gains an optional top-level `google` block: `enabled`,
+the gog `account` alias (never `auto` or an address), `services`, one mode per
+effect class (`irreversible` takes only `deny` or `ask`), per-operation
+overrides (`allow` refused on an irreversible operation), `gmail.send_to`,
+`gmail.max_recipients`, `gmail.hidden_labels`, `standalone.reversible` and
+`limits`. Absent, Google is disabled. Every object is strict, so a malformed
+block makes the policy invalid like any other key, and `brain policy check
+--json` reports `effective.google` and each error with its path. No released
+host tool reads it yet. See [the supported input](supported-inputs.md#governance-policy),
+[the CLI component](integration-contract/cli.md#governance-policy-check-additive-1650)
+and [the package API](integration-contract/package-api.md#google-policy-block-additive-0450-4204).
+This ships in a minor; no breaking ruling is required.
+
 ## Extraction classifier setting (additive, 0.45.0, #4088)
 
 The governance policy gains optional `taint.classifier`, `off` (the default) or
