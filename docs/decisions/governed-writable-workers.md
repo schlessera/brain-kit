@@ -207,7 +207,7 @@ server and a read-only `brain policy check --json` command share it.
 **Why that location:**
 
 - `context/policies/` is already denied to the application route
-  (`if (folded[0] === "context"`, `packages/ui-server/src/brain/application.ts:42`).
+  (`if (folded[0] === "context"`, `packages/ui-server/src/brain/application.ts:44`).
 - R34 already placed policy there.
 - Scheduled-task definitions set the precedent of host-parsed Markdown under
   `context/`.
@@ -690,7 +690,7 @@ lists the keys each first-party command reads. The launcher withholds every
 provider credential in the subprocess descriptor from a governed or strict
 turn worker, except what its backend declares for its own inference and what
 an operator admits (`const turnProfile`,
-`packages/ui-sdk/src/server/worker-launcher.ts:708-718`). A relayed turn keeps no
+`packages/ui-sdk/src/server/worker-launcher.ts:733-743`). A relayed turn keeps no
 key. An unrelayed one keeps only its runtime's own inference credential, under
 the 2026-10-22 ruling that hosts without managed native storage keep today's
 inference credentials; pi resolves its own credentials there, so it keeps all
@@ -1179,7 +1179,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function* openPrivateTurnTempSteps`, `packages/ui-sdk/src/server/worker-launcher.ts:1175-1203`).
+(`function* openPrivateTurnTempSteps`, `packages/ui-sdk/src/server/worker-launcher.ts:1226-1254`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -1363,6 +1363,44 @@ retained observed quarantine versions; private quarantine paths remain private.
 Ignored, incomplete, Git metadata and unsupported entries are named exclusions;
 missing or changed parents conflict. No unobserved empty-directory metadata is
 invented.
+
+**2026-11-20 workspace amendment (#4295).** Default governed and strict
+turns bind `workspaces/` read-only after the existing root, symlink and mount
+checks, without the writable-alias walk. A per-session code-changes switch is
+stored with operational session preferences and frozen before admission's
+first await. It survives resume; a save affects only the next turn. Enabled
+sessions retain the existing writable alias scan and per-file journaling.
+
+Default turns exclude workspace paths from capture, retained rows, ignore
+policy and observed-byte charges. Shared observations apply that exclusion
+per turn: an overlapping opted-in writer keeps workspace versions and their
+byte charges; notes keep their existing before-images, durability and caps.
+This narrows the older coverage statements below; retained old history stays
+readable. The mode and refusal alternatives reach the worker only in the new
+turn's tail when first applicable or changed, preserving earlier provider
+history. An absent optional workspace keeps the governed writable brain,
+without a workspace overlay or live mountpoint. Creation beneath that absent
+name remains ordinary retained and charged content for the whole turn; the
+next default admission seals it. Exclusion requires a qualified read-only
+workspace mount. Metadata readers omit checkout inventories; bounded delta inode probes recover
+ordinary hard-link aliases before workspace exclusion. Strict and private-index
+data copies leave a qualified inspection workspace on its sealed source. Workspace sealing precedes protected child masks, and its
+ancestor pins remain read-only, preserving quarantine and provider masks.
+Host applications keep workspace protection until a writable mount qualifies,
+even when the saved switch requests one. Inspect participants do not change a
+writer's frozen ignores or participate in workspace conflict attribution.
+Installing or building requires the switch or a managed worktree
+([the install ruling](reference-worktrees.md)).
+
+
+Workspace inspection keeps source-read and destination-write authority separate.
+Strict data roots overlay only a qualified sealed source and reapply every secret
+and provider mask; the copied data tree's exclusions cannot be restored through
+that alias. Status qualifies literal provider folder pins without creating paths.
+If type folder translation still requires checkpoint configuration, its optional
+profile and configuration-view fields remain unknown with an explanatory fallback.
+Each turn keeps its own ignore-based steering classification and journal scope,
+including ordinary root scope for content created beneath an absent workspace.
 
 **Snapshots.** At turn start and at turn end, the server snapshots the brain's
 working tree itself. It runs no git and imports no repository code:
@@ -1701,8 +1739,10 @@ observation's facts. `files_changed` counts only changed paths outside
 `workspaces/`, by path containment rather than a string prefix, so
 `workspaces-old/` still counts. A reference clone fetched or checked out there
 touches hundreds of files without changing the brain, and that alone paused
-interactive turns. `turn_bytes` and the free-space floor still count every
-workspace write, and the journal summary still reports every changed path
+interactive turns. `turn_bytes` still counts workspace writes for opted-in change turns;
+default inspection turns have no workspace rows or byte charges. The
+free-space floor remains filesystem-wide. The journal summary reports the
+paths covered by that turn
 (#3793). A proven read changes nothing, so it cannot cross a limit.
 A writer's result is still observed, so its own crossing is detected there.
 After an unproven call every result is observed, so a limit that a background
@@ -1760,7 +1800,7 @@ worker does:
 - **Only interactive turns are journaled, and they load project
   configuration.** Evidence is wired only into the session-run turn request
   for a governed turn with a journal (`export function turnRequest`,
-  `packages/ui-server/src/ws/session-run/backend-entry.ts:218-233`). That turn
+  `packages/ui-server/src/ws/session-run/backend-entry.ts:219-234`). That turn
   is never a restricted autonomous one. It runs with `settingSources:
   ["project"]` and without `strictMcpConfig`
   (`const sdkOptions: Options`, `packages/ui-backend-claude/src/sdk-options.ts:406-422`).
@@ -1934,7 +1974,7 @@ keep their existing checkpoint lifetime.
 
 **Why.** Every governed turn queues an automatic index refresh after it
 (`host.governedTurns?.refresh(host.workerLock)`,
-`packages/ui-server/src/ws/session-run/teardown.ts:73`). The refresh usually finishes
+`packages/ui-server/src/ws/session-run/teardown.ts:74`). The refresh usually finishes
 while the next turn runs, so that turn's finish observation found a rewritten
 `brain.db` and copied a whole new version of it into retained objects, inside
 the observation's worker hold. #2831 measured 36 versions of a ~120 MB index in
@@ -2712,7 +2752,7 @@ a filesystem socket that is visible through the read-only host root: a Docker
 socket, a session bus, an SSH agent or a host proxy. Each of those is an
 unrecorded way out, and some reach privileged host effects. The launcher
 already masks `.git` in restricted workers for exactly this reason
-(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:252`).
+(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:266`).
 
 `governed` and `strict` workers therefore mask the host's runtime and state
 directories with empty read-only tmpfs mounts. Maintenance workers share the
@@ -2730,7 +2770,7 @@ The worker's private `/tmp` and the other host masks remain in place.
 
 After the masks, the launcher re-binds only the explicit runtime inputs the
 worker needs, read-only, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1972`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:2023`):
 
 - the Bun executable;
 - the backend entry's package, its `node_modules` chains and linked workspace
@@ -2754,7 +2794,7 @@ such ancestor with empty tmpfs instead; it never binds that ancestor's real
 contents. Search permission uses the helper's primary shared group class when
 that group owns the directory, including when only the other class has execute
 permission. Existing canonical aliases and nested masks fold into that cover
-(`maintenanceMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:411-470`).
+(`maintenanceMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:429-488`).
 
 This supports disjoint private-state layouts, including a nested operational
 database below a server-owned `0700` parent. New ancestor coverage that would
@@ -2830,9 +2870,9 @@ and subdirectories through retained aliases. It does not restore unrelated
 host-temp siblings or make runtime bytes writable.
 
 The concrete checks and mounts are in (`validateRuntimePlacement`,
-`packages/ui-sdk/src/server/worker-launcher.ts:637-643`),
-(`temporaryRuntimeMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:664-703`)
-and (`runtimeMaskOverlays`, `packages/ui-sdk/src/server/worker-launcher.ts:665-683`).
+`packages/ui-sdk/src/server/worker-launcher.ts:667-673`),
+(`temporaryRuntimeMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:702-741`)
+and (`runtimeMaskOverlays`, `packages/ui-sdk/src/server/worker-launcher.ts:703-721`).
 Alias restoration recognizes names already supplied by a read-only bind or an
 explicit system-view symlink. It does not mount a canonical executable over an
 existing alias such as `/bin/sh`; missing owned temporary paths still receive
@@ -3864,7 +3904,7 @@ before mounting them: both belong to the server, helper mode uses its primary
 GID and exact `0750`/`0660` modes, and no-helper mode retains exact
 `0700`/`0600`. Missing endpoints, aliases, non-sockets, foreign ownership and
 wider modes refuse before payload execution
-(`function restrictedMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:276-310`).
+(`function restrictedMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:290-324`).
 This compatibility check does not change default autonomous admission or add
 another route.
 
@@ -4002,11 +4042,11 @@ An ordinary group-shared directory was accessible, but the worker's private
 mount and namespace links through `/proc/<pid>` were denied. Changing the
 private directory to `0770` did not remove that process-access barrier. The
 current launcher opens mounts directly (`function openPrivateState`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1138-1166`;
+`packages/ui-sdk/src/server/worker-launcher.ts:1189-1217`;
 `function* openPrivateTurnTempSteps`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1175-1201`) before population and
+`packages/ui-sdk/src/server/worker-launcher.ts:1226-1252`) before population and
 start-gate release (`function* launchAgentWorkerSteps`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1364-1452`). Group modes and a uid
+`packages/ui-sdk/src/server/worker-launcher.ts:1415-1503`). Group modes and a uid
 switch alone therefore cannot implement the selected cross-uid lifecycle.
 
 **Authority and launch.** One trusted external supervisor owns each worker
@@ -5014,7 +5054,7 @@ and the enforcement cannot drift.
 
 The delivered host note (#1654) receives history availability through the
 existing resolved sandbox. The shared renderer is
-(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:592-657`).
+(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:625-690`).
 Journaling is stated as active only after this
 turn's real observation window is admitted; user restoration additionally
 requires the concrete mounted history service and a non-voice turn. Missing

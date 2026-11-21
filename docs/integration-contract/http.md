@@ -39,6 +39,67 @@ hash directly. Missing/expired raw details never grant a download bypass.
 links use the embedding root's configured API base.
 Those read helpers do not execute mutations.
 
+### Default workspace inspection and code-changes preference (#4295)
+
+**Breaking narrowing, authorized 2026-11-20:** default governed and strict
+turns bind an existing `workspaces/` read-only. Their retained journal coverage excludes
+workspace paths, checkout ignore-policy reads and observed workspace bytes.
+Notes keep their existing coverage. This applies per turn even during shared
+observations with an opted-in writer. Retained history from earlier turns
+remains readable with its existing routes and shapes. If the optional area
+is absent at launch, governed note writes stay live, no mountpoint is created,
+and workspace exclusion does not apply: new content under that name is
+retained and charged as ordinary brain content for that turn, including the
+brain's frozen root ignore rules, root journal scope and ordinary Git-internal
+exclusions. Steering references and unavailable markers also remain per turn;
+an overlapping writer cannot donate its ignore policy. The next default
+turn binds the new directory read-only. Status describes the same default
+qualification, including an unqualified workspace root or unenforceable policy-protected
+parent selecting strict. An unqualified workspace symlink protects only its
+namespace; it never makes unrelated note destinations protected. Explicit
+owner protections still cover their symlink destinations. Status inspection
+never creates protection prerequisites on the live brain. It includes literal
+provider folder pins. When provider type folders still require checkpoint taxonomy
+qualification, the optional `profile` and `configurationView` are omitted and the
+existing `profileFallback` explains the uncertainty; status does not execute
+brain configuration or report a guessed profile. Captured versions
+remain per turn through storage, so one participant’s retained hash never
+replaces another participant’s ignored metadata. Superseded checkpoint
+accounting includes excluded checkout bytes until release succeeds.
+
+**Additive API:** authenticated `GET` and `PUT`
+`/api/sessions/:id/code-changes` and `/api/drafts/:id/code-changes` return
+`{ enabled: boolean }`, default false. PUT accepts exactly that JSON object;
+unknown fields or a non-boolean give 400, non-JSON gives 415, an oversized
+body gives 413, an unknown session or one without proven ownership by the
+authenticated principal gives 404, and unusable authentication gives 401.
+Session reads, writes and enabled draft binds all require proven ownership;
+legacy ownership gaps cannot grant writable admission. Drafts are scoped to
+the authenticated principal and share the existing bounded profile-draft
+storage (507 when full). Successful saves are durable before acknowledgement. All responses are `Cache-Control: no-store`.
+
+The switch is independent of the worker profile, preserves that preference,
+and cannot weaken strict or provider restrictions. A first-send profile draft
+carries its code-changes preference into the named session. Saves survive
+resume and are frozen before admission awaits; changing a save never changes
+an active turn. Enabled turns retain writable workspace qualification, the
+alias scan, per-file journaling and byte charges. The saved switch is intent:
+host application writes remain protected unless admission actually qualifies
+a writable mount. Mode changes reach the worker through append-only new-turn context, without altering tools, the
+system prompt or earlier messages. The refusal note names both writable
+alternatives: the session's code-changes switch and a managed worktree. Read-only tool failures in
+an inspected turn receive the fixed conditional sentence quoted in the
+[workspace decision](../decisions/worker-writable-areas.md#workspace-inspection-amendment-2026-11-20-4295-4298),
+without path attribution. Explicit host workspace refusals use that same text.
+Result codes, record fields and closed HTTP/WS enums remain unchanged.
+Commands execute against the read-only mount; read-only failures receive the
+conditional remedy after execution, including failures outside the checkout.
+Verification and dry runs are never denied by command name. Strict Pi tools
+keep repo-relative checkout reads through a sealed source overlay beneath
+provider masks. Privileged host applications enforce inspection even without
+a governed admission service.
+This adds no value to an existing wire/HTTP enum or required response field.
+
 <a id="untrusted-file-marks-additive-2673"></a>
 
 ### Untrusted file marks (additive, #2673)

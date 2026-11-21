@@ -30,6 +30,7 @@ export interface InboxBridgeContext {
    * compensation refuse a protected target, as the turn's application does.
    */
   protectedPaths?: readonly string[];
+  workspaceReadOnly?: boolean;
   /**
    * The turn's write boundary (#2869): a journal observation or a scope pause
    * that begins during an `inbox_add` holds its writes rather than revoking it.
@@ -104,7 +105,7 @@ export function createInboxBridgeTools(db: Database, intake: InboxIntake, resolv
           // Reuse compensated, principal-checked intake; never accept a model
           // source/trust field. The turn is this bridge's own: its host lineage
           // alone decides what the item can qualify for (#2816).
-          const result = await intake.conversation({ text: parsed.text, files: [] }, `bridge:${principalId}:${turnId}:${parsed.idempotencyKey}`, principal, turnId, () => { authorize(true); return true; }, context.protectedPaths, context.holds);
+          const result = await intake.conversation({ text: parsed.text, files: [] }, `bridge:${principalId}:${turnId}:${parsed.idempotencyKey}`, principal, turnId, () => { authorize(true); return true; }, context.protectedPaths, context.holds, context.workspaceReadOnly);
           return { created: result.created, threadId: result.threadId, itemId: result.itemId };
         },
         resolveAction: async input => {

@@ -1,3 +1,4 @@
+import { bindTurnClock, createTurnClock } from "./ws-client/turn-clock.js";
 import { attachTranscriptTimeline } from "./lib/transcript-timeline.js";
 import { createConversationClient } from "./voice/conversation-client.js";
 import { takeComposerTextAsAnswer } from "./lib/ask-user-typed.js";
@@ -30,12 +31,15 @@ export function createWebSocketClient(root: BrainUiServices) {
   let disposed = false;
   const isActive = () => root.authLock.state.getState().phase === "active";
 
+  const turnClock = createTurnClock(send);
+  const unbindTurnClock = bindTurnClock(root.stores, turnClock);
+
   const lease = createSocketLease({
     url: () => root.wsUrl(),
     disposed: () => disposed,
     active: isActive,
     noteSocketOpen: () => root.stores.connection.getState().noteSocketOpen(),
-    onMessage: (message) => inbound.handleServerMessage(message),
+    onMessage: (message) => { turnClock.frame(message); inbound.handleServerMessage(message); },
     onStatusChange: (status) => handleStatusChange(status),
     onClose: (close) => handleSocketClose(root, close, services.trackers),
     onProtocolError: (err) => {
@@ -48,7 +52,10 @@ export function createWebSocketClient(root: BrainUiServices) {
 
   /** The one gated path every client frame takes. */
   function send(message: ClientMessage): boolean {
-    return outbound(message);
+    const at = turnClock.now();
+    const sent = outbound(message);
+    if (sent) turnClock.sent(message, at);
+    return sent;
   }
 
   const restoration = createRestorationDriver(root, { send, disposed: () => disposed });
@@ -58,7 +65,7 @@ export function createWebSocketClient(root: BrainUiServices) {
     loadDialogue: (sessionId) => conversation.loadDialogue(sessionId),
     restoration,
   });
-  const services = createAccountServices(root, { send, socket: lease.client });
+  const services = createAccountServices(root, { send, socket: lease.client, noteTurnSend: requestId => turnClock.started(requestId) });
   const conversation = createConversationClient(root, send, (sessionId, text) =>
     takeComposerTextAsAnswer(root.stores.chat.getState(), sessionId, text, (answer) => {
       void services.answers.submit(answer).then((result) => {
@@ -97,7 +104,7 @@ export function createWebSocketClient(root: BrainUiServices) {
 
   function handleStatusChange(status: ConnectionStatus): void {
     root.stores.connection.getState().setWsStatus(status);
-    if (status !== "connected") services.socketDown();
+    if (status !== "connected") { services.socketDown(); turnClock.disconnected(); }
     if (status === "connected") {
       inbound.resetTurns();
       root.stores.connection.getState().noteSocketOpen();
@@ -171,6 +178,7 @@ export function createWebSocketClient(root: BrainUiServices) {
       inbound.resetTurns();
       if (disposed) return;
       disposed = true;
+      unbindTurnClock();
       timeline.dispose();
       conversation.dispose();
       retries.clearTimers();

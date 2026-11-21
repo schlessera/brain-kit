@@ -9,7 +9,7 @@ import { constants, openSync, closeSync, fsyncSync, fstatSync, writeFileSync, re
   mkdirSync, chmodSync, chownSync, readdirSync, realpathSync, existsSync, unlinkSync, ftruncateSync } from "node:fs";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { nativeCheckpointId, nativeManagerRequest, nativeManagerFrame, NativeBrainManagerError, NATIVE_CONTROL_BYTES, NATIVE_DATA_CHUNK_BYTES, NATIVE_MANAGER_OPERATION_TIMEOUT_MS, NATIVE_MANAGER_MAX_DELTA_BYTES,
-  type NativeCheckpoint, type NativeManagerReady, type NativeManagerRequest, type NativeRecoveryRecord, type NativeTurnTree } from "./native-brain-manager-protocol.js";
+  NATIVE_REQUEST_BYTES, type NativeCheckpoint, type NativeManagerReady, type NativeManagerRequest, type NativeRecoveryRecord, type NativeTurnTree } from "./native-brain-manager-protocol.js";
 import { NATIVE_TREE_REMOVAL, nativeTurnTreeReaders } from "./native-turn-trees.js";
 import { startNativeStage } from "./native-brain-stage.js";
 import { randomUUID } from "node:crypto";
@@ -911,18 +911,14 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig,
   };
 }
 
-/** Unix socket only; filesystem ownership is authentication, and workers must mask the endpoint. */
-export async function serveNativeBrainManager(config: NativeBrainManagerConfig, options: NativeBrainManagerOptions = {}) {
-  const fixed = Object.freeze({ ...config }), manager = await createNativeBrainManager(fixed, options);
-  if (existsSync(fixed.socketPath)) { await manager.close(); throw new NativeBrainManagerError("unsupported", "Native manager socket already exists; reconcile its service ownership before starting."); }
-  let server: ReturnType<typeof Bun.serve>;
-  try {
-    server = Bun.serve({ unix: fixed.socketPath, maxRequestBodySize: 1024,
+/** The fixed bounded Unix transport; trusted boot owns socket authentication and native qualification. */
+export function serveNativeBrainRequests(socketPath: string, manager: Pick<Awaited<ReturnType<typeof createNativeBrainManager>>, "run">) {
+  return Bun.serve({ unix: socketPath, maxRequestBodySize: NATIVE_REQUEST_BYTES,
       async fetch(request) {
         try {
           if (request.method !== "POST" || new URL(request.url).pathname !== "/native-brain" || request.headers.get("content-type") !== "application/json")
             throw new NativeBrainManagerError("invalid", "Native manager accepts fixed JSON operations only.");
-          const raw = await request.text(); if (Buffer.byteLength(raw) > 1024) throw new NativeBrainManagerError("invalid", "Native request exceeded its bound.");
+          const raw = await request.text(); if (Buffer.byteLength(raw) > NATIVE_REQUEST_BYTES) throw new NativeBrainManagerError("invalid", "Native request exceeded its bound.");
           const parsed = nativeManagerRequest.safeParse(JSON.parse(raw));
           if (!parsed.success) throw new NativeBrainManagerError("invalid", "Native manager operation or identity is invalid.");
           const response = await manager.run(parsed.data, request.signal);
@@ -932,6 +928,15 @@ export async function serveNativeBrainManager(config: NativeBrainManagerConfig, 
         } catch (error) { const known = plainError(error); return Response.json({ code: known.code, message: known.message }, { status: known.code === "invalid" ? 400 : 503 }); }
       },
     });
+}
+
+/** Unix socket only; filesystem ownership is authentication, and workers must mask the endpoint. */
+export async function serveNativeBrainManager(config: NativeBrainManagerConfig, options: NativeBrainManagerOptions = {}) {
+  const fixed = Object.freeze({ ...config }), manager = await createNativeBrainManager(fixed, options);
+  if (existsSync(fixed.socketPath)) { await manager.close(); throw new NativeBrainManagerError("unsupported", "Native manager socket already exists; reconcile its service ownership before starting."); }
+  let server: ReturnType<typeof Bun.serve>;
+  try {
+    server = serveNativeBrainRequests(fixed.socketPath, manager);
     chownSync(fixed.socketPath, 0, fixed.appGid); chmodSync(fixed.socketPath, 0o660);
   } catch (error) { await manager.close(); throw error; }
   return { socketPath: fixed.socketPath, async close() { server.stop(true); await manager.close(); } };

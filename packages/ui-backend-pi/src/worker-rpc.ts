@@ -15,7 +15,7 @@ import type { SessionCaps } from "./backend-options.js";
 import { createPiBridgeTools, REQUEST_IMAGE_MASK_INPUT_SCHEMA } from "./bridge-tools.js";
 import { decidePiToolPermission } from "./permission-gate.js";
 import { revalidatePiAdmission } from "./tool-admission.js";
-import { safetyAdmissionRefusal } from "@schlessera/brain-ui-sdk/internal";
+import { workspaceWriteRefusal, safetyAdmissionRefusal } from "@schlessera/brain-ui-sdk/internal";
 import { syncPiAuth } from "./session-storage.js";
 import type { TurnContext } from "./turn-context.js";
 import type { PiWorkerMessage } from "./worker-protocol.js";
@@ -43,7 +43,7 @@ export interface PiWorkerRpcContext {
   autonomous: boolean;
   canFinalizeSafety?(toolName:string,toolId:string):boolean;
   /** The worker's resolved sandbox; native file observations require a governed one. */
-  sandbox: Pick<WorkerSandbox, "profile">;
+  sandbox: Pick<WorkerSandbox, "profile"> & Partial<WorkerSandbox>;
   /** The host-supplied sandbox, if any; a governed one keeps the native write and edit tools. */
   workerSandbox: WorkerSandbox | undefined;
   observeFile(path: string): ReturnType<NonNullable<LaunchedWorker["observeFile"]>>;
@@ -174,7 +174,7 @@ async function permit(msg: PiWorkerRpc, bridge: BackendBridge, context: PiWorker
   context.live();
   const refused = refusal();
   if (refused) return { behavior: "deny", message: refused };
-  if (grant) context.grants.set(msg.toolCallId, grant);
+  if (grant) { context.grants.set(msg.toolCallId, grant); context.executed(msg).input = JSON.parse(grant.input); }
   return decision;
 }
 
@@ -283,11 +283,15 @@ export const PI_WORKER_RPC_HANDLERS: Readonly<Record<PiWorkerRpcMethod, PiWorker
     throw new Error("Unqualified Pi input transformations");
   },
   safetyResult: async(msg,bridge,context)=>{
-    if(Object.keys(msg.input).some(key=>!["output","segments"].includes(key))||typeof msg.input.output!=="string"||msg.input.segments!==undefined&&(!Array.isArray(msg.input.segments)||(msg.input.segments as unknown[]).some(v=>typeof v!=="string")))throw resultLoss(new Error("Malformed safety result"));
+    if(Object.keys(msg.input).some(key=>!["output","segments","failed"].includes(key))||msg.input.failed!==undefined&&typeof msg.input.failed!=="boolean"||typeof msg.input.output!=="string"||msg.input.segments!==undefined&&(!Array.isArray(msg.input.segments)||(msg.input.segments as unknown[]).some(v=>typeof v!=="string")))throw resultLoss(new Error("Malformed safety result"));
     const execution=context.executed(msg);
     const bounded=execution.name===msg.toolName&&context.canFinalizeSafety?.(msg.toolName,msg.toolCallId)===true;
-    await bridge.inputSafety?.result(msg.toolCallId,msg.toolName,msg.input.output,bounded,msg.input.segments as string[]|undefined);
-    context.live();return {ok:true};
+    const workspaceNote = msg.input.failed === true && context.sandbox.brain && context.sandbox.areas
+      ? workspaceWriteRefusal(context.sandbox as WorkerSandbox, msg.toolName, execution.input, undefined, msg.input.output) : undefined;
+    const output = workspaceNote ? `${msg.input.output}\n\n${workspaceNote}` : msg.input.output;
+    const segments = msg.input.segments as string[] | undefined;
+    await bridge.inputSafety?.result(msg.toolCallId,msg.toolName,output,bounded,workspaceNote && segments ? [...segments,workspaceNote] : segments);
+    context.live();return {ok:true,...(workspaceNote ? {workspaceNote} : {})};
   },
 };
 

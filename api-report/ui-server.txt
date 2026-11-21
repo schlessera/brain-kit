@@ -115,7 +115,8 @@ signatures (every public export and the types it is made of)
     };
   ActivityStore (packages/ui-server/src/activity/store.ts)
     export interface ActivityStore {
-        writeLifecycle(record: ActivityTurnLifecycle): void;
+        writeLifecycle(record: ActivityTurnLifecycle, principalId?: string): void;
+        writeClientReceipt?(turnId: string, principalId: string, timing: import("@schlessera/brain-ui-sdk/protocol").ClientTurnTiming): boolean;
         lifecycleChangesSince(cursor: number, limit?: number): Array<{
             changeId: number;
             runId: string;
@@ -125,6 +126,14 @@ signatures (every public export and the types it is made of)
         }>;
         lifecycle(turnId: string): ActivityTurnLifecycle | null;
         lifecycles(sessionId?: string, limit?: number): ActivityTurnLifecycle[];
+        snapshotLifecycles?(scope: {
+            turnId?: string;
+            sessionId?: string;
+            limit?: number;
+        }): {
+            lifecycles: ActivityTurnLifecycle[];
+            highWaterSeq: Record<string, number>;
+        };
         readonly writer: string;
         startSpan(input: StartSpanInput): SpanRow;
         endSpan(spanId: string, input: EndSpanInput): boolean;
@@ -174,7 +183,7 @@ signatures (every public export and the types it is made of)
         close(): void;
     }
   ActivityWriteMethod (packages/ui-server/src/activity/store.ts)
-    export type ActivityWriteMethod = "writeLifecycle" | "startSpan" | "endSpan" | "patchSpan" | "appendEvent" | "heartbeat" | "cascadeClose" | "sweepOwnOrphans" | "sweepStale" | "rollupRun" | "prune";
+    export type ActivityWriteMethod = "writeClientReceipt" | "writeLifecycle" | "startSpan" | "endSpan" | "patchSpan" | "appendEvent" | "heartbeat" | "cascadeClose" | "sweepOwnOrphans" | "sweepStale" | "rollupRun" | "prune";
   AgentConfig (packages/ui-server/src/config/env.ts)
     export interface AgentConfig {
         backend: string | null;
@@ -241,7 +250,9 @@ signatures (every public export and the types it is made of)
     type Awaitable<T> = T | Promise<T>;
   AwaitableActivityStore (packages/ui-server/src/activity/store.ts)
     export type AwaitableActivityStore = Omit<ActivityStore, ActivityWriteMethod> & {
-        [K in ActivityWriteMethod]: (...args: Parameters<ActivityStore[K]>) => Awaitable<ReturnType<ActivityStore[K]>>;
+        [K in Exclude<ActivityWriteMethod, "writeClientReceipt">]: (...args: Parameters<ActivityStore[K]>) => Awaitable<ReturnType<ActivityStore[K]>>;
+    } & {
+        writeClientReceipt?: (...args: Parameters<NonNullable<ActivityStore["writeClientReceipt"]>>) => Awaitable<ReturnType<NonNullable<ActivityStore["writeClientReceipt"]>>>;
     };
   BackendBootFailure (packages/ui-server/src/agent/backend.ts)
     export interface BackendBootFailure {
@@ -1385,6 +1396,7 @@ signatures (every public export and the types it is made of)
     }
   GovernedTurnRoute (packages/ui-server/src/brain/governed-turn.ts)
     export interface GovernedTurnRoute {
+        readonly codeChanges?: boolean;
         readonly inferenceOrigin?: string;
         readonly sessionId?: string;
         readonly inherit?: readonly string[];
@@ -2373,6 +2385,7 @@ signatures (every public export and the types it is made of)
         writable: false;
         reason: string;
         missing?: true;
+        readOnlyPath?: string;
     };
   WorkerOutwardRule (packages/ui-sdk/src/server/outward-policy.ts)
     export interface WorkerOutwardRule {
@@ -2397,6 +2410,7 @@ signatures (every public export and the types it is made of)
         };
         readonly commandPolicy?: import("./command-policy.js").WorkerCommandPolicy;
         readonly brain: string;
+        readonly codeChanges?: boolean;
         readonly restricted: boolean;
         readonly profile?: WorkerProfile;
         readonly fallbackReason?: string;
@@ -2636,6 +2650,8 @@ signatures (every public export and the types it is made of)
             policyHash: null | string;
             profile: "governed" | "strict";
             sessionId: null | string;
+            workspaceMissing?: boolean;
+            workspaceReadOnly?: boolean;
         }, stop: (error: Error) => void, signal?: AbortSignal, timing?: PhaseTimer): Promise<void>;
         bindModel(turnId: string, sessionId: null | string, model: string): boolean;
         bindSession(turnId: string, sessionId: string): Promise<void>;

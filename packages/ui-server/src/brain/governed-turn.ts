@@ -45,6 +45,8 @@ export interface GovernedTurnHold {
 }
 /** Who a turn's inference reaches and which conversation it continues (#2695). */
 export interface GovernedTurnRoute {
+  /** Session preference frozen before the first admission await. */
+  readonly codeChanges?: boolean;
   /**
    * The exact origin the turn's host inference relay will forward to, from
    * its backend. It names the recipient only on managed native storage, where
@@ -246,11 +248,11 @@ export function createGovernedTurns(options: {
       try { ensureRetainedDirectories(options.brainPath, folderPaths); } catch { /* resolver refuses */ }
       const requested = options.profile === "strict" || (origin === "interactive" && preference === "strict") ? "strict" : policy.policy.profiles[origin];
       const selected = requested === "governed" && !availability.available ? "strict" : requested;
-      const resolveSandbox = () => prepareWorkerSandboxAsync(options.brainPath, { profile: selected,
+      const resolveSandbox = () => prepareWorkerSandboxAsync(options.brainPath, { profile: selected, codeChanges: route?.codeChanges === true,
         protectedPaths: protectedPaths(policy.policy), folderPaths,
         maskPaths: options.maskPaths, maintenance: { ...options.execution.boundary.maintenance, startupView } });
       let resolved = await step("sandbox_resolve", resolveSandbox);
-      const missingWritableRoot = () => resolved.areas.find(area => area.mount.writable
+      const missingWritableRoot = () => resolved.areas.find(area => (area.mount.writable || area.mount.readOnlyPath)
         && !lstatSync(join(startupView!.root, area.rel), { throwIfNoEntry: false })?.isDirectory());
       // Host setup may create scratch after the initial admission checkpoint.
       // Refresh only those first-turn sealed consumers, then validate against
@@ -264,7 +266,7 @@ export function createGovernedTurns(options: {
         startupView = await step("startup_checkpoint_refresh", () => prepareNativeWorkerStartupView(options.brainPath, options.nativeManager, signal));
         signal.throwIfAborted(); resolved = await step("sandbox_resolve_refresh", resolveSandbox);
         const missing = missingWritableRoot();
-        if (missing) throw new Error(`The immutable worker checkpoint does not include writable ${missing.rel} after host setup; retry admission once concurrent setup has settled.`);
+        if (missing) throw new Error(`The immutable worker checkpoint does not include qualified ${missing.rel} after host setup; retry admission once concurrent setup has settled.`);
         // The turn runs on this newer checkpoint, so its types are judged
         // again there; retention was planned for the first translation.
         if (types.length) {
@@ -323,6 +325,7 @@ export function createGovernedTurns(options: {
       // index current from it (#2846). Built from this final checkpoint.
       if (workerProfile(resolved) !== "governed" || privateIndex) {
         dataTree = await step("data_tree", () => createTurnDataTree({ brainPath: options.brainPath, view: startupView!, maskPaths: options.maskPaths, mount: workerProfile(resolved) !== "governed", signal,
+          inspectWorkspaces: resolved.areas.some(area => area.name === "workspaces" && !area.mount.writable && Boolean(area.mount.readOnlyPath)),
           ...(privateIndex ? { index: privateIndex, masks: { folders: maskedFolders, buildFolders: privateIndexBuildFolders(maskedFolders, startupView!.root),
             types: providerDeniedTypes(policy.policy, recipient) } } : {}),
           // A recipient allowed every folder still never sees the generated-text caches.
