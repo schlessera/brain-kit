@@ -1,3 +1,4 @@
+import { noteTurnSend } from "../../ws-client/turn-clock.js";
 import { useStore } from "zustand";
 import { ConversationUnassigned } from "../voice/conversation-unassigned.js";
 import { ConversationField } from "../voice/conversation-field.js";
@@ -231,6 +232,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   // A send pressed while tracks upload is held for the draft it was pressed
   // in, by id: another draft opened meanwhile is never sent for it (#951).
   const [heldFor, setHeldFor] = useState<string | null>(null);
+  const heldSendOrigin = useRef<{ draftId: string; at: number } | null>(null);
   const heldSend = heldFor !== null && heldFor === draftId;
   const setHeldSend = (held: boolean) => setHeldFor(held ? draftId : null);
 
@@ -583,6 +585,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   draftIdRef.current = draftId;
 
   function handleSubmit() {
+    const sentAt = heldSend && heldSendOrigin.current?.draftId === draftId ? heldSendOrigin.current.at : performance.now();
     // Dictated words are in the field by now (D6), so the field is the draft.
     const text = input.trim();
     const currentTracks = trackUploads.files;
@@ -597,7 +600,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     // in the save that clears the composer. A draft with legacy inline
     // images keeps the tab-local path below: a snapshot cannot hold them.
     if (snapshotsOn && chatRequestAck && attachments.length === 0 && currentTracks.length === 0) {
-      submitSnapshot(text, hasAttachments);
+      submitSnapshot(text, hasAttachments, sentAt);
       return;
     }
 
@@ -606,10 +609,10 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
       setEffortNotice("Your draft is kept. Retry or remove the failed track before sending.");
       return;
     }
-    if (currentTracks.some(trackPending)) { setHeldSend(true); return; }
+    if (currentTracks.some(trackPending)) { heldSendOrigin.current = { draftId, at: sentAt }; setHeldSend(true); return; }
     const fileHold = composerFilesHold();
     if (fileHold.blocked) { setHeldSend(false); setEffortNotice(fileHold.blocked); return; }
-    if (fileHold.pending) { setHeldSend(true); return; }
+    if (fileHold.pending) { heldSendOrigin.current = { draftId, at: sentAt }; setHeldSend(true); return; }
     const readyFiles = currentTracks.filter(trackReady).map(track => track.meta!);
 
     // A send while a question is pending is the ANSWER to it, not a new
@@ -642,6 +645,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     const chat = root.stores.chat.getState();
     const source = dictated ? "voice-dictate" : "typed";
     const requestId = chatRequestAck ? crypto.randomUUID() : undefined;
+    if (requestId) noteTurnSend(root.stores, requestId, sentAt);
     // A send while the session is busy is a follow-up the host queues. On a
     // host that reports its queue it waits as a pending pill, not in the
     // chat, and enters the transcript when its own turn starts (#1002).
@@ -755,7 +759,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
    * host acknowledges the save that creates it: that save is the slot's
    * reservation, and a full chat refuses it with nothing sent.
    */
-  function submitSnapshot(text: string, hasAttachments: boolean) {
+  function submitSnapshot(text: string, hasAttachments: boolean, sentAt: number) {
     const store = root.stores.drafts.getState();
     if (outgoingFull) {
       setEffortNotice("");
@@ -775,6 +779,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     }
     if (text) setLastPrompt(text);
     const requestId = crypto.randomUUID();
+    noteTurnSend(root.stores, requestId, sentAt);
     const pending = own.filter(queuedPending);
     const files = current ? bindableFiles(current) : [];
     const message: Extract<ClientMessage, { type: "chat_message" }> = {

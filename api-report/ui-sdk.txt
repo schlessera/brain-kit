@@ -147,6 +147,8 @@ export "." (./src/index.ts)
   type ClientSessionResume
   type ClientToolApproval
   type ClientToolDenial
+  type ClientTurnReceipt
+  type ClientTurnTiming
   type ConfigurationCoverageRead
   type ConfiguredModule
   type ConflictVersionSelection
@@ -740,6 +742,8 @@ export "./client" (./src/client/index.ts)
   type ClientSessionResume
   type ClientToolApproval
   type ClientToolDenial
+  type ClientTurnReceipt
+  type ClientTurnTiming
   type CompleteShareInput
   type CompleteShareResult
   type ComputeHealthToolInput
@@ -1787,6 +1791,8 @@ export "./protocol" (./src/protocol.ts)
   type ClientSessionResume
   type ClientToolApproval
   type ClientToolDenial
+  type ClientTurnReceipt
+  type ClientTurnTiming
   type ConfigurationCoverageRead
   type ConflictVersionSelection
   type ConsumerServerMessage
@@ -2168,6 +2174,7 @@ export "./render" (./src/render.ts)
 
 export "./schemas" (./src/schemas.ts)
   MAX_CLIENT_FRAME_BYTES
+  MAX_CLIENT_TURN_RECEIPT_BYTES
   MAX_PROMPT_CHARS
   MAX_SERVER_FRAME_BYTES
   type ParseFrameResult
@@ -2214,6 +2221,7 @@ export "./schemas" (./src/schemas.ts)
   clientSessionResumeSchema
   clientToolApprovalSchema
   clientToolDenialSchema
+  clientTurnTimingSchema
   conversationAudioFormatSchema
   conversationCapabilitiesSchema
   conversationDisclosureSchema
@@ -2621,6 +2629,8 @@ export "./server" (./src/server/index.ts)
   type ClientSessionResume
   type ClientToolApproval
   type ClientToolDenial
+  type ClientTurnReceipt
+  type ClientTurnTiming
   type CoastlineConfig
   type CoastlineRequest
   type CoastlineResult
@@ -4482,6 +4492,8 @@ signatures (every public export and the types it is made of)
     export type ActivitySpanOutcome = "success" | "error" | "timeout" | "cancelled" | "denied" | "interrupted";
   ActivityTurnLifecycle (packages/ui-sdk/src/protocol.ts)
     export interface ActivityTurnLifecycle {
+        clientTiming?: ClientTurnTiming;
+        clientTimingUnavailable?: "invalid_receipt";
         hostEvents: Array<{
             principalId: string;
             kind: "turn_cancelled" | "ask_user_cancelled" | "principal_revoked" | "follow_up";
@@ -7441,7 +7453,7 @@ signatures (every public export and the types it is made of)
         turnId?: string;
     }
   ClientMessage (packages/ui-sdk/src/protocol.ts)
-    export type ClientMessage = ClientSafetyRead | ClientSafetySubscribe | ClientSafetyUnsubscribe | ClientScopeDecision | ClientHello | ClientRetryTurn | ClientRetryStatus | ClientChatMessage | ClientToolApproval | ClientToolDenial | ClientCancelRequest | ClientSessionResume | ClientAskUserResponse | ClientAskUserCancel | ClientAskUserListResponse | ClientAskUserRankResponse | ClientAskUserFormResponse | ClientAskAnswerStatus | ClientPing | ClientLocationResponse | ClientLocationError | ClientMaskResponse | ClientMaskError | ClientMarkupError | ClientActivitySubscribe | ClientActivityUnsubscribe | ClientLocalExchange | ClientHandoffPrepare | ClientHandoffPrepareCancel | ClientHandoffStatus | ClientInboxResolve | ClientInboxSnooze | ClientInboxSubscribe | ClientInboxUnsubscribe | ClientDialogueRead | ClientConversationStart | ClientConversationAudio | ClientConversationEndpoint | ClientConversationCommit | ClientConversationPlayback | ClientConversationStop;
+    export type ClientMessage = ClientSafetyRead | ClientSafetySubscribe | ClientSafetyUnsubscribe | ClientScopeDecision | ClientHello | ClientTurnReceipt | ClientRetryTurn | ClientRetryStatus | ClientChatMessage | ClientToolApproval | ClientToolDenial | ClientCancelRequest | ClientSessionResume | ClientAskUserResponse | ClientAskUserCancel | ClientAskUserListResponse | ClientAskUserRankResponse | ClientAskUserFormResponse | ClientAskAnswerStatus | ClientPing | ClientLocationResponse | ClientLocationError | ClientMaskResponse | ClientMaskError | ClientMarkupError | ClientActivitySubscribe | ClientActivityUnsubscribe | ClientLocalExchange | ClientHandoffPrepare | ClientHandoffPrepareCancel | ClientHandoffStatus | ClientInboxResolve | ClientInboxSnooze | ClientInboxSubscribe | ClientInboxUnsubscribe | ClientDialogueRead | ClientConversationStart | ClientConversationAudio | ClientConversationEndpoint | ClientConversationCommit | ClientConversationPlayback | ClientConversationStop;
   ClientPing (packages/ui-sdk/src/protocol.ts)
     export interface ClientPing {
         type: "ping";
@@ -7496,6 +7508,19 @@ signatures (every public export and the types it is made of)
         message: string;
         channel?: ApprovalChannel;
         turnId?: string;
+    }
+  ClientTurnReceipt (packages/ui-sdk/src/protocol.ts)
+    export interface ClientTurnReceipt {
+        type: "client_turn_receipt";
+        turnId: string;
+        timing: ClientTurnTiming;
+    }
+  ClientTurnTiming (packages/ui-sdk/src/protocol.ts)
+    export interface ClientTurnTiming {
+        sendToFirstHostFrameMs: number;
+        sendToFirstContentFrameMs?: number;
+        lastContentFrameToIdleMs?: number;
+        sendToFirstPhaseStatusFrameMs?: number;
     }
   CoastlineConfig (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
   CoastlineRequest (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
@@ -11052,6 +11077,8 @@ signatures (every public export and the types it is made of)
     }, z.core.$strip>;
   MAX_CLIENT_FRAME_BYTES (packages/ui-sdk/src/schemas.ts)
     const MAX_CLIENT_FRAME_BYTES: 12000000;
+  MAX_CLIENT_TURN_RECEIPT_BYTES (packages/ui-sdk/src/schemas.ts)
+    const MAX_CLIENT_TURN_RECEIPT_BYTES: 4096;
   MAX_IMAGES_PER_MESSAGE (packages/ui-sdk/src/protocol.ts)
     const MAX_IMAGES_PER_MESSAGE: 4;
   MAX_IMAGE_BYTES (packages/ui-sdk/src/protocol.ts)
@@ -11301,6 +11328,7 @@ signatures (every public export and the types it is made of)
     } | {
         ok: false;
         error: string;
+        frameType?: "client_turn_receipt";
     };
   PasskeySummary (packages/ui-sdk/src/protocol.ts)
     export interface PasskeySummary {
@@ -13817,6 +13845,7 @@ signatures (every public export and the types it is made of)
     }
   ServerStatus (packages/ui-sdk/src/protocol.ts)
     export interface ServerStatus extends SessionScoped {
+        hostTurnComplete?: true;
         type: "status";
         status: "thinking" | "tool_executing" | "idle" | "cancelled" | "queued";
         detail?: string;
@@ -16021,6 +16050,15 @@ signatures (every public export and the types it is made of)
         turnId: z.ZodString;
         type: z.ZodLiteral<"scope_decision">;
     }, z.core.$strict>, z.ZodObject<{
+        timing: z.ZodObject<{
+            lastContentFrameToIdleMs: z.ZodOptional<z.ZodNumber>;
+            sendToFirstContentFrameMs: z.ZodOptional<z.ZodNumber>;
+            sendToFirstHostFrameMs: z.ZodNumber;
+            sendToFirstPhaseStatusFrameMs: z.ZodOptional<z.ZodNumber>;
+        }, z.core.$strict>;
+        turnId: z.ZodString;
+        type: z.ZodLiteral<"client_turn_receipt">;
+    }, z.core.$strict>, z.ZodObject<{
         failedTurnId: z.ZodString;
         requestId: z.ZodString;
         sessionId: z.ZodString;
@@ -16513,6 +16551,13 @@ signatures (every public export and the types it is made of)
         turnId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"tool_denial">;
     }, z.core.$loose>;
+  clientTurnTimingSchema (packages/ui-sdk/src/schemas.ts)
+    const clientTurnTimingSchema: z.ZodObject<{
+        lastContentFrameToIdleMs: z.ZodOptional<z.ZodNumber>;
+        sendToFirstContentFrameMs: z.ZodOptional<z.ZodNumber>;
+        sendToFirstHostFrameMs: z.ZodNumber;
+        sendToFirstPhaseStatusFrameMs: z.ZodOptional<z.ZodNumber>;
+    }, z.core.$strict>;
   clipLine (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
   closeAgainstViewport (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
   closedRings (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
@@ -22079,6 +22124,13 @@ signatures (every public export and the types it is made of)
             budgetAdmissionMs: z.ZodNullable<z.ZodNumber>;
             budgetAdmittedAt: z.ZodNullable<z.ZodNumber>;
             budgetStartedAt: z.ZodNullable<z.ZodNumber>;
+            clientTiming: z.ZodOptional<z.ZodObject<{
+                lastContentFrameToIdleMs: z.ZodOptional<z.ZodNumber>;
+                sendToFirstContentFrameMs: z.ZodOptional<z.ZodNumber>;
+                sendToFirstHostFrameMs: z.ZodNumber;
+                sendToFirstPhaseStatusFrameMs: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$loose>>;
+            clientTimingUnavailable: z.ZodOptional<z.ZodLiteral<"invalid_receipt">>;
             dequeuedAt: z.ZodNullable<z.ZodNumber>;
             endedAt: z.ZodNullable<z.ZodNumber>;
             failureObservedAt: z.ZodNullable<z.ZodNumber>;
@@ -22215,6 +22267,13 @@ signatures (every public export and the types it is made of)
             budgetAdmissionMs: z.ZodNullable<z.ZodNumber>;
             budgetAdmittedAt: z.ZodNullable<z.ZodNumber>;
             budgetStartedAt: z.ZodNullable<z.ZodNumber>;
+            clientTiming: z.ZodOptional<z.ZodObject<{
+                lastContentFrameToIdleMs: z.ZodOptional<z.ZodNumber>;
+                sendToFirstContentFrameMs: z.ZodOptional<z.ZodNumber>;
+                sendToFirstHostFrameMs: z.ZodNumber;
+                sendToFirstPhaseStatusFrameMs: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$loose>>;
+            clientTimingUnavailable: z.ZodOptional<z.ZodLiteral<"invalid_receipt">>;
             dequeuedAt: z.ZodNullable<z.ZodNumber>;
             endedAt: z.ZodNullable<z.ZodNumber>;
             failureObservedAt: z.ZodNullable<z.ZodNumber>;
@@ -24326,6 +24385,7 @@ signatures (every public export and the types it is made of)
         activeSessionId: z.ZodOptional<z.ZodString>;
         detail: z.ZodOptional<z.ZodString>;
         effectiveThinkingLevel: z.ZodCatch<z.ZodOptional<z.ZodCustom<ThinkingLevel, ThinkingLevel>>>;
+        hostTurnComplete: z.ZodOptional<z.ZodLiteral<true>>;
         requestId: z.ZodOptional<z.ZodString>;
         retry: z.ZodCatch<z.ZodOptional<z.ZodObject<{
             attempt: z.ZodNumber;
@@ -25231,6 +25291,13 @@ signatures (every public export and the types it is made of)
             budgetAdmissionMs: z.ZodNullable<z.ZodNumber>;
             budgetAdmittedAt: z.ZodNullable<z.ZodNumber>;
             budgetStartedAt: z.ZodNullable<z.ZodNumber>;
+            clientTiming: z.ZodOptional<z.ZodObject<{
+                lastContentFrameToIdleMs: z.ZodOptional<z.ZodNumber>;
+                sendToFirstContentFrameMs: z.ZodOptional<z.ZodNumber>;
+                sendToFirstHostFrameMs: z.ZodNumber;
+                sendToFirstPhaseStatusFrameMs: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$loose>>;
+            clientTimingUnavailable: z.ZodOptional<z.ZodLiteral<"invalid_receipt">>;
             dequeuedAt: z.ZodNullable<z.ZodNumber>;
             endedAt: z.ZodNullable<z.ZodNumber>;
             failureObservedAt: z.ZodNullable<z.ZodNumber>;
@@ -25368,6 +25435,13 @@ signatures (every public export and the types it is made of)
             budgetAdmissionMs: z.ZodNullable<z.ZodNumber>;
             budgetAdmittedAt: z.ZodNullable<z.ZodNumber>;
             budgetStartedAt: z.ZodNullable<z.ZodNumber>;
+            clientTiming: z.ZodOptional<z.ZodObject<{
+                lastContentFrameToIdleMs: z.ZodOptional<z.ZodNumber>;
+                sendToFirstContentFrameMs: z.ZodOptional<z.ZodNumber>;
+                sendToFirstHostFrameMs: z.ZodNumber;
+                sendToFirstPhaseStatusFrameMs: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$loose>>;
+            clientTimingUnavailable: z.ZodOptional<z.ZodLiteral<"invalid_receipt">>;
             dequeuedAt: z.ZodNullable<z.ZodNumber>;
             endedAt: z.ZodNullable<z.ZodNumber>;
             failureObservedAt: z.ZodNullable<z.ZodNumber>;
@@ -28688,6 +28762,7 @@ signatures (every public export and the types it is made of)
         activeSessionId: z.ZodOptional<z.ZodString>;
         detail: z.ZodOptional<z.ZodString>;
         effectiveThinkingLevel: z.ZodCatch<z.ZodOptional<z.ZodCustom<ThinkingLevel, ThinkingLevel>>>;
+        hostTurnComplete: z.ZodOptional<z.ZodLiteral<true>>;
         requestId: z.ZodOptional<z.ZodString>;
         retry: z.ZodCatch<z.ZodOptional<z.ZodObject<{
             attempt: z.ZodNumber;

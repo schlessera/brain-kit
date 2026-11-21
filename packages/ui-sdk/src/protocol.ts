@@ -123,6 +123,7 @@ export type ClientMessage =
   | ClientSafetyRead | ClientSafetySubscribe | ClientSafetyUnsubscribe
   | ClientScopeDecision
   | ClientHello
+  | ClientTurnReceipt
   | ClientRetryTurn
   | ClientRetryStatus
   | ClientChatMessage
@@ -159,6 +160,22 @@ export type ClientMessage =
   | ClientConversationCommit
   | ClientConversationPlayback
   | ClientConversationStop;
+
+/** Client-monotonic frame-arrival pairs, in milliseconds; never presentation timings. */
+export interface ClientTurnTiming {
+  sendToFirstHostFrameMs: number;
+  sendToFirstContentFrameMs?: number;
+  lastContentFrameToIdleMs?: number;
+  /** Absent until phase-specific status frames are supported. */
+  sendToFirstPhaseStatusFrameMs?: number;
+}
+
+/** Best-effort, once after idle; cannot update the host lifecycle. */
+export interface ClientTurnReceipt {
+  type: "client_turn_receipt";
+  turnId: string;
+  timing: ClientTurnTiming;
+}
 
 /**
  * Client → Server. First frame a client sends after the socket opens (rev 3,
@@ -1024,7 +1041,8 @@ export interface ServerHello {
    * advertises resumable stop plus start/open/close request identity echoes.
    * `sessionDrafts: true` means the `/api/drafts` routes store drafts;
    * `sessionDraftLimits` then carries their bounds. `sessionRecovery: true`
-   * means `GET /api/sessions/:id/recovery` answers (#964). */
+   * means `GET /api/sessions/:id/recovery` answers (#964).
+   * `clientTurnReceipts: true` accepts best-effort client frame-arrival reports. */
   capabilities?: Record<string, boolean>;
   /**
    * Draft storage bounds (additive; #979). Present exactly when
@@ -1583,6 +1601,8 @@ export interface ServerError extends SessionScoped {
 }
 
 export interface ServerStatus extends SessionScoped {
+  /** Host-only final idle after cleanup; receipt persistence may finish later. Never a backend idle. */
+  hostTurnComplete?: true;
   type: "status";
   status: "thinking" | "tool_executing" | "idle" | "cancelled" | "queued";
   detail?: string;
@@ -3905,6 +3925,10 @@ export interface ActivityTurnOpenSubPhase extends Omit<ActivityTurnSubPhase, "ph
 
 /** Host-owned envelope; never contributes inference usage or cost. */
 export interface ActivityTurnLifecycle {
+  /** Separate owner-bound receipt joined on read; absent when unobserved or lost. */
+  clientTiming?: ClientTurnTiming;
+  /** The separate receipt is retained but invalid; host lifecycle remains usable. */
+  clientTimingUnavailable?: "invalid_receipt";
   hostEvents: Array<{ principalId: string; kind: "turn_cancelled" | "ask_user_cancelled" | "principal_revoked" | "follow_up"; observedAt: number }>;
   skippedPhases: Array<"governed" | "budget" | "journal">;
   lifecycleId: string;

@@ -5309,6 +5309,17 @@ positive omitted observation count. The safe observer wrapper forwards that
 count without allowing diagnostics to fail a turn. This supports bounded SDK
 sampling and the lifecycle's additive `backendEvidenceOmitted` count.
 
+### Consistent Activity lifecycle snapshots
+
+`ActivityStore` adds optional `snapshotLifecycles({ turnId?, sessionId?, limit? })`,
+returning `{ lifecycles, highWaterSeq }` from one read transaction. Each lifecycle
+includes its separately stored client receipt, and each sequence belongs to that
+same database snapshot. `AwaitableActivityStore` inherits this synchronous read.
+Prior store implementations need not provide it: the Activity stream reads a
+conservative sequence floor before re-reading lifecycle data, permitting replay
+without losing a receipt delta. Existing methods and factory return shapes remain
+compatible. This additive API ships in a minor release.
+
 ### Late Activity session association
 
 `ActivityStore.patchSpan` accepts an optional `sessionId` to bind an unnamed
