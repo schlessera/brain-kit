@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../scripts/test-deadlines.js";
 import { expect, spyOn, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -80,27 +81,116 @@ test("ten simultaneous admissions keep at most two startup releases pending", as
   } finally { deletion.resolve(); await Promise.all(work); await releases.close(); }
 });
 
-test("an observation reserves behind a delayed startup release without inheriting its cleanup failure", async () => {
+for (const pressure of [false, true]) test(`observation requests native capacity before waiting for startup release: pressure=${pressure}`, async () => {
   const { createNativeJournalObserver } = await import("../src/brain/native-journal-observer.js");
   const { mkdirSync } = await import("node:fs");
   const root = mkdtempSync(join(tmpdir(), "odysseus-startup-reserve-")), brain = join(root, "brain"); mkdirSync(brain);
-  const native = createNativeJournalFixture(brain, root), queue = createNativeStartupReleases(), deletion = deferred(), entered = deferred();
+  const native = createNativeJournalFixture(brain, root), queue = createNativeStartupReleases(), deletion = deferred(), entered = deferred(), refused = deferred(), reclaiming = deferred();
   setNativeStartupReleases(native.manager, queue);
+  const originalReclaim = queue.reclaim;
+  const reclaim = spyOn(queue, "reclaim").mockImplementation(signal => { reclaiming.resolve(); return originalReclaim(signal); });
   const observer = createNativeJournalObserver(native.manager);
-  const steps: string[] = [];
+  const original = native.manager.checkpoint;
+  let room = !pressure, attempts = 0;
+  let work: ReturnType<typeof observer.observe> | undefined, watchdog: ReturnType<typeof setTimeout> | undefined;
   try {
     await observer.initialize();
+    native.manager.checkpoint = async (...args) => {
+      attempts++;
+      if (!room) { refused.resolve(); throw Object.assign(new Error("native capacity"), { code: "capacity" }); }
+      return original(...args);
+    };
     const slot = await queue.reserve();
-    slot.handoff("voyage", { brain, root: "/odysseus/checkpoint", storage: { root: "/odysseus/checkpoint", retain() {}, release() {} }, async cleanup() { entered.resolve(); await deletion.promise; throw new Error("EIO"); } });
+    slot.handoff("voyage", { brain, root: "/odysseus/checkpoint", storage: { root: "/odysseus/checkpoint", retain() {}, release() {} }, async cleanup() { entered.resolve(); await deletion.promise; room = true; } });
     await entered.promise;
-    let observed = false;
-    const work = observer.observe(undefined, name => () => { steps.push(name); }).then(value => { observed = true; return value; });
+    work = observer.observe(); void work.catch(() => {});
+    if (pressure) {
+      await refused.promise; await reclaiming.promise;
+      expect(attempts, "CAPACITY_IS_TRIED_BEFORE_RELEASE_WAIT").toBe(1);
+      // Resolve a fresh native checkpoint directly as an independent witness:
+      // this observer's successful second attempt cannot occur before deletion.
+      expect(queue.pending(), "CAPACITY_RELEASE_STILL_OWNED").toBe(1);
+      let done = false; void work.then(() => { done = true; }, () => { done = true; });
+      await new Promise<void>(resolve => setImmediate(resolve));
+      expect(done, "CAPACITY_RETRY_REMAINS_PENDING_UNTIL_RELEASE").toBe(false);
+      expect(attempts, "CAPACITY_RETRY_NEVER_RUNS_BEFORE_SPACE_RECLAIMED").toBe(1);
+      deletion.resolve();
+      const outcome = await work.then(value => ({ value, error: null }), error => ({ value: null, error: String(error) }));
+      expect(outcome.error, "CAPACITY_RETRY_JOINS_PENDING_RELEASE").toBeNull();
+      expect(attempts, "CHECKPOINT_RETRIED_AFTER_SPACE_RECLAIMED").toBe(2);
+      await outcome.value!.commit();
+    } else {
+      const observed = await Promise.race([work.then(value => ({ value })), new Promise<{ value: null }>(resolve => watchdog = setTimeout(() => resolve({ value: null }), watchdogMs(5000)))]);
+      expect(observed.value, "AVAILABLE_ROOM_COMPLETES_WITH_DELETION_GATED").not.toBeNull();
+      const outcome = observed.value!;
+      expect(attempts, "AVAILABLE_ROOM_DOES_NOT_JOIN_DELETION").toBe(1);
+      expect(queue.pending()).toBe(1); await outcome.commit();
+    }
+  } finally { clearTimeout(watchdog); deletion.resolve(); await work?.then(value => value.abort().catch(() => {}), () => {}); await observer.close(); reclaim.mockRestore(); await queue.close(); await native.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test("a waiting admission takes the first freed slot and cancellation does not wait for another deletion", async () => {
+  const queue = createNativeStartupReleases(), first = deferred(), second = deferred();
+  for (const [i, gate] of [first, second].entries()) {
+    const slot = await queue.reserve(); slot.handoff(`voyage-${i}`, { root: `/odysseus/${i}`, cleanup: () => gate.promise } as startup.WorkerStartupView);
+  }
+  const waiting = queue.reserve();
+  let acquired: Awaited<typeof waiting> | undefined;
+  try {
+    first.resolve();
+    const answer = await Promise.race([waiting.then(slot => ({ slot })), new Promise<{ slot: null }>(resolve => setImmediate(() => resolve({ slot: null })))]);
+    expect(answer.slot, "FIRST_FREE_SLOT_DOES_NOT_WAIT_FOR_OTHER_RELEASE").not.toBeNull(); acquired = answer.slot!;
+    const abort = new AbortController(), stopped = queue.reserve(abort.signal).then(() => "acquired", error => error);
+    const reason = new Error("cancel admission"); abort.abort(reason);
+    const cancellation = await Promise.race([stopped, new Promise<string>(resolve => setImmediate(() => resolve("still waiting")))]);
+    expect(cancellation, "RELEASE_SLOT_WAIT_OBSERVES_CANCELLATION").toBe(reason);
+  } finally { first.resolve(); second.resolve(); acquired?.release(); (await waiting).release(); await queue.close(); }
+});
+
+for (const mode of ["strict", "masked"] as const) test(`${mode} admission retains its startup view without taking a background-release slot`, async () => {
+  const { mkdirSync, writeFileSync } = await import("node:fs");
+  const trees = await import("../src/brain/turn-data-tree.js"), caches = await import("../src/brain/private-index-cache.js");
+  const root = mkdtempSync(join(tmpdir(), "odysseus-retained-startup-")), brain = join(root, "brain"); mkdirSync(brain);
+  if (mode === "masked") {
+    mkdirSync(join(brain, "context/policies"), { recursive: true }); mkdirSync(join(brain, "me"));
+    writeFileSync(join(brain, "context/policies/governance.md"), "---\nschema_version: 1\nproviders: [{ paths: [me/**], allow: [anthropic] }]\n---\n");
+  }
+  const native = createNativeJournalFixture(brain, root), queue = createNativeStartupReleases(), deletion = deferred();
+  setNativeStartupReleases(native.client, queue);
+  for (const id of ["earlier-one", "earlier-two"]) { const slot = await queue.reserve(); slot.handoff(id, { root: `/odysseus/${id}`, cleanup: () => deletion.promise } as startup.WorkerStartupView); }
+  const reserve = spyOn(queue, "reserve").mockRejectedValue(new Error("excluded admission took a release slot"));
+  const acquire = spyOn(startup, "prepareNativeWorkerStartupView").mockImplementation(async () => {
+    const checkpoint = await native.client.checkpoint(crypto.randomUUID());
+    return { brain, root: checkpoint.path, storage: { root: checkpoint.path, retain() {}, release() {} }, async cleanup() { await native.client.release(checkpoint.id); } };
+  });
+  const managed = spyOn(startup, "assertManagedTurnStartupView").mockImplementation(() => {});
+  const resolve = spyOn(sandbox, "prepareWorkerSandboxAsync").mockResolvedValue({ profile: mode === "strict" ? "strict" : "governed", areas: [], protection: { paths: [] } } as never);
+  const tree = spyOn(trees, "createTurnDataTree").mockResolvedValue({ async close() {} } as never);
+  const cache = spyOn(caches, "createPrivateIndexCache").mockReturnValue({ async prepare() { return { kind: "reused" }; }, async close() {}, async advance() {} } as never);
+  const execution = { boundary: { async prepare() { return { available: true }; }, maintenance: {} },
+    gate() { return { async acquire() { return { release() {}, assertPeerFolderPlans() {} }; } }; },
+    manifests() { return { async begin() {}, async end() { return null; } }; } };
+  const turns = createGovernedTurns({ nativeManager: native.client, brainPath: brain, execution: execution as never, profile: mode === "strict" ? "strict" : "governed", maskPaths: [], async index() {}, report() {} });
+  try {
+    const result = await turns.begin("voyage", new AbortController().signal).then(hold => ({ hold, error: null }), error => ({ hold: null, error: String(error) }));
+    expect(result.error, "RETAINED_VIEW_ADMISSION_IGNORES_RELEASE_BACKLOG").toBeNull();
+    expect(reserve, "RETAINED_VIEW_ADMISSION_TAKES_NO_RELEASE_SLOT").not.toHaveBeenCalled();
+    expect(result.hold?.dataTree).toBeDefined(); expect(queue.pending()).toBe(2);
+    await result.hold!.end();
+  } finally { deletion.resolve(); await turns.close(); reserve.mockRestore(); acquire.mockRestore(); managed.mockRestore(); resolve.mockRestore(); tree.mockRestore(); cache.mockRestore(); await native.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test("release frees its slot before reporting while close joins the durable receipt", async () => {
+  const entered = deferred(), report = deferred();
+  const queue = createNativeStartupReleases(async () => { entered.resolve(); await report.promise; });
+  const slot = await queue.reserve(); slot.handoff("voyage", { root: "/odysseus/checkpoint", async cleanup() {} } as startup.WorkerStartupView);
+  let closed = false;
+  try {
+    await entered.promise; expect(queue.pending()).toBe(0);
+    const next = await queue.reserve(); next.release();
+    const closing = queue.close().then(() => { closed = true; });
     await new Promise<void>(resolve => setImmediate(resolve));
-    expect(observed, "OBSERVATION_WAITS_FOR_STARTUP_RELEASE").toBe(false);
-    deletion.resolve(); const observation = await work;
-    expect(steps, "OBSERVE_RESERVE_MEASURES_THE_RELEASE_WAIT").toContain("observe_reserve");
-    expect(queue.pending(), "FAILED_RELEASE_REMAINS_CHARGED").toBe(1);
-    await observation.commit();
-    expect(observed, "CLEANUP_FAILURE_DOES_NOT_FAIL_RUNNING_TURN").toBe(true);
-  } finally { deletion.resolve(); await observer.close(); await queue.close().catch(() => {}); await native.close(); rmSync(root, { recursive: true, force: true }); }
+    expect(closed, "CLOSE_JOINS_RELEASE_RECEIPT").toBe(false);
+    report.resolve(); await closing;
+  } finally { report.resolve(); await queue.close(); }
 });

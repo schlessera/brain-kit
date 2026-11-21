@@ -16,7 +16,7 @@ export function scopeNumber(dimension: ScopeCapReceipt["dimension"], value: numb
 export function scopeReceiptText(receipt: ScopeCapReceipt): string {
   const state = receipt.state === "continued" ? `continued · limit ${scopeNumber(receipt.dimension, receipt.newCap!)} for this turn`
     : receipt.state === "ended_before_answer" ? "the turn ended before an answer" : receipt.state === "paused" ? "turn paused" : "turn stopped";
-  return `${scopeLimitName[receipt.dimension]} reached at ${scopeNumber(receipt.dimension, receipt.count)} · ${state}`;
+  return `${receipt.result === "index_capacity" ? "Index capacity" : scopeLimitName[receipt.dimension]} reached at ${scopeNumber(receipt.dimension, receipt.count)} · ${state}`;
 }
 export function ScopeCapCard({ receipt, turnId, sessionId, blockedBy }: { receipt: ScopeCapReceipt; turnId: string; sessionId: string; blockedBy?: ScopeCapReceipt }) {
   const root = useBrainUiRoot();

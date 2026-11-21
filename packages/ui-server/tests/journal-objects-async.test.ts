@@ -42,3 +42,26 @@ test("changed-file overflow is refused before creating temporary objects", async
     expect(db.query("SELECT count(*) AS n FROM turn_journal_reservations").get()).toEqual({ n: 0 });
   } finally { closeSync(source); store.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
 });
+
+test("identical concurrent captures have one publisher and never expose a multiply linked object", async () => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-identical-capture-")), dbPath = join(root, "ui.db"), db = createUiDb(dbPath);
+  const ledger = createJournalAccounting(db, dbPath), release = Promise.withResolvers<void>(), entered = Promise.withResolvers<void>();
+  let active = 0, maximum = 0, reservations = 0;
+  const store = createJournalObjects(join(root, "objects"), { async reserve(bytes, hash) {
+    const reservation = await ledger.reserve(bytes, hash); active++; maximum = Math.max(maximum, active); reservations++; entered.resolve();
+    return { id: reservation.id, async finish(...args) { await release.promise; await reservation.finish(...args); active--; }, async cancel() { await reservation.cancel(); active--; } };
+  } });
+  writeFileSync(join(root, "source"), "Odysseus returns to Ithaca.");
+  const sources = Array.from({ length: 16 }, () => openSync(join(root, "source"), "r"));
+  const work = sources.map(fd => store.putFileAsync(fd, 27));
+  try {
+    await entered.promise;
+    await new Promise<void>(resolve => setImmediate(resolve));
+    expect(reservations, "IDENTICAL_HASH_HAS_ONE_PUBLISHER").toBe(1);
+    release.resolve(); const hashes = await Promise.all(work);
+    expect(new Set(hashes).size).toBe(1);
+    expect(maximum, "IDENTICAL_PUBLISHERS_NEVER_OVERLAP").toBe(1);
+    expect(store.verify(hashes[0]!, 27)).toBe(true);
+    expect(store.read(hashes[0]!, 100).toString()).toBe("Odysseus returns to Ithaca.");
+  } finally { release.resolve(); await Promise.allSettled(work); for (const fd of sources) closeSync(fd); store.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
+});

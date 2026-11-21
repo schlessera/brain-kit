@@ -323,8 +323,9 @@ try {
     // Fixture-only endpoint; no product route or provider request is added.
     if (OBSERVATION_TIMING && new URL(request.url).pathname === "/__native_observation_path_matrix") {
       const { observationPathMatrix } = await import("./observation-path-matrix.js");
-      pathMatrix ??= observationPathMatrix(brain!, app.wsHost.journal, app.wsHost.governedTurns, event);
-      try { return Response.json(await pathMatrix); } catch (error) { return Response.json({ error: String(error) }, { status: 500 }); }
+      pathMatrix ??= observationPathMatrix(brain!, app.wsHost.journal, app.wsHost.governedTurns, event, app.wsHost.scope, principal.id);
+      const { observationMatrixResponse } = await import("./observation-hold.js");
+      try { return await observationMatrixResponse(request, server, () => pathMatrix!); } catch (error) { return Response.json({ error: String(error) }, { status: 500 }); }
     }
     return app.fetch(request, server);
   }, websocket: app.websocket });

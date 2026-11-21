@@ -1836,14 +1836,34 @@ a workspace's index and a separately held worktree's index remain ordinary
 content. The worker's index protection is unchanged: omission from history
 never authorizes a worker to modify what a later reader will execute or read.
 
-The host records each application batch and governed post-turn refresh as an
+The host records each application batch, separate credentialed refresh and governed post-turn refresh as an
 `index_update` Activity event on each causing turn: generation, duration and
-outcome, including a failed update. A retry has a fresh generation. These
-receipts stay in host storage. Existing index-version rows are served in their
+outcome (`complete`, `failed`, `index_capacity` or `cancelled`). Cancellation is recorded before shutdown suppresses its warning. A retry has a fresh generation. These
+receipts use tool child spans so a result preceding the backend root span is durable, and stay in host storage. Existing index-version rows are served in their
 previous metadata-only form, including the existing byte purge and restoration
 exclusions; the upgrade does not erase their history.
 
-The index writer has independent storage admission. Its maintenance temporary
+**Observation-time bound (maintainer ruling on #4302, 2026-11-21).** Governed
+workers keep their writable live index, including direct `brain index` and CLI
+captures. Every shared observation measures the current logical size of the
+exact root family and publication copies from sealed metadata. Its independent
+cap is 4 GiB, matching the former default byte scope without charging generated
+versions to retained turn bytes. Initialization sums metadata once; changes,
+removals and renames update that total. No index content is read or hashed.
+
+Past 4 GiB the existing scope pause applies, with optional receipt
+`result: "index_capacity"` under the existing `turn_bytes` dimension. Scope
+summaries add optional `indexBytes` (null when unconfirmed) and
+`indexLimitBytes`. An interactive turn can receive the existing one-time finite
+doubling for this independent resource only; that grant never raises the content
+byte allowance. A second hit, unknown measurement or absent worker has no
+continuation grant. Voice stops by its existing scope rule. Old clients retain
+their enum vocabulary and parse the optional fields without dropping records.
+This is an observation-time guard, so an opaque command can overshoot between
+observations, just as it could under the former byte scope. The separate disk
+free-space floor and native storage admission still apply.
+
+Host index maintenance has independent storage admission. Its maintenance temporary
 allowance and aggregate budget both default to 256 MiB
 (`BRAIN_UI_MAINTENANCE_TEMP_BYTES` and
 `BRAIN_UI_MAINTENANCE_TEMP_BUDGET_BYTES`). Output staging has its separate
@@ -1859,8 +1879,12 @@ needs no operator judgment. Markdown and note before-images are unaffected.
 
 Changed versions are captured with at most 32 open version reads (16 paths,
 two sides each). Ready object reservations share one FULL ledger transaction;
-ready completions share another that also pins each object to every active
-observer. Every file and its object directory remain synced before completion.
+ready completions share another that pins each object to its actual owners:
+shared observations to their window, private memory and independent worktrees
+to their holding turn. Hash publication is serialized and link/unlink runs in
+one event-loop turn, preventing transient multi-link reads. Under temporary
+space pressure reservations shrink to one copy and wait for in-flight copies
+before refusing or expiring history. Every file and its object directory remain synced before completion.
 The observation rows commit before advancing the native checkpoint or resuming
 workers. A failed batch joins all started readers before aborting its roots.
 Existing per-reservation startup recovery reconciles any interrupted batch;
@@ -1871,16 +1895,23 @@ Distinct paths, steering/kept/shared state, repeated hashed versions, ignored
 maxima and disappearing legacy publication copies retain the prior SQL
 semantics. Historical reads use the existing aggregation; restart rebuilds
 active state from durable history rather than trusting a cached total.
+Receipt-only operation writes preserve every cursor; operation changes reset
+only the changed turns. An admitted `(turn_id,path,sequence)` index bounds
+same-path conflict lookups on the writer, with the existing safe fallback if
+schema admission cannot fit.
 
 A governed admission that needs no data tree hands its unused startup view to
 a bounded background release owner. The durable native lease remains the same
 through handoff and deletion, so startup recovery still finds an interrupted
 release. At most two startup checkpoints are pending or being admitted through
-this owner. Later admission waits for a slot; observation's `observe_reserve`
-waits for an outstanding release attempt before requesting native capacity.
+this owner. Only an admission handing off an unused governed view takes a
+slot; strict and data-tree consumers take none. Admission waits for the first
+free slot and observes cancellation. Observations request capacity first and
+join a release in `observe_reserve` only after a positive native capacity refusal;
+room already available never waits for deletion.
 Failed deletion keeps the lease and physical charge, retries automatically,
 and records `startup_checkpoint_release` in Activity and the last failure in
-`journal.cleanup.lastFailure`. That cleanup failure alone never fails an
+`journal.cleanup.lastFailure` with timestamp, error class and retrying state. That cleanup failure alone never fails an
 already running turn. `startup_view_cleanup` measures only handoff; each release
 attempt records its own duration and outcome. Strict and data-tree consumers
 keep their existing checkpoint lifetime.

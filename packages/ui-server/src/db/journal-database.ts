@@ -108,6 +108,12 @@ export function moveJournalTables(db: Database): number {
 }
 
 /** Derived performance state: admitted at runtime, omitted from canonical backup images. */
+/** Derived same-path lookup; installed only through physical journal admission. */
+export const JOURNAL_CHANGE_PATH_INDEX = {
+  name: "turn_journal_changes_path_sequence",
+  sql: "CREATE INDEX turn_journal_changes_path_sequence ON turn_journal_changes(turn_id,path,sequence)",
+} as const;
+
 export const JOURNAL_OBJECT_REFS_INDEX = {
   name: "turn_journal_object_refs_hash",
   sql: "CREATE INDEX turn_journal_object_refs_hash ON turn_journal_object_refs(hash)",

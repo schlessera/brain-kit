@@ -339,7 +339,7 @@ print(json.dumps(result))`;
           events.some(end => ["automatic_index_finished", "automatic_index_failed"].includes(end.kind) && end.ordinal === start.ordinal));
       }, 120000);
       const matrixResponse = await fetch(origin + "/__native_observation_path_matrix");
-      const pathMatrix = await matrixResponse.json() as { turnId: string; samples: { changedPaths: number; sample: number; toolUseId: string; frozenMs: number }[]; admission: { name: string; ms: number }[]; historyRows: number; loadedSamples: { changedPaths: number; sample: number; toolUseId: string; frozenMs: number }[] };
+      const pathMatrix = await matrixResponse.json() as { turnId: string; samples: { changedPaths: number; sample: number; toolUseId: string; frozenMs: number; sharedHold: boolean }[]; admission: { name: string; ms: number }[]; historyRows: number; loadedSamples: { changedPaths: number; sample: number; toolUseId: string; frozenMs: number; sharedHold: boolean }[] };
       expect(matrixResponse.status, `OBSERVATION_PATH_MATRIX_SUCCEEDED ${JSON.stringify(pathMatrix)}`).toBe(200);
       expect(pathMatrix.samples).toHaveLength(48);
       expect(pathMatrix.historyRows, "OBSERVATION_MATRIX_HAS_TEN_THOUSAND_ROWS").toBeGreaterThanOrEqual(10000);
@@ -486,18 +486,18 @@ print(json.dumps(result))`;
         const attributed = samples.map(sample => {
           const trace = traces.find(trace => trace.toolUseId === sample.toolUseId);
           if (!trace) throw Error(`OBSERVATION_PATH_MATRIX_TRACE_MISSING ${sample.toolUseId}`);
-          return { phases: observationPhases(trace, managerSpans), measuredMs: sample.frozenMs };
+          return { phases: observationPhases(trace, managerSpans), measuredMs: sample.sharedHold ? null : sample.frozenMs };
         });
-        return { changedPaths, samples: samples.length, medianMs: median(samples.map(sample => sample.frozenMs)), p95Ms: p95(samples.map(sample => sample.frozenMs)), phases: summarizePhases(attributed) };
+        return { changedPaths, samples: samples.length, sharedHolds: samples.filter(sample => sample.sharedHold).length, medianMs: median(samples.filter(sample => !sample.sharedHold).map(sample => sample.frozenMs)), physicalHoldMedianMs: median(samples.map(sample => sample.frozenMs)), p95Ms: p95(samples.filter(sample => !sample.sharedHold).map(sample => sample.frozenMs)), phases: summarizePhases(attributed) };
       });
-      const warmOnePath = pathMatrix.samples.filter(sample => sample.changedPaths === 1).map(sample => sample.frozenMs);
-      const loadedOnePath = pathMatrix.loadedSamples.map(sample => sample.frozenMs);
+      const warmOnePath = pathMatrix.samples.filter(sample => sample.changedPaths === 1 && !sample.sharedHold).map(sample => sample.frozenMs);
+      const loadedOnePath = pathMatrix.loadedSamples.filter(sample => !sample.sharedHold).map(sample => sample.frozenMs);
       const onePathHistory = { historyRows: pathMatrix.historyRows, warmMedianMs: median(warmOnePath), loadedMedianMs: median(loadedOnePath),
-        addedMedianMs: median(loadedOnePath)! - median(warmOnePath)!, loadedP95Ms: p95(loadedOnePath),
+        addedMedianMs: loadedOnePath.length && warmOnePath.length ? median(loadedOnePath)! - median(warmOnePath)! : null, loadedP95Ms: p95(loadedOnePath),
         phases: summarizePhases(pathMatrix.loadedSamples.map(sample => {
           const trace = traces.find(trace => trace.toolUseId === sample.toolUseId);
           if (!trace) throw Error(`OBSERVATION_PATH_MATRIX_LOADED_TRACE_MISSING ${sample.toolUseId}`);
-          return { phases: observationPhases(trace, managerSpans), measuredMs: sample.frozenMs };
+          return { phases: observationPhases(trace, managerSpans), measuredMs: sample.sharedHold ? null : sample.frozenMs };
         })) };
       const result = { backend: BACKEND, appUid: APP_UID, files: FILES, bytes: BYTES, loadBefore, loadAfter: load(), elapsedMs: performance.now() - timingStart, timelineTurnIds, pathMatrix: { ...pathMatrix, cells: pathCells, onePathHistory },
         tools: timeline?.tools ?? null, admission, journal: { begin: { medianMs: median(total("beginMs")), p95Ms: p95(total("beginMs")) }, finish: { medianMs: median(total("finishMs")), p95Ms: p95(total("finishMs")) },

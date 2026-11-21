@@ -207,16 +207,14 @@ The byte count sums captured changed hashed regular-file versions. Ignored
 regular files have no content hash and contribute their largest observed after-size
 once per turn per path, rather than their full size on every observation (#2027).
 This corrects repeated metadata observations inflating the existing observed-write
-counter; field shapes and scope decisions are unchanged. The brain root's
-disposable index (`.brain-index/brain.db` and its SQLite sidecars, and since
-0.44.0 the embeddings lock database beside it, #2903) is counted
-the same way, ignored or not, and a `.brain-index/.maintenance-<uuid>` publication
-copy that a later observation saw removed is neither a changed path nor bytes;
-one that stays counts like any other file (#2831). Since 0.44.0 every one of
-those index versions is metadata-only (#2873), and a staying publication copy
-counts its largest observed size once, like the index itself. Every host index refresh
-rewrites the whole database, so a strict turn's host applies otherwise charged
-it the index's full size per edit. The counter does not
+counter. Before #4302 the root disposable index and staying publication
+copies counted their largest observed after-size, with metadata-only history.
+New observations omit that family from rows, changed paths and retained turn
+bytes. Instead optional `indexBytes`/`indexLimitBytes` report its independent
+observation-time size cap (4 GiB initially). A cap receipt uses the existing
+`turn_bytes` dimension with optional `result: "index_capacity"`; there is no
+new enum value. Its one-time finite doubling changes only the index ceiling;
+unknown size permits no grant. The byte counter does not
 claim to capture writes overwritten between observations. Missing snapshots
 remain unknown. Shared windows may include other writers. No autonomous Queue
 counter or budget usage field changes.

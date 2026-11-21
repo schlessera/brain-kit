@@ -19,6 +19,8 @@ type Live = { unrecorded?: boolean; sessionId: string | null; principalId: strin
   filesChanged: number | null; workers: Set<Worker>; calls: Set<string>; disconnectedAt?: number;
   checking?: boolean; source: "policy" | "default"; stop: (reason: string) => void; current: () => boolean; model?: () => string | null };
 export const SCOPE_DISCONNECTED_MS = 30 * 60_000;
+/** Matches the former default byte scope without charging generated versions. */
+export const INDEX_OBSERVATION_CAP_BYTES = 4 * 1024 ** 3;
 export const SCOPE_FREE_BYTES = 2 * 1024 ** 3;
 export function scopeLimits(policy: EffectiveGovernancePolicy) {
   return { files_changed: policy.scope.max_files_changed, minutes: policy.scope.max_minutes,
@@ -76,16 +78,17 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
   function refreshHeadroom(turn: Live, receipt: ScopeCapReceipt) {
     if (receipt.dimension === "free_space_floor") return;
     const dimension = receipt.dimension;
-    const observed = dimension === "tool_calls" ? turn.summary.calls : dimension === "minutes" ? turn.summary.minutes
+    const index = receipt.result === "index_capacity";
+    const observed = index ? turn.summary.indexBytes ?? null : dimension === "tool_calls" ? turn.summary.calls : dimension === "minutes" ? turn.summary.minutes
       : dimension === "files_changed" ? turn.filesChanged : turn.summary.observedBytes;
     // Incomplete captures retain the last reliable receipt, never imply headroom.
     if (observed !== null && Number.isFinite(observed)) {
       receipt.count = observed; receipt.overshoot = Math.max(0, observed - receipt.cap); receipt.observedAt = now();
     }
     delete receipt.newCap;
-    const granted = turn.summary.receipts.some(previous => previous.dimension === dimension && previous.state === "continued");
+    const granted = turn.summary.receipts.some(previous => previous.dimension === dimension && previous.result === receipt.result && previous.state === "continued");
     const newCap = receipt.cap * 2;
-    if (!receipt.frozen || turn.origin === "voice" || granted || receipt.cap <= 0 || !Number.isFinite(newCap) || turn.summary.limits[dimension] !== receipt.cap) return;
+    if (!receipt.frozen || turn.origin === "voice" || granted || receipt.cap <= 0 || !Number.isFinite(newCap) || (index ? turn.summary.indexLimitBytes : turn.summary.limits[dimension]) !== receipt.cap) return;
     if (observed === null || !Number.isFinite(observed)) {
       receipt.reason = "Latest scope observation is incomplete; continuation headroom is unknown. Stop only.";
     } else if (observed >= newCap) {
@@ -115,11 +118,12 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
       save(turnId, turn); return;
     }
     if (turn.checking) return;
-    const counts: [ScopeDimension, number | null][] = [["free_space_floor", fs.free], ["tool_calls", turn.summary.calls],
-      ["minutes", turn.summary.minutes], ["files_changed", turn.filesChanged], ["turn_bytes", turn.summary.observedBytes]];
-    for (const [dimension, count] of counts) {
-      const cap = dimension === "free_space_floor" ? floor : turn.summary.limits[dimension];
-      if (count === null || (dimension === "free_space_floor" ? count >= cap : count < cap)) continue;
+    const counts: [ScopeDimension, number | null, "index_capacity"?][] = [["free_space_floor", fs.free], ["tool_calls", turn.summary.calls],
+      ["minutes", turn.summary.minutes], ["files_changed", turn.filesChanged], ["turn_bytes", turn.summary.observedBytes],
+      ...(turn.summary.indexBytes !== undefined ? [["turn_bytes", turn.summary.indexBytes, "index_capacity"] as [ScopeDimension, number | null, "index_capacity"]] : [])];
+    for (const [dimension, count, result] of counts) {
+      const cap = result ? turn.summary.indexLimitBytes! : dimension === "free_space_floor" ? floor : turn.summary.limits[dimension];
+      if (result ? count !== null && count <= cap : count === null || (dimension === "free_space_floor" ? count >= cap : count < cap)) continue;
       let frozen = false, freezeFailure: string | undefined;
       try { for (const worker of turn.workers) worker.freeze(); frozen = turn.workers.size > 0; }
       catch (error) { freezeFailure = `Scope freeze failed; the turn stopped: ${String(error)}`; for (const worker of turn.workers) worker.kill("SIGKILL"); }
@@ -133,10 +137,10 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
         }).finally(() => { turn.checking = false; });
       }
       turn.summary.minutes = Math.max(0, (now() - turn.startedAt) / 60_000);
-      const measured = dimension === "tool_calls" ? turn.summary.calls : dimension === "minutes" ? turn.summary.minutes
+      const measured = result ? turn.summary.indexBytes : dimension === "tool_calls" ? turn.summary.calls : dimension === "minutes" ? turn.summary.minutes
         : dimension === "files_changed" ? turn.filesChanged : dimension === "turn_bytes" ? turn.summary.observedBytes : space().free;
-      const observed = measured ?? count;
-      const receipt: ScopeCapReceipt = { eventId: randomUUID(), dimension, count: observed, cap,
+      const observed = measured ?? count ?? cap;
+      const receipt: ScopeCapReceipt = { eventId: randomUUID(), dimension, ...(result ? { result } : {}), count: observed, cap,
         overshoot: Math.max(0, dimension === "free_space_floor" ? cap - observed : observed - cap), frozen, observedAt: now(), state: "paused" };
       refreshHeadroom(turn, receipt);
       turn.summary.receipts.push(receipt);
@@ -196,13 +200,14 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
     turn.summary.changedPaths = facts.partial ? null : facts.changedPaths;
     turn.filesChanged = facts.partial ? null : facts.changedPaths - facts.workspacePaths;
     turn.summary.observedBytes = facts.partial ? null : facts.observedBytes;
+    if (facts.indexBytes !== undefined) turn.summary.indexBytes = facts.indexBytes;
     turn.summary.coverage = facts.partial ? "partial" : "observed_versions";
     turn.summary.observedAt = now(); check(turnId, turn);
   }, periodic);
   return {
     begin(turnId: string, input: { sessionId: string | null; principalId: string; origin: Live["origin"]; profile: Live["profile"];
       policy: EffectiveGovernancePolicy; source: Live["source"]; hardTimeoutMs: number; current: () => boolean; model?: () => string | null; stop: Live["stop"] }) {
-      const summary: TurnScopeSummary = { policySource: input.source, limits: scopeLimits(input.policy), hardTimeoutMs: input.hardTimeoutMs, calls: 0, minutes: 0,
+      const summary: TurnScopeSummary = { indexLimitBytes: INDEX_OBSERVATION_CAP_BYTES, policySource: input.source, limits: scopeLimits(input.policy), hardTimeoutMs: input.hardTimeoutMs, calls: 0, minutes: 0,
         changedPaths: null, observedBytes: null, coverage: "partial", observedAt: now(), receipts: [] };
       const turn: Live = { ...input, startedAt: now(), summary, filesChanged: null, workers: new Set(), calls: new Set() };
       active.set(turnId, turn);
@@ -280,7 +285,8 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
     try {
       if (msg.action === "continue") {
         // Grant is consumed before resumption; a failed resume cannot issue another increment.
-        turn.summary.limits[liveReceipt.dimension as Exclude<ScopeDimension,"free_space_floor">] = liveReceipt.newCap!;
+        if (liveReceipt.result === "index_capacity") turn.summary.indexLimitBytes = liveReceipt.newCap!;
+        else turn.summary.limits[liveReceipt.dimension as Exclude<ScopeDimension,"free_space_floor">] = liveReceipt.newCap!;
         liveReceipt.state = "continued"; liveReceipt.submissionId = msg.submissionId; save(msg.turnId, turn);
         if (observationHolds === 0) for (const worker of turn.workers) worker.resume();
       } else { liveReceipt.submissionId = msg.submissionId; stop(msg.turnId, turn, liveReceipt, "stopped", "You stopped the turn at its scope limit."); }

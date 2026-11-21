@@ -160,13 +160,25 @@ preview, download and restore exclusions.
 
 The host `GovernedTurns.refresh(lock, turnId?)` accepts an optional causing
 turn ID to correlate its index receipt. Each host application batch and
-governed post-turn index update records one
+governed post-turn index update, including the separate credentialed vector refresh, records one
 `index_update` Activity event for each causing turn. Its payload contains an
-opaque `generation`, `durationMs` and `outcome` (`complete`, `failed` or
+opaque `generation`, `durationMs` and `outcome` (`complete`, `failed`, `cancelled` or
 `index_capacity`); failures also carry a bounded `cause`. A retry is a new
-update with a new generation. These host receipts never enter provider history.
+update with a new generation. Tool child spans retain receipts that arrive before the backend root span. These host receipts never enter provider history.
 
-Index writers remain independently bounded by maintenance temporary storage
+An ordinary governed writer keeps direct in-worker `brain index`. Each
+observation also measures current index-family and publication-copy size from
+sealed metadata, without reading content or creating history rows. Past the
+independent 4 GiB bound, scope pauses with optional receipt
+`result: "index_capacity"` under the existing `turn_bytes` dimension. Optional
+scope fields `indexBytes` (nullable while unconfirmed) and `indexLimitBytes`
+disclose that independent size and ceiling. The existing one-time finite
+continuation doubles only the index ceiling. Unknown measurement has no grant.
+The closed dimension enum is unchanged, and old parsers accept the records.
+The bound matches the former default byte scope; checks occur at observations,
+so writes may overshoot between them. The free-space floor remains binding.
+
+Host index writers remain independently bounded by maintenance temporary storage
 and output staging (256 MiB per command by default, with their existing
 configured aggregate budgets). Writes beyond a worker allowance return
 `ENOSPC`; unavailable admission returns `worker_state_busy`. An update that

@@ -2,7 +2,7 @@ import type { JournalRecoveryStatus } from "@schlessera/brain-ui-sdk/protocol";
 import type { Database } from "bun:sqlite";
 import { realpathSync, statSync } from "node:fs";
 import { resolve } from "node:path";
-import { attachJournalDatabase, JOURNAL_MIGRATIONS_TABLE, JOURNAL_OBJECT_REFS_INDEX, JOURNAL_SCHEMA, journalDatabasePath } from "../db/journal-database.js";
+import { attachJournalDatabase, JOURNAL_CHANGE_PATH_INDEX, JOURNAL_MIGRATIONS_TABLE, JOURNAL_OBJECT_REFS_INDEX, JOURNAL_SCHEMA, journalDatabasePath } from "../db/journal-database.js";
 import { JournalCapacityError, type JournalObjectAccounting } from "./journal-objects.js";
 import { processAlive, SELF } from "./writer-gate.js";
 
@@ -39,10 +39,11 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
 } = {}): JournalObjectAccounting & {
   write<T>(operation: () => T): T;
   reserveBatch(entries: { bytes: number; hash: string }[]): (string | null)[];
-  finishBatch(entries: { id: string; hash: string; bytes: number }[], turnIds: string[]): void;
+  finishBatch(entries: { id: string; hash: string; bytes: number; turnIds?: readonly string[] }[], turnIds: string[]): void;
   usage(): number;
   /** Admitted, retryable schema upgrade; false leaves integrity-checked collection usable. */
   ensureObjectRefIndex(): boolean;
+  ensureChangePathIndex(): boolean;
   openRead(hash: string, assertOwner?: () => void): string;
   releaseRead(id: string): void;
   reserveTemporary(bytes: number): { id: string; release(): void };
@@ -169,8 +170,8 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
    * or underestimated build allocates no persistent pages or WAL frames.
    * Both checks run under the same write lock as the build and commit.
    */
-  function ensureObjectRefIndex(): boolean {
-    const exists = () => Boolean(db.query(`SELECT 1 FROM ${JOURNAL_SCHEMA}.sqlite_schema WHERE type='index' AND name=?`).get(JOURNAL_OBJECT_REFS_INDEX.name));
+  function ensureIndex(index: { name: string; sql: string }, payloadSql: string): boolean {
+    const exists = () => Boolean(db.query(`SELECT 1 FROM ${JOURNAL_SCHEMA}.sqlite_schema WHERE type='index' AND name=?`).get(index.name));
     if (exists()) return true;
     // A SQLite build forcing file-backed temps, or a caller owning TEMP
     // state with another setting, keeps the slower path without changing it.
@@ -183,14 +184,14 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
         // allowance for b-tree fill and interior pages, plus fixed overhead.
         // This is an allowance, not trusted size prediction: check the actual
         // extent before commit, while all newly built pages are still cached.
-        const payload = (db.query("SELECT coalesce(sum(length(CAST(hash AS BLOB))+32),0) AS bytes FROM turn_journal_object_refs").get() as { bytes: number }).bytes;
+        const payload = (db.query(payloadSql).get() as { bytes: number }).bytes;
         const pages = 8 + 2 * Math.ceil(payload / (pageSize - 128));
         const before = measure(), projected = measure(pages), debt = wal();
         if (projected.bytes + debt > cap) {
           if (debt > 0) throw new WalDebt();
           throw new JournalCapacityError();
         }
-        db.exec(JOURNAL_OBJECT_REFS_INDEX.sql.replace("CREATE INDEX ", `CREATE INDEX ${JOURNAL_SCHEMA}.`));
+        db.exec(index.sql.replace("CREATE INDEX ", `CREATE INDEX ${JOURNAL_SCHEMA}.`));
         if (measure().pages > before.pages + pages) throw new JournalCapacityError("The journal reference index exceeded its admitted page allowance.");
       });
       return true;
@@ -209,7 +210,9 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
     if (!memory) db.query(`PRAGMA ${JOURNAL_SCHEMA}.wal_checkpoint(TRUNCATE)`).get();
   } catch (error) { if (!(error instanceof JournalStorageUnavailable || error instanceof JournalCapacityError)) throw error; }
   return {
-    write, usage, ensureObjectRefIndex,
+    write, usage,
+    ensureObjectRefIndex: () => ensureIndex(JOURNAL_OBJECT_REFS_INDEX, "SELECT coalesce(sum(length(CAST(hash AS BLOB))+32),0) AS bytes FROM turn_journal_object_refs"),
+    ensureChangePathIndex: () => ensureIndex(JOURNAL_CHANGE_PATH_INDEX, "SELECT coalesce(sum(length(CAST(turn_id AS BLOB))+length(CAST(path AS BLOB))+48),0) AS bytes FROM turn_journal_changes"),
     openRead(hash, assertOwner) {
       const id = crypto.randomUUID();
       write(() => {
@@ -331,7 +334,7 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
           const row = db.query("SELECT hash,bytes FROM turn_journal_reservations WHERE id=? AND kind='copy'").get(entry.id) as { hash: string; bytes: number } | null;
           if (!row || row.hash !== entry.hash || row.bytes !== entry.bytes) throw new JournalStorageUnavailable("content does not match its batched reservation");
           db.query("UPDATE turn_journal_objects SET state='present' WHERE hash=?").run(entry.hash);
-          for (const turnId of turnIds) db.query("INSERT OR IGNORE INTO turn_journal_object_refs VALUES (?,?)").run(turnId, entry.hash);
+          for (const turnId of entry.turnIds ?? turnIds) db.query("INSERT OR IGNORE INTO turn_journal_object_refs VALUES (?,?)").run(turnId, entry.hash);
           db.query("DELETE FROM turn_journal_reservations WHERE id=?").run(entry.id);
         }
       });

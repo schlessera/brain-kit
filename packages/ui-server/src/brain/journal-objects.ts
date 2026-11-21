@@ -12,7 +12,7 @@ export interface JournalObjectReservation {
 }
 /** A ledger may commit off the event loop (#2814): every step is awaited. */
 export interface JournalObjectAccounting {
-  reserve(bytes: number, hash: string): JournalObjectReservation | Promise<JournalObjectReservation>;
+  reserve(bytes: number, hash: string, turnIds?: readonly string[]): JournalObjectReservation | Promise<JournalObjectReservation>;
 }
 
 const DIRECTORY = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
@@ -22,7 +22,6 @@ const writeAsync = promisify(fs.write);
 const openAsync = promisify(fs.open);
 const closeAsync = promisify(fs.close);
 const syncAsync = promisify(fs.fsync);
-const linkAsync = promisify(fs.link);
 const unlinkAsync = promisify(fs.unlink);
 const HASH = /^[a-f0-9]{64}$/;
 
@@ -34,8 +33,8 @@ export class JournalCapacityError extends Error {
 /** No brain pathname reaches this store. Only checked source descriptors and sha256 object names do. */
 export function createJournalObjects(root: string, accounting: JournalObjectAccounting): {
   has(hash: string): boolean;
-  putFileAsync(source: number, size: number, signal?: AbortSignal): Promise<string>;
-  putBytes(bytes: Uint8Array): Promise<string>;
+  putFileAsync(source: number, size: number, signal?: AbortSignal, turnIds?: readonly string[]): Promise<string>;
+  putBytes(bytes: Uint8Array, turnIds?: readonly string[]): Promise<string>;
   read(hash: string, maxBytes: number): Buffer;
   verify(hash: string, bytes: number): boolean;
   /** The object stays open and verified until `apply` settles. */
@@ -51,6 +50,16 @@ export function createJournalObjects(root: string, accounting: JournalObjectAcco
   if ((fstatSync(directory).mode & 0o077) !== 0) { closeSync(directory); throw new Error("Journal object storage must be host-private."); }
   const path = (name: string) => `/proc/self/fd/${directory}/${name}`;
   let closed = false;
+  const publishing = new Map<string, Promise<void>>();
+  async function withHash<T>(hash: string, work: () => Promise<T>): Promise<T> {
+    const prior = publishing.get(hash);
+    const released = Promise.withResolvers<void>();
+    const tail = (prior ?? Promise.resolve()).then(() => released.promise);
+    publishing.set(hash, tail);
+    await prior;
+    try { return await work(); }
+    finally { released.resolve(); if (publishing.get(hash) === tail) publishing.delete(hash); }
+  }
   function assertOpen() { if (closed) throw new Error("Journal object storage is closed."); }
   function openObject(hash: string): number {
     assertOpen(); if (!HASH.test(hash)) throw new Error("Invalid journal object identifier.");
@@ -67,10 +76,11 @@ export function createJournalObjects(root: string, accounting: JournalObjectAcco
   };
   return {
     has,
-    async putBytes(bytes) {
+    async putBytes(bytes, turnIds) {
       assertOpen();
       const digest = createHash("sha256").update(bytes).digest("hex");
-      const reservation = await accounting.reserve(bytes.length, digest);
+      return withHash(digest, async () => {
+      const reservation = await accounting.reserve(bytes.length, digest, turnIds);
       const temporary = `pending-${reservation.id ?? crypto.randomUUID()}`;
       let output: number | undefined, created = false, published = false;
       try {
@@ -91,8 +101,9 @@ export function createJournalObjects(root: string, accounting: JournalObjectAcco
         if (created) unlinkSync(path(temporary));
         if (!published) await reservation.cancel(); throw error;
       }
+      });
     },
-    async putFileAsync(source, size, signal) {
+    async putFileAsync(source, size, signal, turnIds) {
       assertOpen(); signal?.throwIfAborted();
       if (!Number.isSafeInteger(size) || size < 0) throw new Error("Invalid journal object size.");
       const info = fstatSync(source);
@@ -125,7 +136,9 @@ export function createJournalObjects(root: string, accounting: JournalObjectAcco
       }
       const expectedHash = await digestSource();
       signal?.throwIfAborted();
-      const reservation = await accounting.reserve(size, expectedHash);
+      return withHash(expectedHash, async () => {
+      signal?.throwIfAborted();
+      const reservation = await accounting.reserve(size, expectedHash, turnIds);
       const name = `pending-${reservation.id ?? crypto.randomUUID()}`;
       let output: number | undefined, present = false, published = false;
       try {
@@ -135,9 +148,11 @@ export function createJournalObjects(root: string, accounting: JournalObjectAcco
         await syncAsync(output); await closeAsync(output); output = undefined;
         if (digest !== expectedHash) throw new Error("Journal source changed between identity and content capture.");
         let duplicate = false;
-        try { await linkAsync(path(name), path(digest)); published = true; }
+        try { fs.linkSync(path(name), path(digest)); published = true; }
         catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST" || !has(digest)) throw error; duplicate = true; }
-        await unlinkAsync(path(name)); present = false;
+        // Keep link/unlink in one event-loop turn: no local reader can
+        // observe our temporary second link as an escaped object.
+        fs.unlinkSync(path(name)); present = false;
         await syncAsync(directory);
         await reservation.finish(digest, size, duplicate);
         return digest;
@@ -147,6 +162,7 @@ export function createJournalObjects(root: string, accounting: JournalObjectAcco
         if (!published) await reservation.cancel();
         throw error;
       }
+      });
     },
     read(hash, maxBytes) {
       if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) throw new Error("Invalid journal read bound.");

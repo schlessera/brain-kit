@@ -107,3 +107,15 @@ const previousLifecycle = activityTurnLifecycleSchema.extend({
 });
 export const previousSnapshotSchema = serverActivitySnapshotSchema.extend({ lifecycles: z.array(previousLifecycle).optional() });
 export const previousDeltaSchema = serverActivityDeltaSchema.extend({ lifecycle: previousLifecycle.optional() });
+
+// The prior scope schema keeps its closed dimension vocabulary unchanged.
+const scopeAmount = z.number().finite().nonnegative();
+export const previousScopeSummarySchema = z.looseObject({
+  policySource: z.enum(["policy", "default"]),
+  limits: z.looseObject({ files_changed: scopeAmount, minutes: scopeAmount, tool_calls: scopeAmount, turn_bytes: scopeAmount }),
+  hardTimeoutMs: scopeAmount, calls: scopeAmount, minutes: scopeAmount, changedPaths: scopeAmount.nullable(), observedBytes: scopeAmount.nullable(),
+  coverage: z.enum(["observed_versions", "partial"]), observedAt: scopeAmount,
+  receipts: z.array(z.looseObject({ eventId: id, dimension: z.enum(["files_changed", "minutes", "tool_calls", "turn_bytes", "free_space_floor"]),
+    count: scopeAmount, cap: scopeAmount, overshoot: scopeAmount, newCap: scopeAmount.optional(), observedAt: scopeAmount, frozen: z.boolean(),
+    state: z.enum(["paused", "continued", "stopped", "voice_stopped", "ended_before_answer"]), submissionId: id.optional(), reason: z.string().optional() })),
+});

@@ -11,6 +11,7 @@ import { JOURNAL_SCHEMA, journalDatabasePath } from "../db/journal-database.js";
 import { installEscapeGuard, JournalObjectQuarantined, JournalStorageUnavailable } from "./journal-accounting.js";
 import { createGovernanceWrites } from "../governance/event-writes.js";
 import { createJournalObjects, JournalCapacityError } from "./journal-objects.js";
+import { journalReservationBatch } from "./journal-reservation-batch.js";
 import { journalWriteBatch } from "./journal-write-batch.js";
 import * as journalStore from "./journal-store.js";
 import { reviveJournalError, type IndexPurgeResult, type JournalStatement, type JournalStoreOptions } from "./journal-store.js";
@@ -146,15 +147,16 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   // worker, and commit, in the order they were made.
   const call = <T>(name: string, ...args: unknown[]): Promise<T> => ready.then(() => ledger.call<T>(name, ...args));
   const write = (statements: JournalStatement[]) => call<number[]>("statements", statements);
-  const reserveObjects = journalWriteBatch<{ bytes: number; hash: string }, string | null>(entries => call("reserveBatch", entries));
-  const finishObjects = journalWriteBatch<{ id: string; hash: string; bytes: number }, void>(async entries => {
-    await call("finishBatch", entries, [...active.keys()]);
+  const reservations = journalReservationBatch(entries => call("reserveBatch", entries));
+  const finishObjects = journalWriteBatch<{ id: string; hash: string; bytes: number; turnIds: readonly string[] }, void>(async entries => {
+    try { await call("finishBatch", entries, []); }
+    finally { reservations.settled(entries.map(entry => entry.id)); }
     return entries.map(() => undefined);
   });
-  const objects = createJournalObjects(options.objectsRoot, { async reserve(bytes, hash) {
-    const id = await reserveObjects({ bytes, hash });
+  const objects = createJournalObjects(options.objectsRoot, { async reserve(bytes, hash, turnIds = []) {
+    const id = await reservations.reserve({ bytes, hash });
     if (id === null) throw new JournalObjectQuarantined();
-    return { id, finish: (actual: string, size: number) => finishObjects({ id, hash: actual, bytes: size }), cancel: () => call<void>("cancelBatchReservation", id) };
+    return { id, finish: (actual: string, size: number) => finishObjects({ id, hash: actual, bytes: size, turnIds }), cancel: async () => { try { await call<void>("cancelBatchReservation", id); } finally { reservations.settled([id]); } } };
   } });
   /** Writes no admission awaits; `idle()` waits for them too. */
   const unserialized = new Set<Promise<unknown>>();
@@ -164,9 +166,10 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   }
   /** Active turns; `sessionId` is the binding their record holds once earlier writes commit. */
   const active = new Map<string, { policy: NativeJournalPolicy; stop: (error: Error) => void; sequence: number; sessionId: string | null }>();
-  // finishBatch durably pins every completed object to the shared window in
-  // the same commit that settles its reservation, before any writer resumes.
-  const retainVersion = (source: number, bytes: number, signal?: AbortSignal) => retain(() => objects.putFileAsync(source, bytes, signal));
+  // Each object takes its actual owners into the same durable completion
+  // commit: shared observations pin their window, private memory only its turn.
+  const retainVersion = (source: number, bytes: number, signal?: AbortSignal) =>
+    retain(() => objects.putFileAsync(source, bytes, signal, [...active.keys()]));
   const readIdentity = { brainPath: options.brainPath, async createTemporary(maximum: number) {
     const id = await retain(() => call<string>("reserveTemporary", maximum));
     const reservation = { id, release: () => call<void>("releaseTemporary", id) };
@@ -270,7 +273,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     }
   }
   const periodicObservers = new Set<{ before(): void; after(completed: boolean): void }>();
-  const observers = new Set<(turnId: string, facts: { changedPaths: number; observedBytes: number; workspacePaths: number; partial: boolean }) => void>();
+  const observers = new Set<(turnId: string, facts: { changedPaths: number; observedBytes: number; workspacePaths: number; indexBytes?: number | null; partial: boolean }) => void>();
   const pendingReadReleases = new Set<string>();
   const failures = new Map<string, string>();
   const failedAdmissions = new Set<string>();
@@ -489,7 +492,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         publish(turnId);
         step?.(); step = timing?.("observe_facts");
         const facts = advanceCounters(turnId).facts;
-        for (const observer of observers) observer(turnId, { ...facts, partial: summary(turnId).state === "partial" });
+        for (const observer of observers) observer(turnId, { ...facts, indexBytes: observation.indexBytes, partial: summary(turnId).state === "partial" });
         step?.();
       }
       const committed = timing?.("observe_commit");
@@ -511,7 +514,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
      * `changedPaths` counts every changed path; `workspacePaths` is how many
      * of them lie below `workspaces/` (#3793).
      */
-    onObservation(observer: (turnId: string, facts: { changedPaths: number; observedBytes: number; workspacePaths: number; partial: boolean }) => void, periodic?: { before(): void; after(completed: boolean): void }) {
+    onObservation(observer: (turnId: string, facts: { changedPaths: number; observedBytes: number; workspacePaths: number; indexBytes?: number | null; partial: boolean }) => void, periodic?: { before(): void; after(completed: boolean): void }) {
       observers.add(observer); if (periodic) periodicObservers.add(periodic);
       return () => { if (periodic) periodicObservers.delete(periodic); return observers.delete(observer); };
     },
@@ -613,7 +616,8 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       if (!active.has(turnId) || failures.has(turnId)) throw new JournalStorageUnavailable("worktree coverage requires an active complete observation window");
       const existing = worktrees.get(worktreeId);
       if (existing) { if (existing.turnId === turnId) return; throw new JournalStorageUnavailable("another turn already observes this worktree"); }
-      const root = createNativeJournalCapture(referenceWorktreeJournalManager(options.referencePool, worktreeId, options.referenceCheckpoints), retainVersion, {}, readIdentity, { steering: false, index: false }, releaseFailed);
+      const root = createNativeJournalCapture(referenceWorktreeJournalManager(options.referencePool, worktreeId, options.referenceCheckpoints),
+        (source, bytes, signal) => retain(() => objects.putFileAsync(source, bytes, signal, [turnId])), {}, readIdentity, { steering: false, index: false }, releaseFailed);
       try {
         await root.initialize(signal);
         const policy = await root.policy();
@@ -754,7 +758,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         const directory = realpathSync(change.directory), info = lstatSync(directory);
         if (directory !== change.directory || !info.isDirectory() || isWithin(options.brainPath, directory)) throw new Error("invalid external memory store");
         const retained = async (bytes: Uint8Array | null, mode: number): Promise<JournalVersion | null> => bytes === null ? null : {
-          kind: "file", mode, bytes: bytes.length, hash: await retain(() => objects.putBytes(bytes)), ignored: false,
+          kind: "file", mode, bytes: bytes.length, hash: await retain(() => objects.putBytes(bytes, [turnId])), ignored: false,
         };
         const before = await retained(change.before, change.beforeMode);
         // Pin the first object before a second admission can collect under pressure.
@@ -788,7 +792,19 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       return serialize(() => recordClaudeMemory(turnId, path, target, before, after));
     },
     /** All operation metadata uses the journal's existing physical allocation owner: one accounted write of these statements. */
-    writeOperation(statements: readonly JournalStatement[]): Promise<number[]> { return write([...statements]).then(result => { counters.clear(); return result; }); },
+    async writeOperation(statements: readonly JournalStatement[]): Promise<number[]> {
+      const result = await call<{ changes: number[]; turns: { turn_id: string; reset: number }[] }>("operationStatements", [...statements]);
+      for (const row of result.turns) {
+        if (row.reset) counters.delete(row.turn_id);
+        const turn = active.get(row.turn_id);
+        if (turn) {
+          const last = db.query("SELECT coalesce(max(sequence),0) AS sequence FROM turn_journal_changes WHERE turn_id=?").get(row.turn_id) as { sequence: number };
+          turn.sequence = Math.max(turn.sequence, last.sequence);
+          advanceCounters(row.turn_id);
+        }
+      }
+      return result.changes;
+    },
     async reserveRevert(turnId: string, sourceTurnId: string, versions: readonly (JournalVersion | null)[]): Promise<void> {
       const source = db.query("SELECT * FROM turn_journal_turns WHERE turn_id=? AND ended_at IS NOT NULL AND state IN ('complete','partial')").get(sourceTurnId) as TurnRow | null;
       if (!source) throw new JournalStorageUnavailable("source journal is unavailable");

@@ -101,6 +101,7 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
   const accounting = createJournalAccounting(db, options.dbPath, { capBytes: options.capBytes });
   // Refusing this optional migration must never prevent recovery/expiry.
   accounting.ensureObjectRefIndex();
+  accounting.ensureChangePathIndex();
   const objects = createJournalObjects(options.objectsRoot, accounting);
   const reservations = new Map<string, JournalObjectReservation>();
   const temporary = new Map<string, { release(): void }>();
@@ -137,16 +138,32 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
     const taint = sessionTaint(db, turnId, row.session_id);
     return { row, taint };
   };
+  // Only operation writes consume these connection-local deltas. Receipt-only
+  // operations therefore leave every active history cache untouched.
+  db.exec("CREATE TEMP TABLE IF NOT EXISTS journal_operation_changes (turn_id TEXT PRIMARY KEY, reset INTEGER NOT NULL)");
+  for (const [event, references, reset] of [["INSERT", ["NEW"], 0], ["UPDATE", ["OLD", "NEW"], 1], ["DELETE", ["OLD"], 1]] as const) {
+    db.exec(`CREATE TEMP TRIGGER IF NOT EXISTS journal_operation_${event} AFTER ${event} ON ${"journal"}.turn_journal_changes BEGIN ${references.map(reference =>
+      `INSERT INTO journal_operation_changes VALUES (${reference}.turn_id,${reset}) ON CONFLICT(turn_id) DO UPDATE SET reset=max(reset,excluded.reset);`).join(" ")} END`);
+  }
+  const runStatements = (list: JournalStatement[]) => list.map(statement => {
+    if ("check" in statement) {
+      if (!db.query(statement.check).get(...(statement.params ?? []))) throw new JournalStatementRefused(statement.refusal);
+      return 0;
+    }
+    return db.query(statement.sql).run(...(statement.params ?? [])).changes;
+  });
   return {
     /** Statements in order, as one accounted transaction; the changes each made. */
     statements(list: JournalStatement[]): number[] {
-      return accounting.write(() => list.map(statement => {
-        if ("check" in statement) {
-          if (!db.query(statement.check).get(...(statement.params ?? []))) throw new JournalStatementRefused(statement.refusal);
-          return 0;
-        }
-        return db.query(statement.sql).run(...(statement.params ?? [])).changes;
-      }));
+      return accounting.write(() => runStatements(list));
+    },
+    operationStatements(list: JournalStatement[]) {
+      return accounting.write(() => {
+        db.exec("DELETE FROM journal_operation_changes");
+        const changes = runStatements(list);
+        const turns = db.query("SELECT turn_id,reset FROM journal_operation_changes").all();
+        return { changes, turns };
+      });
     },
     bindModel(turnId: string, sessionId: string | null, model: string): boolean {
       return accounting.write(() => {
@@ -259,6 +276,7 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
             actor: actor === "user" ? "user" : metadata.actor, model: metadata.model, profile: metadata.profile, at, dedupeKey: `${turnId}:${sequence}`,
             payload: { path: item.path, sequence, beforeHash: item.before?.hash ?? null, afterHash: item.after?.hash ?? null, taintSourceEventId: source, overlappingTurnIds, ...(restricted ? { tainted: true } : {}) } });
           pin(turnId, item.before); pin(turnId, item.after);
+          if (!overlappingTurnIds.length) continue;
           const observed = db.query("SELECT sequence,after_json,overlaps FROM turn_journal_changes WHERE turn_id=? AND path=? ORDER BY sequence").all(turnId, item.path) as {sequence:number;after_json:string|null;overlaps:string}[];
           const participants = new Set(observed.flatMap(row => JSON.parse(row.overlaps) as string[]));
           const conflicting = new Map<number, JournalObservationReference>();
@@ -329,7 +347,7 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
       });
     },
     reserveBatch(entries: { bytes: number; hash: string }[]): (string | null)[] { return accounting.reserveBatch(entries); },
-    finishBatch(entries: { id: string; hash: string; bytes: number }[], turnIds: string[]): void { accounting.finishBatch(entries, turnIds); },
+    finishBatch(entries: { id: string; hash: string; bytes: number; turnIds?: readonly string[] }[], turnIds: string[]): void { accounting.finishBatch(entries, turnIds); },
     cancelBatchReservation(id: string): void {
       accounting.write(() => {
         const row = db.query("SELECT hash FROM turn_journal_reservations WHERE id=? AND kind='copy'").get(id) as { hash: string } | null;

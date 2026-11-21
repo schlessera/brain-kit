@@ -41,3 +41,40 @@ test("index update hits its separate maintenance storage bound with index_capaci
     expect(receipts.map(receipt => receipt.outcome)).toEqual(["index_capacity", "complete"]);
   } finally { held.release(); await batch.idle(); rmSync(root, { recursive: true, force: true }); }
 });
+
+test("shutdown cancellation is recorded before the credentialed refresh suppresses it", async () => {
+  const { credentialedIndexRefresh } = await import("../src/brain/credentialed-index-refresh.js");
+  const closing = new AbortController(), shutdown = new Error("Server shutting down"), receipts: IndexUpdateReceipt[] = [], reported: unknown[] = [];
+  const refresh = credentialedIndexRefresh({ async index() { closing.abort(shutdown); throw closing.signal.reason; }, cancellation: [closing.signal], receipt: receipt => receipts.push(receipt), report: error => reported.push(error) });
+  refresh(["voyage"]); await refresh.idle();
+  expect(receipts.map(receipt => receipt.outcome), "CANCELLED_INDEX_NEVER_REPORTED_COMPLETE").toEqual(["cancelled"]);
+  expect(receipts[0]?.cause).toBe("Server shutting down"); expect(reported).toEqual([]);
+});
+
+test("each separate credentialed update keeps causing turns and its own failure receipt", async () => {
+  const { credentialedIndexRefresh } = await import("../src/brain/credentialed-index-refresh.js");
+  const receipts: { receipt: IndexUpdateReceipt; turns: string[] }[] = [], failures: unknown[] = [];
+  const entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  let calls = 0;
+  const refresh = credentialedIndexRefresh({ async index() { if (++calls === 1) { entered.resolve(); await release.promise; throw new Error("vector indexing failed"); } },
+    cancellation: [], receipt: (receipt, turns) => receipts.push({ receipt, turns }), report: error => failures.push(error) });
+  const batch = createIndexBatch({ async index() {}, receipt: (receipt, turns) => receipts.push({ receipt, turns }), afterIndex: refresh });
+  try {
+    batch.queue(["notes/ithaca.md"], undefined, "voyage"); await batch.barrier(); await entered.promise;
+    batch.queue(["notes/scheria.md"], undefined, "return"); batch.queue(["notes/athena.md"], undefined, "return"); await batch.barrier();
+    release.resolve(); await refresh.idle();
+    expect(receipts.map(entry => [entry.receipt.outcome, entry.turns]), "CREDENTIALED_UPDATE_HAS_SEPARATE_CORRELATED_RECEIPT").toEqual([["complete", ["voyage"]], ["complete", ["return"]], ["failed", ["voyage"]], ["complete", ["return"]]]);
+    expect(new Set(receipts.map(entry => entry.receipt.generation)).size).toBe(4);
+    expect(receipts[2]?.receipt.cause).toBe("vector indexing failed"); expect(failures).toHaveLength(1);
+  } finally { release.resolve(); await batch.idle(); await refresh.idle(); }
+});
+
+test("governed post-turn refresh records shutdown cancellation before suppressing its warning", async () => {
+  const { createGovernedTurns } = await import("../src/brain/governed-turn.js");
+  const receipts: IndexUpdateReceipt[] = [], warnings: string[] = [], shutdown = new AbortController(), reason = new Error("Server shutting down");
+  const turns = createGovernedTurns({ brainPath: "/odysseus", nativeManager: {} as never, execution: {} as never, profile: "governed", maskPaths: [],
+    async index() { shutdown.abort(reason); throw reason; }, indexCancellation: [shutdown.signal], report: message => warnings.push(message), indexReceipt: receipt => receipts.push(receipt) });
+  turns.refresh({} as never, "voyage"); await turns.close();
+  expect(receipts.map(receipt => receipt.outcome), "GOVERNED_SHUTDOWN_IS_CANCELLED").toEqual(["cancelled"]);
+  expect(warnings).toEqual([]);
+});

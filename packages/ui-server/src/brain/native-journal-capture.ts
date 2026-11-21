@@ -34,10 +34,9 @@ export function createNativeJournalCapture(manager: NativeJournalManager, retain
   const entry = (metadata: NativeJournalMetadata, policy: NativeJournalPolicy): JournalSnapshotEntry | undefined => {
     const scope = journalPathScope(metadata.path);
     if (!scope || metadata.kind === "directory" || rootScope.index && journalMetadataOnlyPath(metadata.path)) return undefined;
-    return { ...metadata, kind: metadata.kind, scope: scope.scope, ignored: policy.ignored(metadata.path),
-      ...(rootScope.index && journalMetadataOnlyPath(metadata.path) ? { metadataOnly: true as const } : {}) };
+    return { ...metadata, kind: metadata.kind, scope: scope.scope, ignored: policy.ignored(metadata.path) };
   };
-  /** Ignored and metadata-only versions keep their observed facts and never their bytes. */
+  /** Ignored versions keep facts only; the root index has its separate metadata size cap. */
   const retained = (entry: JournalSnapshotEntry) => entry.kind === "file" && !entry.ignored && !entry.metadataOnly;
   return {
     async initialize(signal?: AbortSignal) { await observer.initialize(signal); },
@@ -164,7 +163,7 @@ export function createNativeJournalCapture(manager: NativeJournalManager, retain
         end?.();
         // Without a change the inventory is not taken: an empty set then says
         // nothing about the brain's configuration (#3257).
-        return { changes, steering: { ...steering, inventoried: snapshots.length > 0 }, unreadable: [...unreadable.values()], stats: observation.stats, commit: observation.commit, abort: observation.abort };
+        return { changes, steering: { ...steering, inventoried: snapshots.length > 0 }, unreadable: [...unreadable.values()], stats: observation.stats, indexBytes: rootScope.index ? observation.indexBytes : 0, commit: observation.commit, abort: observation.abort };
       } catch (error) { await observation.abort().catch(() => {}); throw error; }
     },
     releases() { return observer.releases(); },

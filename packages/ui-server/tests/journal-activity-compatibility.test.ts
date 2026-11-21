@@ -4,6 +4,7 @@ import { createActivityStore } from "../src/activity/store.js";
 import { createTurnLifecycle } from "../src/activity/turn-lifecycle.js";
 import { createActivityRoutes } from "../src/routes/activity.js";
 import { createIndexBatch } from "../src/brain/index-batch.js";
+import { recordMaintenanceReceipt, startupReleaseFailure } from "../src/brain/host-maintenance-receipts.js";
 import { createNativeStartupReleases } from "../src/brain/native-startup-releases.js";
 import { serverActivityDeltaSchema, serverActivitySnapshotSchema, previousDeltaSchema, previousSnapshotSchema } from "./helpers/activity-schema-0-44.js";
 import type { ActivityRunDetail } from "@schlessera/brain-ui-sdk/protocol";
@@ -11,12 +12,12 @@ import type { ActivityRunDetail } from "@schlessera/brain-ui-sdk/protocol";
 test("previous activity schemas parse journal clocks and index/release receipts in HTTP and wire records", async () => {
   const db = createUiDb(":memory:"), store = createActivityStore(db), turnId = "odysseus-voyage";
   const at = Date.UTC(2026, 6, 12), spanId = `${turnId}:turn`;
-  store.startSpan({ spanId, runId: turnId, name: "Odysseus voyage", kind: "turn", origin: "session", sessionId: "ithaca", startedAt: at });
+
   const lifecycle = createTurnLifecycle(store, turnId, "ithaca", at, () => {}, () => at);
   for (const name of ["startup_release_reserve", "startup_view_cleanup"]) lifecycle.timer("governed")(name)();
   for (const name of ["observe_capture", "observe_record", "observe_publish", "observe_facts", "observe_commit"]) lifecycle.timer("journal")(name)();
-  const batch = createIndexBatch({ async index() {}, receipt: receipt => { store.appendEvent(spanId, "index_update", receipt, at); } });
-  const releases = createNativeStartupReleases(result => { store.appendEvent(spanId, "startup_checkpoint_release", result, at); });
+  const batch = createIndexBatch({ async index() {}, receipt: receipt => recordMaintenanceReceipt(store, turnId, "index_update", receipt) });
+  const releases = createNativeStartupReleases(result => recordMaintenanceReceipt(store, turnId, "startup_checkpoint_release", result));
   let attempts = 0;
   try {
     batch.queue(["notes/ithaca.md"], undefined, turnId); await batch.barrier();
@@ -24,11 +25,14 @@ test("previous activity schemas parse journal clocks and index/release receipts 
     slot.handoff(turnId, { brain: "/odysseus/brain", root: "/odysseus/checkpoint", storage: { root: "/odysseus/checkpoint", retain() {}, release() {} },
       async cleanup() { if (++attempts === 1) throw new Error("EIO"); } });
     await releases.settled(); await releases.drain();
+    expect(store.getSpan(spanId), "RECEIPTS_PRECEDE_BACKEND_ROOT").toBeNull();
+    expect(db.query("SELECT count(*) AS n FROM activity_events").get(), "EARLY_RECEIPTS_DURABLY_RECORDED").toEqual({ n: 3 });
+    store.startSpan({ spanId, runId: turnId, name: "Odysseus voyage", kind: "turn", origin: "session", sessionId: "ithaca", startedAt: at });
     lifecycle.finish("success");
     const response = await createActivityRoutes({ db, store }).request(`/activity/runs/${turnId}`);
     expect(response.status).toBe(200);
     const detail = await response.json() as ActivityRunDetail;
-    expect(detail.events?.map(event => event.eventType), "NEW_RECEIPTS_USE_EXISTING_FREE_FORM_EVENT_TYPE").toEqual(["index_update", "startup_checkpoint_release", "startup_checkpoint_release"]);
+    expect(detail.events?.map(event => event.eventType).sort(), "NEW_RECEIPTS_USE_EXISTING_FREE_FORM_EVENT_TYPE").toEqual(["index_update", "startup_checkpoint_release", "startup_checkpoint_release"]);
     expect(detail.lifecycle?.subPhases?.map(step => [step.phase, step.name])).toEqual([
       ["governed", "startup_release_reserve"], ["governed", "startup_view_cleanup"], ["journal", "observe_capture"], ["journal", "observe_record"],
       ["journal", "observe_publish"], ["journal", "observe_facts"], ["journal", "observe_commit"],
@@ -50,4 +54,20 @@ test("previous activity schemas parse journal clocks and index/release receipts 
     bad.lifecycle!.subPhases![0]!.phase = "closing" as never;
     expect(previousDeltaSchema.safeParse(bad).success, "LEGACY_CLOSED_ENUM_NEGATIVE_CONTROL").toBe(false);
   } finally { await releases.close(); await batch.idle(); db.close(); }
+});
+
+
+test("startup failure diagnostics retain every required cleanup field", async () => {
+  let diagnostic: ReturnType<typeof startupReleaseFailure> | undefined;
+  const releases = createNativeStartupReleases(result => { if (result.outcome === "retry") diagnostic = startupReleaseFailure(result); });
+  let attempts = 0;
+  const slot = await releases.reserve();
+  slot.handoff("voyage", { brain: "/odysseus/brain", root: "/odysseus/checkpoint", storage: { root: "/odysseus/checkpoint", retain() {}, release() {} }, async cleanup() { if (++attempts === 1) throw new TypeError("EIO"); } });
+  try {
+    await releases.settled();
+    expect(diagnostic, "STARTUP_DIAGNOSTIC_CONTRACT").toMatchObject({ kind: "checkpoint_release_retry", scope: "startup_checkpoint", checkpointId: "checkpoint", errorClass: "TypeError", retrying: true, cause: "TypeError: EIO" });
+    expect(Number.isFinite(diagnostic?.at), "STARTUP_FAILURE_HAS_TIMESTAMP").toBe(true);
+    expect(diagnostic!.at).toBeGreaterThan(0);
+    await releases.drain();
+  } finally { await releases.close(); }
 });

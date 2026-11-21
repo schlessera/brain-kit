@@ -62,7 +62,10 @@ interface Entry { turnId?: string; seq: number; paths: readonly string[]; settle
 export function createIndexBatch(options: {
   /** One targeted update over exact paths, in the isolated maintenance boundary. */
   index(paths: readonly string[]): Promise<void>;
-  receipt?: (receipt: IndexUpdateReceipt, turnIds: string[]) => void;
+  receipt?: (receipt: IndexUpdateReceipt, turnIds: string[]) => unknown;
+  cancellation?: readonly AbortSignal[];
+  /** A separate credentialed refresh keeps the same causing turns. */
+  afterIndex?: (turnIds: string[]) => void;
 }): IndexBatch {
   let queued = 0, indexed = 0;
   let entries: Entry[] = [];
@@ -78,12 +81,13 @@ export function createIndexBatch(options: {
     const through = queued;
     const batch = entries.filter(entry => entry.seq <= through);
     const paths = [...new Set(batch.flatMap(entry => entry.paths))].sort();
-    try { await recordIndexUpdate(() => options.index(paths), receipt => options.receipt?.(receipt, [...new Set(batch.flatMap(entry => entry.turnId ? [entry.turnId] : []))])); }
+    try { await recordIndexUpdate(() => options.index(paths), receipt => options.receipt?.(receipt, [...new Set(batch.flatMap(entry => entry.turnId ? [entry.turnId] : []))]), options.cancellation); }
     catch (error) {
       const indexError = error instanceof Error ? error.message : String(error);
       for (const entry of batch) if (!entry.failed) { entry.failed = true; report(entry, { paths: entry.paths, indexed: false, indexError }); }
       throw new IndexFlushError(paths, indexError);
     }
+    options.afterIndex?.([...new Set(batch.flatMap(entry => entry.turnId ? [entry.turnId] : []))]);
     if (marks.size) history.push(...batch.filter(entry => entry.seq > lowest()));
     entries = entries.filter(entry => entry.seq > through);
     indexed = Math.max(indexed, through);
