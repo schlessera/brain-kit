@@ -1,6 +1,6 @@
 import { startCronSpan } from "../cron/activity.js";
 import type { JournalScrubResult } from "./journal-scrub.js";
-import { FINISH_REFERENCE_CLEANUP } from "./journal-reference-cleanup.js";
+import { FINISH_REFERENCE_CLEANUP, FINISH_REFERENCE_CLEANUP_WITHOUT_CODE } from "./journal-reference-cleanup.js";
 import type { ActivityTurnHold } from "@schlessera/brain-ui-sdk/protocol";
 /** Concrete host journal: observations, durable ownership and completed-turn collection. */
 import type { CodeChangeReceipt, JournalRecoveryStatus } from "@schlessera/brain-ui-sdk/protocol";
@@ -15,7 +15,7 @@ import type { MaintenanceHost, WorkerStartupView } from "@schlessera/brain-ui-sd
 import { randomUUID } from "node:crypto";
 import { recordedConfigurationSet } from "./journal-configuration-sets.js";
 import { openSqliteWriter, type SqliteWriter } from "../db/write-worker.js";
-import { JOURNAL_SCHEMA, journalDatabasePath } from "../db/journal-database.js";
+import { codeReceiptTablesExist, JOURNAL_SCHEMA, journalDatabasePath } from "../db/journal-database.js";
 import { installEscapeGuard, JournalObjectQuarantined, JournalStorageUnavailable } from "./journal-accounting.js";
 import { createGovernanceWrites } from "../governance/event-writes.js";
 import { createJournalObjects, JournalCapacityError } from "./journal-objects.js";
@@ -172,8 +172,8 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     const interrupted = (db.query("SELECT turn_id,pid,pid_start,missing FROM turn_journal_turns WHERE ended_at IS NULL").all() as { turn_id: string; pid: number; pid_start: string; missing: string }[])
       .filter(row => !processAlive(row.pid, row.pid_start));
     for (const row of interrupted) await recoverAtOpen("interrupted_turn", () => ledger.call("statements", [statement("UPDATE turn_journal_turns SET state='partial',ended_at=?,missing=? WHERE turn_id=?", now(), JSON.stringify([...JSON.parse(row.missing), { path: ".", reason: "interrupted_observation" }]), row.turn_id)]), { turnId: row.turn_id });
-    const invalidReceipts = db.query(`SELECT c.turn_id,c.checkout FROM turn_journal_code_receipts c JOIN turn_journal_turns t USING(turn_id)
-      WHERE t.ended_at IS NOT NULL AND NOT (${USABLE_CODE_RECEIPT}) ORDER BY c.turn_id,c.checkout`).all() as { turn_id: string; checkout: string }[];
+    const invalidReceipts = codeReceiptTablesExist(db) ? db.query(`SELECT c.turn_id,c.checkout FROM turn_journal_code_receipts c JOIN turn_journal_turns t USING(turn_id)
+      WHERE t.ended_at IS NOT NULL AND NOT (${USABLE_CODE_RECEIPT}) ORDER BY c.turn_id,c.checkout`).all() as { turn_id: string; checkout: string }[] : [];
     if (invalidReceipts.length) {
       // Each quarantine atomically replaces the unusable endpoint with its
       // durable checkout-specific cause; no later reader sees damaged JSON.
@@ -193,10 +193,10 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     }
     const recordingReceipt = `CASE WHEN (${USABLE_CODE_RECEIPT}) THEN json_extract(receipt,'$.state') END='recording'
       AND turn_id IN (SELECT turn_id FROM turn_journal_turns WHERE ended_at IS NOT NULL)`;
-    if (db.query(`SELECT 1 FROM turn_journal_code_receipts WHERE ${recordingReceipt} LIMIT 1`).get()) {
+    if (codeReceiptTablesExist(db) && db.query(`SELECT 1 FROM turn_journal_code_receipts WHERE ${recordingReceipt} LIMIT 1`).get()) {
       await recoverAtOpen("recording_receipts", () => ledger.call("statements", [statement(`UPDATE turn_journal_code_receipts SET receipt=json_set(receipt,'$.state','partial') WHERE ${recordingReceipt}`)]));
     }
-    for (const row of db.query("SELECT id,turn_id,pid,pid_start FROM turn_journal_code_reverts WHERE state='applying'").all() as { id: string; turn_id: string; pid: number; pid_start: string }[]) {
+    for (const row of codeReceiptTablesExist(db) ? db.query("SELECT id,turn_id,pid,pid_start FROM turn_journal_code_reverts WHERE state='applying'").all() as { id: string; turn_id: string; pid: number; pid_start: string }[] : []) {
       if (processAlive(row.pid, row.pid_start)) continue;
       await recoverAtOpen("interrupted_code_revert", () => ledger.call("statements", [statement("UPDATE turn_journal_code_reverts SET state='unknown',result=? WHERE id=? AND state='applying'", JSON.stringify({ id: row.id, status: "unknown", error: "Interrupted checkout restoration; review partial work before another action.", at: now(), callSite: "turn-journal.recover" }), row.id)]), { turnId: row.turn_id });
     }
@@ -328,14 +328,16 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   const codeScopeFacts = new Map<string, { paths: Set<string>; sizes: Map<string, number> }>();
   async function captureCheckout(turnId: string, checkout: string, manager: NativeJournalManager, relative: string, signal?: AbortSignal, final = false): Promise<void> {
     const key = checkoutKey(turnId, checkout), held = checkouts.get(key);
-    const previous = held ?? (db.query(`SELECT c.receipt,c.pack_hash FROM turn_journal_code_receipts c JOIN turn_journal_turns t USING(turn_id)
-      WHERE checkout=? AND json_extract(c.receipt,'$.state')='complete' ORDER BY t.started_at DESC LIMIT 1`).get(checkout) as { receipt: string; pack_hash: string } | null);
-    const earlier = previous ? typeof previous.receipt === "string" ? JSON.parse(previous.receipt) as CodeChangeReceipt : previous.receipt : undefined;
-    const previousHash = previous ? "hash" in previous ? previous.hash : previous.pack_hash : undefined;
     const checkpointId = randomUUID();
     const maximum = relative ? CODE_CHECKOUT_BYTES : (db.query("SELECT allowance FROM reference_worktrees WHERE id=?").get(checkout.split("/")[2]!) as { allowance: number } | null)?.allowance ?? CODE_CHECKOUT_BYTES;
-    let packLease: string | undefined, previousBody: ReadableStream<Uint8Array> | undefined;
+    let packLease: string | undefined, previousBody: ReadableStream<Uint8Array> | undefined, checkpointAttempted = false;
     try {
+      if (!await call<boolean>("ensureCodeReceiptTables")) throw new JournalStorageUnavailable("checkout_receipt_schema_not_admitted");
+      const previous = held ?? (db.query(`SELECT c.receipt,c.pack_hash FROM turn_journal_code_receipts c JOIN turn_journal_turns t USING(turn_id)
+        WHERE checkout=? AND json_extract(c.receipt,'$.state')='complete' ORDER BY t.started_at DESC LIMIT 1`).get(checkout) as { receipt: string; pack_hash: string } | null);
+      const earlier = previous ? typeof previous.receipt === "string" ? JSON.parse(previous.receipt) as CodeChangeReceipt : previous.receipt : undefined;
+      const previousHash = previous ? "hash" in previous ? previous.hash : previous.pack_hash : undefined;
+      checkpointAttempted = true;
       const checkpoint = await manager.checkpoint(checkpointId, signal);
       const directory = await checkedCodeDirectory(checkpoint.path, relative);
       if (previousHash) {
@@ -363,12 +365,15 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     } catch (error) {
       const cause = { checkout, at: now(), callSite: "captureCheckout", errorClass: error instanceof Error ? error.name : "UnknownError", message: String(error).slice(0, 2000) };
       diagnostic(() => options.log?.emit({ severityText: "ERROR", body: "Checkout receipt capture failed", attributes: { "turn.id": turnId, "checkout": checkout, "error.type": cause.errorClass } }));
-      try { await write([
+      if (!codeReceiptTablesExist(db)) {
+        await createSettingsWrites(db, writer).setSetting("journal.cleanup.lastFailure", { kind: "code_capture_failed", scope: "checkout", turnId, ...cause, cause: cause.message, retrying: true });
+      }
+      try { if (codeReceiptTablesExist(db)) await write([
         statement("INSERT INTO turn_journal_code_failures VALUES (?,?,?) ON CONFLICT(turn_id,checkout) DO UPDATE SET cause=excluded.cause", turnId, checkout, JSON.stringify(cause)),
         statement("UPDATE turn_journal_code_receipts SET receipt=json_set(receipt,'$.state','partial') WHERE turn_id=? AND checkout=?", turnId, checkout),
       ]); } catch { /* The preallocated turn failure slot remains authoritative. */ }
       throw error;
-    } finally { await previousBody?.cancel().catch(() => {}); if (packLease) await releaseRead(packLease); await releaseCodeCheckpoint(checkpointId, manager); }
+    } finally { await previousBody?.cancel().catch(() => {}); if (packLease) await releaseRead(packLease); if (checkpointAttempted) await releaseCodeCheckpoint(checkpointId, manager); }
   }
   async function attachBrainCheckouts(turnId: string, signal?: AbortSignal): Promise<void> {
     const id = randomUUID();
@@ -547,7 +552,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     const counts = { ...((active.has(turnId) ? advanceCounters(turnId).counts : undefined) ?? db.query(`SELECT count(DISTINCT path) AS changedFiles,count(DISTINCT CASE WHEN class='steering' THEN path END) AS steeringFiles,
       count(DISTINCT CASE WHEN ${KEPT_CHANGE} THEN path END) AS keptFiles,max(overlaps!='[]') AS sharedAttribution FROM turn_journal_changes WHERE turn_id=?`)
       .get(DISPOSABLE_INDEX_PATHS, INDEX_PUBLICATION_COPY, turnId) as { changedFiles: number; steeringFiles: number; keptFiles: number; sharedAttribution: number }) };
-    const codeCount = (db.query("SELECT coalesce(sum(json_array_length(receipt,'$.paths')),0) AS n FROM turn_journal_code_receipts WHERE turn_id=?").get(turnId) as { n: number }).n;
+    const codeCount = codeReceiptTablesExist(db) ? (db.query("SELECT coalesce(sum(json_array_length(receipt,'$.paths')),0) AS n FROM turn_journal_code_receipts WHERE turn_id=?").get(turnId) as { n: number }).n : 0;
     counts.changedFiles += codeCount; counts.keptFiles += codeCount;
     const cost = db.query("SELECT effective_cost_usd,pricing_estimate FROM activity_run_rollups WHERE run_id=?").get(turnId) as { effective_cost_usd: number | null; pricing_estimate: number | null } | null;
     const partial = row.state !== "expired" && (failures.has(turnId) || row.failure.trim() || row.state === "partial");
@@ -574,12 +579,12 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   async function expire(turnId: string, removeSummary = false) {
     // A drained owner effect keeps its source and idempotency receipt until
     // completion; a dead owner is marked unknown by startup recovery above.
-    if (db.query("SELECT 1 FROM turn_journal_code_reverts WHERE turn_id=? AND state='applying'").get(turnId)) return;
+    if (codeReceiptTablesExist(db) && db.query("SELECT 1 FROM turn_journal_code_reverts WHERE turn_id=? AND state='applying'").get(turnId)) return;
     // Retention deletes the whole turn and does not need to parse its raw receipts.
     const before = removeSummary ? undefined : summary(turnId);
     await write([
-      statement("DELETE FROM turn_journal_code_failures WHERE turn_id=?", turnId),
-      statement("DELETE FROM turn_journal_code_receipts WHERE turn_id=?", turnId),
+      ...(codeReceiptTablesExist(db) ? [statement("DELETE FROM turn_journal_code_failures WHERE turn_id=?", turnId),
+        statement("DELETE FROM turn_journal_code_receipts WHERE turn_id=?", turnId)] : []),
       ...(db.query("SELECT 1 FROM journal.sqlite_schema WHERE name='turn_journal_path_peers'").get() ? [statement("DELETE FROM turn_journal_path_peers WHERE turn_id=?", turnId), statement("DELETE FROM turn_journal_path_conflicts WHERE turn_id=?", turnId)] : []),
       statement("DELETE FROM turn_journal_changes WHERE turn_id=?", turnId),
       statement("DELETE FROM turn_journal_claude_memory WHERE turn_id=?", turnId),
@@ -650,7 +655,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     }, () => {});
   }
   async function collectOne(): Promise<boolean> {
-    const row = db.query("SELECT turn_id,state FROM turn_journal_turns t WHERE ended_at IS NOT NULL AND NOT EXISTS (SELECT 1 FROM turn_journal_code_reverts r WHERE r.turn_id=t.turn_id AND r.state='applying') ORDER BY (state='expired'),ended_at LIMIT 1").get() as { turn_id: string; state: string } | null;
+    const row = db.query(`SELECT turn_id,state FROM turn_journal_turns t WHERE ended_at IS NOT NULL ${codeReceiptTablesExist(db) ? "AND NOT EXISTS (SELECT 1 FROM turn_journal_code_reverts r WHERE r.turn_id=t.turn_id AND r.state='applying')" : ""} ORDER BY (state='expired'),ended_at LIMIT 1`).get() as { turn_id: string; state: string } | null;
     if (!row) return false;
     await expire(row.turn_id, row.state === "expired"); return true;
   }
@@ -659,7 +664,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       // The preallocated terminal slot shrinks more than ended_at grows.
       // A refused worker made no changes, so initial-only CAS pins are unneeded.
       statement("UPDATE turn_journal_turns SET state='partial',failure=?,ended_at=? WHERE turn_id=?", failures.get(turnId) ?? "journal_unavailable", now(), turnId),
-      statement("DELETE FROM turn_journal_code_receipts WHERE turn_id=?", turnId),
+      ...(codeReceiptTablesExist(db) ? [statement("DELETE FROM turn_journal_code_receipts WHERE turn_id=?", turnId)] : []),
       statement("DELETE FROM turn_journal_manifests WHERE turn_id=?", turnId),
       statement("DELETE FROM turn_journal_object_refs WHERE turn_id=?", turnId),
     ]));
@@ -746,7 +751,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         codeScopeFacts.set(turnId, code);
         facts.observedBytes += [...code.sizes.values()].reduce((sum, bytes) => sum + bytes, 0);
         const paths = new Set(code.paths);
-        const codeFacts = db.query("SELECT checkout,json_extract(receipt,'$.paths') AS paths FROM turn_journal_code_receipts WHERE turn_id=?").all(turnId) as { checkout: string; paths: string }[];
+        const codeFacts = codeReceiptTablesExist(db) ? db.query("SELECT checkout,json_extract(receipt,'$.paths') AS paths FROM turn_journal_code_receipts WHERE turn_id=?").all(turnId) as { checkout: string; paths: string }[] : [];
         for (const receipt of codeFacts) for (const item of JSON.parse(receipt.paths) as { path: string }[]) paths.add(`${receipt.checkout.replace(/\/$/, "")}/${item.path}`);
         facts.changedPaths += paths.size;
         facts.workspacePaths += [...paths].filter(path => isWithin(BRAIN_WORKSPACES_DIR, path)).length;
@@ -1022,7 +1027,6 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       catch (error) { await fail(turnId, error); throw error; }
       finally {
         for (const [key, root] of checkouts) if (root.turnId === turnId) checkouts.delete(key);
-        await write([statement("UPDATE turn_journal_code_receipts SET receipt=json_set(receipt,'$.state','partial') WHERE turn_id=? AND json_extract(receipt,'$.state')='recording'", turnId)]);
         active.delete(turnId); counters.delete(turnId); codeScopeFacts.delete(turnId); lasting.delete(turnId);
         for (const [key, call] of calls) if (call.turnId === turnId) calls.delete(key);
         let step = [...worktrees.values()].some(root => root.turnId === turnId) ? timing?.("finish_worktrees") : undefined;
@@ -1030,11 +1034,12 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         if (!active.size) { clearInterval(scopeTimer); scopeTimer = undefined; }
         step = timing?.("finish_record");
         await write([
+          ...(codeReceiptTablesExist(db) ? [statement("UPDATE turn_journal_code_receipts SET receipt=json_set(receipt,'$.state','partial') WHERE turn_id=? AND json_extract(receipt,'$.state')='recording'", turnId)] : []),
           ...(failures.has(turnId) ? [statement("UPDATE turn_journal_turns SET state='partial',failure=? WHERE turn_id=?", failures.get(turnId)!.padEnd(64), turnId)] : []),
           statement("UPDATE turn_journal_turns SET ended_at=?,failure=trim(failure),state=CASE WHEN state='partial' OR missing!='[]' THEN 'partial' ELSE 'complete' END WHERE turn_id=?", now(), turnId),
           statement("DELETE FROM turn_journal_manifests WHERE turn_id=?", turnId),
-          statement(FINISH_REFERENCE_CLEANUP, turnId),
-        ]);
+          statement(codeReceiptTablesExist(db) ? FINISH_REFERENCE_CLEANUP : FINISH_REFERENCE_CLEANUP_WITHOUT_CODE, turnId),
+        ]).catch(async error => { await fail(turnId, error); throw error; });
         step?.(); step = timing?.("finish_collect");
         await collectObjects();
         step?.(); step = timing?.("finish_publish");
@@ -1160,6 +1165,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     /** Host history only; the pack is leased for the entire isolated operation. */
     async withCodeEvidence<T>(sessionId: string, turnId: string, checkout: string, operation: (receipt: CodeChangeReceipt, pack: string) => Promise<T>): Promise<T> {
       if (!this.details(sessionId, turnId) || ["unknown", "expired"].includes(summary(turnId).state)) throw new JournalStorageUnavailable("checkout receipt unavailable");
+      if (!codeReceiptTablesExist(db)) throw new JournalStorageUnavailable("checkout receipt unavailable");
       const row = db.query("SELECT receipt,pack_hash FROM turn_journal_code_receipts WHERE turn_id=? AND checkout=?").get(turnId, checkout) as { receipt: string; pack_hash: string } | null;
       if (!row) throw new JournalStorageUnavailable("checkout receipt unavailable");
       const lease = await call<string>("openRead", row.pack_hash, turnId);
@@ -1212,8 +1218,8 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       const outwardActions: JournalOutwardAction[] = outward.slice(0, 1000).map(event => ({ id: event.id, at: event.at,
         tool: String(event.payload.tool), action: event.payload.action as JournalOutwardAction["action"], target: event.payload.target as string | null,
         decision: event.payload.decision as JournalOutwardAction["decision"], historyRewrite: event.payload.historyRewrite === true, revertible: false }));
-      const codeChanges = (db.query("SELECT receipt FROM turn_journal_code_receipts WHERE turn_id=? ORDER BY checkout").all(turnId) as { receipt: string }[]).map(item => JSON.parse(item.receipt) as CodeChangeReceipt);
-      return { turnId, sessionId, summary: summary(turnId), changes, ...(codeChanges.length ? { codeChanges } : {}), ...(outwardActions.length ? { outwardActions, outwardActionsTruncated: outward.length > 1000 } : {}), missing: [...(db.query("SELECT checkout,cause FROM turn_journal_code_failures WHERE turn_id=?").all(turnId) as { checkout: string; cause: string }[]).map(item => {
+      const codeChanges = (codeReceiptTablesExist(db) ? db.query("SELECT receipt FROM turn_journal_code_receipts WHERE turn_id=? ORDER BY checkout").all(turnId) as { receipt: string }[] : []).map(item => JSON.parse(item.receipt) as CodeChangeReceipt);
+      return { turnId, sessionId, summary: summary(turnId), changes, ...(codeChanges.length ? { codeChanges } : {}), ...(outwardActions.length ? { outwardActions, outwardActionsTruncated: outward.length > 1000 } : {}), missing: [...(codeReceiptTablesExist(db) ? db.query("SELECT checkout,cause FROM turn_journal_code_failures WHERE turn_id=?").all(turnId) as { checkout: string; cause: string }[] : []).map(item => {
         const cause = diagnostic(() => JSON.parse(item.cause) as { message?: unknown } | null);
         return { path: item.checkout, reason: `code_capture_failed: ${typeof cause?.message === "string" ? cause.message : "Retained checkout failure cause is unavailable."}` };
       }), ...JSON.parse(row.missing), ...(db.query("SELECT path FROM turn_journal_claude_memory WHERE turn_id=? AND state!='saved'").all(turnId) as {path:string}[]).filter(item => !(JSON.parse(row.missing) as {path:string}[]).some(missing => missing.path === item.path)).map(item => ({path:item.path,reason:"memory_persistence_unconfirmed"})), ...configurationOf(row).paths.map(path => ({ path, reason: "configuration_inputs_not_fully_identified" })), ...(failure ? [{ path: ".", reason: failure }] : [])] };

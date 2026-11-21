@@ -1,3 +1,4 @@
+import { codeReceiptTablesExist } from "../db/journal-database.js";
 import { createJournalScrub } from "./journal-scrub.js";
 /**
  * The turn journal's writes, run on the write worker's connection (#2814).
@@ -72,8 +73,8 @@ const indexPins = ["before_json", "after_json"].flatMap(column => [
  * external memory note, and an attachment removal's retained original, which
  * its Undo restores through the removal turn's pin.
  */
-const namedHashes = `${hashes("turn_journal_changes")} UNION ALL ${hashes("turn_journal_revert_paths")} UNION ALL ${hashes("turn_journal_claude_memory")}
-  UNION ALL SELECT pack_hash FROM turn_journal_code_receipts
+const namedHashes = (codeReceipts: boolean) => `${hashes("turn_journal_changes")} UNION ALL ${hashes("turn_journal_revert_paths")} UNION ALL ${hashes("turn_journal_claude_memory")}
+  ${codeReceipts ? "UNION ALL SELECT pack_hash FROM turn_journal_code_receipts" : ""}
   UNION ALL SELECT json_extract(file.value,'$.retained.hash') FROM turn_journal_storage_operations s, json_each(s.private_versions) file`;
 
 type TurnRow = { session_id: string | null; actor: "interactive" | "voice" | "user"; kind: "turn" | "revert"; model: string | null; profile: "strict" | "governed"; steering_inventory_missing: string; configuration_set: string | null; missing: string };
@@ -162,6 +163,7 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
     return db.query(statement.sql).run(...(statement.params ?? [])).changes;
   });
   return {
+    ensureCodeReceiptTables: () => accounting.ensureCodeReceiptTables(),
     /** Statements in order, as one accounted transaction; the changes each made. */
     statements(list: JournalStatement[]): number[] {
       return accounting.write(() => runStatements(list));
@@ -223,7 +225,7 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
           for (const table of ["turn_journal_changes", "turn_journal_revert_paths"]) versions += db.query(`UPDATE ${table} SET before_json=${metadataOnly("before_json")},after_json=${metadataOnly("after_json")}
             WHERE ${INDEX_PATH} AND (${legacy("before_json")} OR ${legacy("after_json")})`).run(family, INDEX_PUBLICATION_COPY).changes;
           // Index versions name no hash any more: whatever still does is another record's content.
-          db.exec(`DELETE FROM temp.journal_index_purge WHERE hash IN (${namedHashes})`);
+          db.exec(`DELETE FROM temp.journal_index_purge WHERE hash IN (${namedHashes(codeReceiptTablesExist(db))})`);
           // Only the pin of the turn that recorded the index version: a pin
           // any other turn holds, for whatever reason, keeps its object.
           const pins = db.query(`DELETE FROM turn_journal_object_refs WHERE (turn_id,hash) IN (SELECT turn_id,hash FROM temp.journal_index_purge)

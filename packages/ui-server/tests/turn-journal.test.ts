@@ -13,8 +13,9 @@ import { createNativeJournalCapture } from "../src/brain/native-journal-capture.
 import { createTurnJournal } from "../src/brain/turn-journal.js";
 import { openSqliteWriter, type SqliteWriter } from "../src/db/write-worker.js";
 import { JOURNAL_SCHEMA, journalDatabasePath } from "../src/db/journal-database.js";
-import { FINISH_REFERENCE_CLEANUP } from "../src/brain/journal-reference-cleanup.js";
+import { FINISH_REFERENCE_CLEANUP_WITHOUT_CODE } from "../src/brain/journal-reference-cleanup.js";
 import { journalStatement, type JournalStatement } from "../src/brain/journal-store.js";
+import { JournalCapacityError } from "../src/brain/journal-objects.js";
 import { configurationSet } from "../src/brain/journal-configuration-sets.js";
 import { recordGovernanceEvent, queryGovernanceEvents } from "../src/governance/events.js";
 import { createStatusRoutes } from "../src/routes/health.js";
@@ -851,17 +852,46 @@ test("idle checkpoint cleanup records its cause durably before any turn exists a
   } finally { f.native.manager.release = release; await f.close(); }
 });
 
+test("a refused finish write removes the ended turn before the next note observation", async () => {
+  let refuse = false, injected = 0, idleScrubs = 0;
+  const f = fixture(undefined, writer => ({ ...writer, channel(module, options, revive) {
+    const channel = writer.channel(module, options, revive);
+    return { ...channel, call(name, ...args) {
+      if (name === "scrubObjects") idleScrubs++;
+      if (refuse && name === "statements") {
+        refuse = false; injected++;
+        return Promise.reject(new JournalCapacityError());
+      }
+      return channel.call(name, ...args);
+    } };
+  } }));
+  try {
+    await f.begin("ended"); refuse = true;
+    await expect(f.journal.finish("ended")).rejects.toThrow();
+    expect(injected).toBe(1);
+    await f.begin("later");
+    writeFileSync(join(f.brain, "notes/penelope.md"), "Penelope returns to Ithaca.\n");
+    await f.journal.observe();
+    expect(f.db.query("SELECT DISTINCT turn_id FROM turn_journal_changes WHERE path='notes/penelope.md' ORDER BY turn_id").all(), "NEXT_NOTE_BELONGS_ONLY_TO_LATER_TURN").toEqual([{ turn_id: "later" }]);
+    expect(f.journal.summary("ended").state, "REFUSED_FINISH_NEVER_READS_RECORDING").toBe("partial");
+    await f.journal.finish("later");
+    expect(f.journal.isHeld(), "FINISH_RELEASES_HOLD").toBe(false);
+    await f.journal.maintain();
+    expect(idleScrubs, "ENDED_TURN_DOES_NOT_BLOCK_IDLE_MAINTENANCE").toBe(1);
+  } finally { await f.close(); }
+});
+
 test("actual finish rolls back its terminal record when reference cleanup refuses",async()=>{
  let injected=0;
  const f=fixture(undefined,writer=>({...writer,channel(module,options,revive){
   const channel=writer.channel(module,options,revive);
   return {...channel,call(name,...args){
-   if(name==="statements" && (args[0] as JournalStatement[]).some(row=>"sql" in row && row.sql===FINISH_REFERENCE_CLEANUP)) {
+   if(name==="statements" && (args[0] as JournalStatement[]).some(row=>"sql" in row && row.sql===FINISH_REFERENCE_CLEANUP_WITHOUT_CODE)) {
     injected++;
     // Refuse at the actual cleanup statement through the production writer
     // and accounted transaction. Splitting finish into two writes exposes a
     // committed terminal record and fails the rollback assertions below.
-    args[0]=(args[0] as JournalStatement[]).map(row=>"sql" in row && row.sql===FINISH_REFERENCE_CLEANUP
+    args[0]=(args[0] as JournalStatement[]).map(row=>"sql" in row && row.sql===FINISH_REFERENCE_CLEANUP_WITHOUT_CODE
       ? {check:"SELECT 1 WHERE 0",refusal:"actual finish cleanup interrupted"}:row);
    }
    return channel.call(name,...args);
@@ -872,7 +902,7 @@ test("actual finish rolls back its terminal record when reference cleanup refuse
   const refs=f.db.query("SELECT count(*) AS n FROM turn_journal_object_refs WHERE turn_id='finish-atomic'").get();
   await expect(f.journal.finish("finish-atomic"),"ACTUAL_FINISH_CLEANUP_FAULT").rejects.toThrow("actual finish cleanup interrupted");
   expect(injected,"ACTUAL_FINISH_FAULT_EXECUTED").toBe(1);
-  expect(f.db.query("SELECT ended_at,state FROM turn_journal_turns WHERE turn_id='finish-atomic'").get(),"ACTUAL_FINISH_RECORD_ROLLS_BACK_WITH_REFS").toEqual({ended_at:null,state:"recording"});
+  expect(f.db.query("SELECT ended_at,state FROM turn_journal_turns WHERE turn_id='finish-atomic'").get(),"ACTUAL_FINISH_RECORD_ROLLS_BACK_WITH_REFS").toEqual({ended_at:null,state:"partial"});
   expect(f.db.query("SELECT count(*) AS n FROM turn_journal_object_refs WHERE turn_id='finish-atomic'").get()).toEqual(refs);
  }finally{await f.close();}
 });
@@ -896,7 +926,7 @@ test("successful actual finish binds cleanup to its own turn and retains every r
   const channel=writer.channel(module,options,revive);
   return {...channel,call(name,...args){
    const rows=args[0] as JournalStatement[];
-   if(name==="statements"&&rows.some(row=>"sql"in row&&row.sql===FINISH_REFERENCE_CLEANUP)) {
+   if(name==="statements"&&rows.some(row=>"sql"in row&&row.sql===FINISH_REFERENCE_CLEANUP_WITHOUT_CODE)) {
     injected++;
     const extra:JournalStatement[]=[];
     for(const hash of hashes)extra.push(journalStatement("INSERT OR IGNORE INTO turn_journal_objects VALUES (?,0,'pending')",hash),journalStatement("INSERT OR IGNORE INTO turn_journal_object_refs VALUES ('finish-survivors',?)",hash));
@@ -905,7 +935,7 @@ test("successful actual finish binds cleanup to its own turn and retains every r
      journalStatement("INSERT INTO turn_journal_changes (turn_id,sequence,path,scope,before_json,after_json) VALUES ('finish-survivors',1001,'notes/empty.md','content',NULL,'{}')"),
      journalStatement("INSERT INTO turn_journal_claude_memory VALUES ('finish-survivors','pending','/ithaca','1','2','Athena',NULL,?,'unconfirmed')",JSON.stringify({hash:hashes[2]})),
      journalStatement("INSERT INTO turn_journal_claude_memory VALUES ('finish-survivors','saved','/ithaca','1','2','Athena',?,NULL,'saved')",JSON.stringify({hash:hashes[3]})));
-    const at=rows.findIndex(row=>"sql"in row&&row.sql===FINISH_REFERENCE_CLEANUP);
+    const at=rows.findIndex(row=>"sql"in row&&row.sql===FINISH_REFERENCE_CLEANUP_WITHOUT_CODE);
     args[0]=[...rows.slice(0,at),...extra,...rows.slice(at)];
    }
    return channel.call(name,...args);

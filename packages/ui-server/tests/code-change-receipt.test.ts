@@ -231,7 +231,7 @@ test("inspection-only turns invoke no checkout maintenance and write no receipt"
     await journal.begin("inspect", { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null, workspaceReadOnly: true }, () => {});
     await journal.finish("inspect");
     expect(calls, "NO_WRITABLE_CHECKOUT_RUNS_NO_GIT").toBe(0);
-    expect(db.query("SELECT count(*) AS n FROM turn_journal_code_receipts").get()).toEqual({ n: 0 });
+    expect(db.query("SELECT name FROM journal.sqlite_schema WHERE type='table' AND name GLOB 'turn_journal_code_*'").all(), "INSPECTION_NEVER_ALLOCATES_RECEIPT_TABLES").toEqual([]);
   } finally { await journal.close(); await native.close(); db.close(); f.close(); }
 });
 

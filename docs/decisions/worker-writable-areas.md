@@ -444,8 +444,9 @@ an inspection turn usable.
 
 The authenticated code-changes preference survives resume and applies at the
 next admission. Changing it cannot change a running worker's mounts. Enabling
-it retains the existing alias scan and per-file journaling; the Git receipt
-transition is separate work. The worker's sandbox note names the mode and both
+it retains the existing alias scan. Ordinary workspace files keep per-file
+journaling; covered Git checkouts retain one endpoint receipt per checkout
+under the [history contract](../integration-contract/http.md#checkout-change-receipts-4297). The worker's sandbox note names the mode and both
 ways to obtain writable checkout access: the session's code-changes switch or
 a managed worktree. Arbitrary tools still return the kernel's read-only error;
 failed tool results carrying `EROFS` or a read-only diagnostic receive the

@@ -151,3 +151,44 @@ export const JOURNAL_SCRUB_GUARDS = ["INSERT", "UPDATE", "DELETE"].map(event => 
     WHEN (SELECT writing FROM turn_journal_allocation WHERE id=1) IS NOT 1
     BEGIN SELECT RAISE(ABORT, 'journal storage write outside capacity accounting'); END`,
 }));
+
+/** Receipt state is installed atomically through capacity admission, only when needed. */
+export const JOURNAL_CODE_TABLES = [
+  { name: "turn_journal_code_receipts", sql: `CREATE TABLE turn_journal_code_receipts (
+  turn_id TEXT NOT NULL REFERENCES turn_journal_turns(turn_id) ON DELETE CASCADE,
+  checkout TEXT NOT NULL,
+  receipt TEXT NOT NULL,
+  pack_hash TEXT NOT NULL REFERENCES turn_journal_objects(hash),
+  PRIMARY KEY (turn_id, checkout)
+)` },
+  { name: "turn_journal_code_reverts", sql: `CREATE TABLE turn_journal_code_reverts (
+  id TEXT PRIMARY KEY,
+  principal_id TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  turn_id TEXT NOT NULL REFERENCES turn_journal_turns(turn_id) ON DELETE CASCADE,
+  checkout TEXT NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('applying','complete','unknown','failed')),
+  result TEXT,
+  pid INTEGER NOT NULL,
+  pid_start TEXT NOT NULL
+)` },
+  { name: "turn_journal_code_failures", sql: `CREATE TABLE turn_journal_code_failures (
+  turn_id TEXT NOT NULL REFERENCES turn_journal_turns(turn_id) ON DELETE CASCADE,
+  checkout TEXT NOT NULL,
+  cause TEXT NOT NULL,
+  PRIMARY KEY (turn_id, checkout)
+)` },
+] as const;
+
+/** Permanent capacity guards also cover connections opened before the tables exist. */
+export const JOURNAL_CODE_GUARDS = JOURNAL_CODE_TABLES.flatMap(table => ["INSERT", "UPDATE", "DELETE"].map(event => ({
+  name: `${table.name}_capacity_${event.toLowerCase()}`,
+  sql: `CREATE TRIGGER ${table.name}_capacity_${event.toLowerCase()} BEFORE ${event} ON ${table.name}
+    WHEN (SELECT writing FROM turn_journal_allocation WHERE id=1) IS NOT 1
+    BEGIN SELECT RAISE(ABORT, 'journal storage write outside capacity accounting'); END`,
+})));
+
+/** Do not cache absence: another connection can admit the tables at runtime. */
+export function codeReceiptTablesExist(db: Database): boolean {
+  return Boolean(db.query("SELECT 1 FROM journal.sqlite_schema WHERE type='table' AND name='turn_journal_code_receipts'").get());
+}

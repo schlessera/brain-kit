@@ -1,4 +1,5 @@
 /** Owner-confirmed checkout restoration; one durable identity, never a blind retry. */
+import { codeReceiptTablesExist } from "../db/journal-database.js";
 import type { Database } from "bun:sqlite";
 import type { CodeChangeReceipt } from "@schlessera/brain-ui-sdk/protocol";
 import { runMaintenanceWorker, prepareNativeWorkerStartupView, type MaintenanceHost, type createNativeBrainManagerClient } from "@schlessera/brain-ui-sdk/internal";
@@ -23,6 +24,7 @@ export function createCodeChangeHistory(db: Database, options: {
   const { journal } = options;
   const pending = new Map<string, Promise<Result>>();
   function read(id: string, principalId: string, sessionId: string, turnId: string): Result | null {
+    if (!codeReceiptTablesExist(db)) return null;
     const row = db.query("SELECT * FROM turn_journal_code_reverts WHERE id=? AND principal_id=? AND session_id=? AND turn_id=?").get(id, principalId, sessionId, turnId) as Row | null;
     if (!row) return null;
     if (row.result) return JSON.parse(row.result) as Result;
@@ -30,7 +32,7 @@ export function createCodeChangeHistory(db: Database, options: {
   }
   async function revert(id: string, principalId: string, sessionId: string, turnId: string, checkout: string): Promise<Result> {
     if (pending.has(id)) { await pending.get(id); return revert(id, principalId, sessionId, turnId, checkout); }
-    const existing = db.query("SELECT * FROM turn_journal_code_reverts WHERE id=?").get(id) as Row | null;
+    const existing = codeReceiptTablesExist(db) ? db.query("SELECT * FROM turn_journal_code_reverts WHERE id=?").get(id) as Row | null : null;
     if (existing) {
       if (existing.principal_id !== principalId || existing.session_id !== sessionId || existing.turn_id !== turnId || existing.checkout !== checkout) throw Error("History operation identity belongs to another selection");
       return pending.get(id) ?? read(id, principalId, sessionId, turnId)!;
