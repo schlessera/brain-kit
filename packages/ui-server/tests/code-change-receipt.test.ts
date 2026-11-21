@@ -1,3 +1,4 @@
+import { expectRejection } from "./helpers/expect-rejection.js";
 import { expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
@@ -184,18 +185,23 @@ test("managed checkout receipts capture at release and turn end without per-resu
   const f = fixture(), brain = join(f.root, "brain"), dbPath = join(f.root, "ui.db");
   mkdirSync(brain); writeFileSync(join(brain, "note.md"), "Ithaca\n");
   const native = createNativeJournalFixture(brain, f.root), maintenance = createFixtureMaintenanceHost(brain);
-  const pool = referencePoolDouble(join(f.root, "pool")), source = await pool.poolCreate(crypto.randomUUID(), "source", null, 1024 * 1024);
+  const allowance = 32 * 1024 * 1024;
+  writeFileSync(join(f.checkout, "cargo.bin"), Buffer.alloc(17 * 1024 * 1024, 97));
+  git(f.checkout, "add", "cargo.bin"); git(f.checkout, "commit", "-qm", "Stow the cargo");
+  const pool = referencePoolDouble(join(f.root, "pool"), { operationBytes: allowance }), source = await pool.poolCreate(crypto.randomUUID(), "source", null, allowance);
   cpSync(f.checkout, source.path!, { recursive: true }); await pool.poolSeal(source.id);
-  const tree = await pool.poolCreate(crypto.randomUUID(), "worktree", source.id, 1024 * 1024);
+  const tree = await pool.poolCreate(crypto.randomUUID(), "worktree", source.id, allowance);
   const unsupported = async () => { throw Error("No private reader in this fixture"); };
   const db = createUiDb(dbPath), journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath, objectsRoot: join(f.root, "objects"), codeChanges: { maintenance },
     referencePool: { ...pool, poolReadCheckpoint: unsupported, poolStatCheckpoint: unsupported, poolListCheckpoint: unsupported } });
   try {
     const metadata = { sessionId: "ithaca", actor: "interactive" as const, model: null, profile: "governed" as const, policyHash: null, workspaceReadOnly: true };
+    db.query("INSERT INTO reference_worktrees (id,principal_id,domain,repository,revision,source_root,allowance,state,created_at,accessed_at) VALUES (?,?,?,?,?,?,?,'active',0,0)").run(tree.id, "odysseus", "public", "file:///fixture/argo.git", "main", source.id, allowance);
     await journal.begin("sail", metadata, () => {}); await journal.begin("other", metadata, () => {});
     await journal.attachWorktree("sail", tree.id);
     const key = `reference-worktree://${tree.id}/`;
-    expect(journal.worktrees("sail")).toEqual([tree.id]);
+    expect(journal.worktrees("sail"), "MANAGED_CAPTURE_USES_POOL_ALLOWANCE_ABOVE_IN_BRAIN_BOUND").toEqual([tree.id]);
+    expect(journal.summary("sail").changedFiles, "UNCHANGED_CHECKOUT_IS_NOT_A_CHANGE").toBe(0);
     const checkpoints = pool.events.filter(event => event.operation === "checkpoint").length;
     writeFileSync(join(tree.path!, "chart.md"), "Scheria\n"); await journal.observe();
     expect(pool.events.filter(event => event.operation === "checkpoint").length, "NO_GIT_CHECKPOINT_PER_TOOL_OBSERVATION").toBe(checkpoints);
@@ -204,6 +210,7 @@ test("managed checkout receipts capture at release and turn end without per-resu
     writeFileSync(join(tree.path!, "raft.md"), "The raft\n"); await journal.finish("sail");
     expect(journal.details("ithaca", "sail")!.codeChanges![0]).toMatchObject({ state: "complete", paths: [{ path: "chart.md", kind: "modified" }, { path: "raft.md", kind: "added" }] });
     expect(journal.details("ithaca", "sail")!.changes, "MANAGED_CHECKOUT_HAS_NO_FILE_ROWS").toEqual([]);
+    expect(journal.summary("sail").changedFiles, "CHECKOUT_SUMMARY_COUNTS_CHANGED_PATHS").toBe(2);
     expect(journal.details("ithaca", "other")!.codeChanges, "CHECKOUT_EVIDENCE_BELONGS_ONLY_TO_HOLDING_TURN").toBeUndefined();
     expect(journal.summary("other").state, "OTHER_TURN_REMAINS_USABLE").toBe("recording");
     await journal.finish("other");
@@ -234,7 +241,7 @@ test("an unsupported writable checkout refuses only that turn and leaves inspect
   const journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath, objectsRoot: join(f.root, "objects"), codeChanges: { maintenance } });
   const metadata = { sessionId: "ithaca", actor: "interactive" as const, model: null, profile: "governed" as const, policyHash: null };
   try {
-    await expect(journal.begin("writer", { ...metadata, workspaceReadOnly: false }, () => {}), "UNSUPPORTED_CHECKOUT_NEVER_GETS_UNCOVERED_WRITES").rejects.toThrow();
+    await expectRejection(journal.begin("writer", { ...metadata, workspaceReadOnly: false }, () => {}), undefined, "UNSUPPORTED_CHECKOUT_NEVER_GETS_UNCOVERED_WRITES");
     expect(journal.summary("writer").state).toBe("partial");
     expect(db.query("SELECT count(*) AS n FROM turn_journal_code_receipts WHERE turn_id='writer'").get(), "REFUSED_MULTI_CHECKOUT_ADMISSION_RELEASES_BASELINE_PINS").toEqual({ n: 0 });
     expect(journal.details("ithaca", "writer")!.missing.some(item => item.reason.includes("code_capture_failed")), "REFUSAL_CAUSE_IS_DURABLE_AND_OWNER_VISIBLE").toBe(true);
@@ -254,4 +261,28 @@ test("receipt endpoint objects use the checkout's Git object format", () => {
     expect(capture(f.checkout, { ...receipt, operation: "revert", expected_tree: receipt.tree_after }).status).toBe("restored");
     expect(readFileSync(join(f.checkout, "chart.md"), "utf8")).toBe("Ithaca\n");
   } finally { f.close(); }
+});
+
+test("a final checkout capture failure still retains final note before-images and other turns", async () => {
+  const f = fixture(), brain = join(f.root, "brain"), dbPath = join(f.root, "ui.db"); mkdirSync(brain); writeFileSync(join(brain, "note.md"), "Ithaca\n");
+  const native = createNativeJournalFixture(brain, f.root), maintenance = createFixtureMaintenanceHost(brain), db = createUiDb(dbPath);
+  const pool = referencePoolDouble(join(f.root, "pool")), source = await pool.poolCreate(crypto.randomUUID(), "source", null, 1024 * 1024);
+  cpSync(f.checkout, source.path!, { recursive: true }); await pool.poolSeal(source.id);
+  const tree = await pool.poolCreate(crypto.randomUUID(), "worktree", source.id, 1024 * 1024);
+  const unsupported = async () => { throw Error("No private reader in this fixture"); };
+  const journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath, objectsRoot: join(f.root, "objects"), codeChanges: { maintenance }, referencePool: {
+    ...pool, poolCheckpoint: (...args) => pool.poolCheckpoint(...args), poolReadCheckpoint: unsupported, poolStatCheckpoint: unsupported, poolListCheckpoint: unsupported,
+  } });
+  const metadata = { sessionId: "ithaca", actor: "interactive" as const, model: null, profile: "governed" as const, policyHash: null, workspaceReadOnly: true };
+  try {
+    await journal.begin("sail", metadata, () => {}); await journal.begin("other", metadata, () => {}); await journal.attachWorktree("sail", tree.id);
+    writeFileSync(join(tree.path!, "chart.md"), "Scheria\n"); writeFileSync(join(brain, "note.md"), "Return to Ithaca\n");
+    pool.poolCheckpoint = async () => { throw Error("Checkout checkpoint refused"); };
+    await expectRejection(journal.finish("sail"), "Checkout checkpoint refused");
+    const details = journal.details("ithaca", "sail")!;
+    expect(details.changes.map(item => item.path), "CODE_FAILURE_KEEPS_FINAL_NOTE_OBSERVATION").toEqual(["note.md"]);
+    expect(details.changes[0]!.before?.hash, "CODE_FAILURE_KEEPS_NOTE_BEFORE_IMAGE").toBeString();
+    expect(details.summary.state).toBe("partial"); expect(details.codeChanges![0]!.state).toBe("partial");
+    await journal.finish("other"); expect(journal.summary("other").state, "CODE_FAILURE_DOES_NOT_STOP_OTHER_TURN").toBe("complete");
+  } finally { await journal.close(); maintenance.cleanup(); await native.close(); db.close(); f.close(); }
 });

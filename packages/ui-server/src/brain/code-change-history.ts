@@ -55,10 +55,10 @@ export function createCodeChangeHistory(db: Database, options: {
         if (checkout.startsWith("reference-worktree://")) {
           if (!options.worktrees) throw Error("The reference pool is unavailable");
           const worktreeId = checkout.slice("reference-worktree://".length).replace(/\/$/, "");
-          result = await options.worktrees.withHistoryCheckout(worktreeId, principalId, async path => {
+          result = await options.worktrees.withHistoryCheckout(worktreeId, principalId, async (path, allowanceBytes) => {
             const startupView = await prepareNativeWorkerStartupView(options.brainPath, options.nativeManager);
             try { return await runMaintenanceWorker({ ...options.maintenance, brainPath: options.brainPath, startupView, credentials: false,
-              env: { PATH: "/usr/bin:/bin" }, command: ["/usr/bin/python3", "-I", "-S", "-c", CODE_CHANGE_PROGRAM, path, String(CODE_CHECKOUT_BYTES)],
+              env: { PATH: "/usr/bin:/bin" }, command: ["/usr/bin/python3", "-I", "-S", "-c", CODE_CHANGE_PROGRAM, path, String(allowanceBytes)],
               readPaths: [path], writeDirectories: [path], stdin: request, tempKind: "git", timeoutMs: 60_000, outputBytes: 2 * 1024 * 1024 }, () => {
                 if (!options.isAuthorized(principalId)) throw Error("Owner authorization changed");
               });

@@ -3,14 +3,17 @@ import { runMaintenanceWorker, type MaintenanceHost } from "@schlessera/brain-ui
 import type { CodeChangeReceipt } from "@schlessera/brain-ui-sdk/protocol";
 import { CODE_CHANGE_PROGRAM, CODE_CHECKOUT_LIST_PROGRAM, CODE_CHANGE_PREVIEW_PROGRAM } from "./code-change-program.js";
 
-/** Capture transport ceiling; oversized checkouts retain file coverage and refuse a receipt grant. */
+/** Explicit in-brain checkout content bound; managed checkouts use their pool allowance. */
 export const CODE_CHECKOUT_BYTES = 16 * 1024 * 1024;
+/** The existing 64 MiB maintenance wire leaves room for base64 and path metadata. */
+export const CODE_EVIDENCE_BYTES = 48 * 1024 * 1024;
 type CodeChangeCapture = Omit<CodeChangeReceipt, "checkout" | "state"> & { pack: string };
 
 export async function captureCodeChanges(brainPath: string, checkout: string, previous?: Pick<CodeChangeCapture, "tree_before" | "pack"> & { head_before?: CodeChangeReceipt["head_before"] },
-  host: MaintenanceHost = {}, signal?: AbortSignal): Promise<CodeChangeCapture> {
+  host: MaintenanceHost = {}, signal?: AbortSignal, maximum: number = CODE_CHECKOUT_BYTES): Promise<CodeChangeCapture> {
+  if (!Number.isSafeInteger(maximum) || maximum < 1) throw new Error("Invalid checkout capture allowance");
   const result = await runMaintenanceWorker({ ...host, brainPath, credentials: false, env: { PATH: "/usr/bin:/bin" },
-    command: ["/usr/bin/python3", "-I", "-S", "-c", CODE_CHANGE_PROGRAM, checkout, String(CODE_CHECKOUT_BYTES)],
+    command: ["/usr/bin/python3", "-I", "-S", "-c", CODE_CHANGE_PROGRAM, checkout, String(maximum)],
     readPaths: [checkout], stdin: JSON.stringify(previous ?? {}), outputBytes: 64 * 1024 * 1024, tempKind: "git", timeoutMs: 60_000, signal });
   if (result.exitCode !== 0 || result.killed) throw new Error(`Git change capture refused: ${result.stderr.trim().slice(-1000) || "maintenance worker failed"}`);
   const receipt = JSON.parse(result.stdout) as CodeChangeCapture;
@@ -18,7 +21,7 @@ export async function captureCodeChanges(brainPath: string, checkout: string, pr
   if (!oid(receipt.tree_before) || !oid(receipt.tree_after) || !oid(receipt.head_before?.commit) || !oid(receipt.head_after?.commit)
     || !Array.isArray(receipt.paths) || receipt.paths.some(item => typeof item.path !== "string" || !["added", "deleted", "modified"].includes(item.kind) || typeof item.untracked !== "boolean")
     || !Number.isSafeInteger(receipt.bytes) || receipt.bytes < 0 || !Number.isSafeInteger(receipt.untracked) || typeof receipt.ignore_changed !== "boolean"
-    || typeof receipt.pack !== "string" || Buffer.from(receipt.pack, "base64").subarray(0, 4).toString() !== "PACK") throw new Error("Invalid Git change evidence");
+    || typeof receipt.pack !== "string" || Buffer.byteLength(receipt.pack, "base64") > CODE_EVIDENCE_BYTES || Buffer.from(receipt.pack, "base64").subarray(0, 4).toString() !== "PACK") throw new Error("Invalid Git change evidence");
   return receipt;
 }
 

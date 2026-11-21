@@ -165,8 +165,8 @@ that checkout's writable grant. Other checkouts and notes remain usable.
 
 Tracked and untracked non-ignored files are retained; ignored build output and
 intermediate versions are not. The pool allowance bounds the worktree and
-replaces its journal `turn_bytes` charge. The current evidence transport has
-an additional 16 MiB captured-content ceiling. In-brain opted-in checkouts
+replaces its journal `turn_bytes` charge. The existing maintenance transport bounds combined capture output to 64 MiB
+including base64 and path metadata, and refuses oversized evidence. In-brain opted-in checkouts
 share the receipt rules with an explicit 16 MiB content bound. Non-checkout
 workspace content and notes retain their file-level journal coverage.
 

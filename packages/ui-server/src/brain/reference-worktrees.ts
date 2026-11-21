@@ -706,14 +706,14 @@ export function createReferenceWorktrees(options: {
   return {
     allocate, access, renew, release, reconcile, recover,
     /** Authenticated history holds the writer gate and keeps grants/removal serialized. */
-    withHistoryCheckout<T>(worktreeId: string, principalId: string, operation: (path: string) => Promise<T>): Promise<T> {
+    withHistoryCheckout<T>(worktreeId: string, principalId: string, operation: (path: string, allowanceBytes: number) => Promise<T>): Promise<T> {
       return serial(worktreeId, async () => {
         let row = owned(worktreeId, principalId);
         if (holderState(row) !== false) throw new ReferenceWorktreeError("busy", "The checkout still has a live or unknown writer.");
         if (row.holder) row = await recoverHolder(row);
         const parked = await pool.poolPark(row.id);
         if (!parked.path || parked.access) throw new ReferenceWorktreeError("unavailable", "The checkout could not be parked for history.");
-        return operation(parked.path);
+        return operation(parked.path, row.allowance);
       });
     },
     openGeneration, retireGeneration, closeGeneration,

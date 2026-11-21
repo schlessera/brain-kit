@@ -5,7 +5,7 @@ import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { BRAIN_WORKSPACES_DIR } from "@schlessera/brain-common/internal/worker-areas";
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import type { ConfigurationCoverageRead, JournalVersion, TurnJournalDetails, TurnJournalSummary, JournalOutwardAction, JournalObservationReference } from "@schlessera/brain-ui-sdk/protocol";
-import { captureCodeChanges, listCodeCheckouts, previewCodeChanges, CODE_CHECKOUT_BYTES } from "./code-change-worker.js";
+import { captureCodeChanges, listCodeCheckouts, previewCodeChanges, CODE_CHECKOUT_BYTES, CODE_EVIDENCE_BYTES } from "./code-change-worker.js";
 import type { MaintenanceHost, WorkerStartupView } from "@schlessera/brain-ui-sdk/internal";
 import { randomUUID } from "node:crypto";
 import { recordedConfigurationSet } from "./journal-configuration-sets.js";
@@ -241,7 +241,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   }
 
   const checkoutKey = (turnId: string, checkout: string) => JSON.stringify([turnId, checkout]);
-  const packBytes = (hash: string) => objects.read(hash, 2 * CODE_CHECKOUT_BYTES + 1024 * 1024).toString("base64");
+  const packBytes = (hash: string) => objects.read(hash, CODE_EVIDENCE_BYTES).toString("base64");
   async function captureCheckout(turnId: string, checkout: string, manager: NativeJournalManager, relative: string, signal?: AbortSignal, final = false): Promise<void> {
     const key = checkoutKey(turnId, checkout), held = checkouts.get(key);
     const previous = held ?? (db.query(`SELECT c.receipt,c.pack_hash FROM turn_journal_code_receipts c JOIN turn_journal_turns t USING(turn_id)
@@ -249,11 +249,12 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     const earlier = previous ? typeof previous.receipt === "string" ? JSON.parse(previous.receipt) as CodeChangeReceipt : previous.receipt : undefined;
     const previousHash = previous ? "hash" in previous ? previous.hash : previous.pack_hash : undefined;
     const checkpointId = randomUUID();
+    const maximum = relative ? CODE_CHECKOUT_BYTES : (db.query("SELECT allowance FROM reference_worktrees WHERE id=?").get(checkout.split("/")[2]!) as { allowance: number } | null)?.allowance ?? CODE_CHECKOUT_BYTES;
     try {
       const checkpoint = await manager.checkpoint(checkpointId, signal);
       const result = await withCodeMaintenance(host => captureCodeChanges(options.brainPath, relative ? join(checkpoint.path, relative) : checkpoint.path,
         earlier && previousHash ? { tree_before: held ? earlier.tree_before : earlier.tree_after, head_before: held ? earlier.head_before : undefined, pack: packBytes(previousHash) } : undefined,
-        host, signal), signal);
+        host, signal, maximum), signal);
       const { pack, ...facts } = result;
       const receipt: CodeChangeReceipt = { ...facts, checkout, state: final ? "complete" : "recording" };
       const hash = await retain(() => objects.putBytes(Buffer.from(pack, "base64")));
@@ -263,6 +264,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       await retain(() => write([
         statement("INSERT OR IGNORE INTO turn_journal_object_refs VALUES (?,?)", turnId, hash),
         statement("INSERT INTO turn_journal_code_receipts VALUES (?,?,?,?) ON CONFLICT(turn_id,checkout) DO UPDATE SET receipt=excluded.receipt,pack_hash=excluded.pack_hash", turnId, checkout, JSON.stringify(receipt), hash),
+        statement("DELETE FROM turn_journal_code_failures WHERE turn_id=? AND checkout=?", turnId, checkout),
         ...(relative ? [statement("DELETE FROM turn_journal_changes WHERE turn_id=? AND (path=? OR substr(path,1,?)=?)", turnId, relative, relative.length + 1, relative + "/")] : []),
       ]));
       checkouts.set(key, { turnId, checkout, manager, relative, receipt, hash });
@@ -819,11 +821,15 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     finish(turnId: string) { return held(async timing => {
       if (!active.has(turnId)) { if (failedAdmissions.has(turnId)) await finalizeRefusedAdmission(turnId); return; }
       try {
+        let codeFailure: unknown;
         for (const root of [...checkouts.values()].filter(root => root.turnId === turnId)) {
           try { await captureCheckout(turnId, root.checkout, root.manager, root.relative, undefined, true); }
-          catch (error) { await fail(turnId, error); throw error; }
+          catch (error) { await fail(turnId, error); codeFailure ??= error; }
         }
+        // A checkout-local capture failure must not discard final note versions
+        // or another checkout's independently recoverable endpoint.
         await observe(false, timing);
+        if (codeFailure) throw codeFailure;
       }
       catch (error) { await fail(turnId, error); throw error; }
       finally {

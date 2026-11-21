@@ -75,8 +75,9 @@ interrupted recording remains partial, never a completed endpoint.
 
 Managed worktrees retain the pool's per-operation allowance, replacing the
 journal's `turn_bytes` charge. In-brain checkouts have a 16 MiB total captured
-content bound. The current bounded evidence transport also refuses captures
-above 16 MiB for managed checkouts; the pool allowance remains binding. A
+content bound. The existing maintenance transport bounds combined capture output to 64 MiB
+(including base64 and path metadata); an endpoint pack that cannot fit refuses
+that operation without granting uncovered writes. A
 receipt-capacity refusal cannot grant uncovered writes.
 
 From the same authenticated turn-history entry:
