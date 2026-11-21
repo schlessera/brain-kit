@@ -20,6 +20,7 @@ import {recoverSafetyRecording,safetyCatalogCreated} from "../src/governance/saf
 import {createPermissionWiring} from "../../ui-backend-claude/src/permission-hooks";
 import {MEASURED_RUNTIME} from "../../ui-backend-claude/src/measured-runtime";
 import {nativeModelReply} from "../../ui-backend-claude/tests/helpers/native-model-reply";
+import {outputTaintSignals,searchOutputContext} from "../src/activity/ingestion-taint";
 import {assertNativeSameToolProof} from "./helpers/native-safety-proof";
 import {holdSafetyRecovery} from "./helpers/hold-safety-recovery";
 
@@ -59,7 +60,7 @@ function modelCalls(calls:{name:string;id:string;input:Record<string,unknown>}[]
  return new Response(events.map(event=>`event: ${(event as {type:string}).type}\ndata: ${JSON.stringify(event)}\n\n`).join(""),{headers:{"content-type":"text/event-stream"}});
 }
 async function voyageHome(interruption:Interruption,check:(f:{db:ReturnType<typeof createUiDb>;writes:ReturnType<typeof createGovernanceWrites>;
- first:{results:number;failures:number;aborted:boolean;indexWaits:number;admitted:number;cards:number;refusals:number;nativeSecondHeld:boolean};searched:boolean;replayed:string[]})=>void){
+ first:{results:number;failures:number;aborted:boolean;indexWaits:number;admitted:number;cards:number;refusals:number;nativeSecondHeld:boolean;deliveredPaths:string[]};searched:boolean;replayed:string[]})=>void){
  const root=mkdtempSync(join(tmpdir(),"odysseus-safety-retention-")),brain=join(root,"brain"),home=join(root,"home");
  // A note: reading it records nothing before the tool runs, so only the
  // search output's own record stands between it and a complete chat.
@@ -105,7 +106,7 @@ esac
   if(!Array.isArray(body.tools)||!body.tools.length)return nativeModelReply();
   requests.push({turn,raw});
   const first=turn===0&&requests.filter(r=>r.turn===0).length===1;
-  const search={name:"Grep",id:"toolu_sirens",input:{pattern:"sirens",path,output_mode:"content"}};
+  const search={name:"Grep",id:"toolu_sirens",input:{pattern:"sirens",path:interruption==="same-tool"?brain:path,output_mode:"content"}};
   if(first&&interruption==="duplicate")return modelCalls([search,search]);
   if(first&&interruption==="same-tool")return modelCalls([search,{...search,input:{...search.input,pattern:"sirens|sirens"}}]);
   if(first&&interruption==="retooled")return modelCalls([search,{name:"Read",id:search.id,input:{file_path:path}}]);
@@ -155,12 +156,17 @@ esac
   const wiring=createPermissionWiring({req:{prompt:"Listen for the sirens.",signal:controller.signal,enforceAllowedTools:denying,bridge:{emit(){},requestPermission,inputSafety,awaitIndex}},allowedTools:denying?[]:tools,confirmPatterns:[],brainPath:brain,turnLock:{acquireForTool:async()=>({ok:true}),releaseForTool(){}} as never,childEnv:{PATH:"/usr/bin:/bin"},...(retooling?{fileVersions:fileVersions as never}:{}),log(){}});
   // The hook both tools share is held for the Read until its denial landed.
   if(retooling)for(const group of wiring.hooks!.PreToolUse!)if(!group.matcher)group.hooks=group.hooks.map(hook=>async(...args)=>{if((args[0] as {tool_name?:string}).tool_name==="Read")await refused;return hook(...args);});
-  let results=0,failures=0;
+  let results=0,failures=0;const deliveredPaths:string[]=[];
   if(interrupt){
    // The Grep result exists and the runtime holds it; only its record is at risk.
    const group=wiring.hooks!.PostToolUse!.find(group=>!group.matcher)!,record=group.hooks[0]!;
    group.hooks=[async(...args)=>{
     results++;
+    if(interruption==="same-tool"&&args[0].hook_event_name==="PostToolUse"){
+     const response=args[0].tool_response;
+     const signals=outputTaintSignals("Grep",typeof response==="string"?response:JSON.stringify(response),brain,undefined,searchOutputContext("Grep",args[0].tool_input,"claude"));
+     for(const signal of signals)if(signal.source==="workspace_read"&&signal.detector==="tool_search_output")deliveredPaths.push(signal.key.startsWith(brain+"/")?signal.key.slice(brain.length+1):signal.key);
+    }
     if(interruption==="refused")db.exec("CREATE TRIGGER refuse_result BEFORE INSERT ON safety_pending BEGIN SELECT RAISE(ABORT,'forced result reservation failure'); END");
     else if(interruption==="cancelled")controller.abort(new Error("Odysseus stopped the turn as the result arrived"));
     const result=await record(...args);
@@ -186,7 +192,7 @@ esac
    if(interrupt&&(interruption==="duplicate"||interruption==="retooled"))await Promise.race([refused,new Promise(resolve=>setTimeout(resolve,2000))]);
    await writes.safetyEnd(turnId);
   }
-  return {results,failures,aborted:controller.signal.aborted,indexWaits,admitted,cards,refusals,nativeSecondHeld:existsSync(secondHeld)&&existsSync(secondOutput)&&readFileSync(secondOutput,"utf8").length>0};
+  return {deliveredPaths,results,failures,aborted:controller.signal.aborted,indexWaits,admitted,cards,refusals,nativeSecondHeld:existsSync(secondHeld)&&existsSync(secondOutput)&&readFileSync(secondOutput,"utf8").length>0};
  }
  try{
   const first=await voyage("voyage",null,true);
@@ -239,7 +245,8 @@ test("a turn stopped as its result arrives still records the result the runtime 
  expect(chat.coverage.state,"SAFETY_CANCELLED_RECORDED_RESULT_KEEPS_COVERAGE").toBe("complete");
 }),60000);
 
-test("a turn stopped while its search runs reaches neither result hook, and its chat keeps a permanent gap",()=>voyageHome("running",({db,writes,first,replayed})=>{
+test("a turn stopped while its search runs reaches neither result hook, and its chat keeps a permanent gap",()=>voyageHome("running",({db,writes,first,replayed,searched})=>{
+ expect(searched,"SAFETY_POSITIVE_SEARCH_INVOCATION_RUNNING").toBe(true);
  // The runtime skips both result hooks for a stopped turn, so the host never
  // sees this result: only the call's admission stands for it.
  expect(first.results+first.failures,"SAFETY_RUNTIME_SKIPPED_BOTH_RESULT_HOOKS").toBe(0);
@@ -256,7 +263,8 @@ test("a turn stopped while its search runs reaches neither result hook, and its 
  expect(JSON.parse(voyage.failure_cause??"{}"),"SAFETY_UNRECORDED_RESULT_NAMES_ITS_CALL").toMatchObject({site:"safetyEnd",turnId:"voyage",message:expect.stringContaining("Grep (toolu_sirens)")});
 }),60000);
 
-test("a denial under an id the runtime admitted twice cannot settle the search that already ran, so its chat keeps a permanent gap",()=>voyageHome("duplicate",({db,writes,first})=>{
+test("a denial under an id the runtime admitted twice cannot settle the search that already ran, so its chat keeps a permanent gap",()=>voyageHome("duplicate",({db,writes,first,searched})=>{
+ expect(searched,"SAFETY_POSITIVE_SEARCH_INVOCATION_DUPLICATE").toBe(true);
  // The installed runtime admits the same tool_use id twice and runs the
  // first search; its allow never reaches a callback, since `allowedTools`
  // lists Grep bare.
@@ -290,7 +298,8 @@ test("a search denied at its permission card never runs, and its chat stays norm
  expect(first.refusals,"SAFETY_CARD_DENY_IS_REPORTED").toBeGreaterThan(0);
 }),60000);
 
-test("a denial of another tool under the search's id cannot settle the search that already ran, so its chat keeps a permanent gap",()=>voyageHome("retooled",({db,writes,first})=>{
+test("a denial of another tool under the search's id cannot settle the search that already ran, so its chat keeps a permanent gap",()=>voyageHome("retooled",({db,writes,first,searched})=>{
+ expect(searched,"SAFETY_POSITIVE_SEARCH_INVOCATION_RETOOLED").toBe(true);
  // The runtime ran the search and was stopped before either result hook.
  expect(first.results+first.failures,"SAFETY_RUNTIME_SKIPPED_BOTH_RESULT_HOOKS").toBe(0);
  // The Read's own hook denied it before the shared hook counted it: that
@@ -360,7 +369,7 @@ for(const late of [false,true])test(`a denied shell call reusing a search's id c
 
 
 test("two same-ID native Grep calls retain their recorded result and the interrupted call's gap",()=>voyageHome("same-tool",({db,writes,first})=>{
- assertNativeSameToolProof(first,db.query("SELECT r.kind,r.detector,r.state FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id WHERE c.turn_id='voyage' ORDER BY r.kind").all());
+ assertNativeSameToolProof(first,db.query("SELECT r.kind,r.detector,r.source,r.state FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id WHERE c.turn_id='voyage' ORDER BY r.kind").all());
  expect(writes.safety(null,"ithaca").coverage.state,"NATIVE_SAME_TOOL_RESULT_DOES_NOT_ERASE_THE_GAP").toBe('incomplete');
  expect(db.query("SELECT failure FROM safety_collections WHERE turn_id='voyage'").get()).toEqual({failure:'recording_failed'});
 }),60000);

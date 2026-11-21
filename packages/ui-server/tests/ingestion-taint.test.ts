@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import {adaptStreamEvent} from "../../ui-backend-claude/src/stream-adapter";
 import { inputTaintSource, outputTaintSource } from "../src/activity/ingestion-taint";
 import { createTurnRecorder } from "../src/activity/recorder";
 import { createActivityStore } from "../src/activity/store";
@@ -123,16 +124,16 @@ test("a collected external compute job's output is a taint source on both backen
   } finally { db.close(); }
 });
 
-test('the display recorder uses admitted Claude filename mode for colon paths',async()=>{
+for(const filename of ['notes/voyage:2:home.md','notes/voyage\rhome.md'])test(`the display recorder uses real Claude adapter filename text: ${JSON.stringify(filename)}`,async()=>{
  const db=createUiDb(':memory:');
  const {untrustedMarkOperations}=await import('../src/files/untrusted-marks');
  const sessionId='odysseus-colon-search';db.query("INSERT INTO sessions(id,title,created_at,last_active_at) VALUES(?,'Voyage',0,0)").run(sessionId);
- untrustedMarkOperations(db).mark('notes/voyage:2:home.md',null,Date.UTC(2026,6,12));
+ untrustedMarkOperations(db).mark(filename,null,Date.UTC(2026,6,12));
  const recorder=createTurnRecorder({store:createActivityStore(db,{writer:'test'}),governanceDb:db,brainPath:brain,governance:event=>{recordGovernanceEvent(db,event);}},{turnId:'colon-search',sessionId,profile:'governed'});
  try{
   recorder.observeFrame({type:'tool_use_start',sessionId,toolUseId:'colon_grep',toolName:'Grep'});
   recorder.observeFrame({type:'tool_use_complete',sessionId,toolUseId:'colon_grep',toolName:'Grep',input:{path:'.',pattern:'sirens',output_mode:'files_with_matches'}});
-  recorder.observeFrame({type:'tool_result',sessionId,toolUseId:'colon_grep',isError:false,output:JSON.stringify({numFiles:1,filenames:['notes/voyage:2:home.md']})});
+  recorder.observeFrame({type:'tool_result',sessionId,toolUseId:'colon_grep',isError:false,output:adaptStreamEvent({type:'user',message:{content:[{type:'tool_result',tool_use_id:'colon_grep',content:[{type:'text',text:filename}]}]}} as never).find(frame=>frame.type==='tool_result')!.output});
   expect(queryGovernanceEvents(db,{sessionId,kinds:['taint'],limit:10}).map(e=>e.payload.source),'RECORDER_PRESERVES_ADMITTED_SEARCH_FORMAT').toEqual(['user_marked']);
  }finally{recorder.finish('success');db.close();}
 });
@@ -148,4 +149,18 @@ test('display-only grep sentinel never proves complete empty evidence',()=>{
   expect(queryGovernanceEvents(db,{sessionId,kinds:['taint'],limit:10}).map(event=>event.payload.source),'DISPLAY_TEXT_CANNOT_VERIFY_ORIGINAL_EMPTY_RESULT').toEqual(['legacy_unknown']);
   recorder.finish('success');
  }finally{db.close();}
+});
+
+test('Claude display filenames preserve both workspace and mark evidence independently',async()=>{
+ const {untrustedMarkOperations}=await import('../src/files/untrusted-marks');const db=createUiDb(':memory:'),sessionId='voyage-display-workspace';
+ db.query("INSERT INTO sessions(id,created_at,last_active_at) VALUES(?,0,0)").run(sessionId);untrustedMarkOperations(db).mark('workspaces/voyage/sirens.md',null,Date.UTC(2026,6,12));
+ const recorder=createTurnRecorder({store:createActivityStore(db,{writer:'test'}),governanceDb:db,brainPath:brain,governance:event=>{recordGovernanceEvent(db,event);}},{turnId:'display-workspace',sessionId,profile:'governed'});
+ try{
+  const frames=adaptStreamEvent({type:'user',message:{content:[{type:'tool_result',tool_use_id:'workspace_grep',content:[{type:'text',text:'workspaces/voyage/sirens.md'}]}]}} as never);
+  expect(frames.find(frame=>frame.type==='tool_result')!.output,'ACTUAL_ADAPTER_OUTPUT_IS_DISPLAY_TEXT').toBe('workspaces/voyage/sirens.md');
+  recorder.observeFrame({type:'tool_use_start',sessionId,toolUseId:'workspace_grep',toolName:'Grep'});
+  recorder.observeFrame({type:'tool_use_complete',sessionId,toolUseId:'workspace_grep',toolName:'Grep',input:{pattern:'sirens',output_mode:'files_with_matches'}});
+  for(const frame of frames)if(frame.type==='tool_result')recorder.observeFrame({...frame,sessionId});
+  expect(queryGovernanceEvents(db,{sessionId,kinds:['taint'],limit:10}).map(e=>e.payload.source).sort(),'DISPLAY_PATH_RETAINS_ALL_INDEPENDENT_SIGNALS').toEqual(['user_marked','workspace_read']);
+ }finally{recorder.finish('success');db.close();}
 });

@@ -175,7 +175,7 @@ export function inputTaintSignals(tool: string, input: unknown, brainPath?: stri
 }
 
 /** Admitted format only. Invalid or incomplete output always retains unknown coverage. */
-interface SearchOutputContext { backendId?: string; outputMode?: string; lineNumbers?: boolean; offset?: number; limit?: number; outputComplete?: boolean }
+interface SearchOutputContext { displayOnly?:boolean; backendId?: string; outputMode?: string; lineNumbers?: boolean; offset?: number; limit?: number; outputComplete?: boolean }
 // Installed SDK: GlobInput/GrepInput and GlobOutput/GrepOutput in
 // @anthropic-ai/claude-agent-sdk/sdk-tools.d.ts:905-983,3506-3545. Pi's shipped grep and text
 // envelope are `grepTool` (packages/ui-backend-pi/src/file-tools.ts:44-82)
@@ -229,7 +229,21 @@ export function outputTaintSignals(tool: string, output: string, brainPath?: str
     if(mode==='count')for(const line of fields.content.split('\n')){const split=/:([1-9][0-9]*)$/.exec(line);if(split)add(line.slice(0,split.index));}
   };
   let parsed:unknown;try{parsed=JSON.parse(output);}catch{/* Pi returns raw text; Claude requires its structured schema. */}
-  if(tool==='grep'&&(context===undefined||context.backendId==='pi')){
+  if(context?.displayOnly&&parsed===undefined&&(tool==='Glob'||tool==='Grep')){
+    // StreamAdapter flattens SDK tool_result text blocks. These are display
+    // rows, not the SDK's structured hook response or verified empty evidence.
+    const mode=tool==='Glob'?'files_with_matches':context.outputMode;
+    const lines=output.split('\n');
+    if(!output||output==='No matches.')unknown=true;
+    else if(mode==='content')content(output,context.lineNumbers!==false);
+    else if(mode==='files_with_matches')for(const line of lines){
+      if(!line||line.includes('\0'))unknown=true;
+      else add(line);
+    }
+    else if(mode==='count')for(const line of lines){const split=/:([1-9][0-9]*)$/.exec(line);if(split)add(line.slice(0,split.index));else unknown=true;}
+    else unknown=true;
+    if((context.offset??0)>0||(context.limit??250)>0&&lines.length>=(context.limit??250))unknown=true;
+  }else if(tool==='grep'&&(context===undefined||context.backendId==='pi')){
     // `safetyResultInput` (packages/ui-backend-pi/src/worker-protocol.ts:92-99)
     // joins the shipped tool's text. No JSON envelope is part of this format.
     if(output!=='No matches.'){
