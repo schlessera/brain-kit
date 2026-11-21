@@ -1,5 +1,6 @@
 import { admissionTimingSample } from "./admission-timing.js";
 import { seedObservationTree, observationTreeWatchdog, type ObservationTree } from "./observation-tree.js";
+import { backendStartupSamples, lifecycleTimingSample } from "./lifecycle-timing.js";
 import { afterAll, expect, test } from "bun:test";
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -413,6 +414,10 @@ print(json.dumps(result))`;
       // (a) The process's first governed, journaled turn: the qualification's first admission.
       const firstAfterStart = phases(lifecycles().find(record => record.governedStartedAt !== null && record.journalStartedAt !== null));
       const warm = harbour.slice(-5).map(lifecycleOf);
+      const startupSample = (record: Parameters<typeof lifecycleTimingSample>[0]) => lifecycleTimingSample(record, BACKEND === "claude" ? "claude_worker_fixture" : "native");
+      const backendStartup = backendStartupSamples(BACKEND === "claude" ? "claude" : "pi",
+        startupSample(lifecycles().find(record => record.governedStartedAt !== null && record.journalStartedAt !== null)),
+        harbour.slice(-5).map(turnId => startupSample(lifecycles().find(record => record.turnId === turnId))));
       // Past the hosted app's one-minute idle observation interval.
       const IDLE_WAIT_MS = 65_000;
       // (b) A few hundred notes change while no turn runs, as a sync or maintenance pass would.
@@ -468,7 +473,7 @@ print(json.dumps(result))`;
         closing: (record.openSubPhases ?? []).filter((step: any) => step.phase === "closing"), recorderSettledAt: record.recorderSettledAt ?? null, idleEmittedAt: record.idleEmittedAt ?? null })), null, 2));
       const result = { ...(tree ? { tree: { ...tree, warmTurns: warm.length, stepMedians,
         observerBootstrap: eventLog.read("observer-bootstrap").filter(row => row.kind === "observer_bootstrap").map(row => ({ elapsedMs: row.elapsedMs, outcome: row.outcome })) } } : {}), backend: BACKEND, appUid: APP_UID, files: FILES, bytes: BYTES, loadBefore, loadAfter: load(), elapsedMs: performance.now() - timingStart, timelineTurnIds,
-        tools: timeline?.tools ?? null, admission, journal: { begin: { medianMs: median(total("beginMs")), p95Ms: p95(total("beginMs")) }, finish: { medianMs: median(total("finishMs")), p95Ms: p95(total("finishMs")) },
+        tools: timeline?.tools ?? null, admission, backendStartup, journal: { begin: { medianMs: median(total("beginMs")), p95Ms: p95(total("beginMs")) }, finish: { medianMs: median(total("finishMs")), p95Ms: p95(total("finishMs")) },
           beginPlusFinish: { medianMs: median(total("totalMs")), p95Ms: p95(total("totalMs")) }, turns: beginFinish }, phases: observationSteps, calls: timeline?.calls ?? null };
       writeFileSync(join(ARTIFACTS, "observation-timing.json"), JSON.stringify(result, null, 2));
       console.log(JSON.stringify({ observationTiming: { ...result, calls: undefined, journal: { ...result.journal, turns: undefined } } }));

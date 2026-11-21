@@ -80,6 +80,43 @@ existing one-second health/WebSocket, ten-second admission and Stop assertions.
 `observation-holds.json` prints each lifecycle's hosted hold records, closing
 steps and recorder/idle milestones alongside the existing timing artifact.
 
+The `backendStartup` section (#4285/#4286) includes the first turn after
+server start and those five warm turns. Each sample carries invocation to
+first relay receipt when observed, the observed turn `endedAt`, the `openSubPhases` backend steps, their host receipt timestamps and
+worker clock tags, and `backendMissingEvidence` for unavailable SDK marks.
+Worker durations are reported from `workerElapsedMs`, separately from host
+intervals. Nested resource/session/initialize samples overlap; do not sum them.
+
+Coverage is explicit: the Claude qualification uses a hand-driven `queryFn`
+which launches a real shell worker and synthesizes SDK responses. It exercises
+`host_probe`, `worker_host_probe` and `worker_launch`; it does not run Claude's
+SDK process or send a model request. Its `coverage` and `unobserved` fields
+identify that limitation, and relay receipt stays null. It cannot qualify
+Claude SDK/MCP/enqueue/first-request timings; those still need a real SDK run.
+The Claude worker-fixture projection omits those unsupported SDK intervals from
+both `steps` and `backendSteps`, even when an older raw record carries an open
+SDK-init timer. No numeric SDK initialization duration is inferred from turn end.
+The Pi fixture runs its real SDK and must provide all seven startup steps
+(`preparation`, `host_probe`, `worker_spawn`, `bootstrap_imports`, `resources`,
+`session`, `initialize`) plus a relay receipt. Every required step must be
+complete on the first sample and each warm sample. A receipt alone cannot
+qualify a startup breakdown.
+Pi must also carry its `first_relay_request` step matching the observed relay
+milestone. Both fixtures require `first_backend_frame` when the observed frame
+is strictly before relay receipt (or no receipt was exercised), with the
+step's timestamps matching that milestone. Equal millisecond timestamps do not
+establish callback order: a frame step may be absent when receipt ran first,
+and a present frame step must still match the milestone. A frame observed
+after relay receipt remains outside the bracket.
+Every backend entry's host start/end observations must be contained between
+invocation and relay receipt. Worker durations keep their independent clock;
+both host timestamps must be the same receipt point inside the bracket.
+Claude's worker-only fixture uses the observed turn end as its qualification
+upper bound, without claiming a model request. Its Activity `firstFrameAt`
+can be set by `prompt_prefix` during SDK option assembly before worker launch.
+A missing terminal bound cannot be replaced by that early frame. Required
+host stages must use the host clock.
+
 Its `phases` section (#2915) attributes each observed writer's worker hold and
 each harbour turn's journal begin and finish to their steps: the queue for the
 journal, the wait for room behind earlier releases, checkpoint, delta,

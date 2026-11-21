@@ -3883,7 +3883,7 @@ export function isPricingRoute(v: unknown): v is PricingRoute {
 }
 
 /**
- * One timed step inside the governed-admission or journal-begin phase (#3355).
+ * One timed step inside the original governed or journal phases.
  * `name` is open vocabulary: consumers tolerate names they do not know.
  */
 export interface ActivityTurnSubPhase {
@@ -3895,10 +3895,13 @@ export interface ActivityTurnSubPhase {
   elapsedMs: number | null;
 }
 
-/** Additive timing phases use an open string vocabulary; consumers tolerate unknown phases. */
+/** Additive phases use an open vocabulary so older SDKs can retain the frame. */
 export interface ActivityTurnOpenSubPhase extends Omit<ActivityTurnSubPhase, "phase"> {
   phase: string;
   pending?: boolean;
+  /** Worker durations use an independent clock; timestamps are host receipt, not worker start/end. */
+  timeBase?: "worker";
+  workerElapsedMs?: number;
 }
 
 /** One observation hold as seen by this turn; other owners are counted, never identified. */
@@ -3939,6 +3942,10 @@ export interface ActivityTurnLifecycle {
   journalStartedAt: number | null;
   journalBeganAt: number | null;
   backendInvokedAt: number | null;
+  /** Absent on historical records, null until the first inference relay request is observed. */
+  firstRelayRequestAt?: number | null;
+  /** SDK stages unavailable to the host; never inferred from another mark. */
+  backendMissingEvidence?: string[];
   firstFrameAt: number | null;
   failureObservedAt: number | null;
   endedAt: number | null;
@@ -3951,9 +3958,9 @@ export interface ActivityTurnLifecycle {
   budgetAdmissionMs: number | null;
   journalBeginMs: number | null;
   backendStartupMs: number | null;
-  /** Additive (#3355): steps of the governed and journal phases, in start order. Absent on older records. */
+  /** Original governed/journal steps, in start order. The closed phase enum is frozen. */
   subPhases?: ActivityTurnSubPhase[];
-  /** Additive timing phases use an open string vocabulary; consumers tolerate unknown phases. */
+  /** New phases, including backend startup, in start order; tolerate unknown phase names. */
   openSubPhases?: ActivityTurnOpenSubPhase[];
 }
 

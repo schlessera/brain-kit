@@ -230,6 +230,7 @@ export function turnRequest(run: TurnRun, prompt: string, bridge: BackendBridge)
       : sessionTaint(governanceDb, turn.turnId, turn.sessionId ?? null) } : governedHold?.sandbox.commandPolicy;
   return {
     applicationAuthority: "server",
+    startupTiming: run.lifecycle?.startupTiming,
     ...(host.journal && governedHold ? { persistClaudeMemory: (change, save) => host.journal!.persistClaudeMemory(turn.turnId, change, save) } : {}),
     ...(governedHold?.startupView ? { workerStartupView: governedHold.startupView } : {}),
     ...(host.scope && governedHold ? { workerStarted: worker => host.scope!.workerStarted(scopeTurnId, worker) } : {}),

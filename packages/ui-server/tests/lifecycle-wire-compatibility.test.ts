@@ -67,6 +67,7 @@ test("timers route every new phase to the open field with stable timestamp order
   try {
     const store = createActivityStore(db); let now = 1000;
     const life = createTurnLifecycle(store, "turn-ithaca", "ithaca", now, () => {}, () => now);
+    life.mark("backendInvokedAt");
     now = 1200; life.timer("closing")("later")();
     now = 1100; life.timer("future_phase")("earlier")();
     life.timer("backend")("same_time")();
@@ -74,5 +75,32 @@ test("timers route every new phase to the open field with stable timestamp order
     expect(store.lifecycle("turn-ithaca")!.openSubPhases?.map(step => [step.phase, step.name]), "ALL_NEW_PHASES_USE_THE_OPEN_FIELD")
       .toEqual([["future_phase", "earlier"], ["backend", "same_time"], ["closing", "later"]]);
     expect(store.lifecycle("turn-ithaca")!.subPhases?.map(step => step.phase)).toEqual(["governed"]);
+  } finally { db.close(); }
+});
+
+test("query_activity never serializes this stream's host clock evidence", async () => {
+  const { runActivityQuery } = await import("../src/activity/query");
+  const db = createUiDb(":memory:"), store = createActivityStore(db), now = Date.now();
+  try {
+    const live = createTurnLifecycle(store, "turn-clock-owner", "ithaca", now, () => {}, () => now, { buildRevision: "ithaca-host-clock-identity" });
+    live.timer("closing")("clock-owned-closing")();
+    live.hold({ holdId: "hold-host-clock-evidence", cause: "tool", causeTurnId: "turn-clock-owner", toolUseId: "clock-owned-tool",
+      requestedAt: now, stoppedAt: now, resumedAt: now, changedPaths: 1, otherTurnsStopped: 0, inferenceInFlight: false });
+    live.runtimeVersion("odysseus-runtime-1"); live.finish("success");
+    live.mark("recorderSettledAt", now + 2); live.mark("idleEmittedAt", now + 3);
+    store.startSpan({ spanId: "clock-root", runId: "turn-clock-owner", name: "invoke_agent", kind: "turn", origin: "session", sessionId: "ithaca", startedAt: now });
+    store.endSpan("clock-root", { outcome: "success", endedAt: now + 1 }); store.rollupRun("turn-clock-owner");
+    const owner = store.lifecycle("turn-clock-owner")!;
+    expect(JSON.stringify(owner)).toContain("ithaca-host-clock-identity");
+    expect(owner.holds).toHaveLength(1); expect(owner.openSubPhases).toHaveLength(1);
+    expect(owner).toMatchObject({ runtimeVersion: "odysseus-runtime-1", recorderSettledAt: now + 2, idleEmittedAt: now + 3 });
+    const results = [runActivityQuery(db, store, { scope: "recent" }), runActivityQuery(db, store, { scope: "run", runId: "turn-clock-owner" })];
+    db.query("DELETE FROM activity_spans WHERE run_id=?").run("turn-clock-owner");
+    results.push(runActivityQuery(db, store, { scope: "run", runId: "turn-clock-owner" }));
+    store.writeLifecycle({ ...owner, turnId: "turn-clock-admission", lifecycleId: "lifecycle:turn-clock-admission",
+      holds: owner.holds?.map(hold => ({ ...hold, causeTurnId: "turn-clock-admission" })) });
+    results.push(runActivityQuery(db, store, { scope: "run", runId: "turn-clock-admission" }));
+    for (const result of results) for (const field of ["openSubPhases", "holds", "buildRevision", "packageVersion", "runtimeVersion", "recorderSettledAt", "idleEmittedAt", "clock-owned-closing", "hold-host-clock-evidence", "ithaca-host-clock-identity", "odysseus-runtime-1"])
+      expect(JSON.stringify(result), "HOST_CLOCKS_STAY_OUT_OF_PROVIDER_TOOL_RESULTS").not.toContain(field);
   } finally { db.close(); }
 });

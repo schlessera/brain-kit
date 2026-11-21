@@ -3351,6 +3351,7 @@ export "./server" (./src/server/index.ts)
   resolveThinkingLevel
   reverseGeocode
   rtkRewriteCommand
+  safeStartupTiming
   signedArea
   simplify
   stateRoomCopy
@@ -4523,6 +4524,8 @@ signatures (every public export and the types it is made of)
         journalStartedAt: number | null;
         journalBeganAt: number | null;
         backendInvokedAt: number | null;
+        firstRelayRequestAt?: number | null;
+        backendMissingEvidence?: string[];
         firstFrameAt: number | null;
         failureObservedAt: number | null;
         endedAt: number | null;
@@ -4542,6 +4545,8 @@ signatures (every public export and the types it is made of)
     export interface ActivityTurnOpenSubPhase extends Omit<ActivityTurnSubPhase, "phase"> {
         phase: string;
         pending?: boolean;
+        timeBase?: "worker";
+        workerElapsedMs?: number;
     }
   ActivityTurnSubPhase (packages/ui-sdk/src/protocol.ts)
     export interface ActivityTurnSubPhase {
@@ -21243,6 +21248,8 @@ signatures (every public export and the types it is made of)
     export function runBackendModuleContract(harness: BackendModuleContractHarness, { describe, test, expect }: ContractTestPrimitives): void;
   runSpeechProviderContract (packages/ui-sdk/src/testing/speech-contract.ts)
     export function runSpeechProviderContract(harness: SpeechProviderContractHarness, { describe, test, expect }: ContractTestPrimitives): void;
+  safeStartupTiming (packages/ui-sdk/src/server/startup-timing.ts)
+    export function safeStartupTiming(timing: StartTurnRequest["startupTiming"]): StartTurnRequest["startupTiming"];
   safetyCapabilitiesSchema (packages/ui-sdk/src/safety.ts)
     const safetyCapabilitiesSchema: z.ZodObject<{
         detectorVersion: z.ZodLiteral<1>;
@@ -22088,6 +22095,7 @@ signatures (every public export and the types it is made of)
         lifecycle: z.ZodOptional<z.ZodObject<{
             acceptedAt: z.ZodNumber;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
+            backendMissingEvidence: z.ZodOptional<z.ZodArray<z.ZodString>>;
             backendRunId: z.ZodNullable<z.ZodString>;
             backendStartupMs: z.ZodNullable<z.ZodNumber>;
             budgetAdmissionMs: z.ZodNullable<z.ZodNumber>;
@@ -22098,6 +22106,7 @@ signatures (every public export and the types it is made of)
             endedAt: z.ZodNullable<z.ZodNumber>;
             failureObservedAt: z.ZodNullable<z.ZodNumber>;
             firstFrameAt: z.ZodNullable<z.ZodNumber>;
+            firstRelayRequestAt: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
             governedAcquiredAt: z.ZodNullable<z.ZodNumber>;
             governedAdmissionMs: z.ZodNullable<z.ZodNumber>;
             governedStartedAt: z.ZodNullable<z.ZodNumber>;
@@ -22141,6 +22150,8 @@ signatures (every public export and the types it is made of)
                 pending: z.ZodOptional<z.ZodBoolean>;
                 phase: z.ZodString;
                 startedAt: z.ZodNumber;
+                timeBase: z.ZodOptional<z.ZodLiteral<"worker">>;
+                workerElapsedMs: z.ZodOptional<z.ZodNumber>;
             }, z.core.$loose>>>;
             outcome: z.ZodNullable<z.ZodEnum<{
                 cancelled: "cancelled";
@@ -22243,6 +22254,7 @@ signatures (every public export and the types it is made of)
         lifecycles: z.ZodOptional<z.ZodArray<z.ZodObject<{
             acceptedAt: z.ZodNumber;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
+            backendMissingEvidence: z.ZodOptional<z.ZodArray<z.ZodString>>;
             backendRunId: z.ZodNullable<z.ZodString>;
             backendStartupMs: z.ZodNullable<z.ZodNumber>;
             budgetAdmissionMs: z.ZodNullable<z.ZodNumber>;
@@ -22253,6 +22265,7 @@ signatures (every public export and the types it is made of)
             endedAt: z.ZodNullable<z.ZodNumber>;
             failureObservedAt: z.ZodNullable<z.ZodNumber>;
             firstFrameAt: z.ZodNullable<z.ZodNumber>;
+            firstRelayRequestAt: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
             governedAcquiredAt: z.ZodNullable<z.ZodNumber>;
             governedAdmissionMs: z.ZodNullable<z.ZodNumber>;
             governedStartedAt: z.ZodNullable<z.ZodNumber>;
@@ -22296,6 +22309,8 @@ signatures (every public export and the types it is made of)
                 pending: z.ZodOptional<z.ZodBoolean>;
                 phase: z.ZodString;
                 startedAt: z.ZodNumber;
+                timeBase: z.ZodOptional<z.ZodLiteral<"worker">>;
+                workerElapsedMs: z.ZodOptional<z.ZodNumber>;
             }, z.core.$loose>>>;
             outcome: z.ZodNullable<z.ZodEnum<{
                 cancelled: "cancelled";
@@ -25278,6 +25293,7 @@ signatures (every public export and the types it is made of)
         lifecycles: z.ZodOptional<z.ZodArray<z.ZodObject<{
             acceptedAt: z.ZodNumber;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
+            backendMissingEvidence: z.ZodOptional<z.ZodArray<z.ZodString>>;
             backendRunId: z.ZodNullable<z.ZodString>;
             backendStartupMs: z.ZodNullable<z.ZodNumber>;
             budgetAdmissionMs: z.ZodNullable<z.ZodNumber>;
@@ -25288,6 +25304,7 @@ signatures (every public export and the types it is made of)
             endedAt: z.ZodNullable<z.ZodNumber>;
             failureObservedAt: z.ZodNullable<z.ZodNumber>;
             firstFrameAt: z.ZodNullable<z.ZodNumber>;
+            firstRelayRequestAt: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
             governedAcquiredAt: z.ZodNullable<z.ZodNumber>;
             governedAdmissionMs: z.ZodNullable<z.ZodNumber>;
             governedStartedAt: z.ZodNullable<z.ZodNumber>;
@@ -25331,6 +25348,8 @@ signatures (every public export and the types it is made of)
                 pending: z.ZodOptional<z.ZodBoolean>;
                 phase: z.ZodString;
                 startedAt: z.ZodNumber;
+                timeBase: z.ZodOptional<z.ZodLiteral<"worker">>;
+                workerElapsedMs: z.ZodOptional<z.ZodNumber>;
             }, z.core.$loose>>>;
             outcome: z.ZodNullable<z.ZodEnum<{
                 cancelled: "cancelled";
@@ -25434,6 +25453,7 @@ signatures (every public export and the types it is made of)
         lifecycle: z.ZodOptional<z.ZodObject<{
             acceptedAt: z.ZodNumber;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
+            backendMissingEvidence: z.ZodOptional<z.ZodArray<z.ZodString>>;
             backendRunId: z.ZodNullable<z.ZodString>;
             backendStartupMs: z.ZodNullable<z.ZodNumber>;
             budgetAdmissionMs: z.ZodNullable<z.ZodNumber>;
@@ -25444,6 +25464,7 @@ signatures (every public export and the types it is made of)
             endedAt: z.ZodNullable<z.ZodNumber>;
             failureObservedAt: z.ZodNullable<z.ZodNumber>;
             firstFrameAt: z.ZodNullable<z.ZodNumber>;
+            firstRelayRequestAt: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
             governedAcquiredAt: z.ZodNullable<z.ZodNumber>;
             governedAdmissionMs: z.ZodNullable<z.ZodNumber>;
             governedStartedAt: z.ZodNullable<z.ZodNumber>;
@@ -25487,6 +25508,8 @@ signatures (every public export and the types it is made of)
                 pending: z.ZodOptional<z.ZodBoolean>;
                 phase: z.ZodString;
                 startedAt: z.ZodNumber;
+                timeBase: z.ZodOptional<z.ZodLiteral<"worker">>;
+                workerElapsedMs: z.ZodOptional<z.ZodNumber>;
             }, z.core.$loose>>>;
             outcome: z.ZodNullable<z.ZodEnum<{
                 cancelled: "cancelled";
