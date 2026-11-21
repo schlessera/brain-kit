@@ -53,3 +53,5 @@ Require remaining allowance on every governed web/relay route and debit received
 Preserve ordinary upstream-failure classification for synchronous transport handoff errors.
 
 Meter raw proxy header pairs and all observable Fetch headers before forwarding filters; clarify the conservative HTTP wire bound.
+
+Publish dispatched exposure and contacted-host grants only after the transport constructor or fetch call returns successfully; synchronous construction failures remain upstream failures without granting recipient permission.

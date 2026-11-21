@@ -5994,7 +5994,7 @@ abort listeners; `failure()` reads that immutable decision without charging or
 consulting live state. Callers never call `charge(0)` to classify an operation
 that already refused. `prepare()` runs preparation observers without publishing a
 dispatch fact. After charging, `dispatch(send)` runs the final typed fence and
-calls the synchronous transport handoff. Only after that handoff starts does
+calls the synchronous transport handoff. Only after the transport constructor or fetch call returns successfully does
 it publish dispatched state and the committed/contacted notification, once.
 A refused preparation or fence never grants contacted-host access. A started
 send still counts if it later fails. Preparation observers may revoke; fact
@@ -6066,7 +6066,8 @@ provider relay `preparing` run before the last send fence; `committed` and
 provider `observe({outcome:"dispatched",...})` report an actual transport start.
 Relayed operations expose `prepare()` and `dispatch(send)` in place of this
 change's provisional `commit()` method. A pending terminal decision during a
-synchronous transport handoff joins its final dispatched fact before audit.
+synchronous transport handoff joins its final dispatched fact before audit only
+if the handoff returns successfully.
 Streaming read results carry a delivery closure that revalidates and enqueues
 in one synchronous call. No awaited continuation separates that final check
 from chunk delivery or scrubber-tail release.
@@ -6078,8 +6079,9 @@ contacted exposure; later cancellation cannot erase it. Subsequent writes and
 end still revalidate through the same send fence.
 
 A synchronous transport-handoff throw is classified by the same caller path
-as an asynchronous upstream rejection. Dispatch records the attempted handoff
-but does not abort or store an admission refusal before the caller classifies
+as an asynchronous upstream rejection. A synchronous throw publishes no
+dispatched fact or contacted-host grant. Dispatch does not abort or store an
+admission refusal before the caller classifies
 that transport error. Both report failed upstream attempts (502 before response
 headers), with provider receipt status 0 when no upstream response was seen.
 The final fence and transport invocation remain synchronous. Proxy HTTP and

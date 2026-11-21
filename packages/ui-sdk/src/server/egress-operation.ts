@@ -86,8 +86,8 @@ export function createEgressOperation(options: {
       try{
         let failed=false;
         try{send();}catch{failed=true;}
-        if(first){if(terminal)terminal.dispatched=true;else state='dispatched';notify();}
         if(failed)throw new TransportHandoffFailed();
+        if(first){if(terminal)terminal.dispatched=true;else state='dispatched';notify();}
         return true;
       }finally{effectCount--;flush();}
     },
