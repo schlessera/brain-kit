@@ -1,5 +1,5 @@
-import type { createWorkerEffectWitness } from "./worker-effect-witness";
 import "./measurement-entry-preload.ts";
+import type { createWorkerEffectWitness } from "./worker-effect-witness";
 import { nativeScriptedService, nativeScriptedQuery } from "./test-native-guard.ts";
 // Re-measures the Claude Code runtime behaviours the permission design rests
 // on, against whatever SDK and CLI this workspace installs (#209,
