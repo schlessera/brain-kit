@@ -977,11 +977,11 @@ for(const binding of ['claude-hook','claude-callback','pi'] as const)test(`${bin
   expect(cards).toBe(1);
  }finally{await f.close();}
 });
-for(const revise of [false,true])test(`dispatch tickets bind an immutable begin generation (revise=${revise})`,async()=>{
+for(const pending of [false,true])for(const revise of [false,true])test(`dispatch tickets bind an immutable begin generation (revise=${revise},pending=${pending})`,async()=>{
  const f=await fixture(false);try{
   const id='generation';f.collector.admitting!(id,'Bash');await f.collector.begin(id,'Bash',{command});const ticket=await f.collector.prepareDispatch!(id);
-  await f.collector.begin(id,'Bash',{command:revise?command+' --dry-run':command});
-  expect(()=>ticket.commit(),'ANY_LATER_BEGIN_INVALIDATES_PREPARATION').toThrow('current');await ticket.cancel();
+  const begun=f.collector.begin(id,'Bash',{command:revise?command+' --dry-run':command});if(!pending)await begun;
+  try{expect(()=>ticket.commit(),'ANY_LATER_BEGIN_INVALIDATES_PREPARATION').toThrow('current');}finally{await begun;}await ticket.cancel();
   expect(f.db.query('SELECT COUNT(*) n FROM safety_obligations').get()).toEqual({n:0});
  }finally{await f.close();}
 });
