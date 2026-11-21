@@ -8,7 +8,7 @@ import { BrainUiProvider } from "../../src/root-context.js";
 import { useChatStore } from "../../src/stores/chat-store.js";
 import { TurnJournal } from "../../src/components/chat/turn-journal.js";
 import { Composer } from "../../src/components/chat/composer.js";
-import type { ScopeCapReceipt, TurnJournalSummary } from "@schlessera/brain-ui-sdk/protocol";
+import type { ScopeCapReceipt, TurnJournalSummary, TurnJournalChange } from "@schlessera/brain-ui-sdk/protocol";
 import "../../../ui-kit/src/styles.css";
 let ui: BrainUiRoot, renderer: Root, host: HTMLDivElement, styles: HTMLStyleElement;
 const originalTheme = document.documentElement.dataset.theme, viewport = { width: innerWidth, height: innerHeight };
@@ -27,11 +27,11 @@ class Socket {
 const cap = (patch: Partial<ScopeCapReceipt> = {}): ScopeCapReceipt => ({ eventId: "athena-cap", dimension: "tool_calls", count: 503, cap: 500, overshoot: 3, newCap: 1000, observedAt: 1, frozen: true, state: "paused", ...patch });
 const summary = (receipts: ScopeCapReceipt[] = [], actor: "interactive" | "voice" = "interactive"): TurnJournalSummary => ({ state: "recording", changedFiles: 7, steeringFiles: 0, keptFiles: 7, costUsd: null, costIsEstimate: null, profile: "governed", actor, model: null, policyHash: null, sharedAttribution: false, observedAt: 1,
   scope: { policySource: "default", limits: { files_changed: 1000, tool_calls: 500, minutes: 120, turn_bytes: 4 * 1024 ** 3 }, hardTimeoutMs: 600000, calls: 503, minutes: 5, changedPaths: 7, observedBytes: 10000, coverage: "observed_versions", observedAt: 1, receipts } });
-async function mount(width = 1280, theme: "dark" | "light" = "dark") {
+async function mount(width = 1280, theme: "dark" | "light" = "dark", retained: TurnJournalChange[] = []) {
   await page.viewport(width, 900); document.documentElement.dataset.theme = theme; vi.stubGlobal("WebSocket", Socket);
   ui = createBrainUiRoot({ storage: null, request: async input => {
     if (String(input).endsWith("/status")) return Response.json({ healthy: true, runtime: { boot: [], workerHost: { ordinary: { available: true, checkedAt: "2026-07-12T09:41:00.000Z", trigger: "boot" } } } });
-    if (String(input).endsWith("/journal")) return Response.json({ turnId: "voyage", sessionId: "ithaca", summary: summary(), changes: [], missing: [] });
+    if (String(input).endsWith("/journal")) return Response.json({ turnId: "voyage", sessionId: "ithaca", summary: summary(), changes: retained, missing: [] });
     return Response.json({ providers: [], sessions: [], backends: {} });
   } });
   ui.stores.chat.getState().setActiveSession("ithaca"); ui.stores.chat.getState().setMessages("ithaca", [{ id: "loom", role: "assistant", content: "Partial work remains.", parts: [{ kind: "text", text: "Partial work remains." }], timestamp: 1, isStreaming: true, toolCalls: [], turnId: "voyage", journal: summary() }]);
@@ -193,6 +193,7 @@ test("both independent pause cards remain answerable after the newer grant", asy
   f.socket.receive({ type: "turn_journal", sessionId: "ithaca", turnId: "voyage", journal: summary([content, index]) });
   const card = (id: string) => host.querySelector<HTMLElement>(`[data-scope-event="${id}"]`)!;
   await expect.poll(() => card("index-cap")?.querySelectorAll('[role="radio"]').length).toBe(2);
+  expect([...card("content-cap").querySelectorAll<HTMLElement>('[role="radio"]')].map(el => el.querySelector("b")?.textContent), "OLDER_PAUSE_OFFERS_ONLY_ACCEPTED_STOP_UNTIL_NEWER_PAUSE_IS_ANSWERED").toEqual(["Stop here"]);
   const newerContinue = [...card("index-cap").querySelectorAll<HTMLElement>('[role="radio"]')].find(el => el.querySelector("b")?.textContent === "Continue")!;
   newerContinue.focus(); await userEvent.keyboard(" "); const sent = f.socket.decisions().at(-1)!;
   f.socket.receive({ type: "turn_journal", sessionId: "ithaca", turnId: "voyage", journal: summary([content, { ...index, state: "continued", submissionId: sent.submissionId }]) });
@@ -206,4 +207,30 @@ test("unknown index size is displayed as unknown rather than an exact byte count
   await expect.poll(() => host.querySelector('[id="athena-cap-question"]')?.textContent, { message: "UNKNOWN_INDEX_SIZE_VISIBLE_IN_PAUSE_PROMPT" }).toContain("Observed: unknown.");
   expect(option("Continue")).toBeUndefined(); expect(option("Stop here")).toBeDefined();
   expect(host.querySelector('[id="athena-cap-question"]')?.textContent, "UNKNOWN_SIZE_HAS_NO_NUMERIC_OVERSHOOT_CLAIM").not.toContain("Observed overshoot");
+  host.querySelector<HTMLElement>('[data-turn-journal] > div > [role="button"]')!.click(); await openTurnFacts();
+  await expect.poll(() => host.textContent, { message: "TURN_FACTS_NEVER_MEASURES_UNKNOWN_OVERSHOOT_AS_ZERO" }).toContain("observed overshoot: unknown");
+  expect(host.textContent).not.toContain("observed overshoot: 0 bytes");
+});
+
+
+test("a refused continuation leaves Stop available without waiting for a retry", async () => {
+  const f = await mount(1280); f.frame(cap());
+  await expect.poll(() => option("Continue")).toBeDefined(); option("Continue")!.focus(); await userEvent.keyboard(" ");
+  const sent = f.socket.decisions().at(-1)!;
+  f.socket.receive({ ...sent, type: "scope_decision_receipt", state: "refused", reason: "Another independent scope limit must be answered first." });
+  await expect.poll(() => option("Stop here")?.getAttribute("aria-disabled"), { message: "REFUSED_CONTINUE_DOES_NOT_DISABLE_ACCEPTED_STOP" }).not.toBe("true");
+  expect(option("Continue")?.getAttribute("aria-disabled")).toBe("true");
+  option("Stop here")!.focus(); await userEvent.keyboard(" ");
+  expect(f.socket.decisions().at(-1)!.action).toBe("stop");
+});
+
+
+test("an older selected observation resolves the single compact path conflict relation", async () => {
+  const refs = [1, 2, 3].map(sequence => ({ turnId: "voyage", sequence, side: "after" as const }));
+  const changes: TurnJournalChange[] = refs.map(ref => ({ sequence: ref.sequence, path: "notes/ithaca.md", scope: "", class: "content", actor: "agent", before: null, after: { kind: "file", bytes: 6, mode: 420, ignored: false, hash: "a".repeat(64) }, overlappingTurnIds: ref.sequence <= 2 ? ["peer"] : [], ...(ref.sequence === 3 ? { conflict: { versions: refs, latest: refs[2]! } } : {}) }));
+  await mount(1280, "dark", changes);
+  host.querySelector<HTMLElement>('[data-turn-journal] > div > [role="button"]')!.click();
+  await expect.poll(() => host.querySelector('[data-journal-review="1"] [role="button"]')).not.toBeNull();
+  host.querySelector<HTMLElement>('[data-journal-review="1"] [role="button"]')!.click();
+  await expect.poll(() => document.querySelector('[aria-label="Observed conflict versions"]')?.textContent, { message: "OLDER_REVIEW_RESOLVES_THE_ONCE_PER_PATH_CONFLICT_RELATION" }).toContain("Review observation 3");
 });

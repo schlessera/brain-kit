@@ -17,7 +17,7 @@ type Live = { unrecorded?: boolean; sessionId: string | null; principalId: strin
   startedAt: number; summary: TurnScopeSummary;
   /** What `files_changed` counts: changed paths outside `workspaces/` (#3793); null while unknown. */
   filesChanged: number | null; workers: Set<Worker>; calls: Set<string>; disconnectedAt?: number;
-  checking?: boolean; source: "policy" | "default"; stop: (reason: string) => void; current: () => boolean; model?: () => string | null };
+  checking?: boolean; liveIndexWritable: boolean; source: "policy" | "default"; stop: (reason: string) => void; current: () => boolean; model?: () => string | null };
 export const SCOPE_DISCONNECTED_MS = 30 * 60_000;
 /** Matches the former default byte scope without charging generated versions. */
 export const INDEX_OBSERVATION_CAP_BYTES = 4 * 1024 ** 3;
@@ -122,7 +122,7 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
           overshoot: Math.max(0, count - cap), frozen: pending.frozen, observedAt: now(), state: "paused" };
         refreshHeadroom(turn, receipt); turn.summary.receipts.push(receipt);
         scopeEvent(turnId, { kind: "scope_cap", turnId, sessionId: turn.sessionId, actor: turn.origin, model: turn.model?.() ?? null, profile: turn.profile,
-          dedupeKey: receipt.eventId, payload: { cap: "turn_bytes", limit: cap, observed: count, ...(receipt.measurement ? { measurement: receipt.measurement } : {}), overshoot: receipt.overshoot,
+          dedupeKey: receipt.eventId, payload: { cap: "turn_bytes", result: "index_capacity", limit: cap, observed: count, ...(receipt.measurement ? { measurement: receipt.measurement } : {}), overshoot: receipt.overshoot,
             frozen: receipt.frozen, outcome: "paused", source: "default" } });
       }
       // A peer can add shared content while an index-paused worker is frozen.
@@ -174,8 +174,8 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
       refreshHeadroom(turn, receipt);
       turn.summary.receipts.push(receipt);
       scopeEvent(turnId, { kind: "scope_cap", turnId, sessionId: turn.sessionId, actor: turn.origin, model: turn.model?.() ?? null, profile: turn.profile,
-        dedupeKey: receipt.eventId, payload: { cap: dimension, limit: cap, observed, ...(receipt.measurement ? { measurement: receipt.measurement } : {}), overshoot: receipt.overshoot,
-          frozen, outcome: turn.origin === "voice" ? "voice_stopped" : frozen ? "paused" : "stopped", source: turn.source } });
+        dedupeKey: receipt.eventId, payload: { cap: dimension, ...(result ? { result } : {}), limit: cap, observed, ...(receipt.measurement ? { measurement: receipt.measurement } : {}), overshoot: receipt.overshoot,
+          frozen, outcome: turn.origin === "voice" ? "voice_stopped" : frozen ? "paused" : "stopped", source: result ? "default" : turn.source } });
       if (turn.origin === "voice") stop(turnId, turn, receipt, "voice_stopped", receipt.measurement === "unknown" ? "I stopped because the index size could not be measured. Ask again once it can be confirmed." : `I stopped because this turn reached its limit of ${cap} ${dimension === "tool_calls" ? "tool calls" : dimension === "minutes" ? "wall minutes" : dimension === "files_changed" ? "distinct changed paths" : "bytes"}${dimension === "free_space_floor" ? " of free space" : ""}. Ask again to carry on.`);
       else if (!frozen) stop(turnId, turn, receipt, "stopped", freezeFailure ?? "The host could not confirm a running worker to freeze; the turn stopped.");
       else { turn.disconnectedAt = options.connected(turn.sessionId) ? undefined : now(); save(turnId, turn); }
@@ -229,16 +229,17 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
     turn.summary.changedPaths = facts.partial ? null : facts.changedPaths;
     turn.filesChanged = facts.partial ? null : facts.changedPaths - facts.workspacePaths;
     turn.summary.observedBytes = facts.partial ? null : facts.observedBytes;
-    if (facts.indexBytes !== undefined) turn.summary.indexBytes = facts.indexBytes;
+    if (turn.liveIndexWritable && facts.indexBytes !== undefined) turn.summary.indexBytes = facts.indexBytes;
     turn.summary.coverage = facts.partial ? "partial" : "observed_versions";
     turn.summary.observedAt = now(); check(turnId, turn);
   }, periodic);
   return {
     begin(turnId: string, input: { sessionId: string | null; principalId: string; origin: Live["origin"]; profile: Live["profile"];
-      policy: EffectiveGovernancePolicy; source: Live["source"]; hardTimeoutMs: number; current: () => boolean; model?: () => string | null; stop: Live["stop"] }) {
-      const summary: TurnScopeSummary = { indexLimitBytes: INDEX_OBSERVATION_CAP_BYTES, policySource: input.source, limits: scopeLimits(input.policy), hardTimeoutMs: input.hardTimeoutMs, calls: 0, minutes: 0,
+      policy: EffectiveGovernancePolicy; source: Live["source"]; liveIndexWritable?: boolean; hardTimeoutMs: number; current: () => boolean; model?: () => string | null; stop: Live["stop"] }) {
+      const liveIndexWritable = input.liveIndexWritable ?? input.profile === "governed";
+      const summary: TurnScopeSummary = { ...(liveIndexWritable ? { indexLimitBytes: INDEX_OBSERVATION_CAP_BYTES } : {}), policySource: input.source, limits: scopeLimits(input.policy), hardTimeoutMs: input.hardTimeoutMs, calls: 0, minutes: 0,
         changedPaths: null, observedBytes: null, coverage: "partial", observedAt: now(), receipts: [] };
-      const turn: Live = { ...input, startedAt: now(), summary, filesChanged: null, workers: new Set(), calls: new Set() };
+      const turn: Live = { ...input, liveIndexWritable, startedAt: now(), summary, filesChanged: null, workers: new Set(), calls: new Set() };
       active.set(turnId, turn);
       // The turn starts only once its row has committed; refused, it never runs.
       return call(turnId, "insert", input.sessionId, input.principalId, JSON.stringify(summary)).then(() => {}, (error: unknown) => {

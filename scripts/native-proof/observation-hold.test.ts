@@ -12,9 +12,9 @@ for (const failed of [false, true]) test(`nested observation holds resume only a
   await Promise.resolve(); expect(idle).toBe(false);
   now = 11; hold.after(true); await settled;
   expect(events, "FAILED_NESTED_HOLD_STAYS_FAILED").toEqual(["freeze", failed ? "kill" : "resume"]);
-  expect(hold.sample(), "PHYSICAL_FREEZE_COUNTS_ENTIRE_WINDOW").toEqual({ frozenMs: 11, sharedHold: true });
+  expect(hold.sample(), "PHYSICAL_FREEZE_COUNTS_ENTIRE_WINDOW").toEqual({ frozenMs: 11, sharedHold: true, startedAt: 0, endedAt: 11 });
   now = 20; hold.before(); now = 25; hold.after(true);
-  expect(hold.sample()).toEqual({ frozenMs: 5, sharedHold: false });
+  expect(hold.sample()).toEqual({ frozenMs: 5, sharedHold: false, startedAt: 20, endedAt: 25 });
 });
 
 test("matrix HTTP response survives the real Bun server idle timeout", async () => {

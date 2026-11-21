@@ -1,3 +1,4 @@
+import { observationWindowTrace, type RecordedTrace } from "./observation-recording.js";
 import { observationMatrixRequest } from "./observation-hold.js";
 import { backendStartupSamples, lifecycleTimingSample } from "./lifecycle-timing.js";
 import { afterAll, expect, test } from "bun:test";
@@ -449,8 +450,8 @@ print(json.dumps(result))`;
         .map(row => ({ ...row, totalMs: row.beginMs !== null && row.finishMs !== null ? row.beginMs + row.finishMs : null }));
       const total = (field: "beginMs" | "finishMs" | "totalMs") => beginFinish.map(row => row[field]).filter((value): value is number => value !== null);
       // #2915: each writer's hold and each harbour turn's begin and finish, attributed to its steps.
-      const traces: ObservationTrace[] = eventLog.read("observation-trace").filter(row => row.kind === "observation_trace")
-        .map(row => ({ kind: row.traceKind, turnId: row.turnId, ...(row.toolUseId ? { toolUseId: row.toolUseId } : {}), steps: row.steps }));
+      const traces: RecordedTrace[] = eventLog.read("observation-trace").filter(row => row.kind === "observation_trace")
+        .map(row => ({ kind: row.traceKind, turnId: row.turnId, ...(row.toolUseId ? { toolUseId: row.toolUseId } : {}), steps: row.steps, observations: row.observations }));
       writeFileSync(join(ARTIFACTS, "observation-traces.json"), JSON.stringify({ traces, managerSpans }));
       const WRITERS = ["write_file", "edit_file", "bash write"];
       const writers = (timeline?.calls ?? []).filter(call => WRITERS.includes(call.label)).flatMap(call => {
@@ -475,9 +476,8 @@ print(json.dumps(result))`;
       const pathCells = [0, 1, 20, 200].map(changedPaths => {
         const samples = pathMatrix.samples.filter(sample => sample.changedPaths === changedPaths);
         const attributed = samples.map(sample => {
-          const trace = traces.find(trace => trace.toolUseId === sample.toolUseId);
-          if (!trace) throw Error(`OBSERVATION_PATH_MATRIX_TRACE_MISSING ${sample.toolUseId}`);
-          return { phases: observationPhases(trace, managerSpans), measuredMs: sample.sharedHold ? null : sample.frozenMs };
+          const trace = observationWindowTrace(traces, pathMatrix.turnId, sample);
+          return { phases: observationPhases(trace, managerSpans), measuredMs: sample.frozenMs };
         });
         return { changedPaths, samples: samples.length, sharedHolds: samples.filter(sample => sample.sharedHold).length, medianMs: median(samples.map(sample => sample.frozenMs)), physicalHoldMedianMs: median(samples.map(sample => sample.frozenMs)), p95Ms: p95(samples.map(sample => sample.frozenMs)), phases: summarizePhases(attributed) };
       });
@@ -486,9 +486,8 @@ print(json.dumps(result))`;
       const onePathHistory = { historyRows: pathMatrix.historyRows, warmMedianMs: median(warmOnePath), loadedMedianMs: median(loadedOnePath),
         addedMedianMs: loadedOnePath.length && warmOnePath.length ? median(loadedOnePath)! - median(warmOnePath)! : null, loadedP95Ms: p95(loadedOnePath),
         phases: summarizePhases(pathMatrix.loadedSamples.map(sample => {
-          const trace = traces.find(trace => trace.toolUseId === sample.toolUseId);
-          if (!trace) throw Error(`OBSERVATION_PATH_MATRIX_LOADED_TRACE_MISSING ${sample.toolUseId}`);
-          return { phases: observationPhases(trace, managerSpans), measuredMs: sample.sharedHold ? null : sample.frozenMs };
+          const trace = observationWindowTrace(traces, pathMatrix.turnId, sample);
+          return { phases: observationPhases(trace, managerSpans), measuredMs: sample.frozenMs };
         })) };
       const result = { backend: BACKEND, appUid: APP_UID, files: FILES, bytes: BYTES, loadBefore, loadAfter: load(), elapsedMs: performance.now() - timingStart, timelineTurnIds, pathMatrix: { ...pathMatrix, cells: pathCells, onePathHistory },
         tools: timeline?.tools ?? null, admission, backendStartup, journal: { begin: { medianMs: median(total("beginMs")), p95Ms: p95(total("beginMs")) }, finish: { medianMs: median(total("finishMs")), p95Ms: p95(total("finishMs")) },

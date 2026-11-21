@@ -28,7 +28,7 @@ for (const boundary of ["reserved", "first_published", "all_published", "finishe
   let successor: Awaited<ReturnType<typeof createNativeBrainLeaseManager>> | undefined, journal: ReturnType<typeof createTurnJournal> | undefined;
   try {
     accounting.write(() => db.query("INSERT INTO turn_journal_turns (turn_id,session_id,actor,profile,started_at,state,pid,pid_start) VALUES ('voyage','ithaca','interactive','governed',0,'recording',2147483647,'dead')").run());
-    const ids = accounting.reserveBatch(entries);
+    const ids = accounting.reserveBatch(entries.map(entry => ({ ...entry, turnIds: ["voyage"] })));
     if (boundary !== "reserved") copyFileSync(join(checkpoint.path, "before.md"), join(objects, entries[0]!.hash));
     if (boundary === "all_published" || boundary === "finished") copyFileSync(join(checkpoint.path, "after.md"), join(objects, entries[1]!.hash));
     if (boundary === "finished") accounting.finishBatch(entries.map((entry, i) => ({ ...entry, id: ids[i]! })), ["voyage"]);
@@ -48,8 +48,13 @@ for (const boundary of ["reserved", "first_published", "all_published", "finishe
     const published = boundary === "reserved" ? [] : boundary === "first_published" ? entries.slice(0,1) : entries;
     expect(published.map(entry => store.read(entry.hash, 100).toString()), "STARTUP_RECOVERS_ONLY_ACTUALLY_PUBLISHED_BYTES").toEqual(content.slice(0,published.length));
     expect(entries.map(entry => store.has(entry.hash)), "UNPUBLISHED_VERSION_IS_NEVER_FABRICATED_FROM_LIVE_BYTES").toEqual(entries.map(entry => published.includes(entry)));
-    expect(db.query("SELECT count(*) AS n FROM turn_journal_object_refs WHERE turn_id='voyage'").get(), "ONLY_COMMITTED_COMPLETION_PINS_SURVIVE").toEqual({ n: boundary === "finished" ? 2 : 0 });
+    expect(db.query("SELECT count(*) AS n FROM turn_journal_object_refs WHERE turn_id='voyage'").get(), "COPY_INTENT_DURABLY_PINS_BOTH_VERSIONS_BEFORE_COMPLETION_BATCH").toEqual({ n: 2 });
     expect(journal.details("ithaca", "voyage")!.changes, "UNCOMMITTED_WINDOW_IS_NOT_REPORTED_AS_CAPTURED_HISTORY").toEqual([]);
+    // Exercise the ordinary collector after production startup, rather than
+    // merely reading objects before collection has a chance to remove them.
+    const collector = (await import("../src/brain/journal-store.js")).setup(db, { dbPath: path, objectsRoot: objects });
+    try { collector.collectObjects!(); } finally { await collector.close?.(); }
+    expect(published.map(entry => store.read(entry.hash, 100).toString()), "PUBLISHED_BATCH_VERSIONS_SURVIVE_STARTUP_COLLECTION").toEqual(content.slice(0, published.length));
   } finally { await journal?.close(); await successor?.close(); await owner.close(); leases.close(); store.close(); db.close(); await native.close(); rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -118,4 +123,42 @@ test("recovery removes the dead pending link before validating a published diges
     expect(store.read(hash, 100).toString(), "TWO_LINK_CRASH_PRESERVES_PUBLISHED_BYTES").toBe(bytes);
     expect(accounting.recover(store).unresolvedRecords).toBe(0);
   } finally { store.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+
+test("cancelling an unpublished copy preserves its admitted owner pins and conservative charge", async () => {
+  const { setup } = await import("../src/brain/journal-store.js");
+  const root = mkdtempSync(join(tmpdir(), "odysseus-pinned-cancel-")), db = createUiDb(":memory:"), ledger = createJournalAccounting(db, ":memory:"), store = setup(db, { dbPath: ":memory:", objectsRoot: join(root, "objects") });
+  const hash = sha("Ithaca"), bytes = 6;
+  try {
+    ledger.write(() => db.query("INSERT INTO turn_journal_turns(turn_id,actor,profile,started_at,state) VALUES ('voyage','interactive','governed',0,'partial')").run());
+    const [id] = ledger.reserveBatch([{ hash, bytes, turnIds: ["voyage"] }]);
+    expect(() => (store.cancelBatchReservation as (id: string) => void)(id!), "CANCELLED_INTENT_NEVER_DROPS_A_PINNED_OBJECT_ROW").not.toThrow();
+    expect(db.query("SELECT * FROM turn_journal_object_refs").all(), "CANCELLED_COPY_KEEPS_INTENT_OWNER_PIN").toEqual([{ turn_id: "voyage", hash }]);
+    expect(db.query("SELECT state,bytes FROM turn_journal_objects").get(), "CANCELLED_COPY_REMAINS_CONSERVATIVELY_CHARGED").toEqual({ state: "present", bytes });
+    expect(db.query("SELECT count(*) AS n FROM turn_journal_reservations").get()).toEqual({ n: 0 });
+  } finally { await store.close?.(); db.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test("the real journal capture commits its actual owner pins before publication completion is submitted", async () => {
+  const { spyOn } = await import("bun:test"), { openSqliteWriter } = await import("../src/db/write-worker.js"), { createTurnJournal } = await import("../src/brain/turn-journal.js");
+  const root = mkdtempSync(join(tmpdir(), "odysseus-early-owner-")), brain = join(root, "brain"); mkdirSync(join(brain, "notes"), { recursive: true });
+  const note = join(brain, "notes/ithaca.md"); writeFileSync(note, "Ithaca before");
+  const db = createUiDb(":memory:"), native = createNativeJournalFixture(brain, root), writer = openSqliteWriter(db), channel = writer.channel.bind(writer), seen = new Set<string>();
+  const intercepted = spyOn(writer, "channel").mockImplementation((module, options, revive) => {
+    const real = channel(module, options, revive);
+    return { ...real, call<T>(name: string, ...args: unknown[]): Promise<T> {
+      if (name === "finishBatch") for (const entry of args[0] as { hash: string; turnIds: string[] }[]) {
+        expect(entry.turnIds, "REAL_CAPTURE_KEEPS_ITS_ACTUAL_OWNER").toEqual(["voyage"]);
+        expect(db.query("SELECT turn_id FROM turn_journal_object_refs WHERE hash=?").all(entry.hash), "REAL_CAPTURE_PINS_OWNER_BEFORE_COMPLETION_IS_SUBMITTED").toEqual([{ turn_id: "voyage" }]); seen.add(entry.hash);
+      }
+      return real.call<T>(name, ...args);
+    } };
+  });
+  const journal = createTurnJournal(db, { brainPath: brain, dbPath: ":memory:", objectsRoot: join(root, "objects"), nativeManager: native.manager, writer });
+  try {
+    await journal.begin("voyage", { sessionId: "ithaca", actor: "interactive", profile: "governed", model: null, policyHash: null }, error => { throw error; });
+    writeFileSync(note, "Ithaca after"); await journal.observe();
+    expect([...seen].sort(), "REAL_CAPTURE_RETAINS_BOTH_RAW_VERSIONS").toEqual([sha("Ithaca before"), sha("Ithaca after")].sort());
+  } finally { await journal.close(); intercepted.mockRestore(); await writer.close(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
 });

@@ -351,13 +351,17 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
         return true;
       });
     },
-    reserveBatch(entries: { bytes: number; hash: string }[]): (string | null)[] { return accounting.reserveBatch(entries); },
+    reserveBatch(entries: { bytes: number; hash: string; turnIds?: readonly string[] }[]): (string | null)[] { return accounting.reserveBatch(entries); },
     finishBatch(entries: { id: string; hash: string; bytes: number; turnIds?: readonly string[] }[], turnIds: string[]): void { accounting.finishBatch(entries, turnIds); },
     cancelBatchReservation(id: string): void {
       accounting.write(() => {
         const row = db.query("SELECT hash FROM turn_journal_reservations WHERE id=? AND kind='copy'").get(id) as { hash: string } | null;
         if (!row) throw new JournalStorageUnavailable("the batched content reservation is unknown");
         db.query("DELETE FROM turn_journal_reservations WHERE id=?").run(id);
+        // Intent pins already belong to the failing partial turn. Preserve
+        // those pins and a conservative byte charge until retry or expiry;
+        // cancelling an unpublished copy cannot violate their foreign key.
+        db.query("UPDATE turn_journal_objects SET state='present' WHERE hash=? AND EXISTS (SELECT 1 FROM turn_journal_object_refs WHERE hash=?)").run(row.hash, row.hash);
         db.query("DELETE FROM turn_journal_objects WHERE hash=? AND state='pending' AND NOT EXISTS (SELECT 1 FROM turn_journal_reservations WHERE hash=?)").run(row.hash, row.hash);
       });
     },

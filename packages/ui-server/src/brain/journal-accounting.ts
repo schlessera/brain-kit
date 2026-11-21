@@ -2,7 +2,7 @@ import type { JournalRecoveryStatus } from "@schlessera/brain-ui-sdk/protocol";
 import type { Database } from "bun:sqlite";
 import { realpathSync, statSync } from "node:fs";
 import { resolve } from "node:path";
-import { attachJournalDatabase, JOURNAL_CHANGE_PATH_INDEX, JOURNAL_CONFLICT_TABLES, JOURNAL_MIGRATIONS_TABLE, JOURNAL_OBJECT_REFS_INDEX, JOURNAL_SCHEMA, journalDatabasePath } from "../db/journal-database.js";
+import { attachJournalDatabase, JOURNAL_CHANGE_PATH_INDEX, JOURNAL_CONFLICT_TABLES, JOURNAL_CONFLICT_GUARDS, JOURNAL_MIGRATIONS_TABLE, JOURNAL_OBJECT_REFS_INDEX, JOURNAL_SCHEMA, journalDatabasePath } from "../db/journal-database.js";
 import { JournalCapacityError, type JournalObjectAccounting } from "./journal-objects.js";
 import { processAlive, SELF } from "./writer-gate.js";
 
@@ -38,7 +38,7 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
   afterCheckpoint?: () => void;
 } = {}): JournalObjectAccounting & {
   write<T>(operation: () => T): T;
-  reserveBatch(entries: { bytes: number; hash: string }[]): (string | null)[];
+  reserveBatch(entries: { bytes: number; hash: string; turnIds?: readonly string[] }[]): (string | null)[];
   finishBatch(entries: { id: string; hash: string; bytes: number; turnIds?: readonly string[] }[], turnIds: string[]): void;
   usage(): number;
   /** Admitted, retryable schema upgrade; false leaves integrity-checked collection usable. */
@@ -214,10 +214,13 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
     write, usage,
     ensureConflictTables() {
       const row = db.query("SELECT count(*) AS n FROM journal.sqlite_schema WHERE type='table' AND name IN ('turn_journal_path_peers','turn_journal_path_conflicts')").get() as { n: number };
-      if (row.n === 2) return true;
+      const guards = db.query("SELECT count(*) AS n FROM journal.sqlite_schema WHERE type='trigger' AND name IN (SELECT value FROM json_each(?))").get(JSON.stringify(JOURNAL_CONFLICT_GUARDS.map(guard => guard.name))) as { n: number };
+      if (row.n === 2 && guards.n === JOURNAL_CONFLICT_GUARDS.length) return true;
       write(() => {
         for (const table of JOURNAL_CONFLICT_TABLES) if (!db.query("SELECT 1 FROM journal.sqlite_schema WHERE type='table' AND name=?").get(table.name))
           db.exec(table.sql.replace("CREATE TABLE ", "CREATE TABLE journal."));
+        for (const guard of JOURNAL_CONFLICT_GUARDS) if (!db.query("SELECT 1 FROM journal.sqlite_schema WHERE type='trigger' AND name=?").get(guard.name))
+          db.exec(guard.sql.replace("CREATE TRIGGER ", "CREATE TRIGGER journal."));
       });
       installEscapeGuard(db); return true;
     },
@@ -263,10 +266,10 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
         try {
           // Retire the dead reservation's exact temporary name before checking
           // the digest: a crash may have left these as two links to one inode.
-          write(() => {
-            const current = db.query("SELECT pid,pid_start FROM turn_journal_reservations WHERE id=?").get(row.id) as { pid: number; pid_start: string } | null;
-            if (current && !processAlive(current.pid, current.pid_start)) objects.discardPending(row.id);
-          });
+          // This is physical cleanup of the dead owner's temporary name, not
+          // a ledger commit. Releasing its charge and publishing its durable
+          // state below must be one admission, even when that charge is over cap.
+          objects.discardPending(row.id);
           published = objects.has(row.hash);
           if (published && !objects.verify(row.hash, row.bytes)) corrupt = new Error("Published interrupted object failed integrity verification");
         } catch (error) {
@@ -340,6 +343,9 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
           db.query("INSERT OR IGNORE INTO turn_journal_objects VALUES (?,?,'pending')").run(entry.hash, entry.bytes);
           db.query("INSERT INTO turn_journal_reservations (id,bytes,pid,pid_start,created_at,hash) VALUES (?,?,?,?,?,?)")
             .run(ids[i]!, entry.bytes, SELF.pid, SELF.start, Date.now(), entry.hash);
+          // The checkpoint may be recovered before completion batching runs.
+          // Reserve owner pins with the copy intent, before any bytes publish.
+          for (const turnId of entry.turnIds ?? []) db.query("INSERT OR IGNORE INTO turn_journal_object_refs VALUES (?,?)").run(turnId, entry.hash);
         }
       });
       return ids;

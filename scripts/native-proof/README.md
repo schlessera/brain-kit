@@ -664,3 +664,15 @@ the allocator-selection or foreign remove/re-add window between validation and
 ioctl. This fixture retains its exclusive-minor disposable-host model; retries
 extend that existing window. File controls prove protocol and refusal behavior,
 not real kernel timing or elimination of this residual risk.
+
+
+The path matrix also runs against comparison sources that predate index scope
+metadata. It always returns the 0/1/20/200 timing cells and loaded-history cells;
+only the separate index-capacity probe is reported unsupported when the older
+scope summary has no index ceiling. It imports no new product runtime symbol to
+select that probe. Each physical hold includes absolute clock boundaries, and
+the fixture annotates existing `observe_record` traces with committed sequence
+deltas. Cell phase tables select the observation that actually committed the
+paths, including a periodic observation before the tool's zero-path capture.
+The full physical freeze remains the measured denominator; any other work in
+that shared window remains visibly unattributed.

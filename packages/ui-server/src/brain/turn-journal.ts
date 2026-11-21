@@ -155,7 +155,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     return entries.map(() => undefined);
   });
   const objects = createJournalObjects(options.objectsRoot, { async reserve(bytes, hash, turnIds = []) {
-    const id = await reservations.reserve({ bytes, hash });
+    const id = await reservations.reserve({ bytes, hash, turnIds });
     if (id === null) throw new JournalObjectQuarantined();
     return { id, finish: (actual: string, size: number) => finishObjects({ id, hash: actual, bytes: size, turnIds }), settled: () => reservations.settled([id]), cancel: async () => { try { await call<void>("cancelBatchReservation", id); } finally { reservations.settled([id]); } } };
   } });
@@ -167,8 +167,8 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   }
   /** Active turns; `sessionId` is the binding their record holds once earlier writes commit. */
   const active = new Map<string, { policy: NativeJournalPolicy; stop: (error: Error) => void; sequence: number; sessionId: string | null }>();
-  // Each object takes its actual owners into the same durable completion
-  // commit: shared observations pin their window, private memory only its turn.
+  // The reservation durably pins actual owners before publication: shared
+  // observations pin their window, private memory only its turn.
   const retainVersion = (source: number, bytes: number, signal?: AbortSignal) =>
     retain(() => objects.putFileAsync(source, bytes, signal, [...active.keys()]));
   const readIdentity = { brainPath: options.brainPath, async createTemporary(maximum: number) {
@@ -867,10 +867,10 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         }
       }
       const changes = recorded.map(item => {
-        const refs = conflicts.get(item.path) ?? JSON.parse(item.conflict_observations) as JournalObservationReference[];
+        const refs = latest.get(item.path) === item.sequence ? conflicts.get(item.path) ?? JSON.parse(item.conflict_observations) as JournalObservationReference[] : [];
         return { sequence: item.sequence, path: item.path, scope: item.scope, class: item.class, actor: item.actor,
           before: presented(item.path, item.before_json), after: presented(item.path, item.after_json), overlappingTurnIds: JSON.parse(item.overlaps) as string[], ...(item.effective_taint === 1 || item.taint_source_event_id ? { tainted: true as const } : {}), ...(item.taint_source_event_id ? { taintSourceEventId: item.taint_source_event_id } : {}),
-          ...(refs.length && !journalMetadataOnlyPath(item.path) ? { conflict: { versions: refs,
+          ...(refs.length && latest.get(item.path) === item.sequence && !journalMetadataOnlyPath(item.path) ? { conflict: { versions: refs,
             latest: { turnId, sequence: latest.get(item.path)!, side:"after" as const } } } : {}) };
       });
       const failure = failures.get(turnId) ?? row.failure.trim();

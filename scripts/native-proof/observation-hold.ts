@@ -1,8 +1,8 @@
 import { get } from "node:http";
 /** One confirmed physical freeze may contain several serialized observations. */
-export function observationHold(worker: { freeze(): void; resume(): void; kill(signal: NodeJS.Signals): void }, clock: () => number = performance.now.bind(performance)) {
+export function observationHold(worker: { freeze(): void; resume(): void; kill(signal: NodeJS.Signals): void }, clock: () => number = () => performance.timeOrigin + performance.now()) {
   let depth = 0, started = 0, failed = false, shared = false;
-  let last = { frozenMs: 0, sharedHold: false };
+  let last = { frozenMs: 0, sharedHold: false, startedAt: 0, endedAt: 0 };
   const waiters = new Set<() => void>();
   return {
     before() {
@@ -12,7 +12,8 @@ export function observationHold(worker: { freeze(): void; resume(): void; kill(s
     after(completed: boolean) {
       failed ||= !completed;
       if (--depth > 0) return;
-      last = { frozenMs: clock() - started, sharedHold: shared };
+      const endedAt = clock();
+      last = { frozenMs: endedAt - started, sharedHold: shared, startedAt: started, endedAt };
       if (failed) worker.kill("SIGKILL"); else worker.resume();
       for (const wake of waiters) wake(); waiters.clear();
     },

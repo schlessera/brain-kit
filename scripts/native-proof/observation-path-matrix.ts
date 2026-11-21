@@ -1,6 +1,6 @@
 import { observationCursor, observationSample, observationSampleAccepted } from "./observation-sample.js";
 import type { Database } from "bun:sqlite";
-import { INDEX_OBSERVATION_CAP_BYTES, type TurnScope } from "../../packages/ui-server/src/brain/turn-scope.js";
+import type { TurnScope } from "../../packages/ui-server/src/brain/turn-scope.js";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 /** Actual governed worker, kernel-confirmed holds, and the existing journal timers (#4294). */
@@ -23,7 +23,7 @@ export async function observationPathMatrix(brain: string, journal: TurnJournal,
   const indexCopy = `.brain-index/.maintenance-${crypto.randomUUID()}`;
   let worker: ReturnType<typeof launchAgentWorker> | undefined, detach: (() => boolean) | undefined;
   let lines: ReturnType<typeof createInterface> | undefined;
-  const samples: { changedPaths: number; requestedPaths: number; sample: number; toolUseId: string; frozenMs: number; sharedHold: boolean }[] = [];
+  const samples: ReturnType<typeof observationSample>[] = [];
 
   const abort = () => worker?.kill("SIGKILL"); signal.addEventListener("abort", abort, { once: true });
   try {
@@ -78,16 +78,23 @@ export async function observationPathMatrix(brain: string, journal: TurnJournal,
     await scope.begin(turnId, { sessionId: null, principalId, origin: "interactive", profile: "governed", policy: hold.policy.policy,
       source: "default", hardTimeoutMs: 3600000, current: () => true, stop: () => worker?.kill("SIGKILL") }); scoped = true;
     scope.workerStarted(turnId, worker);
+    // Older comparison sources have neither index metadata nor this guard.
+    // Timing always completes; the optional after-change probe is separate.
+    const indexLimit = (journal.summary(turnId).scope as { indexLimitBytes?: number } | undefined)?.indexLimitBytes;
+    if (indexLimit === undefined) {
+      event("observation_index_capacity", { turnId, supported: false });
+      return { turnId, samples, admission, historyRows, loadedSamples, rejectedSamples };
+    }
     let indexBytes: number | null | undefined;
-    const off = journal.onObservation((id, facts) => { if (id === turnId) indexBytes = facts.indexBytes; });
+    const off = journal.onObservation((id, facts) => { if (id === turnId) indexBytes = (facts as { indexBytes?: number | null }).indexBytes; });
     try {
       await journal.observe();
-      assert.ok(typeof indexBytes === "number" && indexBytes < INDEX_OBSERVATION_CAP_BYTES, "INDEX_PROBE_BASELINE_FITS");
+      assert.ok(typeof indexBytes === "number" && indexBytes < indexLimit, "INDEX_PROBE_BASELINE_FITS");
       const baseline = indexBytes;
-      worker.stdin.write(`index ${INDEX_OBSERVATION_CAP_BYTES - baseline - 1}\n`);
+      worker.stdin.write(`index ${indexLimit - baseline - 1}\n`);
       assert.equal((await iterator.next()).value, "written", "INDEX_PROBE_WORKER_CAN_WRITE_INDEX");
       await journal.observe(); assert.equal(scope.isPaused(turnId), false, "INDEX_UNDER_CAP_CONTINUES");
-      worker.stdin.write(`index ${INDEX_OBSERVATION_CAP_BYTES - baseline + 1}\n`);
+      worker.stdin.write(`index ${indexLimit - baseline + 1}\n`);
       assert.equal((await iterator.next()).value, "written", "INDEX_PROBE_WORKER_CAN_GROW_INDEX");
       await journal.observe(); assert.equal(scope.isPaused(turnId), true, "INDEX_OVER_CAP_PAUSES");
       await scope.finish(turnId); scoped = false;

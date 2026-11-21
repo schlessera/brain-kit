@@ -1,3 +1,4 @@
+import { recordingCursors, recordedWindows } from "./observation-recording.js";
 import { appendFileSync, existsSync, readFileSync, renameSync, writeFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
@@ -88,15 +89,21 @@ if (OBSERVATION_TIMING) {
   const createTurnJournal = journals.createTurnJournal, backdated = join(dir!, "journal-backdated");
   // #2915: every step of every held observation, on the clock the fixture's manager stamps its spans with.
   const clock = () => performance.timeOrigin + performance.now();
-  const observationTrace = (traceKind: string, turnId: string | null, toolUseId?: string) => {
+  const observationTrace = (db: Parameters<typeof recordingCursors>[0]) => (traceKind: string, turnId: string | null, toolUseId?: string) => {
+    const observations: ReturnType<typeof recordedWindows> = [];
     const steps: { name: string; startedAt: number; endedAt: number | null }[] = [];
     return (name: string) => {
+      const before = name === "observe_record" ? recordingCursors(db) : undefined;
       const step = { name, startedAt: clock(), endedAt: null as number | null }; steps.push(step);
-      return () => { step.endedAt = clock(); if (name === "hold") event("observation_trace", { traceKind, turnId, toolUseId: toolUseId ?? null, steps }); };
+      return () => {
+        step.endedAt = clock();
+        if (before) observations.push(...recordedWindows(db, before, step.startedAt, step.endedAt));
+        if (name === "hold") event("observation_trace", { traceKind, turnId, toolUseId: toolUseId ?? null, steps, observations });
+      };
     };
   };
   spyOn(journals, "createTurnJournal").mockImplementation((...args: Parameters<typeof createTurnJournal>) =>
-    createTurnJournal(args[0], { ...(args[1] as object), now: () => Date.now() - (existsSync(backdated) ? 31 * 24 * 60 * 60 * 1000 : 0), observationTrace }));
+    createTurnJournal(args[0], { ...(args[1] as object), now: () => Date.now() - (existsSync(backdated) ? 31 * 24 * 60 * 60 * 1000 : 0), observationTrace: observationTrace(args[0] as Parameters<typeof recordingCursors>[0]) }));
   const bridges = await import(join(source!, "packages/ui-server/src/ws/bridge.ts"));
   const makeBridge = bridges.makeBridge;
   spyOn(bridges, "makeBridge").mockImplementation(async (...args: Parameters<typeof makeBridge>) => {

@@ -130,9 +130,13 @@ export function createGovernedTurns(options: {
     current = recordIndexUpdate(() => options.index(lock), receipt => options.indexReceipt?.(receipt, turns), options.indexCancellation).catch(error => { if (!options.indexCancellation?.some(signal => signal.aborted && signal.reason === error)) options.report(`governed index refresh failed: ${String(error)}`); })
       .finally(() => { current = undefined; if (again) refresh(lock); else if (!closing) advance(); });
   };
-  const waitForRelease = Symbol("startup release capacity");
-  async function begin(...args: Parameters<GovernedTurns["begin"]>): Promise<GovernedTurnHold> { return admit(args); }
-  async function admit(args: Parameters<GovernedTurns["begin"]>, releaseSlot?: Awaited<ReturnType<typeof startupReleases.reserve>>): Promise<GovernedTurnHold> {
+  async function begin(...args: Parameters<GovernedTurns["begin"]>): Promise<GovernedTurnHold> {
+    // No gate row or native view exists while qualification admission waits.
+    const qualification = await startupReleases.qualify(args[1]);
+    try { return await admit(args, qualification); } finally { qualification.release(); }
+  }
+  async function admit(args: Parameters<GovernedTurns["begin"]>, qualification: { release(): void }): Promise<GovernedTurnHold> {
+    let releaseSlot: Awaited<ReturnType<typeof startupReleases.reserve>> | undefined;
     const [turnId, signal, origin = "interactive", preference, route, timing] = args;
 
     const step = async <T>(name: string, work: () => Promise<T>): Promise<T> => {
@@ -144,16 +148,24 @@ export function createGovernedTurns(options: {
     // Governed turns that end from here on may have written into this
     // turn's checkpoints before their quarantine (#2699).
     const since = Date.now();
-    const hold = await step("gate_acquire", () => gate.acquire("shared", `turn:${turnId}`, { signal, turn: true }));
+    let hold = await step("gate_acquire", () => gate.acquire("shared", `turn:${turnId}`, { signal, turn: true }));
     let startupView: WorkerStartupView | undefined, privateIndex: string | undefined, indexOutcome: PrivateIndexOutcome | undefined;
     // A governed masked turn's own checkpoint, kept only to update its private index (#2846).
     let indexView: WorkerStartupView | undefined, dataTree: TurnDataTree | undefined;
     const discardPrivateIndex = () => { if (privateIndex) { const dir = privateIndex; privateIndex = undefined; removePrivateIndexDirectory(dir); } };
     let gateReleased = false;
     const releaseGate = async () => { if (!gateReleased) { gateReleased = true; await hold.release(); } };
+    const handoffView = async (view: WorkerStartupView) => {
+      // The qualifying admission/retaining consumer stays the owner until the
+      // bounded release owner accepts the view. Never delete it independently.
+      releaseSlot ??= await startupReleases.reserve(undefined, true);
+      releaseSlot.handoff(turnId, view); releaseSlot = undefined;
+    };
     const release = async () => {
+      await releaseGate();
       try { await dataTree?.close(); } finally {
-        try { await startupView?.cleanup(); } finally { try { await indexView?.cleanup(); } finally { try { discardPrivateIndex(); } finally { await releaseGate(); } } }
+        try { if (startupView) { await handoffView(startupView); startupView = undefined; } }
+        finally { try { if (indexView) { await handoffView(indexView); indexView = undefined; } } finally { discardPrivateIndex(); } }
       }
     };
     // Marked before the checkpoint: its index may lack what is queued (#2848).
@@ -236,7 +248,11 @@ export function createGovernedTurns(options: {
       // Refresh only those first-turn sealed consumers, then validate against
       // the refreshed complete view. Two fixed area roots, no inventory walk.
       if (workerProfile(resolved) !== "governed" && missingWritableRoot()) {
-        await startupView.cleanup(); startupView = undefined;
+        await releaseGate();
+        await handoffView(startupView); startupView = undefined;
+        hold = await step("gate_reacquire_refresh", () => gate.acquire("shared", `turn:${turnId}`, { signal, turn: true })); gateReleased = false;
+        if (policyReader.load().hash !== policy.hash) throw new Error("Governance policy changed during admission; retry with its current policy.");
+        await hold.retainFolders?.(folderPaths);
         startupView = await step("startup_checkpoint_refresh", () => prepareNativeWorkerStartupView(options.brainPath, options.nativeManager, signal));
         signal.throwIfAborted(); resolved = await step("sandbox_resolve_refresh", resolveSandbox);
         const missing = missingWritableRoot();
@@ -311,7 +327,19 @@ export function createGovernedTurns(options: {
       const governed = workerProfile(sandbox) === "governed";
       if (governed && !dataTree) {
         releaseSlot ??= await step("startup_release_reserve", async () => startupReleases.tryReserve(signal));
-        if (!releaseSlot) throw waitForRelease;
+        if (!releaseSlot) {
+          // Keep one of the two qualification owners while waiting. This
+          // bounds pinned qualifications, and no peer sees an unplanned row.
+          await releaseGate();
+          releaseSlot = await step("startup_release_reserve", () => startupReleases.reserve(signal));
+          hold = await step("gate_reacquire", () => gate.acquire("shared", `turn:${turnId}`, { signal, turn: true })); gateReleased = false;
+          if (policyReader.load().hash !== policy.hash) throw new Error("Governance policy changed during admission; retry with its current policy.");
+          await hold.retainFolders?.(folderPaths);
+          if (folderPaths.length) {
+            if (hold.waitForPeerFolderPlans) await hold.waitForPeerFolderPlans(folderPaths, { signal, ...(options.peerFolderPlanWaitMs !== undefined ? { timeoutMs: options.peerFolderPlanWaitMs } : {}) });
+            else await hold.assertPeerFolderPlans!(folderPaths);
+          }
+        }
       }
       await step("record_policy", async () => options.recordPolicy?.(turnId, origin, governed ? "governed" : "strict", policy));
       if (policy.errors.length) options.report(`Governance policy invalid; using ${policy.source}: ${policy.errors.join("; ")}`);
@@ -322,10 +350,12 @@ export function createGovernedTurns(options: {
         if (dataTree) indexView = startupView;
         else {
           if (!releaseSlot) throw new Error("A governed startup handoff lacks its release reservation");
-          await step("startup_view_cleanup", async () => { releaseSlot!.handoff(turnId, startupView!); });
+          await step("startup_view_cleanup", async () => { releaseSlot!.handoff(turnId, startupView!); releaseSlot = undefined; });
         }
         startupView = undefined;
       }
+      // The view now belongs to a retaining consumer or its release owner.
+      qualification.release();
       signal.throwIfAborted();
       // Recorded before the turn can read anything; a new conversation's rows bind when it is named.
       const shown: ProviderExposure | undefined = inferenceRecipient ? { recipient: inferenceRecipient.name, visible: providerFolders, hidden: maskedFolders } : undefined;
@@ -349,14 +379,7 @@ export function createGovernedTurns(options: {
         } finally { await release(); }
       } };
     } catch (error) {
-      // A capacity wait owns neither the writer gate nor an unused view.
-      if (error === waitForRelease) await releaseGate();
       await release();
-      if (error === waitForRelease) {
-        watermark?.release();
-        const slot = await step("startup_release_reserve", () => startupReleases.reserve(signal));
-        try { return await admit(args, slot); } finally { slot.release(); }
-      }
       throw error;
     }
     finally { releaseSlot?.release(); watermark?.release(); }

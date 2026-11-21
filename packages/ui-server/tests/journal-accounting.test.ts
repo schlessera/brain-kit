@@ -261,3 +261,35 @@ test("a damaged stored recovery cause is replaced by the current cause instead o
     }
   } finally {db.close();rmSync(root,{recursive:true,force:true});}
 });
+
+
+test("recovery releases a dead over-cap copy charge in the same admitted transaction", () => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-recovery-charge-")), path = join(root, "ui.db"), db = createUiDb(path);
+  const original = createJournalAccounting(db, path), store = createJournalObjects(join(root, "objects"), original), hash = "a".repeat(64), bytes = 4 * 1024 * 1024;
+  try {
+    original.reserveBatch([{ hash, bytes }]);
+    original.write(() => db.query("UPDATE turn_journal_reservations SET pid=2147483647,pid_start='dead'").run());
+    const bounded = createJournalAccounting(db, path, { capBytes: original.usage() - bytes + 512 * 1024 });
+    expect(() => bounded.write(() => {}), "DEAD_RESERVATION_ALONE_EXCEEDS_CURRENT_CAP").toThrow(JournalCapacityError);
+    expect(bounded.recover(store), "DEAD_COPY_RECOVERY_RELEASES_CHARGE_ATOMICALLY").toEqual({ unresolvedRecords: 0, firstCause: null });
+    expect(db.query("SELECT count(*) AS n FROM turn_journal_reservations").get(), "DEAD_COPY_CHARGE_REMOVED").toEqual({ n: 0 });
+    expect(db.query("SELECT count(*) AS n FROM turn_journal_objects WHERE hash=?").get(hash)).toEqual({ n: 0 });
+  } finally { store.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test("late admitted conflict guards protect a main connection that was already open", () => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-late-conflict-")), path = join(root, "ui.db"), main = createUiDb(path), other = createUiDb(path);
+  const readerLedger = createJournalAccounting(main, path), writer = createJournalAccounting(other, path);
+  try {
+    readerLedger.write(() => main.query("INSERT INTO turn_journal_turns(turn_id,actor,profile,started_at,state) VALUES ('voyage','interactive','governed',0,'recording')").run());
+    expect(() => createJournalAccounting(other, path, { capBytes: 0 }).ensureConflictTables()).toThrow(JournalCapacityError);
+    expect(main.query("SELECT 1 FROM journal.sqlite_schema WHERE name='turn_journal_path_conflicts'").get()).toBeNull();
+    expect(writer.ensureConflictTables()).toBe(true);
+    const insert = () => main.query("INSERT INTO turn_journal_path_conflicts VALUES ('voyage','notes/ithaca.md',1)").run();
+    expect(insert, "LATE_CONFLICT_TABLE_REJECTS_UNACCOUNTED_MAIN_INSERT").toThrow("outside capacity accounting");
+    writer.write(() => other.query("INSERT INTO turn_journal_path_conflicts VALUES ('voyage','notes/ithaca.md',1)").run());
+    expect(() => main.query("UPDATE turn_journal_path_conflicts SET first_sequence=2").run(), "LATE_CONFLICT_TABLE_REJECTS_UNACCOUNTED_MAIN_UPDATE").toThrow("outside capacity accounting");
+    expect(() => main.query("DELETE FROM turn_journal_path_conflicts").run(), "LATE_CONFLICT_TABLE_REJECTS_UNACCOUNTED_MAIN_DELETE").toThrow("outside capacity accounting");
+    expect(main.query("SELECT first_sequence FROM turn_journal_path_conflicts").get()).toEqual({ first_sequence: 1 });
+  } finally { other.close(); main.close(); rmSync(root, { recursive: true, force: true }); }
+});

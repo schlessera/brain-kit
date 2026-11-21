@@ -1,7 +1,7 @@
 /** Batch ready reservations, shrinking to one copy under temporary pressure. */
 import { JournalCapacityError } from "./journal-objects.js";
-export function journalReservationBatch(reserve: (entries: { bytes: number; hash: string }[]) => Promise<(string | null)[]>) {
-  type Request = { input: { bytes: number; hash: string }; resolve(id: string | null): void; reject(error: unknown): void };
+export function journalReservationBatch(reserve: (entries: { bytes: number; hash: string; turnIds?: readonly string[] }[]) => Promise<(string | null)[]>) {
+  type Request = { input: { bytes: number; hash: string; turnIds?: readonly string[] }; resolve(id: string | null): void; reject(error: unknown): void };
   const waiting: Request[] = [], copying = new Set<string>();
   let running = false, settledCount = 0;
   async function flush(): Promise<void> {
@@ -32,7 +32,7 @@ export function journalReservationBatch(reserve: (entries: { bytes: number; hash
     } finally { running = false; }
   }
   return {
-    reserve(input: { bytes: number; hash: string }): Promise<string | null> {
+    reserve(input: { bytes: number; hash: string; turnIds?: readonly string[] }): Promise<string | null> {
       return new Promise((resolve, reject) => { waiting.push({ input, resolve, reject }); setImmediate(() => { void flush(); }); });
     },
     settled(ids: readonly string[]) { settledCount++; for (const id of ids) copying.delete(id); setImmediate(() => { void flush(); }); },

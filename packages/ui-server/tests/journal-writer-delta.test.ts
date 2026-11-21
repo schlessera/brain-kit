@@ -69,6 +69,16 @@ test("a conflicted path stores one relation as a thousand solo versions follow",
       expect(image.query("SELECT * FROM turn_journal_path_conflicts").all(), "BACKUP_PRESERVES_SINGLE_CONFLICT_BOUNDARY").toEqual([{ turn_id: "voyage", path: "notes/ithaca.md", first_sequence: 1 }]);
       expect(image.query("SELECT count(*) AS n FROM turn_journal_path_peers").get(), "BACKUP_PRESERVES_PEER_BASELINE").toEqual({ n: 1 });
     } finally { image.close(); }
+    const { JOURNAL_CONFLICT_GUARDS } = await import("../src/db/journal-database.js");
+    ledger.write(() => db.exec(`DROP TRIGGER journal.${JOURNAL_CONFLICT_GUARDS[0]!.name}`));
+    await expect(exportInboxSnapshot(db, root, 1001), "BACKUP_REJECTS_PARTIAL_CONFLICT_GUARDS").rejects.toThrow("inbox_snapshot_schema");
+    ledger.ensureConflictTables();
+    ledger.write(() => { const guard = JOURNAL_CONFLICT_GUARDS[0]!; db.exec(`DROP TRIGGER journal.${guard.name}`); db.exec(guard.sql.replace("CREATE TRIGGER ", "CREATE TRIGGER journal.").replace("IS NOT 1", "IS NOT 0")); });
+    await expect(exportInboxSnapshot(db, root, 1001), "BACKUP_REJECTS_ALTERED_CONFLICT_GUARD").rejects.toThrow("inbox_snapshot_schema");
+    ledger.write(() => { for (const guard of JOURNAL_CONFLICT_GUARDS) db.exec(`DROP TRIGGER journal.${guard.name}`); });
+    const previous = await exportInboxSnapshot(db, root, 1001);
+    expect(previous.database.data.length, "OLDER_CONFLICT_TABLE_PAIR_WITHOUT_GLOBAL_GUARDS_REMAINS_READABLE").toBeGreaterThan(0);
+    ledger.ensureConflictTables();
     ledger.write(() => db.exec("ALTER TABLE journal.turn_journal_path_peers ADD COLUMN forged TEXT"));
     await expect(exportInboxSnapshot(db, root, 1001), "BACKUP_REJECTS_ALTERED_CONFLICT_SCHEMA").rejects.toThrow("inbox_snapshot_schema");
     ledger.write(() => db.exec("DROP TABLE journal.turn_journal_path_peers"));
@@ -89,4 +99,25 @@ test("new conflict metadata cannot bypass physical journal admission on a full e
     journal = createTurnJournal(db, { brainPath: brain, dbPath: path, objectsRoot: join(root, "objects"), capBytes: 0, nativeManager: native.manager }); await journal.ready;
     expect(journal.details("ithaca", "voyage")?.summary.state, "FULL_JOURNAL_STILL_BOOTS_TO_SERVE_HISTORICAL_RECORDS").toBe("complete");
   } finally { await journal?.close(); await store.close?.(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+
+test("serialized conflict history grows linearly and keeps one relation per path", async () => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-conflict-wire-")), brain = join(root, "brain"); mkdirSync(brain);
+  const db = createUiDb(":memory:"), native = createNativeJournalFixture(brain, root), objectsRoot = join(root, "objects");
+  const journal = createTurnJournal(db, { brainPath: brain, dbPath: ":memory:", objectsRoot, nativeManager: native.manager });
+  const store = setup(db, { dbPath: ":memory:", objectsRoot });
+  try {
+    await journal.begin("voyage", { sessionId: "ithaca", actor: "interactive", profile: "governed", model: null, policyHash: null }, () => {});
+    let firstBytes = 0;
+    for (let n = 1; n <= 200; n++) {
+      recordObservation(store, { turnId: "voyage", sequence: n - 1, at: n, userPolicy: false, changed: [{ path: "notes/ithaca.md", scope: "", before: null, after: { kind: "file", bytes: n, mode: 420, ignored: false } }], overlaps: n <= 2 ? ["voyage", "peer"] : ["voyage"], steeringPaths: [], worktree: [], steeringUnavailable: [], unreadable: [] });
+      if (n === 100) firstBytes = JSON.stringify(journal.details("ithaca", "voyage")).length;
+    }
+    const details = journal.details("ithaca", "voyage")!, bytes = JSON.stringify(details).length;
+    expect(details.changes.filter(change => change.conflict).length, "CONFLICT_WIRE_RELATION_IS_SERIALIZED_ONCE_PER_PATH").toBe(1);
+    expect(details.changes.at(-1)?.conflict?.versions).toHaveLength(200);
+    expect(bytes, "DOUBLING_VERSION_HISTORY_DOES_NOT_QUADRUPLE_WIRE_BYTES").toBeLessThan(firstBytes * 2.3);
+    expect(details.changes.at(-1)?.conflict?.latest).toEqual({ turnId: "voyage", sequence: 200, side: "after" });
+  } finally { await journal.close(); await store.close?.(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
 });

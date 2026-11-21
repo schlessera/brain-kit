@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as startup from "../../ui-sdk/src/server/worker-startup-view.js";
 import * as sandbox from "../../ui-sdk/src/server/worker-launcher.js";
-import { createNativeStartupReleases, setNativeStartupReleases, STARTUP_RELEASE_BACKLOG, type StartupReleaseResult } from "../src/brain/native-startup-releases.js";
+import { createNativeStartupReleases, setNativeStartupReleases, STARTUP_RELEASE_BACKLOG, STARTUP_QUALIFICATION_BACKLOG, type StartupReleaseResult } from "../src/brain/native-startup-releases.js";
 import { createGovernedTurns } from "../src/brain/governed-turn.js";
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
 const deferred = <T = void>() => Promise.withResolvers<T>();
@@ -64,21 +64,47 @@ test("startup release failure is recorded and retried while reservation retains 
   } finally { await releases.close(); }
 });
 
-test("ten simultaneous admissions keep at most two startup releases pending", async () => {
-  const releases = createNativeStartupReleases(), deletion = deferred();
-  const full = deferred(); let maximum = 0;
-  const work = Array.from({ length: 10 }, async (_, i) => {
-    const slot = await releases.reserve();
-    slot.handoff(`voyage-${i}`, { root: `/odysseus/${i}`, cleanup: () => deletion.promise } as startup.WorkerStartupView);
-    maximum = Math.max(maximum, releases.pending());
-    if (releases.pending() === STARTUP_RELEASE_BACKLOG) full.resolve();
+test("ten simultaneous admissions bound every pinned qualification and retried release", async () => {
+  const { createUiDb } = await import("../src/db/client.js"), { createWriterGate } = await import("../src/brain/writer-gate.js");
+  const root = mkdtempSync(join(tmpdir(), "odysseus-ten-qualifications-")), brain = join(root, "brain"); mkdirSync(brain);
+  const native = createNativeJournalFixture(brain, root), db = createUiDb(":memory:"), gate = createWriterGate(db, brain, { pollMs: 1 });
+  const deletion = deferred(), full = deferred(), waiting = deferred(), results: StartupReleaseResult[] = [];
+  const queue = createNativeStartupReleases(result => results.push(result), 1); setNativeStartupReleases(native.client, queue);
+  let views = 0, maximum = 0, deleting = 0, maxDeleting = 0, created = 0, waits = 0;
+  const reserveOriginal = queue.reserve.bind(queue), reserve = spyOn(queue, "reserve").mockImplementation((signal, disposal) => { if (++waits === 2) waiting.resolve(); return reserveOriginal(signal, disposal); });
+  const ids = new Map<string, number>(), attempts = new Map<string, number>();
+  const witness = () => { maximum = Math.max(maximum, views); expect(views, "QUALIFICATION_PLUS_RELEASE_TOTAL_PIN_BOUND_AT_EVERY_TRANSITION").toBeLessThanOrEqual(STARTUP_RELEASE_BACKLOG + STARTUP_QUALIFICATION_BACKLOG); };
+  const acquire = spyOn(startup, "prepareNativeWorkerStartupView").mockImplementation(async () => {
+    const cp = await native.client.checkpoint(crypto.randomUUID()); views++; ids.set(cp.path, ++created); witness();
+    if (created === STARTUP_RELEASE_BACKLOG + STARTUP_QUALIFICATION_BACKLOG) full.resolve();
+    return { brain, root: cp.path, storage: { root: cp.path, retain() {}, release() {} }, async cleanup() {
+      const attempt = (attempts.get(cp.path) ?? 0) + 1; attempts.set(cp.path, attempt);
+      deleting++; maxDeleting = Math.max(maxDeleting, deleting);
+      expect(deleting, "EVERY_DELETION_USES_THE_TWO_RELEASE_OWNERS").toBeLessThanOrEqual(STARTUP_RELEASE_BACKLOG);
+      try { await deletion.promise; if (ids.get(cp.path) === 3 && attempt === 1) throw new Error("discarded qualification EIO"); await native.client.release(cp.id); views--; witness(); }
+      finally { deleting--; }
+    } };
   });
+  const managed = spyOn(startup, "assertManagedTurnStartupView").mockImplementation(() => {}), resolve = spyOn(sandbox, "prepareWorkerSandboxAsync").mockResolvedValue({ profile: "governed", areas: [], protection: { paths: [] } } as never);
+  const turns = createGovernedTurns({ nativeManager: native.client, brainPath: brain, profile: "governed", maskPaths: [], async index() {}, report() {}, execution: {
+    gate() { return gate; }, boundary: { async prepare(_signal: AbortSignal, view: startup.WorkerStartupView) { if (ids.get(view.root) === 3) throw new Error("discard qualification"); return { available: true }; }, maintenance: {} }, manifests() { return { async begin() {}, async end() { return null; } }; },
+  } as never });
+  const work = Array.from({ length: 10 }, (_, i) => turns.begin(`voyage-${i}`, new AbortController().signal).then(async hold => { await hold.end(); return { hold, error: null }; }, error => ({ hold: null, error: String(error) })));
   try {
-    await full.promise;
-    expect(releases.pending(), "STARTUP_RELEASE_BACKLOG_BOUNDED").toBe(2);
-    deletion.resolve(); await Promise.all(work); await releases.drain();
-    expect(maximum, "STARTUP_RELEASE_BACKLOG_BOUNDED").toBe(2);
-  } finally { deletion.resolve(); await Promise.all(work); await releases.close(); }
+    await full.promise; await waiting.promise; await new Promise<void>(r => setImmediate(r));
+    expect(views, "ONLY_FOUR_CHECKPOINTS_PINNED_WITH_TEN_QUICK_TURNS").toBe(4);
+    expect(created, "QUALIFICATION_WAIT_CREATES_NO_VIEW").toBe(4);
+    expect(queue.pending()).toBe(2);
+    expect(db.query("SELECT count(*) AS n FROM writer_gate").get(), "QUALIFICATION_AND_RELEASE_WAITS_HOLD_NO_WRITER_GATE").toEqual({ n: 0 });
+    deletion.resolve(); const settled = await Promise.all(work);
+    for (const row of settled) await row.hold?.end();
+    await queue.drain();
+    expect(results.some(row => row.outcome === "retry" && row.cause?.includes("discarded qualification EIO")), "DISCARDED_QUALIFICATION_FAILURE_HAS_A_DURABLE_RETRY_OWNER").toBe(true);
+    expect(settled.filter(row => row.error).map(row => row.error)).toEqual(["Error: discard qualification"]);
+    expect(results.filter(row => row.outcome === "released")).toHaveLength(10);
+    expect(views).toBe(0); expect(maximum).toBe(4); expect(maxDeleting).toBe(2);
+    expect((await native.client.listRecovery()).records).toEqual([]);
+  } finally { deletion.resolve(); for (const row of await Promise.all(work)) await row.hold?.end(); await turns.close(); reserve.mockRestore(); acquire.mockRestore(); managed.mockRestore(); resolve.mockRestore(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
 });
 
 for (const pressure of [false, true]) test(`observation requests native capacity before waiting for startup release: pressure=${pressure}`, async () => {
@@ -176,7 +202,7 @@ for (const mode of ["strict", "masked"] as const) test(`${mode} admission retain
     expect(result.error, "RETAINED_VIEW_ADMISSION_IGNORES_RELEASE_BACKLOG").toBeNull();
     expect(reserve, "RETAINED_VIEW_ADMISSION_TAKES_NO_RELEASE_SLOT").not.toHaveBeenCalled();
     expect(result.hold?.dataTree).toBeDefined(); expect(queue.pending()).toBe(2);
-    await result.hold!.end();
+    reserve.mockRestore(); deletion.resolve(); await result.hold!.end();
   } finally { deletion.resolve(); await turns.close(); reserve.mockRestore(); acquire.mockRestore(); managed.mockRestore(); resolve.mockRestore(); tree.mockRestore(); cache.mockRestore(); await native.close(); rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -235,7 +261,7 @@ for (const mode of ["empty_paths", "boundary_fallback"] as const) test(`resolved
     expect(reserve).not.toHaveBeenCalled();
     if (mode === "boundary_fallback") { expect(tryReserve, "FALLBACK_RETAINS_VIEW_WITHOUT_RELEASE_SLOT").not.toHaveBeenCalled(); expect(result.hold?.dataTree).toBeDefined(); }
     else expect(tryReserve, "UNMASKED_EMPTY_RULE_HANDS_OFF_VIEW").toHaveBeenCalledTimes(1);
-    await result.hold!.end();
+    reserve.mockRestore(); deletion.resolve(); await result.hold!.end();
   } finally { deletion.resolve(); await turns.close(); tryReserve.mockRestore(); reserve.mockRestore(); acquire.mockRestore(); managed.mockRestore(); resolve.mockRestore(); tree.mockRestore(); await native.close(); rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -247,9 +273,9 @@ test("three type-selector admissions finish peer plans before waiting outside th
   const native = createNativeJournalFixture(brain, root), queue = createNativeStartupReleases(), deletion = deferred(), prepared = deferred(), waiting = deferred(); setNativeStartupReleases(native.client, queue);
   for (const id of ["one", "two"]) (await queue.reserve()).handoff(id, { root: id, cleanup: () => deletion.promise } as startup.WorkerStartupView);
   let checkpoints = 0, waits = 0, views = 0; const recordedPolicies: string[] = [];
-  const reserveOriginal = queue.reserve.bind(queue), reserve = spyOn(queue, "reserve").mockImplementation(signal => { if (++waits === 3) waiting.resolve(); return reserveOriginal(signal); });
+  const reserveOriginal = queue.reserve.bind(queue), reserve = spyOn(queue, "reserve").mockImplementation(signal => { if (++waits === STARTUP_QUALIFICATION_BACKLOG) waiting.resolve(); return reserveOriginal(signal); });
   const acquire = spyOn(startup, "prepareNativeWorkerStartupView").mockImplementation(async () => {
-    const cp = await native.client.checkpoint(crypto.randomUUID()); views++; if (++checkpoints === 3) prepared.resolve(); await prepared.promise;
+    const cp = await native.client.checkpoint(crypto.randomUUID()); views++; ++checkpoints;
     return { brain, root: cp.path, storage: { root: cp.path, retain() {}, release() {} }, async cleanup() { await native.client.release(cp.id); views--; } };
   });
   const managed = spyOn(startup, "assertManagedTurnStartupView").mockImplementation(() => {});
@@ -264,9 +290,10 @@ test("three type-selector admissions finish peer plans before waiting outside th
   const work = Array.from({ length: 3 }, (_, i) => turns.begin(`voyage-${i}`, abort.signal, "interactive", "governed", { inferenceOrigin: "https://api.anthropic.com" }).then(hold => ({ hold, error: null }), error => ({ hold: null, error })));
   try {
     const reached = await Promise.race([waiting.promise.then(() => true), new Promise<boolean>(r => { timer = setTimeout(() => r(false), watchdogMs(5000)); })]);
-    expect(reached, "ALL_PEER_PLANS_COMPLETE_WITH_RELEASE_SLOTS_FULL").toBe(true);
+    expect(reached, "ADMITTED_QUALIFIERS_FINISH_PEER_PLANS_WITH_RELEASE_SLOTS_FULL").toBe(true);
     expect(db.query("SELECT count(*) AS n FROM writer_gate").get(), "RELEASE_CAPACITY_WAIT_HOLDS_NO_WRITER_GATE").toEqual({ n: 0 });
-    expect(views, "RELEASE_CAPACITY_WAIT_RETAINS_NO_UNUSED_VIEWS").toBe(0);
+    expect(views, "RELEASE_CAPACITY_WAIT_HAS_BOUNDED_QUALIFICATION_OWNERS").toBe(STARTUP_QUALIFICATION_BACKLOG);
+    expect(checkpoints, "THIRD_QUALIFIER_WAITS_BEFORE_GATE_AND_VIEW_CREATION").toBe(STARTUP_QUALIFICATION_BACKLOG);
     expect(queue.pending()).toBe(2);
     deletion.resolve(); const result = await Promise.all(work); expect(result.map(item => item.error), "PEER_ADMISSIONS_RECOVER_WITHOUT_TIMEOUT").toEqual([null,null,null]);
     expect(recordedPolicies.sort(), "THROWAWAY_PROBE_DOES_NOT_RECORD_A_TURN_POLICY").toEqual(["voyage-0", "voyage-1", "voyage-2"]);

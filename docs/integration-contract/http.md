@@ -55,7 +55,7 @@ The `taint` governance event's shape is unchanged: its reserved
 ### Brain-wide configuration coverage (additive, #3257)
 
 `GET /api/journal/configuration-coverage` returns `ConfigurationCoverageRead`
-(`ConfigurationCoverageRead`, `packages/ui-sdk/src/turn-journal.ts:190-192`):
+(`ConfigurationCoverageRead`, `packages/ui-sdk/src/turn-journal.ts:194-196`):
 the brain's current set of configuration inputs steering could not trace. It
 is `{ state: "known", hash, paths, count, turnId, observedAt }` for the set the
 most recent complete turn recorded from a configuration inventory: `paths` is
@@ -173,7 +173,7 @@ independent 4 GiB bound, scope pauses with optional receipt
 `result: "index_capacity"` under the existing `turn_bytes` dimension. Optional
 scope fields `indexBytes` (nullable while unconfirmed) and `indexLimitBytes`
 disclose that independent size and ceiling. The existing one-time finite
-continuation doubles only the index ceiling; the prompt names that ceiling and preserves the content allowance. Independent pending content and index pauses must both be answered before workers resume. Unknown measurement has no grant. Optional receipt and scope-event `measurement: "unknown"` names that state; numeric count/observed and overshoot are zero compatibility placeholders, not measurements. UI and voice say the size is unknown. Operational backups retain admitted conflict state with exact schema validation and accept earlier images without those tables. Each server-side open pause keeps an answerable card; a newer continued receipt does not hide an older pause.
+continuation doubles only the index ceiling; the prompt names that ceiling and preserves the content allowance. Independent pending content and index pauses must both be answered before workers resume. Unknown measurement has no grant. Optional receipt and scope-event `measurement: "unknown"` names that state; numeric count/observed and overshoot are zero compatibility placeholders, not measurements. UI and voice say the size is unknown. Operational backups retain admitted conflict state with exact schema validation and accept earlier images without those tables. Only the newest open pause offers Continue; earlier open cards keep Stop available, and regain their eligible Continue after newer pauses are answered. Refused continuation leaves Stop available. Expanded facts label unknown overshoot as unknown. The index scope event has optional `result: "index_capacity"` and `source: "default"` even under a custom policy. Strict and masked/private-index turns cannot write this live index and do not receive its cap. Admitted permanent conflict-table guards apply to already-open connections and are preserved/validated in backups. History emits the optional conflict relation once per path, on its latest change row; other changes omit it, and the UI resolves older observations through that relation.
 The closed dimension enum is unchanged, and old parsers accept the records.
 The bound matches the former default byte scope; checks occur at observations,
 so writes may overshoot between them. The free-space floor remains binding.

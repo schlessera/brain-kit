@@ -135,7 +135,7 @@ system gate. It is not a prerequisite to rebuild or a new independent package.
   (`export function authGuard(`, `packages/ui-server/src/middleware/auth.ts:184-244`) binds principals in each auth mode.
   An internal poke needs independent token authorization before this guard.
 - **Permission parking:** (`const requestPermission`, `packages/ui-server/src/ws/bridge-capabilities/permissions.ts:19-188`). Timeout unwind is
-  (`abortController.abort();`, `packages/ui-server/src/ws/session-run/admission.ts:55-57`). Durable escalation must checkpoint
+  (`abortController.abort();`, `packages/ui-server/src/ws/session-run/admission.ts:56-58`). Durable escalation must checkpoint
   before unwinding; the existing ordinary bridge does not do that.
 - **Tool enforcement:** (`export function enforcementHookFor`, `packages/ui-backend-claude/src/permission-hooks.ts:289-330`) closes measured bypasses.
   (`export const DEFAULT_ALLOWED_TOOLS = [`, `packages/ui-backend-claude/src/tool-policy.ts:27-80`) is still a broad interactive
@@ -884,7 +884,7 @@ AE3, AE4, AE8
 **Approach:**
 - **Escalation** is one server-side step: capture the checkpoint → create the Action with
   validated effects → transition the Queue item to `blocked` → unwind without parking. The timeout path aborts then drains permissions at
-  `abortController.abort()`, (`abortController.abort();`, `packages/ui-server/src/ws/session-run/admission.ts:55-57`)
+  `abortController.abort()`, (`abortController.abort();`, `packages/ui-server/src/ws/session-run/admission.ts:56-58`)
 - **Resolution** is one transaction: record resolution (unique) → validate the effect against
   its schema again → apply it → transition the blocked item to `superseded` → for `enqueue`
   only, mint one follow-up with `dedup_key` from `(action_id, option_id)`
@@ -1285,7 +1285,7 @@ The hybrid has three pieces:
   waiter's continued wait signals the holder. The number is a constant, not a judgement call,
   so both edges are testable
 - **A yield channel into a running autonomous turn** — the signal aborts the holder through
-  the same unwind order as the timeout path (`abortController.abort();`, `packages/ui-server/src/ws/session-run/admission.ts:55-57`), returning its item
+  the same unwind order as the timeout path (`abortController.abort();`, `packages/ui-server/src/ws/session-run/admission.ts:56-58`), returning its item
   to `ready` and releasing its reservation
 
 Below the threshold nothing yields, so the common case costs nothing. Above it, one autonomous

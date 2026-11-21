@@ -164,7 +164,7 @@ The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
 (`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:16-119`;
-`begin`, `packages/ui-server/src/brain/governed-turn.ts:135-312`).
+`begin`, `packages/ui-server/src/brain/governed-turn.ts:133-386`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
 `governed` when a protected path is a symlink, a hardlinked file
@@ -1858,13 +1858,15 @@ cap is 4 GiB, matching the former default byte scope without charging generated
 versions to retained turn bytes. Initialization sums metadata once; changes,
 removals and renames update that total. No index content is read or hashed.
 
+This live-index cap applies only when the actual turn sandbox can write the live root index. Strict and masked/private-index turns read their own sealed or read-only index and cannot be paused by an unrelated live index; their host index writers retain isolated quotas. The independent index cap comes from the host default, even under a custom content policy. Its governance scope event keeps the closed `cap: "turn_bytes"` value and adds optional `result: "index_capacity"` with `source: "default"`.
+
 Past 4 GiB the existing scope pause applies, with optional receipt
 `result: "index_capacity"` under the existing `turn_bytes` dimension. Scope
 summaries add optional `indexBytes` (null when unconfirmed) and
 `indexLimitBytes`. An interactive turn can receive the existing one-time finite
 doubling for this independent resource only; that grant never raises the content
 byte allowance. Independent content and index pauses both require an answer; granting one cannot resume past the other. The prompt names the ceiling Continue raises. A second hit, unknown measurement or absent worker has no
-continuation grant. An unknown index size is explicit as optional `measurement: "unknown"` on receipts and scope events, with numeric compatibility placeholders zero for count/overshoot; these placeholders are not measurements. Current prompts and voice outcomes say unknown. Voice stops by its existing scope rule. Old clients retain
+continuation grant. An unknown index size is explicit as optional `measurement: "unknown"` on receipts and scope events, with numeric compatibility placeholders zero for count/overshoot; these placeholders are not measurements. Current prompts, expanded Turn facts and voice outcomes say unknown, including overshoot. Only the newest open pause offers Continue; older open cards keep Stop available until the newer pause is answered, then expose their remaining accepted actions. A refused continuation never disables Stop. Voice stops by its existing scope rule. Old clients retain
 their enum vocabulary and parse the optional fields without dropping records.
 This is an observation-time guard, so an opaque command can overshoot between
 observations, just as it could under the former byte scope. The separate disk
@@ -1885,15 +1887,13 @@ needs no operator judgment. Markdown and note before-images are unaffected.
 ### Observation commits and startup release — 2026-11-20 (#4294, #4304)
 
 Directly readable changed versions are captured with at most 32 open version reads (16 paths, two sides each). Worker-private files defer fixed-reader fallback until those direct copies settle, then capture one side at a time. This stays within the native reader limit and charges only one temporary staging copy beside its retained object. Ready object reservations share one FULL ledger transaction;
-ready completions share another that pins each object to its actual owners:
-shared observations to their window, private memory and independent worktrees
-to their holding turn. Hash publication is serialized and link/unlink runs in
+Those reservations durably pin each expected version to its actual owners before publication: shared observations to their window, private memory and independent worktrees to their holding turn. Ready completions share another FULL transaction that converts the charge and removes copy reservations. A process crash before completion batching cannot make an already published before/after object collectible. Hash publication is serialized and link/unlink runs in
 one event-loop turn, preventing transient multi-link reads. Under temporary
 space pressure reservations shrink to one copy and wait for in-flight copies
 before refusing or expiring history. Every file and its object directory remain synced before completion.
 The observation rows commit before advancing the native checkpoint or resuming
 workers. A failed batch joins all started readers before aborting its roots.
-Startup releases dead native leases before journal recovery. The journal recovers only actually published objects and committed pins, marks an interrupted turn partial, and never reopens a released checkpoint or fabricates an unpublished version from live bytes. An uncommitted observation has no complete-history guarantee. Existing per-reservation recovery reconciles any interrupted batch;
+Startup releases dead native leases before journal recovery. The journal recovers actually published objects with their already committed reservation pins, marks an interrupted turn partial, and never reopens a released checkpoint or fabricates an unpublished version from live bytes. An uncommitted observation has no complete-history guarantee. An unpublished intent stays unavailable and partial; cancellation conservatively keeps its owner pins and byte charge until repair or normal expiry. Recovery discards a dead copy's temporary hardlink before validating the digest, then releases the dead charge and reconciles its object in one admitted transaction, so a dead reservation that exceeds today's cap cannot block its own removal. Existing per-reservation recovery reconciles any interrupted batch;
 a quarantined hash refuses only that version, preserving healthy batch peers. Inode caching shares successful retained hashes only: a directory permission failure at one name never suppresses a readable hardlink. Recovery removes a dead reservation's exact pending hardlink before checking its published digest, so a crash between link and unlink is recoverable. Scheduling ownership settles even if directory sync fails after publication; its durable storage charge remains until recovery.
 
 Active-turn summary and scope counters advance from committed change rows.
@@ -1903,12 +1903,14 @@ semantics. Historical reads use the existing aggregation; restart rebuilds
 active state from durable history rather than trusting a cached total.
 Receipt-only operation writes preserve every cursor; operation changes reset
 only the changed turns. An admitted `(turn_id,path,sequence)` index bounds
-same-path history reads. New writes keep a first after-version per `(turn_id,path,peer_id)` and one first-conflict boundary per `(turn_id,path)` in admitted journal tables. Solo successors perform no version-history query. Shared writes use primary-key point lookups; they never copy a growing conflict list into change rows. History materializes the existing conflict references at read time; older stored lists remain readable. Operational backups preserve both relation tables and every row, compare their exact canonical definitions when present, accept older images without either table, and refuse a partial pair or altered schema. If the table admission cannot fit, historical reads and expiry remain available and only a new observation refuses until room returns. Table creation and every relation update use the existing FULL accounted writer; no unconditional startup migration allocates their pages. Capacity failure keeps the previous history readable, records the ordinary journal-capacity result on the uncertain observation, and retries admission automatically after ordinary expiry frees room.
+same-path history reads. New writes keep a first after-version per `(turn_id,path,peer_id)` and one first-conflict boundary per `(turn_id,path)` in admitted journal tables. Solo successors perform no version-history query. Shared writes use primary-key point lookups; they never copy a growing conflict list into change rows. History materializes conflict references once per path, on that path's latest change row; earlier rows omit the optional conflict object. The UI resolves any selected observation through that one relation, keeping wire size linear in versions. Older stored lists remain readable. Operational backups preserve both relation tables and every row, compare their exact canonical definitions when present, accept older images without either table, and refuse a partial pair or altered schema. If the table admission cannot fit, historical reads and expiry remain available and only a new observation refuses until room returns. Table creation and every relation update use the existing FULL accounted writer; no unconditional startup migration allocates their pages. Admitted permanent capacity triggers (`JOURNAL_CONFLICT_GUARDS`, `packages/ui-server/src/db/journal-database.ts:129-134`) protect these tables on every open connection, including one opened before their admission. Backups preserve and validate a complete canonical trigger set, accept earlier images without the set, and refuse partial or altered sets. Capacity failure keeps the previous history readable, records the ordinary journal-capacity result on the uncertain observation, and retries admission automatically after ordinary expiry frees room.
 
 A governed admission that needs no data tree hands its unused startup view to
 a bounded background release owner. The durable native lease remains the same
 through handoff and deletion, so startup recovery still finds an interrupted
-release. At most two release owners are reserved or pending. Only the final governed branch with no data tree takes a slot, after boundary, profile, provider masks and peer folder plans resolve. Empty provider path sets mask nothing; strict fallback and data-tree consumers take no slot. If no slot is immediately free, admission releases its writer gate and discards its qualification checkpoint before waiting, then repeats admission against a fresh checkpoint with the reserved slot. No release-capacity wait holds the writer gate or an unused checkpoint. Qualification views retain their ordinary native capacity admission; the release-owner bound counts only actual handoffs/reservations. Admission waits for the first free slot and observes cancellation. Observations request capacity first and
+release. Two active qualifying views (`STARTUP_QUALIFICATION_BACKLOG`, `packages/ui-server/src/brain/native-startup-releases.ts:6`) and two reserved/pending releases (`STARTUP_RELEASE_BACKLOG`, `packages/ui-server/src/brain/native-startup-releases.ts:4`) mean at most **four admission/unused checkpoints** are pinned at once. Deliberately retained strict/data-tree/private-index consumers keep their existing independently admitted lifetimes; they are not unused cleanup backlog. Qualification admission waits before acquiring a writer gate or creating its checkpoint. Every created startup checkpoint has exactly one owner: its qualifying admission, its retaining consumer, or the retried release owner. Discarded qualifications never delete a checkpoint independently.
+
+Only the final governed branch with no data tree selects an admission release slot, after boundary, profile, provider masks and peer folder plans resolve. Empty provider path sets mask nothing; strict fallback and data-tree consumers take no admission release slot. If release capacity is full, the qualifying admission keeps its bounded view but releases its writer gate before waiting. It reacquires the gate, rechecks the current policy and retains/settles peer folder plans before handing off. No qualification-slot or release-slot wait holds a writer gate or shared hold. When a retaining consumer ends, its former view also transfers to the same bounded, retried release owner outside the gate. Admission observes cancellation; cancellation never abandons a created view, whose cleanup ownership still transfers without the cancelled signal. Observations request capacity first and
 join a release in `observe_reserve` only after a positive native capacity refusal;
 room already available never waits for deletion. Native deletion persists its `deleting` intent under the request lock, then deletes and syncs outside it. The intent fences reuse, duplicate releases join one owner, and final confirmation reacquires the lock. Unrelated checkpoint admission can proceed during reclamation.
 Failed deletion keeps the lease and physical charge, retries automatically,
@@ -3322,7 +3324,7 @@ every turn without a proven recipient:
   - **Continuation.** A denied turn may continue a conversation only when
     the host's lineage proves every folder it masks was masked from every
     contributing turn (`lineages`,
-    `packages/ui-server/src/brain/governed-turn.ts:219-228`). The lineage is
+    `packages/ui-server/src/brain/governed-turn.ts:222-231`). The lineage is
     one row per conversation in the exposure record (`session_masked_lineage`,
     migration 064, `narrowMasked`,
     `packages/ui-server/src/brain/provider-exposure.ts:68-77`). It starts
@@ -3715,7 +3717,7 @@ The backend supplies the origin before admission through the optional
 Claude from the profile's route, pi from the profile's declared model or a
 resumed session's last model over its `models.json` entry. Admission names the
 recipient only when it can record what the turn is shown (`const recipient = options.exposures`,
-`packages/ui-server/src/brain/governed-turn.ts:178-179`). A turn whose startup
+`packages/ui-server/src/brain/governed-turn.ts:190-191`). A turn whose startup
 view is not on managed native storage, where the relay runs, is refused before
 this (#3314). The turn's relay is
 then held to that origin: it refuses to start toward any other
@@ -4492,7 +4494,7 @@ every signal. A write that fails stops the turn rather than leaving its
 outward rules loose. Binding, duplicate checks and the write share a SQLite transaction
 (`recordFirstTaint`, `packages/ui-server/src/governance/session-taint.ts:21-27`).
 The hosted server runs that transaction on its write worker
-(`insertGovernanceEvent`, `packages/ui-server/src/governance/events.ts:379`;
+(`insertGovernanceEvent`, `packages/ui-server/src/governance/events.ts:380`;
 [#2850](https://github.com/schlessera/brain-kit/issues/2850)). A taint counts
 for admission from the moment it is submitted, and a connection's first byte
 waits for its taint's commit.

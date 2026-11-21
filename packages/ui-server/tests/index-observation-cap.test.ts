@@ -120,3 +120,40 @@ for (const [contentPaused, origin] of [[false, "interactive"], [true, "interacti
     await scope.finish("voyage");
   } finally { scope.close(); db.close(); }
 });
+
+
+for (const [profile, liveIndexWritable] of [["strict", undefined], ["governed", false]] as const) test(`a ${profile} turn with a private read-only index ignores the live index`, async () => {
+  const db = createUiDb(":memory:"); let observe!: Parameters<TurnJournal["onObservation"]>[0], held!: NonNullable<Parameters<TurnJournal["onObservation"]>[1]>;
+  const journal = { onObservation(callback: typeof observe, control: typeof held) { observe = callback; held = control; return () => true; } } as TurnJournal;
+  const scope = createTurnScope(db, { brainPath: "/odysseus", journal, connected: () => true, changed() {}, space: () => ({ total: 100 * 1024 ** 3, free: 50 * 1024 ** 3 }) });
+  let stopped = false;
+  try {
+    await scope.begin("voyage", { sessionId: null, principalId: "athena", origin: "interactive", profile, ...(liveIndexWritable === undefined ? {} : { liveIndexWritable }), policy: resolveGovernancePolicy({ schema_version: 1 }), source: "default", hardTimeoutMs: 3600000, current: () => true, stop() { stopped = true; } });
+    scope.workerStarted("voyage", { exited: new Promise(() => {}), freeze() {}, resume() {}, kill() {} } as never);
+    for (const indexBytes of [INDEX_OBSERVATION_CAP_BYTES + 1, null]) {
+      held.before(); observe("voyage", { changedPaths: 0, observedBytes: 0, workspacePaths: 0, partial: false, indexBytes }); held.after(true);
+      expect(scope.isPaused("voyage"), "READ_ONLY_INDEX_TURN_CANNOT_PAUSE_ON_UNWRITABLE_LIVE_INDEX").toBe(false); expect(stopped).toBe(false);
+      const saved = JSON.parse((db.query("SELECT summary FROM turn_scope WHERE turn_id='voyage'").get() as { summary: string }).summary);
+      expect(saved.indexBytes, "PRIVATE_READER_NEVER_REPORTS_UNRELATED_LIVE_INDEX_BYTES").toBeUndefined();
+      expect(saved.indexLimitBytes).toBeUndefined();
+    }
+    await scope.finish("voyage");
+  } finally { scope.close(); db.close(); }
+});
+
+for (const pending of [false, true]) test(`the index guard identifies its host-default source under a custom policy: pending=${pending}`, async () => {
+  const db = createUiDb(":memory:"); let observe!: Parameters<TurnJournal["onObservation"]>[0], held!: NonNullable<Parameters<TurnJournal["onObservation"]>[1]>;
+  const journal = { onObservation(callback: typeof observe, control: typeof held) { observe = callback; held = control; return () => true; } } as TurnJournal;
+  const scope = createTurnScope(db, { brainPath: "/odysseus", journal, connected: () => true, changed() {}, space: () => ({ total: 100 * 1024 ** 3, free: 50 * 1024 ** 3 }) });
+  try {
+    await scope.begin("voyage", { sessionId: null, principalId: "athena", origin: "interactive", profile: "governed", policy: resolveGovernancePolicy({ schema_version: 1, scope: { max_bytes_written: 10 } }), source: "policy", hardTimeoutMs: 3600000, current: () => true, stop() {} });
+    scope.workerStarted("voyage", { exited: new Promise(() => {}), freeze() {}, resume() {}, kill() {} } as never);
+    const observed = (bytes: number, indexBytes: number) => { held.before(); observe("voyage", { changedPaths: 1, observedBytes: bytes, workspacePaths: 0, partial: false, indexBytes }); held.after(true); };
+    if (pending) observed(11, 0);
+    observed(pending ? 11 : 0, INDEX_OBSERVATION_CAP_BYTES + 1);
+    const events = (db.query("SELECT payload FROM governance_events WHERE kind='scope_cap' ORDER BY id").all() as { payload: string }[]).map(row => JSON.parse(row.payload));
+    expect(events.at(-1), "INDEX_CAP_EVENT_NAMES_HOST_DEFAULT_NOT_CONTENT_POLICY").toMatchObject({ cap: "turn_bytes", result: "index_capacity", source: "default", limit: INDEX_OBSERVATION_CAP_BYTES });
+    if (pending) expect(events[0]).toMatchObject({ source: "policy", limit: 10 });
+    await scope.finish("voyage");
+  } finally { scope.close(); db.close(); }
+});

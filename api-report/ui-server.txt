@@ -1023,6 +1023,7 @@ signatures (every public export and the types it is made of)
                     voice_stopped: "voice_stopped";
                 }>;
                 overshoot: z.ZodNumber;
+                result: z.ZodOptional<z.ZodLiteral<"index_capacity">>;
                 source: z.ZodEnum<{
                     default: "default";
                     policy: "policy";
