@@ -71,6 +71,11 @@ and proportional sensitivity criteria are qualification measurements, never
 shared-runner CI time budgets. Cold-cache evidence is explicitly unavailable:
 this harness cannot establish an isolated cache-drop condition and never
 mutates the shared runner cache. Default runs omit the `tree` section.
+Large-tree health, WebSocket, admission, Stop and settlement waits use a measurement
+watchdog sized as 120,000 ms plus 2 ms per configured leaf/object and four
+entries per checkout; the overall timeout scales with that watchdog. This is
+a hang bound, not a performance promise. The small qualification keeps its
+existing one-second health/WebSocket, ten-second admission and Stop assertions.
 
 `observation-holds.json` prints each lifecycle's hosted hold records, closing
 steps and recorder/idle milestones alongside the existing timing artifact.

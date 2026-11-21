@@ -146,8 +146,9 @@ export function workerCgroupHostFailed(reason: string): void {
 
 export interface WorkerCgroup {
   path: string;
-  freeze(): void;
-  resume(): void;
+  frozen(): boolean;
+  freeze(): boolean;
+  resume(): boolean;
   /** Limits written to this cgroup, by name. */
   applied: Array<{ limit: "memory" | "pids" | "cpu"; value: number }>;
   /** What the kernel recorded against those limits so far. */
@@ -198,8 +199,14 @@ export function createWorkerCgroup(host: Extract<WorkerCgroupHost, { available: 
     try { rmdirSync(path); } catch { /* best effort */ }
     throw error;
   }
+  const populated = () => readFileSync(join(path, "cgroup.procs"), "utf8").trim().split(/\s+/).some(pid => {
+    if (!/^\d+$/.test(pid)) return false;
+    try { return !["Z", "X", "x"].includes(readFileSync(`/proc/${pid}/stat`, "utf8").replace(/^.*\) /s, "").split(" ")[0]!); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT" || (error as NodeJS.ErrnoException).code === "ESRCH") return false; throw error; }
+  });
   return {
     path,
+    frozen() { return counter(join(path, "cgroup.events"), "frozen") === 1 && populated(); },
     freeze() {
       writeFileSync(join(path, "cgroup.freeze"), "1");
       const deadline = Date.now() + 5_000;
@@ -207,8 +214,9 @@ export function createWorkerCgroup(host: Extract<WorkerCgroupHost, { available: 
         if (Date.now() >= deadline) throw new Error("Worker cgroup did not confirm its frozen state");
         Bun.sleepSync(1);
       }
+      return populated();
     },
-    resume() { writeFileSync(join(path, "cgroup.freeze"), "0"); },
+    resume() { const stopped = counter(join(path, "cgroup.events"), "frozen") === 1 && populated(); writeFileSync(join(path, "cgroup.freeze"), "0"); return stopped; },
     applied,
     hits() {
       const out: WorkerLimitHit[] = [];

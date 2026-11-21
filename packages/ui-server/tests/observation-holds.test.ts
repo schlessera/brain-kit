@@ -17,8 +17,8 @@ test("three tool holds share exact physical stop and resume evidence across turn
   const loom = createTurnLifecycle(store, "loom", "scheria", now, () => {}, () => now);
   const exit = Promise.withResolvers<number>();
   const events: string[] = [];
-  const worker = (id: string) => ({ exited: exit.promise, freeze() { events.push(`${id}:stop`); now += 10; },
-    resume() { events.push(`${id}:resume`); now += 20; }, kill() {} }) as unknown as Parameters<NonNullable<StartTurnRequest["workerStarted"]>>[0];
+  const worker = (id: string) => ({ exited: exit.promise, freeze() { events.push(`${id}:stop`); now += 10; return true; },
+    resume() { events.push(`${id}:resume`); now += 20; return true; }, kill() {} }) as unknown as Parameters<NonNullable<StartTurnRequest["workerStarted"]>>[0];
   try {
     await f.begin();
     f.db.query("INSERT INTO sessions(id,title,created_at,last_active_at) VALUES ('scheria','Loom',0,0)").run();
@@ -61,7 +61,7 @@ test("the 15 second observation records a periodic hold and a failed resume stay
   try {
     await f.begin();
     f.journal.evidence?.("voyage", hold => holds.push(hold));
-    f.scope.workerStarted("voyage", { exited: exited.promise, freeze() {}, resume() { throw Error("resume unavailable"); }, kill() {} } as unknown as Parameters<NonNullable<StartTurnRequest["workerStarted"]>>[0]);
+    f.scope.workerStarted("voyage", { exited: exited.promise, freeze() { return true; }, resume() { throw Error("resume unavailable"); }, kill() {} } as unknown as Parameters<NonNullable<StartTurnRequest["workerStarted"]>>[0]);
     expect(typeof tick).toBe("function"); tick!(); await f.journal.idle();
     expect(holds, "PERIODIC_HOLD_RECORDED").toHaveLength(1);
     expect(holds[0]).toMatchObject({ cause: "periodic", causeTurnId: null, resumedAt: null, changedPaths: 0 });
@@ -94,7 +94,7 @@ test("a hold samples a real inference stream in flight and a later hold sees it 
       }); req.on("error", reject); req.end("{}");
     });
     await streaming.promise;
-    f.scope.workerStarted("voyage", { exited: workerExit.promise, freeze() {}, resume() {}, kill() {} } as unknown as Parameters<NonNullable<StartTurnRequest["workerStarted"]>>[0]);
+    f.scope.workerStarted("voyage", { exited: workerExit.promise, freeze() { return true; }, resume() { return true; }, kill() {} } as unknown as Parameters<NonNullable<StartTurnRequest["workerStarted"]>>[0]);
     await f.journal.toolEnded("voyage", "shell-stream");
     expect(holds.map(h => h.inferenceInFlight), "HOLD_OVERLAPS_REAL_STREAM").toEqual([true]);
     output.close(); expect(await done).toBe("Ithaca");
@@ -112,7 +112,7 @@ test("a scope cap records the initial freeze and only a confirmed grant resume",
   try {
     await f.begin();
     f.journal.evidence?.("voyage", hold => holds.push(hold));
-    f.scope.workerStarted("voyage", { exited: exited.promise, freeze() { now += 10; }, resume() { now += 20; }, kill() {} } as unknown as Parameters<NonNullable<StartTurnRequest["workerStarted"]>>[0]);
+    f.scope.workerStarted("voyage", { exited: exited.promise, freeze() { now += 10; return true; }, resume() { now += 20; return true; }, kill() {} } as unknown as Parameters<NonNullable<StartTurnRequest["workerStarted"]>>[0]);
     f.scope.toolCall("voyage", "shell-1"); await f.journal.idle();
     const caps = holds.filter(h => h.cause === "scope" && h.causeTurnId === "voyage");
     expect(caps, "SCOPE_CAP_HOLD_RECORDED").toHaveLength(1);
@@ -134,7 +134,7 @@ test("a late worker resamples inference and updates every affected turn's stoppe
   const exited = Promise.withResolvers<number>(), entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
   const checkpoint = f.native.manager.checkpoint;
   let inFlight = false;
-  const worker = () => ({ exited: exited.promise, freeze() {}, resume() {}, kill() {} }) as unknown as Parameters<NonNullable<StartTurnRequest["workerStarted"]>>[0];
+  const worker = () => ({ exited: exited.promise, freeze() { return true; }, resume() { return true; }, kill() {} }) as unknown as Parameters<NonNullable<StartTurnRequest["workerStarted"]>>[0];
   try {
     await f.begin(); await addLoom(f);
     f.journal.evidence("voyage", hold => first.push(hold)); f.journal.evidence("loom", hold => second.push(hold), () => inFlight);
@@ -155,14 +155,14 @@ test("granting continuation after the paused worker exited never invents a resum
   const exited = Promise.withResolvers<number>(); let resumes = 0;
   try {
     await f.begin(); f.journal.evidence("voyage", hold => holds.push(hold));
-    f.scope.workerStarted("voyage", { exited: exited.promise, freeze() {}, resume() { resumes++; }, kill() {} } as unknown as Parameters<NonNullable<StartTurnRequest["workerStarted"]>>[0]);
+    f.scope.workerStarted("voyage", { exited: exited.promise, freeze() { return true; }, resume() { resumes++; return true; }, kill() {} } as unknown as Parameters<NonNullable<StartTurnRequest["workerStarted"]>>[0]);
     f.scope.toolCall("voyage", "shell-exit"); await f.journal.idle(); exited.resolve(0); await exited.promise;
     expect((await f.scope.decide(f.message("continue"), true)).state).toBe("accepted");
     expect(resumes).toBe(0); expect(holds).toHaveLength(1);
     expect(holds.map(hold => hold.resumedAt), "NO_WORKER_MEANS_NO_RESUME_RECEIPT").toEqual([null]);
     const nextExit = Promise.withResolvers<number>();
     try {
-      f.scope.workerStarted("voyage", { exited: nextExit.promise, freeze() {}, resume() { resumes++; }, kill() {} } as unknown as Parameters<NonNullable<StartTurnRequest["workerStarted"]>>[0]);
+      f.scope.workerStarted("voyage", { exited: nextExit.promise, freeze() { return true; }, resume() { resumes++; return true; }, kill() {} } as unknown as Parameters<NonNullable<StartTurnRequest["workerStarted"]>>[0]);
       await f.journal.observe();
       expect(resumes).toBe(1);
       expect(holds[0]!.resumedAt, "A_LATER_WORKER_CANNOT_COMPLETE_AN_EXPIRED_HOLD").toBeNull();
@@ -173,7 +173,7 @@ test("granting continuation after the paused worker exited never invents a resum
 test("a scope observation shares its cap identity and preserves the triggering tool", async () => {
   const f = scopeFixture({ max_tool_calls: 1 }); const first: ActivityTurnHold[] = [], second: ActivityTurnHold[] = [];
   const exited = Promise.withResolvers<number>();
-  const worker = () => ({ exited: exited.promise, freeze() {}, resume() {}, kill() {} }) as unknown as Parameters<NonNullable<StartTurnRequest["workerStarted"]>>[0];
+  const worker = () => ({ exited: exited.promise, freeze() { return true; }, resume() { return true; }, kill() {} }) as unknown as Parameters<NonNullable<StartTurnRequest["workerStarted"]>>[0];
   try {
     await f.begin(); await addLoom(f);
     f.journal.evidence("voyage", hold => first.push(hold)); f.journal.evidence("loom", hold => second.push(hold));
@@ -191,7 +191,7 @@ test("a file cap keeps the triggering observation's count through later quiet ca
   const exited = Promise.withResolvers<number>();
   try {
     await f.begin(); f.journal.evidence("voyage", hold => holds.push(hold));
-    f.scope.workerStarted("voyage", { exited: exited.promise, freeze() {}, resume() {}, kill() {} } as unknown as Parameters<NonNullable<StartTurnRequest["workerStarted"]>>[0]);
+    f.scope.workerStarted("voyage", { exited: exited.promise, freeze() { return true; }, resume() { return true; }, kill() {} } as unknown as Parameters<NonNullable<StartTurnRequest["workerStarted"]>>[0]);
     f.journal.toolStarted("voyage", "shell-files", "bash", true);
     writeFileSync(join(f.brain, "ithaca.md"), "Odysseus returns.\n"); await f.journal.toolEnded("voyage", "shell-files");
     const cap = holds.find(hold => hold.cause === "scope")!;
@@ -212,4 +212,62 @@ test("one held settings operation unions changed paths across its final quiet ob
     expect(holds).toHaveLength(1);
     expect(holds[0]!.changedPaths, "MULTIPLE_CAPTURES_KEEP_THE_UNION_OF_PATHS").toBe(1);
   } finally { await f.close(); }
+});
+
+test("a completed hold cannot acquire a stop from a later overlapping interval", async () => {
+  const f = scopeFixture(), holds: ActivityTurnHold[] = [];
+  const a = Promise.withResolvers<void>(), b = Promise.withResolvers<void>(), enteredA = Promise.withResolvers<void>(), enteredB = Promise.withResolvers<void>(), exited = Promise.withResolvers<number>();
+  const checkpoint = f.native.manager.checkpoint; let calls = 0;
+  try {
+    await f.begin(); f.journal.evidence("voyage", hold => holds.push(hold));
+    f.native.manager.checkpoint = async (...args) => { if (++calls === 1) { enteredA.resolve(); await a.promise; } else { enteredB.resolve(); await b.promise; } return checkpoint(...args); };
+    const first = f.journal.toolEnded("voyage", "shell-a"); await enteredA.promise;
+    const second = f.journal.toolEnded("voyage", "shell-b"); a.resolve(); await first; await enteredB.promise;
+    f.scope.workerStarted("voyage", { exited: exited.promise, freeze() { return true; }, resume() { return true; }, kill() {} });
+    expect(holds[0]!.stoppedAt, "COMPLETED_INTERVAL_CANNOT_ACQUIRE_LATER_STOP").toBeNull();
+    expect(holds[1]!.stoppedAt).not.toBeNull();
+    b.resolve(); await second;
+  } finally { a.resolve(); b.resolve(); exited.resolve(0); f.native.manager.checkpoint = checkpoint; await f.close(); }
+});
+
+test("a gone process awaiting output cleanup produces no physical hold receipts", async () => {
+  const { createWorkerFreezer } = await import("../../ui-sdk/src/server/worker-freezer");
+  const f = scopeFixture(), first: ActivityTurnHold[] = [], second: ActivityTurnHold[] = [], exited = Promise.withResolvers<number>();
+  const gone = createWorkerFreezer(2_147_483_647);
+  try {
+    await f.begin(); await addLoom(f);
+    f.journal.evidence("voyage", hold => first.push(hold)); f.journal.evidence("loom", hold => second.push(hold));
+    f.scope.workerStarted("voyage", { exited: exited.promise, freeze() { return true; }, resume() { return true; }, kill() {} });
+    f.scope.workerStarted("loom", { ...gone, exited: exited.promise, kill() {} });
+    await f.journal.toolEnded("voyage", "shell-gone");
+    expect([second[0]!.stoppedAt, second[0]!.resumedAt, first[0]!.otherTurnsStopped], "EXITED_PROCESS_IS_NOT_A_CONFIRMED_STOP").toEqual([null, null, 0]);
+    expect(gone.freeze(), "FREEZER_RETURNS_FALSE_FOR_EXITED_PROCESS").toBe(false);
+    expect(gone.resume()).toBe(false);
+  } finally { exited.resolve(0); await f.close(); }
+});
+
+test("policy writes and targeted retention keep their known causing turn", async () => {
+  const f = scopeFixture(), holds: ActivityTurnHold[] = [];
+  try {
+    await f.begin(); f.journal.evidence("voyage", hold => holds.push(hold));
+    await f.journal.observeUserPolicy("voyage", () => { writeFileSync(join(f.brain, "ithaca.md"), "Odysseus returns.\n"); });
+    await f.journal.retainBefore("voyage", "ithaca.md");
+    expect(holds.map(hold => hold.causeTurnId), "POLICY_AND_RETENTION_HOLDS_KEEP_CAUSING_TURN").toEqual(["voyage", "voyage"]);
+  } finally { await f.close(); }
+});
+
+test("nested holds do not reuse stop proof after a frozen worker exits", async () => {
+  const f = scopeFixture(), holds: ActivityTurnHold[] = [], exited = Promise.withResolvers<number>(), entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  const checkpoint = f.native.manager.checkpoint; let live = true;
+  try {
+    await f.begin(); f.journal.evidence("voyage", hold => holds.push(hold));
+    f.scope.workerStarted("voyage", { exited: exited.promise, freeze() { return live; }, frozen() { return live; }, resume() { return live; }, kill() {} });
+    f.native.manager.checkpoint = async (...args) => { entered.resolve(); await release.promise; return checkpoint(...args); };
+    const first = f.journal.toolEnded("voyage", "shell-stop"); await entered.promise;
+    live = false; const second = f.journal.toolEnded("voyage", "shell-after-exit");
+    expect(holds[0]!.stoppedAt).not.toBeNull();
+    expect(holds[1]!.stoppedAt, "NESTED_HOLD_RECHECKS_CURRENT_STOP_EVIDENCE").toBeNull();
+    release.resolve(); await Promise.all([first, second]);
+    expect(holds[0]!.resumedAt).toBeNull();
+  } finally { release.resolve(); exited.resolve(0); f.native.manager.checkpoint = checkpoint; await f.close(); }
 });

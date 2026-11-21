@@ -1,4 +1,5 @@
 /** Deterministic, empty-file load for the existing offline timing fixture. */
+import { watchdogMs } from "../test-deadlines.js";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -72,4 +73,10 @@ export function traceObserverBootstrap<A extends unknown[], T>(initialize: (...a
     try { const value = await initialize(...args); outcome = "completed"; return value; }
     finally { report({ elapsedMs: Math.max(0, now() - started), outcome }); }
   };
+}
+
+/** The large scenario measures slow walks; its limits are size-scaled watchdogs. */
+export function observationTreeWatchdog(sizes?: ObservationTree): number | undefined {
+  if (!sizes) return;
+  return watchdogMs(120_000 + 2 * (sizes.workspaceEntries + sizes.dependencyEntries + sizes.journalObjects + 4 * sizes.checkouts));
 }

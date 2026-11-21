@@ -194,3 +194,20 @@ test("real dispatch attributes a queued index delay and final observation only t
     expect(record).toMatchObject({ endedAt: 1900, recorderSettledAt: 1900, idleEmittedAt: 1900 });
   } finally { setup.mockRestore(); clock.mockRestore(); host.close(); stream.close(); db.close(); }
 });
+
+test("identical terminal replay emits no new change while a new trailing receipt does", () => {
+  const db = createUiDb(":memory:"), store = createActivityStore(db);
+  try {
+    const life = createTurnLifecycle(store, "turn-replay", "ithaca", 1000, () => {}, () => 1100);
+    life.finish("success"); const terminal = store.lifecycle("turn-replay")!;
+    const count = () => (db.query("SELECT count(*) AS count FROM activity_changes").get() as { count: number }).count;
+    const before = count(); store.writeLifecycle(terminal);
+    expect(count(), "IDENTICAL_TERMINAL_REPLAY_IS_SILENT").toBe(before);
+    store.writeLifecycle({ ...terminal, recorderSettledAt: 1200 });
+    expect(count()).toBe(before + 1);
+    store.writeLifecycle({ ...terminal, recorderSettledAt: 1200 });
+    expect(count(), "IDENTICAL_TRAILING_RECEIPT_IS_SILENT").toBe(before + 1);
+    store.writeLifecycle({ ...terminal, recorderSettledAt: 9999, idleEmittedAt: 1300 });
+    expect(store.lifecycle("turn-replay")).toMatchObject({ recorderSettledAt: 1200, idleEmittedAt: 1300 });
+  } finally { db.close(); }
+});

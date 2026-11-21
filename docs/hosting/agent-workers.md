@@ -132,7 +132,11 @@ qualification succeeds. Without a helper they disclose shared UID and mask-only
 server-state protection, including the configured database mask.
 
 TERM/KILL/INT retain their meaning; STOP/CONT operate on the verified worker
-tree, including nested PID namespaces, with completion receipts. Supervisor
+tree, including nested PID namespaces, with completion receipts. A legacy
+helper completion does not distinguish an empty tree from a live signal, so
+host timing leaves physical stop/resume unknown for that path. Direct PID
+namespace and cgroup controls confirm live membership separately from output
+cleanup; timing rechecks that evidence for overlapping holds. Supervisor
 death has an independent kernel-bound termination path established after UID
 transition. Control loss, server death, cancellation and setup failure also
 terminate owned workers. Recovery never begins while a known owned writer

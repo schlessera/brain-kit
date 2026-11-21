@@ -33,10 +33,10 @@ export function setup(db: Database): WriteProcedures {
       db.query("INSERT INTO turn_scope(turn_id,session_id,principal_id,summary) VALUES (?,?,?,?)").run(turnId, sessionId, principalId, summary);
     },
     save(turnId: string, sessionId: string | null, summary: string) {
-      db.query("UPDATE turn_scope SET session_id=?,summary=? WHERE turn_id=?").run(sessionId, summary, turnId);
+      return db.query("UPDATE turn_scope SET session_id=?,summary=? WHERE turn_id=?").run(sessionId, summary, turnId).changes === 1;
     },
     end(turnId: string, endedAt: number) {
-      db.query("UPDATE turn_scope SET ended_at=? WHERE turn_id=?").run(endedAt, turnId);
+      return db.query("UPDATE turn_scope SET ended_at=? WHERE turn_id=?").run(endedAt, turnId).changes === 1;
     },
   };
 }

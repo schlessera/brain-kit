@@ -12,7 +12,7 @@ function fixture() {
   const timeout = setTimeout(() => {}, 30000); timeout.unref();
   const run = { host: { dialogue: { retireTurn() {} }, log: { emit() {} } }, slot: { releaseActive() {} },
     turn: { turnId: "turn-ithaca", sessionId: "ithaca" }, current: {}, lifecycle, timeoutHandle: timeout,
-    failureRecording: { async finish() {} }, held: {}, stops: {}, abortController: new AbortController() } as unknown as TurnRun;
+    failureRecording: { async finish() { return true; } }, held: {}, stops: {}, abortController: new AbortController() } as unknown as TurnRun;
   return { db, store, lifecycle, run, advance(ms: number) { now += ms; }, close() { clearTimeout(timeout); clock.mockRestore(); db.close(); } };
 }
 const outcome = { lifecycle: "error", work: "error", cancelledBeforeStart: false } as const;
@@ -43,8 +43,8 @@ test("caught generation and reconciliation failures leave their closing steps in
 
 test("scope completion records its promise settlement without adding a close-path wait", async () => {
   const f = fixture(); const scope = Promise.withResolvers<void>(), entered = Promise.withResolvers<void>(), final = Promise.withResolvers<void>();
-  Object.assign(f.run.host, { scope: { finish() { entered.resolve(); return scope.promise; } } });
-  f.run.failureRecording.finish = async () => { await final.promise; };
+  Object.assign(f.run.host, { scope: { finish() { entered.resolve(); return scope.promise.then(() => true); } } });
+  f.run.failureRecording.finish = async () => { await final.promise; return true; };
   let done: Promise<void> | undefined;
   try {
     done = teardownTurn(f.run, outcome); await entered.promise;
@@ -58,7 +58,7 @@ test("scope completion records its promise settlement without adding a close-pat
 
 test("scope writes still pending at the existing terminal boundary remain explicitly unknown", async () => {
   const f = fixture(); const scope = Promise.withResolvers<void>();
-  Object.assign(f.run.host, { scope: { finish() { return scope.promise; } } });
+  Object.assign(f.run.host, { scope: { finish() { return scope.promise.then(() => true); } } });
   try {
     await teardownTurn(f.run, outcome);
     expect(f.store.lifecycle("turn-ithaca")!.endedAt).toBe(1000);
@@ -88,4 +88,160 @@ test("backend failure attributes the first pending egress settlement on the erro
     await runSession(host, { authorization: testAuthorization("odysseus"), text: "Plan Ithaca", attachments: [] });
     expect(store.lifecycles()[0]!.openSubPhases?.filter(step => step.name === "egress_settle").map(step => step.elapsedMs), "ERROR_PATH_KEEPS_FIRST_EGRESS_WAIT").toEqual([500, 0]);
   } finally { prepare.mockRestore(); clock.mockRestore(); host.close(); stream.close(); db.close(); }
+});
+
+test("failed scope writes and absent scope admission never report scope completion", async () => {
+  const { scopeFixture } = await import("./helpers/scope-fixture");
+  for (const admitted of [false, true]) {
+    const scope = scopeFixture(), f = fixture();
+    try {
+      if (admitted) {
+        await scope.begin();
+        scope.db.exec("CREATE TEMP TRIGGER refuse_scope_updates BEFORE UPDATE ON turn_scope BEGIN SELECT RAISE(FAIL, 'scope storage unavailable'); END");
+      }
+      Object.assign(f.run.host, { scope: scope.scope }); f.run.turn.turnId = "voyage";
+      await teardownTurn(f.run, outcome);
+      expect(f.store.lifecycle("turn-ithaca")!.openSubPhases?.find(step => step.name === "scope_finish")?.endedAt,
+        "FAILED_OR_UNOPENED_SCOPE_IS_NOT_COMPLETE").toBeNull();
+      if (admitted) expect(scope.db.query("SELECT ended_at FROM turn_scope WHERE turn_id='voyage'").get()).toEqual({ ended_at: null });
+    } finally { f.close(); await scope.close(); }
+  }
+});
+
+for (const mode of ["catalog", "history", "timeout"] as const) test(`failed replay ${mode} remains incomplete in closing evidence`, async () => {
+  const { FailureReplay } = await import("../src/ws/turn-failures");
+  const { makeFakeBackend } = await import("./helpers/fake-backend");
+  const f = fixture();
+  const backend = makeFakeBackend({ id: "pi", async getHistory() {
+    if (mode === "history") throw Error("history unavailable");
+    if (mode === "timeout") return new Promise(() => {});
+    return [{ role: "assistant", content: "Odysseus returns.", toolCalls: [] }];
+  } });
+  const replay = new FailureReplay({ recordTurnBoundary() { throw Error("catalog unavailable"); } } as unknown as import("../src/ws/session-catalog").SessionCatalog,
+    { emit() {} } as unknown as import("@opentelemetry/api-logs").Logger, 5);
+  try {
+    Object.assign(f.run, { failureRecording: await replay.begin(backend, undefined, "turn-ithaca", new AbortController().signal) });
+    await teardownTurn(f.run, outcome);
+    expect(f.store.lifecycle("turn-ithaca")!.openSubPhases?.find(step => step.name === "failure_recording")?.endedAt,
+      "FAILED_REPLAY_RECORDING_IS_NOT_COMPLETE").toBeNull();
+    await replay.wait("ithaca");
+  } finally { f.close(); }
+});
+
+test("a failed replay failure write reports false even when its boundary succeeds", async () => {
+  const { FailureReplay } = await import("../src/ws/turn-failures");
+  const { makeFakeBackend } = await import("./helpers/fake-backend");
+  const failure = { message: "Odysseus cannot finish." } as import("@schlessera/brain-ui-sdk/protocol").TurnFailure;
+  const replay = new FailureReplay({ recordTurnFailure() { throw Error("failure ledger unavailable"); } } as unknown as import("../src/ws/session-catalog").SessionCatalog,
+    { emit() {} } as unknown as import("@opentelemetry/api-logs").Logger);
+  const backend = makeFakeBackend({ id: "pi", async getHistory() { return [{ role: "assistant", content: "", toolCalls: [], failure }]; } });
+  const recording = await replay.begin(backend, undefined, "turn-ithaca", new AbortController().signal);
+  recording.observe("ithaca", failure);
+  expect(await recording.finish("ithaca"), "FAILED_FAILURE_WRITE_IS_NOT_SUCCESS").toBe(false);
+});
+
+test("teardown unregisters hold evidence even when share cleanup rejects", async () => {
+  const f = fixture(), evidence: string[] = [];
+  Object.assign(f.run.host, { journal: { async finish() {}, evidence(turnId: string) { evidence.push(turnId); } },
+    inboxTools: { shares: { async end() { throw Error("share cleanup unavailable"); } } } });
+  try {
+    await expect(teardownTurn(f.run, outcome)).rejects.toThrow("share cleanup unavailable");
+    expect(evidence, "FAILED_TEARDOWN_RELEASES_EVIDENCE_CALLBACK").toEqual(["turn-ithaca"]);
+  } finally { f.close(); }
+});
+
+test("a failed index barrier leaves its closing step incomplete", async () => {
+  const { WsHost } = await import("../src/ws/host");
+  const { runSession } = await import("../src/ws/run-session");
+  const { createSessionCatalog } = await import("../src/ws/session-catalog");
+  const { createStaticBackendRegistry } = await import("../src/agent/backend");
+  const { createActivityStream } = await import("../src/activity/stream");
+  const { makeFakeBackend } = await import("./helpers/fake-backend");
+  const { testAuthorization } = await import("./helpers/principal");
+  const bridge = await import("../src/ws/bridge");
+  const barrier = spyOn(bridge, "settleTurnIndex").mockRejectedValue(Error("index unavailable"));
+  const db = createUiDb(":memory:"), store = createActivityStore(db), stream = createActivityStream(store);
+  const host = new WsHost({ registry: createStaticBackendRegistry([makeFakeBackend({ id: "pi" })], "pi"), catalog: createSessionCatalog(() => db), activity: { store, stream } });
+  try {
+    await runSession(host, { authorization: testAuthorization("odysseus"), text: "Plan Ithaca", attachments: [] });
+    const steps = store.lifecycles()[0]!.openSubPhases?.filter(step => step.name === "index_settle");
+    expect(steps?.length).toBeGreaterThan(0);
+    expect(steps?.every(step => step.endedAt === null), "FAILED_INDEX_SETTLEMENT_IS_NOT_COMPLETE").toBe(true);
+  } finally { barrier.mockRestore(); host.close(); stream.close(); db.close(); }
+});
+
+test("authority revoked during billing still times reached failure cleanup", async () => {
+  const { WsHost } = await import("../src/ws/host");
+  const { runSession } = await import("../src/ws/run-session");
+  const { createSessionCatalog } = await import("../src/ws/session-catalog");
+  const { createStaticBackendRegistry } = await import("../src/agent/backend");
+  const { createActivityStream } = await import("../src/activity/stream");
+  const { makeFakeBackend } = await import("./helpers/fake-backend");
+  const { testAuthorization } = await import("./helpers/principal");
+  const billing = await import("../src/ws/session-run/billing");
+  const authorization = testAuthorization("odysseus");
+  const revoke = spyOn(billing, "resolveRunBilling").mockImplementation(async () => { authorization.valid = false; return undefined; });
+  const db = createUiDb(":memory:"), store = createActivityStore(db), stream = createActivityStream(store);
+  const host = new WsHost({ registry: createStaticBackendRegistry([makeFakeBackend({ id: "pi" })], "pi"), catalog: createSessionCatalog(() => db), activity: { store, stream } });
+  try {
+    await runSession(host, { authorization, text: "Plan Ithaca", attachments: [] });
+    const step = store.lifecycles()[0]!.openSubPhases?.find(step => step.name === "failure_recording");
+    expect(step?.endedAt, "BILLING_REVOCATION_RECORDS_REACHED_CLEANUP").toBeNumber();
+  } finally { revoke.mockRestore(); host.close(); stream.close(); db.close(); }
+});
+
+test("real catalog write failure is reflected by replay completion despite its logged catch", async () => {
+  const { FailureReplay } = await import("../src/ws/turn-failures");
+  const { createSessionCatalog } = await import("../src/ws/session-catalog");
+  const { makeFakeBackend } = await import("./helpers/fake-backend");
+  const db = createUiDb(":memory:");
+  db.exec("INSERT INTO sessions(id,title,created_at,last_active_at) VALUES ('ithaca','Voyage',0,0)");
+  db.exec("CREATE TEMP TRIGGER refuse_failure BEFORE INSERT ON turn_failures BEGIN SELECT RAISE(FAIL, 'failure storage unavailable'); END");
+  const catalog = createSessionCatalog(() => db);
+  const failure = { message: "Odysseus cannot finish." } as import("@schlessera/brain-ui-sdk/protocol").TurnFailure;
+  const backend = makeFakeBackend({ id: "pi", async getHistory() { return [{ role: "assistant", content: "", toolCalls: [], failure }]; } });
+  const replay = new FailureReplay(catalog, { emit() {} } as unknown as import("@opentelemetry/api-logs").Logger);
+  try {
+    const recording = await replay.begin(backend, undefined, "turn-ithaca", new AbortController().signal);
+    recording.observe("ithaca", failure);
+    expect(await recording.finish("ithaca"), "REAL_CATALOG_FAILURE_CANNOT_COMPLETE_REPLAY_STEP").toBe(false);
+    await catalog.settled?.();
+    expect(db.query("SELECT count(*) AS count FROM turn_failures").get()).toEqual({ count: 0 });
+  } finally { db.close(); }
+});
+
+test("pending catalog writes do not add a wait or claim completion", async () => {
+  const { FailureReplay } = await import("../src/ws/turn-failures");
+  const { makeFakeBackend } = await import("./helpers/fake-backend");
+  const stored = Promise.withResolvers<boolean>();
+  const replay = new FailureReplay({ recordTurnBoundary() { return stored.promise; } } as unknown as import("../src/ws/session-catalog").SessionCatalog,
+    { emit() {} } as unknown as import("@opentelemetry/api-logs").Logger);
+  const backend = makeFakeBackend({ id: "pi", async getHistory() { return [{ role: "assistant", content: "Odysseus returns.", toolCalls: [] }]; } });
+  try {
+    const recording = await replay.begin(backend, undefined, "turn-ithaca", new AbortController().signal);
+    expect(await recording.finish("ithaca"), "PENDING_CATALOG_WRITE_IS_UNCONFIRMED_WITHOUT_NEW_WAIT").toBe(false);
+  } finally { stored.resolve(true); }
+});
+
+test("scope finalization reports the real outcome of both database writes", async () => {
+  const { scopeFixture } = await import("./helpers/scope-fixture");
+  for (const fail of [false, true]) {
+    const scope = scopeFixture();
+    try {
+      await scope.begin();
+      if (fail) scope.db.exec("CREATE TEMP TRIGGER refuse_scope_final BEFORE UPDATE ON turn_scope BEGIN SELECT RAISE(FAIL, 'scope storage unavailable'); END");
+      expect(await scope.scope.finish("voyage"), "SCOPE_FINAL_WRITES_REPORT_ACTUAL_SUCCESS").toBe(!fail);
+      expect(await scope.scope.finish("unopened"), "UNOPENED_SCOPE_IS_NOT_SUCCESS").toBe(false);
+    } finally { await scope.close(); }
+  }
+});
+
+
+test("a disappeared scope row cannot produce successful finalization", async () => {
+  const { scopeFixture } = await import("./helpers/scope-fixture");
+  const scope = scopeFixture();
+  try {
+    await scope.begin(); scope.db.exec("DELETE FROM turn_scope WHERE turn_id='voyage'");
+    expect(await scope.scope.finish("voyage"), "MISSING_SCOPE_ROW_CANNOT_CONFIRM_FINAL_WRITES").toBe(false);
+  } finally { await scope.close(); }
 });

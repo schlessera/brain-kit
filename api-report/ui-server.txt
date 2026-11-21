@@ -2139,15 +2139,15 @@ signatures (every public export and the types it is made of)
         }): number | undefined;
         recordStateRoom?(sessionId: string, observation: StateRoomObservation): void;
         readStateRoom?(sessionId: string): StateRoomObservation | undefined;
-        recordScratchPins?(sessionId: string, backendId: string, messages: SessionHistoryMessage[]): void;
-        recordTurnFailure?(sessionId: string, backendId: string, record: RecordedTurnFailure): void;
+        recordScratchPins?(sessionId: string, backendId: string, messages: SessionHistoryMessage[]): boolean | void | Promise<boolean>;
+        recordTurnFailure?(sessionId: string, backendId: string, record: RecordedTurnFailure): boolean | void | Promise<boolean>;
         attachTurnFailures?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
         settled?(): Promise<void>;
         acceptWork?(sessionId: string, requestId: string | null, backendId: string | null, settled?: (stored: boolean) => void): number | null;
         dispatchWork?(sessionId: string, revision: number, turnId: string, backendId: string, startedAt: number): void;
         latestWork?(sessionId: string): work.AcceptedWork | null;
         hasSession?(sessionId: string): boolean;
-        recordTurnBoundary?(sessionId: string, backendId: string, boundary: work.TurnBoundary): void;
+        recordTurnBoundary?(sessionId: string, backendId: string, boundary: work.TurnBoundary): boolean | void | Promise<boolean>;
         attachTurnBoundaries?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
         getStoredProviderId(sessionId: string): string | null;
         saveRetryRequest?(sessionId: string, turnId: string, principalId: string, request: ClientChatMessage, prompt: string, failure: TurnFailure): boolean;

@@ -128,7 +128,7 @@ export async function openTurnBridge(
   // and its paths stay queued for the next reader; the turn still ends.
   held.settleIndex = async () => {
     const end = run.lifecycle?.timer("closing", { pending: hasPendingTurnIndex(bridge) })("index_settle");
-    await settleTurnIndex(bridge).catch(() => {}); end?.();
+    try { await settleTurnIndex(bridge); end?.(); } catch { /* Failed flush remains queued; the step stays unended. */ }
   };
   const fallback = governedHold?.sandbox.fallbackReason;
   if (fallback) {

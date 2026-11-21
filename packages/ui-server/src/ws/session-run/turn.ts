@@ -47,7 +47,8 @@ export async function runSlotTurn(slot: SessionSlot, current: QueuedFollowUp, li
   if (!turn.authorization.valid) {
     host.budgets?.end(turn.turnId);
     turn.revision = undefined;
-    await failureRecording.finish();
+    const failureEnd = lifecycle?.timer("closing")("failure_recording");
+    if (await failureRecording.finish()) failureEnd?.();
     clearTimeout(timeoutHandle);
     // A cancellation accepted while billing was in flight is already a
     // decision someone made; losing it because the turn's own principal

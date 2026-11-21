@@ -297,7 +297,7 @@ export async function prepareTurnEgress(options: {
           operation.signal.addEventListener("abort", abort, { once: true });
           if (operation.signal.aborted) resolve(false);
         })]);
-        if (!ready) { operation.finish("denied", "session_binding_unavailable"); return false; }
+        if (!ready) { operation.mark("admitMs"); operation.finish("denied", "session_binding_unavailable"); return false; }
         return !operation.signal.aborted && await operation.admit();
       } finally { if (abort) operation.signal.removeEventListener("abort", abort); }
     } };

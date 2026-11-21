@@ -1103,9 +1103,12 @@ export type LaunchedWorker = ReturnType<ReturnType<typeof createWorkerPipes>["st
   /** Resolves once no descriptor of this worker's stdio remains open in this process, once its streams have ended (#2862). */
   released(): Promise<void>;
   kill(signal?: NodeJS.Signals): void;
-  /** Confirm the worker and all descendants are frozen before returning. */
-  freeze(): void;
-  resume(): void;
+  /** Confirm frozen descendants; true proves at least one live process stopped. Void is unconfirmed legacy control. */
+  freeze(): boolean | void;
+  /** Current stop evidence, independent of output cleanup and the public exit promise. */
+  frozen?(): boolean;
+  /** True only when a live process was resumed; an exited worker returns false. */
+  resume(): boolean | void;
   /** The resource limits this launch was given (#1660). */
   limits: WorkerLimitsPlan;
   /** Which limits it has hit so far and, once it has exited, whether one ended it. */
@@ -1497,8 +1500,11 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
     const statusChannel = status, supervisor = child;
     void child.exited.finally(() => statusChannel?.close(supervisor));
     const freezer = identityBroker ? {
-      freeze: () => identityBroker!.request("signal", { signal: "STOP" }),
-      resume: () => identityBroker!.request("signal", { signal: "CONT" }),
+      // The legacy helper acknowledges completion even for an empty tree;
+      // it supplies no live-process witness. Preserve control, not invented clocks.
+      freeze: () => { identityBroker!.request("signal", { signal: "STOP" }); },
+      resume: () => { identityBroker!.request("signal", { signal: "CONT" }); },
+      frozen: () => false,
     } : createWorkerFreezer(pid);
     const openIdentityRoot = (name: "state" | "temp") => {
       const receipt = identityReady!.roots[name]!;
@@ -1610,6 +1616,7 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
     });
     const launched = { ...streams, configurationRoot, observeFile, pid: spawned.pid, exited, released: pipes.released, limits: plan, limitReport: () => report(),
       freeze: () => cgroup ? cgroup.freeze() : freezer.freeze(),
+      frozen: () => cgroup ? cgroup.frozen() : freezer.frozen(),
       resume: () => cgroup ? cgroup.resume() : freezer.resume(),
       kill: (signal?: NodeJS.Signals) => { killed = true;
         if (identityBroker) identityBroker.request("signal", { signal: (signal ?? "SIGTERM").replace(/^SIG/, "") });

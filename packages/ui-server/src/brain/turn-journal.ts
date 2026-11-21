@@ -752,7 +752,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       if (summary(turnId).state !== "recording") throw new JournalStorageUnavailable("policy observation became incomplete before the approved write");
       let completed = false;
       try { approvedWrite(); completed = true; } finally { await observe(completed); }
-    }); },
+    }, false, undefined, undefined, { kind: "scope", turnId }); },
     finish(turnId: string, lifecycle?: PhaseTimer) { return held(async timing => {
       if (!active.has(turnId)) { if (failedAdmissions.has(turnId)) await finalizeRefusedAdmission(turnId); return; }
       try { const end = lifecycle?.("final_observation"); await observe(false, timing); end?.(); }
@@ -793,7 +793,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       await write(pin(turnId, before));
       if (!objects.verify(before.hash, before.bytes)) throw new JournalStorageUnavailable("The retained original could not be verified.");
       return before;
-    }); },
+    }, false, undefined, undefined, { kind: "scope", turnId }); },
     hasRetainedVersion(turnId: string, selected: JournalVersion): boolean {
       if (!selected.hash || selected.ignored || selected.metadataOnly || selected.kind !== "file" || ["unknown", "expired"].includes(summary(turnId).state)) return false;
       if (!db.query("SELECT 1 FROM turn_journal_object_refs WHERE turn_id=? AND hash=?").get(turnId, selected.hash)

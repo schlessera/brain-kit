@@ -1,5 +1,5 @@
 import { admissionTimingSample } from "./admission-timing.js";
-import { seedObservationTree, type ObservationTree } from "./observation-tree.js";
+import { seedObservationTree, observationTreeWatchdog, type ObservationTree } from "./observation-tree.js";
 import { afterAll, expect, test } from "bun:test";
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -26,6 +26,9 @@ if (RETAIN_INDEX_NAMESPACE && !DESCENDANT_CONTROL) throw Error("Namespace retent
 const APPLY_TIMING = process.env.BRAIN_NATIVE_PROOF_APPLY_TIMING === "1";
 // #2834 measurement: pi's per-call journal observation cost by tool, and journal begin + finish for both backends.
 const OBSERVATION_TIMING = process.env.BRAIN_NATIVE_PROOF_OBSERVATION_TIMING === "1";
+const TREE_SIZES = process.env.BRAIN_NATIVE_PROOF_TREE ? JSON.parse(process.env.BRAIN_NATIVE_PROOF_TREE) as ObservationTree : undefined;
+const LARGE_TREE_WATCHDOG = observationTreeWatchdog(TREE_SIZES);
+const healthLimitMs = LARGE_TREE_WATCHDOG ?? 1000, websocketLimitMs = LARGE_TREE_WATCHDOG ?? 1000, admissionLimitMs = LARGE_TREE_WATCHDOG ?? 10000;
 const releaseObservations = nativeReleaseObservations(ARTIFACTS);
 let releasePinnedNamespace: (() => void) | undefined;
 const recordedSpawn = Bun.spawn;
@@ -35,7 +38,7 @@ const { serializeSigned } = await import(join(SOURCE, "node_modules/hono/dist/ut
 const NativeWebSocket = WebSocket as any;
 const sleep = (ms: number) => Bun.sleep(ms);
 async function until(check: () => boolean, deadlineMs = 20000) {
-  const end = performance.now() + deadlineMs;
+  const end = performance.now() + Math.max(deadlineMs, LARGE_TREE_WATCHDOG ?? 0);
   while (!check()) { if (performance.now() > end) throw Error("Probe wait deadline exceeded"); await sleep(10); }
 }
 test(`native hosted ${BACKEND} uid ${APP_UID} first/warm admission, health, WebSocket, Stop and cancellation`, async () => {
@@ -64,7 +67,7 @@ print(json.dumps(result))`;
     const motif = "Athena marks the voyage. ";
     writeFileSync(join(brain, "notes", `voyage-${String(i).padStart(4, "0")}.md`), header + motif.repeat(Math.ceil((BYTES - header.length) / motif.length)).slice(0, BYTES - header.length));
   }
-  const treeSizes = process.env.BRAIN_NATIVE_PROOF_TREE ? JSON.parse(process.env.BRAIN_NATIVE_PROOF_TREE) as ObservationTree : undefined;
+  const treeSizes = TREE_SIZES;
   const tree = treeSizes ? seedObservationTree(brain, join(dir, "ui.db.journal"), treeSizes) : undefined;
   const git = Bun.spawnSync(["git", "init", "--quiet", brain], { env: { PATH: "/usr/bin:/bin", HOME: join(dir, "home") } });
   expect(git.exitCode, "OFFLINE_FIXTURE_GIT_INITIALIZED").toBe(0);
@@ -133,7 +136,7 @@ print(json.dumps(result))`;
         while (!stop) {
           const start = performance.now();
           try {
-            const response = await fetch(origin + "/api/health", { headers: { cookie }, signal: AbortSignal.timeout(1000) });
+            const response = await fetch(origin + "/api/health", { headers: { cookie }, signal: AbortSignal.timeout(healthLimitMs) });
             health.push({ elapsedMs: performance.now() - start, status: response.status, timeout: false }); await response.body?.cancel();
           } catch (error) { health.push({ elapsedMs: performance.now() - start, timeout: true, error: String(error) }); }
           await sleep(50);
@@ -158,14 +161,14 @@ print(json.dumps(result))`;
         const ack = sender.frames.find(f => f.type === "session_info" && f.requestId === requestId)!;
         expect(ack.workerProfile?.actualProfile, "NATIVE_ADMITTED_GOVERNED_PROFILE").toBe("governed");
         sid = ack.sessionId; turnId = ack.turnId;
-        ackRecovery = await fetch(origin + `/api/sessions/${sid}/recovery`, { headers: { cookie }, signal: AbortSignal.timeout(1000) }).then(r => r.json());
+        ackRecovery = await fetch(origin + `/api/sessions/${sid}/recovery`, { headers: { cookie }, signal: AbortSignal.timeout(healthLimitMs) }).then(r => r.json());
         durableAckMs = performance.now() - begin;
         await until(() => sender.frames.some(f => f.type === "result" && f.receiptAt >= begin && f.sessionId === (sid ?? f.sessionId)) || sender.frames.some(f => f.type === "error" && f.receiptAt >= begin && f.requestId === requestId), 45000);
         // Visible result/journal frames precede final durable settlement and slot release.
         await until(() => sender.frames.some(f => f.type === "turn_journal" && f.turnId === ack.turnId && f.journal?.state === "complete") &&
           eventLog.read("turn-settlement").some(row => row.kind === "session_slot_released" && row.turnId === ack.turnId),10000);
         expect(sender.frames.filter(f => f.type === "turn_journal" && f.turnId === ack.turnId).every(f => f.journal?.profile === "governed"), "NATIVE_JOURNAL_GOVERNED_PROFILE").toBe(true);
-        recovery = await fetch(origin + `/api/sessions/${sid}/recovery`, { headers: { cookie }, signal: AbortSignal.timeout(1000) }).then(r => r.json());
+        recovery = await fetch(origin + `/api/sessions/${sid}/recovery`, { headers: { cookie }, signal: AbortSignal.timeout(healthLimitMs) }).then(r => r.json());
       }
       catch (error) { completed = false; phaseError = String(error); }
       finally { stop = true; clearInterval(pingTimer); await probe; }
@@ -188,17 +191,17 @@ print(json.dumps(result))`;
         sender = await device();
         sender.ws.send(JSON.stringify({ type: "session_resume", sessionId: sid }));
         await until(() => sender.frames.some(f => f.type === "session_info" && f.sessionId === sid));
-        const recovered = await fetch(origin + `/api/sessions/${sid}/recovery`, { headers: { cookie }, signal: AbortSignal.timeout(1000) }).then(r => r.json());
+        const recovered = await fetch(origin + `/api/sessions/${sid}/recovery`, { headers: { cookie }, signal: AbortSignal.timeout(healthLimitMs) }).then(r => r.json());
         expect(recovered.latest?.requestId, "RECONNECT_RECOVERS_SAME_ACCEPTED_REQUEST").toBe(requestId);
         expect(recovered.latest?.state, "RECONNECT_RECOVERS_TERMINAL_REQUEST").toBe("terminal");
         await sleep(200);
         expect(eventLog.read("provider-admission").filter(row => row.kind === "fake_provider_enter").length, "RECOVERY_READ_DID_NOT_EXECUTE_AGAIN").toBe(1);
       }
     }
-    expect(results.every(r => r.timeoutCount === 0 && r.health.every((p: any) => p.status === 200 && p.elapsedMs <= 1000)), "HOSTED_ADMISSION_HEALTH_WITHIN_1_SECOND").toBe(true);
+    expect(results.every(r => r.timeoutCount === 0 && r.health.every((p: any) => p.status === 200 && p.elapsedMs <= healthLimitMs)), tree ? "LARGE_TREE_HEALTH_WATCHDOG" : "HOSTED_ADMISSION_HEALTH_WITHIN_1_SECOND").toBe(true);
     expect(results).toHaveLength(2);
-    expect(results.every(r => r.completed && r.submitToAckMs !== null && r.submitToAckMs < 10000 && r.durableAckMs !== null && r.durableAckMs < 10000), "FIRST_AND_WARM_ADMISSION_WITHIN_10_SECONDS").toBe(true);
-    expect(results.every(r => r.pings > 0 && r.pings === r.pongs && r.pingLatencyMs.every((ms: number) => ms < 1000)), "HOSTED_ADMISSION_WEBSOCKET_WITHIN_1_SECOND").toBe(true);
+    expect(results.every(r => r.completed && r.submitToAckMs !== null && r.submitToAckMs < admissionLimitMs && r.durableAckMs !== null && r.durableAckMs < admissionLimitMs), tree ? "LARGE_TREE_ADMISSION_WATCHDOG" : "FIRST_AND_WARM_ADMISSION_WITHIN_10_SECONDS").toBe(true);
+    expect(results.every(r => r.pings > 0 && r.pings === r.pongs && r.pingLatencyMs.every((ms: number) => ms < websocketLimitMs)), tree ? "LARGE_TREE_WEBSOCKET_WATCHDOG" : "HOSTED_ADMISSION_WEBSOCKET_WITHIN_1_SECOND").toBe(true);
     for (const result of results) {
       const requestId = `odysseus-${result.phase}-admission`;
       expect(result.ackRecovery?.latest?.requestId, "NAMED_ACK_HAS_DURABLE_REQUEST_RECORD").toBe(requestId);
@@ -236,9 +239,9 @@ print(json.dumps(result))`;
     sender.ws.send(JSON.stringify({ type: "cancel", sessionId: sid }));
     await until(() => sender.frames.some(f => f.receiptAt >= cancelStart && ((f.type === "status" && f.status === "idle") || f.type === "result" || f.type === "error")), 15000);
     const cancelFrames = sender.frames.filter(f => f.receiptAt >= cancelStart), cancelElapsedMs = performance.now() - cancelStart;
-    expect(cancelElapsedMs, "HOSTED_STOP_INTERRUPT_WITHIN_DEADLINE").toBeLessThan(15000);
+    expect(cancelElapsedMs, tree ? "LARGE_TREE_STOP_WATCHDOG" : "HOSTED_STOP_INTERRUPT_WITHIN_DEADLINE").toBeLessThan(LARGE_TREE_WATCHDOG ?? 15000);
     await until(() => sender.frames.some(f => f.type === "result" && f.outcome === "cancelled" && f.receiptAt >= cancelStart), 15000);
-    expect(performance.now() - cancelSentAt, "HOSTED_STOP_TERMINAL_WITHIN_2_SECONDS").toBeLessThan(2000);
+    expect(performance.now() - cancelSentAt, tree ? "LARGE_TREE_STOP_TERMINAL_WATCHDOG" : "HOSTED_STOP_TERMINAL_WITHIN_2_SECONDS").toBeLessThan(LARGE_TREE_WATCHDOG ?? 2000);
     const stoppedWorker = eventLog.read("stopped-worker").find(row => row.kind === "worker_exit" && row.attempt === 3);
     expect(stoppedWorker?.code, "HOSTED_STOP_KILLED_REAL_SLEEPING_WORKER").toBe(BACKEND === "pi" ? 137 : null);
     const stoppedTurnId = sender.frames.find(f => f.type === "result" && f.outcome === "cancelled" && f.receiptAt >= cancelStart)!.turnId;
@@ -611,7 +614,7 @@ print(json.dumps(result))`;
   }
   expect(cleanExit, "HOSTED_NORMAL_SHUTDOWN_CLEAN_EXIT").toBe(true);
   // The #2848 timing turn first waits for the earlier turns' index refresh.
-}, OBSERVATION_TIMING ? 1_500_000 : APPLY_TIMING ? 240000 : 120000);
+}, OBSERVATION_TIMING ? Math.max(1_500_000, (LARGE_TREE_WATCHDOG ?? 0) * 15) : APPLY_TIMING ? 240000 : 120000);
 
 // One fixed backend/UID cell owns this backend-independent root-lifetime control.
 if (BACKEND === "pi" && APP_UID === 0) for (const held of ["descriptor", "cwd"] as const) test(`a retained native checkpoint ${held} records the actual release interruption and reconciles the same root`, async () => {

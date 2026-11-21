@@ -256,7 +256,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     let pinned: { address: string; family: number } | undefined;
     let finalOutcome: EgressRecord["outcome"] | undefined, finalReason: string | undefined;
     const emit = () => {
-      if (emitted || !finished || (firstAdmissionPending && finalOutcome !== "cancelled")) return;
+      if (emitted || !finished) return;
       emitted = true;
       // Records never contain request headers, content, credentials or query strings.
       try { options.observe({ connectionId, ...(inference ? { inference: true } : {}), ...(provider ? { provider: true } : {}), ...(managedReference ? { managedReference: true } : {}), method, host, port, ...(method === "CONNECT" ? {} : { path: url.pathname }), bytes,
@@ -265,6 +265,9 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     };
     const finish = (outcome: EgressRecord["outcome"], reason?: string) => {
       if (finished) return;
+      // A completed refusal is the admission decision boundary. Emit before
+      // leaving finish, so stop/settled cannot outrun its audit submission.
+      if (firstAdmissionPending && outcome !== "cancelled") mark("admitMs");
       stopLag();
       finished = true; finalOutcome = outcome; finalReason = reason; controllers.delete(controller); inferenceControllers.delete(controller); controller.abort();
       emit();

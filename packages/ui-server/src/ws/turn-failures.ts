@@ -63,6 +63,15 @@ export function attachTurnFailures(db: Database, sessionId: string, backendId: s
 /** How long a turn-boundary read may hold the session's next turn. */
 const BOUNDARY_READ_MS = 10_000;
 
+type RecordingState = { failed: boolean; pending: number };
+/** Inspect existing writes without introducing a new close-path wait. */
+function recordingCompletion(result: boolean | void | Promise<boolean>, state: RecordingState): void {
+  if (result instanceof Promise) {
+    state.pending++;
+    void result.then(stored => { state.failed ||= stored !== true; state.pending--; }, () => { state.failed = true; state.pending--; });
+  } else state.failed ||= result !== true;
+}
+
 /** One concrete host's in-flight writes; never shared across apps or sessions. */
 export class FailureReplay {
   private readonly pending = new Map<string, Set<Promise<void>>>();
@@ -104,7 +113,7 @@ export class FailureReplay {
    * record that answer's position as the turn's boundary (#964). Waits on
    * the turn's failure write first, so both describe one transcript.
    */
-  private boundary(backend: AgentBackend, sessionId: string, turnId: string, before: number | null): Promise<void> {
+  private boundary(backend: AgentBackend, sessionId: string, turnId: string, before: number | null, state: RecordingState): Promise<boolean> {
     const write = (async () => {
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
@@ -114,17 +123,18 @@ export class FailureReplay {
           backend.getHistory(sessionId),
           new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("history read timed out")), this.boundaryReadMs); }),
         ]);
-        this.catalog.recordScratchPins?.(sessionId, backend.id, messages);
+        if (this.catalog.recordScratchPins) recordingCompletion(this.catalog.recordScratchPins(sessionId, backend.id, messages), state);
         const count = assistantCount(messages);
         // Nothing answered during the turn: no message is this turn's.
-        if (before === null || count <= before || messages.at(-1)?.role !== "assistant") return;
-        this.catalog.recordTurnBoundary?.(sessionId, backend.id, {
+        if (before === null || count <= before || messages.at(-1)?.role !== "assistant") return true;
+        if (this.catalog.recordTurnBoundary) recordingCompletion(this.catalog.recordTurnBoundary(sessionId, backend.id, {
           turnId, assistantOrdinal: count - 1, prefixDigest: prefixDigest(messages, messages.length - 1),
-        });
-      } catch (err) { this.report(sessionId, err); }
+        }), state);
+        return true;
+      } catch (err) { this.report(sessionId, err); return false; }
       finally { clearTimeout(timer); }
     })();
-    this.track(sessionId, write);
+    this.track(sessionId, write.then(() => {}));
     return write;
   }
 
@@ -133,14 +143,15 @@ export class FailureReplay {
     /** The turn's own result went out: history reads of its session wait for its end (`finish`). */
     resulted: (sessionId: string) => void;
     /** `sessionId` is the session the turn ran in, when it ran; boundaries are recorded only then. */
-    finish: (sessionId?: string | null) => Promise<void>;
+    finish: (sessionId?: string | null) => Promise<boolean>;
   }> {
-    let before: number | null = null;
+    let before: number | null = null, complete = true;
+    const recording: RecordingState = { failed: false, pending: 0 };
     if (this.catalog.recordTurnFailure || this.catalog.recordTurnBoundary) {
       try {
         if (sessionId) await this.wait(sessionId);
         before = sessionId ? assistantCount(await this.history(backend, sessionId, signal)) : 0;
-      } catch (err) { this.report(sessionId, err); }
+      } catch (err) { complete = false; this.report(sessionId, err); }
     }
     let release!: () => void;
     const settled = new Promise<void>((resolve) => { release = resolve; });
@@ -161,10 +172,10 @@ export class FailureReplay {
             const count = assistantCount(messages);
             // A refused prompt/no persisted answer must never relabel an older failure.
             if (count <= before! || last?.role !== "assistant" || last.failure?.message !== live.message) return;
-            this.catalog.recordTurnFailure?.(sid, backend.id, {
+            if (this.catalog.recordTurnFailure) recordingCompletion(this.catalog.recordTurnFailure(sid, backend.id, {
               turnId, assistantOrdinal: count - 1, prefixDigest: prefixDigest(messages, messages.length - 1), failure: live,
-            });
-          } catch (err) { this.report(sid, err); }
+            }), recording);
+          } catch (err) { complete = false; this.report(sid, err); }
         })();
         this.track(sid, write);
       },
@@ -178,7 +189,7 @@ export class FailureReplay {
         if (closed || held || before === null || !this.catalog.recordTurnBoundary) return;
         held = true;
         let timer: ReturnType<typeof setTimeout> | undefined;
-        const hold = Promise.race([ended, new Promise<void>((resolve) => { timer = setTimeout(resolve, this.boundaryReadMs); })])
+        const hold = Promise.race([ended, new Promise<void>((resolve) => { timer = setTimeout(() => { complete = false; resolve(); }, this.boundaryReadMs); })])
           .finally(() => clearTimeout(timer));
         this.track(sid, hold);
       },
@@ -188,8 +199,9 @@ export class FailureReplay {
         try {
           await write;
           if (first && sid && ((before !== null && this.catalog.recordTurnBoundary) || this.catalog.recordScratchPins)) {
-            await this.boundary(backend, sid, turnId, before);
+            complete = await this.boundary(backend, sid, turnId, before, recording) && complete;
           }
+          return complete && !recording.failed && recording.pending === 0;
         } finally { end(); }
       },
     };

@@ -675,6 +675,8 @@ export function createActivityStore(
         // fill an unknown timestamp; an orphan sweep cannot be reopened.
         if (previous?.endedAt != null) {
           if (previous.outcome === "interrupted" || previous.endedAt !== record.endedAt || previous.outcome !== record.outcome) return;
+          if (!(previous.recorderSettledAt == null && record.recorderSettledAt != null)
+            && !(previous.idleEmittedAt == null && record.idleEmittedAt != null)) return;
           record = { ...previous, recorderSettledAt: previous.recorderSettledAt ?? record.recorderSettledAt,
             idleEmittedAt: previous.idleEmittedAt ?? record.idleEmittedAt };
         }

@@ -627,9 +627,13 @@ activity snapshots and deltas. The current names are:
   additional leaf in the native observation trace. Repeated cleanup calls
   remain repeated steps in start order. Absent operations have no step;
   caught cleanup failures leave their reached step unended. `scope_finish`
-  confirms the returned write promise only if it settles before the existing
-  lifecycle terminal; pending or failed scope writes remain unended, without
-  adding a close-path wait. Closing steps record reached work on failure/cancellation too; they lie
+  confirms both successful final scope writes only if their result arrives
+  before the existing lifecycle terminal. An unopened scope, failed write or
+  pending write cannot complete that step. `index_settle` and
+  `failure_recording` also stay unended when the flush, history read or catalog
+  write failed, or a catalog write remains unconfirmed. Logging or absorbing
+  an error does not turn it into successful work. These clocks add no
+  close-path wait. Closing steps record reached work on failure/cancellation too; they lie
   between backend exit (when a backend ran) and status emission.
 
 Optional nullable `recorderSettledAt` and `idleEmittedAt` milestones follow
@@ -637,7 +641,8 @@ Optional nullable `recorderSettledAt` and `idleEmittedAt` milestones follow
 respectively. They never move the existing end stamp or backend duration.
 Cancelled-before-start status is not idle, so it has no idle timestamp. Only
 these trailing receipts may enrich a terminal record, once each; restart
-interruption remains terminal and cannot be enriched by a stale writer.
+interruption remains terminal and cannot be enriched by a stale writer. Replaying
+an identical terminal or trailing receipt performs no write and emits no delta.
 
 Optional `packageVersion` identifies the running ui-server package. Optional
 `buildRevision` comes only from `BRAIN_UI_BUILD_REVISION`, a host-supplied
@@ -654,11 +659,16 @@ and `resumedAt`, nullable `changedPaths`, `otherTurnsStopped` and
 `inferenceInFlight`. Stop/resume timestamps are taken only after the
 corresponding worker operations confirm; failed or inapplicable boundaries
 remain null. A resume requires at least one still-live worker and successful
-resume calls; exited workers never produce a resume receipt. Nested
+resume calls; exited workers never produce a resume receipt. Physical
+control returns true only when a live process confirms the operation; a
+legacy void return is unconfirmed. Pending output cleanup does not make an
+exited process live. Overlapping intervals recheck current stop evidence,
+and a completed interval can never acquire a later worker's stop. Nested
 observations share the physical resume boundary. Late workers resample
 inference overlap at their confirmed stop and update every participant's
 `otherTurnsStopped` count. A scope cap and its ensuing shared observation use
-the same `holdId`, preserving the causing turn's `toolUseId`.
+the same `holdId`, preserving the causing turn's `toolUseId`. Approved policy
+writes and targeted retention keep their known causing turn as well.
 `changedPaths` is the union of distinct paths recorded across this held
 operation's captures, including a managed worktree's qualified path, not the
 turn's cumulative scope count. A cap triggered by an observation retains that
@@ -666,7 +676,8 @@ observation's count; subsequent quiet observations cannot overwrite it. Other tu
 Inference overlap means a relay operation was in flight at stop,
 including request setup and response streaming. Evidence accumulates in
 memory and rides the next existing milestone/terminal write; it adds no
-awaited write before the hold or after a tool result.
+awaited write before the hold or after a tool result. Evidence callbacks are
+unregistered even when teardown fails.
 
 Records written before these fields have none of them; nothing is backfilled.
 

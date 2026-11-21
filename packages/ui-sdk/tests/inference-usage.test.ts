@@ -8,6 +8,9 @@ const start = (usage: unknown) => `event: message_start\r\ndata: ${JSON.stringif
 for (const [name, first, expected] of [
   ["reported", start({ input_tokens: 17, cache_read_input_tokens: 19, cache_creation_input_tokens: 23 }), { inputTokens: 17, cacheReadTokens: 19, cacheCreationTokens: 23 }],
   ["nullable cache usage", start({ input_tokens: 17, cache_read_input_tokens: null, cache_creation_input_tokens: null }), { inputTokens: 17 }],
+  ["bare CR line endings", start({ input_tokens: 7, cache_read_input_tokens: 11, cache_creation_input_tokens: 13 }).replaceAll("\r\n", "\r"), { inputTokens: 7, cacheReadTokens: 11, cacheCreationTokens: 13 }],
+  ["mismatched error frame", "event: message_start\ndata: " + JSON.stringify({ type: "error", message: { usage: { input_tokens: 7 } } }) + "\n\n", {}],
+  ["late start after content", "event: content_block_delta\ndata: {\"type\":\"content_block_delta\"}\n\n" + start({ input_tokens: 7 }), {}],
   ["malformed usage", start({ input_tokens: "17", cache_read_input_tokens: 19, cache_creation_input_tokens: 23 }), {}],
   ["malformed JSON", "event: message_start\ndata: {unreadable}\n\n", {}],
   ["missing", "event: ping\ndata: {}\n\n", {}],
@@ -69,4 +72,12 @@ test("a waiting stream reader receives its chunk before usage inspection runs", 
     await read; await Promise.resolve();
     expect(order, "FORWARDING_PRECEDES_USAGE_INSPECTION").toEqual(["forwarded", "usage"]);
   } finally { reader.releaseLock(); }
+});
+
+for (const ending of ["\n", "\r\n", "\r"]) test(`usage supports every split of SSE ending ${JSON.stringify(ending)}`, async () => {
+  const records: InferenceUsage[] = [], observe = inferenceUsageObserver(value => records.push(value));
+  const text = start({ input_tokens: 7 }).replaceAll("\r\n", ending);
+  for (const byte of Buffer.from(text)) observe(Uint8Array.of(byte));
+  await Promise.resolve();
+  expect(records, "ALL_SSE_LINE_ENDINGS_ACROSS_CHUNKS").toEqual([{ inputTokens: 7 }]);
 });

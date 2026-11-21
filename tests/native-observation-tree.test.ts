@@ -57,3 +57,18 @@ test("directory counts also include implicitly created fixture parents", () => {
     expect(receipt.generatedDirectories).toBe(13);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test("large timing watchdogs scale with tree size while small qualification keeps its limits", async () => {
+  const { observationTreeWatchdog } = await import("../scripts/native-proof/observation-tree");
+  const small = observationTreeWatchdog();
+  const half = observationTreeWatchdog({ workspaceEntries: 40000, dependencyEntries: 19000, journalObjects: 30000, checkouts: 40 })!;
+  const full = observationTreeWatchdog({ workspaceEntries: 80000, dependencyEntries: 19000, journalObjects: 30000, checkouts: 40 })!;
+  expect(small).toBeUndefined();
+  expect(half, "LARGE_TREE_USES_MEASUREMENT_WATCHDOGS").toBeGreaterThan(10000);
+  expect(full).toBeGreaterThan(half);
+  const source = await Bun.file(new URL("../scripts/native-proof/hosted-app.test.ts", import.meta.url)).text();
+  expect(source).toContain("Math.max(deadlineMs, LARGE_TREE_WATCHDOG ?? 0)");
+  expect(source).toContain("AbortSignal.timeout(healthLimitMs)");
+  expect(source).toContain("toBeLessThan(LARGE_TREE_WATCHDOG ?? 15000)");
+  expect(source).toContain("toBeLessThan(LARGE_TREE_WATCHDOG ?? 2000)");
+});
