@@ -550,3 +550,14 @@ for (const theme of ["dark", "light"]) test(`trust facts in the composed Securit
   await expect.poll(() => s.host.querySelector("[data-agent-policy]")?.textContent).toContain(`Enforcing version: ${"a".repeat(64)}`);
   expect(document.documentElement.scrollWidth, "Security composition fits the document").toBeLessThanOrEqual(innerWidth);
 });
+
+for (const missing of ["capabilities", "originRules"] as const) test(`partial host response without ${missing} keeps Security readable and unsupported writes disabled`, async ctx => {
+  const s = await scene(ctx, 320, "dark", [rule]);
+  // Deliberate wire-level omission, including an otherwise asserted owner flag.
+  s.setRead({ capabilities: (missing === "capabilities" ? undefined : { recipientRules: true, repositoryRules: false, repositoryIdentity: false, readOnlyReason: null }) as TrustSettingsRead["capabilities"] });
+  window.dispatchEvent(new Event("focus"));
+  await expect.element(button("Add origin")).toBeDisabled();
+  await expect.element(page.getByText("Origin enforcement unavailable. Configured origins are not confirmed active.", { exact: true })).toBeVisible();
+  await expect.element(button("Remove https://example.org:443")).toBeEnabled();
+  expect(s.calls.filter(c => c.path.endsWith("/prepare") || c.path.endsWith("/commit"))).toHaveLength(0);
+});
