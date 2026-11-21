@@ -59,6 +59,17 @@ function linked(fake: FakeGog) {
   };
 }
 
+/** Moves a file to another of the user's groups; false where the system cannot (an unmapped group answers EINVAL, a refused one EPERM). */
+function changeGroup(path: string, gid: number): boolean {
+  try {
+    chownSync(path, process.getuid!(), gid);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EINVAL" || (error as NodeJS.ErrnoException).code === "EPERM") return false;
+    throw error;
+  }
+}
+
 describe("the pin accepts the pinned binary", () => {
   test("a binary whose hash, version, commit and schema match passes, and the result names the file it hashed", async () => {
     const { fake, verify } = setup();
@@ -289,13 +300,15 @@ describe("the transport re-checks the binary's identity", () => {
     chmodSync(fake.executable, 0o700);
     expect((await transport.execute("gmail.labels.list", {})).ok).toBe(true);
     // Another group the host user is in: the file's group is part of what was verified.
+    // A runner whose supplementary groups are not mapped (chown answers EINVAL or
+    // EPERM) cannot move the file's group, so only the chmod leg runs there.
     const other = process.getgroups!().find(gid => gid !== statSync(fake.executable).gid);
-    if (other !== undefined) {
-      chownSync(fake.executable, process.getuid!(), other);
+    const regrouped = other !== undefined && changeGroup(fake.executable, other);
+    if (regrouped) {
       expect(await transport.execute("gmail.labels.list", {})).toEqual(refusedWith("binary_changed"));
       expect((await transport.execute("gmail.labels.list", {})).ok).toBe(true);
     }
-    expect(fake.callsOf("gmail.labels.list")).toHaveLength(other === undefined ? 2 : 3);
+    expect(fake.callsOf("gmail.labels.list")).toHaveLength(regrouped ? 3 : 2);
   });
 
   test("a directory made writable after verification is a change, and its refusal clears when the directory is repaired", async () => {
