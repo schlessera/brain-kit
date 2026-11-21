@@ -1,4 +1,5 @@
 import "./measurement-entry-preload.ts";
+import {nativeScriptedService,nativeSyntheticCredential} from "./test-native-guard";
 /** Private #587 research entrypoint. Never changes a production router/default. */
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -166,7 +167,7 @@ export async function measureLiveSurface(params: { manifestPath: string; reviewP
             ANTHROPIC_DEFAULT_SONNET_MODEL: SURFACE_MODEL, ANTHROPIC_DEFAULT_OPUS_MODEL: SURFACE_MODEL,
             CLAUDE_CODE_SUBAGENT_MODEL: SURFACE_MODEL, CLAUDE_CODE_SUBAGENT_MODEL_FORCE: "1" }, autoMemoryEnabled: false },
           env: { PATH: dirname(process.execPath) + ":/usr/bin:/bin", HOME: home, CLAUDE_CONFIG_DIR: join(home, ".claude"),
-            CLAUDE_CODE_OAUTH_TOKEN: offline ? "sk-ant-oat01-controlled-offline-token" : process.env.CLAUDE_CODE_OAUTH_TOKEN!,
+            CLAUDE_CODE_OAUTH_TOKEN: offline ? nativeSyntheticCredential("CLAUDE_CODE_OAUTH_TOKEN") : process.env.CLAUDE_CODE_OAUTH_TOKEN!,
             ...(offline ? { ANTHROPIC_BASE_URL: offline.nativeBaseUrl } : {}),
             CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", ENABLE_TOOL_SEARCH: "true",
             ANTHROPIC_DEFAULT_HAIKU_MODEL: SURFACE_MODEL, ANTHROPIC_DEFAULT_SONNET_MODEL: SURFACE_MODEL,
@@ -178,7 +179,9 @@ export async function measureLiveSurface(params: { manifestPath: string; reviewP
           spawnClaudeCodeProcess: spec => {
             if (spec.env.ANTHROPIC_API_KEY || spec.env.ANTHROPIC_AUTH_TOKEN || spec.env.ANTHROPIC_CUSTOM_HEADERS) throw Error("Unexpected inference billing credential");
             spawnedMs = performance.now() - started;
-            child = spawn(spec.command, spec.args, { cwd: spec.cwd, env: spec.env, signal: spec.signal, stdio: ["pipe", "pipe", "pipe"] });
+            const leave = offline ? nativeScriptedService(offline.nativeBaseUrl, {fixtureRoots:[fixture.root,home]}) : undefined;
+            try { child = spawn(spec.command, spec.args, { cwd: spec.cwd, env: spec.env, signal: spec.signal, stdio: ["pipe", "pipe", "pipe"] }); }
+            finally { leave?.(); }
             childExited = new Promise(resolve => { child!.once("exit", (exitCode,signal) => {
               nativeProcessReceipts.push({cell:index+1,exitCode,signal});resolve();
             }); });

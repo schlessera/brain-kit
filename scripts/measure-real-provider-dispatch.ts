@@ -153,7 +153,7 @@ async function server(name: ProfileName, root: string, mode: "dry" | "live", pri
       return new Response(events.map((e: any) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
     } });
   }
-  const releaseScripted = fixture ? (await import("./test-native-guard")).nativeScriptedService(new URL(fixture.url).origin) : undefined;
+  const releaseScripted = fixture ? (await import("./test-native-guard")).nativeScriptedService(new URL(fixture.url).origin, {fixtureRoots:[brainPath,join(root,"home")]}) : undefined;
   const upstream = fixture ? `http://127.0.0.1:${fixture.port}` : PROVIDER;
   if (profile.adapter === "pi" && fixture) writeFileSync(join(root, "pi/models.json"), JSON.stringify({ providers: { anthropic: { baseUrl: upstream } } }));
 

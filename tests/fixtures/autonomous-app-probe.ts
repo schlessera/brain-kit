@@ -107,7 +107,7 @@ async function main(): Promise<void> {
     events.push({ type: "message_delta", delta: { stop_reason: chosen.length ? "tool_use" : "end_turn", stop_sequence: null }, usage: { output_tokens: 5 } }, { type: "message_stop" });
     return new Response(events.map((e: any) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
   } });
-  nativeScriptedService(upstream.url.origin);
+  nativeScriptedService(upstream.url.origin, { fixtureRoots: [brainPath, home] });
   const url = `http://127.0.0.1:${upstream.port}`;
   writeFileSync(join(root, "pi/models.json"), JSON.stringify({ providers: { anthropic: { baseUrl: url } } }));
   const backend = adapter === "claude"

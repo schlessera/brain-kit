@@ -1220,3 +1220,19 @@ The bind inventory refuses the host roots `/run`, `/var/run`, `/tmp`, `/dev`,
 destination. Private `--tmpfs` and `--dev` mounts are newly created views;
 fixture subdirectories are separate non-system sources, never broad host-root
 binds. Any needed service-storage data must be copied into a fixture first.
+
+Scripted-service fixtures explicitly declare their created data roots and any
+additional regular-file inputs. Additional file inputs are captured as bytes
+and copied into guard-owned read-only staging; inherited unlisted read binds
+refuse. The copied startup/output fixture creates its staging roots through
+the guard, which records their identities. An existing host directory cannot
+be marked by that creation helper. Symlinks in fixture data cannot authorize
+outside files. Native workers omit inherited resolver/certificate views because
+their only provider transport is the pinned Unix relay.
+
+Worker admission resolves the executable in `argv[0]` with the child's cwd and
+PATH, validates the actual first-party launcher prefixes, and requires its
+payload tail to agree with the recorded command. Missing or inconsistent
+metadata emits a failed receipt. Offline collector credentials are created and
+marked by the fixture helper, and the collector registers its scripted origin
+at the existing SDK spawn hook; unmarked ambient credentials gain no authority.

@@ -1,5 +1,5 @@
 /** Test-only OS boundary for installed native Claude processes (#4313). */
-import { chmodSync, closeSync, existsSync, lstatSync, openSync, readFileSync, readSync, readdirSync, statSync, mkdtempSync, readlinkSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, mkdirSync, existsSync, lstatSync, openSync, readFileSync, readSync, readdirSync, statSync, mkdtempSync, readlinkSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
@@ -119,9 +119,11 @@ export function isNativeClaude(command: string, args: readonly unknown[] = [], o
     try { path = resolveExecutable(value, options); } catch { continue; }
     if (installedRuntimes.some(runtime => runtime.path === path)) return true;
     // Size eliminates ordinary fixture scripts and interpreters before hashing.
-    const size = statSync(path).size;
-    const candidates = installedRuntimes.filter(runtime => runtime.size === size);
-    if (candidates.length && candidates.some(runtime => fileHash(runtime.path) === fileHash(path))) return true;
+    try {
+      const size = statSync(path).size;
+      const candidates = installedRuntimes.filter(runtime => runtime.size === size);
+      if (candidates.length && candidates.some(runtime => fileHash(runtime.path) === fileHash(path))) return true;
+    } catch { refuse("native executable metadata is unavailable"); }
   }
   return false;
 }
@@ -248,12 +250,20 @@ function fixtureToolView(env: Record<string, string | undefined>, cwd: string, h
 interface AuditReceipt { kind: "native-offline-audit"; head: string; nativeLaunched: boolean; success: boolean; reason?: string; deniedConnects: number }
 interface Boundary { beforeLaunch(): void; argv: string[]; env: Record<string, string>; dispose(): void; receipt(): AuditReceipt }
 
+const generatedCredentials = new Map<string, string>();
+/** Create and mark a clearly synthetic value; ambient strings cannot self-mark. */
+export function nativeSyntheticCredential(key: "ANTHROPIC_API_KEY" | "ANTHROPIC_AUTH_TOKEN" | "CLAUDE_CODE_OAUTH_TOKEN"): string {
+  if (!["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"].includes(key)) refuse("invalid synthetic credential kind");
+  const value = `${key === "CLAUDE_CODE_OAUTH_TOKEN" ? "sk-ant-oat01-" : ""}offline-odysseus-${crypto.randomUUID()}`;
+  generatedCredentials.set(value, key); return value;
+}
 /** Retain only public synthetic credentials, including their absent/both cases. */
 function syntheticCredentials(env: Record<string, string | undefined>): Record<string, string> {
   const result: Record<string, string> = {};
   if (env.ANTHROPIC_API_KEY) result.ANTHROPIC_API_KEY = /^sk-ant-api03-([a-z])\1{94}AA$/.test(env.ANTHROPIC_API_KEY) ? env.ANTHROPIC_API_KEY : "offline-fixture";
   if (/^sk-ant-oat01-([a-z])\1{94}AA$/.test(env.CLAUDE_CODE_OAUTH_TOKEN ?? "")) result.CLAUDE_CODE_OAUTH_TOKEN = env.CLAUDE_CODE_OAUTH_TOKEN!;
   if (/^sk-ant-declared-t{60}$/.test(env.ANTHROPIC_AUTH_TOKEN ?? "")) result.ANTHROPIC_AUTH_TOKEN = env.ANTHROPIC_AUTH_TOKEN!;
+  for (const [key, value] of Object.entries(env)) if (value && generatedCredentials.get(value) === key) result[key] = value;
   return result;
 }
 
@@ -417,26 +427,46 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
   } catch (error) { bridge.dispose(); if (versionHome) rmSync(versionHome, { recursive: true, force: true }); throw error; }
 }
 
-const scriptedRoute = new AsyncLocalStorage<Readonly<{ origin: string }> | undefined>();
+interface ScriptedAuthority { origin: string; fixtureRoots: readonly string[]; fixtureRootStamps: ReadonlyMap<string,{dev:bigint;ino:bigint}>; fixtureFiles: ReadonlyMap<string, Uint8Array> }
+const scriptedRoute = new AsyncLocalStorage<ScriptedAuthority | undefined>();
 
 /** Test code pins its scripted service before building a restricted turn. */
-export function nativeScriptedService(origin: string): () => void {
-  const target = new URL(origin);
-  if (target.protocol !== "http:" || !["127.0.0.1", "localhost", "[::1]"].includes(target.hostname) || !target.port || target.username || target.password || target.pathname !== "/" || target.search || target.hash) refuse("invalid scripted route authority");
+export function nativeScriptedService(origin: string, fixture?: { fixtureRoots?: readonly string[]; fixtureFiles?: readonly string[] }): () => void {
   const previous = scriptedRoute.getStore();
-  const authority = Object.freeze({ origin: target.origin });
+  scriptedRoute.enterWith(undefined);
+  let target:URL;try{target=new URL(origin);}catch{refuse("invalid scripted route authority");}
+  if (target.protocol !== "http:" || !["127.0.0.1", "localhost", "[::1]"].includes(target.hostname) || !target.port || target.username || target.password || target.pathname !== "/" || target.search || target.hash) refuse("invalid scripted route authority");
+  const prior = previous?.origin === target.origin ? previous : undefined;
+  let authority: ScriptedAuthority;
+  try {
+  const fixtureRoots = fixture?.fixtureRoots?.map(path => {
+    let real:string;try{real=realpathSync(path);}catch{refuse("fixture root registration is unavailable");}
+    if (FORBIDDEN_BIND_ROOTS.has(real) || !statSync(real).isDirectory()) refuse("invalid fixture root registration");
+    return real;
+  }) ?? prior?.fixtureRoots ?? [];
+  const fixtureRootStamps = fixture?.fixtureRoots ? new Map(fixtureRoots.map(path=>{const info=lstatSync(path,{bigint:true});return [path,{dev:info.dev,ino:info.ino}] as const;})) : prior?.fixtureRootStamps ?? new Map<string,{dev:bigint;ino:bigint}>();
+  const fixtureFiles = fixture?.fixtureFiles ? new Map(fixture.fixtureFiles.map(path => {
+    let real:string;try{real=realpathSync(path);}catch{refuse("fixture file registration is unavailable");}
+    if (!lstatSync(path).isFile()) refuse("fixture file registration requires a regular file");
+    return [real, new Uint8Array(readFileSync(real))] as const;
+  })) : prior?.fixtureFiles ?? new Map<string, Uint8Array>();
+  authority = Object.freeze({ origin: target.origin, fixtureRoots, fixtureRootStamps, fixtureFiles });
+  } catch(error) { if(String(error).includes("Offline native Claude refused before launch:"))throw error;refuse("fixture registration is unavailable"); }
   scriptedRoute.enterWith(authority);
-  return () => scriptedRoute.enterWith(previous);
+  return () => { if(scriptedRoute.getStore()===authority)scriptedRoute.enterWith(previous); };
 }
 
 /** Keep fixture authority at the SDK's existing spawn hook, across its async work. */
 export function nativeScriptedQuery(query: typeof sdkQuery, origin: string): typeof sdkQuery {
+  const captured = scriptedRoute.getStore();
   return input => {
     const spawn = input.options?.spawnClaudeCodeProcess;
     if (!spawn) return query(input);
     return query({ ...input, options: { ...input.options, spawnClaudeCodeProcess: options => {
-      const leave = nativeScriptedService(origin);
-      try { return spawn(options); } finally { leave(); }
+      const prior = scriptedRoute.getStore();
+      const leave = nativeScriptedService(origin, {fixtureRoots:[],fixtureFiles:[]});
+      if (captured?.origin === new URL(origin).origin) scriptedRoute.enterWith(captured);
+      try { return spawn(options); } finally { leave(); scriptedRoute.enterWith(prior); }
     } } });
   };
 }
@@ -529,6 +559,10 @@ function ownedSocketOrigin(path: string): string | undefined {
   return stat.isSocket() && stat.dev === authority.dev && stat.ino === authority.ino ? authority.origin : undefined;
 }
 
+function socketMatchesOrigin(path:string,origin:string):boolean {
+  const peer=ownedSocketOrigin(path);return Boolean(peer&&normalizedOrigin(peer)===normalizedOrigin(origin));
+}
+
 function admittedRelay(argv: string[], socket: string): { origin: string; path: string } | undefined {
   for (let i = 0; i < argv.length - 2; i++) {
     if (!["--ro-bind", "--bind"].includes(argv[i]!) || !within(argv[i + 2]!, socket)) continue;
@@ -547,6 +581,18 @@ function admittedRelay(argv: string[], socket: string): { origin: string; path: 
   }
 }
 
+function mountInputEvidence(input: string, destination: string, index: number, error: unknown, fixtureRoots: readonly string[] = []): Record<string,unknown> {
+  const fixture=fixtureRoots.find(root=>within(root,resolve(input)));
+  const known=SYSTEM.includes(input)||SYSTEM_FILES.includes(input);
+  const targetFixture=fixtureRoots.find(root=>within(root,resolve(destination)));
+  const workspaceTarget=within(ROOT,resolve(destination));
+  return { mount:index,
+    ...(targetFixture?{targetFixtureRoot:fixtureRoots.indexOf(targetFixture),targetRelativePath:resolve(destination).slice(targetFixture.length).replace(/^\//,"")||"."}:workspaceTarget?{targetWorkspacePath:resolve(destination).slice(ROOT.length).replace(/^\//,"")}:{}), sourceKind:known?"fixed-system":input.startsWith("/proc/")?"descriptor":fixture?"registered-fixture":"unregistered-source",
+    ...(known?{systemRoot:input}:fixture?{fixtureRoot:fixtureRoots.indexOf(fixture),relativePath:resolve(input).slice(fixture.length).replace(/^\//,"")}:{}),
+    targetKind:destination.startsWith("/etc/")?"isolated-config":destination.startsWith("/tmp/")?"fixture-temporary":"runtime-or-fixture",
+    metadataError:(error as NodeJS.ErrnoException)?.code??"UNKNOWN" };
+}
+
 /** Validate the same bind-source inventory used to construct the native view. */
 function assertNativeMountSockets(mounts: readonly string[], origin: string): void {
   const roots: string[] = [];
@@ -557,7 +603,7 @@ function assertNativeMountSockets(mounts: readonly string[], origin: string): vo
       const input = mounts[i + 1]!, destination = resolve(mounts[i + 2]!);
       if (FORBIDDEN_BIND_ROOTS.has(resolve(input)) || FORBIDDEN_BIND_ROOTS.has(destination)) refuse("native bind exposes a forbidden host service root");
       let source: string;
-      try { source = realpathSync(input); } catch { refuse("native mount source is unavailable"); }
+      try { source = realpathSync(input); } catch(error) { refuse("native mount source is unavailable",mountInputEvidence(input,destination,i,error,scriptedRoute.getStore()?.fixtureRoots)); }
       if (FORBIDDEN_BIND_ROOTS.has(source)) refuse("native bind exposes a forbidden host service root");
       const system = [...SYSTEM, ...SYSTEM_FILES].some(path => {
         try { return destination === path && source === realpathSync(path); } catch { return false; }
@@ -633,15 +679,121 @@ function relaySubtreeOwned(directory: string, origin: string): boolean {
   try { return visit(root); } catch { return false; }
 }
 
+const createdFixtureRoots = new Map<string, {dev:bigint;ino:bigint}>();
+/** This creates a fresh owned tree; it cannot mark an existing host directory. */
+export function nativeFixtureDirectory(prefix: string): string {
+  if(prefix!==basename(prefix)||!/^[A-Za-z0-9_-]+$/.test(prefix))refuse("invalid fixture directory prefix");
+  const root=mkdtempSync(join("/tmp",prefix));
+  const info=lstatSync(root,{bigint:true});createdFixtureRoots.set(root,{dev:info.dev,ino:info.ino});return root;
+}
+
+/** Only fixture-declared data, fixed runtime bytes and guard-created IPC enter a worker. */
+function workerSourceAllowed(source: string, route: ScriptedAuthority, guardRoot: string): boolean {
+  const created=[...createdFixtureRoots].filter(([path,stamp])=>{try{const now=lstatSync(path,{bigint:true});return now.dev===stamp.dev&&now.ino===stamp.ino;}catch{return false;}}).map(([path])=>path);
+  const registered=route.fixtureRoots.filter(path=>{try{const stamp=route.fixtureRootStamps.get(path),now=lstatSync(path,{bigint:true});return Boolean(stamp&&stamp.dev===now.dev&&stamp.ino===now.ino);}catch{return false;}});
+  const roots = [...registered, ...created, guardRoot,
+    ...["packages", "node_modules"].map(name => join(ROOT, name)), ...SYSTEM];
+  if (roots.some(root => { try { return within(realpathSync(root), source); } catch { return false; } })) return true;
+  return [...SYSTEM_FILES, process.execPath, compileSocketPolicy(), ...["package.json", "tsconfig.json", "bunfig.toml"].map(name => join(ROOT, name))]
+    .some(path => { try { return realpathSync(path) === source; } catch { return false; } });
+}
+
+function stageWorkerFixtureBinds(argv: string[], bwrap: number, route: ScriptedAuthority, guardRoot: string): void {
+  let staged = 0;
+  const staging = join(guardRoot, "files");
+  for (let i = bwrap + 1; i < argv.indexOf("--", bwrap); i++) {
+    if (!["--bind", "--ro-bind", "--dev-bind", "--bind-try", "--ro-bind-try", "--dev-bind-try"].includes(argv[i]!)) continue;
+    if (FORBIDDEN_BIND_ROOTS.has(resolve(argv[i+1]!)) || FORBIDDEN_BIND_ROOTS.has(resolve(argv[i+2]!))) refuse("native bind exposes a forbidden host service root");
+    let source: string;
+    try { source = realpathSync(argv[i + 1]!); } catch(error) { refuse("worker bind source is unavailable",mountInputEvidence(argv[i+1]!,argv[i+2]!,i,error,route.fixtureRoots)); }
+    if (FORBIDDEN_BIND_ROOTS.has(source)) refuse("native bind exposes a forbidden host service root");
+    const explicit = route.fixtureFiles.get(source);
+    if (explicit) {
+      mkdirSync(staging, {recursive:true,mode:0o755});chmodSync(staging,0o755);
+      const copy=join(staging,String(staged++));writeFileSync(copy,explicit,{mode:0o444});chmodSync(copy,0o444);
+      argv[i]="--ro-bind";argv[i+1]=copy;
+    } else if (!workerSourceAllowed(source, route, guardRoot)) {
+      const info=lstatSync(source);
+      // Replace a socket-only relay directory with exact socket binds. A later
+      // file in the original directory never enters the native view.
+      if(info.isDirectory() && [...ownedRelaySockets.values()].some(socket=>normalizedOrigin(socket.origin)===normalizedOrigin(route.origin) && dirname(socket.path)===source && socket.isLive()) && readdirSync(source).length && readdirSync(source).every(name=>{
+        try{return socketMatchesOrigin(join(source,name),route.origin);}catch{return false;}
+      })) {
+        const destination=argv[i+2]!;
+        const exact=readdirSync(source).flatMap(name=>["--ro-bind",join(source,name),join(destination,name)]);
+        argv.splice(i,3,...exact);i+=exact.length-1;continue;
+      } else if (!(info.isSocket() && socketMatchesOrigin(source,route.origin)) && !(source === "/dev/null" && info.isCharacterDevice())) {
+        refuse("worker bind was not created or staged by the fixture",mountInputEvidence(source,argv[i+2]!,i,{code:"UNREGISTERED"},route.fixtureRoots));
+      }
+    }
+    i+=2;
+  }
+}
+
+function assertWorkerFixtureBinds(mounts: readonly string[], route: ScriptedAuthority, guardRoot: string): void {
+  for(let i=0;i<mounts.length;i++) {
+    if(!["--bind","--ro-bind","--dev-bind","--bind-try","--ro-bind-try","--dev-bind-try"].includes(mounts[i]!))continue;
+    let source:string;try{source=realpathSync(mounts[i+1]!);}catch{refuse("worker bind source is unavailable");}
+    if(!workerSourceAllowed(source,route,guardRoot)) {
+      const info=lstatSync(source);
+      if(!(info.isSocket() && socketMatchesOrigin(source,route.origin)) && !(source === "/dev/null" && info.isCharacterDevice()))refuse("worker bind was not created or staged by the fixture",mountInputEvidence(source,mounts[i+2]!,i,{code:"UNREGISTERED"},route.fixtureRoots));
+    }
+    // A fixture symlink cannot turn a declared directory into outside data.
+    const visited=new Set<string>();let inspected=source;
+    const visit=(path:string):void=>{
+      inspected=path;
+      const real=realpathSync(path),info=lstatSync(real);
+      if(info.isFile() && !workerSourceAllowed(real,route,guardRoot))refuse("worker file was not created or staged by the fixture");
+      if(!info.isDirectory() || SYSTEM.some(root=>{try{return within(realpathSync(root),real);}catch{return false;}}) || visited.has(real))return;
+      visited.add(real);for(const name of readdirSync(real))visit(join(real,name));
+    };
+    try { visit(source); } catch(error) {
+      if(String(error).includes("Offline native Claude refused before launch:"))throw error;
+      refuse("worker fixture provenance is unavailable",mountInputEvidence(inspected,mounts[i+2]!,i,error,route.fixtureRoots));
+    }
+    i+=2;
+  }
+}
+
+/** Exact first-party status/namespace prefixes; a payload argument named bwrap is not a launcher. */
+function nativeBwrapIndex(argv: readonly string[]): number {
+  let at=0;
+  const same=(command:string|undefined,path:string)=>{try{return Boolean(command)&&realpathSync(command!)===realpathSync(path);}catch{return false;}};
+  for(let depth=0;depth<4;depth++) {
+    if(same(argv[at],"/bin/sh")) {
+      if(argv[at+1]!=="-c"||argv[at+2]!=='exec 3>"$1"; exec 4<"$2"; shift 2; exec "$@"'||argv[at+3]!=="brain-worker-status")return -1;
+      if(!argv.slice(at+4,at+6).every(path=>{try{return new RegExp(`^/proc/${process.pid}/fd/[0-9]+$`).test(path)&&statSync(path).isFIFO();}catch{return false;}}))return -1;
+      at+=6;continue;
+    }
+    if(same(argv[at],"/usr/bin/python3")&&argv[at+1]==="-I"&&argv[at+2]==="-S"&&argv[at+3]==="-c") {
+      const {WORKER_FILESYSTEM_FILTER_PROGRAM}=createRequire(import.meta.url)("../packages/ui-sdk/src/server/worker-filesystem-filter.ts") as typeof import("../packages/ui-sdk/src/server/worker-filesystem-filter");
+      if(argv[at+4]!==WORKER_FILESYSTEM_FILTER_PROGRAM)return -1;
+      at+=5;continue;
+    }
+    if(same(argv[at],"/usr/bin/nsenter")) {
+      const end=argv.indexOf("--",at);if(end<0)return -1;
+      for(let i=at+1;i<end;i++){
+        if(["--user","--mount","--preserve-credentials"].includes(argv[i]!))continue;
+        if(argv[i]==="--target"&&/^\d+$/.test(argv[++i]??""))continue;
+        return -1;
+      }
+      at=end+1;continue;
+    }
+    return basename(argv[at]??"")==="bwrap"?at:-1;
+  }
+  return -1;
+}
+
 /** Inspect the concrete existing worker bootstrap, including its exec payload. */
 export function nativeWorkerBoundary(env: Record<string, string | undefined>): { env: Record<string, string | undefined>; dispose(): void; beforeLaunch(): void } {
   const unchanged = { env, dispose() {}, beforeLaunch() {} };
   if (!env.BRAIN_WORKER_LAUNCH) return unchanged;
   let launch: { command?: string[]; argv?: string[]; env?: Record<string, string>; brainPath?: string; hostHome?: string } | null;
-  try { launch = JSON.parse(env.BRAIN_WORKER_LAUNCH); } catch { return unchanged; }
-  if (!launch?.command?.[0] || !isNativeClaude(launch.command[0], launch.command.slice(1), { cwd: launch.brainPath, env: launch.env })) return unchanged;
+  try { launch = JSON.parse(env.BRAIN_WORKER_LAUNCH); } catch { refuse("invalid worker launch metadata"); }
+  if (!launch || !Array.isArray(launch.argv) || !launch.argv.length || !launch.argv.every(value => typeof value === "string") ||
+      !Array.isArray(launch.command) || !launch.command.length || !launch.command.every(value => typeof value === "string")) refuse("worker command and argv are required");
   const argv = launch.argv;
-  if (!argv) refuse("native worker lacks the OS launcher");
+  const context = { cwd: launch.brainPath, env: launch.env };
   let workerArgv = argv;
   let supervisor: { argv: string[] } | undefined;
   if (argv.length === 6 && argv[1] === "-I" && argv[2] === "-S" && argv[3] === "-c") {
@@ -655,7 +807,21 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
     if (!supervisor || !Array.isArray(supervisor.argv) || !supervisor.argv.every(value => typeof value === "string")) refuse("invalid native identity launcher");
     workerArgv = supervisor.argv;
   }
-  const bwrap = workerArgv.findIndex(value => basename(value) === "bwrap");
+  try { argv[0] = resolveExecutable(argv[0]!, context); workerArgv[0] = resolveExecutable(workerArgv[0]!, context); }
+  catch { refuse("worker executable could not be resolved"); }
+  const command = launch.command!;
+  const tail = workerArgv.slice(-command.length);
+  let agrees = false;
+  try { agrees = tail.length === command.length && resolveExecutable(tail[0]!, context) === resolveExecutable(command[0]!, context)
+    && tail.slice(1).every((value, index) => value === command[index + 1]); } catch { /* Unknown executable refuses. */ }
+  if (!agrees) refuse("worker command and executable argv disagree");
+  const actualNative = isNativeClaude(argv[0]!, argv.slice(1), context) || isNativeClaude(workerArgv[0]!, workerArgv.slice(1), context);
+  if (!actualNative) {
+    if (supervisor) argv[5] = JSON.stringify(supervisor);
+    launch.argv = argv;
+    return { ...unchanged, env: { ...env, BRAIN_WORKER_LAUNCH: JSON.stringify(launch) } };
+  }
+  const bwrap = nativeBwrapIndex(workerArgv);
   if (bwrap < 0) refuse("native worker lacks the OS launcher");
   // Even ordinary test workers use a private network and a single bridge.
   // Do not rely on SDK options or the production profile to establish this.
@@ -667,13 +833,14 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
   if (socket && !ownedOrigin) refuse("pre-existing native relay is not guard-owned");
   if (ownedOrigin && (!route || normalizedOrigin(ownedOrigin) !== normalizedOrigin(route.origin))) refuse("native relay did not match scripted authority");
   qualify();
+  workerArgv[bwrap] = bwrapExecutable;
   const bridge = startNativeTestRelay(route.origin);
   try {
     const tools = fixtureToolView(launch.env ?? {}, launch.brainPath ?? ROOT, launch.hostHome ?? launch.env?.HOME);
     assertNativeMountSockets(tools.mounts, route.origin);
     for (let i = bwrap + 1; i < workerArgv.indexOf("--", bwrap); i++) {
       if (workerArgv[i] === "--ro-bind" && workerArgv[i + 1] === "/" && workerArgv[i + 2] === "/") workerArgv.splice(i--, 3);
-      else if (workerArgv[i] === "--ro-bind" && workerArgv[i + 2] === "/etc/alternatives") workerArgv.splice(i--, 3);
+      else if (workerArgv[i] === "--ro-bind" && ["/etc/alternatives", "/etc/resolv.conf", "/etc/ssl/certs"].includes(workerArgv[i + 2]!)) workerArgv.splice(i--, 3);
       else if (workerArgv[i] === "--setenv" && !WORKER_RUNTIME_ENV.has(workerArgv[i + 1]!)) workerArgv.splice(i--, 3);
     }
     workerArgv.splice(bwrap + 1, 0, "--clearenv", "--unshare-net", "--unshare-pid", ...systemMounts(), ...testRuntimeMounts(), ...tools.mounts, "--ro-bind", process.execPath, process.execPath, "--ro-bind", compileSocketPolicy(), compileSocketPolicy());
@@ -686,13 +853,18 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
     workerArgv.splice(separator, 0, "--ro-bind", bridge.directory, "/tmp/native-relay",
       "--ro-bind", join(bridge.directory, "passwd"), "/etc/passwd", "--ro-bind", join(bridge.directory, "group"), "/etc/group",
       ...Object.entries(pinned).flatMap(([key, value]) => ["--setenv", key, value]));
+    try { stageWorkerFixtureBinds(workerArgv,bwrap,route,bridge.directory); }
+    catch(error) { if (String(error).includes("Offline native Claude refused before launch:")) throw error; refuse("worker fixture provenance is unavailable"); }
     const payloadIndex = workerArgv.indexOf("--", bwrap) + 1;
     const nativePayload = workerArgv.splice(payloadIndex);
     workerArgv.push(...nativeSocketCommand(nativePayload, admitted?.path ?? join(bridge.directory, "relay.sock"), pinned.ANTHROPIC_UNIX_SOCKET));
     const nativeMounts = workerArgv.slice(bwrap + 1, workerArgv.indexOf("--", bwrap));
-    const beforeLaunch = () => assertNativeMountSockets(nativeMounts, route.origin);
+    const beforeLaunch = () => {
+      try { assertWorkerFixtureBinds(nativeMounts, route, bridge.directory); assertNativeMountSockets(nativeMounts, route.origin); }
+      catch(error) { if (String(error).includes("Offline native Claude refused before launch:")) throw error; refuse("worker fixture provenance is unavailable"); }
+    };
     beforeLaunch();
-    const expected = expectedNativeExec(launch.command[0], launch.command.slice(1), { cwd: launch.brainPath, env: launch.env });
+    const expected = expectedNativeExec(command[0]!, command.slice(1), context);
     let audited: ReturnType<typeof auditNativeLaunch>;
     if (supervisor) {
       const payload = workerArgv.splice(workerArgv.indexOf("--", bwrap) + 1);

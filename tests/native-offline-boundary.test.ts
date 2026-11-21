@@ -18,8 +18,9 @@ async function probe(script: string, home: string) {
   return { code, output };
 }
 const imports = `import {installNetworkGuard} from ${JSON.stringify(join(ROOT, "scripts/test-network-guard.ts"))};
-  import {nativeClaudeBoundary,nativeScriptedService as registerScriptedService} from ${JSON.stringify(join(ROOT, "scripts/test-native-guard.ts"))};
-  delete process.env.GITHUB_ACTIONS; delete process.env.RUNNER_ENVIRONMENT; installNetworkGuard();`;
+  import {nativeClaudeBoundary,nativeScriptedService as registerService} from ${JSON.stringify(join(ROOT, "scripts/test-native-guard.ts"))};
+  delete process.env.GITHUB_ACTIONS; delete process.env.RUNNER_ENVIRONMENT; installNetworkGuard();
+  const registerScriptedService=(origin)=>registerService(origin,{fixtureRoots:[process.env.HOME]});`;
 
 test("a harmless fixture named claude runs without native admission", async () => {
   const scratch = mkdtempSync(join(tmpdir(), "odysseus-fixture-runtime-"));
@@ -242,7 +243,7 @@ test("separate-UID plans trace the broker payload outside its hidden native audi
   const scratch = mkdtempSync(join(tmpdir(), "odysseus-identity-plan-"));
   try {
     const result = await probe(`${imports}
-      import {writeFileSync} from "node:fs";
+      import {writeFileSync,realpathSync} from "node:fs";
       import {dirname} from "node:path";
       import {nativeWorkerBoundary,nativeScriptedService} from ${JSON.stringify(join(ROOT, "scripts/test-native-guard.ts"))};
       import {WORKER_IDENTITY_SUPERVISOR} from ${JSON.stringify(join(ROOT, "packages/ui-sdk/src/server/worker-identity-program.ts"))};
@@ -258,7 +259,7 @@ test("separate-UID plans trace the broker payload outside its hidden native audi
         argv:["/usr/bin/python3","-I","-S","-c",WORKER_IDENTITY_SUPERVISOR,JSON.stringify({argv:["bwrap","--ro-bind","/","/","--",${JSON.stringify(runtime)}],secret:"synthetic"})]};
       const worker=nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify(launch)});
       const outer=JSON.parse(worker.env.BRAIN_WORKER_LAUNCH).argv;
-      if(outer[0]!=="/usr/bin/python3")throw Error("tracer wrapped the coordinator instead of the payload");
+      if(realpathSync(outer[0])!==realpathSync("/usr/bin/python3"))throw Error("tracer wrapped the coordinator instead of the payload");
       const config=JSON.parse(outer[5]),args=config.argv,split=args.indexOf("--"),trace=args.slice(split+1);
       if(trace[0]!=="/synthetic/strace")throw Error("native broker payload was not traced");
       const log=trace[trace.indexOf("-o")+1],directory=dirname(log);
@@ -779,4 +780,121 @@ test("non-system missing and inaccessible entries remain failed receipts",async(
    expect(result.code).not.toBe(0);expect(result.output).toContain('"metadataError":"'+code+'"');expect(result.output).toContain('"nativeLaunched":false');
   }finally{rmSync(scratch,{recursive:true,force:true});}
  }
+});
+
+test("worker admission classifies executable argv and refuses missing or disagreeing commands",async()=>{
+ const scratch=mkdtempSync(join(tmpdir(),"odysseus-worker-executable-"));
+ try{
+  symlinkSync(runtime!,join(scratch,"selected"));
+  for(const launch of [
+   {argv:[runtime]},
+   {command:[runtime]},
+   {command:["/usr/bin/true"],argv:[runtime]},
+   {command:["/usr/bin/true"],argv:["selected"],env:{PATH:scratch},brainPath:scratch},
+   {command:["/usr/bin/true"],argv:["./selected"],env:{PATH:"/usr/bin:/bin"},brainPath:scratch},
+  ]){
+   const result=await probe(`${imports} import {nativeWorkerBoundary} from ${JSON.stringify(join(ROOT,"scripts/test-native-guard.ts"))};nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:${JSON.stringify(JSON.stringify(launch))}});`,scratch);
+   expect(result.code).not.toBe(0);expect(result.output).toContain('"nativeLaunched":false');
+   expect(result.output).toMatch(/worker command and (?:argv are required|executable argv disagree)/);
+  }
+ }finally{rmSync(scratch,{recursive:true,force:true});}
+});
+
+test("worker outside-HOME regular files require explicit fixture snapshots",async()=>{
+ const scratch=mkdtempSync(join(tmpdir(),"odysseus-worker-files-")),outside=mkdtempSync(join(tmpdir(),"odysseus-outside-file-"));
+ const sentinel=join(outside,"credential-like"),home=join(scratch,"home");mkdirSync(home);writeFileSync(sentinel,"odysseus-synthetic-sentinel");
+ try{
+  for(const admitted of [false,true]){
+   const result=await probe(`${imports}
+    import {nativeWorkerBoundary,nativeScriptedService} from ${JSON.stringify(join(ROOT,"scripts/test-native-guard.ts"))};import {writeFileSync,readFileSync} from "node:fs";
+    const spawnSync=Bun.spawnSync,which=Bun.which;
+    Bun.which=((command,options)=>command==="strace"?"/synthetic/strace":which(command,options));
+    Bun.spawnSync=((argv,options)=>(["bwrap","strace"].includes(argv[0])||argv[0]?.endsWith("/native-connect"))?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
+    process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";
+    nativeScriptedService("http://127.0.0.1:1",{fixtureRoots:[${JSON.stringify(home)}],fixtureFiles:${admitted?JSON.stringify([sentinel]):"[]"}});
+    const plan=nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify({command:[${JSON.stringify(runtime)}],brainPath:${JSON.stringify(home)},env:{HOME:${JSON.stringify(home)}},argv:["bwrap","--ro-bind",${JSON.stringify(sentinel)},"/tmp/sentinel","--",${JSON.stringify(runtime)}]})});
+    const argv=JSON.parse(plan.env.BRAIN_WORKER_LAUNCH).argv;
+    try { const at=argv.indexOf("/tmp/sentinel"),source=argv[at-1];
+     if(source===${JSON.stringify(sentinel)})throw Error("outside file stayed live-bound");
+     writeFileSync(${JSON.stringify(sentinel)},"changed-original");
+     if(readFileSync(source,"utf8")!=="odysseus-synthetic-sentinel")throw Error("fixture copy was not a snapshot");plan.beforeLaunch();
+    }finally{writeFileSync(argv[argv.indexOf("-o")+1],${JSON.stringify(`1 execve(${JSON.stringify(runtime)}, [], 0x1) = 0`)});plan.dispose();}`,scratch);
+   if(admitted)expect(result.code,result.output).toBe(0);
+   else {expect(result.code).not.toBe(0);expect(result.output).toContain("worker bind was not created or staged by the fixture");expect(result.output).toContain('"nativeLaunched":false');}
+  }
+ }finally{rmSync(scratch,{recursive:true,force:true});rmSync(outside,{recursive:true,force:true});}
+});
+
+test("offline collector authority preserves only explicitly generated synthetic OAuth",async()=>{
+ const scratch=mkdtempSync(join(tmpdir(),"odysseus-offline-collector-"));
+ try{
+  const result=await probe(`${imports}
+   import {nativeSyntheticCredential,nativeScriptedService} from ${JSON.stringify(join(ROOT,"scripts/test-native-guard.ts"))};import {writeFileSync,readFileSync} from "node:fs";
+   const spawnSync=Bun.spawnSync,which=Bun.which;
+   Bun.which=((command,options)=>command==="strace"?"/synthetic/strace":which(command,options));
+   Bun.spawnSync=((argv,options)=>(["bwrap","strace"].includes(argv[0])||argv[0]?.endsWith("/native-connect"))?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
+   process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";
+   registerScriptedService("http://127.0.0.1:1");
+   const token=nativeSyntheticCredential("CLAUDE_CODE_OAUTH_TOKEN");
+   const leave=nativeScriptedService("http://127.0.0.1:2");
+   try {for(const value of [token,"sk-ant-oat01-offline-odysseus-not-generated"]){
+    const plan=nativeClaudeBoundary(${JSON.stringify(runtime)},[],{cwd:${JSON.stringify(scratch)},env:{HOME:${JSON.stringify(scratch)},CLAUDE_CODE_OAUTH_TOKEN:value,ANTHROPIC_BASE_URL:"http://127.0.0.1:2"}});
+    const argv=plan.argv,at=argv.indexOf("CLAUDE_CODE_OAUTH_TOKEN");
+    if((value===token)!==(at>=0&&argv[at+1]===value))throw Error("synthetic credential provenance lost");
+    writeFileSync(argv[argv.indexOf("-o")+1],${JSON.stringify(`1 execve(${JSON.stringify(runtime)}, [], 0x1) = 0`)});plan.dispose();
+   }} finally{leave();}
+   const source=readFileSync(${JSON.stringify(join(ROOT,"scripts/measure-turn-surface-live.ts"))},"utf8");
+   const hook=source.slice(source.indexOf("spawnClaudeCodeProcess: spec"),source.indexOf("turn = await startOverlappedTurn"));
+   if(!hook.includes("nativeScriptedService(offline.nativeBaseUrl")||hook.indexOf("nativeScriptedService(")>hook.indexOf("child = spawn("))throw Error("collector did not pin service before spawn");
+   if(!source.includes('offline ? nativeSyntheticCredential("CLAUDE_CODE_OAUTH_TOKEN")'))throw Error("collector did not generate its synthetic token");`,scratch);
+  expect(result.code,result.output).toBe(0);
+ }finally{rmSync(scratch,{recursive:true,force:true});}
+});
+
+test("a native argv cannot use an argument named bwrap as its isolation launcher",async()=>{
+ const scratch=mkdtempSync(join(tmpdir(),"odysseus-fake-launcher-"));
+ try{
+  writeFileSync(join(scratch,"bwrap"),"#!/bin/sh\nexit 0\n",{mode:0o755});
+  const command=[runtime!,join(scratch,"bwrap")];
+  const result=await probe(`${imports}import {nativeWorkerBoundary} from ${JSON.stringify(join(ROOT,"scripts/test-native-guard.ts"))};
+   nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:${JSON.stringify(JSON.stringify({command,argv:command,brainPath:scratch}))}});`,scratch);
+  expect(result.code).not.toBe(0);expect(result.output).toContain("native worker lacks the OS launcher");expect(result.output).toContain('"nativeLaunched":false');
+ }finally{rmSync(scratch,{recursive:true,force:true});}
+});
+
+test("worker filesystem-filter prefix is verified before native admission",async()=>{
+ const scratch=mkdtempSync(join(tmpdir(),"odysseus-worker-filter-"));
+ try{
+  const result=await probe(`${imports}
+   import {nativeWorkerBoundary} from ${JSON.stringify(join(ROOT,"scripts/test-native-guard.ts"))};import {WORKER_FILESYSTEM_FILTER_PROGRAM} from ${JSON.stringify(join(ROOT,"packages/ui-sdk/src/server/worker-filesystem-filter.ts"))};import {writeFileSync} from "node:fs";
+   const spawnSync=Bun.spawnSync,which=Bun.which;
+   Bun.which=((command,options)=>command==="strace"?"/synthetic/strace":which(command,options));
+   Bun.spawnSync=((argv,options)=>(["bwrap","strace"].includes(argv[0])||argv[0]?.endsWith("/native-connect"))?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
+   process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";registerScriptedService("http://127.0.0.1:1");
+   const plan=nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify({command:[${JSON.stringify(runtime)}],brainPath:${JSON.stringify(scratch)},env:{HOME:${JSON.stringify(scratch)}},argv:["/usr/bin/python3","-I","-S","-c",WORKER_FILESYSTEM_FILTER_PROGRAM,"bwrap","--",${JSON.stringify(runtime)}]})});
+   const argv=JSON.parse(plan.env.BRAIN_WORKER_LAUNCH).argv;
+   if(!argv.includes(WORKER_FILESYSTEM_FILTER_PROGRAM)||!argv.includes("--unshare-net"))throw Error("trusted filter or OS boundary lost");
+   writeFileSync(argv[argv.indexOf("-o")+1],${JSON.stringify(`1 execve(${JSON.stringify(runtime)}, [], 0x1) = 0`)});plan.dispose();`,scratch);
+  expect(result.code,result.output).toBe(0);
+ }finally{rmSync(scratch,{recursive:true,force:true});}
+});
+
+test("guard-created fixture roots cannot authorize a replacement host tree",async()=>{
+ const scratch=mkdtempSync(join(tmpdir(),"odysseus-owned-root-"));
+ try{
+  const result=await probe(`${imports}
+   import {nativeFixtureDirectory,nativeWorkerBoundary,nativeScriptedService} from ${JSON.stringify(join(ROOT,"scripts/test-native-guard.ts"))};import {writeFileSync,renameSync,mkdirSync,rmSync} from "node:fs";
+   const spawnSync=Bun.spawnSync,which=Bun.which;
+   Bun.which=((command,options)=>command==="strace"?"/synthetic/strace":which(command,options));
+   Bun.spawnSync=((argv,options)=>(["bwrap","strace"].includes(argv[0])||argv[0]?.endsWith("/native-connect"))?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
+   process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";
+   nativeScriptedService("http://127.0.0.1:1",{fixtureRoots:[]});
+   const root=nativeFixtureDirectory("odysseus-created-input-"),file=root+"/input";writeFileSync(file,"created-fixture");nativeScriptedService("http://127.0.0.1:1",{fixtureRoots:[root]});let plan;
+   try {plan=nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify({command:[${JSON.stringify(runtime)}],argv:["bwrap","--ro-bind",file,"/tmp/input","--",${JSON.stringify(runtime)}]})});
+    renameSync(root,root+"-original");mkdirSync(root);writeFileSync(file,"replacement-outside-data");
+    let refused=false;try{plan.beforeLaunch();}catch(error){refused=String(error).includes("worker bind was not created or staged by the fixture");}
+    if(!refused)throw Error("replacement root was admitted");console.error("CREATED_ROOT_REPLACEMENT_REFUSED");
+   }finally{plan?.dispose();rmSync(root,{recursive:true,force:true});rmSync(root+"-original",{recursive:true,force:true});}`,scratch);
+  expect(result.code).not.toBe(0);expect(result.output.split("\n")).toContain("CREATED_ROOT_REPLACEMENT_REFUSED");
+ }finally{rmSync(scratch,{recursive:true,force:true});}
 });

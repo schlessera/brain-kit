@@ -934,7 +934,7 @@ async function credentialRows(model: ReturnType<typeof scriptedModel>): Promise<
     BRAIN_UI_SUBPROCESS_ENV_EXTRA: "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
   });
   const worker = createMeasurementWorkerFixture(sc.cwd, sc.home);
-  const leaveRoute = nativeScriptedService(model.url);
+  const leaveRoute = nativeScriptedService(model.url, {fixtureRoots:[sc.cwd,sc.home]});
   try {
     const backend = createClaudeBackend({
       maintenance: worker.maintenance,

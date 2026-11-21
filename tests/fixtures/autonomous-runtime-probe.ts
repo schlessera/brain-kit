@@ -92,7 +92,7 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
     { type: "message_delta", delta: { stop_reason: "end_turn", stop_sequence: null }, usage: { output_tokens: 5 } },
     { type: "message_stop" }]);
 } });
-nativeScriptedService(server.url.origin);
+nativeScriptedService(server.url.origin, { fixtureRoots: [brainPath, configDir] });
 function start(): unknown {
   return { type: "message_start", message: { id: `msg_${crypto.randomUUID()}`, type: "message", role: "assistant",
     model: "claude-sonnet-4-6", content: [], stop_reason: null, stop_sequence: null,

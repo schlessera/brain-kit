@@ -39,7 +39,7 @@ const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request
   requests.push({ model: body.model, history: body.messages.length, apiCredential: request.headers.get("x-api-key") === "odysseus-fictional-api-key" });
   return nativeModelReply();
 } });
-nativeScriptedService(provider.url.origin);
+nativeScriptedService(provider.url.origin, { fixtureRoots: [brain, home] });
 const backend = createClaudeBackend({ brainPath: brain, queryFn: nativeScriptedQuery(query, provider.url.origin), profiles: [{ id: "odysseus-haiku", label: "Odysseus Haiku", billing: "api",
   requiredEnvKeys: [], model: "claude-haiku-4-5", buildEnv: () => ({ ANTHROPIC_BASE_URL: provider.url.origin,
     ANTHROPIC_API_KEY: "odysseus-fictional-api-key", HOME: home, CLAUDE_CONFIG_DIR: config, PATH: "/usr/local/bin:/usr/bin:/bin",
@@ -47,7 +47,7 @@ const backend = createClaudeBackend({ brainPath: brain, queryFn: nativeScriptedQ
 const backendProfiles: Array<string | undefined> = [];
 const admissionReads: Array<ReturnType<NonNullable<Parameters<typeof backend.startTurn>[0]["bridge"]["admissionSafety"]>["read"]>> = [];
 const observedBackend = { ...backend, startTurn(request: Parameters<typeof backend.startTurn>[0]) {
-  nativeScriptedService(provider.url.origin);
+  nativeScriptedService(provider.url.origin, { fixtureRoots: [brain, home] });
   backendProfiles.push(request.workerSandbox?.profile);
   // Observe the real host gate synchronously, returning each original read
   // unchanged. Native refusals otherwise collapse to a generic HTTP 403.

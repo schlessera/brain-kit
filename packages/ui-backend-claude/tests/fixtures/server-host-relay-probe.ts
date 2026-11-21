@@ -125,7 +125,7 @@ const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request
   requests.push({ credential: tokens.indexOf(request.headers.get("authorization")?.replace("Bearer ", "") ?? ""), model: body.model, history: body.messages.length });
   return nativeModelReply();
 } });
-nativeScriptedService(provider.url.origin);
+nativeScriptedService(provider.url.origin, { fixtureRoots: [brainPath, home] });
 const nativeFetch = globalThis.fetch;
 globalThis.fetch = (async (input, init) => {
   const target = new URL(typeof input === "string" || input instanceof URL ? String(input) : input.url);

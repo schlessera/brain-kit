@@ -1,3 +1,4 @@
+import {nativeFixtureDirectory} from "../../../../scripts/test-native-guard.ts";
 /** Immutable configuration execution inputs. No git, imports, links followed or shared inodes. */
 import { closeSync, constants, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync,
   readlinkSync, readSync, rmdirSync, unlinkSync, symlinkSync, writeSync, chmodSync, fchmodSync, ftruncateSync, futimesSync, utimesSync, writeFileSync } from "node:fs";
@@ -77,7 +78,7 @@ os.rmdir(sys.argv[1])
 function createStartupInputStorage(): WorkerStartupStorage {
   const python = Bun.which("python3");
   if (!python) throw new Error("python3 is required for immutable startup input crash cleanup");
-  const root = mkdtempSync("/tmp/brain-startup-input-");
+  const root = nativeFixtureDirectory("brain-startup-input-");
   let keeper: ReturnType<typeof Bun.spawn<"pipe", "ignore", "ignore">>;
   try { keeper = Bun.spawn([python, "-I", "-S", "-c", INPUT_CLEANUP, root], { env: {}, stdin: "pipe", stdout: "ignore", stderr: "ignore" }); }
   catch (error) { removePrivateView(root); throw error; }

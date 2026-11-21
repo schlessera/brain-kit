@@ -115,7 +115,7 @@ const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request
     name: "Bash", id: "tool_ithaca_denied", input: { command: `printf odysseus > ${join(brain, "should-not-exist")}` },
   } : undefined);
 } });
-nativeScriptedService(provider.url.origin);
+nativeScriptedService(provider.url.origin, { fixtureRoots: [brain, worker, directory] });
 const originalFetch = globalThis.fetch;
 // Only the host's lowest fetch method is replaced. The native CLI makes real
 // HTTP requests over the real Unix socket. Both upstream exchanges reach a
