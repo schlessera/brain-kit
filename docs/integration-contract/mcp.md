@@ -9,6 +9,37 @@ non-blocking startup can send a request before loading them. Names, input
 schemas, annotations and result envelopes are unchanged; other clients may
 ignore the metadata.
 
+New hosted Claude sessions with a proven core-only tool inventory register the six read definitions in an in-process
+`brain` bridge from the versioned definitions shipped with the core package.
+Their visible names remain `mcp__brain__brain_search`, `mcp__brain__brain_context`,
+`mcp__brain__brain_read`, `mcp__brain__brain_list`, `mcp__brain__brain_read_many`
+and `mcp__brain__brain_graph`. The first five are always loaded; graph is
+eligible for deferral. Existing host application, compute and Apify tools keep
+their names and authority routes. The runtime's project `brain` stdio entry is
+overridden by the SDK bridge, so it does not launch a second brain server.
+
+The host forwards each read to one `brain mcp` worker started alongside runtime
+startup with the turn's sandbox, startup view, data tree and provider masks.
+It does not read brain content itself. Calls arriving before readiness wait up
+to 30 seconds; an individual forwarding request has the same 30-second bound.
+Failures return `isError: true` with `brain_tool_unavailable` or
+`brain_tool_timeout`, without disabling other tools or falling back to a host
+read. A timed-out early call may succeed later once startup finishes.
+
+A new session's inventory is resolved by `brain module list --json` in the
+turn sandbox before retaining its roster. If module MCP tools are present, or
+the inventory is unavailable, the original project stdio entry is kept and
+search stays off. The named fallback reason is recorded in owner diagnostics,
+never in provider history. Static module inventory is tracked by #4381.
+
+Only new first-party-origin relayed hosted sessions pin `ENABLE_TOOL_SEARCH`
+to `true`, in both environment and flag settings. Other routes pin it off.
+The effective-setting gate checks the runtime's selected value before releasing
+a prompt. Existing sessions retain their original stdio roster and tool-search
+selection; an internal retained bridge-version marker keeps resumes on the same
+execution path. Discovery may insert only a referenced deferred definition,
+with earlier definitions' bytes and relative order preserved.
+
 Authoritative component of the [integration contract](../integration-contract.md).
 Its [shared scope and versioning policy](../integration-contract.md) apply to every section below.
 
@@ -45,7 +76,7 @@ characters collapse to single spaces and it is capped at 80 characters, so a
 config value cannot add lines of its own. They point to `brain_search`,
 `brain_context`, `brain_read` and `brain_graph` for reading, and `brain_add`
 and `brain_update` for writing, and say that `brain.db` is never edited
-(`serverInstructions`, `packages/core/src/mcp-server.ts:95-109`). Since 0.45.0
+(`serverInstructions`, `packages/core/src/mcp-server.ts:84-98`). Since 0.45.0
 they add one sentence: the `brain_apify_*` tools reach Apify's paid remote
 extractors under the governance policy, are not web search, and discovering or
 inspecting an Actor never runs it. Tool descriptions are descriptive in the

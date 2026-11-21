@@ -21,7 +21,7 @@ export interface PromptGateInputs {
   queryHandle: Promise<Query>;
   /** The CLI's one initialization handshake, shared with the per-turn report. */
   initialize(cli: Query): ReturnType<Query["initializationResult"]>;
-  sdkTurn: Pick<ClaudeSdkTurn, "subscriptionOnly" | "pinnedSettingsEnv">;
+  sdkTurn: Pick<ClaudeSdkTurn, "subscriptionOnly" | "pinnedSettingsEnv"> & Partial<Pick<ClaudeSdkTurn, "options">>;
   /** The turn's relay, when its host prepared egress for it. */
   relay: TurnInferenceRelay | undefined;
   terminal: TurnTerminal;
@@ -69,9 +69,10 @@ export function promptGateCheck(inputs: PromptGateInputs): () => Promise<boolean
     inputs.log("warn", "inference transport check refused the turn", { "profile.id": inputs.profileId, reason });
     return terminal.withhold();
   };
-  const refuseSettings = (unreadable = false): false => {
+  const refuseSettings = (unreadable = false, bridgeConflict = false): false => {
     const message = unreadable
       ? "Claude native settings could not be read. Correct settings access before retrying."
+      : bridgeConflict ? "Claude native settings refused the hosted brain bridge: the project brain stdio entry is not disabled. Correct the conflicting settings before retrying."
       : "Claude native settings refused the retained tool-search selection. Correct the conflicting settings before retrying.";
     terminal.refused = { code: "CLAUDE_ERROR", message, failure: { errorClass: FIRST_PARTY_FAILURE_CLASSES.settings_conflict, message } };
     // This is configuration, not failed authentication. No auth_failure event
@@ -111,6 +112,10 @@ export function promptGateCheck(inputs: PromptGateInputs): () => Promise<boolean
     const discovery = sdkTurn.pinnedSettingsEnv?.ENABLE_TOOL_SEARCH;
     if (discovery !== undefined && settings?.effective?.env?.ENABLE_TOOL_SEARCH !== discovery)
       return refuseSettings();
+    if (sdkTurn.options?.mcpServers?.brain?.type === "sdk") {
+      const disabled = (settings?.effective as { disabledMcpjsonServers?: unknown } | undefined)?.disabledMcpjsonServers;
+      if (!Array.isArray(disabled) || !disabled.includes("brain")) return refuseSettings(false, true);
+    }
     if (sdkTurn.subscriptionOnly) {
       const verdict = subscriptionVerdict(account);
       const conflict = verdict.ok ? settingsRefusal(settings, sdkTurn.pinnedSettingsEnv) : null;

@@ -1,3 +1,4 @@
+import { createBrainToolForwarder, startBrainToolWorker } from "./brain-tool-forwarder.js";
 import { HOST_UNUSED_BUILTINS, retainSessionRequestShape } from "./session-request-shape.js";
 import { AGENT_INFERENCE_CREDENTIAL_ENV, INFERENCE_PLACEHOLDER, WORKER_EGRESS_DIR, workerProviderCredentials } from "@schlessera/brain-ui-sdk/internal";
 import { promptPrefixFingerprint } from "@schlessera/brain-ui-sdk/internal";
@@ -76,6 +77,8 @@ export interface ClaudeSdkTurn {
   subscriptionOnly: boolean;
   /** Flag-settings env values the host pinned itself; the settings check accepts exactly these. */
   pinnedSettingsEnv?: Readonly<Record<string, string>>;
+  /** Starts the owned forwarding worker alongside native runtime initialization. */
+  startBrainTools?(): void;
   finishWorker(): Promise<void>;
   sdkInitialized(): void;
   /** The resource limits this turn's workers hit (#1660): so far, and once they have exited. */
@@ -121,6 +124,8 @@ export function firstPartyInferenceUpstream(env: Readonly<Record<string, string 
 }
 
 interface ClaudeSdkTurnOptions {
+  /** Host-only resolved inventory; an absent or failed proof keeps project stdio. */
+  brainBridgeInventory?: "core-only" | "module-tools" | "unavailable";
   identity?: import("@schlessera/brain-ui-sdk/internal").WorkerNoteFacts["identity"];
   backend: ClaudeBackendOptions;
   /** One resolved environment selects both host observation storage and native runtime state. */
@@ -317,7 +322,7 @@ export function turnChildEnvironment(
     ANTHROPIC_UNIX_SOCKET: `${WORKER_EGRESS_DIR}/inference.sock`,
     ANTHROPIC_BASE_URL: options.hostInference.baseUrl ?? "http://localhost",
     ...RELAYED_TURN_TRAFFIC_ENV,
-    // Production non-blocking project MCP startup is not qualified (#4306).
+    // Retained session selection is applied after roster assembly.
     ENABLE_TOOL_SEARCH: "false",
   } : undefined;
   // The relay holds the profile's credential, so the variables it names stay on the host.
@@ -440,16 +445,22 @@ function assembleClaudeSdkTurn(
   const mandatory = ["AskUserQuestion", ...IN_WORKER_COMPUTE_TOOLS, ...IN_WORKER_APIFY_TOOLS, ...((hosted || req.autonomous) ? [
       "mcp__brain__brain_add", "mcp__brain__brain_update", "mcp__brain__brain_archive",
     ] : []), ...(hosted && req.autonomous && (sandbox.profile !== "governed" || req.posture === "voice") ? ["Write", "Edit", "NotebookEdit"] : [])];
+  const bridgeEligible = hosted && options.brainBridgeInventory === "core-only";
+  if (hosted && req.sessionId === undefined && !bridgeEligible) {
+    // #4381 supplies the future static module inventory. Until then retain the
+    // original stdio server; this owner diagnostic never enters model inputs.
+    log("warn", `brain_bridge_fallback_${options.brainBridgeInventory === "module-tools" ? "module_tools" : "inventory_unavailable"}: keeping the project brain stdio entry and tool search off.`);
+  }
   let retained: ReturnType<typeof retainSessionRequestShape> | undefined;
   const { contextId, context, append, prepare } = assemblePromptContext(backend, req, roster, sandbox, sandboxNote, id => {
     // Validate before prepare() persists this turn. Refused retries must leave
     // the saved prompt and pending-turn journal byte-identical.
     retained = retainSessionRequestShape(backend.brainPath, id, req.sessionId !== undefined,
-      [...mandatory, ...(hosted ? HOST_UNUSED_BUILTINS : [])], mandatory, undefined, "false");
+      [...mandatory, ...(hosted ? HOST_UNUSED_BUILTINS : [])], mandatory, undefined, bridgeEligible && options.hostInference && firstPartyInferenceUpstream(inheritedEnv) ? "true" : "false", bridgeEligible ? 1 : undefined);
     if (retained.toolSearch === "true") {
       if (!firstPartyInferenceUpstream(inheritedEnv))
         throw new Error("This session's tool search requires its qualified first-party inference upstream.");
-      throw new Error("This session's tool search is not qualified for production MCP startup (#4306).");
+      if (!retained.brainBridge) throw new Error("This session's tool search is not qualified for production MCP startup (#4306).");
     }
   });
   const subscriptionOnly = profile.billing !== "api";
@@ -543,6 +554,13 @@ function assembleClaudeSdkTurn(
   // bodies also return model-readable errors instead of acquiring authority.
   let assembledTools: unknown[] | undefined;
   sdkOptions.mcpServers = { "brain-ui": turnMcpServer(backend, req, roster, turnTemp, tools => { assembledTools = tools; }) };
+  const brainTools = retained?.brainBridge === 1 ? createBrainToolForwarder(startBrainToolWorker({
+    brainPath: backend.brainPath, sandbox, startupView: req.workerStartupView, env: childEnv,
+    limits, turnTempLimits, req, egress: options.hostInference, credentialEnv,
+  }), abortController.signal, error => log("warn", `Sandboxed brain tool forwarding: ${String(error)}`)) : undefined;
+  // An explicit SDK entry overrides the project's brain stdio entry. Other
+  // project MCP servers keep their existing non-blocking startup behavior.
+  if (brainTools) sdkOptions.mcpServers.brain = brainTools.server;
   let selectionPin: string | undefined;
   if (retained) {
     // Retention already refused any incompatible mandatory exclusions. Never
@@ -563,6 +581,7 @@ function assembleClaudeSdkTurn(
   }
   sdkOptions.env = childEnv;
   applyTurnSettings(sdkOptions, envelope, subscriptionOnly, inferenceEnv);
+  if (brainTools) sdkOptions.settings = { ...sdkOptions.settings as object, disabledMcpjsonServers: ["brain"] };
   if (selectionPin !== undefined) {
     sdkOptions.settings = { ...sdkOptions.settings as object,
       env: { ...(sdkOptions.settings as { env?: Record<string, string> }).env, ENABLE_TOOL_SEARCH: selectionPin } };
@@ -578,12 +597,13 @@ function assembleClaudeSdkTurn(
   return {
     options: sdkOptions,
     subscriptionOnly,
+    ...(brainTools ? { startBrainTools: brainTools.start } : {}),
     ...(envelope ? { pinnedSettingsEnv: envelope.pinned }
       : inferenceEnv || selectionPin !== undefined ? { pinnedSettingsEnv: { ...inferenceEnv, ...(selectionPin === undefined ? {} : { ENABLE_TOOL_SEARCH: selectionPin }) } } : {}),
     finishWorker: envelope
       ? () => worker.finish().finally(() => envelope.relay.stop())
       : async () => {
-        await worker.finish();
+        try { await brainTools?.close(); } finally { await worker.finish(); }
         if (owned) acknowledgeClaudeContext(backend.brainPath, contextId, owned, childEnv);
       },
     workerLimits: { current: worker.limits, settled: worker.settledLimits },

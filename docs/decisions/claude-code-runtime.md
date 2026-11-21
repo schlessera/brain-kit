@@ -1619,3 +1619,45 @@ strict tool guard rejects the reorder. This remains evidence against enablement,
 exception. The maintainer keeps tool search off in #4319. Follow-up #4325
 registers static host bridge definitions and forwards execution to a per-turn
 sandboxed `brain mcp` process; enablement waits for that path's qualification.
+
+## 2026-11-21 — Static hosted brain read bridge (#4325)
+
+New hosted Claude sessions override the project `brain` MCP entry with an
+in-process SDK server. Its six read definitions come from core's static,
+versioned definitions, shared with the standalone server without loading a
+brain or its configuration. Five common reads carry `anthropic/alwaysLoad`;
+`brain_graph` remains deferred. Existing host application, compute and Apify
+tools keep their own authority routes.
+
+The forwarder starts one `brain mcp` process at backend invocation, alongside
+runtime startup, using the same sandbox, immutable startup view, data tree,
+provider masks and limits as the turn. Host code relays MCP requests and
+results only. Readiness is awaited only by an early call, for at most 30
+seconds; each forwarded request also has a 30-second bound. Failure is a named
+tool result, never a host content read. The process and its reservation are
+owned until turn cleanup confirms release. It is not retained between turns.
+
+The internal session snapshot records bridge version 1 for new hosted
+sessions. Previous snapshots, including version 4 selection records, keep the
+stdio path and their search pin unchanged. New first-party-origin relayed
+sessions pin tool search on in environment and flag settings; other routes
+keep it off, and the effective-setting gate remains mandatory. The approved
+sorted insertion rule still requires exact earlier definitions and relative
+order. Provider cache hits and cost require live provider measurements.
+
+Pi retains its current in-worker reads. Its bridge carries host tool RPCs,
+but its native tool contract has no MCP transport or deferred-definition/tool
+reference discovery mechanism. Its existing sandboxed reads have no project
+MCP startup race; switching their schemas and execution to a second process
+would be a separate session-roster change.
+
+Module MCP tools have no static inventory yet (#4381). Before selecting a new
+hosted session's roster, a credential-filtered worker with the same turn view
+runs `brain module list --json`. A proven empty module-tool inventory permits
+the bridge. Config-selected module tools, an unavailable inventory, or malformed
+output retain the original project stdio entry and pin search off. The owner
+log records `brain_bridge_fallback_module_tools` or
+`brain_bridge_fallback_inventory_unavailable`; neither diagnostic enters the
+provider conversation. This adds one sandboxed inventory command for a new
+session; resumes use their retained selection. The extra command is not a
+`brain mcp` process. Pi keeps its existing in-worker reads.

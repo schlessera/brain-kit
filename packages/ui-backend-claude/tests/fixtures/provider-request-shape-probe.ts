@@ -1,3 +1,6 @@
+import { spyOn } from "bun:test";
+import { spawn } from "node:child_process";
+import * as workerApi from "@schlessera/brain-ui-sdk/internal";
 /**
  * Production SDK assembly and hooks through the pinned runtime and Unix relay.
  * captureOffline isolates networking. This probe launches the runtime directly:
@@ -31,7 +34,11 @@ const model = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
   if (path !== "/v1/messages") return Response.json({});
   const raw = await request.text(), body = JSON.parse(raw);
   const main = body.tools?.some((tool: any) => tool.name === "Read");
-  if (main && mcpReady) writeFileSync(mcpReady, "Odysseus permits MCP startup.");
+  if (main && mcpReady) {
+    capture.qualification ??= {};
+    capture.qualification.firstRequestBeforeMcpRelease ??= !existsSync(mcpReady);
+    writeFileSync(mcpReady, "Odysseus permits MCP startup.");
+  }
   const step = main ? queue.shift() : undefined;
   if (step?.name === "CronDelete") {
     const match = /Scheduled one-shot task ([a-z0-9]+)/.exec(JSON.stringify(body.messages));
@@ -61,13 +68,13 @@ try {
   mkdirSync(join(home, ".claude"), { recursive: true });
   writeFileSync(join(brain, "ithaca.ipynb"), JSON.stringify({ nbformat: 4, nbformat_minor: 5, metadata: {},
     cells: [{ id: "raft", cell_type: "markdown", metadata: {}, source: ["Odysseus checks Ithaca."] }] }));
-  const marker = join(brain, "legacy-metadata");
+  const marker = join(brain, "legacy-metadata"), counter = join(brain, "mcp-start-count");
   mcpReady = scenario === "discovery" ? join(brain, "mcp-ready") : undefined;
   if (scenario.startsWith("legacy")) writeFileSync(marker, "Odysseus keeps the old roster.");
   mkdirSync(join(brain, ".claude"), { recursive: true });
   writeFileSync(join(brain, ".claude/settings.json"), JSON.stringify({ enableAllProjectMcpServers: true, env: scenario === "legacy-inherited" ? {} : { ENABLE_TOOL_SEARCH: scenario === "project-on" ? "true" : "false" } }));
   if (!scenario.startsWith("legacy") && scenario !== "builtins") writeFileSync(join(brain, ".mcp.json"), JSON.stringify({ mcpServers: {
-    brain: { command: process.execPath, args: [resolve(import.meta.dir, "request-shape-mcp.ts"), marker, ...(mcpReady ? [mcpReady] : [])] },
+    brain: { command: process.execPath, args: [resolve(import.meta.dir, "request-shape-mcp.ts"), marker, ...(mcpReady ? [mcpReady, counter] : [])] },
   } }));
   capture = captures[scenario] = { sessions: [], exchanges: [], appends: [], budgets: [], calls: [] };
   let sessionId: string | undefined;
@@ -82,8 +89,8 @@ try {
     if (turnIndex) rmSync(marker, { force: true });
     // Each diagnostic process starts before its project MCP server is ready.
     // Reset the event latch on resume too, so qualification is not a CPU race.
-    if (mcpReady) rmSync(mcpReady, { force: true });
-    queue = scenario === "discovery" && turnIndex === 0 ? [{ name: "ToolSearch", input: { query: "select:mcp__brain__brain_graph", max_results: 1 } }]
+    if (mcpReady) { rmSync(mcpReady, { force: true }); rmSync(counter, { force: true }); }
+    queue = scenario === "discovery" && turnIndex === 0 ? [{ name: "ToolSearch", input: { query: "select:mcp__brain__brain_graph", max_results: 1 } }, { name: "mcp__brain__brain_read", input: { path: "notes/raft.md" } }]
       : scenario === "removed" && turnIndex === 0 ? [{ name: "SendMessage", input: { to: "athena", message: "Odysseus checks Ithaca." } }]
       : scenario === "builtins" && turnIndex === 1 ? [
         { name: "EnterPlanMode", input: {} }, { name: "ExitPlanMode", input: {} },
@@ -106,7 +113,7 @@ try {
       ...(scenario.endsWith("gateway") ? { ANTHROPIC_BASE_URL: "https://gateway.example.com" } : {}) };
     const requestsBeforeAssembly = capture.exchanges.length;
     let turn: ReturnType<typeof createClaudeSdkTurn> | ReturnType<typeof legacySdkTurn>;
-    try { turn = legacy && turnIndex === 0 ? legacySdkTurn(brain, sessionId!, environment, relay.socketPath, controller) : createClaudeSdkTurn({ backend: { brainPath: brain }, req: { prompt: `Odysseus checks Ithaca step ${turnIndex}.`, sessionId,
+    try { turn = legacy && turnIndex === 0 ? legacySdkTurn(brain, sessionId!, environment, relay.socketPath, controller) : createClaudeSdkTurn({ brainBridgeInventory: "core-only", backend: { brainPath: brain }, req: { prompt: `Odysseus checks Ithaca step ${turnIndex}.`, sessionId,
       applicationAuthority: scenario === "authority-upgrade" && turnIndex !== 1 ? undefined : "server", signal: controller.signal, turnId: `ithaca-${turnIndex}`, workerStartupView: view,
       workerSandbox: prepareFixtureWorkerSandbox(brain, { home, profile: "strict", areas: [] }),
       bridge: { emit() {}, checkpointPermission() {}, async requestPermission() { return { behavior: "allow" }; } },
@@ -139,10 +146,21 @@ try {
     if (legacy && turnIndex === 0) capture.qualification.baseline = { source: baseline.source, initialized };
     if (legacy) turn.options.mcpServers = { ...turn.options.mcpServers, brain: { command: process.execPath, args: [resolve(import.meta.dir, "request-shape-mcp.ts"), marker] } };
     if (scenario === "discovery") {
-      // Qualification only: production holds search off. Exercise the failing
-      // production project-MCP startup with an explicitly diagnostic opt-in.
-      turn.options.env!.ENABLE_TOOL_SEARCH = "true";
-      (turn.options.settings as any).env.ENABLE_TOOL_SEARCH = "true";
+      // This probe owns only runtime/relay qualification. Replace the lowest
+      // worker launch with a real stdio process in the probe's offline namespace;
+      // brain-tool-forwarder-runtime.test.ts owns the real worker boundary.
+      const launch = spyOn(workerApi, "launchAgentWorkerAsync").mockImplementation(async input => {
+        const child = spawn(process.execPath, [resolve(import.meta.dir, "request-shape-mcp.ts"), marker, mcpReady!, counter], {
+          cwd: brain, env: environment, stdio: ["pipe", "pipe", "pipe"],
+        });
+        const exited = new Promise<number>((resolve, reject) => { child.once("error", reject); child.once("exit", code => resolve(code ?? 1)); });
+        return { stdin: child.stdin, stdout: child.stdout, stderr: child.stderr, exited,
+          kill: () => { child.kill("SIGKILL"); }, async released() { await input.startupView?.cleanup(); } } as never;
+      });
+      (turn as ReturnType<typeof createClaudeSdkTurn>).startBrainTools!();
+      // start() enters its asynchronous launch after this synchronous probe setup.
+      await Promise.resolve(); await Promise.resolve();
+      launch.mockRestore();
     }
     capture.qualification.mcpStartup = legacy ? "frozen blocking baseline" : "project .mcp.json, production non-blocking";
     if (scenario.startsWith("fast-")) {
@@ -174,7 +192,7 @@ try {
       let runtime: ReturnType<typeof query>;
       let gateTerminal: TurnTerminal | undefined;
       let prompt = turn.prompt;
-      if (scenario === "managed-gateway") {
+      if (scenario === "managed-gateway" || scenario === "discovery") {
         gateTerminal = new TurnTerminal({ frames: new TurnFrames({ emit() {}, async requestPermission() { return { behavior: "deny", message: "Qualification cannot approve permission prompts." }; } }, null), hostSignal: new AbortController().signal,
           abortController: controller, startedAt: Date.now(), pendingFailure: () => null });
         const terminal = gateTerminal;
@@ -185,6 +203,7 @@ try {
             profileId: "fixture", log() {}, reportActivity() {}, reportRuntime() {} });
           const settings = await (cli as any).getSettings();
           capture.qualification!.effectiveToolSearch = settings.effective?.env?.ENABLE_TOOL_SEARCH;
+          capture.qualification!.effectiveDisabledMcpjsonServers = settings.effective?.disabledMcpjsonServers;
           const allowed = await check();
           capture.qualification!.promptReleased = allowed;
           capture.qualification!.refusal = terminal.refused;
@@ -205,7 +224,9 @@ try {
     } catch (error) {
       if (scenario === "managed-gateway" && controller.signal.aborted && capture.qualification?.promptReleased === false) { /* Expected gate refusal, before any model request. */ }
       else if (scenario !== "fast-thirdparty" || !controller.signal.aborted || !capture.rosters?.length) throw error;
-    } finally { clearTimeout(timer); await turn.finishWorker(); view.cleanup(); turnLock.close(); }
+    } finally { clearTimeout(timer); await turn.finishWorker();
+      if (scenario === "discovery") ((capture.qualification!.brainProcessStarts ??= []) as number[]).push(readFileSync(counter, "utf8").trim().split("\n").length);
+      view.cleanup(); turnLock.close(); }
   }
  }
  writeFileSync(join(scratch, "requests.json"), JSON.stringify(captures));

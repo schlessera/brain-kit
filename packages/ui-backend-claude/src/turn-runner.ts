@@ -1,3 +1,5 @@
+import { probeBrainBridgeInventory } from "./brain-tool-forwarder.js";
+import { launchLimits, resolveTurnTempLimits } from "@schlessera/brain-ui-sdk/internal";
 import { retainNativeRouteInputs } from "./native-route-inputs.js";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { AccountInfo, Query, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
@@ -9,7 +11,7 @@ import type { ClaudeBackendOptions, BackendLogFn } from "./options.js";
 import { getProfile, type InferenceProfile } from "./profiles.js";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { createClaudeSdkTurn, prepareClaudeTurnSandbox, turnEnv } from "./sdk-options.js";
+import { createClaudeSdkTurn, prepareClaudeTurnSandbox, turnEnv, turnChildEnvironment, computeToolRoster } from "./sdk-options.js";
 import { StreamAdapter } from "./stream-adapter.js";
 import { probeClaudeRuntime } from "./runtime-probe.js";
 import type { ActiveTurn, TurnLockBinding } from "./turn-lock.js";
@@ -244,9 +246,10 @@ async function runAdmittedTurn(runner: TurnRunnerState, claim: ClaimedTurn): Pro
     // A host without governed turns supplies no sandbox: Claude's own is
     // awaited here, from the inputs its options would have used (#2796).
     const own = await prepareClaudeTurnSandbox({ backend: options.backend, req, profile, turnEnvironment: claim.turnEnvironment });
-    const sdkTurn = buildSdkTurn(runner, claim, relay, own);
+    const sdkTurn = await buildSdkTurn(runner, claim, relay, own);
     terminal.worker = { finishWorker: sdkTurn.finishWorker, workerFailure: sdkTurn.workerFailure,
       workerStartFailure: sdkTurn.workerStartFailure };
+    sdkTurn.startBrainTools?.();
     frames.stateRoom = sdkTurn.workerStateRoom;
     archiveEnv = sdkTurn.options.env;
     limits.limits = sdkTurn.workerLimits;
@@ -308,8 +311,8 @@ async function runAdmittedTurn(runner: TurnRunnerState, claim: ClaimedTurn): Pro
 }
 
 /** The SDK turn, from the claimed turn and its relay. */
-function buildSdkTurn(runner: TurnRunnerState, claim: ClaimedTurn, relay: TurnInferenceRelay,
-  own: Awaited<ReturnType<typeof prepareClaudeTurnSandbox>>): ReturnType<typeof createClaudeSdkTurn> {
+async function buildSdkTurn(runner: TurnRunnerState, claim: ClaimedTurn, relay: TurnInferenceRelay,
+  own: Awaited<ReturnType<typeof prepareClaudeTurnSandbox>>): Promise<ReturnType<typeof createClaudeSdkTurn>> {
   const { options } = runner;
   const { req, profile, workerHost } = claim;
   const egress = relay.egress;
@@ -319,16 +322,29 @@ function buildSdkTurn(runner: TurnRunnerState, claim: ClaimedTurn, relay: TurnIn
     req.autonomous?.allowedTools ??
     (req.posture === "voice" ? VOICE_ALLOWED_TOOLS : undefined) ??
     profile.allowedTools ?? options.backend.allowedTools ?? DEFAULT_ALLOWED_TOOLS;
+  const turnReq: StartTurnRequest = { ...req, signal: claim.abortController.signal, ...(own ? { workerSandbox: own.workerSandbox } : {}), ...(egress && req.workerSandbox ? { workerSandbox: { ...req.workerSandbox,
+      // The relay holds the login: hide the host's file wherever the host masks do not.
+      maskPaths: [...req.workerSandbox.maskPaths ?? [], ...relay.hostLogin?.mask ?? []] } } : {}) };
+  const hostInference = egress ? { proxyDir: egress.dir, baseUrl: relay.baseUrl,
+    ...(relay.apiCredential ? { placeholders: relay.apiCredential.placeholders } : {}) } : undefined;
+  const turnEnvironment = own?.turnEnvironment ?? claim.turnEnvironment;
+  let brainBridgeInventory: "core-only" | "module-tools" | "unavailable" | undefined;
+  if (!req.sessionId && !req.autonomous && computeToolRoster(turnReq, allowedTools).hosted && turnReq.workerSandbox) {
+    const environment = turnChildEnvironment({ profile, turnEnvironment, hostInference }, undefined);
+    brainBridgeInventory = await probeBrainBridgeInventory({ brainPath: options.backend.brainPath,
+      sandbox: turnReq.workerSandbox, startupView: req.workerStartupView, env: environment.childEnv,
+      limits: launchLimits({}), turnTempLimits: resolveTurnTempLimits(options.backend.turnTemp ?? {}),
+      req: turnReq, egress: hostInference, credentialEnv: environment.credentialEnv }, claim.abortController.signal);
+  }
   return createClaudeSdkTurn({
     ...(egress ? { hostInference: { proxyDir: egress.dir, baseUrl: relay.baseUrl,
       ...(relay.apiCredential ? { placeholders: relay.apiCredential.placeholders } : {}) } } : {}),
     backend: options.backend,
+    brainBridgeInventory,
     ...(workerHost?.identity === "separate_uid" && workerHost.workerUid !== undefined ? { identity: { kind: "separate_uid" as const, workerUid: workerHost.workerUid } } : {}),
     turnEnvironment: own?.turnEnvironment ?? claim.turnEnvironment,
     fileVersions: claim.fileVersions,
-    req: { ...req, signal: claim.abortController.signal, ...(own ? { workerSandbox: own.workerSandbox } : {}), ...(egress && req.workerSandbox ? { workerSandbox: { ...req.workerSandbox,
-      // The relay holds the login: hide the host's file wherever the host masks do not.
-      maskPaths: [...req.workerSandbox.maskPaths ?? [], ...relay.hostLogin?.mask ?? []] } } : {}) },
+    req: turnReq,
     profile,
     abortController: claim.abortController,
     allowedTools,
