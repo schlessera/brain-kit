@@ -1,3 +1,4 @@
+import { safetyResultInput } from "../../ui-backend-pi/src/worker-protocol";
 /** Every exit between a tool running and its result's record either records
  * the result or leaves its chat a permanent gap, in both backends (#3812).
  * Every call `begin()` admits owes its result until the record is durable,
@@ -8,9 +9,11 @@
  * `safety-result-retention.test.ts`; these drive the remaining exits against
  * the real host ledger. Keyless and offline. */
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {createRequire} from "node:module";
+import type {BackendBridge} from "@schlessera/brain-ui-sdk/server";
 import type { Agent } from "@earendil-works/pi-agent-core";
 import { createEffectiveSafety } from "../src/governance/effective-safety";
 import { createUiDb } from "../src/db/client";
@@ -28,7 +31,7 @@ import { createPermissionWiring } from "../../ui-backend-claude/src/permission-h
 import { holdSafetyRecovery } from "./helpers/hold-safety-recovery";
 
 /** A search that names a workspace note: only its result's record carries the taint. */
-const SEARCH = "workspaces/voyage/raft.md:1: Sail past the sirens.";
+const SEARCH = "workspaces/voyage/raft.md:\0"+"1: Sail past the sirens.\n";
 
 /** Settles `work` on the normal event loop: a pending `expect().rejects` waits
  * synchronously and never sees the write worker's reply. */
@@ -37,19 +40,19 @@ const refusal = (work: Promise<unknown>) => work.then(() => null, (error: unknow
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
-async function voyage() {
+async function voyage(backendId:"pi"|"claude"="pi") {
   const root = mkdtempSync(join(tmpdir(), "odysseus-safety-exits-")); roots.push(root);
   const brain = join(root, "brain"); mkdirSync(join(brain, "workspaces/voyage"), { recursive: true });
   writeFileSync(join(brain, "workspaces/voyage/raft.md"), "Sail past the sirens.\n");
   const db = createUiDb(join(root, "ui.db")), writer = openSqliteWriter(db), writes = createGovernanceWrites(db, writer);
   holdSafetyRecovery(db);
   const bindingId = crypto.randomUUID(), controller = new AbortController();
-  await writes.safetyBegin({ turnId: "voyage", bindingId, sessionId: null, principalId: "odysseus", backendId: "pi", at: 0 });
+  await writes.safetyBegin({ turnId: "voyage", bindingId, sessionId: null, principalId: "odysseus", backendId, at: 0 });
   db.exec("INSERT INTO sessions(id,created_at,last_active_at) VALUES('ithaca',0,0); INSERT INTO chat_session_owners(session_id,principal_id,created_at) VALUES('ithaca','odysseus',0)");
   safetyCatalogCreated(db, "ithaca", "odysseus", "voyage"); await writes.bind("voyage", "ithaca");
-  const collector = createSafetyCollector(db, writes, { turnId: "voyage", bindingId, backendId: "pi", sessionId: () => "ithaca", brainPath: brain,
+  const collector = createSafetyCollector(db, writes, { turnId: "voyage", bindingId, backendId, sessionId: () => "ithaca", brainPath: brain,
     shellProxied: () => false, signal: controller.signal, stop: error => controller.abort(error) });
-  await collector.ready("pi", 1);
+  await collector.ready(backendId, 1);
   return { db, writes, collector, controller, brain, path: join(root, "ui.db"),
     /** Resolves once the writer has applied every write sent before it. */
     idle: () => writer.idle(),
@@ -71,7 +74,7 @@ function dispatcher(f: Voyage) {
     canFinalizeSafety: () => false } as unknown as PiWorkerRpcContext);
 }
 const report = (id: number, toolCallId: string, input: Record<string, unknown>): PiWorkerRpc =>
-  ({ type: "rpc", id, method: "safetyResult", toolName: "grep", toolCallId, input }) as PiWorkerRpc;
+  ({ type: "rpc", id, method: "safetyResult", toolName: "grep", toolCallId, input: {outputStatus:{complete:true,exitCode:0,stderr:false,truncated:false},...input} }) as PiWorkerRpc;
 
 test("a result reaching a turn that stopped and ended leaves its chat a permanent gap", async () => {
   const f = await voyage(); try {
@@ -136,10 +139,10 @@ test("a Pi result is still reported when the session's own after-hook fails", as
     let stopped = 0;
     const agent = { afterToolCall: async () => { throw new Error("the session's after-hook failed"); }, abort() {} } as unknown as Agent;
     installPiToolSafety(agent, { permission: async () => ({ behavior: "allow" }), stop: () => { stopped++; },
-      result: (name, id, content) => f.collector.result(id, name, content.filter(p => p.type === "text").map(p => (p as { text: string }).text).join("\n"), true) }, () => false);
+      result: (name,id,content,complete,details)=>{const observation=safetyResultInput(name,content,complete,details);return f.collector.result(id,name,observation.output,true,observation.segments,observation.outputStatus);} }, () => false);
     expect((await refusal(agent.afterToolCall!({ toolCall: { name: "grep", id: "call_raft" }, result: { content: [{ type: "text", text: SEARCH }] } } as never, undefined)))?.message)
       .toBe("the session's after-hook failed");
-    expect(f.recorded(), "SAFETY_PI_RESULT_SURVIVES_A_FAILED_AFTER_HOOK").toEqual([{ detector: "tool_search_output" }]);
+    expect(f.db.query("SELECT source,detector FROM safety_records WHERE kind='occurrence' ORDER BY length(sequence),sequence").all(), "SAFETY_PI_RESULT_SURVIVES_A_FAILED_AFTER_HOOK").toEqual([{source:"workspace_read",detector:"tool_search_output"},{source:"legacy_unknown",detector:"tool_search_output"}]);
     expect(stopped, "SAFETY_PI_FAILED_AFTER_HOOK_STOPS_THE_WORKER").toBe(1);
   } finally { await f.close(); }
 });
@@ -277,11 +280,15 @@ test("a call still owed when the host dies leaves its chat a permanent gap at bo
 });
 
 /** The real curated search, run the way the worker runs it once the host allowed it. */
-async function searchRuns(f: Voyage, toolCallId: string, input: Record<string, unknown>): Promise<string> {
-  const grep = createBrainTools({ brain: createBrainAccess(f.brain), turn: createTurnContext(), exec: {},
-    lock: { withKey: async (_key: string, run: () => Promise<unknown>) => run() } } as never).find(tool => tool.name === "grep")!;
-  return JSON.stringify((await grep.execute(toolCallId, input as never, f.controller.signal, undefined, undefined as never)).content);
+async function runSearchTool(f:Voyage,toolCallId:string,input:Record<string,unknown>,wrapper?:string){
+ const grep=createBrainTools({brain:createBrainAccess(f.brain),turn:createTurnContext(),exec:wrapper?{wrapper}:{},lock:{withKey:async(_key:string,run:()=>Promise<unknown>)=>run()}} as never).find(tool=>tool.name==='grep')!;
+ return grep.execute(toolCallId,input as never,f.controller.signal,undefined,undefined as never);
 }
+async function searchResult(f:Voyage,toolCallId:string,input:Record<string,unknown>){
+ const result=await runSearchTool(f,toolCallId,input);
+ return safetyResultInput('grep',result.content,true,result.details);
+}
+async function searchRuns(f:Voyage,toolCallId:string,input:Record<string,unknown>):Promise<string>{return (await searchResult(f,toolCallId,input)).output;}
 
 /** What stands for a call that ran and was never reported: its obligation, then its chat's gap. */
 async function stillOwed(f: Voyage, call: string) {
@@ -370,7 +377,7 @@ test("a result's last record discharges its call in the same commit, so a host d
     // Hold the collector the moment the result's exposure has committed.
     const record = f.writes.record;
     f.writes.record = async (...args: Parameters<typeof record>) => { const stored = await record(...args); if (args[0].kind === "taint_exposure") { committed(); await hold; } return stored; };
-    reported = refusal(f.collector.result("call_raft", "grep", SEARCH, true));
+    reported = refusal(f.collector.result("call_raft", "grep", SEARCH, true,undefined,{complete:true,exitCode:0,stderr:false,truncated:false}));
     await recorded;
     expect(f.db.query("SELECT kind,state FROM safety_records ORDER BY rowid").all(), "SAFETY_RESULT_RECORD_IS_DURABLE").toContainEqual({ kind: "exposure", state: "finalized" });
     expect(f.owed(), "SAFETY_RECORDED_RESULT_IS_DISCHARGED_IN_ITS_OWN_COMMIT").toBe(0);
@@ -397,7 +404,7 @@ test("a collection's end waits for a stopped turn's result record already under 
     f.writes.record = async (...args: Parameters<typeof record>) => { if (args[0].kind === "taint_exposure") { reached(); await hold; } return record(...args); };
     // Odysseus stops the turn as the result arrives; teardown then ends its collection.
     f.controller.abort(new Error("Odysseus stopped the turn as the result arrived"));
-    reported = refusal(f.collector.result("call_raft", "grep", SEARCH, true));
+    reported = refusal(f.collector.result("call_raft", "grep", SEARCH, true,undefined,{complete:true,exitCode:0,stderr:false,truncated:false}));
     await midway;
     const ending = f.writes.safetyEnd("voyage");
     // The writer applies its writes in order: had the end been sent, it is applied now.
@@ -454,4 +461,311 @@ test("a Pi grant is unusable until the collector's last check passes, and a call
     expect(f.failure(), "SAFETY_PI_REFUSED_ADMITTED_READ_IS_A_DURABLE_GAP").toBe("recording_failed");
     expect(f.chat().coverage.state, "SAFETY_PI_REFUSED_ADMITTED_READ_NEVER_LOOKS_COMPLETE").toBe("incomplete");
   } finally { release(); await f.close(); }
+});
+
+/** Claude's installed native search executable, with a GrepOutput result for
+ * the real PostToolUse binding. This exercises the shipped search engine and
+ * host hooks; the full installed-session proof remains in retention tests. */
+async function claudeSearchRuns(f:Voyage){
+ const sdk=createRequire(createRequire(import.meta.url).resolve('@anthropic-ai/claude-agent-sdk'));
+ const bin=join(f.brain,'native-search');mkdirSync(bin,{recursive:true});
+ const rg=join(bin,'rg');if(!existsSync(rg))symlinkSync(sdk.resolve('@anthropic-ai/claude-agent-sdk-linux-x64/claude'),rg);
+ const path='workspaces/voyage/raft.md';
+ const child=Bun.spawn([rg,'--with-filename','-n','--no-heading','--color','never','sirens',path],{cwd:f.brain,env:{PATH:'/usr/bin:/bin'},stdout:'pipe',stderr:'pipe'});
+ const [content,errors,code]=await Promise.all([new Response(child.stdout).text(),new Response(child.stderr).text(),child.exited]);
+ expect(code,errors).toBe(0);
+ return {mode:'content',numFiles:0,filenames:[],content:content.trimEnd(),numLines:1,totalLines:1};
+}
+
+for(const binding of ['pi','claude'] as const)test(`${binding}: two allowed searches reusing an ID cannot share one result discharge`,async()=>{
+ const f=await voyage(binding);try{
+  const input=binding==='claude'?{pattern:'sirens',output_mode:'content'}:{pattern:'sirens'},id='reused_search';
+  let admit:()=>Promise<unknown>,run:()=>Promise<unknown>,deliver:(output:unknown)=>Promise<unknown>;
+  if(binding==='pi'){
+   const turn=createTurnContext();turn.bridge={inputSafety:f.collector,emit(){},requestPermission:async()=>({behavior:'allow'})} as never;turn.signal=f.controller.signal;
+   let handler:((event:unknown)=>Promise<unknown>)|undefined;
+   const gate=createPermissionGate({turn,allowedTools:new Set(['grep']),confirmPatterns:[]});
+   (typeof gate==='function'?gate:gate.factory)({on:(name:string,callback:unknown)=>{if(name==='tool_call')handler=callback as typeof handler;}} as never);
+   admit=async()=>{const result=await handler!({toolName:'grep',toolCallId:id,input});expect(result,'PI_REUSED_ID_CALL_REACHES_EXECUTION').toBeUndefined();};
+   run=()=>searchResult(f,id,input);
+   const dispatch=dispatcher(f);
+   deliver=output=>dispatch(report(1,id,output as Record<string,unknown>));
+  }else{
+   const wiring=createPermissionWiring({req:{prompt:'Listen for the sirens.',signal:f.controller.signal,bridge:{emit(){},requestPermission:async()=>({behavior:'allow'}),inputSafety:f.collector}} as never,
+    allowedTools:['Grep'],confirmPatterns:[],brainPath:f.brain,childEnv:{PATH:'/usr/bin:/bin'},log(){},turnLock:{acquireForTool:async()=>({ok:true}),releaseForTool(){}} as never});
+   const hook=wiring.hooks!.PreToolUse!.find(group=>!group.matcher)!.hooks[0]!;
+   admit=async()=>{const result=await hook({hook_event_name:'PreToolUse',tool_name:'Grep',tool_input:input,tool_use_id:id} as never,id,{signal:f.controller.signal});expect((result as {hookSpecificOutput?:{permissionDecision?:string}}).hookSpecificOutput?.permissionDecision,'CLAUDE_REUSED_ID_CALL_REACHES_EXECUTION').not.toBe('deny');};
+   run=()=>claudeSearchRuns(f);
+   const post=wiring.hooks!.PostToolUse!.find(group=>!group.matcher)!.hooks[0]!;
+   deliver=output=>post({hook_event_name:'PostToolUse',tool_name:'Grep',tool_input:input,tool_use_id:id,tool_response:output} as never,id,{signal:f.controller.signal});
+  }
+  await admit();const first=await run();
+  await admit();expect(JSON.stringify(await run()),'SECOND_SAME_ID_SEARCH_ACTUALLY_EXECUTES').toContain('Sail past the sirens');
+  await deliver(first);
+  // The durable gap alone cannot prove forwarding: without a forwarded
+  // result it would still be owed. Require its actual occurrence/exposure.
+  expect(f.db.query("SELECT kind,source,detector,state FROM safety_records ORDER BY kind").all(),'BACKEND_RESULT_MUST_REACH_LEDGER_BEFORE_THE_GAP').toEqual([
+   {kind:'exposure',source:null,detector:null,state:'interrupted_unknown'},
+   {kind:'occurrence',source:'workspace_read',detector:'tool_search_output',state:'open'}
+  ]);
+  expect(f.owed(),'ONE_RESULT_CANNOT_DISCHARGE_TWO_LOGICAL_CALLS').toBe(1);
+  await f.writes.safetyEnd('voyage');
+  expect(f.failure(),'RUNTIME_REUSED_ID_RESULT_LOSS_IS_DURABLE').toBe('recording_failed');
+  const reopened=createUiDb(f.path);try{expect(reopened.query("SELECT failure FROM safety_collections WHERE turn_id='voyage'").get()).toEqual({failure:'recording_failed'});}finally{reopened.close();}
+ }finally{await f.close();}
+});
+
+test('real Pi grep empty output stays empty when the collector records its result',async()=>{
+ const f=await voyage();try{
+  const input={pattern:'no_cyclops_matches_here'};
+  await f.collector.begin('empty_search','grep',input);
+  const observed=await searchResult(f,'empty_search',input),output=observed.output;
+  expect(output,'SHIPPED_PI_EMPTY_SEARCH_FORMAT').toBe('No matches.');
+  await dispatcher(f)(report(1,'empty_search',observed));
+  expect(f.recorded(),'REAL_EMPTY_SEARCH_CREATES_NO_OCCURRENCE').toEqual([]);
+  expect(f.chat().restriction).toBe('normal');
+ }finally{await f.close();}
+});
+
+for(const marked of [false,true])test(`real Pi grep bracket paths retain exactly ${marked?'both marked sources':'healthy coverage'}`,async()=>{
+ const f=await voyage();try{
+  const {untrustedMarkOperations,isMarkedUntrusted}=await import('../src/files/untrusted-marks');
+  const {outputTaintSignals,searchOutputContext}=await import('../src/activity/ingestion-taint');
+  mkdirSync(join(f.brain,'[voyage]'));
+  const paths=['[voyage]/log.md','[voyage]/raft.md'];
+  for(const path of paths){
+   writeFileSync(join(f.brain,path),'sirens\n');
+   if(marked)untrustedMarkOperations(f.db).mark(path,null,Date.UTC(2026,6,12));
+  }
+  const input={pattern:'sirens',path:'[voyage]'};
+  await f.collector.begin('bracket_search','grep',input);
+  const observed=await searchResult(f,'bracket_search',input),output=observed.output;
+  expect(output.split('\n').filter(Boolean).sort(),'REAL_GREP_RETURNS_BOTH_BRACKET_FILENAMES').toEqual(paths.map(path=>`${path}:\0`+"1:sirens"));
+  const signals=outputTaintSignals('grep',output,f.brain,path=>isMarkedUntrusted(f.db,path),searchOutputContext('grep',input));
+  expect(signals.sort((a,b)=>a.key.localeCompare(b.key)),'REAL_BRACKET_OUTPUT_HAS_EXACT_PATH_SIGNALS').toEqual(marked?paths.map(key=>({source:'user_marked',detector:'explicit_untrusted_input',key})):[]);
+  await dispatcher(f)(report(1,'bracket_search',observed));
+  // The ledger intentionally retains no raw filename. Assert its exact
+  // occurrence/exposure inventory as well as the detector's actual paths.
+  expect(f.db.query("SELECT kind,source,detector FROM safety_records ORDER BY kind,length(sequence),sequence").all(),'REAL_BRACKET_LEDGER_HAS_NO_EXTRA_UNKNOWN').toEqual(marked?[
+   {kind:'exposure',source:null,detector:null},{kind:'exposure',source:null,detector:null},
+   {kind:'occurrence',source:'user_marked',detector:'explicit_untrusted_input'},
+   {kind:'occurrence',source:'user_marked',detector:'explicit_untrusted_input'}
+  ]:[]);
+  expect(f.chat().restriction).toBe(marked?'restricted':'normal');
+ }finally{await f.close();}
+});
+
+for(const shape of ['exact','image','second-text','incomplete'] as const)test(`Pi worker result ${shape}: only the original exact sentinel is empty`,async()=>{
+ const f=await voyage();try{
+  const input={pattern:'no_cyclops_matches_here'},id='original_empty';
+  await f.collector.begin(id,'grep',input);
+  const actual=await runSearchTool(f,id,input),text=actual.content.filter(part=>part.type==='text').map(part=>part.text).join('');expect(text).toBe('No matches.');
+  const content=[{type:'text',text},...(shape==='image'?[{type:'image'}]:shape==='second-text'?[{type:'text',text:''}]:[])];
+  const converted=safetyResultInput('grep',content,shape!=='incomplete',actual.details);
+  await dispatcher(f)(report(1,id,converted));
+  expect(f.db.query("SELECT source,detector FROM safety_records WHERE kind='occurrence'").all(),'ORIGINAL_MIXED_PI_RESULT_RETAINS_UNKNOWN').toEqual(shape==='exact'?[]:[{source:'legacy_unknown',detector:'tool_search_output'}]);
+  expect(f.chat().restriction).toBe(shape==='exact'?'normal':'restricted');
+ }finally{await f.close();}
+});
+
+test('shipped Pi grep preserves a marked newline filename through the worker ledger',async()=>{
+ const f=await voyage();try{
+  const {untrustedMarkOperations,isMarkedUntrusted}=await import('../src/files/untrusted-marks');
+  const {outputTaintSignals,searchOutputContext}=await import('../src/activity/ingestion-taint');
+  const path='raft:1:sail\nloom.md',input={pattern:'nymph_signal'},id='newline_search';
+  writeFileSync(join(f.brain,path),'nymph_signal\n');
+  untrustedMarkOperations(f.db).mark(path,null,Date.UTC(2026,6,12));
+  await f.collector.begin(id,'grep',input);
+  const observed=await searchResult(f,id,input),output=observed.output;
+  expect(outputTaintSignals('grep',output,f.brain,p=>isMarkedUntrusted(f.db,p),searchOutputContext('grep',input)),'PI_NEWLINE_PATH_KEEPS_ITS_EXACT_MARK').toEqual([{source:'user_marked',detector:'explicit_untrusted_input',key:path}]);
+  expect(output).toBe(`./${path}:\0`+'1:nymph_signal\n');
+  await dispatcher(f)(report(1,id,observed));
+  expect(f.db.query("SELECT source,detector FROM safety_records WHERE kind='occurrence'").all(),'PI_NEWLINE_PATH_LEDGER_HAS_NO_FALSE_HEALTHY_OR_UNKNOWN').toEqual([{source:'user_marked',detector:'explicit_untrusted_input'}]);
+ }finally{await f.close();}
+});
+
+for(const mode of ['file','empty','sentinel','regex','partial','warning'] as const)test(`Pi after-tool RPC preserves grep status: ${mode}`,async()=>{
+ const f=await voyage();try{
+  const {untrustedMarkOperations}=await import('../src/files/untrusted-marks');
+  mkdirSync(join(f.brain,'notes'));
+  writeFileSync(join(f.brain,'notes/loom.md'),'nymph_signal\n');
+  if(mode==='partial'){
+   untrustedMarkOperations(f.db).mark('notes/loom.md',null,Date.UTC(2026,6,12));
+  }
+  const wrapper=['warning','partial','sentinel'].includes(mode)?join(f.brain,'grep-wrapper'):undefined;
+  if(wrapper)writeFileSync(wrapper,mode==='sentinel'?"#!/bin/sh\nprintf 'No matches.'\nexit 1\n":mode==='partial'?"#!/bin/sh\nprintf \"notes/loom.md\\0001:nymph_signal\\n\"\nprintf \"search error\\n\" >&2\nexit 2\n":"#!/bin/sh\nprintf \"search warning\\n\" >&2\nexec \"$@\"\n",{mode:0o755});
+  const input={pattern:mode==='regex'?'[':mode==='empty'?'no_cyclops_here':'nymph_signal',...(mode==='file'?{path:'notes/loom.md'}:{})},id='status_search';
+  await f.collector.begin(id,'grep',input);
+  const actual=await runSearchTool(f,id,input,wrapper);
+  const expectedCode=['empty','sentinel'].includes(mode)?1:mode==='regex'||mode==='partial'?2:0;
+  expect((actual.details as {search:unknown}).search,'GREP_EXIT_STATUS_AND_STDERR_ARE_OBSERVED').toMatchObject({exitCode:expectedCode,stderr:['regex','partial','warning'].includes(mode),truncated:false});
+  let stopped=false,forwarded:unknown;
+  const agent={abort(){stopped=true;},streamFunction:async()=>{}} as unknown as Agent;
+  const dispatch=dispatcher(f);
+  installPiToolSafety(agent,{permission:async()=>({behavior:'allow'}),stop(){stopped=true;},async result(name,toolId,content,complete,details){
+   const converted=safetyResultInput(name,content,complete,details);forwarded=converted.outputStatus;
+   await dispatch(JSON.parse(JSON.stringify(report(1,toolId,converted))));
+  }},()=>false);
+  await agent.afterToolCall!({toolCall:{name:'grep',id},args:input,result:actual,isError:false} as never,f.controller.signal);
+  const incomplete=['sentinel','regex','partial','warning'].includes(mode);
+  expect(forwarded,'GREP_STATUS_REACHES_WORKER_RPC').toEqual({complete:!incomplete,exitCode:expectedCode,stderr:mode!=='sentinel'&&incomplete,truncated:false});
+  expect(stopped).toBe(false);
+  expect(f.db.query("SELECT source,detector FROM safety_records WHERE kind='occurrence' ORDER BY length(sequence),sequence").all(),'PARTIAL_GREP_KEEPS_KNOWN_MARKS_AND_AN_UNKNOWN_REMAINDER').toEqual(mode==='partial'?[
+   {source:'user_marked',detector:'explicit_untrusted_input'},{source:'legacy_unknown',detector:'tool_search_output'}
+  ]:incomplete?[{source:'legacy_unknown',detector:'tool_search_output'}]:[]);
+  expect(f.chat().restriction).toBe(incomplete?'restricted':'normal');
+ }finally{await f.close();}
+});
+
+for(const status of [{complete:false},{complete:true,truncated:true}])test(`a stricter repeated result reopens its obligation: ${JSON.stringify(status)}`,async()=>{
+ const f=await voyage();try{
+  await f.collector.begin('status_conflict','grep',{});
+  await f.collector.result('status_conflict','grep','No matches.',true,undefined,{complete:true,exitCode:1,stderr:false,truncated:false});
+  expect(f.owed()).toBe(0);
+  await refusal(f.collector.result('status_conflict','grep','No matches.',true,undefined,{exitCode:1,stderr:false,truncated:false,...status}));
+  expect(f.owed(),'CONFLICTING_STATUS_REOPENS_DISCHARGED_RESULT').toBe(1);
+  expect(f.db.query("SELECT source,detector FROM safety_records WHERE kind='occurrence'").all(),'STRICTER_STATUS_RETAINS_UNKNOWN_EVIDENCE').toEqual([{source:'legacy_unknown',detector:'tool_search_output'}]);
+  expect(f.chat().coverage.state,'CONFLICTING_STATUS_CANNOT_LEAVE_COMPLETE_COVERAGE').toBe('incomplete');
+ }finally{await f.close();}
+});
+
+test('clipped Pi observation checks every marked filename still delivered to the model',async()=>{
+ const f=await voyage();try{
+  const {untrustedMarkOperations}=await import('../src/files/untrusted-marks');
+  untrustedMarkOperations(f.db).mark('notes/raft\nloom.md',null,Date.UTC(2026,6,12));
+  let raw='';while(raw.replaceAll('\0',':').trim().length<29800)raw+='notes/loom.md\0'+'1:a\n';
+  raw+='notes/raft\nloom.md\0'+'1:sirens\n'+('notes/loom.md\0'+'1:a\n').repeat(100);
+  const wrapper=join(f.brain,'fake-grep');writeFileSync(join(f.brain,'grep-data'),raw);
+  writeFileSync(wrapper,'#!/bin/sh\ncat "$(dirname "$0")/grep-data"\n',{mode:0o755});
+  const input={pattern:'sirens'},id='clipped';await f.collector.begin(id,'grep',input);
+  const result=await runSearchTool(f,id,input,wrapper);
+  expect(result.content[0]?.type==='text'&&result.content[0].text,'MARKED_FILENAME_REALLY_REACHED_MODEL').toContain('notes/raft\nloom.md:1:sirens');
+  const observed=safetyResultInput('grep',result.content,true,result.details);
+  await f.collector.result(id,'grep',observed.output,true,observed.segments,observed.outputStatus);
+  expect(f.db.query("SELECT source,detector FROM safety_records WHERE kind='occurrence' ORDER BY length(sequence),sequence").all(),'ALL_DELIVERED_PATHS_ARE_CHECKED_DESPITE_FRAME_OVERHEAD').toEqual([{source:'user_marked',detector:'explicit_untrusted_input'},{source:'legacy_unknown',detector:'tool_search_output'}]);
+ }finally{await f.close();}
+});
+
+ test('Pi legacy empty output without process status remains unknown',async()=>{
+ const f=await voyage();try{
+  await f.collector.begin('legacy_empty','grep',{});
+  await f.collector.result('legacy_empty','grep','No matches.',true);
+  expect(f.db.query("SELECT source FROM safety_records WHERE kind='occurrence'").all(),'EMPTY_EXEMPTION_REQUIRES_EXPLICIT_EXIT_ONE_AND_EMPTY_STDERR').toEqual([{source:'legacy_unknown'}]);
+ }finally{await f.close();}
+ });
+ test('status key order does not change result identity',async()=>{
+ const f=await voyage();try{
+  await f.collector.begin('canonical_status','grep',{});
+  await f.collector.result('canonical_status','grep','No matches.',true,undefined,{complete:true,exitCode:1,stderr:false,truncated:false});
+  await f.collector.result('canonical_status','grep','No matches.',true,undefined,{truncated:false,stderr:false,exitCode:1,complete:true});
+  expect(f.owed(),'CANONICAL_STATUS_RETRY_STAYS_DISCHARGED').toBe(0);
+  expect(f.failure()).toBeNull();
+ }finally{await f.close();}
+ });
+ test('extraction result wrapper preserves process status and withholds incomplete evidence',async()=>{
+ const f=await voyage();try{
+  const {createTurnExtraction}=await import('../src/brain/turn-extraction');
+  let forwarded:unknown;const original=f.collector.result;
+  f.collector.result=(...args)=>{forwarded=args[5];return original(...args);};
+  const extraction=createTurnExtraction({bridge:{emit(){},requestPermission:async()=>({behavior:'allow'}),inputSafety:f.collector},origin:'interactive',sessionId:()=>null,tainted:()=>true,contacted:new Set(),cause:()=>null,brainPath:f.brain});
+  const wrapped=extraction.inputSafety(f.collector)!;
+  await wrapped.begin('warning','grep',{pattern:'sirens'});
+  await wrapped.result('warning','grep','notes/loom.md:\0'+'1:sirens\n',true,undefined,{complete:false,exitCode:0,stderr:true,truncated:false});
+  expect(forwarded,'ALL_PROCESS_STATUS_FIELDS_SURVIVE_THE_WRAPPER').toEqual({complete:false,exitCode:0,stderr:true,truncated:false});
+  expect(f.db.query("SELECT source FROM safety_records WHERE kind='occurrence'").all(),'WRAPPER_FORWARDS_UNKNOWN_REMAINDER_TO_LEDGER').toEqual([{source:'legacy_unknown'}]);
+  await wrapped.begin('fetch','WebFetch',{url:'https://aeaea.invalid/notice'});
+  expect(extraction.relaxes('aeaea.invalid'),'EXTRACTION_CANNOT_RELAX_FROM_INCOMPLETE_RESULT').toBe(false);
+ }finally{await f.close();}
+ });
+ test('trailing grep whitespace cannot exceed host observation limits',async()=>{
+ const f=await voyage();try{
+  const {untrustedMarkOperations}=await import('../src/files/untrusted-marks');
+  untrustedMarkOperations(f.db).mark('notes/loom.md',null,Date.UTC(2026,6,12));
+  const wrapper=join(f.brain,'fake-grep');writeFileSync(join(f.brain,'grep-data'),'notes/loom.md\0'+'1:sirens'+ ' '.repeat(2*1024*1024)+'\n');
+  writeFileSync(wrapper,'#!/bin/sh\ncat "$(dirname "$0")/grep-data"\n',{mode:0o755});
+  const input={pattern:'sirens'},id='whitespace';await f.collector.begin(id,'grep',input);
+  const result=await runSearchTool(f,id,input,wrapper);
+  expect(result.content[0]?.type==='text'&&result.content[0].text).toBe('notes/loom.md:1:sirens');
+  const observed=safetyResultInput('grep',result.content,true,result.details);
+  expect(Buffer.byteLength(observed.output),'HOST_FRAME_IS_BOUNDED_IN_BYTES').toBeLessThanOrEqual(1048576);
+  expect(Buffer.byteLength(JSON.stringify(observed))).toBeLessThan(16*1024*1024);
+  await f.collector.result(id,'grep',observed.output,true,observed.segments,observed.outputStatus);
+  expect(f.db.query("SELECT source FROM safety_records WHERE kind='occurrence' ORDER BY length(sequence),sequence").all()).toEqual([{source:'user_marked'},{source:'legacy_unknown'}]);
+  expect(f.failure()).toBeNull();
+ }finally{await f.close();}
+ });
+
+test('Pi grep preserves a BOM-prefixed directory in the host filename evidence',async()=>{
+ const f=await voyage();try{
+  const {untrustedMarkOperations}=await import('../src/files/untrusted-marks');
+  const folder='\ufeffvoyage',path=`${folder}/log.md`;mkdirSync(join(f.brain,folder));writeFileSync(join(f.brain,path),'sirens\n');
+  untrustedMarkOperations(f.db).mark(path,null,Date.UTC(2026,6,12));
+  const id='bom_search',input={pattern:'sirens',path:folder};await f.collector.begin(id,'grep',input);
+  const actual=await runSearchTool(f,id,input),observed=safetyResultInput('grep',actual.content,true,actual.details);
+  expect(observed.output,'GREP_DECODER_PRESERVES_FILENAME_BOM').toStartWith(path+':\0');
+  await f.collector.result(id,'grep',observed.output,true,observed.segments,observed.outputStatus);
+  expect(f.db.query("SELECT source,detector FROM safety_records WHERE kind='occurrence'").all()).toEqual([{source:'user_marked',detector:'explicit_untrusted_input'}]);
+ }finally{await f.close();}
+});
+
+for(const shape of ['truncated','malformed'] as const)test(`extraction withholds relaxation after Claude Glob ${shape} without status`,async()=>{
+ const f=await voyage();try{
+  const {createTurnExtraction}=await import('../src/brain/turn-extraction');
+  const extraction=createTurnExtraction({bridge:{emit(){},requestPermission:async()=>({behavior:'allow'}),inputSafety:f.collector},origin:'interactive',sessionId:()=>null,tainted:()=>true,contacted:new Set(),cause:()=>null,brainPath:f.brain});
+  const wrapped=extraction.inputSafety(f.collector)!;
+  await wrapped.begin('glob','Glob',{pattern:'notes/*.md'});
+  const output=shape==='truncated'?JSON.stringify({filenames:['notes/loom.md'],numFiles:1,durationMs:1,truncated:true}):'{"filenames":[';
+  await wrapped.result('glob','Glob',output,true);
+  await wrapped.begin('fetch','WebFetch',{url:'https://aeaea.invalid/notice'});
+  expect(extraction.relaxes('aeaea.invalid'),'UNKNOWN_SIGNALS_WITHHOLD_EXTRACTION_RELAXATION').toBe(false);
+ }finally{await f.close();}
+});
+
+test('ready Claude collection records structured hook searches instead of ambiguous display text',async()=>{
+ const f=await voyage('claude');try{
+  const {createTurnRecorder}=await import('../src/activity/recorder');
+  const {createActivityStore}=await import('../src/activity/store');
+  const {recordGovernanceEvent}=await import('../src/governance/events');
+  const {adaptStreamEvent}=await import('../../ui-backend-claude/src/stream-adapter');
+  const {untrustedMarkOperations}=await import('../src/files/untrusted-marks');
+  untrustedMarkOperations(f.db).mark('123',null,Date.UTC(2026,6,12));
+  let ready=false;
+  const recorder=createTurnRecorder({store:createActivityStore(f.db,{writer:'test'}),governanceDb:f.db,brainPath:f.brain,governance:event=>{recordGovernanceEvent(f.db,event);}},{turnId:'voyage',sessionId:'ithaca',profile:'governed'});
+  const bindingId=(f.db.query("SELECT id FROM safety_collections WHERE turn_id='voyage'").get() as {id:string}).id;
+  const collector=createSafetyCollector(f.db,f.writes,{turnId:'voyage',bindingId,backendId:'claude',sessionId:()=> 'ithaca',brainPath:f.brain,shellProxied:()=>true,signal:f.controller.signal,onReady(){ready=true;recorder.setSafetyHooked();}});
+  await collector.ready('claude',1);expect(ready).toBe(true);
+  const bridge:BackendBridge={emit(){},requestPermission:async()=>({behavior:'allow'}),inputSafety:collector};
+  const wiring=createPermissionWiring({req:{prompt:'Return to Ithaca',signal:f.controller.signal,bridge},allowedTools:['Glob'],confirmPatterns:[],brainPath:f.brain,turnLock:{async acquireForTool(){return {ok:true};},releaseForTool(){}} as never,childEnv:{},log(){}});
+  const id='structured_glob',input={pattern:'**/*'},response={durationMs:1,numFiles:2,filenames:['123','workspaces/voyage/raft.md'],truncated:false,totalMatches:2,countIsComplete:true};
+  await collector.begin(id,'Glob',input);
+  recorder.observeFrame({type:'tool_use_start',sessionId:'ithaca',toolUseId:id,toolName:'Glob'});
+  recorder.observeFrame({type:'tool_use_complete',sessionId:'ithaca',toolUseId:id,toolName:'Glob',input});
+  // Installed sdk.d.ts:2662 exposes the exact structured tool_response;
+  // sdk.d.ts:6280-6293 separately exposes tool_use_result on user messages.
+  const post=wiring.hooks!.PostToolUse!.find(group=>!group.matcher)!.hooks[0]!;
+  await post({hook_event_name:'PostToolUse',tool_name:'Glob',tool_use_id:id,tool_input:input,tool_response:response} as never,id,{signal:f.controller.signal});
+  for(const frame of adaptStreamEvent({type:'user',tool_use_result:response,message:{content:[{type:'tool_result',tool_use_id:id,content:[{type:'text',text:'123\nworkspaces/voyage/raft.md'}]}]}} as never))if(frame.type==='tool_result')recorder.observeFrame({...frame,sessionId:'ithaca'});
+  await f.idle();
+  expect(f.db.query("SELECT source,detector FROM safety_records WHERE kind='occurrence' ORDER BY source").all(),'STRUCTURED_HOOK_PRESERVES_EXACT_FILENAMES_WITHOUT_DISPLAY_UNKNOWN').toEqual([{source:'user_marked',detector:'explicit_untrusted_input'},{source:'workspace_read',detector:'tool_search_output'}]);
+  expect(f.chat().coverage.state).toBe('complete');
+  recorder.finish('success');
+ }finally{await f.close();}
+});
+test('user query text cannot collide with the synthetic overflow occurrence',async()=>{
+ const f=await voyage('claude');try{
+  await f.collector.begin('query_collision','WebSearch',{queries:['unknown_remainder','s'.repeat(2049)]});
+  expect(f.db.query("SELECT source,detector FROM safety_records WHERE kind='occurrence' ORDER BY length(sequence),sequence").all()).toEqual([{source:'web_search',detector:'tool_web_input'},{source:'legacy_unknown',detector:'tool_web_input'}]);
+ }finally{await f.close();}
+});
+test('invalid UTF-8 grep filename bytes retain unknown alongside valid marked rows',async()=>{
+ const f=await voyage();try{
+  const {untrustedMarkOperations}=await import('../src/files/untrusted-marks');untrustedMarkOperations(f.db).mark('notes/loom.md',null,Date.UTC(2026,6,12));
+  const raw=Buffer.concat([Buffer.from('notes/'),Buffer.from([0xff]),Buffer.from('.md\0'+'1:sirens\nnotes/'),Buffer.from([0xfe]),Buffer.from('.md\0'+'1:sirens\nnotes/loom.md\0'+'1:sirens\n')]);
+  const wrapper=join(f.brain,'fake-grep');writeFileSync(join(f.brain,'grep-data'),raw);writeFileSync(wrapper,'#!/bin/sh\ncat "$(dirname "$0")/grep-data"\n',{mode:0o755});
+  const input={pattern:'sirens'},id='invalid_filename_bytes';await f.collector.begin(id,'grep',input);
+  const result=await runSearchTool(f,id,input,wrapper),observed=safetyResultInput('grep',result.content,true,result.details);
+  expect(observed.outputStatus.complete,'DECODING_LOSS_IS_NEVER_COMPLETE').toBe(false);
+  await f.collector.result(id,'grep',observed.output,true,observed.segments,observed.outputStatus);
+  expect(f.db.query("SELECT source FROM safety_records WHERE kind='occurrence' ORDER BY length(sequence),sequence").all()).toEqual([{source:'user_marked'},{source:'legacy_unknown'}]);
+ }finally{await f.close();}
 });

@@ -7,7 +7,7 @@
  * still owing it when the collection ends is a gap. Installed Claude, a
  * scripted loopback model and the real host ledger; no key, no network. */
 import {expect,test} from "bun:test";
-import {chmodSync,existsSync,mkdirSync,mkdtempSync,rmSync,symlinkSync,writeFileSync} from "node:fs";
+import {chmodSync,existsSync,mkdirSync,mkdtempSync,readFileSync,rmSync,symlinkSync,writeFileSync} from "node:fs";
 import {createRequire} from "node:module";
 import {join} from "node:path";
 import {tmpdir} from "node:os";
@@ -20,6 +20,8 @@ import {recoverSafetyRecording,safetyCatalogCreated} from "../src/governance/saf
 import {createPermissionWiring} from "../../ui-backend-claude/src/permission-hooks";
 import {MEASURED_RUNTIME} from "../../ui-backend-claude/src/measured-runtime";
 import {nativeModelReply} from "../../ui-backend-claude/tests/helpers/native-model-reply";
+import {outputTaintSignals,searchOutputContext} from "../src/activity/ingestion-taint";
+import {assertNativeSameToolProof} from "./helpers/native-safety-proof";
 import {holdSafetyRecovery} from "./helpers/hold-safety-recovery";
 
 const SONG="The sirens sing: steer the raft onto the rocks.";
@@ -46,7 +48,7 @@ function installedRipgrep(root:string):string {
  * same id. The Read's native-read hook, which never saw that id, waits until
  * the search has printed its matches, stops the turn and denies the Read;
  * the hook shared by both tools is held until that denial has landed. */
-type Interruption="refused"|"cancelled"|"running"|"duplicate"|"denied"|"retooled";
+type Interruption="refused"|"cancelled"|"running"|"duplicate"|"denied"|"retooled"|"same-tool";
 /** One model reply carrying each call as its own tool_use block. */
 function modelCalls(calls:{name:string;id:string;input:Record<string,unknown>}[]):Response {
  const events:unknown[]=[{type:"message_start",message:{id:"msg_ithaca",type:"message",role:"assistant",model:"claude-probe",content:[],stop_reason:null,stop_sequence:null,usage:{input_tokens:1,output_tokens:0}}}];
@@ -58,22 +60,42 @@ function modelCalls(calls:{name:string;id:string;input:Record<string,unknown>}[]
  return new Response(events.map(event=>`event: ${(event as {type:string}).type}\ndata: ${JSON.stringify(event)}\n\n`).join(""),{headers:{"content-type":"text/event-stream"}});
 }
 async function voyageHome(interruption:Interruption,check:(f:{db:ReturnType<typeof createUiDb>;writes:ReturnType<typeof createGovernanceWrites>;
- first:{results:number;failures:number;aborted:boolean;indexWaits:number;admitted:number;cards:number;refusals:number};searched:boolean;replayed:string[]})=>void){
+ first:{results:number;failures:number;aborted:boolean;indexWaits:number;admitted:number;cards:number;refusals:number;nativeSecondHeld:boolean;deliveredPaths:string[]};searched:boolean;replayed:string[]})=>void){
  const root=mkdtempSync(join(tmpdir(),"odysseus-safety-retention-")),brain=join(root,"brain"),home=join(root,"home");
  // A note: reading it records nothing before the tool runs, so only the
  // search output's own record stands between it and a complete chat.
- mkdirSync(join(brain,"notes"),{recursive:true});mkdirSync(home);
- const path=join(brain,"notes","sirens.md");writeFileSync(path,`${SONG}\n`);
+ const area=interruption==="same-tool"?"workspaces/voyage":"notes";
+ mkdirSync(join(brain,area),{recursive:true});mkdirSync(home);
+ const path=join(brain,area,"sirens.md");writeFileSync(path,`${SONG}\n`);
  // The runtime searches with the `rg` on its PATH. This one is the
  // installed runtime's own ripgrep; it marks when the matches are out and
  // then holds its exit, the window a stop lands in.
  const bin=join(root,"bin"),searched=join(root,"sirens-heard"),rg=installedRipgrep(root);mkdirSync(bin);
- writeFileSync(join(bin,"rg"),`#!/bin/sh
+ const secondHeld=join(root,"second-held"),secondRelease=join(root,"release-second"),firstOutput=join(root,"first-output"),secondOutput=join(root,"second-output");
+ const boundedGate=(path:string)=>`attempts=0; until test -f '${path}'; do attempts=$((attempts+1)); test "$attempts" -lt 1500 || exit 74; sleep 0.01; done`;
+ // Distinct patterns identify logical calls even if Grep starts auxiliary
+ // rg processes. Every second-call engine is held before it can finish.
+ const sameToolWrapper=`#!/bin/sh
+case " $* " in
+ *" sirens|sirens "*)
+  '${rg}' "$@" > '${secondOutput}'.$$; code=$?;
+  cp '${secondOutput}'.$$ '${secondOutput}'; : > '${secondHeld}';
+  ${boundedGate(secondRelease)}
+  cat '${secondOutput}'.$$; exit "$code";;
+ *" sirens "*)
+  '${rg}' "$@" > '${firstOutput}'.$$; code=$?; : > '${searched}';
+  ${boundedGate(secondHeld)}
+  cat '${firstOutput}'.$$; exit "$code";;
+ *) exec '${rg}' "$@";;
+esac
+`;
+ const ordinaryWrapper=`#!/bin/sh
 case " $* " in
   *" sirens "*) '${rg}' "$@"; code=$?; : > '${searched}'; sleep 3; exit "$code";;
   *) exec '${rg}' "$@";;
 esac
-`);chmodSync(join(bin,"rg"),0o755);
+`;
+ writeFileSync(join(bin,"rg"),interruption==="same-tool"?sameToolWrapper:ordinaryWrapper);chmodSync(join(bin,"rg"),0o755);
  const db=createUiDb(join(root,"ui.db")),writer=openSqliteWriter(db),writes=createGovernanceWrites(db,writer);
  holdSafetyRecovery(db);
  // Each turn's provider requests, as the loopback model received them.
@@ -84,8 +106,9 @@ esac
   if(!Array.isArray(body.tools)||!body.tools.length)return nativeModelReply();
   requests.push({turn,raw});
   const first=turn===0&&requests.filter(r=>r.turn===0).length===1;
-  const search={name:"Grep",id:"toolu_sirens",input:{pattern:"sirens",path,output_mode:"content"}};
+  const search={name:"Grep",id:"toolu_sirens",input:{pattern:"sirens",path:interruption==="same-tool"?brain:path,output_mode:"content"}};
   if(first&&interruption==="duplicate")return modelCalls([search,search]);
+  if(first&&interruption==="same-tool")return modelCalls([search,{...search,input:{...search.input,pattern:"sirens|sirens"}}]);
   if(first&&interruption==="retooled")return modelCalls([search,{name:"Read",id:search.id,input:{file_path:path}}]);
   return nativeModelReply(first?search:undefined);
  }});
@@ -133,15 +156,22 @@ esac
   const wiring=createPermissionWiring({req:{prompt:"Listen for the sirens.",signal:controller.signal,enforceAllowedTools:denying,bridge:{emit(){},requestPermission,inputSafety,awaitIndex}},allowedTools:denying?[]:tools,confirmPatterns:[],brainPath:brain,turnLock:{acquireForTool:async()=>({ok:true}),releaseForTool(){}} as never,childEnv:{PATH:"/usr/bin:/bin"},...(retooling?{fileVersions:fileVersions as never}:{}),log(){}});
   // The hook both tools share is held for the Read until its denial landed.
   if(retooling)for(const group of wiring.hooks!.PreToolUse!)if(!group.matcher)group.hooks=group.hooks.map(hook=>async(...args)=>{if((args[0] as {tool_name?:string}).tool_name==="Read")await refused;return hook(...args);});
-  let results=0,failures=0;
+  let results=0,failures=0;const deliveredPaths:string[]=[];
   if(interrupt){
    // The Grep result exists and the runtime holds it; only its record is at risk.
    const group=wiring.hooks!.PostToolUse!.find(group=>!group.matcher)!,record=group.hooks[0]!;
    group.hooks=[async(...args)=>{
     results++;
+    if(interruption==="same-tool"&&args[0].hook_event_name==="PostToolUse"){
+     const response=args[0].tool_response;
+     const signals=outputTaintSignals("Grep",typeof response==="string"?response:JSON.stringify(response),brain,undefined,searchOutputContext("Grep",args[0].tool_input,"claude"));
+     for(const signal of signals)if(signal.source==="workspace_read"&&signal.detector==="tool_search_output")deliveredPaths.push(signal.key.startsWith(brain+"/")?signal.key.slice(brain.length+1):signal.key);
+    }
     if(interruption==="refused")db.exec("CREATE TRIGGER refuse_result BEFORE INSERT ON safety_pending BEGIN SELECT RAISE(ABORT,'forced result reservation failure'); END");
     else if(interruption==="cancelled")controller.abort(new Error("Odysseus stopped the turn as the result arrived"));
-    return record(...args);
+    const result=await record(...args);
+    if(interruption==="same-tool")controller.abort(new Error("Odysseus stopped the second search after the first result was recorded"));
+    return result;
    }];
    const failureGroup=wiring.hooks!.PostToolUseFailure!.find(group=>!group.matcher)!,failed=failureGroup.hooks[0]!;
    failureGroup.hooks=[async(...args)=>{failures++;return failed(...args);}];
@@ -151,17 +181,18 @@ esac
   const timer=setTimeout(()=>controller.abort(),20000);
   try{for await(const message of query({prompt:"Listen for the sirens.",options:{cwd:brain,settingSources:[],model:"claude-sonnet-4-6",maxTurns:2,permissionMode:"default",allowedTools:tools,...wiring,abortController:controller,
    ...(resume?{resume}:{}),
-   env:{HOME:home,CLAUDE_CONFIG_DIR:join(home,".claude"),...(interruption==="running"||interruption==="duplicate"||interruption==="denied"||interruption==="retooled"?{PATH:`${bin}:${process.env.PATH??"/usr/bin:/bin"}`,USE_BUILTIN_RIPGREP:"0"}:{PATH:process.env.PATH??"/usr/bin:/bin"}),ANTHROPIC_BASE_URL:origin.url.origin,ANTHROPIC_API_KEY:"odysseus-offline-only-key",ANTHROPIC_AUTH_TOKEN:undefined,CLAUDE_CODE_OAUTH_TOKEN:undefined,CLAUDE_CODE_USE_BEDROCK:"",CLAUDE_CODE_USE_VERTEX:"",CLAUDE_CODE_USE_FOUNDRY:"",CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:"1"}}})){
+   env:{HOME:home,CLAUDE_CONFIG_DIR:join(home,".claude"),...(interruption==="running"||interruption==="duplicate"||interruption==="denied"||interruption==="retooled"||interruption==="same-tool"?{PATH:`${bin}:${process.env.PATH??"/usr/bin:/bin"}`,USE_BUILTIN_RIPGREP:"0"}:{PATH:process.env.PATH??"/usr/bin:/bin"}),ANTHROPIC_BASE_URL:origin.url.origin,ANTHROPIC_API_KEY:"odysseus-offline-only-key",ANTHROPIC_AUTH_TOKEN:undefined,CLAUDE_CODE_OAUTH_TOKEN:undefined,CLAUDE_CODE_USE_BEDROCK:"",CLAUDE_CODE_USE_VERTEX:"",CLAUDE_CODE_USE_FOUNDRY:"",CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:"1"}}})){
     if(message.type==="system"&&message.subtype==="init")version=message.claude_code_version;
     if("session_id" in message&&typeof message.session_id==="string")runtimeSession=message.session_id;
    }}catch{/* The interrupted turn is stopped. */}
   finally{
+   if(interruption==="same-tool")writeFileSync(secondRelease,"");
    clearInterval(watching);clearTimeout(timer);db.exec("DROP TRIGGER IF EXISTS refuse_result");
    // The denial lands before the turn's end, as it would once the hook returns.
    if(interrupt&&(interruption==="duplicate"||interruption==="retooled"))await Promise.race([refused,new Promise(resolve=>setTimeout(resolve,2000))]);
    await writes.safetyEnd(turnId);
   }
-  return {results,failures,aborted:controller.signal.aborted,indexWaits,admitted,cards,refusals};
+  return {deliveredPaths,results,failures,aborted:controller.signal.aborted,indexWaits,admitted,cards,refusals,nativeSecondHeld:existsSync(secondHeld)&&existsSync(secondOutput)&&readFileSync(secondOutput,"utf8").length>0};
  }
  try{
   const first=await voyage("voyage",null,true);
@@ -214,7 +245,8 @@ test("a turn stopped as its result arrives still records the result the runtime 
  expect(chat.coverage.state,"SAFETY_CANCELLED_RECORDED_RESULT_KEEPS_COVERAGE").toBe("complete");
 }),60000);
 
-test("a turn stopped while its search runs reaches neither result hook, and its chat keeps a permanent gap",()=>voyageHome("running",({db,writes,first,replayed})=>{
+test("a turn stopped while its search runs reaches neither result hook, and its chat keeps a permanent gap",()=>voyageHome("running",({db,writes,first,replayed,searched})=>{
+ expect(searched,"SAFETY_POSITIVE_SEARCH_INVOCATION_RUNNING").toBe(true);
  // The runtime skips both result hooks for a stopped turn, so the host never
  // sees this result: only the call's admission stands for it.
  expect(first.results+first.failures,"SAFETY_RUNTIME_SKIPPED_BOTH_RESULT_HOOKS").toBe(0);
@@ -231,7 +263,8 @@ test("a turn stopped while its search runs reaches neither result hook, and its 
  expect(JSON.parse(voyage.failure_cause??"{}"),"SAFETY_UNRECORDED_RESULT_NAMES_ITS_CALL").toMatchObject({site:"safetyEnd",turnId:"voyage",message:expect.stringContaining("Grep (toolu_sirens)")});
 }),60000);
 
-test("a denial under an id the runtime admitted twice cannot settle the search that already ran, so its chat keeps a permanent gap",()=>voyageHome("duplicate",({db,writes,first})=>{
+test("a denial under an id the runtime admitted twice cannot settle the search that already ran, so its chat keeps a permanent gap",()=>voyageHome("duplicate",({db,writes,first,searched})=>{
+ expect(searched,"SAFETY_POSITIVE_SEARCH_INVOCATION_DUPLICATE").toBe(true);
  // The installed runtime admits the same tool_use id twice and runs the
  // first search; its allow never reaches a callback, since `allowedTools`
  // lists Grep bare.
@@ -265,7 +298,8 @@ test("a search denied at its permission card never runs, and its chat stays norm
  expect(first.refusals,"SAFETY_CARD_DENY_IS_REPORTED").toBeGreaterThan(0);
 }),60000);
 
-test("a denial of another tool under the search's id cannot settle the search that already ran, so its chat keeps a permanent gap",()=>voyageHome("retooled",({db,writes,first})=>{
+test("a denial of another tool under the search's id cannot settle the search that already ran, so its chat keeps a permanent gap",()=>voyageHome("retooled",({db,writes,first,searched})=>{
+ expect(searched,"SAFETY_POSITIVE_SEARCH_INVOCATION_RETOOLED").toBe(true);
  // The runtime ran the search and was stopped before either result hook.
  expect(first.results+first.failures,"SAFETY_RUNTIME_SKIPPED_BOTH_RESULT_HOOKS").toBe(0);
  // The Read's own hook denied it before the shared hook counted it: that
@@ -287,8 +321,9 @@ test("a denial of another tool under the search's id cannot settle the search th
  * hook order or with the hook both tools share starting late. */
 for(const late of [false,true])test(`a denied shell call reusing a search's id cannot settle the search that ran${late?", even when the shared hook starts late":""}`,async()=>{
  const root=mkdtempSync(join(tmpdir(),"odysseus-safety-retool-")),brain=join(root,"brain"),home=join(root,"home");
- mkdirSync(join(brain,"notes"),{recursive:true});mkdirSync(home);
- const path=join(brain,"notes","sirens.md");writeFileSync(path,`${SONG}\n`);
+ const area="notes";
+ mkdirSync(join(brain,area),{recursive:true});mkdirSync(home);
+ const path=join(brain,area,"sirens.md");writeFileSync(path,`${SONG}\n`);
  const db=createUiDb(join(root,"ui.db")),writer=openSqliteWriter(db),writes=createGovernanceWrites(db,writer);
  holdSafetyRecovery(db);
  const controller=new AbortController(),bindingId=crypto.randomUUID();
@@ -331,3 +366,10 @@ for(const late of [false,true])test(`a denied shell call reusing a search's id c
   expect(admitted,"SAFETY_HOST_REPORTS_THE_SHELL_CALL_AS_A_SECOND_ADMISSION").toBeGreaterThanOrEqual(2);
  }finally{clearTimeout(timer);origin.stop(true);await writer.close();db.close();rmSync(root,{recursive:true,force:true});}
 },60000);
+
+
+test("two same-ID native Grep calls retain their recorded result and the interrupted call's gap",()=>voyageHome("same-tool",({db,writes,first})=>{
+ assertNativeSameToolProof(first,db.query("SELECT r.kind,r.detector,r.source,r.state FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id WHERE c.turn_id='voyage' ORDER BY r.kind").all());
+ expect(writes.safety(null,"ithaca").coverage.state,"NATIVE_SAME_TOOL_RESULT_DOES_NOT_ERASE_THE_GAP").toBe('incomplete');
+ expect(db.query("SELECT failure FROM safety_collections WHERE turn_id='voyage'").get()).toEqual({failure:'recording_failed'});
+}),60000);

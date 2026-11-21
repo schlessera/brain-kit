@@ -5982,3 +5982,38 @@ for every interactive session, so a new session's retained append contains
 the bullet. A session retained earlier keeps its append byte for byte. The
 same-commit API report records the additive types. See
 [the MCP component](mcp.md#raw-connections-to-githubs-api-0450-3799).
+
+
+## Collected search output status (additive, 0.45.0, #4275)
+
+`BackendBridge.inputSafety.result` in `@schlessera/brain-ui-sdk/server`
+accepts an optional sixth argument, `outputStatus`, after the existing
+`segments` argument. The exported `InputSafetyOutputStatus` type has readonly required `complete: boolean`
+and optional `exitCode: number`, `stderr: boolean`, `truncated: boolean`.
+`stderr` records presence, never the error bytes. This is host-only evidence,
+not a provider-facing tool definition or a permission grant.
+
+Omission grants no success or empty-search exemption: Pi grep without explicit
+process status retains unknown evidence. Other observations preserve their
+existing behavior or become stricter. `complete: false`, a
+failed search exit, stderr or truncation retains an unknown search remainder
+alongside every identifiable source. It is independent of the existing
+`finalized` exposure argument; incomplete evidence cannot prove a managed
+reference read. Pi carries the original tool status through its result hook
+and worker RPC. Exit 1 with empty stdout and no stderr is its only empty
+sentinel; exit 0 requires matches. The shipped tool records zero stdout bytes
+in host-only observation metadata; matching sentinel text is never that proof.
+Missing search status or zero-byte proof is restrictive.
+Every wrapper forwards the complete typed callback tuple. Extraction also
+withholds its relaxation when result evidence is incomplete. Status identity
+uses canonical key order, and host frames have an independent byte bound;
+clipping that frame retains unknown instead of overflowing collection.
+Pi keeps NUL filename framing in host-only result details; provider text retains
+the advertised `path:line:content` format, with the existing trim-then-clip
+pipeline. Hidden frame separators do not consume the delivered text budget;
+an inconsistent frame cannot replace the paths in delivered text. Display-only
+result frames cannot establish the verified empty-search exemption.
+Neither metadata nor completeness is
+encoded by changing result text, and
+neither changes prior provider history. The same-commit API report records
+the additive argument.

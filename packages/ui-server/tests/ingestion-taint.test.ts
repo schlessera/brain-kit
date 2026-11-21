@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import {adaptStreamEvent} from "../../ui-backend-claude/src/stream-adapter";
 import { inputTaintSource, outputTaintSource } from "../src/activity/ingestion-taint";
 import { createTurnRecorder } from "../src/activity/recorder";
 import { createActivityStore } from "../src/activity/store";
@@ -12,7 +13,7 @@ test("unqualified managed reference and worktree file reads retain ordinary work
     "/tmp/brain-worktrees/ithaca/README.md", "/tmp/brain-reference/public/ithaca/../loom/README.md"]) {
     expect(inputTaintSource("Read", { file_path: path }, brain), "REFERENCE_PATH_IS_NOT_A_TRUST_EXEMPTION").toBe("workspace_read");
     expect(inputTaintSource("read_file", { path }, brain)).toBe("workspace_read");
-    expect(outputTaintSource("Grep", `${path}:1: Odysseus`, brain)).toBe("workspace_read");
+    expect(outputTaintSource("grep", `${path}:1: Odysseus`, brain)).toBe("workspace_read");
   }
   expect(inputTaintSource("Read", { file_path: "/tmp/brain-reference-other/README.md" }, brain)).toBeNull();
 });
@@ -62,7 +63,7 @@ test("a brain whose own path contains an area name does not taint its ordinary r
 });
 
 test("a search from an ancestor directory taints only when its output names an untrusted-area file", () => {
-  expect(outputTaintSource("Grep", `${brain}/notes/a.md\n${brain}/workspaces/voyage/b.md`, brain), "G6_GREP_OUTPUT_WORKSPACE").toBe("workspace_read");
+  expect(outputTaintSource("Grep", JSON.stringify({numFiles:2,filenames:[`${brain}/notes/a.md`,`${brain}/workspaces/voyage/b.md`]}), brain), "G6_GREP_OUTPUT_WORKSPACE").toBe("workspace_read");
   expect(outputTaintSource("grep", "notes/a.md:3: Ithaca\n.brain-ui/inbox/share-1/n.md:1: Ithaca", brain)).toBe("staged_share");
   expect(outputTaintSource("Glob", `${brain}/notes/a.md`, brain)).toBeNull();
   expect(outputTaintSource("Read", "workspaces/voyage/b.md", brain), "G6_OUTPUT_ONLY_FOR_SEARCH").toBeNull();
@@ -84,11 +85,11 @@ test("the real recorder keeps independent sources and excludes a denied fetch", 
   try {
     call("denied", "WebFetch", { url: "https://ithaca.invalid" }, "Denied", true);
     call("clean", "Grep", { pattern: "Ithaca" }, `${brain}/notes/a.md`);
-    expect(events(), "G6_DENIED_FETCH_CLEAN").toHaveLength(0);
+    expect(events().map(event=>event.payload.source), "G6_DISPLAY_ONLY_SEARCH_IS_UNKNOWN").toEqual(["legacy_unknown"]);
     call("search", "Grep", { pattern: "Ithaca" }, `${brain}/workspaces/voyage/a.md`);
     call("fetch", "WebFetch", { url: "https://ithaca.invalid" }, "A fictional harbour notice.");
     expect(events().map(event => [event.payload.source, event.payload.tool, event.payload.detail]), "G6_RECORDER_EVERY_TOOL_SOURCE")
-      .toEqual([["workspace_read", "Grep", null], ["web_fetch", "WebFetch", null]]);
+      .toEqual([["legacy_unknown", "Grep", null], ["workspace_read", "Grep", null], ["legacy_unknown", "Grep", null], ["web_fetch", "WebFetch", null]]);
     recorder.finish("success");
   } finally { db.close(); }
 });
@@ -121,4 +122,59 @@ test("a collected external compute job's output is a taint source on both backen
     recordGovernanceEvent(db, { kind: "taint", payload: { source: "compute_output", tool: "brain_compute_collect", detail: null }, sessionId: "sess-ithaca", turnId: "t-1", actor: "interactive", model: null, profile: null });
     expect(queryGovernanceEvents(db, { turnId: "t-1", kinds: ["taint"], limit: 5 }).map(event => event.payload), "COMPUTE_OUTPUT_TAINT_RECORDED").toEqual([{ source: "compute_output", tool: "brain_compute_collect", detail: null }]);
   } finally { db.close(); }
+});
+
+for(const filename of ['notes/voyage:2:home.md','notes/voyage\rhome.md'])test(`the display recorder uses real Claude adapter filename text: ${JSON.stringify(filename)}`,async()=>{
+ const db=createUiDb(':memory:');
+ const {untrustedMarkOperations}=await import('../src/files/untrusted-marks');
+ const sessionId='odysseus-colon-search';db.query("INSERT INTO sessions(id,title,created_at,last_active_at) VALUES(?,'Voyage',0,0)").run(sessionId);
+ untrustedMarkOperations(db).mark(filename,null,Date.UTC(2026,6,12));
+ const recorder=createTurnRecorder({store:createActivityStore(db,{writer:'test'}),governanceDb:db,brainPath:brain,governance:event=>{recordGovernanceEvent(db,event);}},{turnId:'colon-search',sessionId,profile:'governed'});
+ try{
+  recorder.observeFrame({type:'tool_use_start',sessionId,toolUseId:'colon_grep',toolName:'Grep'});
+  recorder.observeFrame({type:'tool_use_complete',sessionId,toolUseId:'colon_grep',toolName:'Grep',input:{path:'.',pattern:'sirens',output_mode:'files_with_matches'}});
+  recorder.observeFrame({type:'tool_result',sessionId,toolUseId:'colon_grep',isError:false,output:adaptStreamEvent({type:'user',message:{content:[{type:'tool_result',tool_use_id:'colon_grep',content:[{type:'text',text:filename}]}]}} as never).find(frame=>frame.type==='tool_result')!.output});
+  expect(queryGovernanceEvents(db,{sessionId,kinds:['taint'],limit:10}).map(e=>e.payload.source).sort(),'RECORDER_PRESERVES_ADMITTED_SEARCH_FORMAT').toEqual(['legacy_unknown','user_marked']);
+ }finally{recorder.finish('success');db.close();}
+});
+
+test('display-only grep sentinel never proves complete empty evidence',()=>{
+ const output='No matches.';
+ const db=createUiDb(':memory:');const sessionId='ithaca-display';db.query("INSERT INTO sessions(id,created_at,last_active_at) VALUES(?,0,0)").run(sessionId);
+ const recorder=createTurnRecorder({store:createActivityStore(db,{writer:'test'}),governanceDb:db,brainPath:brain,governance:event=>{recordGovernanceEvent(db,event);}},{turnId:'voyage-display',sessionId,profile:'governed'});
+ try{
+  recorder.observeFrame({type:'tool_use_start',sessionId,toolUseId:'display_grep',toolName:'grep'});
+  recorder.observeFrame({type:'tool_use_complete',sessionId,toolUseId:'display_grep',toolName:'grep',input:{pattern:'sirens'}});
+  recorder.observeFrame({type:'tool_result',sessionId,toolUseId:'display_grep',output,isError:false});
+  expect(queryGovernanceEvents(db,{sessionId,kinds:['taint'],limit:10}).map(event=>event.payload.source),'DISPLAY_TEXT_CANNOT_VERIFY_ORIGINAL_EMPTY_RESULT').toEqual(['legacy_unknown']);
+  recorder.finish('success');
+ }finally{db.close();}
+});
+
+test('Claude display filenames preserve both workspace and mark evidence independently',async()=>{
+ const {untrustedMarkOperations}=await import('../src/files/untrusted-marks');const db=createUiDb(':memory:'),sessionId='voyage-display-workspace';
+ db.query("INSERT INTO sessions(id,created_at,last_active_at) VALUES(?,0,0)").run(sessionId);untrustedMarkOperations(db).mark('workspaces/voyage/sirens.md',null,Date.UTC(2026,6,12));
+ const recorder=createTurnRecorder({store:createActivityStore(db,{writer:'test'}),governanceDb:db,brainPath:brain,governance:event=>{recordGovernanceEvent(db,event);}},{turnId:'display-workspace',sessionId,profile:'governed'});
+ try{
+  const frames=adaptStreamEvent({type:'user',message:{content:[{type:'tool_result',tool_use_id:'workspace_grep',content:[{type:'text',text:'workspaces/voyage/sirens.md'}]}]}} as never);
+  expect(frames.find(frame=>frame.type==='tool_result')!.output,'ACTUAL_ADAPTER_OUTPUT_IS_DISPLAY_TEXT').toBe('workspaces/voyage/sirens.md');
+  recorder.observeFrame({type:'tool_use_start',sessionId,toolUseId:'workspace_grep',toolName:'Grep'});
+  recorder.observeFrame({type:'tool_use_complete',sessionId,toolUseId:'workspace_grep',toolName:'Grep',input:{pattern:'sirens',output_mode:'files_with_matches'}});
+  for(const frame of frames)if(frame.type==='tool_result')recorder.observeFrame({...frame,sessionId});
+  expect(queryGovernanceEvents(db,{sessionId,kinds:['taint'],limit:10}).map(e=>e.payload.source).sort(),'DISPLAY_PATH_RETAINS_ALL_INDEPENDENT_SIGNALS').toEqual(['legacy_unknown','user_marked','workspace_read']);
+ }finally{recorder.finish('success');db.close();}
+});
+
+for(const mode of ['content','count'] as const)test(`Claude fallback recorder retains a mark from a long ${mode} row without abort`,async()=>{
+ const {untrustedMarkOperations}=await import('../src/files/untrusted-marks');const db=createUiDb(':memory:'),sessionId='voyage-long-display',aborted:Error[]=[];
+ db.query("INSERT INTO sessions(id,created_at,last_active_at) VALUES(?,0,0)").run(sessionId);untrustedMarkOperations(db).mark('notes/loom.md',null,Date.UTC(2026,6,12));
+ const recorder=createTurnRecorder({store:createActivityStore(db,{writer:'test'}),governanceDb:db,brainPath:brain,governance:event=>{recordGovernanceEvent(db,event);},abort:error=>aborted.push(error)},{turnId:'long-display',sessionId,profile:'governed'});
+ try{
+  const text=mode==='content'?`notes/loom.md:7:${'s'.repeat(1100)}`:`notes/loom.md:${'7'.repeat(1100)}`;
+  recorder.observeFrame({type:'tool_use_start',sessionId,toolUseId:'long_grep',toolName:'Grep'});
+  recorder.observeFrame({type:'tool_use_complete',sessionId,toolUseId:'long_grep',toolName:'Grep',input:{pattern:'sirens',output_mode:mode}});
+  for(const frame of adaptStreamEvent({type:'user',message:{content:[{type:'tool_result',tool_use_id:'long_grep',content:[{type:'text',text}]}]}} as never))if(frame.type==='tool_result')recorder.observeFrame({...frame,sessionId});
+  expect(aborted,'LONG_MATCH_TEXT_IS_NOT_A_FATAL_FILENAME').toEqual([]);
+  expect(queryGovernanceEvents(db,{sessionId,kinds:['taint'],limit:10}).map(event=>event.payload.source).sort(),'LONG_ROW_PRESERVES_MARK_AND_UNKNOWN').toEqual(['legacy_unknown','user_marked']);
+ }finally{recorder.finish('success');db.close();}
 });

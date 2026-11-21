@@ -25,18 +25,27 @@ public design or its fixtures. Fictional examples use the Odysseus world.
 - Taint recording retains every independently observed signal and reads a
   durable revisioned aggregate, including pending/failure and explicit unknown
   coverage (`safetyProjection`,
-  `packages/ui-server/src/governance/safety-store.ts:418-423`). Legacy rows prove
+  `packages/ui-server/src/governance/safety-store.ts:429-434`). Legacy rows prove
   their own event, never a complete history. Owner review transport and its
   mutation capability remain disabled by this foundation.
 - Tool ingestion collects input and output signals independently (`inputTaintSignals`,
-  `packages/ui-server/src/activity/ingestion-taint.ts:155`;
-  `outputTaintSignals`, `packages/ui-server/src/activity/ingestion-taint.ts:178`).
+  `packages/ui-server/src/activity/ingestion-taint.ts:164-184`;
+  `outputTaintSignals`, `packages/ui-server/src/activity/ingestion-taint.ts:244-377`).
   Workspace paths taint regardless of repository ownership. Awaited backend
-  hooks commit before tool dispatch/result delivery; display frames alone
-  never prove finalized delivery or complete coverage.
+  hooks commit before tool dispatch/result delivery. Normal Claude collection
+  uses the SDK PostToolUse structured tool_response; collector readiness disables
+  the display recorder fallback. That fallback treats display filenames literally,
+  checks adjacent-line joins for marks, and retains unknown coverage for all
+  nonempty text because filename boundaries are unverified. Display frames alone
+  never prove finalized delivery or complete coverage. Pi's shipped search
+  preserves filename boundaries with GNU grep's NUL filename separator and a
+  retained visible colon. New result data can therefore name POSIX filenames
+  containing newlines without inventing separate paths. Older unframed text
+  remains restrictive. This changes tool result data, not the provider-facing
+  tool definition or any previously delivered provider history.
 - The turn proxy records each admitted non-provider connection and terminal
   exposure observation (`prepareTurnEgress`,
-  `packages/ui-server/src/brain/turn-egress.ts:86-295`). Relay admissions join
+  `packages/ui-server/src/brain/turn-egress.ts:87-296`). Relay admissions join
   this proxy's submitted terminal observations and its own announced session
   binding before reading fresh safety (`settleTurnSessionBinding`,
   `packages/ui-server/src/ws/bridge-session-binding.ts:14-28`), without excluding
@@ -323,7 +332,7 @@ Attach to the exact tool/message entry only with authoritative correlation;
 otherwise use a separate turn-scoped network event, without blaming the nearest
 message. Examples of accessible names are **Safety restrictions: 2 unresolved
 triggers** and **Marked safe by you: show details**. Reuse the kit's icon map
-(`ICONS`, `packages/ui-kit/src/primitives/Icon.tsx:145-207`).
+(`ICONS`, `packages/ui-kit/src/primitives/Icon.tsx:151-213`).
 
 The transcript uses a compact safety notice, not an assistant-generated message
 or modal interruption. It records every new trigger even when another trigger
