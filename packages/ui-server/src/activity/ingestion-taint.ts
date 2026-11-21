@@ -354,9 +354,9 @@ export function outputTaintSignals(tool: string, output: string, brainPath?: str
         if(value.content!==undefined&&value.content!==''){unknown=true;salvage(value,value.mode==='count'?'count':'content');}
       }else if(mode==='content'){
         if(value.content===undefined||value.numFiles!==0||value.filenames.length!==0||
-          value.numLines!==undefined&&value.numLines!==lines||value.totalLines!==undefined&&value.totalLines!==lines||
+          value.numLines!==lines||value.totalLines!==lines||
           value.numMatches!==undefined||value.totalFiles!==undefined)unknown=true;
-        if(value.content)content(value.content,context?.lineNumbers!==false);
+        if(value.content){content(value.content,context?.lineNumbers!==false);if(contentPaths.size===0)unknown=true;}
       }else{
         let matches=0;
         if(value.content===undefined||value.filenames.length!==0||value.numLines!==undefined||value.totalLines!==undefined)unknown=true;
@@ -365,7 +365,7 @@ export function outputTaintSignals(tool: string, output: string, brainPath?: str
           if(split){const path=line.slice(0,split.index);if(contentPaths.has(path))unknown=true;contentPaths.add(path);add(path);matches+=Number(split[1]);if(!Number.isSafeInteger(matches))unknown=true;}
           else unknown=true;
         }
-        if(value.numFiles!==contentPaths.size||value.numMatches!==undefined&&value.numMatches!==matches||
+        if(value.numFiles!==contentPaths.size||value.numMatches!==matches||
           value.totalFiles!==undefined&&value.totalFiles!==value.numFiles)unknown=true;
       }
     }

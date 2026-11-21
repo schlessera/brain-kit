@@ -29,7 +29,7 @@ for(const [name,tool,input,output,expected] of [
  ['Grep zero count entry','Grep',{output_mode:'count'},grep([],{content:'notes/loom.md:0',numMatches:0}),['legacy_unknown']],
  ['Grep wrong reported offset','Grep',{offset:1},grep([],{appliedOffset:0}),['legacy_unknown']],
  ['Grep unbounded limit','Grep',{head_limit:0},grep(['notes/loom.md']),[]],
- ['Grep content has no reported filename count','Grep',{output_mode:'content'},grep([],{content:'notes/loom.md:1:sirens'}),[]],
+ ['Grep content has no reported filename count','Grep',{output_mode:'content'},grep([],{content:'notes/loom.md:1:sirens',numLines:1,totalLines:1}),[]],
  ['Grep count mismatched filenames','Grep',{output_mode:'count'},grep(['notes/other.md'],{content:'notes/loom.md:1',numMatches:1}),['legacy_unknown']],
  ['Grep reported unlimited cannot hide input limit','Grep',{head_limit:1},grep(['notes/loom.md'],{appliedLimit:0}),['legacy_unknown']],
  ['Grep content count contradicts lines','Grep',{output_mode:'content'},grep(['notes/loom.md'],{content:'notes/loom.md:1:sirens',numMatches:2}),['legacy_unknown']],
@@ -200,4 +200,11 @@ test('partial arrays below the byte budget retain every complete filename',()=>{
   const expected=paths.filter((_,i)=>ends[i]!<=cut).flatMap(path=>[...(path.startsWith('workspaces/')?['workspace_read:'+path]:[]),'user_marked:'+path]);expected.push('legacy_unknown:unknown_remainder');
   expect(outputTaintSignals('Glob',output,undefined,path=>paths.includes(path),{backendId:'claude'}).map(s=>s.source+':'+s.key).sort(),'SMALL_ARRAY_CUT_'+cut).toEqual(expected.sort());
  }
+});
+for(const [name,input,value] of [
+ ['content missing totals',{output_mode:'content'},{mode:'content',numFiles:0,filenames:[],content:'notes/loom.md:1:sirens',numLines:1}],
+ ['count missing total matches',{output_mode:'count'},{mode:'count',numFiles:1,filenames:[],content:'notes/loom.md:2'}],
+ ['context separator without a source',{output_mode:'content',context:1},{mode:'content',numFiles:0,filenames:[],content:'--',numLines:1,totalLines:1}],
+] as const)test(`incomplete Grep construction stays unknown: ${name}`,()=>{
+ expect(outputTaintSignals('Grep',JSON.stringify(value),undefined,()=>false,searchOutputContext('Grep',input)).map(s=>s.source)).toEqual(['legacy_unknown']);
 });
