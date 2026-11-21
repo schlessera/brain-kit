@@ -51,3 +51,17 @@ test("concurrent new sessions share a single inventory helper", async () => {
   try { expect(calls).toBe(1); gate.resolve(); expect(await Promise.all([first, second])).toEqual(["core-only", "core-only"]); }
   finally { gate.resolve(); await Promise.all([first, second]); }
 });
+
+test("unresolvable module inputs skip later helpers and recover after the source becomes hashable", async () => {
+  const f = fixture(); let calls = 0;
+  const directory = join(f.brain, "modules/ithaca"); mkdirSync(directory, { recursive: true });
+  const source = join(directory, "module.ts"); writeFileSync(source, 'import fs from "node:fs"; export default {};');
+  const select = createBrainInventoryCache(async () => { calls++; return { inventory: "module-tools", modules: [{ key: "./modules/ithaca", name: "ithaca" }] }; });
+  expect(await select(f.input, f.signal)).toBe("unavailable");
+  expect(await select(f.input, f.signal)).toBe("unavailable");
+  expect(calls, "UNKNOWN_INPUTS_NEVER_REPEAT_OR_BECOME_A_CLEAN_FACT").toBe(1);
+  writeFileSync(source, "export default {};");
+  expect(await select(f.input, f.signal)).toBe("module-tools");
+  expect(await select(f.input, f.signal)).toBe("module-tools");
+  expect(calls, "HASHABLE_INPUTS_RECOVER_WITHOUT_A_HOST_RESTART").toBe(2);
+});

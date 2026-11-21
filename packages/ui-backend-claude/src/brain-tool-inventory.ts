@@ -87,6 +87,8 @@ export function brainInventoryInputHash(root: string, modules: BrainInventoryRes
 export function createBrainInventoryCache(run: (input: BrainToolWorkerInput, signal: AbortSignal) => Promise<BrainInventoryResolution>) {
   type Entry = BrainInventoryResolution & { hash: string };
   const entries = new Map<string, Entry>();
+  // Dependency identities are a read plan, never a cached inventory verdict.
+  const moduleInputs = new Map<string, BrainInventoryResolution["modules"]>();
   const pending = new Map<string, Promise<Entry | undefined>>();
   return async (input: BrainToolWorkerInput, signal: AbortSignal): Promise<BrainInventory> => {
     const attributes = { cached: false };
@@ -94,7 +96,7 @@ export function createBrainInventoryCache(run: (input: BrainToolWorkerInput, sig
     try {
       signal.throwIfAborted();
       const owner = realpathSync(input.brainPath), root = input.startupView?.root ?? input.brainPath;
-      const previous = entries.get(owner), modules = previous?.modules ?? [];
+      const previous = entries.get(owner), modules = previous?.modules ?? moduleInputs.get(owner) ?? [];
       const boundary = JSON.stringify({ profile: input.sandbox?.profile, masks: input.sandbox?.providerMasks && {
         folders: input.sandbox.providerMasks.folders, visible: input.sandbox.providerMasks.visible,
       } });
@@ -107,6 +109,10 @@ export function createBrainInventoryCache(run: (input: BrainToolWorkerInput, sig
       if (!work) {
         work = (async () => {
           let result = await run(input, signal);
+          if (result.inventory !== "unavailable") {
+            moduleInputs.delete(owner); moduleInputs.set(owner, result.modules);
+            if (moduleInputs.size > 128) moduleInputs.delete(moduleInputs.keys().next().value!);
+          }
           if (result.inventory === "unavailable" || inputHash(modules) !== before) return undefined;
           const hash = inputHash(result.modules);
           // When new module sources were not in the first key, prove a positive
