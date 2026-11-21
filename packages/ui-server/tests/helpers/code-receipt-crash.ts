@@ -44,5 +44,5 @@ mock.module("../../src/brain/native-journal-policy.js", () => ({ ...policy,
 }));
 const { createTurnJournal } = await import("../../src/brain/turn-journal.js");
 const journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath, objectsRoot: join(root, "objects"), codeChanges: { maintenance } });
-await journal.begin("crash-sail", { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null, workspaceReadOnly: false }, () => {});
+await journal.begin("crash-sail", { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null, workspaceReadOnly: false, workspacesWritable: true }, () => {});
 throw Error("Crash barrier was not reached");

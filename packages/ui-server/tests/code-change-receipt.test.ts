@@ -74,7 +74,7 @@ test("checkout hooks, filter programs and fsmonitor never run during capture", (
 
 import { createUiDb } from "../src/db/client.js";
 import { createTurnJournal } from "../src/brain/turn-journal.js";
-import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
+import { createNativeJournalFixture, fixtureDelta, inventory } from "./helpers/native-journal-fixture.js";
 import { createFixtureMaintenanceHost } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import { renameSync } from "node:fs";
 
@@ -86,7 +86,7 @@ test("durable checkout receipt replaces checkout rows while notes keep byte befo
   const native = createNativeJournalFixture(brain, f.root), maintenance = createFixtureMaintenanceHost(brain);
   const db = createUiDb(dbPath), journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath, objectsRoot: join(f.root, "objects"), codeChanges: { maintenance } });
   try {
-    await journal.begin("sail", { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null, workspaceReadOnly: false }, () => {});
+    await journal.begin("sail", { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null, workspaceReadOnly: false, workspacesWritable: true }, () => {});
     expect(journal.details("ithaca", "sail")?.codeChanges?.[0]?.state, "COVERAGE_STARTS_AFTER_DURABLE_RECEIPT").toBe("recording");
     writeFileSync(join(checkout, "chart.md"), "Scheria\n"); writeFileSync(join(brain, "note.md"), "Return to Ithaca\n");
     await journal.observe(); await journal.finish("sail");
@@ -243,7 +243,7 @@ test("an unsupported writable checkout refuses only that turn and leaves inspect
   const journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath, objectsRoot: join(f.root, "objects"), codeChanges: { maintenance } });
   const metadata = { sessionId: "ithaca", actor: "interactive" as const, model: null, profile: "governed" as const, policyHash: null };
   try {
-    await expectRejection(journal.begin("writer", { ...metadata, workspaceReadOnly: false }, () => {}), undefined, "UNSUPPORTED_CHECKOUT_NEVER_GETS_UNCOVERED_WRITES");
+    await expectRejection(journal.begin("writer", { ...metadata, workspaceReadOnly: false, workspacesWritable: true }, () => {}), undefined, "UNSUPPORTED_CHECKOUT_NEVER_GETS_UNCOVERED_WRITES");
     expect(journal.summary("writer").state).toBe("partial");
     expect(db.query("SELECT count(*) AS n FROM turn_journal_code_receipts WHERE turn_id='writer'").get(), "REFUSED_MULTI_CHECKOUT_ADMISSION_RELEASES_BASELINE_PINS").toEqual({ n: 0 });
     expect(journal.details("ithaca", "writer")!.missing.some(item => item.reason.includes("code_capture_failed")), "REFUSAL_CAUSE_IS_DURABLE_AND_OWNER_VISIBLE").toBe(true);
@@ -363,7 +363,7 @@ function inBrainCodeJournal() {
   const journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath, objectsRoot: join(f.root, "objects"), codeChanges: { maintenance } });
   return { ...f, brain, dbPath, checkout, native, maintenance, db, journal, async close() { await journal.close(); maintenance.cleanup(); await native.close(); db.close(); f.close(); } };
 }
-const codeMetadata = { sessionId: "ithaca", actor: "interactive" as const, profile: "governed" as const, model: null, policyHash: null, workspaceReadOnly: false };
+const codeMetadata = { sessionId: "ithaca", actor: "interactive" as const, profile: "governed" as const, model: null, policyHash: null, workspaceReadOnly: false, workspacesWritable: true };
 
 test("receipt-covered checkout growth pauses the live turn at its byte cap without retaining file bytes", async () => {
   const f = inBrainCodeJournal(), events: string[] = [], exited = Promise.withResolvers<number>();
@@ -379,7 +379,7 @@ test("receipt-covered checkout growth pauses the live turn at its byte cap witho
     const facts = f.journal.summary("sail").scope!;
     expect(facts.observedBytes).toBe(17 * 1024 * 1024);
     expect(facts.changedPaths, "EXCLUDED_CHECKOUT_PATHS_CHARGE_SCOPE").toBe(1);
-    expect(facts.receipts[0]).toMatchObject({ state: "paused", dimension: "turn_bytes", cap: 16 * 1024 * 1024, count: 17 * 1024 * 1024 });
+    expect(facts.receipts[0]).toMatchObject({ state: "paused", dimension: "turn_bytes", cap: 16 * 1024 * 1024, count: 17 * 1024 * 1024 + 19 });
     expect(f.journal.details("ithaca", "sail")!.changes, "EXCLUDED_CHECKOUT_CONTENT_IS_NOT_RETAINED").toEqual([]);
     // A later observation of the unchanged file must not charge its bytes again.
     await f.journal.observe();
@@ -453,8 +453,8 @@ test("a worker-forced release capture failure stops only its holding turn and re
   let current = true, stopped = "", worker: Awaited<ReturnType<typeof workerSdk.launchMaintenanceWorkerAsync>> | undefined;
   let stdoutDrain: Promise<void> | undefined, stderrDrain: Promise<string> | undefined;
   try {
-    await journal.begin("sail", { ...codeMetadata, workspaceReadOnly: true }, error => { current = false; stopped = error.message; worker?.kill("SIGKILL"); });
-    await journal.begin("other", { ...codeMetadata, workspaceReadOnly: true }, () => {});
+    await journal.begin("sail", { ...codeMetadata, workspaceReadOnly: true, workspacesWritable: false }, error => { current = false; stopped = error.message; worker?.kill("SIGKILL"); });
+    await journal.begin("other", { ...codeMetadata, workspaceReadOnly: true, workspacesWritable: false }, () => {});
     await journal.attachWorktree("sail", tree.id);
     // The real credential-free worker mutates only this fixture checkout.
     // Its pipe remains open so it can attempt another write unless stop kills it.
@@ -520,4 +520,134 @@ test("large endpoint capture and previous-pack reads yield to the event loop wit
     expect(preview).toMatchObject({ inline: true, diff: expect.stringContaining("Binary files") });
     expect(synchronousPackIO, "PREVIOUS_PACK_ENCODING_READS_ASYNCHRONOUSLY").toBe(0);
   } finally { clearInterval(timer); writeSpy.mockRestore(); syncSpy.mockRestore(); readSpy.mockRestore(); await f.close(); }
+});
+
+
+test("previous packs cross the worker UID boundary over stdin with worker-owned private storage", async () => {
+  const f = inBrainCodeJournal(), original = workerSdk.runMaintenanceWorker;
+  let probes = 0;
+  const spy = spyOn(workerSdk, "runMaintenanceWorker").mockImplementation(async input => {
+    if (input.command[4] !== CODE_CHANGE_PROGRAM) return original(input);
+    expect(input.readPaths?.some(path => path.startsWith(join(f.root, "objects"))), "JOURNAL_STORE_IS_NEVER_A_WORKER_READ_BIND").toBe(false);
+    const command = [...input.command];
+    command[4] = command[4]!.replace("previous_pack.seek(0)", 'assert os.fstat(previous_pack.fileno()).st_uid == os.geteuid(), "PACK_COPY_OWNER_IS_WORKER"\n            assert stat.S_IMODE(os.fstat(previous_pack.fileno()).st_mode) == 0o600, "PACK_COPY_IS_PRIVATE"\n            os.write(2, b"WORKER_OWNS_PIPE_PACK\\n")\n            previous_pack.seek(0)');
+    const result = await original({ ...input, command });
+    if (result.stderr.includes("WORKER_OWNS_PIPE_PACK")) probes++;
+    return result;
+  });
+  try {
+    await f.journal.begin("sail", codeMetadata, () => {});
+    const pack = f.db.query("SELECT pack_hash FROM turn_journal_code_receipts WHERE turn_id='sail'").get() as { pack_hash: string };
+    const stored = fs.statSync(join(f.root, "objects", pack.pack_hash));
+    expect(stored.mode & 0o777).toBe(0o600); expect(fs.statSync(join(f.root, "objects")).mode & 0o777).toBe(0o700);
+    writeFileSync(join(f.checkout, "chart.md"), "Scheria\n"); await f.journal.finish("sail");
+    expect(f.journal.details("ithaca", "sail")!.codeChanges![0]!.state, "PIPE_PACK_SUPPORTS_FINAL_CAPTURE").toBe("complete");
+    await f.journal.begin("return", codeMetadata, () => {}); await f.journal.finish("return");
+    expect(f.journal.summary("return").state, "PIPE_PACK_SUPPORTS_LATER_ADMISSION").toBe("complete");
+    expect(probes, "WORKER_VERIFIES_PRIVATE_COPY_OWNER_AND_MODE").toBe(3);
+    const retained = f.db.query("SELECT pack_hash FROM turn_journal_code_receipts WHERE turn_id='return'").get() as { pack_hash: string };
+    expect(fs.statSync(join(f.root, "objects", retained.pack_hash)).mode & 0o777).toBe(0o600);
+  } finally { spy.mockRestore(); await f.close(); }
+});
+
+for (const shape of ["symlink", "mount point"] as const) test(`an unqualified ${shape} workspaces area never invokes Git or blocks a note turn`, async () => {
+  const f = inBrainCodeJournal(), originalRead = fs.readFileSync;
+  let mount: ReturnType<typeof workerSdk.resolveWorkspacesMount>;
+  if (shape === "symlink") {
+    renameSync(join(f.brain, "workspaces"), join(f.brain, "moored")); symlinkSync("moored", join(f.brain, "workspaces"));
+    mount = workerSdk.resolveWorkspacesMount(f.brain, undefined, false);
+  } else {
+    const point = join(f.checkout, "mounted"); mkdirSync(point);
+    const read = spyOn(fs, "readFileSync").mockImplementation(((...args: Parameters<typeof fs.readFileSync>) => args[0] === "/proc/self/mountinfo" ? `20 1 0:20 / ${point} rw - tmpfs tmpfs rw\n` : (originalRead as any)(...args)) as typeof fs.readFileSync);
+    try { mount = workerSdk.resolveWorkspacesMount(f.brain, undefined, true); } finally { read.mockRestore(); }
+  }
+  expect(mount.writable).toBe(false);
+  const maintenance = workerSdk.runMaintenanceWorker;
+  const spy = spyOn(workerSdk, "runMaintenanceWorker").mockImplementation(maintenance);
+  try {
+    const error = await f.journal.begin("notes", { ...codeMetadata, workspacesWritable: mount.writable }, () => {}).then(() => undefined, error => error);
+    expect(error, "UNQUALIFIED_WORKSPACES_DO_NOT_REFUSE_NOTE_ADMISSION").toBeUndefined();
+    writeFileSync(join(f.brain, "note.md"), "Return to Ithaca\n"); await f.journal.finish("notes");
+    expect(f.journal.summary("notes").state).toBe("complete");
+    expect(spy, "UNQUALIFIED_WORKSPACES_NEVER_RUN_GIT").not.toHaveBeenCalled();
+    expect(f.journal.details("ithaca", "notes")!.changes.map(item => item.path)).toContain("note.md");
+  } finally { spy.mockRestore(); await f.close(); }
+});
+
+test("checkout live scope charges each touched or ignored path its largest after-size once", async () => {
+  const f = inBrainCodeJournal(), facts: number[] = [];
+  const checkpoint = f.native.manager.checkpoint.bind(f.native.manager), delta = f.native.manager.delta.bind(f.native.manager);
+  const roots = new Map<string, Awaited<ReturnType<typeof checkpoint>>>(); let touching = false;
+  f.native.manager.checkpoint = async (...args) => { const root = await checkpoint(...args); roots.set(root.id, root); return root; };
+  f.native.manager.delta = async (from, to, signal) => {
+    if (!touching) return delta(from, to, signal);
+    const before = roots.get(from)!, after = roots.get(to)!, entries = inventory(after.path);
+    // The copied fixture normally omits pure timestamp deltas. Force its send
+    // record here while the real checkpoint file retains its unchanged bytes.
+    entries.get("workspaces/argo/chart.md")!.identity += ":touched";
+    return fixtureDelta({ ...before, entries: inventory(before.path) }, { ...after, entries }, to);
+  };
+  try {
+    await f.journal.begin("sail", codeMetadata, () => {});
+    f.journal.onObservation((id, value) => { if (id === "sail") facts.push(value.observedBytes); });
+    const chart = join(f.checkout, "chart.md");
+    touching = true;
+    fs.utimesSync(chart, 1000, 1000); await f.journal.observe();
+    fs.utimesSync(chart, 2000, 2000); await f.journal.observe(); touching = false;
+    mkdirSync(join(f.checkout, "build")); const output = join(f.checkout, "build", "raft.bin");
+    writeFileSync(output, "cargo"); await f.journal.observe();
+    writeFileSync(output, "rafts"); await f.journal.observe();
+    writeFileSync(output, "rowing"); await f.journal.observe();
+    writeFileSync(output, "raft"); await f.journal.observe();
+    expect(facts, "CHECKOUT_METADATA_CHARGES_LARGEST_SIZE_ONCE_PER_PATH").toEqual([7, 7, 12, 12, 13, 13]);
+    expect(f.journal.details("ithaca", "sail")!.changes).toEqual([]);
+    await f.journal.finish("sail");
+  } finally { await f.close(); }
+});
+
+test("a near-ceiling checkout pauses at 16 MiB independently of the default turn byte cap", async () => {
+  const f = inBrainCodeJournal(), events: string[] = [], exited = Promise.withResolvers<number>();
+  const scope = createTurnScope(f.db, { brainPath: f.brain, journal: f.journal, connected: () => true, changed: () => {}, space: () => ({ total: 1e12, free: 1e12 }) });
+  writeFileSync(join(f.checkout, "cargo.bin"), Buffer.alloc(15 * 1024 * 1024, 65));
+  try {
+    await f.journal.begin("sail", codeMetadata, () => {});
+    await scope.begin("sail", { sessionId: "ithaca", principalId: "athena", origin: "interactive", profile: "governed", policy: resolveGovernancePolicy({ schema_version: 1 }), source: "policy", hardTimeoutMs: 3600_000, current: () => true, stop: () => {} });
+    scope.workerStarted("sail", { exited: exited.promise, freeze: () => { events.push("freeze"); }, resume: () => { events.push("resume"); }, kill: () => { events.push("kill"); } } as Parameters<typeof scope.workerStarted>[1]);
+    writeFileSync(join(f.checkout, "raft.bin"), Buffer.alloc(2 * 1024 * 1024, 66));
+    await f.journal.observe();
+    expect(scope.isPaused("sail"), "CHECKOUT_CEILING_PAUSES_BEFORE_FINAL_CAPTURE").toBe(true);
+    const summary = f.journal.summary("sail").scope!, receipt = summary.receipts[0]!;
+    expect(summary.limits.turn_bytes).toBe(4 * 1024 ** 3);
+    expect(summary.observedBytes).toBe(2 * 1024 * 1024);
+    expect(receipt).toMatchObject({ dimension: "turn_bytes", cap: 16 * 1024 * 1024, count: 17 * 1024 * 1024 + 19, state: "paused" });
+    expect(receipt.newCap, "FIXED_CHECKOUT_CEILING_CANNOT_BE_EXTENDED").toBeUndefined();
+    expect(events).not.toContain("resume");
+    expect((await scope.decide({ type: "scope_decision", turnId: "sail", sessionId: "ithaca", eventId: receipt.eventId, submissionId: "athena-continue", action: "continue" }, true)).state).toBe("refused");
+    expect(f.journal.details("ithaca", "sail")!.codeChanges![0]!.state, "CEILING_PAUSE_PRECEDES_FINAL_CAPTURE").toBe("recording");
+  } finally { exited.resolve(0); await scope.finish("sail"); scope.close(); await f.close(); }
+});
+
+
+test("failed checkout checkpoint releases remain visible and make final close fail", async () => {
+  const f = inBrainCodeJournal(), release = f.native.manager.release.bind(f.native.manager), checkpoint = f.native.manager.checkpoint.bind(f.native.manager);
+  const worker = workerSdk.runMaintenanceWorker, failed = new Set<string>(); let latest = "", closed = false;
+  f.native.manager.checkpoint = async (...args) => { latest = args[0]; return checkpoint(...args); };
+  f.native.manager.release = async (...args) => { if (failed.has(args[0])) throw Error("Checkout release refused"); return release(...args); };
+  const spy = spyOn(workerSdk, "runMaintenanceWorker").mockImplementation(async input => {
+    const result = await worker(input);
+    if (input.command[4] === CODE_CHANGE_PROGRAM) failed.add(latest);
+    return result;
+  });
+  try {
+    await f.journal.begin("sail", codeMetadata, () => {}); await f.journal.idle(); await f.journal.releasesSettled();
+    expect(failed.size).toBe(1);
+    expect(f.journal.cleanupStatus().retained, "FAILED_CODE_RELEASE_IS_VISIBLE_IN_CLEANUP_TOTALS").toMatchObject({ failed: 1 });
+    expect(f.journal.cleanupStatus().lastFailure).toMatchObject({ checkpointId: [...failed][0], cause: expect.stringContaining("Checkout release refused"), retrying: true });
+    closed = true;
+    await expectRejection(f.journal.close(), "Journal checkpoint cleanup remains incomplete", "FAILED_FINAL_CODE_RELEASE_MAKES_CLOSE_FAIL");
+  } finally {
+    spy.mockRestore(); f.native.manager.release = release; f.native.manager.checkpoint = checkpoint;
+    if (!closed) await f.journal.close();
+    f.maintenance.cleanup(); await f.native.close(); f.db.close(); rmSync(f.root, { recursive: true, force: true });
+  }
 });

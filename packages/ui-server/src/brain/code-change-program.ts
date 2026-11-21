@@ -3,7 +3,7 @@ export const CODE_CHANGE_PROGRAM = String.raw`
 import base64, hashlib, json, os, re, stat, subprocess, sys, tempfile, zlib
 root, maximum = sys.argv[1], int(sys.argv[2])
 if root.startswith("@output/"): root = os.path.join(os.environ["BRAIN_ROOT"], root[8:])
-request = json.load(sys.stdin)
+request = json.loads(sys.stdin.buffer.readline())
 env = {"PATH": "/usr/bin:/bin", "HOME": "/nonexistent", "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null", "GIT_TERMINAL_PROMPT": "0", "GIT_NO_REPLACE_OBJECTS": "1", "GIT_ATTR_NOSYSTEM": "1"}
 def fail(reason):
     raise RuntimeError(reason)
@@ -51,15 +51,16 @@ with tempfile.TemporaryDirectory(prefix="code-receipt-") as scratch:
     # returned non-thin pack includes every reachable endpoint object.
     env["GIT_ALTERNATE_OBJECT_DIRECTORIES"] = os.path.join(source, "objects")
     def git(*values, data=None): return command(args + list(values), data)
-    if request.get("pack_path"):
-        fd = os.open(request["pack_path"], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-        with os.fdopen(fd, "rb") as previous_pack:
-            if not stat.S_ISREG(os.fstat(fd).st_mode): fail("Invalid previous endpoint pack")
+    if request.get("pack_stream"):
+        # The worker owns this private temporary copy. Only stdin crosses the
+        # UID boundary; the journal's 0600 objects are never worker mounts.
+        with tempfile.TemporaryFile() as previous_pack:
             digest = hashlib.sha256()
-            while chunk := previous_pack.read(64 * 1024): digest.update(chunk)
+            while chunk := sys.stdin.buffer.read(64 * 1024):
+                previous_pack.write(chunk); digest.update(chunk)
             if digest.hexdigest() != request["pack_hash"]: fail("Previous endpoint pack checksum changed")
             previous_pack.seek(0)
-            result = subprocess.run(["/usr/bin/git", "--git-dir=" + repository, "unpack-objects", "-q"], stdin=previous_pack, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+            result = subprocess.run(["/usr/bin/git", "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "--git-dir=" + repository, "unpack-objects", "-q"], stdin=previous_pack, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
             if result.returncode: fail("Previous endpoint unpack refused")
     elif request.get("pack"):
         git("unpack-objects", "-q", data=base64.b64decode(request["pack"], validate=True))
@@ -87,7 +88,7 @@ with tempfile.TemporaryDirectory(prefix="code-receipt-") as scratch:
     attributes = git("check-attr", "-z", "--stdin", "filter", "working-tree-encoding", data=b"\0".join(sorted(candidates)) + b"\0").split(b"\0")
     for i in range(2, len(attributes) - 1, 3):
         if attributes[i] not in [b"unspecified", b"unset"]: fail("Filter and encoding receipts are unsupported")
-    entries, total = [], 0
+    entries, total, inventory = [], 0, []
     for raw in sorted(candidates):
         path = raw.decode("utf8", "strict")
         parts = path.split("/")
@@ -124,6 +125,7 @@ with tempfile.TemporaryDirectory(prefix="code-receipt-") as scratch:
             finally: os.close(fd)
             mode = "100755" if info.st_mode & 0o111 else "100644"
         else: fail("Unsupported checkout entry")
+        inventory.append({"path": path, "bytes": len(data)})
         total += len(data)
         if total > maximum: fail("Checkout receipt exceeds byte bound")
         # Git's loose-object encoding avoids one process per tracked file. The
@@ -156,9 +158,9 @@ with tempfile.TemporaryDirectory(prefix="code-receipt-") as scratch:
             if endpoint != b"0" * len(commit): changed_bytes += int(git("cat-file", "-s", endpoint.decode()))
     pack = git("pack-objects", "--stdout", "--revs", data=(tree_before + "\n" + tree_after + "\n").encode())
     if len(pack) > maximum * 2 + 1024 * 1024: fail("Endpoint evidence exceeds byte bound")
-    receipt = {"head_before": request.get("head_before", {"commit": commit, "ref": ref}), "head_after": {"commit": commit, "ref": ref}, "tree_before": tree_before, "tree_after": tree_after, "paths": paths, "bytes": changed_bytes, "untracked": sum(1 for p in paths if p["untracked"]), "ignore_changed": any(p["path"].split("/")[-1] == ".gitignore" for p in paths), "pack": base64.b64encode(pack).decode()}
+    receipt = {"head_before": request.get("head_before", {"commit": commit, "ref": ref}), "head_after": {"commit": commit, "ref": ref}, "tree_before": tree_before, "tree_after": tree_after, "paths": paths, "bytes": changed_bytes, "untracked": sum(1 for p in paths if p["untracked"]), "ignore_changed": any(p["path"].split("/")[-1] == ".gitignore" for p in paths), "pack": base64.b64encode(pack).decode(), "inventory": inventory}
     if request.get("operation") == "revert":
-        receipt.pop("pack")
+        receipt.pop("pack"); receipt.pop("inventory")
         if tree_after != oid(request["expected_tree"]):
             current_diff = git("diff", "--no-ext-diff", "--no-textconv", "--no-renames", tree_before, tree_after, "--")
             try: current_preview = {"inline": True, "diff": current_diff.decode("utf8", "strict")} if len(current_diff) <= 256 * 1024 else {"inline": False, "reason": "size"}

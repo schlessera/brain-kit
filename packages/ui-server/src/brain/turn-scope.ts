@@ -10,6 +10,7 @@ import type { GovernanceEventInput } from "../governance/events.js";
 import { createGovernanceWrites, type GovernanceWrites } from "../governance/event-writes.js";
 import { procedureCaller, type SqliteWriter } from "../db/write-worker.js";
 import { setup, url } from "./turn-scope-writes.js";
+import { CODE_CHECKOUT_BYTES } from "./code-change-worker.js";
 import type { TurnJournal } from "./turn-journal.js";
 
 type Worker = Parameters<NonNullable<StartTurnRequest["workerStarted"]>>[0];
@@ -17,7 +18,7 @@ type Live = { unrecorded?: boolean; sessionId: string | null; principalId: strin
   startedAt: number; summary: TurnScopeSummary;
   /** What `files_changed` counts: changed paths outside `workspaces/` (#3793); null while unknown. */
   filesChanged: number | null; workers: Set<Worker>; calls: Set<string>; disconnectedAt?: number;
-  checking?: boolean; liveIndexWritable: boolean; source: "policy" | "default"; stop: (reason: string) => void; current: () => boolean; model?: () => string | null };
+  checkoutBytes?: number; checkoutReceipt?: ScopeCapReceipt; checking?: boolean; liveIndexWritable: boolean; source: "policy" | "default"; stop: (reason: string) => void; current: () => boolean; model?: () => string | null };
 export const SCOPE_DISCONNECTED_MS = 30 * 60_000;
 /** Matches the former default byte scope without charging generated versions. */
 export const INDEX_OBSERVATION_CAP_BYTES = 4 * 1024 ** 3;
@@ -77,6 +78,12 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
   }
   function refreshHeadroom(turn: Live, receipt: ScopeCapReceipt) {
     if (receipt.dimension === "free_space_floor") return;
+    if (receipt === turn.checkoutReceipt) {
+      receipt.count = turn.checkoutBytes ?? receipt.count; receipt.overshoot = Math.max(0, receipt.count - receipt.cap); receipt.observedAt = now();
+      delete receipt.newCap;
+      receipt.reason = "Checkout content has a fixed 16 MiB ceiling. Stop only; repair or reduce the checkout before starting another code turn.";
+      return;
+    }
     const dimension = receipt.dimension;
     const index = receipt.result === "index_capacity";
     const observed = index ? turn.summary.indexBytes ?? null : dimension === "tool_calls" ? turn.summary.calls : dimension === "minutes" ? turn.summary.minutes
@@ -101,6 +108,21 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
   function check(turnId: string, turn: Live) {
     if (!turn.current()) return;
     turn.summary.minutes = Math.max(0, (now() - turn.startedAt) / 60_000);
+    if ((turn.checkoutBytes ?? 0) > CODE_CHECKOUT_BYTES) {
+      if (!turn.checkoutReceipt) {
+        let frozen = false;
+        try { for (const worker of turn.workers) worker.freeze(); frozen = turn.workers.size > 0; }
+        catch { for (const worker of turn.workers) worker.kill("SIGKILL"); }
+        const receipt: ScopeCapReceipt = { eventId: randomUUID(), dimension: "turn_bytes", count: turn.checkoutBytes!, cap: CODE_CHECKOUT_BYTES,
+          overshoot: turn.checkoutBytes! - CODE_CHECKOUT_BYTES, frozen, observedAt: now(), state: "paused" };
+        turn.checkoutReceipt = receipt; refreshHeadroom(turn, receipt); turn.summary.receipts.push(receipt);
+        scopeEvent(turnId, { kind: "scope_cap", turnId, sessionId: turn.sessionId, actor: turn.origin, model: turn.model?.() ?? null, profile: turn.profile,
+          dedupeKey: receipt.eventId, payload: { cap: "turn_bytes", limit: receipt.cap, observed: receipt.count, overshoot: receipt.overshoot, frozen,
+            outcome: turn.origin === "voice" ? "voice_stopped" : frozen ? "paused" : "stopped", source: "default" } });
+        if (turn.origin === "voice" || !frozen) stop(turnId, turn, receipt, turn.origin === "voice" ? "voice_stopped" : "stopped", receipt.reason!);
+      }
+      refreshHeadroom(turn, turn.checkoutReceipt!); save(turnId, turn); return;
+    }
     const fs = space(), floor = Math.max(fs.total * .05, SCOPE_FREE_BYTES);
     const pending = turn.summary.receipts.findLast(receipt => receipt.state === "paused");
     if (pending) {
@@ -229,6 +251,7 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
     turn.summary.changedPaths = facts.partial ? null : facts.changedPaths;
     turn.filesChanged = facts.partial ? null : facts.changedPaths - facts.workspacePaths;
     turn.summary.observedBytes = facts.partial ? null : facts.observedBytes;
+    turn.checkoutBytes = facts.checkoutBytes;
     if (turn.liveIndexWritable && facts.indexBytes !== undefined) turn.summary.indexBytes = facts.indexBytes;
     turn.summary.coverage = facts.partial ? "partial" : "observed_versions";
     turn.summary.observedAt = now(); check(turnId, turn);

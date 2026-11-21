@@ -224,13 +224,13 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     for (const id of ids) tracked(Promise.resolve(cleanupActivity.appendEvent(`${id}:turn`, "checkpoint_release_retry", notice))).catch(() => {});
   };
   const capture = createNativeJournalCapture(options.nativeManager, retainVersion, {}, readIdentity, undefined, releaseFailed);
-  type Checkout = { turnId: string; checkout: string; manager: NativeJournalManager; relative: string; receipt: CodeChangeReceipt; hash: string };
+  type Checkout = { turnId: string; checkout: string; manager: NativeJournalManager; relative: string; receipt: CodeChangeReceipt; hash: string; files: Map<string, number>; bytes: number };
   const checkouts = new Map<string, Checkout>();
-  const pendingCodeCheckpoints = new Map<string, NativeJournalManager>();
+  const pendingCodeCheckpoints = new Map<string, { manager: NativeJournalManager; state: "pending" | "failed" }>();
   async function releaseCodeCheckpoint(id: string, manager: NativeJournalManager): Promise<void> {
-    pendingCodeCheckpoints.set(id, manager);
+    pendingCodeCheckpoints.set(id, { manager, state: "pending" });
     try { await manager.release(id); pendingCodeCheckpoints.delete(id); }
-    catch (error) { releaseFailed(error, id); retryWorktreesLater(); }
+    catch (error) { pendingCodeCheckpoints.set(id, { manager, state: "failed" }); releaseFailed(error, id); retryWorktreesLater(); }
   }
   async function withCodeMaintenance<T>(operation: (host: MaintenanceHost) => Promise<T>, signal?: AbortSignal): Promise<T> {
     const configured = options.codeChanges!;
@@ -268,7 +268,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       return await retain(() => objects.putFileAsync(temporary.file.fd, bytes, signal, [turnId]));
     } finally { await temporary.file.close(); await temporary.release(); }
   }
-  const codeScopeFacts = new Map<string, { paths: Set<string>; bytes: number }>();
+  const codeScopeFacts = new Map<string, { paths: Set<string>; sizes: Map<string, number> }>();
   async function captureCheckout(turnId: string, checkout: string, manager: NativeJournalManager, relative: string, signal?: AbortSignal, final = false): Promise<void> {
     const key = checkoutKey(turnId, checkout), held = checkouts.get(key);
     const previous = held ?? (db.query(`SELECT c.receipt,c.pack_hash FROM turn_journal_code_receipts c JOIN turn_journal_turns t USING(turn_id)
@@ -277,15 +277,18 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     const previousHash = previous ? "hash" in previous ? previous.hash : previous.pack_hash : undefined;
     const checkpointId = randomUUID();
     const maximum = relative ? CODE_CHECKOUT_BYTES : (db.query("SELECT allowance FROM reference_worktrees WHERE id=?").get(checkout.split("/")[2]!) as { allowance: number } | null)?.allowance ?? CODE_CHECKOUT_BYTES;
-    let packLease: string | undefined;
+    let packLease: string | undefined, previousBody: ReadableStream<Uint8Array> | undefined;
     try {
       const checkpoint = await manager.checkpoint(checkpointId, signal);
       const directory = await checkedCodeDirectory(checkpoint.path, relative);
-      if (previousHash) packLease = await call<string>("openRead", previousHash);
+      if (previousHash) {
+        packLease = await call<string>("openRead", previousHash);
+        previousBody = objects.stream(previousHash, () => {}).body;
+      }
       const result = await withCodeMaintenance(host => captureCodeChanges(options.brainPath, directory,
-        earlier && previousHash ? { tree_before: held ? earlier.tree_before : earlier.tree_after, head_before: held ? earlier.head_before : undefined, pack_path: join(options.objectsRoot, previousHash), pack_hash: previousHash } : undefined,
+        earlier && previousHash ? { tree_before: held ? earlier.tree_before : earlier.tree_after, head_before: held ? earlier.head_before : undefined, pack: previousBody!, pack_hash: previousHash } : undefined,
         host, signal, maximum), signal);
-      const { pack, ...facts } = result;
+      const { pack, inventory, ...facts } = result;
       const receipt: CodeChangeReceipt = { ...facts, checkout, state: final ? "complete" : "recording" };
       const hash = await retainPack(pack, turnId, signal);
       // FULL commit pins the self-contained endpoint pack before coverage can
@@ -297,7 +300,8 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         statement("DELETE FROM turn_journal_code_failures WHERE turn_id=? AND checkout=?", turnId, checkout),
         ...(relative ? [statement("DELETE FROM turn_journal_changes WHERE turn_id=? AND (path=? OR substr(path,1,?)=?)", turnId, relative, relative.length + 1, relative + "/")] : []),
       ]));
-      checkouts.set(key, { turnId, checkout, manager, relative, receipt, hash });
+      const files = new Map(inventory.map(item => [relative ? `${relative}/${item.path}` : item.path, item.bytes]));
+      checkouts.set(key, { turnId, checkout, manager, relative, receipt, hash, files, bytes: inventory.reduce((sum, item) => sum + item.bytes, 0) });
       publish(turnId);
     } catch (error) {
       const cause = { checkout, at: now(), callSite: "captureCheckout", errorClass: error instanceof Error ? error.name : "UnknownError", message: String(error).slice(0, 2000) };
@@ -307,7 +311,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         statement("UPDATE turn_journal_code_receipts SET receipt=json_set(receipt,'$.state','partial') WHERE turn_id=? AND checkout=?", turnId, checkout),
       ]); } catch { /* The preallocated turn failure slot remains authoritative. */ }
       throw error;
-    } finally { if (packLease) await releaseRead(packLease); await releaseCodeCheckpoint(checkpointId, manager); }
+    } finally { await previousBody?.cancel().catch(() => {}); if (packLease) await releaseRead(packLease); await releaseCodeCheckpoint(checkpointId, manager); }
   }
   async function attachBrainCheckouts(turnId: string, signal?: AbortSignal): Promise<void> {
     const id = randomUUID();
@@ -348,7 +352,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
           if (closing) break;
           await retireWorktree(root);
         }
-        for (const [id, manager] of [...pendingCodeCheckpoints]) {
+        for (const [id, { manager }] of [...pendingCodeCheckpoints]) {
           if (closing) break;
           await releaseCodeCheckpoint(id, manager);
         }
@@ -387,7 +391,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     }
   }
   const periodicObservers = new Set<{ before(): void; after(completed: boolean): void }>();
-  const observers = new Set<(turnId: string, facts: { changedPaths: number; observedBytes: number; workspacePaths: number; indexBytes?: number | null; partial: boolean }) => void>();
+  const observers = new Set<(turnId: string, facts: { changedPaths: number; observedBytes: number; workspacePaths: number; checkoutBytes?: number; indexBytes?: number | null; partial: boolean }) => void>();
   const pendingReadReleases = new Set<string>();
   const failures = new Map<string, string>();
   const failedAdmissions = new Set<string>();
@@ -615,23 +619,31 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         publish(turnId);
         step?.(); step = timing?.("observe_facts");
         const facts = { ...advanceCounters(turnId).facts };
-        const code = codeScopeFacts.get(turnId) ?? { paths: new Set<string>(), bytes: 0 };
+        const code = codeScopeFacts.get(turnId) ?? { paths: new Set<string>(), sizes: new Map<string, number>() };
         const covered = [...checkouts.values()].filter(root => root.turnId === turnId && root.relative);
         for (const change of observation.metadataChanges) {
-          if (!covered.some(root => isWithin(root.relative, change.path)) || change.path.split("/").includes(".git")) continue;
+          const root = covered.find(root => isWithin(root.relative, change.path));
+          if (!root || change.path.split("/").includes(".git")) continue;
+          const before = root.files.get(change.path) ?? 0;
+          const present = change.after && ["file", "symlink"].includes(change.after.kind) && (root.files.has(change.path) || !turn.policy.ignored(change.path));
+          const after = present ? change.after!.bytes : 0;
+          root.bytes += after - before;
+          // Keep admitted names at zero after deletion: tracked ignored files
+          // remain part of the checkout ceiling when recreated later.
+          if (present || root.files.has(change.path)) root.files.set(change.path, after);
           if (change.before?.kind === "directory" && change.after?.kind === "directory") continue;
           if (change.before?.stamp === change.after?.stamp && change.before?.kind === change.after?.kind) continue;
           code.paths.add(change.path);
-          if (change.after?.kind === "file") code.bytes += change.after.bytes;
+          if (change.after?.kind === "file") code.sizes.set(change.path, Math.max(code.sizes.get(change.path) ?? 0, change.after.bytes));
         }
         codeScopeFacts.set(turnId, code);
-        facts.observedBytes += code.bytes;
+        facts.observedBytes += [...code.sizes.values()].reduce((sum, bytes) => sum + bytes, 0);
         const paths = new Set(code.paths);
         const codeFacts = db.query("SELECT checkout,json_extract(receipt,'$.paths') AS paths FROM turn_journal_code_receipts WHERE turn_id=?").all(turnId) as { checkout: string; paths: string }[];
         for (const receipt of codeFacts) for (const item of JSON.parse(receipt.paths) as { path: string }[]) paths.add(`${receipt.checkout.replace(/\/$/, "")}/${item.path}`);
         facts.changedPaths += paths.size;
         facts.workspacePaths += [...paths].filter(path => isWithin(BRAIN_WORKSPACES_DIR, path)).length;
-        for (const observer of observers) observer(turnId, { ...facts, workspacePaths: turn.ordinaryWorkspaces ? 0 : facts.workspacePaths, indexBytes: observation.indexBytes, partial: summary(turnId).state === "partial" });
+        for (const observer of observers) observer(turnId, { ...facts, workspacePaths: turn.ordinaryWorkspaces ? 0 : facts.workspacePaths, checkoutBytes: Math.max(0, ...covered.map(root => root.bytes)), indexBytes: observation.indexBytes, partial: summary(turnId).state === "partial" });
         step?.();
       }
       const committed = timing?.("observe_commit");
@@ -654,11 +666,11 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
      * exempted as an admitted workspace (#3793). Content created beneath an
      * absent optional area is ordinary content, so it receives no exemption.
      */
-    onObservation(observer: (turnId: string, facts: { changedPaths: number; observedBytes: number; workspacePaths: number; indexBytes?: number | null; partial: boolean }) => void, periodic?: { before(): void; after(completed: boolean): void }) {
+    onObservation(observer: (turnId: string, facts: { changedPaths: number; observedBytes: number; workspacePaths: number; checkoutBytes?: number; indexBytes?: number | null; partial: boolean }) => void, periodic?: { before(): void; after(completed: boolean): void }) {
       observers.add(observer); if (periodic) periodicObservers.add(periodic);
       return () => { if (periodic) periodicObservers.delete(periodic); return observers.delete(observer); };
     },
-    begin(turnId: string, metadata: { sessionId: string | null; actor: "interactive" | "voice" | "user"; model: string | null; profile: "strict" | "governed"; policyHash: string | null; coveredPaths?: readonly string[]; workspaceReadOnly?: boolean; workspaceMissing?: boolean }, stop: (error: Error) => void, signal?: AbortSignal,
+    begin(turnId: string, metadata: { sessionId: string | null; actor: "interactive" | "voice" | "user"; model: string | null; profile: "strict" | "governed"; policyHash: string | null; coveredPaths?: readonly string[]; workspaceReadOnly?: boolean; workspacesWritable?: boolean; workspaceMissing?: boolean }, stop: (error: Error) => void, signal?: AbortSignal,
       /** Each step of the admission (#3355); a failed step is left unended. */ timing?: PhaseTimer) {
       return held(async steps => {
       signal?.throwIfAborted();
@@ -683,7 +695,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       end?.();
       signal?.throwIfAborted();
       active.set(turnId, { policy, stop, sequence: 0, sessionId: metadata.sessionId, ordinaryWorkspaces: metadata.workspaceMissing === true });
-      if (options.codeChanges && metadata.workspaceReadOnly === false && !metadata.workspaceMissing && metadata.actor !== "user") await attachBrainCheckouts(turnId, signal);
+      if (options.codeChanges && metadata.workspacesWritable === true && !metadata.workspaceMissing && metadata.actor !== "user") await attachBrainCheckouts(turnId, signal);
       publish(turnId);
       if (!scopeTimer) {
         scopeTimer = setInterval(() => {
@@ -803,6 +815,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         const other = root.releases();
         retained.pending += other.pending; retained.failed += other.failed; retained.retainedBytes += other.retainedBytes;
       }
+      for (const checkpoint of pendingCodeCheckpoints.values()) retained[checkpoint.state === "failed" ? "failed" : "pending"]++;
       return { retained, lastFailure: getSetting<unknown>(db, "journal.cleanup.lastFailure", null) };
     },
     /** @internal Settles once every previous checkpoint handed to release so far has been attempted (#2872). */
@@ -1088,7 +1101,16 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       closing = true; clearInterval(idleTimer); shutdown.abort(new Error("turn journal closed"));
       clearTimeout(worktreeRetryTimer); worktreeRetryTimer = undefined;
       clearInterval(scopeTimer);
-      try { await tail; await worktreeRetry; await Promise.allSettled([...unserialized]); await dropWorktrees(); for (const [id, manager] of [...pendingCodeCheckpoints]) await releaseCodeCheckpoint(id, manager); await capture.close(); }
+      try {
+        await tail; await worktreeRetry; await Promise.allSettled([...unserialized]); await dropWorktrees();
+        const failures: unknown[] = [];
+        for (const [id, { manager }] of [...pendingCodeCheckpoints]) {
+          try { await manager.release(id); pendingCodeCheckpoints.delete(id); }
+          catch (error) { releaseFailed(error, id); failures.push(error); }
+        }
+        try { await capture.close(); } catch (error) { failures.push(error); }
+        if (failures.length) throw new AggregateError(failures, "Journal checkpoint cleanup remains incomplete");
+      }
       finally { await Promise.allSettled([...unserialized]); objects.close(); await ledger.close(); if (ownWriter) await writer.close(); }
     },
   };

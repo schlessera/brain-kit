@@ -20,7 +20,7 @@ test("mounted owner code revert restores files, preserves later work on retry an
     };
     git("init", "-q", "-b", "main"); writeFileSync(join(checkout, "chart.md"), "Ithaca\n"); git("add", "."); git("commit", "-qm", "Set sail");
     const journal = f.app.wsHost.journal!;
-    await journal.begin("sail", { sessionId: "fixture-session", actor: "interactive", profile: "governed", model: null, policyHash: null, workspaceReadOnly: false }, () => {});
+    await journal.begin("sail", { sessionId: "fixture-session", actor: "interactive", profile: "governed", model: null, policyHash: null, workspaceReadOnly: false, workspacesWritable: true }, () => {});
     writeFileSync(join(checkout, "chart.md"), "Scheria\n"); writeFileSync(join(checkout, "raft.md"), "The raft\n"); await journal.finish("sail");
     const base = "/api/sessions/fixture-session/turns/sail/journal/code";
     const post = (id: string) => f.fetch(`${base}/revert`, { method: "POST", headers: { cookie, "content-type": "application/json", host: "localhost", origin: "http://localhost" }, body: JSON.stringify({ id, checkout: "workspaces/argo" }) });

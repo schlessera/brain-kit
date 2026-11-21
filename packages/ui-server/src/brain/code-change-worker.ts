@@ -20,20 +20,26 @@ export async function checkedCodeDirectory(root: string, relative = ""): Promise
   }
   return path;
 }
-type CodeChangeCapture = Omit<CodeChangeReceipt, "checkout" | "state"> & { pack: string };
+type CodeChangeCapture = Omit<CodeChangeReceipt, "checkout" | "state"> & { pack: string; inventory: { path: string; bytes: number }[] };
 
-export async function captureCodeChanges(brainPath: string, checkout: string, previous?: { tree_before: string; pack_path: string; pack_hash: string } & { head_before?: CodeChangeReceipt["head_before"] },
+export async function captureCodeChanges(brainPath: string, checkout: string, previous?: { tree_before: string; pack: AsyncIterable<Uint8Array>; pack_hash: string } & { head_before?: CodeChangeReceipt["head_before"] },
   host: MaintenanceHost = {}, signal?: AbortSignal, maximum: number = CODE_CHECKOUT_BYTES): Promise<CodeChangeCapture> {
   if (!Number.isSafeInteger(maximum) || maximum < 1) throw new Error("Invalid checkout capture allowance");
+  async function* input() {
+    const { pack, ...metadata } = previous ?? {};
+    yield Buffer.from(JSON.stringify({ ...metadata, ...(pack ? { pack_stream: true } : {}) }) + "\n");
+    if (pack) yield* pack;
+  }
   const result = await runMaintenanceWorker({ ...host, brainPath, credentials: false, env: { PATH: "/usr/bin:/bin" },
     command: ["/usr/bin/python3", "-I", "-S", "-c", CODE_CHANGE_PROGRAM, checkout, String(maximum)],
-    readPaths: [checkout, ...(previous ? [previous.pack_path] : [])], stdin: JSON.stringify(previous ?? {}), outputBytes: 64 * 1024 * 1024, tempKind: "git", timeoutMs: 60_000, signal });
+    readPaths: [checkout], stdin: input(), outputBytes: 64 * 1024 * 1024, tempKind: "git", timeoutMs: 60_000, signal });
   if (result.exitCode !== 0 || result.killed) throw new Error(`Git change capture refused: ${result.stderr.trim().slice(-1000) || "maintenance worker failed"}`);
   const receipt = JSON.parse(result.stdout) as CodeChangeCapture;
   const oid = (value: unknown) => typeof value === "string" && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value);
   if (!oid(receipt.tree_before) || !oid(receipt.tree_after) || !oid(receipt.head_before?.commit) || !oid(receipt.head_after?.commit)
     || !Array.isArray(receipt.paths) || receipt.paths.some(item => typeof item.path !== "string" || !["added", "deleted", "modified"].includes(item.kind) || typeof item.untracked !== "boolean")
     || !Number.isSafeInteger(receipt.bytes) || receipt.bytes < 0 || !Number.isSafeInteger(receipt.untracked) || typeof receipt.ignore_changed !== "boolean"
+    || !Array.isArray(receipt.inventory) || receipt.inventory.some(item => typeof item.path !== "string" || !Number.isSafeInteger(item.bytes) || item.bytes < 0)
     || typeof receipt.pack !== "string" || Buffer.byteLength(receipt.pack, "base64") > CODE_EVIDENCE_BYTES || Buffer.from(receipt.pack.slice(0, 8), "base64").subarray(0, 4).toString() !== "PACK") throw new Error("Invalid Git change evidence");
   return receipt;
 }

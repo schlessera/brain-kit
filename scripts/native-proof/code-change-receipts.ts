@@ -23,7 +23,7 @@ for name, data in [("chart.md", "Ithaca\n"), ("lost.md", "Troy\n"), (".gitignore
 git("init", "-q", "-b", "main"); git("add", "."); git("commit", "-qm", "Set sail")
 with open(os.path.join(os.environ["BRAIN_ROOT"], "notes/receipt-odysseus.md"), "w") as file: file.write("Ithaca\n")
 `);
-  await journal.begin(turnId, { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null, workspaceReadOnly: false }, error => { throw error; });
+  await journal.begin(turnId, { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null, workspaceReadOnly: false, workspacesWritable: true }, error => { throw error; });
   expect(journal.details("ithaca", turnId)?.codeChanges?.[0]?.state, "NATIVE_RECEIPT_DURABLE_BEFORE_WRITES").toBe("recording");
   await run(String.raw`
 import os

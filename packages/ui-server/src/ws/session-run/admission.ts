@@ -183,7 +183,7 @@ export async function admitGovernedTurn(run: TurnRun): Promise<GovernedAdmission
     lifecycle?.mark("journalStartedAt");
     await host.journal.begin(turn.turnId, { sessionId: turn.sessionId ?? null,
       actor: origin, model: run.mainModel,
-      profile: heldProfile(run), workspaceMissing: governedHold.sandbox.areas.some(area => area.name === "workspaces" && !area.mount.writable && area.mount.missing), workspaceReadOnly: governedHold.sandbox.areas.some(area => area.name === "workspaces" && !area.mount.writable && Boolean(area.mount.readOnlyPath)), policyHash: governedHold.policy.hash },
+      profile: heldProfile(run), workspacesWritable: codeChanges && governedHold.sandbox.areas.some(area => area.name === "workspaces" && area.mount.writable), workspaceMissing: governedHold.sandbox.areas.some(area => area.name === "workspaces" && !area.mount.writable && area.mount.missing), workspaceReadOnly: governedHold.sandbox.areas.some(area => area.name === "workspaces" && !area.mount.writable && !area.mount.missing), policyHash: governedHold.policy.hash },
     error => {
       // A real timeout/cancel already won; never relabel that terminal.
       if (abortController.signal.aborted || turn.cancelled) return;
