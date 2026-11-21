@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { parseGmailRawDraft, type GmailRawDraft } from "@schlessera/brain-common/internal/google-operations";
+import { parseGmailRawDraft, type GmailRawDraft, type GmailRawDraftProblem } from "@schlessera/brain-common/internal/google-operations";
 
 /** A message from lines joined with CRLF, as Gmail stores it. */
 const message = (...lines: string[]): Uint8Array => new TextEncoder().encode(lines.join("\r\n"));
@@ -324,7 +324,7 @@ describe("parseGmailRawDraft: parameters the parser relies on", () => {
     const draft = await parseGmailRawDraft(message("To: penelope@example.com", contentType, "", text));
     return [draft.body_text, flags(draft)];
   };
-  const EXTENDED = { ...CLEAN, unreadable_body: true, problems: ["extended_parameter"] };
+  const EXTENDED = { ...CLEAN, unreadable_body: true, problems: ["extended_parameter"] as GmailRawDraftProblem[] };
 
   test("an RFC 2231 extended charset is unreadable", async () => {
     expect(await body("Content-Type: text/plain; charset*=utf-8''utf-7", "+AKM-")).toEqual([null, EXTENDED]);
@@ -365,7 +365,7 @@ describe("parseGmailRawDraft: dispositions", () => {
 });
 
 describe("parseGmailRawDraft: controls after decoding", () => {
-  const CONTROL = { ...CLEAN, unreadable_body: true, problems: ["body_control_character"] };
+  const CONTROL = { ...CLEAN, unreadable_body: true, problems: ["body_control_character"] as GmailRawDraftProblem[] };
   const draft = (encoding: string, body: string) =>
     parseGmailRawDraft(latin(`To: penelope@example.com\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: ${encoding}\r\n\r\n${body}`));
   const rows: [name: string, encoding: string, body: string][] = [
