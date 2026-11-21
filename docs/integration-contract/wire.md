@@ -572,15 +572,21 @@ Negotiation resets with each socket. After receiving the host's final
 send exactly one best-effort `{ type: "client_turn_receipt", turnId, timing }` frame.
 Backend idle frames do not carry this marker; the host strips any backend-supplied
 marker and sets it only after teardown and a read confirms the lifecycle terminal commit.
-A rejected terminal write leaves the marker absent without blocking the turn. Initial thinking
-and accepted retry acknowledgements correlate by `requestId` before the new turn
-identity is known. `timing` contains non-negative finite millisecond pairs measured entirely on
+Pending or rejected timing writes leave the marker absent without blocking idle
+or the next queued turn. Timing persistence is never awaited on the idle path;
+if its terminal is not committed yet, only that client measurement is lost.
+Initial thinking, accepted retry acknowledgements, and `session_queue.started`
+correlate by `requestId` before `session_info`. Pending queue entries can establish
+the first acknowledgement without binding a turn identity. `timing` contains non-negative finite millisecond pairs measured entirely on
 the client's monotonic clock:
 
 - `sendToFirstHostFrameMs`: send to the first received host frame for this turn
   (including its queued acknowledgement and lifecycle Activity frames received before
   request-to-turn correlation). Send begins at the composer action, before snapshot
   persistence or upload waits, and stays on that same monotonic clock until dispatch.
+  Capturing Send alone never authorizes a receipt: this client must successfully
+  dispatch that request on its own socket. Pre-dispatch arrivals from another
+  client cannot become its first host frame.
 - Optional `sendToFirstContentFrameMs`: send to the first non-empty
   `thinking_delta` or `text_delta` frame received.
 - Optional `lastContentFrameToIdleMs`: last such content frame received to
@@ -616,10 +622,13 @@ receipt timing remains strict.
 The receipt is separate from the host envelope, keyed by turn id, and joined
 as optional `ActivityTurnLifecycle.clientTiming` on single, list and stream
 reads. Receipt acceptance advances the lifecycle's stream sequence without
-changing its completed host record. Its owner binding and receipt are deleted
+changing its completed host record. Lifecycle snapshots read the joined record
+and its sequence in one read transaction, so a racing receipt delta cannot be
+marked as already included in an older snapshot. Legacy store readers capture a
+conservative sequence floor before reading data; replay is safe. Its owner binding and receipt are deleted
 with the lifecycle record. Older records without an owner binding accept no
-report and remain readable. Stored receipts are bounded by bytes, including bytes
-after any embedded NUL. A malformed stored receipt remains retained, omits its
+report and remain readable. Stored receipts are bounded by the original UTF-8 byte length, including bytes
+after any embedded NUL or beyond the bounded read slice. A malformed stored receipt remains retained, omits its
 pairs and exposes optional `clientTimingUnavailable: "invalid_receipt"` on that
 record; the host envelope and other records remain readable. Client pairs and
 receipt diagnostics never enter provider history, inference usage or cost accounting.

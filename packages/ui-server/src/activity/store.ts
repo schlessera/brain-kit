@@ -295,6 +295,10 @@ export interface ActivityStore {
   lifecycleChangesSince(cursor: number, limit?: number): Array<{ changeId: number; runId: string; seq: number; kind: "lifecycle"; lifecycle: ActivityTurnLifecycle }>;
   lifecycle(turnId: string): ActivityTurnLifecycle | null;
   lifecycles(sessionId?: string, limit?: number): ActivityTurnLifecycle[];
+  /** Joined lifecycle data and its sequence from one read transaction. */
+  snapshotLifecycles?(scope: { turnId?: string; sessionId?: string; limit?: number }): {
+    lifecycles: ActivityTurnLifecycle[]; highWaterSeq: Record<string, number>;
+  };
 
   readonly writer: string;
   startSpan(input: StartSpanInput): SpanRow;
@@ -641,11 +645,11 @@ export function createActivityStore(
   }
 
   const joinClient = (record: ActivityTurnLifecycle): ActivityTurnLifecycle => {
-    const row = db.query("SELECT CAST(substr(CAST(receipt AS BLOB), 1, 4097) AS TEXT) AS receipt FROM activity_turn_clients WHERE turn_id = ?").get(record.turnId) as { receipt: string | null } | null;
+    const row = db.query("SELECT CAST(substr(CAST(receipt AS BLOB), 1, ?) AS TEXT) AS receipt, length(CAST(receipt AS BLOB)) AS receiptBytes FROM activity_turn_clients WHERE turn_id = ?").get(MAX_CLIENT_TURN_RECEIPT_BYTES + 1, record.turnId) as { receipt: string | null; receiptBytes: number | null } | null;
     const { clientTiming: _timing, clientTimingUnavailable: _unavailable, ...hostRecord } = record;
     const host = lifecycleTiming(hostRecord);
     if (!row || row.receipt === null) return host;
-    if (row.receipt.length > MAX_CLIENT_TURN_RECEIPT_BYTES) return { ...host, clientTimingUnavailable: "invalid_receipt" };
+    if (row.receiptBytes === null || row.receiptBytes > MAX_CLIENT_TURN_RECEIPT_BYTES) return { ...host, clientTimingUnavailable: "invalid_receipt" };
     try {
       const timing = clientTurnTimingSchema.safeParse(JSON.parse(row.receipt));
       if (timing.success) return { ...host, clientTiming: timing.data };
@@ -653,8 +657,20 @@ export function createActivityStore(
     return { ...host, clientTimingUnavailable: "invalid_receipt" };
   };
   const lifecycle = (id: string): ActivityTurnLifecycle | null => {
-    const row = db.query("SELECT record FROM activity_turn_lifecycles WHERE turn_id = ?").get(id) as { record: string } | null;
-    return row ? joinClient(JSON.parse(row.record)) : null;
+    const read = () => {
+      const row = db.query("SELECT record FROM activity_turn_lifecycles WHERE turn_id = ?").get(id) as { record: string } | null;
+      return row ? joinClient(JSON.parse(row.record)) : null;
+    };
+    return db.inTransaction ? read() : db.transaction(read)();
+  };
+  const lifecycles = (sessionId?: string, limit = 100): ActivityTurnLifecycle[] => {
+    const read = () => {
+      const rows = sessionId === undefined
+        ? db.query("SELECT record FROM activity_turn_lifecycles ORDER BY accepted_at DESC LIMIT ?").all(limit)
+        : db.query("SELECT record FROM activity_turn_lifecycles WHERE session_id = ? ORDER BY accepted_at DESC LIMIT ?").all(sessionId, limit);
+      return (rows as { record: string }[]).map(row => joinClient(JSON.parse(row.record)));
+    };
+    return db.inTransaction ? read() : db.transaction(read)();
   };
   return {
     writer,
@@ -672,17 +688,21 @@ export function createActivityStore(
       return gap ? null : prior;
     },
     lifecycle,
-    lifecycles(sessionId, limit = 100) {
-      const rows = sessionId === undefined
-        ? db.query("SELECT record FROM activity_turn_lifecycles ORDER BY accepted_at DESC LIMIT ?").all(limit)
-        : db.query("SELECT record FROM activity_turn_lifecycles WHERE session_id = ? ORDER BY accepted_at DESC LIMIT ?").all(sessionId, limit);
-      return (rows as { record: string }[]).map(row => joinClient(JSON.parse(row.record)));
+    lifecycles,
+    snapshotLifecycles(scope) {
+      return db.transaction(() => {
+        const records = scope.turnId ? [lifecycle(scope.turnId)].filter((record): record is ActivityTurnLifecycle => record !== null)
+          : lifecycles(scope.sessionId, scope.limit);
+        return { lifecycles: records, highWaterSeq: Object.fromEntries(records.map(record => [record.lifecycleId, runHighWaterSeqRaw(record.lifecycleId)])) };
+      })();
     },
     lifecycleChangesSince(cursor, limit = 500) {
-      const rows = db.query(`SELECT c.change_id,c.run_id,c.seq,l.record FROM activity_changes c
-        JOIN activity_turn_lifecycles l ON l.turn_id = substr(c.run_id, 11) AND c.span_id = c.run_id
-        WHERE c.change_id > ? ORDER BY c.change_id LIMIT ?`).all(cursor, limit) as any[];
-      return rows.map(r => ({changeId:r.change_id,runId:r.run_id,seq:r.seq,kind:"lifecycle" as const,lifecycle:joinClient(JSON.parse(r.record))}));
+      return db.transaction(() => {
+        const rows = db.query(`SELECT c.change_id,c.run_id,c.seq,l.record FROM activity_changes c
+          JOIN activity_turn_lifecycles l ON l.turn_id = substr(c.run_id, 11) AND c.span_id = c.run_id
+          WHERE c.change_id > ? ORDER BY c.change_id LIMIT ?`).all(cursor, limit) as any[];
+        return rows.map(r => ({changeId:r.change_id,runId:r.run_id,seq:r.seq,kind:"lifecycle" as const,lifecycle:joinClient(JSON.parse(r.record))}));
+      })();
     },
     writeClientReceipt(turnId, principalId, timing) {
       // Strict projection at the storage boundary too: callers cannot smuggle

@@ -2,10 +2,15 @@ import type { ClientMessage, ClientTurnTiming, ServerMessage } from "@schlessera
 
 interface Observation {
   sentAt: number;
+  dispatchedAt?: number;
   turnId?: string;
   firstHostAt?: number;
   firstContentAt?: number;
   lastContentAt?: number;
+}
+
+function isDispatched(value: Observation | undefined): value is Observation & { dispatchedAt: number } {
+  return value?.dispatchedAt !== undefined;
 }
 
 /** Arrival evidence only, before rendering/delta buffering. Nothing survives a
@@ -27,14 +32,22 @@ export function createTurnClock(report: (message: ClientMessage) => boolean, clo
       if (message.type === "chat_message" && message.draftRef && !requests.has(message.requestId)) return;
       // Preserve the Send boundary captured before snapshot persistence.
       this.started(message.requestId, sentAt);
+      requests.get(message.requestId)!.dispatchedAt ??= sentAt;
     },
     now: clock,
     disconnected() { supported = false; requests.clear(); arrivals.clear(); },
     frame(message: ServerMessage) {
       if (message.type === "server_hello") { supported = message.capabilities?.clientTurnReceipts === true; return; }
-      if (!requests.size) return;
+      if (![...requests.values()].some(isDispatched)) return;
       const at = clock();
-      const { turnId, requestId } = message as { turnId?: string; requestId?: string };
+      const { turnId, requestId } = (message.type === "session_queue" ? message.started : message) as { turnId?: string; requestId?: string } | undefined ?? {};
+      if (message.type === "session_queue") {
+        for (const entry of message.followUps) {
+          const pending = entry.requestId ? requests.get(entry.requestId) : undefined;
+          if (isDispatched(pending)) pending.firstHostAt ??= at;
+        }
+        for (const entry of message.dropped ?? []) if (entry.requestId) requests.delete(entry.requestId);
+      }
       // Activity can announce acceptance before session_info identifies the
       // initiating request. Only retain arrivals; never infer ownership.
       const lifecycleIds = message.type === "activity_delta" ? [message.lifecycle?.turnId]
@@ -61,15 +74,22 @@ export function createTurnClock(report: (message: ClientMessage) => boolean, clo
         }
         arrivals.set(id, value);
       }
-      const correlates = message.type === "session_info" || message.type === "status" || message.type === "error" || (message.type === "retry_receipt" && message.state === "accepted");
+      const correlates = message.type === "session_queue" || message.type === "session_info" || message.type === "status" || message.type === "error" || (message.type === "retry_receipt" && message.state === "accepted");
       let observation = correlates && requestId ? requests.get(requestId) : undefined;
+      if (!isDispatched(observation)) observation = undefined;
       if (observation) {
         observation.firstHostAt ??= at;
         if (turnId) observation.turnId ??= turnId;
         if (message.type === "error" && !turnId) { requests.delete(requestId!); return; }
       }
-      if (!observation && turnId) observation = [...requests.values()].find(value => value.turnId === turnId);
-      if (!observation || !turnId || observation.turnId !== turnId) return;
+      if (!observation && turnId) observation = [...requests.values()].find(value => isDispatched(value) && value.turnId === turnId);
+      if (!isDispatched(observation) || !turnId || observation.turnId !== turnId) return;
+      if (arrival?.firstHostAt !== undefined && arrival.firstHostAt < observation.dispatchedAt) {
+        // Evidence from another tab before this dispatch cannot become our
+        // first frame. Drop this optional sample rather than infer a start.
+        for (const [id, value] of requests) if (value === observation) requests.delete(id);
+        return;
+      }
       observation.firstHostAt = Math.min(observation.firstHostAt ?? at, arrival?.firstHostAt ?? at);
       observation.firstContentAt ??= arrival?.firstContentAt;
       observation.lastContentAt = arrival?.lastContentAt;

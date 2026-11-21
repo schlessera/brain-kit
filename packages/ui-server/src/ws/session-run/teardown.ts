@@ -90,7 +90,9 @@ export async function teardownTurn(run: TurnRun, outcome: TurnOutcome): Promise<
   // (#2814); recovery must see them before the final idle notification,
   // which the slot publishes with {@link publishTurnStatus}.
   await recorder?.settled();
-  await lifecycle?.settled();
+  // Lifecycle timing is best-effort: pending or failed telemetry must not
+  // hold idle or the next queued turn. publishTurnStatus attests only a
+  // terminal already visible on the read connection.
 }
 
 /**
@@ -105,7 +107,7 @@ export function publishTurnStatus(run: Pick<TurnRun, "host" | "turn">, outcome: 
   if (outcome.cancelledBeforeStart) host.sendToClients(withTurnScope({ type: "status", status: "cancelled",
     detail: "Cancelled before starting", ...(turn.requestId ? { requestId: turn.requestId } : {}) }, turn));
   else if (turn.sessionId) {
-    // settled() drains best-effort writes, including rejected ones. Attest
+    // Lifecycle writes may still be pending or rejected. Attest
     // completion only when the read connection observes the terminal commit.
     let committed = false;
     try { committed = host.activity?.store.lifecycle(turn.turnId)?.endedAt != null; }

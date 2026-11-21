@@ -157,7 +157,7 @@ test("a snapshot whose Send boundary was lost cannot invent one at later dispatc
     const s = scene();
     s.clock.started("voyage", 500);
     if (lost === "eviction") {
-      for (let index = 0; index < 257; index++) s.frame(1000 + index, { type: "status", status: "thinking", turnId: `turn-troy-${index}` });
+      for (let index = 0; index < 256; index++) s.clock.started(`other-voyage-${index}`, 1000 + index);
     } else {
       s.clock.disconnected();
       s.frame(1300, { type: "server_hello", protocolRev: 5, capabilities: { clientTurnReceipts: true } });
@@ -167,4 +167,45 @@ test("a snapshot whose Send boundary was lost cannot invent one at later dispatc
     s.frame(1400, { type: "status", status: "idle", hostTurnComplete: true, turnId: "turn-ithaca" });
     expect(s.reports).toEqual([]);
   }
+});
+
+test("saving Send in one tab does not authorize a receipt for another tab's dispatch", () => {
+  const observer = scene(), sender = scene();
+  observer.send("other-local"); // An unrelated local dispatch must not admit the held send either.
+  observer.clock.started("voyage", 0);
+  sender.clock.sent({ type: "chat_message", text: "Plan Ithaca", requestId: "voyage" }, 990);
+  for (const s of [observer, sender]) {
+    s.frame(1000, { type: "session_info", isNew: true, requestId: "voyage", turnId: "turn-ithaca", sessionId: "ithaca" });
+    s.frame(1010, { type: "status", status: "idle", hostTurnComplete: true, turnId: "turn-ithaca" });
+  }
+  expect(observer.reports).toEqual([]);
+  expect(sender.reports).toEqual([{ type: "client_turn_receipt", turnId: "turn-ithaca", timing: { sendToFirstHostFrameMs: 10 } }]);
+});
+
+test("session_queue started identifies a queued turn that fails before session_info", () => {
+  const s = scene(); s.send();
+  s.frame(1002, { type: "status", status: "queued", requestId: "voyage", sessionId: "ithaca" });
+  s.frame(1010, { type: "session_queue", sessionId: "ithaca", followUps: [], started: {
+    id: "queued-voyage", requestId: "voyage", turnId: "turn-ithaca", text: "Plan Ithaca", queuedAt: 0,
+  } });
+  s.frame(1020, { type: "result", sessionId: "ithaca", turnId: "turn-ithaca", outcome: "error", isError: true, costUsd: 0, durationMs: 0, numTurns: 0 });
+  s.frame(1030, { type: "status", status: "idle", hostTurnComplete: true, turnId: "turn-ithaca" });
+  expect(s.reports).toEqual([{ type: "client_turn_receipt", turnId: "turn-ithaca", timing: { sendToFirstHostFrameMs: 2 } }]);
+});
+
+test("pre-dispatch arrivals retained for another request cannot become a later sender's first frame", () => {
+  const s = scene(); s.send("other-local"); s.clock.started("voyage", 0);
+  s.frame(1000, { type: "session_info", isNew: true, requestId: "voyage", turnId: "turn-ithaca", sessionId: "ithaca" });
+  s.clock.sent({ type: "chat_message", text: "Plan Ithaca", requestId: "voyage" }, 1010);
+  s.frame(1020, { type: "status", status: "idle", hostTurnComplete: true, turnId: "turn-ithaca" });
+  expect(s.reports).toEqual([]);
+});
+
+test("a pending session_queue entry is itself the first correlated host acknowledgement", () => {
+  const s = scene(); s.send();
+  const entry = { id: "queued-voyage", requestId: "voyage", text: "Plan Ithaca", queuedAt: 0 };
+  s.frame(1002, { type: "session_queue", sessionId: "ithaca", followUps: [entry] });
+  s.frame(1010, { type: "session_queue", sessionId: "ithaca", followUps: [], started: { ...entry, turnId: "turn-ithaca" } });
+  s.frame(1030, { type: "status", status: "idle", hostTurnComplete: true, turnId: "turn-ithaca" });
+  expect(s.reports).toEqual([{ type: "client_turn_receipt", turnId: "turn-ithaca", timing: { sendToFirstHostFrameMs: 2 } }]);
 });

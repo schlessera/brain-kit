@@ -106,7 +106,7 @@ test("a prior ActivityStore implementation remains assignable and does not adver
   const { createActivityRuntime } = await import("../src/activity/runtime.js");
   const { createSilentObservability } = await import("../src/observability/index.js");
   const db = createUiDb(":memory:");
-  const { writeClientReceipt: _receipt, ...prior } = createActivityStore(db);
+  const { writeClientReceipt: _receipt, snapshotLifecycles: _snapshot, ...prior } = createActivityStore(db);
   // This assignment is also compile-time proof for consumers implementing the previous interface.
   const compatible: import("../src/activity/store.js").ActivityStore = prior;
   const observability = createSilentObservability();
@@ -225,4 +225,55 @@ test("exhausted ordinary and receipt buckets do not JSON-decode another payload"
     handlers.onMessage({ data: receipt } as MessageEvent, ws);
     expect(decoded).toEqual([]);
   } finally { Object.defineProperty(JSON, "parse", descriptor); await host.close(); db.close(); }
+});
+
+test("receipt corruption limits count bytes rather than UTF-16 characters", () => {
+  const db = createUiDb(":memory:"), store = createActivityStore(db);
+  try {
+    completed(store, "turn-ithaca");
+    expect(store.writeClientReceipt!("turn-ithaca", "odysseus", timing)).toBe(true);
+    // The overwritten duplicate leaves a valid numeric object after JSON.parse,
+    // while its original UTF-8 bytes still count toward the storage boundary.
+    const head = '{"sendToFirstHostFrameMs":"' + "é".repeat(2000) + '","sendToFirstHostFrameMs":7}';
+    const padded = (bytes: number) => head + " ".repeat(bytes - Buffer.byteLength(head));
+    for (const [value, valid] of [[padded(4096), true], [padded(4097), false], [padded(4097) + "damaged", false]] as const) {
+      db.query("UPDATE activity_turn_clients SET receipt = ? WHERE turn_id = ?").run(value, "turn-ithaca");
+      const record = store.lifecycle("turn-ithaca")!;
+      expect(record.clientTiming).toEqual(valid ? { sendToFirstHostFrameMs: 7 } : undefined);
+      expect(record.clientTimingUnavailable).toBe(valid ? undefined : "invalid_receipt");
+    }
+  } finally { db.close(); }
+});
+
+test("stalled lifecycle timing cannot hold final idle or the next queued turn", async () => {
+  const { teardownTurn, publishTurnStatus } = await import("../src/ws/session-run/teardown.js");
+  const db = createUiDb(":memory:"), store = createActivityStore(db);
+  const terminal = Promise.withResolvers<void>(), entered = Promise.withResolvers<void>();
+  const frames: unknown[] = [];
+  let done = false, nextStarted = false, released = false;
+  const writes = Object.create(store) as import("../src/activity/store.js").AwaitableActivityStore;
+  writes.writeLifecycle = (record, owner) => {
+    if (record.endedAt !== null) { entered.resolve(); return terminal.promise.then(() => store.writeLifecycle(record, owner)); }
+    return store.writeLifecycle(record, owner);
+  };
+  // Missing receipt support is deliberate: telemetry cannot delay either host.
+  Object.defineProperty(writes, "writeClientReceipt", { value: undefined });
+  const lifecycle = createTurnLifecycle(writes, "turn-ithaca", "ithaca", 1000, () => {}, () => 1100, "odysseus");
+  const host = { activity: { store: writes }, dialogue: { retireTurn() {} }, log: { emit() {} }, sendToClients: (frame: unknown) => frames.push(frame) } as unknown as WsHost;
+  const { watchdogMs } = await import("../../../scripts/test-deadlines.ts");
+  const timeoutHandle = setTimeout(() => {}, watchdogMs(30000));
+  const run = { host, turn: { turnId: "turn-ithaca", sessionId: "ithaca" }, slot: { releaseActive() { released = true; } },
+    current: {}, held: {}, stops: {}, failureRecording: { async finish() {} }, lifecycle, timeoutHandle } as unknown as import("../src/ws/session-run/types.js").TurnRun;
+  const task = teardownTurn(run, { lifecycle: "success", work: "completed", cancelledBeforeStart: false }).then(() => {
+    publishTurnStatus(run, { cancelledBeforeStart: false }); done = true; nextStarted = true;
+  });
+  try {
+    await entered.promise;
+    await new Promise<void>(resolve => setImmediate(resolve));
+    expect(released).toBe(true);
+    expect(done).toBe(true);
+    expect(nextStarted).toBe(true);
+    expect(frames[0]).toMatchObject({ type: "status", status: "idle" });
+    expect(frames[0]).not.toHaveProperty("hostTurnComplete");
+  } finally { terminal.resolve(); await task; await lifecycle.settled(); clearTimeout(timeoutHandle); db.close(); }
 });

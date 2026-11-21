@@ -18,6 +18,7 @@ const log = { emit() {} } as unknown as Logger;
 const activity = createActivityRuntime(db, { log });
 let release: (() => void) | undefined;
 let earlyIdleHeld = false, reportsReceived = 0;
+const drained = new Set<string>();
 const backend = makeFakeBackend({ id: "odyssey", startTurn: async request => {
   const sessionId = request.sessionId ?? "ithaca";
   request.bridge.emit({ type: "session_info", sessionId, isNew: !request.sessionId, providerId: "odyssey" });
@@ -44,7 +45,7 @@ const server = Bun.serve<SocketData>({ hostname: "127.0.0.1", port: 0,
       return new Response(null, { status: 400 });
     }
     if (request.method === "POST") { release?.(); release = undefined; }
-    return Response.json({ lifecycles: activity.store.lifecycles(), held: !!release, earlyIdleHeld, reportsReceived });
+    return Response.json({ lifecycles: activity.store.lifecycles(), held: !!release, earlyIdleHeld, reportsReceived, drained: [...drained] });
   },
   websocket: {
     open(socket) {
@@ -53,7 +54,9 @@ const server = Bun.serve<SocketData>({ hostname: "127.0.0.1", port: 0,
       void socket.data.handlers.onOpen(undefined as never, context);
     },
     message(socket, data) {
-      if (JSON.parse(String(data)).type === "client_turn_receipt") reportsReceived++;
+      const message = JSON.parse(String(data));
+      if (message.type === "client_turn_receipt") reportsReceived++;
+      if (message.type === "ping" && typeof message.probeId === "string") drained.add(message.probeId);
       socket.data.handlers.onMessage({ data: String(data) } as MessageEvent, socket.data.context); },
     close(socket, code, reason) { socket.data.handlers.onClose({ code, reason } as CloseEvent, socket.data.context); },
   },
