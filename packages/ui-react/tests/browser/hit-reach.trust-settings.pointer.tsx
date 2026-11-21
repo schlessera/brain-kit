@@ -34,6 +34,7 @@ import { BrainUiProvider } from "../../src/root-context.js";
 import { expect, inject, test, vi, type TestContext } from "vitest";
 import { commands, page, userEvent } from "vitest/browser";
 import { flushSync } from "react-dom";
+import { PasskeyList } from "../../src/components/settings/passkey-list.js";
 import { TrustSettingsSection } from "../../src/components/settings/trust-settings-section.js";
 import type { TrustRule, TrustSettingsRead, TrustOperation, TrustChange } from "../../src/lib/trust-settings.js";
 import { mount, reach } from "./hit-reach-scene.js";
@@ -126,9 +127,11 @@ for (const width of [320, 1280]) for (const theme of ["dark", "light"]) {
     expect(s.host.textContent).toContain('"recipientWhileRestricted":false');
     await expect.poll(() => document.activeElement?.textContent).toBe("Review exact policy change");
     reach(s.host, "trust review");
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(innerWidth);
     await button("Save rule").click();
     await expect.element(button("Edit https://example.org:443")).toBeVisible();
     expect(s.host.scrollWidth).toBeLessThanOrEqual(width);
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(innerWidth);
     await button("Edit https://example.org:443").click();
     await page.getByLabelText("Label", { exact: true }).fill("Home harbor");
     await page.getByRole("checkbox", { name: /Allow sending data while restricted/ }).click();
@@ -536,4 +539,14 @@ test("T12 replacing the brain root exposes no prior-root facts even before passi
   s.draw(<BrainUiProvider root={other}><Audit><TrustSettingsSection active /></Audit></BrainUiProvider>);
   await expect.element(button("Add origin")).toBeEnabled();
   expect(commits.length).toBeGreaterThan(0); expect(commits.every(text => !text.includes("example.org"))).toBe(true);
+});
+
+for (const theme of ["dark", "light"]) test(`trust facts in the composed Security pane fit the document at 320 ${theme}`, async ctx => {
+  const s = await scene(ctx, 320, theme);
+  s.host.style.display = "flex"; s.host.style.flexDirection = "column";
+  s.setRead({ policyHash: "a".repeat(64) });
+  s.draw(<div style={{ maxWidth: 720, marginInline: "auto", padding: 12 }}><PasskeyList credentials={[]} status="ready" busy={false} error={null} supported={false} hostname="example.org" onAdd={() => {}} onRename={() => {}} onDelete={() => {}} onSignOut={() => {}} sections={<TrustSettingsSection active />} /></div>);
+  await expect.element(button("Add origin")).toBeVisible();
+  await expect.poll(() => s.host.querySelector("[data-agent-policy]")?.textContent).toContain(`Enforcing version: ${"a".repeat(64)}`);
+  expect(document.documentElement.scrollWidth, "Security composition fits the document").toBeLessThanOrEqual(innerWidth);
 });

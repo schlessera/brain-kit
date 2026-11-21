@@ -43,7 +43,7 @@ export function AgentPolicyGroup({ active, refreshKey = 0 }: { active: boolean; 
           <p className="font-mono text-xs">{currentFacts ? "Enforcing version" : "Last read version"}: {facts.hash ?? "built-in defaults"}</p>
           {!currentFacts && <p role="status" className="text-xs">Refreshing enforcing policy…</p>}
           <p className="text-xs">Policy minimum — Interactive: {facts.profiles.interactive} · Voice: {facts.profiles.voice}</p>
-          <div className="[&_[role=button]]:min-h-11"><Disclosure label="Enforcing limits and protected paths">
+          <div className="min-w-0 [&_[role=button]]:min-h-11 [&_[aria-expanded]>span]:whitespace-normal!"><Disclosure label="Enforcing limits and protected paths">
             <p className="text-xs">Only reported enforcing limits are shown.</p>
             {facts.workerLimits ? <ul className="space-y-1 text-xs">
               {facts.workerLimits.enforced.map(limit => <li key={`${limit.limit}:${limit.source}`}>{limit.limit}: {limit.value} ({limit.source}{["data", "file_size", "memory"].includes(limit.limit) ? ", bytes" : limit.limit === "cpu" ? ", CPUs" : ""})</li>)}
