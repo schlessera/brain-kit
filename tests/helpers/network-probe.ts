@@ -154,8 +154,18 @@ export async function runProbe(scenario: string): Promise<void> {
     // Registration takes only a fake the fake-gog helper made, and only while
     // its file is still that fake: a registered stand-in or a registered
     // /bin/true would let every spawn below through.
-    const { registerFakeGog } = await import("../../scripts/test-network-guard");
-    for (const [label, path] of [["stand-in", gog], ["true", "/bin/true"]] as const) {
+    const { fakeGogShim, registerFakeGog } = await import("../../scripts/test-network-guard");
+    const { mkdtempSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    // The fake's own bytes outside the helper's place, and the stand-in's bytes in it.
+    const elsewhere = join(process.env.PROBE_DIR!, "fake-gog-Ithaca", "bin", "gog");
+    mkdirSync(join(elsewhere, ".."), { recursive: true });
+    writeFileSync(elsewhere, fakeGogShim(elsewhere), { mode: 0o700 });
+    const impostorDir = mkdtempSync(join(tmpdir(), "fake-gog-"));
+    const impostor = join(impostorDir, "bin", "gog");
+    mkdirSync(join(impostor, ".."));
+    writeFileSync(impostor, readFileSync(gog), { mode: 0o700 });
+    for (const [label, path] of [["stand-in", gog], ["true", "/bin/true"], ["elsewhere", elsewhere], ["impostor", impostor]] as const) {
       try {
         registerFakeGog(path);
         console.log(`GOG_REGISTRATION=${label}:accepted`);
@@ -167,7 +177,8 @@ export async function runProbe(scenario: string): Promise<void> {
     const replaced = createFakeGog({});
     writeFileSync(replaced.executable, readFileSync(gog));
     for (const key of ["spawn", "spawnSync"] as const) {
-      for (const cmd of [["gog", "version"], [gog, "version"], [renamed, "version"], [replaced.executable, "version"], ["/usr/bin/env", "gog", "version"],
+      for (const cmd of [["gog", "version"], [gog, "version"], [renamed, "version"], [replaced.executable, "version"], [impostor, "version"],
+        ["/usr/bin/env", "gog", "version"],
         ["/bin/sh", "-c", "gog version"], ["/bin/sh", "-ec", `exec ${gog} version`],
         // Wrappers inside wrappers, and the renamed link through each.
         ["/usr/bin/env", "/bin/sh", "-c", "gog version"], ["/usr/bin/env", "-S", "gog version"], ["/usr/bin/env", "-u", "HOME", "renamed", "version"],
@@ -193,6 +204,8 @@ export async function runProbe(scenario: string): Promise<void> {
     try { await Bun.$.env(env)`renamed version`.quiet(); } catch {}
     Bun.$.env(undefined);
     replaced.dispose();
+    const { rmSync } = await import("node:fs");
+    rmSync(impostorDir, { recursive: true, force: true });
   } else if (scenario === "gog-environment") {
     // A form token matching does not see (shell quoting splits the name), so
     // the guard lets it through, and the stand-in, a Bun script found on an

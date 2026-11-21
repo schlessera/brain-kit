@@ -84,8 +84,7 @@ describe("offline test guard", () => {
       expect(result.output).toContain(scenario === "curl-forms" ? "curl" : scenario === "gog-forms" ? "gog version" : "escape.example.invalid");
       if (scenario === "mock-files") expect(result.output).toContain("(pass) restore mocks in another file");
       if (scenario === "gog-forms") {
-        expect(result.output).toContain("GOG_REGISTRATION=stand-in:refused");
-        expect(result.output).toContain("GOG_REGISTRATION=true:refused");
+        for (const label of ["stand-in", "true", "elsewhere", "impostor"]) expect(result.output).toContain(`GOG_REGISTRATION=${label}:refused`);
       }
     });
   }

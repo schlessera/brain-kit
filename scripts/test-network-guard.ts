@@ -1,5 +1,5 @@
 /** Test-only subprocess and transport safeguards; never imported by a published package. */
-import { lstatSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { isIP, Socket } from "node:net";
@@ -72,17 +72,16 @@ function holdsShim(path: string, shim: string): boolean {
 
 /**
  * Lets this process spawn `path`, a fake gog the fake-gog helper made (plan
- * §11): a regular file this user owns at `<tmpdir>/fake-gog-XXXXXX/bin/gog`
- * holding exactly {@link fakeGogShim}. Anything else throws, a real gog or
+ * §11): a regular file at `<tmpdir>/fake-gog-XXXXXX/bin/gog` holding exactly
+ * {@link fakeGogShim}. Anything else throws, a real gog or
  * `/bin/true` included. A spawn checks the bytes again, so a fake whose file
  * was replaced afterwards is refused. Returns the undo.
  */
 export function registerFakeGog(path: string): () => void {
   const dir = dirname(dirname(path));
   const placed = basename(path) === "gog" && basename(dirname(path)) === "bin" && FAKE_GOG_DIR.test(basename(dir)) && dirname(dir) === resolve(tmpdir());
-  const stats = placed ? lstatOrNull(path) : null;
   const shim = fakeGogShim(path);
-  if (!stats?.isFile() || (process.getuid && stats.uid !== process.getuid()) || !holdsShim(path, shim)) {
+  if (!placed || !holdsShim(path, shim)) {
     throw new Error("Offline test guard: only a fake gog made by packages/common/tests/support/fake-gog.ts can be registered");
   }
   const real = realpathSync(path);
@@ -144,21 +143,17 @@ function envCommand(args: readonly string[]): { command: string[]; path?: string
 /** A word that may name a gog: `resolve` words are followed through `path` (else the spawn's PATH) and symlinks, the rest only by name. */
 interface GogWord { word: string; resolve: boolean; path?: string }
 
-const MAX_WRAPPERS = 16;
-
-/** The words of one command that may run a program, through `env` and shell `-c` scripts nested to any depth; null past {@link MAX_WRAPPERS}. */
-function commandWords(cmd: readonly string[], path?: string, depth = 0): GogWord[] | null {
+/** The words of one command that may run a program, through `env` and shell `-c` scripts nested to any depth. */
+function commandWords(cmd: readonly string[], path?: string): GogWord[] {
   if (cmd.length === 0) return [];
-  if (depth > MAX_WRAPPERS) return null;
   const [first, ...args] = cmd.map(String);
   const words: GogWord[] = [{ word: first!, resolve: true, path }];
   const program = basename(first!);
   if (program === "env") {
+    // Each level runs a shorter command, so this ends.
     words.push(...args.map(word => ({ word, resolve: false })));
     const inner = envCommand(args);
-    const nested = commandWords(inner.command, inner.path ?? path, depth + 1);
-    if (nested === null) return null;
-    words.push(...nested);
+    words.push(...commandWords(inner.command, inner.path ?? path));
   } else if (SHELLS.has(program)) {
     const flag = args.findIndex(arg => /^-[A-Za-z]*c[A-Za-z]*$/.test(arg));
     // Every word of the script, nested scripts included, is a command it may run.
@@ -199,20 +194,7 @@ function firstUnregistered(words: readonly GogWord[], env: Readonly<Record<strin
  * counts when it resolves to a file named `gog`.
  */
 export function unregisteredGog(cmd: readonly string[], env: Readonly<Record<string, string | undefined>>, cwd?: string): string | null {
-  const words = commandWords(cmd);
-  if (words === null) return String(cmd[0]);
-  return firstUnregistered(words, env, cwd);
-}
-
-/** A home this guard made for gog: `brain-test-gog-home-XXXXXX`, a private directory this user owns, still empty. */
-function guardGogHome(path: string | undefined): boolean {
-  if (!path || !/^brain-test-gog-home-[A-Za-z0-9]{6}$/.test(basename(path))) return false;
-  try {
-    const stats = lstatSync(path);
-    return stats.isDirectory() && (stats.mode & 0o777) === 0o700 && (!process.getuid || stats.uid === process.getuid()) && readdirSync(path).length === 0;
-  } catch {
-    return false;
-  }
+  return firstUnregistered(commandWords(cmd), env, cwd);
 }
 
 /**
@@ -222,18 +204,16 @@ function guardGogHome(path: string | undefined): boolean {
  * from them), then points `GOG_HOME` at an empty 0700 directory and sets
  * `GOG_KEYRING_BACKEND=file`. `GOG_HOME` outranks `HOME` and `XDG_*` for
  * every gog directory, and the file keyring opens no desktop keyring, so a
- * gog that slips past layer 2 finds no credential. A child that inherits
- * such a home keeps it; otherwise a new one is made under `parent`, which
- * `dispose` removes.
+ * gog that slips past layer 2 finds no credential. Each guarded process
+ * makes its own home under `parent`, which `dispose` removes.
  */
 export function isolateGogEnvironment(env: Record<string, string | undefined>, parent: string): { home: string; dispose(): void } {
-  const inherited = env.GOG_HOME;
   for (const name of Object.keys(env)) if (name.startsWith("GOG_")) delete env[name];
-  const reuse = guardGogHome(inherited);
-  const home = reuse ? inherited! : mkdtempSync(join(parent, "brain-test-gog-home-"));
+  // mkdtemp makes it 0700.
+  const home = mkdtempSync(join(parent, "brain-test-gog-home-"));
   env.GOG_HOME = home;
   env.GOG_KEYRING_BACKEND = "file";
-  return { home, dispose: () => { if (!reuse) rmSync(home, { recursive: true, force: true }); } };
+  return { home, dispose: () => rmSync(home, { recursive: true, force: true }) };
 }
 
 const LOOPBACK = new Set(["127.0.0.1", "[::1]", "localhost"]);
