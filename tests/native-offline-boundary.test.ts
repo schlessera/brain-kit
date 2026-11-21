@@ -33,11 +33,30 @@ test("a harmless fixture named claude runs without native admission", async () =
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 });
 
-test("native identity classifies explicit interpreter targets but not argument data", () => {
+test("native identity finds wrapped and flagged interpreter targets", () => {
   expect(isNativeClaude(process.execPath, [runtime!])).toBe(true);
   expect(isNativeClaude(process.execPath, ["--preload", "fixture.ts", runtime!])).toBe(true);
-  expect(isNativeClaude("/usr/bin/true", [runtime!])).toBe(false);
-  expect(isNativeClaude(process.execPath, ["-e", runtime!])).toBe(false);
+  expect(isNativeClaude("/usr/bin/true", [runtime!])).toBe(true);
+  expect(isNativeClaude(process.execPath, ["-e", runtime!])).toBe(true);
+  for (const flag of ["--conditions", "--env-file", "--experimental-loader", "--cwd", "-c"]) {
+    expect(isNativeClaude(process.execPath, [flag, "odysseus-fixture", runtime!])).toBe(true);
+  }
+  expect(isNativeClaude("/usr/bin/true", ["--conditions", "odysseus-fixture", runtime!])).toBe(true);
+});
+
+for (const worker of [false,true]) test(`wrapper-launched installed runtime refuses before ${worker ? "worker" : "direct"} bootstrap`, async () => {
+  const scratch = mkdtempSync(join(tmpdir(), "odysseus-wrapper-refusal-"));
+  try {
+    const wrapper=join(scratch,"exec-wrapper"), marker=join(scratch,"launched");
+    // This fixture never execs its argument, even under a broken guard.
+    writeFileSync(wrapper, `#!/bin/sh\nprintf launched > '${marker}'\n`);chmodSync(wrapper,0o700);
+      const result=await probe(`${imports}
+        const wrapper=${JSON.stringify(wrapper)},runtime=${JSON.stringify(runtime)};
+        Bun.spawn([wrapper,runtime],${worker ? `{env:{BRAIN_WORKER_LAUNCH:JSON.stringify({command:[wrapper,runtime],argv:["bwrap","--",wrapper,runtime]})}}` : `{}`});`,scratch);
+      expect(result.code,result.output).not.toBe(0);
+      expect(existsSync(marker)).toBe(false);
+      expect(result.output).toContain('"success":false,"nativeLaunched":false');
+  } finally {rmSync(scratch,{recursive:true,force:true});}
 });
 
 test("status-pipe worker launches treat descriptor arguments as data", async () => {
@@ -190,6 +209,7 @@ test("cleanup cannot claim native exec from an empty or launcher-only trace", as
 test("wrapper exec and auth inspection cannot fabricate native launch or injected credentials", async () => {
   const scratch = mkdtempSync(join(tmpdir(), "odysseus-wrapper-audit-"));
   try {
+    for (const observed of ["/usr/bin/unshare",runtime!]) {
     const result = await probe(`${imports}
       import {writeFileSync} from "node:fs";
       const spawnSync=Bun.spawnSync,which=Bun.which;
@@ -203,11 +223,17 @@ test("wrapper exec and auth inspection cannot fabricate native launch or injecte
       if(broker<0||!boundary.argv.includes("--device")||!boundary.argv.includes("--inode")||boundary.argv[broker+10]!=="/tmp/native-relay/relay.sock")throw Error("kernel lifetime socket policy was omitted");
       const setup=boundary.argv.slice(0,boundary.argv.lastIndexOf("--"));
       for(let i=0;i<setup.length;i++)if(setup[i]==="--setenv"&&["ANTHROPIC_API_KEY","ANTHROPIC_AUTH_TOKEN","CLAUDE_CODE_OAUTH_TOKEN","ANTHROPIC_BASE_URL","ANTHROPIC_UNIX_SOCKET"].includes(setup[i+1]))throw Error("auth inspection received credential or route overrides");
-      writeFileSync(boundary.argv[boundary.argv.indexOf("-o")+1],'1 execve("/usr/bin/unshare", [], 0x1) = 0');
+      writeFileSync(boundary.argv[boundary.argv.indexOf("-o")+1],${JSON.stringify('1 execve('+JSON.stringify(observed)+', [], 0x1) = 0')});
       boundary.dispose();process.exit(0);`, scratch);
-    expect(result.code).not.toBe(0);
-    expect(result.output).toContain('"nativeLaunched":false,"success":false');
-    expect(result.output).toContain("native exec was not observed");
+    if(observed===runtime) {
+      expect(result.code,result.output).toBe(0);
+      expect(result.output).toContain('"nativeLaunched":true,"success":true');
+    } else {
+      expect(result.code).not.toBe(0);
+      expect(result.output).toContain('"nativeLaunched":false,"success":false');
+      expect(result.output).toContain("native exec was not observed");
+    }
+    }
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 });
 

@@ -108,34 +108,16 @@ interface SpawnContext { cwd?: string; env?: Record<string, string | undefined> 
 function resolveExecutable(command: string, options: SpawnContext): string {
   const cwd = resolve(options.cwd ?? process.cwd());
   const path = options.env?.PATH ?? process.env.PATH;
-  return realpathSync(command.includes("/") ? resolve(cwd, command) : Bun.which(command, { cwd, PATH: path }) ?? resolve(cwd, command));
-}
-
-// Only the program and a concrete JS interpreter target are executable
-// candidates. Worker status descriptors and all other argv values are data.
-function executableCandidates(command: string, args: readonly unknown[], options: SpawnContext): string[] {
-  const candidates = [command];
-  let executable: string;
-  try { executable = resolveExecutable(command, options); } catch { return candidates; }
-  if (/^(?:node|nodejs|bun)$/.test(basename(executable))) {
-    let at = args[0] === "run" && basename(executable) === "bun" ? 1 : 0;
-    // These switches consume values, not the script target. Inline evaluation
-    // and shell programs have no explicit file target to classify here.
-    while (typeof args[at] === "string" && (args[at] as string).startsWith("-")) {
-      const flag = args[at++] as string;
-      if (["-e", "--eval", "-p", "--print", "-c", "--check"].includes(flag)) return candidates;
-      if (flag === "--") break;
-      if (["--preload", "--import", "--require", "-r", "--loader"].includes(flag)) at++;
-    }
-    const target = args[at];
-    if (typeof target === "string" && !target.startsWith("-")) candidates.push(target);
-  }
-  return candidates;
+  const candidate = command.includes("/") ? resolve(cwd, command) : Bun.which(command, { cwd, PATH: path }) ?? resolve(cwd, command);
+  // Inspect the accessible path first: realpath of an anonymous /proc fd can
+  // return pipe:[N] or socket:[N], which is not itself a filesystem path.
+  if (!statSync(candidate).isFile()) throw new Error("not a regular executable candidate");
+  return realpathSync(candidate);
 }
 
 export function isNativeClaude(command: string, args: readonly unknown[] = [], options: SpawnContext = {}): boolean {
   if (discoveryFailed) refuse("installed SDK runtime discovery failed");
-  for (const value of executableCandidates(command, args, options)) {
+  for (const value of [command, ...args]) {
     if (typeof value !== "string" || value.startsWith("-")) continue;
     let path: string;
     try { path = resolveExecutable(value, options); } catch { continue; }
@@ -389,7 +371,7 @@ export function startNativeTestRelay(upstream: string | undefined) {
 }
 
 function expectedNativeExec(command: string, args: readonly string[], options: SpawnContext): string[] {
-  const native = executableCandidates(command, args, options).filter(value => isNativeClaude(value, [], options));
+  const native = [command, ...args].filter(value => isNativeClaude(value, [], options));
   return [...new Set(native.flatMap(value => [resolve(options.cwd ?? process.cwd(), value), resolveExecutable(value, options)]))];
 }
 
