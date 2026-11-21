@@ -124,6 +124,7 @@ export function createPermissionGate(options: PermissionGateOptions): InlineExte
         // discharges the call's result obligation.
         if (answer?.block) { await safety?.refused?.(event.toolCallId, true); return answer; }
         const validate=()=>{
+          turn.signal?.throwIfAborted();
           const visible=prepareOutwardPlan({toolName:event.toolName,shellToolName:"bash",input:event.input,autonomous:!!turn.autonomous}).classification.actions.length>0;
           return safetyAdmissionRefusal(turn.bridge?.admissionSafety)??(visible?revalidatePiAdmission(turn,event.toolName,event.toolCallId,event.input??{}):null);
         };

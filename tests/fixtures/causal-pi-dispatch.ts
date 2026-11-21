@@ -22,7 +22,8 @@ const brain=join(root,'brain'),agent=join(root,'agent');
 cpSync(resolve('packages/core/fixtures/corpus'),brain,{recursive:true});mkdirSync(agent);
 const config=join(brain,'brain.config.ts');writeFileSync(config,readFileSync(config,'utf8').replace('"@schlessera/brain"',JSON.stringify(resolve('packages/core/src/index.ts'))));
 mkdirSync(join(brain,'notes/bin'),{recursive:true});
-writeFileSync(join(brain,'notes/bin/git'),'#!/bin/sh\nprintf "NATIVE_CAUSAL_DISPATCH\\n"\n',{mode:0o755});
+const marker=join(brain,'.brain/scratch/causal-dispatch');mkdirSync(join(brain,'.brain/scratch'),{recursive:true});
+writeFileSync(join(brain,'notes/bin/git'),`#!/bin/sh\nprintf 'Ithaca\\n' > '${marker}'\n`,{mode:0o755});
 process.env.PI_CODING_AGENT_DIR=agent;
 writeFileSync(join(agent,'settings.json'),JSON.stringify({retry:{enabled:false},compaction:{enabled:false},cacheWarming:'off'}));
 let requests=0,approvals=0;const frames:ServerMessage[]=[],order:string[]=[];
@@ -48,7 +49,7 @@ if(mode==='evidence-blind'){
  const original=collector.forAdmission!;collector.forAdmission=(id,tool,root)=>{const view=original(id,tool,root);return {read:()=>({...view.read(),evidenceRevision:'0'}),subscribe:changed=>view.subscribe(changed)};};
 }
 const entered=Promise.withResolvers<void>(),release=Promise.withResolvers<void>();let held=false;
-const bridge:BackendBridge={emit(frame){frames.push(frame);},admissionSafety:safety,activity(){},requestPermission:async()=>{approvals++;order.push('approved');return {behavior:'allow'};},inputSafety:{...collector,async begin(id,tool,input){
+const bridge:BackendBridge={emit(frame){if(mode==='evidence-blind'&&frame.type==='tool_result')return;frames.push(frame);},admissionSafety:safety,activity(){},requestPermission:async()=>{approvals++;order.push('approved');return {behavior:'allow'};},inputSafety:{...collector,async begin(id,tool,input){
  await collector.begin(id,tool,input);
  if(tool==='bash'&&!held){held=true;order.push('input-held');entered.resolve();await release.promise;order.push('input-released');}
 }}};
@@ -57,7 +58,7 @@ const before=safety.read().evidenceRevision;
 const timer=setTimeout(()=>controller.abort(),watchdogMs(90000));
 let running:Promise<void>|undefined;
 try{
- const sandbox={...prepareWorkerSandbox(brain,{profile:'governed',areas:[],maintenance:host.maintenance}),commandPolicy:{hash:null,deny:[],confirm:[],outwardAllow:[],taint:()=>writes.taint('voyage','ithaca')}};
+ const sandbox={...prepareWorkerSandbox(brain,{profile:'governed',areas:['scratch'],maintenance:host.maintenance}),commandPolicy:{hash:null,deny:[],confirm:[],outwardAllow:[],taint:()=>writes.taint('voyage','ithaca')}};
  if(sandbox.profile!=='governed')throw new Error('Installed Pi proof requires the governed data-tree profile');
  running=startFixtureTurn(backend,brain,{prompt:'Return to Ithaca.',profileId:'fixture',signal:controller.signal,bridge,workerSandbox:sandbox});
  await Promise.race([entered.promise,running.then(()=>{throw new Error('Installed backend never reached the held input wait');})]);
@@ -67,5 +68,5 @@ try{
   await collector.result('independent','WebFetch','The harbour is open.',true);order.push('independent-committed');
  }
  release.resolve();await running;
- console.log(JSON.stringify({isolatedNetwork,held,approvals,requests,order,frames,ownInputs:(db.query("SELECT COUNT(*) n FROM safety_records WHERE kind='occurrence' AND detector='unproxied_shell_input'").get() as {n:number}).n,before,after:safety.read().evidenceRevision,marker:frames.some(frame=>frame.type==='tool_result'&&frame.output.includes('NATIVE_CAUSAL_DISPATCH')),owed:db.query('SELECT COUNT(*) n FROM safety_obligations').get(),failure:db.query("SELECT failure FROM safety_collections WHERE turn_id='voyage'").get()}));
+ console.log(JSON.stringify({isolatedNetwork,held,approvals,requests,order,frames,ownInputs:(db.query("SELECT COUNT(*) n FROM safety_records WHERE kind='occurrence' AND detector='unproxied_shell_input'").get() as {n:number}).n,before,after:safety.read().evidenceRevision,owed:db.query('SELECT COUNT(*) n FROM safety_obligations').get(),failure:db.query("SELECT failure FROM safety_collections WHERE turn_id='voyage'").get()}));
 }finally{release.resolve();controller.abort();await running?.catch(()=>{});clearTimeout(timer);origin.stop(true);try{await host.close();}finally{try{await writer.close();}finally{db.close();}}}

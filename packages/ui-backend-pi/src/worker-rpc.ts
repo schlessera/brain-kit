@@ -167,7 +167,7 @@ async function permission(msg: PiWorkerRpc, bridge: BackendBridge, context: PiWo
  * is published with no await after its relevant check. */
 async function permit(msg: PiWorkerRpc, bridge: BackendBridge, context: PiWorkerRpcContext, decision: unknown,
   refusal: () => string | null, grant?: { name: string; input: string }): Promise<unknown> {
-  const validate=()=>{context.live();return refusal();};
+  const validate=()=>{context.turn.signal?.throwIfAborted();context.live();return refusal();};
   try {
     const stale=validate();if(stale)throw new Error(stale);
     // Bash cannot execute with this permission ticket: it must consume a
@@ -277,7 +277,7 @@ export const PI_WORKER_RPC_HANDLERS: Readonly<Record<PiWorkerRpcMethod, PiWorker
     // Consume the server ticket before any wait; no concurrent RPC can replay it.
     context.grants.delete(msg.toolCallId);
     try{
-      const validate=()=>{context.live();return revalidatePiAdmission(context.turn,msg.toolName,msg.toolCallId,msg.input);};
+      const validate=()=>{context.turn.signal?.throwIfAborted();context.live();return revalidatePiAdmission(context.turn,msg.toolName,msg.toolCallId,msg.input);};
       const stale=validate();if(stale)throw new Error(stale);
       await bridge.inputSafety?.allowed?.(msg.toolCallId,validate);
       const finalRefusal=validate();if(finalRefusal)throw new Error(finalRefusal);

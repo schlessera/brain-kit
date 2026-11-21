@@ -720,7 +720,7 @@ export function createPermissionWiring(options: PermissionWiringOptions): Pick<O
       if(result?.behavior==='deny'){turnLock.releaseForTool(opts.toolUseID);await refuse(opts.toolUseID);return result;}
       if(result?.behavior==='allow'){
         const effective=result.updatedInput??input;
-        const validate=()=>safetyAdmissionRefusal(safety,before)??(outward(toolName,effective).classification.actions.length?outwardAdmissionRefusal(safety,before):null);
+        const validate=()=>{req.signal.throwIfAborted();opts.signal?.throwIfAborted();return safetyAdmissionRefusal(safety,before)??(outward(toolName,effective).classification.actions.length?outwardAdmissionRefusal(safety,before):null);};
         const stale=validate();if(stale)throw new Error(stale);
         await req.bridge.inputSafety?.allowed?.(opts.toolUseID,validate);
         const finalRefusal=validate();if(finalRefusal)throw new Error(finalRefusal);

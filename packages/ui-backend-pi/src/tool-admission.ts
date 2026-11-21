@@ -17,6 +17,7 @@ export function rememberPiAdmission(turn: TurnContext, tool: string, id: string,
 
 /** No approval or replay: re-evaluate only the authority this exact call already obtained. */
 export function revalidatePiAdmission(turn: TurnContext, tool: string, id: string, input: unknown, consume = false): string | null {
+  if(turn.signal?.aborted)return "Turn cancelled before tool admission.";
   const state = admissions.get(turn), admitted = state?.calls.get(key(tool, id));
   if (state?.bridge !== turn.bridge || !admitted || admitted.input !== JSON.stringify(input))
     return turn.bridge?.admissionSafety ? STALE_SAFETY_ADMISSION : null;

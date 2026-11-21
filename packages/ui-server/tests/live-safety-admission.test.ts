@@ -20,8 +20,9 @@ import { createPrincipal } from "../src/db/principals";
 import { openSqliteWriter } from "../src/db/write-worker";
 import { createGovernanceWrites } from "../src/governance/event-writes";
 import { createEffectiveSafety } from "../src/governance/effective-safety";
+import {safetyQueue} from "../src/governance/safety-queue";
 import { createSafetyCollector } from "../src/governance/safety-collector";
-import { safetyCatalogCreated, safetyRecords } from "../src/governance/safety-store";
+import { safetyCatalogCreated, safetyRecords, beginSafetyCollection, reserveSafetyWrite, releaseSafetyWrite } from "../src/governance/safety-store";
 import { occurrence } from "../src/governance/occurrence";
 import { queryGovernanceEvents } from "../src/governance/events";
 import { prepareTurnEgress } from "../src/brain/turn-egress";
@@ -44,11 +45,12 @@ import { retireChat, resolveChat } from "../src/ws/chat-lifecycle";
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture";
 import { createTurnJournal } from "../src/brain/turn-journal";
 
-async function fixture(shellProxied = true) {
+async function fixture(shellProxied = true, restricted = false) {
   const root = mkdtempSync(join(tmpdir(), "odysseus-live-safety-")), db = createUiDb(join(root, "ui.db"));
   const writer = openSqliteWriter(db), writes = createGovernanceWrites(db, writer), bindingId = crypto.randomUUID();
   const principal = createPrincipal(db, { authMethod: "password", label: "Odysseus", ttlSeconds: 3600 });
-  await writes.safetyBegin({ turnId: "voyage", bindingId, sessionId: null, principalId: principal.id, backendId: "claude", at: 0 });
+  const collection={turnId:"voyage",bindingId,sessionId:null,principalId:principal.id,backendId:"claude",at:0,restricted};
+  if(restricted)beginSafetyCollection(db,collection);else await writes.safetyBegin(collection);
   db.query("INSERT INTO sessions(id,created_at,last_active_at,backend_id) VALUES('ithaca',0,0,'claude')").run();
   db.query("INSERT INTO chat_session_owners(session_id,principal_id,created_at) VALUES('ithaca',?,0)").run(principal.id);
   safetyCatalogCreated(db, "ithaca", principal.id, "voyage"); await writes.bind("voyage", "ithaca");
@@ -847,4 +849,34 @@ for(const failure of ['configuration','root'] as const)test(`Claude final hook f
   expect(await group.hooks[0]!({hook_event_name:'PreToolUse',tool_name:'Read',tool_input:{file_path:'notes/loom.md'},tool_use_id:'final-fence'} as never,'final-fence',{signal:f.controller.signal}),'FINAL_FENCE_FAILURE_IS_AN_EXPLICIT_DENIAL').toMatchObject({hookSpecificOutput:{permissionDecision:'deny'}});
   expect(released).toContain('final-fence');expect(refused).toContain('final-fence');
  }finally{await f.close();}
+});
+
+for(const cancelled of ['tool','turn'] as const)for(const legacy of [false,true])test(`Claude callback cancellation during allowance: ${cancelled}, legacy=${legacy}`,async()=>{
+ const f=await fixture(),tool=new AbortController();try{
+  let waited=false;const releases:string[]=[],refusals:string[]=[];
+  const bridge:BackendBridge={emit(){},requestPermission:async()=>({behavior:'allow'}),inputSafety:{...f.collector,async allowed(id,validate){waited=true;(cancelled==='tool'?tool:f.controller).abort();await f.collector.allowed!(id,legacy?undefined:validate);},async refused(id,denied){refusals.push(id);await f.collector.refused!(id,denied);}}};
+  const wiring=createPermissionWiring({req:{prompt:'Return to Ithaca',signal:f.controller.signal,bridge},allowedTools:['Bash'],confirmPatterns:[],brainPath:f.root,turnLock:{async acquireForTool(){return {ok:true};},releaseForTool(id:string){releases.push(id);}} as never,childEnv:{},log(){}});
+  const result=await wiring.canUseTool!('Bash',{command:'printf Ithaca'},{toolUseID:'cancel-final',signal:tool.signal} as never);
+  expect(waited,'CALLBACK_CANCELLATION_REACHES_ALLOWANCE').toBe(true);
+  expect(result,'CANCELLED_CALLBACK_NEVER_RETURNS_ALLOW').toMatchObject({behavior:'deny'});
+  expect(releases).toContain('cancel-final');expect(refusals).toContain('cancel-final');
+ }finally{await f.close();}
+});
+test('causal revision includes independent pending identities and trust on a permanently restricted turn',async()=>{
+ const f=await fixture(true,true);try{
+  f.collector.admitting!('card','Bash');await f.collector.begin('card','Bash',{command});
+  const view=f.collector.forAdmission!('card','Bash',f.safety);
+  reserveSafetyWrite(f.db,'voyage','pending_one',100);
+  const before=view.read();expect(before.recordingAvailable,'RESTRICTED_TURN_CONTINUES_WHILE_RECORDING_PENDING').toBe(true);
+  expect(f.state().pendingCount).toBe(1);
+  reserveSafetyWrite(f.db,'voyage','pending_two',100);
+  const next=view.read();expect(next.evidenceRevision,'SECOND_PENDING_TRIGGER_INVALIDATES_THE_CARD').not.toBe(before.evidenceRevision);
+  releaseSafetyWrite(f.db,'pending_one');reserveSafetyWrite(f.db,'voyage','pending_three',100);
+  const replaced=view.read();expect(f.state().pendingCount).toBe(2);
+  expect(replaced.evidenceRevision,'REPLACEMENT_PENDING_ID_CANNOT_REUSE_THE_GENERATION').not.toBe(next.evidenceRevision);
+  const queue=safetyQueue(f.db),pending={turnId:'voyage',sessionId:'ithaca',source:'web_fetch' as const,bytes:1};
+  queue.pending.add(pending);const local=view.read();queue.pending.delete(pending);const replacement={...pending};queue.pending.add(replacement);
+  try{expect(view.read().evidenceRevision,'LOCAL_PENDING_REPLACEMENT_ADVANCES_THE_GENERATION').not.toBe(local.evidenceRevision);}finally{queue.pending.delete(replacement);}
+  const trustBefore=view.read();f.remove();expect(view.read().evidenceRevision,'TRUST_ADVANCES_THE_CAUSAL_GENERATION').not.toBe(trustBefore.evidenceRevision);
+ }finally{for(const id of ['pending_one','pending_two','pending_three'])if(f.db.query('SELECT 1 FROM safety_pending WHERE id=?').get(id))releaseSafetyWrite(f.db,id);await f.close();}
 });

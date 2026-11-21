@@ -1,6 +1,6 @@
 /** Real installed Pi dispatch, isolated by an OS network namespace. */
 import {expect,test} from 'bun:test';
-import {mkdirSync,mkdtempSync,readlinkSync,rmSync} from 'node:fs';
+import {existsSync,mkdirSync,mkdtempSync,readFileSync,readlinkSync,rmSync} from 'node:fs';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {watchdogMs} from '../scripts/test-deadlines';
@@ -20,7 +20,10 @@ for(const mode of ['healthy','evidence','evidence-blind'] as const)test(`install
   expect(result.requests).toBe(2);
   expect(result.ownInputs,'NATIVE_PI_ACTUALLY_COLLECTED_ITS_OWN_INPUT').toBe(1);
   expect(result.after,'NATIVE_PI_OWN_INPUT_REALLY_ADVANCES_EVIDENCE').not.toBe(result.before);
-  expect(result.marker,'NATIVE_PI_DISPATCHES_ONLY_WITH_CURRENT_APPROVAL').toBe(mode!=='evidence');
+  const marker=join(root,'brain/.brain/scratch/causal-dispatch');
+  expect(existsSync(marker),'NATIVE_PI_DISPATCHES_ONLY_WITH_CURRENT_APPROVAL').toBe(mode!=='evidence');
+  if(mode!=='evidence')expect(readFileSync(marker,'utf8'),'NATIVE_PI_PROCESS_EFFECT_IS_INDEPENDENT_OF_RESULT_DELIVERY').toBe('Ithaca\n');
+  if(mode==='evidence-blind')expect(result.frames.filter((frame:{type:string})=>frame.type==='tool_result')).toEqual([]);
   expect(result.owed,'NATIVE_PI_REFUSED_CALL_LEAVES_NO_FALSE_RESULT_GAP').toEqual({n:0});
   expect(result.failure).toEqual({failure:null});
  }finally{clearTimeout(timer);if(child.exitCode===null){child.kill();await child.exited;}rmSync(root,{recursive:true,force:true});}
