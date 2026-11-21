@@ -185,7 +185,8 @@ for (const kind of ["inference", "provider"] as const) {
         const result = await response;
         // docs/integration-contract/http.md:1405-1406: an unverifiable binding is unavailable, not a policy denial.
         expect(result.status, "FAILED_BINDING_NEVER_DISPATCHES").toBe(mode === "cancelled" ? 499 : 503);
-        expect(result.body).toContain(mode === "cancelled" ? "cancelled" : "unavailable");
+        if(kind === "inference") expect(JSON.parse(result.body).error.message).toBe(mode === "cancelled" ? "Inference request cancelled" : "Inference network admission refused");
+        else expect(result.body).toContain(mode === "cancelled" ? "cancelled" : "unavailable");
         expect(f.requests(), "FAILED_BINDING_HAS_ZERO_PROVIDER_REQUESTS").toBe(0);
         expect(f.reads, "FAILED_BINDING_NEVER_MINTS_ADMISSION_AUTHORITY").toHaveLength(0);
       } finally { Object.defineProperty(Date, "now", clock); await f.close(); }
@@ -201,7 +202,9 @@ for (const kind of ["inference", "provider"] as const) {
         payload: { source: "web_fetch", tool: "WebFetch", detail: "Odysseus harbour notice" } }));
       expect(f.writes.recordingAvailable("voyage", "ithaca")).toBe(false);
       const result = await f.send();
-      expect(result.status).toBe(403);expect(result.body).toContain("safety");
+      expect(result.status).toBe(403);
+      if(kind === "inference") expect(JSON.parse(result.body).error.message).toBe("Inference network admission refused");
+      else expect(result.body).toContain("safety");
       expect(f.requests(), "INDEPENDENT_PENDING_INPUT_NEVER_REACHES_PROVIDER").toBe(0);
       expect(f.reads.some(value => !value.recordingAvailable)).toBe(true);
       held.release();
