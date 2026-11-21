@@ -61,3 +61,42 @@ test("policy check exposes bounded incoming-only trust data without legacy taint
   expect(result.code).toBe(0);
   expect(JSON.parse(result.stdout).effective.taint).toEqual({ egress: { allow: [] }, trusted_sources: [{ ...rule, incomingContent: true, recipientWhileRestricted: false }], classifier: "off", judge: { mode: "off", floor: 0.9 } });
 });
+
+/** Writes an Odysseus household policy whose google block is `google`, and runs the check. */
+async function checkGoogle(google: string) {
+  const root = makeTempBrain({ empty: true }); roots.push(root);
+  mkdirSync(join(root, "context/policies"), { recursive: true });
+  writeFileSync(join(root, "context/policies/governance.md"), `---\nschema_version: 1\n${google}\n---\nPenelope keeps the household's mail rules here.\n`);
+  const result = await runCli(root, ["policy", "check", "--json"]);
+  return { code: result.code, envelope: JSON.parse(result.stdout) };
+}
+
+test("policy check reports a valid google block in effective.google (#4204)", async () => {
+  const { code, envelope } = await checkGoogle([
+    "google:", "  enabled: true", "  account: ithaca", "  services: [gmail]", "  modes: { read: allow, reversible: ask, irreversible: ask }",
+    "  operations: { gmail.modify: allow, gmail.draft.delete: deny }", "  gmail:", "    send_to: [self, \"*@example.com\", telemachus@example.com]",
+    "    max_recipients: 4", "    hidden_labels: [Label_12]", "  standalone: { reversible: deny }", "  limits: { items_per_call: 20, reversible_per_turn: 25 }",
+  ].join("\n"));
+  expect(code, "GOOGLE_POLICY_CHECK_VALID_EXIT").toBe(0);
+  expect(envelope).toMatchObject({ ok: true, status: "valid", errors: [] });
+  expect(envelope.effective.google).toEqual({
+    enabled: true, account: "ithaca", services: ["gmail"], modes: { read: "allow", reversible: "ask", irreversible: "ask" },
+    operations: { "gmail.modify": "allow", "gmail.draft.delete": "deny" },
+    gmail: { send_to: ["self", "*@example.com", "telemachus@example.com"], max_recipients: 4, hidden_labels: ["Label_12"] },
+    standalone: { reversible: "deny" }, limits: { items_per_call: 20, reversible_per_turn: 25 },
+  });
+});
+
+test("policy check refuses google irreversible: allow, an unknown google key and account: auto, naming each path (#4204)", async () => {
+  for (const [google, path] of [
+    ["google: { enabled: true, account: ithaca, services: [gmail], modes: { irreversible: allow } }", "google.modes.irreversible"],
+    ["google: { enabled: true, account: ithaca, gmail: { forward_to: [eumaeus@example.com] } }", "google.gmail"],
+    ["google: { enabled: true, account: auto, services: [gmail] }", "google.account"],
+  ] as const) {
+    const { code, envelope } = await checkGoogle(google);
+    expect(code, `GOOGLE_POLICY_CHECK_INVALID_EXIT: ${google}`).toBe(1);
+    expect(envelope).toMatchObject({ ok: false, status: "invalid" });
+    expect(envelope.errors.join(" "), `GOOGLE_POLICY_CHECK_PATH: ${google}`).toContain(`at ${path}`);
+    expect(envelope.effective.google.enabled, `GOOGLE_POLICY_CHECK_INVALID_DISABLED: ${google}`).toBe(false);
+  }
+});

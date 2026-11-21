@@ -623,6 +623,12 @@ signatures (every public export and the types it is made of)
     }
   FlatAttributes (packages/ui-server/src/observability/types.ts)
     export type FlatAttributes = Record<string, string | number | boolean>;
+  GMAIL_OPERATIONS (packages/common/src/google/catalog.ts)
+    const GMAIL_OPERATIONS: readonly ["gmail.search", "gmail.thread.get", "gmail.message.get", "gmail.draft.get", "gmail.labels.list", "gmail.modify", "gmail.trash", "gmail.draft.save", "gmail.draft.delete", "gmail.draft.send"];
+  GOOGLE_POLICY_MODES (packages/common/src/google/policy.ts)
+    const GOOGLE_POLICY_MODES: readonly ["deny", "ask", "allow"];
+  GOOGLE_SERVICES (packages/common/src/google/catalog.ts)
+    const GOOGLE_SERVICES: readonly ["gmail"];
   GOVERNANCE_EVENT_SCHEMAS (packages/ui-server/src/governance/events.ts)
     const GOVERNANCE_EVENT_SCHEMAS: {
         readonly budget_block: {
@@ -1169,6 +1175,44 @@ signatures (every public export and the types it is made of)
             version: number;
         };
     };
+  GmailOperation (packages/common/src/google/catalog.ts)
+    export type GmailOperation = typeof GMAIL_OPERATIONS[number];
+  GoogleIrreversibleMode (packages/common/src/google/policy.ts)
+    export type GoogleIrreversibleMode = "deny" | "ask";
+  GoogleOperation (packages/common/src/google/catalog.ts)
+    export type GoogleOperation = GmailOperation;
+  GooglePolicy (packages/common/src/google/policy.ts)
+    export interface GooglePolicy {
+        enabled: boolean;
+        account: string | null;
+        services: GoogleService[];
+        modes: {
+            read: GoogleReadMode;
+            reversible: GoogleReversibleMode;
+            irreversible: GoogleIrreversibleMode;
+        };
+        operations: Partial<Record<GoogleOperation, GooglePolicyMode>>;
+        gmail: {
+            send_to: string[];
+            max_recipients: number;
+            hidden_labels: string[];
+        };
+        standalone: {
+            reversible: "deny" | "allow";
+        };
+        limits: {
+            items_per_call: number;
+            reversible_per_turn: number;
+        };
+    }
+  GooglePolicyMode (packages/common/src/google/policy.ts)
+    export type GooglePolicyMode = typeof GOOGLE_POLICY_MODES[number];
+  GoogleReadMode (packages/common/src/google/policy.ts)
+    export type GoogleReadMode = "deny" | "allow";
+  GoogleReversibleMode (packages/common/src/google/policy.ts)
+    export type GoogleReversibleMode = "deny" | "ask" | "allow";
+  GoogleService (packages/common/src/google/catalog.ts)
+    export type GoogleService = typeof GOOGLE_SERVICES[number];
   GovernanceCommandRuleIndices (packages/common/src/governance-policy.ts)
     export interface GovernanceCommandRuleIndices {
         deny: number[];
@@ -1274,6 +1318,59 @@ signatures (every public export and the types it is made of)
                 allowlist: "allowlist";
                 record: "record";
             }>>;
+        }, z.core.$strict>>;
+        google: z.ZodOptional<z.ZodObject<{
+            account: z.ZodOptional<z.ZodString>;
+            enabled: z.ZodOptional<z.ZodBoolean>;
+            gmail: z.ZodOptional<z.ZodObject<{
+                hidden_labels: z.ZodOptional<z.ZodArray<z.ZodString & z.ZodType<string, string, z.core.$ZodTypeInternals<string, string>>>>;
+                max_recipients: z.ZodOptional<z.ZodNumber>;
+                send_to: z.ZodOptional<z.ZodArray<z.ZodString>>;
+            }, z.core.$strict>>;
+            limits: z.ZodOptional<z.ZodObject<{
+                items_per_call: z.ZodOptional<z.ZodNumber>;
+                reversible_per_turn: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$strict>>;
+            modes: z.ZodOptional<z.ZodObject<{
+                irreversible: z.ZodOptional<z.ZodEnum<{
+                    ask: "ask";
+                    deny: "deny";
+                }>>;
+                read: z.ZodOptional<z.ZodEnum<{
+                    allow: "allow";
+                    deny: "deny";
+                }>>;
+                reversible: z.ZodOptional<z.ZodEnum<{
+                    allow: "allow";
+                    ask: "ask";
+                    deny: "deny";
+                }>>;
+            }, z.core.$strict>>;
+            operations: z.ZodOptional<z.ZodRecord<z.ZodEnum<{
+                "gmail.draft.delete": "gmail.draft.delete";
+                "gmail.draft.get": "gmail.draft.get";
+                "gmail.draft.save": "gmail.draft.save";
+                "gmail.draft.send": "gmail.draft.send";
+                "gmail.labels.list": "gmail.labels.list";
+                "gmail.message.get": "gmail.message.get";
+                "gmail.modify": "gmail.modify";
+                "gmail.search": "gmail.search";
+                "gmail.thread.get": "gmail.thread.get";
+                "gmail.trash": "gmail.trash";
+            }> & z.core.$partial, z.ZodEnum<{
+                allow: "allow";
+                ask: "ask";
+                deny: "deny";
+            }>>>;
+            services: z.ZodOptional<z.ZodArray<z.ZodEnum<{
+                gmail: "gmail";
+            }>>>;
+            standalone: z.ZodOptional<z.ZodObject<{
+                reversible: z.ZodOptional<z.ZodEnum<{
+                    allow: "allow";
+                    deny: "deny";
+                }>>;
+            }, z.core.$strict>>;
         }, z.core.$strict>>;
         outward: z.ZodOptional<z.ZodObject<{
             allow: z.ZodOptional<z.ZodPipe<z.ZodArray<z.ZodObject<{
@@ -2756,6 +2853,7 @@ signatures (every public export and the types it is made of)
             max_bytes_per_turn?: number | undefined;
             mode: "allowlist" | "record";
         };
+        google: import("./google/policy.js").GooglePolicy;
         outward: {
             allow: Array<{
                 command: string;
