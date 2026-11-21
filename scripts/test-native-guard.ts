@@ -1247,7 +1247,8 @@ export function nativeWorkerArgvNeedsIsolation(argv:readonly string[],context:Sp
     const script=argv[flag+1];if(script===undefined)return true;
     // These pinned product gates exec only their supplied argv, scanned above.
     const knownGate=(script==='IFS= read -r go && [ "$go" = go ] || exit 125; exec "$@"'&&argv[flag+2]==="brain-worker-state-gate"||script==='IFS= read -r go <&4 && [ "$go" = go ] || exit 125; exec 4<&-; exec "$@"'&&argv[flag+2]==="brain-worker-start-gate");
-    if(knownGate&&argv.length>flag+3)continue;
+    if(knownGate&&argv.length>flag+3){if(nativeWorkerArgvNeedsIsolation(argv.slice(flag+3),context,depth+1))return true;continue;}
+    if(script==='exec 3>"$1"; exec 4<"$2"; shift 2; exec "$@"'&&argv[flag+2]==="brain-worker-status"&&argv.length>flag+5){if(nativeWorkerArgvNeedsIsolation(argv.slice(flag+5),context,depth+1))return true;continue;}
     if(/(?:^|[;&|()\n])\s*(?:eval|source|\.)\s/.test(script))return true;
     for(const token of script.matchAll(/[^\s'";&|<>(){}\[\]]+/g))if(isNativeClaude(token[0],[],context))return true;
     const execs=[...script.matchAll(/(?:^|[;&|()\n])\s*exec(?:\s+|$)/g)];
