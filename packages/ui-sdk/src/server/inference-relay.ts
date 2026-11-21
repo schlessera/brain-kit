@@ -282,9 +282,12 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
             return cause.failure?chargeDenied(cause.failure):exit(() => refuse(request.method,path,cause.status,"Inference upstream unreachable"));
           }
           mark("headersMs");
+          const incoming=readRelayResponse(response,{charge:chargeFailure,remaining:allowance.remaining});
+          const headerFailure = incoming.headerFailure;
+          if (headerFailure) return exit(async () => {
+            await incoming.cancel().catch(() => {}); return chargeRefused(headerFailure);
+          }, async () => { await incoming.cancel().catch(() => {}); });
           return exit(async () => {
-            const incoming=readRelayResponse(response,{charge:chargeFailure,remaining:allowance.remaining});
-            if(incoming.headerFailure){await incoming.cancel().catch(()=>{});return chargeRefused(incoming.headerFailure);}
             if (response.status >= 300 && response.status < 400) {
               op?.finish("failed", "upstream_redirected");
               await response.body?.cancel().catch(() => {});
