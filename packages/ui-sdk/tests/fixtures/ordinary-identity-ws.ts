@@ -5,7 +5,7 @@ import { installDbRepeatObservation, repeatWarmIndex } from "./db-repeat-observa
 import { installBootPruneCapture } from "./boot-prune-capture.js";
 /** Real managed-server admission and native SDK turn; explicit fictional API profile. */
 import { expect } from "bun:test";
-import { lstatSync, mkdirSync, statSync, readdirSync } from "node:fs";
+import { lstatSync, mkdirSync, statSync, readdirSync, readFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createApp } from "../../../ui-server/src/app.js";
 import { resolveServerConfig } from "../../../ui-server/src/config/env.js";
@@ -15,6 +15,7 @@ import { createPrincipal } from "../../../ui-server/src/db/principals.js";
 import { createClaudeBackend } from "../../../ui-backend-claude/src/backend.js";
 import { nativeModelReply } from "../../../ui-backend-claude/tests/helpers/native-model-reply.js";
 import { serializeSigned } from "hono/utils/cookie";
+import { bundledClaudeBinary } from "../../../core/src/providers/agents/claude-binary.js";
 import { nativeScriptedService, nativeScriptedQuery } from "../../../../scripts/test-native-guard.ts";
 
 const sharedGit = new URL(import.meta.url).searchParams.has("shared-git");
@@ -31,6 +32,30 @@ stage("module-loaded");
 const brain = "/brain-fixture/brain", root = profile === "strict" ? "/identity-server-private/server-ws-strict" : "/identity-server-private/server-ws";
 const home = join(root, "home"), config = join(home, ".claude"), data = root;
 mkdirSync(data, { mode: 0o700, recursive: true }); mkdirSync(config, { recursive: true, mode: 0o700 });
+// Actual separate-UID fixture: directory metadata is shared, file bytes are not.
+const privateRoot=join(brain,"private");
+if (existsSync(privateRoot)) {
+  expect(process.getuid?.(),"PRIVATE_FIXTURE_GUARD_UID").toBe(21001);
+  expect(lstatSync(privateRoot).uid,"PRIVATE_FIXTURE_OWNER_UID").toBe(21002);
+  expect(lstatSync(privateRoot).mode & 0o007,"PRIVATE_FIXTURE_NO_WORLD_ACCESS").toBe(0);
+  expect(readdirSync(privateRoot),"PRIVATE_FIXTURE_PROVENANCE_TRAVERSABLE").toContain(".gitattributes");
+  expect(()=>readFileSync(join(privateRoot,".gitattributes")),"PRIVATE_FIXTURE_CONTENTS_STAY_WORKER_ONLY").toThrow();
+  const runtime=bundledClaudeBinary();if(!runtime)throw Error("installed SDK identity unavailable");
+  // Plan only: no native process launches. The registered root is exercised by
+  // the real turn below; the same accessible, unregistered root must refuse.
+  const refused=Bun.spawnSync([process.execPath,"-e",`
+    import {nativeWorkerBoundary,nativeScriptedService} from "/repo/scripts/test-native-guard.ts";
+    const spawnSync=Bun.spawnSync,which=Bun.which;
+    Bun.which=((command,options)=>command==="strace"?"/synthetic/strace":which(command,options));
+    Bun.spawnSync=((argv,options)=>(["bwrap","strace"].includes(argv[0])||argv[0]?.endsWith("/native-connect"))?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
+    process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";
+    nativeScriptedService("http://127.0.0.1:1",{fixtureRoots:[${JSON.stringify(home)}]});
+    nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify({command:["/usr/bin/true",${JSON.stringify(runtime)}],brainPath:${JSON.stringify(home)},env:{HOME:${JSON.stringify(home)}},argv:["bwrap","--ro-bind",${JSON.stringify(privateRoot)},"/tmp/odysseus-private","--","/usr/bin/true",${JSON.stringify(runtime)}]})});
+  `],{stdout:"pipe",stderr:"pipe"});
+  expect(refused.exitCode,"PRIVATE_FIXTURE_UNREGISTERED_ROOT_REFUSES").not.toBe(0);
+  expect(refused.stderr.toString()).toContain("worker bind was not created or staged by the fixture");
+  expect(refused.stderr.toString()).toContain('"nativeLaunched":false');
+}
 const requests: Array<{ model: string; history: number; apiCredential: boolean }> = [];
 // Native worker calls this loopback provider directly. The outer Docker network
 // namespace has no external route; no fetch implementation or native SDK is mocked.

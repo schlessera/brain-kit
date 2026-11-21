@@ -1,3 +1,4 @@
+import { PRIVATE_FIXTURE_DIRECTORY_ACCESS } from "./private-fixture-directory-access.js";
 import { defaultIdentityPhase } from "./default-identity-phases.js";
 import { applicationQualificationScenario } from "./application-qualification.js";
 import { ordinaryIdentityPhases, IDENTITY_PHASE_TIMEOUT_MS, IDENTITY_CLEANUP_TIMEOUT_MS } from "./ordinary-identity-phases.js";
@@ -194,6 +195,11 @@ if (process.argv[2] === "--index-child") {
       sharedGit, privateGitInputs, indexControls: process.argv[2] === "--index-controls" });
     let aggregateOutput = "", aggregateErrors = "";
     for (const phase of phases) {
+      // Private-input controls finish before these application phases. The
+      // guard may inspect directory metadata; private files stay worker-only.
+      if (phase && ["fresh", "fresh-app", "warm", "strict"].includes(phase)) {
+        console.log(command(["/usr/bin/python3", "-I", "-S", "-c", PRIVATE_FIXTURE_DIRECTORY_ACCESS, brain, "21002", "21001"]));
+      }
       const started = performance.now();
       const child = Bun.spawn(["/usr/bin/setpriv", "--reuid=21001", "--regid=21001", "--groups=21003", process.execPath, "--preload", "/repo/scripts/test-network-child-preload.ts", import.meta.filename,
         process.argv[2] === "--index-controls" ? "--index-child" : "--child", ...(sharedGit ? ["--shared-git"] : []), ...(omitProbeStatePlacement ? ["--omit-probe-state-placement"] : []), ...(privateGitInputs ? ["--private-git-inputs"] : []), ...(bootPruneCapture ? ["--boot-prune-capture"] : []), ...(applicationScenario === "db-repeat" && phase === "warm" ? ["--db-repeat-index"] : []), ...(phase ? [sharedGit ? `--shared-phase=${phase}` : `--default-phase=${phase}`] : [])], {
