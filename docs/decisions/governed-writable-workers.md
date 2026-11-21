@@ -650,6 +650,13 @@ permissions in another turn.
 | B — runtime permission and configuration surfaces | `.claude/settings.json`, `.claude/settings.local.json`, `.mcp.json`, `brain.config.ts`, `brain.config.json`, `package.json`, `bun.lock`, `node_modules/` | Yes |
 | Added by the policy | Anything listed under `protect` | Yes, by deleting the entry |
 
+Ignored dependencies inside a checkout get no protection; the brain's root
+`node_modules/` keeps its existing read-only bind and admission alias walk,
+because later turns and maintenance execute that code. A module store must
+not activate without bounded installation, provider-aware views, independent
+worker lifetimes and recoverable storage. See the
+[state-boundary ruling](worker-writable-areas.md#state-boundaries-and-root-dependencies--2026-11-20).
+
 **Why the tier A paths are there:**
 
 - `context/policies/` is the policy itself.
