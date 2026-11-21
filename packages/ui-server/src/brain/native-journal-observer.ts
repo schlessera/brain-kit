@@ -1,4 +1,6 @@
+import { journalMetadataOnlyPath } from "./native-journal-policy.js";
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
+import { nativeStartupReleases } from "./native-startup-releases.js";
 import { isJournalSteeringPath } from "./journal-steering.js";
 /** One metadata index and rolling sealed roots; no initial content capture. */
 import { randomUUID } from "node:crypto";
@@ -76,6 +78,7 @@ function outerPrefixes(paths: Set<string>): string[] {
 }
 
 class MetadataIndex {
+  indexBytes = 0;
   readonly entries = new Map<string, NativeJournalMetadata>();
   readonly children = new Map<string, Set<string>>();
   readonly inodes = new Map<string, Set<string>>();
@@ -84,6 +87,7 @@ class MetadataIndex {
   readonly steeringInputs = new Map<string, NativeJournalMetadata>();
   remove(path: string): void {
     const entry = this.entries.get(path); if (!entry) return;
+    if (entry.kind === "file" && journalMetadataOnlyPath(path)) this.indexBytes -= entry.bytes;
     this.entries.delete(path); this.workspacePaths.delete(path); this.ignoreInputs.delete(path); this.steeringInputs.delete(path);
     const directory = parent(path), children = this.children.get(directory); children?.delete(path);
     if (!children?.size) this.children.delete(directory);
@@ -92,6 +96,7 @@ class MetadataIndex {
   }
   put(entry: NativeJournalMetadata): void {
     this.remove(entry.path); this.entries.set(entry.path, entry);
+    if (entry.kind === "file" && journalMetadataOnlyPath(entry.path)) this.indexBytes += entry.bytes;
     if (isWithin("workspaces", entry.path)) this.workspacePaths.add(entry.path);
     if (entry.path.split("/").at(-1) === ".gitignore") this.ignoreInputs.set(entry.path, entry);
     if (isJournalSteeringPath(entry.path)) this.steeringInputs.set(entry.path, entry);
@@ -253,6 +258,8 @@ class RootMetadataReader {
 interface NativeJournalObservation {
   beforeRoot: NativeJournalCheckpoint; afterRoot: NativeJournalCheckpoint;
   changes: NativeJournalChange[];
+  /** Live logical size only; no file versions or retention charge. */
+  indexBytes: number | null;
   stats: { readEntries: number; walkedDirectories: number };
   unreadable: NativeJournalUnreadable[];
   /**
@@ -383,6 +390,23 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
     if (entry) entry.state = "pending"; else outstanding.set(id, { bytes, state: "pending" });
     releaseNext();
   }
+  async function checkpointWithRoom(signal: AbortSignal, timing?: PhaseTimer): Promise<NativeJournalCheckpoint> {
+    let end = timing?.("observe_checkpoint");
+    try {
+      for (;;) {
+        const releases = nativeStartupReleases(native), completed = releases.completed();
+        try { return await checkpoint(signal); }
+        catch (error) {
+          if ((error as { code?: string }).code !== "capacity") throw error;
+          end?.(); end = timing?.("observe_reserve");
+          const freed = releases.completed() !== completed || await releases.reclaim(signal);
+          end?.(); end = undefined;
+          if (!freed) throw error;
+          end = timing?.("observe_checkpoint");
+        }
+      }
+    } finally { end?.(); }
+  }
   async function initialize(signal?: AbortSignal, options: { workspaces?: boolean } = {}): Promise<void> {
     if (closed) unavailable("Native observer is closed.");
     if (root) return;
@@ -391,7 +415,7 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
     initializing = (async () => {
       let captured: NativeJournalCheckpoint | undefined, reader: RootMetadataReader | undefined;
       try {
-        captured = await checkpoint(active); reader = await RootMetadataReader.create(captured, active, native, workerUid, undefined, options.workspaces !== false);
+        captured = await checkpointWithRoom(active); reader = await RootMetadataReader.create(captured, active, native, workerUid, undefined, options.workspaces !== false);
         const initial = new MetadataIndex();
         for await (const entry of reader.walk()) initial.put(entry);
         active.throwIfAborted(); inventoryWorkspaces = options.workspaces !== false; index = initial; root = captured; missingInventory = new Map(reader.unreadable);
@@ -427,9 +451,8 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
     const active = signalFor(signal), before = root!;
     let after: NativeJournalCheckpoint | undefined, reader: RootMetadataReader | undefined;
     try {
-      end = timing?.("observe_checkpoint");
-      after = await checkpoint(active);
-      end?.(); end = timing?.("observe_delta");
+      after = await checkpointWithRoom(active, timing);
+      end = timing?.("observe_delta");
       const job = await native.delta(before.id, after.id, active);
       // Observe an early transport failure without an unhandled rejection.
       void job.completed.catch(() => {});
@@ -531,6 +554,10 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
         if (current === undefined) continue; // Unknown is not proof of deletion.
         if (previous || current) changes.push({ path, before: previous, after: current });
       }
+      let indexBytes: number | null = index.indexBytes;
+      for (const change of changes) if (journalMetadataOnlyPath(change.path))
+        indexBytes += (change.after?.kind === "file" ? change.after.bytes : 0) - (change.before?.kind === "file" ? change.before.bytes : 0);
+      if ([...reader.unreadable.keys()].some(path => path === "." || path === ".brain-index" || journalMetadataOnlyPath(path))) indexBytes = null;
       const next = after;
       // Content the previous root alone keeps once this observation commits.
       const replaced = new Map<string, number>();
@@ -540,7 +567,7 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
       const replacedBytes = [...replaced.values()].reduce((sum, bytes) => sum + bytes, 0);
       let state: "pending" | "committed" | "aborted" = "pending";
       const observation: NativeJournalObservation = {
-        beforeRoot: before, afterRoot: next, changes, stats: { ...reader.stats, readEntries: reader.stats.readEntries + aliasEntries }, unreadable: [...reader.unreadable.values()],
+        beforeRoot: before, afterRoot: next, changes, indexBytes, stats: { ...reader.stats, readEntries: reader.stats.readEntries + aliasEntries }, unreadable: [...reader.unreadable.values()],
         async commit() {
           if (state === "aborted") unavailable("Native observation was already aborted.");
           if (state === "pending") {

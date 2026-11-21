@@ -727,7 +727,7 @@ test("native journal excludes the resolved index and sidecars while preserving i
     await f.journal.finish("index-only");
     const details = f.journal.details("ithaca","index-only")!;
     expect(readFileSync(join(f.brain, "resources/brain.db"), "utf8"), "UNCHANGED_IMPORTED_INPUT_BYTES").toBe("initial");
-    expect(details.changes.map(change=>change.path).sort(), "COPIED_INODE_CANNOT_ALIAS_UNCHANGED_INPUT").toEqual(ignored.sort());
+    expect(details.changes.map(change=>change.path).sort(), "INDEX_EXCLUDED_WITHOUT_ALIASING_UNCHANGED_INPUT").toEqual([]);
     expect(released, "CONTROL_OBSERVED_CHECKPOINT_RELEASE").toBe(true);
     expect(reused, "COPIED_INPUT_INODE_REMAINS_RESERVED").toBe(false);
     expect(details.changes.every(change=>change.class === "content"), "NATIVE_INDEX_HAS_NO_STEERING_CLASS").toBe(true);

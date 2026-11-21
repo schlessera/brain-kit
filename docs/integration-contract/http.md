@@ -116,7 +116,7 @@ The `taint` governance event's shape is unchanged: its reserved
 ### Brain-wide configuration coverage (additive, #3257)
 
 `GET /api/journal/configuration-coverage` returns `ConfigurationCoverageRead`
-(`ConfigurationCoverageRead`, `packages/ui-sdk/src/turn-journal.ts:183-185`):
+(`ConfigurationCoverageRead`, `packages/ui-sdk/src/turn-journal.ts:190-192`):
 the brain's current set of configuration inputs steering could not trace. It
 is `{ state: "known", hash, paths, count, turnId, observedAt }` for the set the
 most recent complete turn recorded from a configuration inventory: `paths` is
@@ -209,6 +209,44 @@ original) is kept, and so is any pin of a turn that has not ended. The purge run
 the bytes to the journal's capacity. The decision is recorded in
 [the governed-workers decision](../decisions/governed-writable-workers.md#metadata-only-index-history--2026-10-25-2873)
 and [its purge](../decisions/governed-writable-workers.md#purging-earlier-index-versions-and-the-embeddings-lock--2026-10-25-2903).
+
+### Index updates leave change history (breaking, pre-1.0 minor, #4302)
+
+For observations made after this change, the exact root index family and
+publication copies listed above contribute no journal change rows, changed-file
+counts or observed bytes. Notes, enrichment caches, similarly named paths and
+independently held worktrees retain their existing coverage. Previously written
+history remains readable in its existing metadata-only form, with the same
+preview, download and restore exclusions.
+
+The host `GovernedTurns.refresh(lock, turnId?)` accepts an optional causing
+turn ID to correlate its index receipt. Each host application batch and
+governed post-turn index update, including the separate credentialed vector refresh, records one
+`index_update` Activity event for each causing turn. Its payload contains an
+opaque `generation`, `durationMs` and `outcome` (`complete`, `failed`, `cancelled` or
+`index_capacity`); failures also carry a bounded `cause`. A retry is a new
+update with a new generation. Revert and Undo updates use their own journal turn IDs. Shutdown records a cancelled generation for queued refreshes that never start. Tool child spans carry the causing session and retain receipts that arrive before the backend root span. Owner API/stream records retain the receipt spans and events; `query_activity` omits host receipt spans and lifecycle diagnostics from its model-facing projection. These host receipts never enter provider history.
+
+An ordinary governed writer keeps direct in-worker `brain index`. Each
+observation also measures current index-family and publication-copy size from
+sealed metadata, without reading content or creating history rows. Past the
+independent 4 GiB bound, scope pauses with optional receipt
+`result: "index_capacity"` under the existing `turn_bytes` dimension. Optional
+scope fields `indexBytes` (nullable while unconfirmed) and `indexLimitBytes`
+disclose that independent size and ceiling. The existing one-time finite
+continuation doubles only the index ceiling; the prompt names that ceiling and preserves the content allowance. Independent pending content and index pauses must both be answered before workers resume. Unknown measurement has no grant. Optional receipt and scope-event `measurement: "unknown"` names that state; numeric count/observed and overshoot are zero compatibility placeholders, not measurements. UI and voice say the size is unknown. Operational backups retain admitted conflict state with exact schema validation and accept earlier images without those tables. Only the newest open pause offers Continue; earlier open cards keep Stop available, and regain their eligible Continue after newer pauses are answered. Refused continuation leaves Stop available. Expanded facts label unknown overshoot as unknown. The index scope event has optional `result: "index_capacity"` and `source: "default"` even under a custom policy. Strict and masked/private-index turns cannot write this live index and do not receive its cap. Admitted permanent conflict-table guards apply to already-open connections and are preserved/validated in backups. History serves stored pre-upgrade conflict lists unchanged, including empty lists and their order. New rows expose the released per-row optional `conflict` field, computed from the once-per-path durable relation. Clients continue reading the selected row's field. The repeated response size is preserved for compatibility.
+The closed dimension enum is unchanged, and old parsers accept the records.
+The bound matches the former default byte scope; checks occur at observations,
+so writes may overshoot between them. The free-space floor remains binding.
+
+Host index writers remain independently bounded by maintenance temporary storage
+and output staging (256 MiB per command by default, with their existing
+configured aggregate budgets). Writes beyond a worker allowance return
+`ENOSPC`; unavailable admission returns `worker_state_busy`. An update that
+reports either condition has the named receipt outcome `index_capacity`.
+Committed Markdown remains authoritative, and pending application paths stay
+queued for the next retry. This restriction supersedes new index-version
+listing under #2873, with the maintainer's approval on #4302 (2026-11-20).
 
 ### User history restoration (additive, #1653)
 

@@ -9,7 +9,9 @@ if APP_UID not in ("0", "1000"): raise RuntimeError("Unknown native app UID proo
 os.environ["BRAIN_NATIVE_PROOF_APP_UID"] = APP_UID
 # The #2834 observation cell makes 220 model requests; the #2848 timing cell
 # waits for the earlier turns' index refresh before its turn.
-HOSTED_TIMEOUT = 1800 if os.environ.get("BRAIN_NATIVE_PROOF_OBSERVATION_TIMING") == "1" else 300 if os.environ.get("BRAIN_NATIVE_PROOF_APPLY_TIMING") == "1" else 180
+# The observation matrix also retains 10,000 real changed versions. Its
+# pre-optimization baseline can spend over half an hour in those holds.
+HOSTED_TIMEOUT = 5400 if os.environ.get("BRAIN_NATIVE_PROOF_OBSERVATION_TIMING") == "1" else 300 if os.environ.get("BRAIN_NATIVE_PROOF_APPLY_TIMING") == "1" else 180
 ROOT = pathlib.Path("/proof")
 STORE = pathlib.Path("/brain-fixture")
 DEVICE = pathlib.Path("/dev/brain-native-proof-loop")

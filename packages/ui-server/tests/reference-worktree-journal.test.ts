@@ -64,6 +64,7 @@ test("intentional worktree edits are journaled as workspace content of the holdi
     expect(JSON.parse(worktreeRows.find(row => row.path.endsWith("out.txt"))!.after_json!), "REFERENCE_WORKTREE_GITIGNORE_RESPECTED").toMatchObject({ ignored: true });
     expect(rows.find(row => row.path === "workspaces/argo/log.md"), "REFERENCE_WORKTREE_WORKSPACE_JOURNALING_UNCHANGED").toMatchObject({ scope: "workspaces/argo", class: "content" });
     expect(f.facts.get("turn-ithaca")?.changedPaths, "REFERENCE_WORKTREE_SCOPE_COUNTS_EDITS").toBe(4);
+    expect(f.db.query("SELECT DISTINCT turn_id FROM turn_journal_object_refs WHERE hash=? ORDER BY turn_id").all(JSON.parse(book.after_json!).hash), "REFERENCE_WORKTREE_PINS_ONLY_HOLDING_TURN").toEqual([{ turn_id: "turn-ithaca" }]);
     expect(f.rows("turn-other").filter(row => row.scope === REFERENCE_WORKTREE_JOURNAL_SCOPE), "REFERENCE_WORKTREE_ONLY_ITS_HOLDING_TURN").toEqual([]);
     expect(f.journal.summary("turn-ithaca").state).toBe("recording");
     expect(reversibleJournalPath(referenceWorktreeJournalPath(tree.id, "odyssey/book-1.md")), "REFERENCE_WORKTREE_NEVER_REVERTED_INTO_THE_BRAIN").toBe(false);

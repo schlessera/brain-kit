@@ -108,7 +108,27 @@ export function moveJournalTables(db: Database): number {
 }
 
 /** Derived performance state: admitted at runtime, omitted from canonical backup images. */
+/** Derived same-path lookup; installed only through physical journal admission. */
+export const JOURNAL_CHANGE_PATH_INDEX = {
+  name: "turn_journal_changes_path_sequence",
+  sql: "CREATE INDEX turn_journal_changes_path_sequence ON turn_journal_changes(turn_id,path,sequence)",
+} as const;
+
 export const JOURNAL_OBJECT_REFS_INDEX = {
   name: "turn_journal_object_refs_hash",
   sql: "CREATE INDEX turn_journal_object_refs_hash ON turn_journal_object_refs(hash)",
 } as const;
+
+/** Admitted journal state; backups preserve rows and validate these exact definitions when present. */
+export const JOURNAL_CONFLICT_TABLES = [
+  { name: "turn_journal_path_peers", sql: "CREATE TABLE turn_journal_path_peers (turn_id TEXT NOT NULL REFERENCES turn_journal_turns(turn_id) ON DELETE CASCADE, path TEXT NOT NULL, peer_id TEXT NOT NULL, first_sequence INTEGER NOT NULL, after_json TEXT NOT NULL, PRIMARY KEY(turn_id,path,peer_id))" },
+  { name: "turn_journal_path_conflicts", sql: "CREATE TABLE turn_journal_path_conflicts (turn_id TEXT NOT NULL REFERENCES turn_journal_turns(turn_id) ON DELETE CASCADE, path TEXT NOT NULL, first_sequence INTEGER NOT NULL, PRIMARY KEY(turn_id,path))" },
+] as const;
+
+/** Permanent guards cover connections opened before this admitted schema exists. */
+export const JOURNAL_CONFLICT_GUARDS = JOURNAL_CONFLICT_TABLES.flatMap(table => ["INSERT", "UPDATE", "DELETE"].map(event => ({
+  name: `${table.name}_capacity_${event.toLowerCase()}`,
+  sql: `CREATE TRIGGER ${table.name}_capacity_${event.toLowerCase()} BEFORE ${event} ON ${table.name}
+    WHEN (SELECT writing FROM turn_journal_allocation WHERE id=1) IS NOT 1
+    BEGIN SELECT RAISE(ABORT, 'journal storage write outside capacity accounting'); END`,
+})));

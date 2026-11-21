@@ -322,7 +322,7 @@ export function createBrainApplication(options: {
       if (queued || !committed.length) return;
       queued = true;
       const applied = [...committed];
-      indexBatch.queue(applied.map(change => change.path), settled => receipt.report({ changes: applied, indexed: settled.indexed, ...(settled.indexError ? { indexError: settled.indexError } : {}) }));
+      indexBatch.queue(applied.map(change => change.path), settled => receipt.report({ changes: applied, indexed: settled.indexed, ...(settled.indexError ? { indexError: settled.indexError } : {}) }), request.turnId);
     };
     let result: BrainApplicationResult;
     // One wait bound for every hold this application meets.
