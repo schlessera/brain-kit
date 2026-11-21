@@ -60,7 +60,7 @@ function modelCalls(calls:{name:string;id:string;input:Record<string,unknown>}[]
  return new Response(events.map(event=>`event: ${(event as {type:string}).type}\ndata: ${JSON.stringify(event)}\n\n`).join(""),{headers:{"content-type":"text/event-stream"}});
 }
 async function voyageHome(interruption:Interruption,check:(f:{db:ReturnType<typeof createUiDb>;writes:ReturnType<typeof createGovernanceWrites>;
- first:{results:number;failures:number;aborted:boolean;indexWaits:number;admitted:number;cards:number;refusals:number};searched:boolean;replayed:string[]})=>void){
+ first:{results:number;failures:number;aborted:boolean;indexWaits:number;admitted:number;cards:number;refusals:number};searched:boolean;searchInvoked:boolean;replayed:string[]})=>void){
  const root=mkdtempSync(join(tmpdir(),"odysseus-safety-retention-")),brain=join(root,"brain"),home=join(root,"home");
  // A note: reading it records nothing before the tool runs, so only the
  // search output's own record stands between it and a complete chat.
@@ -180,7 +180,7 @@ async function voyageHome(interruption:Interruption,check:(f:{db:ReturnType<type
   expect(replayed.length,"SAFETY_RUNTIME_RESUMES_THE_INTERRUPTED_CALL").toBeGreaterThan(0);
   // The premise: interrupting the record did not keep the result out of the model's context.
   if(interruption==="refused"||interruption==="cancelled")expect(resumed.some(r=>r.raw.includes(SONG)),"SAFETY_RUNTIME_REPLAYS_THE_INTERRUPTED_RESULT").toBe(true);
-  check({db,writes,first,searched:existsSync(searched),replayed});
+  check({db,writes,first,searched:existsSync(searched),searchInvoked:existsSync(searchStatus),replayed});
   // Contained to its chat: the brain-wide recorder is untouched, and a
   // recovery has nothing to clear, so the chat keeps its restriction (or,
   // with nothing lost, stays normal).
@@ -250,11 +250,12 @@ test("a denial under an id the runtime admitted twice cannot settle the search t
  expect(first.admitted,"SAFETY_HOST_REPORTS_BOTH_ADMISSIONS").toBe(2);
 }),60000);
 
-test("a search denied at its permission card never runs, and its chat stays normal with no gap",()=>voyageHome("denied",({db,writes,first,searched})=>{
+test("a search denied at its permission card never runs, and its chat stays normal with no gap",()=>voyageHome("denied",({db,writes,first,searched,searchInvoked})=>{
  // The runtime asks the callback, its last gate, and Penelope's deny keeps
  // the search from running at all.
  expect(first.cards,"SAFETY_RUNTIME_ASKS_THE_CALLBACK").toBe(1);
  expect(searched,"SAFETY_DENIED_SEARCH_NEVER_RAN").toBe(false);
+ expect(searchInvoked,"SAFETY_DENIED_SEARCH_NEVER_INVOKED").toBe(false);
  // The denial of the id's only admission proves the call never ran.
  expect(db.query("SELECT failure,gap FROM safety_collections WHERE turn_id='voyage'").get(),"SAFETY_CARD_DENY_LEAVES_NO_GAP").toEqual({failure:null,gap:null});
  const chat=writes.safety("homeward","ithaca");

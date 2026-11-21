@@ -1,11 +1,12 @@
 /** Fixed admission rules for repository measurement commands, never a provider extension. */
-export interface MeasurementEntryInput { entry: string; argv: readonly string[]; liveEval?: string }
+export interface MeasurementEntryInput { entry: string; argv: readonly string[]; liveEval?: string; piOffline?: boolean }
 const protocol587 = new Set(["measure-turn-surface-live.ts", "measure-turn-surface-tokens.ts"]);
 const liveFlag = new Set(["measure-show-block.ts", "measure-show-block-server.ts", "measure-real-provider-dispatch.ts", "measure-pi-schema.ts", "measure-sync-judge.ts"]);
 export const REAL_MEASUREMENT_WARNING = "REAL-PROVIDER MEASUREMENT: provider access and charges are authorized; this is not offline test proof.";
 export function measurementMode(input: MeasurementEntryInput): "live" | "offline" {
   const has = (flag: string) => input.argv.includes(flag);
-  const offline = input.entry === "measure-show-block.ts" && has("--suggestions") && has("--schema-cost")
+  const offline = input.entry === "measure-pi-schema.ts" && input.piOffline === true
+    || input.entry === "measure-show-block.ts" && has("--suggestions") && has("--schema-cost")
     || input.entry === "measure-show-block-server.ts" && (has("--inspect-suggestions") || has("--report"))
     || input.entry === "measure-real-provider-dispatch.ts" && (input.argv[0] === "--server" ? input.argv[3] === "dry" : has("--dry-run"))
     || input.entry === "measure-turn-surface-live.ts" && (has("--offline") || input.liveEval === "587_OFFLINE");

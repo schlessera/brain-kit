@@ -1,3 +1,4 @@
+import "./test-network-child-preload.ts";
 /** Native control, always fake: no provider transport delegates to real fetch. */
 // The host loads this first; the worker inherits the marker and imports it again.
 const inWorker = process.env.BRAIN_MEASURE_PI_WORKER_OFFLINE === "1";

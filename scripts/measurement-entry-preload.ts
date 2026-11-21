@@ -10,7 +10,7 @@ try {
   const name = basename(source);
   if (source === realpathSync(join(import.meta.dir, name))) entry = name;
 } catch { /* Library/test imports retain offline admission. */ }
-export const measurementAdmission = enterMeasurement({ entry, argv: process.argv.slice(2), liveEval: process.env.BRAIN_LIVE_EVAL },
+export const measurementAdmission = enterMeasurement({ entry, argv: process.argv.slice(2), liveEval: process.env.BRAIN_LIVE_EVAL, piOffline: process.env.BRAIN_MEASURE_PI_WORKER_OFFLINE === "1" },
   { installOffline: () => { installNetworkGuard(); }, warn: message => console.error(message) });
 // Keep existing command parsers unchanged after the explicit flag is consumed.
 export const measurementAuthorizationArgs = measurementAdmission === "live" && process.argv.includes("--allow-real-provider")

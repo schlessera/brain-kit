@@ -20,7 +20,7 @@ import { measurementAuthorizationArgs } from "./measurement-entry-preload.ts";
 //   bun scripts/measure-show-block-server.ts --allow-real-provider --brain <dir> --out runs.json \
 //     [--backend pi|claude] [--model claude-sonnet-5-5] [--prompts 0,1,2,3] [--runs 6]
 //   bun scripts/measure-show-block-server.ts --allow-real-provider --suggestions --brain <dir> --backend pi --runs 3 --out suggestions.json
-//   bun scripts/measure-show-block-server.ts --allow-real-provider --report runs.json [more.json …]
+//   bun scripts/measure-show-block-server.ts --report runs.json [more.json …]
 //
 // Point `--brain` at a copy of a brain OUTSIDE any checkout of this repo.
 // The agent's cwd is the brain, and a brain nested in the worktree lets the

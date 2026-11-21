@@ -557,8 +557,15 @@ function assertNativeMountSockets(mounts: readonly string[], origin: string): vo
     }
   }
   const fixturePath = (path: string) => {
-    const root = roots.filter(root => (within(ROOT, root) || within(tmpdir(), root)) && within(root, path)).sort((a,b) => b.length-a.length)[0];
-    return root ? { mount: roots.indexOf(root), storage: within(ROOT, root) ? "workspace-fixture" : "temporary-fixture", relativePath: path.slice(root.length).replace(/^\//, "") || "." } : { storage: "outside-fixture" };
+    const root = roots.filter(root => within(root, path)).sort((a,b) => b.length-a.length)[0];
+    if (!root) return { storage: "outside-mount-inventory" };
+    const mount = roots.indexOf(root);
+    // Only constant OS roots may be identified outside synthetic fixture storage.
+    const systemRoot = SYSTEM.find(path => { try { return realpathSync(path) === root; } catch { return false; } });
+    const fixture = within(ROOT, root) || within(tmpdir(), root);
+    return fixture
+      ? { mount, storage: within(ROOT, root) ? "workspace-fixture" : "temporary-fixture", relativePath: path.slice(root.length).replace(/^\//, "") || "." }
+      : { mount, storage: "outside-fixture", source: systemRoot ? "system-runtime" : "other-bound-source", ...(systemRoot ? { systemRoot } : {}) };
   };
   let refusedSocket: Record<string, unknown> | undefined;
   let inspected = "", metadataError: string | undefined;

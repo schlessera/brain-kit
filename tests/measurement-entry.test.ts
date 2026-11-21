@@ -53,3 +53,13 @@ for (const [entry, argv] of [
 });
 for(const [entry,argv] of [["measure-show-block.ts",["--tokens"]],["measure-show-block.ts",["--suggestions","--tokens"]],["measure-show-block-server.ts",["--classify"]],["measure-real-provider-dispatch.ts",["--server","claude","/tmp/ithaca","live","0","--dry-run"]]] as const)
  test(`${entry} ${argv.join(" ")} requires live authorization`,()=>expect(()=>enterMeasurement({entry,argv},{installOffline(){},warn(){}})).toThrow("before runtime import"));
+test("Pi offline preload marker retains guard with or without live authorization",()=>{
+ for(const argv of [[],["--allow-real-provider"]]) {
+  let installs=0,warnings=0;
+  expect(enterMeasurement({entry:"measure-pi-schema.ts",argv,piOffline:true},{installOffline(){installs++;},warn(){warnings++;}})).toBe("offline");
+  expect(installs).toBe(1);expect(warnings).toBe(0);
+ }
+ const runner=readFileSync(join(ROOT,"scripts/pi-schema-runner.py"),"utf8");
+ expect(runner).toContain('if not offline: command.append("--allow-real-provider")');
+ expect(readFileSync(join(ROOT,"scripts/pi-schema-offline-preload.ts"),"utf8").split("\n")[0]).toBe('import "./test-network-child-preload.ts";');
+});
