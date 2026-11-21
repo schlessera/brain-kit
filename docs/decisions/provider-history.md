@@ -18,12 +18,18 @@ brain-kit from doing that, and the guard that checks it.
 
 **What the provider received for turn N is the prefix of what it receives for
 turn N+1.** brain-kit may only add to the end of the conversation, never change
-what is already in it. Concretely, across the turns of one session:
+what is already in it. The narrowly scoped tool-discovery exception below
+permits insertion of new definitions. Concretely, across the turns of one session:
 
-1. **Tools stay the same.** The same tool definitions, with the same schemas and
-   in the same order, on every turn. A posture, profile or capability that
-   should not use a tool is enforced in the permission hooks, not by leaving
-   the tool out.
+1. **Earlier tools stay the same.** Every earlier definition keeps its exact
+   bytes and order relative to the other earlier definitions. Only definitions
+   referenced by a successful tool-search discovery may be added, carrying
+   `defer_loading`, at any position (including sorted insertion). Nothing is
+   removed or edited. Every other tool round trip requires exact equality.
+   The exception never changes the system prompt or earlier messages.
+   A posture, profile or capability
+   that should not use a tool is enforced in the permission hooks, not by
+   leaving the tool out.
 2. **The system prompt stays the same.** Anything brain-kit puts into the system
    prompt or its append is fixed for the life of the session. Nothing in it may
    depend on the time, the device, the repository's state, budgets, the sandbox,
@@ -100,7 +106,10 @@ runs real consecutive turns through the installed SDK against a local fake
 Messages endpoint. It records the exact request bodies and asserts the rule
 directly:
 
-- `tools` and `system` are byte-identical between turns of one session;
+- `system` is byte-identical between turns of one session;
+- `tools` is unchanged except that successful discovery may insert only
+  referenced deferred definitions at any position, preserving every earlier
+  definition's bytes and relative order;
 - every request's `messages` extend the previous request's `messages` plus that
   request's answer;
 - between the turns, the test changes everything that legitimately changes in
@@ -172,3 +181,95 @@ than its `test.failing` list, needs a maintainer ruling on its issue first.
 - **Rely on the provider's cache diagnostics in production.** They find a break
   after it has been paid for, and only on providers that offer them. The guard
   finds it before merge, keyless, for every backend.
+
+## 2026-11-20 — Referenced deferred discovery (#4306)
+
+The maintainer permits a definition discovered by native tool search to appear
+at any position, including sorted insertion. Every earlier definition keeps
+its exact bytes and its order relative to the other earlier definitions.
+Nothing is removed or edited. Only definitions referenced by a successful
+ToolSearch discovery may be added, and those definitions carry `defer_loading`.
+Every other tool round trip retains exact tool equality. The system prompt
+and every earlier message remain byte-identical.
+
+The companion guard `packages/ui-backend-claude/tests/provider-request-shape.test.ts`
+captures production SDK assembly and the pinned runtime through the Unix relay,
+including the first discovery transition and resume. The guard checks actual
+tool references before authorizing additions. CLI 2.1.293 inserts the discovered
+definition into the sorted stdio MCP group, preserving all earlier definitions
+and relative order in a blocking SDK-injected MCP fixture. Production startup
+instead loads the brain server from `.mcp.json` non-blockingly: the first request
+has no core reads, and one search introduces all six core definitions despite
+referencing only the graph. This violates #4306. Production therefore pins
+search off for new interactive sessions, with or without a relay. Native
+effective settings are checked before prompt release; a managed-policy override
+or unreadable selection refuses only that turn. Legacy inherited settings are
+preserved, without adding a flag pin.
+The captured tool-array common byte prefix is shorter with insertion than with
+hypothetical append; this keyless comparison does not measure provider cache
+hits, tokens or savings.
+
+The direct-runtime path also rewrites earlier system-role message content from
+a block array to a string within a turn and on resume. Those remain provider-history violations,
+tracked in #4324; fast-mode product work in #4310 waits for its fix. Same-turn
+and resume transitions are qualified and reported separately; evidence in one
+scope does not establish a violation in the other. The strict
+history guard has no exception for it, on resume or within a turn. A separate
+qualification test records the reproduction by asserting that the strict guard
+rejects the captured bytes; it does not establish passing history qualification.
+Worker boundary proof remains in the original guard; the companion launches
+the runtime directly inside an offline namespace and makes no worker-boundary
+claim.
+
+New hosted sessions retain their native disallow selection and tool-search pin
+atomically in private prompt-context storage, beside an initialization marker.
+Each recorded selection carries its own digest, validated independently of later
+releases' removal lists. An initialized record with a missing or malformed
+selection refuses only that session. A content-free provenance marker is recorded before the append returns to SDK
+assembly. Missing context with known provenance refuses resume; absence of both
+is a pre-snapshot legacy session and retains the first append observed after
+upgrade. A genuine older prompt-context record without either field adopts the
+legacy selection with no new SDK tool-search pin. Mandatory exclusions remain
+validated. The retained system append protects earlier wording when a new
+deployment adds a brief. These internal fields never enter provider content.
+
+### 2026-11-21 — Off-state retention and mandatory authority
+
+Interactive turns always pass the production prompt gate, including direct API
+turns without a runtime minimum. A legacy session has no recorded original
+tool-search environment value: its retained pin is explicitly unknown. It keeps
+the pre-upgrade behavior of using the current environment without a host flag
+pin, after relay credential filtering. No environment value is persisted or
+restored from the retention record. A configuration change can therefore alter
+that legacy runtime's roster, as it could before upgrade; migration does not
+claim to recover or qualify its missing original value.
+
+Selection and route validation precede prompt preparation. Prompt ownership is
+persisted only when the gated input is pulled after native-settings checks, so
+refused retries leave the original prompt bytes unchanged. The selection digest
+covers its version, entire roster and tool-search pin. Settings conflicts, including rejected native settings-control reads after a
+successful initialization, use `settings_conflict` without an authentication
+event or login action. Initialization failures remain separate. Every context
+writer checks encoded UTF-8 bytes against the same 64 MiB read limit before
+replacement, including selection migration.
+
+The stored roster records historical membership. If current mandatory
+exclusions are absent from that roster, the resume is refused with
+`session_roster_incompatible` before persistence or SDK startup. In particular,
+a direct session cannot resume under server authority by dropping the three
+project MCP writers. A later compatible resume retains every original tool;
+no roster is rewritten to manufacture compatibility.
+
+Non-blocking tool-search qualification also observes the newly loaded group of
+six intact core definitions changing order on the first resume: the selected
+graph moves before the other five, after the SDK bridge definitions.
+Qualification asserts that exact ordering and every definition's bytes; the
+strict tool guard rejects the reorder. This remains evidence against enablement, not a guard
+exception. The maintainer keeps tool search off in #4319. Follow-up #4325
+registers static host bridge definitions and forwards execution to a per-turn
+sandboxed `brain mcp` process; enablement waits for that path's qualification.
+
+Cache-breakpoint normalization is limited to API tool definitions, system blocks
+and message content blocks (including tool-result content). Arbitrary nested
+JSON stays exact: an input-schema property or tool input named `cache_control`
+is content, not a cache breakpoint.

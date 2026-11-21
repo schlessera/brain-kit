@@ -80,6 +80,8 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/brain/stats/history` | S | Read recorded corpus-stat series | Independent corpus clients; preserve CLI pass-through, capture recovery and sync lifetime promises. |
 | POST | `/api/brain/sync` | S | Stream a serialized repository sync | Independent corpus clients; preserve CLI pass-through, capture recovery and sync lifetime promises. |
 | GET | `/api/drafts` | S | List live session drafts | Paired composer and independent clients (#979, D52); preserve revisions, receipts, tombstones, limits and the no-execution boundary. |
+| GET | `/api/drafts/:id/code-changes` | S | Read the durable next-admission workspace write preference | Authenticated session clients; defaults off, principal-scoped drafts (#4295). |
+| PUT | `/api/drafts/:id/code-changes` | S | Save `{ enabled: boolean }` for workspace changes | Durable before acknowledgement; no active-turn effect; preserves profile restrictions (#4295). |
 | GET | `/api/drafts/:id/profile` | S | Read confirmed worker profile and enforced facts | Independent session clients; preserve policy lower bounds, principal scope and truthful unknown limits (#1663). |
 | PUT | `/api/drafts/:id/profile` | S | Save a next-turn tightening preference | Independent session clients; preserve confirmed saves, current-turn profile and voice read-only authority (#1663). |
 | GET | `/api/drafts/:draftId` | S | Read a draft's text and images | Paired composer and independent clients (#979, D52); preserve revisions, receipts, tombstones, limits and the no-execution boundary. |
@@ -143,6 +145,8 @@ client code has a gap. Source owners are listed after the table.
 | POST | `/api/push/unsubscribe` | S | Remove caller-owned subscription | SDK push renewal and custom PWA clients; preserve principal ownership and private-key exclusion. |
 | POST | `/api/render` | S | Render supplied document to PNG or PDF | Independent share/render clients; preserve RenderRequest, renderer seam and 501 without renderer. |
 | GET | `/api/sessions` | S | List backend sessions with partial availability | Independent session clients; preserve SDK ChatSession/history shapes and partial-backend availability behavior. |
+| GET | `/api/sessions/:id/code-changes` | S | Read the durable next-admission workspace write preference | Authenticated session clients; defaults off, principal-scoped drafts (#4295). |
+| PUT | `/api/sessions/:id/code-changes` | S | Save `{ enabled: boolean }` for workspace changes | Durable before acknowledgement; no active-turn effect; preserves profile restrictions (#4295). |
 | GET | `/api/sessions/:id/profile` | S | Read confirmed worker profile and enforced facts | Independent session clients; preserve policy lower bounds, principal scope and truthful unknown limits (#1663). |
 | PUT | `/api/sessions/:id/profile` | S | Save a next-turn tightening preference | Independent session clients; preserve confirmed saves, current-turn profile and voice read-only authority (#1663). |
 | GET | `/api/sessions/:id` | S | Read owning-backend session transcript | Independent session clients; preserve SDK ChatSession/history shapes and partial-backend availability behavior. |
@@ -1944,7 +1948,7 @@ read by any authenticated principal.
 | `budget_warning` | 1 | `scope`, `unit`, `limit`, `observed`, `source` | A warn limit was crossed. `scope` is `turn`, `session` or `day`; `unit` is `usd` or `tokens`. |
 | `state_room_warning` | 1 | `usedBytes`, `allowanceBytes`, `observedAt` | A resumed conversation's measured state reached its existing 75% warning threshold. The numbers and Unix-millisecond timestamp are the same observation sent with its result and history. One quiet event per session, backend and allowance; it does not change admission or start a continuation. |
 | `budget_block` | 1 | `scope`, `unit`, `limit`, `observed`, `source`, `stage` | A block limit was reached. `stage` is `admission`, `mid_turn` or `sdk_backstop`. |
-| `scope_cap` | 1 | `cap`, `limit`, `observed`, `overshoot`, `frozen`, `outcome`, `source` | A per-turn cap was reached. `cap` is `files_changed`, `minutes`, `tool_calls`, `free_space_floor` or `turn_bytes`; `overshoot` is how far past the cap the turn went, in the cap's unit; `outcome` is `paused`, `continued`, `stopped`, `voice_stopped` or `turn_ended`. `paused` records the confirmed freeze before the user decides; retained turn scope receipts record its eventual decision or interruption. A free-space overshoot is the measured deficit below its floor. |
+| `scope_cap` | 1 | `cap`, `limit`, `observed`, `overshoot`, `frozen`, `outcome`, `source`, `measurement` (optional), `result` (optional) | A per-turn cap was reached. `cap` is `files_changed`, `minutes`, `tool_calls`, `free_space_floor` or `turn_bytes`; `overshoot` is how far past the cap the turn went, in the cap's unit; `outcome` is `paused`, `continued`, `stopped`, `voice_stopped` or `turn_ended`. `paused` records the confirmed freeze before the user decides; retained turn scope receipts record its eventual decision or interruption. A free-space overshoot is the measured deficit below its floor. Optional `result: "index_capacity"` identifies the independent host-default index ceiling, with `source: "default"`; the existing `cap` enum stays unchanged. Optional `measurement: "unknown"` identifies an unreadable index size; `observed` and `overshoot` are then zero compatibility placeholders, not measurements. |
 | `egress_denial` | 1 | `host`, `port`, `method`, `reason`, `bytes` | The egress proxy refused a connection. `method` is set for plain HTTP; `reason` is `denied_host`, `not_allowlisted`, `byte_cap` or `taint_allowlist`; `taint_allowlist` includes a tainted destination the user declined (#3430). |
 | `strict_fallback` | 1 | `path`, `reason` | A turn ran under `strict` instead of `governed` because a protected path is a `symlink`, a `hardlink` or a `mount_point`. |
 | `revert_conflict` | 1 | `conflicts`, `restored` | A revert skipped paths that changed after the reverted turn. Each conflict is `{ path, state }`, with `state` one of `changed`, `deleted`, `created` or `type_changed`; `restored` counts the paths it did restore. |
@@ -2439,3 +2443,13 @@ inferred from matching policy bytes. Owner-scope review explicitly covers
 future repositories currently in that namespace. Runtime trust remains disabled.
 Removal/readback remain available for existing rules. Revision exhaustion refuses
 before protected publication. No historical trigger is resolved by these routes.
+
+### Session code changes (#4295)
+
+The session/draft `code-changes` GET/PUT routes are specified in the
+[integration contract](integration-contract/http.md#default-workspace-inspection-and-code-changes-preference-4295).
+They use the same authenticated identity and principal-scoped draft binding as
+profile preferences. PUT accepts exactly `{ enabled: boolean }`; all replies
+are `Cache-Control: no-store`. Existing sessions default to false. Saves
+survive resume and apply only to the next admission; enabled sessions retain
+the existing writable-workspace protections and per-file journal.

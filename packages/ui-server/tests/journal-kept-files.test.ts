@@ -25,7 +25,7 @@ function fixture(capBytes?: number) {
   for (const name of ["brain.db", "brain.db-wal", "brain.db-shm"]) writeFileSync(join(brain, ".brain-index", name), "initial index");
   const native = createNativeJournalFixture(brain, root);
   const db = createUiDb(path), journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath: path, objectsRoot: join(root, "objects"), capBytes });
-  const begin = (id: string) => journal.begin(id, { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null }, error => { throw error; });
+  const begin = (id: string) => journal.begin(id, { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null, workspaceReadOnly: false }, error => { throw error; });
   return { brain, db, journal, begin, write: (path: string, bytes: string | Buffer) => writeFileSync(join(brain, path), bytes),
     async close() { await journal.close(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); } };
 }
@@ -34,15 +34,15 @@ function fixture(capBytes?: number) {
 const kept = (change: TurnJournalChange) => !change.before?.metadataOnly && !change.after?.metadataOnly && !change.before?.ignored && !change.after?.ignored && (change.before?.kind ?? change.after?.kind) !== "other";
 const keptPaths = (details: TurnJournalDetails) => new Set(details.changes.filter(kept).map(change => change.path)).size;
 
-test("a turn that changed only an index sidecar keeps no files but still records the entry", async () => {
+test("a turn that changed only an index sidecar records no change", async () => {
   const f = fixture();
   try {
     await f.begin("index-only");
     f.write(".brain-index/brain.db-shm", "index refreshed");
     await f.journal.finish("index-only");
     const details = f.journal.details("ithaca", "index-only")!;
-    expect(details.changes.map(change => change.path), "INDEX_SIDECAR_IS_RECORDED").toEqual([".brain-index/brain.db-shm"]);
-    expect(details.summary, "INDEX_ONLY_TURN_KEEPS_NO_FILES").toMatchObject({ state: "complete", changedFiles: 1, keptFiles: 0 });
+    expect(details.changes.map(change => change.path), "INDEX_SIDECAR_IS_EXCLUDED").toEqual([]);
+    expect(details.summary, "INDEX_ONLY_TURN_KEEPS_NO_FILES").toMatchObject({ state: "complete", changedFiles: 0, keptFiles: 0 });
     expect(details.summary.keptFiles, "SUMMARY_DETAILS_PARITY").toBe(keptPaths(details));
   } finally { await f.close(); }
 });
@@ -72,15 +72,15 @@ test("kept files count content, steering, policy and workspace paths once and ex
     expect(byPath("context/policies/governance.md")[0], "POLICY_IS_KEPT").toMatchObject({ class: "policy", actor: "user" });
     expect(byPath("workspaces/raft/plan.md")[0], "WORKSPACE_IS_KEPT").toMatchObject({ class: "content", scope: "workspaces/raft" });
     expect(byPath("ignored.txt")[0]?.after, "IGNORED_ENTRY_RECORDED").toMatchObject({ ignored: true });
-    expect(byPath(".brain-index/brain.db-wal")[0]?.after, "INDEX_ENTRY_RECORDED").toMatchObject({ metadataOnly: true });
+    expect(byPath(".brain-index/brain.db-wal"), "INDEX_ENTRY_EXCLUDED").toEqual([]);
     expect(byPath("notes/siren-song")[0]?.after, "OTHER_ENTRY_RECORDED").toMatchObject({ kind: "other" });
-    expect(details.summary, "KEPT_EXCLUDES_INDEX_IGNORED_AND_OTHER").toMatchObject({ changedFiles: 7, keptFiles: 4 });
+    expect(details.summary, "KEPT_EXCLUDES_INDEX_IGNORED_AND_OTHER").toMatchObject({ changedFiles: 6, keptFiles: 4 });
     expect(details.summary.keptFiles, "SUMMARY_DETAILS_PARITY").toBe(keptPaths(details));
     expect(details.summary.changedFiles, "CHANGED_FILES_KEEPS_ITS_MEANING").toBe(new Set(details.changes.map(change => change.path)).size);
 
     // History recorded before #2873 stored index versions without the
     // metadata-only flag; history presents them as metadata only, and so does the count.
-    await f.journal.writeOperation([journalStatement("UPDATE turn_journal_changes SET before_json=json_remove(before_json,'$.metadataOnly','$.stamp'),after_json=json_remove(after_json,'$.metadataOnly','$.stamp') WHERE turn_id='voyage' AND path='.brain-index/brain.db-wal'")]);
+    await f.journal.writeOperation([journalStatement("INSERT INTO turn_journal_changes (turn_id,sequence,path,scope,after_json,class,actor,overlaps) VALUES ('voyage',1000,'.brain-index/brain.db-wal','',?,'content','agent','[]')", JSON.stringify({kind:"file",mode:420,bytes:12,ignored:false}))]);
     const legacy = f.journal.details("ithaca", "voyage")!;
     expect(legacy.summary.keptFiles, "UNFLAGGED_INDEX_HISTORY_STAYS_EXCLUDED").toBe(4);
     expect(legacy.summary.keptFiles, "LEGACY_SUMMARY_DETAILS_PARITY").toBe(keptPaths(legacy));
@@ -96,7 +96,7 @@ test("a partial journal reports kept files observed so far; an empty partial or 
     f.write(".brain-index/brain.db", "index refreshed");
     await f.journal.finish("partial");
     await f.journal.writeOperation([journalStatement("UPDATE turn_journal_turns SET state='partial' WHERE turn_id='partial'")]);
-    expect(f.journal.summary("partial"), "PARTIAL_REPORTS_OBSERVED_SO_FAR").toMatchObject({ state: "partial", changedFiles: 2, keptFiles: 1 });
+    expect(f.journal.summary("partial"), "PARTIAL_REPORTS_OBSERVED_SO_FAR").toMatchObject({ state: "partial", changedFiles: 1, keptFiles: 1 });
     await f.begin("empty-partial");
     await f.journal.finish("empty-partial");
     await f.journal.writeOperation([journalStatement("UPDATE turn_journal_turns SET state='partial' WHERE turn_id='empty-partial'")]);
@@ -111,12 +111,12 @@ test("expiry keeps a known kept count, and a summary retained before the field s
     f.write("notes/odysseus.md", `# Ithaca\n${"Athena guides the raft. ".repeat(20_000)}\n`);
     f.write(".brain-index/brain.db-shm", "index refreshed");
     await f.journal.finish("first");
-    expect(f.journal.summary("first"), "BEFORE_EXPIRY").toMatchObject({ state: "complete", changedFiles: 2, keptFiles: 1 });
+    expect(f.journal.summary("first"), "BEFORE_EXPIRY").toMatchObject({ state: "complete", changedFiles: 1, keptFiles: 1 });
     // A later turn's retained bytes exceed the cap, so the host collects the oldest ended turn.
     await f.begin("second");
     f.write("notes/athena.md", `# Athena\n${"Penelope weaves the shroud. ".repeat(20_000)}\n`);
     await f.journal.finish("second");
-    expect(f.journal.summary("first"), "EXPIRY_KEEPS_KNOWN_KEPT_COUNT").toMatchObject({ state: "expired", changedFiles: 2, keptFiles: 1 });
+    expect(f.journal.summary("first"), "EXPIRY_KEEPS_KNOWN_KEPT_COUNT").toMatchObject({ state: "expired", changedFiles: 1, keptFiles: 1 });
     expect(f.journal.details("ithaca", "first")!.changes, "EXPIRED_DETAILS_ARE_GONE").toEqual([]);
 
     await f.journal.writeOperation([journalStatement("UPDATE turn_journal_turns SET summary=? WHERE turn_id='first'", JSON.stringify({ changedFiles: 2, steeringFiles: 0, sharedAttribution: false }))]);

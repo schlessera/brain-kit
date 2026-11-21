@@ -19,7 +19,7 @@ import { ackGraceClock } from "./helpers/ack-grace-clock";
 const PNG_1PX =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
 
-/** A profile with its own key, so no subscription gate runs. */
+/** An API profile: no subscription policy, but native setting qualification still applies. */
 const profiles = defineProfiles([{ id: "api", label: "API", apiKeyEnv: "FOLLOW_UP_TEST_KEY", source: "declared" }]);
 process.env.FOLLOW_UP_TEST_KEY = "sk-ant-api03-test";
 
@@ -35,6 +35,8 @@ function harness(script: Script, extra: Partial<StartTurnRequest> = {}) {
   const ready = new Promise<void>((resolve) => (sessionReady = resolve));
   const controller = new AbortController();
   const queryFn = ((params: { prompt: AsyncIterable<SDKUserMessage>; options: { abortController: AbortController } }) => ({
+    initializationResult: async () => ({}),
+    getSettings: async () => ({ effective: { env: { ENABLE_TOOL_SEARCH: "false" } }, sources: [] }),
     async *[Symbol.asyncIterator]() {
       const input = params.prompt[Symbol.asyncIterator]();
       const opening = await input.next();

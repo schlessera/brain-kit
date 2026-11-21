@@ -39,6 +39,67 @@ hash directly. Missing/expired raw details never grant a download bypass.
 links use the embedding root's configured API base.
 Those read helpers do not execute mutations.
 
+### Default workspace inspection and code-changes preference (#4295)
+
+**Breaking narrowing, authorized 2026-11-20:** default governed and strict
+turns bind an existing `workspaces/` read-only. Their retained journal coverage excludes
+workspace paths, checkout ignore-policy reads and observed workspace bytes.
+Notes keep their existing coverage. This applies per turn even during shared
+observations with an opted-in writer. Retained history from earlier turns
+remains readable with its existing routes and shapes. If the optional area
+is absent at launch, governed note writes stay live, no mountpoint is created,
+and workspace exclusion does not apply: new content under that name is
+retained and charged as ordinary brain content for that turn, including the
+brain's frozen root ignore rules, root journal scope and ordinary Git-internal
+exclusions. Steering references and unavailable markers also remain per turn;
+an overlapping writer cannot donate its ignore policy. The next default
+turn binds the new directory read-only. Status describes the same default
+qualification, including an unqualified workspace root or unenforceable policy-protected
+parent selecting strict. An unqualified workspace symlink protects only its
+namespace; it never makes unrelated note destinations protected. Explicit
+owner protections still cover their symlink destinations. Status inspection
+never creates protection prerequisites on the live brain. It includes literal
+provider folder pins. When provider type folders still require checkpoint taxonomy
+qualification, the optional `profile` and `configurationView` are omitted and the
+existing `profileFallback` explains the uncertainty; status does not execute
+brain configuration or report a guessed profile. Captured versions
+remain per turn through storage, so one participant’s retained hash never
+replaces another participant’s ignored metadata. Superseded checkpoint
+accounting includes excluded checkout bytes until release succeeds.
+
+**Additive API:** authenticated `GET` and `PUT`
+`/api/sessions/:id/code-changes` and `/api/drafts/:id/code-changes` return
+`{ enabled: boolean }`, default false. PUT accepts exactly that JSON object;
+unknown fields or a non-boolean give 400, non-JSON gives 415, an oversized
+body gives 413, an unknown session or one without proven ownership by the
+authenticated principal gives 404, and unusable authentication gives 401.
+Session reads, writes and enabled draft binds all require proven ownership;
+legacy ownership gaps cannot grant writable admission. Drafts are scoped to
+the authenticated principal and share the existing bounded profile-draft
+storage (507 when full). Successful saves are durable before acknowledgement. All responses are `Cache-Control: no-store`.
+
+The switch is independent of the worker profile, preserves that preference,
+and cannot weaken strict or provider restrictions. A first-send profile draft
+carries its code-changes preference into the named session. Saves survive
+resume and are frozen before admission awaits; changing a save never changes
+an active turn. Enabled turns retain writable workspace qualification, the
+alias scan, per-file journaling and byte charges. The saved switch is intent:
+host application writes remain protected unless admission actually qualifies
+a writable mount. Mode changes reach the worker through append-only new-turn context, without altering tools, the
+system prompt or earlier messages. The refusal note names both writable
+alternatives: the session's code-changes switch and a managed worktree. Read-only tool failures in
+an inspected turn receive the fixed conditional sentence quoted in the
+[workspace decision](../decisions/worker-writable-areas.md#workspace-inspection-amendment-2026-11-20-4295-4298),
+without path attribution. Explicit host workspace refusals use that same text.
+Result codes, record fields and closed HTTP/WS enums remain unchanged.
+Commands execute against the read-only mount; read-only failures receive the
+conditional remedy after execution, including failures outside the checkout.
+Verification and dry runs are never denied by command name. Strict Pi tools
+keep repo-relative checkout reads through a sealed source overlay beneath
+provider masks. Privileged host applications enforce inspection even without
+a governed admission service.
+This adds no value to an existing wire/HTTP enum or required response field.
+
 <a id="untrusted-file-marks-additive-2673"></a>
 
 ### Untrusted file marks (additive, #2673)
@@ -55,7 +116,7 @@ The `taint` governance event's shape is unchanged: its reserved
 ### Brain-wide configuration coverage (additive, #3257)
 
 `GET /api/journal/configuration-coverage` returns `ConfigurationCoverageRead`
-(`ConfigurationCoverageRead`, `packages/ui-sdk/src/turn-journal.ts:183-185`):
+(`ConfigurationCoverageRead`, `packages/ui-sdk/src/turn-journal.ts:190-192`):
 the brain's current set of configuration inputs steering could not trace. It
 is `{ state: "known", hash, paths, count, turnId, observedAt }` for the set the
 most recent complete turn recorded from a configuration inventory: `paths` is
@@ -148,6 +209,44 @@ original) is kept, and so is any pin of a turn that has not ended. The purge run
 the bytes to the journal's capacity. The decision is recorded in
 [the governed-workers decision](../decisions/governed-writable-workers.md#metadata-only-index-history--2026-10-25-2873)
 and [its purge](../decisions/governed-writable-workers.md#purging-earlier-index-versions-and-the-embeddings-lock--2026-10-25-2903).
+
+### Index updates leave change history (breaking, pre-1.0 minor, #4302)
+
+For observations made after this change, the exact root index family and
+publication copies listed above contribute no journal change rows, changed-file
+counts or observed bytes. Notes, enrichment caches, similarly named paths and
+independently held worktrees retain their existing coverage. Previously written
+history remains readable in its existing metadata-only form, with the same
+preview, download and restore exclusions.
+
+The host `GovernedTurns.refresh(lock, turnId?)` accepts an optional causing
+turn ID to correlate its index receipt. Each host application batch and
+governed post-turn index update, including the separate credentialed vector refresh, records one
+`index_update` Activity event for each causing turn. Its payload contains an
+opaque `generation`, `durationMs` and `outcome` (`complete`, `failed`, `cancelled` or
+`index_capacity`); failures also carry a bounded `cause`. A retry is a new
+update with a new generation. Revert and Undo updates use their own journal turn IDs. Shutdown records a cancelled generation for queued refreshes that never start. Tool child spans carry the causing session and retain receipts that arrive before the backend root span. Owner API/stream records retain the receipt spans and events; `query_activity` omits host receipt spans and lifecycle diagnostics from its model-facing projection. These host receipts never enter provider history.
+
+An ordinary governed writer keeps direct in-worker `brain index`. Each
+observation also measures current index-family and publication-copy size from
+sealed metadata, without reading content or creating history rows. Past the
+independent 4 GiB bound, scope pauses with optional receipt
+`result: "index_capacity"` under the existing `turn_bytes` dimension. Optional
+scope fields `indexBytes` (nullable while unconfirmed) and `indexLimitBytes`
+disclose that independent size and ceiling. The existing one-time finite
+continuation doubles only the index ceiling; the prompt names that ceiling and preserves the content allowance. Independent pending content and index pauses must both be answered before workers resume. Unknown measurement has no grant. Optional receipt and scope-event `measurement: "unknown"` names that state; numeric count/observed and overshoot are zero compatibility placeholders, not measurements. UI and voice say the size is unknown. Operational backups retain admitted conflict state with exact schema validation and accept earlier images without those tables. Only the newest open pause offers Continue; earlier open cards keep Stop available, and regain their eligible Continue after newer pauses are answered. Refused continuation leaves Stop available. Expanded facts label unknown overshoot as unknown. The index scope event has optional `result: "index_capacity"` and `source: "default"` even under a custom policy. Strict and masked/private-index turns cannot write this live index and do not receive its cap. Admitted permanent conflict-table guards apply to already-open connections and are preserved/validated in backups. History serves stored pre-upgrade conflict lists unchanged, including empty lists and their order. New rows expose the released per-row optional `conflict` field, computed from the once-per-path durable relation. Clients continue reading the selected row's field. The repeated response size is preserved for compatibility.
+The closed dimension enum is unchanged, and old parsers accept the records.
+The bound matches the former default byte scope; checks occur at observations,
+so writes may overshoot between them. The free-space floor remains binding.
+
+Host index writers remain independently bounded by maintenance temporary storage
+and output staging (256 MiB per command by default, with their existing
+configured aggregate budgets). Writes beyond a worker allowance return
+`ENOSPC`; unavailable admission returns `worker_state_busy`. An update that
+reports either condition has the named receipt outcome `index_capacity`.
+Committed Markdown remains authoritative, and pending application paths stay
+queued for the next retry. This restriction supersedes new index-version
+listing under #2873, with the maintainer's approval on #4302 (2026-11-20).
 
 ### User history restoration (additive, #1653)
 

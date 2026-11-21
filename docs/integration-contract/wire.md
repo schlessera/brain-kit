@@ -22,7 +22,7 @@ states that overlapping writable windows share observations. `observedAt`
 names the retained window observation, not a guessed receipt time.
 The type is defined by (`TurnJournalSummary`,
 `packages/ui-sdk/src/turn-journal.ts:2-29`); validation uses
-(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1108-1126`).
+(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1136-1154`).
 `actor` additionally accepts `user` for a server-recorded history operation.
 Optional `kind` is `turn` or `revert`; a revert may name its original
 `sourceTurnId`. These facts do not create an assistant message or an inference
@@ -55,7 +55,7 @@ reports the paths observed so far, a lower bound, and an empty partial reports
 summary retained before this field, or sent by an older server, omits it or
 reports `null`: the count is unknown, never zero, and a client names the
 `changedFiles` figure as recorded entries rather than files. The count is
-(`const KEPT_CHANGE`, `packages/ui-server/src/brain/turn-journal.ts:55-58`).
+(`const KEPT_CHANGE`, `packages/ui-server/src/brain/turn-journal.ts:48-51`).
 
 **Configuration coverage set (additive, #3257).** Untraced configuration inputs
 are a property of the brain's configuration, so the host stores each distinct
@@ -132,7 +132,7 @@ reopens run state or moves focus. Older clients may ignore it. The same optional
 `budget` is retained on `TurnJournalSummary` and replayed with the existing
 single below-turn disclosure. The additive types and validation are
 (`ServerUsage`, `packages/ui-sdk/src/protocol.ts:4236-4242`) and
-(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1983-1985`).
+(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:2172-2174`).
 
 Budget list-price inference cost is separate from the journal's billing-aware
 `costUsd`. Unpriced totals remain null; known lower bounds, estimated rates,
@@ -207,16 +207,14 @@ The byte count sums captured changed hashed regular-file versions. Ignored
 regular files have no content hash and contribute their largest observed after-size
 once per turn per path, rather than their full size on every observation (#2027).
 This corrects repeated metadata observations inflating the existing observed-write
-counter; field shapes and scope decisions are unchanged. The brain root's
-disposable index (`.brain-index/brain.db` and its SQLite sidecars, and since
-0.44.0 the embeddings lock database beside it, #2903) is counted
-the same way, ignored or not, and a `.brain-index/.maintenance-<uuid>` publication
-copy that a later observation saw removed is neither a changed path nor bytes;
-one that stays counts like any other file (#2831). Since 0.44.0 every one of
-those index versions is metadata-only (#2873), and a staying publication copy
-counts its largest observed size once, like the index itself. Every host index refresh
-rewrites the whole database, so a strict turn's host applies otherwise charged
-it the index's full size per edit. The counter does not
+counter. Before #4302 the root disposable index and staying publication
+copies counted their largest observed after-size, with metadata-only history.
+New observations omit that family from rows, changed paths and retained turn
+bytes. Instead optional `indexBytes`/`indexLimitBytes` report its independent
+observation-time size cap (4 GiB initially). A cap receipt uses the existing
+`turn_bytes` dimension with optional `result: "index_capacity"`; there is no
+new enum value. Its one-time finite doubling changes only the index ceiling;
+an independent pending content pause remains binding. Unknown size permits no grant. Optional receipt `measurement: "unknown"` identifies an unreadable index; required numeric `count` and `overshoot` then contain zero compatibility placeholders, not observed values. Clients display unknown and offer no Continue grant. Older schemas keep parsing the optional field. The byte counter does not
 claim to capture writes overwritten between observations. Missing snapshots
 remain unknown. Shared windows may include other writers. No autonomous Queue
 counter or budget usage field changes.
@@ -677,7 +675,7 @@ vocabulary, so a consumer tolerates names it does not know. A step that does
 not apply to a turn is absent. The current names are:
 
 - `governed`: `inference_origin` (the backend's relay origin, looked up before
-  admission), `gate_acquire`, `startup_checkpoint`, `boundary_prepare`,
+  admission), `gate_acquire`, `gate_reacquire`, `gate_reacquire_refresh`, `startup_release_reserve`, `startup_checkpoint`, `boundary_prepare`,
   `type_translation`, `exposure_settle`, `folder_retention`, `sandbox_resolve`,
   `startup_checkpoint_refresh`, `sandbox_resolve_refresh`,
   `type_translation_refresh`, `peer_folder_plans`, `private_index`, `data_tree`,
@@ -1105,6 +1103,18 @@ SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the fa
   does not update subscription authentication status. Its message names a
   known, unambiguous host denial cause; conflicting observed causes and replay
   with only relay text claim no finer cause.
+  `session_roster_incompatible` means the retained native tool roster cannot
+  satisfy current mandatory exclusions without changing provider history. That
+  resume is refused before SDK startup, with the original roster and context
+  unchanged. A compatible authority can resume it, or the owner can start a new
+  conversation. It carries no authentication action.
+  `settings_conflict` means the native runtime could not honor a retained host
+  setting before prompt release, including an unreadable or rejected native
+  settings-control request after successful initialization. It carries no `authAction`, emits no
+  `auth_failure` event and does not update subscription authentication status.
+  Correcting the conflicting settings permits the next attempt; changing login
+  credentials does not resolve it. It uses the existing free-form failure-class
+  field, with no new frame kind or required field.
   `worker_host_unsupported` means
   the host refused before runtime initialization because its required worker
   boundary probe failed; the message names the requirement and the verified
@@ -2617,7 +2627,7 @@ number, with its `html_url` validated by the contract or `null`.
   fact is unknown. A client shows its neutral state ("The host's GitHub
   account"; `repository #number` with no kind and no link) and the approval
   works as before. Clients validate the shape
-  (`approvalDisplaySchema`, `packages/ui-sdk/src/schemas.ts:1386-1391`);
+  (`approvalDisplaySchema`, `packages/ui-sdk/src/schemas.ts:1387-1392`);
   a fact that fails it reads as `null`, never as a refused card.
 - **Re-delivery.** A pending card re-delivered after a reconnect carries the
   host's facts for it again; a client replaces what it had.

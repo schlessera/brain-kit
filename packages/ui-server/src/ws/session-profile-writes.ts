@@ -8,6 +8,7 @@
 import type { Database } from "bun:sqlite";
 
 import type { WireError, WriteProcedures } from "../db/write-worker.js";
+import { resolveChat, chatOwnedBy } from "./chat-lifecycle.js";
 import { SESSION_DRAFT_LIMITS } from "@schlessera/brain-ui-sdk/protocol";
 import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
 
@@ -24,8 +25,16 @@ export function authorizeProfile(db: Database, principalId: string, now: number)
   if (!principal || !isUsablePrincipal(principal, now)) throw new SessionProfileError(401, "Authentication required.");
 }
 
+/** A preference may grant writes only to the proven owner of this chat. */
+export function authorizeCodeChanges(db: Database, principalId: string, sessionId: string): void {
+  authorizeProfile(db, principalId, Date.now());
+  const chat = resolveChat(db, { sessionId }, { ownershipOnly: true });
+  if ("refused" in chat || !chatOwnedBy(db, chat, principalId))
+    throw new SessionProfileError(404, "This chat is not available to this principal.");
+}
+
 export function draftProfile(db: Database, principalId: string, id: string) {
-  return db.query("SELECT preference FROM draft_worker_profiles WHERE principal_id = ? AND draft_id = ?").get(principalId, id) as { preference: Profile } | null;
+  return db.query("SELECT preference, code_changes AS codeChanges FROM draft_worker_profiles WHERE principal_id = ? AND draft_id = ?").get(principalId, id) as { preference: Profile; codeChanges: number } | null;
 }
 
 /**
@@ -38,10 +47,11 @@ export function bindDraftProfile(db: Database, principalId: string, draftId: str
     authorizeProfile(db, principalId, Date.now());
     if (!db.query("SELECT 1 FROM sessions WHERE id = ?").get(sessionId)) throw new SessionProfileError(404, "This chat is not known to the host.");
     const row = draftProfile(db, principalId, draftId);
+    if (row?.codeChanges === 1) authorizeCodeChanges(db, principalId, sessionId);
     if (!row) throw new SessionProfileError(409, "This draft preference is unavailable.");
     // A save during the first turn is for its NEXT admission; the running profile stays frozen.
-    db.query("INSERT INTO session_worker_profiles (session_id, preference, updated_at, updated_by) VALUES (?, ?, ?, ?) ON CONFLICT(session_id) DO NOTHING")
-      .run(sessionId, row.preference, now, principalId);
+    db.query("INSERT INTO session_worker_profiles (session_id, preference, updated_at, updated_by, code_changes) VALUES (?, ?, ?, ?, ?) ON CONFLICT(session_id) DO NOTHING")
+      .run(sessionId, row.preference, now, principalId, row.codeChanges);
     db.query("DELETE FROM draft_worker_profiles WHERE principal_id = ? AND draft_id = ?").run(principalId, draftId);
   }).immediate();
 }
@@ -85,6 +95,24 @@ export function saveProfile(db: Database, principalId: string, kind: "session" |
   }).immediate();
 }
 
+/** An authenticated session/draft switch, committed before the API acknowledges it. */
+export function saveCodeChanges(db: Database, principalId: string, kind: "session" | "draft", id: string, enabled: boolean, now: number) {
+  db.transaction(() => {
+    authorizeProfile(db, principalId, Date.now());
+    if (kind === "session") {
+      authorizeCodeChanges(db, principalId, id);
+      db.query("INSERT INTO session_worker_profiles (session_id,preference,updated_at,updated_by,code_changes) VALUES (?,'governed',?,?,?) ON CONFLICT(session_id) DO UPDATE SET code_changes=excluded.code_changes,updated_at=excluded.updated_at,updated_by=excluded.updated_by")
+        .run(id, now, principalId, Number(enabled));
+    } else {
+      db.query("DELETE FROM draft_worker_profiles WHERE principal_id NOT IN (SELECT id FROM principals WHERE revoked_at IS NULL AND expires_at > ?)").run(now);
+      if (!draftProfile(db, principalId, id) && (db.query("SELECT COUNT(*) AS n FROM draft_worker_profiles").get() as { n: number }).n >= SESSION_DRAFT_LIMITS.maxDrafts)
+        throw new SessionProfileError(507, "The host cannot keep another draft preference yet.");
+      db.query("INSERT INTO draft_worker_profiles (principal_id,draft_id,preference,updated_at,code_changes) VALUES (?,?,'governed',?,?) ON CONFLICT(principal_id,draft_id) DO UPDATE SET code_changes=excluded.code_changes,updated_at=excluded.updated_at")
+        .run(principalId, id, now, Number(enabled));
+    }
+  }).immediate();
+}
+
 /** A refusal keeps its class and status across the worker. */
 export function reviveProfileError(error: WireError): Error | undefined {
   return error.name === "SessionProfileError" ? new SessionProfileError(error.fields.status as SessionProfileError["status"], error.message) : undefined;
@@ -92,6 +120,7 @@ export function reviveProfileError(error: WireError): Error | undefined {
 
 export function setup(db: Database): WriteProcedures {
   return {
+    saveCodeChanges: (principalId: string, kind: "session" | "draft", id: string, enabled: boolean, now: number) => saveCodeChanges(db, principalId, kind, id, enabled, now),
     save: (principalId: string, kind: "session" | "draft", id: string, preference: Profile, policyProfiles: Record<"interactive" | "voice", Profile>, now: number) =>
       saveProfile(db, principalId, kind, id, preference, policyProfiles, now),
     bind: (principalId: string, draftId: string, sessionId: string, now: number) => bindDraftProfile(db, principalId, draftId, sessionId, now),

@@ -1,4 +1,6 @@
 /** One privileged Markdown application boundary, owned by the server. */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
+import { WORKSPACES_WRITE_REFUSAL } from "@schlessera/brain-common/internal/worker-areas";
 import {
   closeSync, constants, existsSync, fchmodSync, fstatSync, fsyncSync, linkSync, lstatSync,
   mkdirSync, rmdirSync, openSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync,
@@ -233,6 +235,8 @@ export function createBrainApplication(options: {
   policy: BrainApplicationPolicy;
   /** Captured host admission facts, never a worker-selected list. */
   protectedPaths?: readonly string[];
+  /** Frozen workspace inspection mode; privileged Markdown writes obey it too. */
+  workspaceReadOnly?: boolean;
   /** The admitted turn's provider masks (#2690); `tool` names an operation as the agent called it. */
   providerMasks?: { guard: ProviderMaskGuard; tool(operation: BrainApplicationInput["operation"]): string };
   signal: AbortSignal;
@@ -272,11 +276,15 @@ export function createBrainApplication(options: {
   beforeCommit?: () => void;
 }) {
   const root = realpathSync(options.root);
+  // Direct/approved host applications also need a frozen default when no
+  // governed bridge supplied mount facts. Absence stays ordinary this turn.
+  const workspaceReadOnly = options.workspaceReadOnly ?? Boolean(lstatSync(join(root, "workspaces"), { throwIfNoEntry: false }));
   // A protected path that is a link protects where it leads (#2876); a target
   // reached through a link refuses as an alias where it is opened.
   const isProtected = options.protectedPaths ? createProtectedTargetCheck(root, options.protectedPaths, { links: "refused" }) : undefined;
   const validateTarget = (path: string): void => {
     validatePath(path);
+    if (workspaceReadOnly && isWithin("workspaces", path)) refuse("policy_denied", WORKSPACES_WRITE_REFUSAL);
     if (isProtected?.(path)) refuse("policy_denied", PROTECTED_TARGET_REFUSAL);
   };
   const planner = options.planner ?? boundaryPlanner(createHostBoundary({ brainPath: root }));
@@ -314,7 +322,7 @@ export function createBrainApplication(options: {
       if (queued || !committed.length) return;
       queued = true;
       const applied = [...committed];
-      indexBatch.queue(applied.map(change => change.path), settled => receipt.report({ changes: applied, indexed: settled.indexed, ...(settled.indexError ? { indexError: settled.indexError } : {}) }));
+      indexBatch.queue(applied.map(change => change.path), settled => receipt.report({ changes: applied, indexed: settled.indexed, ...(settled.indexError ? { indexError: settled.indexError } : {}) }), request.turnId);
     };
     let result: BrainApplicationResult;
     // One wait bound for every hold this application meets.

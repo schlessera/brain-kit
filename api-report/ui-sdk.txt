@@ -1442,6 +1442,7 @@ export "./internal" (./src/internal.ts)
   type RemovalRun
   type Reservation
   type RetainedCleanup
+  SESSION_PROMPT_CONTEXT_MAX_BYTES
   STALE_SAFETY_ADMISSION
   SUBPROCESS_ENV
   type SessionPromptFacts
@@ -1586,6 +1587,7 @@ export "./internal" (./src/internal.ts)
   resolveWebSearchConfigPath
   resolveWorkerProtection
   resolveWorkerStateLimits
+  resolveWorkspacesMount
   restrictedReadPaths
   retainWorkerStartupView
   rewriteWorkerRtk
@@ -1621,6 +1623,7 @@ export "./internal" (./src/internal.ts)
   workerProviderCredentials
   workerSandboxNote
   workerSandboxWarnings
+  workspaceWriteRefusal
 
 export "./internal/client" (./src/internal-client.ts)
   type FrontmatterBlock
@@ -8252,7 +8255,7 @@ signatures (every public export and the types it is made of)
         entries: FileEntry[];
     }
   FirstPartyFailureClass (packages/ui-sdk/src/protocol.ts)
-    type FirstPartyFailureClass = "authentication_failed" | "oauth_org_not_allowed" | "account_on_hold" | "verification_required" | "billing_error" | "subscription_required" | "host_refused" | "auth_failure" | "rate_limit" | "overloaded" | "server_error" | "invalid_request" | "model_not_found" | "max_output_tokens" | "cloud_credential_error" | "worker_host_unsupported" | "session_too_large" | "worker_resource_limit" | "worker_state_busy" | "worker_state_exceeded" | "worker_state_save_refused" | "journal_capacity" | "journal_unavailable" | "budget_exceeded" | "budget_unavailable" | "input_safety_unavailable" | "safety_recording_unavailable" | "safety_recording_paused" | "safety_recording_chat_full" | "safety_recording_brain_full" | "unknown";
+    type FirstPartyFailureClass = "authentication_failed" | "oauth_org_not_allowed" | "account_on_hold" | "verification_required" | "billing_error" | "subscription_required" | "host_refused" | "auth_failure" | "settings_conflict" | "session_roster_incompatible" | "rate_limit" | "overloaded" | "server_error" | "invalid_request" | "model_not_found" | "max_output_tokens" | "cloud_credential_error" | "worker_host_unsupported" | "session_too_large" | "worker_resource_limit" | "worker_state_busy" | "worker_state_exceeded" | "worker_state_save_refused" | "journal_capacity" | "journal_unavailable" | "budget_exceeded" | "budget_unavailable" | "input_safety_unavailable" | "safety_recording_unavailable" | "safety_recording_paused" | "safety_recording_chat_full" | "safety_recording_brain_full" | "unknown";
   FirstRequestCacheUsage (packages/ui-sdk/src/protocol.ts)
     export interface FirstRequestCacheUsage {
         inputTokens: number | null;
@@ -13509,6 +13512,8 @@ signatures (every public export and the types it is made of)
     }
   ScopeCapReceipt (packages/ui-sdk/src/turn-journal.ts)
     export interface ScopeCapReceipt {
+        measurement?: "unknown";
+        result?: "index_capacity";
         eventId: string;
         dimension: ScopeDimension;
         count: number;
@@ -15096,6 +15101,8 @@ signatures (every public export and the types it is made of)
     }
   TurnScopeSummary (packages/ui-sdk/src/turn-journal.ts)
     export interface TurnScopeSummary {
+        indexBytes?: number | null;
+        indexLimitBytes?: number;
         policySource: "policy" | "default";
         limits: Record<Exclude<ScopeDimension, "free_space_floor">, number>;
         hardTimeoutMs: number;
@@ -23855,6 +23862,8 @@ signatures (every public export and the types it is made of)
                     partial: "partial";
                 }>;
                 hardTimeoutMs: z.ZodNumber;
+                indexBytes: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+                indexLimitBytes: z.ZodOptional<z.ZodNumber>;
                 limits: z.ZodObject<{
                     files_changed: z.ZodNumber;
                     minutes: z.ZodNumber;
@@ -23880,10 +23889,12 @@ signatures (every public export and the types it is made of)
                     }>;
                     eventId: z.ZodString;
                     frozen: z.ZodBoolean;
+                    measurement: z.ZodOptional<z.ZodLiteral<"unknown">>;
                     newCap: z.ZodOptional<z.ZodNumber>;
                     observedAt: z.ZodNumber;
                     overshoot: z.ZodNumber;
                     reason: z.ZodOptional<z.ZodString>;
+                    result: z.ZodOptional<z.ZodLiteral<"index_capacity">>;
                     state: z.ZodEnum<{
                         continued: "continued";
                         ended_before_answer: "ended_before_answer";
@@ -24878,6 +24889,8 @@ signatures (every public export and the types it is made of)
                         partial: "partial";
                     }>;
                     hardTimeoutMs: z.ZodNumber;
+                    indexBytes: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+                    indexLimitBytes: z.ZodOptional<z.ZodNumber>;
                     limits: z.ZodObject<{
                         files_changed: z.ZodNumber;
                         minutes: z.ZodNumber;
@@ -24903,10 +24916,12 @@ signatures (every public export and the types it is made of)
                         }>;
                         eventId: z.ZodString;
                         frozen: z.ZodBoolean;
+                        measurement: z.ZodOptional<z.ZodLiteral<"unknown">>;
                         newCap: z.ZodOptional<z.ZodNumber>;
                         observedAt: z.ZodNumber;
                         overshoot: z.ZodNumber;
                         reason: z.ZodOptional<z.ZodString>;
+                        result: z.ZodOptional<z.ZodLiteral<"index_capacity">>;
                         state: z.ZodEnum<{
                             continued: "continued";
                             ended_before_answer: "ended_before_answer";
@@ -28541,6 +28556,8 @@ signatures (every public export and the types it is made of)
                         partial: "partial";
                     }>;
                     hardTimeoutMs: z.ZodNumber;
+                    indexBytes: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+                    indexLimitBytes: z.ZodOptional<z.ZodNumber>;
                     limits: z.ZodObject<{
                         files_changed: z.ZodNumber;
                         minutes: z.ZodNumber;
@@ -28566,10 +28583,12 @@ signatures (every public export and the types it is made of)
                         }>;
                         eventId: z.ZodString;
                         frozen: z.ZodBoolean;
+                        measurement: z.ZodOptional<z.ZodLiteral<"unknown">>;
                         newCap: z.ZodOptional<z.ZodNumber>;
                         observedAt: z.ZodNumber;
                         overshoot: z.ZodNumber;
                         reason: z.ZodOptional<z.ZodString>;
+                        result: z.ZodOptional<z.ZodLiteral<"index_capacity">>;
                         state: z.ZodEnum<{
                             continued: "continued";
                             ended_before_answer: "ended_before_answer";
@@ -28970,6 +28989,8 @@ signatures (every public export and the types it is made of)
                     partial: "partial";
                 }>;
                 hardTimeoutMs: z.ZodNumber;
+                indexBytes: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+                indexLimitBytes: z.ZodOptional<z.ZodNumber>;
                 limits: z.ZodObject<{
                     files_changed: z.ZodNumber;
                     minutes: z.ZodNumber;
@@ -28995,10 +29016,12 @@ signatures (every public export and the types it is made of)
                     }>;
                     eventId: z.ZodString;
                     frozen: z.ZodBoolean;
+                    measurement: z.ZodOptional<z.ZodLiteral<"unknown">>;
                     newCap: z.ZodOptional<z.ZodNumber>;
                     observedAt: z.ZodNumber;
                     overshoot: z.ZodNumber;
                     reason: z.ZodOptional<z.ZodString>;
+                    result: z.ZodOptional<z.ZodLiteral<"index_capacity">>;
                     state: z.ZodEnum<{
                         continued: "continued";
                         ended_before_answer: "ended_before_answer";
@@ -29302,6 +29325,8 @@ signatures (every public export and the types it is made of)
                 partial: "partial";
             }>;
             hardTimeoutMs: z.ZodNumber;
+            indexBytes: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+            indexLimitBytes: z.ZodOptional<z.ZodNumber>;
             limits: z.ZodObject<{
                 files_changed: z.ZodNumber;
                 minutes: z.ZodNumber;
@@ -29327,10 +29352,12 @@ signatures (every public export and the types it is made of)
                 }>;
                 eventId: z.ZodString;
                 frozen: z.ZodBoolean;
+                measurement: z.ZodOptional<z.ZodLiteral<"unknown">>;
                 newCap: z.ZodOptional<z.ZodNumber>;
                 observedAt: z.ZodNumber;
                 overshoot: z.ZodNumber;
                 reason: z.ZodOptional<z.ZodString>;
+                result: z.ZodOptional<z.ZodLiteral<"index_capacity">>;
                 state: z.ZodEnum<{
                     continued: "continued";
                     ended_before_answer: "ended_before_answer";
@@ -29362,6 +29389,8 @@ signatures (every public export and the types it is made of)
             partial: "partial";
         }>;
         hardTimeoutMs: z.ZodNumber;
+        indexBytes: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+        indexLimitBytes: z.ZodOptional<z.ZodNumber>;
         limits: z.ZodObject<{
             files_changed: z.ZodNumber;
             minutes: z.ZodNumber;
@@ -29387,10 +29416,12 @@ signatures (every public export and the types it is made of)
             }>;
             eventId: z.ZodString;
             frozen: z.ZodBoolean;
+            measurement: z.ZodOptional<z.ZodLiteral<"unknown">>;
             newCap: z.ZodOptional<z.ZodNumber>;
             observedAt: z.ZodNumber;
             overshoot: z.ZodNumber;
             reason: z.ZodOptional<z.ZodString>;
+            result: z.ZodOptional<z.ZodLiteral<"index_capacity">>;
             state: z.ZodEnum<{
                 continued: "continued";
                 ended_before_answer: "ended_before_answer";

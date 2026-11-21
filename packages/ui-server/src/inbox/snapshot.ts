@@ -9,7 +9,7 @@ import { z } from "zod";
 import { brainApplicationInput } from "@schlessera/brain-ui-sdk/server";
 import { COMPLETE_SHARE_INPUT_SCHEMA } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { SHARE_STAGING_DIR } from "@schlessera/brain-ui-sdk/protocol";
-import { JOURNAL_OBJECT_REFS_INDEX, JOURNAL_SCHEMA, journalDatabasePath } from "../db/journal-database.js";
+import { JOURNAL_CHANGE_PATH_INDEX, JOURNAL_CONFLICT_TABLES, JOURNAL_CONFLICT_GUARDS, JOURNAL_OBJECT_REFS_INDEX, JOURNAL_SCRUB_QUARANTINE, JOURNAL_SCRUB_GUARDS, JOURNAL_SCHEMA, journalDatabasePath } from "../db/journal-database.js";
 import type { InboxQueueItem } from "@schlessera/brain-ui-sdk/protocol";
 import { pauseRestoredSchedules, validateScheduleRelations } from "../schedules/recovery.js";
 import { invalidateRestoredStorage, parseStoredHistory } from "../storage/history-store.js";
@@ -53,7 +53,7 @@ function image(db: Database): Buffer {
   const normalized = (bytes: Buffer) => { bytes[18] = bytes[19] = 1; return bytes; };
   return db.transaction(() => {
     const bytes = normalized(db.serialize());
-    const journal = journalAttached(db) ? (db.query(`SELECT type, name, tbl_name, sql FROM ${JOURNAL_SCHEMA}.sqlite_schema WHERE name GLOB 'turn_journal_*' AND sql IS NOT NULL ORDER BY rowid`).all() as (SchemaRow & { sql: string })[]).filter(row => !derivedObjectIndex(row)) : [];
+    const journal = journalAttached(db) ? (db.query(`SELECT type, name, tbl_name, sql FROM ${JOURNAL_SCHEMA}.sqlite_schema WHERE name GLOB 'turn_journal_*' AND sql IS NOT NULL ORDER BY rowid`).all() as (SchemaRow & { sql: string })[]).filter(row => !derivedJournalIndex(row)) : [];
     if (!journal.length) return bytes;
     // The whole UI database includes the journal's own file (#2789). It
     // travels in the image's UI database, where releases before the split
@@ -75,9 +75,11 @@ function image(db: Database): Buffer {
   })();
 }
 type SchemaRow = { type: string; name: string; tbl_name: string; sql: string | null };
-/** Only this exact derived index; a reused name cannot hide altered schema or a trigger. */
-const derivedObjectIndex = (row: SchemaRow) => row.type === "index" && row.name === JOURNAL_OBJECT_REFS_INDEX.name
-  && row.tbl_name === "turn_journal_object_refs" && row.sql === JOURNAL_OBJECT_REFS_INDEX.sql;
+/** Exact derived indices only; reused names cannot hide altered schema or triggers. */
+const derivedJournalIndex = (row: SchemaRow) => row.type === "index" && [
+  { ...JOURNAL_OBJECT_REFS_INDEX, table: "turn_journal_object_refs" },
+  { ...JOURNAL_CHANGE_PATH_INDEX, table: "turn_journal_changes" },
+].some(index => row.name === index.name && row.tbl_name === index.table && row.sql === index.sql);
 const journalAttached = (db: Database) => (db.query("PRAGMA database_list").all() as { name: string }[]).some(row => row.name === JOURNAL_SCHEMA);
 /** Recovery commands open the UI file directly; its journal file, once it exists, belongs to it. */
 function attachJournalFile(db: Database): void {
@@ -86,9 +88,9 @@ function attachJournalFile(db: Database): void {
   if (existsSync(path)) db.query(`ATTACH DATABASE ? AS ${JOURNAL_SCHEMA}`).run(path);
 }
 /** The live layout keeps the journal in its own file; an image keeps it with the UI database. */
-function schema(db: Database, journal = false): unknown[] {
+function schema(db: Database, journal = false): SchemaRow[] {
   const rows = db.query("SELECT type, name, tbl_name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'").all() as SchemaRow[];
-  if (journal && journalAttached(db)) rows.push(...(db.query(`SELECT type, name, tbl_name, sql FROM ${JOURNAL_SCHEMA}.sqlite_master WHERE name GLOB 'turn_journal_*'`).all() as SchemaRow[]).filter(row => !derivedObjectIndex(row)));
+  if (journal && journalAttached(db)) rows.push(...(db.query(`SELECT type, name, tbl_name, sql FROM ${JOURNAL_SCHEMA}.sqlite_master WHERE name GLOB 'turn_journal_*'`).all() as SchemaRow[]).filter(row => !derivedJournalIndex(row)));
   return rows.sort((a, b) => a.type === b.type ? (a.name < b.name ? -1 : a.name > b.name ? 1 : 0) : a.type < b.type ? -1 : 1);
 }
 function logicalState(db: Database): unknown[] {
@@ -101,7 +103,21 @@ function logicalState(db: Database): unknown[] {
 function validateDatabase(db: Database): void {
   const expected = createUiDb(":memory:");
   try {
-    if (JSON.stringify(schema(db, true)) !== JSON.stringify(schema(expected, true)) ||
+    const actual = schema(db, true);
+    const admitted = JOURNAL_CONFLICT_TABLES.filter(table => actual.some(row => row.type === "table" && row.name === table.name));
+    if (admitted.length && admitted.length !== JOURNAL_CONFLICT_TABLES.length) throw new Error("inbox_snapshot_schema");
+    // Both absent is an older image. When present, compare canonical SQL and
+    // preserve every row; runtime admission never weakens schema validation.
+    for (const table of admitted) expected.exec(table.sql.replace("CREATE TABLE ", "CREATE TABLE journal."));
+    const guards = JOURNAL_CONFLICT_GUARDS.filter(guard => actual.some(row => row.type === "trigger" && row.name === guard.name));
+    if (guards.length && (admitted.length !== JOURNAL_CONFLICT_TABLES.length || guards.length !== JOURNAL_CONFLICT_GUARDS.length)) throw new Error("inbox_snapshot_schema");
+    for (const guard of guards) expected.exec(guard.sql.replace("CREATE TRIGGER ", "CREATE TRIGGER journal."));
+    const scrub=actual.some(row=>row.type==="table"&&row.name===JOURNAL_SCRUB_QUARANTINE.name);
+    if(scrub)expected.exec(JOURNAL_SCRUB_QUARANTINE.sql);
+    const scrubGuards=JOURNAL_SCRUB_GUARDS.filter(guard=>actual.some(row=>row.type==="trigger"&&row.name===guard.name));
+    if(scrubGuards.length&&(!scrub||scrubGuards.length!==JOURNAL_SCRUB_GUARDS.length))throw new Error("inbox_snapshot_schema");
+    for(const guard of scrubGuards)expected.exec(guard.sql.replace("CREATE TRIGGER ","CREATE TRIGGER journal."));
+    if (JSON.stringify(actual) !== JSON.stringify(schema(expected, true)) ||
         JSON.stringify(db.query("SELECT filename FROM _migrations ORDER BY filename").all()) !==
         JSON.stringify(expected.query("SELECT filename FROM _migrations ORDER BY filename").all()))
       throw new Error("inbox_snapshot_schema");

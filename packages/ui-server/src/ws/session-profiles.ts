@@ -5,13 +5,13 @@ import type { SessionWorkerProfile } from "@schlessera/brain-ui-sdk/protocol";
 import type { GovernedTurns } from "../brain/governed-turn.js";
 import { procedureCaller, type SqliteWriter } from "../db/write-worker.js";
 import * as writes from "./session-profile-writes.js";
-import { authorizeProfile, draftProfile, SessionProfileError } from "./session-profile-writes.js";
+import { authorizeCodeChanges, authorizeProfile, draftProfile, SessionProfileError } from "./session-profile-writes.js";
 
 export { SessionProfileError };
 
 type Profile = "governed" | "strict";
-type SessionRow = { preference: Profile; actualProfile: Profile | null; origin: "interactive" | "voice" };
-type Effect = { bind: Profile } | { record: { origin: "interactive" | "voice"; actualProfile: Profile } };
+type SessionRow = { preference: Profile; codeChanges: number; actualProfile: Profile | null; origin: "interactive" | "voice" };
+type Effect = { bind: Profile; codeChanges: number } | { record: { origin: "interactive" | "voice"; actualProfile: Profile } };
 
 export function createSessionProfiles(db: Database, turns: GovernedTurns, budgets?: import("../brain/turn-budgets.js").TurnBudgets, limits?: { hardTimeoutMs: () => number },
   /**
@@ -43,10 +43,10 @@ export function createSessionProfiles(db: Database, turns: GovernedTurns, budget
   const exists = (id: string) => options.catalog?.hasSession?.(id) ?? db.query("SELECT 1 FROM sessions WHERE id = ?").get(id) !== null;
   const session = (id: string) => {
     if (!exists(id)) throw new SessionProfileError(404, "This chat is not known to the host.");
-    let row = db.query("SELECT preference, actual_profile AS actualProfile, origin FROM session_worker_profiles WHERE session_id = ?").get(id) as SessionRow | null;
+    let row = db.query("SELECT preference, code_changes AS codeChanges, actual_profile AS actualProfile, origin FROM session_worker_profiles WHERE session_id = ?").get(id) as SessionRow | null;
     for (const effect of pending.get(id) ?? []) {
-      if ("bind" in effect) row ??= { preference: effect.bind, actualProfile: null, origin: "interactive" };
-      else row = row ? { ...row, ...effect.record } : { preference: "governed", ...effect.record };
+      if ("bind" in effect) row ??= { preference: effect.bind, codeChanges: effect.codeChanges, actualProfile: null, origin: "interactive" };
+      else row = row ? { ...row, ...effect.record } : { preference: "governed", codeChanges: 0, ...effect.record };
     }
     return row;
   };
@@ -85,6 +85,32 @@ export function createSessionProfiles(db: Database, turns: GovernedTurns, budget
   return {
     read,
     settled,
+    readCodeChanges(principalId: string, kind: "session" | "draft", id: string): { enabled: boolean } {
+      authorize(principalId);
+      if (kind === "session") authorizeCodeChanges(db, principalId, id);
+      return { enabled: (kind === "session" ? session(id)?.codeChanges : draft(principalId, id)?.codeChanges) === 1 };
+    },
+    async saveCodeChanges(principalId: string, kind: "session" | "draft", id: string, enabled: boolean) {
+      await settled();
+      await submit("saveCodeChanges", principalId, kind, id, enabled, Date.now());
+      return this.readCodeChanges(principalId, kind, id);
+    },
+    codeChanges(principalId: string, sessionId?: string, draftId?: string): boolean {
+      authorize(principalId);
+      if (sessionId) {
+        if (session(sessionId)?.codeChanges !== 1) return false;
+        // Legacy/foreign ownership cannot carry a saved write grant into admission.
+        try { authorizeCodeChanges(db, principalId, sessionId); } catch (error) {
+          if (error instanceof SessionProfileError && error.status === 404) return false;
+          throw error;
+        }
+        return session(sessionId)?.codeChanges === 1;
+      }
+      if (!draftId) return false;
+      const row = draft(principalId, draftId);
+      if (!row) throw new SessionProfileError(409, "This draft preference is unavailable. Refresh before sending.");
+      return row.codeChanges === 1;
+    },
     // A saved preference commits on the write worker too (#2850), after
     // what it reads has settled; the answer is read once it has.
     async save(principalId: string, kind: "session" | "draft", id: string, preference: Profile) {
@@ -108,7 +134,7 @@ export function createSessionProfiles(db: Database, turns: GovernedTurns, budget
       if (!row) throw new SessionProfileError(409, "This draft preference is unavailable.");
       const key = JSON.stringify([principalId, draftId]);
       consumed.add(key);
-      const done = write(sessionId, { bind: row.preference }, "bind", principalId, draftId, sessionId, Date.now());
+      const done = write(sessionId, { bind: row.preference, codeChanges: row.codeChanges }, "bind", principalId, draftId, sessionId, Date.now());
       void done.then(() => {}, () => {}).then(() => consumed.delete(key));
       return done;
     },

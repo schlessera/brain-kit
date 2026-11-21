@@ -91,7 +91,8 @@ export function runActivityQuery(
           billingMode: liveRollup?.billingMode ?? null,
           pricingEstimate: liveRollup?.pricingEstimate ?? null,
           failureReason: liveRollup?.failureReason ?? null,
-          spans: snapshot.spans.map((s) => ({
+          // Host receipt spans are owner diagnostics, never model context.
+          spans: snapshot.spans.filter(s => s.attrs.hostMaintenanceReceipt !== true).map((s) => ({
             spanId: s.spanId,
             parent: s.parentSpanId,
             name: s.name,

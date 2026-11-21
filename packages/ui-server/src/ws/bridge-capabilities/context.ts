@@ -28,6 +28,8 @@ export interface MakeBridgeOptions {
   applicationPolicy?: BrainApplicationPolicy | undefined;
   /** Frozen policy protection captured after this turn's gate admission. */
   protectedPaths?: readonly string[] | undefined;
+  /** Frozen workspace mode for privileged tools that run outside the worker mount. */
+  workspaceReadOnly?: boolean;
   workerProfile?: WorkerProfileBinding | undefined;
   onUsage?: ((usage: TurnUsage, backstop?: boolean) => TurnUsage | void) | undefined;
   pricingContext?: { billingMode?: BillingMode; pricingRoute?: PricingRoute } | undefined;

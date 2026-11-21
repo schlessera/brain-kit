@@ -73,13 +73,13 @@ test("strict persistent-area aliases cannot expose a governed peer's later confi
   mkdirSync(join(brain, "workspaces"));
   writeFileSync(join(brain, "workspaces/helper.ts"), 'export default "Odysseus before launch";');
   writeFileSync(join(brain, "brain.config.ts"), 'export {default} from "/tmp/brain-worker-areas/workspaces/helper.ts";');
-  const sandbox = prepareWorkerSandbox(brain, { profile: "strict", areas: ["workspaces"], readPaths: [process.execPath] });
+  const sandbox = prepareWorkerSandbox(brain, { profile: "strict", codeChanges: true, areas: ["workspaces"], readPaths: [process.execPath] });
   const worker = launchAgentWorker({ brainPath: brain, startupView: createWorkerStartupView(brain), sandbox, env: {}, command: ["/bin/sh", "-c",
     'printf "ready\\n"; IFS= read -r go; exec "$1" --no-env-file -e \'console.log((await import("./brain.config.ts")).default)\'', "odysseus-reader", process.execPath] });
   try {
     const [ready] = await once(worker.stdout, "data");
     expect(String(ready)).toBe("ready\n");
-    const peer = prepareWorkerSandbox(brain, { profile: "governed", areas: [] });
+    const peer = prepareWorkerSandbox(brain, { profile: "governed", codeChanges: true, areas: ["workspaces"] });
     const writer = Bun.spawnSync(workerCommand({ brainPath: brain, sandbox: peer, env: {}, command: ["/bin/sh", "-c",
       `printf '%s' 'export default "Odysseus during launch";' > workspaces/helper.ts`] }), { env: {}, stdout: "pipe", stderr: "pipe" });
     expect(writer.exitCode, writer.stderr.toString()).toBe(0);
@@ -120,7 +120,7 @@ test("strict output publication holds the same path lock as a governed native wr
   const brain = fixture(); mkdirSync(join(brain, "workspaces"));
   const destination = join(brain, "workspaces/shared.md"); writeFileSync(destination, "before");
   const lock = createKeyedLock(); const release = await lock.acquire(`path:${destination}`);
-  const sandbox = prepareWorkerSandbox(brain, { profile: "strict", areas: ["workspaces"] });
+  const sandbox = prepareWorkerSandbox(brain, { profile: "strict", codeChanges: true, areas: ["workspaces"] });
   const worker = launchAgentWorker({ brainPath: brain, startupView: createWorkerStartupView(brain), sandbox, outputLock: lock, env: {},
     command: ["/bin/sh", "-c", "printf staged > /tmp/brain-worker-areas/workspaces/shared.md"] });
   let settled = false;
@@ -219,7 +219,7 @@ for (const link of ["relative", "absolute", "area-root"] as const) test(`strict 
   writeFileSync(join(brain, "workspaces/harbor.txt"), "BRAIN_DOTENV_MARK=Odysseus\n");
   fs.symlinkSync(link === "relative" ? "workspaces/harbor.txt" : link === "absolute" ? join(brain, "workspaces/harbor.txt")
     : `${WORKER_AREA_ROOT}/workspaces/harbor.txt`, join(brain, ".env"));
-  const sandbox = prepareWorkerSandbox(brain, { profile: "strict", areas: ["workspaces"], readPaths: [process.execPath] });
+  const sandbox = prepareWorkerSandbox(brain, { profile: "strict", codeChanges: true, areas: ["workspaces"], readPaths: [process.execPath] });
   const worker = launchAgentWorker({ brainPath: brain, startupView: createWorkerStartupView(brain), sandbox, env: {}, command: [process.execPath, "--no-env-file", "-e",
     `const fs=require("node:fs"),root=${JSON.stringify(WORKER_AREA_ROOT + "/workspaces")},read=p=>{try{return fs.readFileSync(p,"utf8")}catch(e){return e.code}};fs.writeFileSync(root+"/voyage.md","Odysseus keeps writing.");console.log(JSON.stringify({alias:read(".env"),copy:read(root+"/harbor.txt"),public:read("helper.ts")}));`] });
   try {

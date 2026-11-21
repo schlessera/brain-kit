@@ -200,3 +200,16 @@ test("a memory record made while an observation of its turn commits takes the ne
     expect(sequences, "MEMORY_RECORD_NEVER_REUSES_AN_OBSERVED_SEQUENCE").toEqual([["harbour.md", 1], ["claude-memory://counsel.md", 2]]);
   } finally { await f.close(); }
 });
+
+
+test("a private memory version pins only its owner beside an unrelated active turn", async () => {
+  const f = fixture();
+  try {
+    await f.begin("return"); await f.begin("peer");
+    const worker = f.worker("return"); writeFileSync(join(worker.notes, "voyage.md"), "Athena guides Odysseus.");
+    await worker.persist();
+    const pins = f.db.query("SELECT DISTINCT turn_id FROM turn_journal_object_refs WHERE hash IN (SELECT json_extract(after_json,'$.hash') FROM turn_journal_changes WHERE turn_id='return' AND scope='claude_memory') ORDER BY turn_id").all();
+    expect(pins, "PRIVATE_MEMORY_PINS_ONLY_ITS_OWNER").toEqual([{ turn_id: "return" }]);
+    expect(f.journal.details("ithaca", "peer")!.changes.filter(change => change.scope === "claude_memory")).toEqual([]);
+  } finally { await f.close(); }
+});

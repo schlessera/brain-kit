@@ -1,4 +1,5 @@
 import { routineMaintenanceRequest, maintenanceResult, captureMaintenanceStdout, type MaintenanceGitPublication } from "./maintenance-git-publication.js";
+import { protectedPaths } from "@schlessera/brain-common/internal/protected-paths";
 /**
  * The host execution boundary (#1648; docs/decisions/governed-writable-workers.md,
  * "The host execution boundary").
@@ -24,7 +25,7 @@ import { routineMaintenanceRequest, maintenanceResult, captureMaintenanceStdout,
  */
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { brainWorkerPath } from "@schlessera/brain-common/internal/worker-areas";
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, realpathSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import type { Logger } from "@opentelemetry/api-logs";
 import {
@@ -36,11 +37,11 @@ import {
 } from "@schlessera/brain-ui-sdk/internal";
 import { createKeyedLock, type KeyedLock, killWrapped, wrapCommand, type ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
 import { markUnpinnedHostWriter, refuseHostFallback, type GateHold, type GateMode, type WriterGate } from "./writer-gate.js";
-import { createGovernancePolicyReader } from "./governance-policy.js";
+import { governancePolicyReaderFor, retainedFolderRoots, providerTypeSelectors } from "./governance-policy.js";
 import type { GovernedStatus, GovernedUnavailableReason } from "@schlessera/brain-ui-sdk/protocol";
 import { runMirrorSync, syncMirrorPath } from "./sync-mirror.js";
 import { moduleRepositoryWorkerAccess, type ModuleRepositoryAccess } from "./module-repositories.js";
-import { resolveWorkerProtection } from "@schlessera/brain-ui-sdk/internal";
+import { resolveWorkspacesMount, resolveWorkerProtection } from "@schlessera/brain-ui-sdk/internal";
 import { prepareMaintenanceOutput } from "./maintenance-output.js";
 import { operationalStateMasks, operationalStateRefusal, workerIdentitySentinelDirectory, type OperationalStateLayout, type WorkerProbeState } from "./operational-state.js";
 import { prepareMaintenanceGit } from "./maintenance-git.js";
@@ -540,7 +541,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
   // A gated host writer is refused inside its gate transaction. An ungated
   // one (`gate: none`, runSync) still checks every active writer's retained
   // plan when a gate exists; with no gate at all, only the policy is known.
-  const policyReader = createGovernancePolicyReader(brain);
+  const policyReader = governancePolicyReaderFor(brain);
   // Each settles once its check has committed (#2850); nothing spawns before.
   const admitHost = async (hold: GateHold | null) => {
     if (hold) return markUnpinnedHostWriter(hold);
@@ -615,12 +616,25 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       const identity = ordinary.ok && ordinary.identity === "separate_uid"
         ? { identity: "separate_uid" as const, workerUid: ordinary.workerUid }
         : configuredIdentity ? {} : { identity: "shared_uid" as const };
-      const protection = resolveWorkerProtection(brain);
-      const profile = options.profile === "strict" || !availability.available || protection.reason ? "strict" : "governed";
-      return { hostExecution: isolated() ? "worker" : "host", ...availability, profile,
+      const policy = policyReader.load();
+      const folderPaths = retainedFolderRoots(policy.policy).filter(path => {
+        if (![".brain-index", ".brain-cache"].includes(path)) return true;
+        try { return lstatSync(join(brain, path), { throwIfNoEntry: false }) !== undefined; } catch { return true; }
+      });
+      const protection = resolveWorkerProtection(brain, { paths: protectedPaths(policy.policy), readOnlyRoots: ["workspaces"], folderPaths, prepare: false });
+      let workspaceFallback: string | undefined;
+      try {
+        const workspace = resolveWorkspacesMount(brain);
+        if (!workspace.writable && !workspace.missing && !workspace.readOnlyPath) workspaceFallback = workspace.reason;
+      } catch { workspaceFallback = "workspaces/ could not be qualified"; }
+      const fallback = protection.reason ?? workspaceFallback;
+      const unresolvedTypes = providerTypeSelectors(policy.policy).length > 0;
+      const profile = options.profile === "strict" || policy.policy.profiles.interactive === "strict" || !availability.available || fallback ? "strict" : "governed";
+      const qualifiedProfile = profile === "strict" || !unresolvedTypes ? profile : undefined;
+      return { hostExecution: isolated() ? "worker" : "host", ...availability, ...(qualifiedProfile ? { profile: qualifiedProfile } : {}),
         protectedPaths: protection.protection.paths.map(({ rel, mode, reason }) => ({ path: rel, mode, reason })),
-        ...(protection.reason ? { profileFallback: protection.reason } : {}),
-        ...identity, configurationView: profile === "governed" ? "live" : "startup",
+        ...(fallback ? { profileFallback: fallback } : unresolvedTypes && !qualifiedProfile ? { profileFallback: "Provider type folder qualification is unresolved in read-only status; each admission resolves it on its checkpoint." } : {}),
+        ...identity, ...(qualifiedProfile ? { configurationView: qualifiedProfile === "governed" ? "live" as const : "startup" as const } : {}),
         egress: hasManagedNativeStorage(brain) ? { active: true, detail: `${TURN_EGRESS_ACTIVE} ${options.providerRelay ? PROVIDERS_RELAYED : PROVIDERS_NOT_RELAYED}` }
           : { active: false, detail: TURN_EGRESS_INACTIVE } };
     },

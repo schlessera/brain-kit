@@ -9,7 +9,7 @@ import { constants, openSync, closeSync, fsyncSync, fstatSync, writeFileSync, re
   mkdirSync, chmodSync, chownSync, readdirSync, realpathSync, existsSync, unlinkSync, ftruncateSync } from "node:fs";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { nativeCheckpointId, nativeManagerRequest, nativeManagerFrame, NativeBrainManagerError, NATIVE_CONTROL_BYTES, NATIVE_DATA_CHUNK_BYTES, NATIVE_MANAGER_OPERATION_TIMEOUT_MS, NATIVE_MANAGER_MAX_DELTA_BYTES,
-  type NativeCheckpoint, type NativeManagerReady, type NativeManagerRequest, type NativeRecoveryRecord, type NativeTurnTree } from "./native-brain-manager-protocol.js";
+  NATIVE_REQUEST_BYTES, type NativeCheckpoint, type NativeManagerReady, type NativeManagerRequest, type NativeRecoveryRecord, type NativeTurnTree } from "./native-brain-manager-protocol.js";
 import { NATIVE_TREE_REMOVAL, nativeTurnTreeReaders } from "./native-turn-trees.js";
 import { startNativeStage } from "./native-brain-stage.js";
 import { randomUUID } from "node:crypto";
@@ -145,6 +145,7 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig,
   const activeStages = new Map<string, Awaited<ReturnType<typeof startNativeStage>>>();
   const stageReservations = new Map<string, { checkpointId: string; allowanceBytes: number }>();
   const checkpointReaders = new Map<string, { checkpointId: string; close(): Promise<void> }>();
+  const checkpointDeletes = new Map<string, Promise<{ id: string; state: "deleted" }>>();
   let stagedBytes = 0;
   /** Live turn trees' allowances (#2911), charged from intent creation until observed reclamation. */
   const treeReservations = new Map<string, number>();
@@ -440,7 +441,7 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig,
     return { id: intent.id, sourceUuid: info.parentUuid, path: rootPath(intent.id), fsid: fixed.fsid, rootId: info.rootId, uuid: info.uuid, transaction: info.transaction, readOnly: true };
   }
   async function reconcile(intent: Intent, signal?: AbortSignal): Promise<Intent> {
-    if (intent.kind !== undefined) return intent;
+    if (intent.kind !== undefined || checkpointDeletes.has(intent.id)) return intent;
     if (intent.state === "creating" && existsSync(rootPath(intent.id))) {
       const checkpoint = await verifyOwned(intent, signal); intent = { ...intent, state: "sealed", checkpoint }; await writeIntent(intent);
     }
@@ -484,6 +485,10 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig,
     const release = held ? () => { sending?.(); sending = undefined; held(); locked(); } : locked;
     let handedToStream = false, end: (() => void) | undefined;
     try {
+      if (request.operation === "release" && checkpointDeletes.has(request.id)) {
+        handedToStream = true; release();
+        return Response.json(await checkpointDeletes.get(request.id)!);
+      }
       if (request.operation === "ready") return Response.json(await ready(signal));
       if (!request.operation.startsWith("pool") && request.operation !== "listPoolRecovery") recoveryIndex.ensureAvailable();
       if (request.operation === "poolStatus") return Response.json(await pool().status(signal));
@@ -699,6 +704,7 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig,
         end?.();
         let createdNow = false;
         let intent = readIntent(request.id);
+        if (intent?.state === "deleting") throw new NativeBrainManagerError("released", "This checkpoint identity is being reclaimed.");
         if (intent) { end = step?.("reconcile"); intent = await reconcile(intent, signal); end?.(); }
         if (intent?.state === "deleted" || intent?.state === "deleting") throw new NativeBrainManagerError("released", "This checkpoint identity was released; it cannot be recreated.");
         if (intent?.state === "sealed") return Response.json(await verifyOwned(intent, signal));
@@ -742,25 +748,36 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig,
           await writeIntent({ version: 1, id: request.id, sourceUuid: fixed.brainUuid, state: "deleted" });
           return Response.json({ id: request.id, state: "deleted" });
         }
-        end = step?.("reconcile");
-        intent = await reconcile(intent, signal);
-        end?.();
         if (intent.state === "deleted") return Response.json({ id: request.id, state: "deleted" });
         if (intent.state === "creating" && !existsSync(rootPath(request.id))) { await writeIntent({ ...intent, state: "deleted" }); return Response.json({ id: request.id, state: "deleted" }); }
         end = step?.("verify");
-        const checkpoint = await verifyOwned(intent, signal);
+        const absent = !existsSync(rootPath(request.id));
+        const checkpoint = intent.state === "deleting" && absent ? intent.checkpoint : await verifyOwned(intent, signal);
+        if (!checkpoint) throw new NativeBrainManagerError("unknown", "Deletion intent lacks its native identity.");
         end?.(); end = step?.("intent");
         await writeIntent({ ...intent, state: "deleting", checkpoint });
         end?.();
-        signal?.throwIfAborted();
-        end = step?.("delete");
-        await command([BTRFS, "subvolume", "delete", "--commit-after", rootPath(request.id)], signal);
-        end?.(); end = step?.("sync");
-        await syncDeleted(checkpoint.rootId, signal);
-        end?.(); end = step?.("intent");
-        await writeIntent({ ...intent, state: "deleted", checkpoint });
-        end?.();
-        return Response.json({ id: request.id, state: "deleted" });
+        const deletion = Promise.withResolvers<{ id: string; state: "deleted" }>();
+        checkpointDeletes.set(request.id, deletion.promise);
+        void deletion.promise.catch(() => {});
+        // The durable deleting intent fences every use of this identity.
+        // Reclamation retains its charge and need not monopolize admission.
+        handedToStream = true; release();
+        try {
+          signal?.throwIfAborted();
+          if (!absent) {
+            end = step?.("delete");
+            await command([BTRFS, "subvolume", "delete", "--commit-after", rootPath(request.id)], signal);
+            end?.();
+          }
+          end = step?.("sync"); await syncDeleted(checkpoint.rootId, signal); end?.();
+          const finishLock = await acquire(signal, "release_commit");
+          try { end = step?.("intent"); await writeIntent({ ...intent, state: "deleted", checkpoint }); end?.(); }
+          finally { finishLock(); }
+          const result = { id: request.id, state: "deleted" as const }; deletion.resolve(result);
+          return Response.json(result);
+        } catch (error) { deletion.reject(error); throw error; }
+        finally { checkpointDeletes.delete(request.id); }
       }
       const from = readIntent(request.from), to = readIntent(request.to);
       if (!from || !to || from.state !== "sealed" || to.state !== "sealed") throw new NativeBrainManagerError("unknown", "Native delta requires two retained sealed checkpoint identities.");
@@ -886,7 +903,7 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig,
   return {
     /** Only an already authenticated Unix endpoint invokes this fixed operation set. */
     run,
-    async close() { closed = true; for (const controller of active) controller.abort(); await inspector.close(); await pending;
+    async close() { closed = true; for (const controller of active) controller.abort(); await Promise.allSettled([...checkpointDeletes.values()]); await inspector.close(); await pending;
       try {
         for (const reader of checkpointReaders.values()) await reader.close(); checkpointReaders.clear();
         for (const stage of activeStages.values()) await stage.close(); activeStages.clear();
@@ -894,18 +911,14 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig,
   };
 }
 
-/** Unix socket only; filesystem ownership is authentication, and workers must mask the endpoint. */
-export async function serveNativeBrainManager(config: NativeBrainManagerConfig, options: NativeBrainManagerOptions = {}) {
-  const fixed = Object.freeze({ ...config }), manager = await createNativeBrainManager(fixed, options);
-  if (existsSync(fixed.socketPath)) { await manager.close(); throw new NativeBrainManagerError("unsupported", "Native manager socket already exists; reconcile its service ownership before starting."); }
-  let server: ReturnType<typeof Bun.serve>;
-  try {
-    server = Bun.serve({ unix: fixed.socketPath, maxRequestBodySize: 1024,
+/** The fixed bounded Unix transport; trusted boot owns socket authentication and native qualification. */
+export function serveNativeBrainRequests(socketPath: string, manager: Pick<Awaited<ReturnType<typeof createNativeBrainManager>>, "run">) {
+  return Bun.serve({ unix: socketPath, maxRequestBodySize: NATIVE_REQUEST_BYTES,
       async fetch(request) {
         try {
           if (request.method !== "POST" || new URL(request.url).pathname !== "/native-brain" || request.headers.get("content-type") !== "application/json")
             throw new NativeBrainManagerError("invalid", "Native manager accepts fixed JSON operations only.");
-          const raw = await request.text(); if (Buffer.byteLength(raw) > 1024) throw new NativeBrainManagerError("invalid", "Native request exceeded its bound.");
+          const raw = await request.text(); if (Buffer.byteLength(raw) > NATIVE_REQUEST_BYTES) throw new NativeBrainManagerError("invalid", "Native request exceeded its bound.");
           const parsed = nativeManagerRequest.safeParse(JSON.parse(raw));
           if (!parsed.success) throw new NativeBrainManagerError("invalid", "Native manager operation or identity is invalid.");
           const response = await manager.run(parsed.data, request.signal);
@@ -915,6 +928,15 @@ export async function serveNativeBrainManager(config: NativeBrainManagerConfig, 
         } catch (error) { const known = plainError(error); return Response.json({ code: known.code, message: known.message }, { status: known.code === "invalid" ? 400 : 503 }); }
       },
     });
+}
+
+/** Unix socket only; filesystem ownership is authentication, and workers must mask the endpoint. */
+export async function serveNativeBrainManager(config: NativeBrainManagerConfig, options: NativeBrainManagerOptions = {}) {
+  const fixed = Object.freeze({ ...config }), manager = await createNativeBrainManager(fixed, options);
+  if (existsSync(fixed.socketPath)) { await manager.close(); throw new NativeBrainManagerError("unsupported", "Native manager socket already exists; reconcile its service ownership before starting."); }
+  let server: ReturnType<typeof Bun.serve>;
+  try {
+    server = serveNativeBrainRequests(fixed.socketPath, manager);
     chownSync(fixed.socketPath, 0, fixed.appGid); chmodSync(fixed.socketPath, 0o660);
   } catch (error) { await manager.close(); throw error; }
   return { socketPath: fixed.socketPath, async close() { server.stop(true); await manager.close(); } };
