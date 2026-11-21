@@ -464,7 +464,7 @@ admitted model as its backend lends it on the host, and `handleWebTool` takes
 it as an optional fifth argument, `model`. `WebModelAccess` is
 `{ provider, model, open(egress, signal?) }`; `open` starts a host relay for
 exactly that model into a web executor's egress route (`WebModelEgress`:
-`{ dir, inference }`) and resolves to `{ grant, stop() }`. `WebModelGrant`
+`{ dir, inference, remainingBytes }`) and resolves to `{ grant, stop() }`. `WebModelGrant`
 (`{ provider, model, credential: "api_key" | "oauth", basePath, socket }`) is
 everything the executor is told, and never holds a credential. A backend that
 does not set `model` behaves as before.
@@ -6053,10 +6053,13 @@ size checks, and EOF revalidates live admission before completion. Incoming
 bytes beyond the remaining turn allowance consume the available allowance and
 refuse the excess. Files cleanup drains through the same metered reader.
 
-Relay `egress` options additionally accept the proxy's optional
-`remainingBytes()` reader so the concrete host can meter the received portion
-of an overflowing response up to its shared ceiling. Existing operation-only
-adapters remain valid; the concrete proxy supplies both methods.
+Governed relay `egress` options and `WebModelEgress` require the concrete
+route's `remainingBytes()` reader alongside its operation factory. Every route
+builder, including the host web-model route and Pi host inference, carries that
+same reader. Operation-only adapters must now provide it; an absent reader is
+never treated as infinite capacity. Ungoverned relays without an egress route
+retain their existing behavior. Received proxy HTTP/CONNECT bytes and both
+relay uploads/responses share the same saturating allowance accounting.
 
 Preparation and exposure notifications are separate: proxy `preparing` and
 provider relay `preparing` run before the last send fence; `committed` and

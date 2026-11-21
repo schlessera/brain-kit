@@ -47,3 +47,5 @@ Share relay response metering and EOF fencing across normal, Files, redirect and
 Separate preparation from actual dispatch facts and fence streaming delivery in the same synchronous handoff.
 
 Fence upstream HTTP request construction and prove in-place selector edits retire source instances.
+
+Require remaining allowance on every governed web/relay route and debit received overflow consistently across proxy and relay traffic.

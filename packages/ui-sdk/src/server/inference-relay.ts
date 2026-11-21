@@ -1,3 +1,4 @@
+import { chargeReceivedBytes } from "./egress-accounting.js";
 import { readRelayResponse, relayHeaderBytes } from "./relay-response.js";
 /**
  * The one network path out of a restricted (autonomous) worker (#676).
@@ -34,7 +35,7 @@ export interface InferenceRelayOptions {
   /** Server-held headers, resolved for each dispatch after inbound credentials are removed. */
   credentials: Readonly<Record<string, string>> | ((signal: AbortSignal, target: URL) => Promise<Readonly<Record<string, string>>>);
   /** Concrete turn proxy: share its destination admission, application-byte ceiling and audit. */
-  egress?: Pick<Awaited<ReturnType<typeof startEgressProxy>>, "inference"> & Partial<Pick<Awaited<ReturnType<typeof startEgressProxy>>, "remainingBytes">>;
+  egress?: Pick<Awaited<ReturnType<typeof startEgressProxy>>, "inference" | "remainingBytes">;
   /** Called for every request, forwarded or refused. Values are never logged. */
   observe?(event: InferenceRelayEvent): void;
   /**
@@ -124,6 +125,7 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
           return refuse(request.method, path, status, reason === "max_bytes_per_turn" ? "Inference egress limit exceeded" : "Inference request refused", operation?.reason?.() ?? reason);
         };
         const chargeFailure = (count: number) => { const result = operation?.charge(count); return result && !result.ok ? result : undefined; };
+        const receivedFailure=(count:number)=>chargeReceivedBytes(count,{charge:chargeFailure,remaining:()=>options.egress?options.egress.remainingBytes():Infinity});
         const chargeDenied = (failure: EgressChargeFailure) => { const detail = egressChargeRefusal(failure,"Inference"); return refuse(request.method,path,detail.status,detail.message,operation?.reason?.() ?? detail.reason); };
         const admitFailure = async ():Promise<EgressChargeFailure|undefined> => operation && !await operation.admit() ? operation.failure() ?? {ok:false,reason:"unavailable"} : undefined;
         const initialAdmissionFailure=await admitFailure();
@@ -145,7 +147,7 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
             const next = await reader.read();
             if (next.done) break;
             length += next.value.byteLength;
-            const failure = length <= MAX_INFERENCE_REQUEST_BYTES ? chargeFailure(next.value.byteLength + 16) : undefined;
+            const failure = receivedFailure(next.value.byteLength + 16);
             if (length > MAX_INFERENCE_REQUEST_BYTES || failure) {
               await reader.cancel().catch(() => {});
               return failure ? chargeDenied(failure) : denied("inference_request_too_large",413);
@@ -208,7 +210,7 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
           operation?.finish(cause.outcome,"upstream_unreachable");
           return cause.failure?chargeDenied(cause.failure):refuse(request.method,path,cause.status,"Inference upstream unreachable");
         }
-        const incoming=readRelayResponse(response,{charge:chargeFailure,remaining:()=>options.egress?.remainingBytes?.()??Infinity});
+        const incoming=readRelayResponse(response,{charge:chargeFailure,remaining:()=>options.egress?options.egress.remainingBytes():Infinity});
         if(incoming.headerFailure){await incoming.cancel().catch(()=>{});return chargeDenied(incoming.headerFailure);}
         if (response.status >= 300 && response.status < 400) {
           operation?.finish("failed", "upstream_redirected");

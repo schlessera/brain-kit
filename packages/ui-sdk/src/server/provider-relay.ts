@@ -1,3 +1,4 @@
+import { chargeReceivedBytes } from "./egress-accounting.js";
 import { readRelayResponse } from "./relay-response.js";
 /**
  * The metered host relay for the `brain` CLI's paid providers (#1673).
@@ -209,7 +210,7 @@ export interface ProviderRelayOptions {
   /** Host credential lookup by name. Default: the server's own environment. */
   credential?(name: string): string | undefined;
   /** The concrete turn proxy: share its destination admission, byte ceiling and connection records. */
-  egress?: Pick<Awaited<ReturnType<typeof startEgressProxy>>, "relayed"> & Partial<Pick<Awaited<ReturnType<typeof startEgressProxy>>, "remainingBytes">>;
+  egress?: Pick<Awaited<ReturnType<typeof startEgressProxy>>, "relayed" | "remainingBytes">;
   /**
    * Called before each dispatch, and awaited. A refusal is answered with
    * `budget_exceeded` and nothing is sent.
@@ -438,6 +439,7 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
     const operation = options.egress?.relayed(request.method, target, request.signal);
     const signal = operation ? AbortSignal.any([request.signal, operation.signal]) : request.signal;
     const chargeFailure = (count: number) => { const result = operation?.charge(count); return result && !result.ok ? result : undefined; };
+    const receivedFailure=(count:number)=>chargeReceivedBytes(count,{charge:chargeFailure,remaining:()=>options.egress?options.egress.remainingBytes():Infinity});
     const chargeDenied = (failure: EgressChargeFailure) => { const detail = egressChargeRefusal(failure,"Provider"); return refuse(detail.status,failure.reason==="cancelled"?"cancelled":"egress_refused",detail.message,operation?.refusal()); };
     if (operation && !await operation.admit()) return chargeDenied(operation.failure() ?? {ok:false,reason:"unavailable"});
     const initialDecision = operation?.charge(0);
@@ -464,7 +466,7 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
         const next = await reader.read();
         if (next.done) break;
         length += next.value.byteLength;
-        const failure = length <= MAX_PROVIDER_REQUEST_BYTES ? chargeFailure(next.value.byteLength + 16) : undefined;
+        const failure = receivedFailure(next.value.byteLength + 16);
         if (length > MAX_PROVIDER_REQUEST_BYTES || failure) {
           await reader.cancel().catch(() => {});
           return failure ? chargeDenied(failure) : denied("provider_request_too_large",413);
@@ -553,7 +555,7 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       return cause.failure?chargeDenied(cause.failure):refuse(cause.status,"upstream_unreachable","Provider upstream unreachable");
     }
     free();
-    const incoming=readRelayResponse(response,{charge:chargeFailure,remaining:()=>options.egress?.remainingBytes?.()??Infinity,maxBytes:files?MAX_FILES_RESPONSE_BYTES:undefined});
+    const incoming=readRelayResponse(response,{charge:chargeFailure,remaining:()=>options.egress?options.egress.remainingBytes():Infinity,maxBytes:files?MAX_FILES_RESPONSE_BYTES:undefined});
     if(incoming.headerFailure){await incoming.cancel().catch(()=>{});report("cancelled",null);return chargeDenied(incoming.headerFailure);}
     if (response.status >= 300 && response.status < 400) {
       operation?.finish("failed", "upstream_redirected");
@@ -714,7 +716,7 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       observe("dispatched");
       const response=await pending;
       upstreamStatus=response.status;
-      const incoming=readRelayResponse(response,{charge:count=>{const decision=operation?.charge(count);return decision&&!decision.ok?decision:undefined;},remaining:()=>options.egress?.remainingBytes?.()??Infinity});
+      const incoming=readRelayResponse(response,{charge:count=>{const decision=operation?.charge(count);return decision&&!decision.ok?decision:undefined;},remaining:()=>options.egress?options.egress.remainingBytes():Infinity});
       if(incoming.headerFailure){await incoming.cancel().catch(()=>{});observe("cancelled");return;}
       try{for(;;){const next=await incoming.read();if(next.done){const failure=next.deliver(()=>{operation?.finish("completed");observe(response.ok?"completed":"failed");});if(failure)observe("cancelled");break;}}}finally{incoming.release();}
     } catch {

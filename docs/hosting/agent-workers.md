@@ -96,7 +96,7 @@ The explicitly prepared ordinary egress proxy follows that same helper
 selection. Its directory and socket remain owned by the server and use its
 shared primary group, with exact `0750`/`0660` modes; a setgid temporary parent
 cannot choose another IPC group (`const separateIdentity`,
-`packages/ui-sdk/src/server/egress-proxy.ts:270-276`). Without a helper they retain
+`packages/ui-sdk/src/server/egress-proxy.ts:271-277`). Without a helper they retain
 owner-only `0700`/`0600` modes. Before mounting the proxy, the launcher checks
 canonical paths, server ownership, the expected helper group, exact modes and
 socket type. Missing entries, symlinks and widened permissions refuse before
@@ -851,7 +851,7 @@ the host root, `/home`, `/etc`, `/run`, `/var`, `/tmp` or an ancestor of the
 brain. No host home, stored login or `/run` socket is visible.
 
 The worker's only route out is the server-owned inference relay
-(`export function startInferenceRelay(`, `packages/ui-sdk/src/server/inference-relay.ts:74-246`).
+(`export function startInferenceRelay(`, `packages/ui-sdk/src/server/inference-relay.ts:75-248`).
 It is a Unix socket in a private `0700` directory, bind-mounted read-only at
 `/run/brain-inference`. It forwards only `POST` to the provider's inference
 routes, such as `/v1/messages` and `/v1/messages/count_tokens` for Anthropic,

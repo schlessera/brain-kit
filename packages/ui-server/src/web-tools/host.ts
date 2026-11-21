@@ -172,7 +172,7 @@ export function createHostWebTools(options: HostWebToolsOptions): WebBroker {
           if (record.connectionId) counted.delete(record.connectionId);
           try { options.onEgress?.(record); } catch { /* A recorder cannot hold a connection open. */ }
         } });
-      routes.set(ownerKey(owner), { dir: egress.dir, inference: egress.inference });
+      routes.set(ownerKey(owner), { dir: egress.dir, inference: egress.inference,remainingBytes:egress.remainingBytes });
       try {
         const state = options.module.prepareWebExecutorState({ root: options.root, hostConfigPath: configPath, credentialEnv, path: options.path });
         const cleanup = () => { egress.stop(); state.cleanup(); };

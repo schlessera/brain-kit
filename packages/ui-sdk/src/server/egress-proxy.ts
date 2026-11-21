@@ -1,3 +1,4 @@
+import { chargeReceivedBytes } from "./egress-accounting.js";
 /** Concrete host-owned HTTP/CONNECT transport for one turn; no TLS interception. */
 import { createServer, request as httpRequest, type IncomingMessage } from "node:http";
 import { BlockList, connect, isIP, type Socket } from "node:net";
@@ -333,6 +334,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (!Number.isSafeInteger(count) || count < 0) throw new RangeError("Egress charge bytes must be a nonnegative safe integer");
       return maySendNow(count) ? { ok: true } : failure ?? {ok:false,reason:"cancelled"};
     };
+    const receive=(count:number):EgressChargeResult=>chargeReceivedBytes(count,{remaining:()=>Math.max(0,options.maxBytes-usedBytes),charge:bytes=>{const result=charge(bytes);return result.ok?undefined:result;}})??{ok:true};
     /** One approval wait; cancelling this connection or the turn resolves it as refused. */
     const approval = async (ask: ((destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }, signal: AbortSignal) => Promise<boolean>) | undefined) => {
       if (!ask || !lifecycle.active()) return false;
@@ -443,7 +445,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (finalReason === "taint_not_allowed") try { cause = options.taint?.cause?.(); } catch { /* The message names no cause. */ }
       return describeRefusal(finalReason, host, matches(host, options.deny), cause);
     };
-    return { host, dialHost, finish, ownCleanup:lifecycle.ownCleanup, charge, admit, prepare, dispatch, refusal, failure:()=>failure, signal: controller.signal, outcome: () => finalOutcome, reason: () => finalReason, pinned: () => pinned };
+    return { host, dialHost, finish, ownCleanup:lifecycle.ownCleanup, charge, receive, admit, prepare, dispatch, refusal, failure:()=>failure, signal: controller.signal, outcome: () => finalOutcome, reason: () => finalReason, pinned: () => pinned };
   }
   server.on("connect", (request, client, head) => {
     client.on("error", () => {});
@@ -463,7 +465,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
           : "HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
     };
     void (async () => {
-      if (!await op.admit() || client.destroyed || !op.charge(head.length).ok || !op.prepare().ok) {
+      if (!await op.admit() || client.destroyed || !op.receive(head.length).ok || !op.prepare().ok) {
         refuseConnect();return;
       }
       const address = op.pinned();
@@ -475,8 +477,8 @@ export async function startEgressProxy(options: EgressProxyOptions) {
         connected = true;
         client.write("HTTP/1.1 200 Connection Established\r\n\r\n");
         if (head.length) tunnel.write(head);
-        client.on("data", chunk => { if (!op.charge(chunk.length).ok) { client.destroy(); tunnel.destroy(); return; } if (!tunnel.write(chunk)) client.pause(); });
-        tunnel.on("data", chunk => { if (!op.charge(chunk.length).ok) { client.destroy(); tunnel.destroy(); return; } if (!client.write(chunk)) tunnel.pause(); });
+        client.on("data", chunk => { if (!op.receive(chunk.length).ok) { client.destroy(); tunnel.destroy(); return; } if (!tunnel.write(chunk)) client.pause(); });
+        tunnel.on("data", chunk => { if (!op.receive(chunk.length).ok) { client.destroy(); tunnel.destroy(); return; } if (!client.write(chunk)) tunnel.pause(); });
         tunnel.on("drain", () => client.resume()); client.on("drain", () => tunnel.resume());
       });
       tunnel.once("error", () => { op.finish("failed", "upstream_unreachable"); client.destroy(); });
@@ -510,7 +512,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       // accounting below additionally covers each HTTP chunk's framing.
       const headerBytes = (first: string, values: Record<string, string | string[]>) => Buffer.byteLength(first + "\r\n"
         + Object.entries(values).flatMap(([name, value]) => (Array.isArray(value) ? value : [value]).map(item => `${name}: ${item}\r\n`)).join("") + "\r\n") + 64;
-      if (!op.charge(headerBytes(`${request.method} ${target.pathname}${target.search} HTTP/1.1`, outgoingHeaders)).ok) {
+      if (!op.receive(headerBytes(`${request.method} ${target.pathname}${target.search} HTTP/1.1`, outgoingHeaders)).ok) {
         refuse(); return;
       }
       const address = op.pinned();
@@ -520,12 +522,12 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (!op.prepare().ok) { refuse(); return; }
       let outgoing!:ReturnType<typeof httpRequest>;
       const dispatched=op.dispatch(()=>{outgoing=httpRequest(upstreamTarget, { method: request.method, headers: outgoingHeaders,signal:op.signal }, incoming => {
-        if (!op.charge(headerBytes(`HTTP/1.1 ${incoming.statusCode} ${incoming.statusMessage}`, headers(incoming))).ok) {
+        if (!op.receive(headerBytes(`HTTP/1.1 ${incoming.statusCode} ${incoming.statusMessage}`, headers(incoming))).ok) {
           refuse(); incoming.destroy(); outgoing.destroy(); return;
         }
         const writeHeaders = () => { if (!response.headersSent) response.writeHead(incoming.statusCode ?? 502, headers(incoming)); };
         incoming.on("data", chunk => {
-          if (!op.charge(chunk.length + 16).ok) {
+          if (!op.receive(chunk.length + 16).ok) {
             if (!response.headersSent) refuse(); else response.destroy();
             incoming.destroy(); outgoing.destroy(); return;
           }
@@ -539,7 +541,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       op.signal.addEventListener("abort", () => { outgoing.destroy(); if (op.outcome() === "cancelled") response.destroy(); }, { once: true });
       outgoing.once("error", () => { op.finish("failed", "upstream_unreachable"); if (!response.headersSent) response.writeHead(502); response.end(); });
       response.once("close", () => outgoing.destroy());
-      request.on("data", chunk => { if (!op.charge(chunk.length + 16).ok) { outgoing.destroy(); if (!response.headersSent) refuse(); else response.destroy(); return; } let accepted=false;const sent=op.dispatch(()=>{accepted=outgoing.write(chunk);});if(!sent.ok){outgoing.destroy();refuse();return;}if(!accepted)request.pause(); });
+      request.on("data", chunk => { if (!op.receive(chunk.length + 16).ok) { outgoing.destroy(); if (!response.headersSent) refuse(); else response.destroy(); return; } let accepted=false;const sent=op.dispatch(()=>{accepted=outgoing.write(chunk);});if(!sent.ok){outgoing.destroy();refuse();return;}if(!accepted)request.pause(); });
       outgoing.on("drain", () => request.resume());
       request.once("end", () => { if (!op.charge(0).ok) { outgoing.destroy(); if (!response.headersSent) refuse(); else response.destroy(); return; } if(!op.dispatch(()=>{outgoing.end();}).ok){outgoing.destroy();refuse();} });
       request.once("error", () => { op.finish("cancelled", "client_disconnected"); outgoing.destroy(); });

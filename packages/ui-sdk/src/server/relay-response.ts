@@ -1,3 +1,4 @@
+import { chargeReceivedBytes } from "./egress-accounting.js";
 import type { EgressChargeFailure } from './egress-proxy.js';
 
 /** Observable HTTP framing shared by both concrete host relays. */
@@ -12,12 +13,7 @@ export class RelayResponseRefused extends Error {
 /** Owns header-first accounting, charge-before-size ordering and the EOF fence. */
 export function readRelayResponse(response:Response,options:{charge(count:number):EgressChargeFailure|undefined;remaining():number;maxBytes?:number}) {
  let reader:ReadableStreamDefaultReader<Uint8Array>|undefined,size=0;
- const received=(count:number)=>{
-  // Received bytes consume the available allowance even if the rest is refused.
-  const available=options.remaining();
-  if(count>available&&available>0){const failure=options.charge(available);if(failure)return failure;count-=available;}
-  return options.charge(count);
- };
+ const received=(count:number)=>chargeReceivedBytes(count,options);
  const headerFailure=received(relayHeaderBytes(`HTTP/1.1 ${response.status} ${response.statusText}`,response.headers));
  const fence=()=>options.charge(0);
  const deliver=(send:()=>void)=>{const failure=fence();if(failure)return failure;send();return undefined;};
