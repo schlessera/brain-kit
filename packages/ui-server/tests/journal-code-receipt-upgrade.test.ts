@@ -65,6 +65,7 @@ test("upgrading a near-cap journal preserves writes and admits receipt tables on
     await expect(journal.begin("refused", { ...metadata, workspaceReadOnly: false, workspacesWritable: true }, () => {}), "SCHEMA_REFUSAL_NAMES_ONLY_FAILED_CHECKOUT_CAPTURE").rejects.toThrow("checkout_receipt_schema_not_admitted");
     expect(journal.cleanupStatus().lastFailure).toMatchObject({ kind: "code_capture_failed", scope: "checkout", turnId: "refused", checkout: "workspaces/argo", cause: expect.stringContaining("checkout_receipt_schema_not_admitted") });
     expect(schema()).toEqual([]);
+    expect(journal.details("ithaca", "refused")!.missing, "SCHEMA_ADMISSION_REFUSAL_DOES_NOT_INVENT_A_CAPACITY_CAUSE").toContainEqual({ path: ".", reason: "journal_unavailable" });
     await journal.begin("notes", { ...metadata, workspaceReadOnly: true }, () => {});
     writeFileSync(join(brain, "penelope.md"), "Penelope returns\n"); await journal.observe(); await journal.finish("notes");
     expect(journal.details("ithaca", "notes")!.changes.map(row => row.path), "REFUSED_CHECKOUT_LEAVES_NOTE_HISTORY_USABLE").toEqual(["penelope.md"]);

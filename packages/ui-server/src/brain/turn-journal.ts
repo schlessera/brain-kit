@@ -332,7 +332,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     const maximum = relative ? CODE_CHECKOUT_BYTES : (db.query("SELECT allowance FROM reference_worktrees WHERE id=?").get(checkout.split("/")[2]!) as { allowance: number } | null)?.allowance ?? CODE_CHECKOUT_BYTES;
     let packLease: string | undefined, previousBody: ReadableStream<Uint8Array> | undefined, checkpointAttempted = false;
     try {
-      if (!await call<boolean>("ensureCodeReceiptTables")) throw new JournalCapacityError("checkout_receipt_schema_not_admitted");
+      if (!await call<boolean>("ensureCodeReceiptTables")) throw new JournalStorageUnavailable("checkout_receipt_schema_not_admitted");
       const previous = held ?? (db.query(`SELECT c.receipt,c.pack_hash FROM turn_journal_code_receipts c JOIN turn_journal_turns t USING(turn_id)
         WHERE checkout=? AND json_extract(c.receipt,'$.state')='complete' ORDER BY t.started_at DESC LIMIT 1`).get(checkout) as { receipt: string; pack_hash: string } | null);
       const earlier = previous ? typeof previous.receipt === "string" ? JSON.parse(previous.receipt) as CodeChangeReceipt : previous.receipt : undefined;
