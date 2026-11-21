@@ -940,7 +940,9 @@ The plan reads raw Git object sizes, including packed objects, and page-rounds
 `3 × (sum(raw object bytes + 128 per object) + ref text bytes + 128 per ref) + 16 MiB`. This covers both
 non-destructive loose-object passes, indexes and auxiliary files with a safety
 margin while the old packs remain present. The dedicated stage adds another
-16 MiB for the frozen Git adapter and mount scaffolds. Its hard bound is the
+16 MiB for the frozen Git adapter and mount scaffolds, then doubles that sum
+for the image allowance so formatted filesystem metadata cannot consume Git's
+preflight headroom. Its hard bound is the
 managed volume's configured capacity minus the recovery reserve and the running
 turn's free-space floor (`max(5% of filesystem capacity, 2 GiB)`), divided by two
 for the image and publication copies. Before creating it, the native manager reserves all outstanding

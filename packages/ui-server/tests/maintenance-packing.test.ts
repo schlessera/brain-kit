@@ -17,7 +17,7 @@ test("hosted packing uses a separate calculated stage and preserves ordinary mai
  expect(calls[0]!.discardGit,"ORDINARY_PASS_DISCARDS_GIT_SCAFFOLDING").toBe(true);
  expect(calls[0]!.packingAllowanceBytes,"GENERIC_STAGE_KEEPS_DEFAULT").toBeUndefined();
  expect(calls[1]!.publish).toBe(false);
- expect(calls[2],"PACKING_HAS_ITS_OWN_STAGE").toMatchObject({packingAllowanceBytes:416*1024**2,outputAreas:[".git"],credentials:false});
+ expect(calls[2],"PACKING_HAS_ITS_OWN_STAGE").toMatchObject({packingAllowanceBytes:832*1024**2,outputAreas:[".git"],credentials:false});
  expect(JSON.parse(result.stdout)).toEqual([{step:"index",result:"ok — 1 added"},{step:"git",result:"ok — packed 1 loose object(s)"}]);
  expect(result.exitCode).toBe(0);
 });
@@ -60,7 +60,7 @@ test("a hosted Git no-space failure names its dedicated allowance and starting h
  expect(result.exitCode).toBe(2);
  const git=JSON.parse(result.stdout)[0].result as string;
  expect(git,"HOSTED_PACK_NO_SPACE_QUALIFIED").toStartWith("FAILED — no space:");
- expect(git).toContain(`allowance ${48*1024**2} bytes`);expect(git).toContain("12345 bytes available when the step started");
+ expect(git).toContain(`allowance ${96*1024**2} bytes`);expect(git).toContain("12345 bytes available when the step started");
 });
 
 test("packing interception recognizes only the brain maintain command",()=>{

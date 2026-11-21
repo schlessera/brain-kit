@@ -32,8 +32,9 @@ export async function runHostedMaintenance(execution: BrainExecution, commandInd
       result="skipped — packing_headroom: packing size could not be established; Git did not start";
     else {
       // Plan includes raw object output, indexes and 16 MiB Git overhead.
-      // Another 16 MiB covers the frozen Git adapter and publication scaffolds.
-      const packingAllowanceBytes=parsed.headroom!.packingRequiredBytes+16*1024**2;
+      // Add 16 MiB for adapter/scaffolds, then double the image bound so
+      // formatted filesystem metadata cannot consume Git's required headroom.
+      const packingAllowanceBytes=2*(parsed.headroom!.packingRequiredBytes+16*1024**2);
       const packed=await run({...execution,argv:[...prefix,"storage","pack","--json"],credentials:false,
         outputAreas:[".git"],packingAllowanceBytes,onExecute:undefined});
       const value=JSON.parse(packed.stdout) as {state:string;reason:string|null;skipReason?:string;packed:number|null;headroom?:{availableBytes:number|null};garbage:{count:number;bytes:number}|null};
