@@ -198,7 +198,17 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
       try {
         boundary?.beforeLaunch(); workerBoundary?.beforeLaunch();
         const result = Reflect.apply(native, Bun, args);
-        if (key === "spawn") { recordNativeGuardChild(result,bootstrap,bootstrapDiagnostics?.attach(result)); void result.exited.finally(() => { boundary?.dispose(); workerBoundary?.dispose();flushNativeReceipts(); }); }
+        if (key === "spawn") {
+          const exited=result.exited,evidence=bootstrapDiagnostics?.attach(result);
+          const report=recordNativeGuardChild(result,bootstrap,evidence);
+          const completed=exited.then(async(code:number)=>{
+            await evidence?.drained;await report;
+            boundary?.dispose();workerBoundary?.dispose();flushNativeReceipts();return code;
+          });
+          // Callers can synchronously read a protocol FIFO after this promise.
+          // No guard-owned writer or deferred receipt remains when it resolves.
+          Object.defineProperty(result,"exited",{value:completed,configurable:true});
+        }
         else {workerBoundary?.dispose();flushNativeReceipts();}
         return result;
       } catch (error) { bootstrapDiagnostics?.dispose(); boundary?.dispose(); workerBoundary?.dispose(); throw error; }
@@ -207,6 +217,7 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
 
   installed = {
     assertNoEscapes() {
+      flushNativeReceipts();
       assertNoNativeRefusals();
       if (escapes.length > reported) {
         reported = escapes.length;

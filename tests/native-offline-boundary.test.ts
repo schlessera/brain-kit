@@ -26,13 +26,15 @@ const imports = `import {installNetworkGuard} from ${JSON.stringify(join(ROOT, "
 // Check one bwrap scope at a time: the nested native view deliberately hides
 // the trace directory, while its outer tracer must retain that mount.
 const guardMountOrderCheck = `function assertGuardMountOrder(mounts) {
-  const operations=[];
+  const operations=[],remounts=[];
   for(let i=0;i<mounts.length;i++) {
     const flag=mounts[i];
     if(["--bind","--ro-bind","--dev-bind"].includes(flag)) {operations.push({at:i,bind:true,target:mounts[i+2]});i+=2;}
     else if(["--tmpfs","--proc","--dev"].includes(flag)){operations.push({at:i,bind:false,target:mounts[++i]});}
+    else if(flag==="--remount-ro")remounts.push({at:i,target:mounts[++i]});
     else if(flag.startsWith("--overlay"))throw Error("unsupported overlay reached native plan");
   }
+  for(const bind of operations.filter(op=>op.bind))for(const earlier of remounts)if(earlier.at<bind.at&&(earlier.target==="/"||bind.target===earlier.target||bind.target.startsWith(earlier.target+"/")))throw Error("GUARD_MOUNT_FOLLOWS_READONLY_PARENT");
   for(const bind of operations.filter(op=>op.bind))for(const later of operations) {
     if(later.at>bind.at && (later.target==="/" || bind.target===later.target || bind.target.startsWith(later.target+"/")))throw Error("GUARD_BIND_HIDDEN_BY_LATER_MOUNT");
   }
@@ -327,7 +329,7 @@ test("guard worker binds follow every covering mount", async()=>{
    Bun.which=((command,options)=>command==="strace"?"/synthetic/strace":which(command,options));
    Bun.spawnSync=((argv,options)=>(["bwrap","strace"].includes(argv[0])||argv[0]?.endsWith("/native-connect"))?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
    process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";registerScriptedService("http://127.0.0.1:1");
-   const plan=nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify({command:[${JSON.stringify(runtime)}],brainPath:${JSON.stringify(scratch)},env:{HOME:${JSON.stringify(scratch)}},argv:["bwrap",...${JSON.stringify(["/tmp","/home","/etc",ROOT])}.flatMap(path=>["--tmpfs",path]),"--",${JSON.stringify(runtime)}]})});
+   const plan=nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify({command:[${JSON.stringify(runtime)}],brainPath:${JSON.stringify(scratch)},env:{HOME:${JSON.stringify(scratch)}},argv:["bwrap",...${JSON.stringify(["/tmp","/home","/etc",ROOT])}.flatMap(path=>["--tmpfs",path]),"--remount-ro","/","--",${JSON.stringify(runtime)}]})});
    const argv=JSON.parse(plan.env.BRAIN_WORKER_LAUNCH).argv,bwrap=argv.indexOf("--",argv.indexOf("-o"))+1,split=argv.indexOf("--",bwrap);
    const mounts=argv.slice(bwrap+1,split);assertGuardMountOrder(mounts);
    if(!mounts.some((arg,i)=>arg==="--ro-bind"&&mounts[i+1]?.endsWith("/native-connect"))||!mounts.includes("/tmp/native-relay"))throw Error("guard input missing from plan");
@@ -358,7 +360,7 @@ test("separate-UID plans trace the broker payload outside its hidden native audi
       process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";registerScriptedService("http://127.0.0.1:1");
       const leave=nativeScriptedService("http://127.0.0.1:1");
       const launch={command:[${JSON.stringify(runtime)}],brainPath:${JSON.stringify(scratch)},env:{HOME:${JSON.stringify(scratch)},ANTHROPIC_API_KEY:"offline-fixture"},
-        argv:["/usr/bin/python3","-I","-S","-c",WORKER_IDENTITY_SUPERVISOR,JSON.stringify({argv:["bwrap","--ro-bind","/","/",...${JSON.stringify(["/tmp","/home","/etc",ROOT])}.flatMap(path=>["--tmpfs",path]),"--",${JSON.stringify(runtime)}],secret:"synthetic"})]};
+        argv:["/usr/bin/python3","-I","-S","-c",WORKER_IDENTITY_SUPERVISOR,JSON.stringify({argv:["bwrap","--ro-bind","/","/",...${JSON.stringify(["/tmp","/home","/etc",ROOT])}.flatMap(path=>["--tmpfs",path]),"--remount-ro","/","--",${JSON.stringify(runtime)}],secret:"synthetic"})]};
       const worker=nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify(launch)});
       const outer=JSON.parse(worker.env.BRAIN_WORKER_LAUNCH).argv;
       if(realpathSync(outer[0])!==realpathSync("/usr/bin/python3"))throw Error("tracer wrapped the coordinator instead of the payload");

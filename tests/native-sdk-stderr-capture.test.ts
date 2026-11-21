@@ -59,3 +59,16 @@ for(const edge of ["first","tail"] as const)test(`SDK stderr drops a token split
  const [code,output]=await Promise.all([child.exited,child.guardOutput()]);expect(code,output).toBe(0);
  expect(output,"CUT_TOKEN_LINE_OMITTED").not.toContain(marker);
 });
+
+
+for(const [label,text,secret] of [
+ ["error-prefix","Error: ANTHROPIC_AUTH_TOKEN=error-auth-value","error-auth-value"],
+ ["failure-prefix","failed: MY_PASSWORD=failure-password-value","failure-password-value"],
+ ["nested-env",'{"env":{"apiKey":"nested-api-value"}}',"nested-api-value"],
+ ["nested-header",'headers: {"x-api-key":"nested-header-value"}',"nested-header-value"],
+ ["nested-config",'config={"token":"nested-config-value"}',"nested-config-value"],
+] as const)test(`SDK credential matching ignores non-credential wrappers: ${label}`,async()=>{
+ const child=spawnGuardFixture([process.execPath,"-e",`import {captureNativeSdkStderr} from ${JSON.stringify(helper)};const capture=captureNativeSdkStderr([]);capture.stderr(${JSON.stringify(text+"\n")});capture.flush();`],{env:{PATH:"/usr/bin:/bin"}});
+ const [code,output]=await Promise.all([child.exited,child.guardOutput()]);expect(code,output).toBe(0);
+ expect(output,"NESTED_NAMED_CREDENTIAL_REDACTED").not.toContain(secret);
+});

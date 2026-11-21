@@ -354,6 +354,25 @@ function auditAcl(operation: "set" | "check", uid: number, directory: string, lo
   catch { return false; }
 }
 
+/** Safe diagnostic identities; no outside path segment is part of a label. */
+export function nativeDiagnosticPathLabel(path:string,fixtureRoots:readonly string[]=[]):string {
+  const root=fixtureRoots.find(root=>path.startsWith("/")&&within(resolve(root),resolve(path)));
+  const label=root?`fixture-${fixtureRoots.indexOf(root)}:${resolve(path).slice(resolve(root).length).replace(/^\//,"")||"."}`:
+    !path.startsWith("/")?"relative":within("/proc",path)?"proc":within("/sys",path)?"sys":within("/dev",path)?"dev":within("/etc",path)?"etc":
+    [ROOT,...SYSTEM].some(root=>within(root,path))?"runtime-root":["/home","/root",process.env.HOME].some(root=>root&&root!=="/"&&within(root,path))?"home-outside-fixture":"other-absolute";
+  return label.replace(/[\u0000-\u001f\u007f]/g,"?");
+}
+export function labelNativeMountErrors(text:string,fixtureRoots:readonly string[]=[]):string {
+  return text.replace(/(bwrap:[^\n]*? at )([^\n]+?)(: (?:Read-only file system|Permission denied|No such file or directory))/g,
+    (_match,start,path,end)=>start+"[mount-target "+nativeDiagnosticPathLabel(path,fixtureRoots)+"]"+end);
+}
+/** Keep final read-only policy, after all guard-owned mount targets exist. */
+export function deferNativeReadOnlyRemounts(argv:string[],bwrap:number):string[] {
+  const deferred:string[]=[];
+  for(let i=bwrap+1;i<argv.indexOf("--",bwrap);i++)if(argv[i]==="--remount-ro")deferred.push(...argv.splice(i--,2));
+  return deferred;
+}
+
 /** Fixture-only tail: no syscall buffers, exec arguments or environment survive. */
 export function scrubNativeStartupTrace(trace: string, fixtureRoots: readonly string[] = []): string {
   try {
@@ -366,11 +385,7 @@ export function scrubNativeStartupTrace(trace: string, fixtureRoots: readonly st
     if(!/^\s*(?:[0-9]+\s+)?open(?:at2?|)?\(/.test(line)||!/= -1 [A-Z]+\b/.test(line))return line;
     return line.replace(/"(?:\\.|[^"\\])*"/,quoted=>{
       let path:string;try{path=JSON.parse(quoted);}catch{return '"other-absolute"';}
-      const root=fixtureRoots.find(root=>path.startsWith("/")&&within(resolve(root),resolve(path)));
-      let label=root?`fixture-${fixtureRoots.indexOf(root)}:${resolve(path).slice(resolve(root).length).replace(/^\//,"")||"."}`:
-        !path.startsWith("/")?"relative":within("/proc",path)?"proc":within("/sys",path)?"sys":within("/dev",path)?"dev":within("/etc",path)?"etc":
-        [ROOT,...SYSTEM].some(root=>within(root,path))?"runtime-root":["/home","/root",process.env.HOME].some(root=>root&&root!=="/"&&within(root,path))?"home-outside-fixture":"other-absolute";
-      label=label.replace(/[\u0000-\u001f\u007f]/g,"?");
+      const label=nativeDiagnosticPathLabel(path,fixtureRoots);
       const key=`NATIVEOPENLABEL${labels.size}END`;labels.set(key,label);return JSON.stringify(key);
     });
   }).join("\n");
@@ -806,8 +821,8 @@ const fixtureKeepers = new Map<number, KeeperInspection & { live(): boolean; dis
 function processStart(pid: number): string { return readFileSync(`/proc/${pid}/stat`, "utf8").replace(/^.*\) /s, "").split(" ")[19]!; }
 /** Keep short named credentials out of test-only diagnostic records. */
 export function redactNativeDiagnosticAssignments(text:string):string {
-  return text.replace(/["']?([A-Za-z_$][\w$.-]*)["']?\s*[:=]\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|(?:Bearer|Basic)\s+[^\s,;}\]]+|[^\s,;}\]]+)/gi,
-    (entry,name:string)=>/(?:key|token|secret|password|auth)[\w$.-]*$/i.test(name)?"[redacted credential]":entry);
+  return text.replace(/(?<![\w$.-])["']?((?:[A-Za-z_$][\w$.-]*?)?(?:key|token|secret|password|auth)[\w$.-]*)["']?\s*[:=]\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|(?:Bearer|Basic)\s+[^\s,;}\]]+|[^\s,;}\]]+)/gi,
+    "[redacted credential]");
 }
 interface BootstrapEvidence { snapshot():string; drained:Promise<void> }
 /** Tee only the trusted bootstrap's FIFO, preserving its bytes for the launcher. */
@@ -830,7 +845,9 @@ export function prepareNativeBootstrapDiagnostics(options:Record<string,any>):{o
     return {drained,snapshot(){let prefix=first.toString("utf8"),suffix=tail.toString("utf8");if(observed>first.length)prefix=prefix.slice(0,Math.max(0,prefix.lastIndexOf("\n")));if(observed>tail.length)suffix=suffix.slice(suffix.indexOf("\n")<0?suffix.length:suffix.indexOf("\n")+1);return observed<=first.length?prefix:prefix+"\n"+suffix;}};
   }};
 }
-export function recordNativeGuardChild(child: { pid: number; exited: Promise<number>;exitCode?:number|null;signalCode?:string|number|null },bootstrap=false,evidence?:BootstrapEvidence): void {
+export function recordNativeGuardChild(child: { pid: number; exited: Promise<number>;exitCode?:number|null;signalCode?:string|number|null },bootstrap=false,evidence?:BootstrapEvidence): Promise<void> {
+  let completion=Promise.resolve();
+  const diagnosticRoots=[...(scriptedRoute.getStore()?.fixtureRoots??[])];
   if(bootstrap){
     bootstrapDiagnostics.set(child.pid,{get exitCode(){return child.exitCode??null;},get signalCode(){return child.signalCode??null;}});
     if(bootstrapDiagnostics.size>256)bootstrapDiagnostics.delete(bootstrapDiagnostics.keys().next().value!);
@@ -839,16 +856,17 @@ export function recordNativeGuardChild(child: { pid: number; exited: Promise<num
       if(code===0&&!child.signalCode)return;
       if(evidence){let timer:ReturnType<typeof setTimeout>|undefined;await Promise.race([evidence.drained,new Promise<void>(resolve=>{timer=setTimeout(resolve,2000);timer.unref();})]);clearTimeout(timer);}
       const text=evidence?.snapshot()??"";
-      const safe=compilerDiagnostic(redactNativeDiagnosticAssignments(text.replace(/^[ \t]*(?:Args|Arguments|argv|Env|Environment):[^\n]*(?:\n|$)/gim,"[redacted startup metadata]\n")));
+      const safe=compilerDiagnostic(redactNativeDiagnosticAssignments(labelNativeMountErrors(text,diagnosticRoots).replace(/^[ \t]*(?:Args|Arguments|argv|Env|Environment):[^\n]*(?:\n|$)/gim,"[redacted startup metadata]\n")));
       nativeReceipt({kind:"native-offline-bootstrap-failure",head:nativeTestHead(),exitCode:code,signal:child.signalCode??null,
         reason:safe||"worker bootstrap exited nonzero; stderr reason unavailable"});
     };
-    void child.exited.then(report,()=>report(null));
+    completion=child.exited.then(report,()=>report(null));
   }
-  let start: string; try { start = processStart(child.pid); } catch { return; }
+  let start: string; try { start = processStart(child.pid); } catch { return completion; }
   guardedChildren.set(child.pid, start);
 
   void child.exited.finally(() => { if (guardedChildren.get(child.pid) === start) guardedChildren.delete(child.pid); }).catch(() => {});
+  return completion;
 }
 /** Fixture-owned output descriptor plus a live, guard-observed namespace; no path exemption. */
 export function registerNativeFixtureKeeper(storage: FixtureKeeper): () => void {
@@ -1080,6 +1098,7 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
       ...(["0", "1"].includes(launch.env?.USE_BUILTIN_RIPGREP ?? "") ? { USE_BUILTIN_RIPGREP: launch.env!.USE_BUILTIN_RIPGREP! } : {}),
       ANTHROPIC_API_KEY: "", ANTHROPIC_AUTH_TOKEN: "", CLAUDE_CODE_OAUTH_TOKEN: "",
       ...(ownedOrigin ? relayCredentialPlaceholders(launch.env ?? {}) : syntheticCredentials(launch.env ?? {})) };
+    const readOnlyRemounts=deferNativeReadOnlyRemounts(workerArgv,bwrap);
     const separator = workerArgv.indexOf("--", bwrap);
     // bwrap applies mounts in order. Install every guard-owned input after
     // the launcher's tmpfs/masks, so no later covering mount hides it.
@@ -1118,9 +1137,11 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
       chmodSync(bridge.directory, 0o755); chmodSync(join(bridge.directory, "relay.sock"), 0o666);
       workerArgv.splice(workerArgv.indexOf("--", bwrap), 0, "--bind", directory, directory);
       workerArgv.push(...audited.argv);
+      workerArgv.splice(workerArgv.indexOf("--",bwrap),0,...readOnlyRemounts);
       argv[5] = JSON.stringify(supervisor);
       launch.argv = argv;
     } else {
+      workerArgv.splice(workerArgv.indexOf("--",bwrap),0,...readOnlyRemounts);
       audited = auditNativeLaunch(workerArgv, expected, bridge.dispose);
       launch.argv = audited.argv;
     }
