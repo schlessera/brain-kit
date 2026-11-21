@@ -78,7 +78,15 @@ export function commitOutwardPlan(plan: OutwardPlan, options: {
   bridge?: BackendBridge | null; safety?: AdmissionSafety; before?: AdmissionSafetySnapshot; approved: boolean; signal?: AbortSignal | null;
 }): string | null {
   let now: AdmissionSafetySnapshot | undefined;
-  try { now = (options.safety??options.bridge?.admissionSafety)?.read(); } catch { return STALE_SAFETY_ADMISSION; }
+  try {
+    now=(options.safety??options.bridge?.admissionSafety)?.read();
+    // Own-input exclusion retains an exact owner-approved card only. A
+    // standing rule still sees the full, unexcluded recording/taint state.
+    if(!options.approved&&options.bridge?.admissionSafety){
+      const full=options.bridge.admissionSafety.read();
+      if(safetySnapshotRefusal(full,options.before)||full.restricted&&plan.classification.actions.length)return STALE_SAFETY_ADMISSION;
+    }
+  } catch { return STALE_SAFETY_ADMISSION; }
   const unavailable = safetySnapshotRefusal(now, options.before)??(plan.classification.actions.length?outwardAdmissionRefusal(options.safety??options.bridge?.admissionSafety,options.before):null);
   if (unavailable || options.signal?.aborted) return unavailable ?? STALE_SAFETY_ADMISSION;
   // Remote resolution can itself block while another writer commits. The

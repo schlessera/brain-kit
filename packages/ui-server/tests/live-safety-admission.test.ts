@@ -1011,10 +1011,36 @@ for(const seeded of [false,true])for(const independent of [false,true])for(const
   expect(await work,'HOST_OWNER_RESPONSE_USES_THE_RETAINED_CAUSAL_VIEW').toMatchObject({behavior:independent?'deny':'allow'});
  }finally{authorization.release();host.close();await work;await f.close();}
 });
-for(const binding of ['claude-hook','claude-callback','pi'] as const)test(`${binding}: first own input preserves clean-session standing outward authority`,async()=>{
+for(const perUse of [false,true])for(const binding of ['claude-hook','claude-callback','pi'] as const)test(`${binding}: first own input admission (perUse=${perUse})`,async()=>{
  const f=await fixture(false);try{
-  const result=await execute(f,binding,{phase:'input'});
+  const result=await execute(f,binding,{phase:'input',explicit:perUse});
+  expect(result.requests.filter(request=>request.kind==='command')).toHaveLength(perUse?1:0);
   expect(f.safety.read().restricted,'FIRST_OWN_INPUT_REALLY_RESTRICTS_THE_ROOT').toBe(true);
-  expect(result.executed,'OWN_INPUT_DOES_NOT_CANCEL_STANDING_AUTHORITY').toBe(true);
+  expect(result.executed,'ONLY_EXACT_PER_USE_APPROVAL_RETAINS_OWN_INPUT_EXCLUSION').toBe(perUse);
+ }finally{await f.close();}
+});
+
+test('queued dispatch preparation captures the generation at invocation time',async()=>{
+ const f=await fixture(false);try{
+  const id='prepare-generation';f.collector.admitting!(id,'Bash');await f.collector.begin(id,'Bash',{command});
+  const preparing=f.collector.prepareDispatch!(id),beginning=f.collector.begin(id,'Bash',{command:command+' --dry-run'});
+  const ticket=await preparing;await beginning;
+  expect(()=>ticket.commit(),'QUEUED_PREPARATION_CANNOT_REBASE_ON_A_LATER_BEGIN').toThrow('current');await ticket.cancel();
+  expect(f.db.query('SELECT COUNT(*) n FROM safety_obligations').get()).toEqual({n:0});
+ }finally{await f.close();}
+});
+test('refusal synchronously invalidates a ticket before queued discharge',async()=>{
+ const f=await fixture(false);try{
+  const id='immediate-refusal';f.collector.admitting!(id,'Bash');await f.collector.begin(id,'Bash',{command});const ticket=await f.collector.prepareDispatch!(id);
+  const refusing=f.collector.refused!(id,true);let error:unknown;
+  try{ticket.commit();}catch(cause){error=cause;}await refusing;
+  expect(error,'REFUSAL_INVALIDATES_BEFORE_ITS_PROMISE_SETTLES').toBeInstanceOf(Error);
+  expect(f.db.query('SELECT COUNT(*) n FROM safety_obligations').get(),'REFUSED_UNDISPATCHED_CALL_DISCHARGES').toEqual({n:0});
+ }finally{await f.close();}
+});
+test('dispatch preparation without an admitted operation refuses',async()=>{
+ const f=await fixture(false);try{
+  const refusal=await f.collector.prepareDispatch!('missing-operation').then(()=>null,error=>error);
+  expect(refusal).toBeInstanceOf(Error);expect(f.db.query('SELECT COUNT(*) n FROM safety_obligations').get()).toEqual({n:0});
  }finally{await f.close();}
 });

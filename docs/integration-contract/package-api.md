@@ -5970,7 +5970,10 @@ occurrences, reservations, results, decisions, collection/binding changes, lost
 evidence, trust revisions and authority changes remain visible. Reused, completed, refused or ambiguous identities cannot acquire an
 exclusion. The view derives restriction, pending state and revision after excluding that
 exact input; the ordinary chat projection still records and restricts it.
-This is neither permission nor an outward-authority exemption.
+The exclusion is usable at dispatch only to retain an exact owner-approved
+per-use outward card. Standing `outward.allow` authority always checks the full
+root safety state, including the current call's own tainting input; it cannot
+borrow this exclusion. This is neither permission nor an outward-authority exemption.
 Without the callback the backend uses the unfiltered root facade, preserving
 strict revision checks and granting no exclusion. Provider tool definitions,
 prompts and earlier conversation bytes are unchanged. The same-commit API
@@ -5993,12 +5996,15 @@ waits for admission recording but does not record dispatch. The backend checks
 all evidence, trust and cancellation state after that await, then invokes the
 host-owned ticket's synchronous `commit(validate?)` immediately before exposing
 allowance or spawning. No await follows commit on that dispatching path.
-Each ticket captures an immutable input generation. Every later `begin()`
+Each ticket captures its immutable input generation synchronously when
+`prepareDispatch()` is invoked, before serialized preparation runs. Every later `begin()`
 invalidates it, even when its input bytes repeat; a queued begin invalidates
 the previous preparation before it can commit. Commit is single-use, rechecks
 the current operation and turn, and runs the
 optional final validator before marking dispatch. A repeat, cancelled, refused
-or stale commit refuses. `cancel()` closes an unused ticket and settles the
+or stale commit refuses. `refused()` invalidates outstanding tickets
+synchronously, before its queued durable discharge settles. Preparation without
+an admitted operation refuses. `cancel()` closes an unused ticket and settles the
 backend refusal; a unique never-dispatched call discharges without a false
 missing-result gap. Cancel after successful dispatch does not erase its result
 obligation. Tickets stay on the host and never enter worker RPC or provider

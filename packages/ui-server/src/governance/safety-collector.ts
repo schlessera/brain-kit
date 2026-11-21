@@ -204,7 +204,9 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
   // the id, under the same tool or another (the Claude runtime admits two
   // calls under one id), an allow followed by a refusal, a rejected request
   // (a stopped turn, a replay). Never rejects.
-  refused(toolUseId,denied=false){return serial(toolUseId,async()=>{
+  refused(toolUseId,denied=false){
+   const current=operations.get(toolUseId);if(current){current.refused=true;current.generation=Symbol();}
+   return serial(toolUseId,async()=>{
    const op=operations.get(toolUseId);
    const proves=denied&&once(calls.get(toolUseId));
    if(!op){if(operations.size<2000)operations.set(toolUseId,{...operation(""),refused:true});return;}
@@ -225,9 +227,8 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
    else if(calls.size<2000)calls.set(toolUseId,{tools:new Map(),allowed:true});
    else throw new Error("Safety allowance capacity exceeded; the call does not run");
   },true);},
-  prepareDispatch(toolUseId){return serial(toolUseId,async()=>{
-   const prepared=operations.get(toolUseId),generation=prepared?.generation;
-   if(prepared&&(prepared.refused||!prepared.admitted))throw new Error("Safety operation was refused or not admitted");
+  prepareDispatch(toolUseId){const prepared=operations.get(toolUseId),generation=prepared?.generation;return serial(toolUseId,async()=>{
+   if(!prepared||prepared.refused||!prepared.admitted)throw new Error("Safety operation was refused or not admitted");
    let consumed=false,dispatched=false;
    return {
     commit(validate?:import("@schlessera/brain-ui-sdk/server").InputSafetyAdmissionCheck){
