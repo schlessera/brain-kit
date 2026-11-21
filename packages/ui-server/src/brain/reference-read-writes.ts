@@ -1,5 +1,5 @@
 /** Read evidence shares the reference writer FIFO; it never grants source trust. */
-import { resolveReferenceOwners, type ReferenceOwnerRoot } from "./reference-owner-resolution.js";
+import { resolveReferenceOwners, type ReferenceOwnerPolicy, type ReferenceOwnerRoot } from "./reference-owner-resolution.js";
 import { referenceIdentityObservationMatches, type ReferenceIdentityObservation } from "./reference-acquisition.js";
 import type { Database } from "bun:sqlite";
 import { isLiveReferenceGrant } from "../db/reference-grants.js";
@@ -8,6 +8,7 @@ import { sourceAuthorityCurrent, type SourceAuthority } from "./reference-source
 interface ReferenceReadRecord {
   id: string;
   ownerRoot?: ReferenceOwnerRoot;
+  ownerPolicy?: ReferenceOwnerPolicy;
   operationId: string;
   turnId: string;
   toolCallId: string;
@@ -33,7 +34,7 @@ export function readWrites(db: Database) {
         })) throw new Error("Reference read transport identity changed before recording");
         // Resolve inside the acquired writer transaction, after queued waits.
         // The result is historical qualification evidence, never a trust decision.
-        evidence.ownerResolution = resolveReferenceOwners(db, record.ownerRoot, evidence.identityObservation!);
+        evidence.ownerResolution = resolveReferenceOwners(db, record.ownerRoot, evidence.identityObservation!, record.ownerPolicy);
         const count = db.query("SELECT COUNT(*) AS n FROM reference_reads WHERE turn_id = ?").get(record.turnId) as { n: number };
         if (count.n >= 2000) throw new Error("Reference read record capacity exceeded");
         db.query(`INSERT INTO reference_reads (id, turn_id, tool_call_id, principal_id, acquisition, evidence, response_digest, created_at)

@@ -1,9 +1,10 @@
+import { lstatSync } from "node:fs";
+import { trustPolicyGeneration } from "./trust-policy-generation.js";
 /** Read-only owner qualification. This records historical evidence, never a source-trust admission. */
 import { createHash } from "node:crypto";
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
-import { openGovernancePolicyAnchored, verifyGovernancePolicyAnchored, parseGovernancePolicy,
-  TrustedSourcesSchema, TrustSelectorSchema, type TrustSelector, type AnchoredGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
+import { TrustedSourcesSchema, TrustSelectorSchema, type TrustSelector } from "@schlessera/brain-common/internal/governance-policy";
 import type { ReferenceIdentityObservation } from "./reference-acquisition.js";
 
 const hash = (value: string | Uint8Array) => createHash("sha256").update(value).digest("hex");
@@ -21,6 +22,13 @@ export { createReferenceOwnerContinuity } from "./reference-owner-native-root.js
 import type { ReferenceOwnerRoot } from "./reference-owner-native-root.js";
 export type { ReferenceOwnerRoot } from "./reference-owner-native-root.js";
 
+export interface ReferenceOwnerPolicy {
+  rules: import("@schlessera/brain-common/internal/governance-policy").TrustRule[];
+  revision: string; policyHash: string | null; error: string | null; generation: string;
+}
+const policySchema = z.strictObject({ rules: TrustedSourcesSchema, revision, policyHash: digest.nullable(),
+  error: z.string().nullable(), generation: z.string().min(1).max(4096) });
+
 type GitHubSelector = Extract<TrustSelector, { kind: "github_owner" | "github_repository" }>;
 export interface ReferenceOwnerResolution {
   version: 1;
@@ -28,6 +36,7 @@ export interface ReferenceOwnerResolution {
   state: "available" | "unavailable";
   policyHash: string | null;
   trustRevision: string | null;
+  policyError: string | null;
   /** At most one repository and one owner rule can match a validated policy. */
   bindings: { ruleId: string; selector: GitHubSelector; approvedOwnerId: string; sameOwnerRenameRevalidated: boolean;
     publicationOperationId: string; publicationProofHash: string }[];
@@ -39,24 +48,22 @@ export interface ReferenceOwnerResolution {
  * policy and its exact durable projection must agree; equal bytes cannot create
  * approval. The publisher's retained boundary survives operation pruning.
  */
-export function resolveReferenceOwners(db: Database, root: Readonly<ReferenceOwnerRoot> | undefined, observation: Readonly<ReferenceIdentityObservation>): ReferenceOwnerResolution {
+export function resolveReferenceOwners(db: Database, root: Readonly<ReferenceOwnerRoot> | undefined, observation: Readonly<ReferenceIdentityObservation>, policy?: ReferenceOwnerPolicy): ReferenceOwnerResolution {
   const unavailable = (): ReferenceOwnerResolution => ({ version: 1, operationId: observation.operationId,
-    state: "unavailable", policyHash: null, trustRevision: null, bindings: [] });
+    state: "unavailable", policyHash: null, trustRevision: null, policyError: null, bindings: [] });
   if (!root) return unavailable();
-  let target: AnchoredGovernancePolicy | undefined;
   try {
-    const brain = hash(root.path);
-    target = openGovernancePolicyAnchored(root.path);
-    if (target.directories[0]!.dev !== root.device || target.directories[0]!.ino !== root.inode) return unavailable();
-    if (target.bytes === null) return unavailable();
-    const policyHash = hash(target.bytes), parsed = parseGovernancePolicy(target.bytes);
-    if (!parsed.ok) return unavailable();
-    const rules = TrustedSourcesSchema.parse(parsed.effective.taint.trusted_sources);
+    const brain = hash(root.path), selected = policySchema.parse(policy);
+    const named = lstatSync(root.path);
+    if (!named.isDirectory() || named.dev !== root.device || named.ino !== root.inode) return unavailable();
+    if (trustPolicyGeneration(root.path) !== selected.generation) return unavailable();
+    const { policyHash, rules } = selected;
     const projection = db.query("SELECT revision,rules,policy_hash,error FROM trust_settings_projection WHERE brain_id=?").get(brain) as {
       revision: string; rules: string; policy_hash: string | null; error: string | null;
     } | null;
-    if (!projection || projection.error !== null || projection.policy_hash !== policyHash || !revision.safeParse(projection.revision).success
-      || JSON.stringify(TrustedSourcesSchema.parse(JSON.parse(projection.rules))) !== JSON.stringify(rules)) return unavailable();
+    if (!projection || projection.revision !== selected.revision || !revision.safeParse(projection.revision).success
+      || JSON.stringify(TrustedSourcesSchema.parse(JSON.parse(projection.rules))) !== JSON.stringify(rules)
+      || selected.error !== null && projection.policy_hash !== policyHash) return unavailable();
     const bindings: ReferenceOwnerResolution["bindings"] = [];
     for (const rule of rules) {
       const selector = rule.selector;
@@ -80,9 +87,8 @@ export function resolveReferenceOwners(db: Database, root: Readonly<ReferenceOwn
       } catch { /* Malformed or incomplete publication evidence qualifies no rule. */ }
     }
     // Detect descriptor/name/content changes while synchronous database reads ran.
-    verifyGovernancePolicyAnchored(target, policyHash);
+    if (trustPolicyGeneration(root.path) !== selected.generation) return unavailable();
     return { version: 1, operationId: observation.operationId, state: bindings.length ? "available" : "unavailable",
-      policyHash, trustRevision: projection.revision, bindings };
+      policyHash, trustRevision: projection.revision, policyError: selected.error, bindings };
   } catch { return unavailable(); }
-  finally { target?.close(); }
 }

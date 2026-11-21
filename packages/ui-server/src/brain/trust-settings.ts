@@ -1,4 +1,5 @@
-import type { ReferenceOwnerRoot } from "./reference-owner-resolution.js";
+import { trustPolicyGeneration } from "./trust-policy-generation.js";
+import type { ReferenceOwnerPolicy, ReferenceOwnerRoot } from "./reference-owner-resolution.js";
 /** Human Settings operations. Markdown is authoritative; these rows are bounded
  * request/audit receipts, never a second policy source or an agent turn. */
 import { createHash, randomBytes } from "node:crypto";
@@ -116,12 +117,7 @@ export function createTrustSettings(options: {
   let liveCache: { observation: Observation; base: LiveProjection; value: LiveProjection } | undefined;
   // Metadata is the per-chunk fence. Include every ancestry identity and the
   // file's nanosecond change identity, without reading policy bytes or SQLite.
-  const generation = () => [root, join(root, "context"), join(root, "context/policies"), join(root, "context/policies/governance.md")].map((path, index) => {
-    try {
-      const info = lstatSync(path, { bigint: true });
-      return [info.dev, info.ino, info.mode, info.nlink, ...(index === 3 ? [info.size, info.mtimeNs, info.ctimeNs] : [])].map(String).join(":");
-    } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return "missing"; throw error; }
-  }).join("|");
+  const generation = () => trustPolicyGeneration(root);
   /** One state machine for live reads and durable refresh. Changed verification
    * always fences; stable invalid/unreadable bytes retain last-valid evidence. */
   const observePolicy = (): Observation => {
@@ -203,6 +199,14 @@ export function createTrustSettings(options: {
     });
   };
   return {
+    /** Snapshot the existing live interpretation; writers fence its generation after waits. */
+    ownerPolicy(): ReferenceOwnerPolicy | undefined {
+      try {
+        const before = generation(), p = live.read();
+        if (generation() !== before) return;
+        return { rules: p.rules, revision: p.revision, policyHash: p.policyHash, error: p.error, generation: before };
+      } catch { return; }
+    },
     live,
     /** The other protected publisher already owns the shared brain lock. */
     refreshLocked: refresh,

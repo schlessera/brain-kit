@@ -88,7 +88,7 @@ async function fixture(worker = false) {
   const pool = referencePoolDouble(join(root, "pool")), sources = createReferenceSources({ db, brain, pool, transport, github: access, credentials: { GITHUB_TOKEN: "odysseus-fixture-token" } });
   cleanup.push(() => sources.close());
   const egress = await startEgressProxy({ mode: "record", allow: [], deny: [], outwardHosts: [], maxBytes: 16 * 1048576, observe() {} }); cleanup.push(() => egress.stop());
-  const reads = createReferenceReads({ db, brain, ownerRoot: continuity.root, pool, sources, transport });
+  const reads = createReferenceReads({ db, brain, ownerRoot: continuity.root, ownerPolicy: () => settings.ownerPolicy(), pool, sources, transport });
   let call = 0;
   const read = async (principalId = other.id) => {
     const toolCallId = `read-${++call}`;
@@ -192,7 +192,7 @@ test("independent owner and repository publications retain both bounded bindings
     .toBe(first.evidence.ownerResolution.bindings[0]!.publicationProofHash);
 });
 
-for (const change of ["invalid", "symlink", "selector", "projection"]) test(`a ${change} policy boundary cannot qualify reads`, async () => {
+for (const change of ["invalid", "symlink", "selector", "projection"]) test(`a ${change} policy boundary follows the Settings live interpretation`, async () => {
   const f = await fixture(); await f.approve();
   const previous = readFileSync(f.policyPath, "utf8");
   if (change === "invalid") writeFileSync(f.policyPath, "---\nschema_version: 9000\n---\n");
@@ -202,17 +202,19 @@ for (const change of ["invalid", "symlink", "selector", "projection"]) test(`a $
     renameSync(f.policyPath, f.policyPath + ".saved");
     const { symlinkSync } = await import("node:fs"); symlinkSync(f.policyPath + ".saved", f.policyPath);
   }
-  expect((await f.read()).evidence.ownerResolution.state, "POLICY_BOUNDARY_UNKNOWN_NEVER_QUALIFIES").toBe("unavailable");
+  const resolution = (await f.read()).evidence.ownerResolution;
+  expect(resolution.state, "POLICY_BOUNDARY_USES_SETTINGS_LIVE_INTERPRETATION").toBe(change === "invalid" || change === "symlink" ? "available" : "unavailable");
+  if (change === "invalid" || change === "symlink") expect(resolution.policyError).toBe("policy_unavailable");
 });
 
 test("replacing the configured policy root cannot borrow the previous directory's approval", async () => {
   const f = await fixture(); await f.approve(); const r = await f.read(), bound = f.ownerRoot;
-  expect(resolveReferenceOwners(f.db, bound, r.evidence.identityObservation).bindings, "LIVE_ORIGINAL_ROOT_HAS_APPROVED_BINDING").toHaveLength(1);
+  expect(resolveReferenceOwners(f.db, bound, r.evidence.identityObservation, f.settings.ownerPolicy()).bindings, "LIVE_ORIGINAL_ROOT_HAS_APPROVED_BINDING").toHaveLength(1);
   const policy = readFileSync(f.policyPath), backup = f.root + "-old";
   renameSync(f.root, backup);
   try {
     mkdirSync(join(f.root, "context/policies"), { recursive: true }); writeFileSync(f.policyPath, policy);
-    expect(resolveReferenceOwners(f.db, bound, r.evidence.identityObservation).bindings, "OWNER_APPROVAL_IS_BOUND_TO_HOST_BRAIN_ROOT").toEqual([]);
+    expect(resolveReferenceOwners(f.db, bound, r.evidence.identityObservation, f.settings.ownerPolicy()).bindings, "OWNER_APPROVAL_IS_BOUND_TO_HOST_BRAIN_ROOT").toEqual([]);
   } finally { rmSync(f.root, { recursive: true, force: true }); renameSync(backup, f.root); }
 });
 
@@ -248,7 +250,7 @@ test("a reopened database reconstructs qualification from retained boundary evid
   f.db.exec("DELETE FROM trust_settings_operations");
   const reopened = createUiDb(join(f.root, "ui.db"));
   try {
-    const resolved = resolveReferenceOwners(reopened, f.ownerRoot, observed.evidence.identityObservation);
+    const resolved = resolveReferenceOwners(reopened, f.ownerRoot, observed.evidence.identityObservation, f.settings.ownerPolicy());
     expect(resolved, "OWNER_RESOLUTION_SURVIVES_DATABASE_REOPEN").toEqual(observed.evidence.ownerResolution);
     const history = reopened.query("SELECT evidence FROM reference_reads").get() as { evidence: string };
     expect(JSON.parse(history.evidence).ownerResolution).toEqual(resolved);
@@ -282,7 +284,7 @@ test("restart cannot apply retained approval to a replacement policy root with i
     f.nativeState.uuid = "22".repeat(16);
     const reopened = createUiDb(join(backup, "ui.db"));
     try {
-      expect(resolveReferenceOwners(reopened, await captureReferenceOwnerRoot(f.root, { ...nativeExpected, brainUuid: "22".repeat(16) }), observed.evidence.identityObservation).bindings,
+      expect(resolveReferenceOwners(reopened, await captureReferenceOwnerRoot(f.root, { ...nativeExpected, brainUuid: "22".repeat(16) }), observed.evidence.identityObservation, f.settings.ownerPolicy()).bindings,
         "RESTART_REJECTS_APPROVAL_FROM_REPLACED_PUBLISHED_ROOT").toEqual([]);
     } finally { reopened.close(); }
   } finally { rmSync(f.root, { recursive: true, force: true }); renameSync(backup, f.root); }
@@ -303,7 +305,7 @@ test("deleted root replacement cannot inherit approval even when the filesystem 
       const replacement = await captureReferenceOwnerRoot(f.root, { ...nativeExpected, brainUuid: f.nativeState.uuid });
       // The previous weak path/device/inode proof is gone. Native root identity
       // remains different even when a Btrfs replacement reuses root inode 256.
-      expect(resolveReferenceOwners(reopened, replacement, observed.evidence.identityObservation).bindings,
+      expect(resolveReferenceOwners(reopened, replacement, observed.evidence.identityObservation, f.settings.ownerPolicy()).bindings,
         "DELETED_ROOT_REUSE_REQUIRES_NEW_REVIEWED_APPROVAL").toEqual([]);
     } finally { reopened.close(); }
   } finally { rmSync(retained, { recursive: true, force: true }); }
@@ -313,8 +315,9 @@ test("ordinary host restart retains approval for the same qualified native brain
   const f = await fixture(); await f.approve(); const observed = await f.read();
   f.continuity.close();
   const next = await createReferenceOwnerContinuity(f.root, nativeExpected);
+  const restartedSettings = createTrustSettings({ ...f.settingsOptions, ownerRoot: next.root });
   try {
-    expect(resolveReferenceOwners(f.db, next.root, observed.evidence.identityObservation).bindings,
+    expect(resolveReferenceOwners(f.db, next.root, observed.evidence.identityObservation, restartedSettings.ownerPolicy()).bindings,
       "ORDINARY_NATIVE_RESTART_PRESERVES_APPROVED_OWNER").toHaveLength(1);
   } finally { next.close(); }
 });
@@ -322,6 +325,40 @@ test("ordinary host restart retains approval for the same qualified native brain
 test("an unqualified host withholds retained owner approval", async () => {
   const f = await fixture(); await f.approve(); const observed = await f.read();
   const next = await createReferenceOwnerContinuity(f.root);
-  try { expect(resolveReferenceOwners(f.db, next.root, observed.evidence.identityObservation).bindings,
+  try { expect(resolveReferenceOwners(f.db, next.root, observed.evidence.identityObservation, f.settings.ownerPolicy()).bindings,
     "UNQUALIFIED_NATIVE_HOST_WITHHOLDS_OWNER_APPROVAL").toEqual([]); } finally { next.close(); }
+});
+
+test("owner qualification retains the Settings last-valid rules with an honest error and clears it on recovery", async () => {
+  const f = await fixture(); await f.approve(); const policy = readFileSync(f.policyPath);
+  writeFileSync(f.policyPath, "---\nschema_version: 9000\n---\n");
+  const restricted = await f.read();
+  expect(restricted.evidence.ownerResolution, "OWNER_QUALIFICATION_SHARES_LIVE_LAST_VALID_POLICY").toMatchObject({ state: "available", policyError: "policy_unavailable" });
+  expect(restricted.evidence.trusted).toBe(false);
+  writeFileSync(f.policyPath, policy);
+  expect((await f.read()).evidence.ownerResolution).toMatchObject({ state: "available", policyError: null });
+});
+
+test("an unrelated policy edit binds owner evidence to the live verified hash without a second projection cache", async () => {
+  const f = await fixture(); await f.approve(); const first = await f.read();
+  writeFileSync(f.policyPath, readFileSync(f.policyPath, "utf8") + "\nThe fleet reviews the harbor.\n");
+  const live = f.settings.live.read(), current = await f.read();
+  expect(current.evidence.ownerResolution.policyHash, "OWNER_EVIDENCE_USES_VERIFIED_LIVE_POLICY_HASH").toBe(live.policyHash);
+  expect(current.evidence.ownerResolution.policyHash).not.toBe(first.evidence.ownerResolution.policyHash);
+  expect(current.evidence.ownerResolution.state).toBe("available");
+});
+
+test("the queued owner writer fences a changed live generation even when projection and boundary remain unchanged", async () => {
+  const f = await fixture(true); await f.approve();
+  const control = await heldWriter(f.writer!, join(f.root, "ui.db"));
+  f.state.afterBlob = async () => { await control.hold(); };
+  const posted = control.posted("referenceReadPrepare"), pending = f.read();
+  try {
+    await posted;
+    writeFileSync(f.policyPath, readFileSync(f.policyPath, "utf8") + "\nThe fleet reviews the harbor.\n");
+    control.release();
+    expect((await pending).evidence.ownerResolution.state, "OWNER_WRITER_FENCES_LIVE_GENERATION_AFTER_QUEUE").toBe("unavailable");
+    f.state.afterBlob = async () => {};
+    expect((await f.read()).evidence.ownerResolution.state, "NEXT_READ_RECOVERS_WITH_FRESH_SETTINGS_LIVE_SNAPSHOT").toBe("available");
+  } finally { await control.close(); await pending.catch(() => {}); }
 });

@@ -128,7 +128,7 @@ export async function proveManagedReferenceSource(client: ReturnType<typeof crea
       const approved = await settings.commit(principal.id, { version: 1, requestId: preparedApproval.receipt.requestId,
         reviewId: preparedApproval.review.reviewId, reviewedBytesHash: preparedApproval.review.reviewedBytesHash });
       expect(approved.receipt.publication, "MANAGED_NATIVE_OWNER_APPROVAL_IS_REAL_PUBLICATION").toBe("proved");
-      const reads = createReferenceReads({ db, ownerRoot: ownerContinuity.root, brain: servedBrain, sources, pool: client, transport });
+      const reads = createReferenceReads({ db, ownerRoot: ownerContinuity.root, ownerPolicy: () => settings.ownerPolicy(), brain: servedBrain, sources, pool: client, transport });
       const tools = createReferenceTools({ sources, reads }), turnId = "odysseus-native-read";
       await tools.begin(turnId, { principalId: principal.id, posture: "interactive", generation: null });
       tools.attachEgress(turnId, principal.id, { egress, current: () => true });
@@ -152,7 +152,7 @@ export async function proveManagedReferenceSource(client: ReturnType<typeof crea
         note("managed-source-native-host-read", { commit, tree, blob: evidence.blob, digest: evidence.digest, offset: 9, length: 13,
           actualMaintenanceWorker: true, hostToolEntry: true, identityObservation: evidence.identityObservation, ownerResolution: evidence.ownerResolution, delivery: prepared.delivery, backendEquivalence: false, readTrustExemption: false });
         const restartedOwner = await createReferenceOwnerContinuity(brain, await client.ready());
-        try { expect(resolveReferenceOwners(db, restartedOwner.root, evidence.identityObservation).bindings,
+        try { expect(resolveReferenceOwners(db, restartedOwner.root, evidence.identityObservation, settings.ownerPolicy()).bindings,
           "MANAGED_NATIVE_OWNER_APPROVAL_SURVIVES_ORDINARY_RESTART").toHaveLength(1); } finally { restartedOwner.close(); }
         await proveReferenceOwnerRoot(brain, note);
         const currentPolicy = await settings.list(principal.id);

@@ -440,8 +440,9 @@ Approved-owner rule evaluation remains independently required.
 ## Approved-owner resolution for immutable reads
 
 The host read service resolves each actual transport observation against the
-protected Markdown policy, its matching durable trust projection and Settings'
-operation-bound approved-owner evidence. The policy root's directory identity is
+Settings' existing live-policy interpretation, its matching durable trust
+projection and operation-bound approved-owner evidence. No independent policy
+parser or live cache selects owner rules. The policy root's directory identity is
 captured with a no-follow directory descriptor and qualified against the native
 manager's filesystem ID and fixed live-brain subvolume UUID. The kernel Btrfs
 identity is read from that already held descriptor, including across native
@@ -452,9 +453,10 @@ identity. Publication records filesystem ID and subvolume UUID from this host
 qualification. Ordinary restart requalifies the same native brain and preserves
 approval; recreation at the same path, inode and policy bytes has a different
 subvolume UUID and cannot inherit it. An unqualified host or legacy proof without
-that native binding withholds qualification. Links, replaced roots, invalid or incoherent
-policy/projection data and missing/malformed publication proof produce unavailable
-qualification; they do not prevent an otherwise authorized untrusted read.
+that native binding withholds qualification. Replaced roots, verification races, incoherent projection data
+and missing/malformed publication proof produce unavailable qualification. Stable
+invalid/unreadable policy retains Settings' last-valid rules and records its
+honest error; they do not prevent an otherwise authorized untrusted read.
 
 Exact repository approval requires the freshly observed stable repository ID,
 current canonical owner and the independently approved owner ID. A same-owner
@@ -468,7 +470,10 @@ or approving-login deletion does not erase the durable owner evidence. It
 is interpreted only against a freshly qualified native brain after restart.
 
 Resolution runs provisionally before recording and again inside the acquired
-SQLite writer transaction. The recorded operation ID, policy hash/revision,
+SQLite writer transaction against the host snapshot and current metadata
+generation and durable projection. A generation change during the queue wait
+withholds only this qualification; a later read uses a new live Settings
+snapshot. The recorded operation ID, policy hash/revision,
 approved owner, selector and publication operation/proof hash are historical
 qualification evidence. They are separate from the original acquisition and the
 prepared/observed/unknown delivery state. Removal affects later resolutions and
