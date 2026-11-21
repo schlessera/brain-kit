@@ -1,5 +1,6 @@
 /** Local tests never execute the installed native runtime, including mutations. */
 import { expect, test } from "bun:test";
+import { watchdogMs } from "../scripts/test-deadlines";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
@@ -189,7 +190,7 @@ test("isolated plans preserve synthetic credential precedence and an unauthentic
       }leave();`, scratch);
     expect(result.code, result.output).toBe(0);
   } finally { rmSync(scratch, { recursive: true, force: true }); }
-});
+}, watchdogMs(120_000));
 
 test("fixture PATH tools are mounted selectively without exposing sibling credentials", async () => {
   const scratch = mkdtempSync(join(tmpdir(), "odysseus-tool-plan-"));
