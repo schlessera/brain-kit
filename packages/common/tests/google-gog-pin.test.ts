@@ -4,7 +4,7 @@
  * every refusal is proven against a binary that otherwise passes.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, chownSync, copyFileSync, readFileSync, renameSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, chownSync, copyFileSync, mkdirSync, readFileSync, renameSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { GOG_PINS, gogPlatform, verifyGogBinary } from "@schlessera/brain-common/internal/google-gog";
 import { gogInvocation } from "../src/google/gog/argv.ts";
@@ -38,6 +38,25 @@ function setup(scenario: FakeGogScenario = {}, schema: unknown = schemaFromSnaps
   };
   const verify = (overrides: Partial<GogPinParameters> = {}) => verifyGogBinaryWith(fake.executable, { env: built.environment }, { ...parameters, ...overrides });
   return { fake, parameters, verify, env: built.environment };
+}
+
+/**
+ * The fake reached through a symlink in a directory of its own, as
+ * `/usr/local/bin/gog -> /opt/gog/bin/gog` would be; `retarget` points the
+ * link at another file in one rename.
+ */
+function linked(fake: FakeGog) {
+  const dir = join(fake.dir, "link");
+  mkdirSync(dir, { mode: 0o700 });
+  const link = join(dir, "gog");
+  symlinkSync(fake.executable, link);
+  return {
+    link,
+    retarget(to: string) {
+      symlinkSync(to, `${link}.next`);
+      renameSync(`${link}.next`, link);
+    },
+  };
 }
 
 describe("the pin accepts the pinned binary", () => {
@@ -129,6 +148,15 @@ describe("the pin refuses, and runs nothing before the hash matches", () => {
     renameSync(copy, fake.executable);
     expect(hashOpen(fake.executable, checked)).toBe("binary_changed");
     expect(hashOpen(join(fake.dir, "nowhere"), checked)).toBe("binary_missing");
+  });
+
+  test("through a symlink, the file and the directory checked are the ones the link resolves to", async () => {
+    const { fake, parameters, env } = setup();
+    const { link } = linked(fake);
+    chmodSync(dirname(fake.executable), 0o770);
+    expect(await verifyGogBinaryWith(link, { env }, parameters)).toMatchObject({ ok: false, reason: "directory_writable" });
+    chmodSync(dirname(fake.executable), 0o700);
+    expect(await verifyGogBinaryWith(link, { env }, parameters)).toMatchObject({ ok: true, path: fake.executable });
   });
 
   test("an unlisted platform, a relative path and a missing file", async () => {
@@ -325,6 +353,53 @@ describe("the transport re-checks the binary's identity", () => {
     clock += 10 * GOG_PIN_RETRY_MS;
     expect(await transport.execute("gmail.labels.list", {})).toEqual(refusedWith("version_mismatch"));
     expect(fake.callsOf("version")).toHaveLength(1);
+  });
+
+  const linkedTransport = (link: string, fake: FakeGog, parameters: GogPinParameters, now?: () => number) => createGogTransportInternals({
+    binary: { kind: "pinned", path: link }, account: "ithaca-pin", environment: fake.environment, pinParameters: parameters, now,
+  });
+
+  test("through a symlink, the backoff and a standing refusal hold: both are about the file the link resolves to", async () => {
+    const { fake, parameters } = setup({ version: [{ delay_ms: 60_000 }, VERSION], "gmail.labels.list": { stdout: labels } });
+    let clock = 1_000;
+    const transport = linkedTransport(linked(fake).link, fake, { ...parameters, timeoutMs: 300 }, () => clock);
+    expect(await transport.execute("gmail.labels.list", {})).toEqual(refusedWith("probe_timeout"));
+    clock += GOG_PIN_RETRY_MS - 1;
+    expect(await transport.execute("gmail.labels.list", {})).toEqual(refusedWith("probe_timeout"));
+    expect(fake.callsOf("version")).toHaveLength(1);
+    clock += 1;
+    expect((await transport.execute("gmail.labels.list", {})).ok).toBe(true);
+    expect(fake.callsOf("version")).toHaveLength(2);
+    // A definitive refusal is not verified again while nothing changed.
+    const mismatched = setup({ version: { stdout: "v0.48.1 (deadbeef 2026-11-16T05:55:59Z)\n" } });
+    const standing = linkedTransport(linked(mismatched.fake).link, mismatched.fake, mismatched.parameters);
+    expect(await standing.execute("gmail.labels.list", {})).toEqual(refusedWith("version_mismatch"));
+    expect(await standing.execute("gmail.labels.list", {})).toEqual(refusedWith("version_mismatch"));
+    expect(mismatched.fake.callsOf("version")).toHaveLength(1);
+  });
+
+  test("a symlink retargeted after verification or after a refusal is a changed binary: the new target is verified and run", async () => {
+    const first = setup({ "gmail.labels.list": { stdout: labels } });
+    const second = setup({ "gmail.labels.list": { stdout: labels } });
+    const { link, retarget } = linked(first.fake);
+    const transport = linkedTransport(link, first.fake, { ...first.parameters, pins: [...first.parameters.pins, ...second.parameters.pins] });
+    expect((await transport.execute("gmail.labels.list", {})).ok).toBe(true);
+    retarget(second.fake.executable);
+    expect(await transport.execute("gmail.labels.list", {})).toEqual(refusedWith("binary_changed"));
+    expect((await transport.execute("gmail.labels.list", {})).ok).toBe(true);
+    expect(first.fake.callsOf("gmail.labels.list")).toHaveLength(1);
+    expect(second.fake.callsOf("schema")).toHaveLength(1);
+    expect(second.fake.callsOf("gmail.labels.list")).toHaveLength(1);
+    expect(await transport.availability()).toMatchObject({ ok: true, pin: { path: second.fake.executable } });
+    // A refused link pointed at a good binary is verified again at once.
+    const bad = setup({ version: { stdout: "v0.48.1 (deadbeef 2026-11-16T05:55:59Z)\n" } });
+    const good = setup({ "gmail.labels.list": { stdout: labels } });
+    const refusedLink = linked(bad.fake);
+    const recovering = linkedTransport(refusedLink.link, bad.fake, { ...bad.parameters, pins: [...bad.parameters.pins, ...good.parameters.pins] });
+    expect(await recovering.execute("gmail.labels.list", {})).toEqual(refusedWith("version_mismatch"));
+    refusedLink.retarget(good.fake.executable);
+    expect((await recovering.execute("gmail.labels.list", {})).ok).toBe(true);
+    expect(good.fake.callsOf("gmail.labels.list")).toHaveLength(1);
   });
 
   test("a fake skips the pin: no version or schema call", async () => {

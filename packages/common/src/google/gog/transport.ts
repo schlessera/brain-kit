@@ -9,14 +9,16 @@
  * one process under a timeout (reads 30 s, writes 60 s), one retry of a read
  * that gog called retryable, never a retry of a write, and the codec.
  *
- * The pin is scoped to the one binary and recovers by itself. A changed
- * identity refuses that call and verifies the file again on the next. A
- * refusal stands while the file and its directory keep the identity it was
- * about, so repairing a mode, owner or file is seen at once; a transient one
- * (a probe that timed out, was killed or could not start, a file that moved
- * while it was read) is verified again after {@link GOG_PIN_RETRY_MS}, and
- * again after each further backoff, never given up. The reason is in every
- * refusal the call returns.
+ * The pin is scoped to the one binary and recovers by itself. Each re-check
+ * resolves the configured path again, so a symlink retargeted after
+ * verification is a changed identity. A changed identity refuses that call
+ * and verifies the file again on the next. A refusal stands while the path
+ * resolves to the file it was about and that file and its directory keep
+ * their identity, so repairing a mode, owner or file is seen at once; a
+ * transient one (a probe that timed out, was killed or could not start, a
+ * file that moved while it was read) is verified again after
+ * {@link GOG_PIN_RETRY_MS}, and again after each further backoff, never
+ * given up. The reason is in every refusal the call returns.
  *
  * A `gmail.search` is the search and then one thread read per hit: gog's
  * search output carries only the first message's labels, by name, so the
@@ -191,7 +193,7 @@ export function createGogTransportInternals(
       const result = await held;
       if (!result.ok) {
         // A refusal stands while what it was about is unchanged, and a transient one until its backoff ends.
-        const unchanged = sameGogIdentity(gogBinaryIdentity(result.path), result.identity);
+        const unchanged = sameGogIdentity(gogBinaryIdentity(binary.path), result.identity);
         if (unchanged && !(result.transient && now() >= retryAt)) return refused(result.reason);
         if (pin === held) pin = null;
       }
@@ -207,8 +209,8 @@ export function createGogTransportInternals(
     const current = pin!;
     const result = await current;
     if (!result.ok) return refused(result.reason);
-    // The file and its directory must still be what was verified.
-    if (!sameGogIdentity(gogBinaryIdentity(result.path), result.identity)) {
+    // The configured path must still resolve to what was verified, in the same state.
+    if (!sameGogIdentity(gogBinaryIdentity(binary.path), result.identity)) {
       if (pin === current) pin = null;
       return refused("binary_changed");
     }

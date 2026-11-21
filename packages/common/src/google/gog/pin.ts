@@ -14,12 +14,17 @@
  *    command path, flag and positional of the snapshot, with its type.
  *
  * The identity the checks and the hash were taken over is what the
- * transport re-checks before each call: the file's device, inode, size,
- * mtime, ctime, mode, owner and group, and its directory's device, inode,
- * mode, owner and group. The ctime is the part no user can set: any write,
- * rename, chmod or chown moves it, even one that puts the mtime back. A
- * changed identity refuses that call and verifies the file again from step
- * 2, so a mode or owner repaired after a refusal is seen by the next call.
+ * transport re-checks before each call: the file the path resolves to
+ * through every symlink, that file's device, inode, size, mtime, ctime,
+ * mode, owner and group, and its directory's device, inode, mode, owner and
+ * group. Every step, and every re-check, resolves the path the transport
+ * was given, so the file, the directory and the identity they are compared
+ * with are always one file's; a symlink retargeted after verification
+ * resolves to another file, which is a changed identity. The ctime is the
+ * part no user can set: any write, rename, chmod or chown moves it, even
+ * one that puts the mtime back. A changed identity refuses that call and
+ * verifies the file again from step 2, so a mode or owner repaired after a
+ * refusal is seen by the next call.
  *
  * What it cannot close: the descriptor is closed after hashing, and every
  * run (`version`, `schema` and each operation) executes the path. Between
@@ -67,12 +72,15 @@ export interface GogFileIdentity {
   gid: number;
 }
 
-/** What the transport re-checks before each call: the binary, and the directory that holds it. */
+/** What the transport re-checks before each call: the file the path resolves to, and the directory that holds it. */
 export interface GogBinaryIdentity {
+  /** The path resolved through every symlink: the file checked, hashed and run. */
+  target: string;
   file: GogFileIdentity & { size: string; mtimeNs: string; ctimeNs: string };
   directory: GogFileIdentity;
 }
 
+/** `path` is the file the given path resolved to (the one run), or the given path when it resolved to none. */
 export type GogPinResult =
   | { ok: true; path: string; version: string; commit: string; platform: GogPlatform; sha256: string; identity: GogBinaryIdentity }
   /** `identity` is what the refusal was about, or null when it came before the file was read. */
@@ -112,14 +120,19 @@ const sameOwner = (a: GogFileIdentity, b: GogFileIdentity) => a.dev === b.dev &&
 const sameFile = (a: GogBinaryIdentity["file"], b: GogBinaryIdentity["file"]) =>
   sameOwner(a, b) && a.size === b.size && a.mtimeNs === b.mtimeNs && a.ctimeNs === b.ctimeNs;
 
-/** Whether two identities are the same file in the same directory state; two nulls (no file) are the same. */
+/** Whether two identities are the same file, at the same resolved path, in the same directory state; two nulls (no file) are the same. */
 export const sameGogIdentity = (a: GogBinaryIdentity | null, b: GogBinaryIdentity | null): boolean =>
-  a === null || b === null ? a === b : sameFile(a.file, b.file) && sameOwner(a.directory, b.directory);
+  a === null || b === null ? a === b : a.target === b.target && sameFile(a.file, b.file) && sameOwner(a.directory, b.directory);
 
-/** The current identity of a file and its directory, or null when either cannot be read. */
+/**
+ * The current identity of what `path` names: the file it resolves to through
+ * every symlink, and that file's directory. Null when it resolves to nothing
+ * or either cannot be read.
+ */
 export function gogBinaryIdentity(path: string): GogBinaryIdentity | null {
   try {
-    return { file: fileOf(statSync(path, { bigint: true })), directory: ownerOf(statSync(dirname(path), { bigint: true })) };
+    const target = realpathSync(path);
+    return { target, file: fileOf(statSync(target, { bigint: true })), directory: ownerOf(statSync(dirname(target), { bigint: true })) };
   } catch {
     return null;
   }
@@ -247,18 +260,13 @@ export function checkGogSchema(schema: unknown, snapshot: GogSchemaSnapshot, ver
 export async function verifyGogBinaryWith(path: string, options: GogPinOptions, parameters: GogPinParameters): Promise<GogPinResult> {
   let identity: GogBinaryIdentity | null = null;
   const refuse = (reason: GogPinRefusal): GogPinResult =>
-    ({ ok: false, reason, path, transient: GOG_PIN_TRANSIENT_REFUSALS.includes(reason), identity });
+    ({ ok: false, reason, path: identity?.target ?? path, transient: GOG_PIN_TRANSIENT_REFUSALS.includes(reason), identity });
   const platform = parameters.platform;
   if (!platform || !parameters.pins.some(pin => pin.sha256[platform])) return refuse("platform_not_pinned");
   if (!path.startsWith("/")) return refuse("not_absolute");
-  let real: string;
-  try {
-    real = realpathSync(path);
-  } catch {
-    return refuse("binary_missing");
-  }
-  identity = gogBinaryIdentity(real);
+  identity = gogBinaryIdentity(path);
   if (!identity) return refuse("binary_missing");
+  const real = identity.target;
   const place = checkPlace(identity, parameters.uid);
   if (place) return refuse(place);
 
@@ -294,15 +302,16 @@ export async function verifyGogBinaryWith(path: string, options: GogPinOptions, 
   const schemaRefusal = checkGogSchema(schema, parameters.snapshot, pin.version);
   if (schemaRefusal) return refuse(schemaRefusal);
 
-  if (!sameGogIdentity(gogBinaryIdentity(real), identity)) return refuse("binary_changed");
+  if (!sameGogIdentity(gogBinaryIdentity(path), identity)) return refuse("binary_changed");
   return { ok: true, path: real, version: pin.version, commit: pin.commit, platform, sha256: hashed.sha256, identity };
 }
 
 /**
  * Checks a gog binary against the committed pins and schema snapshot on the
  * running platform, as owned by root or this process's user. `path` is
- * resolved once; the result's `path` is the file that was hashed and is the
- * one the transport executes.
+ * resolved through every symlink; the result's `path` is the file that was
+ * hashed and is the one the transport executes, for as long as `path` still
+ * resolves to it.
  */
 export function verifyGogBinary(path: string, options: GogPinOptions): Promise<GogPinResult> {
   return verifyGogBinaryWith(path, options, productionParameters());
