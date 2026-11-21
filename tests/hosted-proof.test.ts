@@ -1,3 +1,4 @@
+import { spawnGuardFixture } from "./helpers/native-receipt-fixture";
 import { afterEach, expect, test } from "bun:test";
 import { mkdirSync, readFileSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -447,9 +448,9 @@ test("native CLI command preload resolves as a file and latches refusal before a
     try{nativeClaudeBoundary("/synthetic/native",[],{});}catch{}process.exit(0);`);
   // The alias is deliberately outside automatic Bun-child preload propagation.
   // Use the actual configured CLI flags; the program never execs native Claude.
-  const child = Bun.spawn([alias, ...prefix!.split(" "), program], { cwd: ROOT,
+  const child = spawnGuardFixture([alias, ...prefix!.split(" "), program], { cwd: ROOT,
     env: { PATH: "/usr/bin:/bin", HOME: root }, stdout: "pipe", stderr: "pipe" });
-  const [code, output] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+  const [code, output] = await Promise.all([child.exited, child.guardOutput()]);
   expect(code).not.toBe(0);
   expect(output).toContain('"success":false,"nativeLaunched":false');
   expect(output).toContain("positive native proof requires a hosted runner");
