@@ -20,6 +20,8 @@ export function createJournalRoutes({ journal, codeHistory }: { journal: TurnJou
     })
     .get("/sessions/:sessionId/turns/:turnId/journal/code/preview", async c => {
       c.header("Cache-Control", "private, no-store");
+      const principal = c.get("principal");
+      if (!principal || !["owner", "ambient"].includes(principal.kind)) return c.json({ error: "Owner authorization required." }, 403);
       const checkout = c.req.query("checkout");
       if (!checkout) return c.json({ error: "Choose a checkout receipt." }, 400);
       try { return c.json(await journal.codePreview(c.req.param("sessionId"), c.req.param("turnId"), checkout)); }
