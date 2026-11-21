@@ -40,7 +40,7 @@ test("packing uses the single headroom measurement it reports",()=>{
  try{
  expect(Bun.spawnSync(["git","-C",root,"init","-q"]).exitCode).toBe(0);
  const actual=fs.statfsSync(root,{bigint:true});let reads=0,printed="";
- capacity=spyOn(fs,"statfsSync").mockImplementation((()=>{reads++;return reads===1?actual:{...actual,bavail:0n};}) as typeof fs.statfsSync);
+ capacity=spyOn(fs,"statfsSync").mockImplementation((()=>{reads++;return reads===1?actual:{...actual,bavail:0n};}) as unknown as typeof fs.statfsSync);
  output=spyOn(console,"log").mockImplementation(value=>{printed=String(value);});
  expect(runStoragePack(["pack","--json"],root,true),"PACK_USES_REPORTED_HEADROOM").toBe(0);
  expect(reads,"PACK_PREFLIGHT_ENUMERATES_ONCE").toBe(1);

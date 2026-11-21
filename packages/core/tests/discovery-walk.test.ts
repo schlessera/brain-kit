@@ -76,3 +76,13 @@ test("extensionless asset names keep the former literal-dot requirement",()=>{
  expect(getAssetFiles(root,buildTaxonomy({})).map(row=>row.path),"ASSET_REQUIRES_DOT").toEqual(["ithaca.jpg"]);
  }finally{rmSync(root,{recursive:true,force:true});}
 });
+
+test("ignore pruning preserves force-tracked assets below an ignored directory",()=>{
+ const root=mkdtempSync(join(tmpdir(),"odysseus-tracked-assets-"));
+ const git=(...args:string[])=>{const result=Bun.spawnSync(["git","-C",root,...args],{stdout:"pipe",stderr:"pipe"});expect(result.exitCode,result.stderr.toString()).toBe(0);};
+ try{
+ git("init","-q");mkdirSync(join(root,"assets"));writeFileSync(join(root,"assets/ithaca.jpg"),"Ithaca");writeFileSync(join(root,"assets/untracked.jpg"),"Athena");
+ writeFileSync(join(root,".gitignore"),"assets/\n");git("add","-f","assets/ithaca.jpg");
+ expect(getAssetFiles(root,buildTaxonomy({})).map(asset=>asset.path),"IGNORE_PRUNING_RETAINS_TRACKED_DESCENDANTS").toEqual(["assets/ithaca.jpg"]);
+ }finally{rmSync(root,{recursive:true,force:true});}
+});
