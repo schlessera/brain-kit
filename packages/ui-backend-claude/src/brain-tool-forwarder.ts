@@ -10,7 +10,7 @@ import { launchAgentWorkerAsync, retainWorkerStartupView, prepareNativeWorkerOut
   workerCleanupUnconfirmed, processCleanupReconciler, reportStrandedWorkerCleanup, WORKER_EMPTY_HOME,
   type LaunchedWorker, type WorkerSandbox, type WorkerStartupView, type WorkerLimitsPlan, type WorkerStateLimits,
 } from "@schlessera/brain-ui-sdk/internal";
-import type { StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
+import { safeStartupTiming, type StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
 import { join } from "node:path";
 
 /** Product bound for readiness and individual calls, independent of test watchdogs. */
@@ -170,6 +170,7 @@ export function startBrainToolWorker(input: BrainToolWorkerInput, args: readonly
  * is retained. Never infer that an unknown or failed inventory is core-only.
  */
 export async function probeBrainBridgeInventory(input: BrainToolWorkerInput, signal: AbortSignal): Promise<"core-only" | "module-tools" | "unavailable"> {
+  const observed = safeStartupTiming(input.req.startupTiming)?.start("brain_tool_inventory");
   const controller = new AbortController();
   const ownedSignal = AbortSignal.any([signal, controller.signal]);
   let resource: Awaited<ReturnType<ReturnType<typeof startBrainToolWorker>>> | undefined;
@@ -190,5 +191,5 @@ export async function probeBrainBridgeInventory(input: BrainToolWorkerInput, sig
       || !(module as { tools: unknown[] }).tools.every(name => typeof name === "string" && name.length > 0))) return "unavailable";
     return result.enabled.some((module: { tools: string[] }) => module.tools.length > 0) ? "module-tools" : "core-only";
   } catch { return "unavailable"; }
-  finally { clearTimeout(timer); controller.abort(); await resource?.close(); }
+  finally { clearTimeout(timer); controller.abort(); try { await resource?.close(); } finally { observed?.(); } }
 }

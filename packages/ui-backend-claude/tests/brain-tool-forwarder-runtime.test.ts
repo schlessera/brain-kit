@@ -14,6 +14,17 @@ import { createFixtureWorkerStartupView, prepareFixtureWorkerSandbox } from "../
 import { replaceNativeStartupAcquisitionForFixture } from "../../ui-server/tests/helpers/fixture-native-startup.js";
 import { createBrainToolForwarder, startBrainToolWorker, probeBrainBridgeInventory } from "../src/brain-tool-forwarder.js";
 
+
+function inventoryTiming(kind: string) {
+  const spans: Array<{ name: string; durationMs: number }> = [];
+  const timing = { start(name: string) { const started = performance.now(); return () => spans.push({ name, durationMs: performance.now() - started }); },
+    worker() {}, missing() {}, received() {} };
+  return { timing, verify() {
+    expect(spans.map(span => span.name), "INVENTORY_HAS_ITS_OWN_STARTUP_SPAN").toEqual(["brain_tool_inventory"]);
+    console.log("BRAIN_TOOL_INVENTORY_WALL", JSON.stringify({ kind, serialBeforeRuntime: true, ...spans[0] }));
+  } };
+}
+
 test("forwarded core reads use the immutable worker view and refuse provider-masked paths while the host copy remains readable", async () => {
   const scratch = mkdtempSync(join(tmpdir(), "ithaca-brain-forwarding-")), brain = join(scratch, "brain"), home = join(scratch, "home");
   let view: ReturnType<typeof createFixtureWorkerStartupView> | undefined;
@@ -49,7 +60,9 @@ test("forwarded core reads use the immutable worker view and refuse provider-mas
   forward = createBrainToolForwarder(startBrainToolWorker(input), controller.signal, error => errors.push(error));
   client = new Client({ name: "odysseus-runtime", version: "1" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-    expect(await probeBrainBridgeInventory({ ...input, req: { bridge: {} } as never }, controller.signal), "CORE_ONLY_INVENTORY_QUALIFIES").toBe("core-only");
+    const measured = inventoryTiming("core-only");
+    expect(await probeBrainBridgeInventory({ ...input, req: { bridge: {}, startupTiming: measured.timing } as never }, controller.signal), "CORE_ONLY_INVENTORY_QUALIFIES").toBe("core-only");
+    measured.verify();
     await forward.server.instance.connect(serverTransport); await client.connect(clientTransport);
     forward.start();
     const visible = await client.callTool({ name: "brain_read", arguments: { path: "notes/raft.md" } });
@@ -87,8 +100,10 @@ test("a sandbox-resolved module MCP inventory keeps its original stdio tool reac
     const sandbox = { ...prepareFixtureWorkerSandbox(brain, { home, profile: "strict", areas: [] }), readPaths: restrictedReadPaths([cli, entry]) };
     const input = { brainPath: brain, sandbox, startupView: view, env: { PATH: process.env.PATH, HOME: home },
       limits: launchLimits({}), turnTempLimits: resolveTurnTempLimits({}), credentialEnv: [], req: { bridge: {} } as never };
-    const inventory = await probeBrainBridgeInventory(input, controller.signal);
+    const measured = inventoryTiming("module-tools");
+    const inventory = await probeBrainBridgeInventory({ ...input, req: { bridge: {}, startupTiming: measured.timing } as never }, controller.signal);
     expect(inventory, "MODULE_TOOLS_MUST_DISABLE_STATIC_BRIDGE").toBe("module-tools");
+    measured.verify();
     const diagnostics: string[] = [];
     turn = createClaudeSdkTurn({ backend: { brainPath: brain }, brainBridgeInventory: inventory,
       req: { prompt: "Odysseus checks the route.", applicationAuthority: "server", workerSandbox: sandbox,

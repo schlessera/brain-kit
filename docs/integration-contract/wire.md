@@ -706,7 +706,10 @@ step share one clock observation. Open steps are carried by the same milestone
 or terminal writes. The current open phase names are:
 
 - `backend` (#4285/#4286): host `host_probe`, Claude's separate
-  `worker_host_probe`, `worker_launch` and `runtime_to_sdk_init`; Pi's
+  `worker_host_probe`, `worker_launch` and `runtime_to_sdk_init`; new hosted
+  Claude sessions also record `brain_tool_inventory` (#4325), the serial
+  sandboxed module inventory including launch and cleanup before runtime
+  startup. Pi's
   `preparation` and `worker_spawn`; worker-reported Pi `bootstrap_imports`,
   `resources`, `session` and `initialize`; and host `first_backend_frame`
   and `first_relay_request`. The last two measure from backend invocation

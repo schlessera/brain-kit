@@ -1667,3 +1667,14 @@ uses the same name. Bridge sessions therefore reject only the project `brain`
 entry with `disabledMcpjsonServers: ["brain"]` in flag settings. The prompt gate
 checks that rejection in effective native settings before releasing input;
 other project MCP servers retain their existing startup behavior.
+
+The new-session inventory has its own `backend` startup span,
+`brain_tool_inventory`, including sandbox launch, command execution, parsing
+and owned cleanup. It runs serially before runtime launch and before the first
+provider request. Three offline real-sandbox samples measured 352.4, 288.1 and
+328.1 ms for a core-only inventory (median 328.1 ms); module-tool fallback
+samples measured 275.1, 280.5 and 329.7 ms (median 280.5 ms). These are isolated
+inventory-command wall times on the shared development host, with fresh
+processes and copied immutable fixture storage. They do not measure a native
+hosted turn's net startup change; the native observation attempt could not
+open `/dev/loop-control` in its proof container.
