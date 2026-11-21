@@ -2171,6 +2171,7 @@ export "./render" (./src/render.ts)
 
 export "./schemas" (./src/schemas.ts)
   MAX_CLIENT_FRAME_BYTES
+  MAX_CLIENT_TURN_RECEIPT_BYTES
   MAX_PROMPT_CHARS
   MAX_SERVER_FRAME_BYTES
   type ParseFrameResult
@@ -4487,6 +4488,7 @@ signatures (every public export and the types it is made of)
   ActivityTurnLifecycle (packages/ui-sdk/src/protocol.ts)
     export interface ActivityTurnLifecycle {
         clientTiming?: ClientTurnTiming;
+        clientTimingUnavailable?: "invalid_receipt";
         hostEvents: Array<{
             principalId: string;
             kind: "turn_cancelled" | "ask_user_cancelled" | "principal_revoked" | "follow_up";
@@ -11060,6 +11062,8 @@ signatures (every public export and the types it is made of)
     }, z.core.$strip>;
   MAX_CLIENT_FRAME_BYTES (packages/ui-sdk/src/schemas.ts)
     const MAX_CLIENT_FRAME_BYTES: 12000000;
+  MAX_CLIENT_TURN_RECEIPT_BYTES (packages/ui-sdk/src/schemas.ts)
+    const MAX_CLIENT_TURN_RECEIPT_BYTES: 4096;
   MAX_IMAGES_PER_MESSAGE (packages/ui-sdk/src/protocol.ts)
     const MAX_IMAGES_PER_MESSAGE: 4;
   MAX_IMAGE_BYTES (packages/ui-sdk/src/protocol.ts)
@@ -11309,6 +11313,7 @@ signatures (every public export and the types it is made of)
     } | {
         ok: false;
         error: string;
+        frameType?: "client_turn_receipt";
     };
   PasskeySummary (packages/ui-sdk/src/protocol.ts)
     export interface PasskeySummary {
@@ -13825,6 +13830,7 @@ signatures (every public export and the types it is made of)
     }
   ServerStatus (packages/ui-sdk/src/protocol.ts)
     export interface ServerStatus extends SessionScoped {
+        hostTurnComplete?: true;
         type: "status";
         status: "thinking" | "tool_executing" | "idle" | "cancelled" | "queued";
         detail?: string;
@@ -22105,6 +22111,7 @@ signatures (every public export and the types it is made of)
                 sendToFirstHostFrameMs: z.ZodNumber;
                 sendToFirstPhaseStatusFrameMs: z.ZodOptional<z.ZodNumber>;
             }, z.core.$strict>>;
+            clientTimingUnavailable: z.ZodOptional<z.ZodLiteral<"invalid_receipt">>;
             dequeuedAt: z.ZodNullable<z.ZodNumber>;
             endedAt: z.ZodNullable<z.ZodNumber>;
             failureObservedAt: z.ZodNullable<z.ZodNumber>;
@@ -22235,6 +22242,7 @@ signatures (every public export and the types it is made of)
                 sendToFirstHostFrameMs: z.ZodNumber;
                 sendToFirstPhaseStatusFrameMs: z.ZodOptional<z.ZodNumber>;
             }, z.core.$strict>>;
+            clientTimingUnavailable: z.ZodOptional<z.ZodLiteral<"invalid_receipt">>;
             dequeuedAt: z.ZodNullable<z.ZodNumber>;
             endedAt: z.ZodNullable<z.ZodNumber>;
             failureObservedAt: z.ZodNullable<z.ZodNumber>;
@@ -24336,6 +24344,7 @@ signatures (every public export and the types it is made of)
         activeSessionId: z.ZodOptional<z.ZodString>;
         detail: z.ZodOptional<z.ZodString>;
         effectiveThinkingLevel: z.ZodCatch<z.ZodOptional<z.ZodCustom<ThinkingLevel, ThinkingLevel>>>;
+        hostTurnComplete: z.ZodOptional<z.ZodLiteral<true>>;
         requestId: z.ZodOptional<z.ZodString>;
         retry: z.ZodCatch<z.ZodOptional<z.ZodObject<{
             attempt: z.ZodNumber;
@@ -25245,6 +25254,7 @@ signatures (every public export and the types it is made of)
                 sendToFirstHostFrameMs: z.ZodNumber;
                 sendToFirstPhaseStatusFrameMs: z.ZodOptional<z.ZodNumber>;
             }, z.core.$strict>>;
+            clientTimingUnavailable: z.ZodOptional<z.ZodLiteral<"invalid_receipt">>;
             dequeuedAt: z.ZodNullable<z.ZodNumber>;
             endedAt: z.ZodNullable<z.ZodNumber>;
             failureObservedAt: z.ZodNullable<z.ZodNumber>;
@@ -25376,6 +25386,7 @@ signatures (every public export and the types it is made of)
                 sendToFirstHostFrameMs: z.ZodNumber;
                 sendToFirstPhaseStatusFrameMs: z.ZodOptional<z.ZodNumber>;
             }, z.core.$strict>>;
+            clientTimingUnavailable: z.ZodOptional<z.ZodLiteral<"invalid_receipt">>;
             dequeuedAt: z.ZodNullable<z.ZodNumber>;
             endedAt: z.ZodNullable<z.ZodNumber>;
             failureObservedAt: z.ZodNullable<z.ZodNumber>;
@@ -28686,6 +28697,7 @@ signatures (every public export and the types it is made of)
         activeSessionId: z.ZodOptional<z.ZodString>;
         detail: z.ZodOptional<z.ZodString>;
         effectiveThinkingLevel: z.ZodCatch<z.ZodOptional<z.ZodCustom<ThinkingLevel, ThinkingLevel>>>;
+        hostTurnComplete: z.ZodOptional<z.ZodLiteral<true>>;
         requestId: z.ZodOptional<z.ZodString>;
         retry: z.ZodCatch<z.ZodOptional<z.ZodObject<{
             attempt: z.ZodNumber;

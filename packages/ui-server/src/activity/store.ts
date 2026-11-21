@@ -1,4 +1,4 @@
-import { clientTurnTimingSchema } from "@schlessera/brain-ui-sdk/schemas";
+import { clientTurnTimingSchema, MAX_CLIENT_TURN_RECEIPT_BYTES } from "@schlessera/brain-ui-sdk/schemas";
 import type { ActivityTurnLifecycle } from "@schlessera/brain-ui-sdk/protocol";
 import { lifecycleTiming } from "./turn-lifecycle.js";
 import { settleInboxBudgetRun } from "../inbox/budget.js";
@@ -291,7 +291,7 @@ export const MAX_EVENT_PAYLOAD_BYTES = 16_384;
 
 export interface ActivityStore {
   writeLifecycle(record: ActivityTurnLifecycle, principalId?: string): void;
-  writeClientReceipt(turnId: string, principalId: string, timing: import("@schlessera/brain-ui-sdk/protocol").ClientTurnTiming): boolean;
+  writeClientReceipt?(turnId: string, principalId: string, timing: import("@schlessera/brain-ui-sdk/protocol").ClientTurnTiming): boolean;
   lifecycleChangesSince(cursor: number, limit?: number): Array<{ changeId: number; runId: string; seq: number; kind: "lifecycle"; lifecycle: ActivityTurnLifecycle }>;
   lifecycle(turnId: string): ActivityTurnLifecycle | null;
   lifecycles(sessionId?: string, limit?: number): ActivityTurnLifecycle[];
@@ -382,7 +382,9 @@ export type ActivityWriteMethod = "writeClientReceipt" | "writeLifecycle" | "sta
  * return.
  */
 export type AwaitableActivityStore = Omit<ActivityStore, ActivityWriteMethod> & {
-  [K in ActivityWriteMethod]: (...args: Parameters<ActivityStore[K]>) => Awaitable<ReturnType<ActivityStore[K]>>;
+  [K in Exclude<ActivityWriteMethod, "writeClientReceipt">]: (...args: Parameters<ActivityStore[K]>) => Awaitable<ReturnType<ActivityStore[K]>>;
+} & {
+  writeClientReceipt?: (...args: Parameters<NonNullable<ActivityStore["writeClientReceipt"]>>) => Awaitable<ReturnType<NonNullable<ActivityStore["writeClientReceipt"]>>>;
 };
 
 /**
@@ -639,8 +641,16 @@ export function createActivityStore(
   }
 
   const joinClient = (record: ActivityTurnLifecycle): ActivityTurnLifecycle => {
-    const row = db.query("SELECT receipt FROM activity_turn_clients WHERE turn_id = ?").get(record.turnId) as { receipt: string | null } | null;
-    return lifecycleTiming({ ...record, ...(row?.receipt ? { clientTiming: clientTurnTimingSchema.parse(JSON.parse(row.receipt)) } : {}) });
+    const row = db.query("SELECT substr(receipt, 1, 4097) AS receipt FROM activity_turn_clients WHERE turn_id = ?").get(record.turnId) as { receipt: string | null } | null;
+    const { clientTiming: _timing, clientTimingUnavailable: _unavailable, ...hostRecord } = record;
+    const host = lifecycleTiming(hostRecord);
+    if (!row || row.receipt === null) return host;
+    if (row.receipt.length > MAX_CLIENT_TURN_RECEIPT_BYTES) return { ...host, clientTimingUnavailable: "invalid_receipt" };
+    try {
+      const timing = clientTurnTimingSchema.safeParse(JSON.parse(row.receipt));
+      if (timing.success) return { ...host, clientTiming: timing.data };
+    } catch { /* Retain the corrupt row; only its optional measurement is unavailable. */ }
+    return { ...host, clientTimingUnavailable: "invalid_receipt" };
   };
   const lifecycle = (id: string): ActivityTurnLifecycle | null => {
     const row = db.query("SELECT record FROM activity_turn_lifecycles WHERE turn_id = ?").get(id) as { record: string } | null;
@@ -695,7 +705,7 @@ export function createActivityStore(
         const previous = lifecycle(record.turnId);
         if (previous?.endedAt !== null && previous !== null) return;
         // Client data is never part of the completed host envelope.
-        const { clientTiming: _clientTiming, ...hostRecord } = record;
+        const { clientTiming: _clientTiming, clientTimingUnavailable: _unavailable, ...hostRecord } = record;
         const value = lifecycleTiming(hostRecord);
         db.query(`INSERT INTO activity_turn_lifecycles VALUES (?, ?, ?, ?, ?)
           ON CONFLICT(turn_id) DO UPDATE SET session_id=excluded.session_id, ended_at=excluded.ended_at, record=excluded.record`)

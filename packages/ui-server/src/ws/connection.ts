@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { upgradeWebSocket, websocket } from "hono/bun";
 import type { MiddlewareHandler } from "hono";
 import { ASK_RECEIPTS_CAPABILITY, ATTACHMENT_READS_CAPABILITY, CHAT_DELETION_CAPABILITY, COMPOSER_FILES_CAPABILITY, LIVENESS_CAPABILITY, PROTOCOL_REV, SESSION_RECOVERY_CAPABILITY } from "@schlessera/brain-ui-sdk/protocol";
-import { parseClientMessage } from "@schlessera/brain-ui-sdk/schemas";
+import { parseClientMessage, MAX_CLIENT_TURN_RECEIPT_BYTES } from "@schlessera/brain-ui-sdk/schemas";
 import { withTurnScope } from "./frames.js";
 import { resendPendingInteractive } from "./resend.js";
 import { supportsSessionRecovery } from "./recovery.js";
@@ -47,6 +47,7 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
   // One bucket per connection, created here so it lives and dies with the
   // socket rather than in a map keyed by something a peer controls.
   const limiter = host.newRateLimiter();
+  const receiptLimiter = host.newRateLimiter();
   // Authentication can await before it reaches this handler. Re-read durable
   // validity as the coordinator constructs and synchronously registers the
   // context, so there is no unregistered authorization state to lose.
@@ -106,7 +107,7 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
           location: true,
           // Advertised only when this host records activity — a client on an
           // activity-less host knows subscribing would be pointless.
-          ...(host.activity ? { activity: true, clientTurnReceipts: true } : {}),
+          ...(host.activity ? { activity: true, ...(host.activity.store.writeClientReceipt ? { clientTurnReceipts: true } : {}) } : {}),
           ...(host.inbox ? { inbox: true } : {}),
           // Offered to clients that declare it in client_hello (#957).
           toolResolution: true,
@@ -228,10 +229,14 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
       // underlying POOLED ArrayBuffer (byteOffset/byteLength discarded), so a
       // binary frame cannot be decoded correctly here. The protocol is JSON
       // text; reject anything else rather than parse a slab.
-      // Metered BEFORE parsing: the point is to bound work an unmetered peer
-      // can make this process do, and parsing is most of that work.
-      if (limiter && !limiter.take().allowed) {
-        host.reportDroppedFrame("rate_limited");
+      // Full payload/schema parsing stays metered. A bounded 4 KiB JSON
+      // discriminator probe puts optional receipts on a separate bucket;
+      // they cannot consume voice/chat credit or trigger voice gap handling.
+      const receipt = isClientReceipt(evt.data);
+      const bucket = receipt ? receiptLimiter : limiter;
+      if (bucket && !bucket.take().allowed) {
+        host.reportDroppedFrame(receipt ? "client_turn_receipt_rate_limited" : "rate_limited");
+        if (receipt) return;
         // A metered-away frame may have been audio: a live conversation
         // must not continue on an incomplete record (#957).
         host.conversations?.frameDropped(connection);
@@ -258,6 +263,7 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
         // The reason is the parser's own bounded message, never the frame:
         // the payload is caller-supplied and capped at 12 MB.
         host.reportDroppedFrame("parse_error", parsed.error);
+        if (receipt || parsed.frameType === "client_turn_receipt") return;
         host.sendMessage(ws, { type: "error", code: "PARSE_ERROR", message: parsed.error });
         return;
       }
@@ -282,6 +288,7 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
               error: err instanceof Error ? err.message : String(err),
             },
           });
+          if (parsed.message.type === "client_turn_receipt") return;
           host.sendMessage(ws, {
             type: "error",
             code: "INTERNAL_ERROR",
@@ -361,4 +368,12 @@ export function createWsUpgrade(host: WsHost): MiddlewareHandler<AppEnv> {
       throw err;
     }
   };
+}
+
+/** Routing only, never schema acceptance: the full parser still validates it.
+ * Unidentifiable/oversized frames retain the conservative general guard. */
+function isClientReceipt(raw: unknown): boolean {
+  if (typeof raw !== "string" || raw.length > MAX_CLIENT_TURN_RECEIPT_BYTES) return false;
+  try { return (JSON.parse(raw) as { type?: unknown } | null)?.type === "client_turn_receipt"; }
+  catch { return false; }
 }

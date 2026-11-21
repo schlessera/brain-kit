@@ -494,7 +494,7 @@ export async function handleChatMessage(
     // Accepted for a known session: it takes the next revision now, before
     // routing, so anything sent after it orders after it (#964).
     revision = acceptRequest(host, sessionId, requestId, host.catalog.getStoredBackendId(sessionId));
-    host.sendToClients(withSessionId({ type: "status", status: "thinking" }, sessionId));
+    host.sendToClients(withSessionId({ type: "status", status: "thinking", ...(requestId ? { requestId } : {}) }, sessionId));
   }
   const running = runSession(host, {
     authorization,

@@ -104,5 +104,5 @@ export function publishTurnStatus(run: Pick<TurnRun, "host" | "turn">, outcome: 
   const { host, turn } = run;
   if (outcome.cancelledBeforeStart) host.sendToClients(withTurnScope({ type: "status", status: "cancelled",
     detail: "Cancelled before starting", ...(turn.requestId ? { requestId: turn.requestId } : {}) }, turn));
-  else if (turn.sessionId) host.sendToClients(withTurnScope({ type: "status", status: "idle" }, turn));
+  else if (turn.sessionId) host.sendToClients(withTurnScope({ type: "status", status: "idle", hostTurnComplete: true }, turn));
 }

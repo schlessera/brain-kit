@@ -85,6 +85,8 @@ export function registerSessionSlot(
     host.sendToClients({
       type: "status",
       status: "thinking",
+      turnId: initialTurnId,
+      ...(initial.requestId ? { requestId: initial.requestId } : {}),
       detail: `Pinned model "${target.droppedPin}" is unavailable — running on the default.`,
       ...(initial.sessionId ? { sessionId: initial.sessionId } : {}),
     });

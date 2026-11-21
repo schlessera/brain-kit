@@ -35,10 +35,17 @@ export function createTurnClock(report: (message: ClientMessage) => boolean, clo
         arrival.firstContentAt ??= at; arrival.lastContentAt = at;
       }
       if (turnId && arrival) {
-        if (arrivals.size >= 256) arrivals.delete(arrivals.keys().next().value!);
+        if (!arrivals.has(turnId) && arrivals.size >= 256) {
+          const evicted = arrivals.keys().next().value!;
+          const lost = arrivals.get(evicted)!;
+          arrivals.delete(evicted);
+          // An unbound request may own the lost first arrival. Keep only
+          // requests whose complete evidence is still provably retained.
+          for (const [id, pending] of requests) if ((!pending.turnId && lost.firstHostAt! >= pending.sentAt) || pending.turnId === evicted) requests.delete(id);
+        }
         arrivals.set(turnId, arrival);
       }
-      const correlates = message.type === "session_info" || message.type === "status" || message.type === "error";
+      const correlates = message.type === "session_info" || message.type === "status" || message.type === "error" || (message.type === "retry_receipt" && message.state === "accepted");
       let observation = correlates && requestId ? requests.get(requestId) : undefined;
       if (observation) {
         observation.firstHostAt ??= at;
@@ -50,7 +57,7 @@ export function createTurnClock(report: (message: ClientMessage) => boolean, clo
       observation.firstHostAt = Math.min(observation.firstHostAt ?? at, arrival?.firstHostAt ?? at);
       observation.firstContentAt ??= arrival?.firstContentAt;
       observation.lastContentAt = arrival?.lastContentAt;
-      if (message.type !== "status" || message.status !== "idle") return;
+      if (message.type !== "status" || message.status !== "idle" || message.hostTurnComplete !== true) return;
       arrivals.delete(turnId);
       for (const [id, value] of requests) if (value === observation) requests.delete(id);
       const timing: ClientTurnTiming = {

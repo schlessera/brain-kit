@@ -10,7 +10,7 @@ afterEach(async () => {
   if (fixture) await commands.clientTurnServer({ op: "stop", id: fixture.id });
   fixture = undefined;
 });
-const read = () => commands.clientTurnServer({ op: "read", id: fixture!.id }) as Promise<{ lifecycles: ActivityTurnLifecycle[]; held: boolean }>;
+const read = () => commands.clientTurnServer({ op: "read", id: fixture!.id }) as Promise<{ lifecycles: ActivityTurnLifecycle[]; held: boolean; earlyIdleHeld: boolean; reportsReceived: number }>;
 async function scene() {
   fixture = await commands.clientTurnServer({ op: "start" }) as typeof fixture;
   ui = createBrainUiRoot({ storage: null, config: { backendUrl: fixture!.url } });
@@ -47,4 +47,22 @@ test("a turn finishing after its initiating browser disconnects keeps its host o
   const lifecycle = (await read()).lifecycles[0]!;
   expect(lifecycle.clientTiming).toBeUndefined();
   expect(lifecycle.backendRunId).toBe(lifecycle.turnId);
+});
+
+
+test("backend idle and result before delayed teardown cannot send the once-only receipt early", async () => {
+  await scene();
+  expect(ui!.connection.send({ type: "chat_message", text: "Delay host idle", requestId: "closing-voyage" })).toBe(true);
+  await expect.poll(async () => (await read()).earlyIdleHeld).toBe(true);
+  await expect.poll(() => ui!.stores.chat.getState().buffers.ithaca?.messages.at(-1)?.content).toContain("Sail at dawn");
+  const before = await read();
+  expect(before.lifecycles[0]?.outcome).toBeNull();
+  expect(before.reportsReceived).toBe(0);
+  expect(before.lifecycles[0]?.clientTiming).toBeUndefined();
+  await commands.clientTurnServer({ op: "release", id: fixture!.id });
+  await expect.poll(async () => (await read()).lifecycles[0]?.clientTiming).toBeDefined();
+  const after = await read();
+  expect(after.reportsReceived).toBe(1);
+  expect(after.lifecycles[0]?.outcome).toBe("success");
+  expect(after.lifecycles[0]?.clientTiming?.lastContentFrameToIdleMs).toBeGreaterThanOrEqual(0);
 });

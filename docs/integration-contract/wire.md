@@ -561,12 +561,16 @@ aggregation continues to read backend rollups exactly once.
 
 #### Client frame-arrival receipt (additive, #4282)
 
-A host with Activity storage advertises the optional boolean capability
+A host whose Activity store supports receipt writes advertises the optional boolean capability
 `server_hello.capabilities.clientTurnReceipts: true`. Without this flag the
 client sends no receipt, so an older host never receives an unknown message.
-Negotiation resets with each socket. After receiving a turn's `status: idle`,
-the initiating client may send exactly one best-effort `{ type: "client_turn_receipt", turnId, timing }` frame.
-`timing` contains non-negative finite millisecond pairs measured entirely on
+Negotiation resets with each socket. After receiving the host's final
+`status: idle` with optional `hostTurnComplete: true`, the initiating client may
+send exactly one best-effort `{ type: "client_turn_receipt", turnId, timing }` frame.
+Backend idle frames do not carry this marker; the host strips any backend-supplied
+marker and sets it only after teardown and the lifecycle commit. Initial thinking
+and accepted retry acknowledgements correlate by `requestId` before the new turn
+identity is known. `timing` contains non-negative finite millisecond pairs measured entirely on
 the client's monotonic clock:
 
 - `sendToFirstHostFrameMs`: send to the first received host frame for this turn
@@ -574,7 +578,7 @@ the client's monotonic clock:
 - Optional `sendToFirstContentFrameMs`: send to the first non-empty
   `thinking_delta` or `text_delta` frame received.
 - Optional `lastContentFrameToIdleMs`: last such content frame received to
-  `status: idle` received.
+  the host's final `status: idle` received.
 - Optional `sendToFirstPhaseStatusFrameMs`: reserved for the first phase status
   frame received; absent until phase-specific statuses are supported (#4311).
 
@@ -583,9 +587,14 @@ subtracted from a client timestamp. Missing content boundaries are absent, not
 zero. A request without correlation, or a client disconnected during the turn,
 reports nothing; reconnect/history replay cannot reconstruct arrival evidence.
 The React client caps pending request observations and turn-arrival correlations
-at 256 entries each; evicting one only loses its measurement. A failed/lost report is never retried and never affects the turn.
+at 256 entries each. If eviction loses a possible first arrival, affected pending
+requests lose their measurement rather than reporting a later frame as first. A failed/lost report is never retried and never affects the turn.
 
-Only `turnId` and `timing` are accepted; unknown envelope/timing fields and
+Receipt frames are capped at 4096 encoded bytes and have an independent rate
+bucket. A bounded routing probe identifies their message kind; a rejected or
+schema-invalid receipt is recorded in diagnostics without a chat error or a voice
+capture gap. Unidentifiable or oversized transport input retains the general
+transport guard. Only `turnId` and `timing` are accepted; unknown envelope/timing fields and
 negative or non-finite values are refused. The host binds ownership to the
 accepting principal, independently of the session's creator. A report for a
 missing, unfinished, unowned or differently owned turn is refused. The first
@@ -598,8 +607,10 @@ as optional `ActivityTurnLifecycle.clientTiming` on single, list and stream
 reads. Receipt acceptance advances the lifecycle's stream sequence without
 changing its completed host record. Its owner binding and receipt are deleted
 with the lifecycle record. Older records without an owner binding accept no
-report and remain readable. Client pairs never enter provider history, inference
-usage or cost accounting.
+report and remain readable. A malformed stored receipt remains retained, omits its
+pairs and exposes optional `clientTimingUnavailable: "invalid_receipt"` on that
+record; the host envelope and other records remain readable. Client pairs and
+receipt diagnostics never enter provider history, inference usage or cost accounting.
 
 #### Host milestones
 

@@ -73,9 +73,9 @@ test("wire and storage reject host fields, non-finite and negative timing values
     const store = createActivityStore(db);
     const lifecycle = createTurnLifecycle(store, "turn-ithaca", "ithaca", 1000, () => {}, () => 1300, "odysseus");
     lifecycle.finish("success");
-    expect(store.writeClientReceipt("turn-ithaca", "odysseus", { ...pairs, acceptedAt: 0 } as typeof pairs)).toBe(false);
+    expect(store.writeClientReceipt!("turn-ithaca", "odysseus", { ...pairs, acceptedAt: 0 } as typeof pairs)).toBe(false);
     expect(store.lifecycle("turn-ithaca")?.clientTiming).toBeUndefined();
-    expect(store.writeClientReceipt("turn-ithaca", "odysseus", pairs)).toBe(true);
+    expect(store.writeClientReceipt!("turn-ithaca", "odysseus", pairs)).toBe(true);
     expect(store.lifecycle("turn-ithaca")?.clientTiming).toEqual(pairs);
   } finally { db.close(); }
 });
@@ -94,8 +94,8 @@ test("offloop completion settles ownership before the once-only receipt commits"
     const lifecycle = createTurnLifecycle(store, "turn-ithaca", "ithaca", 1000, () => {}, () => 1300, "odysseus");
     lifecycle.finish("success");
     await lifecycle.settled();
-    expect(await store.writeClientReceipt("turn-ithaca", "odysseus", pairs)).toBe(true);
-    expect(await store.writeClientReceipt("turn-ithaca", "odysseus", pairs)).toBe(false);
+    expect(await store.writeClientReceipt!("turn-ithaca", "odysseus", pairs)).toBe(true);
+    expect(await store.writeClientReceipt!("turn-ithaca", "odysseus", pairs)).toBe(false);
     expect(store.lifecycle("turn-ithaca")?.clientTiming).toEqual(pairs);
   } finally { await writer.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
 });
@@ -115,7 +115,7 @@ test("the previous SDK schema parses receipt-enriched lifecycle snapshots and de
     const ws: WSContext = { send: text => frames.push(JSON.parse(text)) };
     stream.handleSubscribe(ws, { type: "activity_subscribe", view: "session", sessionId: "ithaca" }, "odysseus");
     expect(frames).toHaveLength(1);
-    expect(store.writeClientReceipt("turn-ithaca", "odysseus", pairs)).toBe(true);
+    expect(store.writeClientReceipt!("turn-ithaca", "odysseus", pairs)).toBe(true);
     stream.pump();
     stream.handleSubscribe(ws, { type: "activity_subscribe", view: "session", sessionId: "ithaca" }, "odysseus");
     const delta = frames.find(frame => frame.type === "activity_delta");

@@ -180,6 +180,8 @@ import {
 
 /** Cap on one client→server WS frame (must fit a max-attachment chat message). */
 export const MAX_CLIENT_FRAME_BYTES = 12_000_000;
+/** Receipt routing has a small bounded discriminator probe and an independent meter. */
+export const MAX_CLIENT_TURN_RECEIPT_BYTES = 4096;
 /** Cap on a chat message's text (characters). */
 export const MAX_PROMPT_CHARS = 200_000;
 /** Cap on any short id (sessionId, toolUseId, requestId, turnId, providerId). */
@@ -996,7 +998,7 @@ function utf8ByteLength(text: string): number {
 
 export type ParseFrameResult<T> =
   | { ok: true; message: T }
-  | { ok: false; error: string };
+  | { ok: false; error: string; frameType?: "client_turn_receipt" };
 
 /**
  * Parse + validate one inbound client frame. The single entry point a server
@@ -1029,11 +1031,15 @@ export function parseClientMessage(
   } catch {
     return { ok: false, error: "Frame is not valid JSON" };
   }
+  const frameType = json && typeof json === "object" && (json as { type?: unknown }).type === "client_turn_receipt"
+    ? { frameType: "client_turn_receipt" as const } : {};
+  if (frameType.frameType && utf8ByteLength(text) > MAX_CLIENT_TURN_RECEIPT_BYTES)
+    return { ok: false, error: `Receipt exceeds ${MAX_CLIENT_TURN_RECEIPT_BYTES} bytes`, ...frameType };
   // Bun's JSON.parse is iterative, so a 500k-deep document parses fine and
   // only explodes later when something re-serializes it (unknown keys are
   // RETAINED by looseObject, so depth survives the boundary).
   if (exceedsDepth(json, MAX_JSON_DEPTH)) {
-    return { ok: false, error: `Frame nesting exceeds ${MAX_JSON_DEPTH} levels` };
+    return { ok: false, error: `Frame nesting exceeds ${MAX_JSON_DEPTH} levels`, ...frameType };
   }
   const parsed = clientMessageSchema.safeParse(json);
   if (!parsed.success) {
@@ -1044,6 +1050,7 @@ export function parseClientMessage(
     return {
       ok: false,
       error: `Invalid frame${first ? `: ${where} ${first.message}` : ""}`,
+      ...frameType,
     };
   }
   return { ok: true, message: parsed.data as ClientMessage };
@@ -1458,6 +1465,7 @@ export const serverErrorSchema = z.looseObject({
 }) satisfies z.ZodType<ServerError>;
 
 export const serverStatusSchema = z.looseObject({
+  hostTurnComplete: z.literal(true).optional(),
   type: z.literal("status"),
   status: z.enum(["thinking", "tool_executing", "idle", "cancelled", "queued"]),
   detail: z.string().optional(),
@@ -1631,6 +1639,7 @@ const activitySpanEventSchema = z.looseObject({
 
 const activityTurnLifecycleSchema = z.looseObject({
   clientTiming: clientTurnTimingSchema.optional(),
+  clientTimingUnavailable: z.literal("invalid_receipt").optional(),
   hostEvents: z.array(z.looseObject({principalId: id, kind: z.enum(["turn_cancelled", "ask_user_cancelled", "principal_revoked", "follow_up"]), observedAt: z.number()})),
   skippedPhases: z.array(z.enum(["governed", "budget", "journal"])),
   lifecycleId: id, turnId: id, sessionId: id.nullable(), backendRunId: id.nullable(),

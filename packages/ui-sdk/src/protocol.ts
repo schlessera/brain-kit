@@ -1601,6 +1601,8 @@ export interface ServerError extends SessionScoped {
 }
 
 export interface ServerStatus extends SessionScoped {
+  /** Host-only final idle after teardown and lifecycle commit, never a backend idle. */
+  hostTurnComplete?: true;
   type: "status";
   status: "thinking" | "tool_executing" | "idle" | "cancelled" | "queued";
   detail?: string;
@@ -3917,6 +3919,8 @@ export interface ActivityTurnSubPhase {
 export interface ActivityTurnLifecycle {
   /** Separate owner-bound receipt joined on read; absent when unobserved or lost. */
   clientTiming?: ClientTurnTiming;
+  /** The separate receipt is retained but invalid; host lifecycle remains usable. */
+  clientTimingUnavailable?: "invalid_receipt";
   hostEvents: Array<{ principalId: string; kind: "turn_cancelled" | "ask_user_cancelled" | "principal_revoked" | "follow_up"; observedAt: number }>;
   skippedPhases: Array<"governed" | "budget" | "journal">;
   lifecycleId: string;
