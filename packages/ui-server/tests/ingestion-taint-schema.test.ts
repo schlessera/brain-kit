@@ -180,6 +180,8 @@ for(const [name,input,output] of [
  ['empty filenames',{}, {mode:'files_with_matches',numFiles:0,filenames:[],totalFiles:0}],
  ['unnumbered context',{output_mode:'content','-n':false,context:1},{mode:'content',numFiles:0,filenames:[],content:'notes/loom.md-sails\nnotes/loom.md:sirens',numLines:2,totalLines:2}],
  ['context group separator',{output_mode:'content',context:1},{mode:'content',numFiles:0,filenames:[],content:'notes/loom.md:1:sirens\n--\nnotes/raft.md:4:sirens',numLines:3,totalLines:3}],
+ ['ISO date content',{output_mode:'content'},{mode:'content',numFiles:0,filenames:[],content:'notes/loom.md:3:due 2026-11-20',numLines:1,totalLines:1}],
+ ['date slug filename',{output_mode:'content'},{mode:'content',numFiles:0,filenames:[],content:'notes/2026-11-20-standup.md:3:sirens',numLines:1,totalLines:1}],
  ['content directory match',{output_mode:'content'},{mode:'content',numFiles:0,filenames:[],content:'notes/loom.md:1:sirens',numLines:1,totalLines:1}],
  ['content context and match',{output_mode:'content',context:1},{mode:'content',numFiles:0,filenames:[],content:'notes/loom.md-12-sails\nnotes/loom.md:13:sirens',numLines:2,totalLines:2}],
  ['content without numbers',{output_mode:'content','-n':false},{mode:'content',numFiles:0,filenames:[],content:'notes/loom.md:sirens',numLines:1,totalLines:1}],

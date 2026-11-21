@@ -185,7 +185,7 @@ export function createTurnExtraction(options: {
     try {
       const current = session();
       const outputComplete=searchOutputComplete(output,outputStatus,tool==='grep');
-      if(outputComplete===false)current.complete=false;
+      if(["Grep","Glob","grep","find"].includes(tool)&&outputComplete===false)current.complete=false;
       const path = readPath(tool, input);
       if (path !== null) current.read(display(path), readText(output));
       // Content from anywhere the host cannot vouch for: a fetch, a command

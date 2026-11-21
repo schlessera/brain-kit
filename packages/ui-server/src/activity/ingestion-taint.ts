@@ -263,8 +263,8 @@ export function outputTaintSignals(tool: string, output: string, brainPath?: str
       let count=0;
       // No line numbers: every colon could separate the filename and content.
       // With numbers: lookahead preserves overlapping `:2:7:` candidates.
-      for(const split of line.matchAll(numbers?/(?=([:-])[1-9][0-9]*\1)/g:context?.contextRows?/(?=[:\-])/g:/(?=:)/g)){
-        if(count++>=256){unknown=true;break;}const path=line.slice(0,split.index);if(numbers&&split[1]==='-'&&!context?.contextRows)unknown=true;contentPaths.add(path);add(path);
+      for(const split of line.matchAll(numbers?(context?.contextRows?/(?=([:-])[1-9][0-9]*\1)/g:/(?=(:)[1-9][0-9]*\1)/g):context?.contextRows?/(?=[:\-])/g:/(?=:)/g)){
+        if(count++>=256){unknown=true;break;}const path=line.slice(0,split.index);contentPaths.add(path);add(path);
       }
       if(count!==1)unknown=true;
     }
