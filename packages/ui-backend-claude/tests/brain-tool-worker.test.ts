@@ -149,3 +149,26 @@ test("SDK assembly runs a bridged turn with a one-session temp budget and report
     finally { controller.abort(); host.mockRestore(); launch.mockRestore(); home.dispose(); rmSync(f.root, { recursive: true, force: true }); }
   }
 });
+
+for (const failure of ["launch", "nonzero", "malformed", "shape", "timeout"] as const) test(`inventory ${failure} failure keeps an unavailable verdict`, async () => {
+  const f = fixture(), child = worker(f.state);
+  let timeoutMs: number | undefined;
+  const nativeTimer = globalThis.setTimeout;
+  const timer = spyOn(globalThis, "setTimeout").mockImplementation(((callback: (...args: unknown[]) => void, ms?: number, ...args: unknown[]) => {
+    if (failure === "timeout" && ms === 30_000) { timeoutMs = ms; return nativeTimer(callback, 0, ...args); }
+    return nativeTimer(callback, ms, ...args);
+  }) as typeof setTimeout);
+  const launch = spyOn(internal, "launchAgentWorkerAsync").mockImplementation(async () => {
+    if (failure === "launch") throw new Error("Ithaca helper cannot launch.");
+    if (failure !== "timeout") {
+      child.stdout.end(failure === "malformed" ? "Ithaca is not JSON" : failure === "shape" ? '{"enabled":[{"tools":[]}],"available":[]}' : '{"enabled":[],"available":[]}');
+      child.exit.resolve(failure === "nonzero" ? 1 : 0);
+    }
+    return child.launched;
+  });
+  try {
+    expect(await probeBrainBridgeInventory(f.input, f.signal), `FAILED_INVENTORY_${failure}_NEVER_SELECTS_CORE_BRIDGE`).toBe("unavailable");
+    if (failure === "timeout") expect(timeoutMs, "INVENTORY_PRODUCT_TIMEOUT_REMAINS_30_SECONDS").toBe(30_000);
+    if (failure !== "launch") expect(child.closed, "FAILED_INVENTORY_RELEASES_TEMP").toBe(1);
+  } finally { timer.mockRestore(); launch.mockRestore(); rmSync(f.root, { recursive: true, force: true }); }
+});

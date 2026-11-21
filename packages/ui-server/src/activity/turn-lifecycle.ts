@@ -10,7 +10,7 @@ import { orderedWrites } from "./store-writes.js";
  * Steps ride on the record's next persisted milestone or terminal, so timing
  * adds no write to the turn path.
  */
-export type PhaseTimer = (name: string, attributes?: { cached?: boolean }) => () => void;
+export type PhaseTimer = (name: string) => () => void;
 
 type LifecycleMilestone = "dequeuedAt" | "governedStartedAt" | "governedAcquiredAt" | "budgetStartedAt" | "budgetAdmittedAt" | "journalStartedAt" | "journalBeganAt" | "backendInvokedAt" | "firstFrameAt" | "failureObservedAt" | "recorderSettledAt" | "idleEmittedAt";
 
@@ -52,10 +52,10 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
     const next = steps.findIndex(other => other.startedAt > step.startedAt);
     steps.splice(next < 0 ? steps.length : next, 0, step);
   };
-  const phaseTimer = (phase: string, metadata: { pending?: boolean } = {}): PhaseTimer => (name, attributes) => {
+  const phaseTimer = (phase: string, metadata: { pending?: boolean } = {}): PhaseTimer => name => {
     if (record.endedAt !== null || phase === "backend" && !backendOpen()) return () => {};
     const startedAt = observedClock(); if (startedAt === undefined) return () => {};
-    const step = { phase, name, ...metadata, startedAt, endedAt: null as number | null, elapsedMs: null, ...(attributes ? { attributes } : {}) };
+    const step = { phase, name, ...metadata, startedAt, endedAt: null as number | null, elapsedMs: null };
     if (phase === "governed" || phase === "journal") {
       (record.subPhases ??= []).push(step as ActivityTurnSubPhase);
       record.subPhases.sort((a, b) => a.startedAt - b.startedAt);

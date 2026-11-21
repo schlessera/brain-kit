@@ -35,14 +35,15 @@ with less than two pages of turn temp preserve stdio and record
 `brain_bridge_fallback_temp_allowance`. Cleanup retains the shared reservation
 until both processes' storage has closed, including a rejected exit observer.
 
-A new session's inventory is reused from disposable host memory under a
-content hash of configuration, static dependencies, module manifests/settings
-and package/lock inputs. A cache miss resolves `brain module list --json` in
-the turn sandbox alongside independent runtime preparation before retaining
-the roster. Hash/read or helper failures preserve stdio. If module MCP tools are present, or
-the inventory is unavailable, the original project stdio entry is kept and
-search stays off. The named fallback reason is recorded in owner diagnostics,
-never in provider history. Static module inventory is tracked by #4381.
+Every new hosted session resolves `brain module list --json` in the turn
+sandbox before fixing its roster. The host reads no brain bytes or resolves
+brain paths to select this verdict, and retains no inventory cache. The helper
+overlaps independent runtime-version and route-input preparation before
+`query()`; its verdict selects the SDK brain server, project-entry rejection
+and tool-search pin. Resumed sessions use their retained selection and skip
+the helper. Module tools, a helper failure, a timeout or malformed output keep
+the original project stdio entry and search off, with a named owner diagnostic
+outside provider history. Static module inventory is tracked by #4381.
 
 Only new first-party-origin relayed hosted sessions pin `ENABLE_TOOL_SEARCH`
 to `true`, in both environment and flag settings. Other routes pin it off.

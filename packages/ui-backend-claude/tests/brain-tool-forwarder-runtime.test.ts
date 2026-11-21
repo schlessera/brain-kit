@@ -1,3 +1,5 @@
+import { probeClaudeRuntime } from "../src/runtime-probe.js";
+import { retainNativeRouteInputs } from "../src/native-route-inputs.js";
 import { createClaudeSdkTurn } from "../src/sdk-options.js";
 import { installTestHome } from "../../../scripts/test-home.js";
 import { installIthacaModuleTool } from "./fixtures/brain-module-tool.js";
@@ -16,12 +18,12 @@ import { createBrainToolForwarder, startBrainToolWorker, probeBrainBridgeInvento
 
 
 function inventoryTiming(kind: string) {
-  const spans: Array<{ name: string; durationMs: number; cached?: boolean }> = [];
-  const timing = { start(name: string, attributes?: { cached?: boolean }) { const started = performance.now(); return () => spans.push({ name, ...attributes, durationMs: performance.now() - started }); },
+  const spans: Array<{ name: string; durationMs: number; startedAt: number; endedAt: number; attributes?: unknown }> = [];
+  const timing = { start(name: string, attributes?: unknown) { const startedAt = performance.now(); return () => { const endedAt = performance.now(); spans.push({ name, attributes, startedAt, endedAt, durationMs: endedAt - startedAt }); }; },
     worker() {}, missing() {}, received() {} };
-  return { timing, verify(cached = false) {
+  return { timing, spans, verify() {
     expect(spans.map(span => span.name), "INVENTORY_HAS_ITS_OWN_STARTUP_SPAN").toEqual(["brain_tool_inventory"]);
-    expect(spans[0]!.cached, "INVENTORY_CACHE_STATUS_STAYS_IN_HOST_TIMING").toBe(cached);
+    expect(spans[0]!.attributes, "INVENTORY_SPAN_HAS_NO_CACHE_ATTRIBUTE").toBeUndefined();
     console.log("BRAIN_TOOL_INVENTORY_WALL", JSON.stringify({ kind, ...spans[0] }));
   } };
 }
@@ -62,11 +64,28 @@ test("forwarded core reads use the immutable worker view and refuse provider-mas
   client = new Client({ name: "odysseus-runtime", version: "1" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     const measured = inventoryTiming("core-only");
-    expect(await probeBrainBridgeInventory({ ...input, req: { bridge: {}, startupTiming: measured.timing } as never }, controller.signal), "CORE_ONLY_INVENTORY_QUALIFIES").toBe("core-only");
-    measured.verify();
-    const hit = inventoryTiming("core-only-hit");
-    expect(await probeBrainBridgeInventory({ ...input, req: { bridge: {}, startupTiming: hit.timing } as never }, controller.signal)).toBe("core-only");
-    hit.verify(true);
+    const inventory = probeBrainBridgeInventory({ ...input, req: { bridge: {}, startupTiming: measured.timing } as never }, controller.signal);
+    // These are the same independent pre-query operations as the turn runner.
+    // Copied fixture storage supplies route inputs; this is offline component
+    // timing, not a native-host or provider first-frame measurement.
+    const preparationStarted = performance.now();
+    let preparationEnded = 0;
+    let routes: Awaited<ReturnType<typeof retainNativeRouteInputs>> | undefined;
+    const preparation = Promise.all([
+      probeClaudeRuntime({ brainPath: brain, env: input.env, exec: {}, signal: controller.signal }),
+      retainNativeRouteInputs(view.root).then(owner => { routes = owner; }),
+    ]).finally(() => { preparationEnded = performance.now(); });
+    try {
+      const [verdict, [runtime]] = await Promise.all([inventory, preparation]);
+      expect(verdict, "CORE_ONLY_INVENTORY_QUALIFIES").toBe("core-only");
+      measured.verify();
+      const span = measured.spans[0]!;
+      const overlapMs = Math.max(0, Math.min(span.endedAt, preparationEnded) - Math.max(span.startedAt, preparationStarted));
+      console.log("BRAIN_TOOL_INVENTORY_OVERLAP", JSON.stringify({ inventoryMs: span.durationMs,
+        independentPreparationMs: preparationEnded - preparationStarted, overlapMs,
+        exposedInventoryMs: span.durationMs - overlapMs,
+        runtimeVersion: runtime.runtime.version }));
+    } finally { await Promise.allSettled([inventory, preparation]); await routes?.close(); }
     await forward.server.instance.connect(serverTransport); await client.connect(clientTransport);
     forward.start();
     const visible = await client.callTool({ name: "brain_read", arguments: { path: "notes/raft.md" } });
@@ -84,10 +103,11 @@ test("forwarded core reads use the immutable worker view and refuse provider-mas
 });
 
 
-test("a sandbox-resolved module MCP inventory keeps its original stdio tool reachable", async () => {
+test("a config change between two new sessions preserves the second session module MCP tool under its original name", async () => {
   const scratch = mkdtempSync(join(tmpdir(), "ithaca-module-forwarding-")), brain = join(scratch, "brain"), home = join(scratch, "home");
   const restore = replaceNativeStartupAcquisitionForFixture();
   const testHome = installTestHome();
+  let firstTurn: ReturnType<typeof createClaudeSdkTurn> | undefined;
   let turn: ReturnType<typeof createClaudeSdkTurn> | undefined;
   let view: ReturnType<typeof createFixtureWorkerStartupView> | undefined;
   let resource: Awaited<ReturnType<ReturnType<typeof startBrainToolWorker>>> | undefined;
@@ -96,7 +116,8 @@ test("a sandbox-resolved module MCP inventory keeps its original stdio tool reac
   try {
     cpSync(resolve("packages/core/fixtures/corpus"), brain, { recursive: true });
     mkdirSync(home); mkdirSync(join(brain, "node_modules/.bin"), { recursive: true });
-    installIthacaModuleTool(brain);
+    const config = join(brain, "brain.config.ts");
+    writeFileSync(config, (await Bun.file(config).text()).replace('"@schlessera/brain"', JSON.stringify(resolve("packages/core/src/index.ts"))));
     const cli = resolve("packages/core/src/cli/brain.ts"), entry = join(brain, "node_modules/.bin/brain");
     writeFileSync(entry, `import ${JSON.stringify(cli)};`);
     openDatabase(join(brain, ".brain-index/brain.db")).close();
@@ -104,13 +125,23 @@ test("a sandbox-resolved module MCP inventory keeps its original stdio tool reac
     const sandbox = { ...prepareFixtureWorkerSandbox(brain, { home, profile: "strict", areas: [] }), readPaths: restrictedReadPaths([cli, entry]) };
     const input = { brainPath: brain, exec: {}, sandbox, startupView: view, env: { PATH: process.env.PATH, HOME: home },
       limits: launchLimits({}), turnTempLimits: resolveTurnTempLimits({}), credentialEnv: [], req: { bridge: {} } as never };
+    const firstInventory = await probeBrainBridgeInventory(input, controller.signal);
+    firstTurn = createClaudeSdkTurn({ backend: { brainPath: brain }, brainBridgeInventory: firstInventory,
+      req: { prompt: "Odysseus checks the first route.", applicationAuthority: "server", workerSandbox: sandbox,
+        workerStartupView: view, bridge: { emit() {}, async requestPermission() { return { behavior: "deny" as const, message: "The fixture cannot grant." }; } }, signal: controller.signal },
+      profile: { id: "fixture", label: "Fixture", billing: "api", requiredEnvKeys: [], buildEnv: () => ({}) },
+      turnEnvironment: { HOME: home }, abortController: controller, allowedTools: [], confirmPatterns: [],
+      turnLock: { acquireForTool: async () => ({ ok: true }), releaseForTool() {} } as never, log() {} });
+    expect(firstTurn.options.mcpServers!.brain?.type, "FIRST_NEW_SESSION_USES_CORE_BRIDGE").toBe("sdk");
+    await firstTurn.finishWorker(); firstTurn = undefined;
+    view.cleanup();
+    installIthacaModuleTool(brain);
+    view = createFixtureWorkerStartupView(brain);
+    const changedInput = { ...input, startupView: view };
     const measured = inventoryTiming("module-tools");
-    const inventory = await probeBrainBridgeInventory({ ...input, req: { bridge: {}, startupTiming: measured.timing } as never }, controller.signal);
-    expect(inventory, "MODULE_TOOLS_MUST_DISABLE_STATIC_BRIDGE").toBe("module-tools");
+    const inventory = await probeBrainBridgeInventory({ ...changedInput, req: { bridge: {}, startupTiming: measured.timing } as never }, controller.signal);
+    expect(inventory, "SECOND_NEW_SESSION_USES_UPDATED_MODULE_CONFIG").toBe("module-tools");
     measured.verify();
-    const hit = inventoryTiming("module-tools-hit");
-    expect(await probeBrainBridgeInventory({ ...input, req: { bridge: {}, startupTiming: hit.timing } as never }, controller.signal)).toBe("module-tools");
-    hit.verify(true);
     const diagnostics: string[] = [];
     turn = createClaudeSdkTurn({ backend: { brainPath: brain }, brainBridgeInventory: inventory,
       req: { prompt: "Odysseus checks the route.", applicationAuthority: "server", workerSandbox: sandbox,
@@ -124,7 +155,7 @@ test("a sandbox-resolved module MCP inventory keeps its original stdio tool reac
       const [local, remote] = InMemoryTransport.createLinkedPair();
       await selected.instance.connect(remote); await client.connect(local);
     } else {
-      resource = await startBrainToolWorker(input)(controller.signal);
+      resource = await startBrainToolWorker(changedInput)(controller.signal);
       await client.connect(resource.transport);
     }
     expect((await client.listTools()).tools.map(tool => tool.name), "ORIGINAL_MODULE_TOOL_NAME_REACHABLE").toContain("ithaca_route");
@@ -133,6 +164,6 @@ test("a sandbox-resolved module MCP inventory keeps its original stdio tool reac
     expect(diagnostics).toContain("brain_bridge_fallback_module_tools: keeping the project brain stdio entry and tool search off.");
   } finally {
     controller.abort();
-    try { await client.close(); } finally { try { await resource?.close(); await turn?.finishWorker(); } finally { restore(); testHome.dispose(); view?.cleanup(); rmSync(scratch, { recursive: true, force: true }); } }
+    try { await client.close(); } finally { try { await resource?.close(); await firstTurn?.finishWorker(); await turn?.finishWorker(); } finally { restore(); testHome.dispose(); view?.cleanup(); rmSync(scratch, { recursive: true, force: true }); } }
   }
 });

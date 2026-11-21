@@ -4561,9 +4561,6 @@ signatures (every public export and the types it is made of)
   ActivityTurnOpenSubPhase (packages/ui-sdk/src/protocol.ts)
     export interface ActivityTurnOpenSubPhase extends Omit<ActivityTurnSubPhase, "phase"> {
         phase: string;
-        attributes?: {
-            cached?: boolean;
-        };
         pending?: boolean;
         timeBase?: "worker";
         workerElapsedMs?: number;
@@ -22208,9 +22205,6 @@ signatures (every public export and the types it is made of)
             journalStartedAt: z.ZodNullable<z.ZodNumber>;
             lifecycleId: z.ZodString;
             openSubPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
-                attributes: z.ZodOptional<z.ZodObject<{
-                    cached: z.ZodOptional<z.ZodBoolean>;
-                }, z.core.$loose>>;
                 elapsedMs: z.ZodNullable<z.ZodNumber>;
                 endedAt: z.ZodNullable<z.ZodNumber>;
                 name: z.ZodString;
@@ -22377,9 +22371,6 @@ signatures (every public export and the types it is made of)
             journalStartedAt: z.ZodNullable<z.ZodNumber>;
             lifecycleId: z.ZodString;
             openSubPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
-                attributes: z.ZodOptional<z.ZodObject<{
-                    cached: z.ZodOptional<z.ZodBoolean>;
-                }, z.core.$loose>>;
                 elapsedMs: z.ZodNullable<z.ZodNumber>;
                 endedAt: z.ZodNullable<z.ZodNumber>;
                 name: z.ZodString;
@@ -25435,9 +25426,6 @@ signatures (every public export and the types it is made of)
             journalStartedAt: z.ZodNullable<z.ZodNumber>;
             lifecycleId: z.ZodString;
             openSubPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
-                attributes: z.ZodOptional<z.ZodObject<{
-                    cached: z.ZodOptional<z.ZodBoolean>;
-                }, z.core.$loose>>;
                 elapsedMs: z.ZodNullable<z.ZodNumber>;
                 endedAt: z.ZodNullable<z.ZodNumber>;
                 name: z.ZodString;
@@ -25605,9 +25593,6 @@ signatures (every public export and the types it is made of)
             journalStartedAt: z.ZodNullable<z.ZodNumber>;
             lifecycleId: z.ZodString;
             openSubPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
-                attributes: z.ZodOptional<z.ZodObject<{
-                    cached: z.ZodOptional<z.ZodBoolean>;
-                }, z.core.$loose>>;
                 elapsedMs: z.ZodNullable<z.ZodNumber>;
                 endedAt: z.ZodNullable<z.ZodNumber>;
                 name: z.ZodString;

@@ -16,9 +16,9 @@ export function observeDiagnostic(operation: () => unknown): void {
 export function safeStartupTiming(timing: StartTurnRequest["startupTiming"]): StartTurnRequest["startupTiming"] {
   if (!timing) return undefined;
   return {
-    start(name, attributes) {
+    start(name) {
       let end: unknown;
-      observeDiagnostic(() => end = timing.start(name, attributes));
+      observeDiagnostic(() => end = timing.start(name));
       return () => observeDiagnostic(() => typeof end === "function" ? end() : undefined);
     },
     worker: (name, durationMs) => observeDiagnostic(() => timing.worker(name, durationMs)),

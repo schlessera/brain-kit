@@ -3920,8 +3920,6 @@ export interface ActivityTurnSubPhase {
 /** Additive phases use an open vocabulary so older SDKs can retain the frame. */
 export interface ActivityTurnOpenSubPhase extends Omit<ActivityTurnSubPhase, "phase"> {
   phase: string;
-  /** Internal cache evidence; never part of the provider conversation. */
-  attributes?: { cached?: boolean };
   pending?: boolean;
   /** Worker durations use an independent clock; timestamps are host receipt, not worker start/end. */
   timeBase?: "worker";

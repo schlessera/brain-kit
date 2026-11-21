@@ -1668,20 +1668,22 @@ reference discovery mechanism. Its existing sandboxed reads have no project
 MCP startup race; switching their schemas and execution to a second process
 would be a separate session-roster change.
 
-Module MCP tools have no static inventory yet (#4381). Before selecting a new
-hosted session's roster, a successful inventory is reused from disposable host
-memory when its configuration content hash matches. On a miss, a
-credential-filtered worker with the same turn view runs
-`brain module list --json` alongside runtime version and route-input
-preparation. A proven empty module-tool inventory permits
-the bridge. Config-selected module tools, an unavailable inventory, or malformed
-output retain the original project stdio entry and pin search off. The owner
-log records `brain_bridge_fallback_module_tools` or
-`brain_bridge_fallback_inventory_unavailable`; neither diagnostic enters the
-provider conversation. Only a miss runs the sandboxed inventory command; a hit
-skips it, concurrent misses share the helper, and resumes use their retained
-selection. The extra command is not a
-`brain mcp` process. Pi keeps its existing in-worker reads.
+Module MCP tools have no static inventory yet (#4381). Every new hosted
+session runs `brain module list --json` in a credential-filtered sandbox worker
+with the same turn view, before retaining its roster. The host neither reads
+brain bytes nor resolves brain paths for this inventory, and keeps no cache.
+The maintainer's 2026-11-21 ruling rejects host-side hashing: its input set
+cannot safely prove that executable configuration selects the same modules,
+and reading those inputs on the host bypasses the worker boundary.
+
+A proven empty module-tool inventory permits the bridge. Config-selected
+module tools, helper failure, timeout or malformed output retain the original
+project stdio entry and pin search off. Owner logs record
+`brain_bridge_fallback_module_tools` or
+`brain_bridge_fallback_inventory_unavailable`; these diagnostics never enter
+the provider conversation. Resumes use their retained selection and skip the
+helper. The extra command is not a `brain mcp` process. Pi keeps its existing
+in-worker reads.
 
 The pinned runtime can start a project stdio server even when an SDK server
 uses the same name. Bridge sessions therefore reject only the project `brain`
@@ -1690,24 +1692,20 @@ checks that rejection in effective native settings before releasing input;
 other project MCP servers retain their existing startup behavior.
 
 The new-session inventory has its own `backend` startup span,
-`brain_tool_inventory`, including content hashing, lookup and any sandboxed
-command plus cleanup. Its `attributes.cached` boolean stays in host activity
-storage, never provider history. The bounded, disposable memory cache hashes
-configuration bytes and static local imports, package/lock bytes, resolved
-module manifests and settings, and the relevant view/mask facts. Hash inputs
-that cannot be read or resolved, changed inputs during a probe, and failed or
-timed-out helpers preserve stdio. Successful facts are reused until their
-inputs change; restarting the host discards them. No cache is written to
-`brain.db`. A new positive fact whose module sources were not in the first key
-is confirmed with those sources included before it is reused.
+`brain_tool_inventory`, covering the sandboxed command and its cleanup, without
+cache attributes. The command overlaps only independent runtime-version and
+route-input preparation before `query()`. Its verdict fixes `mcpServers.brain`,
+`disabledMcpjsonServers` and `ENABLE_TOOL_SEARCH`, so query dispatch waits for
+it. All preparation owners settle before a failure propagates.
 
-A miss starts alongside independent runtime-version and route-input
-preparation; only the roster decision waits on inventory. All preparation
-owners settle before a failure propagates. Three offline real-sandbox samples
-measured core-only misses of 365.2, 280.4 and 236.4 ms (median 280.4 ms), with
-hits of 0.384, 0.182 and 0.168 ms (median 0.182 ms). Module-tool misses were
-405.2, 285.5 and 253.0 ms; hits were 0.544, 0.194 and 0.374 ms. These include
-hash lookup and owned cleanup on the shared host with fresh processes and
-copied immutable fixture storage; they do not establish a native hosted turn's
-net startup change. The native observation attempt could not open
-`/dev/loop-control` in its proof container.
+Three fresh-process offline component runs measured core-only checks at
+252.4, 253.3 and 243.4 ms (median 252.4 ms). Concurrent pinned CLI version and
+route-input preparation hid 17.1, 16.5 and 15.4 ms (median 16.5 ms), leaving
+235.2, 236.9 and 228.0 ms unhidden (median 235.2 ms). Module-tool checks cost
+248.0, 250.0 and 238.7 ms. These measurements include worker cleanup and use
+copied immutable fixture storage on a shared host with version probing enabled;
+turns without that probe cannot claim its overlap. This per-new-session check
+roughly offsets the first-turn stdio discovery saving until #4381 supplies a
+static module inventory. Component overlap does
+not establish the net change of a native hosted turn. The native observation
+attempt could not open `/dev/loop-control` in its proof container.
