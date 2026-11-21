@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { resolveGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
 import type { BackendBridge } from "@schlessera/brain-ui-sdk/server";
 import { request } from "node:http";
+import { openSqliteWriter } from "../../src/db/write-worker";
+import { journalDatabasePath } from "../../src/db/journal-database";
 import { createUiDb } from "../../src/db/client";
 import { createTurnJournal } from "../../src/brain/turn-journal";
 import { createTurnScope } from "../../src/brain/turn-scope";
@@ -15,12 +17,15 @@ export const body = (id = "loom") => JSON.stringify({ model: "odysseus", stream:
   { role: "assistant", content: [{ type: "tool_use", id, name: "Write", input: {} }] },
   { role: "user", content: [{ type: "tool_result", tool_use_id: id, content: "Ithaca" }] },
 ] });
-export async function fixture(cap = 100, realWorker?: Parameters<ReturnType<typeof createTurnScope>["workerStarted"]>[1]) {
+export async function fixture(cap = 100, realWorker?: Parameters<ReturnType<typeof createTurnScope>["workerStarted"]>[1], offloopScope = false) {
   const root = mkdtempSync(join(tmpdir(), "odysseus-deferred-")), brain = join(root, "brain"), path = join(root, "ui.db");
   mkdirSync(brain); writeFileSync(join(brain, "note.md"), "Odysseus");
   const native = createNativeJournalFixture(brain, root), db = createUiDb(path), controller = new AbortController();
-  const journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath: path, objectsRoot: join(root, "objects") });
-  const scope = createTurnScope(db, { brainPath: brain, journal, connected: () => true, changed() {}, space: () => ({ total: 100e9, free: 90e9 }) });
+  const writer = offloopScope ? openSqliteWriter(db, { attach: [{ schema: "journal", path: journalDatabasePath(path) }] }) : undefined;
+  const journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath: path, objectsRoot: join(root, "objects"), ...(writer ? { writer } : {}) });
+  let beforeScope = () => {};
+  journal.onObservation(() => beforeScope());
+  const scope = createTurnScope(db, { brainPath: brain, journal, ...(writer ? { writer } : {}), connected: () => true, changed() {}, space: () => ({ total: 100e9, free: 90e9 }) });
   db.query("INSERT INTO sessions(id,title,created_at,last_active_at) VALUES ('ithaca','Voyage',0,0)").run();
   const policy = resolveGovernancePolicy({ schema_version: 1, scope: { max_files_changed: cap } });
   const interval = registeredInterval();
@@ -48,8 +53,8 @@ export async function fixture(cap = 100, realWorker?: Parameters<ReturnType<type
   } });
   const restore = () => { interval.restore(); Object.defineProperty(globalThis, "setTimeout", descriptor); Object.defineProperty(globalThis, "clearTimeout", clearDescriptor); };
   const result = (id = "loom") => { journal.toolStarted("voyage", id, "Write", true); return journal.toolEnded("voyage", id); };
-  return { tick() { interval.advanceTo(15000); }, deadlines, fireDeadline() { const item = deadlines.find(item => !item.cancelled)!; item.cancelled = true; item.callback(); }, root, brain, db, native, journal, scope, proxy, controller, result, get frozen() { return frozen; }, get stops() { return stops; }, get resumes() { return resumes; }, ack(value: boolean | void) { ack = value; },
-    async close() { try { controller.abort(); proxy.stop(); await proxy.settled(); await journal.idle(); scope.close(); await journal.close(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); } finally { restore(); } } };
+  return { writer, beforeScope(fn: () => void) { beforeScope = fn; }, tick() { interval.advanceTo(15000); }, deadlines, fireDeadline() { const item = deadlines.find(item => !item.cancelled)!; item.cancelled = true; item.callback(); }, root, brain, db, native, journal, scope, proxy, controller, result, get frozen() { return frozen; }, get stops() { return stops; }, get resumes() { return resumes; }, ack(value: boolean | void) { ack = value; },
+    async close() { try { controller.abort(); proxy.stop(); await proxy.settled(); await journal.idle(); scope.close(); await journal.close(); await writer?.close(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); } finally { restore(); } } };
 }
 export function send(socketPath: string, content = body(), path = "/v1/messages") {
   return new Promise<{ status: number; bytes: number }>((resolve, reject) => {

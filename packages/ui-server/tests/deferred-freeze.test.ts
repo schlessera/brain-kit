@@ -215,3 +215,35 @@ test("a parallel arrival after arming returns to the immediate observation path"
     expect((await response).status).toBe(200); expect(upstream).toBe(1);
   } finally { release.resolve(); parallel?.finish("cancelled"); f.native.manager.checkpoint = checkpoint; relay.stop(); origin.stop(true); await f.close(); }
 });
+
+test("a deferred scope refusal waits for its offloop FULL pause record before answering the relay", async () => {
+  const f = await fixture(1, undefined, true);
+  const heldWriter = await import("./fixtures/held-publication-writer");
+  const channel = f.writer!.channel(heldWriter, {}); await channel.ready;
+  const entered = new Int32Array(new SharedArrayBuffer(4)), release = new Int32Array(new SharedArrayBuffer(4));
+  let held: Promise<unknown> | undefined, responseGateSettled = false;
+  const boundary = Promise.withResolvers<void>();
+  const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("Ithaca") });
+  const relay = startInferenceRelay({ upstream: origin.url.origin, routes: ["/v1/messages"], credentials: {}, egress: {
+    inference(...args) { const operation = f.proxy.inference(...args); return { ...operation, responseReady() {
+      const ready = operation.responseReady(); void ready.then(() => { responseGateSettled = true; }); boundary.resolve(); return ready;
+    } }; },
+  } });
+  try {
+    // Insert an actual held FULL transaction ahead of the scope observer's
+    // save. The journal version is durable, but the cap pause is not yet.
+    f.beforeScope(() => { held ??= channel.call("hold", entered, release); });
+    writeFileSync(join(f.brain, "note.md"), "Penelope");
+    const observed = f.result(), response = send(relay.socketPath); void response.catch(() => {});
+    const waiting = Atomics.waitAsync(entered, 0, 0); if (waiting.async) await waiting.value;
+    expect(Atomics.load(entered, 0)).toBe(1);
+    await boundary.promise; await Promise.resolve();
+    expect(responseGateSettled, "SCOPE_REFUSAL_CANNOT_PRECEDE_FULL_COMMIT").toBe(false);
+    const prior = f.db.query("SELECT summary FROM turn_scope WHERE turn_id='voyage'").get() as { summary: string };
+    expect(JSON.parse(prior.summary).receipts, "HELD_PAUSE_IS_NOT_DURABLE_YET").toEqual([]);
+    Atomics.store(release, 0, 1); Atomics.notify(release, 0); await held; await observed;
+    expect((await response).status).toBe(403);
+    const saved = f.db.query("SELECT summary FROM turn_scope WHERE turn_id='voyage'").get() as { summary: string };
+    expect(JSON.parse(saved.summary).receipts).toMatchObject([{ state: "paused", dimension: "files_changed" }]);
+  } finally { Atomics.store(release, 0, 1); Atomics.notify(release, 0); await held; f.beforeScope(() => {}); relay.stop(); origin.stop(true); await f.close(); }
+});
