@@ -1,11 +1,10 @@
 import "./measurement-entry-preload.ts";
-import { nativeScriptedQuery } from "./test-native-guard.ts";
+import { nativeFixtureDirectory, nativeScriptedQuery } from "./test-native-guard.ts";
 // #901: real production wiring, real CLI, scripted loopback inference.
 // Run in the same loopback-only network namespace as measure-claude-runtime.
 // The query wrapper observes existing handlers and messages; it forwards their
 // inputs and outputs unchanged. It installs no permission decision of its own.
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { HookJSONOutput, Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { type PermissionRequest } from "@schlessera/brain-ui-sdk/server";
@@ -35,7 +34,7 @@ let failures = 0;
 try {
   for (const scenario of ["manual-default", "plain", "settings-allow", "settings-hook-allow", "rtk-rewrite"] as const) {
     for (const arm of ["denied", "approved", "allowlisted"] as const) {
-      const root = mkdtempSync(join(tmpdir(), "enforcement-probe-"));
+      const root = nativeFixtureDirectory("enforcement-probe-");
       const cwd = join(root, "cwd"), home = join(root, "home"), bin = join(root, "bin");
       for (const dir of [cwd, home, bin]) mkdirSync(dir);
       const original = join(WORKER_SCRATCH, "original"), rewritten = join(WORKER_SCRATCH, "rewritten"), settingsMarker = join(WORKER_SCRATCH, "settings-hook-ran");

@@ -209,7 +209,7 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
   // followed by process.exit(0), must still make that process unsuccessful.
   process.on("exit", () => {
     if (escapes.length || nativeIsolationFailed()) {
-      console.error(message());
+      console.error(escapes.length ? message() : "Offline test guard: native isolation refused; see native-offline-boundary receipt");
       process.exit(1);
     }
   });

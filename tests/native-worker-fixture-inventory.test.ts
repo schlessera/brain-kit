@@ -28,3 +28,23 @@ for(const name of ["autonomous-dispatch","autonomous-app","autonomous-runtime","
  const source=read(`tests/fixtures/${name}-probe.ts`);
  expect(source).toContain("fixtureRoots: [root]");
 });
+
+// The enforcement entry re-enters the RTK view before constructing its worker;
+// inspecting only tests/ and the shared worker helper misses its HOME/PATH roots.
+test("enforcement RTK re-entry declares every temporary worker input",()=>{
+ const file="scripts/measure-claude-enforcement.ts",text=read(file),source=ts.createSourceFile(file,text,ts.ScriptTarget.Latest,true);
+ let created=0;
+ function visit(node:ts.Node){
+  if(ts.isCallExpression(node)&&node.expression.getText(source)==="nativeFixtureDirectory"){
+   expect(node.arguments[0]?.getText(source)).toBe('"enforcement-probe-"');created++;
+  }
+  ts.forEachChild(node,visit);
+ }visit(source);
+ expect(created,"ENFORCEMENT_ROOT_REGISTERED").toBe(1);
+ expect(text).not.toContain("mkdtempSync");
+ expect(text).toContain("createMeasurementWorkerFixture(cwd, home)");
+ expect(text.indexOf("await enterMeasurementRtkView()")).toBeLessThan(text.indexOf('nativeFixtureDirectory("enforcement-probe-")'));
+ const rtk=read("scripts/measurement-rtk-fixture.ts");
+ expect(rtk).toContain('process.argv.slice(1), "--native-rtk-view"');
+ expect(rtk).toContain('"--bind", "/tmp", "/tmp"');
+});
