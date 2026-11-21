@@ -228,3 +228,21 @@ test("declared submodules outside the pruned candidate list never enter Git igno
   }finally{spawn.mockRestore();}
  }finally{rmSync(root,{recursive:true,force:true});}
 });
+
+test("a non-UTF-8 directory cannot block valid discovery siblings",async()=>{
+ const {referenceNotes}=await import("../src/lib/media-references.js");
+ const root=mkdtempSync(join(tmpdir(),"odysseus-discovery-bytes-"));
+ try {
+  mkdirSync(Buffer.concat([Buffer.from(root+"/odd-"),Buffer.from([0xff])]));
+  writeFileSync(join(root,"ithaca.md"),"# Ithaca");writeFileSync(join(root,"chart.jpg"),"Ithaca harbour");
+  // A real replacement character is valid UTF-8 and must remain visible.
+  mkdirSync(join(root,"\uFFFD"));writeFileSync(join(root,"\uFFFD/harbour.md"),"# Harbour");
+  const taxonomy=buildTaxonomy({});
+  const oldMarkdown=[...new Glob("**/*.md").scanSync({cwd:root})].sort();
+  expect(oldMarkdown).toEqual(["ithaca.md","\uFFFD/harbour.md"]);
+  let markdown:string[]=[];expect(()=>{markdown=getMarkdownFiles(root,taxonomy);},"INVALID_UTF8_DIRECTORY_DOES_NOT_BLOCK_INDEX").not.toThrow();
+  expect(markdown).toEqual(oldMarkdown);
+  expect(getAssetFiles(root,taxonomy).map(row=>row.path),"INVALID_UTF8_DIRECTORY_PRESERVES_ASSETS").toEqual(["chart.jpg"]);
+  expect(referenceNotes(root),"INVALID_UTF8_DIRECTORY_PRESERVES_REFERENCES").toEqual(oldMarkdown);
+ }finally{rmSync(root,{recursive:true,force:true});}
+});
