@@ -1,4 +1,4 @@
-/** Real publisher and Git objects; acquisition alone uses owned copied roots. */
+/** Real publisher, atomic exchange, kills and Git; copied acquisition/reflink fixture. */
 import {watchdogMs} from "../../../scripts/test-deadlines.js";
 import { expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
@@ -82,4 +82,23 @@ test("Git step receipts are bounded, execution-private and excluded from publica
   expect(await output.gitSucceeded()).toBe(true);
   await output.publish();expect(fs.existsSync(join(brain,output.gitResultPath)),"GIT_RECEIPT_NEVER_PUBLISHED").toBe(false);
  }finally{await fixture.close();fs.rmSync(root,{recursive:true,force:true});}
+});
+
+test("a refused pack reflink never falls back to unbounded copying or publishes refs",async()=>{
+ const root=fs.mkdtempSync(join(tmpdir(),"odysseus-pack-reflink-")),brain=join(root,"brain");fs.mkdirSync(brain);
+ const git=(directory:string,...args:string[])=>Bun.spawnSync(["git","-C",directory,...args],{stdout:"pipe",stderr:"pipe"});
+ expect(git(brain,"init","-q").exitCode).toBe(0);
+ const blob=Bun.spawnSync(["git","-C",brain,"hash-object","-w","--stdin"],{stdin:Buffer.from("Odysseus keeps Ithaca."),stdout:"pipe",stderr:"pipe"});expect(blob.exitCode).toBe(0);
+ const hash=blob.stdout.toString().trim();expect(git(brain,"update-ref","refs/odysseus/ithaca",hash).exitCode).toBe(0);packRepository(brain);
+ const before=fs.readdirSync(join(brain,".git/objects/pack")).sort(),fixture=await packingFixture(root,brain);
+ const file=join(fixture.output.output.source,"chart.txt");fs.writeFileSync(file,"Athena updates Ithaca.");
+ const added=git(fixture.output.output.source,"hash-object","-w",file);expect(added.exitCode).toBe(0);
+ expect(git(fixture.output.output.source,"update-ref","refs/athena/ithaca",added.stdout.toString().trim()).exitCode).toBe(0);packRepository(fixture.output.output.source);
+ const copy=spyOn(fs,"copyFileSync").mockImplementation((_source,_target,mode)=>{expect(mode,"PACK_CLONE_REQUIRES_REFLINK").toBe(fs.constants.COPYFILE_FICLONE_FORCE);throw Error("Ithaca reflink refused");});
+ try {
+  await expect(fixture.output.publish()).rejects.toThrow("Ithaca reflink refused");
+  expect(fs.readdirSync(join(brain,".git/objects/pack")).sort(),"PACK_CLONE_REFUSAL_PUBLISHES_NOTHING").toEqual(before);
+  expect(git(brain,"cat-file","-e",hash).exitCode).toBe(0);
+  expect(git(brain,"rev-parse","--verify","refs/athena/ithaca").exitCode).not.toBe(0);
+ }finally{copy.mockRestore();await fixture.close();fs.rmSync(root,{recursive:true,force:true});}
 });

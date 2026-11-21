@@ -31,9 +31,9 @@ export function clonePackDirectory(source: number, target: number, depth = 0): v
       const input = openSync(at(source, entry.name), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
       try {
         if (!fstatSync(input).isFile()) throw Error("Git pack member is not a regular file");
-        // The qualified store is Btrfs. On standalone test filesystems the
-        // kernel may copy; neither case mutates or links the live pack inode.
-        copyFileSync(`/proc/self/fd/${input}`, at(target, entry.name), constants.COPYFILE_FICLONE);
+        // Qualification requires Btrfs. Refuse a failed reflink rather than
+        // silently duplicating an unbounded existing pack on the live store.
+        copyFileSync(`/proc/self/fd/${input}`, at(target, entry.name), constants.COPYFILE_FICLONE_FORCE);
         const output = openSync(at(target, entry.name), constants.O_RDONLY | constants.O_NOFOLLOW);
         try { fsyncSync(output); } finally { closeSync(output); }
       } finally { closeSync(input); }

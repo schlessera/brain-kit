@@ -947,7 +947,8 @@ maintenance step fails. The receipt itself is never published.
 
 Publication assembles and syncs a complete replacement pack directory outside
 the live `objects/pack`, in a private transaction on the objects filesystem.
-One Linux `renameat2` exchange activates the whole pack/index/MIDX family.
+Existing pack files require a Btrfs reflink; refusal cannot fall back to an
+unbounded byte copy. One Linux `renameat2` exchange activates the whole pack/index/MIDX family.
 Only after syncing that directory switch does it install loose objects and
 refs; superseded loose objects are removed after every installation succeeds.
 A process kill leaves either complete pack set visible, with no partial index
