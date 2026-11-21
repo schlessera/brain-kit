@@ -12,7 +12,7 @@ export function createEgressOperation(options: {
 }) {
   let state: EgressOperationState = 'pending';
   let terminal: EgressOperationTerminal | undefined, observed = false;
-  let admission: Promise<boolean> | undefined, effectCount = 0;
+  let admission: Promise<boolean> | undefined, effectCount = 0, prepared=false;
   const effects = new Set<Promise<unknown>>();
   const cleanups=new Set<()=>void>();
   const active = () => state !== 'finished' && state !== 'aborted';
@@ -66,16 +66,24 @@ export function createEgressOperation(options: {
       await pending;
       return active();
     },
-    /** check includes the new-connection budget fence; no await separates it from notify. */
-    dispatch(remaining:number,check: () => boolean, notify: () => void): boolean {
-      if (!active()) return false;
+    prepare(notify:()=>void):boolean {
+      if(!active()||state==='pending')return false;
+      if(!prepared){prepared=true;notify();}
+      return active();
+    },
+    /** The send callback hands bytes to the transport; notification is a fact afterward. */
+    dispatch(remaining:number,check:()=>boolean,send:()=>void,notify:()=>void=()=>{}):boolean {
+      if(!active())return false;
       const refusal=sendRefusal(0,remaining);
-      if (refusal) { finish(refusal==='turn_cancelled'?'cancelled':'denied',refusal);return false; }
-      if (!check()) return false;
-      if (state === 'dispatched') return true;
-      notify();
-      if (!active()) return false;
-      state = 'dispatched'; return true;
+      if(refusal){finish(refusal==='turn_cancelled'?'cancelled':'denied',refusal);return false;}
+      if(!check())return false;
+      const first=state!=='dispatched';
+      effectCount++;
+      try{
+        send();
+        if(first){if(terminal)terminal.dispatched=true;else state='dispatched';notify();}
+        return true;
+      }finally{effectCount--;flush();}
     },
     async settled(): Promise<void> { while (effects.size) await Promise.allSettled([...effects]); },
   };

@@ -217,6 +217,7 @@ export interface ProviderRelayOptions {
   admit?(): { allowed: true } | { allowed: false; message: string } | Promise<{ allowed: true } | { allowed: false; message: string }>;
   /** One receipt per dispatched attempt. A throw is reported through `failed`, never to the worker. */
   observe?(receipt: ProviderRelayReceipt): void;
+  preparing?(attempt: Omit<ProviderRelayReceipt,"outcome">):void;
   refused?(refusal: ProviderRelayRefusal): void;
 }
 
@@ -516,7 +517,7 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       operation?.finish("denied", "budget_exceeded");
       return refuse(403, "budget_exceeded", now.message);
     }
-    const dispatchDecision = operation?.commit();
+    const dispatchDecision = operation?.prepare();
     if (dispatchDecision && !dispatchDecision.ok) return chargeDenied(dispatchDecision);
     const attemptId = crypto.randomUUID();
     let reported = false;
@@ -531,13 +532,18 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       observe(outcome, usage);
       done();
     };
-    observe("dispatched", null);
+    try{options.preparing?.({attemptId,family,operation:route.operation,origin,key,model,status:0,usage:null,inlineMedia});}catch{/* Diagnostics do not authorize a send. */}
     let response: Response;
     try {
       // Never follow a redirect: the upstream must not choose another host.
       const finalFailure=chargeFailure(0) ?? captureEgressFailure(signal).failure;
       if(finalFailure){report("cancelled",null);return chargeDenied(finalFailure);}
-      response = await fetch(target, { method: request.method, headers, ...(request.method === "POST" ? { body } : {}), redirect: "manual", signal });
+      let pending!:Promise<Response>;
+      const send=()=>{pending=fetch(target,{method:request.method,headers,...(request.method==="POST"?{body}:{}),redirect:"manual",signal});};
+      const decision=operation?operation.dispatch(send):(send(),{ok:true as const});
+      if(!decision.ok){report("cancelled",null);return chargeDenied(decision);}
+      observe("dispatched",null);
+      response=await pending;
       upstreamStatus=response.status;
     } catch {
       const cause=captureEgressFailure(signal,operation);
@@ -645,17 +651,21 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
             report(cause.outcome,null);
             release();controller.error(new Error(cause.failure?egressChargeRefusal(cause.failure,"Provider").message:"Provider response interrupted"));return;
           }
-          if (next.done) {
-            const tail = scrub(new Uint8Array(0), true);
-            if (tail.byteLength) controller.enqueue(tail);
-            controller.close();operation?.finish("completed");settle();release();return;
-          }
-          capturedBytes += next.value.byteLength;
-          if (capturing && capturedBytes <= MAX_USAGE_CAPTURE_BYTES) captured.push(next.value);
-          // Past the ceiling the usage stays unknown: release what was kept.
-          else if (capturing) { capturing = false; captured.length = 0; }
-          const clean = scrub(next.value, false);
-          if (clean.byteLength) { controller.enqueue(clean); return; }
+          let delivered=false;
+          const failure=next.deliver(()=>{
+            if(next.done){
+              const tail=scrub(new Uint8Array(0),true);
+              if(tail.byteLength)controller.enqueue(tail);
+              controller.close();operation?.finish("completed");settle();release();return;
+            }
+            capturedBytes+=next.value.byteLength;
+            if(capturing&&capturedBytes<=MAX_USAGE_CAPTURE_BYTES)captured.push(next.value);
+            else if(capturing){capturing=false;captured.length=0;}
+            const clean=scrub(next.value,false);
+            if(clean.byteLength){controller.enqueue(clean);delivered=true;}
+          });
+          if(failure){report("cancelled",null);release();controller.error(new Error(egressChargeRefusal(failure,"Provider").message));return;}
+          if(next.done||delivered)return;
         }
       },
       async cancel() {
@@ -690,20 +700,23 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
     const headers = new Headers(PLACEMENT.gemini(secret));
     const cleanupCharge = operation?.charge(headerBytes(`DELETE ${target.pathname} HTTP/1.1`, headers));
     if (cleanupCharge && !cleanupCharge.ok) { observe("cancelled"); return; }
-    const cleanupDecision = operation?.commit();
+    const cleanupDecision = operation?.prepare();
     if (cleanupDecision && !cleanupDecision.ok) { observe("cancelled"); return; }
-    observe("dispatched");
+    try{options.preparing?.({attemptId,family:"gemini",operation:"files",origin:entry.origin,key:entry.key,model:null,status:0,usage:null,inlineMedia:false});}catch{/* Diagnostics only. */}
     try {
       const finalDecision=operation?.charge(0);
       const finalFailure=finalDecision&&!finalDecision.ok?finalDecision:captureEgressFailure(signal).failure;
       if(finalFailure){observe("cancelled");return;}
-      const response = await fetch(target, { method: "DELETE", headers, redirect: "manual", signal });
+      let pending!:Promise<Response>;
+      const send=()=>{pending=fetch(target,{method:"DELETE",headers,redirect:"manual",signal});};
+      const decision=operation?operation.dispatch(send):(send(),{ok:true as const});
+      if(!decision.ok){observe("cancelled");return;}
+      observe("dispatched");
+      const response=await pending;
       upstreamStatus=response.status;
       const incoming=readRelayResponse(response,{charge:count=>{const decision=operation?.charge(count);return decision&&!decision.ok?decision:undefined;},remaining:()=>options.egress?.remainingBytes?.()??Infinity});
       if(incoming.headerFailure){await incoming.cancel().catch(()=>{});observe("cancelled");return;}
-      try{for(;;){if((await incoming.read()).done)break;}}finally{incoming.release();}
-      operation?.finish("completed");
-      observe(response.ok ? "completed" : "failed");
+      try{for(;;){const next=await incoming.read();if(next.done){const failure=next.deliver(()=>{operation?.finish("completed");observe(response.ok?"completed":"failed");});if(failure)observe("cancelled");break;}}}finally{incoming.release();}
     } catch {
       const cause=captureEgressFailure(signal,operation);
       operation?.finish(cause.outcome,"upstream_unreachable");

@@ -5,13 +5,13 @@ for(const initial of states)for(const event of ['approval wait','DNS wait','clie
  const rows:EgressOperationTerminal[]=[],order:string[]=[];let effects=0,dispatches=0;
  const op=createEgressOperation({decide:()=>{order.push('decide');},abort:()=>{order.push('abort');},observe:t=>{rows.push(t);order.push('observe');}});
  if(initial!=='pending'&&initial!=='aborted')expect(await op.admit(async()=>true)).toBe(true);
- if(initial==='dispatched'||initial==='finished')expect(op.dispatch(8,()=>true,()=>{dispatches++;})).toBe(true);
+ if(initial==='dispatched'||initial==='finished')expect(op.dispatch(8,()=>true,()=>{},()=>{dispatches++;})).toBe(true);
  if(initial==='finished')op.finish('completed');if(initial==='aborted')op.finish('cancelled','client_disconnected');
  expect(op.state()).toBe(initial);
  if(event==='client close'){
-  op.finish('cancelled','client_disconnected');expect(await op.admit(async()=>{effects++;return true;})).toBe(false);expect(await op.effect(()=>{effects++;})).toBe(false);expect(op.dispatch(8,()=>true,()=>{dispatches++;})).toBe(false);expect(effects).toBe(0);expect(op.state()).toBe(initial==='finished'?'finished':'aborted');
+  op.finish('cancelled','client_disconnected');expect(await op.admit(async()=>{effects++;return true;})).toBe(false);expect(await op.effect(()=>{effects++;})).toBe(false);expect(op.dispatch(8,()=>true,()=>{},()=>{dispatches++;})).toBe(false);expect(effects).toBe(0);expect(op.state()).toBe(initial==='finished'?'finished':'aborted');
  }else if(event==='concurrent budget exhaustion'){
-  const sent=op.dispatch(0,()=>true,()=>{dispatches++;});expect(sent).toBe(initial==='dispatched');
+  const sent=op.dispatch(0,()=>true,()=>{},()=>{dispatches++;});expect(sent).toBe(initial==='dispatched');
   expect(op.sendRefusal(0,0)).toBe(initial==='dispatched'?undefined:'turn_cancelled');
   expect(op.state()).toBe(initial==='finished'?'finished':initial==='dispatched'?'dispatched':'aborted');
  }else{
@@ -43,4 +43,9 @@ test('lifecycle: a declined admission cannot remain live and pending',async()=>{
 test('lifecycle: terminal cleanup releases every owner once before abort, including a throwing release',()=>{
  const order:string[]=[];const op=createEgressOperation({decide:()=>{order.push('decide');},abort:()=>{order.push('abort');},observe:()=>{order.push('observe');}});
  op.ownCleanup(()=>{order.push('first');});op.ownCleanup(()=>{order.push('throw');throw new Error('Odysseus release failed');});op.ownCleanup(()=>{order.push('last');});op.finish('denied','call_not_admitted');op.finish('failed','proxy_error');op.ownCleanup(()=>{order.push('late');});expect(order).toEqual(['decide','first','throw','last','abort','observe','late']);
+});
+
+test('review22: final fence precedes send, dispatched state and notification',async()=>{
+ const order:string[]=[],rows:EgressOperationTerminal[]=[];const op=createEgressOperation({decide(){},abort(){},observe:r=>rows.push(r)});expect(await op.admit(async()=>true)).toBe(true);op.prepare(()=>{order.push('prepare');});
+ expect(op.dispatch(8,()=>{expect(op.dispatched(),'NO_DISPATCH_FACT_BEFORE_FINAL_FENCE').toBe(false);order.push('fence');return true;},()=>{expect(op.dispatched()).toBe(false);order.push('send');},()=>{expect(op.dispatched()).toBe(true);order.push('notify');})).toBe(true);op.finish('failed','upstream_unreachable');expect(order).toEqual(['prepare','fence','send','notify']);expect(rows).toMatchObject([{dispatched:true,outcome:'failed'}]);
 });

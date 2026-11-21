@@ -110,6 +110,7 @@ export interface EgressProxyOptions {
    */
   admitted?(destination: { host: string; port: number; method: string; inference: boolean; provider: boolean; managedReference: boolean; connectionId: string; protocol?: string }): unknown;
   /** Synchronous notification only after final admission, immediately before dispatch. */
+  preparing?(destination: { host: string; port: number; method: string; protocol: string; connectionId: string; inference: boolean; provider: boolean; managedReference: boolean; recipientApproved: boolean }): void;
   committed?(destination: { host: string; port: number; method: string; protocol: string; connectionId: string; inference: boolean; provider: boolean; managedReference: boolean; recipientApproved: boolean }): void;
   signal?: AbortSignal;
   /**
@@ -426,11 +427,14 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       return true;
       } catch { finish("denied", "egress_unavailable"); return false; }
     };
-    const commit = (): EgressChargeResult => {
-      try {
-        return lifecycle.dispatch(options.maxBytes-usedBytes,() => maySendNow(0), () => options.committed?.({...recipient,connectionId,inference,provider,recipientApproved:granted}))
-          && maySendNow(0) ? {ok:true} : failure ?? {ok:false,reason:"cancelled"};
-      } catch { finish("denied","egress_unavailable");return failure!; }
+    const prepare = (): EgressChargeResult => {
+      try{return lifecycle.prepare(()=>options.preparing?.({...recipient,connectionId,inference,provider,recipientApproved:granted}))?{ok:true}:failure??{ok:false,reason:"cancelled"};}
+      catch{finish("denied","egress_unavailable");return failure!;}
+    };
+    const dispatch = (send:()=>void): EgressChargeResult => {
+      const prepared=prepare();if(!prepared.ok)return prepared;
+      try{return lifecycle.dispatch(options.maxBytes-usedBytes,()=>maySendNow(0),send,()=>options.committed?.({...recipient,connectionId,inference,provider,recipientApproved:granted}))?{ok:true}:failure??{ok:false,reason:"cancelled"};}
+      catch{finish("failed","upstream_unreachable");throw new Error("Egress transport could not start");}
     };
     /** Why this connection was refused, for the tool that made it; undefined while admitted or for a bare refusal. */
     const refusal = () => {
@@ -439,7 +443,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (finalReason === "taint_not_allowed") try { cause = options.taint?.cause?.(); } catch { /* The message names no cause. */ }
       return describeRefusal(finalReason, host, matches(host, options.deny), cause);
     };
-    return { host, dialHost, finish, ownCleanup:lifecycle.ownCleanup, charge, admit, commit, refusal, failure:()=>failure, signal: controller.signal, outcome: () => finalOutcome, reason: () => finalReason, pinned: () => pinned };
+    return { host, dialHost, finish, ownCleanup:lifecycle.ownCleanup, charge, admit, prepare, dispatch, refusal, failure:()=>failure, signal: controller.signal, outcome: () => finalOutcome, reason: () => finalReason, pinned: () => pinned };
   }
   server.on("connect", (request, client, head) => {
     client.on("error", () => {});
@@ -453,16 +457,19 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     let connected = false, upstream: Socket | undefined;
     op.signal.addEventListener("abort", () => { if (upstream) { client.destroy(); upstream.destroy(); } }, { once: true });
     client.once("close", () => op.finish(stopped || !connected ? "cancelled" : "completed"));
-    void (async () => {
-      if (!await op.admit() || client.destroyed || !op.charge(head.length).ok || !op.commit().ok) {
+    const refuseConnect=()=>{
         const declined = refusalHead(op.refusal(), op.reason(), op.failure());
         client.end(declined ? `HTTP/1.1 ${declined.code} ${declined.status}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: ${Buffer.byteLength(declined.body)}\r\nConnection: close\r\n\r\n${declined.body}`
           : "HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
-        return;
+    };
+    void (async () => {
+      if (!await op.admit() || client.destroyed || !op.charge(head.length).ok || !op.prepare().ok) {
+        refuseConnect();return;
       }
       const address = op.pinned();
-      upstream = track(connect({ host: address?.address ?? op.dialHost, port: Number(target.port || 80), signal:op.signal }));
-      const tunnel = upstream;
+      const sent=op.dispatch(()=>{upstream=track(connect({host:address?.address??op.dialHost,port:Number(target.port||80),signal:op.signal}));});
+      if(!sent.ok){refuseConnect();return;}
+      const tunnel = upstream!;
       tunnel.once("connect", () => {
         if (stopped || op.signal.aborted || client.destroyed || !op.charge(0).ok) { tunnel.destroy(); return; }
         connected = true;
@@ -510,7 +517,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       // Under a destination policy the request goes to the checked address; Host keeps the name.
       const upstreamTarget = new URL(target);
       if (address) upstreamTarget.hostname = address.family === 6 ? `[${address.address}]` : address.address;
-      if (!op.commit().ok) { refuse(); return; }
+      if (!op.prepare().ok) { refuse(); return; }
       const outgoing = httpRequest(upstreamTarget, { method: request.method, headers: outgoingHeaders,signal:op.signal }, incoming => {
         if (!op.charge(headerBytes(`HTTP/1.1 ${incoming.statusCode} ${incoming.statusMessage}`, headers(incoming))).ok) {
           refuse(); incoming.destroy(); outgoing.destroy(); return;
@@ -530,9 +537,9 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       op.signal.addEventListener("abort", () => { outgoing.destroy(); if (op.outcome() === "cancelled") response.destroy(); }, { once: true });
       outgoing.once("error", () => { op.finish("failed", "upstream_unreachable"); if (!response.headersSent) response.writeHead(502); response.end(); });
       response.once("close", () => outgoing.destroy());
-      request.on("data", chunk => { if (!op.charge(chunk.length + 16).ok) { outgoing.destroy(); if (!response.headersSent) refuse(); else response.destroy(); return; } if (!outgoing.write(chunk)) request.pause(); });
+      request.on("data", chunk => { if (!op.charge(chunk.length + 16).ok) { outgoing.destroy(); if (!response.headersSent) refuse(); else response.destroy(); return; } let accepted=false;const sent=op.dispatch(()=>{accepted=outgoing.write(chunk);});if(!sent.ok){outgoing.destroy();refuse();return;}if(!accepted)request.pause(); });
       outgoing.on("drain", () => request.resume());
-      request.once("end", () => { if (!op.charge(0).ok) { outgoing.destroy(); if (!response.headersSent) refuse(); else response.destroy(); return; } outgoing.end(); });
+      request.once("end", () => { if (!op.charge(0).ok) { outgoing.destroy(); if (!response.headersSent) refuse(); else response.destroy(); return; } if(!op.dispatch(()=>{outgoing.end();}).ok){outgoing.destroy();refuse();} });
       request.once("error", () => { op.finish("cancelled", "client_disconnected"); outgoing.destroy(); });
     })().catch(() => { op.finish("failed", "proxy_error"); response.destroy(); });
   });
@@ -583,8 +590,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     if (signal.aborted) abort();
     return { charge: op.charge, signal: op.signal, outcome: op.outcome, refusal: op.refusal, reason: op.reason, failure: op.failure,
       admit: async () => !op.signal.aborted && await op.admit(),
-      /** The concrete relay calls this again after its own final async waits. */
-      commit: op.commit,
+      prepare:op.prepare,dispatch:op.dispatch,
       finish:op.finish,
     };
   }

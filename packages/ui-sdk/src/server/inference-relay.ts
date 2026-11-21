@@ -192,13 +192,17 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
         // Re-enter the concrete host admission at the last dispatch boundary.
         const finalAdmissionFailure=await admitFailure();
         if (finalAdmissionFailure) return chargeDenied(finalAdmissionFailure);
-        const dispatchDecision = operation?.commit();
+        const dispatchDecision = operation?.prepare();
         if (dispatchDecision && !dispatchDecision.ok) return chargeDenied(dispatchDecision);
         let response: Response;
         try {
           // Never follow a redirect: the upstream must not choose another host.
           signal.throwIfAborted();
-          response = await fetch(target, { method: "POST", headers, body, redirect: "manual", signal });
+          let pending!:Promise<Response>;
+          const send=()=>{pending=fetch(target,{method:"POST",headers,body,redirect:"manual",signal});};
+          const decision=operation?operation.dispatch(send):(send(),{ok:true as const});
+          if(!decision.ok)return chargeDenied(decision);
+          response=await pending;
         } catch {
           const cause=captureEgressFailure(signal,operation);
           operation?.finish(cause.outcome,"upstream_unreachable");
@@ -231,8 +235,11 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
               operation?.finish(cause.outcome,"upstream_response_failed");
               release();controller.error(new Error(cause.failure?egressChargeRefusal(cause.failure,"Inference").message:"Inference response interrupted"));return;
             }
-            if (next.done) { operation?.finish("completed"); release(); controller.close(); }
-            else controller.enqueue(next.value);
+            const failure=next.deliver(()=>{
+              if(next.done){controller.close();operation?.finish("completed");release();}
+              else controller.enqueue(next.value);
+            });
+            if(failure){release();controller.error(new Error(egressChargeRefusal(failure,"Inference").message));}
           },
           async cancel() {
             operation?.finish("cancelled", "client_disconnected");

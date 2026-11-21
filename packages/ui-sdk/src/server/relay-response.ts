@@ -20,16 +20,17 @@ export function readRelayResponse(response:Response,options:{charge(count:number
  };
  const headerFailure=received(relayHeaderBytes(`HTTP/1.1 ${response.status} ${response.statusText}`,response.headers));
  const fence=()=>options.charge(0);
+ const deliver=(send:()=>void)=>{const failure=fence();if(failure)return failure;send();return undefined;};
  return {
-  headerFailure,fence,
-  async read():Promise<ReadableStreamReadResult<Uint8Array>> {
+  headerFailure,fence,deliver,
+  async read():Promise<ReadableStreamReadResult<Uint8Array>&{deliver:typeof deliver}> {
    if(headerFailure)throw new RelayResponseRefused(headerFailure);
    reader??=response.body?.getReader();
    const next=reader?await reader.read():{done:true as const,value:undefined};
    const failure=next.done?fence():received(next.value.byteLength+16);
    if(failure)throw new RelayResponseRefused(failure);
    if(!next.done){size+=next.value.byteLength;if(options.maxBytes!==undefined&&size>options.maxBytes)throw new Error('Relay response too large');}
-   return next.done?{done:true,value:undefined}:{done:false,value:next.value};
+   return next.done?{done:true,value:undefined,deliver}:{done:false,value:next.value,deliver};
   },
   async cancel(){try{if(reader)await reader.cancel();else await response.body?.cancel();}finally{reader?.releaseLock();reader=undefined;}},
   release(){reader?.releaseLock();reader=undefined;},

@@ -42,7 +42,7 @@ public design or its fixtures. Fictional examples use the Odysseus world.
   `packages/ui-server/src/ws/bridge-session-binding.ts:14-28`), without excluding
   independent pending input. A raw CONNECT reveals
   only an authority and opaque bytes, not a repository path or inner protocol
-  (`startEgressProxy`, `packages/ui-sdk/src/server/egress-proxy.ts:258-591`).
+  (`startEgressProxy`, `packages/ui-sdk/src/server/egress-proxy.ts:259-595`).
 - Outward decisions read session taint at admission (`prepareOutwardPlan`,
   `packages/ui-sdk/src/server/outward-policy.ts:47-94`). Existing historical
   steering attribution must remain attribution at the time of a write.

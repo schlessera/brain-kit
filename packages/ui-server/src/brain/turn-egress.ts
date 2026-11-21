@@ -325,10 +325,13 @@ export async function prepareTurnEgress(options: {
     outwardPorts: MAIL_SUBMISSION_PORTS,
     signal: options.controller.signal, observe: report, admitted,
     inputCurrent,
-    committed: destination => {
+    preparing: destination => {
       if (destination.inference || destination.provider) return;
       const recipient = originTrustMatch(options.trust, destination, "recipientWhileRestricted", options.bridge.admissionSafety?.read().evidenceRevision ?? "0");
       if (recipient) { const { ruleId, policyHash, trustRevision, collectionRevision } = recipient; standingRecipients.set(destination.connectionId, { ruleId, policyHash, trustRevision, collectionRevision }); }
+    },
+    committed:destination=>{
+      if(destination.inference||destination.provider)return;
       if (!destination.managedReference && (destination.recipientApproved || !trustedInputs.has(destination.connectionId) && !standingRecipients.has(destination.connectionId))) contacted.add(destination.host);
     }, ...(taint ? { taint } : {}),
     approveOutward: async (destination, signal) => {

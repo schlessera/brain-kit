@@ -109,10 +109,11 @@ export async function createGitHubReferenceWire(options: ({ repository: unknown;
         if (!addresses.length || addresses.some(value => egressAddressRefusal(value.address)))
           throw new ReferenceTransportError("denied", "reference recipient did not resolve to public addresses");
         check(recipient, capability.credentialed);
-        const beforeConnection = operation.commit(); if (!beforeConnection.ok) throw chargeError(beforeConnection);
+        const beforeConnection = operation.prepare(); if (!beforeConnection.ok) throw chargeError(beforeConnection);
         if (client.destroyed) throw new ReferenceTransportError("unavailable", "reference client closed before connection");
-        upstream = track((options.connect ?? connect)({ host: addresses[0]!.address, port: 443,signal:AbortSignal.any([controller.signal,operation.signal]) }));
-        const heldUpstream = upstream; upstreams.add(heldUpstream);
+        const dispatched=operation.dispatch(()=>{upstream=track((options.connect??connect)({host:addresses[0]!.address,port:443,signal:AbortSignal.any([controller.signal,operation.signal])}));});
+        if(!dispatched.ok)throw chargeError(dispatched);
+        const heldUpstream = upstream!; upstreams.add(heldUpstream);
         heldUpstream.once("close", () => {
           upstreams.delete(heldUpstream); outgoingWireBytes += heldUpstream.bytesWritten; incomingWireBytes += heldUpstream.bytesRead;
         });
@@ -151,14 +152,14 @@ export async function createGitHubReferenceWire(options: ({ repository: unknown;
         const outgoing = meter(false), incoming = meter(true);
         outgoing.on("error", () => { upstream?.destroy(); client.destroy(); });
         incoming.on("error", () => { upstream?.destroy(); client.destroy(); });
-        upstream.once("error", () => { finish("failed"); client.destroy(); });
-        upstream.once("close", () => {
+        heldUpstream.once("error", () => { finish("failed"); client.destroy(); });
+        heldUpstream.once("close", () => {
           finish(controller.signal.aborted ? "cancelled" : upstream?.readableEnded ? "completed" : "failed");
           if (!upstream?.readableEnded) client.destroy();
         });
         client.write("HTTP/1.1 200 Connection Established\r\n\r\n");
         if (head.length) outgoing.write(head);
-        client.pipe(outgoing).pipe(upstream); upstream.pipe(incoming).pipe(client);
+        client.pipe(outgoing).pipe(heldUpstream); heldUpstream.pipe(incoming).pipe(client);
         client.resume();
       } catch (error) {
         finish(controller.signal.aborted ? "cancelled" : "failed");

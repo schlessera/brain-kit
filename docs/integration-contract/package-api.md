@@ -5992,10 +5992,13 @@ The concrete turn proxy's `charge(bytes)` returns `{ok:true}` or
 classification. Each terminal decision stores its typed reason before notifying
 abort listeners; `failure()` reads that immutable decision without charging or
 consulting live state. Callers never call `charge(0)` to classify an operation
-that already refused. `commit()` returns the same typed decision as `charge(0)`, then notifies
-commitment only once at the final dispatch boundary. Charging alone never
-publishes a contacted-host grant. Callers charge preparation first, then commit
-immediately before dispatch. A zero-byte terminal decision can complete at the exact byte ceiling while
+that already refused. `prepare()` runs preparation observers without publishing a
+dispatch fact. After charging, `dispatch(send)` runs the final typed fence and
+calls the synchronous transport handoff. Only after that handoff starts does
+it publish dispatched state and the committed/contacted notification, once.
+A refused preparation or fence never grants contacted-host access. A started
+send still counts if it later fails. Preparation observers may revoke; fact
+observers run after send and cannot erase bytes already handed to transport. A zero-byte terminal decision can complete at the exact byte ceiling while
 still revalidating safety. `bytes` must be a nonnegative safe integer; invalid counts
 throw RangeError before changing either the turn or connection byte counter.
 Only budget refusal is byte exhaustion; authority/source or
@@ -6030,10 +6033,10 @@ return 502, actual cancellation returns 499, and a previously decided policy
 or safety refusal retains its typed status. Interrupted streams keep their
 already-sent HTTP status and terminate with failed or cancelled evidence.
 Caller-signal listeners belong to the operation lifecycle and are released
-by every terminal transition, including internal admit/charge/commit refusals.
+by every terminal transition, including internal admit/charge/dispatch refusals.
 
 Provider relay cancellation preserves `cancelled` in both the refusal observer
-and `error.reason`. Dispatch observers run before a final typed send fence;
+and `error.reason`. Preparation observers run before a final typed send fence;
 a synchronous authority or recording change refuses the upstream request.
 Files cleanup responses charge their headers against the same turn ceiling as
 ordinary provider responses, with a budget refusal if those headers exceed it.
@@ -6054,3 +6057,13 @@ Relay `egress` options additionally accept the proxy's optional
 `remainingBytes()` reader so the concrete host can meter the received portion
 of an overflowing response up to its shared ceiling. Existing operation-only
 adapters remain valid; the concrete proxy supplies both methods.
+
+Preparation and exposure notifications are separate: proxy `preparing` and
+provider relay `preparing` run before the last send fence; `committed` and
+provider `observe({outcome:"dispatched",...})` report an actual transport start.
+Relayed operations expose `prepare()` and `dispatch(send)` in place of this
+change's provisional `commit()` method. A pending terminal decision during a
+synchronous transport handoff joins its final dispatched fact before audit.
+Streaming read results carry a delivery closure that revalidates and enqueues
+in one synchronous call. No awaited continuation separates that final check
+from chunk delivery or scrubber-tail release.
