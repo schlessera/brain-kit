@@ -155,3 +155,8 @@ test('unexpected detector failure retains marks already found plus unknown',()=>
  const signals=outputTaintSignals('Grep',grep(['notes/loom.md'],{content:'notes/loom.md:1:sirens'}),undefined,()=>true,context);
  expect(signals.map(signal=>signal.source).sort()).toEqual(['legacy_unknown','user_marked']);
 });
+test('oversized structured content retains complete filename fields inside the parse budget',()=>{
+ const output=grep(['notes/loom.md'],{content:'s'.repeat(1048577)});
+ const signals=outputTaintSignals('Grep',output,undefined,path=>path==='notes/loom.md',searchOutputContext('Grep',{output_mode:'content'}));
+ expect(signals.map(signal=>signal.source).sort()).toEqual(['legacy_unknown','user_marked']);
+});

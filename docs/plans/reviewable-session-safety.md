@@ -29,8 +29,8 @@ public design or its fixtures. Fictional examples use the Odysseus world.
   their own event, never a complete history. Owner review transport and its
   mutation capability remain disabled by this foundation.
 - Tool ingestion collects input and output signals independently (`inputTaintSignals`,
-  `packages/ui-server/src/activity/ingestion-taint.ts:158-178`;
-  `outputTaintSignals`, `packages/ui-server/src/activity/ingestion-taint.ts:202-331`).
+  `packages/ui-server/src/activity/ingestion-taint.ts:164-184`;
+  `outputTaintSignals`, `packages/ui-server/src/activity/ingestion-taint.ts:226-355`).
   Workspace paths taint regardless of repository ownership. Awaited backend
   hooks commit before tool dispatch/result delivery. Normal Claude collection
   uses the SDK PostToolUse structured tool_response; collector readiness disables

@@ -751,3 +751,21 @@ test('ready Claude collection records structured hook searches instead of ambigu
   recorder.finish('success');
  }finally{await f.close();}
 });
+test('user query text cannot collide with the synthetic overflow occurrence',async()=>{
+ const f=await voyage('claude');try{
+  await f.collector.begin('query_collision','WebSearch',{queries:['unknown_remainder','s'.repeat(2049)]});
+  expect(f.db.query("SELECT source,detector FROM safety_records WHERE kind='occurrence' ORDER BY length(sequence),sequence").all()).toEqual([{source:'web_search',detector:'tool_web_input'},{source:'legacy_unknown',detector:'tool_web_input'}]);
+ }finally{await f.close();}
+});
+test('invalid UTF-8 grep filename bytes retain unknown alongside valid marked rows',async()=>{
+ const f=await voyage();try{
+  const {untrustedMarkOperations}=await import('../src/files/untrusted-marks');untrustedMarkOperations(f.db).mark('notes/loom.md',null,Date.UTC(2026,6,12));
+  const raw=Buffer.concat([Buffer.from('notes/'),Buffer.from([0xff]),Buffer.from('.md\0'+'1:sirens\nnotes/'),Buffer.from([0xfe]),Buffer.from('.md\0'+'1:sirens\nnotes/loom.md\0'+'1:sirens\n')]);
+  const wrapper=join(f.brain,'fake-grep');writeFileSync(join(f.brain,'grep-data'),raw);writeFileSync(wrapper,'#!/bin/sh\ncat "$(dirname "$0")/grep-data"\n',{mode:0o755});
+  const input={pattern:'sirens'},id='invalid_filename_bytes';await f.collector.begin(id,'grep',input);
+  const result=await runSearchTool(f,id,input,wrapper),observed=safetyResultInput('grep',result.content,true,result.details);
+  expect(observed.outputStatus.complete,'DECODING_LOSS_IS_NEVER_COMPLETE').toBe(false);
+  await f.collector.result(id,'grep',observed.output,true,observed.segments,observed.outputStatus);
+  expect(f.db.query("SELECT source FROM safety_records WHERE kind='occurrence' ORDER BY length(sequence),sequence").all()).toEqual([{source:'user_marked'},{source:'legacy_unknown'}]);
+ }finally{await f.close();}
+});

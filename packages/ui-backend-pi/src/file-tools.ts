@@ -72,8 +72,11 @@ export function grepTool(kit: BrainToolKit): ToolDefinition {
       const stderrPresent=(async()=>{let present=false;for await(const chunk of proc.stderr)if(chunk.byteLength)present=true;return present;})();
       const [outBytes,stderr,exitCode]=await Promise.all([new Response(proc.stdout).arrayBuffer(),stderrPresent,proc.exited]);
       // A leading BOM can be part of a POSIX filename, not stream metadata.
-      const decoder=new TextDecoder("utf-8",{ignoreBOM:true});
-      const out=decoder.decode(outBytes);
+      let decodingLoss=false,out:string;
+      try{out=new TextDecoder("utf-8",{ignoreBOM:true,fatal:true}).decode(outBytes);}
+      catch{decodingLoss=true;out=new TextDecoder("utf-8",{ignoreBOM:true}).decode(outBytes);}
+      // Marks use Unicode path strings, not raw byte keys. Invalid filename
+      // bytes cannot prove a complete lookup; retain unknown host evidence.
       signal?.removeEventListener("abort", onAbort);
       // Keep an unambiguous machine boundary in host-only result details.
       // POSIX filenames may contain newlines, colons and edge whitespace.
@@ -96,7 +99,7 @@ export function grepTool(kit: BrainToolKit): ToolDefinition {
       const bytes=Buffer.from(frame.slice(0,end)),frameClipped=bytes.length>1048576;
       // Leave room for a decoder replacement if the byte cut splits UTF-8.
       const framedOutput=frameClipped?bytes.subarray(0,1048573).toString('utf8'):frame.slice(0,end);
-      return textResult(visibleText, {pattern:params.pattern,search:{exitCode,stderr,truncated:displayTruncated||frameClipped,stdoutEmpty:outBytes.byteLength===0,framedOutput,visibleText}});
+      return textResult(visibleText, {pattern:params.pattern,search:{exitCode,stderr,decodingLoss,truncated:displayTruncated||frameClipped,stdoutEmpty:outBytes.byteLength===0,framedOutput,visibleText}});
     },
   } satisfies ToolDefinition;
 }

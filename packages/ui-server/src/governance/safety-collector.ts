@@ -1,7 +1,7 @@
 /** Concrete turn-bound pre-delivery collector. All decisions remain restrictive. */
 import type { BackendBridge } from "@schlessera/brain-ui-sdk/server";
 import type { Database } from "bun:sqlite";
-import { inputTaintSignals, outputTaintSignals, searchOutputComplete, searchOutputContext, type IngestionSignal } from "../activity/ingestion-taint.js";
+import { ingestionSignalIdentity, inputTaintSignals, outputTaintSignals, searchOutputComplete, searchOutputContext, type IngestionSignal } from "../activity/ingestion-taint.js";
 import { isMarkedUntrusted } from "../files/untrusted-marks.js";
 import { occurrence } from "./occurrence.js";
 import type { GovernanceWrites } from "./event-writes.js";
@@ -122,7 +122,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
     op.inputHashes.add(inputHash);op.admitted=false;operations.set(toolUseId,op);
     op.searchContext=searchOutputContext(tool,input,options.backendId);
     for(const signal of inputTaintSignals(tool,input,options.brainPath,marked,options.shellProxied())){
-     if(op.signals.some(prior=>prior.detector===signal.detector&&prior.key===signal.key))continue;
+     if(op.signals.some(prior=>ingestionSignalIdentity(prior)===ingestionSignalIdentity(signal)))continue;
      const item=observed(toolUseId,signal.detector,op.id);
      await writes.firstTaint({...base(),kind:"taint",payload:{source:signal.source,tool,detail:null,occurrence:item}},{beforeDelivery:true});
      op.occurrences.push(item.id);op.signals.push(signal);

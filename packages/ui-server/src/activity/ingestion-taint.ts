@@ -133,6 +133,12 @@ export interface IngestionSignal {
   key: string;
 }
 
+/** User-controlled keys cannot alias synthetic coverage evidence. */
+export function ingestionSignalIdentity(signal:IngestionSignal):string {
+  const kind=signal.source==='legacy_unknown'?'synthetic':signal.detector==='explicit_untrusted_input'||signal.detector==='tool_web_input'?'user':'structural';
+  return JSON.stringify([kind,signal.source,signal.detector,signal.key]);
+}
+
 /** Versioned installed-tool inventory. Completeness still needs delivery hooks and epoch acknowledgement. */
 export const INGESTION_DETECTOR_MANIFEST = {
   version: 1,
@@ -199,6 +205,24 @@ export function searchOutputComplete(output:string,status:InputSafetyOutputStatu
     (status.exitCode===undefined||status.exitCode===0&&output.length>0&&output!=="No matches."||status.exitCode===1&&output==="No matches.");
 }
 
+/** Parse complete top-level fields within the byte budget. An oversized content
+ * string must not erase a preceding, independently complete filenames array. */
+function completeSearchFields(prefix:string):unknown {
+  const fields:Record<string,unknown>=Object.create(null);
+  const first=prefix.search(/\S/);if(prefix[first]!=='{')return fields;
+  let start=first+1,depth=1,quoted=false,escaped=false;
+  const keep=(end:number)=>{try{Object.assign(fields,JSON.parse('{'+prefix.slice(start,end)+'}'));}catch{/* Only independently complete fields survive. */}};
+  for(let i=start;i<prefix.length;i++){
+    const c=prefix[i];
+    if(quoted){if(escaped)escaped=false;else if(c==='\\')escaped=true;else if(c==='"')quoted=false;continue;}
+    if(c==='"'){quoted=true;continue;}
+    if(c==='{'||c==='[')depth++;
+    else if(c==='}'||c===']'){if(depth===1){keep(i);break;}depth--;}
+    else if(c===','&&depth===1){keep(i);start=i+1;}
+  }
+  return fields;
+}
+
 export function outputTaintSignals(tool: string, output: string, brainPath?: string, marked?: MarkedLookup, context?: SearchOutputContext): IngestionSignal[] {
   if (!SEARCH_TOOLS.has(tool)) return [];
   const result:IngestionSignal[]=[],seen=new Set<string>(),contentPaths=new Set<string>();let unknown=false;
@@ -210,7 +234,7 @@ export function outputTaintSignals(tool: string, output: string, brainPath?: str
     if(!path||path.includes('\0')){unknown=true;return;}
     for(const signal of fileSignals(path,brainPath,marked,'tool_search_output')){
       if(signal.source==='legacy_unknown'){unknown=true;continue;}
-      const key=JSON.stringify([signal.detector,signal.key]);if(seen.has(key))continue;
+      const key=ingestionSignalIdentity(signal);if(seen.has(key))continue;
       if(result.length>=256){unknown=true;continue;}seen.add(key);result.push(signal);
     }
   };
@@ -237,7 +261,7 @@ export function outputTaintSignals(tool: string, output: string, brainPath?: str
     if(mode==='count')for(const line of fields.content.split('\n')){const split=/:([1-9][0-9]*)$/.exec(line);if(split)add(line.slice(0,split.index));}
   };
   const display=context?.displayOnly&&(tool==='Glob'||tool==='Grep');
-  let parsed:unknown;if(!display)try{parsed=JSON.parse(output);}catch{/* Hook objects require a validated schema. */}
+  let parsed:unknown;if(!display)try{parsed=oversized?completeSearchFields(output):JSON.parse(output);}catch{/* Hook objects require a validated schema. */}
   if(display){
     // SDK display text has no filename framing. Never reinterpret a literal
     // filename as JSON; preserve known paths and retain boundary uncertainty.
