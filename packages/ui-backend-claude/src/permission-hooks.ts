@@ -189,8 +189,8 @@ export function createPermissionContext(options: PermissionWiringOptions, native
       : undefined;
   const commandPolicy: CompiledWorkerCommandPolicy = compileWorkerCommandPolicy(req.autonomous ? undefined : req.workerSandbox?.commandPolicy);
   const confirmPatterns = [...options.confirmPatterns, ...commandPolicy.confirm];
-  const outward = (toolName: string, input: unknown) => prepareOutwardPlan({ toolName, shellToolName: "Bash", input,
-    allow: req.workerSandbox?.commandPolicy?.outwardAllow, taint: req.workerSandbox?.commandPolicy?.taint, safety: req.bridge.admissionSafety, autonomous: Boolean(req.autonomous), voice: req.posture === "voice",
+  const outward = (toolName: string, input: unknown, safety:AdmissionSafety|undefined=req.bridge.admissionSafety) => prepareOutwardPlan({ toolName, shellToolName: "Bash", input,
+    allow: req.workerSandbox?.commandPolicy?.outwardAllow, taint: req.workerSandbox?.commandPolicy?.taint, safety, autonomous: Boolean(req.autonomous), voice: req.posture === "voice",
     configurationRoot: options.configurationRoot?.() ?? (req.workerSandbox?.profile === "governed" ? brainPath : undefined), maskPaths: req.workerSandbox?.maskPaths, maintenance: options.maintenance });
   const observe = (plan: ReturnType<typeof outward>, toolName: string, input: unknown, toolUseId: string,
     decision: Parameters<typeof observeOutwardPlan>[1]["decision"]) => observeOutwardPlan(plan, { bridge: req.bridge, toolName, input, toolUseId, decision });
@@ -236,7 +236,8 @@ export function createPermissionContext(options: PermissionWiringOptions, native
   ): string | null => {
     const denied = denyCommand(toolName, editedInput, toolUseId);
     if (denied) return denied;
-    const originalPlan = outward(toolName, originalInput), editedPlan = outward(toolName, editedInput);
+    const safety=toolAdmissionSafety(req.bridge,toolUseId,toolName);
+    const originalPlan = outward(toolName, originalInput,safety), editedPlan = outward(toolName, editedInput,safety);
     if (editedPlan.voiceRefusal) { observe(editedPlan, toolName, editedInput, toolUseId, "refused"); return OUTWARD_VOICE_REFUSAL; }
     const refusal = checkEditedApproval({
       toolName,
@@ -366,11 +367,11 @@ export function canUseToolFor(ctx: PermissionContext): NonNullable<Options["canU
     // the (possibly long) approval wait — release it now and re-acquire only
     // once the tool is actually approved.
     turnLock.releaseForTool(opts.toolUseID);
-    const outwardPlan = outward(toolName, input);
     const cached=shownOutward.get(opts.toolUseID);
     const shown=cached?.tool===toolName&&cached.input===JSON.stringify(input);
     const safety=shown?cached.safety:toolAdmissionSafety(req.bridge,opts.toolUseID,toolName);
     const snapshot=shown?cached.snapshot:safety?.read();
+    const outwardPlan=outward(toolName,input,safety);
     if (outwardPlan.voiceRefusal) { observe(outwardPlan, toolName, input, opts.toolUseID, "refused"); return { behavior: "deny", message: OUTWARD_VOICE_REFUSAL }; }
     shownOutward.delete(opts.toolUseID);
     let perUseDecision: Awaited<ReturnType<typeof requestPolicyPermission>> | undefined;
@@ -433,7 +434,7 @@ export function canUseToolFor(ctx: PermissionContext): NonNullable<Options["canU
       const stale = await nativeRefusal(toolName, effectiveInput);
       if(!stale){try{await req.bridge.inputSafety?.begin(opts.toolUseID,toolName,effectiveInput);}catch(error){turnLock.releaseForTool(opts.toolUseID);return {behavior:"deny",message:error instanceof Error?error.message:"Safety recording unavailable"};}}
       if (stale) { turnLock.releaseForTool(opts.toolUseID); return { behavior: "deny", message: stale }; }
-      const finalPlan = outward(toolName, effectiveInput);
+      const finalPlan = outward(toolName, effectiveInput,safety);
       const refusal = commitOutwardPlan(finalPlan, { bridge: req.bridge, safety, before: snapshot,
         approved: shown || outwardPlan.needsApproval && perUseDecision?.behavior === "allow", signal: req.signal });
       observe(finalPlan, toolName, effectiveInput, opts.toolUseID, refusal ? "refused" : decision);
@@ -496,8 +497,8 @@ export function mutatingHookFor(ctx: PermissionContext): HookCallback {
     //
     // Asked BEFORE the lock is taken — a user deliberating for ten minutes
     // must not hold the write lock against every other session that whole time.
-    const outwardPlan = outward(hookInput.tool_name, hookInput.tool_input);
     const safety=toolAdmissionSafety(req.bridge,hookInput.tool_use_id,hookInput.tool_name);
+    const outwardPlan = outward(hookInput.tool_name, hookInput.tool_input,safety);
     const snapshot = safety?.read();
     if (outwardPlan.voiceRefusal) {
       observe(outwardPlan, hookInput.tool_name, hookInput.tool_input, hookInput.tool_use_id, "refused");
@@ -587,7 +588,7 @@ export function mutatingHookFor(ctx: PermissionContext): HookCallback {
       try { await req.bridge.awaitIndex(hookInput.tool_name, finalInput as Record<string, unknown>); }
       catch (error) { turnLock.releaseForTool(hookInput.tool_use_id); return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: String(error) } }; }
     }
-    const finalPlan = outward(hookInput.tool_name, finalInput);
+    const finalPlan = outward(hookInput.tool_name, finalInput,safety);
     const approved = outwardPlan.needsApproval && approval?.kind === "command";
     const refusal = commitOutwardPlan(finalPlan, { bridge: req.bridge, safety, before: snapshot, approved, signal: req.signal });
     observe(finalPlan, hookInput.tool_name, finalInput, hookInput.tool_use_id, refusal ? "refused" : { behavior: "allow" });
@@ -639,7 +640,7 @@ function createRewriteHooks(ctx: PermissionContext, options: PermissionWiringOpt
       catch(error){return {continue:true,hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:error instanceof Error?error.message:"Safety recording unavailable"}};}
       // Recording the rewritten input is another wait. Recompute its standing
       // authority afterwards; parallel hooks only checked the original input.
-      const finalPlan = outward(toolName, output.hookSpecificOutput.updatedInput);
+      const finalPlan = outward(toolName, output.hookSpecificOutput.updatedInput,safety);
       const finalRefusal = commitOutwardPlan(finalPlan, { bridge: req.bridge, safety, before: snapshot, approved: false, signal: req.signal });
       if (finalRefusal) return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: finalRefusal } };
     }

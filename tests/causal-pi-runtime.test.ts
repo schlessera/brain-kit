@@ -23,7 +23,8 @@ for(const mode of ['healthy','evidence','evidence-blind'] as const)test(`install
   const marker=join(root,'brain/.brain/scratch/causal-dispatch');
   expect(existsSync(marker),'NATIVE_PI_DISPATCHES_ONLY_WITH_CURRENT_APPROVAL').toBe(mode!=='evidence');
   if(mode!=='evidence')expect(readFileSync(marker,'utf8'),'NATIVE_PI_PROCESS_EFFECT_IS_INDEPENDENT_OF_RESULT_DELIVERY').toBe('Ithaca\n');
-  if(mode==='evidence-blind')expect(result.frames.filter((frame:{type:string})=>frame.type==='tool_result')).toEqual([]);
+  if(mode!=='evidence')expect(result.frames.filter((frame:{type:string;toolUseId?:string})=>frame.type==='tool_result'&&frame.toolUseId==='call_causal'),'NATIVE_PI_ACTUAL_BACKEND_RESULT_PRECEDES_ANY_FILTER').toHaveLength(1);
+  if(mode==='evidence-blind')expect(result.deliveredFrames.filter((frame:{type:string})=>frame.type==='tool_result')).toEqual([]);
   expect(result.owed,'NATIVE_PI_REFUSED_CALL_LEAVES_NO_FALSE_RESULT_GAP').toEqual({n:0});
   expect(result.failure).toEqual({failure:null});
  }finally{clearTimeout(timer);if(child.exitCode===null){child.kill();await child.exited;}rmSync(root,{recursive:true,force:true});}

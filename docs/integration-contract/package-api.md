@@ -5968,7 +5968,9 @@ and the pending reservations for those same input occurrences. This includes
 parallel hooks reading the shared view during input collection. Independent
 occurrences, reservations, results, decisions, collection/binding changes, lost
 evidence, trust revisions and authority changes remain visible. Reused, completed, refused or ambiguous identities cannot acquire an
-exclusion. This is neither permission nor an outward-authority exemption.
+exclusion. The view derives restriction, pending state and revision after excluding that
+exact input; the ordinary chat projection still records and restricts it.
+This is neither permission nor an outward-authority exemption.
 Without the callback the backend uses the unfiltered root facade, preserving
 strict revision checks and granting no exclusion. Provider tool definitions,
 prompts and earlier conversation bytes are unchanged. The same-commit API

@@ -22,7 +22,7 @@ export function revalidatePiAdmission(turn: TurnContext, tool: string, id: strin
   if (state?.bridge !== turn.bridge || !admitted || admitted.input !== JSON.stringify(input))
     return turn.bridge?.admissionSafety ? STALE_SAFETY_ADMISSION : null;
   const plan = prepareOutwardPlan({ toolName: tool, shellToolName: "bash", input, allow: turn.commandPolicy?.outwardAllow,
-    taint: turn.commandPolicy?.taint, safety: turn.bridge?.admissionSafety, autonomous: !!turn.autonomous,
+    taint: turn.commandPolicy?.taint, safety: admitted.safety, autonomous: !!turn.autonomous,
     voice: turn.posture === "voice", configurationRoot: turn.configurationRoot, maintenance: turn.maintenance });
   const refused = commitOutwardPlan(plan, { bridge: turn.bridge, safety:admitted.safety, before: admitted.before, approved: admitted.approved, signal: turn.signal });
   if (!refused && consume) state!.calls.delete(key(tool, id));

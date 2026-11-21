@@ -905,6 +905,7 @@ for(const independent of [false,true])test(`parallel Claude hooks exclude only t
   expect(reads.length,'A_REAL_SIBLING_FENCE_READS_DURING_BEGIN').toBeGreaterThan(0);
   expect(reads[0]!.evidenceRevision===before.evidenceRevision,'ONLY_INDEPENDENT_PENDING_ADVANCES_THE_SHARED_VIEW').toBe(!independent);
   expect(reads[0]!.recordingAvailable,'OWN_PENDING_IS_EXCLUDED_FROM_AVAILABILITY').toBe(!independent);
+  expect(reads[0]!.restricted,'ONLY_INDEPENDENT_PENDING_RESTRICTS_THE_CAUSAL_VIEW').toBe(independent);
   Atomics.store(release,0,1);Atomics.notify(release,0);await held;await Promise.all([primary,sibling,other]);
   const result=await wiring.canUseTool!('Bash',{command},{toolUseID:id,signal:f.controller.signal} as never);
   expect(result?.behavior,JSON.stringify({result,before,after:view.read(),reads})).toBe(independent?'deny':'allow');
@@ -988,7 +989,7 @@ for(const pending of [false,true])for(const revise of [false,true])test(`dispatc
   expect(f.db.query('SELECT COUNT(*) n FROM safety_obligations').get()).toEqual({n:0});
  }finally{await f.close();}
 });
-for(const independent of [false,true])for(const legacy of [false,true])test(`host card retains exact causal view (independent=${independent},legacy=${legacy})`,async()=>{
+for(const seeded of [false,true])for(const independent of [false,true])for(const legacy of [false,true])test(`host card retains exact causal view (independent=${independent},legacy=${legacy},seeded=${seeded})`,async()=>{
  const f=await fixture(false),raised=Promise.withResolvers<void>();
  const store=createActivityStore(f.db),host=new WsHost({brainPath:f.root,registry:createStaticBackendRegistry([makeFakeBackend({id:'claude'})],'claude'),catalog:createSessionCatalog(()=>f.db),isPrincipalAuthorized:id=>id===f.principal.id,activity:{store,stream:createActivityStream(store),governanceDb:f.db,governanceWrites:f.writes}});
  const authorization=host.coordinator.openAuthorization({principalId:f.principal.id,valid:true,expiresAt:Number.MAX_SAFE_INTEGER});
@@ -997,13 +998,23 @@ for(const independent of [false,true])for(const legacy of [false,true])test(`hos
  const bridge={emit(){},inputSafety:f.collector,admissionSafety:f.safety} as unknown as BackendBridge;Object.assign(bridge,createPermissions(createBridgeContext(host,turn,{promptText:'Return to Ithaca',backendId:'claude'}),()=>bridge));
  let work:Promise<unknown>|undefined;
  try{
-  await f.add('before_host_card');const id='host-causal-card';f.collector.admitting!(id,'Bash');
+  if(seeded)await f.add('before_host_card');const id='host-causal-card';f.collector.admitting!(id,'Bash');
   const causal=f.collector.forAdmission!(id,'Bash',f.safety),request={toolUseId:id,toolName:'Bash',kind:'command' as const,input:{command},description:'Review the outward command'};
-  if(legacy){const stale=f.safety.read();await f.add('before_current_host_receipt');expect(await bridge.requestPermission({...request,admissionSnapshot:stale}),'STALE_ROOT_METADATA_CANNOT_SELECT_A_FRESH_BASELINE').toMatchObject({behavior:'deny'});}
+  if(legacy&&seeded){const stale=f.safety.read();await f.add('before_current_host_receipt');expect(await bridge.requestPermission({...request,admissionSnapshot:stale}),'STALE_ROOT_METADATA_CANNOT_SELECT_A_FRESH_BASELINE').toMatchObject({behavior:'deny'});}
   work=legacy?bridge.requestPermission({...request,admissionSnapshot:f.safety.read()}):requestToolPermission({...bridge,admissionSafety:causal},request);
   await Promise.race([raised.promise,work.then(result=>{throw new Error('HOST_CARD_MUST_ACCEPT_THE_CURRENT_SNAPSHOT '+JSON.stringify(result));})]);
-  await f.collector.begin(id,'Bash',{command});if(independent)await f.add('independent_host_card');
+  const before=causal.read();await f.collector.begin(id,'Bash',{command});
+  expect(f.safety.read().restricted,'OWN_INPUT_IS_A_REAL_UNRESOLVED_OCCURRENCE').toBe(true);
+  expect(causal.read(),'OWN_INPUT_ALONE_PRESERVES_EVERY_ADMISSION_FIELD').toEqual(before);
+  if(independent)await f.add('independent_host_card');
   if(!independent)await handleToolApproval({host,ws,requireEcho:true,connection:{principal:f.principal,authorization}} as never,{type:'tool_approval',toolUseId:id,turnId:'voyage',channel:'card'});
   expect(await work,'HOST_OWNER_RESPONSE_USES_THE_RETAINED_CAUSAL_VIEW').toMatchObject({behavior:independent?'deny':'allow'});
  }finally{authorization.release();host.close();await work;await f.close();}
+});
+for(const binding of ['claude-hook','claude-callback','pi'] as const)test(`${binding}: first own input preserves clean-session standing outward authority`,async()=>{
+ const f=await fixture(false);try{
+  const result=await execute(f,binding,{phase:'input'});
+  expect(f.safety.read().restricted,'FIRST_OWN_INPUT_REALLY_RESTRICTS_THE_ROOT').toBe(true);
+  expect(result.executed,'OWN_INPUT_DOES_NOT_CANCEL_STANDING_AUTHORITY').toBe(true);
+ }finally{await f.close();}
 });

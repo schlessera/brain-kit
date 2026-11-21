@@ -37,10 +37,18 @@ export function createCausalAdmissionSafety(db:Database,root:AdmissionSafety,opt
   const localPending=independentLocal.map(item=>{
    let id=localIds.get(item);if(id===undefined){if(++localGeneration>18446744073709551615n)throw new Error('Causal pending generation exhausted');id=localGeneration.toString();localIds.set(item,id);}return id;
   }).sort();
-  const marker=JSON.stringify([sequence,externalRevision,turns,projection.session,projection.coverage,pendingCount,pending,localPending,state.trustRevision,state.authorityEpoch,state.scope,state.policyHash,state.recordingAvailable,state.authorityCurrent,projection.reasons.filter(reason=>reason!=='unresolved'&&(reason!=='recording_pending'||pendingCount>0)),own.valid]);
+  const independentUnresolved=!!db.query(`SELECT 1 FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id
+    WHERE r.kind='occurrence' AND c.turn_id IN (SELECT value FROM json_each(?))
+    AND r.id NOT IN (SELECT value FROM json_each(?))
+    AND NOT EXISTS(SELECT 1 FROM safety_decisions d WHERE d.occurrence_id=r.id) LIMIT 1`).get(JSON.stringify(turns),JSON.stringify(own.valid?own.ids:[]));
+  const reasons=projection.reasons.filter(reason=>reason==='unresolved'?independentUnresolved:reason!=='recording_pending'||pendingCount>0);
+  // Only the concrete host reader can subtract own-input restriction. A
+  // foreign root remains an independent, restrictive authority source.
+  const restricted=!own.valid||independentUnresolved||pendingCount>0||reasons.length>0||externalRevision!==null&&state.restricted;
+  const marker=JSON.stringify([sequence,externalRevision,restricted,turns,projection.session,projection.coverage,pendingCount,pending,localPending,state.trustRevision,state.authorityEpoch,state.scope,state.policyHash,state.recordingAvailable,state.authorityCurrent,reasons,own.valid]);
   if(observed!==undefined&&observed!==marker){if(++revision>18446744073709551615n)throw new Error('Causal admission revision exhausted');}
   observed=marker;
-  return {...state,evidenceRevision:revision.toString(),recordingAvailable:state.recordingAvailable&&own.valid};
+  return {...state,restricted,evidenceRevision:revision.toString(),recordingAvailable:state.recordingAvailable&&own.valid};
  };
  return {read:()=>db.inTransaction?read():Database.prototype.transaction.call(db,read).deferred() as ReturnType<AdmissionSafety['read']>,subscribe:changed=>root.subscribe(changed)};
 }
