@@ -113,11 +113,13 @@ describe("read-only and no-send switches", () => {
     });
     test(`${row.label}: --gmail-no-send unless it is the host send path`, () => {
       const { argv } = build(row.operation, row.input);
-      expect(parse(argv, row.command).root.filter(arg => arg === "--gmail-no-send")).toHaveLength(row.command === GOG_SEND_COMMAND ? 0 : 1);
+      // Keyed on the operation, not on the command the table expects: a builder that drifts to the send command fails here.
+      expect(argv.slice(0, argv.indexOf("gmail")).filter(arg => arg === "--gmail-no-send")).toHaveLength(row.operation === "gmail.draft.send" ? 0 : 1);
     });
   }
-  test("only gmail.draft.send builds the send command", () => {
-    expect(CASES.filter(row => row.command === GOG_SEND_COMMAND).map(row => row.operation)).toEqual(["gmail.draft.send"]);
+  test("only gmail.draft.send builds the send command, by what every builder returns", () => {
+    const sending = CASES.filter(row => build(row.operation, row.input).call.command === GOG_SEND_COMMAND).map(row => row.operation);
+    expect([...new Set(sending)]).toEqual(["gmail.draft.send"]);
   });
 });
 
