@@ -1,8 +1,8 @@
 /**
  * Hosted `brain maintain` packs git inside the maintenance worker's private
  * output stage, which `BRAIN_UI_OUTPUT_STAGING_BYTES` bounds (#3357). A pack
- * larger than that allowance fails with git's own out-of-disk line; the `git`
- * step must name the limit, its size, the setting and the starting headroom.
+ * below conservative headroom skips before Git starts; a large enough
+ * stage packs successfully.
  * Runs under real bubblewrap through the managed native app fixture.
  */
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
@@ -77,14 +77,12 @@ async function maintain(allowance: number) {
   return { result, git: report.find(step => step.step === "git")?.result ?? "" };
 }
 
-test("a pack over the output-staging allowance names the limit, its setting and the headroom", async () => {
+test("a pack below conservative headroom skips before Git starts", async () => {
   const { result, git } = await maintain(BELOW_PACK);
-  expect(result.exitCode, result.stderr).toBe(2);
-  expect(git, "MAINTAIN_GIT_NO_SPACE_NAMED").toStartWith("FAILED — no space:");
-  expect(git, "MAINTAIN_GIT_NO_SPACE_STAGE").toContain("maintenance worker's output stage");
-  expect(git, "MAINTAIN_GIT_NO_SPACE_ALLOWANCE").toContain(`allowance ${BELOW_PACK} bytes`);
-  expect(git, "MAINTAIN_GIT_NO_SPACE_SETTING").toContain(SETTING);
-  expect(git, "MAINTAIN_GIT_NO_SPACE_HEADROOM").toMatch(/; \d+ bytes available when the step started/);
+  expect(result.exitCode, result.stderr).toBe(0);
+  expect(git, "MAINTAIN_GIT_HEADROOM_SKIP").toStartWith("skipped — packing_headroom");
+  expect(git).toContain("requires ");
+  expect(git).toContain("available ");
 });
 
 test("the same pack inside the allowance packs every loose object", async () => {

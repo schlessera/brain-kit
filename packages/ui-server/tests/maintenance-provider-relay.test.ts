@@ -155,7 +155,7 @@ test("failed hosted packing publishes no Git files while ordinary index output p
   writeFileSync(note,readFileSync(note,"utf8")+"\nAthena reviews the departure.\n");
   const index=join(brain,".brain-index/brain.db");
   const indexBefore=statSync(index).mtimeMs;
-  const bin=join(root,"failed-pack-bin");mkdirSync(bin);
+  const bin=join(ROOT,"tmp/failed-pack-bin-"+crypto.randomUUID());mkdirSync(bin);
   writeFileSync(join(bin,"git"),`#!/bin/sh
 for arg in "$@"; do
  if [ "$arg" = maintenance ]; then
@@ -183,5 +183,43 @@ exec '${realGit}' "$@"
     expect(JSON.parse(result.stdout).find((row:{step:string})=>row.step==="index").result,"FAILED_PACK_INDEX_PUBLISHED").toContain("ok —");
     expect(statSync(index).mtimeMs,"FAILED_PACK_INDEX_BYTES_PUBLISHED").toBeGreaterThan(indexBefore);
     expect(result.exitCode).toBe(2);
-  }finally{selectedGit.mockRestore();}
+  }finally{selectedGit.mockRestore();rmSync(bin,{recursive:true,force:true});}
 });
+
+for(const method of ["run","launch"] as const) {
+ test(`successful Git ${method} publishes despite an unrelated scratch failure`,async()=>{
+  const {existsSync,readdirSync}=await import("node:fs");
+  const git=(...args:string[])=>Bun.spawnSync(["git","-C",brain,...args],{stdout:"pipe",stderr:"pipe"});
+  expect(git("init","-q").exitCode).toBe(0);
+  const blob=Bun.spawnSync(["git","-C",brain,"hash-object","-w","--stdin"],{stdin:Buffer.from(`Athena ${method}`),stdout:"pipe",stderr:"pipe"});expect(blob.exitCode).toBe(0);
+  const hash=blob.stdout.toString().trim(),loose=join(brain,".git/objects",hash.slice(0,2),hash.slice(2));
+  expect(git("update-ref",`refs/athena/${method}`,hash).exitCode).toBe(0);
+  rmSync(join(brain,".brain"),{recursive:true,force:true});writeFileSync(join(brain,".brain"),"Scratch cannot be a file.");
+  try {
+   mkdirSync(join(brain,"scripts"),{recursive:true});writeFileSync(join(brain,"scripts/brain-cli.ts"),`await import(${JSON.stringify(BRAIN_CLI)});`);
+   const {host}=boundary();
+   const argv=method==="launch"?["bun","scripts/brain-cli.ts","maintain","--json"]:[process.execPath,BRAIN_CLI,"maintain","--json"];
+   const result=await execute(host,method,{argv,env:hostEnv(),credentials:true,gate:"exclusive",purpose:"Odysseus independent maintenance"});
+   const report=JSON.parse(result.stdout);expect(report.find((row:{step:string})=>row.step==="git").result,"GIT_SUCCEEDS_DESPITE_SCRATCH").toStartWith("ok — packed ");
+   expect(report.find((row:{step:string})=>row.step==="scratch").result).toStartWith("FAILED");expect(result.exitCode).toBe(2);
+   expect(existsSync(loose),"SUCCESSFUL_GIT_OUTPUT_IS_PUBLISHED").toBe(false);
+   expect(git("cat-file","-e",hash).exitCode).toBe(0);expect(readdirSync(join(brain,".git/objects/pack")).some(name=>name.endsWith(".pack"))).toBe(true);
+  }finally{rmSync(join(brain,".brain"),{recursive:true,force:true});}
+ });
+ test(`headroom skip ${method} publishes no frozen Git objects`,async()=>{
+  const {readFileSync,readdirSync}=await import("node:fs");
+  const snapshot=(prefix=""):string[]=>readdirSync(join(brain,".git",prefix),{withFileTypes:true}).flatMap(entry=>entry.isDirectory()?snapshot(prefix+entry.name+"/"):[prefix+entry.name+":"+readFileSync(join(brain,".git",prefix,entry.name)).toString("hex")]).sort();
+  expect(Bun.spawnSync(["git","-C",brain,"init","-q"]).exitCode).toBe(0);
+  // Force a new frozen attribute blob even if an earlier successful pack
+  // already published the empty attributes tree.
+  const attributes=`notes/ithaca.md -diff\n# Ithaca ${method}\n`;writeFileSync(join(brain,".gitattributes"),attributes);
+  const blob=Bun.spawnSync(["git","-C",brain,"hash-object","--stdin"],{stdin:Buffer.from(attributes),stdout:"pipe",stderr:"pipe"});expect(blob.exitCode).toBe(0);
+  expect(Bun.spawnSync(["git","-C",brain,"cat-file","-e",blob.stdout.toString().trim()],{stdout:"pipe",stderr:"pipe"}).exitCode,"SKIP_FIXTURE_LACKS_FROZEN_ATTRIBUTE_BLOB").not.toBe(0);
+  const before=snapshot(),saved=process.env.BRAIN_UI_OUTPUT_STAGING_BYTES;process.env.BRAIN_UI_OUTPUT_STAGING_BYTES=String(4*1024*1024);
+  try {
+   const {host}=boundary();const result=await execute(host,method,{argv:[process.execPath,BRAIN_CLI,"maintain","--json"],env:hostEnv(),credentials:true,gate:"exclusive",purpose:"Odysseus skipped packing"});
+   expect(JSON.parse(result.stdout).find((row:{step:string})=>row.step==="git").result,"HOSTED_HEADROOM_SKIP_EXECUTED").toStartWith("skipped — packing_headroom");
+   expect(snapshot(),"SKIPPED_GIT_PUBLISHES_NO_SCAFFOLD_OBJECTS").toEqual(before);
+  }finally{if(saved===undefined)delete process.env.BRAIN_UI_OUTPUT_STAGING_BYTES;else process.env.BRAIN_UI_OUTPUT_STAGING_BYTES=saved;rmSync(join(brain,".gitattributes"),{force:true});}
+ });
+}

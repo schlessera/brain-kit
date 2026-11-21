@@ -61,6 +61,7 @@ export async function prepareMaintenanceGit(command: MaintenanceCommand, outputs
   if (privateInputs) config = privateInputs.config;
   else {
     const result = await runMaintenanceWorker({ ...command, tempKind: "git", startupView: outputs.view,
+      readPaths: [...(command.readPaths ?? []), binary],
       command: [binary, "-c", `safe.directory=${command.brainPath}`, "config", "--null", "--list", "--includes"], network: false, timeoutMs: 5000, ...(signal ? { signal } : {}) });
     if (result.exitCode !== 0 || result.killed) throw new Error(`cannot freeze Git configuration: ${result.stderr.slice(-400)}`);
     config = result.stdout.split("\0").filter(Boolean).map(record => { const separator = record.indexOf("\n");

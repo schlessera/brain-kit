@@ -889,3 +889,34 @@ test("scrub faults retain their Activity cause without disabling idle expiry or 
   expect(f.db.query("SELECT outcome FROM activity_spans WHERE job_name='journal-scrub'").get()).toEqual({outcome:"error"});
  }finally{await f.close();}
 });
+
+test("successful actual finish binds cleanup to its own turn and retains every required reference",async()=>{
+ const hashes=["1","2","3","4","5"].map(char=>char.repeat(64));let injected=0;
+ const f=fixture(undefined,writer=>({...writer,channel(module,options,revive){
+  const channel=writer.channel(module,options,revive);
+  return {...channel,call(name,...args){
+   const rows=args[0] as JournalStatement[];
+   if(name==="statements"&&rows.some(row=>"sql"in row&&row.sql===FINISH_REFERENCE_CLEANUP)) {
+    injected++;
+    const extra:JournalStatement[]=[];
+    for(const hash of hashes)extra.push(journalStatement("INSERT OR IGNORE INTO turn_journal_objects VALUES (?,0,'pending')",hash),journalStatement("INSERT OR IGNORE INTO turn_journal_object_refs VALUES ('finish-survivors',?)",hash));
+    extra.push(journalStatement("INSERT OR IGNORE INTO turn_journal_object_refs VALUES ('finish-peer',?)",hashes[4]!),
+     journalStatement("INSERT INTO turn_journal_changes (turn_id,sequence,path,scope,before_json,after_json) VALUES ('finish-survivors',1000,'notes/receipt.md','content',?,?)",JSON.stringify({hash:hashes[0]}),JSON.stringify({hash:hashes[1]})),
+     journalStatement("INSERT INTO turn_journal_changes (turn_id,sequence,path,scope,before_json,after_json) VALUES ('finish-survivors',1001,'notes/empty.md','content',NULL,'{}')"),
+     journalStatement("INSERT INTO turn_journal_claude_memory VALUES ('finish-survivors','pending','/ithaca','1','2','Athena',NULL,?,'unconfirmed')",JSON.stringify({hash:hashes[2]})),
+     journalStatement("INSERT INTO turn_journal_claude_memory VALUES ('finish-survivors','saved','/ithaca','1','2','Athena',?,NULL,'saved')",JSON.stringify({hash:hashes[3]})));
+    const at=rows.findIndex(row=>"sql"in row&&row.sql===FINISH_REFERENCE_CLEANUP);
+    args[0]=[...rows.slice(0,at),...extra,...rows.slice(at)];
+   }
+   return channel.call(name,...args);
+  }};
+ }}));
+ try {
+  await f.begin("finish-survivors");await f.begin("finish-peer");await f.journal.finish("finish-survivors");
+  expect(injected,"ACTUAL_SUCCESSFUL_FINISH_EXECUTES_CLEANUP").toBe(1);
+  const survivors=f.db.query("SELECT turn_id,hash FROM turn_journal_object_refs WHERE hash IN (?,?,?,?,?) ORDER BY turn_id,hash").all(...hashes);
+  expect(survivors,"ACTUAL_FINISH_BOUND_TURN_SURVIVORS").toEqual([
+   {turn_id:"finish-peer",hash:hashes[4]},...hashes.slice(0,3).map(hash=>({turn_id:"finish-survivors",hash}))]);
+  expect(f.db.query("SELECT ended_at FROM turn_journal_turns WHERE turn_id='finish-survivors'").get()).not.toEqual({ended_at:null});
+ }finally{await f.close();}
+});

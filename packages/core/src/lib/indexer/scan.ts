@@ -50,7 +50,7 @@ const MIME_TYPES: Record<string, string> = {
  */
 export function getAssetFiles(root: string, taxonomy: Taxonomy): Asset[] {
   const assets: Asset[] = [];
-  const ignored = gitIgnoredMatcher(root, path => taxonomy.isExcludedDirectory(path));
+  const ignored = gitIgnoredMatcher(root, taxonomy.exclude);
 
   for (const path of discoveryFiles(root, path => taxonomy.isExcludedDirectory(path) || ignored(`${path}/`))) {
     // The path as it is on disk, the way the markdown scan, the stats corpus

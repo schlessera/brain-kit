@@ -123,9 +123,9 @@ function runMaintenance(root: string, tasks: string[]): void {
 export function packRepository(root: string, headroom = gitPackingHeadroom(root)): { packed: number } {
   if (headroom.availableBytes === null || headroom.availableBytes < headroom.packingRequiredBytes)
     throw new GitPackingSkipped(`packing_headroom — requires ${headroom.packingRequiredBytes} bytes; available ${headroom.availableBytes ?? "unknown"}`);
-  const common = git(root, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
-  if (!common.ok) throw new GitStorageError("Git common store unavailable");
-  const pack = `${common.stdout}/objects/pack`;
+  const objects = git(root, ["rev-parse", "--path-format=absolute", "--git-path", "objects"]);
+  if (!objects.ok) throw new GitStorageError("Git object store unavailable");
+  const pack = `${objects.stdout}/pack`;
   const packNames = () => {
     try {
       const entries=readdirSync(pack,{withFileTypes:true}),names=entries.map(entry=>entry.name);
@@ -160,10 +160,10 @@ export function originalRefs(root: string): string[] {
   return out.stdout ? out.stdout.split("\n") : [];
 }
 
-/** Capacity of the Git common store, resolved inside the caller's execution boundary. */
+/** Capacity of the Git object store, resolved inside the caller's execution boundary. */
 export function gitPackingHeadroom(root: string): { availableBytes: number | null; requiredBytes: null; packingRequiredBytes: number; reason: string } {
-  const common = git(root, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
-  if (!common.ok) throw new GitStorageError("Git common store unavailable");
+  const objects = git(root, ["rev-parse", "--path-format=absolute", "--git-path", "objects"]);
+  if (!objects.ok) throw new GitStorageError("Git object store unavailable");
   // Raw object sizes avoid treating highly compressible loose data as cheap.
   // Three copies cover both maintenance passes, indexes and auxiliary files;
   // 16 MiB covers fixed Git overhead. Existing packs remain alongside output.
@@ -183,7 +183,7 @@ export function gitPackingHeadroom(root: string): { availableBytes: number | nul
   if (!Number.isSafeInteger(requiredBytes)) throw new GitStorageError("Git packing size exceeds safe accounting");
   let availableBytes: number | null = null;
   try {
-    const info = statfsSync(common.stdout, { bigint: true }), bytes = info.bavail * info.bsize;
+    const info = statfsSync(objects.stdout, { bigint: true }), bytes = info.bavail * info.bsize;
     if (bytes >= 0n && bytes <= BigInt(Number.MAX_SAFE_INTEGER)) availableBytes = Number(bytes);
   } catch { /* Unknown capacity skips packing. */ }
   return { availableBytes, requiredBytes: null, packingRequiredBytes: requiredBytes, reason: "Three times raw object bytes plus 128 bytes per object and ref text plus 128 bytes per ref, plus 16 MiB fixed overhead; old packs coexist. No space is reserved by the CLI." };

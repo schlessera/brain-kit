@@ -940,13 +940,20 @@ A failed or incomplete pack publishes **nothing under `.git`**. Newly created
 temporary pack files are removed from the failed stage; outside a declared
 private stage, new names are conservatively left alone because another Git
 writer may own them. Historical garbage is
-never removed. Failed worker commands discard Git publication while retaining
-other validated output. Successful publication installs and syncs indexes before the corresponding
-pack data and removes superseded loose objects only after every replacement
-is installed. Before metadata activation, a failed install removes newly installed
-pack companions while retaining the original loose objects. Existing MIDX
-replacement happens last. If its flush fails, the complete indexed pack set and
-old loose copies remain, so either durable metadata version stays readable.
+never removed. The host uses an execution-private Git receipt, independent of
+human/JSON output or the command's overall exit. Failed, skipped or incomplete
+Git work publishes nothing; successful Git work publishes even when another
+maintenance step fails. The receipt itself is never published.
+
+Publication assembles and syncs a complete replacement pack directory outside
+the live `objects/pack`, in a private transaction on the objects filesystem.
+One Linux `renameat2` exchange activates the whole pack/index/MIDX family.
+Only after syncing that directory switch does it install loose objects and
+refs; superseded loose objects are removed after every installation succeeds.
+A process kill leaves either complete pack set visible, with no partial index
+or temporary in the live pack directory. Later publication syncs the objects directory before recovering private
+transaction leftovers; an unconfirmed activation retains both generations. A failure after activation retains the complete pack
+set and the old loose objects, since a ref may already be durable.
 `brain maintain`'s git result and
 `brain storage pack --json` report existing garbage count and bytes from
 `git count-objects -v`. Cleanup of existing garbage requires a separate backed-up
@@ -965,7 +972,11 @@ any object row, reference or reservation, verifies remaining bytes against the
 SHA-256 filename, commits their quota charge, then moves verified orphans to
 `<objects-root>/quarantine`. Quarantined bytes stay charged until an explicit
 owner action removes them. Interrupted moves retain their charge and reconcile
-on the next pass; unresolved reservations report `quarantine_pending` with
+on the next pass, retrying both directory fsyncs even when the move already
+exists. Collection syncs each unlink before deleting its accounting row,
+including retries after a prior unlink. Persisted reservation names are validated
+before path use; nonregular entries stay in place without starving valid files.
+Unresolved reservations report `quarantine_pending` with
 pending counts and bytes rather than a clean pass. Corrupt files stay in place and are reported separately.
 A busy journal records `journal_busy` without waiting for the turn to end.
 Counts, bytes, skips and failure causes appear in the existing maintenance

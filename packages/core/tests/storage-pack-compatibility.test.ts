@@ -47,3 +47,16 @@ test("packing uses the single headroom measurement it reports",()=>{
  expect(JSON.parse(printed)).toMatchObject({state:"complete",headroom:{availableBytes:Number(actual.bavail*actual.bsize)}});
  }finally{output?.mockRestore();capacity?.mockRestore();cleanup(root);}
 });
+
+test("packing capacity is measured at the actual object store, including relocated objects",async()=>{
+ const {gitPackingHeadroom}=await import("../src/lib/git-storage.js");
+ const {join}=await import("node:path");const root=makeTempBrain();
+ try {
+  expect(Bun.spawnSync(["git","-C",root,"init","-q"]).exitCode).toBe(0);
+  const objects=join(root,".git/objects"),relocated=join(root,"island-objects");fs.renameSync(objects,relocated);fs.symlinkSync(relocated,objects);
+  const actual=fs.statfsSync(objects,{bigint:true}),paths:string[]=[];const stat=spyOn(fs,"statfsSync").mockImplementation(((path:fs.PathLike)=>{
+   paths.push(String(path));return {...actual,bavail:123n,bsize:4096n};
+  }) as typeof fs.statfsSync);
+  try {expect(gitPackingHeadroom(root).availableBytes).toBe(123*4096);expect(stat).toHaveBeenCalledTimes(1);expect(paths.map(path=>fs.realpathSync(path)),"PACKING_CAPACITY_USES_OBJECT_FILESYSTEM").toEqual([fs.realpathSync(objects)]);}finally{stat.mockRestore();}
+ }finally{cleanup(root);}
+});

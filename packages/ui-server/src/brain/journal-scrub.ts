@@ -1,9 +1,10 @@
 /** Bounded, host-private orphan quarantine. Only the journal write worker calls this. */
 import { createHash, randomUUID } from "node:crypto";
-import { closeSync, constants, fstatSync, fsyncSync, mkdirSync, openSync, opendirSync, readSync, renameSync, type Dir } from "node:fs";
+import { closeSync, constants, fstatSync, fsyncSync, mkdirSync, lstatSync, openSync, opendirSync, readSync, renameSync, type Dir } from "node:fs";
 import type { Database } from "bun:sqlite";
 
 const JOURNAL_SCRUB_FILES = 64;
+const SCRUB_NAME = /^[a-f0-9]{64}(?:-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})?$/;
 export interface JournalScrubResult {
   state: "complete" | "partial" | "skipped";
   reason: "journal_busy" | "quarantine_pending" | null;
@@ -32,12 +33,25 @@ export function createJournalScrub(db: Database, root: string, write: <T>(operat
         if((fstatSync(source).mode&0o077)||(fstatSync(target).mode&0o077))throw Error("Journal scrub requires private directories");
         const at=(fd:number,name:string)=>`/proc/self/fd/${fd}/${name}`;
         const verify=(directory:number,name:string,corruptCopies:Map<string,number>):{bytes:number|null;corrupt:boolean}=>{
+          // Persisted rows are untrusted restored data. Validate before even
+          // constructing a descriptor-relative pathname.
+          if(!SCRUB_NAME.test(name)) {
+            corruptCopies.set(`invalid:${name}`,0);return {bytes:null,corrupt:true};
+          }
           let fd:number;
-          try{fd=openSync(at(directory,name),constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);}
-          catch(error){if((error as NodeJS.ErrnoException).code==="ENOENT")return {bytes:null,corrupt:false};throw error;}
+          try{
+            const info=lstatSync(at(directory,name));
+            if(!info.isFile()||info.nlink!==1){corruptCopies.set(`${info.dev}:${info.ino}`,info.size);return {bytes:null,corrupt:true};}
+            fd=openSync(at(directory,name),constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);}
+          catch(error){
+            const code=(error as NodeJS.ErrnoException).code;
+            if(code==="ENOENT")return {bytes:null,corrupt:false};
+            if(["ELOOP","EACCES","EPERM","EISDIR","ENXIO"].includes(code??"")){corruptCopies.set(`unreadable:${name}`,0);return {bytes:null,corrupt:true};}
+            throw error;
+          }
           try{
             const info=fstatSync(fd);
-            if(!info.isFile()||info.nlink!==1)throw Error("Journal scrub candidate is not a private regular file");
+            if(!info.isFile()||info.nlink!==1){corruptCopies.set(`${info.dev}:${info.ino}`,info.size);return {bytes:null,corrupt:true};}
             const digest=createHash("sha256"),buffer=Buffer.alloc(64*1024);
             for(;;){const count=readSync(fd,buffer,0,buffer.length,null);if(!count)break;digest.update(buffer.subarray(0,count));}
             const corrupt=digest.digest("hex")!==name.slice(0,64);
@@ -67,7 +81,7 @@ export function createJournalScrub(db: Database, root: string, write: <T>(operat
           for(const entry of selected){
             const hash=entry.name;if(!/^[a-f0-9]{64}$/.test(hash)||protectedHash(hash))continue;
             const prior=db.query("SELECT hash FROM turn_journal_scrub_quarantine WHERE substr(hash,1,64)=? AND state='reserved' ORDER BY rowid DESC LIMIT 1").get(hash) as {hash:string}|null;
-            if(prior&&verify(target,prior.hash,corruptCopies).bytes===null)continue;
+            if(prior&&SCRUB_NAME.test(prior.hash)&&verify(target,prior.hash,corruptCopies).bytes===null)continue;
             const candidate=verify(source,hash,corruptCopies);if(candidate.bytes===null)continue;
             unaccounted++;unaccountedBytes+=candidate.bytes;if(candidate.corrupt)continue;
             const name=db.query("SELECT 1 FROM turn_journal_scrub_quarantine WHERE hash=?").get(hash)?entry.alternate:hash;
@@ -92,8 +106,11 @@ export function createJournalScrub(db: Database, root: string, write: <T>(operat
             if(already.bytes===null){
               const candidate=verify(source,row.hash.slice(0,64),corruptCopies);if(candidate.bytes===null||candidate.corrupt)continue;
               if(candidate.bytes!==row.bytes)throw Error("Journal scrub candidate changed after reservation");
-              renameSync(at(source,row.hash.slice(0,64)),at(target,row.hash));fsyncSync(target);fsyncSync(source);
+              renameSync(at(source,row.hash.slice(0,64)),at(target,row.hash));
             }else if(already.bytes!==row.bytes)throw Error("Journal scrub quarantine changed size");
+            // A previous attempt may have renamed then failed its sync or
+            // SQL commit. Retry both directory barriers before claiming success.
+            fsyncSync(target);fsyncSync(source);
             db.query("UPDATE turn_journal_scrub_quarantine SET state='quarantined' WHERE hash=?").run(row.hash);count++;bytes+=row.bytes;
           }
           return {count,bytes,corruptCopies};

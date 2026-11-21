@@ -1,0 +1,21 @@
+/** SIGKILL fixture: no exception handler or finally runs at the stop point. */
+import {spyOn} from "bun:test";
+import * as fs from "node:fs";
+import {packingFixture} from "./native-packing-fixture.js";
+import {packRepository} from "../../../core/src/lib/git-storage.js";
+import * as packDirectory from "../../src/server/maintenance-pack-directory.js";
+const [root,brain,point]=process.argv.slice(2) as [string,string,string];
+const fixture=await packingFixture(root,brain),output=fixture.output;
+const created=Bun.spawnSync(["git","-C",output.output.source,"hash-object","-w","--stdin"],{stdin:Buffer.from("Telemachus adds an island."),stdout:"pipe",stderr:"pipe"});
+if(created.exitCode!==0)throw Error(created.stderr.toString());
+const ref=Bun.spawnSync(["git","-C",output.output.source,"update-ref","refs/telemachus/island",created.stdout.toString().trim()],{stdout:"pipe",stderr:"pipe"});
+if(ref.exitCode!==0)throw Error(ref.stderr.toString());
+packRepository(output.output.source);
+const stop=()=>{fs.writeSync(1,"STOP\n");Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0);};
+const rename=fs.renameSync;
+spyOn(fs,"renameSync").mockImplementation((from,to)=>{rename(from,to);if(point==="index"&&String(to).endsWith(".idx"))stop();});
+const link=fs.linkSync;
+spyOn(fs,"linkSync").mockImplementation((from,to)=>{link(from,to);if(point==="index"&&String(to).endsWith(".idx"))stop();});
+const exchange=packDirectory.renamePackDirectory;
+spyOn(packDirectory,"renamePackDirectory").mockImplementation((...args)=>{exchange(...args);if(point==="exchange")stop();});
+await output.publish();throw Error("Kill point did not execute");

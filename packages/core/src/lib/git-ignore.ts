@@ -1,71 +1,110 @@
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
-/** Git ignore decisions for the entries the discovery walk actually reaches. */
-import { existsSync, readFileSync, readdirSync, type Dirent } from "node:fs";
-import { isAbsolute, join, relative } from "node:path";
+/**
+ * Which paths under a brain git ignores, asked of git once.
+ *
+ * Assets that git ignores are left out of the index: they exist on one clone
+ * only, and indexing them there means a paid vision call and embedding for
+ * something the other clones never see. Markdown is deliberately not filtered
+ * this way (gitignored local-only notes stay searchable), so this answers for
+ * assets alone.
+ *
+ * The rules are git's, not a re-implementation of them, and the answer comes
+ * from one `git ls-files` call per work tree (the brain, and each initialised
+ * submodule in it) rather than a spawn per file.
+ */
+import { existsSync, readFileSync } from "fs";
+import { dirname, isAbsolute, join, relative } from "path";
+
 import { ASSET_EXTENSIONS } from "./types.js";
 
+/** Answers whether a root-relative path is ignored. */
 export type IgnoredMatcher = (path: string) => boolean;
+
+const NOTHING_IGNORED: IgnoredMatcher = () => false;
+
+/** Git prints paths as bytes; a leading U+FEFF is part of a file name, not a byte-order mark. */
 const decoder = new TextDecoder("utf-8", { ignoreBOM: true });
 
+/** Run git in `dir` and split its NUL-separated output; null when git fails or is missing. */
+function gitList(dir: string, args: string[]): string[] | null {
+  let result: ReturnType<typeof Bun.spawnSync>;
+  try {
+    result = Bun.spawnSync(["git", "-C", dir, ...args], { stdout: "pipe", stderr: "pipe" });
+  } catch {
+    return null; // git is not installed
+  }
+  if (result.exitCode !== 0) return null; // not a work tree
+  return decoder.decode(result.stdout).split("\u0000").filter(Boolean);
+}
+
 /**
- * Query immediate children in one batch, without Git enumerating descendants.
- * Taxonomy pruning happens before even asking Git about an excluded directory.
- * check-ignore preserves tracked files and evaluates each initialized submodule
- * in its own worktree. Markdown discovery does not use this matcher.
+ * Collect what git ignores in the work tree at `dir`, prefixed with `prefix`,
+ * then descend into its initialised submodules. The parent's listing stops at
+ * a submodule's boundary, while the asset scan does not, so each nested work
+ * tree gets the same one call of its own.
  */
-export function gitIgnoredMatcher(root: string, excludedDirectory: (path: string) => boolean = () => false): IgnoredMatcher {
-  const cache = new Map<string, Set<string>>(), modules = new Map<string, string[]>();
-  function declaredModules(worktree: string): string[] {
-    let paths=modules.get(worktree); if(paths) return paths;
-    let text="";
-    try { text=readFileSync(join(root,worktree,".gitmodules"),"utf8"); } catch { /* No declaration. */ }
-    paths=[...text.matchAll(/^\s*path\s*=\s*(.+?)\s*$/gm)].map(match=>match[1]!.replace(/\/+$/, ""))
-      .filter(path=>path && !isAbsolute(path) && !path.split("/").includes(".."))
-      .map(path=>join(worktree,path)).filter(path=>!excludedDirectory(path) && existsSync(join(root,path,".git")));
-    modules.set(worktree,paths); return paths;
+function collectIgnored(dir: string, prefix: string, files: Set<string>, dirs: Set<string>, depth: number, exclusions: { dirs: string[]; segments: string[] }): boolean {
+  // Synthetic directory ignores prune before Git opens taxonomy-excluded trees.
+  // Quote gitignore metacharacters; the taxonomy contains literal names.
+  const escape = (value: string) => value.replace(/[\\*?\[\]#! ]/g, "\\$&");
+  // Command-line exclude patterns are rooted at the worktree, even when
+  // discovery starts in a subdirectory of a containing repository.
+  let worktree = dir;
+  while (!existsSync(join(worktree,".git")) && dirname(worktree) !== worktree) worktree=dirname(worktree);
+  const localPrefix=relative(worktree,dir);
+  const patterns = [
+    ...exclusions.dirs.filter(path => !prefix || path.startsWith(prefix)).map(path => "/" + escape([localPrefix,path.slice(prefix.length)].filter(Boolean).join("/")) + "/"),
+    ...exclusions.segments.filter(segment=>!segment.includes("/")).map(segment => escape(segment) + "/"),
+  ];
+  const entries = gitList(dir, ["ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z",
+    ...patterns.map(pattern => `--exclude=${pattern}`), "--", ":(literal)."]);
+  if (entries === null) return false;
+  for (const entry of entries) (entry.endsWith("/") ? dirs : files).add(prefix + entry);
+  if (depth >= MAX_SUBMODULE_DEPTH) return true;
+  // The submodules are the paths `.gitmodules` declares, read from disk rather
+  // than asked of git, so each work tree still costs one call. One that is
+  // initialised has its own `.git`; an uninitialised one is an empty directory.
+  for (const path of submodulePaths(dir)) {
+    const nested = join(dir, path);
+    if (!exclusions.dirs.some(excluded => isWithin(excluded,`${prefix}${path}`)) && !path.split("/").some(part => exclusions.segments.includes(part)) && existsSync(join(nested, ".git"))) collectIgnored(nested, `${prefix}${path}/`, files, dirs, depth + 1, exclusions);
   }
-  function worktreeFor(directory: string): string {
-    let worktree="";
-    for(let depth=0;depth<8;depth++) {
-      const nested=declaredModules(worktree).find(path=>isWithin(path,directory));
-      if(!nested) break;worktree=nested;
-    }
-    return worktree;
+  return true;
+}
+
+/** The `path = …` entries of a work tree's `.gitmodules`, if it has one. */
+function submodulePaths(dir: string): string[] {
+  let text: string;
+  try {
+    text = readFileSync(join(dir, ".gitmodules"), "utf8");
+  } catch {
+    return [];
   }
-  function ignoredIn(directory: string): Set<string> {
-    const cached = cache.get(directory); if (cached) return cached;
-    const ignored = new Set<string>(); cache.set(directory, ignored);
-    // Only declared initialized submodules establish another Git context.
-    const worktree=worktreeFor(directory);
-    // ls-files stopped at undeclared repositories. Preserve that boundary:
-    // their contents remain discoverable, but inner ignore rules do not apply.
-    let prefix=worktree;
-    for(const part of relative(worktree,directory).split("/").filter(Boolean)) {
-      prefix=join(prefix,part);
-      if(existsSync(join(root,prefix,".git")))return ignored;
-    }
-    let entries: Dirent[];
-    try { entries = readdirSync(join(root, directory), { withFileTypes: true }); }
-    catch (error) { if (["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) return ignored; throw error; }
-    const paths = entries
-      .filter(entry => !entry.name.startsWith(".") && (!entry.isDirectory() || !excludedDirectory(join(directory, entry.name))))
-      .map(entry => "./" + relative(worktree, join(directory, entry.name)) + (entry.isDirectory() ? "/" : ""));
-    if (!paths.length) return ignored;
-    let result: ReturnType<typeof Bun.spawnSync>;
-    try { result = Bun.spawnSync(["git", "-C", join(root, worktree), "check-ignore", "--stdin", "-z"], {
-      stdin: Buffer.from(paths.join("\u0000") + "\u0000"), stdout: "pipe", stderr: "pipe",
-    }); } catch { return ignored; }
-    if (result.exitCode !== 0 && result.exitCode !== 1) return ignored;
-    for (const path of decoder.decode(result.stdout).split("\u0000").filter(Boolean)) ignored.add(join(worktree, path).replace(/\/$/, ""));
-    return ignored;
-  }
-  return path => {
-    const normalized = path.replace(/\/$/, "");
-    // Checking a path below an ignored directory must not open that directory.
-    const parts = normalized.split("/");
-    for (let n = 1; n <= parts.length; n++) {
-      const selected = parts.slice(0, n).join("/"), parent = parts.slice(0, n - 1).join("/");
-      if (((n < parts.length || path.endsWith("/")) && excludedDirectory(selected)) || ignoredIn(parent).has(selected)) return true;
+  return [...text.matchAll(/^\s*path\s*=\s*(.+?)\s*$/gm)]
+    .map((m) => m[1].replace(/\/+$/, ""))
+    // Only paths inside this work tree: `.gitmodules` is a tracked file anyone can edit.
+    .filter((path) => path && !isAbsolute(path) && !path.split("/").includes(".."));
+}
+
+/** Submodules nest; a cycle through a symlinked checkout must still stop. */
+const MAX_SUBMODULE_DEPTH = 8;
+
+/**
+ * Build a matcher for everything git ignores under `root`, submodules
+ * included. Outside a git work tree, or when git is not installed, nothing
+ * is ignored.
+ *
+ * `--directory` reports an ignored directory once, with a trailing slash,
+ * instead of every file in it, so an ignored tree of media costs one line.
+ */
+export function gitIgnoredMatcher(root: string, exclusions: { dirs: string[]; segments: string[] } = { dirs: [], segments: [] }): IgnoredMatcher {
+  const files = new Set<string>();
+  const dirs = new Set<string>();
+  if (!collectIgnored(root, "", files, dirs, 0, exclusions)) return NOTHING_IGNORED;
+  if (files.size === 0 && dirs.size === 0) return NOTHING_IGNORED;
+  return (path) => {
+    if (files.has(path)) return true;
+    for (let slash = path.indexOf("/"); slash !== -1; slash = path.indexOf("/", slash + 1)) {
+      if (dirs.has(path.slice(0, slash + 1))) return true;
     }
     return false;
   };

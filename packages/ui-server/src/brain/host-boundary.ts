@@ -296,6 +296,19 @@ export interface HostBoundaryOptions {
   log?: Logger;
 }
 
+/** Recognize the routine CLI among Bun and executable launch forms. */
+function routineMaintenance(argv: readonly string[]): boolean {
+  const step = argv.indexOf("maintain");
+  return step > 0 && argv.slice(0, step).some(arg => /(?:^|\/)brain(?:-cli)?(?:\.[cm]?[jt]s)?$/.test(arg));
+}
+
+/** Observe the CLI inside its worker, retaining bounded state while forwarding stdout. */
+function observeMaintenanceGit(command: MaintenanceCommand, outputs: Awaited<ReturnType<typeof prepareMaintenanceOutput>>): void {
+  const entry = Bun.resolveSync("./maintenance-git-result", import.meta.dir);
+  command.command = [process.execPath,"--config=/dev/null","--no-env-file",entry,`${outputs.output.target}/${outputs.gitResultPath}`,...command.command];
+  command.readPaths = [...(command.readPaths ?? []),entry];
+}
+
 /** The program a worker runs, made absolute: in the brain, the server's Bun, or on the worker's PATH. */
 function absoluteArgv(brain: string, argv: readonly string[], path: string): string[] {
   const [program, ...args] = argv;
@@ -672,12 +685,14 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
               outputs = await prepareMaintenanceOutput(brain, { startupView: view, folderPaths: hold?.folderPaths, signal: execution.signal, areas: execution.outputAreas });
               relay = providerRelayFor(execution);
               const launch = command(execution, undefined, relay);
+              const routine = routineMaintenance(execution.argv);
+              if (routine) observeMaintenanceGit(launch,outputs);
               const git = await prepareMaintenanceGit(launch, outputs, execution.signal, options.log);
               execution.signal?.throwIfAborted(); execution.assertAuthorized?.();
               const result = await runMaintenanceWorker({ ...launch, startupView: outputs.view, output: outputs.output, ...(git ? { git } : {}), stdin: execution.stdin,
                 ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}), ...(execution.outputBytes ? { outputBytes: execution.outputBytes } : {}) },
               () => { execution.assertAuthorized?.(); execution.onExecute?.(); });
-              if (result.exitCode !== 0) outputs.discardGit();
+              if (routine ? !await outputs.gitSucceeded() : result.exitCode !== 0) outputs.discardGit();
               if (!result.killed && execution.publish !== false) {
                 execution.assertAuthorized?.();
                 if (execution.lock) await outputs.publishLocked(execution.lock.keyed);
@@ -762,6 +777,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         outputs = await prepareMaintenanceOutput(brain, { startupView: view, folderPaths: hold?.folderPaths, signal: execution.signal, areas: execution.outputAreas });
         relay = providerRelayFor(execution);
         const launch = command(execution, undefined, relay);
+        if (routineMaintenance(execution.argv)) observeMaintenanceGit(launch,outputs);
         const git = await prepareMaintenanceGit(launch, outputs, execution.signal, options.log);
         execution.signal?.throwIfAborted();
         const maintenance = { ...launch, startupView: outputs.view, output: outputs.output, ...(git ? { git } : {}) };
@@ -774,7 +790,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       void worker.input(execution.stdin ?? "");
       let signalCode: string | null = null;
       const exited = worker.exited.then(async code => {
-        if (code !== 0) outputs!.discardGit();
+        if (routineMaintenance(execution.argv) ? !await outputs!.gitSucceeded() : code !== 0) outputs!.discardGit();
         if (!signalCode && execution.publish !== false) {
           if (execution.lock) await outputs!.publishLocked(execution.lock.keyed);
           else await outputs!.publish();

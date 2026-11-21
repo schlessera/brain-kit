@@ -1,11 +1,11 @@
 /** Real publisher and Git objects; acquisition alone uses owned copied roots. */
+import {watchdogMs} from "../../../scripts/test-deadlines.js";
 import { expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { prepareNativeWorkerStartupView } from "../src/server/worker-startup-view.js";
-import { prepareNativeWorkerOutput } from "../src/server/worker-native-output.js";
-import type { NativeStageChange } from "../src/server/native-brain-manager-protocol.js";
+import {packingFixture} from "./helpers/native-packing-fixture.js";
+import * as packDirectory from "../src/server/maintenance-pack-directory.js";
 import { packRepository } from "../../core/src/lib/git-storage.js";
 
 for (const interrupt of [false,".idx",".pack","multi-pack-index","flush"] as const) test(`replacement packs precede loose-object removal, interrupted=${interrupt}`,async()=>{
@@ -21,43 +21,65 @@ for (const interrupt of [false,".idx",".pack","multi-pack-index","flush"] as con
   expect(git(brain,"update-ref","refs/athena/chart",hash).exitCode).toBe(0);
  }
  const loose=join(brain,".git/objects",hash.slice(0,2),hash.slice(2));
- const actualStat=fs.statfsSync,stat=spyOn(fs,"statfsSync").mockImplementation(((...args:any[])=>{const value=Reflect.apply(actualStat,fs,args);return {...value,type:typeof value.type==="bigint"?0x9123683en:0x9123683e};}) as typeof fs.statfsSync);
- const checkpoints=new Map<string,string>(),uuid="a".repeat(32),sourceUuid="b".repeat(32);
- let stageRoot="",lowerId="";
- const start=fs.readFileSync(`/proc/${process.pid}/stat`,"utf8").replace(/^.*\) /s,"").split(" ")[19]!;
- const files=(directory:string,prefix=""):string[]=>fs.readdirSync(join(directory,prefix),{withFileTypes:true}).flatMap(entry=>{const rel=prefix+entry.name;return entry.isDirectory()?[rel,...files(directory,rel+"/")]:[rel];});
- const manager={
-  async checkpoint(id:string){const path=join(root,".brain-native/checkpoints",id);fs.cpSync(brain,path,{recursive:true});checkpoints.set(id,path);return {id,path,uuid,sourceUuid,fsid:"11111111-1111-4111-8111-111111111790",rootId:"257",transaction:"1",readOnly:true as const};},
-  async release(id:string){fs.rmSync(checkpoints.get(id)!,{recursive:true,force:true});return{id,state:"deleted" as const};},
-  async prepareStage(id:string,checkpointId:string,allowanceBytes:number){stageRoot=join(root,".brain-native/stages",id);lowerId=checkpointId;fs.cpSync(checkpoints.get(checkpointId)!,join(stageRoot,"merged"),{recursive:true});const info=fs.statSync(stageRoot,{bigint:true});return{id,path:stageRoot,checkpointId,checkpointUuid:uuid,sourceUuid,allowanceBytes,namespacePid:process.pid,namespaceStart:start,appUid:process.getuid!(),appGid:process.getgid!(),rootDevice:String(info.dev),rootInode:String(info.ino)};},
-  async inspectStage(){const source=join(stageRoot,"merged"),before=files(checkpoints.get(lowerId)!),after=new Set(files(source));return{checkpointId:lowerId,checkpointUuid:uuid,changes:(async function*(){for(const rel of new Set([...before,...after]))yield {pathHex:Buffer.from(rel).toString("hex"),kind:after.has(rel)?"entry":"whiteout"} as NativeStageChange;})(),completed:Promise.resolve({exitCode:0 as const,bytes:0})};},
-  async releaseStage(id:string){fs.rmSync(join(root,".brain-native/stages",id),{recursive:true,force:true});return{id,state:"deleted" as const};},
- };
- let view:Awaited<ReturnType<typeof prepareNativeWorkerStartupView>>|undefined,output:Awaited<ReturnType<typeof prepareNativeWorkerOutput>>|undefined,link:ReturnType<typeof spyOn>|undefined,sync:ReturnType<typeof spyOn>|undefined,rename:ReturnType<typeof spyOn>|undefined;
+ const fixture=await packingFixture(root,brain),output=fixture.output;
+ let rename:ReturnType<typeof spyOn>|undefined,sync:ReturnType<typeof spyOn>|undefined,exchange:ReturnType<typeof spyOn>|undefined;
  try{
-  view=await prepareNativeWorkerStartupView(brain,manager);output=await prepareNativeWorkerOutput(brain,{startupView:view,areas:[".git"]});
   packRepository(output.output.source);expect(git(output.output.source,"multi-pack-index","write").exitCode).toBe(0);
-  const original=fs.linkSync;
-  if(interrupt==="flush"){
-   const renameFile=fs.renameSync,syncFile=fs.fsyncSync;let renamed=false;
-   rename=spyOn(fs,"renameSync").mockImplementation((from,to)=>{const result=renameFile(from,to);if(String(to).endsWith("/multi-pack-index"))renamed=true;return result;});
-   sync=spyOn(fs,"fsyncSync").mockImplementation(fd=>{if(renamed){renamed=false;throw Error("Ithaca metadata flush fault");}return syncFile(fd);});
-  }
-  link=spyOn(fs,"linkSync").mockImplementation((from,to)=>{
-   if(String(to).endsWith(".idx")){
-    expect(fs.existsSync(loose),"LOOSE_OBJECT_SURVIVES_UNTIL_REPLACEMENT_INDEX").toBe(true);
-
-   }
-   if(String(to).endsWith("multi-pack-index"))expect(fs.readdirSync(join(brain,".git/objects/pack")).some(name=>name.endsWith(".pack")),"PACK_METADATA_FOLLOWS_PACK_FILES").toBe(true);
-   if(interrupt && String(to).endsWith(interrupt))throw Error("Ithaca pack publication fault");
-   return original(from,to);
+  const added=Bun.spawnSync(["git","-C",output.output.source,"hash-object","-w","--stdin"],{stdin:Buffer.from("Telemachus charts a new route."),stdout:"pipe",stderr:"pipe"});expect(added.exitCode).toBe(0);
+  const newHash=added.stdout.toString().trim();expect(git(output.output.source,"update-ref","refs/telemachus/chart",newHash).exitCode).toBe(0);
+  // The new ref points only into its new pack, never a live loose object.
+  packRepository(output.output.source);
+  const renameFile=fs.renameSync,syncFile=fs.fsyncSync,exchangeDirectory=packDirectory.renamePackDirectory;let exchanged=false;
+  exchange=spyOn(packDirectory,"renamePackDirectory").mockImplementation((...args)=>{exchangeDirectory(...args);exchanged=true;});
+  rename=spyOn(fs,"renameSync").mockImplementation((from,to)=>{
+   if(String(to).endsWith(".idx"))expect(fs.existsSync(loose),"LOOSE_OBJECT_SURVIVES_UNTIL_REPLACEMENT_INDEX").toBe(true);
+   if(interrupt!=="flush"&&interrupt&&String(to).endsWith(interrupt))throw Error("Ithaca pack publication fault");
+   return renameFile(from,to);
   });
+  if(interrupt==="flush")sync=spyOn(fs,"fsyncSync").mockImplementation(fd=>{if(exchanged){exchanged=false;throw Error("Ithaca metadata flush fault");}return syncFile(fd);});
   if(interrupt)await expect(output.publish()).rejects.toThrow(interrupt==="flush"?"Ithaca metadata flush fault":"Ithaca pack publication fault");else await output.publish();
   expect(git(brain,"cat-file","-e",hash).exitCode,"LIVE_REF_NEVER_LOSES_ITS_OBJECT").toBe(0);
-  expect(fs.readdirSync(join(brain,".git/objects/pack")).some(name=>name.endsWith(".pack")),"REPLACEMENT_PACK_INSTALLED_BEFORE_DELETE").toBe(!interrupt||interrupt==="flush");
-  if(interrupt&&interrupt!=="flush")expect(fs.readdirSync(join(brain,".git/objects/pack")),"FAILED_INSTALL_PUBLISHES_NO_PACK_GARBAGE").toEqual([]);
+  if(!interrupt){expect(git(brain,"rev-parse","refs/telemachus/chart").stdout.toString().trim()).toBe(newHash);expect(git(brain,"cat-file","-e",newHash).exitCode,"NEW_REF_HAS_OBJECT").toBe(0);}
+  else expect(git(brain,"rev-parse","--verify","refs/telemachus/chart").exitCode,"FAILED_PACK_INSTALL_PUBLISHES_NO_REF").not.toBe(0);
   expect(fs.existsSync(loose)).toBe(Boolean(interrupt));
-  if(!interrupt||interrupt==="flush")expect(git(brain,"multi-pack-index","verify").exitCode,"PUBLISHED_MIDX_NEVER_REFERENCES_MISSING_PACKS").toBe(0);
+  if(interrupt==="flush")expect(fs.readdirSync(join(brain,".git/objects")).some(name=>name.startsWith(".brain-maintenance-")),"UNCONFIRMED_ACTIVATION_RETAINS_OLD_GENERATION").toBe(true);
   expect(git(brain,"count-objects","-v").stdout.toString(),"FAILED_PUBLICATION_LEAVES_NO_GIT_GARBAGE").toMatch(/^garbage: 0$/m);
- }finally{link?.mockRestore();sync?.mockRestore();rename?.mockRestore();await output?.cleanup();await view?.cleanup();stat.mockRestore();fs.rmSync(root,{recursive:true,force:true});}
+ }finally{rename?.mockRestore();sync?.mockRestore();exchange?.mockRestore();await fixture.close();fs.rmSync(root,{recursive:true,force:true});}
+});
+
+for(const point of ["index","exchange"])test(`SIGKILL at ${point} leaves complete live packs and recoverable private files`,async()=>{
+ const root=fs.mkdtempSync(join(tmpdir(),"odysseus-killed-pack-")),brain=join(root,"brain");fs.mkdirSync(brain);
+ const git=(...args:string[])=>Bun.spawnSync(["git","-C",brain,...args],{stdout:"pipe",stderr:"pipe"});
+ expect(git("init","-q").exitCode).toBe(0);
+ const object=Bun.spawnSync(["git","-C",brain,"hash-object","-w","--stdin"],{stdin:Buffer.from("Odysseus retains Ithaca."),stdout:"pipe",stderr:"pipe"});
+ expect(object.exitCode).toBe(0);const hash=object.stdout.toString().trim();expect(git("update-ref","refs/odysseus/ithaca",hash).exitCode).toBe(0);
+ const child=Bun.spawn([process.execPath,join(import.meta.dir,"helpers/interrupted-pack-publisher.ts"),root,brain,point],{stdout:"pipe",stderr:"pipe",timeout:watchdogMs(10000)});
+ try {
+  const reader=child.stdout.getReader();const signal=await reader.read();
+  expect(new TextDecoder().decode(signal.value),"REAL_PUBLISHER_REACHED_KILL_POINT").toBe("STOP\n");
+  child.kill("SIGKILL");await child.exited;await reader.cancel();
+  expect(child.signalCode).toBe("SIGKILL");
+  expect(git("cat-file","-e",hash).exitCode,"KILL_RETAINS_LIVE_REF_OBJECT").toBe(0);
+  expect(git("count-objects","-v").stdout.toString(),"KILL_LEAVES_NO_ORPHAN_INDEX_OR_TEMP").toMatch(/^garbage: 0$/m);
+  const names=fs.readdirSync(join(brain,".git/objects/pack"));
+  expect(names.some(name=>name.startsWith(".maintenance-"))).toBe(false);
+  for(const name of names.filter(name=>name.endsWith(".idx")))expect(names).toContain(name.replace(/\.idx$/,".pack"));
+  expect(fs.readdirSync(join(brain,".git/objects")).some(name=>name.startsWith(".brain-maintenance-"))).toBe(true);
+  const objects=fs.openSync(join(brain,".git/objects"),fs.constants.O_RDONLY|fs.constants.O_DIRECTORY);
+  try{packDirectory.recoverPackDirectories(objects);}finally{fs.closeSync(objects);}
+  expect(fs.readdirSync(join(brain,".git/objects")).some(name=>name.startsWith(".brain-maintenance-")),"KILL_RECOVERY_DRAINS_PRIVATE_TRANSACTION").toBe(false);
+  expect(git("cat-file","-e",hash).exitCode).toBe(0);
+ }finally{if(child.exitCode===null){child.kill("SIGKILL");await child.exited;}fs.rmSync(root,{recursive:true,force:true});}
+});
+
+test("Git step receipts are bounded, execution-private and excluded from publication",async()=>{
+ const root=fs.mkdtempSync(join(tmpdir(),"odysseus-git-receipt-")),brain=join(root,"brain");fs.mkdirSync(brain);
+ expect(Bun.spawnSync(["git","-C",brain,"init","-q"]).exitCode).toBe(0);
+ const fixture=await packingFixture(root,brain),output=fixture.output;
+ try {
+  expect(await output.gitSucceeded(),"ABSENT_GIT_RECEIPT_DISCARDS_OUTPUT").toBe(false);
+  fs.writeFileSync(join(output.output.source,output.gitResultPath),"packed\n");
+  expect(await output.gitSucceeded()).toBe(true);
+  await output.publish();expect(fs.existsSync(join(brain,output.gitResultPath)),"GIT_RECEIPT_NEVER_PUBLISHED").toBe(false);
+ }finally{await fixture.close();fs.rmSync(root,{recursive:true,force:true});}
 });

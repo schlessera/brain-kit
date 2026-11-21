@@ -1,5 +1,6 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { createHash } from "node:crypto";
+import * as fs from "node:fs";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,7 +13,7 @@ import { SELF } from "../src/brain/writer-gate.js";
 const sha=(s:string)=>createHash("sha256").update(s).digest("hex");
 function fixture() {
  const root=mkdtempSync(join(tmpdir(),"odysseus-scrub-")),path=join(root,"ui.db"),objects=join(root,"objects"),db=createUiDb(path);
- const store=journalStore.setup(db,{dbPath:path,objectsRoot:objects}) as unknown as {statements(list:journalStore.JournalStatement[]):number[];reserve(bytes:number,hash:string):string;scrubObjects():import("../src/brain/journal-scrub.js").JournalScrubResult;usage():number;close():void};
+ const store=journalStore.setup(db,{dbPath:path,objectsRoot:objects}) as unknown as {statements(list:journalStore.JournalStatement[]):number[];reserve(bytes:number,hash:string):string;collectObjects():void;scrubObjects():import("../src/brain/journal-scrub.js").JournalScrubResult;usage():number;close():void};
  return {root,path,objects,db,store,close(){store.close!();db.close();rmSync(root,{recursive:true,force:true});}};
 }
 test("scrub quarantines only verified unaccounted files, retaining rows, references and live reservations",()=>{
@@ -172,4 +173,64 @@ for(const replayPhase of [1,2])test(`accounting replay in phase ${replayPhase} p
   let total=first.quarantined;for(let n=0;n<3;n++)total+=scrub.run().quarantined;
   expect(total,"SCRUB_REPLAY_DOES_NOT_LOSE_CURSOR_ENTRIES").toBe(65);
  }finally{scrub.close();f.close();}
+});
+
+test("interrupted quarantine sync is retried until both directories are durable",()=>{
+ const f=fixture(),sync=fs.fsyncSync;let barriers=0;
+ writeFileSync(join(f.objects,sha("orphan")),"orphan");
+ const fault=spyOn(fs,"fsyncSync").mockImplementation(_fd=>{barriers++;throw Error("Ithaca directory sync refused");});
+ try {
+  for(let n=0;n<2;n++) {
+   expect(()=>f.store.scrubObjects(),"SCRUB_SYNC_RETRY_REFUSES_SUCCESS").toThrow("Ithaca directory sync refused");
+   expect(f.db.query("SELECT state FROM turn_journal_scrub_quarantine").get()).toEqual({state:"reserved"});
+  }
+  expect(barriers,"SCRUB_RETRIES_MOVED_TARGET_SYNC").toBe(2);
+  fault.mockRestore();
+  const retried=spyOn(fs,"fsyncSync").mockImplementation(sync);
+  try {expect(f.store.scrubObjects()).toMatchObject({quarantined:1,pending:0});expect(retried).toHaveBeenCalledTimes(2);}finally{retried.mockRestore();}
+ }finally{fault.mockRestore();f.close();}
+});
+test("malformed persisted hashes and nonregular entries cannot escape or starve valid orphans",()=>{
+ const f=fixture();try {
+  fs.mkdirSync(join(f.objects,sha("directory")));fs.symlinkSync(f.root,join(f.objects,sha("link")));
+  writeFileSync(join(f.objects,sha("orphan")),"orphan");
+  for(const name of ["../../outside",sha("orphan")+"/../../outside"])f.store.statements([{sql:"INSERT INTO turn_journal_scrub_quarantine VALUES (?,6,'reserved')",params:[name]}]);
+  const open=spyOn(fs,"openSync"),stat=spyOn(fs,"lstatSync");
+  try {
+   let result:ReturnType<typeof f.store.scrubObjects>|undefined,failure:unknown;
+   try{result=f.store.scrubObjects();}catch(error){failure=error;}
+   expect([...open.mock.calls,...stat.mock.calls].some(([path])=>String(path).includes("../")),"SCRUB_VALIDATES_BEFORE_PATH_USE").toBe(false);
+   expect(failure,"SCRUB_BAD_ENTRY_IS_LOCAL").toBeUndefined();
+   expect(result,"SCRUB_BAD_ENTRY_IS_LOCAL").toMatchObject({quarantined:1,pending:2,corrupt:4,state:"partial"});
+  }finally{open.mockRestore();stat.mockRestore();}
+ }finally{f.close();}
+});
+test("collection retries a failed unlink directory barrier before deleting its charge",()=>{
+ const f=fixture();try {
+  writeFileSync(join(f.objects,sha("orphan")),"orphan");
+  f.store.statements([{sql:"INSERT INTO turn_journal_objects VALUES (?,6,'present')",params:[sha("orphan")]}]);
+  const sync=fs.fsyncSync,fault=spyOn(fs,"fsyncSync").mockImplementation(()=>{throw Error("Ithaca unlink sync refused");});
+  try {
+   for(let n=0;n<2;n++) {
+    expect(()=>f.store.collectObjects(),"UNLINK_RETRY_STILL_SYNCS").toThrow("Ithaca unlink sync refused");
+    expect(f.db.query("SELECT state FROM turn_journal_objects WHERE hash=?").get(sha("orphan")),"UNSYNCED_UNLINK_RETAINS_ROW").toEqual({state:"present"});
+   }
+   expect(existsSync(join(f.objects,sha("orphan")))).toBe(false);
+   fault.mockRestore();const observed=spyOn(fs,"fsyncSync").mockImplementation(sync);
+   try {f.store.collectObjects();expect(observed).toHaveBeenCalledTimes(1);expect(f.db.query("SELECT 1 FROM turn_journal_objects WHERE hash=?").get(sha("orphan"))).toBeNull();}finally{observed.mockRestore();}
+  }finally{fault.mockRestore();}
+ }finally{f.close();}
+});
+
+test("pending-file cleanup retries its directory barrier and retains the reservation on a sync failure",async()=>{
+ const f=fixture(),accounting=createJournalAccounting(f.db,f.path),objects=createJournalObjects(f.objects,accounting);
+ const sync=fs.fsyncSync;let count=0;
+ const link=spyOn(fs,"linkSync").mockImplementation(()=>{throw Error("Ithaca link refused");});
+ const fault=spyOn(fs,"fsyncSync").mockImplementation(fd=>{if(++count>=3)throw Error("Ithaca cleanup sync refused");sync(fd);});
+ try {
+  await expect(objects.putBytes(Buffer.from("orphan"))).rejects.toThrow("Ithaca cleanup sync refused");
+  const row=f.db.query("SELECT id FROM turn_journal_reservations").get() as {id:string};
+  expect(row,"UNSYNCED_PENDING_UNLINK_RETAINS_RESERVATION").not.toBeNull();
+  expect(()=>objects.discardPending(row.id),"PENDING_UNLINK_RETRY_STILL_SYNCS").toThrow("Ithaca cleanup sync refused");
+ }finally{fault.mockRestore();link.mockRestore();objects.close();f.close();}
 });

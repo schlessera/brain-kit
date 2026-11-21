@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { Glob } from "bun";
 import { chmodSync, mkdtempSync, mkdirSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -7,12 +7,17 @@ import { buildTaxonomy } from "../src/lib/taxonomy.js";
 import { discoveryFiles } from "../src/lib/discovery-walk.js";
 import { getMarkdownFiles, getAssetFiles } from "../src/lib/indexer/scan.js";
 import { ASSET_EXTENSIONS } from "../src/lib/types.js";
-import { gitIgnoredMatcher } from "../src/lib/git-ignore.js";
+// Frozen old Git oracle, independent of the production matcher.
+function previousIgnored(root: string) {
+  const result = Bun.spawnSync(["git", "-C", root, "ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"], {stdout:"pipe",stderr:"pipe"});
+  const paths = result.exitCode === 0 ? result.stdout.toString().split("\u0000").filter(Boolean) : [];
+  return (path: string) => paths.some(entry => entry.endsWith("/") ? path.startsWith(entry) : path === entry);
+}
 
 test("corpus discovery has exactly the former Glob lists and order", () => {
   const root=resolve(import.meta.dir,"../fixtures/corpus"), taxonomy=buildTaxonomy({});
   expect(getMarkdownFiles(root,taxonomy)).toEqual([...new Glob("**/*.md").scanSync({cwd:root})].filter(p=>!taxonomy.isExcludedPath(p)).sort());
-  const ignored=gitIgnoredMatcher(root), extensions=ASSET_EXTENSIONS.flatMap(e=>[e.slice(1),e.slice(1).toUpperCase()]);
+  const ignored=previousIgnored(root), extensions=ASSET_EXTENSIONS.flatMap(e=>[e.slice(1),e.slice(1).toUpperCase()]);
   const paths=[...new Glob(`**/*.{${extensions.join(",")}}`).scanSync({cwd:root})].filter(p=>!taxonomy.isExcludedPath(p)&&!ignored(p)&&!p.includes(":Zone.Identifier")).sort((a,b)=>a.localeCompare(b));
   expect(getAssetFiles(root,taxonomy).map(a=>a.path)).toEqual(paths);
 });
@@ -108,5 +113,31 @@ test("directory exclusion segments do not apply to a regular asset basename",()=
  writeFileSync(join(root,"ithaca.jpg"),"");const taxonomy=buildTaxonomy({user:{exclude:{segments:["ithaca.jpg"]}}} as never);
  expect(taxonomy.isExcludedPath("ithaca.jpg")).toBe(false);
  expect(getAssetFiles(root,taxonomy).map(a=>a.path),"DIRECTORY_SEGMENT_PREDICATE_NEVER_CLASSIFIES_FILES").toEqual(["ithaca.jpg"]);
+ }finally{rmSync(root,{recursive:true,force:true});}
+});
+
+test("wildcard filenames remain literal and one Git batch serves a hundred directories",()=>{
+ const root=mkdtempSync(join(tmpdir(),"odysseus-ignore-batch-"));
+ try {
+  expect(Bun.spawnSync(["git","-C",root,"init","-q"]).exitCode).toBe(0);
+  writeFileSync(join(root,".gitignore"),"*.jpg\n");
+  for(const name of ["chart1.jpg","chart[1].jpg"])writeFileSync(join(root,name),"");
+  expect(Bun.spawnSync(["git","-C",root,"add","-f","--",":(literal)chart1.jpg"]).exitCode).toBe(0);
+  for(let n=0;n<100;n++){mkdirSync(join(root,`notes-${n}`));writeFileSync(join(root,`notes-${n}/ithaca.md`),"");}
+  const expected=["chart1.jpg"], spawn=spyOn(Bun,"spawnSync");
+  try {
+   expect(getAssetFiles(root,buildTaxonomy({})).map(row=>row.path),"LITERAL_WILDCARD_IGNORE").toEqual(expected);
+   expect(spawn.mock.calls.filter(([argv])=>Array.isArray(argv)&&argv[0]==="git"),"ONE_GIT_BATCH_PER_WORKTREE").toHaveLength(1);
+  }finally{spawn.mockRestore();}
+ }finally{rmSync(root,{recursive:true,force:true});}
+});
+
+test("Git directory pruning also holds when discovery starts below its worktree root",()=>{
+ const root=mkdtempSync(join(tmpdir(),"odysseus-nested-discovery-")),brain=join(root,"brain");
+ try {
+  expect(Bun.spawnSync(["git","-C",root,"init","-q"]).exitCode).toBe(0);
+  mkdirSync(join(brain,"node_modules/unreadable"),{recursive:true});writeFileSync(join(brain,"ithaca.jpg"),"");utimesSync(join(brain,"node_modules"),0,0);
+  expect(getAssetFiles(brain,buildTaxonomy({})).map(row=>row.path)).toEqual(["ithaca.jpg"]);
+  expect(statSync(join(brain,"node_modules")).atimeMs,"NESTED_WORKTREE_PRUNES_EXCLUDED_DIRECTORY").toBe(0);
  }finally{rmSync(root,{recursive:true,force:true});}
 });
