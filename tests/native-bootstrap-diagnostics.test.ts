@@ -6,6 +6,9 @@ test("nonzero trusted bootstrap forwards protocol stderr and records a scrubbed 
  const pipes=join(import.meta.dir,"../packages/ui-sdk/src/server/worker-pipes.ts");
  const entry=join(import.meta.dir,"../packages/ui-sdk/src/server/worker-entry.ts");
  const child=spawnGuardFixture([process.execPath,"-e",`
+  import {mock} from "bun:test";
+  const guard={...await import(${JSON.stringify(join(import.meta.dir,"../scripts/test-native-guard.ts"))})};
+  mock.module(${JSON.stringify(join(import.meta.dir,"../scripts/test-native-guard.ts"))},()=>({...guard,nativeWorkerBoundary(env){return {...guard.nativeWorkerBoundary(env),native:Boolean(env.BRAIN_WORKER_LAUNCH)};}}));
   import {Readable} from "node:stream";
   import {createWorkerPipes} from ${JSON.stringify(pipes)};
   const p=createWorkerPipes();const streams=p.streams();const errors=new Response(Readable.toWeb(streams.stderr)).text();
@@ -42,6 +45,9 @@ test("bootstrap reason records redact named credentials and bound diagnostic tex
 test("diagnostic tee preserves FIFO-only bootstrap admission for a harmless executable",async()=>{
  const entry=join(import.meta.dir,"../packages/ui-sdk/src/server/worker-entry.ts"),pipes=join(import.meta.dir,"../packages/ui-sdk/src/server/worker-pipes.ts");
  const child=spawnGuardFixture([process.execPath,"-e",`
+  import {mock} from "bun:test";
+  const guard={...await import(${JSON.stringify(join(import.meta.dir,"../scripts/test-native-guard.ts"))})};
+  mock.module(${JSON.stringify(join(import.meta.dir,"../scripts/test-native-guard.ts"))},()=>({...guard,nativeWorkerBoundary(env){return {...guard.nativeWorkerBoundary(env),native:Boolean(env.BRAIN_WORKER_LAUNCH)};}}));
   import {createWorkerPipes} from ${JSON.stringify(pipes)};
   const p=createWorkerPipes(),streams=p.streams();streams.stderr.resume();streams.stdout.resume();
   const boot=Bun.spawn([process.execPath,${JSON.stringify(entry)}],{env:{PATH:"/usr/bin:/bin",BRAIN_WORKER_LAUNCH:JSON.stringify({command:["/usr/bin/true"],argv:["/usr/bin/true"]})},stdin:p.child[0],stdout:p.child[1],stderr:p.child[2]});
@@ -57,7 +63,7 @@ test("an SDK-first nonzero exit cannot overtake its bootstrap reason and audit r
   import {mock} from "bun:test";
   const stream={...await import("node:stream/promises")};mock.module("node:stream/promises",()=>({...stream,pipeline:(source,sink)=>{const end=sink.end.bind(sink);sink.end=(...args)=>{setTimeout(()=>end(...args),50);return sink;};return stream.pipeline(source,sink);}}));
   const guard={...await import(${JSON.stringify(guard)})};const audit=guard.auditNativeLaunch(["/usr/bin/false"],["/usr/bin/true"],()=>{});
-  mock.module(${JSON.stringify(guard)},()=>({...guard,nativeWorkerBoundary(env){const boundary=guard.nativeWorkerBoundary(env);return {...boundary,dispose(){if(env.BRAIN_WORKER_LAUNCH)audit.dispose();boundary.dispose();}};}}));
+  mock.module(${JSON.stringify(guard)},()=>({...guard,nativeWorkerBoundary(env){const boundary=guard.nativeWorkerBoundary(env);return {...boundary,native:Boolean(env.BRAIN_WORKER_LAUNCH),dispose(){if(env.BRAIN_WORKER_LAUNCH)audit.dispose();boundary.dispose();}};}}));
   const {createWorkerPipes}=await import(${JSON.stringify(pipes)});const p=createWorkerPipes(),streams=p.streams();streams.stderr.resume();streams.stdout.resume();
   const boot=Bun.spawn([process.execPath,${JSON.stringify(entry)}],{env:{PATH:"/usr/bin:/bin",BRAIN_WORKER_LAUNCH:JSON.stringify({command:["/bin/sh","-c","echo synthetic-bootstrap-failure >&2; exit 1"],argv:["/bin/sh","-c","echo synthetic-bootstrap-failure >&2; exit 1"]})},stdin:p.child[0],stdout:p.child[1],stderr:p.child[2]});
   p.closeChild();streams.stdin.end();await boot.exited;process.exit(1);
@@ -66,4 +72,16 @@ test("an SDK-first nonzero exit cannot overtake its bootstrap reason and audit r
  expect(output,"SDK_EXIT_PRESERVES_BOOTSTRAP_REASON").toContain('"kind":"native-offline-bootstrap-failure"');
  expect(output).toContain("synthetic-bootstrap-failure");
  expect(output,"SDK_EXIT_PRESERVES_AUDIT").toContain('"kind":"native-offline-audit"');
+});
+
+for(const mode of ["parent","timeout","exit143"] as const)test(`bootstrap termination reason distinguishes ${mode} from unexplained failure`,async()=>{
+ const child=spawnGuardFixture([process.execPath,"-e",`
+  import {recordNativeGuardChild} from ${JSON.stringify(join(import.meta.dir,"../scripts/test-native-guard.ts"))};
+  const boot=Bun.spawn(${mode==="exit143"?'["/bin/sh","-c","exit 143"]':'["/usr/bin/sleep","30"]'},{env:{PATH:"/usr/bin:/bin"},stdin:"ignore",stdout:"ignore",stderr:"pipe",${mode==="timeout"?'timeout:50,':''}});
+  const reported=recordNativeGuardChild(boot,true);${mode==="parent"?'boot.kill("SIGTERM");':''}await reported;
+ `],{env:{PATH:"/usr/bin:/bin"}});
+ const [code,out]=await Promise.all([child.exited,child.guardOutput()]);expect(code,out).toBe(0);
+ const records=out.split("\n").filter(line=>line.startsWith('{"kind":"native-offline-bootstrap-')).map(line=>JSON.parse(line));
+ if(mode==="exit143")expect(records.some(record=>record.kind==="native-offline-bootstrap-failure"),"UNREQUESTED_EXIT143_IS_STILL_FAILURE").toBe(true);
+ else {expect(records.find(record=>record.kind==="native-offline-bootstrap-termination")?.reason,"EXPECTED_TERMINATION_HAS_FIXED_REASON").toBe(mode==="parent"?"terminated by parent signal":"terminated by signal");expect(out).not.toContain("stderr reason unavailable");}
 });

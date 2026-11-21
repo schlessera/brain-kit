@@ -191,7 +191,9 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
         args[0]=Array.isArray(first)?channel.argv:{...args[0] as object,cmd:channel.argv};
       }else inherited=withoutNativeReceipts(inherited);
       const bootstrap = key === "spawn" && pipeOnly && Boolean(options.env?.BRAIN_WORKER_LAUNCH);
-      const bootstrapDiagnostics = bootstrap ? prepareNativeBootstrapDiagnostics(inherited) : undefined;
+      // A synchronous non-native probe may read its FIFO without awaiting exited.
+      // Only an admitted native plan owns the asynchronous diagnostic writer.
+      const bootstrapDiagnostics = bootstrap && (boundary !== undefined || workerBoundary?.native === true) ? prepareNativeBootstrapDiagnostics(inherited) : undefined;
       if (bootstrapDiagnostics) inherited=bootstrapDiagnostics.options as typeof inherited;
       if (Array.isArray(first)) args[1] = inherited;
       else args[0] = { ...inherited, cmd: (args[0] as { cmd: string[] }).cmd };

@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../../scripts/test-deadlines.ts";
 import "../../../../scripts/test-network-child-preload.ts";
 import { nativeScriptedService } from "../../../../scripts/test-native-guard.ts";
 /**
@@ -40,7 +41,7 @@ const relay = Bun.serve({ unix: join(WORKER_EGRESS_DIR, "inference.sock"), async
 const brainPath = join(scratch, "ithaca"), home = join(scratch, "home");
 mkdirSync(brainPath, { recursive: true }); mkdirSync(home);
 const abortController = new AbortController();
-const timer = setTimeout(() => abortController.abort(), 45_000);
+const timer = setTimeout(() => abortController.abort(), watchdogMs(45_000));
 const turn = createClaudeSdkTurn({
   backend: { brainPath },
   req: { prompt: "Odysseus checks the harbour notice.", signal: abortController.signal, turnBudgetMs: 30_000,

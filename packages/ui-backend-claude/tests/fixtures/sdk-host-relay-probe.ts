@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../../scripts/test-deadlines.ts";
 import { nativeFixtureDirectory } from "../../../../scripts/test-native-guard.ts";
 import "../../../../scripts/test-network-child-preload.ts";
 import { nativeScriptedService } from "../../../../scripts/test-native-guard.ts";
@@ -164,7 +165,7 @@ function files(path: string): string {
 async function bounded<T>(promise: Promise<T>): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try { return await Promise.race([promise, new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error("Native cancellation did not reach its owned boundary.")), SDK_RELAY_CANCELLATION_TIMEOUT_MS);
+    timer = setTimeout(() => reject(new Error("Native cancellation did not reach its owned boundary.")), watchdogMs(SDK_RELAY_CANCELLATION_TIMEOUT_MS));
   })]); } finally { clearTimeout(timer); }
 }
 let session: string | undefined, hostAfterRefresh = false;
@@ -188,7 +189,7 @@ try {
     const before = readFileSync(join(host, ".credentials.json"));
     const abort = new AbortController();
     currentAbort = abort;
-    const timer = setTimeout(() => abort.abort(), SDK_RELAY_TURN_TIMEOUT_MS);
+    const timer = setTimeout(() => abort.abort(), watchdogMs(SDK_RELAY_TURN_TIMEOUT_MS));
     let release!: () => void;
     const held = new Promise<void>(resolve => { release = resolve; });
     let live: LaunchedWorker | undefined;

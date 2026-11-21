@@ -47,7 +47,8 @@ export function nativeTestHead(): string {
 
 /** Metadata survives an outer fixture namespace's deliberate clearenv. */
 export function nativeNamespaceEnvironment(): string[] {
-  const values: Record<string, string> = { BRAIN_NATIVE_TEST_HEAD: nativeTestHead() };
+  const {deadlineFactor}=createRequire(import.meta.url)("./test-deadlines.ts") as typeof import("./test-deadlines");
+  const values: Record<string, string> = { BRAIN_NATIVE_TEST_HEAD: nativeTestHead(), BRAIN_TEST_DEADLINE_FACTOR: String(deadlineFactor()) };
   if (process.env.GITHUB_ACTIONS === "true" && process.env.RUNNER_ENVIRONMENT === "github-hosted") {
     values.GITHUB_ACTIONS = "true"; values.RUNNER_ENVIRONMENT = "github-hosted";
   }
@@ -867,15 +868,29 @@ export function prepareNativeBootstrapDiagnostics(options:Record<string,any>):{o
     return {drained,snapshot(){let prefix=first.toString("utf8"),suffix=tail.toString("utf8");if(observed>first.length)prefix=prefix.slice(0,Math.max(0,prefix.lastIndexOf("\n")));if(observed>tail.length)suffix=suffix.slice(suffix.indexOf("\n")<0?suffix.length:suffix.indexOf("\n")+1);return observed<=first.length?prefix:prefix+"\n"+suffix;}};
   }};
 }
-export function recordNativeGuardChild(child: { pid: number; exited: Promise<number>;exitCode?:number|null;signalCode?:string|number|null },bootstrap=false,evidence?:BootstrapEvidence): Promise<void> {
+const parentTerminatedBootstraps=new WeakSet<object>(),observedBootstrapKills=new WeakSet<object>();
+export function recordNativeGuardChild(child: { pid: number; exited: Promise<number>;exitCode?:number|null;signalCode?:string|number|null;kill?(signal?:NodeJS.Signals|number):void },bootstrap=false,evidence?:BootstrapEvidence): Promise<void> {
   let completion=Promise.resolve();
   const diagnosticRoots=[...(scriptedRoute.getStore()?.fixtureRoots??[])];
   if(bootstrap){
+    const kill=child.kill?.bind(child);
+    if(kill&&!observedBootstrapKills.has(child)){
+      observedBootstrapKills.add(child);
+      Object.defineProperty(child,"kill",{configurable:true,value:(signal?:NodeJS.Signals|number)=>{
+        const terminating=signal===undefined||["SIGTERM","SIGKILL","SIGINT",15,9,2].includes(signal);
+        if(terminating)parentTerminatedBootstraps.add(child);
+        try{return kill(signal);}catch(error){if(terminating)parentTerminatedBootstraps.delete(child);throw error;}
+      }});
+    }
     bootstrapDiagnostics.set(child.pid,{get exitCode(){return child.exitCode??null;},get signalCode(){return child.signalCode??null;}});
     if(bootstrapDiagnostics.size>256)bootstrapDiagnostics.delete(bootstrapDiagnostics.keys().next().value!);
     const report=async(code:number|null)=>{
       nativeReceipt({kind:"native-offline-bootstrap-exit",head:nativeTestHead(),exitCode:code,signal:child.signalCode??null});
       if(code===0&&!child.signalCode)return;
+      if(parentTerminatedBootstraps.has(child)||["SIGTERM","SIGKILL","SIGINT",15,9,2].includes(child.signalCode??"")){
+        nativeReceipt({kind:"native-offline-bootstrap-termination",head:nativeTestHead(),exitCode:code,signal:child.signalCode??null,
+          reason:parentTerminatedBootstraps.has(child)?"terminated by parent signal":"terminated by signal"});return;
+      }
       if(evidence){let timer:ReturnType<typeof setTimeout>|undefined;await Promise.race([evidence.drained,new Promise<void>(resolve=>{timer=setTimeout(resolve,2000);timer.unref();})]);clearTimeout(timer);}
       const text=evidence?.snapshot()??"";
       const safe=compilerDiagnostic(redactNativeDiagnosticAssignments(labelNativeMountErrors(text,diagnosticRoots).replace(/^[ \t]*(?:Args|Arguments|argv|Env|Environment):[^\n]*(?:\n|$)/gim,"[redacted startup metadata]\n")));
@@ -1077,8 +1092,8 @@ export function nativeWorkerPayloadCommand(payload:string[],command:string[],pro
 }
 
 /** Inspect the concrete existing worker bootstrap, including its exec payload. */
-export function nativeWorkerBoundary(env: Record<string, string | undefined>): { env: Record<string, string | undefined>; dispose(): void; beforeLaunch(): void } {
-  const unchanged = { env, dispose() {}, beforeLaunch() {} };
+export function nativeWorkerBoundary(env: Record<string, string | undefined>): { native: boolean; env: Record<string, string | undefined>; dispose(): void; beforeLaunch(): void } {
+  const unchanged = { native: false, env, dispose() {}, beforeLaunch() {} };
   if (!env.BRAIN_WORKER_LAUNCH) return unchanged;
   let launch: { command?: string[]; argv?: string[]; env?: Record<string, string>; brainPath?: string; hostHome?: string } | null;
   try { launch = JSON.parse(env.BRAIN_WORKER_LAUNCH); } catch { refuse("invalid worker launch metadata"); }
@@ -1192,6 +1207,6 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
     nativeReceipt({kind:"native-offline-worker-plan",head:nativeTestHead(),
       bootstrapArgc:launch.argv!.length,bootstrapArgvBytes:Buffer.byteLength(JSON.stringify(launch.argv)),
       sandboxArgc:workerArgv.length,sandboxArgvBytes:Buffer.byteLength(JSON.stringify(workerArgv)),metadataBytes:Buffer.byteLength(encoded)});
-    return { env: { ...env, BRAIN_WORKER_LAUNCH: encoded }, dispose: audited.dispose, beforeLaunch };
+    return { native: true, env: { ...env, BRAIN_WORKER_LAUNCH: encoded }, dispose: audited.dispose, beforeLaunch };
   } catch (error) { bridge.dispose(); throw error; }
 }

@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../../scripts/test-deadlines.ts";
 import { nativeFixtureDirectory } from "../../../../scripts/test-native-guard.ts";
 import "../../../../scripts/test-network-child-preload.ts";
 import { nativeScriptedService } from "../../../../scripts/test-native-guard.ts";
@@ -113,7 +114,7 @@ function files(path: string): string {
 async function bounded<T>(promise: Promise<T>): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try { return await Promise.race([promise, new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error("Native cancellation did not reach its owned boundary.")), 5000);
+    timer = setTimeout(() => reject(new Error("Native cancellation did not reach its owned boundary.")), watchdogMs(5000));
   })]); } finally { clearTimeout(timer); }
 }
 let session: string | undefined, hostAfterRefresh = false;
@@ -125,7 +126,7 @@ try {
     if (turn === 3) { save(access[1]!, 1); holdRefresh = true; }
     const before = readFileSync(join(host, ".credentials.json"));
     const abort = new AbortController();
-    const timer = setTimeout(() => abort.abort(), 20_000);
+    const timer = setTimeout(() => abort.abort(), watchdogMs(20_000));
     let release!: () => void;
     const held = new Promise<void>(resolve => { release = resolve; });
     let live: LaunchedWorker | undefined;

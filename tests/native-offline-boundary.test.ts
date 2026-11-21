@@ -332,6 +332,7 @@ test("guard worker binds follow every covering mount", async()=>{
    Bun.spawnSync=((argv,options)=>(["bwrap","strace"].includes(argv[0])||argv[0]?.endsWith("/native-connect"))?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
    process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";registerScriptedService("http://127.0.0.1:1");
    const plan=nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify({command:[${JSON.stringify(runtime)}],brainPath:${JSON.stringify(scratch)},env:{HOME:${JSON.stringify(scratch)},PATH:"/usr/local/bin:/usr/bin:/bin"},argv:["bwrap",...${JSON.stringify(["/tmp","/home","/etc",ROOT])}.flatMap(path=>["--tmpfs",path]),"--remount-ro","/","--remount-ro","/etc","--",process.execPath,${JSON.stringify(join(ROOT,"packages/ui-sdk/src/server/egress-worker-entry.ts"))},"--direct-loopback",${JSON.stringify(runtime)}]})});
+   if(plan.native!==true)throw Error("ADMITTED_NATIVE_PLAN_CLASSIFIED");
    const argv=JSON.parse(plan.env.BRAIN_WORKER_LAUNCH).argv,bwrap=argv.indexOf("--",argv.indexOf("-o"))+1,split=argv.indexOf("--",bwrap);
    const mounts=argv.slice(bwrap+1,split);assertGuardMountOrder(mounts,["/","/etc"]);
    if(!mounts.some((arg,i)=>arg==="--setenv"&&mounts[i+1]==="PATH"&&mounts[i+2]==="/usr/local/bin:/usr/bin:/bin"))throw Error("GUARD_PLAN_PRESERVES_READONLY_SYSTEM_PATH");
@@ -366,6 +367,7 @@ test("separate-UID plans trace the broker payload outside its hidden native audi
       const launch={command:[${JSON.stringify(runtime)}],brainPath:${JSON.stringify(scratch)},env:{HOME:${JSON.stringify(scratch)},ANTHROPIC_API_KEY:"offline-fixture"},
         argv:["/usr/bin/python3","-I","-S","-c",WORKER_IDENTITY_SUPERVISOR,JSON.stringify({argv:["bwrap","--ro-bind","/","/",...${JSON.stringify(["/tmp","/home","/etc",ROOT])}.flatMap(path=>["--tmpfs",path]),"--remount-ro","/","--remount-ro","/etc","--",${JSON.stringify(runtime)}],secret:"synthetic"})]};
       const worker=nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify(launch)});
+      if(worker.native!==true)throw Error("ADMITTED_NATIVE_PLAN_CLASSIFIED");
       const outer=JSON.parse(worker.env.BRAIN_WORKER_LAUNCH).argv;
       if(realpathSync(outer[0])!==realpathSync("/usr/bin/python3"))throw Error("tracer wrapped the coordinator instead of the payload");
       const config=JSON.parse(outer[5]),args=config.argv,split=args.indexOf("--"),trace=args.slice(split+1);

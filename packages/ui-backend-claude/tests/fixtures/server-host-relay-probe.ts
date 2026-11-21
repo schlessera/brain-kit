@@ -1,3 +1,5 @@
+import { recordNativeRelayTurn } from "../helpers/native-relay-turn-diagnostic.js";
+import { watchdogMs } from "../../../../scripts/test-deadlines.ts";
 import { nativeFixtureDirectory } from "../../../../scripts/test-native-guard.ts";
 import "../../../../scripts/test-network-child-preload.ts";
 import { nativeScriptedService } from "../../../../scripts/test-native-guard.ts";
@@ -179,7 +181,8 @@ try {
   for (let turn = 0; turn < (mode === "three" ? 3 : mode === "cleanup-failure" ? 2 : 1); turn++) {
     if (turn === 1) { save(1); model = "claude-sonnet-4-6"; }
     if (turn === 2) { save(1, true); model = "claude-haiku-4-5"; }
-    const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 20000);
+    const turnStarted=performance.now(),requestStart=requests.length,refreshStart=refreshes,frameStart=frames.length;
+    const controller = new AbortController(), timer = setTimeout(() => controller.abort(), watchdogMs(20000));
     const turnId = `turn-ithaca-${turn}`;
     const tracked = new Set<EventListenerOrEventListenerObject>();
     const add = controller.signal.addEventListener.bind(controller.signal), remove = controller.signal.removeEventListener.bind(controller.signal);
@@ -221,6 +224,11 @@ try {
       cleanupFailures.push(String(error));
       expect(String(error), "ACTUAL_NATIVE_RELEASE_FAILURE_PROPAGATED").toContain("Claude turn cleanup did not complete");
     } finally {
+      const terminal=frames.slice(frameStart).reverse().find(frame=>frame.type==="result"||frame.type==="error");
+      recordNativeRelayTurn({elapsedMs:performance.now()-turnStarted,aborted:controller.signal.aborted,
+        requestDelta:requests.length-requestStart,refreshDelta:refreshes-refreshStart,
+        outcome:terminal?.type==="result"?terminal.outcome:undefined,
+        errorClass:terminal?.type==="result"?terminal.failure?.errorClass:terminal?.type==="error"?terminal.failure?.errorClass:undefined});
       if (mode === "cleanup-failure") {
         expect(existsSync(join(proxy.dir, "inference.sock")), "NATIVE_RELEASE_FAILURE_RELAY_LINK_REMOVED").toBe(false);
         expect(readdirSync(tmpdir()).filter(name => name.startsWith("brain-inference-")), "NATIVE_RELEASE_FAILURE_RELAY_DIRECTORY_REMOVED").toEqual(relayDirectories);

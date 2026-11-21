@@ -9,6 +9,8 @@ test("guard FIFO completion keeps keyless admission health within one second",as
   import {mock} from "bun:test";
   const actual={...await import("node:stream/promises")};
   mock.module("node:stream/promises",()=>({...actual,pipeline:(source,sink)=>{const end=sink.end.bind(sink);sink.end=(...args)=>{setTimeout(()=>end(...args),50);return sink;};return actual.pipeline(source,sink);}}));
+  const guard={...await import(${JSON.stringify(join(import.meta.dir,"../scripts/test-native-guard.ts"))})};
+  mock.module(${JSON.stringify(join(import.meta.dir,"../scripts/test-native-guard.ts"))},()=>({...guard,nativeWorkerBoundary(env){return {...guard.nativeWorkerBoundary(env),native:Boolean(env.BRAIN_WORKER_LAUNCH)};}}));
   import {readFileSync} from "node:fs";
   import {createWorkerPipes} from ${JSON.stringify(pipes)};
   const server=Bun.serve({hostname:"127.0.0.1",port:0,async fetch(request){

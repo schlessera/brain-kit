@@ -1,3 +1,4 @@
+import { deadlineFactor } from "../../../scripts/test-deadlines.ts";
 /** The selected native runtime opens no connection of its own on a relayed turn (#3244), with only loopback available. */
 import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -15,7 +16,7 @@ async function probe(scenario: "plain" | "webfetch") {
     const child = Bun.spawn(["bwrap", "--unshare-net", "--die-with-parent", "--bind", "/", "/", "--tmpfs", "/run", "--bind", join(scratch, "egress"), WORKER_EGRESS_DIR,
       "--proc", "/proc", "--dev", "/dev", process.execPath, "--preload", join(root, "scripts/test-network-child-preload.ts"),
       join(import.meta.dir, "fixtures/relayed-runtime-traffic-probe.ts"), scratch, scenario],
-    { cwd: root, env: { PATH: process.env.PATH!, LANG: "C.UTF-8", TMPDIR: tmpdir() }, stdout: "pipe", stderr: "pipe" });
+    { cwd: root, env: { BRAIN_TEST_DEADLINE_FACTOR: String(deadlineFactor()), PATH: process.env.PATH!, LANG: "C.UTF-8", TMPDIR: tmpdir() }, stdout: "pipe", stderr: "pipe" });
     const [out, err, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     expect(exit, err || out).toBe(0);
     return JSON.parse(readFileSync(join(scratch, "result.json"), "utf8")) as {
