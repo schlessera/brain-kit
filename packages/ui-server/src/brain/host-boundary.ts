@@ -90,10 +90,21 @@ export interface BrainExecution {
   /** A complete hosted sync: its only credentialed part is the host mirror transport. */
   sync?: boolean;
   /**
+   * @internal A hosted sync whose pull changes only the governance policy
+   * hands the incoming bytes here instead of failing (#4256); it publishes
+   * nothing either way. Absent: the sync refuses and names the waiting change.
+   */
+  onPolicyChange?: (change: import("./sync-mirror.js").IncomingPolicyChange) => void;
+  /**
    * @internal Host-fetched repositories a module cron job may read (#3380): each
    * mirror read-only, with a Git URL rewrite onto it. Never a credential.
    */
   repositories?: readonly ModuleRepositoryAccess[];
+  /**
+   * @internal The cron runner's module GitHub relay directory for this job
+   * (#4259), bound read-only into its worker. It holds no credential.
+   */
+  githubRelay?: string;
   /** @internal Take the contention lock after writer-gate admission, never before it. */
   lock?: { keyed: import("@schlessera/brain-ui-sdk/server").KeyedLock; key: string };
   /** @internal The turn whose tool started this run: its relayed provider spend is charged there (#1673). */
@@ -491,6 +502,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       env,
       credentials: execution.credentials,
       ...(relay ? { providerRelay: relay.dir, maskEnvFiles: true } : {}),
+      ...("githubRelay" in execution && execution.githubRelay ? { githubRelay: execution.githubRelay } : {}),
       ...(execution.credentials && options.home ? { home: options.home } : {}),
       readPaths: [...(exec.wrapper ? [exec.wrapper] : []), ...serverInstallation(), ...(repositories?.readPaths ?? [])],
       ...(repositories ? { gitConfig: repositories.gitConfig } : {}),
@@ -648,7 +660,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         }
         return credentialed(admission, async () => {
           if (execution.sync) return outputLock.withLock(brain, () => runMirrorSync({ log: options.log, nativeManager: options.nativeManager, folderPaths: hold?.folderPaths, command: command(execution), transportEnv: execution.env, mirror: mirror ??= syncMirrorPath(brain, options.dbPath),
-            ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) }), { signal: admissionSignal });
+            ...(execution.onPolicyChange ? { onPolicyChange: execution.onPolicyChange } : {}), ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) }), { signal: admissionSignal });
           const run = async () => {
             admissionSignal?.throwIfAborted();
             execution.assertAuthorized?.();
@@ -724,7 +736,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
           const onAbort = () => abort.abort(execution.signal?.reason);
           execution.signal?.addEventListener("abort", onAbort, { once: true });
           const exited = runMirrorSync({ log: options.log, nativeManager: options.nativeManager, folderPaths: hold?.folderPaths, command: selectedCommand, transportEnv: execution.env, mirror: selectedMirror, signal: abort.signal,
-            ...(execution.onExecute ? { onExecute: execution.onExecute } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) }).then(result => {
+            ...(execution.onExecute ? { onExecute: execution.onExecute } : {}), ...(execution.onPolicyChange ? { onPolicyChange: execution.onPolicyChange } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) }).then(result => {
             stdout.write(result.stdout); stderr.write(result.stderr); return result.exitCode;
           }, error => { stderr.write(error instanceof Error ? error.message : String(error)); return 1; })
             .finally(async () => {

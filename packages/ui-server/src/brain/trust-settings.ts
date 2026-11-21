@@ -8,7 +8,7 @@ import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { openGovernancePolicyAnchored, verifyGovernancePolicyAnchored, parseGovernancePolicy, TrustedSourcesSchema, TrustRuleSchema,
-  TRUST_RUNTIME_CAPABILITIES, type TrustRule, type AnchoredGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
+  TRUST_RUNTIME_CAPABILITIES, GovernancePolicyReadError, type TrustRule, type AnchoredGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
 import { BRAIN_LOCK_KEY, type KeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { procedureCaller, type SqliteWriter } from "../db/write-worker.js";
 import { publishProtectedPolicy } from "./policy-publication.js";
@@ -36,10 +36,14 @@ export class TrustSettingsError extends Error {
   constructor(readonly code: string, readonly status: 400 | 403 | 404 | 409 | 503 = 409) { super(code); }
 }
 interface Projection { revision: string; rules: TrustRule[]; policyHash: string | null; error: string | null }
+type LiveProjection = Projection & { readonly ruleInstances: Readonly<Record<string,string>> };
+/** Kept off every strict Settings JSON response; captured atomically with its projection. */
+const withInstances = (projection:Projection,instances:Readonly<Record<string,string>>):LiveProjection =>
+  Object.defineProperty(projection,"ruleInstances",{value:Object.freeze(instances),enumerable:false}) as LiveProjection;
 interface Receipt {
   version: 1; requestId: string; operationId: string; stage: "prepared" | "file_published" | "committed" | "partial" | "unknown" | "refused";
   publication: "not_published" | "proved" | "unknown"; ruleId: string; publishedTrustRevision: string | null;
-  currentRule: "present" | "removed" | "changed" | "unknown"; enforcement: "unavailable"; reason: string | null;
+  currentRule: "present" | "removed" | "changed" | "unknown"; enforcement: "unavailable" | "enforced"; reason: string | null;
 }
 interface Payload { input: Prepare; reviewId: string; proposed: string; proposedHash: string; base: string | null; topology: string; rule: TrustRule | null; githubIdentity?: TrustGitHubIdentity }
 interface Row { principal_id: string; brain_id: string; authority: string; expires_at: number; retain_until: number; payload: string; stage: string; proof: string | null; receipt: string }
@@ -82,6 +86,8 @@ export function createTrustSettings(options: {
   authority(principalId: string): string | null;
   observe(operationId: string, operation: (publish?: (write: () => void) => Promise<void>) => void | Promise<void>): Promise<void>;
   ownerRoot?: Readonly<ReferenceOwnerRoot>;
+  /** The composed host has installed the origin admission and stream fences. */
+  originEnforcement?: true;
   github?: ReturnType<typeof createTrustGitHubIdentity>;
   now?: () => number;
   /** Host-only deterministic crash/race injection, never wired from HTTP. */
@@ -91,34 +97,86 @@ export function createTrustSettings(options: {
   try { root = realpathSync(options.root); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; root = resolve(options.root); }
   const brain = hash(root);
   const capabilities = { ...TRUST_RUNTIME_CAPABILITIES, repositoryIdentity: !!options.github,
-    readOnlyReason: "Runtime trust enforcement is unavailable" };
+    originRules: options.originEnforcement === true, recipientRules: options.originEnforcement === true, readOnlyReason: options.originEnforcement ? null : "Runtime trust enforcement is unavailable" };
   const call = procedureCaller(options.db, writes, undefined, options.writer), now = options.now ?? Date.now;
   const authority = (principal: string, expected?: string) => {
     const value = options.authority(principal);
     if (!value || (expected !== undefined && expected !== value)) throw new TrustSettingsError("unauthorized", 403);
     return value;
   };
-  const projection = (): Projection => {
-    const row = options.db.query("SELECT * FROM trust_settings_projection WHERE brain_id=?").get(brain) as { revision: string; rules: string; policy_hash: string | null; error: string | null } | null;
-    return row ? { revision: row.revision, rules: JSON.parse(row.rules), policyHash: row.policy_hash, error: row.error } : { revision: "0", rules: [], policyHash: null, error: null };
+  const projection = (): LiveProjection => {
+    const row = options.db.query("SELECT * FROM trust_settings_projection WHERE brain_id=?").get(brain) as { revision: string; rules: string; policy_hash: string | null; error: string | null; rule_instances:string } | null;
+    return row ? withInstances({ revision: row.revision, rules: JSON.parse(row.rules), policyHash: row.policy_hash, error: row.error },JSON.parse(row.rule_instances))
+      : withInstances({ revision: "0", rules: [], policyHash: null, error: null },{});
   };
-  const refresh = async (): Promise<Projection> => {
-    const old = projection(); let target: AnchoredGovernancePolicy | undefined;
-    let rules: TrustRule[], policyHash: string | null;
+  const listeners = new Set<() => void>();
+  type Observation = { kind: "valid"; rules: TrustRule[]; policyHash: string | null } | { kind: "unavailable" };
+  let observed: { generation: string; value: Observation } | undefined;
+  let retained: LiveProjection | undefined, retainedFor: Observation | undefined;
+  let liveCache: { observation: Observation; base: LiveProjection; value: LiveProjection } | undefined;
+  // Metadata is the per-chunk fence. Include every ancestry identity and the
+  // file's nanosecond change identity, without reading policy bytes or SQLite.
+  const generation = () => [root, join(root, "context"), join(root, "context/policies"), join(root, "context/policies/governance.md")].map((path, index) => {
+    try {
+      const info = lstatSync(path, { bigint: true });
+      return [info.dev, info.ino, info.mode, info.nlink, ...(index === 3 ? [info.size, info.mtimeNs, info.ctimeNs] : [])].map(String).join(":");
+    } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return "missing"; throw error; }
+  }).join("|");
+  /** One state machine for live reads and durable refresh. Changed verification
+   * always fences; stable invalid/unreadable bytes retain last-valid evidence. */
+  const observePolicy = (): Observation => {
+    let before: string;
+    try { before = generation(); } catch { return { kind: "unavailable" }; }
+    if (observed?.generation === before) return observed.value;
+    let target: AnchoredGovernancePolicy | undefined, value: Observation;
     try {
       target = openGovernancePolicyAnchored(root);
-      policyHash = target.bytes === null ? null : hash(target.bytes); verifyGovernancePolicyAnchored(target, policyHash);
+      const policyHash = target.bytes === null ? null : hash(target.bytes);
+      verifyGovernancePolicyAnchored(target, policyHash);
       const checked = target.bytes === null ? null : parseGovernancePolicy(target.bytes);
-      if (checked && !checked.ok) throw new Error("invalid");
-      rules = checked?.effective.taint.trusted_sources ?? [];
+      value = checked && !checked.ok ? { kind: "unavailable" }
+        : { kind: "valid", rules: checked?.effective.taint.trusted_sources ?? [], policyHash };
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") { rules = []; policyHash = null; }
-      else { await call("projection", brain, old.revision, JSON.stringify(old.rules), old.policyHash, "policy_unavailable"); return { ...old, error: "policy_unavailable" }; }
+      if (error instanceof GovernancePolicyReadError && ["changed", "mismatch", "ancestry"].includes(error.refusal))
+        throw new TrustSettingsError("stale_revision");
+      value = (error as NodeJS.ErrnoException).code === "ENOENT" ? { kind: "valid", rules: [], policyHash: null } : { kind: "unavailable" };
     } finally { target?.close(); }
+    // Also catch replacement around an unreadable/invalid snapshot or after
+    // the anchored verification. Never memoize a raced observation as stable.
+    let after: string;
+    try { after = generation(); } catch { throw new TrustSettingsError("stale_revision"); }
+    if (after !== before) throw new TrustSettingsError("stale_revision");
+    observed = { generation: after, value }; return value;
+  };
+  const freshProjection = (): LiveProjection => {
+    const observation = observePolicy();
+    if (observation.kind === "unavailable") { const p = projection(); return withInstances({ ...p, error: "policy_unavailable" },p.ruleInstances); }
+    // An unverified projection is never cached: another reader may be seeing
+    // the published file while its writer is still committing the projection.
+    const base = retained && retainedFor === observation ? retained : projection();
+    if (liveCache?.observation === observation && liveCache.base === base) return liveCache.value;
+    if (observation.kind === "valid" && JSON.stringify(observation.rules) !== JSON.stringify(base.rules)) throw new TrustSettingsError("stale_revision");
+    retained = base; retainedFor = observation;
+    const value = withInstances({ ...base, policyHash: observation.policyHash, error: null },base.ruleInstances);
+    liveCache = { observation, base, value }; return value;
+  };
+  const live = { read: freshProjection, revision: () => freshProjection().revision,
+    refresh: (signal?: AbortSignal) => options.lock.withLock(BRAIN_LOCK_KEY, () => { signal?.throwIfAborted(); return refresh(); }, { signal }), subscribe(changed: () => void) { listeners.add(changed); return () => { listeners.delete(changed); }; } };
+  const refresh = async (): Promise<Projection> => {
+    const old = projection(), value = observePolicy();
+    if (value.kind === "unavailable") {
+      const instances = await call<Record<string,string>>("projection", brain, old.revision, JSON.stringify(old.rules), old.policyHash, "policy_unavailable");
+      const next = withInstances({ ...old, error: "policy_unavailable" },instances);
+      retained = next; retainedFor = value; return freshProjection();
+    }
+    const { rules, policyHash } = value;
     const changed = JSON.stringify(old.rules) !== JSON.stringify(rules);
     if (changed && BigInt(old.revision) >= MAX_TRUST_REVISION) throw new TrustSettingsError("capacity", 503);
     const next = { revision: changed ? String(BigInt(old.revision) + 1n) : old.revision, rules, policyHash, error: null };
-    await call("projection", brain, next.revision, JSON.stringify(rules), policyHash, null); return next;
+    const instances = await call<Record<string,string>>("projection", brain, next.revision, JSON.stringify(rules), policyHash, null);
+    retained = withInstances(next,instances); retainedFor = value;
+    if (changed) for (const listener of listeners) listener();
+    return freshProjection();
   };
   const row = (principal: string, request: string): Row => {
     authority(principal);
@@ -145,6 +203,9 @@ export function createTrustSettings(options: {
     });
   };
   return {
+    live,
+    /** The other protected publisher already owns the shared brain lock. */
+    refreshLocked: refresh,
     /** Live trust-only projection for future admissions. Ordinary policy snapshots
      * remain owned by their admitted turn; this never mutates them. */
     async snapshot() { return options.lock.withLock(BRAIN_LOCK_KEY, refresh); },
@@ -271,8 +332,11 @@ export function createTrustSettings(options: {
           await options.checkpoint?.("file_published");
           const latest = await refresh(); row(principal, input.requestId);
           if (latest.policyHash === payload.proposedHash) receipt.publishedTrustRevision = latest.revision;
-          // No runtime source/recipient enforcement exists in this slice (#3609).
-          receipt.stage = "partial"; receipt.reason = "policy_saved_runtime_enforcement_unavailable";
+          const changedRule = payload.rule ?? p.rules.find(rule => rule.id === receipt.ruleId);
+          const supported = options.originEnforcement === true && !latest.error && latest.policyHash === payload.proposedHash && (changedRule?.selector.kind === "web_origin" || changedRule?.selector.kind === "tunnel_authority");
+          receipt.enforcement = supported ? "enforced" : "unavailable";
+          receipt.stage = supported ? "committed" : "partial";
+          receipt.reason = supported ? null : "policy_saved_runtime_enforcement_unavailable";
           await save("committed"); await options.checkpoint?.("committed");
         } catch (error) {
           publicationOpen = false;

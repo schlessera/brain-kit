@@ -1,12 +1,16 @@
+import { readReceivedHead } from "./relay-response.js";
+import { chargeReceivedBytes } from "./egress-accounting.js";
 /** Concrete host-owned HTTP/CONNECT transport for one turn; no TLS interception. */
 import { createServer, request as httpRequest, type IncomingMessage } from "node:http";
 import { BlockList, connect, isIP, type Socket } from "node:net";
 import { lookup as dnsLookup } from "node:dns/promises";
 import { chmodSync, chownSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { safetyRecordSchema } from "../safety.js";
+import { createEgressOperation, TransportHandoffFailed } from "./egress-operation.js";
 import { workerIdentityHelper } from "./worker-identity.js";
 import { join } from "node:path";
-import { safetyAdmissionRefusal, type AdmissionSafety, type AdmissionSafetySnapshot } from "./admission-safety.js";
+import { safetySnapshotRefusal, type AdmissionSafety, type AdmissionSafetySnapshot } from "./admission-safety.js";
 
 export const WORKER_EGRESS_DIR = "/run/brain-egress";
 export const WORKER_EGRESS_SOCKET = `${WORKER_EGRESS_DIR}/proxy.sock`;
@@ -15,6 +19,35 @@ export const WORKER_EGRESS_TRANSPORT_ENV = Object.freeze(["HTTP_PROXY", "HTTPS_P
   "http_proxy", "https_proxy", "all_proxy", "no_proxy", "GIT_SSH_COMMAND"]);
 /** The trusted in-namespace bootstrap that forwards loopback TCP to `WORKER_EGRESS_SOCKET`, then runs a command behind it. */
 export function egressBootstrapEntry(): string { return Bun.resolveSync("./egress-worker-entry", import.meta.dir); }
+export type EgressFailureReason = "budget" | "safety_changed" | "policy_denied" | "unavailable" | "cancelled";
+export type EgressChargeFailure = { ok: false; reason: EgressFailureReason };
+export type EgressChargeResult = { ok: true } | EgressChargeFailure;
+const FAILURE_DETAILS = {
+  budget: { reason:"max_bytes_per_turn",status:403,message:"egress limit exceeded" },
+  safety_changed: { reason:"safety_changed",status:403,message:"safety or authority changed" },
+  policy_denied: { reason:"policy_denied",status:403,message:"network policy refused the request" },
+  unavailable: { reason:"egress_unavailable",status:503,message:"egress unavailable" },
+  cancelled: { reason:"cancelled",status:499,message:"request cancelled" },
+} as const;
+export function egressChargeRefusal(failure: EgressChargeFailure, subject: string) {
+  const detail=FAILURE_DETAILS[failure.reason];return {...detail,message:`${subject} ${detail.message}`};
+}
+/** Snapshot the failure site before finish() aborts its own operation signal. */
+export function captureEgressFailure(signal:AbortSignal,operation?:{failure():EgressChargeFailure|undefined}) {
+  const failure=operation?.failure() ?? (signal.aborted?{ok:false as const,reason:"cancelled" as const}:undefined);
+  return failure?{failure,outcome:"cancelled" as const,status:egressChargeRefusal(failure,"Network").status}
+    :{failure:undefined,outcome:"failed" as const,status:502 as const};
+}
+/** Capture the category with the terminal audit decision, before abort listeners run. */
+function terminalFailure(outcome: EgressRecord["outcome"], reason?: string): EgressChargeFailure | undefined {
+  if (outcome === "completed") return undefined;
+  const category: EgressFailureReason = reason === "max_bytes_per_turn" || reason === "max_reference_wire_bytes" ? "budget"
+    : reason === "safety_changed" || reason === "source_trust_changed" ? "safety_changed"
+    : reason === "egress_unavailable" || reason === "session_binding_unavailable" || outcome === "failed" ? "unavailable"
+    : outcome === "cancelled" ? "cancelled" : "policy_denied";
+  return Object.freeze({ok:false,reason:category});
+}
+export type EgressRecipientAuthority = {kind:"rule";admission:{ruleId:string;policyHash:string;trustRevision:string;collectionRevision:string;instance:string}} | {kind:"approval"|"allowance"};
 export interface EgressRecord {
   /** Host identity, shared with admission and terminal observation; never a tool correlation. */
   connectionId?: string;
@@ -24,6 +57,11 @@ export interface EgressRecord {
   provider?: true;
   /** Host-managed acquisition only; returned immutable content has its own read evidence. */
   managedReference?: true;
+  /** Explicit Network card approval, independent of source trust. */
+  recipientApproved?: true;
+  /** False for charged preparation that never crossed the dispatch boundary. */
+  dispatched?: boolean;
+  failureReason?: EgressFailureReason;
   method: string;
   host: string;
   port: number;
@@ -39,6 +77,10 @@ export interface EgressRecord {
 export interface EgressProxyOptions {
   /** Host-owned effective state. No request header or concurrent operation supplies authority. */
   admissionSafety?: AdmissionSafety;
+  /** Exact host-owned write reservations of this connection's approved card peers. */
+  pendingReservations?(connectionId:string):readonly string[];
+  /** Host source decision remains valid before each delivered byte. */
+  inputCurrent?(connectionId: string): boolean;
   mode: "record" | "allowlist";
   /** Exact DNS names/IPs or *.suffix; deny always wins. */
   allow: readonly string[];
@@ -59,7 +101,10 @@ export interface EgressProxyOptions {
    * anything but `true`, refuses.
    */
   taint?: { allow: readonly string[]; tainted(connectionId?: string): boolean; contacted(host: string): boolean;
-    approve?(destination: { host: string; port: number; method: string }, signal: AbortSignal): Promise<boolean>;
+    /** Immutable evidence/authority marker; excludes inputs admitted under this exact shared card. */
+    approvalRevision?(connectionId?: string, kind?: "network" | "outward"): string;
+    recipient?(destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }): boolean | Extract<EgressRecipientAuthority,{kind:"rule"}>["admission"];
+    approve?(destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }, signal: AbortSignal, connectionId?: string): Promise<boolean>;
     /** What tainted the session, as "it …" completes it, for a refusal's message (#3431). */
     cause?(): string | null };
   /**
@@ -70,7 +115,8 @@ export interface EgressProxyOptions {
    */
   admitted?(destination: { host: string; port: number; method: string; inference: boolean; provider: boolean; managedReference: boolean; connectionId: string; protocol?: string }): unknown;
   /** Synchronous notification only after final admission, immediately before dispatch. */
-  committed?(destination: { host: string; connectionId: string; inference: boolean; provider: boolean; managedReference: boolean }): void;
+  preparing?(destination: { host: string; port: number; method: string; protocol: string; connectionId: string; inference: boolean; provider: boolean; managedReference: boolean; recipientApproved: boolean }): void;
+  committed?(destination: { host: string; port: number; method: string; protocol: string; connectionId: string; inference: boolean; provider: boolean; managedReference: boolean; recipientApproved: boolean; recipientAuthority: EgressRecipientAuthority }): void;
   signal?: AbortSignal;
   /**
    * Destination address policy (#3687). When set, the proxy resolves every
@@ -125,10 +171,22 @@ export function egressAddressRefusal(address: string, allow?: BlockList): "metad
   if (NON_PUBLIC.check(value, family) && !allow?.check(value, family)) return "private_destination";
   return null;
 }
-const hostname = (value: string) => value.toLowerCase().replace(/\.$/, "");
+export const canonicalEgressHost = (value: string) => {
+  const normalized = value.toLowerCase().replace(/\.$/, "");
+  const host = normalized.startsWith("[") && normalized.endsWith("]") ? normalized.slice(1, -1) : normalized;
+  return isIP(host) === 6 ? new URL(`http://[${host}]`).hostname.slice(1, -1) : host;
+};
+/** The history wire schema is also the host's destination admission validator. */
+export function validatedEgressProvenance(destination:{method:string;protocol?:string;host:string;port:number}) {
+  const host=canonicalEgressHost(destination.host),port=destination.port;
+  if(destination.method!=="CONNECT"&&destination.protocol!=="http:"&&destination.protocol!=="https:")throw new Error("Invalid destination protocol");
+  return safetyRecordSchema.options[0].shape.provenance.parse(destination.method==="CONNECT"
+    ? {kind:"tunnel_authority",authority:{host,port},verifiedBy:"host_proxy"}
+    : {kind:"web_origin",origin:{scheme:destination.protocol==="https:"?"https":"http",host,port},verifiedBy:"host_transport"});
+}
 function matches(host: string, patterns: readonly string[]): boolean {
   return patterns.some(value => {
-    const pattern = hostname(value);
+    const pattern = canonicalEgressHost(value);
     return pattern.startsWith("*.") ? host.endsWith(pattern.slice(1)) && host !== pattern.slice(2) : host === pattern;
   });
 }
@@ -141,11 +199,13 @@ function matches(host: string, patterns: readonly string[]): boolean {
  */
 export interface EgressRefusal {
   cause: "denied_host" | "not_allowlisted" | "byte_cap" | "taint_allowlist" | "outward_not_approved" | "private_destination" | "destination_port"
-    | "call_not_admitted";
+    | "call_not_admitted" | "safety_changed" | "egress_unavailable";
   message: string;
 }
 function describeRefusal(reason: string | undefined, host: string, denied: boolean, tainted: string | null | undefined): EgressRefusal | undefined {
   switch (reason) {
+    case "safety_changed": case "source_trust_changed": return { cause: "safety_changed", message: "Blocked: this turn's safety or authority changed. A fresh request needs a fresh decision." };
+    case "egress_unavailable": return { cause: "egress_unavailable", message: "Blocked: this turn's network admission is unavailable because safety recording could not be verified." };
     case "taint_not_approved": return { cause: "taint_allowlist",
       message: "Blocked: this session read untrusted content, this host is outside its allow-list, and the user declined the connection. Do not retry it; say what you needed it for." };
     case "taint_not_allowed": return { cause: "taint_allowlist",
@@ -174,6 +234,7 @@ const REFUSAL_STATUS: Readonly<Record<EgressRefusal["cause"], string>> = {
   outward_not_approved: "Forbidden - outward connection not approved",
   private_destination: "Forbidden - not a public web address", destination_port: "Forbidden - destination port not allowed",
   call_not_admitted: "Forbidden - not admitted for this call",
+  safety_changed: "Forbidden - safety or authority changed", egress_unavailable: "Service Unavailable - safety recording unavailable",
 };
 
 /**
@@ -182,13 +243,16 @@ const REFUSAL_STATUS: Readonly<Record<EgressRefusal["cause"], string>> = {
  * other failure of the hook is `failed` with `proxy_error`.
  */
 export class EgressAdmissionRefused extends Error {
-  constructor(message = "The host did not admit this connection.") { super(message); this.name = "EgressAdmissionRefused"; }
+  constructor(message = "The host did not admit this connection.", readonly reason: "call_not_admitted" | "source_trust_changed" | "egress_unavailable" = "call_not_admitted") { super(message); this.name = "EgressAdmissionRefused"; }
 }
 /** One refused connection's 403, with its reason when it has one. */
-function refusalHead(refusal: EgressRefusal | undefined, reason: string | undefined): { status: string; body: string } | undefined {
-  if (!refusal) return undefined;
+function refusalHead(refusal: EgressRefusal | undefined, reason: string | undefined, failure?: EgressChargeFailure): { code: number; status: string; body: string } | undefined {
+  if (!refusal) {
+    if (!failure) return undefined; const detail=egressChargeRefusal(failure,"Network");
+    return {code:detail.status,status:detail.status===503?"Service Unavailable":detail.status===499?"Client Closed Request":"Forbidden",body:detail.message+"\n"};
+  }
   const status = reason === "taint_not_approved" ? "Forbidden - declined by the user" : REFUSAL_STATUS[refusal.cause];
-  return { status, body: `${refusal.message}\n` };
+  return { code: refusal.cause === "egress_unavailable" ? 503 : 403, status, body: `${refusal.message}\n` };
 }
 /** No header controlled by the peer can select a second upstream or carry proxy authority. */
 const hopHeaders = new Set(["proxy-authorization", "proxy-connection", "connection", "keep-alive", "te", "trailer", "transfer-encoding", "upgrade"]);
@@ -200,7 +264,7 @@ function headers(message: IncomingMessage): Record<string, string | string[]> {
 export async function startEgressProxy(options: EgressProxyOptions) {
   if (!Number.isSafeInteger(options.maxBytes) || options.maxBytes < 0) throw new Error("Egress maxBytes must be a finite nonnegative integer");
   for (const pattern of [...options.allow, ...options.deny, ...options.outwardHosts, ...options.taint?.allow ?? []]) {
-    if (!/^(?:\*\.)?[a-zA-Z0-9.-]+$/.test(pattern) || pattern.includes("..")) throw new Error("Invalid egress host pattern");
+    if ((!isIP(canonicalEgressHost(pattern)) && !/^(?:\*\.)?[a-zA-Z0-9.-]+$/.test(pattern)) || pattern.includes("..")) throw new Error("Invalid egress host pattern");
   }
   const destinationPorts = options.destinations ? new Set(options.destinations.ports ?? [80, 443]) : undefined;
   const allowRanges = options.destinations ? rangeList(options.destinations.allowRanges ?? []) : undefined;
@@ -215,8 +279,11 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     chmodSync(dir, separateIdentity ? 0o750 : 0o700);
   } catch (error) { rmSync(dir, { recursive: true, force: true }); throw error; }
   const socketPath = join(dir, "proxy.sock");
+  const inputCurrent = (id: string) => { try { return options.inputCurrent?.(id) !== false; } catch { return false; } };
   const connections = new Set<Socket>();
   const controllers = new Set<AbortController>();
+  const lifecycles = new Set<ReturnType<typeof createEgressOperation>>();
+  const inputs = new Map<string, () => void>();
   let usedBytes = 0, stopped = false;
   const server = createServer();
   server.maxHeadersCount = 100;
@@ -234,30 +301,48 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     let snapshot: AdmissionSafetySnapshot | undefined;
     const started = performance.now();
     const controller = new AbortController(); controllers.add(controller);
-    const host = hostname(url.hostname), port = Number(url.port || (url.protocol === "https:" ? "443" : "80"));
-    let bytes = 0, finished = false;
+    // Matching may ignore a DNS root dot; resolution must preserve it.
+    const dialHost = url.hostname.startsWith("[") ? url.hostname.slice(1, -1) : url.hostname;
+    const host = canonicalEgressHost(dialHost), port = Number(url.port || (url.protocol === "https:" ? "443" : "80"));
+    let bytes = 0, granted = false;
     /** The checked address this connection is pinned to, under a destination policy. */
     let pinned: { address: string; family: number } | undefined;
     let finalOutcome: EgressRecord["outcome"] | undefined, finalReason: string | undefined;
-    const finish = (outcome: EgressRecord["outcome"], reason?: string) => {
-      if (finished) return;
-      finished = true; finalOutcome = outcome; finalReason = reason; controllers.delete(controller); controller.abort();
-      // Records never contain request headers, content, credentials or query strings.
-      try { options.observe({ connectionId, ...(inference ? { inference: true } : {}), ...(provider ? { provider: true } : {}), ...(managedReference ? { managedReference: true } : {}), method, host, port, ...(method === "CONNECT" ? {} : { path: url.pathname }), bytes,
-        accounting: method === "CONNECT" ? "opaque_bytes" : "http_wire_bound",
-        durationMs: performance.now() - started, outcome, ...(reason ? { reason } : {}) }); } catch { /* A recorder cannot keep a connection alive. */ }
-    };
+    let failure: EgressChargeFailure | undefined;
+    const lifecycle = createEgressOperation({
+      decide(terminal) {
+        finalOutcome=terminal.outcome;finalReason=terminal.reason;failure=terminalFailure(terminal.outcome,terminal.reason);
+        controllers.delete(controller);inputs.delete(connectionId);
+      },
+      abort:()=>controller.abort(),
+      observe({outcome,reason,dispatched}) {
+        lifecycles.delete(lifecycle);
+        // Records never contain request headers, content, credentials or query strings.
+        try { options.observe({connectionId,...(inference?{inference:true}:{}),...(provider?{provider:true}:{}),...(managedReference?{managedReference:true}:{}),method,host,port,dispatched,
+          ...(failure?{failureReason:failure.reason}:{}),...(dispatched&&granted?{recipientApproved:true}:{}),...(method==="CONNECT"?{}:{path:url.pathname}),bytes,
+          accounting:method==="CONNECT"?"opaque_bytes":"http_wire_bound",durationMs:performance.now()-started,outcome,...(reason?{reason}:{})}); } catch { /* A recorder cannot keep a connection alive. */ }
+      },
+    });
+    lifecycles.add(lifecycle);
+    const finish=lifecycle.finish;
+    const revokeInput = () => { finish("cancelled", "source_trust_changed"); };
+    inputs.set(connectionId, revokeInput);
     // Turn cleanup must observe final audit failures before it publishes its
     // terminal outcome; socket close callbacks run only after stop returns.
-    controller.signal.addEventListener("abort", () => finish("cancelled", "turn_cancelled"), { once: true });
-    const charge = (count: number) => {
-      if (finished || stopped) return false;
-      if (count > options.maxBytes - usedBytes) { finish("denied", "max_bytes_per_turn"); return false; }
-      usedBytes += count; bytes += count; return true;
+    controller.signal.addEventListener("abort", () => {
+      const reason=controller.signal.reason;
+      if (reason instanceof EgressAdmissionRefused && reason.reason === "egress_unavailable") finish("denied","egress_unavailable");
+      else finish("cancelled", "turn_cancelled");
+    }, { once: true });
+    const charge = (count: number): EgressChargeResult => {
+      if (!Number.isSafeInteger(count) || count < 0) throw new RangeError("Egress charge bytes must be a nonnegative safe integer");
+      return maySendNow(count) ? { ok: true } : failure ?? {ok:false,reason:"cancelled"};
     };
+    const receive=(count:number):EgressChargeResult=>chargeReceivedBytes(count,{remaining:()=>Math.max(0,options.maxBytes-usedBytes),charge:bytes=>{const result=charge(bytes);return result.ok?undefined:result;}})??{ok:true};
+    const receiveHead=(first:string,rawHeaders:readonly string[]):EgressChargeResult=>readReceivedHead(first,rawHeaders,{remaining:()=>Math.max(0,options.maxBytes-usedBytes),charge:bytes=>{const result=charge(bytes);return result.ok?undefined:result;}})??{ok:true};
     /** One approval wait; cancelling this connection or the turn resolves it as refused. */
-    const approval = async (ask: ((destination: { host: string; port: number; method: string }, signal: AbortSignal) => Promise<boolean>) | undefined) => {
-      if (!ask) return false;
+    const approval = async (ask: ((destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }, signal: AbortSignal) => Promise<boolean>) | undefined) => {
+      if (!ask || !lifecycle.active()) return false;
       let approved = false;
       let cancelled: (() => void) | undefined;
       try {
@@ -266,34 +351,68 @@ export async function startEgressProxy(options: EgressProxyOptions) {
           controller.signal.addEventListener("abort", cancelled, { once: true });
           if (controller.signal.aborted) resolve(false);
         });
-        approved = await Promise.race([ask({ host, port, method }, controller.signal), cancellation]) === true;
+        approved = await Promise.race([ask({ host, port, method, protocol: url.protocol, managedReference }, controller.signal), cancellation]) === true;
       } catch { /* A failed approval denies. */ }
       finally { if (cancelled) controller.signal.removeEventListener("abort", cancelled); }
       return approved && !controller.signal.aborted && !stopped;
     };
     // An approval of this destination outside the taint allow-list (#3430).
-    let granted = false;
+    let outwardApproved = false, grantRevision: string | undefined, outwardRevision: string | undefined;
+    const readSafety=()=>options.admissionSafety?.read(options.pendingReservations?.(connectionId));
+    const approvalRevision = (own = false, outward = false) => options.taint?.approvalRevision?.(own || !outward ? connectionId : undefined, outward ? "outward" : "network") ?? JSON.stringify(readSafety());
+    const grantCurrent = (own = false) => {
+      if (!granted && !outwardApproved) return true;
+      try {
+        // After handoff, an explicit Network answer is the standing session grant.
+        const sessionGrant=granted&&lifecycle.dispatched()&&options.taint?.contacted(host);
+        return (!granted||sessionGrant||grantRevision===approvalRevision(own))&&(!outwardApproved||outwardRevision===approvalRevision(own,true));
+      } catch { return false; }
+    };
+    // A marker can change because recording or authority disappeared while a
+    // card was pending. Classify that live failure before a generic stale card.
+    const refuseStaleApproval = () => {
+      try { if (!refuseSafety(readSafety(),snapshot)) finish("denied","safety_changed"); }
+      catch { finish("denied","egress_unavailable"); }
+    };
+    const recipient = { host, port, method, protocol: url.protocol, managedReference };
     // Checked again after an approval wait, during which another connection may taint the session.
     // Inference/provider relays retain G5. Managed references retain ordinary
     // G6 recipient narrowing; repository trust never grants outbound authority.
-    const narrowed = (final = false) => !granted && !inference && !provider && options.taint?.tainted(final ? connectionId : undefined) && !matches(host, options.taint.allow) && !options.taint.contacted(host);
+    const recipientDecision = (final = false): EgressRecipientAuthority | null => {
+      if(granted)return {kind:"approval"};
+      if(inference||provider)return {kind:"allowance"};
+      const rule=options.taint?.recipient?.(recipient);
+      if(rule)return typeof rule === "object" ? {kind:"rule",admission:rule} : {kind:"allowance"};
+      if(!options.taint?.tainted(final?connectionId:undefined)||matches(host,options.taint.allow)||options.taint.contacted(host))return {kind:"allowance"};
+      return null;
+    };
+    const narrowed = (final = false) => recipientDecision(final) === null;
     const narrowing = async () => {
       if (!narrowed()) return true;
-      if (options.taint?.approve) granted = await approval(options.taint.approve.bind(options.taint));
+      if (options.taint?.approve) { grantRevision = approvalRevision(); granted = await approval((destination, signal) => options.taint!.approve!(destination, signal, connectionId));
+        if (granted && !grantCurrent()) { refuseStaleApproval(); return false; } }
       if (!granted) finish(stopped ? "cancelled" : "denied", options.taint?.approve ? "taint_not_approved" : "taint_not_allowed");
       return granted;
     };
-    const admit = async () => {
-      snapshot = options.admissionSafety?.read();
-      if (safetyAdmissionRefusal(options.admissionSafety, snapshot)) { finish("denied", "safety_changed"); return false; }
+    const refuseSafety = (current: AdmissionSafetySnapshot | undefined, before?: AdmissionSafetySnapshot) => {
+      const reason = current && !current.recordingAvailable && current.operationRecordingAvailable !== true ? "unavailable" : safetySnapshotRefusal(current,before) ? "safety_changed" : undefined;
+      if (!reason) return false;
+      finish("denied",egressChargeRefusal({ok:false,reason},"Network").reason); return true;
+    };
+    const admit = () => lifecycle.admit(async () => {
+      if (!lifecycle.active()) return false;
+      try { snapshot = readSafety(); }
+      catch { finish("denied","egress_unavailable");return false; }
+      if (refuseSafety(snapshot,snapshot)) return false;
       if (stopped || options.signal?.aborted) { finish("cancelled", "turn_cancelled"); return false; }
       if (matches(host, options.deny) || options.mode === "allowlist" && !matches(host, options.allow)) { finish("denied", "destination_not_allowed"); return false; }
       if (usedBytes >= options.maxBytes) { finish("denied", "max_bytes_per_turn"); return false; }
       if (destinationPorts) {
         if (!destinationPorts.has(port)) { finish("denied", "destination_port"); return false; }
         let addresses: ReadonlyArray<{ address: string; family: number }>;
-        try { addresses = isIP(host) ? [{ address: host, family: isIP(host) }] : await resolve(host); }
+        try { addresses = isIP(dialHost) ? [{ address: dialHost, family: isIP(dialHost) }] : await resolve(dialHost); }
         catch { finish("denied", "unresolved_destination"); return false; }
+        if (!lifecycle.active()) return false;
         if (!addresses.length) { finish("denied", "unresolved_destination"); return false; }
         // Every address must pass: a mixed answer is refused, not narrowed.
         for (const entry of addresses) {
@@ -302,120 +421,168 @@ export async function startEgressProxy(options: EgressProxyOptions) {
         }
         pinned = addresses[0];
       }
-      if (!await narrowing()) return false;
+      if (!await narrowing() || !lifecycle.active()) return false;
       if (matches(host, options.outwardHosts) || options.outwardPorts?.includes(port)) {
-        if (!await approval(options.approveOutward)) { finish(stopped ? "cancelled" : "denied", "outward_not_approved"); return false; }
+        outwardRevision = approvalRevision(false,true);
+        const approveOutward=options.approveOutward;
+        if (!await approval(approveOutward ? ({host,port,method},signal)=>approveOutward({host,port,method},signal) : undefined)) { finish(stopped ? "cancelled" : "denied", "outward_not_approved"); return false; }
+        outwardApproved = true;
+        if (!grantCurrent()) { refuseStaleApproval(); return false; }
       }
-      if (!await narrowing()) return false;
+      if (!await narrowing() || !lifecycle.active()) return false;
       // A recorder failure aborts the turn through its own signal; it cannot admit.
-      try { await options.admitted?.({ host, port, method, inference, provider, managedReference, connectionId, protocol:url.protocol }); }
-      catch (error) { if (error instanceof EgressAdmissionRefused) finish("denied", "call_not_admitted"); else finish("failed", "proxy_error"); return false; }
+      try { if (!await lifecycle.effect(() => options.admitted?.({ host, port, method, inference, provider, managedReference, connectionId, protocol:url.protocol }))) return false; }
+      catch (error) { if (error instanceof EgressAdmissionRefused && error.reason === "source_trust_changed") revokeInput(); else if (error instanceof EgressAdmissionRefused) finish("denied", error.reason); else finish("failed", "proxy_error"); return false; }
       if (stopped || controller.signal.aborted) { finish("cancelled", "turn_cancelled"); return false; }
       return true;
-    };
+    });
     // No await may intervene between this check and connect/request/fetch.
-    const commit = () => {
-      if (stopped || controller.signal.aborted || safetyAdmissionRefusal(options.admissionSafety, snapshot)) { finish("denied", "safety_changed"); return false; }
-      if (usedBytes >= options.maxBytes) { finish("denied", "max_bytes_per_turn"); return false; }
-      if (narrowed(true)) { finish("denied", "taint_not_allowed"); return false; }
-      options.committed?.({ host, connectionId, inference, provider, managedReference });
-      return true;
+    const maySendNow = (count: number): EgressRecipientAuthority | null => {
+      try {
+      if (!lifecycle.active() || stopped || controller.signal.aborted) { finish("cancelled", "turn_cancelled"); return null; }
+      const stateRefusal=lifecycle.sendRefusal(count,options.maxBytes-usedBytes);
+      if (stateRefusal) { finish(stateRefusal==="turn_cancelled"?"cancelled":"denied",stateRefusal);return null; }
+      const current = readSafety();
+      if (refuseSafety(current,snapshot)) return null;
+      if (!grantCurrent(true)) { refuseStaleApproval(); return null; }
+      if (!inputCurrent(connectionId)) { revokeInput(); return null; }
+      const authority=recipientDecision(true);
+      if (!authority) { finish("denied", "taint_not_allowed"); return null; }
+      usedBytes += count; bytes += count;
+      return authority;
+      } catch { finish("denied", "egress_unavailable"); return null; }
+    };
+    const prepare = (): EgressChargeResult => {
+      try{return lifecycle.prepare(()=>options.preparing?.({...recipient,connectionId,inference,provider,recipientApproved:granted}))?{ok:true}:failure??{ok:false,reason:"cancelled"};}
+      catch{finish("denied","egress_unavailable");return failure!;}
+    };
+    const dispatch = (send:()=>void): EgressChargeResult => {
+      const prepared=prepare();if(!prepared.ok)return prepared;
+      let authority:EgressRecipientAuthority|null=null;
+      try{return lifecycle.dispatch(options.maxBytes-usedBytes,()=>Boolean(authority=maySendNow(0)),send,()=>options.committed?.({...recipient,connectionId,inference,provider,recipientApproved:granted,recipientAuthority:authority!}))?{ok:true}:failure??{ok:false,reason:"cancelled"};}
+      catch(error){if(error instanceof TransportHandoffFailed)throw error;finish("failed","upstream_unreachable");throw new Error("Egress transport could not start");}
     };
     /** Why this connection was refused, for the tool that made it; undefined while admitted or for a bare refusal. */
     const refusal = () => {
-      if (finalOutcome !== "denied") return undefined;
+      if (finalOutcome !== "denied" && finalReason !== "source_trust_changed") return undefined;
       let cause: string | null | undefined;
       if (finalReason === "taint_not_allowed") try { cause = options.taint?.cause?.(); } catch { /* The message names no cause. */ }
       return describeRefusal(finalReason, host, matches(host, options.deny), cause);
     };
-    return { finish, charge, admit, commit, refusal, signal: controller.signal, outcome: () => finalOutcome, reason: () => finalReason, pinned: () => pinned };
+    return { host, dialHost, finish, ownCleanup:lifecycle.ownCleanup, charge, receive, receiveHead, admit, prepare, dispatch, refusal, failure:()=>failure, signal: controller.signal, outcome: () => finalOutcome, reason: () => finalReason, pinned: () => pinned };
   }
   server.on("connect", (request, client, head) => {
     client.on("error", () => {});
     let target: URL;
     try {
-      if (!request.url || !/^[a-zA-Z0-9.-]+:[0-9]+$/.test(request.url)) throw new Error();
+      if (!request.url || !/^(?:[a-zA-Z0-9.-]+|\[[0-9a-fA-F:.]+\]):[0-9]+$/.test(request.url)) throw new Error();
       target = new URL(`http://${request.url}`);
-      if (!Number(target.port || 80)) throw new Error();
+      validatedEgressProvenance({method:"CONNECT",protocol:target.protocol,host:target.hostname,port:Number(target.port||80)});
     } catch { client.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n"); return; }
     const op = operation("CONNECT", target);
-    let connected = false;
+    let connected = false, upstream: Socket | undefined;
+    op.signal.addEventListener("abort", () => { if (upstream) { if(connected||op.outcome()!=="failed")client.destroy();upstream.destroy(); } }, { once: true });
     client.once("close", () => op.finish(stopped || !connected ? "cancelled" : "completed"));
-    void (async () => {
-      if (!await op.admit() || client.destroyed || !op.commit()) {
-        const declined = refusalHead(op.refusal(), op.reason());
-        client.end(declined ? `HTTP/1.1 403 ${declined.status}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: ${Buffer.byteLength(declined.body)}\r\nConnection: close\r\n\r\n${declined.body}`
+    const upstreamFailed=()=>{
+      const prior=op.outcome();op.finish("failed","upstream_unreachable");
+      if(connected||(prior&&prior!=="failed")){client.destroy();return;}
+      client.end("HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
+    };
+    const refuseConnect=()=>{
+        const declined = refusalHead(op.refusal(), op.reason(), op.failure());
+        client.end(declined ? `HTTP/1.1 ${declined.code} ${declined.status}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: ${Buffer.byteLength(declined.body)}\r\nConnection: close\r\n\r\n${declined.body}`
           : "HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
-        return;
+    };
+    void (async () => {
+      if (!await op.admit() || client.destroyed || !op.receive(head.length).ok || !op.prepare().ok) {
+        refuseConnect();return;
       }
       const address = op.pinned();
-      const upstream = track(connect({ host: address?.address ?? target.hostname, port: Number(target.port || 80) }));
-      upstream.once("connect", () => {
-        if (stopped || client.destroyed) { upstream.destroy(); return; }
+      const sent=op.dispatch(()=>{upstream=track(connect({host:address?.address??op.dialHost,port:Number(target.port||80),signal:op.signal}));});
+      if(!sent.ok){refuseConnect();return;}
+      const tunnel = upstream!;
+      tunnel.once("connect", () => {
+        if (stopped || op.signal.aborted || client.destroyed || !op.charge(0).ok) { tunnel.destroy(); return; }
         connected = true;
         client.write("HTTP/1.1 200 Connection Established\r\n\r\n");
-        if (head.length) { if (!op.charge(head.length)) { client.destroy(); upstream.destroy(); return; } upstream.write(head); }
-        client.on("data", chunk => { if (!op.charge(chunk.length)) { client.destroy(); upstream.destroy(); return; } if (!upstream.write(chunk)) client.pause(); });
-        upstream.on("data", chunk => { if (!op.charge(chunk.length)) { client.destroy(); upstream.destroy(); return; } if (!client.write(chunk)) upstream.pause(); });
-        upstream.on("drain", () => client.resume()); client.on("drain", () => upstream.resume());
+        if (head.length) tunnel.write(head);
+        client.on("data", chunk => { if (!op.receive(chunk.length).ok) { client.destroy(); tunnel.destroy(); return; } if (!tunnel.write(chunk)) client.pause(); });
+        tunnel.on("data", chunk => { if (!op.receive(chunk.length).ok) { client.destroy(); tunnel.destroy(); return; } if (!client.write(chunk)) tunnel.pause(); });
+        tunnel.on("drain", () => client.resume()); client.on("drain", () => tunnel.resume());
       });
-      upstream.once("error", () => { op.finish("failed", "upstream_unreachable"); client.destroy(); });
-      upstream.once("end", () => client.end());
-      client.once("end", () => upstream.end());
-      client.once("close", () => upstream.destroy());
-      upstream.once("close", () => client.destroy());
-    })().catch(() => { op.finish("failed", "proxy_error"); client.destroy(); });
+      tunnel.once("error",upstreamFailed);
+      tunnel.once("end", () => { if (!op.charge(0).ok) { client.destroy(); tunnel.destroy(); return; } client.end(); });
+      client.once("end", () => { if (!op.charge(0).ok) { client.destroy(); tunnel.destroy(); return; } tunnel.end(); });
+      client.once("close", () => tunnel.destroy());
+      tunnel.once("close", () => {if(connected||op.outcome()!=="failed")client.destroy();});
+    })().catch(error => {if(error instanceof TransportHandoffFailed)upstreamFailed();else{op.finish("failed","proxy_error");client.destroy();}});
   });
   server.on("request", (request, response) => {
     let target: URL;
     try {
       target = new URL(request.url!);
       if (target.protocol !== "http:" || target.username || target.password || target.hash) throw new Error();
+      validatedEgressProvenance({method:request.method??"GET",protocol:target.protocol,host:target.hostname,port:Number(target.port||80)});
     } catch { response.writeHead(400); response.end(); return; }
     const op = operation(request.method ?? "GET", target);
+    op.signal.addEventListener("abort", () => { if (response.headersSent) response.destroy(); }, { once: true });
     response.once("close", () => op.finish(stopped ? "cancelled" : response.writableFinished ? "completed" : "cancelled"));
     const refuse = () => {
-      const declined = refusalHead(op.refusal(), op.reason());
-      if (declined) response.writeHead(403, declined.status, { "content-type": "text/plain; charset=utf-8" }).end(declined.body);
+      if(response.destroyed||response.writableEnded)return;
+      if(response.headersSent){response.destroy();return;}
+      const declined = refusalHead(op.refusal(), op.reason(), op.failure());
+      if (declined) response.writeHead(declined.code, declined.status, { "content-type": "text/plain; charset=utf-8" }).end(declined.body);
       else { response.writeHead(403); response.end(); }
     };
     void (async () => {
-      if (!await op.admit() || response.destroyed || !op.commit()) { refuse(); return; }
+      if (!await op.admit() || response.destroyed) { refuse(); return; }
+      if(!op.receiveHead(`${request.method} ${request.url} HTTP/${request.httpVersion}`,request.rawHeaders).ok){refuse();return;}
       const outgoingHeaders = { ...headers(request), host: target.host, connection: "close" };
-      // Include the complete observable target and headers: a body-only cap
-      // would allow uncharged exfiltration in query strings or header values.
-      // The fixed allowance covers runtime-generated framing fields. Chunk
-      // accounting below additionally covers each HTTP chunk's framing.
-      const headerBytes = (first: string, values: Record<string, string | string[]>) => Buffer.byteLength(first + "\r\n"
-        + Object.entries(values).flatMap(([name, value]) => (Array.isArray(value) ? value : [value]).map(item => `${name}: ${item}\r\n`)).join("") + "\r\n") + 64;
-      if (!op.charge(headerBytes(`${request.method} ${target.pathname}${target.search} HTTP/1.1`, outgoingHeaders))) {
-        refuse(); return;
-      }
       const address = op.pinned();
       // Under a destination policy the request goes to the checked address; Host keeps the name.
       const upstreamTarget = new URL(target);
       if (address) upstreamTarget.hostname = address.family === 6 ? `[${address.address}]` : address.address;
-      const outgoing = httpRequest(upstreamTarget, { method: request.method, headers: outgoingHeaders }, incoming => {
-        if (!op.charge(headerBytes(`HTTP/1.1 ${incoming.statusCode} ${incoming.statusMessage}`, headers(incoming)))) {
+      if (!op.prepare().ok) { refuse(); return; }
+      let outgoing!:ReturnType<typeof httpRequest>;
+      const upstreamFailed=()=>{op.finish("failed","upstream_unreachable");if(!response.headersSent)response.writeHead(502);response.end();};
+      const sendUpstream=(send:()=>void)=>{
+        try{const decision=op.dispatch(send);if(decision.ok)return true;}
+        catch(error){if(error instanceof TransportHandoffFailed){upstreamFailed();return false;}}
+        outgoing?.destroy();if(!response.headersSent)refuse();else response.destroy();return false;
+      };
+      const dispatched=sendUpstream(()=>{outgoing=httpRequest(upstreamTarget, { method: request.method, headers: outgoingHeaders,signal:op.signal }, incoming => {
+        if (!op.receiveHead(`HTTP/${incoming.httpVersion} ${incoming.statusCode} ${incoming.statusMessage}`,incoming.rawHeaders).ok) {
           refuse(); incoming.destroy(); outgoing.destroy(); return;
         }
         const writeHeaders = () => { if (!response.headersSent) response.writeHead(incoming.statusCode ?? 502, headers(incoming)); };
         incoming.on("data", chunk => {
-          if (!op.charge(chunk.length + 16)) {
+          if (!op.receive(chunk.length + 16).ok) {
             if (!response.headersSent) refuse(); else response.destroy();
             incoming.destroy(); outgoing.destroy(); return;
           }
           writeHeaders(); if (!response.write(chunk)) incoming.pause();
         });
         response.on("drain", () => incoming.resume());
-        incoming.once("end", () => { if (!response.destroyed && !response.writableEnded) { writeHeaders(); response.end(); } });
+        incoming.once("end", () => { if (!response.destroyed && !response.writableEnded) { if (!op.charge(0).ok) { response.destroy(); return; } writeHeaders(); response.end(); } });
         incoming.once("error", () => { op.finish("failed", "upstream_response_failed"); response.destroy(); });
+      });});
+      if(!dispatched)return;
+      outgoing.on("information",incoming=>{
+        if(!op.receiveHead(`HTTP/${incoming.httpVersion} ${incoming.statusCode} ${incoming.statusMessage}`,incoming.rawHeaders).ok){refuse();outgoing.destroy();}
       });
-      outgoing.once("error", () => { op.finish("failed", "upstream_unreachable"); if (!response.headersSent) response.writeHead(502); response.end(); });
+      // 101 uses upgrade rather than information; this HTTP path never tunnels it.
+      outgoing.once("upgrade",(incoming,socket,head)=>{
+        socket.on("error",()=>{});
+        const received=op.receiveHead(`HTTP/${incoming.httpVersion} ${incoming.statusCode} ${incoming.statusMessage}`,incoming.rawHeaders);
+        if(received.ok&&head.length)op.receive(head.length);
+        socket.destroy();if(op.failure())refuse();else upstreamFailed();
+      });
+      op.signal.addEventListener("abort", () => { outgoing.destroy(); if (op.outcome() === "cancelled") response.destroy(); }, { once: true });
+      outgoing.once("error",upstreamFailed);
       response.once("close", () => outgoing.destroy());
-      request.on("data", chunk => { if (!op.charge(chunk.length + 16)) { outgoing.destroy(); response.destroy(); return; } if (!outgoing.write(chunk)) request.pause(); });
+      request.on("data", chunk => { if (!op.receive(chunk.length + 16).ok) { outgoing.destroy(); if (!response.headersSent) refuse(); else response.destroy(); return; } let accepted=false;if(!sendUpstream(()=>{accepted=outgoing.write(chunk);}))return;if(!accepted)request.pause(); });
       outgoing.on("drain", () => request.resume());
-      request.once("end", () => outgoing.end());
+      request.once("end", () => { if (!op.charge(0).ok) { outgoing.destroy(); if (!response.headersSent) refuse(); else response.destroy(); return; } sendUpstream(()=>{outgoing.end();}); });
       request.once("error", () => { op.finish("cancelled", "client_disconnected"); outgoing.destroy(); });
     })().catch(() => { op.finish("failed", "proxy_error"); response.destroy(); });
   });
@@ -428,13 +595,17 @@ export async function startEgressProxy(options: EgressProxyOptions) {
   const stop = () => {
     if (stopped) return;
     stopped = true; options.signal?.removeEventListener("abort", stop);
-    for (const controller of controllers) controller.abort();
+    for (const controller of controllers) controller.abort(options.signal?.reason);
     for (const socket of connections) socket.destroy();
     server.close(); rmSync(dir, { recursive: true, force: true });
   };
   options.signal?.addEventListener("abort", stop, { once: true });
   if (options.signal?.aborted) stop();
-  return { dir, socketPath, stop, usedBytes: () => usedBytes, remainingBytes: () => Math.max(0, options.maxBytes - usedBytes),
+  return { dir, socketPath, stop,
+    async settled() { await Promise.all([...lifecycles].map(operation=>operation.settled())); },
+    /** Fence only inputs whose host decision changed; unrelated traffic remains active. */
+    invalidateInputs() { for (const [id, revoke] of inputs) if (!inputCurrent(id)) revoke(); },
+    usedBytes: () => usedBytes, remainingBytes: () => Math.max(0, options.maxBytes - usedBytes),
     /** The existing inference relay shares this turn's admission, counter and audit. */
     inference(method: string, target: URL, signal: AbortSignal) { return relayedOperation(method, target, signal, "inference"); },
     /**
@@ -454,17 +625,16 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     },
   };
   function relayedOperation(method: string, target: URL, signal: AbortSignal, relay: "inference" | "provider" | "reference") {
+    validatedEgressProvenance({method,protocol:target.protocol,host:target.hostname,port:Number(target.port||(target.protocol==="https:"?443:80))});
     const op = operation(method, new URL(target), relay);
     const abort = () => op.finish("cancelled", "client_disconnected");
     signal.addEventListener("abort", abort, { once: true });
+    op.ownCleanup(()=>signal.removeEventListener("abort",abort));
     if (signal.aborted) abort();
-    return { charge: op.charge, signal: op.signal, outcome: op.outcome, refusal: op.refusal, reason: op.reason,
-      admit: async () => !op.signal.aborted && await op.admit() && op.commit(),
-      /** The concrete relay calls this again after its own final async waits. */
-      commit: op.commit,
-      finish(outcome: EgressRecord["outcome"], reason?: string) {
-        signal.removeEventListener("abort", abort); op.finish(outcome, reason);
-      },
+    return { charge: op.charge, signal: op.signal, outcome: op.outcome, refusal: op.refusal, reason: op.reason, failure: op.failure,
+      admit: async () => !op.signal.aborted && await op.admit(),
+      prepare:op.prepare,dispatch:op.dispatch,
+      finish:op.finish,
     };
   }
 }

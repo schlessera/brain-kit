@@ -96,7 +96,7 @@ The explicitly prepared ordinary egress proxy follows that same helper
 selection. Its directory and socket remain owned by the server and use its
 shared primary group, with exact `0750`/`0660` modes; a setgid temporary parent
 cannot choose another IPC group (`const separateIdentity`,
-`packages/ui-sdk/src/server/egress-proxy.ts:132-138`). Without a helper they retain
+`packages/ui-sdk/src/server/egress-proxy.ts:275-281`). Without a helper they retain
 owner-only `0700`/`0600` modes. Before mounting the proxy, the launcher checks
 canonical paths, server ownership, the expected helper group, exact modes and
 socket type. Missing entries, symlinks and widened permissions refuse before
@@ -699,6 +699,11 @@ refuses rather than run git on the host.
   into a private mirror beside the sync mirror, using the sync credential.
   The job's worker reads that mirror through a Git URL rewrite and holds no
   Git credential. Leave the setting empty to fetch nothing.
+- **A module job's GitHub API calls** to those granted GitHub repositories go
+  through a per-run host relay socket (#4259), never a token in the worker. The
+  relay adds `BRAIN_UI_MODULE_GITHUB_TOKEN` (no fallback) and allows writes only
+  where `BRAIN_UI_MODULE_GITHUB_WRITES` enables them per repository. Leave the
+  token unset to refuse every call.
 
 **When the boundary holds.** `governed` is the default profile, so the
 boundary holds wherever `governed` can run, and from then on for good: once
@@ -851,7 +856,7 @@ the host root, `/home`, `/etc`, `/run`, `/var`, `/tmp` or an ancestor of the
 brain. No host home, stored login or `/run` socket is visible.
 
 The worker's only route out is the server-owned inference relay
-(`export function startInferenceRelay(`, `packages/ui-sdk/src/server/inference-relay.ts:73-261`).
+(`export function startInferenceRelay(`, `packages/ui-sdk/src/server/inference-relay.ts:81-254`).
 It is a Unix socket in a private `0700` directory, bind-mounted read-only at
 `/run/brain-inference`. It forwards only `POST` to the provider's inference
 routes, such as `/v1/messages` and `/v1/messages/count_tokens` for Anthropic,
@@ -1668,7 +1673,7 @@ wrappers do not borrow that exemption
 (`commandTaintSource`, `packages/ui-server/src/activity/command-taint.ts:2-27`).
 The first source is kept as a session `taint` governance event, using the same
 SQLite transaction for the existing-source check and write
-(`recordFirstTaint`, `packages/ui-server/src/governance/session-taint.ts:21-27`).
+(`recordFirstTaint`, `packages/ui-server/src/governance/session-taint.ts:22-28`).
 The recorder waits for a tool result and excludes known denied calls; failed
 calls can still return untrusted partial output. It records the source kind
 and tool name, without copying command text or content into the payload. If

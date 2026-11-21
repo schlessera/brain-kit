@@ -603,6 +603,38 @@ credential sent only to `https://github.com`, and a transport worker that
 never mounts the brain
 ([the contract](../integration-contract/package-api.md#module-repositories)).
 
+**The GitHub API of a granted repository — 2026-11-20
+([#4259](https://github.com/schlessera/brain-kit/issues/4259), maintainer ruling
+option 1).** A module job that must read issues or write to them reaches the
+GitHub API through a host relay, never a token in its worker. The relay's grant
+is the read grant above: only the job's granted `github.com` repositories. A
+dedicated host-only credential, `BRAIN_UI_MODULE_GITHUB_TOKEN`, has no fallback
+to `GITHUB_TOKEN`, the sync token or `BRAIN_UI_GITHUB_TOOLS_TOKEN`. Reads are
+REST `GET` and repository-rooted GraphQL queries. Writes are a fixed operation
+set (`issue_comment`, `issue_state`), each enabled per repository by the
+operator's `BRAIN_UI_MODULE_GITHUB_WRITES` in host configuration, so editing
+`brain.config.ts` cannot widen it. The relay is a per-run Unix socket in a
+private server-owned directory, bound read-only into that one worker: only
+that run's worker can reach it, where a loopback port would answer any process
+on the host. A token placed
+in the job's worker and leaving API writes to the operator's own host jobs
+were both rejected.
+
+A GraphQL read is rooted at a granted repository, as the ruling states.
+Below that root, the relay also refuses fields that select another repository,
+owner or account by name (`repository`, `repositories`, `owner`, `forks`,
+`parent`, `search`, `viewer`, `headRepository` and the like). That denylist
+cannot close every traversal GitHub's schema offers: an author's other issues,
+or a cross-referencing issue elsewhere, still answer with whatever the token
+can read, as the REST timeline does. By the maintainer's 2026-11-20 ruling on #4259,
+the token's own scope is the read boundary below the root. One
+`BRAIN_UI_MODULE_GITHUB_TOKEN` serves every module job, so the operator limits it
+to the union of the repositories module jobs are granted. REST-only reads and a
+token per module were not taken. Every host-view worker, agent and
+maintenance alike, also covers `/etc/environment`. A container writes the cron
+runner's environment there for pam_env, host-only credentials included, and a
+worker builds its environment explicitly and never reads that file.
+
 The protected list below keeps the policy intact, keeps secrets out of workers,
 and stops a turn from steering later turns' permissions or start-up code.
 
@@ -675,7 +707,7 @@ the key and forwards it as the turn's own egress (G5). A key goes only to its
 built-in first-party origin, or to an exact origin the operator lists for that
 key in `BRAIN_UI_CLI_PROVIDER_ORIGINS`, under the 2026-10-23 ruling on #1673;
 the backends' origin rulings grant the CLI nothing by analogy
-(`startProviderRelay`, `packages/ui-sdk/src/server/provider-relay.ts:329-334`).
+(`startProviderRelay`, `packages/ui-sdk/src/server/provider-relay.ts:336-341`).
 The inference relay's placeholder is not a key: the launcher names a key that
 holds it as withheld, so a relayed Claude API-key turn's `anthropic-haiku`
 reaches the host's key instead of failing authentication. The `jev` reranker
@@ -836,6 +868,31 @@ Publication also refuses deletion of a tier A ancestor directory, including an
 empty `context` or `.git` whose protected descendants are currently absent.
 This host-side check applies before any changed output is installed; worker
 namespace mount points alone do not constrain the host publisher.
+
+> **2026-11-20 — An incoming policy change from a sync is reviewed by the owner
+> ([#4256](https://github.com/schlessera/brain-kit/issues/4256), maintainer ruling option 1).**
+> The policy file is versioned host input, so a pull is where a policy change
+> arrives. The refusal above still holds: a hosted sync's worker output never
+> publishes a tier A change. When the only refused paths are
+> `context/policies/governance.md` and the `context/policies` directory a first
+> policy creates with it, on a sync with a remote, the host compares the stage's
+> bytes with the upstream commit's own policy blob. The host transport reads that
+> blob after the integrity check and the fetch, before the sync's worker runs,
+> with replace objects disabled. Only equal bytes are reviewable, so worker output
+> is never a policy source. The host then publishes nothing and opens a host-owned
+> review through the existing policy proposals, the only policy writer, as
+> Settings › Apify does (`createOwnerPolicyReviews`,
+> `packages/ui-server/src/brain/owner-policy-reviews.ts`). A newer sync's review
+> replaces the owner's unanswered one. Only the owner whose UI sync opened it can
+> answer, and only an approval writes, in a `user` journal window. The next sync
+> then merges the identical change cleanly. A scheduled sync opens no review and
+> names the waiting change. Any other tier A change, a merged policy that differs
+> from upstream's, or a sync without a remote keeps the refusal, with next-step
+> text. No agent runtime, worker or autonomous turn proposes or answers these
+> reviews, and the rationale shown is fixed host text. A Settings control for
+> `outward.github.repositories` was not taken: chat's `propose_policy_change`
+> already edits it.
+
 Within one server process, maintenance clients serialize preparation through
 publication per canonical brain. Even readers produce SQLite projections or
 Git attribute objects in their private outputs; concurrent copies of that
@@ -2483,7 +2540,7 @@ so nothing in them can be recorded or limited.
 **The design.** A `governed` or `strict` worker gets `--unshare-net` and a
 server-owned egress proxy, bind-mounted as a Unix socket in the same way as
 the inference relay. The relay's `observe` hook already exists but is not
-connected (`observe?(event`, `packages/ui-sdk/src/server/inference-relay.ts:38`).
+connected (`observe?(event`, `packages/ui-sdk/src/server/inference-relay.ts:46`).
 Inside the worker, a small loopback listener forwards to the socket, and
 `HTTPS_PROXY`, `HTTP_PROXY` and `ALL_PROXY` point at it.
 
@@ -2544,7 +2601,7 @@ reports which applies as `governed.egress`. Making the relay work without
 managed storage is follow-up work. Each connection is recorded as a governance event, and a recording
 failure ends the turn. Without a governance recorder the policy still applies
 and only the records are absent (`prepareTurnEgress`,
-`packages/ui-server/src/brain/turn-egress.ts:86-216`). The note says egress is
+`packages/ui-server/src/brain/turn-egress.ts:94-389`). The note says egress is
 recorded only when the backend actually routed the worker through the proxy.
 API-key Claude profiles (2026-10-22) and pi turns (2026-10-23) are routed
 too. A pi turn whose credential the relay cannot carry is refused rather than
@@ -3566,7 +3623,7 @@ recipient only when it can record what the turn is shown (`const recipient = opt
 view is not on managed native storage, where the relay runs, is refused before
 this (#3314). The turn's relay is
 then held to that origin: it refuses to start toward any other
-(`if (options.recipientOrigin`, `packages/ui-sdk/src/server/inference-relay.ts:81-83`),
+(`if (options.recipientOrigin`, `packages/ui-sdk/src/server/inference-relay.ts:89-91`),
 pi refuses a changed endpoint before its credential is read, and a turn that
 has a recipient but no relay refuses to start. A model change inside a turn
 cannot leave the one relay socket the worker has.
@@ -3696,7 +3753,7 @@ group, with setgid directories. Setgid sets only the group, though, and the kit
 creates its per-turn objects with private modes today. Runtime state
 (`export function createClaudeWorkerState`, `packages/ui-backend-claude/src/worker-state.ts:136`)
 and the inference relay
-(`export function startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:73`)
+(`export function startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:81`)
 both use `0700` directories and `0600` files or sockets. With a helper configured,
 the kit therefore creates these with explicit group ownership and group modes:
 
@@ -4065,6 +4122,16 @@ reconciler's timed retry cannot make a second attempt inside it.
 
 ### Outward actions (G5)
 
+**Google host tools — 2026-11-17 (#4201).** The
+[maintainer ruled](google-workspace.md) that an own-account reversible Google
+write made through the host Google tools (archive, labels, read state, stars,
+brain-made drafts, guest-free events on a calendar verified private), which is
+invisible to anyone else and has a recorded inverse, is not an outward action.
+It may run without a card under the policy's `google` block or a remembered
+approval in an untainted session, or under a session allowance in a tainted
+one. Every other Google write stays outward: it asks every time and is
+journaled as irreversible. The rest of this section is unchanged.
+
 **Inside the brain, nothing is outward.** Journaled edits, commits to the
 local repository and scratch output are free.
 
@@ -4150,7 +4217,7 @@ outward host skips the card only while every classified call in progress is a
 visible read, or an approved outward action that names that host. A GitHub
 write names the GitHub API hosts, and a push or HTTP write names its target's
 host. Any unknown or opaque call in progress withholds the exception
-(`createOutwardCalls`, `packages/ui-server/src/brain/turn-egress.ts:62-84`).
+(`createOutwardCalls`, `packages/ui-server/src/brain/turn-egress.ts:67-89`).
 A background process left by an earlier call can still connect inside such a
 window; the proxy records it either way.
 
@@ -4164,7 +4231,7 @@ listen on other ports: `gmail.googleapis.com`, `graph.microsoft.com`,
 `smtp.sendgrid.net`, `api.mailgun.net`, `api.eu.mailgun.net`,
 `smtp.mailgun.org`, `smtp.eu.mailgun.org`, `api.postmarkapp.com`,
 `smtp.postmarkapp.com`, `api.resend.com` and `smtp.resend.com`
-(`MAIL_SUBMISSION_PORTS`, `packages/ui-server/src/brain/turn-egress.ts:22-25`).
+(`MAIL_SUBMISSION_PORTS`, `packages/ui-server/src/brain/turn-egress.ts:25-28`).
 Microsoft Graph and Exchange Online carry more than mail, so their reads by
 an opaque script also wait on the card. The coordinator chose this list for
 #1665; the maintainer may override it.
@@ -4194,7 +4261,7 @@ and a documented "no GitHub here" were both rejected. The rest of the ruling:
   approves a write, and autonomous turns have no write surface.
 - **The Network card stays.** An unclassified connection to an outward GitHub
   host keeps its `Network` approval card (`approveOutward`,
-  `packages/ui-server/src/brain/turn-egress.ts:256-263`); it is not refused
+  `packages/ui-server/src/brain/turn-egress.ts:386-393`); it is not refused
   outright. The hosted report behind #3791 was a compound shell command that
   ended in `curl` to `api.github.com`. The classifier reads such a command as
   opaque, so no visible-read exception covers it. Its `CONNECT` was held for
@@ -4224,6 +4291,16 @@ and a documented "no GitHub here" were both rejected. The rest of the ruling:
   A session retained before #3799 keeps its earlier append byte for byte.
 
 ### Untrusted input (G6)
+
+**Google structured reads — 2026-11-17 (#4201).** The
+[maintainer ruled](google-workspace.md) that a host Google tool result
+composed only of host-validated structured values (Google-minted Gmail ids,
+label ids and names, host-minted handles, timestamps, counts, size buckets,
+flags, closed enums and free/busy intervals) is not untrusted input and does
+not taint. Every other Google result taints the session as `google_result`
+before it returns. A tainted session follows the rules below as written,
+except that a session allowance the owner granted on a reversible Google card
+admits that operation and entity for a bounded time.
 
 **Prospective supersession — 2026-11-05 (#3599).** The
 [owner-reviewed session-safety decision](session-safety-reviews.md) permits
@@ -4317,7 +4394,7 @@ rules (maintainer ruling, 2026-10-22). Historically the first source was the
 session's one `taint` event; the collection supersession above now records
 every signal. A write that fails stops the turn rather than leaving its
 outward rules loose. Binding, duplicate checks and the write share a SQLite transaction
-(`recordFirstTaint`, `packages/ui-server/src/governance/session-taint.ts:21-27`).
+(`recordFirstTaint`, `packages/ui-server/src/governance/session-taint.ts:22-28`).
 The hosted server runs that transaction on its write worker
 (`insertGovernanceEvent`, `packages/ui-server/src/governance/events.ts:376`;
 [#2850](https://github.com/schlessera/brain-kit/issues/2850)). A taint counts
@@ -4344,7 +4421,7 @@ charges only after admission); otherwise it is refused and recorded as an
 `egress_denial` with reason `taint_allowlist` (an interactive turn asks first
 since 2026-11-03, see [below](#tainted-destinations-ask)). The taint list
 narrows and never widens: deny and `allowlist` mode still apply first (`prepareTurnEgress`,
-`packages/ui-server/src/brain/turn-egress.ts:86-242`). Hosts without managed
+`packages/ui-server/src/brain/turn-egress.ts:94-389`). Hosts without managed
 native storage have no proxy, so the Bash classifier remains their shell rule
 and nothing narrows their egress.
 
@@ -4389,18 +4466,18 @@ turn's connection passes deny, `allowlist` mode and the byte ceiling but
 matches neither `taint.egress.allow` nor a contacted host, the proxy asks
 through the turn's tool-permission card (`toolName: "Network"`, `kind:
 "command"`, never remembered as a tool grant) before refusing
-(`const narrowing`, `packages/ui-sdk/src/server/egress-proxy.ts:198-203`). The
+(`const narrowing`, `packages/ui-sdk/src/server/egress-proxy.ts:390-395`). The
 card names the destination, the session's first taint source and the
 consequence of allowing it
-(`taintedDestinationDescription`, `packages/ui-server/src/brain/turn-egress.ts:41-46`).
+(`taintedDestinationDescription`, `packages/ui-server/src/brain/turn-egress.ts:46-51`).
 Concurrent connections to the same host share one card. An allowed
 connection's admission adds its host to the turn's contacted hosts, and its
 charged `egress_connection` record carries the host into the session's later
 turns, so it is not asked for again; a different host still asks
-(`const approveTainted`, `packages/ui-server/src/brain/turn-egress.ts:172-183`).
+(`const approveTainted`, `packages/ui-server/src/brain/turn-egress.ts:273-284`).
 A decline refuses: the record stays an `egress_denial` with reason
 `taint_allowlist`, and the 403 carries a short reason the tool can print (`function describeRefusal`,
-`packages/ui-sdk/src/server/egress-proxy.ts:88-104`). Stopping the turn while the
+`packages/ui-sdk/src/server/egress-proxy.ts:205-221`). Stopping the turn while the
 card is pending cancels the connection, and a late allow admits nothing. Voice turns, which have no
 grant surface, and autonomous turns, which have no turn proxy, refuse without
 a card as before; deny and `allowlist` mode still refuse first. Maintainer
@@ -4484,14 +4561,14 @@ with a status text and a body that name it: the deny list, `allowlist` mode,
 the byte ceiling, an unapproved outward host, or a tainted session's host
 outside its allow-list, with the session's first taint source and what the
 user can do (`function describeRefusal`,
-`packages/ui-sdk/src/server/egress-proxy.ts:88-104`; the source wording,
-`cause: () =>`, `packages/ui-server/src/brain/turn-egress.ts:207`). The status
+`packages/ui-sdk/src/server/egress-proxy.ts:205-221`; the source wording,
+`cause: () =>`, `packages/ui-server/src/brain/turn-egress.ts:320`). The status
 line carries the reason because `curl -v`, `git` and `egress-connect` print
 only that line for a refused CONNECT. The provider relay passes the proxy's
 reason through as the refusal body's `error.message` and an additive
 `error.reason`, using the `egress_denial` reason words plus
 `outward_not_approved` (`const refuse`,
-`packages/ui-sdk/src/server/provider-relay.ts:392-397`). The OpenAI image
+`packages/ui-sdk/src/server/provider-relay.ts:399-404`). The OpenAI image
 provider no longer appends its account hint to a relay refusal
 (`const relayRefusal`, `packages/module-images/src/providers/openai.ts:258-259`).
 A cancelled connection keeps its bare 403. The system prompt's turn-lifecycle
@@ -4586,11 +4663,11 @@ authorization, the byte ceilings, budget admission, cancellation and
 accounting. It keeps its own `egress_connection` record, which carries
 `provider: true` and never `inference: true`. The exemption belongs to the operation, never to a
 hostname. Only the relay's validated routes reach the proxy's provider
-admission (`relayed`, `packages/ui-sdk/src/server/egress-proxy.ts:338`), and
+admission (`relayed`, `packages/ui-sdk/src/server/egress-proxy.ts:618`), and
 worker HTTP and `CONNECT` traffic cannot claim it, even to a provider's host
-(`narrowed`, `packages/ui-sdk/src/server/egress-proxy.ts:196`). Turn egress
+(`narrowed`, `packages/ui-sdk/src/server/egress-proxy.ts:389`). Turn egress
 records neither a taint nor a contacted host for the operation
-(`admitted`, `packages/ui-server/src/brain/turn-egress.ts:216-221`). So in a
+(`admitted`, `packages/ui-server/src/brain/turn-egress.ts:329-334`). So in a
 tainted session, the worker's own traffic stays narrowed away from the
 provider's host.
 
@@ -4598,9 +4675,9 @@ A later turn rebuilds its contacted hosts from the session's earlier
 `egress_connection` records, and a provider record there would look like a
 worker's. So the maintainer added the optional `provider: true` tag, mirroring
 `inference: true`, on the record of every validated provider-relay operation
-(`finish`, `packages/ui-sdk/src/server/egress-proxy.ts:159-166`). The rebuild
+(`observe`, `packages/ui-sdk/src/server/egress-proxy.ts:318-324`). The rebuild
 excludes those records (`contactedHosts`,
-`packages/ui-server/src/governance/session-taint.ts:34-40`), so a provider
+`packages/ui-server/src/governance/session-taint.ts:35-48`), so a provider
 request never gives the worker's own `CONNECT` a contacted-host pass, in the
 same turn or a later one. Records written before the tag existed stay
 unmarked, so they can still count for a session that already has them. That is

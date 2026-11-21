@@ -678,7 +678,15 @@ signatures (every public export and the types it is made of)
                 }>;
                 bytes: z.ZodNumber;
                 connectionId: z.ZodOptional<z.ZodString>;
+                dispatched: z.ZodOptional<z.ZodBoolean>;
                 durationMs: z.ZodNumber;
+                failureReason: z.ZodOptional<z.ZodEnum<{
+                    budget: "budget";
+                    cancelled: "cancelled";
+                    policy_denied: "policy_denied";
+                    safety_changed: "safety_changed";
+                    unavailable: "unavailable";
+                }>>;
                 host: z.ZodString;
                 inference: z.ZodOptional<z.ZodLiteral<true>>;
                 managedReference: z.ZodOptional<z.ZodLiteral<true>>;
@@ -693,6 +701,16 @@ signatures (every public export and the types it is made of)
                 port: z.ZodNumber;
                 provider: z.ZodOptional<z.ZodLiteral<true>>;
                 reason: z.ZodOptional<z.ZodString>;
+                recipientAdmission: z.ZodOptional<z.ZodObject<{
+                    collectionRevision: z.ZodString;
+                    instance: z.ZodOptional<z.ZodString>;
+                    policyHash: z.ZodString;
+                    ruleId: z.ZodString;
+                    trustRevision: z.ZodString;
+                }, z.core.$strict>>;
+                recipientApproved: z.ZodOptional<z.ZodLiteral<true>>;
+                standingRecipient: z.ZodOptional<z.ZodLiteral<true>>;
+                trustedSource: z.ZodOptional<z.ZodLiteral<true>>;
             }, z.core.$strict>;
             version: number;
         };
@@ -1073,11 +1091,17 @@ signatures (every public export and the types it is made of)
             payload: z.ZodObject<{
                 detail: z.ZodNullable<z.ZodString>;
                 occurrence: z.ZodOptional<z.ZodObject<{
-                    admission: z.ZodOptional<z.ZodObject<{
+                    admission: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
                         policyHash: z.ZodNullable<z.ZodString>;
-                        trustRevision: z.ZodLiteral<"0">;
+                        trustRevision: z.ZodString;
                         trusted: z.ZodLiteral<false>;
-                    }, z.core.$strict>>;
+                    }, z.core.$strict>, z.ZodObject<{
+                        collectionRevision: z.ZodString;
+                        policyHash: z.ZodString;
+                        ruleId: z.ZodString;
+                        trustRevision: z.ZodString;
+                        trusted: z.ZodLiteral<true>;
+                    }, z.core.$strict>], "trusted">>;
                     detector: z.ZodEnum<{
                         attachment_input: "attachment_input";
                         compute_input: "compute_input";
