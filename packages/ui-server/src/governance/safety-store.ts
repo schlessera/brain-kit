@@ -426,11 +426,11 @@ export interface SafetyProjection { session:SafetySessionKey|null;evidenceRevisi
  pendingCount:number;restriction:"normal"|"restricted";reasons:string[];
  coverage:{detectorVersion:1;state:"complete"|"incomplete"|"unknown";epochs:{id:string;backendId:string;startSequence:string;endSequence:string|null;mandatory:readonly string[];acknowledged:string[];status:string;reason:string|null}[];exclusions:string[]} }
 /** Count is derived from all compact identities, never a detail page or Activity. */
-export function safetyProjection(db:Database,turnId:string|null,sessionId:string|null):SafetyProjection {
+export function safetyProjection(db:Database,turnId:string|null,sessionId:string|null,excludedPending:readonly string[]=[]):SafetyProjection {
  // This callback only reads. Use a native deferred snapshot so a held write
  // worker does not block pending-input admission on the event loop.
- if(db.inTransaction)return readSafetyProjection(db,turnId,sessionId);
- return Database.prototype.transaction.call(db,()=>readSafetyProjection(db,turnId,sessionId)).deferred() as SafetyProjection;
+ if(db.inTransaction)return readSafetyProjection(db,turnId,sessionId,excludedPending);
+ return Database.prototype.transaction.call(db,()=>readSafetyProjection(db,turnId,sessionId,excludedPending)).deferred() as SafetyProjection;
 }
 function safetyScope(db:Database,turnId:string|null,sessionId:string|null) {
  const s=sessionId?one<Session|null>(db,"SELECT * FROM safety_sessions WHERE session_id=?",sessionId):null;
@@ -464,7 +464,7 @@ export function safetyEvidenceSequence(db:Database,turnId:string|null,sessionId:
    UNION ALL SELECT c.end_revision FROM safety_collections c WHERE ${scope} AND c.end_revision IS NOT NULL
  ) ORDER BY length(sequence) DESC,sequence DESC LIMIT 1`,...args,excluded(excludedOccurrenceId),...args,...args,...args,excluded(excludedCollectionStart),...args)?.sequence??"0";
 }
-function readSafetyProjection(db:Database,turnId:string|null,sessionId:string|null):SafetyProjection {
+function readSafetyProjection(db:Database,turnId:string|null,sessionId:string|null,excludedPending:readonly string[]):SafetyProjection {
  const {s,scope,args}=safetyScope(db,turnId,sessionId);
  const cs=db.query(`SELECT c.* FROM safety_collections c WHERE ${scope} ORDER BY c.rowid`).all(...args) as Collection[];
  const epochs=cs.slice(0,128).map(c=>{
@@ -480,7 +480,7 @@ function readSafetyProjection(db:Database,turnId:string|null,sessionId:string|nu
  const first=one<{id:string}|null>(db,`SELECT r.id FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id
    WHERE r.kind='occurrence' AND coalesce(json_extract(r.payload,'$.occurrence.admission.trusted'),json_extract(r.payload,'$.admission.trusted'),0) != 1 AND ${scope} AND NOT EXISTS(SELECT 1 FROM safety_decisions d WHERE d.occurrence_id=r.id)
    ORDER BY length(r.sequence),r.sequence LIMIT 1`,...args);
- const pending=one<{n:number}>(db,`SELECT COUNT(*) n FROM safety_pending p JOIN safety_collections c ON c.id=p.collection_id WHERE ${scope}`,...args).n;
+ const pending=one<{n:number}>(db,`SELECT COUNT(*) n FROM safety_pending p JOIN safety_collections c ON c.id=p.collection_id WHERE ${scope} AND NOT EXISTS (SELECT 1 FROM json_each(?) excluded WHERE excluded.value=p.id)`,...args,JSON.stringify(excludedPending)).n;
  const reasons:string[]=[];
  if(aggregate.n)reasons.push("unresolved");if(unknown)reasons.push("coverage_unknown");if(pending)reasons.push("recording_pending");
  // Ended failures remain in epoch coverage forever. Once explicit quiescent

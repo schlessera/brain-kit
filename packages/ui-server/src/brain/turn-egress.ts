@@ -145,8 +145,15 @@ export async function prepareTurnEgress(options: {
   // Each card owns its peer inputs until its last connection terminates. Keep
   // their immutable ids after a peer finishes so a slower peer sees the same
   // reviewed context; independent cards and independent input remain evidence.
-  type ApprovalGroup = { members:Set<string>; occurrences:Set<string>; starts:Set<string> };
+  type ApprovalGroup = { members:Set<string>; occurrences:Set<string>; starts:Set<string>;pending?:{generation:bigint;size:number;ids:readonly string[]} };
   const approvalGroups = new Map<string,ApprovalGroup>();
+  const pendingReservations = (connectionId?:string):readonly string[] => {
+    const group=connectionId?approvalGroups.get(connectionId):undefined;if(!db||!group)return [];
+    const queue=safetyQueue(db);
+    if(group.pending?.generation===queue.generation&&group.pending.size===group.occurrences.size)return group.pending.ids;
+    const ids=Object.freeze([...queue.pending].filter(p=>p.occurrenceId!==null&&group.occurrences.has(p.occurrenceId)).map(p=>p.id));
+    group.pending={generation:queue.generation,size:group.occurrences.size,ids};return ids;
+  };
   const exposureCommits = new Map<string, Promise<unknown>>();
   const normalBefore = new Set<string>();
   const standingRecipients = new Map<string, Pick<TrustMatch, "ruleId" | "policyHash" | "trustRevision" | "collectionRevision">>();
@@ -245,10 +252,11 @@ export async function prepareTurnEgress(options: {
   const approvalRevision = (connectionId?: string,kind: "network" | "outward" = "network") => {
       const callGeneration=kind==="outward"?calls.generation():"0";
       if (!db) return `unrecorded:${callGeneration}`;
-      const safety = options.bridge.admissionSafety?.read();
+      const excludedPending=kind==="network"?pendingReservations(connectionId):[];
+      const safety = options.bridge.admissionSafety?.read(excludedPending);
       const key = `${connectionId ?? "global"}:${kind}`, version = JSON.stringify([safety?.evidenceRevision ?? safetyReadVersion(db), safety?.scope, safety?.authorityEpoch, safety?.authorityCurrent, safety?.recordingAvailable, options.trust?.revision() ?? "0", safetyQueue(db).generation.toString(),callGeneration]);
       const cached = approvalMarkers.get(key); if (cached?.version === version) return cached.marker;
-      const state = options.governanceWrites?.safety?.(options.turnId, options.sessionId()) ?? safetyProjection(db, options.turnId, options.sessionId());
+      const state = options.governanceWrites?.safety?.(options.turnId, options.sessionId(),excludedPending) ?? safetyProjection(db, options.turnId, options.sessionId(),excludedPending);
       const group=connectionId&&kind==="network"?approvalGroups.get(connectionId):undefined;
       const ownStart=connectionId?ownCollectionStarts.get(connectionId):undefined;
       const starts=new Set(group?.starts);if(ownStart)starts.add(ownStart);
@@ -258,7 +266,7 @@ export async function prepareTurnEgress(options: {
       const coverage=state.coverage.epochs.length===1&&starts.has(state.coverage.epochs[0]!.id)&&state.coverage.state==="incomplete"?"unknown":state.coverage.state;
       const marker = JSON.stringify([state.pendingCount, coverage, state.reasons.filter(reason => reason !== "unresolved"), safetyEvidenceSequence(db, options.turnId, options.sessionId(), [...inputs],[...starts]),
         options.trust?.revision() ?? "0", safety?.scope, safety?.authorityEpoch, safety?.authorityCurrent,
-        writes?.recordingAvailable?.(options.turnId, options.sessionId()) ?? safety?.recordingAvailable,callGeneration]);
+        writes?.recordingAvailable?.(options.turnId, options.sessionId(),excludedPending) ?? safety?.recordingAvailable,callGeneration]);
       approvalMarkers.set(key,{version,marker}); return marker;
     };
   const asking = new Map<string, {decision:Promise<boolean>;group:ApprovalGroup}>();
@@ -363,7 +371,7 @@ export async function prepareTurnEgress(options: {
   };
   /** Settles once every record submitted so far has committed or failed; `recordingFailure()` is final after it. */
   const settled = async () => { await proxy.settled(); while (recording.size) await Promise.all([...recording]); };
-  const proxy = await startEgressProxy({ mode: options.policy.egress.mode, allow: options.policy.egress.allow,
+  const proxy = await startEgressProxy({ pendingReservations, mode: options.policy.egress.mode, allow: options.policy.egress.allow,
     ...(options.bridge.admissionSafety ? { admissionSafety: options.bridge.admissionSafety } : {}),
     deny: options.policy.egress.deny, maxBytes: options.policy.egress.max_bytes_per_turn ?? Number.MAX_SAFE_INTEGER,
     outwardHosts: [...new Set([...GITHUB_API_HOSTS, ...MAIL_SUBMISSION_HOSTS, ...options.policy.outward.hosts])],

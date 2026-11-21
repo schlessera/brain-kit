@@ -4194,7 +4194,7 @@ and a documented "no GitHub here" were both rejected. The rest of the ruling:
   approves a write, and autonomous turns have no write surface.
 - **The Network card stays.** An unclassified connection to an outward GitHub
   host keeps its `Network` approval card (`approveOutward`,
-  `packages/ui-server/src/brain/turn-egress.ts:378-385`); it is not refused
+  `packages/ui-server/src/brain/turn-egress.ts:386-393`); it is not refused
   outright. The hosted report behind #3791 was a compound shell command that
   ended in `curl` to `api.github.com`. The classifier reads such a command as
   opaque, so no visible-read exception covers it. Its `CONNECT` was held for
@@ -4389,7 +4389,7 @@ turn's connection passes deny, `allowlist` mode and the byte ceiling but
 matches neither `taint.egress.allow` nor a contacted host, the proxy asks
 through the turn's tool-permission card (`toolName: "Network"`, `kind:
 "command"`, never remembered as a tool grant) before refusing
-(`const narrowing`, `packages/ui-sdk/src/server/egress-proxy.ts:387-392`). The
+(`const narrowing`, `packages/ui-sdk/src/server/egress-proxy.ts:390-395`). The
 card names the destination, the session's first taint source and the
 consequence of allowing it
 (`taintedDestinationDescription`, `packages/ui-server/src/brain/turn-egress.ts:46-51`).
@@ -4397,10 +4397,10 @@ Concurrent connections to the same host share one card. An allowed
 connection's admission adds its host to the turn's contacted hosts, and its
 charged `egress_connection` record carries the host into the session's later
 turns, so it is not asked for again; a different host still asks
-(`const approveTainted`, `packages/ui-server/src/brain/turn-egress.ts:265-276`).
+(`const approveTainted`, `packages/ui-server/src/brain/turn-egress.ts:273-284`).
 A decline refuses: the record stays an `egress_denial` with reason
 `taint_allowlist`, and the 403 carries a short reason the tool can print (`function describeRefusal`,
-`packages/ui-sdk/src/server/egress-proxy.ts:203-219`). Stopping the turn while the
+`packages/ui-sdk/src/server/egress-proxy.ts:205-221`). Stopping the turn while the
 card is pending cancels the connection, and a late allow admits nothing. Voice turns, which have no
 grant surface, and autonomous turns, which have no turn proxy, refuse without
 a card as before; deny and `allowlist` mode still refuse first. Maintainer
@@ -4484,8 +4484,8 @@ with a status text and a body that name it: the deny list, `allowlist` mode,
 the byte ceiling, an unapproved outward host, or a tainted session's host
 outside its allow-list, with the session's first taint source and what the
 user can do (`function describeRefusal`,
-`packages/ui-sdk/src/server/egress-proxy.ts:203-219`; the source wording,
-`cause: () =>`, `packages/ui-server/src/brain/turn-egress.ts:312`). The status
+`packages/ui-sdk/src/server/egress-proxy.ts:205-221`; the source wording,
+`cause: () =>`, `packages/ui-server/src/brain/turn-egress.ts:320`). The status
 line carries the reason because `curl -v`, `git` and `egress-connect` print
 only that line for a refused CONNECT. The provider relay passes the proxy's
 reason through as the refusal body's `error.message` and an additive
@@ -4586,11 +4586,11 @@ authorization, the byte ceilings, budget admission, cancellation and
 accounting. It keeps its own `egress_connection` record, which carries
 `provider: true` and never `inference: true`. The exemption belongs to the operation, never to a
 hostname. Only the relay's validated routes reach the proxy's provider
-admission (`relayed`, `packages/ui-sdk/src/server/egress-proxy.ts:615`), and
+admission (`relayed`, `packages/ui-sdk/src/server/egress-proxy.ts:618`), and
 worker HTTP and `CONNECT` traffic cannot claim it, even to a provider's host
-(`narrowed`, `packages/ui-sdk/src/server/egress-proxy.ts:386`). Turn egress
+(`narrowed`, `packages/ui-sdk/src/server/egress-proxy.ts:389`). Turn egress
 records neither a taint nor a contacted host for the operation
-(`admitted`, `packages/ui-server/src/brain/turn-egress.ts:321-326`). So in a
+(`admitted`, `packages/ui-server/src/brain/turn-egress.ts:329-334`). So in a
 tainted session, the worker's own traffic stays narrowed away from the
 provider's host.
 
@@ -4598,7 +4598,7 @@ A later turn rebuilds its contacted hosts from the session's earlier
 `egress_connection` records, and a provider record there would look like a
 worker's. So the maintainer added the optional `provider: true` tag, mirroring
 `inference: true`, on the record of every validated provider-relay operation
-(`observe`, `packages/ui-sdk/src/server/egress-proxy.ts:316-322`). The rebuild
+(`observe`, `packages/ui-sdk/src/server/egress-proxy.ts:318-324`). The rebuild
 excludes those records (`contactedHosts`,
 `packages/ui-server/src/governance/session-taint.ts:35-48`), so a provider
 request never gives the worker's own `CONNECT` a contacted-host pass, in the

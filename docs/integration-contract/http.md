@@ -1395,8 +1395,14 @@ Another recorder's loss or an independent pending input is a safety change,
 403 `safety_changed`.
 
 A shared Network card excludes every occurrence admitted under that exact
-card from its approval-evidence marker, including completed peers and their
-initial collection metadata. Independent inputs, cards, human decisions and
+card from its approval-evidence marker, including completed peers, their
+initial collection metadata, and their exact in-flight write reservation IDs.
+The host tracks reservation ownership through occurrence IDs; both local
+overlays and durable pending rows are excluded from only that group's pending
+count, recording-pending reason and recording-availability send fence. Global
+projection/history reads, failures and capacity are unchanged. Host-only read
+arguments are additive and optional; callers that omit them retain the global
+view. Independent inputs, cards, human decisions and
 authority or trust changes still invalidate the pending approval. These host
 exclusions never remove occurrences from safety history or effective taint.
 Inference refusal wire messages retain their existing fixed text (including

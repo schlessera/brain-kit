@@ -21,6 +21,7 @@ export function createEffectiveSafety(db: Database, options: {
 }): AdmissionSafety {
   let observed: string | undefined, evidenceRevision = "0", lastGlobalRevision = 0n;
   let cached: { key:string; value:ReturnType<AdmissionSafety["read"]> } | undefined;
+  let pendingRead:{value:ReturnType<AdmissionSafety["read"]>;available:WeakMap<readonly string[],boolean>}|undefined;
   const read = (cacheAllowed = true) => {
     const sessionId = options.sessionId(), authority = options.authority(), trustRevision = options.trust?.revision() ?? "0";
     const key = JSON.stringify([safetyReadVersion(db),sessionId,authority.current,authority.epoch,trustRevision]);
@@ -61,9 +62,24 @@ export function createEffectiveSafety(db: Database, options: {
     if (cacheAllowed) cached = { key, value }; return value;
   };
   return {
-    read() {
+    read(excludedPending=[]) {
       // Projection and immutable sequence must describe one SQLite snapshot.
-      return db.inTransaction ? read(false) : Database.prototype.transaction.call(db, read).deferred() as ReturnType<AdmissionSafety["read"]>;
+      const cacheAllowed=!db.inTransaction;
+      const snapshot=()=>{
+        const value=read(cacheAllowed);if(!excludedPending.length)return value;
+        // Keep the global counter, scope, taint and every failure. Only these
+        // exact pending reservations stop blocking their own approved peers.
+        if(pendingRead?.value!==value)pendingRead={value,available:new WeakMap()};
+        const immutable=Object.isFrozen(excludedPending);
+        let recordingAvailable=immutable?pendingRead.available.get(excludedPending):undefined;
+        if(recordingAvailable===undefined){
+          recordingAvailable=options.writes?.recordingAvailable?.(options.turnId,options.sessionId(),excludedPending)
+            ?? !safetyProjection(db,options.turnId,options.sessionId(),excludedPending).reasons.some(reason=>["recording_pending","recording_failed","capacity"].includes(reason));
+          if(immutable)pendingRead.available.set(excludedPending,recordingAvailable);
+        }
+        return {...value,recordingAvailable};
+      };
+      return db.inTransaction ? snapshot() : Database.prototype.transaction.call(db,snapshot).deferred() as ReturnType<AdmissionSafety["read"]>;
     },
     subscribe(changed) {
       const listeners = safetyQueue(db).listeners;

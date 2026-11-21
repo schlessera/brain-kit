@@ -77,6 +77,8 @@ export interface EgressRecord {
 export interface EgressProxyOptions {
   /** Host-owned effective state. No request header or concurrent operation supplies authority. */
   admissionSafety?: AdmissionSafety;
+  /** Exact host-owned write reservations of this connection's approved card peers. */
+  pendingReservations?(connectionId:string):readonly string[];
   /** Host source decision remains valid before each delivered byte. */
   inputCurrent?(connectionId: string): boolean;
   mode: "record" | "allowlist";
@@ -356,7 +358,8 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     };
     // An approval of this destination outside the taint allow-list (#3430).
     let outwardApproved = false, grantRevision: string | undefined, outwardRevision: string | undefined;
-    const approvalRevision = (own = false, outward = false) => options.taint?.approvalRevision?.(own || !outward ? connectionId : undefined, outward ? "outward" : "network") ?? JSON.stringify(options.admissionSafety?.read());
+    const readSafety=()=>options.admissionSafety?.read(options.pendingReservations?.(connectionId));
+    const approvalRevision = (own = false, outward = false) => options.taint?.approvalRevision?.(own || !outward ? connectionId : undefined, outward ? "outward" : "network") ?? JSON.stringify(readSafety());
     const grantCurrent = (own = false) => {
       if (!granted && !outwardApproved) return true;
       try {
@@ -368,7 +371,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     // A marker can change because recording or authority disappeared while a
     // card was pending. Classify that live failure before a generic stale card.
     const refuseStaleApproval = () => {
-      try { if (!refuseSafety(options.admissionSafety?.read(),snapshot)) finish("denied","safety_changed"); }
+      try { if (!refuseSafety(readSafety(),snapshot)) finish("denied","safety_changed"); }
       catch { finish("denied","egress_unavailable"); }
     };
     const recipient = { host, port, method, protocol: url.protocol, managedReference };
@@ -398,7 +401,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     };
     const admit = () => lifecycle.admit(async () => {
       if (!lifecycle.active()) return false;
-      try { snapshot = options.admissionSafety?.read(); }
+      try { snapshot = readSafety(); }
       catch { finish("denied","egress_unavailable");return false; }
       if (refuseSafety(snapshot,snapshot)) return false;
       if (stopped || options.signal?.aborted) { finish("cancelled", "turn_cancelled"); return false; }
@@ -439,7 +442,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (!lifecycle.active() || stopped || controller.signal.aborted) { finish("cancelled", "turn_cancelled"); return null; }
       const stateRefusal=lifecycle.sendRefusal(count,options.maxBytes-usedBytes);
       if (stateRefusal) { finish(stateRefusal==="turn_cancelled"?"cancelled":"denied",stateRefusal);return null; }
-      const current = options.admissionSafety?.read();
+      const current = readSafety();
       if (refuseSafety(current,snapshot)) return null;
       if (!grantCurrent(true)) { refuseStaleApproval(); return null; }
       if (!inputCurrent(connectionId)) { revokeInput(); return null; }

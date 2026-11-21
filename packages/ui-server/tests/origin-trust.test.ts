@@ -1,4 +1,6 @@
 import { createEffectiveSafety } from "../src/governance/effective-safety.js";
+import { Database } from "bun:sqlite";
+import { watchdogMs } from "../../../scripts/test-deadlines.js";
 import { expect, test, spyOn } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -158,6 +160,43 @@ test('review2: unchanged context still shares one pending destination card',asyn
  const f=await fixture();const answers:Array<(v:PermissionDecision)=>void>=[];let firstReady!:()=>void,secondReady!:()=>void;const firstCard=new Promise<void>(r=>{firstReady=r;}),secondRequest=new Promise<void>(r=>{secondReady=r;});let first:Promise<number>|undefined,second:Promise<number>|undefined;const safety=f.bridge.admissionSafety!,read=safety.read;
  try{await f.taint();f.decide(()=>new Promise(r=>{answers.push(r);firstReady();}));first=get(f.proxy.socketPath,f.origin.url.href);await firstCard;let announced=false;safety.read=()=>{const value=read();if(!announced){announced=true;queueMicrotask(secondReady);}return value;};second=get(f.proxy.socketPath,f.origin.url.href);await secondRequest;expect(f.asks(),'UNCHANGED_CONTEXT_COALESCES_ONE_PENDING_CARD').toBe(1);answers[0]!({behavior:'deny',message:'Athena declines'});expect(await first).toBe(403);expect(await second).toBe(403);
  }finally{safety.read=read;for(const answer of answers)answer({behavior:'deny',message:'Closed'});await Promise.allSettled([first,second]);await f.close();}
+});
+
+for(const phase of ['none','card','commit'] as const)test(`shared Network card with real FULL writer excludes only peer reservations (independent ${phase})`,async()=>{
+ const f=await fixture(false,{schema_version:1},undefined,true);const independent=phase!=='none';
+ const committed=Promise.withResolvers<void>(),releaseAdmissions=Promise.withResolvers<void>();let commits=0;
+ const card=Promise.withResolvers<void>(),answer=Promise.withResolvers<PermissionDecision>(),secondEntered=Promise.withResolvers<void>();
+ const safety=f.bridge.admissionSafety!,read=safety.read.bind(safety),firstTaint=f.writes.firstTaint;
+ const otherDb=new Database(f.db.filename),otherWriter=openSqliteWriter(otherDb),otherWrites=createGovernanceWrites(f.db,otherWriter);
+ const gate=new Int32Array(new SharedArrayBuffer(4)),entered=new Int32Array(new SharedArrayBuffer(4));
+ let held:Promise<unknown>|undefined,pendingInput:Promise<unknown>|undefined,first:Promise<number>|undefined,second:Promise<number>|undefined,peak=0;
+ try{
+  await f.taint();
+  f.writes.firstTaint=(...args)=>{const pending=firstTaint(...args);peak=Math.max(peak,f.writes.safety('turn-voyage','voyage').pendingCount);return phase==='commit'?pending.then(async result=>{if(++commits===2)committed.resolve();await releaseAdmissions.promise;return result;}):pending;};
+  f.decide(()=>{card.resolve();return answer.promise;});first=get(f.proxy.socketPath,f.origin.url.href);await card.promise;
+  let announced=false;safety.read=(...args)=>{const state=read(...args);if(!announced){announced=true;queueMicrotask(secondEntered.resolve);}return state;};
+  second=get(f.proxy.socketPath,`${f.origin.url.href}again`);await secondEntered.promise;safety.read=read;
+  expect(f.asks(),'REAL_WRITER_PEERS_SHARE_EXACTLY_ONE_CARD').toBe(1);
+  if(phase==='commit'){answer.resolve({behavior:'allow'});await committed.promise;}
+  if(independent){
+   const probe=await import('./fixtures/pending-safety-writer');const channel=otherWriter.channel(probe,undefined);await channel.ready;
+   held=channel.call('hold',entered,gate,watchdogMs(15000));
+   if(!Atomics.load(entered,0))await Atomics.waitAsync(entered,0,0,watchdogMs(15000)).value;
+   expect(Atomics.load(entered,0),'INDEPENDENT_WRITER_IS_HELD_WITHOUT_BLOCKING_PEERS').toBe(1);
+   pendingInput=otherWrites.firstTaint({kind:'taint',turnId:'turn-voyage',sessionId:'voyage',actor:'interactive',profile:'governed',model:null,payload:{source:'web_search',tool:null,detail:'Odysseus reads a separate harbour notice'}});
+   expect(f.writes.safety('turn-voyage','voyage').pendingCount).toBe(1);
+  }
+  answer.resolve({behavior:'allow'});releaseAdmissions.resolve();
+  expect(await Promise.all([first,second]),independent?'INDEPENDENT_PENDING_INPUT_IS_NOT_A_CARD_PEER':'APPROVED_FULL_WRITER_PEERS_BOTH_DISPATCH').toEqual(independent?[403,403]:[200,200]);
+  expect(f.hits()).toBe(independent?0:2);
+  if(!independent)expect(peak,'REAL_PEER_WRITE_RESERVATIONS_OVERLAPPED').toBeGreaterThanOrEqual(2);
+  await f.proxy.settled();
+  const rows=queryGovernanceEvents(f.db,{kinds:['egress_connection'],limit:10});expect(rows).toHaveLength(2);
+  for(const row of rows)expect(row.payload).toMatchObject(independent?{outcome:'denied',dispatched:false}:{outcome:'completed',dispatched:true});
+ }finally{
+  safety.read=read;answer.resolve({behavior:'deny',message:'Athena closes the fixture'});releaseAdmissions.resolve();Atomics.store(gate,0,1);Atomics.notify(gate,0);
+  await Promise.allSettled([held,pendingInput,first,second]);await otherWriter.close();otherDb.close();await f.close();
+ }
 });
 
 test('review3: managed HTTPS and opaque CONNECT never share a pending Network card',async()=>{

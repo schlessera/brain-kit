@@ -39,8 +39,8 @@ It is advisory and narrow:
 
 - An `allow` may relax exactly one thing, the #3430 card for a host the
   tainted session has not contacted
-  (`const narrowing`, `packages/ui-sdk/src/server/egress-proxy.ts:387-392`;
-  `const approveTainted`, `packages/ui-server/src/brain/turn-egress.ts:265-276`).
+  (`const narrowing`, `packages/ui-sdk/src/server/egress-proxy.ts:390-395`;
+  `const approveTainted`, `packages/ui-server/src/brain/turn-egress.ts:273-284`).
   Because the proxy cannot tell which process opened a connection, that
   relaxation can only cover the hosts a readable call names while it is in
   progress, as the outward exception already does. An opaque call withholds

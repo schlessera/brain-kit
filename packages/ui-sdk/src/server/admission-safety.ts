@@ -13,7 +13,8 @@ export interface AdmissionSafetySnapshot {
 }
 
 export interface AdmissionSafety {
-  read(): AdmissionSafetySnapshot;
+  /** Host-owned reservations only; exclusions never alter retained evidence or recorder failures. */
+  read(excludedPending?:readonly string[]): AdmissionSafetySnapshot;
   /** Invalidation is a hint; every commit still reads synchronously. */
   subscribe(changed: () => void): () => void;
 }
