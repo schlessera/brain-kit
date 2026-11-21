@@ -201,15 +201,17 @@ export function searchOutputComplete(output:string,status:InputSafetyOutputStatu
 
 export function outputTaintSignals(tool: string, output: string, brainPath?: string, marked?: MarkedLookup, context?: SearchOutputContext): IngestionSignal[] {
   if (!SEARCH_TOOLS.has(tool)) return [];
+  const result:IngestionSignal[]=[],seen=new Set<string>(),contentPaths=new Set<string>();let unknown=false;
+  try{
   const oversized=Buffer.byteLength(output)>1048576;
   if(oversized)output=Buffer.from(output.slice(0,1048576)).subarray(0,1048576).toString('utf8');
-  const result:IngestionSignal[]=[],seen=new Set<string>(),contentPaths=new Set<string>();let unknown=oversized||context?.outputComplete===false;
+  unknown=oversized||context?.outputComplete===false;
   const add=(path:string)=>{
     if(!path||path.includes('\0')){unknown=true;return;}
     for(const signal of fileSignals(path,brainPath,marked,'tool_search_output')){
       if(signal.source==='legacy_unknown'){unknown=true;continue;}
       const key=JSON.stringify([signal.detector,signal.key]);if(seen.has(key))continue;
-      if(result.length>=255){unknown=true;continue;}seen.add(key);result.push(signal);
+      if(result.length>=256){unknown=true;continue;}seen.add(key);result.push(signal);
     }
   };
   const content=(text:string,numbers:boolean)=>{
@@ -241,7 +243,7 @@ export function outputTaintSignals(tool: string, output: string, brainPath?: str
     // filename as JSON; preserve known paths and retain boundary uncertainty.
     if(output.length){
       unknown=true;
-      const allLines=output.split('\n'),lines=allLines.slice(0,256);
+      const lines=output.split('\n');
       // Literal filenames are candidates only in filename mode. Match text
       // is not a filename and must not consume the path budget.
       const filenames=tool==='Glob'||context.outputMode==='files_with_matches';
@@ -287,7 +289,7 @@ export function outputTaintSignals(tool: string, output: string, brainPath?: str
         value.totalMatches!==undefined&&value.totalMatches!==value.numFiles||value.countIsComplete===true&&value.totalMatches===undefined)unknown=true;}
   }else if((context?.backendId??'claude')==='claude'&&tool==='Grep'){
     const checked=grepOutput.safeParse(parsed),mode=context?.outputMode;
-    if(!checked.success||!['files_with_matches','content','count'].includes(mode??'')){unknown=true;salvage(parsed,mode);if(parsed&&typeof parsed==='object'&&'mode' in parsed)salvage(parsed,String(parsed.mode));}
+    if(!checked.success||!['files_with_matches','content','count'].includes(mode??'')){unknown=true;salvage(parsed,mode);if(parsed&&typeof parsed==='object'&&'mode' in parsed&&typeof parsed.mode==='string')salvage(parsed,parsed.mode);}
     else {const value=checked.data;for(const path of value.filenames)add(path);
       if(value.mode!==undefined&&value.mode!==mode)salvage(value,value.mode);
       const lines=mode==='files_with_matches'?value.filenames.length:value.content?value.content.split('\n').length:0;
@@ -322,7 +324,8 @@ export function outputTaintSignals(tool: string, output: string, brainPath?: str
       if(value.numMatches!==undefined&&value.numMatches!==matches)unknown=true;
     }
   }else unknown=true;
-  if(unknown){result.push({source:'legacy_unknown',detector:'tool_search_output',key:'unknown_remainder'});}
+  }catch{unknown=true;}
+  if(unknown){if(result.length===256)result.pop();result.push({source:'legacy_unknown',detector:'tool_search_output',key:'unknown_remainder'});}
   return result;
 }
 

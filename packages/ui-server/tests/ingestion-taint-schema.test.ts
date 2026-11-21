@@ -134,3 +134,24 @@ test('unparseable oversized candidates retain independent later marks without th
  const signals=outputTaintSignals('Grep',`${'x'.repeat(1100)}:1:echo\nnotes/loom.md:2:sirens`,undefined,path=>path==='notes/loom.md',{displayOnly:true,backendId:'claude',outputMode:'content',lineNumbers:true});
  expect(signals.map(signal=>signal.source).sort()).toEqual(['legacy_unknown','user_marked']);
 });
+
+test('malformed mode never coerces and retains marked siblings',()=>{
+ const signals=outputTaintSignals('Grep',grep(['notes/loom.md'],{mode:{toString:null}}),undefined,path=>path==='notes/loom.md',searchOutputContext('Grep',{}));
+ expect(signals.map(signal=>signal.source).sort()).toEqual(['legacy_unknown','user_marked']);
+});
+test('display filename marks after row 256 remain identifiable within the byte budget',()=>{
+ const rows=[...Array.from({length:256},(_,i)=>`notes/ordinary-${i}.md`),'notes/loom.md'];
+ const signals=outputTaintSignals('Grep',rows.join('\n'),undefined,path=>path==='notes/loom.md',{backendId:'claude',displayOnly:true,outputMode:'files_with_matches'});
+ expect(signals.map(signal=>signal.source).sort()).toEqual(['legacy_unknown','user_marked']);
+});
+for(const count of [256,257])test(`complete search signal boundary: ${count}`,()=>{
+ const paths=Array.from({length:count},(_,i)=>`notes/loom-${i}.md`);
+ const signals=outputTaintSignals('Grep',grep(paths),undefined,()=>true,searchOutputContext('Grep',{head_limit:0}));
+ expect(signals.filter(signal=>signal.source==='user_marked')).toHaveLength(count===256?256:255);
+ expect(signals.filter(signal=>signal.source==='legacy_unknown')).toHaveLength(count===256?0:1);
+});
+test('unexpected detector failure retains marks already found plus unknown',()=>{
+ const context={backendId:'claude',outputMode:'content',get lineNumbers():boolean{throw new Error('Malformed selector');}};
+ const signals=outputTaintSignals('Grep',grep(['notes/loom.md'],{content:'notes/loom.md:1:sirens'}),undefined,()=>true,context);
+ expect(signals.map(signal=>signal.source).sort()).toEqual(['legacy_unknown','user_marked']);
+});
