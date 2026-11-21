@@ -34,7 +34,7 @@ export interface NativeJournalMetadata {
   path: string; kind: "directory" | "file" | "symlink" | "other";
   mode: number; bytes: number; stamp: string; inode: string; target?: string;
 }
-interface NativeJournalChange {
+export interface NativeJournalChange {
   path: string; before: NativeJournalMetadata | null; after: NativeJournalMetadata | null;
 }
 export interface NativeJournalUnreadable {

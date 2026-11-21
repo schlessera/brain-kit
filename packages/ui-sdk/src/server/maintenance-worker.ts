@@ -13,6 +13,7 @@ import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { closeSync, existsSync, readFileSync, realpathSync } from "node:fs";
 import { killWorker, registerWorker, workerStopCompletion } from "./maintenance-worker-kill.js";
 import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { basename, dirname, join } from "node:path";
 import { prepareWorkerOutput } from "./worker-output.js";
 import { prepareNativeMaintenanceIndex, authorizeNativeMaintenanceIndex, finishNativeMaintenanceIndex, prepareNativeMaintenanceGit, authorizeNativeMaintenanceGitWriter, finishNativeMaintenanceGit, type NativeMaintenanceGitPreparation, prepareNativeMaintenanceMasks, transferNativeMaintenanceMasks, prepareNativeWorkerOutput, type WorkerOutputStorage } from "./worker-native-output.js";
@@ -222,7 +223,7 @@ export function maintenanceLaunch(input: MaintenanceCommand): WorkerLaunch {
 
 export interface MaintenanceWorker {
   /** Writes the command's whole input, then closes its stdin. */
-  input(data: string): Promise<void>;
+  input(data: string | AsyncIterable<Uint8Array>): Promise<void>;
   stdout: ReadableStream<Uint8Array>;
   stderr: ReadableStream<Uint8Array>;
   pid: number;
@@ -298,10 +299,10 @@ function* launchMaintenanceWorkerSteps(input: MaintenanceCommand): WorkerSteps<M
       // These are the launcher's concrete Node pipe streams. Converting them
       // keeps the maintenance stream/abort callers and their EOF drain intact.
       return {
-        input: data => new Promise<void>(resolve => {
-          running.stdin.once("error", () => resolve());
-          running.stdin.end(data, () => resolve());
-        }),
+        async input(data) {
+          try { await pipeline(Readable.from(typeof data === "string" ? [data] : data), running.stdin); }
+          catch { /* A command that exits without consuming its input. */ }
+        },
         stdout: Readable.toWeb(running.stdout) as unknown as ReadableStream<Uint8Array>,
         stderr: Readable.toWeb(running.stderr) as unknown as ReadableStream<Uint8Array>,
         pid: running.pid,
@@ -328,7 +329,8 @@ function* launchMaintenanceWorkerSteps(input: MaintenanceCommand): WorkerSteps<M
           const sink = Bun.file(ends.stdin).writer();
           // A large input's write settles later; await it here so a worker
           // that exits unread fails this try rather than the server.
-          if (data) await sink.write(data);
+          if (typeof data === "string") { if (data) await sink.write(data); }
+          else for await (const chunk of data) await sink.write(chunk);
           await sink.end();
         } catch { /* A command that never reads its input. */ } finally { closeInput(); }
       },
@@ -378,7 +380,7 @@ function* launchMaintenanceWorkerSteps(input: MaintenanceCommand): WorkerSteps<M
 
 /** Runs one maintenance command to completion. An abort or the deadline kills the whole worker. */
 export async function runMaintenanceWorker(input: MaintenanceCommand & {
-  stdin?: string;
+  stdin?: string | AsyncIterable<Uint8Array>;
   signal?: AbortSignal;
   timeoutMs?: number;
 }, beforeLaunch?: () => void): Promise<MaintenanceResult> {

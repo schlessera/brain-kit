@@ -73,6 +73,7 @@ const indexPins = ["before_json", "after_json"].flatMap(column => [
  * its Undo restores through the removal turn's pin.
  */
 const namedHashes = `${hashes("turn_journal_changes")} UNION ALL ${hashes("turn_journal_revert_paths")} UNION ALL ${hashes("turn_journal_claude_memory")}
+  UNION ALL SELECT pack_hash FROM turn_journal_code_receipts
   UNION ALL SELECT json_extract(file.value,'$.retained.hash') FROM turn_journal_storage_operations s, json_each(s.private_versions) file`;
 
 type TurnRow = { session_id: string | null; actor: "interactive" | "voice" | "user"; kind: "turn" | "revert"; model: string | null; profile: "strict" | "governed"; steering_inventory_missing: string; configuration_set: string | null; missing: string };
