@@ -806,7 +806,7 @@ const fixtureKeepers = new Map<number, KeeperInspection & { live(): boolean; dis
 function processStart(pid: number): string { return readFileSync(`/proc/${pid}/stat`, "utf8").replace(/^.*\) /s, "").split(" ")[19]!; }
 /** Keep short named credentials out of test-only diagnostic records. */
 export function redactNativeDiagnosticAssignments(text:string):string {
-  return text.replace(/["']?([A-Za-z_$][\w$.-]*)["']?\s*[:=]\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;}\]]+)/g,
+  return text.replace(/["']?([A-Za-z_$][\w$.-]*)["']?\s*[:=]\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|(?:Bearer|Basic)\s+[^\s,;}\]]+|[^\s,;}\]]+)/gi,
     (entry,name:string)=>/(?:key|token|secret|password|auth)[\w$.-]*$/i.test(name)?"[redacted credential]":entry);
 }
 interface BootstrapEvidence { snapshot():string; drained:Promise<void> }

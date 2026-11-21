@@ -43,8 +43,8 @@ test("hosted file-tool fixture installs SDK capture before query and flushes in 
 
 
 test("SDK stderr scrubs short named credentials in environment and quoted JSON forms", async () => {
-  const values=["short-secret", "plain-secret", "short-password", "json-secret", "tiny-token", "camel-secret"];
-  const text='ANTHROPIC_AUTH_TOKEN=short-secret\nANTHROPIC_API_KEY=plain-secret\nMY_PASSWORD=short-password\n{"apiKey":"json-secret","token": "tiny-token","authToken":"camel-secret"}\n';
+  const values=["short-secret", "plain-secret", "short-password", "json-secret", "tiny-token", "camel-secret", "short-bearer", "short-basic"];
+  const text='ANTHROPIC_AUTH_TOKEN=short-secret\nANTHROPIC_API_KEY=plain-secret\nMY_PASSWORD=short-password\nAuthorization: Bearer short-bearer\nAUTH=Basic short-basic\n{"apiKey":"json-secret","token": "tiny-token","authToken":"camel-secret"}\n';
   const child=spawnGuardFixture([process.execPath,"-e",`import {captureNativeSdkStderr} from ${JSON.stringify(helper)};const c=captureNativeSdkStderr([]);c.stderr(${JSON.stringify(text)});c.flush();`],{env:{PATH:"/usr/bin:/bin"}});
   const [code,output]=await Promise.all([child.exited,child.guardOutput()]);expect(code,output).toBe(0);
   for(const value of values)expect(output,"SHORT_NAMED_CREDENTIAL_REDACTED").not.toContain(value);
