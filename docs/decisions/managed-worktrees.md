@@ -165,7 +165,11 @@ that checkout's writable grant. Other checkouts and notes remain usable.
 
 Tracked and untracked non-ignored files are retained; ignored build output and
 intermediate versions are not. The pool allowance bounds the worktree and
-replaces its journal `turn_bytes` charge. The existing maintenance transport bounds combined capture output to 64 MiB
+replaces its journal `turn_bytes` charge. Managed-worktree changed paths count
+against `files_changed` when a receipt is taken, at release or turn end, rather
+than on each observation (maintainer ruling, 2026-11-21, #4297). Between
+receipts the pool's per-operation byte allowance bounds the work.
+The existing maintenance transport bounds combined capture output to 64 MiB
 including base64 and path metadata, and refuses oversized evidence. In-brain opted-in checkouts
 share the receipt rules with an explicit 16 MiB content bound. Non-checkout
 workspace content and notes retain their file-level journal coverage.
@@ -175,6 +179,10 @@ maintenance worker. An owner-confirmed, identity-bound revert drains writers,
 compares a fresh capture against the recorded after-tree, then restores only
 the changed paths and removes additions. A mismatch shows recorded and current
 endpoints for review; it never overwrites later work. Commits and refs remain.
+The owning principal keeps access to retained code history, including preview
+and revert, after the worktree grant is withdrawn (maintainer ruling,
+2026-11-21, #4367). This remains owner-only and credential-free, and revert
+still requires a fresh capture equal to `tree_after`; no live grant is required.
 
 ## Guidance
 
