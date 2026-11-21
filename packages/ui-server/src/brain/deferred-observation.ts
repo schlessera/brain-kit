@@ -1,5 +1,5 @@
 /** One result boundary, claimed synchronously by dispatch or an interruption. */
-export const DEFERRED_OBSERVATION_MS = 50;
+const DEFERRED_OBSERVATION_MS = 50;
 
 export function deferredObservation(start: (confirmed?: { stopped: boolean }) => Promise<void>) {
   const done = Promise.withResolvers<void>();
