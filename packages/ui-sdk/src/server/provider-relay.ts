@@ -1,3 +1,4 @@
+import { readRelayResponse } from "./relay-response.js";
 /**
  * The metered host relay for the `brain` CLI's paid providers (#1673).
  *
@@ -208,7 +209,7 @@ export interface ProviderRelayOptions {
   /** Host credential lookup by name. Default: the server's own environment. */
   credential?(name: string): string | undefined;
   /** The concrete turn proxy: share its destination admission, byte ceiling and connection records. */
-  egress?: Pick<Awaited<ReturnType<typeof startEgressProxy>>, "relayed">;
+  egress?: Pick<Awaited<ReturnType<typeof startEgressProxy>>, "relayed"> & Partial<Pick<Awaited<ReturnType<typeof startEgressProxy>>, "remainingBytes">>;
   /**
    * Called before each dispatch, and awaited. A refusal is answered with
    * `budget_exceeded` and nothing is sent.
@@ -546,6 +547,8 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       return cause.failure?chargeDenied(cause.failure):refuse(cause.status,"upstream_unreachable","Provider upstream unreachable");
     }
     free();
+    const incoming=readRelayResponse(response,{charge:chargeFailure,remaining:()=>options.egress?.remainingBytes?.()??Infinity,maxBytes:files?MAX_FILES_RESPONSE_BYTES:undefined});
+    if(incoming.headerFailure){await incoming.cancel().catch(()=>{});report("cancelled",null);return chargeDenied(incoming.headerFailure);}
     if (response.status >= 300 && response.status < 400) {
       operation?.finish("failed", "upstream_redirected");
       await response.body?.cancel().catch(() => {});
@@ -559,26 +562,15 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       if (!RESPONSE_STRIPPED.has(name.toLowerCase()) && name.toLowerCase() !== "x-goog-upload-url" && !value.includes(secret)) out.set(name, value);
     }
     const scrub = keyScrubber(secret);
-    const responseChargeFailure = chargeFailure(headerBytes(`HTTP/1.1 ${response.status} ${response.statusText}`, response.headers));
-    if (responseChargeFailure) {
-      await response.body?.cancel().catch(() => {});
-      report("cancelled", null);
-      return chargeDenied(responseChargeFailure);
-    }
     if (files) {
       // A Files answer is small JSON, read whole: whatever it registers is in
       // place before the worker sees the answer.
       const chunks: Uint8Array[] = [];
-      let size = 0, failure: "large" | EgressChargeFailure | "read" | undefined;
+      let failure: "large" | EgressChargeFailure | "read" | undefined;
       let readCause:ReturnType<typeof captureEgressFailure>|undefined;
       try {
-        if (response.body) for await (const chunk of response.body) {
-          size += chunk.byteLength;
-          if (size > MAX_FILES_RESPONSE_BYTES) { failure = "large"; break; }
-          const charged = chargeFailure(chunk.byteLength + 16); if (charged) { failure = charged; break; }
-          chunks.push(chunk);
-        }
-      } catch { readCause=captureEgressFailure(signal,operation);failure ??= "read"; }
+        for(;;){const next=await incoming.read();if(next.done)break;chunks.push(next.value);}
+      } catch { readCause=captureEgressFailure(signal,operation);failure=readCause.failure??"read"; }finally{incoming.release();}
       if (failure) {
         const cause=readCause??captureEgressFailure(signal,operation);
         await response.body?.cancel().catch(() => {});
@@ -590,7 +582,7 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
         report(cause.outcome,null);
         return cause.failure?chargeDenied(cause.failure):refuse(cause.status,"upstream_unreachable","Provider response interrupted");
       }
-      const finalFailure=chargeFailure(0);
+      const finalFailure=incoming.fence();
       if(finalFailure){report("cancelled",null);return chargeDenied(finalFailure);}
       const answer = Buffer.concat(chunks);
       if (files.step === "start" && response.ok) {
@@ -631,15 +623,15 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       report(response.ok ? "completed" : "failed", usage);
     };
     if (!response.body) {
-      const finalFailure=chargeFailure(0);
+      const finalFailure=incoming.fence();
       if(finalFailure){report("cancelled",null);return chargeDenied(finalFailure);}
       operation?.finish("completed");
       settle();
       return new Response(null, { status: response.status, headers: out });
     }
-    const upstreamReader = response.body.getReader();
+    const upstreamReader = incoming;
     let released = false;
-    const release = () => { if (!released) { released = true; upstreamReader.releaseLock(); } };
+    const release = () => { if (!released) { released = true; upstreamReader.release(); } };
     const output = new ReadableStream<Uint8Array>({
       async pull(controller) {
         // Read until something is enqueued, the upstream ends or fails: a chunk
@@ -654,18 +646,9 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
             release();controller.error(new Error(cause.failure?egressChargeRefusal(cause.failure,"Provider").message:"Provider response interrupted"));return;
           }
           if (next.done) {
-            const failure=chargeFailure(0);
-            if(failure){report("cancelled",null);release();controller.error(new Error(egressChargeRefusal(failure,"Provider").message));return;}
             const tail = scrub(new Uint8Array(0), true);
             if (tail.byteLength) controller.enqueue(tail);
             controller.close();operation?.finish("completed");settle();release();return;
-          }
-          const failure = chargeFailure(next.value.byteLength + 16);
-          if (failure) {
-            report("cancelled", null);
-            await upstreamReader.cancel().catch(() => {}); release();
-            controller.error(new Error(egressChargeRefusal(failure,"Provider").message));
-            return;
           }
           capturedBytes += next.value.byteLength;
           if (capturing && capturedBytes <= MAX_USAGE_CAPTURE_BYTES) captured.push(next.value);
@@ -716,11 +699,9 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       if(finalFailure){observe("cancelled");return;}
       const response = await fetch(target, { method: "DELETE", headers, redirect: "manual", signal });
       upstreamStatus=response.status;
-      const responseDecision=operation?.charge(headerBytes(`HTTP/1.1 ${response.status} ${response.statusText}`,response.headers));
-      await response.body?.cancel().catch(() => {});
-      if(responseDecision&&!responseDecision.ok){observe("cancelled");return;}
-      const terminalDecision=operation?.charge(0);
-      if(terminalDecision&&!terminalDecision.ok){observe("cancelled");return;}
+      const incoming=readRelayResponse(response,{charge:count=>{const decision=operation?.charge(count);return decision&&!decision.ok?decision:undefined;},remaining:()=>options.egress?.remainingBytes?.()??Infinity});
+      if(incoming.headerFailure){await incoming.cancel().catch(()=>{});observe("cancelled");return;}
+      try{for(;;){if((await incoming.read()).done)break;}}finally{incoming.release();}
       operation?.finish("completed");
       observe(response.ok ? "completed" : "failed");
     } catch {

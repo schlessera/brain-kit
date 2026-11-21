@@ -41,3 +41,5 @@ Capture relay error causes before terminal signal cleanup, preserve failed versu
 Preserve provider cancellation reasons, fence sends after dispatch observers, and meter Files cleanup response headers.
 
 Keep provider receipt status as upstream evidence and fence buffered response release at EOF.
+
+Share relay response metering and EOF fencing across normal, Files, redirect and cleanup paths.

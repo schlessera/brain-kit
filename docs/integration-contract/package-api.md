@@ -6043,3 +6043,14 @@ including cancellation and cleanup; it stays 0 until a response arrives.
 Local refusal status remains in the caller response. Governed buffered Files
 answers and streaming scrubber tails revalidate safety at EOF before exposing
 held bytes or registering upload URLs and handles.
+
+Inference and provider relays share response accounting: observed headers debit
+before redirect/status handling, every observed chunk debits before response
+size checks, and EOF revalidates live admission before completion. Incoming
+bytes beyond the remaining turn allowance consume the available allowance and
+refuse the excess. Files cleanup drains through the same metered reader.
+
+Relay `egress` options additionally accept the proxy's optional
+`remainingBytes()` reader so the concrete host can meter the received portion
+of an overflowing response up to its shared ceiling. Existing operation-only
+adapters remain valid; the concrete proxy supplies both methods.

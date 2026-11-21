@@ -1,3 +1,4 @@
+import { readRelayResponse, relayHeaderBytes } from "./relay-response.js";
 /**
  * The one network path out of a restricted (autonomous) worker (#676).
  *
@@ -33,7 +34,7 @@ export interface InferenceRelayOptions {
   /** Server-held headers, resolved for each dispatch after inbound credentials are removed. */
   credentials: Readonly<Record<string, string>> | ((signal: AbortSignal, target: URL) => Promise<Readonly<Record<string, string>>>);
   /** Concrete turn proxy: share its destination admission, application-byte ceiling and audit. */
-  egress?: Pick<Awaited<ReturnType<typeof startEgressProxy>>, "inference">;
+  egress?: Pick<Awaited<ReturnType<typeof startEgressProxy>>, "inference"> & Partial<Pick<Awaited<ReturnType<typeof startEgressProxy>>, "remainingBytes">>;
   /** Called for every request, forwarded or refused. Values are never logged. */
   observe?(event: InferenceRelayEvent): void;
   /**
@@ -185,12 +186,7 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
         // HTTP application framing before provider TLS: never describe this as
         // measured TLS ciphertext/handshake bytes. Include every observable
         // query/header byte plus a conservative runtime framing allowance.
-        const headerBytes = (first: string, values: Headers): number => {
-          let bytes = Buffer.byteLength(first) + 1028;
-          for (const [name, value] of values) bytes += Buffer.byteLength(name) + Buffer.byteLength(value) + 4;
-          return bytes;
-        };
-        const requestChargeFailure = chargeFailure(headerBytes(`${request.method} ${path}${url.search} HTTP/1.1`, headers));
+        const requestChargeFailure = chargeFailure(relayHeaderBytes(`${request.method} ${path}${url.search} HTTP/1.1`, headers));
         if (requestChargeFailure) return chargeDenied(requestChargeFailure);
         // Body/credential waits may have crossed an input-recording failure.
         // Re-enter the concrete host admission at the last dispatch boundary.
@@ -208,6 +204,8 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
           operation?.finish(cause.outcome,"upstream_unreachable");
           return cause.failure?chargeDenied(cause.failure):refuse(request.method,path,cause.status,"Inference upstream unreachable");
         }
+        const incoming=readRelayResponse(response,{charge:chargeFailure,remaining:()=>options.egress?.remainingBytes?.()??Infinity});
+        if(incoming.headerFailure){await incoming.cancel().catch(()=>{});return chargeDenied(incoming.headerFailure);}
         if (response.status >= 300 && response.status < 400) {
           operation?.finish("failed", "upstream_redirected");
           await response.body?.cancel().catch(() => {});
@@ -216,39 +214,28 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
         options.observe?.({ method: request.method, path, outcome: "forwarded", status: response.status });
         const out = new Headers();
         for (const [name, value] of response.headers) if (!RESPONSE_STRIPPED.has(name.toLowerCase())) out.set(name, value);
-        const responseChargeFailure = chargeFailure(headerBytes(`HTTP/1.1 ${response.status} ${response.statusText}`, response.headers));
-        if (responseChargeFailure) {
-          await response.body?.cancel().catch(() => {});
-          return chargeDenied(responseChargeFailure);
-        }
-        if (!operation) return new Response(response.body, { status: response.status, headers: out });
         if (!response.body) {
-          operation.finish("completed");
+          const failure=incoming.fence();if(failure)return chargeDenied(failure);
+          operation?.finish("completed");
           return new Response(null, { status: response.status, headers: out });
         }
-        const upstreamReader = response.body.getReader();
+        const upstreamReader = incoming;
         let released = false;
-        const release = () => { if (!released) { released = true; upstreamReader.releaseLock(); } };
+        const release = () => { if (!released) { released = true; upstreamReader.release(); } };
         const output = new ReadableStream<Uint8Array>({
           async pull(controller) {
             let next:Awaited<ReturnType<typeof upstreamReader.read>>;
             try { next=await upstreamReader.read(); }
             catch {
               const cause=captureEgressFailure(signal,operation);
-              operation.finish(cause.outcome,"upstream_response_failed");
+              operation?.finish(cause.outcome,"upstream_response_failed");
               release();controller.error(new Error(cause.failure?egressChargeRefusal(cause.failure,"Inference").message:"Inference response interrupted"));return;
             }
-            if (next.done) { operation.finish("completed"); release(); controller.close(); }
-            else {
-              const failure = chargeFailure(next.value.byteLength + 16);
-              if (failure) {
-                await upstreamReader.cancel().catch(() => {}); release();
-                controller.error(new Error(egressChargeRefusal(failure,"Inference").message));
-              } else controller.enqueue(next.value);
-            }
+            if (next.done) { operation?.finish("completed"); release(); controller.close(); }
+            else controller.enqueue(next.value);
           },
           async cancel() {
-            operation.finish("cancelled", "client_disconnected");
+            operation?.finish("cancelled", "client_disconnected");
             await upstreamReader.cancel().catch(() => {}); release();
           },
         });
