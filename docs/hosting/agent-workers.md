@@ -1740,3 +1740,13 @@ The [qualification and proposed integration contract](paid-cli-provider-qualific
 records actual offline controls, SDK accounting loss, media lifecycle constraints
 and the host-side admission/receipt design needed before activation. Existing
 CLI JSON envelopes and ordinary backend defaults remain unchanged.
+
+
+### Root dependency protection
+
+Root dependencies continue to use the protected in-brain `node_modules` and
+its existing alias walk. No module-store installation, activation, generation
+binding or collection is enabled. Ignored dependencies inside a checkout are
+disposable; root dependencies remain protected because later turns use them.
+Operational state retains the existing path and alias guard; no filesystem
+identity fast path or proof-mode status field is enabled.
