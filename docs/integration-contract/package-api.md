@@ -6067,3 +6067,9 @@ synchronous transport handoff joins its final dispatched fact before audit.
 Streaming read results carry a delivery closure that revalidates and enqueues
 in one synchronous call. No awaited continuation separates that final check
 from chunk delivery or scrubber-tail release.
+
+An upstream HTTP request constructor starts a connection attempt. The proxy
+constructs it inside `dispatch(send)` after the final fence, even if the
+client's body is still pending. That connection attempt is dispatched and
+contacted exposure; later cancellation cannot erase it. Subsequent writes and
+end still revalidate through the same send fence.

@@ -45,3 +45,5 @@ Keep provider receipt status as upstream evidence and fence buffered response re
 Share relay response metering and EOF fencing across normal, Files, redirect and cleanup paths.
 
 Separate preparation from actual dispatch facts and fence streaming delivery in the same synchronous handoff.
+
+Fence upstream HTTP request construction and prove in-place selector edits retire source instances.

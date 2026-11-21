@@ -518,7 +518,8 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       const upstreamTarget = new URL(target);
       if (address) upstreamTarget.hostname = address.family === 6 ? `[${address.address}]` : address.address;
       if (!op.prepare().ok) { refuse(); return; }
-      const outgoing = httpRequest(upstreamTarget, { method: request.method, headers: outgoingHeaders,signal:op.signal }, incoming => {
+      let outgoing!:ReturnType<typeof httpRequest>;
+      const dispatched=op.dispatch(()=>{outgoing=httpRequest(upstreamTarget, { method: request.method, headers: outgoingHeaders,signal:op.signal }, incoming => {
         if (!op.charge(headerBytes(`HTTP/1.1 ${incoming.statusCode} ${incoming.statusMessage}`, headers(incoming))).ok) {
           refuse(); incoming.destroy(); outgoing.destroy(); return;
         }
@@ -533,7 +534,8 @@ export async function startEgressProxy(options: EgressProxyOptions) {
         response.on("drain", () => incoming.resume());
         incoming.once("end", () => { if (!response.destroyed && !response.writableEnded) { if (!op.charge(0).ok) { response.destroy(); return; } writeHeaders(); response.end(); } });
         incoming.once("error", () => { op.finish("failed", "upstream_response_failed"); response.destroy(); });
-      });
+      });});
+      if(!dispatched.ok){refuse();return;}
       op.signal.addEventListener("abort", () => { outgoing.destroy(); if (op.outcome() === "cancelled") response.destroy(); }, { once: true });
       outgoing.once("error", () => { op.finish("failed", "upstream_unreachable"); if (!response.headersSent) response.writeHead(502); response.end(); });
       response.once("close", () => outgoing.destroy());
