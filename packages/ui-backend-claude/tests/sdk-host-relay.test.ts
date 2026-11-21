@@ -1,4 +1,4 @@
-import { nativeNamespaceEnvironment } from "../../../scripts/test-native-guard.ts";
+import { nativeNamespaceEnvironment, nativeNamespacePolicy } from "../../../scripts/test-native-guard.ts";
 import { SDK_RELAY_PROFILE_TIMEOUT_MS, SDK_RELAY_SINGLE_TURN_TIMEOUT_MS, SDK_RELAY_CANCELLATION_TIMEOUT_MS } from "./fixtures/sdk-host-relay-limits.js";
 /** Full SDK construction, native startup and prepared ordinary transport; fixture storage is not Btrfs qualification. */
 import { expect, test } from "bun:test";
@@ -17,8 +17,9 @@ test.each(["strict", "governed"] as const)("prepared %s SDK turn preserves nativ
   // No test fetch instrumentation covers the native executable. Its entire
   // process tree therefore runs with no external route and no ambient env.
   const fixture = new URL("./fixtures/sdk-host-relay-probe.ts", import.meta.url).pathname;
+  const policy = nativeNamespacePolicy();
   const child = Bun.spawn(["bwrap", "--clearenv", ...nativeNamespaceEnvironment(), "--setenv", "PATH", "/usr/bin:/bin", "--setenv", "HOME", "/tmp", "--unshare-net", "--unshare-pid", "--die-with-parent",
-    "--ro-bind", "/", "/", "--tmpfs", "/tmp", "--tmpfs", "/etc", "--proc", "/proc", "--dev", "/dev", process.execPath, fixture, profile], {
+    "--ro-bind", "/", "/", "--tmpfs", "/tmp", "--tmpfs", "/etc", "--proc", "/proc", "--dev", "/dev", ...policy.mounts, process.execPath, fixture, profile, ...policy.args], {
     env: { PATH: "/usr/bin:/bin" }, stdout: "pipe", stderr: "pipe", timeout: SDK_RELAY_PROFILE_TIMEOUT_MS,
   });
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
@@ -76,8 +77,9 @@ test.each(["strict", "governed"] as const)("prepared %s SDK turn preserves nativ
 
 test("prepared SDK native auto-allowed Bash still honors the existing per-use refusal", async () => {
   const fixture = new URL("./fixtures/sdk-host-relay-probe.ts", import.meta.url).pathname;
+  const policy = nativeNamespacePolicy();
   const child = Bun.spawn(["bwrap", "--clearenv", ...nativeNamespaceEnvironment(), "--setenv", "PATH", "/usr/bin:/bin", "--setenv", "HOME", "/tmp", "--unshare-net", "--unshare-pid", "--die-with-parent",
-    "--ro-bind", "/", "/", "--tmpfs", "/tmp", "--tmpfs", "/etc", "--proc", "/proc", "--dev", "/dev", process.execPath, fixture, "governed", "permission"], {
+    "--ro-bind", "/", "/", "--tmpfs", "/tmp", "--tmpfs", "/etc", "--proc", "/proc", "--dev", "/dev", ...policy.mounts, process.execPath, fixture, "governed", "permission", ...policy.args], {
     env: { PATH: "/usr/bin:/bin" }, stdout: "pipe", stderr: "pipe", timeout: SDK_RELAY_SINGLE_TURN_TIMEOUT_MS,
   });
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
@@ -95,8 +97,9 @@ test("prepared SDK native auto-allowed Bash still honors the existing per-use re
 
 test.each(["managed", "project"] as const)("prepared SDK %s credential or transport override withholds the native prompt", async source => {
   const fixture = new URL("./fixtures/sdk-host-relay-probe.ts", import.meta.url).pathname;
+  const policy = nativeNamespacePolicy();
   const child = Bun.spawn(["bwrap", "--clearenv", ...nativeNamespaceEnvironment(), "--setenv", "PATH", "/usr/bin:/bin", "--setenv", "HOME", "/tmp", "--unshare-net", "--unshare-pid", "--die-with-parent",
-    "--ro-bind", "/", "/", "--tmpfs", "/tmp", "--tmpfs", "/etc", "--proc", "/proc", "--dev", "/dev", process.execPath, fixture, "governed", source], {
+    "--ro-bind", "/", "/", "--tmpfs", "/tmp", "--tmpfs", "/etc", "--proc", "/proc", "--dev", "/dev", ...policy.mounts, process.execPath, fixture, "governed", source, ...policy.args], {
     env: { PATH: "/usr/bin:/bin" }, stdout: "pipe", stderr: "pipe", timeout: SDK_RELAY_SINGLE_TURN_TIMEOUT_MS,
   });
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
@@ -112,8 +115,9 @@ test.each(["managed", "project"] as const)("prepared SDK %s credential or transp
 
 test("prepared SDK initializes with no projected host credential store before any prompt", async () => {
   const fixture = new URL("./fixtures/sdk-host-relay-probe.ts", import.meta.url).pathname;
+  const policy = nativeNamespacePolicy();
   const child = Bun.spawn(["bwrap", "--clearenv", ...nativeNamespaceEnvironment(), "--setenv", "PATH", "/usr/bin:/bin", "--setenv", "HOME", "/tmp", "--unshare-net", "--unshare-pid", "--die-with-parent",
-    "--ro-bind", "/", "/", "--tmpfs", "/tmp", "--tmpfs", "/etc", "--proc", "/proc", "--dev", "/dev", process.execPath, fixture, "governed", "inspect"], {
+    "--ro-bind", "/", "/", "--tmpfs", "/tmp", "--tmpfs", "/etc", "--proc", "/proc", "--dev", "/dev", ...policy.mounts, process.execPath, fixture, "governed", "inspect", ...policy.args], {
     env: { PATH: "/usr/bin:/bin" }, stdout: "pipe", stderr: "pipe", timeout: SDK_RELAY_SINGLE_TURN_TIMEOUT_MS,
   });
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);

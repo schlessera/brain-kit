@@ -1185,7 +1185,13 @@ The broker remains non-dumpable, its listener is absent from the native child,
 and native processes cannot duplicate or inspect its control descriptors.
 Hosted qualification must pass the real kernel-policy self-test before any
 installed runtime launches; missing compiler or kernel support emits a failed
-receipt. Local plan tests compile the helper but mock that hosted probe.
+receipt. Fixture namespaces that hide compiler inputs compile once in their
+outer process, then bind the artifact read-only after all covering mounts and
+pass its digest to the inner guard. The inner guard verifies regular-file type,
+non-writability and SHA-256 before using it; an absent or changed artifact
+refuses instead of falling back. Unit shards and determinism use the same
+fixture preparation as runtime proof. Local plan tests compile the helper but
+mock that hosted probe.
 
 Separate-UID trace storage stays guard-owned with an ACL granting only the
 verified worker UID write access. Receipt reads validate ownership, inode,

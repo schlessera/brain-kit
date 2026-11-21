@@ -1,11 +1,12 @@
-import { nativeNamespaceEnvironment } from "../../../scripts/test-native-guard.ts";
+import { nativeNamespaceEnvironment, nativeNamespacePolicy } from "../../../scripts/test-native-guard.ts";
 import { expect, test } from "bun:test";
 import { resolve } from "node:path";
 const root = resolve(import.meta.dir, "../../..");
 function probe(fixture: string, mode?: string): Record<string, any> {
+  const policy = nativeNamespacePolicy();
   const child = Bun.spawnSync(["bwrap", "--clearenv", ...nativeNamespaceEnvironment(), "--setenv", "PATH", "/usr/bin:/bin", "--setenv", "HOME", "/tmp",
-    "--unshare-net", "--unshare-pid", "--die-with-parent", "--ro-bind", "/", "/", "--tmpfs", "/tmp", "--tmpfs", "/etc", "--tmpfs", "/opt", "--proc", "/proc", "--dev", "/dev",
-    process.execPath, "--preload", resolve(root, "scripts/test-network-child-preload.ts"), resolve(import.meta.dir, "fixtures", fixture), ...(mode ? [mode] : [])],
+    "--unshare-net", "--unshare-pid", "--die-with-parent", "--ro-bind", "/", "/", "--tmpfs", "/tmp", "--tmpfs", "/etc", "--tmpfs", "/opt", "--proc", "/proc", "--dev", "/dev", ...policy.mounts,
+    process.execPath, "--preload", resolve(root, "scripts/test-network-child-preload.ts"), resolve(import.meta.dir, "fixtures", fixture), ...(mode ? [mode] : []), ...policy.args],
   { cwd: root, stdin: "ignore", stdout: "pipe", stderr: "pipe", timeout: 25000 });
   expect(child.exitCode, child.stderr.toString()).toBe(0);
   return JSON.parse(child.stdout.toString().trim().split("\n").at(-1)!);

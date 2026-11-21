@@ -1,4 +1,4 @@
-import { nativeNamespaceEnvironment } from "../../../scripts/test-native-guard.ts";
+import { nativeNamespaceEnvironment, nativeNamespacePolicy } from "../../../scripts/test-native-guard.ts";
 /** Native protocol proof, not ordinary-worker launcher or host-filesystem isolation proof. */
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
@@ -16,8 +16,9 @@ test("installed native first-party relay preserves resumed history, per-turn mod
   // No test fetch instrumentation covers the native executable. Its entire
   // process tree therefore runs with no external route and no ambient env.
   const fixture = new URL("./fixtures/host-relay-probe.ts", import.meta.url).pathname;
+  const policy = nativeNamespacePolicy();
   const child = Bun.spawn(["bwrap", "--clearenv", ...nativeNamespaceEnvironment(), "--setenv", "PATH", "/usr/bin:/bin", "--setenv", "HOME", "/tmp", "--unshare-net", "--unshare-pid", "--die-with-parent",
-    "--ro-bind", "/", "/", "--tmpfs", "/tmp", "--tmpfs", "/etc", "--proc", "/proc", "--dev", "/dev", process.execPath, fixture], {
+    "--ro-bind", "/", "/", "--tmpfs", "/tmp", "--tmpfs", "/etc", "--proc", "/proc", "--dev", "/dev", ...policy.mounts, process.execPath, fixture, ...policy.args], {
     env: { PATH: "/usr/bin:/bin" }, stdout: "pipe", stderr: "pipe", timeout: 25_000,
   });
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);

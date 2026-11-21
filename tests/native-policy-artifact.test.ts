@@ -22,7 +22,7 @@ for(const kind of ["stderr","throw","artifact"] as const)test(`native policy ${k
  }finally{rmSync(root,{recursive:true,force:true});}
 });
 
-for(const mode of ["valid","changed","writable"] as const)test(`read-only RTK policy artifact ${mode} is verified without compiling`,async()=>{
+for(const view of ["rtk","policy"] as const)for(const mode of ["valid","changed","writable"] as const)test(`read-only ${view} policy artifact ${mode} is verified without compiling`,async()=>{
  const root=mkdtempSync(join(tmpdir(),"odysseus-policy-artifact-"));
  try{
   const file=join(root,"policy"),script=join(root,"probe.ts");writeFileSync(file,"Odysseus synthetic policy bytes");
@@ -31,7 +31,7 @@ for(const mode of ["valid","changed","writable"] as const)test(`read-only RTK po
    fs.chmodSync(file,${mode==="writable"?'0o755':'0o555'});
    const digest=createHash("sha256").update(fs.readFileSync(file)).digest("hex");
    mock.module("node:fs",()=>({...originalFs,statSync:(path,...args)=>originalFs.statSync(path===fixed?file:path,...args),openSync:(path,...args)=>originalFs.openSync(path===fixed?file:path,...args),lstatSync:(path,...args)=>originalFs.lstatSync(path===fixed?file:path,...args),readFileSync:(path,...args)=>originalFs.readFileSync(path===fixed?file:path,...args)}));
-   process.argv.push("--native-rtk-view","--native-socket-policy-sha256="+${mode==="changed"?'"a".repeat(64)':'digest'});
+   process.argv.push(${JSON.stringify("--native-"+view+"-view")},"--native-socket-policy-sha256="+${mode==="changed"?'"a".repeat(64)':'digest'});
    const original=Bun.spawnSync;Bun.spawnSync=((argv,options)=>{if(argv[0]==="cc")throw Error("INNER_COMPILER_REACHED");return Reflect.apply(original,Bun,[argv,options]);});
    const {compileSocketPolicy}=await import(${JSON.stringify(guard+"?artifact-fixture")});
    console.log(compileSocketPolicy());`);
@@ -60,4 +60,16 @@ test("an isolated preload without receipt libraries never prints raw diagnostic 
   const receipt=JSON.parse(err.split("\n").find(line=>line.startsWith('{"kind":"native-offline-boundary"'))!);
   expect(receipt.compilerStderr).toBe("[diagnostic redaction unavailable]");
  }finally{rmSync(root,{recursive:true,force:true});}
+});
+
+// Compilation only: no namespace or installed native process executes.
+test("namespace policy is compiled outside the compiler-free view and mounted read-only",async()=>{
+ const {nativeNamespacePolicy}=await import("../scripts/test-native-guard.ts");
+ const {createHash}=await import("node:crypto");const {readFileSync,statSync}=await import("node:fs");
+ const policy=nativeNamespacePolicy();
+ expect(policy.mounts[0]).toBe("--ro-bind");
+ expect(policy.mounts[2]).toBe("/usr/local/bin/brain-native-connect");
+ expect(statSync(policy.mounts[1]!).mode & 0o222).toBe(0);
+ expect(policy.args).toEqual(["--native-policy-view","--native-socket-policy-sha256="+createHash("sha256").update(readFileSync(policy.mounts[1]!)).digest("hex")]);
+ expect(nativeNamespacePolicy()).toEqual(policy);
 });

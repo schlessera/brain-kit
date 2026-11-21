@@ -203,10 +203,17 @@ function compilerDiagnostic(value: string): string {
   return redactProviderMessage(redactCredentials(redactor.text(text))).slice(0, 4096);
   } catch { return "[diagnostic redaction unavailable]"; }
 }
-/** Compile in the outer test process; RTK re-entry receives only this artifact. */
+/** Prepare before a fixture hides compiler inputs such as /etc/alternatives. */
+export function nativeNamespacePolicy(): { mounts: string[]; args: string[] } {
+  const policy = compileSocketPolicy();
+  return { mounts: ["--ro-bind", policy, RTK_SOCKET_POLICY],
+    args: ["--native-policy-view", `--native-socket-policy-sha256=${fileHash(policy)}`] };
+}
+
+/** Compile in the outer test process; namespace re-entry receives only this artifact. */
 export function compileSocketPolicy(): string {
   if (socketPolicyExecutable) return socketPolicyExecutable;
-  if (process.argv.includes("--native-rtk-view")) {
+  if (process.argv.includes("--native-rtk-view") || process.argv.includes("--native-policy-view")) {
     const digest = process.argv.find(value => value.startsWith("--native-socket-policy-sha256="))?.split("=")[1];
     try {
       const info = lstatSync(RTK_SOCKET_POLICY);

@@ -48,3 +48,14 @@ test("enforcement RTK re-entry declares every temporary worker input",()=>{
  expect(rtk).toContain('process.argv.slice(1), "--native-rtk-view"');
  expect(rtk).toContain('"--bind", "/tmp", "/tmp"');
 });
+
+for(const file of ["host-relay-native","ordinary-host-relay","native-route-qualification","sdk-host-relay","shell-startup"])test(`compiler-free native namespaces carry outer policy: ${file}`,()=>{
+ const text=read(`packages/ui-backend-claude/tests/${file}.test.ts`);
+ const namespaces=[...text.matchAll(/\.\.\.nativeNamespaceEnvironment\(\)/g)].length;
+ expect(namespaces).toBeGreaterThan(0);
+ expect([...text.matchAll(/const policy = nativeNamespacePolicy\(\)/g)].length,"OUTER_POLICY_PREPARED").toBe(namespaces);
+ expect([...text.matchAll(/\.\.\.policy\.mounts/g)].length,"POLICY_READ_ONLY_MOUNT").toBe(namespaces);
+ expect([...text.matchAll(/\.\.\.policy\.args/g)].length,"POLICY_DIGEST_ARGUMENT").toBe(namespaces);
+ // Every policy bind follows the fixture masks, including /tmp and /etc.
+ expect([...text.matchAll(/"--dev", "\/dev", \.\.\.policy\.mounts/g)].length,"POLICY_AFTER_MASKS").toBe(namespaces);
+});
