@@ -22,7 +22,7 @@ states that overlapping writable windows share observations. `observedAt`
 names the retained window observation, not a guessed receipt time.
 The type is defined by (`TurnJournalSummary`,
 `packages/ui-sdk/src/turn-journal.ts:2-29`); validation uses
-(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1108-1126`).
+(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1136-1154`).
 `actor` additionally accepts `user` for a server-recorded history operation.
 Optional `kind` is `turn` or `revert`; a revert may name its original
 `sourceTurnId`. These facts do not create an assistant message or an inference
@@ -55,7 +55,7 @@ reports the paths observed so far, a lower bound, and an empty partial reports
 summary retained before this field, or sent by an older server, omits it or
 reports `null`: the count is unknown, never zero, and a client names the
 `changedFiles` figure as recorded entries rather than files. The count is
-(`const KEPT_CHANGE`, `packages/ui-server/src/brain/turn-journal.ts:55-58`).
+(`const KEPT_CHANGE`, `packages/ui-server/src/brain/turn-journal.ts:48-51`).
 
 **Configuration coverage set (additive, #3257).** Untraced configuration inputs
 are a property of the brain's configuration, so the host stores each distinct
@@ -132,7 +132,7 @@ reopens run state or moves focus. Older clients may ignore it. The same optional
 `budget` is retained on `TurnJournalSummary` and replayed with the existing
 single below-turn disclosure. The additive types and validation are
 (`ServerUsage`, `packages/ui-sdk/src/protocol.ts:4236-4242`) and
-(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1983-1985`).
+(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:2172-2174`).
 
 Budget list-price inference cost is separate from the journal's billing-aware
 `costUsd`. Unpriced totals remain null; known lower bounds, estimated rates,
@@ -2534,7 +2534,7 @@ number, with its `html_url` validated by the contract or `null`.
   fact is unknown. A client shows its neutral state ("The host's GitHub
   account"; `repository #number` with no kind and no link) and the approval
   works as before. Clients validate the shape
-  (`approvalDisplaySchema`, `packages/ui-sdk/src/schemas.ts:1386-1391`);
+  (`approvalDisplaySchema`, `packages/ui-sdk/src/schemas.ts:1387-1392`);
   a fact that fails it reads as `null`, never as a refused card.
 - **Re-delivery.** A pending card re-delivered after a reconnect carries the
   host's facts for it again; a client replaces what it had.

@@ -408,7 +408,7 @@ in common; the host supplies what only it knows.
     never retried. A timed-out write answers that it may have happened.
 13. **Provenance, then return.** A `content` result records `google_result`
     taint through the host's `untrusted` callback before it returns, as the
-    GitHub read tools do (`const githubTools = createGithubToolsHost`, `packages/ui-server/src/app.ts:816-823`):
+    GitHub read tools do (`const githubTools = createGithubToolsHost`, `packages/ui-server/src/app.ts:831-838`):
     a new member of the `taint` source enum (`taint: kind(1`, `packages/ui-server/src/governance/events.ts:223-233`),
     with the read tools listed in the ingestion detector manifest
     (`hostRemotePages`, `packages/ui-server/src/activity/ingestion-taint.ts:138`).

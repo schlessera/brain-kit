@@ -28,7 +28,7 @@ that no pre-charge covers. The evidence is on the issue.
   `DB_PATH` names one journal.
   Every page in it is the journal's, so the measurement is the file's page
   count and the journal's own WAL, read without walking
-  (`function measure(`, `packages/ui-server/src/brain/journal-accounting.ts:73-87`).
+  (`function measure(`, `packages/ui-server/src/brain/journal-accounting.ts:76-90`).
   Other components' pages and WAL frames are no longer the journal's charge.
 - **The tables move on start.** Migrations up to `063` create journal tables
   in the UI database. Before any later migration, and again after the last,
@@ -93,11 +93,11 @@ that no pre-charge covers. The evidence is on the issue.
   capture took an inventory at all, which it does only for an observation that
   saw a change. Per-turn arrays from earlier releases move into sets at open, a
   bounded batch per accounted commit, because SQLite cannot hash
-  (`migrateConfigurationSets(limit`, `packages/ui-server/src/brain/journal-store.ts:232-240`);
+  (`migrateConfigurationSets(limit`, `packages/ui-server/src/brain/journal-store.ts:249-257`);
   readers understand the arrays until then, and an empty legacy array stays
   "no set recorded". The brain's current set is the one the most recent complete,
   inventoried turn recorded
-  (`configurationCoverage(): ConfigurationCoverageRead`, `packages/ui-server/src/brain/turn-journal.ts:844-850`).
+  (`configurationCoverage(): ConfigurationCoverageRead`, `packages/ui-server/src/brain/turn-journal.ts:845-851`).
   The sets table is an ordinary rowid table, as every journal table is: the
   operational backup copies and compares journal rows in rowid order.
 
