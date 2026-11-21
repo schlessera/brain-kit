@@ -180,6 +180,7 @@ export async function admitGovernedTurn(run: TurnRun): Promise<GovernedAdmission
   } catch { throw new BudgetUnavailable(); }
   if (governedHold) recorder?.setWorkerProfile(governedHold.sandbox.profile ?? "strict");
   if (governedHold && host.journal) {
+    host.journal.evidence?.(turn.turnId, lifecycle?.hold, () => run.held.turnEgress?.inferenceInFlight() ?? false);
     lifecycle?.mark("journalStartedAt");
     await host.journal.begin(turn.turnId, { sessionId: turn.sessionId ?? null,
       actor: origin, model: run.mainModel,

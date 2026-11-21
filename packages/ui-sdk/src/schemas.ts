@@ -1639,6 +1639,11 @@ const activitySpanEventSchema = z.looseObject({
 }) satisfies z.ZodType<ActivitySpanEvent>;
 
 const activityTurnLifecycleSchema = z.looseObject({
+  holds: z.array(z.looseObject({ holdId: id, cause: z.enum(["begin", "finish", "tool", "periodic", "scope"]), causeTurnId: id.nullable(),
+    toolUseId: id.optional(), requestedAt: z.number(), stoppedAt: z.number().nullable(), resumedAt: z.number().nullable(),
+    changedPaths: z.number().nonnegative().nullable(), otherTurnsStopped: z.number().nonnegative(), inferenceInFlight: z.boolean().nullable() })).optional(),
+  packageVersion: z.string().optional(), buildRevision: z.string().regex(/^[A-Za-z0-9._+-]{1,64}$/).optional(),
+  runtimeVersion: z.string().optional(), recorderSettledAt: z.number().nullable().optional(), idleEmittedAt: z.number().nullable().optional(),
   clientTiming: z.looseObject(clientTurnTimingSchema.shape).optional(),
   clientTimingUnavailable: z.literal("invalid_receipt").optional(),
   hostEvents: z.array(z.looseObject({principalId: id, kind: z.enum(["turn_cancelled", "ask_user_cancelled", "principal_revoked", "follow_up"]), observedAt: z.number()})),
@@ -1668,7 +1673,7 @@ const activityTurnLifecycleSchema = z.looseObject({
   subPhases: z.array(z.looseObject({ phase: z.enum(["governed", "journal"]), name: z.string(), startedAt: z.number(),
     endedAt: z.number().nullable(), elapsedMs: z.number().nullable() })).optional(),
   openSubPhases: z.array(z.looseObject({ phase: z.string(), name: z.string(), startedAt: z.number(),
-    endedAt: z.number().nullable(), elapsedMs: z.number().nullable(), timeBase: z.literal("worker").optional(), workerElapsedMs: z.number().nonnegative().optional() })).optional(),
+    endedAt: z.number().nullable(), elapsedMs: z.number().nullable(), pending: z.boolean().optional(), timeBase: z.literal("worker").optional(), workerElapsedMs: z.number().nonnegative().optional() })).optional(),
   outcome: z.enum(["success", "error", "timeout", "cancelled", "denied", "interrupted"]).nullable(), reason: z.string().nullable(),
 });
 

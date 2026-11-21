@@ -1,5 +1,5 @@
 """Own one finite loop filesystem, run guarded hosted proof, and release only it."""
-import errno, fcntl, hashlib, json, os, pathlib, signal, stat, struct, subprocess, sys, time
+import errno, fcntl, hashlib, importlib.util, json, os, pathlib, signal, stat, struct, subprocess, sys, time
 
 BACKEND = sys.argv[1] if len(sys.argv) >= 2 else "claude"
 if BACKEND not in ("claude", "pi"): raise RuntimeError("Unknown fixed native backend selection")
@@ -9,9 +9,11 @@ if APP_UID not in ("0", "1000"): raise RuntimeError("Unknown native app UID proo
 os.environ["BRAIN_NATIVE_PROOF_APP_UID"] = APP_UID
 # The #2834 observation cell makes 220 model requests; the #2848 timing cell
 # waits for the earlier turns' index refresh before its turn.
-# The observation matrix also retains 10,000 real changed versions. Its
-# pre-optimization baseline can spend over half an hour in those holds.
-HOSTED_TIMEOUT = 5400 if os.environ.get("BRAIN_NATIVE_PROOF_OBSERVATION_TIMING") == "1" else 300 if os.environ.get("BRAIN_NATIVE_PROOF_APPLY_TIMING") == "1" else 180
+# The observation matrix also retains 10,000 real changed versions.
+limits_spec = importlib.util.spec_from_file_location("timing_limits", pathlib.Path(__file__).with_name("timing_limits.py"))
+limits = importlib.util.module_from_spec(limits_spec)
+limits_spec.loader.exec_module(limits)
+HOSTED_TIMEOUT = limits.hosted_timeout_seconds(os.environ)
 ROOT = pathlib.Path("/proof")
 STORE = pathlib.Path("/brain-fixture")
 DEVICE = pathlib.Path("/dev/brain-native-proof-loop")
