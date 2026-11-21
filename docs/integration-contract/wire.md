@@ -623,8 +623,13 @@ activity snapshots and deltas. The current names are:
   `failure_recording`. The journal finish also carries its existing
   `hold_wait`, `final_observation` (with the `observe_*` steps above),
   `finish_worktrees`, `finish_record`, `finish_collect`, `finish_publish`
-  timers. Repeated cleanup calls remain repeated steps in start order.
-  Closing steps record reached work on failure/cancellation too; they lie
+  timers. `final_observation` is a lifecycle container only, never an
+  additional leaf in the native observation trace. Repeated cleanup calls
+  remain repeated steps in start order. Absent operations have no step;
+  caught cleanup failures leave their reached step unended. `scope_finish`
+  confirms the returned write promise only if it settles before the existing
+  lifecycle terminal; pending or failed scope writes remain unended, without
+  adding a close-path wait. Closing steps record reached work on failure/cancellation too; they lie
   between backend exit (when a backend ran) and status emission.
 
 Optional nullable `recorderSettledAt` and `idleEmittedAt` milestones follow
@@ -648,9 +653,16 @@ record has `cause` (`begin`, `finish`, `tool`, `periodic`, `scope`),
 and `resumedAt`, nullable `changedPaths`, `otherTurnsStopped` and
 `inferenceInFlight`. Stop/resume timestamps are taken only after the
 corresponding worker operations confirm; failed or inapplicable boundaries
-remain null. Nested observations share the physical resume boundary.
-`changedPaths` counts distinct paths recorded by this observation, not the
-turn's cumulative scope count. Other turns' identities are never exposed.
+remain null. A resume requires at least one still-live worker and successful
+resume calls; exited workers never produce a resume receipt. Nested
+observations share the physical resume boundary. Late workers resample
+inference overlap at their confirmed stop and update every participant's
+`otherTurnsStopped` count. A scope cap and its ensuing shared observation use
+the same `holdId`, preserving the causing turn's `toolUseId`.
+`changedPaths` is the union of distinct paths recorded across this held
+operation's captures, including a managed worktree's qualified path, not the
+turn's cumulative scope count. A cap triggered by an observation retains that
+observation's count; subsequent quiet observations cannot overwrite it. Other turns' identities are never exposed.
 Inference overlap means a relay operation was in flight at stop,
 including request setup and response streaming. Evidence accumulates in
 memory and rides the next existing milestone/terminal write; it adds no

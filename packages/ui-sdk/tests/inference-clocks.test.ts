@@ -76,3 +76,36 @@ test("a known event loop block before dispatch appears in maximum timer drift", 
     expect(records[0]!.loopLagMaxMs!).toBeLessThanOrEqual(records[0]!.durationMs);
   } finally { relay.stop(); proxy.stop(); await upstream.stop(true); }
 });
+
+test("a denied first admission records the completed decision before its terminal event", async () => {
+  let now = 1000;
+  const clock = spyOn(performance, "now").mockImplementation(() => now);
+  const records: EgressRecord[] = [];
+  const proxy = await startEgressProxy({ mode: "record", allow: [], deny: [], outwardHosts: ["ithaca.invalid"], maxBytes: 100000,
+    approveOutward: async () => { now += 125; return false; }, observe: record => records.push(record) });
+  try {
+    const operation = proxy.inference("POST", new URL("https://ithaca.invalid/v1/messages"), new AbortController().signal);
+    expect(await operation.admit()).toBe(false);
+    expect(records).toHaveLength(1);
+    expect(records[0], "DENIED_ADMISSION_HAS_ITS_DECISION_CLOCK").toMatchObject({ inference: true, admitMs: 125, durationMs: 125,
+      outcome: "denied", reason: "outward_not_approved" });
+    expect(records[0]!.dispatchMs).toBeUndefined();
+  } finally { proxy.stop(); clock.mockRestore(); }
+});
+
+test("cancellation during an unresolved admission emits immediately without inventing its return clock", async () => {
+  const entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  const records: EgressRecord[] = [];
+  const proxy = await startEgressProxy({ mode: "record", allow: [], deny: [], outwardHosts: [], maxBytes: 100000,
+    async admitted() { entered.resolve(); await release.promise; }, observe: record => records.push(record) });
+  let admitting: Promise<boolean> | undefined;
+  try {
+    const operation = proxy.inference("POST", new URL("https://ithaca.invalid/v1/messages"), new AbortController().signal);
+    admitting = operation.admit(); await entered.promise;
+    operation.finish("cancelled", "turn_cancelled");
+    expect(records, "CANCELLATION_NEVER_WAITS_FOR_AN_ADMISSION_CLOCK").toHaveLength(1);
+    expect(records[0]).toMatchObject({ outcome: "cancelled", reason: "turn_cancelled" });
+    expect(records[0]!.admitMs).toBeUndefined(); release.resolve(); await admitting;
+    expect(records).toHaveLength(1); expect(records[0]!.admitMs).toBeUndefined();
+  } finally { release.resolve(); await admitting; proxy.stop(); }
+});

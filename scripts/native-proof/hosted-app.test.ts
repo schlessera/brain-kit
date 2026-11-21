@@ -1,3 +1,4 @@
+import { admissionTimingSample } from "./admission-timing.js";
 import { seedObservationTree, type ObservationTree } from "./observation-tree.js";
 import { afterAll, expect, test } from "bun:test";
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -404,19 +405,7 @@ print(json.dumps(result))`;
         try { return (ui.query("SELECT record FROM activity_turn_lifecycles ORDER BY accepted_at").all() as { record: string }[]).map(row => JSON.parse(row.record)); }
         finally { ui.close(); }
       };
-      const phases = (record: any) => {
-        if (!record) return null;
-        const span = (start: number | null, end: number | null) => start === null ? null : (end ?? record.failureObservedAt ?? record.endedAt) === null ? null
-          : Math.max(0, (end ?? record.failureObservedAt ?? record.endedAt) - start);
-        const steps: Record<string, number | null> = {};
-        for (const step of [...(record.subPhases ?? []), ...(record.openSubPhases ?? [])]) {
-          const key = `${step.phase}.${step.name}`, ms = span(step.startedAt, step.endedAt);
-          steps[key] = ms === null ? steps[key] ?? null : (steps[key] ?? 0) + ms;
-        }
-        return { turnId: record.turnId, queueWaitMs: span(record.acceptedAt, record.dequeuedAt), governedAdmissionMs: span(record.governedStartedAt, record.governedAcquiredAt),
-          budgetAdmissionMs: span(record.budgetStartedAt, record.budgetAdmittedAt), journalBeginMs: span(record.journalStartedAt, record.journalBeganAt),
-          backendStartupMs: span(record.backendInvokedAt, record.firstFrameAt), timeToFirstFrameMs: span(record.acceptedAt, record.firstFrameAt), steps };
-      };
+      const phases = admissionTimingSample;
       const lifecycleOf = (turnId: string) => phases(lifecycles().find(record => record.turnId === turnId));
       // (a) The process's first governed, journaled turn: the qualification's first admission.
       const firstAfterStart = phases(lifecycles().find(record => record.governedStartedAt !== null && record.journalStartedAt !== null));

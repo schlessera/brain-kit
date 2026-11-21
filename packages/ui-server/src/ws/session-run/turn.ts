@@ -103,7 +103,7 @@ async function executeTurn(run: TurnRun): Promise<TurnOutcome> {
     turn.backendStarted = false;
     await held.settleIndex?.();
     // Every relayed attempt reports before the turn's accounting closes.
-    const egressEnd = lifecycle?.timer("closing")("egress_settle");
+    const egressEnd = held.providerRelay || held.turnEgress ? lifecycle?.timer("closing")("egress_settle") : undefined;
     await held.providerRelay?.stop();
     held.turnEgress?.stop();
     // Every egress record commits, or fails the turn, before its outcome (#2850).
@@ -115,7 +115,7 @@ async function executeTurn(run: TurnRun): Promise<TurnOutcome> {
     // stop and before its Activity terminal, quarantine or gate release.
     // A worktree generation retires first: no grant can follow that observation.
     if (held.worktreeGeneration) await host.referenceWorktrees!.retireGeneration(held.worktreeGeneration.id);
-    const journalEnd = lifecycle?.timer("closing")("journal_finish");
+    const journalEnd = host.journal ? lifecycle?.timer("closing")("journal_finish") : undefined;
     await host.journal?.finish(turn.turnId, lifecycle?.timer("closing"));
     journalEnd?.();
     await settleBudgetWrites(run);
@@ -129,7 +129,9 @@ async function executeTurn(run: TurnRun): Promise<TurnOutcome> {
   } catch (err) {
     lifecycle?.mark("failureObservedAt");
     await held.settleIndex?.();
+    const egressEnd = held.turnEgress ? lifecycle?.timer("closing")("egress_settle") : undefined;
     await held.turnEgress?.settled();
+    egressEnd?.();
     await settleBudgetWrites(run);
     const failed = classifyFailedTurn({
       cancelled: turn.cancelled, aborted: abortController.signal.aborted, lastResult: turn.lastResult, stops,

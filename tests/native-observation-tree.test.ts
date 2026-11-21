@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { nativeHostDockerArgs } from "../scripts/prove-native-host";
@@ -22,8 +22,11 @@ test("large tree seed is deterministic and records its generated entries and una
   const root = mkdtempSync(join(tmpdir(), "ithaca-timing-"));
   try {
     const sizes = { workspaceEntries: 8, dependencyEntries: 3, journalObjects: 4, checkouts: 2 };
+    mkdirSync(join(root, "brain", "node_modules"), { recursive: true });
+    const before = readdirSync(root, { recursive: true }).length;
     const receipt = seedObservationTree(join(root, "brain"), join(root, "objects"), sizes);
-    expect(receipt).toMatchObject({ ...sizes, generatedFiles: 17, generatedDirectories: 10, generatedEntries: 27,
+    expect(receipt.generatedEntries, "ENTRY_RECEIPT_MATCHES_FILESYSTEM_DELTA").toBe(readdirSync(root, { recursive: true }).length - before);
+    expect(receipt).toMatchObject({ ...sizes, generatedFiles: 17, generatedDirectories: 11, generatedEntries: 28,
       coldCache: { available: false, reason: "No isolated cache-drop proof; shared runner cache is never mutated" } });
     const first = readdirSync(join(root, "objects"));
     seedObservationTree(join(root, "second"), join(root, "second-objects"), sizes);
@@ -43,4 +46,14 @@ test("observer bootstrap measures the first actual initialize and preserves fail
   const failed = traceObserverBootstrap(async () => { now += 200; throw Error("unavailable"); }, span => spans.push(span), () => now);
   await expect(failed()).rejects.toThrow("unavailable");
   expect(spans).toEqual([{ elapsedMs: 300, outcome: "completed" }, { elapsedMs: 200, outcome: "failed" }]);
+});
+
+
+test("directory counts also include implicitly created fixture parents", () => {
+  const root = mkdtempSync(join(tmpdir(), "ithaca-parent-count-"));
+  try {
+    const receipt = seedObservationTree(join(root, "brain"), join(root, "objects"), { workspaceEntries: 8, dependencyEntries: 3, journalObjects: 4, checkouts: 2 });
+    expect(receipt.generatedEntries).toBe(readdirSync(root, { recursive: true }).length);
+    expect(receipt.generatedDirectories).toBe(13);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });

@@ -282,3 +282,22 @@ test("the worktree retry owner joins a capture still closing at turn end", async
     expect(attempts, "WORKTREE_RETRY_JOINS_PENDING_CLOSE").toBe(2);
   } finally { resume.resolve(); await finishing; f.pool.poolRelease = release; await f.close(); timers.restore(); }
 });
+
+test("hold path counts distinguish the brain and every managed worktree namespace", async () => {
+  const f = await fixture();
+  const holds: import("@schlessera/brain-ui-sdk/protocol").ActivityTurnHold[] = [];
+  try {
+    const first = await f.worktree(), second = await f.worktree();
+    await f.begin("turn-ithaca");
+    await f.journal.attachWorktree("turn-ithaca", first.id); await f.journal.attachWorktree("turn-ithaca", second.id);
+    f.journal.evidence("turn-ithaca", hold => holds.push(hold));
+    writeFileSync(join(f.brain, "README.md"), "Odysseus returns to Ithaca.\n");
+    writeFileSync(join(first.path!, "README.md"), "Penelope records the loom.\n");
+    writeFileSync(join(second.path!, "README.md"), "Telemachus records the voyage.\n");
+    await f.journal.observe();
+    expect(holds).toHaveLength(1);
+    expect(holds[0]!.changedPaths, "HOLD_COUNTS_QUALIFIED_WORKTREE_PATHS").toBe(3);
+    expect(f.rows("turn-ithaca").map(row => row.path).sort()).toEqual(["README.md",
+      referenceWorktreeJournalPath(first.id, "README.md"), referenceWorktreeJournalPath(second.id, "README.md")].sort());
+  } finally { await f.close(); }
+});

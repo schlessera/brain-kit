@@ -303,7 +303,7 @@ try {
   }
   if (OBSERVATION_TIMING) {
     const journal = app.wsHost.journal, observe = journal.observe.bind(journal), ended = journal.toolEnded?.bind(journal);
-    journal.observe = async () => { const start = performance.now(); try { return await observe(); } finally { event("timeline_observe", { start, ms: performance.now() - start }); } };
+    journal.observe = async (...args: Parameters<typeof observe>) => { const start = performance.now(); try { return await observe(...args); } finally { event("timeline_observe", { start, ms: performance.now() - start }); } };
     // Every completed capture, periodic and scope-limit ones included, reports here once per active turn.
     journal.onObservation?.((turnId: string) => event("timeline_capture", { turnId, at: performance.now() }));
     if (ended) journal.toolEnded = (turnId: string, toolUseId: string) => {

@@ -1,3 +1,4 @@
+import { inferenceUsageObserver } from "./inference-usage.js";
 /**
  * The one network path out of a restricted (autonomous) worker (#676).
  *
@@ -225,6 +226,7 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
           return new Response(null, { status: response.status, headers: out });
         }
         const upstreamReader = response.body.getReader();
+        const observeUsage = inferenceUsageObserver(operation.observeUsage);
         let released = false;
         const release = () => { if (!released) { released = true; upstreamReader.releaseLock(); } };
         const output = new ReadableStream<Uint8Array>({
@@ -237,7 +239,7 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
                 operation.finish("denied", "max_bytes_per_turn");
                 await upstreamReader.cancel().catch(() => {}); release();
                 controller.error(new Error("Inference egress limit exceeded"));
-              } else controller.enqueue(next.value);
+              } else { controller.enqueue(next.value); observeUsage(next.value); }
             } catch {
               operation.finish(signal.aborted ? "cancelled" : "failed", "upstream_response_failed");
               release(); controller.error(new Error("Inference response interrupted"));

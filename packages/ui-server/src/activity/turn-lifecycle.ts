@@ -91,6 +91,7 @@ export function lifecycleTiming(record: ActivityTurnLifecycle): ActivityTurnLife
     backendStartupMs: phase(record.backendInvokedAt, record.firstFrameAt),
     // A step follows its phase's rules: unfinished, it measures to the failure boundary.
     ...(record.subPhases ? { subPhases: record.subPhases.map(step => ({ ...step, elapsedMs: phase(step.startedAt, step.endedAt) })) } : {}),
-    ...(record.openSubPhases ? { openSubPhases: record.openSubPhases.map(step => ({ ...step, elapsedMs: phase(step.startedAt, step.endedAt) })) } : {}),
+    ...(record.openSubPhases ? { openSubPhases: record.openSubPhases.map(step => ({ ...step, elapsedMs: elapsed(step.startedAt, step.endedAt ??
+      (record.failureObservedAt !== null && record.failureObservedAt >= step.startedAt ? record.failureObservedAt : record.endedAt)) })) } : {}),
   };
 }

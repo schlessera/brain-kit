@@ -1,7 +1,7 @@
 /** Deterministic, empty-file load for the existing offline timing fixture. */
 import { createHash } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 export interface ObservationTree {
   workspaceEntries: number;
@@ -29,7 +29,14 @@ export function observationTreeOptions(args: string[]): ObservationTree | undefi
 export function seedObservationTree(brain: string, objects: string, sizes: ObservationTree) {
   let directories = 0, files = 0;
   const made = new Set<string>();
-  const directory = (path: string) => { if (!made.has(path)) { mkdirSync(path, { recursive: true }); made.add(path); directories++; } };
+  const directory = (path: string) => {
+    if (made.has(path)) return;
+    const missing: string[] = [];
+    for (let cursor = path; !existsSync(cursor); cursor = dirname(cursor)) missing.push(cursor);
+    mkdirSync(path, { recursive: true, mode: path === objects ? 0o700 : 0o755 });
+    for (const created of missing) { made.add(created); directories++; }
+    made.add(path);
+  };
   const file = (path: string, bytes = "") => { writeFileSync(path, bytes); files++; };
   directory(join(brain, "workspaces"));
   for (let i = 0; i < sizes.checkouts; i++) {
@@ -45,7 +52,7 @@ export function seedObservationTree(brain: string, objects: string, sizes: Obser
   // The real CLI shim and its dependency tree remain in this directory.
   const dependencies = join(brain, "node_modules", "ithaca-timing"); directory(dependencies);
   for (let i = 0; i < sizes.dependencyEntries; i++) file(join(dependencies, `entry-${i}`));
-  mkdirSync(objects, { recursive: true, mode: 0o700 });
+  directory(objects);
   for (let i = 0; i < sizes.journalObjects; i++) {
     const bytes = `Odysseus journal object ${i}.\n`;
     file(join(objects, createHash("sha256").update(bytes).digest("hex")), bytes);

@@ -679,6 +679,8 @@ signatures (every public export and the types it is made of)
                 admitMs: z.ZodOptional<z.ZodNumber>;
                 bodyMs: z.ZodOptional<z.ZodNumber>;
                 bytes: z.ZodNumber;
+                cacheCreationTokens: z.ZodOptional<z.ZodNumber>;
+                cacheReadTokens: z.ZodOptional<z.ZodNumber>;
                 connectionId: z.ZodOptional<z.ZodString>;
                 credentialMs: z.ZodOptional<z.ZodNumber>;
                 dispatchMs: z.ZodOptional<z.ZodNumber>;
@@ -687,6 +689,7 @@ signatures (every public export and the types it is made of)
                 headersMs: z.ZodOptional<z.ZodNumber>;
                 host: z.ZodString;
                 inference: z.ZodOptional<z.ZodLiteral<true>>;
+                inputTokens: z.ZodOptional<z.ZodNumber>;
                 loopLagMaxMs: z.ZodOptional<z.ZodNumber>;
                 managedReference: z.ZodOptional<z.ZodLiteral<true>>;
                 method: z.ZodString;
@@ -1429,6 +1432,9 @@ signatures (every public export and the types it is made of)
   JournalHold (packages/ui-server/src/brain/turn-journal.ts)
     export interface JournalHold {
         records: Map<string, ActivityTurnHold>;
+        stoppedTurns: Set<string>;
+        paths: Map<string, Set<string>>;
+        inferenceInFlight(turnId: string): boolean;
     }
   JournalStatement (packages/ui-server/src/brain/journal-store.ts)
     export type JournalStatement = {
@@ -2668,14 +2674,20 @@ signatures (every public export and the types it is made of)
         finishReserved(turnId: string): Promise<void>;
         hasRetainedVersion(turnId: string, selected: JournalVersion): boolean;
         idle(): Promise<void>;
+        inferenceInFlight(turnId: string): boolean;
         isHeld(): boolean;
         maintain: () => Promise<void>;
-        observe(): Promise<void>;
+        observe(cause?: {
+            hold?: ActivityTurnHold;
+            toolUseId?: string;
+            turnId: string;
+        }): Promise<void>;
         observeSettingsPolicy(_operationId: string, operation: (publish?: (write: () => void) => Promise<void>) => Promise<void> | void): Promise<void>;
         observeUserPolicy(turnId: string, approvedWrite: () => void): Promise<void>;
         onObservation(observer: (turnId: string, facts: {
             changedPaths: number;
             observationChangedPaths?: number;
+            observationToolUseId?: string;
             observedBytes: number;
             partial: boolean;
             workspacePaths: number;
@@ -2702,7 +2714,7 @@ signatures (every public export and the types it is made of)
         removalCoverage(paths: readonly string[], signal?: AbortSignal, absent?: boolean): Promise<boolean[]>;
         reserveRevert(turnId: string, sourceTurnId: string, versions: readonly (JournalVersion | null)[]): Promise<void>;
         retainBefore(turnId: string, path: string, signal?: AbortSignal): Promise<JournalVersion | null>;
-        scopeHold(turnId: string, requestedAt: number): ActivityTurnHold | undefined;
+        scopeHold(turnId: string, requestedAt: number, toolUseId?: string, changedPaths?: null | number): ActivityTurnHold | undefined;
         summary: (turnId: string) => TurnJournalSummary;
         toolEnded(turnId: string, toolUseId: string): Promise<void>;
         toolExecuted(turnId: string, toolUseId: string, path: ToolExecutionPath): void;

@@ -1,3 +1,4 @@
+import type { InferenceUsage } from "./inference-usage.js";
 /** Concrete host-owned HTTP/CONNECT transport for one turn; no TLS interception. */
 import { createServer, request as httpRequest, type IncomingMessage } from "node:http";
 import { BlockList, connect, isIP, type Socket } from "node:net";
@@ -16,7 +17,7 @@ export const WORKER_EGRESS_TRANSPORT_ENV = Object.freeze(["HTTP_PROXY", "HTTPS_P
 /** The trusted in-namespace bootstrap that forwards loopback TCP to `WORKER_EGRESS_SOCKET`, then runs a command behind it. */
 export function egressBootstrapEntry(): string { return Bun.resolveSync("./egress-worker-entry", import.meta.dir); }
 export type InferenceTimingMark = "admitMs" | "bodyMs" | "credentialMs" | "dispatchMs" | "headersMs" | "firstChunkMs";
-export interface EgressRecord extends Partial<Record<InferenceTimingMark | "loopLagMaxMs", number>> {
+export interface EgressRecord extends Partial<Record<InferenceTimingMark | "loopLagMaxMs", number>>, InferenceUsage {
   /** Host identity, shared with admission and terminal observation; never a tool correlation. */
   connectionId?: string;
   /** Only the server's concrete inference-relay admission supplies this tag. */
@@ -249,18 +250,24 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     const controller = new AbortController(); controllers.add(controller);
     if (inference) inferenceControllers.add(controller);
     const host = hostname(url.hostname), port = Number(url.port || (url.protocol === "https:" ? "443" : "80"));
-    let bytes = 0, finished = false;
+    let bytes = 0, finished = false, emitted = false, firstAdmissionPending = false, firstAdmissionStarted = false;
+    const usage: InferenceUsage = {};
     /** The checked address this connection is pinned to, under a destination policy. */
     let pinned: { address: string; family: number } | undefined;
     let finalOutcome: EgressRecord["outcome"] | undefined, finalReason: string | undefined;
+    const emit = () => {
+      if (emitted || !finished || (firstAdmissionPending && finalOutcome !== "cancelled")) return;
+      emitted = true;
+      // Records never contain request headers, content, credentials or query strings.
+      try { options.observe({ connectionId, ...(inference ? { inference: true } : {}), ...(provider ? { provider: true } : {}), ...(managedReference ? { managedReference: true } : {}), method, host, port, ...(method === "CONNECT" ? {} : { path: url.pathname }), bytes,
+        accounting: method === "CONNECT" ? "opaque_bytes" : "http_wire_bound",
+        ...(inference ? { ...marks, ...usage } : {}), durationMs: performance.now() - started, outcome: finalOutcome!, ...(finalReason ? { reason: finalReason } : {}) }); } catch { /* A recorder cannot keep a connection alive. */ }
+    };
     const finish = (outcome: EgressRecord["outcome"], reason?: string) => {
       if (finished) return;
       stopLag();
       finished = true; finalOutcome = outcome; finalReason = reason; controllers.delete(controller); inferenceControllers.delete(controller); controller.abort();
-      // Records never contain request headers, content, credentials or query strings.
-      try { options.observe({ connectionId, ...(inference ? { inference: true } : {}), ...(provider ? { provider: true } : {}), ...(managedReference ? { managedReference: true } : {}), method, host, port, ...(method === "CONNECT" ? {} : { path: url.pathname }), bytes,
-        accounting: method === "CONNECT" ? "opaque_bytes" : "http_wire_bound",
-        ...(inference ? marks : {}), durationMs: performance.now() - started, outcome, ...(reason ? { reason } : {}) }); } catch { /* A recorder cannot keep a connection alive. */ }
+      emit();
     };
     // Turn cleanup must observe final audit failures before it publishes its
     // terminal outcome; socket close callbacks run only after stop returns.
@@ -298,7 +305,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (!granted) finish(stopped ? "cancelled" : "denied", options.taint?.approve ? "taint_not_approved" : "taint_not_allowed");
       return granted;
     };
-    const admit = async () => {
+    const admitDestination = async () => {
       snapshot = options.admissionSafety?.read();
       if (safetyAdmissionRefusal(options.admissionSafety, snapshot)) { finish("denied", "safety_changed"); return false; }
       if (stopped || options.signal?.aborted) { finish("cancelled", "turn_cancelled"); return false; }
@@ -328,6 +335,18 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (stopped || controller.signal.aborted) { finish("cancelled", "turn_cancelled"); return false; }
       return true;
     };
+    const admit = !inference ? admitDestination : async () => {
+      const first = inference && !firstAdmissionStarted;
+      if (first) { firstAdmissionStarted = true; firstAdmissionPending = true; }
+      try { return await admitDestination(); }
+      finally {
+        if (first) {
+          marks.admitMs = Math.max(0, performance.now() - started);
+          firstAdmissionPending = false; emit();
+        }
+      }
+    };
+    const observeUsage = (reported: InferenceUsage) => { if (inference && !finished) Object.assign(usage, reported); };
     // No await may intervene between this check and connect/request/fetch.
     const commit = () => {
       if (stopped || controller.signal.aborted || safetyAdmissionRefusal(options.admissionSafety, snapshot)) { finish("denied", "safety_changed"); return false; }
@@ -343,7 +362,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (finalReason === "taint_not_allowed") try { cause = options.taint?.cause?.(); } catch { /* The message names no cause. */ }
       return describeRefusal(finalReason, host, matches(host, options.deny), cause);
     };
-    return { mark, finish, charge, admit, commit, refusal, signal: controller.signal, outcome: () => finalOutcome, reason: () => finalReason, pinned: () => pinned };
+    return { observeUsage, mark, finish, charge, admit, commit, refusal, signal: controller.signal, outcome: () => finalOutcome, reason: () => finalReason, pinned: () => pinned };
   }
   server.on("connect", (request, client, head) => {
     client.on("error", () => {});
@@ -473,7 +492,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     const abort = () => op.finish("cancelled", "client_disconnected");
     signal.addEventListener("abort", abort, { once: true });
     if (signal.aborted) abort();
-    return { mark: op.mark, charge: op.charge, signal: op.signal, outcome: op.outcome, refusal: op.refusal, reason: op.reason,
+    return { observeUsage: op.observeUsage, mark: op.mark, charge: op.charge, signal: op.signal, outcome: op.outcome, refusal: op.refusal, reason: op.reason,
       admit: async () => !op.signal.aborted && await op.admit() && op.commit(),
       /** The concrete relay calls this again after its own final async waits. */
       commit: op.commit,

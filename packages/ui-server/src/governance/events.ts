@@ -77,6 +77,7 @@ export const GOVERNANCE_EVENT_SCHEMAS = {
     host: z.string().min(1).max(255), port: z.number().int().min(1).max(65535),
     method: z.string().min(1).max(20), path: z.string().max(16384).optional(), bytes: count,
     accounting: z.enum(["http_wire_bound", "opaque_bytes"]), durationMs: amount,
+    inputTokens: count.optional(), cacheReadTokens: count.optional(), cacheCreationTokens: count.optional(),
     admitMs: amount.optional(), bodyMs: amount.optional(), credentialMs: amount.optional(), dispatchMs: amount.optional(),
     headersMs: amount.optional(), firstChunkMs: amount.optional(), loopLagMaxMs: amount.optional(),
     outcome: z.enum(["completed", "denied", "failed", "cancelled"]),

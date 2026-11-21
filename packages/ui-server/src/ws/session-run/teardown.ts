@@ -19,7 +19,7 @@ export async function teardownTurn(run: TurnRun, outcome: TurnOutcome): Promise<
   const { host, slot, turn, current, lifecycle, timeoutHandle, recorder, failureRecording, held } = run;
   const { governedHold, worktreeGeneration } = held;
   const work = current.work;
-  const egressEnd = lifecycle?.timer("closing")("egress_settle");
+  const egressEnd = held.providerRelay || held.turnEgress ? lifecycle?.timer("closing")("egress_settle") : undefined;
   await held.providerRelay?.stop();
   held.turnEgress?.stop();
   // The session's next turn reads these hosts back as contacted (G6).
@@ -48,24 +48,26 @@ export async function teardownTurn(run: TurnRun, outcome: TurnOutcome): Promise<
     void host.apify.stop({ turnId: turn.turnId, sessionId: turn.sessionId }, budgetFailure ? "budget_exhausted" : turn.cancelled ? "cancelled" : "timeout");
   // No grant after this point: the final observation covers everything granted.
   if (worktreeGeneration) await host.referenceWorktrees!.retireGeneration(worktreeGeneration.id).catch(() => {});
-  const journalEnd = lifecycle?.timer("closing")("journal_finish");
+  const journalEnd = host.journal ? lifecycle?.timer("closing")("journal_finish") : undefined;
   try {
     // Observe after backend writers stop, before quarantine and gate release.
     await host.journal?.finish(turn.turnId, lifecycle?.timer("closing"));
     journalEnd?.();
   } catch (error) { host.log.emit({ severityText: "ERROR", body: `journal final observation failed: ${String(error)}` }); }
-  const generationEnd = lifecycle?.timer("closing")("worktree_generation_close");
   if (worktreeGeneration) {
+    const generationEnd = lifecycle?.timer("closing")("worktree_generation_close");
     // Its workers exited and the final observation is recorded: park what it held.
     host.referenceWorktreeGenerations.delete(turn.turnId);
-    try { await host.referenceWorktrees!.closeGeneration(worktreeGeneration.id); await host.referenceWorktrees!.reconcile(); }
+    try { await host.referenceWorktrees!.closeGeneration(worktreeGeneration.id); await host.referenceWorktrees!.reconcile(); generationEnd?.(); }
     catch (error) { host.log.emit({ severityText: "ERROR", body: `managed worktree generation close failed; startup recovery retries it: ${String(error)}` }); }
   }
-  generationEnd?.();
-  const scopeEnd = lifecycle?.timer("closing")("scope_finish");
-  host.scope?.finish(turn.turnId);
-  scopeEnd?.();
-  const reconcileEnd = lifecycle?.timer("closing")("governed_reconcile");
+  if (host.scope) {
+    const scopeEnd = lifecycle?.timer("closing")("scope_finish");
+    // The original close does not await these writes. Confirm only an actual
+    // settlement before the lifecycle terminal; otherwise the step stays open.
+    void host.scope.finish(turn.turnId).then(() => scopeEnd?.(), () => {});
+  }
+  const reconcileEnd = governedHold ? lifecycle?.timer("closing")("governed_reconcile") : undefined;
   try {
     const reconciled = await governedHold?.end();
     for (const item of reconciled?.quarantined ?? []) {
@@ -77,9 +79,9 @@ export async function teardownTurn(run: TurnRun, outcome: TurnOutcome): Promise<
         turnId: turn.turnId, sessionId: turn.sessionId, actor: run.origin, model: run.mainModel,
         profile: governedHold?.sandbox.profile ?? "strict" });
     }
+    reconcileEnd?.();
   }
   catch (error) { host.log.emit({ severityText: "ERROR", body: `governed reconciliation failed: ${String(error)}` }); }
-  reconcileEnd?.();
   if (governedHold?.sandbox.profile === "governed") host.governedTurns?.refresh(host.workerLock);
   // The recorder has written the terminal: from here on the Activity
   // record, not this slot, answers for the request (#964).
@@ -102,8 +104,7 @@ export async function teardownTurn(run: TurnRun, outcome: TurnOutcome): Promise<
   // The recorder's writes, terminal included, commit off the event loop
   // (#2814); recovery must see them before the final idle notification,
   // which the slot publishes with {@link publishTurnStatus}.
-  await recorder?.settled();
-  lifecycle?.mark("recorderSettledAt");
+  if (recorder) { await recorder.settled(); lifecycle?.mark("recorderSettledAt"); }
 }
 
 /**

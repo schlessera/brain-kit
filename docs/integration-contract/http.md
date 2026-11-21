@@ -472,7 +472,20 @@ nonnegative, ordered and bounded by `durationMs`. Unreached marks are absent,
 including on refused/failed attempts. `loopLagMaxMs` is independently the
 maximum nonnegative drift of a 50 ms timer before dispatch (also sampled at
 dispatch before a delayed callback can run); it is not a provider latency.
-These optional host fields never alter request or response bytes.
+These optional host fields never alter request or response bytes. A refused
+first admission carries `admitMs` once that decision returns, even when the
+operation terminated inside admission.
+
+Inference records also optionally carry provider-reported `inputTokens`,
+`cacheReadTokens` and `cacheCreationTokens` per request. The relay inspects the
+initial Messages SSE `message_start.message.usage` block, mapping
+`input_tokens`, `cache_read_input_tokens` and `cache_creation_input_tokens`.
+Only nonnegative safe integers actually reported by the provider are kept;
+missing or provider-null fields are not inferred as zero. A missing, malformed, unsupported or
+unreadable initial block leaves these fields absent. Inspection is bounded to
+the first 64 KiB, deferred outside the forwarding stack and never awaited; it
+reads only chunks already forwarded and never alters or delays a chunk. The
+record stores no stream text, and terminal observation never waits for parsing.
 Existing `egress_denial` remains named
 and versioned as before. Header values, query strings and bodies are excluded.
 
