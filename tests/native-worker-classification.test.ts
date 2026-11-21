@@ -1,7 +1,8 @@
+import {readFileSync} from "node:fs";
 import {expect,test} from "bun:test";
 import {createRequire} from "node:module";
 import {join} from "node:path";
-import {nativeWorkerArgvNeedsIsolation,nativeWorkerBoundary} from "../scripts/test-native-guard";
+import {nativeProductShellWrappers,nativeWorkerArgvNeedsIsolation,nativeWorkerBoundary} from "../scripts/test-native-guard";
 import {spawnGuardFixture} from "./helpers/native-receipt-fixture";
 const guard=join(import.meta.dir,"../scripts/test-native-guard.ts"),requireSdk=createRequire(createRequire(import.meta.url).resolve("@anthropic-ai/claude-agent-sdk")),runtime=requireSdk.resolve("@anthropic-ai/claude-agent-sdk-linux-x64/claude");
 
@@ -30,4 +31,18 @@ for(const mode of ["native-argv","native-command","shell-native","shell-missing"
 
 test("unresolvable executable and dynamic exec targets never classify as non-native",()=>{
  for(const argv of [["/odysseus-missing-executable"],["/bin/sh","-c",'exec "$ODYSSEUS_RUNTIME"'],["/bin/sh","-c","exec /odysseus-missing-executable"]])expect(nativeWorkerArgvNeedsIsolation(argv),"UNKNOWN_WORKER_EXECUTABLE_REQUIRES_ISOLATION").toBe(true);
+});
+
+test("pinned host qualification probe classifies its explicit positional executable",()=>{
+ const script='cd / && exec "$0" --no-env-file -e "$1"';
+ expect(nativeWorkerArgvNeedsIsolation(["/bin/sh","-c",script,process.execPath,"console.log('fixture')"]),"PINNED_HOST_PROBE_IS_POSITIVELY_NON_NATIVE").toBe(false);
+ expect(nativeWorkerArgvNeedsIsolation(["/bin/sh","-c",script,runtime,"fixture"]),"PINNED_HOST_PROBE_NATIVE_TARGET_STAYS_FILTERED").toBe(true);
+ expect(nativeWorkerArgvNeedsIsolation(["/bin/sh","-c",script,process.execPath,"fixture","extra"]),"PINNED_HOST_PROBE_EXACT_SHAPE_REQUIRED").toBe(true);
+});
+
+test("recognized product shell table matches every pinned production source string",()=>{
+ const source=readFileSync(join(import.meta.dir,"../packages/ui-sdk/src/server/worker-launcher.ts"),"utf8");
+ expect(nativeProductShellWrappers.map(row=>row.name)).toEqual(["status","host-probe"]);
+ for(const row of nativeProductShellWrappers)expect(source,"PINNED_PRODUCT_SHELL_SOURCE_MATCH "+row.name).toContain("'"+row.script+"'");
+ expect(nativeWorkerArgvNeedsIsolation(["/bin/sh","-c",nativeProductShellWrappers[1].script+" ",process.execPath,"fixture"]),"MODIFIED_HOST_PROBE_STAYS_UNKNOWN").toBe(true);
 });

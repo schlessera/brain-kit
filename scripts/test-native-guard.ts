@@ -1228,6 +1228,11 @@ export function nativeUnrelayedWorkerPayloadCommand(payload:string[],protect:(ar
   return [...payload.slice(0,gates),process.execPath,join(ROOT,"packages/ui-sdk/src/server/egress-worker-entry.ts"),"--direct-loopback",...protect(nativeDirectTransportCommand(payload.slice(gates)))];
 }
 
+/** Exact product shell forms; source equality is asserted by the classification suite. */
+export const nativeProductShellWrappers = [
+ {name:"status",script:'exec 3>"$1"; exec 4<"$2"; shift 2; exec "$@"'},
+ {name:"host-probe",script:'cd / && exec "$0" --no-env-file -e "$1"'},
+] as const;
 /** Only positively non-native worker plans bypass native admission checks. */
 export function nativeWorkerArgvNeedsIsolation(argv:readonly string[],context:SpawnContext={},depth=0):boolean {
   if(depth>8)return true;
@@ -1248,7 +1253,12 @@ export function nativeWorkerArgvNeedsIsolation(argv:readonly string[],context:Sp
     // These pinned product gates exec only their supplied argv, scanned above.
     const knownGate=(script==='IFS= read -r go && [ "$go" = go ] || exit 125; exec "$@"'&&argv[flag+2]==="brain-worker-state-gate"||script==='IFS= read -r go <&4 && [ "$go" = go ] || exit 125; exec 4<&-; exec "$@"'&&argv[flag+2]==="brain-worker-start-gate");
     if(knownGate&&argv.length>flag+3){if(nativeWorkerArgvNeedsIsolation(argv.slice(flag+3),context,depth+1))return true;continue;}
-    if(script==='exec 3>"$1"; exec 4<"$2"; shift 2; exec "$@"'&&argv[flag+2]==="brain-worker-status"&&argv.length>flag+5){if(nativeWorkerArgvNeedsIsolation(argv.slice(flag+5),context,depth+1))return true;continue;}
+    const wrapper=nativeProductShellWrappers.find(shape=>shape.script===script);
+    if(wrapper?.name==="status"&&argv[flag+2]==="brain-worker-status"&&argv.length>flag+5){if(nativeWorkerArgvNeedsIsolation(argv.slice(flag+5),context,depth+1))return true;continue;}
+    if(wrapper?.name==="host-probe"&&argv.length===flag+4){
+      let target:string;try{target=realpathSync(resolveExecutable(argv[flag+2]!,context));}catch{return true;}
+      if(nativeWorkerArgvNeedsIsolation([target,"--no-env-file","-e",argv[flag+3]!],context,depth+1))return true;continue;
+    }
     if(/(?:^|[;&|()\n])\s*(?:eval|source|\.)\s/.test(script))return true;
     for(const token of script.matchAll(/[^\s'";&|<>(){}\[\]]+/g))if(isNativeClaude(token[0],[],context))return true;
     const execs=[...script.matchAll(/(?:^|[;&|()\n])\s*exec(?:\s+|$)/g)];
