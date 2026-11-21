@@ -679,13 +679,15 @@ system/init. The installed SDK exposes connection state without per-server
 start/end marks. Unknown marks have no timed step; an empty list does not
 claim complete runtime coverage. These observations stay in host storage and
 never enter provider history.
-Names are sampled from the first Claude system/init frame only: at most 32
-server names, each at most 240 UTF-8 bytes, with
-`mcp_connect:additional_servers_omitted` when that sample is incomplete.
-The lifecycle retains at most 63 distinct missing-evidence names of at most
-256 UTF-8 bytes each, plus `additional_missing_evidence_omitted` on overflow.
-Omitted names are not retained for deduplication. Continuation init frames do
-not expand the sample; missing evidence remains explicit when a limit is hit.
+Names are sampled from the first Claude system/init frame only: at most 8
+server names, each at most 48 UTF-8 bytes, within the 192-byte encoded sample
+budget. An incomplete sample reports `mcp_connect:additional_servers_omitted`
+when that summary label fits the lifecycle's diagnostic budget. The lifecycle
+retains at most 8 diagnostic names within 256 encoded bytes; individual
+lifecycle names are at most 96 UTF-8 bytes. `backendEvidenceOmitted` replaces
+the dropped `additional_missing_evidence_omitted` marker and counts omitted
+observations. Omitted names are not retained for deduplication. Continuation
+init frames do not expand the sample; limits keep missing evidence explicit.
 Malformed MCP diagnostic lists or entries also mark the sample incomplete.
 Null or absent lists are unavailable evidence; an explicit empty array is an
 observed empty list. These diagnostics cannot fail an otherwise usable stream.
@@ -730,14 +732,20 @@ high-water `seq`, every delta carries its `seq`, and the client discards
 deltas at or below the snapshot's high-water for that run. Snapshots use
 the existing count-based span/event chunks, with the complete scope watermark
 map in every append frame. There are no pagination or refetch marker fields.
-Lifecycle/floor pairs and index roots come from consistent store reads. Index
-floors stop before omitted child/event changes, so another subscription on the
-same connection can still receive those changes. If display shrinking removes
-snapshot records, the stream advertises only the highest complete sequence
-prefix from its change log, and replays the omitted tail through existing
-deltas. A missing change-log proof claims no sequence. Legacy stores without
-an atomic lifecycle read return no `lifecycleSeq` in REST and use zero for its
-stream floor. This preserves existing client scope and append behavior.
+Lifecycle/floor pairs and index roots come from consistent store reads. An
+index floor is the full run sequence unless a run change is still above the
+shared pump cursor; then it stops immediately before that pending change.
+Previously delivered live deltas therefore do not make a reconnect discard a
+current root. Legacy lifecycle stores read the sequence before the row, so
+concurrent writes can advance the row without acknowledging unseen data.
+REST still omits `lifecycleSeq` when a legacy store cannot read it atomically.
+
+If a lifecycle survives intact in no snapshot chunk, that lifecycle's floor
+is lowered to its paired sequence minus one (not below zero), and its own
+`activity_delta` follows the snapshot on the subscribing socket only. Snapshot
+handling never rewinds the shared pump cursor or scans prior pump history.
+Span/event display shrinking retains its existing behavior. This preserves
+existing client scope and append behavior.
 Deltas are
 append-only increments (a small span row, or exactly one event) — they never
 grow with run length. The `result` frame additionally carries an optional

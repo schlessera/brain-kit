@@ -11,8 +11,9 @@
  *
  * The subscribe handler answers with a snapshot whose per-run high-water seq
  * and its consistent floor come from the store's read transaction. Floors
- * stop before omitted content, whose existing deltas are replayed. Legacy
- * chunk frames retain the complete authoritative scope map.
+ * account for pending pump changes. Clipped lifecycle records receive private
+ * repair deltas without changing the shared cursor. Legacy chunks retain
+ * their complete authoritative scope map.
  *
  * This is deliberately the only place broadcast is per-connection filtered;
  * every other frame keeps the host's broadcast-to-all semantics.
@@ -31,7 +32,7 @@ import type { Logger } from "@opentelemetry/api-logs";
 
 import type { WSContext } from "../ws/clients.js";
 import { sendTo } from "../ws/clients.js";
-import { activitySnapshotLosses, shrinkForReplication } from "../ws/shrink.js";
+import { shrinkForReplication } from "../ws/shrink.js";
 import type {
   ActivityChange,
   AwaitableActivityStore,
@@ -302,10 +303,26 @@ export function createActivityStream(store: AwaitableActivityStore, log?: Logger
         const snap = store.snapshotRun(root.runId, true);
         if (!snap) continue;
         spans.push(...snap.spans.filter(span => span.parentSpanId === null && span.outcome === null));
-        // Old stores may ignore rootOnly and return a full run. A zero floor
-        // is safe when their read cannot prove the omitted child/event prefix.
-        const partial = snap.events.length > 0 || snap.spans.some(span => span.parentSpanId !== null || span.outcome !== null);
-        highWater[snap.runId] = partial ? 0 : snap.highWaterSeq;
+        highWater[snap.runId] = snap.highWaterSeq;
+      }
+      // Snapshot roots can cover changes already passed by the shared pump.
+      // Only its pending tail needs a lower floor, so cached live deltas do
+      // not make a reconnect reject the current root. Read after the roots
+      // to include writes that raced with their consistent snapshots.
+      const through = store.latestChangeCursor();
+      let after = cursor;
+      const pending = new Map<string, number>();
+      while (after < through) {
+        const changes = store.changesSince(after, 200);
+        if (!changes.length) break;
+        for (const change of changes) {
+          after = change.changeId;
+          if (change.changeId <= through) pending.set(change.runId, Math.min(pending.get(change.runId) ?? Infinity, change.seq));
+        }
+        if (changes.length < 200) break;
+      }
+      for (const [runId, seq] of pending) {
+        if (Object.hasOwn(highWater, runId)) highWater[runId] = Math.min(highWater[runId]!, seq - 1);
       }
     }
     for (const span of spans) noteSpan(span);
@@ -315,9 +332,12 @@ export function createActivityStream(store: AwaitableActivityStore, log?: Logger
       : store.lifecycles(sub.view === "session" ? sub.sessionId : undefined);
     const consistent = lifecycles.flatMap(record => {
       const snapshot = store.lifecycleSnapshot?.(record.turnId);
+      // Legacy reads share no atomic pair: sequence first, then row. A
+      // concurrent write can make the row newer, never make its floor newer.
+      const seq = snapshot?.highWaterSeq ?? store.runHighWaterSeq(record.lifecycleId);
       const lifecycle = snapshot?.lifecycle ?? store.lifecycle(record.turnId);
       if (!lifecycle) return [];
-      highWater[lifecycle.lifecycleId] = snapshot?.highWaterSeq ?? 0;
+      highWater[lifecycle.lifecycleId] = seq;
       return [lifecycle];
     });
     const base: Omit<ServerActivitySnapshot, "spans" | "events"> = {
@@ -357,39 +377,14 @@ export function createActivityStream(store: AwaitableActivityStore, log?: Logger
       for (const frame of sent) sendTo(ws, frame);
       return;
     }
-    const all = { ...base, spans: wireSpans, events: events.map(toWireEvent) };
-    const loss = activitySnapshotLosses(all, { ...all, spans: sent.flatMap(frame => frame.spans),
-      events: sent.flatMap(frame => frame.events), lifecycles: sent.flatMap(frame => frame.lifecycles ?? []) });
-    const lost = new Map<string, string>();
-    for (const span of wireSpans) if (loss.spans.has(span.spanId)) lost.set(`span:${JSON.stringify(span.spanId)}`, span.runId);
-    const runs = new Map(wireSpans.map(span => [span.spanId, span.runId]));
-    for (const event of all.events) {
-      const key = JSON.stringify([event.spanId, event.eventIndex]);
-      if (loss.events.has(key)) lost.set(`event:${key}`, runs.get(event.spanId)!);
-    }
-    for (const id of loss.lifecycles) lost.set(`lifecycle:${JSON.stringify(id)}`, id);
-    if (lost.size) {
-      const unseen = new Set(lost.keys()), stop = store.latestChangeCursor(), ceiling = { ...highWater };
-      let scan = 0;
-      while (scan < stop) {
-        const changes = [...store.changesSince(scan, 200), ...store.lifecycleChangesSince(scan, 200)]
-          .sort((a, b) => a.changeId - b.changeId).slice(0, 200);
-        if (!changes.length) break;
-        for (const change of changes) {
-          scan = change.changeId;
-          const key = change.kind === "event" ? `event:${JSON.stringify([change.event.spanId, change.event.eventIndex])}`
-            : change.kind === "span" ? `span:${JSON.stringify(change.span.spanId)}` : `lifecycle:${JSON.stringify(change.runId)}`;
-          if (!lost.has(key) || change.seq > (ceiling[change.runId] ?? 0)) continue;
-          unseen.delete(key);
-          highWater[change.runId] = Math.min(highWater[change.runId]!, change.seq - 1);
-          cursor = Math.min(cursor, change.changeId - 1);
-        }
-      }
-      for (const key of unseen) { highWater[lost.get(key)!] = 0; cursor = 0; }
-    }
-    // Every legacy append frame carries the complete authoritative scope map.
-    // The same conservative prefix applies across all chunks of this snapshot.
+    // Retain main's display shrinking for spans/events. Lifecycle repair is
+    // private to this subscriber; the shared pump cursor never moves here.
+    const intact = new Set(sent.flatMap(frame => frame.lifecycles ?? []).map(record => JSON.stringify(record)));
+    const repairs = consistent.filter(record => !intact.has(JSON.stringify(record)))
+      .map(lifecycle => ({ lifecycle, seq: highWater[lifecycle.lifecycleId]! }));
+    for (const { lifecycle, seq } of repairs) highWater[lifecycle.lifecycleId] = Math.max(0, seq - 1);
     for (const frame of sent) sendTo(ws, { ...frame, highWaterSeq: highWater });
+    for (const { lifecycle, seq } of repairs) sendTo(ws, { type: "activity_delta", runId: lifecycle.lifecycleId, seq, lifecycle });
   }
 
   return {

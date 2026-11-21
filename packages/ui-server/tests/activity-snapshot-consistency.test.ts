@@ -13,9 +13,8 @@ import { MAX_WS_MESSAGE_BYTES } from "../src/ws/shrink.js";
 
 const rootInput = (runId: string, at = 1000) => ({ spanId: `root-${runId}`, runId, sessionId: "ithaca", name: "invoke_agent", kind: "turn" as const, origin: "session" as const, startedAt: at });
 
-function connection(store: ReturnType<typeof createActivityStore>) {
+function connection(store: ReturnType<typeof createActivityStore>, stream = createActivityStream(store)) {
   const mirror = createMirror({ api: {} } as Parameters<typeof createMirror>[0]), frames: any[] = [];
-  const stream = createActivityStream(store);
   const ws = { send(text: string) {
     expect(Buffer.byteLength(text)).toBeLessThanOrEqual(MAX_WS_MESSAGE_BYTES);
     const frame = JSON.parse(text); frames.push(frame);
@@ -46,25 +45,6 @@ test("bounded backend additions keep 100 MCP-heavy lifecycles in the existing sn
   } finally { client.close(); db.close(); }
 });
 
-test("shrunk snapshots advertise the highest complete event prefix and replay the dropped tail", () => {
-  const db = createUiDb(":memory:"), store = createActivityStore(db);
-  store.startSpan(rootInput("ithaca-run"));
-  store.startSpan({ ...rootInput("ithaca-run"), spanId: "ithaca-child", parentSpanId: "root-ithaca-run", kind: "tool" });
-  const payload = { evidence: Array(60).fill("Ithaca ".repeat(15)) };
-  for (let i = 0; i < 100; i++) store.appendEvent("ithaca-child", "inspect_sail", payload);
-  // The stream starts after all writes: lowering a floor must also rewind
-  // its replay baseline, rather than relying on another future write.
-  const client = connection(store);
-  try {
-    client.stream.handleSubscribe(client.ws, { type: "activity_subscribe", view: "run", runId: "ithaca-run" }, "odysseus");
-    const snapshot = client.frames[0];
-    expect(snapshot.events.length).toBeLessThan(100);
-    expect(snapshot.highWaterSeq["ithaca-run"], "SNAPSHOT_FLOOR_IS_HIGHEST_COMPLETE_PREFIX").toBe(2 + snapshot.events.length);
-    client.stream.pump();
-    expect(client.mirror.getState().events["ithaca-child"], "DROPPED_EVENTS_ARE_REPLAYED_WITHOUT_NEW_WRITES").toHaveLength(100);
-    expect(client.mirror.getState().events["ithaca-child"]!.at(-1)!.payload).toEqual(payload);
-  } finally { client.close(); db.close(); }
-});
 
 test("index snapshot cannot acknowledge another subscription's pending child or event", () => {
   const db = createUiDb(":memory:"), store = createActivityStore(db); store.startSpan(rootInput("ithaca-run"));
@@ -147,7 +127,7 @@ test("a lifecycle watermark cannot overtake its record when a writer commits dur
 });
 
 
-test("root-only index reads return a conservative floor without loading child payloads", () => {
+test("root-only index reads return their full consistent floor without loading child payloads", () => {
   const db = createUiDb(":memory:"), store = createActivityStore(db);
   try {
     store.startSpan(rootInput("ithaca-run"));
@@ -156,7 +136,7 @@ test("root-only index reads return a conservative floor without loading child pa
     const snapshot = store.snapshotRun("ithaca-run", true)!;
     expect(snapshot.spans.map(span => span.spanId)).toEqual(["root-ithaca-run"]);
     expect(snapshot.events).toEqual([]);
-    expect(snapshot.highWaterSeq, "INDEX_READ_FLOOR_PRECEDES_CHILD_SUBSCRIPTIONS").toBe(1);
+    expect(snapshot.highWaterSeq, "INDEX_READ_RETURNS_FULL_CONSISTENT_FLOOR").toBe(3);
     expect(snapshot.changeCursor).toBe(store.latestChangeCursor());
   } finally { db.close(); }
 });
@@ -168,14 +148,143 @@ test("a clipped lifecycle snapshot replays complete records through the existing
     for (let step = 0; step < 50; step++) life.timer("journal")(`inspect-${step}-${"x".repeat(60)}`)();
     life.finish("success");
   }
-  const client = connection(store);
+  let historyReads = 0;
+  const client = connection({ ...store,
+    changesSince(...args: Parameters<typeof store.changesSince>) { historyReads++; return store.changesSince(...args); },
+    lifecycleChangesSince(...args: Parameters<typeof store.lifecycleChangesSince>) { historyReads++; return store.lifecycleChangesSince(...args); },
+  });
   try {
     client.stream.handleSubscribe(client.ws, { type: "activity_subscribe", view: "index" }, "odysseus");
     expect(client.frames[0].lifecycles.length).toBeLessThan(100);
-    expect(Object.values(client.frames[0].highWaterSeq), "CLIPPED_LIFECYCLES_ARE_NOT_ACKNOWLEDGED").toEqual(Array(100).fill(0));
+    expect(Object.values(client.frames[0].highWaterSeq), "LIFECYCLE_REPAIR_FLOOR_PRECEDES_PAIRED_SEQUENCE").toEqual(Array(100).fill(1));
+    expect(historyReads, "LIFECYCLE_REPAIR_DOES_NOT_SCAN_HISTORY").toBe(0);
+    expect(client.frames.filter(frame => frame.type === "activity_delta" && frame.lifecycle), "MISSING_LIFECYCLES_REPAIR_WITHOUT_PUMP").toHaveLength(100);
     client.stream.pump();
     const records = Object.values(client.mirror.getState().lifecycles);
     expect(records, "CLIPPED_LIFECYCLES_REPLAY_WITHOUT_NEW_WRITES").toHaveLength(100);
     expect(records.every(record => record.subPhases?.length === 50), "REPLAY_RESTORES_COMPLETE_LIFECYCLE_STEPS").toBe(true);
   } finally { client.close(); db.close(); }
+});
+
+test("index reconnect after a live child delta accepts root updates already passed by the pump", () => {
+  const db = createUiDb(":memory:"), store = createActivityStore(db); store.startSpan(rootInput("ithaca-reconnect"));
+  const stream = createActivityStream(store), first = connection(store, stream), other = connection(store, stream);
+  try {
+    for (const client of [first, other]) stream.handleSubscribe(client.ws, { type: "activity_subscribe", view: "index" }, "odysseus");
+    store.startSpan({ ...rootInput("ithaca-reconnect"), spanId: "ithaca-live-child", parentSpanId: "root-ithaca-reconnect", kind: "tool" });
+    stream.pump();
+    expect(first.mirror.getState().deltaSeq["ithaca-reconnect"]).toBe(2);
+    stream.dropConnection(first.ws); first.mirror.getState().resetSubscriptions(); first.mirror.getState().bumpConnectionEpoch();
+    store.patchSpan("root-ithaca-reconnect", { attrs: { evidence: "updated Ithaca evidence" } }); stream.pump();
+    const otherCount = other.frames.length;
+    stream.handleSubscribe(first.ws, { type: "activity_subscribe", view: "index" }, "odysseus"); stream.pump();
+    expect(first.mirror.getState().spans["ithaca-reconnect"]!["root-ithaca-reconnect"]!.attrs?.evidence,
+      "RECONNECT_INDEX_ACCEPTS_ALREADY_PASSED_UPDATE").toBe("updated Ithaca evidence");
+    expect(first.mirror.getState().spans["ithaca-reconnect"]!["ithaca-live-child"]).toBeDefined();
+    expect(other.frames.length, "INDEX_RECONNECT_DOES_NOT_REPLAY_TO_OTHER_SOCKET").toBe(otherCount);
+  } finally { first.close(); other.close(); db.close(); }
+});
+
+test("legacy lifecycle reconnect after a live delta accepts the terminal state already passed by the pump", () => {
+  const db = createUiDb(":memory:"), store = createActivityStore(db);
+  let now = 1000; const life = createTurnLifecycle(store, "ithaca-legacy-reconnect", "ithaca", now, () => {}, () => now);
+  const legacy = { ...store, lifecycleSnapshot: undefined }, stream = createActivityStream(legacy);
+  const first = connection(legacy, stream), other = connection(legacy, stream);
+  try {
+    for (const client of [first, other]) stream.handleSubscribe(client.ws, { type: "activity_subscribe", view: "index" }, "odysseus");
+    now = 1100; life.recordHostEvent("follow_up", "odysseus"); stream.pump();
+    expect(first.mirror.getState().deltaSeq["lifecycle:ithaca-legacy-reconnect"]).toBe(2);
+    stream.dropConnection(first.ws); first.mirror.getState().resetSubscriptions(); first.mirror.getState().bumpConnectionEpoch();
+    now = 1200; life.finish("success"); stream.pump(); const otherCount = other.frames.length;
+    stream.handleSubscribe(first.ws, { type: "activity_subscribe", view: "index" }, "odysseus"); stream.pump();
+    expect(first.mirror.getState().lifecycles["ithaca-legacy-reconnect"]!.outcome,
+      "LEGACY_RECONNECT_ACCEPTS_PASSED_TERMINAL").toBe("success");
+    expect(other.frames.length, "LEGACY_RECONNECT_DOES_NOT_REPLAY_TO_OTHER_SOCKET").toBe(otherCount);
+  } finally { first.close(); other.close(); db.close(); }
+});
+
+test("legacy reconnect reads its sequence before a row that can race with terminal commit", () => {
+  const db = createUiDb(":memory:"), store = createActivityStore(db), life = createTurnLifecycle(store, "ithaca-legacy-race", "ithaca", 1000, () => {}, () => 1200);
+  let completeOnRead = false;
+  const legacy = { ...store, lifecycleSnapshot: undefined, lifecycle(id: string) {
+    const row = store.lifecycle(id); if (completeOnRead) { completeOnRead = false; life.finish("success"); } return row;
+  } };
+  const stream = createActivityStream(legacy), first = connection(legacy, stream), other = connection(legacy, stream);
+  try {
+    for (const client of [first, other]) stream.handleSubscribe(client.ws, { type: "activity_subscribe", view: "index" }, "odysseus");
+    life.recordHostEvent("follow_up", "odysseus"); stream.pump();
+    expect(first.mirror.getState().deltaSeq["lifecycle:ithaca-legacy-race"]).toBe(2);
+    stream.dropConnection(first.ws); completeOnRead = true;
+    stream.handleSubscribe(first.ws, { type: "activity_subscribe", view: "index" }, "odysseus"); stream.pump();
+    expect(first.mirror.getState().lifecycles["ithaca-legacy-race"]!.outcome,
+      "LEGACY_PREFIX_DOES_NOT_ACK_UNSEEN_TERMINAL").toBe("success");
+    expect(first.frames.filter(frame => frame.type === "activity_snapshot").at(-1).highWaterSeq["lifecycle:ithaca-legacy-race"],
+      "LEGACY_FALLBACK_FLOOR_IS_NOT_BELOW_DELIVERED").toBe(2);
+  } finally { first.close(); other.close(); db.close(); }
+});
+
+test("a clipped lifecycle reconnect repairs only that socket without rewinding unrelated history", () => {
+  const db = createUiDb(":memory:"), store = createActivityStore(db), pinned = Date.UTC(2026, 6, 12);
+  store.startSpan(rootInput("ithaca-old-finished")); store.endSpan("root-ithaca-old-finished", { outcome: "success", endedAt: 1200 });
+  const stream = createActivityStream(store), first = connection(store, stream), other = connection(store, stream);
+  try {
+    for (const client of [first, other]) stream.handleSubscribe(client.ws, { type: "activity_subscribe", view: "index" }, "odysseus");
+    for (let i = 0; i < 100; i++) {
+      const life = createTurnLifecycle(store, `ithaca-socket-${i}`, "ithaca", pinned + i, () => {}, () => pinned + i);
+      for (let step = 0; step < 50; step++) life.timer("journal")(`inspect-${step}-${"x".repeat(60)}`)();
+      life.finish("success");
+    }
+    stream.pump();
+    expect(first.mirror.getState().deltaSeq["lifecycle:ithaca-socket-0"]).toBe(2);
+    stream.dropConnection(first.ws); first.mirror.getState().resetSubscriptions(); first.mirror.getState().bumpConnectionEpoch();
+    const firstCount = first.frames.length, otherCount = other.frames.length;
+    stream.handleSubscribe(first.ws, { type: "activity_subscribe", view: "index" }, "odysseus"); stream.pump();
+    expect(other.frames.length, "LIFECYCLE_REPAIR_IS_PRIVATE_TO_SUBSCRIBING_SOCKET").toBe(otherCount);
+    expect(other.mirror.getState().spans["ithaca-old-finished"]).toBeUndefined();
+    const repairs = first.frames.slice(firstCount).filter(frame => frame.type === "activity_delta" && frame.lifecycle);
+    expect(repairs, "EVERY_CLIPPED_LIFECYCLE_HAS_ITS_OWN_REPAIR_DELTA").toHaveLength(100);
+    expect(repairs.every(frame => frame.seq === 2 && frame.lifecycle.subPhases.length === 50), "LIFECYCLE_REPAIR_USES_ITS_PAIRED_SEQUENCE").toBe(true);
+    expect(Object.values(first.mirror.getState().lifecycles).every(record => record.subPhases?.length === 50)).toBe(true);
+  } finally { first.close(); other.close(); db.close(); }
+});
+
+test("index reconnect includes pending changes committed during its root read", () => {
+  const db = createUiDb(":memory:"), store = createActivityStore(db); store.startSpan(rootInput("ithaca-read-race"));
+  let writeDuringRead = false;
+  const view = { ...store, snapshotRun(...args: Parameters<typeof store.snapshotRun>) {
+    if (args[1] && writeDuringRead) {
+      writeDuringRead = false;
+      store.startSpan({ ...rootInput("ithaca-read-race"), spanId: "ithaca-racing-child", parentSpanId: "root-ithaca-read-race", kind: "tool" });
+      store.patchSpan("root-ithaca-read-race", { attrs: { evidence: "current Ithaca root" } });
+    }
+    return store.snapshotRun(...args);
+  } };
+  const stream = createActivityStream(view), first = connection(view, stream), other = connection(view, stream);
+  try {
+    for (const client of [first, other]) stream.handleSubscribe(client.ws, { type: "activity_subscribe", view: "index" }, "odysseus");
+    store.startSpan({ ...rootInput("ithaca-read-race"), spanId: "ithaca-seen-child", parentSpanId: "root-ithaca-read-race", kind: "tool" }); stream.pump();
+    expect(first.mirror.getState().deltaSeq["ithaca-read-race"]).toBe(2);
+    stream.dropConnection(first.ws); writeDuringRead = true; const otherCount = other.frames.length;
+    stream.handleSubscribe(first.ws, { type: "activity_subscribe", view: "index" }, "odysseus"); stream.pump();
+    expect(first.mirror.getState().spans["ithaca-read-race"]!["ithaca-racing-child"], "INDEX_PENDING_READ_FOLLOWS_ROOT_SNAPSHOT").toBeDefined();
+    expect(other.frames.length).toBe(otherCount + 2);
+  } finally { first.close(); other.close(); db.close(); }
+});
+
+test("index reconnect accounts for the full pending tail across change batches", () => {
+  const db = createUiDb(":memory:"), store = createActivityStore(db);
+  store.startSpan(rootInput("ithaca-pending-batches")); store.startSpan(rootInput("ithaca-other-run"));
+  const stream = createActivityStream(store), first = connection(store, stream), other = connection(store, stream);
+  try {
+    for (const client of [first, other]) stream.handleSubscribe(client.ws, { type: "activity_subscribe", view: "index" }, "odysseus");
+    store.startSpan({ ...rootInput("ithaca-pending-batches"), spanId: "ithaca-seen-child", parentSpanId: "root-ithaca-pending-batches", kind: "tool" }); stream.pump();
+    expect(first.mirror.getState().deltaSeq["ithaca-pending-batches"]).toBe(2);
+    stream.dropConnection(first.ws);
+    for (let i = 0; i < 250; i++) store.patchSpan("root-ithaca-other-run", { attrs: { progress: i } });
+    store.startSpan({ ...rootInput("ithaca-pending-batches"), spanId: "ithaca-late-child", parentSpanId: "root-ithaca-pending-batches", kind: "tool" });
+    const otherCount = other.frames.length;
+    stream.handleSubscribe(first.ws, { type: "activity_subscribe", view: "index" }, "odysseus"); stream.pump();
+    expect(first.mirror.getState().spans["ithaca-pending-batches"]!["ithaca-late-child"], "INDEX_PENDING_TAIL_COVERS_EVERY_BATCH").toBeDefined();
+    expect(other.frames.length).toBe(otherCount + 251);
+  } finally { first.close(); other.close(); db.close(); }
 });

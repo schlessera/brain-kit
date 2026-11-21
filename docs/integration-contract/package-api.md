@@ -5295,12 +5295,14 @@ unchanged. These shapes change at a pre-1.0 minor under that ruling.
 
 The optional `ActivityStore.lifecycleSnapshot(turnId)` returns a lifecycle and
 its `highWaterSeq` from one read transaction, or null when absent. The built-in
-store provides it. Legacy stores without this same-connection read do not claim
-a lifecycle sequence: REST omits `lifecycleSeq`, and streams advertise zero.
+store provides it. Without that same-connection read, REST omits `lifecycleSeq`;
+the stream's legacy fallback reads the sequence before its lifecycle row.
 `ActivityStore.snapshotRun(runId, rootOnly?)` optionally reads only open roots
-and their consistent floor. That floor stops before the first omitted
-child/event change; the global read cursor retains its existing meaning. Older implementations returning a full run
-remain supported with a zero index floor when child/event data is omitted.
+with the full run sequence from the same transaction. The index stream lowers
+that floor only before a run change above the shared pump cursor, whose normal
+delta will reach that socket. It keeps the full floor for already-passed
+changes, including reconnects. Older stores returning full run snapshots
+remain supported.
 
 The internal startup observer's `missing(name, omitted?)` accepts an optional
 positive omitted observation count. The safe observer wrapper forwards that

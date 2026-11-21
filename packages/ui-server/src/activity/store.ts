@@ -263,7 +263,7 @@ export interface RunSnapshot {
   runId: string;
   spans: SpanRow[];
   events: SpanEventRow[];
-  /** Consistent per-run floor; root-only reads stop before omitted child/event changes. */
+  /** Full per-run high-water sequence from the same read transaction. */
   highWaterSeq: number;
   /** Global cursor at the same moment, for pinning a poller baseline. */
   changeCursor: number;
@@ -917,18 +917,11 @@ export function createActivityStore(
         const cursor = db
           .query(ACTIVITY_SQL.latestChangeCursor)
           .get() as { hi: number };
-        // Index views omit child/event subscriptions. Their floor must stop
-        // before the first such change, even when the root itself is current.
-        const omitted = rootOnly ? db.query(`SELECT MIN(c.seq) AS seq
-          FROM activity_changes c WHERE c.run_id = ? AND
-          (c.event_index IS NOT NULL OR c.span_id NOT IN
-            (SELECT span_id FROM activity_spans WHERE run_id = ? AND parent_span_id IS NULL AND outcome IS NULL))`)
-          .get(runId, runId) as { seq: number | null } : null;
         return {
           runId,
           spans,
           events,
-          highWaterSeq: omitted?.seq == null ? runHighWaterSeqRaw(runId) : omitted.seq - 1,
+          highWaterSeq: runHighWaterSeqRaw(runId),
           changeCursor: cursor.hi,
         };
       })();
