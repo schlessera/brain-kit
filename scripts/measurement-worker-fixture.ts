@@ -1,3 +1,4 @@
+import { diagnoseNativeFixtureRtk } from "./native-rtk-diagnostics";
 import { registerNativeFixtureRtk } from "./test-native-guard";
 /** Explicit copied execution inputs for offline, non-storage runtime measurements. */
 import { prepareWorkerSandbox } from "../packages/ui-sdk/src/server/worker-launcher.js";
@@ -13,7 +14,7 @@ export function createMeasurementWorkerFixture(brain: string, home?: string) {
     const workerStartupView = createFixtureWorkerStartupView(brain);
     let live:import("../packages/ui-sdk/src/server/worker-launcher").LaunchedWorker|undefined;
     return { maintenance, request: { workerSandbox, workerStartupView,workerStarted(worker:Parameters<NonNullable<import("../packages/ui-sdk/src/server/backend").StartTurnRequest["workerStarted"]>>[0]){if(!("pid" in worker)||typeof worker.pid!=="number")throw Error("native fixture RTK worker identity unavailable");live=worker as import("../packages/ui-sdk/src/server/worker-launcher").LaunchedWorker;} },
-      qualifyRtk(){if(!live)throw Error("native fixture RTK worker unavailable");registerNativeFixtureRtk(live);},cleanup() {
+      qualifyRtk(){diagnoseNativeFixtureRtk(()=>{if(!live)throw Error("native fixture RTK worker unavailable");registerNativeFixtureRtk(live);});},cleanup() {
       try { workerStartupView.cleanup(); } finally { maintenance.cleanup(); }
     } };
   } catch (error) { maintenance.cleanup(); throw error; }

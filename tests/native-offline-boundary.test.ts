@@ -369,6 +369,7 @@ test("separate-UID plans trace the broker payload outside its hidden native audi
       const leave=nativeScriptedService("http://127.0.0.1:1");
       const launch={command:[${JSON.stringify(runtime)}],brainPath:${JSON.stringify(scratch)},env:{HOME:${JSON.stringify(scratch)},ANTHROPIC_API_KEY:"offline-fixture"},
         argv:["/usr/bin/python3","-I","-S","-c",WORKER_IDENTITY_SUPERVISOR,JSON.stringify({argv:["bwrap","--ro-bind","/","/",...${JSON.stringify(["/tmp","/home","/etc",ROOT])}.flatMap(path=>["--tmpfs",path]),"--remount-ro","/","--remount-ro","/etc","--",${JSON.stringify(runtime)}],secret:"synthetic"})]};
+      process.argv.push("--native-identity-startup-audit="+${JSON.stringify(scratch)});
       const worker=nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify(launch)});
       if(worker.native!==true)throw Error("ADMITTED_NATIVE_PLAN_CLASSIFIED");
       const outer=JSON.parse(worker.env.BRAIN_WORKER_LAUNCH).argv;
@@ -379,6 +380,7 @@ test("separate-UID plans trace the broker payload outside its hidden native audi
       assertGuardMountOrder(args.slice(1,split),["/","/etc"]);
       if(!args.slice(0,split).some((arg,i)=>arg==="--bind"&&args[i+1]===directory&&args[i+2]===directory))throw Error("guard trace directory bind missing");
       const inner=trace.slice(trace.indexOf("--")+1);
+      if(!trace.includes("abbrev=!newfstatat,statx")||!inner.some(value=>value.includes('os.stat(path)')))throw Error("IDENTITY_PLAN_COLLECTS_CHILD_DEVICE_METADATA");
       if(!inner.some((arg,i)=>arg==="--tmpfs"&&inner[i+1]===directory)||!inner.includes("--unshare-pid")||!inner.includes("--unshare-net"))throw Error("native child can see audit storage or tracer PID");
       if(args.slice(0,split).some((arg,i)=>arg==="--ro-bind"&&args[i+1]==="/"))throw Error("host root remained mounted");
       if(config.secret!=="synthetic")throw Error("identity authority changed");

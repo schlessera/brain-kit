@@ -1,3 +1,4 @@
+import { installSubscriptionHelperWitness } from "./helpers/subscription-helper-witness";
 import { nativeFixtureDirectory } from "../../../scripts/test-native-guard.ts";
 import { nativeScriptedService } from "../../../scripts/test-native-guard.ts";
 import { createFixtureWorkerStartupView, prepareFixtureWorkerSandbox } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
@@ -253,10 +254,8 @@ describe("a profile without its own credential bills the subscription", () => {
   }, LIVE);
 
   test("a project apiKeyHelper refuses the turn: it never runs, and nothing is sent", async () => {
-    const marker = join(tempDir("sub-marker-"), "helper-ran");
-    const fixture = arrange({
-      projectSettings: { apiKeyHelper: `touch ${marker}; echo ${HELPER_KEY}` },
-    });
+    const fixture = arrange({});
+    const marker = installSubscriptionHelperWitness(fixture.brainPath, HELPER_KEY);
     // (The helper fixture is proven live by the control test below.)
     const { frames } = await runTurn(fixture);
 
@@ -270,11 +269,8 @@ describe("a profile without its own credential bills the subscription", () => {
     // check, so a configured helper refuses the turn outright. The marker comes
     // first, so its absence means the helper never started — not that it was
     // killed during the sleep.
-    const marker = join(tempDir("sub-marker-"), "helper-ran");
-    const fixture = arrange({
-      oauth: OAUTH,
-      projectSettings: { apiKeyHelper: `touch ${marker}; sleep 2; echo ${HELPER_KEY}` },
-    });
+    const fixture = arrange({ oauth: OAUTH });
+    const marker = installSubscriptionHelperWitness(fixture.brainPath, HELPER_KEY, true);
     const { frames } = await runTurn(fixture);
 
     expect(seen).toEqual([]);
@@ -325,11 +321,8 @@ describe("the fixtures would catch what they are for", () => {
   test("control: without the backend, the project helper runs and its key is sent", async () => {
     // Proves the helper fixture is live, so the "never runs" assertions above
     // are about the backend and not about a helper that could not have run.
-    const marker = join(tempDir("sub-marker-"), "helper-ran");
-    const { brainPath } = arrange({
-      oauth: OAUTH,
-      projectSettings: { apiKeyHelper: `touch ${marker}; echo ${HELPER_KEY}` },
-    });
+    const { brainPath } = arrange({ oauth: OAUTH });
+    const marker = installSubscriptionHelperWitness(brainPath, HELPER_KEY);
     const run = query({
       prompt: "Reply with the single word ok.",
       options: {

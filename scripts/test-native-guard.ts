@@ -1,3 +1,4 @@
+import { nativeDeviceMetadata, nativeDeviceMetadataCommand } from "./native-device-diagnostics";
 import { nativeReceipt } from "./native-test-receipts.ts";
 /** Test-only OS boundary for installed native Claude processes (#4313). */
 import { constants, createWriteStream, cpSync, fstatSync, statfsSync, chmodSync, closeSync, mkdirSync, existsSync, lstatSync, openSync, readFileSync, readSync, readdirSync, statSync, mkdtempSync, readlinkSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -472,6 +473,7 @@ export function auditNativeLaunch(argv: string[], expected: readonly string[], c
       let trace = "";
       try { trace = readFileSync(log, "utf8"); } catch { /* Missing evidence is a failed receipt. */ }
       if (diagnosticRoot) {
+        for(const metadata of nativeDeviceMetadata(trace))nativeReceipt({kind:"native-fixture-device-metadata",head:nativeTestHead(),...metadata});
         try { writeFileSync(join(diagnosticRoot, `native-startup-audit-${directoryStamp.ino}.json`),
           JSON.stringify({ kind: "native-fixture-startup-audit", head: nativeTestHead(), text: scrubNativeStartupTrace(trace,diagnosticFixtureRoots) }), { flag: "wx", mode: 0o600 }); }
         catch { nativeReceipt({kind:"native-fixture-startup-audit-failure",head:nativeTestHead(),success:false,reason:"startup audit snapshot unavailable"}); }
@@ -491,7 +493,7 @@ export function auditNativeLaunch(argv: string[], expected: readonly string[], c
   };
   // -o otherwise makes strace ignore SIGTERM; refusal/cancellation must kill
   // both the tracer and its entire traced sandbox, closing inherited pipes.
-  return { argv: [straceExecutable, "-I", "1", "--kill-on-exit", "-f", "-qq", "-s", "0", "-e", diagnosticRoot ? "trace=connect,%file,%process,mmap,mprotect,munmap,brk,prlimit64,getrlimit,prctl,io_uring_setup,pidfd_open,pidfd_getfd,rt_sigaction,rt_sigprocmask,sched_getaffinity,rseq,futex,sendto,sendmsg,sendmmsg,bind,listen,accept,accept4" : "trace=connect,execve,sendto,sendmsg,sendmmsg,bind,listen,accept,accept4", "-e", "raw=connect,sendto,sendmsg,sendmmsg,bind,listen,accept,accept4", "-o", log, "--", ...argv],
+  return { argv: [straceExecutable, "-I", "1", "--kill-on-exit", "-f", "-qq", "-s", "0", ...(diagnosticRoot?["-e","abbrev=!newfstatat,statx"]:[]), "-e", diagnosticRoot ? "trace=connect,%file,%process,mmap,mprotect,munmap,brk,prlimit64,getrlimit,prctl,io_uring_setup,pidfd_open,pidfd_getfd,rt_sigaction,rt_sigprocmask,sched_getaffinity,rseq,futex,sendto,sendmsg,sendmmsg,bind,listen,accept,accept4" : "trace=connect,execve,sendto,sendmsg,sendmmsg,bind,listen,accept,accept4", "-e", "raw=connect,sendto,sendmsg,sendmmsg,bind,listen,accept,accept4", "-o", log, "--", ...argv],
     dispose() { finish(); }, receipt: finish,
     nativeExecuted(){
       if(receipt)return receipt.nativeLaunched;
@@ -944,7 +946,7 @@ export function registerNativeFixtureRtk(worker:import("../packages/ui-sdk/src/s
     if(!record.expected.includes(executable))throw Error("native fixture RTK executable changed");
     if(processStart(pid)!==start)throw Error("native fixture RTK payload identity changed");selected.push(pid);
   }
-  if(selected.length!==1)throw Error("native fixture RTK payload missing or ambiguous");
+  if(selected.length!==1)throw Error(selected.length===0?"native fixture RTK payload missing":"native fixture RTK payload ambiguous");
   if(processStart(worker.pid)!==record.start||processStart(selected[0]!)!==owned.get(selected[0]!))throw Error("native fixture RTK identity changed");
   const {registerWorkerRtk}=createRequire(import.meta.url)("../packages/ui-sdk/src/server/worker-rtk.ts") as typeof import("../packages/ui-sdk/src/server/worker-rtk");
   registerWorkerRtk(worker,selected[0]!,record.launch);
@@ -1282,7 +1284,7 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
     const payloadIndex = workerArgv.indexOf("--", bwrap) + 1;
     const nativePayload = workerArgv.splice(payloadIndex);
     const turnProxy=admittedRelay(workerArgv,WORKER_TURN_PROXY);
-    workerArgv.push(...nativeWorkerPayloadCommand(nativePayload,command,(argv,trusted)=>nativeSocketCommand(argv, admitted?.path ?? join(bridge.directory, "relay.sock"), pinned.ANTHROPIC_UNIX_SOCKET,trusted&&turnProxy?{source:turnProxy.path,allowed:WORKER_TURN_PROXY}:undefined)));
+    workerArgv.push(...nativeWorkerPayloadCommand(nativePayload,command,(argv,trusted)=>nativeSocketCommand(supervisor&&process.argv.some(value=>value.startsWith("--native-identity-startup-audit="))?nativeDeviceMetadataCommand(argv):argv, admitted?.path ?? join(bridge.directory, "relay.sock"), pinned.ANTHROPIC_UNIX_SOCKET,trusted&&turnProxy?{source:turnProxy.path,allowed:WORKER_TURN_PROXY}:undefined)));
     const nativeMounts = workerArgv.slice(bwrap + 1, workerArgv.indexOf("--", bwrap));
     const beforeLaunch = () => {
       try { keeper?.refresh(); assertWorkerFixtureBinds(nativeMounts, route, bridge.directory,keeper); assertNativeMountSockets(nativeMounts, route.origin,keeper); }
