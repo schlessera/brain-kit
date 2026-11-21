@@ -12,6 +12,7 @@ import { startCronSpan } from "./activity.js";
 import { recordCronRun } from "./scheduler.js";
 import type { ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
 import { isSyncJob, TRUSTED_JOB_NAMES } from "./emit.js";
+import type { MaintenanceGitPublication } from "../brain/maintenance-git-publication.js";
 import { cronJobClass, type HostBoundary } from "../brain/host-boundary.js";
 import { parseSyncResult, syncActivityAttrs, syncMessage } from "../brain/sync-result.js";
 import { execWrapperSpawnOptions } from "@schlessera/brain-ui-sdk/internal";
@@ -61,6 +62,8 @@ interface SpawnedJob {
   /** A maintenance launch's own settlement (`StreamingExecution.settled`), after its exit and output. */
   settled?: Promise<void>;
   signalCode: string | null;
+  /** Host-owned publication status, not parsed from worker stdout. */
+  readonly gitPublication?: MaintenanceGitPublication;
 }
 
 interface RunRecorder {
@@ -371,6 +374,18 @@ export async function runJob(
     // The launch frees its writer gate only once its worker's stdio is
     // released (#2863); the host's database closes right after this job.
     await proc.settled;
+    const publication=proc.gitPublication;
+    if(publication){
+      spanAttrs={...spanAttrs,"maintenance.git_publication":JSON.stringify(publication)};
+      recorder?.event?.("git_publication",publication);
+      if(publication.state==="discarded"){
+        const notice=`git_publication_discarded: ${publication.reason}`;
+        writeLine(stderr,`[cron-run] ${notice}`);outputTail=appendTail(outputTail,notice+"\n",OUTPUT_TAIL_CHARS);
+        // A complete, successful process with no usable report did not prove
+        // packing publication. Keep its exit code, but record the host failure.
+        if(publication.reason?.startsWith("maintenance_report_"))errorMessage=notice;
+      }
+    }
     for (const outcome of outcomes.slice(0, 2)) {
       if (outcome.status === "rejected") {
         writeLine(stderr, `[cron-run] output capture failed: ${messageOf(outcome.reason)}`);

@@ -1,3 +1,5 @@
+import { codeReceiptTablesExist } from "../db/journal-database.js";
+import { createJournalScrub } from "./journal-scrub.js";
 /**
  * The turn journal's writes, run on the write worker's connection (#2814).
  * Each procedure is one accounted transaction of `createJournalAccounting`,
@@ -6,7 +8,7 @@
  * in-memory turn state and every read.
  */
 import type { Database, SQLQueryBindings } from "bun:sqlite";
-import type { JournalRecoveryStatus, JournalObservationReference, JournalVersion } from "@schlessera/brain-ui-sdk/protocol";
+import type { JournalRecoveryStatus, JournalVersion } from "@schlessera/brain-ui-sdk/protocol";
 
 import type { WireError, WriteProcedures } from "../db/write-worker.js";
 import { recordGovernanceEvent } from "../governance/events.js";
@@ -71,7 +73,8 @@ const indexPins = ["before_json", "after_json"].flatMap(column => [
  * external memory note, and an attachment removal's retained original, which
  * its Undo restores through the removal turn's pin.
  */
-const namedHashes = `${hashes("turn_journal_changes")} UNION ALL ${hashes("turn_journal_revert_paths")} UNION ALL ${hashes("turn_journal_claude_memory")}
+const namedHashes = (codeReceipts: boolean) => `${hashes("turn_journal_changes")} UNION ALL ${hashes("turn_journal_revert_paths")} UNION ALL ${hashes("turn_journal_claude_memory")}
+  ${codeReceipts ? "UNION ALL SELECT pack_hash FROM turn_journal_code_receipts" : ""}
   UNION ALL SELECT json_extract(file.value,'$.retained.hash') FROM turn_journal_storage_operations s, json_each(s.private_versions) file`;
 
 type TurnRow = { session_id: string | null; actor: "interactive" | "voice" | "user"; kind: "turn" | "revert"; model: string | null; profile: "strict" | "governed"; steering_inventory_missing: string; configuration_set: string | null; missing: string };
@@ -89,6 +92,8 @@ export interface ObservationRecord {
   steeringPaths: string[];
   /** Every turn observing this window, this one included. */
   overlaps: string[];
+  /** Only turns whose frozen coverage includes this path participate in its conflicts. */
+  pathObservers?: Record<string, string[]>;
   /** Changes of this turn's managed worktrees, already in journal path form. */
   worktree: { path: string; scope: string; before: JournalVersion | null; after: JournalVersion | null }[];
   steeringUnavailable: string[];
@@ -101,7 +106,12 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
   const accounting = createJournalAccounting(db, options.dbPath, { capBytes: options.capBytes });
   // Refusing this optional migration must never prevent recovery/expiry.
   accounting.ensureObjectRefIndex();
+  accounting.ensureChangePathIndex();
+  let conflictsReady = false;
+  try { conflictsReady = accounting.ensureConflictTables(); }
+  catch (error) { if (!(error instanceof JournalCapacityError || error instanceof JournalStorageUnavailable)) throw error; }
   const objects = createJournalObjects(options.objectsRoot, accounting);
+  const scrub = createJournalScrub(db, options.objectsRoot, accounting);
   const reservations = new Map<string, JournalObjectReservation>();
   const temporary = new Map<string, { release(): void }>();
   const pin = (turnId: string, entry: JournalVersion | null) => {
@@ -115,7 +125,8 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
   const collect = () => {
     const unused = db.query("SELECT hash,bytes FROM turn_journal_objects WHERE state='present' AND hash NOT IN (SELECT hash FROM turn_journal_object_refs) AND hash NOT IN (SELECT hash FROM turn_journal_reservations WHERE hash IS NOT NULL)").all() as { hash: string; bytes: number }[];
     for (const row of unused) {
-      if (objects.has(row.hash)) objects.remove(row.hash);
+      objects.has(row.hash); // Validate type/link count; absence still needs the retry barrier.
+      objects.remove(row.hash);
       db.query("DELETE FROM turn_journal_object_quarantine WHERE hash=?").run(row.hash);
       db.query("DELETE FROM turn_journal_objects WHERE hash=?").run(row.hash);
     }
@@ -137,16 +148,33 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
     const taint = sessionTaint(db, turnId, row.session_id);
     return { row, taint };
   };
+  // Only operation writes consume these connection-local deltas. Receipt-only
+  // operations therefore leave every active history cache untouched.
+  db.exec("CREATE TEMP TABLE IF NOT EXISTS journal_operation_changes (turn_id TEXT PRIMARY KEY, reset INTEGER NOT NULL)");
+  for (const [event, references, reset] of [["INSERT", ["NEW"], 0], ["UPDATE", ["OLD", "NEW"], 1], ["DELETE", ["OLD"], 1]] as const) {
+    db.exec(`CREATE TEMP TRIGGER IF NOT EXISTS journal_operation_${event} AFTER ${event} ON ${"journal"}.turn_journal_changes BEGIN ${references.map(reference =>
+      `INSERT INTO journal_operation_changes VALUES (${reference}.turn_id,${reset}) ON CONFLICT(turn_id) DO UPDATE SET reset=max(reset,excluded.reset);`).join(" ")} END`);
+  }
+  const runStatements = (list: JournalStatement[]) => list.map(statement => {
+    if ("check" in statement) {
+      if (!db.query(statement.check).get(...(statement.params ?? []))) throw new JournalStatementRefused(statement.refusal);
+      return 0;
+    }
+    return db.query(statement.sql).run(...(statement.params ?? [])).changes;
+  });
   return {
+    ensureCodeReceiptTables: () => accounting.ensureCodeReceiptTables(),
     /** Statements in order, as one accounted transaction; the changes each made. */
     statements(list: JournalStatement[]): number[] {
-      return accounting.write(() => list.map(statement => {
-        if ("check" in statement) {
-          if (!db.query(statement.check).get(...(statement.params ?? []))) throw new JournalStatementRefused(statement.refusal);
-          return 0;
-        }
-        return db.query(statement.sql).run(...(statement.params ?? [])).changes;
-      }));
+      return accounting.write(() => runStatements(list));
+    },
+    operationStatements(list: JournalStatement[]) {
+      return accounting.write(() => {
+        db.exec("DELETE FROM journal_operation_changes");
+        const changes = runStatements(list);
+        const turns = db.query("SELECT turn_id,reset FROM journal_operation_changes").all();
+        return { changes, turns };
+      });
     },
     bindModel(turnId: string, sessionId: string | null, model: string): boolean {
       return accounting.write(() => {
@@ -156,6 +184,7 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
         return true;
       });
     },
+    scrubObjects() { return scrub.run(); },
     collectObjects(): void {
       const indexed = accounting.ensureObjectRefIndex();
       accounting.write(collect);
@@ -196,7 +225,7 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
           for (const table of ["turn_journal_changes", "turn_journal_revert_paths"]) versions += db.query(`UPDATE ${table} SET before_json=${metadataOnly("before_json")},after_json=${metadataOnly("after_json")}
             WHERE ${INDEX_PATH} AND (${legacy("before_json")} OR ${legacy("after_json")})`).run(family, INDEX_PUBLICATION_COPY).changes;
           // Index versions name no hash any more: whatever still does is another record's content.
-          db.exec(`DELETE FROM temp.journal_index_purge WHERE hash IN (${namedHashes})`);
+          db.exec(`DELETE FROM temp.journal_index_purge WHERE hash IN (${namedHashes(codeReceiptTablesExist(db))})`);
           // Only the pin of the turn that recorded the index version: a pin
           // any other turn holds, for whatever reason, keeps its object.
           const pins = db.query(`DELETE FROM turn_journal_object_refs WHERE (turn_id,hash) IN (SELECT turn_id,hash FROM temp.journal_index_purge)
@@ -243,6 +272,7 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
       const { turnId, at } = record;
       const steering = new Set(record.steeringPaths);
       let sequence = record.sequence;
+      if (!conflictsReady) { conflictsReady = accounting.ensureConflictTables(); if (!conflictsReady) throw new JournalCapacityError(); }
       accounting.write(() => {
         const { row: metadata, taint } = turnContext(turnId);
         for (const item of record.changed) {
@@ -252,23 +282,30 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
           const actor = approvedPolicy || metadata.kind === "revert" ? "user" : "agent";
           const restricted = classification === "steering" && actor === "agent" && taint !== null;
           const source = restricted && taint!.eventId > 0 ? taint!.eventId : null;
-          const overlappingTurnIds = record.overlaps.filter(id => id !== turnId);
+          const overlappingTurnIds = (record.pathObservers?.[item.path] ?? record.overlaps).filter(id => id !== turnId);
           db.query("INSERT INTO turn_journal_changes (turn_id,sequence,path,scope,before_json,after_json,class,actor,overlaps,taint_source_event_id,effective_taint) VALUES (?,?,?,?,?,?,?,?,?,?,?)")
             .run(turnId, sequence, item.path, item.scope, item.before ? JSON.stringify(item.before) : null, item.after ? JSON.stringify(item.after) : null, classification, actor, JSON.stringify(overlappingTurnIds), source, restricted ? 1 : 0);
           if (classification === "steering") recordGovernanceEvent(db, { kind: "steering_change", sessionId: metadata.session_id, turnId,
             actor: actor === "user" ? "user" : metadata.actor, model: metadata.model, profile: metadata.profile, at, dedupeKey: `${turnId}:${sequence}`,
             payload: { path: item.path, sequence, beforeHash: item.before?.hash ?? null, afterHash: item.after?.hash ?? null, taintSourceEventId: source, overlappingTurnIds, ...(restricted ? { tainted: true } : {}) } });
           pin(turnId, item.before); pin(turnId, item.after);
-          const observed = db.query("SELECT sequence,after_json,overlaps FROM turn_journal_changes WHERE turn_id=? AND path=? ORDER BY sequence").all(turnId, item.path) as {sequence:number;after_json:string|null;overlaps:string}[];
-          const participants = new Set(observed.flatMap(row => JSON.parse(row.overlaps) as string[]));
-          const conflicting = new Map<number, JournalObservationReference>();
-          for (const other of participants) {
-            const shared = observed.filter(row => (JSON.parse(row.overlaps) as string[]).includes(other));
-            if (new Set(shared.map(row => row.after_json ?? "null")).size < 2) continue;
-            for (const row of shared) conflicting.set(row.sequence, {turnId, sequence:row.sequence, side:"after"});
+          // The owner's own first baseline marks rows produced by this
+          // relation-backed writer. Earlier legacy rows keep their stored
+          // conflict lists, including empty lists, when this turn continues.
+          db.query("INSERT OR IGNORE INTO turn_journal_path_peers (turn_id,path,peer_id,first_sequence,after_json) VALUES (?,?,?,?,?)")
+            .run(turnId, item.path, turnId, sequence, item.after ? JSON.stringify(item.after) : "null");
+          // Solo writes need no history lookup. One peer baseline detects a
+          // conflict; one per-path boundary serves all subsequent versions.
+          for (const other of overlappingTurnIds) {
+            const after = item.after ? JSON.stringify(item.after) : "null";
+            db.query("INSERT OR IGNORE INTO turn_journal_path_peers (turn_id,path,peer_id,first_sequence,after_json) VALUES (?,?,?,?,?)")
+              .run(turnId, item.path, other, sequence, after);
+            const first = db.query("SELECT first_sequence,after_json FROM turn_journal_path_peers WHERE turn_id=? AND path=? AND peer_id=?")
+              .get(turnId, item.path, other) as { first_sequence: number; after_json: string };
+            if (first.after_json !== after) db.query(`INSERT INTO turn_journal_path_conflicts (turn_id,path,first_sequence) VALUES (?,?,?)
+              ON CONFLICT(turn_id,path) DO UPDATE SET first_sequence=min(first_sequence,excluded.first_sequence)`)
+              .run(turnId, item.path, first.first_sequence);
           }
-          if (conflicting.size) db.query("UPDATE turn_journal_changes SET conflict_observations=? WHERE turn_id=? AND path=?")
-            .run(JSON.stringify([...conflicting.values()].sort((a,b)=>a.sequence-b.sequence)),turnId,item.path);
         }
         // Intentional worktree edits are editable workspace content of their holding turn only.
         for (const change of record.worktree) {
@@ -328,6 +365,9 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
         return true;
       });
     },
+    reserveBatch(entries: { bytes: number; hash: string; turnIds?: readonly string[] }[]): (string | null)[] { return accounting.reserveBatch(entries); },
+    finishBatch(entries: { id: string; hash: string; bytes: number; turnIds?: readonly string[] }[], turnIds: string[]): void { accounting.finishBatch(entries, turnIds); },
+    cancelBatchReservation(id: string): void { accounting.cancelBatchReservation(id, objects); },
     reserve(bytes: number, hash: string): string {
       // This ledger commits on this connection: its reservation is synchronous.
       const reservation = accounting.reserve(bytes, hash) as JournalObjectReservation;
@@ -361,7 +401,7 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
     releaseRead(id: string): void { accounting.releaseRead(id); },
     recover(): JournalRecoveryStatus { return accounting.recover(objects); },
     usage(): number { return accounting.usage(); },
-    close(): void { objects.close(); },
+    close(): void { scrub.close(); objects.close(); },
   };
 }
 

@@ -429,7 +429,7 @@ export async function prepareTurnEgress(options: {
           operation.signal.addEventListener("abort", abort, { once: true });
           if (operation.signal.aborted) resolve("turn_cancelled");
         })]);
-        if (refusal !== null) { operation.finish(refusal === "turn_cancelled" ? "cancelled" : "denied", refusal); return false; }
+        if (refusal !== null) { operation.mark("admitMs"); operation.finish(refusal === "turn_cancelled" ? "cancelled" : "denied", refusal); return false; }
         return !operation.signal.aborted && await operation.admit();
       } finally { if (abort) operation.signal.removeEventListener("abort", abort); }
     } };

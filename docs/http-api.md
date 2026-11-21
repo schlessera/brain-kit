@@ -80,6 +80,8 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/brain/stats/history` | S | Read recorded corpus-stat series | Independent corpus clients; preserve CLI pass-through, capture recovery and sync lifetime promises. |
 | POST | `/api/brain/sync` | S | Stream a serialized repository sync | Independent corpus clients; preserve CLI pass-through, capture recovery and sync lifetime promises. |
 | GET | `/api/drafts` | S | List live session drafts | Paired composer and independent clients (#979, D52); preserve revisions, receipts, tombstones, limits and the no-execution boundary. |
+| GET | `/api/drafts/:id/code-changes` | S | Read the durable next-admission workspace write preference | Authenticated session clients; defaults off, principal-scoped drafts (#4295). |
+| PUT | `/api/drafts/:id/code-changes` | S | Save `{ enabled: boolean }` for workspace changes | Durable before acknowledgement; no active-turn effect; preserves profile restrictions (#4295). |
 | GET | `/api/drafts/:id/profile` | S | Read confirmed worker profile and enforced facts | Independent session clients; preserve policy lower bounds, principal scope and truthful unknown limits (#1663). |
 | PUT | `/api/drafts/:id/profile` | S | Save a next-turn tightening preference | Independent session clients; preserve confirmed saves, current-turn profile and voice read-only authority (#1663). |
 | GET | `/api/drafts/:draftId` | S | Read a draft's text and images | Paired composer and independent clients (#979, D52); preserve revisions, receipts, tombstones, limits and the no-execution boundary. |
@@ -143,6 +145,8 @@ client code has a gap. Source owners are listed after the table.
 | POST | `/api/push/unsubscribe` | S | Remove caller-owned subscription | SDK push renewal and custom PWA clients; preserve principal ownership and private-key exclusion. |
 | POST | `/api/render` | S | Render supplied document to PNG or PDF | Independent share/render clients; preserve RenderRequest, renderer seam and 501 without renderer. |
 | GET | `/api/sessions` | S | List backend sessions with partial availability | Independent session clients; preserve SDK ChatSession/history shapes and partial-backend availability behavior. |
+| GET | `/api/sessions/:id/code-changes` | S | Read the durable next-admission workspace write preference | Authenticated session clients; defaults off, principal-scoped drafts (#4295). |
+| PUT | `/api/sessions/:id/code-changes` | S | Save `{ enabled: boolean }` for workspace changes | Durable before acknowledgement; no active-turn effect; preserves profile restrictions (#4295). |
 | GET | `/api/sessions/:id/profile` | S | Read confirmed worker profile and enforced facts | Independent session clients; preserve policy lower bounds, principal scope and truthful unknown limits (#1663). |
 | PUT | `/api/sessions/:id/profile` | S | Save a next-turn tightening preference | Independent session clients; preserve confirmed saves, current-turn profile and voice read-only authority (#1663). |
 | GET | `/api/sessions/:id` | S | Read owning-backend session transcript | Independent session clients; preserve SDK ChatSession/history shapes and partial-backend availability behavior. |
@@ -155,6 +159,9 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/sessions/:sessionId/turns/:turnId/journal` | S | Read retained turn observations | Exact session/turn ownership; nullable unknown facts and explicit expiry. |
 | GET | `/api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview` | S | Read a bounded text preview | Raw UTF-8 bytes; explicit size/line/binary fallback, no coercion. |
 | GET | `/api/sessions/:sessionId/turns/:turnId/journal/:sequence/:side` | S | Download a retained raw version | Before/after only; durable read lease, no direct hash access. |
+| GET | `/api/sessions/:sessionId/turns/:turnId/journal/code/preview` | S | Preview one checkout's owned endpoint diff | Exact session/turn/checkout; no source object-store dependency. |
+| POST | `/api/sessions/:sessionId/turns/:turnId/journal/code/revert` | S | Confirm a checkout revert | Current owner, stable operation identity and fresh matching endpoint; otherwise conflict. |
+| GET | `/api/sessions/:sessionId/turns/:turnId/journal/code/revert/:id` | S | Reconcile a checkout history action | Principal/session/turn-bound read; never repeats effects. |
 | GET | `/api/journal/configuration-coverage` | S | Read the brain's current untraced configuration-input set | Latest complete inventoried turn only; explicit `unknown`, never an empty list. |
 | GET | `/api/agent-policy` | I | Read shared admission policy and reported enforcing limits | Read-only Devices & agents facts; no editor or duplicate policy cache. |
 | GET | `/api/policy-proposals/:turnId/:requestId` | I | Read one principal-owned policy request receipt | Same-request reconciliation only; never writes or reactivates approval. |
@@ -711,6 +718,13 @@ owner/session boundary. GET `/api/sessions/:sessionId/turns/:turnId/journal`
 returns `TurnJournalDetails`: summary, ordered observations, overlapping turn
 IDs and missing-detail reasons. No retained turn in that session is JSON 404.
 An expired summary is still readable, with no raw detail or review actions.
+
+Journal details additionally expose optional `codeChanges` checkout receipts
+(#4297). The receipt fields and preview/revert/status routes are defined in the
+[checkout receipt contract](integration-contract/http.md#checkout-change-receipts-4297).
+For covered checkouts, this replaces new turns' per-file change rows; retained
+legacy rows remain readable. Notes keep their before-images. Each entry offers
+a bounded endpoint diff and an owner-confirmed revert that refuses later work.
 
 Journal details additionally expose outward admission receipts (#1664) through
 optional `outwardActions` and `outwardActionsTruncated`. Rows include event
@@ -1931,7 +1945,7 @@ read by any authenticated principal.
 | Kind | Version | Fields | Meaning |
 | --- | --- | --- | --- |
 | `safety_admission_expired` | 1 | `toolUseId`, `evidenceRevision`, `trustRevision`, `authorityEpoch`, `reason` | A waiting or claimed safety-bound approval was withdrawn before dispatch. The server commits this terminal fact before settling the backend wait or publishing the coordinator's `expired` result. Revisions describe the card's original host snapshot; `reason` is `safety_changed`, `turn_ended` or `grant_storage_failed`. Storage failure stops the turn with an explicit failed terminal outcome, without claiming durable withdrawal. This grants no replay and changes no historical approval. |
-| `egress_connection` | 1 | `connectionId` (optional), `dispatched` (optional), `failureReason` (optional), `recipientAdmission` (optional), `recipientApproved` (optional), `standingRecipient` (optional), `trustedSource` (optional), `host`, `port`, `method`, `path` (optional), `bytes`, `accounting`, `durationMs`, `outcome`, `inference` (optional), `provider` (optional, #3246), `managedReference` (optional, #3613), `reason` (optional) | A completed, denied, failed or cancelled proxy connection. HTTP has a path and conservative wire accounting; opaque CONNECT has no path or plaintext claim. Only the concrete inference relay sets `inference: true`, only a validated provider-relay operation sets `provider: true`, and only the fixed host GitHub acquisition wire sets `managedReference: true`. Each operation supplies its own exclusive tag. These host records grant no contacted-host authority to a tainted session's worker traffic. Managed acquisition retains ordinary recipient restrictions and claims no model-content delivery or repository trust. Headers, query strings and content are absent. |
+| `egress_connection` | 1 | `connectionId` (optional), `dispatched` (optional), `failureReason` (optional), `recipientAdmission` (optional), `recipientApproved` (optional), `standingRecipient` (optional), `trustedSource` (optional), `host`, `port`, `method`, `path` (optional), `bytes`, `accounting`, `durationMs`, optional inference clocks (`admitMs`, `bodyMs`, `credentialMs`, `dispatchMs`, `headersMs`, `firstChunkMs`, `loopLagMaxMs`), optional provider usage (`inputTokens`, `cacheReadTokens`, `cacheCreationTokens`), `outcome`, `inference` (optional), `provider` (optional, #3246), `managedReference` (optional, #3613), `reason` (optional) | A completed, denied, failed or cancelled proxy connection. HTTP has a path and conservative wire accounting; opaque CONNECT has no path or plaintext claim. Only the concrete inference relay sets `inference: true`, only a validated provider-relay operation sets `provider: true`, and only the fixed host GitHub acquisition wire sets `managedReference: true`. Each operation supplies its own exclusive tag. These host records grant no contacted-host authority to a tainted session's worker traffic. Managed acquisition retains ordinary recipient restrictions and claims no model-content delivery or repository trust. Headers, query strings and content are absent. |
 | `steering_change` | 1 | `path`, `sequence`, `beforeHash`, `afterHash`, `taintSourceEventId`, `overlappingTurnIds`, `tainted` (optional) | One observed steering change, attributed to its turn. Hashes identify retained regular-file versions or are `null`; the source is the current unresolved taint event or `null`. New observations may carry `tainted: true` for effective restriction, including unknown coverage without an attributable source. Historical rows retain their original attribution. Shared windows remain shared, not exclusive writer claims. |
 | `policy_change` | 1 | `requestId`, `baseHash`, `proposedHash`, `sections`, `outcome` | Explicit user-approved policy publication. Actor is `user`; outcome is `updated`; hashes identify the exact reviewed and written bytes. |
 | `scratch_overage` | 1 | `bytes`, `pinnedFiles`, `pinnedBytes`, `overageBytes` | Scratch remains above its cap after a prune that preserved retained links. Counts are remaining bytes and pinned files/bytes; `overageBytes` is the excess. A background pass has actor `server` and no session or turn; unbound retention applies. |
@@ -1947,7 +1961,7 @@ read by any authenticated principal.
 | `budget_warning` | 1 | `scope`, `unit`, `limit`, `observed`, `source` | A warn limit was crossed. `scope` is `turn`, `session` or `day`; `unit` is `usd` or `tokens`. |
 | `state_room_warning` | 1 | `usedBytes`, `allowanceBytes`, `observedAt` | A resumed conversation's measured state reached its existing 75% warning threshold. The numbers and Unix-millisecond timestamp are the same observation sent with its result and history. One quiet event per session, backend and allowance; it does not change admission or start a continuation. |
 | `budget_block` | 1 | `scope`, `unit`, `limit`, `observed`, `source`, `stage` | A block limit was reached. `stage` is `admission`, `mid_turn` or `sdk_backstop`. |
-| `scope_cap` | 1 | `cap`, `limit`, `observed`, `overshoot`, `frozen`, `outcome`, `source` | A per-turn cap was reached. `cap` is `files_changed`, `minutes`, `tool_calls`, `free_space_floor` or `turn_bytes`; `overshoot` is how far past the cap the turn went, in the cap's unit; `outcome` is `paused`, `continued`, `stopped`, `voice_stopped` or `turn_ended`. `paused` records the confirmed freeze before the user decides; retained turn scope receipts record its eventual decision or interruption. A free-space overshoot is the measured deficit below its floor. |
+| `scope_cap` | 1 | `cap`, `limit`, `observed`, `overshoot`, `frozen`, `outcome`, `source`, `measurement` (optional), `result` (optional) | A per-turn cap was reached. `cap` is `files_changed`, `minutes`, `tool_calls`, `free_space_floor` or `turn_bytes`; `overshoot` is how far past the cap the turn went, in the cap's unit; `outcome` is `paused`, `continued`, `stopped`, `voice_stopped` or `turn_ended`. `paused` records the confirmed freeze before the user decides; retained turn scope receipts record its eventual decision or interruption. A free-space overshoot is the measured deficit below its floor. Optional `result: "index_capacity"` identifies the independent host-default index ceiling, with `source: "default"`; the existing `cap` enum stays unchanged. Optional `measurement: "unknown"` identifies an unreadable index size; `observed` and `overshoot` are then zero compatibility placeholders, not measurements. |
 | `egress_denial` | 1 | `host`, `port`, `method`, `reason`, `bytes` | The egress proxy refused a connection. `method` is set for plain HTTP; `reason` is `denied_host`, `not_allowlisted`, `byte_cap` or `taint_allowlist`; `taint_allowlist` includes a tainted destination the user declined (#3430). |
 | `strict_fallback` | 1 | `path`, `reason` | A turn ran under `strict` instead of `governed` because a protected path is a `symlink`, a `hardlink` or a `mount_point`. |
 | `revert_conflict` | 1 | `conflicts`, `restored` | A revert skipped paths that changed after the reverted turn. Each conflict is `{ path, state }`, with `state` one of `changed`, `deleted`, `created` or `type_changed`; `restored` counts the paths it did restore. |
@@ -2445,6 +2459,18 @@ future repositories currently in that namespace. Repository runtime trust remain
 unavailable; origin/tunnel capabilities are independently advertised.
 Removal/readback remain available for existing rules. Revision exhaustion refuses
 before protected publication. No historical trigger is resolved by these routes.
+
+### Session code changes (#4295)
+
+The session/draft `code-changes` GET/PUT routes are specified in the
+[integration contract](integration-contract/http.md#default-workspace-inspection-and-code-changes-preference-4295).
+They use the same authenticated identity and principal-scoped draft binding as
+profile preferences. PUT accepts exactly `{ enabled: boolean }`; all replies
+are `Cache-Control: no-store`. Existing sessions default to false. Saves
+survive resume and apply only to the next admission; enabled sessions retain
+the existing writable-workspace protections. Ordinary workspace files keep
+per-file journaling; covered Git checkouts retain one endpoint receipt per
+checkout, as defined by the [history contract](integration-contract/http.md#checkout-change-receipts-4297).
 
 ### Combined selected-trigger and future-source review
 

@@ -1,5 +1,6 @@
 import type { AccountInfo, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { ServerMessage, StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
+import { safeStartupTiming } from "@schlessera/brain-ui-sdk/server";
 
 import type { StreamAdapter } from "./stream-adapter.js";
 import type { TurnInput } from "./turn-input.js";
@@ -21,7 +22,7 @@ export interface TurnStreamInputs {
   adapter: StreamAdapter;
   frames: TurnFrames;
   terminal: TurnTerminal;
-  req: Pick<StartTurnRequest, "sessionId" | "autonomous">;
+  req: Pick<StartTurnRequest, "sessionId" | "autonomous" | "startupTiming">;
   backendId: string;
   profileId: string;
   /** The account the CLI selected, for the per-turn runtime report. */
@@ -76,12 +77,39 @@ export class CarriedResult {
  * Exactly one terminal frame per turn, whatever the stream does.
  */
 export async function runTurnStream(inputs: TurnStreamInputs): Promise<void> {
+  const startupTiming = safeStartupTiming(inputs.req.startupTiming);
   const { input, adapter, terminal } = inputs;
   let announced = false;
+  let mcpInitObserved = false;
   let reported = false;
   let carried: CarriedResult | null = null;
   try {
     for await (const msg of inputs.stream) {
+      if (startupTiming && msg.type === "system" && msg.subtype === "init" && !mcpInitObserved) {
+        mcpInitObserved = true;
+        let omitted = 0, bytes = 2;
+        // Optional diagnostics are bounded before invoking the observer and
+        // never have authority over a usable stream.
+        try {
+          const servers = msg.mcp_servers;
+          if (!Array.isArray(servers)) omitted = 1;
+          else {
+            const length = servers.length;
+            if (!Number.isSafeInteger(length) || length < 0) throw Error("MCP diagnostics length unavailable");
+            omitted = Math.max(0, length - 8);
+            for (let index = 0; index < Math.min(8, length); index++) {
+              try {
+                const name = servers[index]?.name;
+                if (typeof name !== "string" || name.length > 48 || Buffer.byteLength(name) > 48) { omitted++; continue; }
+                const diagnostic = `mcp_connect:${name}`, size = Buffer.byteLength(JSON.stringify(diagnostic)) + 1;
+                if (bytes + size > 192) { omitted++; continue; }
+                bytes += size; startupTiming.missing(diagnostic);
+              } catch { omitted++; }
+            }
+          }
+        } catch { omitted++; }
+        if (omitted) startupTiming.missing("mcp_connect:additional_servers_omitted", omitted);
+      }
       input.observe(msg);
       if (carried && CarriedResult.continues(msg)) carried.continued = true;
       // A withheld turn has already decided its outcome; nothing the stream

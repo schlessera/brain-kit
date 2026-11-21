@@ -1,3 +1,4 @@
+import { createPrivateIndexDirectory, removePrivateIndexDirectory } from "../src/brain/private-index.js";
 /**
  * A turn's own applications reach its worker's same-turn reads (#2848) and,
  * under provider rules, its private index without any masked byte (#2846).
@@ -554,4 +555,50 @@ test("an aborted admission stops the copy and leaves no tree or index behind", a
     expect(outcome, "AN_ABORTED_COPY_REFUSES").toBe("Odysseus cancels the voyage.");
     expect(left(), "AN_ABORTED_COPY_LEAVES_NOTHING").toEqual(before);
   } finally { await view.cleanup(); }
+});
+
+
+test.each([true,false])("inspection data-tree copy omits deep source with strict mount=%s", async mount => {
+  const root=mkdtempSync(join(tmpdir(),"odysseus-inspect-data-copy-")),brain=join(root,"brain");mkdirSync(join(brain,"notes"),{recursive:true});
+  writeFileSync(join(brain,"notes/raft.md"),NOTE("Raft","Odysseus sails."));
+  const view=createFixtureWorkerStartupView(brain), privateIndex=mount ? undefined : createPrivateIndexDirectory();
+  const deep=join(view.root,"workspaces/ithaca",...Array.from({length:260},()=>"x"));mkdirSync(deep,{recursive:true});writeFileSync(join(deep,"source.md"),"Athena");
+  try {
+    const tree=await createTurnDataTree({brainPath:brain,view,maskPaths:[],mount,index:privateIndex,inspectWorkspaces:true,providerRules:!mount,update:async()=>{}});
+    try {
+      if(mount){expect(readdirSync(join(tree.mount!.root,"workspaces")),"ONLY_A_PRIVATE_MOUNTPOINT_IS_CREATED").toEqual([]);expect(readFileSync(join(tree.mount!.root,"notes/raft.md"),"utf8")).toContain("Odysseus sails");}
+      expect(readFileSync(join(deep,"source.md"),"utf8"),"SOURCE_REMAINS_READABLE_ON_ITS_CHECKPOINT").toBe("Athena");
+    }finally{await tree.close();}
+  }finally{await view.cleanup();if(privateIndex)removePrivateIndexDirectory(privateIndex);rmSync(root,{recursive:true,force:true});}
+});
+
+
+test.each([false,true])("strict Pi file tools and shell read the inspected checkout through the mounted data root (masked=%s)",async masked=>{
+ const root=mkdtempSync(join(tmpdir(),"odysseus-pi-checkout-read-")),brain=join(root,"brain");mkdirSync(join(brain,".brain-index"),{recursive:true});mkdirSync(join(brain,"workspaces/ithaca"),{recursive:true});writeFileSync(join(brain,"workspaces/ithaca/README.md"),"Athena inspects Ithaca.");writeFileSync(join(brain,"workspaces/ithaca/secret.txt"),"ATHENA_SECRET_MASK_CONTROL");symlinkSync("workspaces/ithaca/secret.txt",join(brain,".env.ithaca"));mkdirSync(join(brain,"workspaces/ithaca/secret-dir"));writeFileSync(join(brain,"workspaces/ithaca/secret-dir/value.txt"),"ATHENA_SECRET_DIRECTORY_CONTROL");symlinkSync("workspaces/ithaca/secret-dir",join(brain,".env.directory"));
+ const view=createFixtureWorkerStartupView(brain);
+ try{
+  const tree=await createTurnDataTree({brainPath:brain,view,maskPaths:[],mount:true,inspectWorkspaces:true,update:async()=>{}});
+  try{
+   const {prepareWorkerSandbox}=await import("../../ui-sdk/src/server/worker-launcher.js");
+   const sandbox={...prepareWorkerSandbox(brain,{profile:"strict",codeChanges:false}),dataTree:{...tree.mount!,masked:[]},...(masked?{providerMasks:{folders:["workspaces/ithaca"],index:tree.index}}:{}),readPaths:[REPO,process.execPath]};
+   const program=`import {createBrainAccess} from ${JSON.stringify(join(REPO,"packages/ui-backend-pi/src/brain-access.ts"))};
+import {createBrainToolKit} from ${JSON.stringify(join(REPO,"packages/ui-backend-pi/src/tool-kit.ts"))};
+import {readFileTool,grepTool} from ${JSON.stringify(join(REPO,"packages/ui-backend-pi/src/file-tools.ts"))};
+import {createTurnContext} from ${JSON.stringify(join(REPO,"packages/ui-backend-pi/src/turn-context.ts"))};
+import {toolLockFromKeyed} from ${JSON.stringify(join(REPO,"packages/ui-backend-pi/src/tools.ts"))};
+import {createKeyedLock} from ${JSON.stringify(join(REPO,"packages/ui-sdk/src/server/keyed-lock.ts"))};
+import {readFileSync} from "node:fs";
+const kit=createBrainToolKit({brain:createBrainAccess(process.env.BRAIN_ROOT),turn:createTurnContext(),lock:toolLockFromKeyed(createKeyedLock())});
+let secret="";try{secret=readFileSync(process.env.BRAIN_ROOT+"/workspaces/ithaca/secret.txt","utf8");}catch{}if(secret.includes("ATHENA_SECRET_MASK_CONTROL"))throw Error("SECOND_MOUNT_PRESERVES_SECRET_TARGET_MASK");
+let secretDirectory="";try{secretDirectory=readFileSync(process.env.BRAIN_ROOT+"/workspaces/ithaca/secret-dir/value.txt","utf8");}catch{}if(secretDirectory.includes("ATHENA_SECRET_DIRECTORY_CONTROL"))throw Error("SECOND_MOUNT_PRESERVES_SECRET_DIRECTORY_MASK");
+if(${masked}){let blocked=0;try{await readFileTool(kit).execute("read",{path:"workspaces/ithaca/README.md"});}catch{blocked++;}process.chdir(process.env.BRAIN_ROOT);try{readFileSync("workspaces/ithaca/README.md","utf8");}catch{blocked++;}if(blocked!==2)throw Error("INSPECTION_OVERLAY_LEAKED_PROVIDER_MASK");console.log("MASKED_CHECKOUT_STAYS_HIDDEN");process.exit(0);}
+const read=await readFileTool(kit).execute("read",{path:"workspaces/ithaca/README.md"});
+const grep=await grepTool(kit).execute("grep",{pattern:"Athena",path:"workspaces/ithaca"});
+process.chdir(process.env.BRAIN_ROOT);console.log(JSON.stringify({read,grep,shell:readFileSync("workspaces/ithaca/README.md","utf8")}));`;
+   const run=Bun.spawnSync(workerCommand({brainPath:brain,startupView:view,sandbox,env:{PATH},command:[process.execPath,"--eval",program]}),{env:{},stdout:"pipe",stderr:"pipe"});
+   expect(run.exitCode,`PI_CHECKOUT_TOOLS_RUN_INSIDE_THE_REAL_MOUNT: ${run.stderr}`).toBe(0);
+   if(masked){expect(run.stdout.toString(),"OVERLAY_CANNOT_RESTORE_MASKED_CHECKOUT_BYTES").toContain("MASKED_CHECKOUT_STAYS_HIDDEN");return;}
+   const result=JSON.parse(run.stdout.toString());for(const key of ["read","grep","shell"])expect(JSON.stringify(result[key]),`PI_RELATIVE_CHECKOUT_READ_${key}`).toContain("Athena");
+  }finally{await tree.close();}
+ }finally{await view.cleanup();rmSync(root,{recursive:true,force:true});}
 });

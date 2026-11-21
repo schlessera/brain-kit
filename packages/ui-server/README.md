@@ -362,6 +362,7 @@ under the [service terms](../geo/README.md#configuration).
 | `BRAIN_UI_AUTONOMOUS_TURNS_PER_DAY` | Daily model-bearing autonomous operation cap. Zero pauses admission until explicitly configured. Invalid values fail startup. | 0 |
 | `BRAIN_UI_AUTONOMOUS_UNPRICED_USD_PER_TOKEN` | Positive pessimistic rate for unpriced autonomous API tokens; missing usage retains the reservation. Invalid values fail startup. | 0.01 |
 | `BRAIN_UI_AUTONOMOUS_YIELD_AFTER_MS` | Continuous same-target interactive wait before an autonomous holder checkpoints and yields. Positive integer below 30000. | 20000 |
+| `BRAIN_UI_BUILD_REVISION` | Optional build revision token, 1–64 ASCII letters, digits, dot, underscore, plus or hyphen. Invalid values are absent. | — |
 | `BRAIN_UI_CLAUDE_DEFAULT_MODEL` | Model the built-in default Claude profile is pinned to. | claude-opus-5-5 |
 | `BRAIN_UI_CLAUDE_DEFAULT_THINKING_LEVEL` | Default Claude reasoning effort (off, minimal, low, medium, high, xhigh, max). Unsupported levels resolve to a supported choice. | medium |
 | `BRAIN_UI_CLAUDE_PROFILES` | JSON array of extra Anthropic-compatible inference profiles ({id,label,model?,baseUrl?,authTokenEnv?,apiKeyEnv?,modelAliases?}). | (none) |

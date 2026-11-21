@@ -13,7 +13,7 @@ test("native observation matches a real strict worker's frozen reads and private
   mkdirSync(join(brain, "workspaces"), { recursive: true });
   writeFileSync(join(brain, "helper.ts"), 'export default "Frozen voyage";');
   const path = join(brain, "workspaces/loom.md"); writeFileSync(path, "Penelope weaves.\n");
-  const sandbox = prepareWorkerSandbox(brain, { profile: "strict", areas: ["workspaces"] });
+  const sandbox = prepareWorkerSandbox(brain, { profile: "strict", codeChanges: true, areas: ["workspaces"] });
   const worker = launchAgentWorker({ brainPath: brain, sandbox, env: {}, command: ["/bin/sh", "-c",
     'printf "ready\\n"; IFS= read -r go; cat helper.ts; printf "\\n"; printf "Athena charts.\\n" > /tmp/brain-worker-areas/workspaces/loom.md; printf "written\\n"; IFS= read -r end'] });
   void worker.exited.catch(() => {});

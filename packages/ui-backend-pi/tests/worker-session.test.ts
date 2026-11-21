@@ -1,6 +1,6 @@
 import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
-import { mkdtempSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, linkSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { PassThrough, Readable, Writable } from "node:stream";
@@ -333,7 +333,7 @@ for (const profile of ["governed", "strict"] as const) test(`throwing workerStar
   let exited: Promise<number> | undefined;
   const view = { brain, root: brain, storage: { root: brain, retain() {}, release() {} }, cleanup() {} };
   const prepared = { view, output: { source: brain, storage: { root: brain, mount: brain, namespacePid: 1, allowanceBytes: MiB, retain() {}, release() {} } },
-    async cleanup() { events.push("native-cleanup"); await exited; }, async publish() {}, async publishLocked() {} };
+    async cleanup() { events.push("native-cleanup"); await exited; }, discardGit() {}, async publish() {}, async publishLocked() {} };
   const native = spyOn(worker, "prepareNativeWorkerOutput").mockResolvedValue(prepared);
   launch.mockImplementation(() => {
     process = Bun.spawn(["/bin/cat"], { cwd: root, env: {}, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
@@ -526,7 +526,7 @@ for (const refused of ["turn-temp", "native-output"] as const) test(`post-launch
   const native = spyOn(worker, "prepareNativeWorkerOutput").mockResolvedValue({ view,
     output: { source: brain, storage: { root: brain, mount: brain, namespacePid: 1, allowanceBytes: MiB, retain() {}, release() {} } },
     async cleanup() { if (++outputs <= 7 && refused === "native-output") throw new Error("native deletion unconfirmed"); },
-    async publish() {}, async publishLocked() {} });
+    discardGit() {}, async publish() {}, async publishLocked() {} });
   launch.mockImplementation(async (...args: unknown[]) => {
     const child = await base(...args) as worker.LaunchedWorker;
     return !failedChild ? child : { ...child, turnTemp: { root, space: () => ({ total: MiB, free: MiB }), close() {},
@@ -593,4 +593,29 @@ test("Pi reports a stranded launch charge once without scheduling an impossible 
     expect(JSON.parse(diagnostics[0]!)).toMatchObject({ kind: "worker_cleanup_stranded", backend: "pi", reason: "missing_retryable_close",
       bytes: 0, turnTempBytes: ledger.turnTempHeld, errorClass: "Error", message: String(failure) });
   } finally { cleanup.close(); stderr.mockRestore(); owner.mockRestore(); ledgerSpy.mockRestore(); }
+});
+
+
+test("Pi handoff preparation keeps its legacy provider append without granting code writes",async()=>{
+ mkdirSync(join(brain,"workspaces/ithaca"),{recursive:true});
+ const autonomous={origin:"autonomous" as const,persistence:"none" as const,allowedTools:[],systemPromptAppend:"Summarise the voyage so far."};
+ await createPiBackend({brainPath:brain,sessionDir,loadExtensions:false}).startTurn({prompt:"Summarise Ithaca.",signal:new AbortController().signal,autonomous,enforceAllowedTools:true,noGrantSurface:true,bridge:{emit(){},checkpointPermission(){},requestPermission:async()=>({behavior:"deny",message:"no tools"})}});
+ expect(receivedInit.sandboxNote,"PI_HANDOFF_PRESERVES_LEGACY_AREA_TEXT").toContain("is writable: clone, fetch and commit");
+ expect(receivedInit.sandboxNote).not.toContain("code-changes switch");
+ expect(launch.mock.calls.at(-1)![0].sandbox.areas.find((area:any)=>area.name==="workspaces").mount.writable,"RENDERING_COMPATIBILITY_CANNOT_GRANT_WRITES").toBe(false);
+ const {createSessionResources}=await import("../src/session-resources.js"),{createBrainAccess}=await import("../src/brain-access.js"),{toolLockFromKeyed}=await import("../src/tools.js"),{createKeyedLock}=await import("@schlessera/brain-ui-sdk/server");
+ const caps=receivedInit.env.caps,resources=createSessionResources({backend:{brainPath:brain,loadExtensions:false},brain:createBrainAccess(brain),lock:toolLockFromKeyed(createKeyedLock()),allowedTools:new Set(),confirmPatterns:[],loadExtensions:false,sandboxNote:receivedInit.sandboxNote});
+ const {loader}=await resources.build(resources.buildToolkit(caps),{caps,autonomous});
+ expect(loader.getAppendSystemPrompt(),"PI_REAL_RESOURCE_LOADER_KEEPS_HANDOFF_PROMPT").toContain(`${autonomous.systemPromptAppend}\n\n${receivedInit.sandboxNote}`);
+});
+
+
+test("ordinary hostless Pi describes absent workspaces as inspection in later turns",async()=>{
+ await turn(null);expect(receivedInit.sandboxNote,"HOSTLESS_PI_NEVER_PROMISES_FUTURE_CODE_WRITES").not.toContain("makes it writable in later turns");expect(receivedInit.sandboxNote).toContain("ordinary retained and charged brain content");expect(receivedInit.sandboxNote).toContain("code-changes switch");
+});
+
+test("Pi handoff keeps legacy alias refusal without inventing a writable area",async()=>{
+ mkdirSync(join(brain,"workspaces/ithaca"),{recursive:true});writeFileSync(join(brain,"raft.md"),"Athena");linkSync(join(brain,"raft.md"),join(brain,"workspaces/ithaca/alias.md"));
+ await createPiBackend({brainPath:brain,sessionDir,loadExtensions:false}).startTurn({prompt:"Summarise Ithaca.",signal:new AbortController().signal,enforceAllowedTools:true,noGrantSurface:true,autonomous:{origin:"autonomous",persistence:"none",allowedTools:[],systemPromptAppend:"Summarise the voyage."},bridge:{emit(){},checkpointPermission(){},requestPermission:async()=>({behavior:"deny",message:"no tools"})}});
+ expect(receivedInit.sandboxNote,"PI_HANDOFF_PRESERVES_ACTUAL_LEGACY_REFUSAL").toContain("hard-linked to files outside workspaces/");expect(receivedInit.sandboxNote).not.toContain("is writable: clone, fetch and commit");
 });

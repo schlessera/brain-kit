@@ -1,3 +1,7 @@
+import { credentialedIndexRefresh } from "./brain/credentialed-index-refresh.js";
+import { recordMaintenanceReceipt, startupReleaseFailure } from "./brain/host-maintenance-receipts.js";
+import { createNativeStartupReleases, setNativeStartupReleases } from "./brain/native-startup-releases.js";
+import type { IndexUpdateReceipt } from "./brain/index-update-receipt.js";
 import { CombinedSafetyReviews } from "./governance/combined-safety-reviews.js";
 import { createReferenceOwnerContinuity } from "./brain/reference-owner-resolution.js";
 import { createTrustSettings } from "./brain/trust-settings.js";
@@ -41,6 +45,8 @@ import { basename, dirname, join, resolve } from "path";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, rmSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createTurnScope } from "./brain/turn-scope.js";
+import { prepareNativeWorkerStartupView } from "@schlessera/brain-ui-sdk/internal";
+import { createCodeChangeHistory } from "./brain/code-change-history.js";
 import { createTurnJournal } from "./brain/turn-journal.js";
 import { createJournalRoutes } from "./routes/journal.js";
 import { createTurnReverts } from "./brain/turn-revert.js";
@@ -172,7 +178,7 @@ import { createBrainClient, probeBrainCliVersion, requeueWhenBusy } from "./brai
 import { boundaryPlanner } from "./brain/application.js";
 import { createIndexBatch } from "./brain/index-batch.js";
 import { INDEX_READ_ROUTES, indexReadBarrier } from "./routes/index-barrier.js";
-import { coalesced, createHostExecution } from "./brain/host-execution.js";
+import { createHostExecution } from "./brain/host-execution.js";
 import { ensureIndexDirectory, retireLegacyIndex } from "./brain/index-directory.js";
 import { createGovernedTurns } from "./brain/governed-turn.js";
 import { createProviderExposures } from "./brain/provider-exposure.js";
@@ -559,7 +565,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // Worktree lifecycle (#2430); every grant is covered by the turn journal first.
   const referenceWorktrees = referenceSources ? createReferenceWorktrees({ db, pool: nativeManager, sources: referenceSources, log: brainLog,
     // Every grant is covered by the turn journal first; the journal exists once a turn can run.
-    coverage: (input, signal) => journal.attachWorktree(input.turnId, input.worktreeId, signal) }) : undefined;
+    coverage: (input, signal) => journal.attachWorktree(input.turnId, input.worktreeId, signal),
+    released: input => journal.releaseWorktree(input.turnId, input.worktreeId) }) : undefined;
   if (referenceSources) {
     bootCleanup.push(() => referenceSources.close());
     const recovered = await referenceSources.recover().catch((error: Error) => ({ released: [], retained: [error.message] }));
@@ -633,18 +640,21 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // A refresh cancelled by close(), or still pending for maintenance
   // admission when close() begins (#3461), is not a failure; every other
   // error still reports.
-  const ignoreShutdown = (error: unknown) => { if (error !== shutdown.signal.reason && error !== closeBegun.signal.reason) throw error; };
-  const keyedReindex = coalesced(() => brain.index(requeueWhenBusy({})).catch(ignoreShutdown), error => brainLog.emit({ severityText: "WARN",
-    body: `the keyed reindex after an application failed: ${error instanceof Error ? error.message : String(error)}` }));
+  const keyedReindex = credentialedIndexRefresh({ index: () => brain.index(requeueWhenBusy({})),
+    receipt: (receipt, turns) => indexReceipt(receipt, turns), cancellation: [closeBegun.signal, shutdown.signal],
+    report: error => brainLog.emit({ severityText: "WARN", body: `the keyed reindex after an application failed: ${error instanceof Error ? error.message : String(error)}` }) });
   bootCleanup.push(() => keyedReindex.idle());
   // A migrating brain rebuilds its index in the new directory once, at boot,
   // and that run moves root-level generated-text caches into `.brain-cache/`
   // (#2725): it keeps their lines, so the index run does the move, not the host.
   if (legacyIndex.removed.length || legacyCaches.length) keyedReindex();
-  const applicationPlanner = boundaryPlanner(boundary, { afterIndex: keyedReindex });
+  const applicationPlanner = boundaryPlanner(boundary);
   // Applications return after their Markdown commits; the paths they changed
   // are indexed together before the next read that needs them (#2835).
-  const indexBatch = createIndexBatch({ index: paths => applicationPlanner.index(config.brainPath, undefined, paths) });
+  const indexReceipt = async (receipt: IndexUpdateReceipt, turnIds: string[]) => {
+    await Promise.all(turnIds.map(turnId => recordMaintenanceReceipt(activity.store, turnId, "index_update", receipt, (db.query("SELECT session_id FROM turn_journal_turns WHERE turn_id=?").get(turnId) as { session_id: string | null } | null)?.session_id ?? undefined).catch(error => brainLog.emit({ severityText: "ERROR", body: `Index receipt could not be recorded: ${String(error)}` }))));
+  };
+  const indexBatch = createIndexBatch({ index: paths => applicationPlanner.index(config.brainPath, undefined, paths), receipt: indexReceipt, cancellation: [closeBegun.signal, shutdown.signal], afterIndex: keyedReindex });
   bootCleanup.push(() => indexBatch.idle());
   // Managed worktree findings (#2431) reuse core's hygiene rules; without core there is no review to join.
   const hygieneCore = referenceWorktrees ? await import("@schlessera/brain/internal").catch(() => undefined) : undefined;
@@ -739,14 +749,21 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   bootCleanup.push(stopAttachmentSweep);
   const turnMaskPaths = [...operationalStateMasks({ brainPath: config.brainPath, dbPath: config.dbPath, privateStatePaths }), ...nativeMaskPaths];
   const governedRecords = procedureCaller(db, governedTurnWrites, undefined, writer);
+  setNativeStartupReleases(nativeManager, createNativeStartupReleases(async result => {
+    await recordMaintenanceReceipt(activity.store, result.turnId, "startup_checkpoint_release", result).catch(error => brainLog.emit({ severityText: "ERROR", body: `Checkpoint release result could not be recorded: ${String(error)}` }));
+    if (result.outcome === "retry") {
+      brainLog.emit({ severityText: "WARN", body: `Startup checkpoint ${result.checkpointId} release failed; retrying`, attributes: { cause: result.cause ?? "unknown" } });
+      await Promise.resolve(settingsWrites.setSetting("journal.cleanup.lastFailure", startupReleaseFailure(result))).catch(() => {});
+    }
+  }));
   const governedTurns = createGovernedTurns({ nativeManager, brainPath: config.brainPath, execution: hostExecution,
       profile: options.workerProfile ?? "governed",
       // Admission records commit on the write worker before the turn goes on (#2850).
       recordPolicy: (turnId, origin, profile, policy) => governedRecords("recordPolicy", turnId, origin, profile, policy.hash, policy.source,
         JSON.stringify(policy.policy), JSON.stringify(policy.errors), Date.now()),
       maskPaths: turnMaskPaths,
-      index: lock => brain.index(requeueWhenBusy({ lock })).catch(ignoreShutdown), report: message => brainLog.emit({ severityText: "WARN", body: message }),
-      exposures: createProviderExposures(db, writer), ...(config.providerRecipientOrigins ? { recipientOrigins: config.providerRecipientOrigins } : {}), indexBatch });
+      index: lock => brain.index(requeueWhenBusy({ lock })), report: message => brainLog.emit({ severityText: "WARN", body: message }),
+      indexCancellation: [closeBegun.signal, shutdown.signal], indexReceipt, exposures: createProviderExposures(db, writer), ...(config.providerRecipientOrigins ? { recipientOrigins: config.providerRecipientOrigins } : {}), indexBatch });
   bootCleanup.push(() => governedTurns.close());
   // Budget writes commit on the write worker (#2850).
   // Apify (#3162, #3307): one ledger opener for the run service and the turn budgets. Until a run was ever
@@ -765,7 +782,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const sessionProfiles = createSessionProfiles(db, governedTurns, budgets, { hardTimeoutMs: () => host.turnTimeoutMs }, { writer, catalog });
   // Idle passes keep the observer initialized and current, and expire old
   // turns, off the next admission's path (#3355).
-  const journal = createTurnJournal(db, { nativeManager, brainPath: config.brainPath, dbPath: config.dbPath, objectsRoot: journalRoot, writer, idleObservationMs: 60_000, log: brainLog,
+  const journal = createTurnJournal(db, { codeChanges: { prepare: signal => prepareNativeWorkerStartupView(config.brainPath, nativeManager, signal), maintenance: { ...(config.maintenanceTemp ? { tempLimits: config.maintenanceTemp } : {}), ...(config.dbPath !== ":memory:" ? { tempDomain: { statePath: resolve(config.dbPath) } } : {}), maskPaths: turnMaskPaths } }, nativeManager, brainPath: config.brainPath, dbPath: config.dbPath, objectsRoot: journalRoot, writer, idleObservationMs: 60_000, log: brainLog,
     ...(referencePoolConfigured ? { referencePool: nativeManager, referenceCheckpoints: (() => {
       const owner = referenceWorktreeOwner();
       return { record: (id: string, worktreeId: string) => recordReferenceWorktreeCheckpoint(db, owner, id, worktreeId), forget: (id: string) => forgetReferenceWorktreeCheckpoint(db, id) };
@@ -785,9 +802,14 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     changed(turnId, sessionId) { host.clients.broadcast({ type: "turn_journal", sessionId, turnId, journal: { ...journal.summary(turnId), ...(host.budgets?.saved(turnId) ? { budget: host.budgets.saved(turnId) } : {}) } }); } });
   // Built before the host it is handed to, so the two share one worker lock.
   const workerLock = createKeyedLock();
+  const codeHistory = createCodeChangeHistory(db, { brainPath: config.brainPath, journal, gate: hostExecution.gate()!, lock: workerLock, boundary, nativeManager,
+    maintenance: { ...(config.maintenanceTemp ? { tempLimits: config.maintenanceTemp } : {}), ...(config.dbPath !== ":memory:" ? { tempDomain: { statePath: resolve(config.dbPath) } } : {}), maskPaths: turnMaskPaths },
+    ...(referenceWorktrees ? { worktrees: referenceWorktrees } : {}),
+    isAuthorized(id) { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); } });
+  bootCleanup.push(() => codeHistory.settled());
   const reverts = createTurnReverts(db, { brainPath: config.brainPath, journal, gate: hostExecution.gate()!, lock: workerLock, governance: activity.governanceWrites,
     isAuthorized(id) { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); },
-    refresh() { host.governedTurns?.refresh(host.workerLock); } });
+    refresh(turnId) { host.governedTurns?.refresh(host.workerLock, turnId); } });
   const computeHost = createComputeHost({ db, brainPath: config.brainPath, stateDir: computeSettings.stateDir,
     stateMasked: computeConfigured && computeSettings.stateDir !== null && turnMaskPaths.includes(realpathSync(computeSettings.stateDir)),
     keys: computeSettings.keys, workerEnvExtra: computeSettings.workerEnvExtra,
@@ -930,6 +952,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
         settingsWrites.addAutoAllowedTool(toolName),
     },
     activity: {
+      buildRevision: config.buildRevision,
       store: activity.store,
       stream: activity.stream,
       pushSender: activity.pushSender,
@@ -1223,7 +1246,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     void chatDeletion.reconcile().catch(err => brainLog.emit({ severityText: "WARN", body: "chat deletion reconciliation failed",
       attributes: { error: err instanceof Error ? err.message : String(err) } }));
   }
-  app.route("/api", createJournalRoutes({ journal }));
+  app.route("/api", createJournalRoutes({ journal, codeHistory }));
   const storageHistory = createStorageHistory(db, config.brainPath, { writer });
   bootCleanup.push(() => storageHistory.close());
   const storageAuthorized = (id: string) => { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); };
@@ -1534,6 +1557,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       await attempt(() => storageHistory.close());
       await attempt(() => scratchPrune.close());
       await attempt(() => scratchPins.close());
+      await attempt(() => codeHistory.settled());
       await attempt(() => reverts.close());
       await attempt(() => keyedReindex.idle());
       await attempt(async () => { await host.governedTurns?.close(); });

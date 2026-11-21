@@ -84,6 +84,8 @@ row's real mounting check. They do not establish mounting by themselves.
 | `GET /api/brain/stats/history` | `mounted supported handler: GET /api/brain/stats/history` | B |
 | `POST /api/brain/sync` | `mounted supported handler: POST /api/brain/sync` | B, Y |
 | `GET /api/drafts` | `mounted supported handler: GET /api/drafts` | X |
+| `GET /api/drafts/:id/code-changes` | `mounted supported handler: GET /api/drafts/:id/code-changes` | S |
+| `PUT /api/drafts/:id/code-changes` | `mounted supported handler: PUT /api/drafts/:id/code-changes` | S |
 | `GET /api/drafts/:id/profile` | `mounted supported handler: GET /api/drafts/:id/profile` | X |
 | `PUT /api/drafts/:id/profile` | `mounted supported handler: PUT /api/drafts/:id/profile` | X |
 | `GET /api/drafts/:draftId` | `mounted supported handler: GET /api/drafts/:draftId` | X |
@@ -113,6 +115,8 @@ row's real mounting check. They do not establish mounting by themselves.
 | `POST /api/push/unsubscribe` | `mounted supported handler: POST /api/push/unsubscribe` | U |
 | `POST /api/render` | `mounted supported handler: POST /api/render` | E |
 | `GET /api/sessions` | `mounted supported handler: GET /api/sessions` | S |
+| `GET /api/sessions/:id/code-changes` | `mounted supported handler: GET /api/sessions/:id/code-changes` | S |
+| `PUT /api/sessions/:id/code-changes` | `mounted supported handler: PUT /api/sessions/:id/code-changes` | S |
 | `GET /api/sessions/:id/profile` | `mounted supported handler: GET /api/sessions/:id/profile` | S |
 | `PUT /api/sessions/:id/profile` | `mounted supported handler: PUT /api/sessions/:id/profile` | S |
 | `GET /api/sessions/:id` | `mounted supported handler: GET /api/sessions/:id` | S |
@@ -125,6 +129,9 @@ row's real mounting check. They do not establish mounting by themselves.
 | `GET /api/sessions/:sessionId/turns/:turnId/journal` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/journal` | J |
 | `GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview` | J |
 | `GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/:side` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/:side` | J |
+| `GET /api/sessions/:sessionId/turns/:turnId/journal/code/preview` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/journal/code/preview` | J |
+| `POST /api/sessions/:sessionId/turns/:turnId/journal/code/revert` | `mounted supported handler: POST /api/sessions/:sessionId/turns/:turnId/journal/code/revert` | J |
+| `GET /api/sessions/:sessionId/turns/:turnId/journal/code/revert/:id` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/journal/code/revert/:id` | J |
 | `GET /api/journal/configuration-coverage` | `mounted supported handler: GET /api/journal/configuration-coverage` | J |
 | `GET /api/sessions/:id/safety` | `mounted supported handler: GET /api/sessions/:id/safety` | S |
 | `POST /api/sessions/:id/safety/reviews/prepare` | `mounted supported handler: POST /api/sessions/:id/safety/reviews/prepare` | SR |
@@ -577,3 +584,11 @@ the owner, foreign, agent and unknown answers through `createApp` and cookies.
 The safety read additionally runs real password-authenticated loopback HTTP/WS
 fixtures in `packages/ui-server/tests/safety-history.test.ts`, including stale
 cursors, revocation/retirement after a held read and independent A/B/C records.
+
+Checkout receipt behavior is covered by `code-change-receipt.test.ts` (real Git,
+owned endpoints, sandbox denial, crash recovery),
+`code-change-history-runtime.test.ts` (mounted owner effects, idempotent
+reconciliation and conflicts), and the code-history case in
+`turn-journal-runtime.test.ts` (real browser history controls, confirmation and
+conflict endpoints). Native UID qualification is in
+`scripts/native-proof/code-change-receipts.ts`.

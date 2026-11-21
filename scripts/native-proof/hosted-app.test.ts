@@ -1,4 +1,10 @@
+import { admissionTimingSample } from "./admission-timing.js";
+import { seedObservationTree, observationTreeWatchdog, observationRunTimeout, type ObservationTree } from "./observation-tree.js";
+import { backendStartupSamples, requireAdmissionSteps } from "./lifecycle-timing.js";
+import { observationWindowTrace, type RecordedTrace } from "./observation-recording.js";
+import { observationMatrixRequest } from "./observation-hold.js";
 import { afterAll, expect, test } from "bun:test";
+import { watchdogMs } from "../test-deadlines.js";
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
@@ -9,7 +15,7 @@ import { nativeReleaseObservations } from "./native-release-observation.js";
 import { Database } from "bun:sqlite";
 import { NativeEventLog } from "./event-log.js";
 import { proveRecoveryInventory } from "./recovery-inventory.js";
-import { observationPhases, summarizePhases, median as phaseMedian, type ManagerSpan, type ObservationTrace, type PhaseSample } from "./observation-phases.js";
+import { observationPhases, summarizePhases, median as phaseMedian, type ManagerSpan, type PhaseSample } from "./observation-phases.js";
 
 const SOURCE = "/repo";
 const ARTIFACTS = "/proof/run";
@@ -24,6 +30,9 @@ if (RETAIN_INDEX_NAMESPACE && !DESCENDANT_CONTROL) throw Error("Namespace retent
 const APPLY_TIMING = process.env.BRAIN_NATIVE_PROOF_APPLY_TIMING === "1";
 // #2834 measurement: pi's per-call journal observation cost by tool, and journal begin + finish for both backends.
 const OBSERVATION_TIMING = process.env.BRAIN_NATIVE_PROOF_OBSERVATION_TIMING === "1";
+const TREE_SIZES = process.env.BRAIN_NATIVE_PROOF_TREE ? JSON.parse(process.env.BRAIN_NATIVE_PROOF_TREE) as ObservationTree : undefined;
+const LARGE_TREE_WATCHDOG = observationTreeWatchdog(TREE_SIZES);
+const healthLimitMs = LARGE_TREE_WATCHDOG ?? 1000, websocketLimitMs = LARGE_TREE_WATCHDOG ?? 1000, admissionLimitMs = LARGE_TREE_WATCHDOG ?? 10000;
 const releaseObservations = nativeReleaseObservations(ARTIFACTS);
 let releasePinnedNamespace: (() => void) | undefined;
 const recordedSpawn = Bun.spawn;
@@ -33,7 +42,7 @@ const { serializeSigned } = await import(join(SOURCE, "node_modules/hono/dist/ut
 const NativeWebSocket = WebSocket as any;
 const sleep = (ms: number) => Bun.sleep(ms);
 async function until(check: () => boolean, deadlineMs = 20000) {
-  const end = performance.now() + deadlineMs;
+  const end = performance.now() + Math.max(deadlineMs, LARGE_TREE_WATCHDOG ?? 0);
   while (!check()) { if (performance.now() > end) throw Error("Probe wait deadline exceeded"); await sleep(10); }
 }
 test(`native hosted ${BACKEND} uid ${APP_UID} first/warm admission, health, WebSocket, Stop and cancellation`, async () => {
@@ -41,7 +50,7 @@ test(`native hosted ${BACKEND} uid ${APP_UID} first/warm admission, health, WebS
   const dir = join(ARTIFACTS, "appdata"); mkdirSync(dir);
   const eventLog = new NativeEventLog(join(dir, "events.jsonl"), ARTIFACTS);
   const brain = "/brain-fixture/brain";
-  for (const path of ["notes", "node_modules/.bin", ".brain/scratch", "context/policies"]) mkdirSync(join(brain, path), { recursive: true });
+  for (const path of ["notes", "node_modules/.bin", ".brain/scratch", "context/policies", ...(OBSERVATION_TIMING ? ["workspaces"] : [])]) mkdirSync(join(brain, path), { recursive: true });
   for (const path of ["home", "agent", "pi"]) mkdirSync(join(dir, path));
   writeFileSync(join(dir, "agent/settings.json"), "{}");
   writeFileSync(join(brain, ".gitignore"), "node_modules/\n.brain/\n");
@@ -62,6 +71,8 @@ print(json.dumps(result))`;
     const motif = "Athena marks the voyage. ";
     writeFileSync(join(brain, "notes", `voyage-${String(i).padStart(4, "0")}.md`), header + motif.repeat(Math.ceil((BYTES - header.length) / motif.length)).slice(0, BYTES - header.length));
   }
+  const treeSizes = TREE_SIZES;
+  const tree = treeSizes ? seedObservationTree(brain, join(dir, "ui.db.journal"), treeSizes) : undefined;
   const git = Bun.spawnSync(["git", "init", "--quiet", brain], { env: { PATH: "/usr/bin:/bin", HOME: join(dir, "home") } });
   expect(git.exitCode, "OFFLINE_FIXTURE_GIT_INITIALIZED").toBe(0);
   const { serveNativeBrainManager } = await import(join(SOURCE, "packages/ui-sdk/src/server/native-brain-manager.ts"));
@@ -129,7 +140,7 @@ print(json.dumps(result))`;
         while (!stop) {
           const start = performance.now();
           try {
-            const response = await fetch(origin + "/api/health", { headers: { cookie }, signal: AbortSignal.timeout(1000) });
+            const response = await fetch(origin + "/api/health", { headers: { cookie }, signal: AbortSignal.timeout(healthLimitMs) });
             health.push({ elapsedMs: performance.now() - start, status: response.status, timeout: false }); await response.body?.cancel();
           } catch (error) { health.push({ elapsedMs: performance.now() - start, timeout: true, error: String(error) }); }
           await sleep(50);
@@ -154,14 +165,14 @@ print(json.dumps(result))`;
         const ack = sender.frames.find(f => f.type === "session_info" && f.requestId === requestId)!;
         expect(ack.workerProfile?.actualProfile, "NATIVE_ADMITTED_GOVERNED_PROFILE").toBe("governed");
         sid = ack.sessionId; turnId = ack.turnId;
-        ackRecovery = await fetch(origin + `/api/sessions/${sid}/recovery`, { headers: { cookie }, signal: AbortSignal.timeout(1000) }).then(r => r.json());
+        ackRecovery = await fetch(origin + `/api/sessions/${sid}/recovery`, { headers: { cookie }, signal: AbortSignal.timeout(healthLimitMs) }).then(r => r.json());
         durableAckMs = performance.now() - begin;
         await until(() => sender.frames.some(f => f.type === "result" && f.receiptAt >= begin && f.sessionId === (sid ?? f.sessionId)) || sender.frames.some(f => f.type === "error" && f.receiptAt >= begin && f.requestId === requestId), 45000);
         // Visible result/journal frames precede final durable settlement and slot release.
         await until(() => sender.frames.some(f => f.type === "turn_journal" && f.turnId === ack.turnId && f.journal?.state === "complete") &&
           eventLog.read("turn-settlement").some(row => row.kind === "session_slot_released" && row.turnId === ack.turnId),10000);
         expect(sender.frames.filter(f => f.type === "turn_journal" && f.turnId === ack.turnId).every(f => f.journal?.profile === "governed"), "NATIVE_JOURNAL_GOVERNED_PROFILE").toBe(true);
-        recovery = await fetch(origin + `/api/sessions/${sid}/recovery`, { headers: { cookie }, signal: AbortSignal.timeout(1000) }).then(r => r.json());
+        recovery = await fetch(origin + `/api/sessions/${sid}/recovery`, { headers: { cookie }, signal: AbortSignal.timeout(healthLimitMs) }).then(r => r.json());
       }
       catch (error) { completed = false; phaseError = String(error); }
       finally { stop = true; clearInterval(pingTimer); await probe; }
@@ -184,17 +195,17 @@ print(json.dumps(result))`;
         sender = await device();
         sender.ws.send(JSON.stringify({ type: "session_resume", sessionId: sid }));
         await until(() => sender.frames.some(f => f.type === "session_info" && f.sessionId === sid));
-        const recovered = await fetch(origin + `/api/sessions/${sid}/recovery`, { headers: { cookie }, signal: AbortSignal.timeout(1000) }).then(r => r.json());
+        const recovered = await fetch(origin + `/api/sessions/${sid}/recovery`, { headers: { cookie }, signal: AbortSignal.timeout(healthLimitMs) }).then(r => r.json());
         expect(recovered.latest?.requestId, "RECONNECT_RECOVERS_SAME_ACCEPTED_REQUEST").toBe(requestId);
         expect(recovered.latest?.state, "RECONNECT_RECOVERS_TERMINAL_REQUEST").toBe("terminal");
         await sleep(200);
         expect(eventLog.read("provider-admission").filter(row => row.kind === "fake_provider_enter").length, "RECOVERY_READ_DID_NOT_EXECUTE_AGAIN").toBe(1);
       }
     }
-    expect(results.every(r => r.timeoutCount === 0 && r.health.every((p: any) => p.status === 200 && p.elapsedMs <= 1000)), "HOSTED_ADMISSION_HEALTH_WITHIN_1_SECOND").toBe(true);
+    expect(results.every(r => r.timeoutCount === 0 && r.health.every((p: any) => p.status === 200 && p.elapsedMs <= healthLimitMs)), tree ? "LARGE_TREE_HEALTH_WATCHDOG" : "HOSTED_ADMISSION_HEALTH_WITHIN_1_SECOND").toBe(true);
     expect(results).toHaveLength(2);
-    expect(results.every(r => r.completed && r.submitToAckMs !== null && r.submitToAckMs < 10000 && r.durableAckMs !== null && r.durableAckMs < 10000), "FIRST_AND_WARM_ADMISSION_WITHIN_10_SECONDS").toBe(true);
-    expect(results.every(r => r.pings > 0 && r.pings === r.pongs && r.pingLatencyMs.every((ms: number) => ms < 1000)), "HOSTED_ADMISSION_WEBSOCKET_WITHIN_1_SECOND").toBe(true);
+    expect(results.every(r => r.completed && r.submitToAckMs !== null && r.submitToAckMs < admissionLimitMs && r.durableAckMs !== null && r.durableAckMs < admissionLimitMs), tree ? "LARGE_TREE_ADMISSION_WATCHDOG" : "FIRST_AND_WARM_ADMISSION_WITHIN_10_SECONDS").toBe(true);
+    expect(results.every(r => r.pings > 0 && r.pings === r.pongs && r.pingLatencyMs.every((ms: number) => ms < websocketLimitMs)), tree ? "LARGE_TREE_WEBSOCKET_WATCHDOG" : "HOSTED_ADMISSION_WEBSOCKET_WITHIN_1_SECOND").toBe(true);
     for (const result of results) {
       const requestId = `odysseus-${result.phase}-admission`;
       expect(result.ackRecovery?.latest?.requestId, "NAMED_ACK_HAS_DURABLE_REQUEST_RECORD").toBe(requestId);
@@ -232,9 +243,9 @@ print(json.dumps(result))`;
     sender.ws.send(JSON.stringify({ type: "cancel", sessionId: sid }));
     await until(() => sender.frames.some(f => f.receiptAt >= cancelStart && ((f.type === "status" && f.status === "idle") || f.type === "result" || f.type === "error")), 15000);
     const cancelFrames = sender.frames.filter(f => f.receiptAt >= cancelStart), cancelElapsedMs = performance.now() - cancelStart;
-    expect(cancelElapsedMs, "HOSTED_STOP_INTERRUPT_WITHIN_DEADLINE").toBeLessThan(15000);
+    expect(cancelElapsedMs, tree ? "LARGE_TREE_STOP_WATCHDOG" : "HOSTED_STOP_INTERRUPT_WITHIN_DEADLINE").toBeLessThan(LARGE_TREE_WATCHDOG ?? 15000);
     await until(() => sender.frames.some(f => f.type === "result" && f.outcome === "cancelled" && f.receiptAt >= cancelStart), 15000);
-    expect(performance.now() - cancelSentAt, "HOSTED_STOP_TERMINAL_WITHIN_2_SECONDS").toBeLessThan(2000);
+    expect(performance.now() - cancelSentAt, tree ? "LARGE_TREE_STOP_TERMINAL_WATCHDOG" : "HOSTED_STOP_TERMINAL_WITHIN_2_SECONDS").toBeLessThan(LARGE_TREE_WATCHDOG ?? 2000);
     const stoppedWorker = eventLog.read("stopped-worker").find(row => row.kind === "worker_exit" && row.attempt === 3);
     expect(stoppedWorker?.code, "HOSTED_STOP_KILLED_REAL_SLEEPING_WORKER").toBe(BACKEND === "pi" ? 137 : null);
     const stoppedTurnId = sender.frames.find(f => f.type === "result" && f.outcome === "cancelled" && f.receiptAt >= cancelStart)!.turnId;
@@ -331,6 +342,19 @@ print(json.dumps(result))`;
     }
     if (OBSERVATION_TIMING) {
       const load = () => readFileSync("/proc/loadavg", "utf8").trim(), loadBefore = load(), timingStart = performance.now();
+      // Isolate the path cells from automatic updates of the preceding turns.
+      await until(() => {
+        const events = eventLog.read("path-matrix-index-settlement");
+        return events.filter(row => row.kind === "automatic_index_started").every(start =>
+          events.some(end => ["automatic_index_finished", "automatic_index_failed"].includes(end.kind) && end.ordinal === start.ordinal));
+      }, 120000);
+      const matrixResponse = await observationMatrixRequest(origin + "/__native_observation_path_matrix", AbortSignal.timeout(watchdogMs(3_600_000)));
+      const pathMatrix = await matrixResponse.json() as { turnId: string; samples: { changedPaths: number; sample: number; toolUseId: string; frozenMs: number; sharedHold: boolean }[]; admission: { name: string; ms: number }[]; historyRows: number; rejectedSamples: { changedPaths: number; requestedPaths: number; toolUseId: string; sharedHold: boolean }[]; loadedSamples: { changedPaths: number; sample: number; toolUseId: string; frozenMs: number; sharedHold: boolean }[] };
+      expect(matrixResponse.status, `OBSERVATION_PATH_MATRIX_SUCCEEDED ${JSON.stringify(pathMatrix)}`).toBe(200);
+      expect(pathMatrix.samples).toHaveLength(48);
+      expect(pathMatrix.historyRows, "OBSERVATION_MATRIX_HAS_TEN_THOUSAND_ROWS").toBeGreaterThanOrEqual(10000);
+      expect(pathMatrix.loadedSamples).toHaveLength(12);
+
       const median = (values: number[]) => values.length ? [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]! : null;
       const p95 = (values: number[]) => values.length ? [...values].sort((a, b) => a - b)[Math.ceil(values.length * 0.95) - 1]! : null;
       const turn = async (text: string, requestId: string, sessionId: string | undefined, deadline: number) => {
@@ -401,23 +425,15 @@ print(json.dumps(result))`;
         try { return (ui.query("SELECT record FROM activity_turn_lifecycles ORDER BY accepted_at").all() as { record: string }[]).map(row => JSON.parse(row.record)); }
         finally { ui.close(); }
       };
-      const phases = (record: any) => {
-        if (!record) return null;
-        const span = (start: number | null, end: number | null) => start === null ? null : (end ?? record.failureObservedAt ?? record.endedAt) === null ? null
-          : Math.max(0, (end ?? record.failureObservedAt ?? record.endedAt) - start);
-        const steps: Record<string, number | null> = {};
-        for (const step of record.subPhases ?? []) {
-          const key = `${step.phase}.${step.name}`, ms = span(step.startedAt, step.endedAt);
-          steps[key] = ms === null ? steps[key] ?? null : (steps[key] ?? 0) + ms;
-        }
-        return { turnId: record.turnId, queueWaitMs: span(record.acceptedAt, record.dequeuedAt), governedAdmissionMs: span(record.governedStartedAt, record.governedAcquiredAt),
-          budgetAdmissionMs: span(record.budgetStartedAt, record.budgetAdmittedAt), journalBeginMs: span(record.journalStartedAt, record.journalBeganAt),
-          backendStartupMs: span(record.backendInvokedAt, record.firstFrameAt), timeToFirstFrameMs: span(record.acceptedAt, record.firstFrameAt), steps };
-      };
+      const phases = (record: Parameters<typeof admissionTimingSample>[0]) => admissionTimingSample(record, BACKEND === "claude" ? "claude_worker_fixture" : "native");
       const lifecycleOf = (turnId: string) => phases(lifecycles().find(record => record.turnId === turnId));
       // (a) The process's first governed, journaled turn: the qualification's first admission.
       const firstAfterStart = phases(lifecycles().find(record => record.governedStartedAt !== null && record.journalStartedAt !== null));
       const warm = harbour.slice(-5).map(lifecycleOf);
+      const startupSample = (record: Parameters<typeof admissionTimingSample>[0]) => admissionTimingSample(record, BACKEND === "claude" ? "claude_worker_fixture" : "native");
+      const backendStartup = backendStartupSamples(BACKEND === "claude" ? "claude" : "pi",
+        startupSample(lifecycles().find(record => record.governedStartedAt !== null && record.journalStartedAt !== null)),
+        harbour.slice(-5).map(turnId => startupSample(lifecycles().find(record => record.turnId === turnId))));
       // Past the hosted app's one-minute idle observation interval.
       const IDLE_WAIT_MS = 65_000;
       // (b) A few hundred notes change while no turn runs, as a sync or maintenance pass would.
@@ -444,8 +460,8 @@ print(json.dumps(result))`;
         .map(row => ({ ...row, totalMs: row.beginMs !== null && row.finishMs !== null ? row.beginMs + row.finishMs : null }));
       const total = (field: "beginMs" | "finishMs" | "totalMs") => beginFinish.map(row => row[field]).filter((value): value is number => value !== null);
       // #2915: each writer's hold and each harbour turn's begin and finish, attributed to its steps.
-      const traces: ObservationTrace[] = eventLog.read("observation-trace").filter(row => row.kind === "observation_trace")
-        .map(row => ({ kind: row.traceKind, turnId: row.turnId, ...(row.toolUseId ? { toolUseId: row.toolUseId } : {}), steps: row.steps }));
+      const traces: RecordedTrace[] = eventLog.read("observation-trace").filter(row => row.kind === "observation_trace")
+        .map(row => ({ kind: row.traceKind, turnId: row.turnId, ...(row.toolUseId ? { toolUseId: row.toolUseId } : {}), steps: row.steps, observations: row.observations }));
       writeFileSync(join(ARTIFACTS, "observation-traces.json"), JSON.stringify({ traces, managerSpans }));
       const WRITERS = ["write_file", "edit_file", "bash write"];
       const writers = (timeline?.calls ?? []).filter(call => WRITERS.includes(call.label)).flatMap(call => {
@@ -467,8 +483,29 @@ print(json.dumps(result))`;
         beginPlusFinish: { pairedHoldMedianMs: phaseMedian(pairedTotals), sumOfHoldMediansMs: begin.hold.medianMs !== null && finish.hold.medianMs !== null ? begin.hold.medianMs + finish.hold.medianMs : null, pairs: pairedTotals.length },
         traces: traces.length, managerSpans: managerSpans.length,
       };
-      const result = { backend: BACKEND, appUid: APP_UID, files: FILES, bytes: BYTES, loadBefore, loadAfter: load(), elapsedMs: performance.now() - timingStart, timelineTurnIds,
-        tools: timeline?.tools ?? null, admission, journal: { begin: { medianMs: median(total("beginMs")), p95Ms: p95(total("beginMs")) }, finish: { medianMs: median(total("finishMs")), p95Ms: p95(total("finishMs")) },
+      const steps = [...new Set(warm.flatMap(row => Object.keys(row?.steps ?? {})))];
+      const stepMedians = Object.fromEntries(steps.map(name => [name, median(warm.map(row => row?.steps[name]).filter((n): n is number => typeof n === "number"))]));
+      writeFileSync(join(ARTIFACTS, "observation-holds.json"), JSON.stringify(lifecycles().map(record => ({ turnId: record.turnId, holds: record.holds ?? [],
+        closing: (record.openSubPhases ?? []).filter((step: any) => step.phase === "closing"), recorderSettledAt: record.recorderSettledAt ?? null, idleEmittedAt: record.idleEmittedAt ?? null })), null, 2));
+      const pathCells = [0, 1, 20, 200].map(changedPaths => {
+        const samples = pathMatrix.samples.filter(sample => sample.changedPaths === changedPaths);
+        const attributed = samples.map(sample => {
+          const trace = observationWindowTrace(traces, pathMatrix.turnId, sample);
+          return { phases: observationPhases(trace, managerSpans), measuredMs: sample.frozenMs };
+        });
+        return { changedPaths, samples: samples.length, sharedHolds: samples.filter(sample => sample.sharedHold).length, medianMs: median(samples.map(sample => sample.frozenMs)), physicalHoldMedianMs: median(samples.map(sample => sample.frozenMs)), p95Ms: p95(samples.map(sample => sample.frozenMs)), phases: summarizePhases(attributed) };
+      });
+      const warmOnePath = pathMatrix.samples.filter(sample => sample.changedPaths === 1).map(sample => sample.frozenMs);
+      const loadedOnePath = pathMatrix.loadedSamples.map(sample => sample.frozenMs);
+      const onePathHistory = { historyRows: pathMatrix.historyRows, warmMedianMs: median(warmOnePath), loadedMedianMs: median(loadedOnePath),
+        addedMedianMs: loadedOnePath.length && warmOnePath.length ? median(loadedOnePath)! - median(warmOnePath)! : null, loadedP95Ms: p95(loadedOnePath),
+        phases: summarizePhases(pathMatrix.loadedSamples.map(sample => {
+          const trace = observationWindowTrace(traces, pathMatrix.turnId, sample);
+          return { phases: observationPhases(trace, managerSpans), measuredMs: sample.frozenMs };
+        })) };
+      const result = { ...(tree ? { tree: { ...tree, warmTurns: warm.length, stepMedians,
+        observerBootstrap: eventLog.read("observer-bootstrap").filter(row => row.kind === "observer_bootstrap").map(row => ({ elapsedMs: row.elapsedMs, outcome: row.outcome })) } } : {}), backend: BACKEND, appUid: APP_UID, files: FILES, bytes: BYTES, loadBefore, loadAfter: load(), elapsedMs: performance.now() - timingStart, timelineTurnIds, pathMatrix: { ...pathMatrix, cells: pathCells, onePathHistory },
+        tools: timeline?.tools ?? null, admission, backendStartup, journal: { begin: { medianMs: median(total("beginMs")), p95Ms: p95(total("beginMs")) }, finish: { medianMs: median(total("finishMs")), p95Ms: p95(total("finishMs")) },
           beginPlusFinish: { medianMs: median(total("totalMs")), p95Ms: p95(total("totalMs")) }, turns: beginFinish }, phases: observationSteps, calls: timeline?.calls ?? null };
       writeFileSync(join(ARTIFACTS, "observation-timing.json"), JSON.stringify(result, null, 2));
       console.log(JSON.stringify({ observationTiming: { ...result, calls: undefined, journal: { ...result.journal, turns: undefined } } }));
@@ -479,7 +516,7 @@ print(json.dumps(result))`;
       for (const [name, summary] of Object.entries({ writer: observationSteps.writer.all, begin, finish }))
         expect([name, summary.clock.unpaired, (summary.clock.minEndSlackMs ?? 0) >= 0], "OBSERVATION_TIMING_ONE_CLOCK").toEqual([name, [], true]);
       for (const [name, row] of Object.entries({ ...admission.scenarios, ...Object.fromEntries(warm.map((row, i) => [`warm-${i}`, row])) }))
-        expect(row?.journalBeginMs !== null && row?.governedAdmissionMs !== null && Object.keys(row?.steps ?? {}).length > 0, `OBSERVATION_TIMING_ADMISSION_STEPS_RECORDED ${name}`).toBe(true);
+        requireAdmissionSteps(row, name);
       if (timeline) {
         for (const [tool, cell] of Object.entries(timeline.tools)) {
           expect([tool, cell.calls, cell.errors], "OBSERVATION_TIMING_20_SUCCESSFUL_CALLS_PER_TOOL").toEqual([tool, 20, 0]);
@@ -614,7 +651,8 @@ print(json.dumps(result))`;
   }
   expect(cleanExit, "HOSTED_NORMAL_SHUTDOWN_CLEAN_EXIT").toBe(true);
   // The #2848 timing turn first waits for the earlier turns' index refresh.
-}, OBSERVATION_TIMING ? 1_500_000 : APPLY_TIMING ? 240000 : 120000);
+// Includes the merged path matrix baseline; Bun scales this test timeout once.
+}, OBSERVATION_TIMING ? observationRunTimeout(TREE_SIZES) : APPLY_TIMING ? 240000 : 120000);
 
 // One fixed backend/UID cell owns this backend-independent root-lifetime control.
 if (BACKEND === "pi" && APP_UID === 0) for (const held of ["descriptor", "cwd"] as const) test(`a retained native checkpoint ${held} records the actual release interruption and reconciles the same root`, async () => {

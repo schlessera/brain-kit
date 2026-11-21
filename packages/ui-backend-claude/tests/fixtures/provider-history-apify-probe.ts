@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../../scripts/test-deadlines.js";
 /**
  * Apify through the installed Claude CLI (#3162). The caller confines the SDK,
  * the bundled CLI and every tool to loopback. Three resumed turns call the
@@ -92,7 +93,7 @@ try {
         turnLock: { acquire: () => undefined, release: () => undefined } as never, log() {},
       });
       capture.appends.push(turn.options.systemPrompt);
-      const timer = setTimeout(() => controller.abort(), 30_000);
+      const timer = setTimeout(() => controller.abort(), watchdogMs(30_000));
       try {
         let success = false;
         for await (const message of query({ prompt: turn.prompt, options: turn.options })) {

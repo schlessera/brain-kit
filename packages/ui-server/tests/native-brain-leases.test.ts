@@ -552,3 +552,28 @@ test("root leases recorded before turn trees migrate without losing a row", asyn
       "ROOT_LEASES_ACCEPT_TREES").not.toThrow();
   } finally { state.close(); await owner.close().catch(() => {}); await native.close(); rmSync(root, { recursive: true, force: true }); }
 });
+
+test("startup recovery finds a checkpoint after admission hands it to a delayed release", async () => {
+  const { createNativeStartupReleases } = await import("../src/brain/native-startup-releases.js");
+  const f = await fixture(), deleted = Promise.withResolvers<void>(), entered = Promise.withResolvers<void>();
+  const original = f.native.client.release;
+  let attempts = 0;
+  f.native.client.release = async (...args) => { if (++attempts === 1) { entered.resolve(); await deleted.promise; } return original(...args); };
+  const queue = createNativeStartupReleases();
+  let recovered: Awaited<ReturnType<typeof createNativeBrainLeaseManager>> | undefined;
+  try {
+    const checkpoint = await f.owner.client.checkpoint(ID);
+    const slot = await queue.reserve();
+    slot.handoff("voyage", { root: checkpoint.path, cleanup: () => f.owner.client.release(ID).then(() => {}) } as never);
+    await entered.promise;
+    expect(f.state.query("SELECT id,state FROM native_root_leases").all(), "HANDOFF_KEEPS_DURABLE_DELETION_OWNER").toEqual([{ id: ID, state: "deleting" }]);
+    // Simulate death after handoff and before the broker deletion reply. The
+    // next startup uses the same durable lease and checkpoint identity.
+    f.state.query("UPDATE native_root_leases SET owner_start=owner_start||'-ended' WHERE id=?").run(ID);
+    recovered = await createNativeBrainLeaseManager(f.native.client, f.options);
+    expect(await recovered.recoverDeadOwners(), "STARTUP_RECOVERS_HANDED_OFF_CHECKPOINT").toMatchObject({ released: [ID], unknown: [] });
+    expect((await f.native.client.listRecovery()).records).toEqual([]);
+    expect(f.state.query("SELECT count(*) AS n FROM native_root_leases").get()).toEqual({ n: 0 });
+    deleted.resolve(); await queue.drain();
+  } finally { deleted.resolve(); await queue.close(); await recovered?.close(); await f.close(); }
+});

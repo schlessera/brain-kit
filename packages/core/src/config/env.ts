@@ -268,3 +268,10 @@ export function workerOutputAllowance(raw: string | undefined = process.env.BRAI
 export function maintenanceConfigRoots(): { data: string | undefined; config: string | undefined } {
   return { data: process.env.BRAIN_WORKER_DATA_ROOT, config: process.env.BRAIN_WORKER_CONFIG_ROOT };
 }
+
+/** Git ignore queries use literal stdin names and must not inherit pathspec modes. */
+export function gitIgnoreEnvironment(): NodeJS.ProcessEnv {
+  const env={...process.env};
+  for(const key of ["GIT_LITERAL_PATHSPECS","GIT_GLOB_PATHSPECS","GIT_NOGLOB_PATHSPECS","GIT_ICASE_PATHSPECS"])delete env[key];
+  return env;
+}

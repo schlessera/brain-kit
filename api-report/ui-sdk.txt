@@ -34,7 +34,9 @@ export "." (./src/index.ts)
   type ActivitySpanKind
   type ActivitySpanOrigin
   type ActivitySpanOutcome
+  type ActivityTurnHold
   type ActivityTurnLifecycle
+  type ActivityTurnOpenSubPhase
   type ActivityTurnSubPhase
   type ActivityView
   type AgentPolicyRead
@@ -146,6 +148,9 @@ export "." (./src/index.ts)
   type ClientSessionResume
   type ClientToolApproval
   type ClientToolDenial
+  type ClientTurnReceipt
+  type ClientTurnTiming
+  type CodeChangeReceipt
   type ConfigurationCoverageRead
   type ConfiguredModule
   type ConflictVersionSelection
@@ -583,7 +588,9 @@ export "./client" (./src/client/index.ts)
   type ActivitySpanKind
   type ActivitySpanOrigin
   type ActivitySpanOutcome
+  type ActivityTurnHold
   type ActivityTurnLifecycle
+  type ActivityTurnOpenSubPhase
   type ActivityTurnSubPhase
   type ActivityView
   type AgentPolicyRead
@@ -741,6 +748,9 @@ export "./client" (./src/client/index.ts)
   type ClientSessionResume
   type ClientToolApproval
   type ClientToolDenial
+  type ClientTurnReceipt
+  type ClientTurnTiming
+  type CodeChangeReceipt
   type CompleteShareInput
   type CompleteShareResult
   type ComputeHealthToolInput
@@ -1406,6 +1416,8 @@ export "./internal" (./src/internal.ts)
   INFERENCE_PLACEHOLDER
   type InferenceRelay
   type InferenceRelayEvent
+  type InferenceTimingMark
+  type InferenceUsage
   type LaunchedWorker
   MAINTENANCE_HOME
   type MaintenanceCommand
@@ -1445,6 +1457,7 @@ export "./internal" (./src/internal.ts)
   type RemovalRun
   type Reservation
   type RetainedCleanup
+  SESSION_PROMPT_CONTEXT_MAX_BYTES
   STALE_SAFETY_ADMISSION
   SUBPROCESS_ENV
   type SessionPromptFacts
@@ -1591,6 +1604,7 @@ export "./internal" (./src/internal.ts)
   resolveWebSearchConfigPath
   resolveWorkerProtection
   resolveWorkerStateLimits
+  resolveWorkspacesMount
   restrictedReadPaths
   retainWorkerStartupView
   rewriteWorkerRtk
@@ -1630,6 +1644,7 @@ export "./internal" (./src/internal.ts)
   workerProviderCredentials
   workerSandboxNote
   workerSandboxWarnings
+  workspaceWriteRefusal
 
 export "./internal/client" (./src/internal-client.ts)
   type FrontmatterBlock
@@ -1687,7 +1702,9 @@ export "./protocol" (./src/protocol.ts)
   type ActivitySpanKind
   type ActivitySpanOrigin
   type ActivitySpanOutcome
+  type ActivityTurnHold
   type ActivityTurnLifecycle
+  type ActivityTurnOpenSubPhase
   type ActivityTurnSubPhase
   type ActivityView
   type AgentPolicyRead
@@ -1799,6 +1816,9 @@ export "./protocol" (./src/protocol.ts)
   type ClientSessionResume
   type ClientToolApproval
   type ClientToolDenial
+  type ClientTurnReceipt
+  type ClientTurnTiming
+  type CodeChangeReceipt
   type ConfigurationCoverageRead
   type ConflictVersionSelection
   type ConsumerServerMessage
@@ -2183,6 +2203,7 @@ export "./render" (./src/render.ts)
 
 export "./schemas" (./src/schemas.ts)
   MAX_CLIENT_FRAME_BYTES
+  MAX_CLIENT_TURN_RECEIPT_BYTES
   MAX_PROMPT_CHARS
   MAX_SERVER_FRAME_BYTES
   type ParseFrameResult
@@ -2231,6 +2252,7 @@ export "./schemas" (./src/schemas.ts)
   clientSessionResumeSchema
   clientToolApprovalSchema
   clientToolDenialSchema
+  clientTurnTimingSchema
   conversationAudioFormatSchema
   conversationCapabilitiesSchema
   conversationDisclosureSchema
@@ -2440,7 +2462,9 @@ export "./server" (./src/server/index.ts)
   type ActivitySpanKind
   type ActivitySpanOrigin
   type ActivitySpanOutcome
+  type ActivityTurnHold
   type ActivityTurnLifecycle
+  type ActivityTurnOpenSubPhase
   type ActivityTurnSubPhase
   type ActivityView
   type AgentBackend
@@ -2645,9 +2669,12 @@ export "./server" (./src/server/index.ts)
   type ClientSessionResume
   type ClientToolApproval
   type ClientToolDenial
+  type ClientTurnReceipt
+  type ClientTurnTiming
   type CoastlineConfig
   type CoastlineRequest
   type CoastlineResult
+  type CodeChangeReceipt
   type CompiledConfirmPattern
   type CompleteShareInput
   type CompleteShareResult
@@ -3374,6 +3401,7 @@ export "./server" (./src/server/index.ts)
   resolveThinkingLevel
   reverseGeocode
   rtkRewriteCommand
+  safeStartupTiming
   signedArea
   simplify
   stateRoomCopy
@@ -4506,8 +4534,29 @@ signatures (every public export and the types it is made of)
     export type ActivitySpanOrigin = "session" | "cron" | "autonomous" | "compute";
   ActivitySpanOutcome (packages/ui-sdk/src/protocol.ts)
     export type ActivitySpanOutcome = "success" | "error" | "timeout" | "cancelled" | "denied" | "interrupted";
+  ActivityTurnHold (packages/ui-sdk/src/protocol.ts)
+    export interface ActivityTurnHold {
+        holdId: string;
+        cause: "begin" | "finish" | "tool" | "periodic" | "scope";
+        causeTurnId: string | null;
+        toolUseId?: string;
+        requestedAt: number;
+        stoppedAt: number | null;
+        resumedAt: number | null;
+        changedPaths: number | null;
+        otherTurnsStopped: number;
+        inferenceInFlight: boolean | null;
+    }
   ActivityTurnLifecycle (packages/ui-sdk/src/protocol.ts)
     export interface ActivityTurnLifecycle {
+        holds?: ActivityTurnHold[];
+        packageVersion?: string;
+        buildRevision?: string;
+        runtimeVersion?: string;
+        recorderSettledAt?: number | null;
+        idleEmittedAt?: number | null;
+        clientTiming?: ClientTurnTiming;
+        clientTimingUnavailable?: "invalid_receipt";
         hostEvents: Array<{
             principalId: string;
             kind: "turn_cancelled" | "ask_user_cancelled" | "principal_revoked" | "follow_up";
@@ -4527,6 +4576,9 @@ signatures (every public export and the types it is made of)
         journalStartedAt: number | null;
         journalBeganAt: number | null;
         backendInvokedAt: number | null;
+        firstRelayRequestAt?: number | null;
+        backendMissingEvidence?: string[];
+        backendEvidenceOmitted?: number;
         firstFrameAt: number | null;
         failureObservedAt: number | null;
         endedAt: number | null;
@@ -4540,6 +4592,14 @@ signatures (every public export and the types it is made of)
         journalBeginMs: number | null;
         backendStartupMs: number | null;
         subPhases?: ActivityTurnSubPhase[];
+        openSubPhases?: ActivityTurnOpenSubPhase[];
+    }
+  ActivityTurnOpenSubPhase (packages/ui-sdk/src/protocol.ts)
+    export interface ActivityTurnOpenSubPhase extends Omit<ActivityTurnSubPhase, "phase"> {
+        phase: string;
+        pending?: boolean;
+        timeBase?: "worker";
+        workerElapsedMs?: number;
     }
   ActivityTurnSubPhase (packages/ui-sdk/src/protocol.ts)
     export interface ActivityTurnSubPhase {
@@ -7457,7 +7517,7 @@ signatures (every public export and the types it is made of)
         turnId?: string;
     }
   ClientMessage (packages/ui-sdk/src/protocol.ts)
-    export type ClientMessage = ClientSafetyRead | ClientSafetySubscribe | ClientSafetyUnsubscribe | ClientScopeDecision | ClientHello | ClientRetryTurn | ClientRetryStatus | ClientChatMessage | ClientToolApproval | ClientToolDenial | ClientCancelRequest | ClientSessionResume | ClientAskUserResponse | ClientAskUserCancel | ClientAskUserListResponse | ClientAskUserRankResponse | ClientAskUserFormResponse | ClientAskAnswerStatus | ClientPing | ClientLocationResponse | ClientLocationError | ClientMaskResponse | ClientMaskError | ClientMarkupError | ClientActivitySubscribe | ClientActivityUnsubscribe | ClientLocalExchange | ClientHandoffPrepare | ClientHandoffPrepareCancel | ClientHandoffStatus | ClientInboxResolve | ClientInboxSnooze | ClientInboxSubscribe | ClientInboxUnsubscribe | ClientDialogueRead | ClientConversationStart | ClientConversationAudio | ClientConversationEndpoint | ClientConversationCommit | ClientConversationPlayback | ClientConversationStop;
+    export type ClientMessage = ClientSafetyRead | ClientSafetySubscribe | ClientSafetyUnsubscribe | ClientScopeDecision | ClientHello | ClientTurnReceipt | ClientRetryTurn | ClientRetryStatus | ClientChatMessage | ClientToolApproval | ClientToolDenial | ClientCancelRequest | ClientSessionResume | ClientAskUserResponse | ClientAskUserCancel | ClientAskUserListResponse | ClientAskUserRankResponse | ClientAskUserFormResponse | ClientAskAnswerStatus | ClientPing | ClientLocationResponse | ClientLocationError | ClientMaskResponse | ClientMaskError | ClientMarkupError | ClientActivitySubscribe | ClientActivityUnsubscribe | ClientLocalExchange | ClientHandoffPrepare | ClientHandoffPrepareCancel | ClientHandoffStatus | ClientInboxResolve | ClientInboxSnooze | ClientInboxSubscribe | ClientInboxUnsubscribe | ClientDialogueRead | ClientConversationStart | ClientConversationAudio | ClientConversationEndpoint | ClientConversationCommit | ClientConversationPlayback | ClientConversationStop;
   ClientPing (packages/ui-sdk/src/protocol.ts)
     export interface ClientPing {
         type: "ping";
@@ -7513,9 +7573,45 @@ signatures (every public export and the types it is made of)
         channel?: ApprovalChannel;
         turnId?: string;
     }
+  ClientTurnReceipt (packages/ui-sdk/src/protocol.ts)
+    export interface ClientTurnReceipt {
+        type: "client_turn_receipt";
+        turnId: string;
+        timing: ClientTurnTiming;
+    }
+  ClientTurnTiming (packages/ui-sdk/src/protocol.ts)
+    export interface ClientTurnTiming {
+        sendToFirstHostFrameMs: number;
+        sendToFirstContentFrameMs?: number;
+        lastContentFrameToIdleMs?: number;
+        sendToFirstPhaseStatusFrameMs?: number;
+    }
   CoastlineConfig (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
   CoastlineRequest (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
   CoastlineResult (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
+  CodeChangeReceipt (packages/ui-sdk/src/turn-journal.ts)
+    export interface CodeChangeReceipt {
+        checkout: string;
+        state: "recording" | "complete" | "partial";
+        head_before: {
+            commit: string;
+            ref: string | null;
+        };
+        head_after: {
+            commit: string;
+            ref: string | null;
+        };
+        tree_before: string;
+        tree_after: string;
+        paths: {
+            path: string;
+            kind: "added" | "deleted" | "modified";
+            untracked: boolean;
+        }[];
+        bytes: number;
+        untracked: number;
+        ignore_changed: boolean;
+    }
   CompiledConfirmPattern (packages/ui-sdk/src/server/confirm-patterns.ts)
     export type CompiledConfirmPattern = RegExp & {
         readonly effect?: string;
@@ -8244,7 +8340,7 @@ signatures (every public export and the types it is made of)
         entries: FileEntry[];
     }
   FirstPartyFailureClass (packages/ui-sdk/src/protocol.ts)
-    type FirstPartyFailureClass = "authentication_failed" | "oauth_org_not_allowed" | "account_on_hold" | "verification_required" | "billing_error" | "subscription_required" | "host_refused" | "auth_failure" | "rate_limit" | "overloaded" | "server_error" | "invalid_request" | "model_not_found" | "max_output_tokens" | "cloud_credential_error" | "worker_host_unsupported" | "session_too_large" | "worker_resource_limit" | "worker_state_busy" | "worker_state_exceeded" | "worker_state_save_refused" | "journal_capacity" | "journal_unavailable" | "budget_exceeded" | "budget_unavailable" | "input_safety_unavailable" | "safety_recording_unavailable" | "safety_recording_paused" | "safety_recording_chat_full" | "safety_recording_brain_full" | "unknown";
+    type FirstPartyFailureClass = "authentication_failed" | "oauth_org_not_allowed" | "account_on_hold" | "verification_required" | "billing_error" | "subscription_required" | "host_refused" | "auth_failure" | "settings_conflict" | "session_roster_incompatible" | "rate_limit" | "overloaded" | "server_error" | "invalid_request" | "model_not_found" | "max_output_tokens" | "cloud_credential_error" | "worker_host_unsupported" | "session_too_large" | "worker_resource_limit" | "worker_state_busy" | "worker_state_exceeded" | "worker_state_save_refused" | "journal_capacity" | "journal_unavailable" | "budget_exceeded" | "budget_unavailable" | "input_safety_unavailable" | "safety_recording_unavailable" | "safety_recording_paused" | "safety_recording_chat_full" | "safety_recording_brain_full" | "unknown";
   FirstRequestCacheUsage (packages/ui-sdk/src/protocol.ts)
     export interface FirstRequestCacheUsage {
         inputTokens: number | null;
@@ -11068,6 +11164,8 @@ signatures (every public export and the types it is made of)
     }, z.core.$strip>;
   MAX_CLIENT_FRAME_BYTES (packages/ui-sdk/src/schemas.ts)
     const MAX_CLIENT_FRAME_BYTES: 12000000;
+  MAX_CLIENT_TURN_RECEIPT_BYTES (packages/ui-sdk/src/schemas.ts)
+    const MAX_CLIENT_TURN_RECEIPT_BYTES: 4096;
   MAX_IMAGES_PER_MESSAGE (packages/ui-sdk/src/protocol.ts)
     const MAX_IMAGES_PER_MESSAGE: 4;
   MAX_IMAGE_BYTES (packages/ui-sdk/src/protocol.ts)
@@ -11317,6 +11415,7 @@ signatures (every public export and the types it is made of)
     } | {
         ok: false;
         error: string;
+        frameType?: "client_turn_receipt";
     };
   PasskeySummary (packages/ui-sdk/src/protocol.ts)
     export interface PasskeySummary {
@@ -13504,6 +13603,8 @@ signatures (every public export and the types it is made of)
     }
   ScopeCapReceipt (packages/ui-sdk/src/turn-journal.ts)
     export interface ScopeCapReceipt {
+        measurement?: "unknown";
+        result?: "index_capacity";
         eventId: string;
         dimension: ScopeDimension;
         count: number;
@@ -13839,6 +13940,7 @@ signatures (every public export and the types it is made of)
     }
   ServerStatus (packages/ui-sdk/src/protocol.ts)
     export interface ServerStatus extends SessionScoped {
+        hostTurnComplete?: true;
         type: "status";
         status: "thinking" | "tool_executing" | "idle" | "cancelled" | "queued";
         detail?: string;
@@ -15076,6 +15178,7 @@ signatures (every public export and the types it is made of)
     }
   TurnJournalDetails (packages/ui-sdk/src/turn-journal.ts)
     export interface TurnJournalDetails {
+        codeChanges?: CodeChangeReceipt[];
         turnId: string;
         sessionId: string;
         summary: TurnJournalSummary;
@@ -15152,6 +15255,8 @@ signatures (every public export and the types it is made of)
     }
   TurnScopeSummary (packages/ui-sdk/src/turn-journal.ts)
     export interface TurnScopeSummary {
+        indexBytes?: number | null;
+        indexLimitBytes?: number;
         policySource: "policy" | "default";
         limits: Record<Exclude<ScopeDimension, "free_space_floor">, number>;
         hardTimeoutMs: number;
@@ -16106,6 +16211,15 @@ signatures (every public export and the types it is made of)
         turnId: z.ZodString;
         type: z.ZodLiteral<"scope_decision">;
     }, z.core.$strict>, z.ZodObject<{
+        timing: z.ZodObject<{
+            lastContentFrameToIdleMs: z.ZodOptional<z.ZodNumber>;
+            sendToFirstContentFrameMs: z.ZodOptional<z.ZodNumber>;
+            sendToFirstHostFrameMs: z.ZodNumber;
+            sendToFirstPhaseStatusFrameMs: z.ZodOptional<z.ZodNumber>;
+        }, z.core.$strict>;
+        turnId: z.ZodString;
+        type: z.ZodLiteral<"client_turn_receipt">;
+    }, z.core.$strict>, z.ZodObject<{
         failedTurnId: z.ZodString;
         requestId: z.ZodString;
         sessionId: z.ZodString;
@@ -16600,6 +16714,13 @@ signatures (every public export and the types it is made of)
         turnId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"tool_denial">;
     }, z.core.$loose>;
+  clientTurnTimingSchema (packages/ui-sdk/src/schemas.ts)
+    const clientTurnTimingSchema: z.ZodObject<{
+        lastContentFrameToIdleMs: z.ZodOptional<z.ZodNumber>;
+        sendToFirstContentFrameMs: z.ZodOptional<z.ZodNumber>;
+        sendToFirstHostFrameMs: z.ZodNumber;
+        sendToFirstPhaseStatusFrameMs: z.ZodOptional<z.ZodNumber>;
+    }, z.core.$strict>;
   clipLine (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
   closeAgainstViewport (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
   closedRings (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
@@ -21322,6 +21443,8 @@ signatures (every public export and the types it is made of)
     export function runBackendModuleContract(harness: BackendModuleContractHarness, { describe, test, expect }: ContractTestPrimitives): void;
   runSpeechProviderContract (packages/ui-sdk/src/testing/speech-contract.ts)
     export function runSpeechProviderContract(harness: SpeechProviderContractHarness, { describe, test, expect }: ContractTestPrimitives): void;
+  safeStartupTiming (packages/ui-sdk/src/server/startup-timing.ts)
+    export function safeStartupTiming(timing: StartTurnRequest["startupTiming"]): StartTurnRequest["startupTiming"];
   safetyCapabilitiesSchema (packages/ui-sdk/src/safety.ts)
     const safetyCapabilitiesSchema: z.ZodObject<{
         detectorVersion: z.ZodLiteral<1>;
@@ -22489,19 +22612,48 @@ signatures (every public export and the types it is made of)
         }, z.core.$loose>>;
         lifecycle: z.ZodOptional<z.ZodObject<{
             acceptedAt: z.ZodNumber;
+            backendEvidenceOmitted: z.ZodOptional<z.ZodNumber>;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
+            backendMissingEvidence: z.ZodOptional<z.ZodArray<z.ZodString>>;
             backendRunId: z.ZodNullable<z.ZodString>;
             backendStartupMs: z.ZodNullable<z.ZodNumber>;
             budgetAdmissionMs: z.ZodNullable<z.ZodNumber>;
             budgetAdmittedAt: z.ZodNullable<z.ZodNumber>;
             budgetStartedAt: z.ZodNullable<z.ZodNumber>;
+            buildRevision: z.ZodOptional<z.ZodString>;
+            clientTiming: z.ZodOptional<z.ZodObject<{
+                lastContentFrameToIdleMs: z.ZodOptional<z.ZodNumber>;
+                sendToFirstContentFrameMs: z.ZodOptional<z.ZodNumber>;
+                sendToFirstHostFrameMs: z.ZodNumber;
+                sendToFirstPhaseStatusFrameMs: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$loose>>;
+            clientTimingUnavailable: z.ZodOptional<z.ZodLiteral<"invalid_receipt">>;
             dequeuedAt: z.ZodNullable<z.ZodNumber>;
             endedAt: z.ZodNullable<z.ZodNumber>;
             failureObservedAt: z.ZodNullable<z.ZodNumber>;
             firstFrameAt: z.ZodNullable<z.ZodNumber>;
+            firstRelayRequestAt: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
             governedAcquiredAt: z.ZodNullable<z.ZodNumber>;
             governedAdmissionMs: z.ZodNullable<z.ZodNumber>;
             governedStartedAt: z.ZodNullable<z.ZodNumber>;
+            holds: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                cause: z.ZodEnum<{
+                    begin: "begin";
+                    finish: "finish";
+                    periodic: "periodic";
+                    scope: "scope";
+                    tool: "tool";
+                }>;
+                causeTurnId: z.ZodNullable<z.ZodString>;
+                changedPaths: z.ZodNullable<z.ZodNumber>;
+                holdId: z.ZodString;
+                inferenceInFlight: z.ZodNullable<z.ZodBoolean>;
+                otherTurnsStopped: z.ZodNumber;
+                requestedAt: z.ZodNumber;
+                resumedAt: z.ZodNullable<z.ZodNumber>;
+                stoppedAt: z.ZodNullable<z.ZodNumber>;
+                toolUseId: z.ZodOptional<z.ZodString>;
+            }, z.core.$loose>>>;
             hostEvents: z.ZodArray<z.ZodObject<{
                 kind: z.ZodEnum<{
                     ask_user_cancelled: "ask_user_cancelled";
@@ -22512,10 +22664,21 @@ signatures (every public export and the types it is made of)
                 observedAt: z.ZodNumber;
                 principalId: z.ZodString;
             }, z.core.$loose>>;
+            idleEmittedAt: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
             journalBeganAt: z.ZodNullable<z.ZodNumber>;
             journalBeginMs: z.ZodNullable<z.ZodNumber>;
             journalStartedAt: z.ZodNullable<z.ZodNumber>;
             lifecycleId: z.ZodString;
+            openSubPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                elapsedMs: z.ZodNullable<z.ZodNumber>;
+                endedAt: z.ZodNullable<z.ZodNumber>;
+                name: z.ZodString;
+                pending: z.ZodOptional<z.ZodBoolean>;
+                phase: z.ZodString;
+                startedAt: z.ZodNumber;
+                timeBase: z.ZodOptional<z.ZodLiteral<"worker">>;
+                workerElapsedMs: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$loose>>>;
             outcome: z.ZodNullable<z.ZodEnum<{
                 cancelled: "cancelled";
                 denied: "denied";
@@ -22524,8 +22687,11 @@ signatures (every public export and the types it is made of)
                 success: "success";
                 timeout: "timeout";
             }>>;
+            packageVersion: z.ZodOptional<z.ZodString>;
             queueWaitMs: z.ZodNullable<z.ZodNumber>;
             reason: z.ZodNullable<z.ZodString>;
+            recorderSettledAt: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+            runtimeVersion: z.ZodOptional<z.ZodString>;
             sessionId: z.ZodNullable<z.ZodString>;
             skippedPhases: z.ZodArray<z.ZodEnum<{
                 budget: "budget";
@@ -22613,19 +22779,48 @@ signatures (every public export and the types it is made of)
         highWaterSeq: z.ZodRecord<z.ZodString, z.ZodNumber>;
         lifecycles: z.ZodOptional<z.ZodArray<z.ZodObject<{
             acceptedAt: z.ZodNumber;
+            backendEvidenceOmitted: z.ZodOptional<z.ZodNumber>;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
+            backendMissingEvidence: z.ZodOptional<z.ZodArray<z.ZodString>>;
             backendRunId: z.ZodNullable<z.ZodString>;
             backendStartupMs: z.ZodNullable<z.ZodNumber>;
             budgetAdmissionMs: z.ZodNullable<z.ZodNumber>;
             budgetAdmittedAt: z.ZodNullable<z.ZodNumber>;
             budgetStartedAt: z.ZodNullable<z.ZodNumber>;
+            buildRevision: z.ZodOptional<z.ZodString>;
+            clientTiming: z.ZodOptional<z.ZodObject<{
+                lastContentFrameToIdleMs: z.ZodOptional<z.ZodNumber>;
+                sendToFirstContentFrameMs: z.ZodOptional<z.ZodNumber>;
+                sendToFirstHostFrameMs: z.ZodNumber;
+                sendToFirstPhaseStatusFrameMs: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$loose>>;
+            clientTimingUnavailable: z.ZodOptional<z.ZodLiteral<"invalid_receipt">>;
             dequeuedAt: z.ZodNullable<z.ZodNumber>;
             endedAt: z.ZodNullable<z.ZodNumber>;
             failureObservedAt: z.ZodNullable<z.ZodNumber>;
             firstFrameAt: z.ZodNullable<z.ZodNumber>;
+            firstRelayRequestAt: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
             governedAcquiredAt: z.ZodNullable<z.ZodNumber>;
             governedAdmissionMs: z.ZodNullable<z.ZodNumber>;
             governedStartedAt: z.ZodNullable<z.ZodNumber>;
+            holds: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                cause: z.ZodEnum<{
+                    begin: "begin";
+                    finish: "finish";
+                    periodic: "periodic";
+                    scope: "scope";
+                    tool: "tool";
+                }>;
+                causeTurnId: z.ZodNullable<z.ZodString>;
+                changedPaths: z.ZodNullable<z.ZodNumber>;
+                holdId: z.ZodString;
+                inferenceInFlight: z.ZodNullable<z.ZodBoolean>;
+                otherTurnsStopped: z.ZodNumber;
+                requestedAt: z.ZodNumber;
+                resumedAt: z.ZodNullable<z.ZodNumber>;
+                stoppedAt: z.ZodNullable<z.ZodNumber>;
+                toolUseId: z.ZodOptional<z.ZodString>;
+            }, z.core.$loose>>>;
             hostEvents: z.ZodArray<z.ZodObject<{
                 kind: z.ZodEnum<{
                     ask_user_cancelled: "ask_user_cancelled";
@@ -22636,10 +22831,21 @@ signatures (every public export and the types it is made of)
                 observedAt: z.ZodNumber;
                 principalId: z.ZodString;
             }, z.core.$loose>>;
+            idleEmittedAt: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
             journalBeganAt: z.ZodNullable<z.ZodNumber>;
             journalBeginMs: z.ZodNullable<z.ZodNumber>;
             journalStartedAt: z.ZodNullable<z.ZodNumber>;
             lifecycleId: z.ZodString;
+            openSubPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                elapsedMs: z.ZodNullable<z.ZodNumber>;
+                endedAt: z.ZodNullable<z.ZodNumber>;
+                name: z.ZodString;
+                pending: z.ZodOptional<z.ZodBoolean>;
+                phase: z.ZodString;
+                startedAt: z.ZodNumber;
+                timeBase: z.ZodOptional<z.ZodLiteral<"worker">>;
+                workerElapsedMs: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$loose>>>;
             outcome: z.ZodNullable<z.ZodEnum<{
                 cancelled: "cancelled";
                 denied: "denied";
@@ -22648,8 +22854,11 @@ signatures (every public export and the types it is made of)
                 success: "success";
                 timeout: "timeout";
             }>>;
+            packageVersion: z.ZodOptional<z.ZodString>;
             queueWaitMs: z.ZodNullable<z.ZodNumber>;
             reason: z.ZodNullable<z.ZodString>;
+            recorderSettledAt: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+            runtimeVersion: z.ZodOptional<z.ZodString>;
             sessionId: z.ZodNullable<z.ZodString>;
             skippedPhases: z.ZodArray<z.ZodEnum<{
                 budget: "budget";
@@ -24193,6 +24402,8 @@ signatures (every public export and the types it is made of)
                     partial: "partial";
                 }>;
                 hardTimeoutMs: z.ZodNumber;
+                indexBytes: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+                indexLimitBytes: z.ZodOptional<z.ZodNumber>;
                 limits: z.ZodObject<{
                     files_changed: z.ZodNumber;
                     minutes: z.ZodNumber;
@@ -24218,10 +24429,12 @@ signatures (every public export and the types it is made of)
                     }>;
                     eventId: z.ZodString;
                     frozen: z.ZodBoolean;
+                    measurement: z.ZodOptional<z.ZodLiteral<"unknown">>;
                     newCap: z.ZodOptional<z.ZodNumber>;
                     observedAt: z.ZodNumber;
                     overshoot: z.ZodNumber;
                     reason: z.ZodOptional<z.ZodString>;
+                    result: z.ZodOptional<z.ZodLiteral<"index_capacity">>;
                     state: z.ZodEnum<{
                         continued: "continued";
                         ended_before_answer: "ended_before_answer";
@@ -24720,6 +24933,7 @@ signatures (every public export and the types it is made of)
         activeSessionId: z.ZodOptional<z.ZodString>;
         detail: z.ZodOptional<z.ZodString>;
         effectiveThinkingLevel: z.ZodCatch<z.ZodOptional<z.ZodCustom<ThinkingLevel, ThinkingLevel>>>;
+        hostTurnComplete: z.ZodOptional<z.ZodLiteral<true>>;
         requestId: z.ZodOptional<z.ZodString>;
         retry: z.ZodCatch<z.ZodOptional<z.ZodObject<{
             attempt: z.ZodNumber;
@@ -25215,6 +25429,8 @@ signatures (every public export and the types it is made of)
                         partial: "partial";
                     }>;
                     hardTimeoutMs: z.ZodNumber;
+                    indexBytes: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+                    indexLimitBytes: z.ZodOptional<z.ZodNumber>;
                     limits: z.ZodObject<{
                         files_changed: z.ZodNumber;
                         minutes: z.ZodNumber;
@@ -25240,10 +25456,12 @@ signatures (every public export and the types it is made of)
                         }>;
                         eventId: z.ZodString;
                         frozen: z.ZodBoolean;
+                        measurement: z.ZodOptional<z.ZodLiteral<"unknown">>;
                         newCap: z.ZodOptional<z.ZodNumber>;
                         observedAt: z.ZodNumber;
                         overshoot: z.ZodNumber;
                         reason: z.ZodOptional<z.ZodString>;
+                        result: z.ZodOptional<z.ZodLiteral<"index_capacity">>;
                         state: z.ZodEnum<{
                             continued: "continued";
                             ended_before_answer: "ended_before_answer";
@@ -25617,19 +25835,48 @@ signatures (every public export and the types it is made of)
         highWaterSeq: z.ZodRecord<z.ZodString, z.ZodNumber>;
         lifecycles: z.ZodOptional<z.ZodArray<z.ZodObject<{
             acceptedAt: z.ZodNumber;
+            backendEvidenceOmitted: z.ZodOptional<z.ZodNumber>;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
+            backendMissingEvidence: z.ZodOptional<z.ZodArray<z.ZodString>>;
             backendRunId: z.ZodNullable<z.ZodString>;
             backendStartupMs: z.ZodNullable<z.ZodNumber>;
             budgetAdmissionMs: z.ZodNullable<z.ZodNumber>;
             budgetAdmittedAt: z.ZodNullable<z.ZodNumber>;
             budgetStartedAt: z.ZodNullable<z.ZodNumber>;
+            buildRevision: z.ZodOptional<z.ZodString>;
+            clientTiming: z.ZodOptional<z.ZodObject<{
+                lastContentFrameToIdleMs: z.ZodOptional<z.ZodNumber>;
+                sendToFirstContentFrameMs: z.ZodOptional<z.ZodNumber>;
+                sendToFirstHostFrameMs: z.ZodNumber;
+                sendToFirstPhaseStatusFrameMs: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$loose>>;
+            clientTimingUnavailable: z.ZodOptional<z.ZodLiteral<"invalid_receipt">>;
             dequeuedAt: z.ZodNullable<z.ZodNumber>;
             endedAt: z.ZodNullable<z.ZodNumber>;
             failureObservedAt: z.ZodNullable<z.ZodNumber>;
             firstFrameAt: z.ZodNullable<z.ZodNumber>;
+            firstRelayRequestAt: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
             governedAcquiredAt: z.ZodNullable<z.ZodNumber>;
             governedAdmissionMs: z.ZodNullable<z.ZodNumber>;
             governedStartedAt: z.ZodNullable<z.ZodNumber>;
+            holds: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                cause: z.ZodEnum<{
+                    begin: "begin";
+                    finish: "finish";
+                    periodic: "periodic";
+                    scope: "scope";
+                    tool: "tool";
+                }>;
+                causeTurnId: z.ZodNullable<z.ZodString>;
+                changedPaths: z.ZodNullable<z.ZodNumber>;
+                holdId: z.ZodString;
+                inferenceInFlight: z.ZodNullable<z.ZodBoolean>;
+                otherTurnsStopped: z.ZodNumber;
+                requestedAt: z.ZodNumber;
+                resumedAt: z.ZodNullable<z.ZodNumber>;
+                stoppedAt: z.ZodNullable<z.ZodNumber>;
+                toolUseId: z.ZodOptional<z.ZodString>;
+            }, z.core.$loose>>>;
             hostEvents: z.ZodArray<z.ZodObject<{
                 kind: z.ZodEnum<{
                     ask_user_cancelled: "ask_user_cancelled";
@@ -25640,10 +25887,21 @@ signatures (every public export and the types it is made of)
                 observedAt: z.ZodNumber;
                 principalId: z.ZodString;
             }, z.core.$loose>>;
+            idleEmittedAt: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
             journalBeganAt: z.ZodNullable<z.ZodNumber>;
             journalBeginMs: z.ZodNullable<z.ZodNumber>;
             journalStartedAt: z.ZodNullable<z.ZodNumber>;
             lifecycleId: z.ZodString;
+            openSubPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                elapsedMs: z.ZodNullable<z.ZodNumber>;
+                endedAt: z.ZodNullable<z.ZodNumber>;
+                name: z.ZodString;
+                pending: z.ZodOptional<z.ZodBoolean>;
+                phase: z.ZodString;
+                startedAt: z.ZodNumber;
+                timeBase: z.ZodOptional<z.ZodLiteral<"worker">>;
+                workerElapsedMs: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$loose>>>;
             outcome: z.ZodNullable<z.ZodEnum<{
                 cancelled: "cancelled";
                 denied: "denied";
@@ -25652,8 +25910,11 @@ signatures (every public export and the types it is made of)
                 success: "success";
                 timeout: "timeout";
             }>>;
+            packageVersion: z.ZodOptional<z.ZodString>;
             queueWaitMs: z.ZodNullable<z.ZodNumber>;
             reason: z.ZodNullable<z.ZodString>;
+            recorderSettledAt: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+            runtimeVersion: z.ZodOptional<z.ZodString>;
             sessionId: z.ZodNullable<z.ZodString>;
             skippedPhases: z.ZodArray<z.ZodEnum<{
                 budget: "budget";
@@ -25742,19 +26003,48 @@ signatures (every public export and the types it is made of)
         }, z.core.$loose>>;
         lifecycle: z.ZodOptional<z.ZodObject<{
             acceptedAt: z.ZodNumber;
+            backendEvidenceOmitted: z.ZodOptional<z.ZodNumber>;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
+            backendMissingEvidence: z.ZodOptional<z.ZodArray<z.ZodString>>;
             backendRunId: z.ZodNullable<z.ZodString>;
             backendStartupMs: z.ZodNullable<z.ZodNumber>;
             budgetAdmissionMs: z.ZodNullable<z.ZodNumber>;
             budgetAdmittedAt: z.ZodNullable<z.ZodNumber>;
             budgetStartedAt: z.ZodNullable<z.ZodNumber>;
+            buildRevision: z.ZodOptional<z.ZodString>;
+            clientTiming: z.ZodOptional<z.ZodObject<{
+                lastContentFrameToIdleMs: z.ZodOptional<z.ZodNumber>;
+                sendToFirstContentFrameMs: z.ZodOptional<z.ZodNumber>;
+                sendToFirstHostFrameMs: z.ZodNumber;
+                sendToFirstPhaseStatusFrameMs: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$loose>>;
+            clientTimingUnavailable: z.ZodOptional<z.ZodLiteral<"invalid_receipt">>;
             dequeuedAt: z.ZodNullable<z.ZodNumber>;
             endedAt: z.ZodNullable<z.ZodNumber>;
             failureObservedAt: z.ZodNullable<z.ZodNumber>;
             firstFrameAt: z.ZodNullable<z.ZodNumber>;
+            firstRelayRequestAt: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
             governedAcquiredAt: z.ZodNullable<z.ZodNumber>;
             governedAdmissionMs: z.ZodNullable<z.ZodNumber>;
             governedStartedAt: z.ZodNullable<z.ZodNumber>;
+            holds: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                cause: z.ZodEnum<{
+                    begin: "begin";
+                    finish: "finish";
+                    periodic: "periodic";
+                    scope: "scope";
+                    tool: "tool";
+                }>;
+                causeTurnId: z.ZodNullable<z.ZodString>;
+                changedPaths: z.ZodNullable<z.ZodNumber>;
+                holdId: z.ZodString;
+                inferenceInFlight: z.ZodNullable<z.ZodBoolean>;
+                otherTurnsStopped: z.ZodNumber;
+                requestedAt: z.ZodNumber;
+                resumedAt: z.ZodNullable<z.ZodNumber>;
+                stoppedAt: z.ZodNullable<z.ZodNumber>;
+                toolUseId: z.ZodOptional<z.ZodString>;
+            }, z.core.$loose>>>;
             hostEvents: z.ZodArray<z.ZodObject<{
                 kind: z.ZodEnum<{
                     ask_user_cancelled: "ask_user_cancelled";
@@ -25765,10 +26055,21 @@ signatures (every public export and the types it is made of)
                 observedAt: z.ZodNumber;
                 principalId: z.ZodString;
             }, z.core.$loose>>;
+            idleEmittedAt: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
             journalBeganAt: z.ZodNullable<z.ZodNumber>;
             journalBeginMs: z.ZodNullable<z.ZodNumber>;
             journalStartedAt: z.ZodNullable<z.ZodNumber>;
             lifecycleId: z.ZodString;
+            openSubPhases: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                elapsedMs: z.ZodNullable<z.ZodNumber>;
+                endedAt: z.ZodNullable<z.ZodNumber>;
+                name: z.ZodString;
+                pending: z.ZodOptional<z.ZodBoolean>;
+                phase: z.ZodString;
+                startedAt: z.ZodNumber;
+                timeBase: z.ZodOptional<z.ZodLiteral<"worker">>;
+                workerElapsedMs: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$loose>>>;
             outcome: z.ZodNullable<z.ZodEnum<{
                 cancelled: "cancelled";
                 denied: "denied";
@@ -25777,8 +26078,11 @@ signatures (every public export and the types it is made of)
                 success: "success";
                 timeout: "timeout";
             }>>;
+            packageVersion: z.ZodOptional<z.ZodString>;
             queueWaitMs: z.ZodNullable<z.ZodNumber>;
             reason: z.ZodNullable<z.ZodString>;
+            recorderSettledAt: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+            runtimeVersion: z.ZodOptional<z.ZodString>;
             sessionId: z.ZodNullable<z.ZodString>;
             skippedPhases: z.ZodArray<z.ZodEnum<{
                 budget: "budget";
@@ -28886,6 +29190,8 @@ signatures (every public export and the types it is made of)
                         partial: "partial";
                     }>;
                     hardTimeoutMs: z.ZodNumber;
+                    indexBytes: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+                    indexLimitBytes: z.ZodOptional<z.ZodNumber>;
                     limits: z.ZodObject<{
                         files_changed: z.ZodNumber;
                         minutes: z.ZodNumber;
@@ -28911,10 +29217,12 @@ signatures (every public export and the types it is made of)
                         }>;
                         eventId: z.ZodString;
                         frozen: z.ZodBoolean;
+                        measurement: z.ZodOptional<z.ZodLiteral<"unknown">>;
                         newCap: z.ZodOptional<z.ZodNumber>;
                         observedAt: z.ZodNumber;
                         overshoot: z.ZodNumber;
                         reason: z.ZodOptional<z.ZodString>;
+                        result: z.ZodOptional<z.ZodLiteral<"index_capacity">>;
                         state: z.ZodEnum<{
                             continued: "continued";
                             ended_before_answer: "ended_before_answer";
@@ -29102,6 +29410,7 @@ signatures (every public export and the types it is made of)
         activeSessionId: z.ZodOptional<z.ZodString>;
         detail: z.ZodOptional<z.ZodString>;
         effectiveThinkingLevel: z.ZodCatch<z.ZodOptional<z.ZodCustom<ThinkingLevel, ThinkingLevel>>>;
+        hostTurnComplete: z.ZodOptional<z.ZodLiteral<true>>;
         requestId: z.ZodOptional<z.ZodString>;
         retry: z.ZodCatch<z.ZodOptional<z.ZodObject<{
             attempt: z.ZodNumber;
@@ -29314,6 +29623,8 @@ signatures (every public export and the types it is made of)
                     partial: "partial";
                 }>;
                 hardTimeoutMs: z.ZodNumber;
+                indexBytes: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+                indexLimitBytes: z.ZodOptional<z.ZodNumber>;
                 limits: z.ZodObject<{
                     files_changed: z.ZodNumber;
                     minutes: z.ZodNumber;
@@ -29339,10 +29650,12 @@ signatures (every public export and the types it is made of)
                     }>;
                     eventId: z.ZodString;
                     frozen: z.ZodBoolean;
+                    measurement: z.ZodOptional<z.ZodLiteral<"unknown">>;
                     newCap: z.ZodOptional<z.ZodNumber>;
                     observedAt: z.ZodNumber;
                     overshoot: z.ZodNumber;
                     reason: z.ZodOptional<z.ZodString>;
+                    result: z.ZodOptional<z.ZodLiteral<"index_capacity">>;
                     state: z.ZodEnum<{
                         continued: "continued";
                         ended_before_answer: "ended_before_answer";
@@ -29652,6 +29965,8 @@ signatures (every public export and the types it is made of)
                 partial: "partial";
             }>;
             hardTimeoutMs: z.ZodNumber;
+            indexBytes: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+            indexLimitBytes: z.ZodOptional<z.ZodNumber>;
             limits: z.ZodObject<{
                 files_changed: z.ZodNumber;
                 minutes: z.ZodNumber;
@@ -29677,10 +29992,12 @@ signatures (every public export and the types it is made of)
                 }>;
                 eventId: z.ZodString;
                 frozen: z.ZodBoolean;
+                measurement: z.ZodOptional<z.ZodLiteral<"unknown">>;
                 newCap: z.ZodOptional<z.ZodNumber>;
                 observedAt: z.ZodNumber;
                 overshoot: z.ZodNumber;
                 reason: z.ZodOptional<z.ZodString>;
+                result: z.ZodOptional<z.ZodLiteral<"index_capacity">>;
                 state: z.ZodEnum<{
                     continued: "continued";
                     ended_before_answer: "ended_before_answer";
@@ -29712,6 +30029,8 @@ signatures (every public export and the types it is made of)
             partial: "partial";
         }>;
         hardTimeoutMs: z.ZodNumber;
+        indexBytes: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+        indexLimitBytes: z.ZodOptional<z.ZodNumber>;
         limits: z.ZodObject<{
             files_changed: z.ZodNumber;
             minutes: z.ZodNumber;
@@ -29737,10 +30056,12 @@ signatures (every public export and the types it is made of)
             }>;
             eventId: z.ZodString;
             frozen: z.ZodBoolean;
+            measurement: z.ZodOptional<z.ZodLiteral<"unknown">>;
             newCap: z.ZodOptional<z.ZodNumber>;
             observedAt: z.ZodNumber;
             overshoot: z.ZodNumber;
             reason: z.ZodOptional<z.ZodString>;
+            result: z.ZodOptional<z.ZodLiteral<"index_capacity">>;
             state: z.ZodEnum<{
                 continued: "continued";
                 ended_before_answer: "ended_before_answer";

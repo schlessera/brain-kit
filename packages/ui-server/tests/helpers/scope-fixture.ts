@@ -8,24 +8,24 @@ import { createTurnScope } from "../../src/brain/turn-scope.js";
 import { resolveGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
 import { launchAgentWorker, prepareWorkerSandbox } from "@schlessera/brain-ui-sdk/internal";
 import type { ScopeCapReceipt, ClientScopeDecision } from "@schlessera/brain-ui-sdk/protocol";
-export function scopeFixture(overrides: { max_tool_calls?: number; max_files_changed?: number; max_minutes?: number; max_bytes_written?: number } = {}, clock?: () => number, brainRoot?: string) {
+export function scopeFixture(overrides: { max_tool_calls?: number; max_files_changed?: number; max_minutes?: number; max_bytes_written?: number } = {}, clock?: () => number, brainRoot?: string, observationTrace?: Parameters<typeof createTurnJournal>[1]["observationTrace"]) {
   const root = mkdtempSync(join(tmpdir(), "odysseus-scope-")), brain = brainRoot ?? join(root, "brain"), path = join(root, "ui.db");
   mkdirSync(join(brain, ".brain/scratch"), { recursive: true }); mkdirSync(join(brain, "workspaces"), { recursive: true });
   const db = createUiDb(path); db.query("INSERT INTO sessions(id,title,created_at,last_active_at) VALUES ('ithaca','Voyage',0,0)").run();
   const native = createNativeJournalFixture(brain, root);
-  const journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath: path, objectsRoot: join(root, "objects") });
+  const journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath: path, objectsRoot: join(root, "objects"), observationTrace });
   let connected = true, current = true, stopped = "";
   const scope = createTurnScope(db, { brainPath: brain, journal, connected: () => connected, changed: () => {}, ...(clock ? { now: clock } : {}) });
   const policy = resolveGovernancePolicy({ schema_version: 1, scope: overrides });
   async function begin(origin: "interactive" | "voice" = "interactive") {
-    await journal.begin("voyage", { sessionId: "ithaca", actor: origin, model: null, profile: "governed", policyHash: null }, error => { current = false; stopped = error.message; });
+    await journal.begin("voyage", { sessionId: "ithaca", actor: origin, model: null, profile: "governed", policyHash: null, workspaceReadOnly: false }, error => { current = false; stopped = error.message; });
     scope.begin("voyage", { sessionId: "ithaca", principalId: "athena", origin, profile: "governed", policy, source: "policy", hardTimeoutMs: 60 * 60_000,
       current: () => current, stop: reason => { current = false; stopped = reason; } });
   }
   const receipt = (): ScopeCapReceipt => journal.summary("voyage").scope!.receipts.at(-1)!;
   const message = (action: ClientScopeDecision["action"], submissionId = "athena-decision"): ClientScopeDecision => ({ type: "scope_decision", turnId: "voyage", sessionId: "ithaca", eventId: receipt().eventId, submissionId, action });
   function worker(command: string) {
-    const child = launchAgentWorker({ brainPath: brain, sandbox: prepareWorkerSandbox(brain, { profile: "governed", areas: [] }),
+    const child = launchAgentWorker({ brainPath: brain, sandbox: prepareWorkerSandbox(brain, { profile: "governed", areas: ["workspaces"], codeChanges: true }),
       command: ["/bin/sh", "-c", command], env: { PATH: "/usr/bin:/bin" } });
     child.stdout.resume(); child.stderr.resume(); child.stdin.end(); scope.workerStarted("voyage", child); return child;
   }

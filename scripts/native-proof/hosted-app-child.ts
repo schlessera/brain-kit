@@ -1,3 +1,5 @@
+import { traceObserverBootstrap } from "./observation-tree.js";
+import { recordingCursors, recordedWindows } from "./observation-recording.js";
 import { appendFileSync, existsSync, readFileSync, renameSync, writeFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
@@ -82,21 +84,34 @@ if (APPLY_TIMING) {
 // #2834: time every tool frame and every journal observation, without changing either.
 const OBSERVATION_TIMING = process.env.BRAIN_NATIVE_PROOF_OBSERVATION_TIMING === "1";
 if (OBSERVATION_TIMING) {
+  const captures = await import(join(source!, "packages/ui-server/src/brain/native-journal-capture.ts"));
+  const createCapture = captures.createNativeJournalCapture;
+  spyOn(captures, "createNativeJournalCapture").mockImplementation((...args: Parameters<typeof createCapture>) => {
+    const capture = createCapture(...args);
+    capture.initialize = traceObserverBootstrap(capture.initialize.bind(capture), span => event("observer_bootstrap", span));
+    return capture;
+  });
   // #3355 retention backlog: while the test holds this file, the journal's own
   // clock reads 31 days earlier, so the turns it records end past retention.
   const journals = await import(join(source!, "packages/ui-server/src/brain/turn-journal.ts"));
   const createTurnJournal = journals.createTurnJournal, backdated = join(dir!, "journal-backdated");
   // #2915: every step of every held observation, on the clock the fixture's manager stamps its spans with.
   const clock = () => performance.timeOrigin + performance.now();
-  const observationTrace = (traceKind: string, turnId: string | null, toolUseId?: string) => {
+  const observationTrace = (db: Parameters<typeof recordingCursors>[0]) => (traceKind: string, turnId: string | null, toolUseId?: string) => {
+    const observations: ReturnType<typeof recordedWindows> = [];
     const steps: { name: string; startedAt: number; endedAt: number | null }[] = [];
     return (name: string) => {
+      const before = name === "observe_record" ? recordingCursors(db) : undefined;
       const step = { name, startedAt: clock(), endedAt: null as number | null }; steps.push(step);
-      return () => { step.endedAt = clock(); if (name === "hold") event("observation_trace", { traceKind, turnId, toolUseId: toolUseId ?? null, steps }); };
+      return () => {
+        step.endedAt = clock();
+        if (before) observations.push(...recordedWindows(db, before, step.startedAt, step.endedAt));
+        if (name === "hold") event("observation_trace", { traceKind, turnId, toolUseId: toolUseId ?? null, steps, observations });
+      };
     };
   };
   spyOn(journals, "createTurnJournal").mockImplementation((...args: Parameters<typeof createTurnJournal>) =>
-    createTurnJournal(args[0], { ...(args[1] as object), now: () => Date.now() - (existsSync(backdated) ? 31 * 24 * 60 * 60 * 1000 : 0), observationTrace }));
+    createTurnJournal(args[0], { ...(args[1] as object), now: () => Date.now() - (existsSync(backdated) ? 31 * 24 * 60 * 60 * 1000 : 0), observationTrace: observationTrace(args[0] as Parameters<typeof recordingCursors>[0]) }));
   const bridges = await import(join(source!, "packages/ui-server/src/ws/bridge.ts"));
   const makeBridge = bridges.makeBridge;
   spyOn(bridges, "makeBridge").mockImplementation(async (...args: Parameters<typeof makeBridge>) => {
@@ -263,6 +278,10 @@ try {
       BRAIN_UI_TURN_TIMEOUT_MS: OBSERVATION_TIMING ? "900000" : "90000", BRAIN_UI_NATIVE_BRAIN_SOCKET: socket
     }), registry: createStaticBackendRegistry([backend], selectedBackend), observability
   });
+  if (OBSERVATION_TIMING) {
+    const { proveCodeChangeReceipts } = await import("./code-change-receipts.js");
+    await proveCodeChangeReceipts(app, event);
+  }
   const {spyOn} = await import("bun:test");
   const workerSandbox = await import(join(source!,"packages/ui-sdk/src/server/worker-sandbox.ts"));
   const scan = workerSandbox.scanForOutsideLinks;
@@ -295,7 +314,7 @@ try {
   }
   if (OBSERVATION_TIMING) {
     const journal = app.wsHost.journal, observe = journal.observe.bind(journal), ended = journal.toolEnded?.bind(journal);
-    journal.observe = async () => { const start = performance.now(); try { return await observe(); } finally { event("timeline_observe", { start, ms: performance.now() - start }); } };
+    journal.observe = async (...args: Parameters<typeof observe>) => { const start = performance.now(); try { return await observe(...args); } finally { event("timeline_observe", { start, ms: performance.now() - start }); } };
     // Every completed capture, periodic and scope-limit ones included, reports here once per active turn.
     journal.onObservation?.((turnId: string) => event("timeline_capture", { turnId, at: performance.now() }));
     if (ended) journal.toolEnded = (turnId: string, toolUseId: string) => {
@@ -318,7 +337,17 @@ try {
   const replayBegin = app.wsHost.failureReplay.begin.bind(app.wsHost.failureReplay);
   app.wsHost.failureReplay.begin = async (...args: any[]) => { const answer = await replayBegin(...args), finish = answer.finish.bind(answer); answer.finish = async (...values: any[]) => { const start = performance.now(); event("failure_replay_finish_start"); try { return await finish(...values); } finally { event("failure_replay_finish_end", { elapsedMs: performance.now() - start }); } }; return answer; };
   const principal = createPrincipal(app.db, { authMethod: "password", label: "Odysseus admission", ttlSeconds: 3600 });
-  server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: app.fetch, websocket: app.websocket });
+  let pathMatrix: Promise<unknown> | undefined;
+  server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request: Request, server: any) {
+    // Fixture-only endpoint; no product route or provider request is added.
+    if (OBSERVATION_TIMING && new URL(request.url).pathname === "/__native_observation_path_matrix") {
+      const { observationPathMatrix } = await import("./observation-path-matrix.js");
+      pathMatrix ??= observationPathMatrix(brain!, app.wsHost.journal, app.wsHost.governedTurns, event, app.wsHost.scope, principal.id, app.db);
+      const { observationMatrixResponse } = await import("./observation-hold.js");
+      try { return await observationMatrixResponse(request, server, () => pathMatrix!); } catch (error) { return Response.json({ error: String(error) }, { status: 500 }); }
+    }
+    return app.fetch(request, server);
+  }, websocket: app.websocket });
   // Published by rename: the parent polls for ready.json and then parses it.
   writeFileSync(join(dir!, "ready.json.tmp"), JSON.stringify({
     rootWarnings: observability.logs.find({severity:"WARN"}).filter((log:any)=>String(log.body).includes("runs as root")).map((log:any)=>String(log.body)),
@@ -330,7 +359,7 @@ try {
   let closing = false;
   process.on("SIGTERM", async () => {
     if (closing) return; closing = true;
-    try { server.stop(true); await app.close(); inference?.close(); egressOrigin.stop(true); event("fixture_warnings",{messages:observability.logs.records().map((log:any)=>({severity:log.severityText,body:log.body}))}); event("closed"); process.exit(0); }
+    try { server.stop(true); await pathMatrix; await app.close(); inference?.close(); egressOrigin.stop(true); event("fixture_warnings",{messages:observability.logs.records().map((log:any)=>({severity:log.severityText,body:log.body}))}); event("closed"); process.exit(0); }
     catch (error) { event("close_error", { error: String(error) }); process.exit(1); }
   });
 } catch (error) {

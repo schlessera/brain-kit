@@ -108,7 +108,87 @@ export function moveJournalTables(db: Database): number {
 }
 
 /** Derived performance state: admitted at runtime, omitted from canonical backup images. */
+/** Derived same-path lookup; installed only through physical journal admission. */
+export const JOURNAL_CHANGE_PATH_INDEX = {
+  name: "turn_journal_changes_path_sequence",
+  sql: "CREATE INDEX turn_journal_changes_path_sequence ON turn_journal_changes(turn_id,path,sequence)",
+} as const;
+
 export const JOURNAL_OBJECT_REFS_INDEX = {
   name: "turn_journal_object_refs_hash",
   sql: "CREATE INDEX turn_journal_object_refs_hash ON turn_journal_object_refs(hash)",
 } as const;
+
+
+/** Optional scrub state is created only through admitted journal writes. */
+export const JOURNAL_SCRUB_QUARANTINE = {
+  name: "turn_journal_scrub_quarantine",
+  sql: `CREATE TABLE journal.turn_journal_scrub_quarantine (
+    hash TEXT PRIMARY KEY,
+    bytes INTEGER NOT NULL CHECK (bytes >= 0),
+    state TEXT NOT NULL CHECK (state IN ('reserved','quarantined'))
+  )`,
+} as const;
+
+/** Admitted journal state; backups preserve rows and validate these exact definitions when present. */
+export const JOURNAL_CONFLICT_TABLES = [
+  { name: "turn_journal_path_peers", sql: "CREATE TABLE turn_journal_path_peers (turn_id TEXT NOT NULL REFERENCES turn_journal_turns(turn_id) ON DELETE CASCADE, path TEXT NOT NULL, peer_id TEXT NOT NULL, first_sequence INTEGER NOT NULL, after_json TEXT NOT NULL, PRIMARY KEY(turn_id,path,peer_id))" },
+  { name: "turn_journal_path_conflicts", sql: "CREATE TABLE turn_journal_path_conflicts (turn_id TEXT NOT NULL REFERENCES turn_journal_turns(turn_id) ON DELETE CASCADE, path TEXT NOT NULL, first_sequence INTEGER NOT NULL, PRIMARY KEY(turn_id,path))" },
+] as const;
+
+/** Permanent guards cover connections opened before this admitted schema exists. */
+export const JOURNAL_CONFLICT_GUARDS = JOURNAL_CONFLICT_TABLES.flatMap(table => ["INSERT", "UPDATE", "DELETE"].map(event => ({
+  name: `${table.name}_capacity_${event.toLowerCase()}`,
+  sql: `CREATE TRIGGER ${table.name}_capacity_${event.toLowerCase()} BEFORE ${event} ON ${table.name}
+    WHEN (SELECT writing FROM turn_journal_allocation WHERE id=1) IS NOT 1
+    BEGIN SELECT RAISE(ABORT, 'journal storage write outside capacity accounting'); END`,
+})));
+
+/** Protect writers whose connection predates the admitted scrub schema. */
+export const JOURNAL_SCRUB_GUARDS = ["INSERT", "UPDATE", "DELETE"].map(event => ({
+  name: `${JOURNAL_SCRUB_QUARANTINE.name}_capacity_${event.toLowerCase()}`,
+  sql: `CREATE TRIGGER ${JOURNAL_SCRUB_QUARANTINE.name}_capacity_${event.toLowerCase()} BEFORE ${event} ON ${JOURNAL_SCRUB_QUARANTINE.name}
+    WHEN (SELECT writing FROM turn_journal_allocation WHERE id=1) IS NOT 1
+    BEGIN SELECT RAISE(ABORT, 'journal storage write outside capacity accounting'); END`,
+}));
+
+/** Receipt state is installed atomically through capacity admission, only when needed. */
+export const JOURNAL_CODE_TABLES = [
+  { name: "turn_journal_code_receipts", sql: `CREATE TABLE turn_journal_code_receipts (
+  turn_id TEXT NOT NULL REFERENCES turn_journal_turns(turn_id) ON DELETE CASCADE,
+  checkout TEXT NOT NULL,
+  receipt TEXT NOT NULL,
+  pack_hash TEXT NOT NULL REFERENCES turn_journal_objects(hash),
+  PRIMARY KEY (turn_id, checkout)
+)` },
+  { name: "turn_journal_code_reverts", sql: `CREATE TABLE turn_journal_code_reverts (
+  id TEXT PRIMARY KEY,
+  principal_id TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  turn_id TEXT NOT NULL REFERENCES turn_journal_turns(turn_id) ON DELETE CASCADE,
+  checkout TEXT NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('applying','complete','unknown','failed')),
+  result TEXT,
+  pid INTEGER NOT NULL,
+  pid_start TEXT NOT NULL
+)` },
+  { name: "turn_journal_code_failures", sql: `CREATE TABLE turn_journal_code_failures (
+  turn_id TEXT NOT NULL REFERENCES turn_journal_turns(turn_id) ON DELETE CASCADE,
+  checkout TEXT NOT NULL,
+  cause TEXT NOT NULL,
+  PRIMARY KEY (turn_id, checkout)
+)` },
+] as const;
+
+/** Permanent capacity guards also cover connections opened before the tables exist. */
+export const JOURNAL_CODE_GUARDS = JOURNAL_CODE_TABLES.flatMap(table => ["INSERT", "UPDATE", "DELETE"].map(event => ({
+  name: `${table.name}_capacity_${event.toLowerCase()}`,
+  sql: `CREATE TRIGGER ${table.name}_capacity_${event.toLowerCase()} BEFORE ${event} ON ${table.name}
+    WHEN (SELECT writing FROM turn_journal_allocation WHERE id=1) IS NOT 1
+    BEGIN SELECT RAISE(ABORT, 'journal storage write outside capacity accounting'); END`,
+})));
+
+/** Do not cache absence: another connection can admit the tables at runtime. */
+export function codeReceiptTablesExist(db: Database): boolean {
+  return Boolean(db.query("SELECT 1 FROM journal.sqlite_schema WHERE type='table' AND name='turn_journal_code_receipts'").get());
+}

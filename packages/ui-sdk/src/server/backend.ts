@@ -615,6 +615,16 @@ export type { SubscriptionAuthAction } from "../protocol.js";
 
 /** @experimental Part of the `AgentBackend` seam. */
 export interface StartTurnRequest {
+  /** @internal Host-only startup observations; never serialized or sent to the provider. */
+  startupTiming?: {
+    start(name: string): () => void;
+    /** Duration from the worker's own clock, timestamped at host receipt. */
+    worker(name: string, durationMs: number): void;
+    /** A positive omitted count reports observations not retained by the SDK sampler. */
+    missing(name: string, omitted?: number): void;
+    /** First authorized inference route received, before admission and upstream dispatch. */
+    received(): void;
+  };
   /** @internal Static configured limits, snapshotted once into the session append. */
   sessionBudgetLimits?: string;
   /** @internal Actionable threshold notices, delivered only as owned new tail context. */

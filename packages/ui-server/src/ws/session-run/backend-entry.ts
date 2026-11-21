@@ -9,7 +9,7 @@ import { BudgetExceeded, BudgetUnavailable, inferenceBudgetContext, inferenceBud
 import { createSafetyCollector } from "../../governance/safety-collector.js";
 import { sessionTaint } from "../../governance/session-taint.js";
 import { withChatFiles } from "../../attachments/context.js";
-import { makeBridge, settleTurnIndex } from "../bridge.js";
+import { makeBridge, settleTurnIndex, hasPendingTurnIndex } from "../bridge.js";
 import { withLocalContext } from "../local-exchanges.js";
 import { acceptRequest } from "../recovery.js";
 import type { WsHost } from "../host.js";
@@ -99,6 +99,7 @@ export async function openTurnBridge(
     applicationPolicy: backend.brainApplicationPolicy?.({ profileId,
       ...(work?.posture === "voice" ? { posture: "voice", noGrantSurface: true, enforceAllowedTools: true } : {}) }),
     protectedPaths: governedHold ? protectedPaths(governedHold.policy.policy) : undefined,
+    workspaceReadOnly: governedHold ? !governedHold.sandbox.areas.some(area => area.name === "workspaces" && (area.mount.writable || area.mount.missing)) : undefined,
     workerProfile: governedHold ? { origin, actualProfile: heldProfile(run),
       ...(initial.profileDraftId && !resumeId && preference ? { draftId: initial.profileDraftId, preference } : {}) } : undefined,
     onUsage: budget?.observeUsage,
@@ -126,7 +127,10 @@ export async function openTurnBridge(
   }
   // A failed update is already on each application's Activity record,
   // and its paths stay queued for the next reader; the turn still ends.
-  held.settleIndex = () => settleTurnIndex(bridge).catch(() => {});
+  held.settleIndex = async () => {
+    const end = run.lifecycle?.timer("closing", { pending: hasPendingTurnIndex(bridge) })("index_settle");
+    try { await settleTurnIndex(bridge); end?.(); } catch { /* Failed flush remains queued; the step stays unended. */ }
+  };
   const fallback = governedHold?.sandbox.fallbackReason;
   if (fallback) {
     const match = /Error: (.+?) is (?:a )?(symlink|hardlinked)/.exec(fallback);
@@ -230,6 +234,7 @@ export function turnRequest(run: TurnRun, prompt: string, bridge: BackendBridge)
       : sessionTaint(governanceDb, turn.turnId, turn.sessionId ?? null) } : governedHold?.sandbox.commandPolicy;
   return {
     applicationAuthority: "server",
+    startupTiming: run.lifecycle?.startupTiming,
     ...(host.journal && governedHold ? { persistClaudeMemory: (change, save) => host.journal!.persistClaudeMemory(turn.turnId, change, save) } : {}),
     ...(governedHold?.startupView ? { workerStartupView: governedHold.startupView } : {}),
     ...(host.scope && governedHold ? { workerStarted: worker => host.scope!.workerStarted(scopeTurnId, worker) } : {}),

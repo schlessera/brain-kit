@@ -1,3 +1,4 @@
+import { withoutMessageCacheControls } from "../../../tests/helpers/provider-history.js";
 import { expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -18,7 +19,7 @@ for (const snapshot of ["snapshot-on", "snapshot-off"]) test(`resumed real Claud
     expect(JSON.stringify(first.system), "MUTABLE_TIMEOUT_OUTSIDE_APPEND").not.toContain("hard budget of about 1 minutes");
     expect(JSON.stringify(third.system), "CLAUDE_SYSTEM_BYTES_STABLE").toBe(JSON.stringify(first.system));
     // #2053 permits native cache breakpoint movement; preserve every other byte.
-    const contentBytes = (value: unknown) => JSON.stringify(value, (key, item) => key === "cache_control" ? undefined : item);
+    const contentBytes = (value: any[]) => JSON.stringify(withoutMessageCacheControls(value));
     expect(contentBytes(second.messages.slice(0, first.messages.length)), "CLAUDE_PRIOR_MESSAGES_UNCHANGED").toBe(contentBytes(first.messages));
     expect(JSON.stringify(second.messages.at(-1)), "CHANGED_DEVICE_NEW_TAIL").toContain("350px");
     expect(second.messages.at(-1).content.at(-1).text.startsWith(original[1] + "\n\n[Host context"), "OWNED_CONTEXT_FOLLOWS_ACTUAL_USER_TEXT").toBe(true);

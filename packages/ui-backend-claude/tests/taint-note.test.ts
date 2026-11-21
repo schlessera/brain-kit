@@ -18,7 +18,7 @@ async function contextText(taint: { eventId: number; source: string } | null) {
     const sandbox = { ...prepareWorkerSandbox(root, { home: join(scratch, "home") }),
       commandPolicy: { hash: null, deny: [], confirm: [], outwardAllow: [], taint: () => taint } };
     const turn = createClaudeSdkTurn({ backend: { brainPath: root }, req: { prompt: "Odysseus plans the next leg.", signal: new AbortController().signal, bridge,
-      sessionId: "voyage", workerSandbox: sandbox },
+      workerSandbox: sandbox },
       profile: { requiredEnvKeys: [], buildEnv: () => ({}) } as never, abortController: new AbortController(), allowedTools: DEFAULT_ALLOWED_TOOLS,
       confirmPatterns: [], turnLock: { acquire: () => {}, release: () => {} } as never, log: () => {} });
     for await (const message of turn.prompt as AsyncIterable<{ message: unknown }>) return JSON.stringify(message.message);
@@ -43,17 +43,19 @@ test("Claude retained safety wording stays identical in SDK options across an up
   const scratch = mkdtempSync(join(tmpdir(), "odysseus-safety-options-")), root = join(scratch, "brain");
   mkdirSync(root);
   const captured: unknown[] = [];
+  let sessionId: string | undefined;
   try {
     for (let index = 0; index < 3; index++) {
       const controller = new AbortController();
       const turn = createClaudeSdkTurn({ backend: { brainPath: root,
         systemPromptAppend: index === 0 ? "Legacy safety policy: this session stays restricted." : "Reviewed safety policy: finalized individual verdicts may restore normal." },
-        req: { prompt: "Odysseus plans the next leg.", sessionId: "voyage", signal: controller.signal,
+        req: { prompt: "Odysseus plans the next leg.", sessionId, signal: controller.signal,
           bridge: { emit() {}, requestPermission: async () => ({ behavior: "deny", message: "Odysseus declines." }) },
           workerSandbox: { ...prepareWorkerSandbox(root, { home: join(scratch, "home") }),
             commandPolicy: { hash: null, deny: [], confirm: [], outwardAllow: [], taint: () => index === 2 ? null : { eventId: 7, source: "web_fetch" } } } },
         profile: { requiredEnvKeys: [], buildEnv: () => ({}) } as never, abortController: controller,
         allowedTools: DEFAULT_ALLOWED_TOOLS, confirmPatterns: [], turnLock: { acquire() {}, release() {} } as never, log() {} });
+      sessionId ??= turn.options.sessionId;
       try { captured.push(turn.options.systemPrompt); } finally { await turn.finishWorker(); }
     }
     expect(JSON.stringify(captured[0]), "SAFETY_SDK_OPTIONS_RETAIN_LEGACY_WORDING").toContain("Legacy safety policy: this session stays restricted.");

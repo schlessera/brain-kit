@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createUiDb } from "../src/db/client.js";
@@ -161,7 +161,7 @@ test("a killed private reader owner leaves a recoverable reservation without cla
   } finally { db.close(); rmSync(root, { recursive: true, force: true }); }
 });
 
-for (const absent of [false, true]) test(`a ${absent ? "missing" : "corrupt"} published interrupted object is quarantined without poisoning other history`, async () => {
+for (const ledgerState of ["present", "pending"] as const) for (const absent of [false, true]) test(`a ${absent ? "missing" : "corrupt"} published interrupted object is quarantined without poisoning other history: ${ledgerState}`, async () => {
   const root = mkdtempSync(join(tmpdir(), "journal-quarantine-odysseus-")), path = join(root, "ui.db");
   const db = createUiDb(path), ledger = createJournalAccounting(db, path), objects = createJournalObjects(join(root, "objects"), ledger);
   try {
@@ -172,14 +172,16 @@ for (const absent of [false, true]) test(`a ${absent ? "missing" : "corrupt"} pu
         db.query("INSERT INTO turn_journal_object_refs VALUES (?,?)").run(id, hash);
         db.query("INSERT INTO turn_journal_changes (turn_id,sequence,path,scope,before_json) VALUES (?,1,?,'brain',?)").run(id, `notes/${id}.md`, JSON.stringify({kind:"file",hash,bytes}));
       }
+      db.query("UPDATE turn_journal_objects SET state=? WHERE hash=?").run(ledgerState, bad);
       db.query("INSERT INTO turn_journal_reservations (id,bytes,pid,pid_start,created_at,hash) VALUES (?,8,?,'gone',0,?)").run(crypto.randomUUID(), process.pid, bad);
     });
     if (absent) rmSync(join(root,"objects",bad)); else writeFileSync(join(root, "objects", bad), "damaged!");
     expect(() => ledger.recover(objects), "JOURNAL_CORRUPT_OBJECT_DOES_NOT_REFUSE_BOOT").not.toThrow();
+    expect(db.query("SELECT hash FROM turn_journal_object_quarantine").all(), "PUBLISHED_ABSENT_OR_CORRUPT_BYTES_STILL_QUARANTINE").toEqual([{hash:bad}]);
     expect(db.query("SELECT * FROM turn_journal_reservations").all()).toEqual([]);
     expect(db.query("SELECT turn_id,state FROM turn_journal_turns ORDER BY turn_id").all()).toEqual([
       {turn_id:"athena",state:"complete"},{turn_id:"odysseus",state:"partial"},{turn_id:"penelope",state:"partial"}]);
-    expect(db.query("SELECT hash FROM turn_journal_object_quarantine").all()).toEqual([{hash:bad}]);
+
     expect(() => ledger.openRead(bad), "JOURNAL_QUARANTINE_DENIES_RESTORE").toThrow("quarantined");
     const lease = ledger.openRead(good);
     expect(objects.read(good, 6), "JOURNAL_UNRELATED_VERSION_RESTORES").toEqual(Buffer.from("Athena")); ledger.releaseRead(lease);
@@ -260,4 +262,91 @@ test("a damaged stored recovery cause is replaced by the current cause instead o
       expect(db.query("SELECT bytes FROM turn_journal_reservations").get(), "JOURNAL_DAMAGED_CAUSE_KEEPS_CHARGE").toEqual({bytes:8});
     }
   } finally {db.close();rmSync(root,{recursive:true,force:true});}
+});
+
+for(const kind of ["copy","temporary"])test(`pending-file fsync failure in ${kind} recovery is local, durable and retryable`,async()=>{
+ const fs=await import("node:fs"),{spyOn}=await import("bun:test");
+ const root=mkdtempSync(join(tmpdir(),"odysseus-recovery-sync-")),db=createUiDb(":memory:"),ledger=createJournalAccounting(db,":memory:"),objects=createJournalObjects(join(root,"objects"),ledger);
+ try {
+  const hash="a".repeat(64),held=kind==="copy"?await ledger.reserve(8,hash):ledger.reserveTemporary(8);
+  ledger.write(()=>db.query("UPDATE turn_journal_reservations SET pid_start='gone' WHERE id=?").run(held.id!));
+  writeFileSync(join(root,"objects",`pending-${held.id}`),"Odysseus");
+  const sync=spyOn(fs,"fsyncSync").mockImplementation(()=>{throw Error("Ithaca recovery directory sync refused");});
+  let report!:ReturnType<typeof ledger.recover>;
+  try {
+   expect(()=>{report=ledger.recover(objects);},"RECOVERY_SYNC_FAILURE_IS_LOCAL").not.toThrow();
+   expect(report,"RECOVERY_SYNC_FAILURE_IS_LOCAL").toMatchObject({unresolvedRecords:1,firstCause:{reservationId:held.id,errorClass:"Error",message:"Ithaca recovery directory sync refused",hash:kind==="copy"?hash:""}});
+   const row=db.query("SELECT recovery_failure FROM turn_journal_reservations WHERE id=?").get(held.id!) as {recovery_failure:string};expect(JSON.parse(row.recovery_failure),"RECOVERY_SYNC_CAUSE_IS_DURABLE").toEqual(report.firstCause);
+   const other=await ledger.reserve(2,"b".repeat(64));other.cancel();
+   expect(ledger.recover(objects),"RECOVERY_RETRIES_MISSING_PENDING_BARRIER").toEqual(report);
+  }finally{sync.mockRestore();}
+  expect(ledger.recover(objects),"RECOVERY_SYNC_TRANSIENT_RESOLVES").toEqual({unresolvedRecords:0,firstCause:null});
+ }finally{objects.close();db.close();rmSync(root,{recursive:true,force:true});}
+});
+
+test("recovery removes the dead producer's pending hardlink before validating the published inode",()=>{
+ const root=mkdtempSync(join(tmpdir(),"odysseus-recovery-hardlink-")),path=join(root,"ui.db"),db=createUiDb(path);
+ const modules=["../src/db/client.ts","../src/brain/journal-accounting.ts"].map(path=>new URL(path,import.meta.url).pathname);
+ const child=`
+ import {createUiDb} from ${JSON.stringify(modules[0])};import {createJournalAccounting} from ${JSON.stringify(modules[1])};
+ import {createHash} from "node:crypto";import {mkdirSync,writeFileSync,linkSync,openSync,fsyncSync,closeSync} from "node:fs";
+ const root=process.argv[1],db=createUiDb(root+"/ui.db"),ledger=createJournalAccounting(db,root+"/ui.db");
+ const bytes=Buffer.from("Ithaca"),hash=createHash("sha256").update(bytes).digest("hex"),held=ledger.reserve(bytes.length,hash);
+ mkdirSync(root+"/objects",{mode:0o700});const pending=root+"/objects/pending-"+held.id;
+ writeFileSync(pending,bytes);const fd=openSync(pending,"r");fsyncSync(fd);closeSync(fd);
+ linkSync(pending,root+"/objects/"+hash);
+ // This is the publication crash window: durable charge and two names for
+ // one valid inode, before the normal pending unlink and finish transaction.
+ process.kill(process.pid,"SIGKILL");`;
+ let objects:ReturnType<typeof createJournalObjects>|undefined;
+ try {
+  const killed=Bun.spawnSync([process.execPath,"--no-env-file","-e",child,root],{env:{PATH:"/usr/bin:/bin"},stdout:"pipe",stderr:"pipe"});
+  expect(killed.signalCode,killed.stderr.toString()).toBe("SIGKILL");
+  const row=db.query("SELECT id,hash FROM turn_journal_reservations").get() as {id:string;hash:string};
+  expect(statSync(join(root,"objects",row.hash)).nlink).toBe(2);
+  const ledger=createJournalAccounting(db,path);objects=createJournalObjects(join(root,"objects"),ledger);
+  expect(ledger.recover(objects),"RECOVERY_PENDING_ALIAS_RESOLVES").toEqual({unresolvedRecords:0,firstCause:null});
+  expect(statSync(join(root,"objects",row.hash)).nlink).toBe(1);
+  expect(db.query("SELECT count(*) AS n FROM turn_journal_reservations").get()).toEqual({n:0});
+  expect(objects.read(row.hash,6),"RECOVERY_HARDLINK_WINDOW_PRESERVES_BYTES").toEqual(Buffer.from("Ithaca"));
+ }finally{objects?.close();db.close();rmSync(root,{recursive:true,force:true});}
+});
+
+test("recovery releases a dead over-cap copy charge and intent pins before boot", async () => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-recovery-charge-")), path = join(root, "ui.db"), db = createUiDb(path);
+  const original = createJournalAccounting(db, path), store = createJournalObjects(join(root, "objects"), original), hash = "a".repeat(64), bytes = 4 * 1024 * 1024;
+  const brain = join(root, "brain"); mkdirSync(brain);
+  const { createNativeJournalFixture } = await import("./helpers/native-journal-fixture.js"), { createTurnJournal } = await import("../src/brain/turn-journal.js");
+  const native = createNativeJournalFixture(brain, root); let journal: ReturnType<typeof createTurnJournal> | undefined;
+  try {
+    original.write(() => db.query("INSERT INTO turn_journal_turns(turn_id,actor,profile,started_at,state,pid,pid_start) VALUES ('voyage','interactive','governed',0,'recording',2147483647,'dead')").run());
+    original.reserveBatch([{ hash, bytes, turnIds: ["voyage"] }]);
+    original.write(() => db.query("UPDATE turn_journal_reservations SET pid=2147483647,pid_start='dead'").run());
+    const bounded = createJournalAccounting(db, path, { capBytes: original.usage() - bytes + 512 * 1024 });
+    expect(() => bounded.write(() => {}), "DEAD_RESERVATION_ALONE_EXCEEDS_CURRENT_CAP").toThrow(JournalCapacityError);
+    journal = createTurnJournal(db, { brainPath: brain, dbPath: path, objectsRoot: join(root, "objects"), capBytes: original.usage() - bytes + 512 * 1024, nativeManager: native.manager });
+    await expect(journal.ready, "INTENT_ONLY_OVER_CAP_RESERVATION_CANNOT_BLOCK_BOOT").resolves.toBeUndefined();
+    expect(bounded.recover(store), "DEAD_COPY_RECOVERY_RELEASES_CHARGE_ATOMICALLY").toEqual({ unresolvedRecords: 0, firstCause: null });
+    expect(db.query("SELECT count(*) AS n FROM turn_journal_object_refs").get(), "UNPUBLISHED_INTENT_PINS_ARE_RELEASED_ATOMICALLY").toEqual({ n: 0 });
+    expect(db.query("SELECT count(*) AS n FROM turn_journal_object_quarantine").get(), "UNPUBLISHED_OVER_CAP_INTENT_IS_NOT_CORRUPTION").toEqual({ n: 0 });
+    expect(db.query("SELECT count(*) AS n FROM turn_journal_reservations").get(), "DEAD_COPY_CHARGE_REMOVED").toEqual({ n: 0 });
+    expect(db.query("SELECT count(*) AS n FROM turn_journal_objects WHERE hash=?").get(hash)).toEqual({ n: 0 });
+  } finally { await journal?.close(); await native.close(); store.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test("late admitted conflict guards protect a main connection that was already open", () => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-late-conflict-")), path = join(root, "ui.db"), main = createUiDb(path), other = createUiDb(path);
+  const readerLedger = createJournalAccounting(main, path), writer = createJournalAccounting(other, path);
+  try {
+    readerLedger.write(() => main.query("INSERT INTO turn_journal_turns(turn_id,actor,profile,started_at,state) VALUES ('voyage','interactive','governed',0,'recording')").run());
+    expect(() => createJournalAccounting(other, path, { capBytes: 0 }).ensureConflictTables()).toThrow(JournalCapacityError);
+    expect(main.query("SELECT 1 FROM journal.sqlite_schema WHERE name='turn_journal_path_conflicts'").get()).toBeNull();
+    expect(writer.ensureConflictTables()).toBe(true);
+    const insert = () => main.query("INSERT INTO turn_journal_path_conflicts VALUES ('voyage','notes/ithaca.md',1)").run();
+    expect(insert, "LATE_CONFLICT_TABLE_REJECTS_UNACCOUNTED_MAIN_INSERT").toThrow("outside capacity accounting");
+    writer.write(() => other.query("INSERT INTO turn_journal_path_conflicts VALUES ('voyage','notes/ithaca.md',1)").run());
+    expect(() => main.query("UPDATE turn_journal_path_conflicts SET first_sequence=2").run(), "LATE_CONFLICT_TABLE_REJECTS_UNACCOUNTED_MAIN_UPDATE").toThrow("outside capacity accounting");
+    expect(() => main.query("DELETE FROM turn_journal_path_conflicts").run(), "LATE_CONFLICT_TABLE_REJECTS_UNACCOUNTED_MAIN_DELETE").toThrow("outside capacity accounting");
+    expect(main.query("SELECT first_sequence FROM turn_journal_path_conflicts").get()).toEqual({ first_sequence: 1 });
+  } finally { other.close(); main.close(); rmSync(root, { recursive: true, force: true }); }
 });

@@ -146,8 +146,8 @@ export function workerCgroupHostFailed(reason: string): void {
 
 export interface WorkerCgroup {
   path: string;
-  freeze(): void;
-  resume(): void;
+  freeze(): boolean | void;
+  resume(): boolean | void;
   /** Limits written to this cgroup, by name. */
   applied: Array<{ limit: "memory" | "pids" | "cpu"; value: number }>;
   /** What the kernel recorded against those limits so far. */
@@ -207,8 +207,9 @@ export function createWorkerCgroup(host: Extract<WorkerCgroupHost, { available: 
         if (Date.now() >= deadline) throw new Error("Worker cgroup did not confirm its frozen state");
         Bun.sleepSync(1);
       }
+      return true;
     },
-    resume() { writeFileSync(join(path, "cgroup.freeze"), "0"); },
+    resume() { writeFileSync(join(path, "cgroup.freeze"), "0"); return true; },
     applied,
     hits() {
       const out: WorkerLimitHit[] = [];

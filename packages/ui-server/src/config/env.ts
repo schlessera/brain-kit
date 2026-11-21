@@ -92,7 +92,13 @@ export interface EnvVarDescriptor {
  * The env-parity gate (G4) asserts this list equals the package's env
  * documentation in both directions — add here and to the docs together.
  */
+/** Optional host build token. Invalid input is unknown, never guessed. */
+export function parseBuildRevision(raw: string | undefined): string | undefined {
+  return raw !== undefined && /^[A-Za-z0-9._+-]{1,64}$/.test(raw) ? raw : undefined;
+}
+
 export const ENV_VARS: readonly EnvVarDescriptor[] = [
+  { name: "BRAIN_UI_BUILD_REVISION", description: "Optional build revision token, 1–64 ASCII letters, digits, dot, underscore, plus or hyphen. Invalid values are absent.", default: null, required: false },
   { name: "BRAIN_UI_STORAGE_BACKUP_ROOTS", description: "JSON array of at most four absolute operator-approved local backup directories. Metadata only; no remote stores or automatic cleanup.", default: "[]", required: false },
   { name: "BRAIN_UI_STORAGE_GIT_ROOTS", description: "JSON array of at most sixteen absolute approved external Git directories for human-only Storage inventory.", default: "[]", required: false },
   { name: "BRAIN_WORKER_DATA_ROOT", description: "Internal application-maintenance output root supplied by the trusted launch. Not an operator configuration input.", default: "unset outside maintenance", required: false },
@@ -966,6 +972,7 @@ export interface ServerConfig {
   /** Bind host, for the loopback check in auth validation. Empty when unset. */
   host: string;
   sourceCommit: string;
+  buildRevision?: string;
   allowedOrigins: string[];
   maxConcurrentSessions: number;
   /** The host attachment pool in bytes (BRAIN_UI_ATTACHMENT_POOL_BYTES, #3153). */
@@ -1249,6 +1256,7 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
     schedules: { inferenceOrigins: scheduleInferenceOrigins(env.BRAIN_UI_SCHEDULE_INFERENCE_ORIGINS) },
     cliProviderOrigins: parseCliProviderOrigins(env.BRAIN_UI_CLI_PROVIDER_ORIGINS),
     host: env.HOST ?? "",
+    buildRevision: parseBuildRevision(env.BRAIN_UI_BUILD_REVISION),
     sourceCommit: env.SOURCE_COMMIT ?? "dev",
     allowedOrigins: list(env.ALLOWED_ORIGINS),
     maxConcurrentSessions,

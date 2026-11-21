@@ -22,6 +22,89 @@ import { defineProfiles } from "../src/profiles";
 
 type Gen = (options: Options) => AsyncGenerator<unknown>;
 
+for (const observed of [false, true]) {
+  for (const malformed of ["absent", "null", "non-array", "null-entry", "throwing-list", "throwing-name"] as const) {
+    test(`malformed MCP diagnostics (${malformed}, observer=${observed}) never fail a usable Claude stream`, async () => {
+      const missing: string[] = []; let diagnosticReads = 0;
+      const backend = createClaudeBackend({ brainPath: "/tmp/odyssey", queryFn: makeQueryFn(async function* () {
+        const init: Record<string, unknown> = { type: "system", subtype: "init", session_id: "ithaca", model: "odyssey", tools: [] };
+        if (malformed === "absent") { /* The SDK supplied no list. */ }
+        else if (malformed === "null") init.mcp_servers = null;
+        else if (malformed === "non-array") init.mcp_servers = {};
+        else if (malformed === "null-entry") init.mcp_servers = [null, { name: "ithaca", status: "connected" }];
+        else if (malformed === "throwing-list") Object.defineProperty(init, "mcp_servers", { get() { throw Error("Ithaca diagnostic list unavailable"); } });
+        else init.mcp_servers = [{ get name() { throw Error("Ithaca diagnostic name unavailable"); } }];
+        yield new Proxy(init, { get(target, key, receiver) {
+          if (key === "mcp_servers") diagnosticReads++;
+          return Reflect.get(target, key, receiver);
+        } });
+        yield { type: "result", subtype: "success", session_id: "ithaca", duration_ms: 1, num_turns: 1, total_cost_usd: 0, usage: {} };
+      }) });
+      const { bridge, frames } = makeBridge();
+      await backend.startTurn(makeReq(bridge, new AbortController().signal, observed ? { startupTiming: {
+        start: () => () => {}, missing: name => { missing.push(name); }, worker() {}, received() {},
+      } } : {}));
+      expect(frames.at(-1), "MALFORMED_MCP_DIAGNOSTICS_CANNOT_FAIL_TURN").toMatchObject({ type: "result", isError: false });
+      expect(frames.filter(frame => frame.type === "session_info")).toHaveLength(1);
+      if (observed) expect(missing, "MCP_DIAGNOSTIC_OMISSIONS_ARE_EXPLICIT").toContain("mcp_connect:additional_servers_omitted");
+      expect(diagnosticReads, "NO_OBSERVER_DOES_NOT_READ_MCP_DIAGNOSTICS").toBe(observed ? 1 : 0);
+    });
+  }
+}
+
+test("an observed empty MCP list stays distinct from an unavailable list", async () => {
+  const missing: string[] = [];
+  const backend = createClaudeBackend({ brainPath: "/tmp/odyssey", queryFn: makeQueryFn(async function* () {
+    yield { type: "system", subtype: "init", session_id: "ithaca", model: "odyssey", tools: [], mcp_servers: [] };
+    yield { type: "result", subtype: "success", session_id: "ithaca", duration_ms: 1, num_turns: 1, total_cost_usd: 0, usage: {} };
+  }) });
+  const { bridge, frames } = makeBridge();
+  await backend.startTurn(makeReq(bridge, new AbortController().signal, { startupTiming: {
+    start: () => () => {}, missing: name => { missing.push(name); }, worker() {}, received() {},
+  } }));
+  expect(frames.at(-1)).toMatchObject({ type: "result", isError: false });
+  expect(missing, "OBSERVED_EMPTY_MCP_LIST_IS_KNOWN").toEqual(["first_enqueue", "prompt_recorded", "mcp_connect:brain-ui"]);
+});
+
+test("Claude collects a bounded MCP name sample only from the first initialization frame", async () => {
+  const missing: string[] = [], omittedCounts: number[] = []; let nameReads = 0;
+  const servers = Array.from({ length: 1000 }, (_, index) => ({ get name() { nameReads++; return index === 0 ? "🦉".repeat(80) : `ithaca-server-${index}`; }, status: "connected" }));
+  const backend = createClaudeBackend({ brainPath: "/tmp/odyssey", queryFn: makeQueryFn(async function* () {
+    yield { type: "system", subtype: "init", session_id: "ithaca", model: "odyssey", tools: [], mcp_servers: servers };
+    for (let i = 0; i < 100; i++) yield { type: "system", subtype: "init", session_id: "ithaca", model: "odyssey", tools: [], mcp_servers: [{ name: `ithaca-late-server-${i}`, status: "connected" }] };
+    yield { type: "result", subtype: "success", session_id: "ithaca", duration_ms: 1, num_turns: 1, total_cost_usd: 0, usage: {} };
+  }) });
+  const { bridge, frames } = makeBridge();
+  await backend.startTurn(makeReq(bridge, new AbortController().signal, { startupTiming: {
+    start: () => () => {}, missing: (name, omitted) => { missing.push(name); if (omitted !== undefined) omittedCounts.push(omitted); }, worker() {}, received() {},
+  } }));
+  expect(frames.at(-1)).toMatchObject({ type: "result", isError: false });
+  expect(nameReads, "CLAUDE_MCP_SAMPLER_READS_AT_MOST_EIGHT_NAMES").toBe(8);
+  expect(missing.length, "CLAUDE_MCP_NAMES_ARE_BOUNDED").toBeLessThanOrEqual(12);
+  const sampled = missing.filter(name => name.startsWith("mcp_connect:ithaca-server-"));
+  expect(sampled.length).toBeLessThanOrEqual(8);
+  expect(Buffer.byteLength(JSON.stringify(sampled)), "CLAUDE_MCP_BYTES_ARE_BOUNDED").toBeLessThanOrEqual(192);
+  expect(sampled.length + omittedCounts.reduce((sum, count) => sum + count, 0), "CLAUDE_MCP_OMITTED_COUNT_IS_EXACT").toBe(1000);
+  expect(missing).toContain("mcp_connect:additional_servers_omitted");
+  expect(missing.filter(name => Buffer.byteLength(name) > 256)).toEqual([]);
+  expect(missing).not.toContain("mcp_connect:ithaca-late-server-99");
+});
+
+test("Claude startup records its host probe and names unavailable SDK and per-server clocks", async () => {
+  const completed: string[] = [], missing: string[] = [];
+  const backend = createClaudeBackend({ brainPath: "/tmp/odyssey", queryFn: makeQueryFn(async function* () {
+    yield { type: "system", subtype: "init", session_id: "ithaca", model: "odyssey", tools: [], mcp_servers: [{ name: "brain", status: "connected" }] };
+    yield { type: "result", subtype: "success", session_id: "ithaca", duration_ms: 1, num_turns: 1, total_cost_usd: 0, usage: {} };
+  }) });
+  const { bridge, frames } = makeBridge();
+  await backend.startTurn(makeReq(bridge, new AbortController().signal, { startupTiming: {
+    start: name => () => { completed.push(name); }, missing: name => { missing.push(name); }, worker() {}, received() {},
+  } }));
+  expect(frames.at(-1)).toMatchObject({ type: "result", isError: false });
+  expect(completed, "CLAUDE_HOST_STARTUP_TIMING").toEqual(["host_probe"]);
+  expect(missing, "CLAUDE_MISSING_SDK_MARKS_ARE_EXPLICIT").toEqual(["first_enqueue", "prompt_recorded", "mcp_connect:brain-ui", "mcp_connect:brain"]);
+});
+
 test("configured live guidance selects personal/capture sections without copying host instructions", () => {
   const backend = createClaudeBackend({ brainPath: "/tmp/odyssey", systemPromptAppend: "# Personal Rules\nGive Odysseus short answers.\n# Capture policy\nAsk before saving preferences.\n# Turn lifecycle\nHOST_ONLY_EXECUTION\n# Response surface\nHOST_ONLY_RENDERING\n" });
   expect(backend.conversationGuidance).toEqual([
@@ -1472,7 +1555,7 @@ describe("turn budget in the current tail", () => {
       captured = params.options!;
       return {
         initializationResult: async () => ({ account: { tokenSource: "CLAUDE_CODE_OAUTH_TOKEN", apiProvider: "firstParty" } }),
-        getSettings: async () => ({ effective: {}, sources: [] }),
+        getSettings: async () => ({ effective: { env: { ENABLE_TOOL_SEARCH: "false" } }, sources: [] }),
         async *[Symbol.asyncIterator]() {
         if (typeof params.prompt === "string") promptText = params.prompt;
         else { const first = await params.prompt[Symbol.asyncIterator]().next(); if (!first.done) promptText = JSON.stringify(first.value.message.content); }

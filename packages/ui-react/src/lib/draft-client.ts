@@ -48,6 +48,7 @@ const UNCORRELATED = ["RATE_LIMITED", "PARSE_ERROR", "INTERNAL_ERROR"];
 
 interface DraftClientOptions {
   send: (msg: ClientMessage) => boolean;
+  noteTurnSend?: (requestId: string) => void;
   api?: DraftApi;
 }
 
@@ -771,6 +772,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       const held = store.sends[requestId];
       if (!held || held.state !== "unconfirmed") return false;
       if (held.sessionId === null) openOwnNewChat(held);
+      options.noteTurnSend?.(nextRequestId);
       const next = drafts.getState().resend(requestId, nextRequestId);
       if (!next) return false;
       // The session's tracker waits on the request now sent, not the one replaced.
@@ -850,6 +852,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       if (!send?.snapshotId || send.state !== "unconfirmed") return false;
       const draftId = store.sendDraftId(requestId) ?? send.draftId;
       const nextRequestId = crypto.randomUUID();
+      options.noteTurnSend?.(nextRequestId);
       const { draftRef: _r, attachmentRefs: _a, ...template } = send.message;
       store.resendSnapshot(draftId, send.snapshotId, { snapshotId: crypto.randomUUID(), requestId: nextRequestId, message: { ...template, requestId: nextRequestId } });
       root.stores.trackers.setState((s) => {
@@ -909,6 +912,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       const d = drafts.getState().drafts[draftId];
       const s = d && draftSnapshots(d).find((x) => x.snapshotId === snapshotId);
       if (!d || !s || s.state !== "held" || !s.paused) return;
+      options.noteTurnSend?.(s.requestId);
       drafts.getState().patchSnapshot(draftId, snapshotId, { paused: false, state: "dispatched", dispatch: "due", message: s.message ?? frameFor(d, s) });
       schedule(draftId, 0);
     },

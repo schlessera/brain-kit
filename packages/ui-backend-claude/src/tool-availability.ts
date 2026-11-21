@@ -22,7 +22,7 @@ const interactive = new Set(["propose_policy_change", "inbox_add", "resolve_acti
   GITHUB_TOOL_NAMES.create, GITHUB_TOOL_NAMES.comment]);
 
 /** Registration is stable; these live facts are authority only at call time. */
-export function toolAvailabilityRefusal(req: StartTurnRequest, toolName: string): string | undefined {
+export function toolAvailabilityRefusal(req: StartTurnRequest, toolName: string, _input?: unknown, _cwd?: string): string | undefined {
   if (req.autonomous) return undefined;
   const name = toolName.replace(/^mcp__brain-ui__/, "");
   if (["Write", "Edit", "NotebookEdit"].includes(name)

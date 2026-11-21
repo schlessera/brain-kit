@@ -14,7 +14,7 @@ import { createActivityStore, MAX_EVENT_PAYLOAD_BYTES, type ActivityStore, type 
 
 export const url = import.meta.url;
 
-export const ACTIVITY_WRITE_METHODS = ["writeLifecycle", "startSpan", "endSpan", "patchSpan", "appendEvent", "heartbeat",
+export const ACTIVITY_WRITE_METHODS = ["writeClientReceipt", "writeLifecycle", "startSpan", "endSpan", "patchSpan", "appendEvent", "heartbeat",
   "cascadeClose", "sweepOwnOrphans", "sweepStale", "rollupRun", "prune"] as const satisfies readonly ActivityWriteMethod[];
 
 /** The app's pricing configuration; the worker prices rollups from the same cache and snapshot. */

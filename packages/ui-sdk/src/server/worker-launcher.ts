@@ -12,7 +12,7 @@ import { BackendRequestError } from "./backend.js";
 import { createWorkerFreezer } from "./worker-freezer.js";
 import { createWorkerFileObserver, type ObservedWorkerFile } from "./worker-file-observer.js";
 import { createWorkerPipes, createWorkerPipesSteps } from "./worker-pipes.js";
-import { runWorkerStepsAsync, runWorkerStepsSync, workerStepSleep, workerStepSpawn, type WorkerSteps } from "./worker-steps.js";
+import { runWorkerStepsAsync, runWorkerStepsSync, workerStep, workerStepSleep, workerStepSpawn, type WorkerSteps } from "./worker-steps.js";
 import { hostOutputStagingLimits, DEFAULT_MAINTENANCE_TEMP_BYTES, type WorkerStateLimits, validWorkerStateBytes } from "./worker-state-limits.js";
 import { WORKER_INFERENCE_DIR } from "./inference-relay.js";
 import { WORKER_EGRESS_DIR } from "./egress-proxy.js";
@@ -640,9 +640,20 @@ export function workerCommand(input: WorkerLaunch): string[] {
     if (!within(TURN_TEMP_ROOT, scratch) || scratch === TURN_TEMP_ROOT) throw new WorkerHostError("maintenance scratch must be inside its size-limited /tmp");
   }
   const sized = tempBytes !== undefined;
-  const dataTree = !maintenance && !transport ? input.sandbox?.dataTree : undefined;
+  const requestedDataTree = !maintenance && !transport ? input.sandbox?.dataTree : undefined;
+  // Both mask owners apply at the new read alias, even for a direct caller
+  // whose copied-tree descriptor omits the provider mask list.
+  const dataTree = requestedDataTree && input.sandbox?.providerMasks ? { ...requestedDataTree,
+    masked: [...new Set([...(requestedDataTree.masked ?? []), ...input.sandbox.providerMasks.folders])] } : requestedDataTree;
   if (input.sandbox?.dataTree && (maintenance || transport || workerProfile(input.sandbox) === "governed" || !input.startupView))
     throw new WorkerHostError("a turn data tree belongs only to a worker on an immutable startup view");
+  let workspaceSource: string | undefined;
+  if (dataTree && input.startupView && input.sandbox?.areas.some(area => area.name === "workspaces" && !area.mount.writable && area.mount.readOnlyPath)) {
+    const sealed = resolveWorkspacesMount(input.startupView.root);
+    if (sealed.writable || !sealed.readOnlyPath || sealed.readOnlyPath !== join(input.startupView.root, "workspaces"))
+      throw new WorkerHostError("The immutable workspace source is absent or unqualified; retry admission with a refreshed checkpoint.");
+    workspaceSource = sealed.readOnlyPath;
+  }
   const emptyHome = !input.restricted && input.env.HOME === WORKER_EMPTY_HOME;
   const reservedRuntimePaths = ["/proc", "/dev", scratch, WORKER_STATE, ...(emptyHome ? [WORKER_EMPTY_HOME] : []), WORKER_AREA_ROOT, WORKER_DATA_ROOT, WORKER_WORKTREE_ROOT, WORKER_REFERENCE_ROOT, WORKER_XDG_HOME, WORKER_INFERENCE_DIR, WORKER_EGRESS_DIR, WORKER_PROVIDER_RELAY_DIR, WORKER_MODULE_GITHUB_DIR,
     MAINTENANCE_HOME, ...Object.values(MAINTENANCE_XDG_DIRS), "/tmp/brain-maintenance-output",
@@ -656,6 +667,14 @@ export function workerCommand(input: WorkerLaunch): string[] {
     validateRuntimePlacement(path, reservedRuntimePaths);
   }
   const writable = sandboxMounts(input, brain, scratch, input.stateBytes !== undefined ? WORKER_STATE : undefined);
+  // A strict writer has a second alias for every staged writable area. Repeat
+  // folder masks there too, including a mask that covers the whole area.
+  const stagedProviderMaskRoots = input.areaOutput && input.sandbox && workerProfile(input.sandbox) === "strict"
+    ? [...new Set(input.sandbox.areas.filter(area => area.mount.writable).flatMap(area => {
+      const target = `${WORKER_AREA_ROOT}/${area.name}`;
+      return (input.sandbox?.providerMasks?.folders ?? []).flatMap(folder => isWithin(folder, area.rel) ? [target]
+        : isWithin(area.rel, folder) ? [join(target, folder.slice(area.rel.length + 1))] : []);
+    }))].filter((path, _at, roots) => !roots.some(other => other !== path && isWithin(other, path))) : [];
   const runtimeViewMounts = [
     ...(input.restricted ? restrictedMounts(input.restricted, brain) : []),
     ...(transport ? transportMounts(transport, brain) : maintenance ? maintenanceMounts(maintenance, brain) : input.sandbox?.profile ? maintenanceMounts({
@@ -700,24 +719,40 @@ export function workerCommand(input: WorkerLaunch): string[] {
       }),
     ] : []),
     ...(sized ? ["--dir", scratch] : ["--tmpfs", scratch]), ...writable.binds,
-    ...(input.sandbox?.profile === "governed" && input.sandbox.protection ? protectedWorkerMounts(brain, input.sandbox.protection, input.sandbox.retainedFolders) : []),
+    ...writable.readOnlyBinds,
+    // Workspace ancestor pins stay read-only; quarantine child masks come last.
+    ...(input.sandbox?.profile === "governed" && input.sandbox.protection ? protectedWorkerMounts(brain, input.sandbox.protection, input.sandbox.retainedFolders,
+      writable.workspaceReadOnly ? ["workspaces"] : []) : []),
     ...(input.sandbox?.providerMasks && !maintenance && !transport
       ? providerMaskMounts(brain, input.startupView?.root ?? brain, input.sandbox.providerMasks) : []),
+    ...stagedProviderMaskRoots.flatMap(path => ["--tmpfs", path, "--remount-ro", path]),
     // The turn's data tree: brain tools read documents and the index there,
     // configuration from the frozen view above (#2848).
-    ...(dataTree ? dataTreeMounts(brain, WORKER_DATA_ROOT, dataTree) : []),
+    ...(dataTree ? dataTreeMounts(brain, WORKER_DATA_ROOT, dataTree, workspaceSource) : []),
     "--clearenv"];
   // Last: neither a complete view nor a protected-path bind may restore a
   // secret over an earlier mask. The masks are about reads, not writes.
   if (!maintenance) {
     const clear = argv.pop();
-    const copies = input.areaOutput && input.sandbox?.profile === "strict"
+    const copies = input.areaOutput && input.sandbox && workerProfile(input.sandbox) === "strict"
       ? input.sandbox.areas.filter(area => area.mount.writable).map(area => ({ from: join(brain, area.rel), to: `${WORKER_AREA_ROOT}/${area.name}` })) : [];
+    if (workspaceSource) copies.push({ from: join(brain, "workspaces"), to: join(WORKER_DATA_ROOT, "workspaces") });
     // An agent worker's host view covers the host files too (#4259); a restricted or transport root has none of them.
     const hostFiles = input.restricted || transport ? [] : HOST_FILE_MASKS.flatMap(path => {
       try { return statSync(path).isFile() ? ["--ro-bind", "/dev/null", path] : []; } catch { return []; }
     });
-    argv.push(...maintenanceEnvMasks(input.startupView?.root ?? brain, brain, copies), ...hostFiles, clear!);
+    const envMasks = maintenanceEnvMasks(input.startupView?.root ?? brain, brain, copies);
+    const hidden = [...stagedProviderMaskRoots, ...(input.sandbox?.providerMasks?.folders ?? []).map(rel => join(brain, rel)),
+      ...(dataTree?.masked ?? []).map(rel => join(WORKER_DATA_ROOT, rel))];
+    // A provider mask already hides the target. Do not create a secret-mask
+    // mountpoint inside its empty read-only tree; every other alias is masked.
+    for (let at = 0; at < envMasks.length;) {
+      const directory = envMasks[at] === "--tmpfs", count = directory ? 4 : 3;
+      const target = envMasks[at + (directory ? 1 : 2)]!;
+      if (!hidden.some(root => isWithin(root, target))) argv.push(...envMasks.slice(at, at + count));
+      at += count;
+    }
+    argv.push(...hostFiles, clear!);
   }
 
   // A private tmpfs of exactly the allowance. Nothing on the host backs it,
@@ -879,7 +914,7 @@ const gated = (input: Pick<WorkerLaunch, "stateBytes" | "turnTempBytes">) => inp
  * `home` input does not select or validate it.
  */
 function sandboxMounts(input: WorkerLaunch, brain: string, scratch: string, state: string | undefined) {
-  const out = { binds: [] as string[], env: [] as string[] };
+  const out = { binds: [] as string[], readOnlyBinds: [] as string[], env: [] as string[], workspaceReadOnly: false };
   const sandbox = input.sandbox;
   if (!sandbox) return out;
   if (sandbox.brain !== brain || sandbox.restricted !== Boolean(input.restricted)) {
@@ -888,10 +923,27 @@ function sandboxMounts(input: WorkerLaunch, brain: string, scratch: string, stat
   if (sandbox.restricted && (sandbox.areas.length || sandbox.home)) {
     throw new WorkerHostError("a restricted worker has no writable areas or home");
   }
-  for (const { name, rel, mount } of sandbox.areas) {
+  // Direct callers must receive the same sealing as resolver-produced plans.
+  const areas = sandbox.profile === "governed" && !sandbox.areas.some(area => area.name === "workspaces")
+    ? [...sandbox.areas, { name: "workspaces" as const, rel: WORKER_AREAS.workspaces, mount: resolveWorkspacesMount(brain) }] : sandbox.areas;
+  for (const { name, rel, mount } of areas) {
     // The note names each area by `rel`; it must be the area's own path.
     if (rel !== WORKER_AREAS[name]) throw new WorkerHostError(`the ${name} area is not at ${WORKER_AREAS[name]}/`);
-    if (!mount.writable) continue;
+    if (!mount.writable) {
+      if (name === "workspaces" && sandbox.profile === "governed") {
+        const qualified = resolveWorkspacesMount(brain);
+        if (mount.missing) {
+          // Absence needs no overlay. Creation remains ordinary journaled content.
+          if (qualified.writable || !qualified.missing) throw new WorkerHostError("workspaces/ appeared before launch; retry admission");
+        } else {
+          if (!mount.readOnlyPath || qualified.writable || qualified.readOnlyPath !== mount.readOnlyPath)
+            throw new WorkerHostError("the read-only workspaces area could not be qualified at launch");
+          out.readOnlyBinds.push("--ro-bind", mount.readOnlyPath, join(brain, rel));
+          out.workspaceReadOnly = true;
+        }
+      }
+      continue;
+    }
     const path = mount.path;
     const info = lstatSync(path, { throwIfNoEntry: false });
     if (path !== join(brain, rel) || !info?.isDirectory() || realpathSync(path) !== path
@@ -949,6 +1001,10 @@ export interface PrepareWorkerSandboxOptions {
   home?: string;
   /** Which writable areas this worker gets. Default: all of them. */
   areas?: readonly WorkerAreaName[];
+  /** Opt in to writable workspace mounts and their alias scan. Default: inspection only. */
+  codeChanges?: boolean;
+  /** Preserve separately qualified historical wording for toolless/read-only handoffs. */
+  legacyWorkspaceNote?: boolean;
 }
 
 /**
@@ -978,20 +1034,50 @@ function* prepareWorkerSandboxSteps(brainPath: string, options: PrepareWorkerSan
       ...(options.restricted ? {} : { home: { mode: "xdg" } }) };
   }
   if (options.restricted) return { brain, restricted: true, areas: [], scratchAliasesRemoved: [] };
+  // Freeze the existing-directory qualification before protection can prepare parents.
+  let workspaceMount: ReturnType<typeof resolveWorkspacesMount>;
+  try { workspaceMount = resolveWorkspacesMount(brain); }
+  catch (error) { workspaceMount = { writable: false, reason: `workspaces/ could not be checked (${(error as Error).message})` }; }
+  let preparedScratch: Awaited<ReturnType<typeof import("./worker-sandbox.js").resolveScratchMount>> | undefined;
+  const wantsScratch = options.areas?.includes("scratch") ?? true;
+  if (wantsScratch) {
+    try { preparedScratch = yield* resolveScratchMountSteps(brain, options.maintenance); }
+    catch (error) { preparedScratch = { mount: { writable: false, reason: `.brain/scratch/ could not be checked (${(error as Error).message})` }, removed: [] }; }
+  }
+  // Qualification never creates its own prerequisite. Scratch cleanup precedes
+  // the original writer alias scan, as before inspection became the default.
+  if (options.codeChanges && !workspaceMount.writable && workspaceMount.readOnlyPath && (options.areas?.includes("workspaces") ?? true)) workspaceMount = resolveWorkspacesMount(brain, undefined, true);
+  let legacyWorkspaces: typeof workspaceMount | undefined;
+  if (options.legacyWorkspaceNote) {
+    legacyWorkspaces = yield* workerStep(() => resolveWorkspacesMount(brain, undefined, true), async () => {
+      const module = Bun.resolveSync("./worker-sandbox", import.meta.dir);
+      const program = `import {resolveWorkspacesMount} from ${JSON.stringify(module)}; console.log(JSON.stringify(resolveWorkspacesMount(process.argv[1],undefined,true)));`;
+      const process = Bun.spawn([globalThis.process.execPath, "--no-env-file", "--eval", program, brain], { cwd: "/", env: {}, stdout: "pipe", stderr: "pipe" });
+      const [output, error, exit] = await Promise.all([new Response(process.stdout).text(), new Response(process.stderr).text(), process.exited]);
+      if (exit !== 0) throw new WorkerHostError(`Historical workspace qualification failed: ${error}`);
+      return JSON.parse(output) as typeof workspaceMount;
+    });
+  }
   const resolved = options.profile === "governed" ? resolveWorkerProtection(brain, {
     paths: options.protectedPaths, appeared: options.appearedPaths, folderPaths: options.folderPaths,
+    readOnlyRoots: workspaceMount.writable ? [] : ["workspaces"],
   }) : undefined;
   const areas: WorkerArea[] = [];
   let removed: string[] = [];
-  for (const name of options.areas ?? (Object.keys(WORKER_AREAS) as WorkerAreaName[])) {
+  const requestedAreas = options.areas ?? (Object.keys(WORKER_AREAS) as WorkerAreaName[]);
+  // A governed brain stays writable elsewhere even with an empty writable-area
+  // list. Always seal its workspace root unless that area was explicitly requested.
+  const areaNames = options.profile === "governed" && !requestedAreas.includes("workspaces")
+    ? [...requestedAreas, "workspaces" as const] : requestedAreas;
+  for (const name of areaNames) {
     // A check that fails unexpectedly (EACCES on the way, an unreadable mount
     // table) leaves the area read-only for the turn rather than failing it.
     try {
       if (name === "scratch") {
-        const scratch = yield* resolveScratchMountSteps(brain, options.maintenance);
+        const scratch = preparedScratch!;
         removed = scratch.removed;
         areas.push({ name, rel: WORKER_AREAS[name], mount: scratch.mount });
-      } else areas.push({ name, rel: WORKER_AREAS[name], mount: resolveWorkspacesMount(brain) });
+      } else areas.push({ name, rel: WORKER_AREAS[name], mount: workspaceMount });
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code ?? (error instanceof Error ? error.message : String(error));
       areas.push({ name, rel: WORKER_AREAS[name], mount: { writable: false, reason: `${WORKER_AREAS[name]}/ could not be checked (${code})` } });
@@ -1000,11 +1086,17 @@ function* prepareWorkerSandboxSteps(brainPath: string, options: PrepareWorkerSan
   // No per-turn home overlay: bubblewrap resolves an overlay's upper
   // directory on the host, where no size-limited mount can hold it (#1703).
   const home: WorkerHome = { mode: "xdg" };
-  return { brain, restricted: false, areas, scratchAliasesRemoved: removed,
+  const workspace = areas.find(area => area.name === "workspaces");
+  // An unqualified root cannot be restored over a writable brain. Keep the
+  // entire immutable view when a symlink or mount topology prevents sealing it.
+  const workspaceFallback = options.profile === "governed" && workspace && !workspace.mount.writable
+    && !workspace.mount.missing && !workspace.mount.readOnlyPath ? workspace.mount.reason : undefined;
+  return { brain, restricted: false, codeChanges: options.codeChanges === true, areas, scratchAliasesRemoved: removed,
+    ...(legacyWorkspaces ? { noteFacts: { legacyWorkspaces } } : {}),
     ...(options.folderPaths?.length ? { retainedFolders: Object.freeze([...options.folderPaths]) } : {}),
-    ...(options.profile ? { profile: resolved?.reason ? "strict" as const : options.profile,
+    ...(options.profile ? { profile: resolved?.reason || workspaceFallback ? "strict" as const : options.profile,
       ...(resolved ? { protection: resolved.protection } : {}),
-      ...(resolved?.reason ? { fallbackReason: resolved.reason } : {}),
+      ...(resolved?.reason || workspaceFallback ? { fallbackReason: resolved?.reason ?? workspaceFallback } : {}),
       readPaths: options.readPaths, maskPaths: options.maskPaths } : {}),
     // Profile workers never restore the host home over its mask.
     home };
@@ -1103,9 +1195,10 @@ export type LaunchedWorker = ReturnType<ReturnType<typeof createWorkerPipes>["st
   /** Resolves once no descriptor of this worker's stdio remains open in this process, once its streams have ended (#2862). */
   released(): Promise<void>;
   kill(signal?: NodeJS.Signals): void;
-  /** Confirm the worker and all descendants are frozen before returning. */
-  freeze(): void;
-  resume(): void;
+  /** True means the existing worker control acknowledged the stop; void has no timing confirmation. */
+  freeze(): boolean | void;
+  /** True means the existing worker control acknowledged the resume; void has no timing confirmation. */
+  resume(): boolean | void;
   /** The resource limits this launch was given (#1660). */
   limits: WorkerLimitsPlan;
   /** Which limits it has hit so far and, once it has exited, whether one ended it. */
@@ -1497,8 +1590,8 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
     const statusChannel = status, supervisor = child;
     void child.exited.finally(() => statusChannel?.close(supervisor));
     const freezer = identityBroker ? {
-      freeze: () => identityBroker!.request("signal", { signal: "STOP" }),
-      resume: () => identityBroker!.request("signal", { signal: "CONT" }),
+      freeze: () => { identityBroker!.request("signal", { signal: "STOP" }); return true; },
+      resume: () => { identityBroker!.request("signal", { signal: "CONT" }); return true; },
     } : createWorkerFreezer(pid);
     const openIdentityRoot = (name: "state" | "temp") => {
       const receipt = identityReady!.roots[name]!;

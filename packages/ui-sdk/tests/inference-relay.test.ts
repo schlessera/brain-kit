@@ -40,6 +40,16 @@ function send(socketPath: string, method: string, path: string, headers: Record<
 }
 
 describe("inference relay", () => {
+  test("startup receipt precedes credential resolution and cannot fail the observed request", async () => {
+    const order: string[] = [];
+    const r = startInferenceRelay({ upstream: `http://127.0.0.1:${upstream.port}`, routes: ANTHROPIC_INFERENCE_ROUTES,
+      received: path => { order.push(`received:${path}`); throw new Error("Timing sink unavailable"); },
+      credentials: async () => { order.push("credentials"); return { "x-api-key": KEY }; } });
+    relays.push(r);
+    expect((await send(r.socketPath, "POST", "/v1/files", {}, "{}")).status).toBe(403);
+    expect((await send(r.socketPath, "POST", "/v1/messages", {}, "{}")).status).toBe(200);
+    expect(order, "STARTUP_RECEIPT_BEFORE_UPSTREAM_WORK").toEqual(["received:/v1/messages", "credentials"]);
+  });
   test("refuses to start toward any origin but the recipient its turn was admitted for (#2695)", async () => {
     const at = `http://127.0.0.1:${upstream.port}`;
     expect(() => startInferenceRelay({ upstream: `${at}/v1`, routes: ANTHROPIC_INFERENCE_ROUTES, credentials: { "x-api-key": KEY },

@@ -1,3 +1,4 @@
+import { recordIndexUpdate, type IndexUpdateReceipt } from "./index-update-receipt.js";
 /**
  * Deferred, batched index updates after host applications (#2835).
  *
@@ -36,7 +37,7 @@ export interface IndexBatch {
    * Queue committed paths. `settle` hears each outcome for them: a failure
    * once, then success once an update covers them. Returns at once.
    */
-  queue(paths: readonly string[], settle?: (outcome: IndexOutcome) => void): void;
+  queue(paths: readonly string[], settle?: (outcome: IndexOutcome) => void, turnId?: string): void;
   /**
    * Resolve once everything queued before this call is indexed. Rejects with
    * {@link IndexFlushError} when the update covering it fails. `signal` stops
@@ -56,11 +57,15 @@ export interface IndexBatch {
   watermark(): { paths(): string[]; release(): void };
 }
 
-interface Entry { seq: number; paths: readonly string[]; settle?: (outcome: IndexOutcome) => void; failed: boolean }
+interface Entry { turnId?: string; seq: number; paths: readonly string[]; settle?: (outcome: IndexOutcome) => void; failed: boolean }
 
 export function createIndexBatch(options: {
   /** One targeted update over exact paths, in the isolated maintenance boundary. */
   index(paths: readonly string[]): Promise<void>;
+  receipt?: (receipt: IndexUpdateReceipt, turnIds: string[]) => unknown;
+  cancellation?: readonly AbortSignal[];
+  /** A separate credentialed refresh keeps the same causing turns. */
+  afterIndex?: (turnIds: string[]) => void;
 }): IndexBatch {
   let queued = 0, indexed = 0;
   let entries: Entry[] = [];
@@ -76,12 +81,13 @@ export function createIndexBatch(options: {
     const through = queued;
     const batch = entries.filter(entry => entry.seq <= through);
     const paths = [...new Set(batch.flatMap(entry => entry.paths))].sort();
-    try { await options.index(paths); }
+    try { await recordIndexUpdate(() => options.index(paths), receipt => options.receipt?.(receipt, [...new Set(batch.flatMap(entry => entry.turnId ? [entry.turnId] : []))]), options.cancellation); }
     catch (error) {
       const indexError = error instanceof Error ? error.message : String(error);
       for (const entry of batch) if (!entry.failed) { entry.failed = true; report(entry, { paths: entry.paths, indexed: false, indexError }); }
       throw new IndexFlushError(paths, indexError);
     }
+    options.afterIndex?.([...new Set(batch.flatMap(entry => entry.turnId ? [entry.turnId] : []))]);
     if (marks.size) history.push(...batch.filter(entry => entry.seq > lowest()));
     entries = entries.filter(entry => entry.seq > through);
     indexed = Math.max(indexed, through);
@@ -97,9 +103,9 @@ export function createIndexBatch(options: {
     });
   };
   return {
-    queue(paths, settle) {
+    queue(paths, settle, turnId) {
       if (!paths.length) return;
-      entries.push({ seq: ++queued, paths: [...paths], ...(settle ? { settle } : {}), failed: false });
+      entries.push({ ...(turnId ? { turnId } : {}), seq: ++queued, paths: [...paths], ...(settle ? { settle } : {}), failed: false });
     },
     async barrier(signal) {
       const target = queued;

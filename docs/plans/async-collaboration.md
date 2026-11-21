@@ -125,17 +125,17 @@ system gate. It is not a prerequisite to rebuild or a new independent package.
 ### Relevant Code and Patterns
 
 - **Cursors and transactional snapshots:** (`CREATE TABLE IF NOT EXISTS activity_changes (`, `packages/ui-server/migrations/007_activity.sql:58-66`)
-  and (`snapshotRun(runId) {`, `packages/ui-server/src/activity/store.ts:894-923`). Reuse the algorithm; the
+  and (`snapshotRun(runId) {`, `packages/ui-server/src/activity/store.ts:953-980`). Reuse the algorithm; the
   activity stream is bound to activity store methods and frame types.
 - **Runtime lifecycle:** (`export function createActivityRuntime(`, `packages/ui-server/src/activity/runtime.ts:66-246`). Cron's scheduler
   owns manual triggers/history; it does not tick the inbox.
 - **Two connections:** (`export function createUiDb(`, `packages/ui-server/src/db/client.ts:28-45`) sets WAL,
   foreign keys and a 5-second busy timeout. Claims are immediate transactions.
-- **Auth mounting:** (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:1128`) follows public routes;
+- **Auth mounting:** (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:1143`) follows public routes;
   (`export function authGuard(`, `packages/ui-server/src/middleware/auth.ts:184-244`) binds principals in each auth mode.
   An internal poke needs independent token authorization before this guard.
 - **Permission parking:** (`const requestPermission`, `packages/ui-server/src/ws/bridge-capabilities/permissions.ts:19-188`). Timeout unwind is
-  (`abortController.abort();`, `packages/ui-server/src/ws/session-run/admission.ts:55-57`). Durable escalation must checkpoint
+  (`abortController.abort();`, `packages/ui-server/src/ws/session-run/admission.ts:56-58`). Durable escalation must checkpoint
   before unwinding; the existing ordinary bridge does not do that.
 - **Tool enforcement:** (`export function enforcementHookFor`, `packages/ui-backend-claude/src/permission-hooks.ts:289-330`) closes measured bypasses.
   (`export const DEFAULT_ALLOWED_TOOLS = [`, `packages/ui-backend-claude/src/tool-policy.ts:27-80`) is still a broad interactive
@@ -717,7 +717,7 @@ recovered tick after killing the interval
   model-bearing operation; folded compaction is included in its existing call.
 
 **Patterns to follow:** the frozen-at-first-computation discipline of effective cost
-(`function rollupRunInTx(runId: string) {`, `packages/ui-server/src/activity/store.ts:535-637`); env descriptor array for the new configuration values
+(`function rollupRunInTx(runId: string) {`, `packages/ui-server/src/activity/store.ts:547-649`); env descriptor array for the new configuration values
 
 **Test scenarios:**
 - Covers AE11: two claims that would each fit but jointly exceed the cap — the second is
@@ -884,7 +884,7 @@ AE3, AE4, AE8
 **Approach:**
 - **Escalation** is one server-side step: capture the checkpoint → create the Action with
   validated effects → transition the Queue item to `blocked` → unwind without parking. The timeout path aborts then drains permissions at
-  `abortController.abort()`, (`abortController.abort();`, `packages/ui-server/src/ws/session-run/admission.ts:55-57`)
+  `abortController.abort()`, (`abortController.abort();`, `packages/ui-server/src/ws/session-run/admission.ts:56-58`)
 - **Resolution** is one transaction: record resolution (unique) → validate the effect against
   its schema again → apply it → transition the blocked item to `superseded` → for `enqueue`
   only, mint one follow-up with `dedup_key` from `(action_id, option_id)`
@@ -1285,7 +1285,7 @@ The hybrid has three pieces:
   waiter's continued wait signals the holder. The number is a constant, not a judgement call,
   so both edges are testable
 - **A yield channel into a running autonomous turn** — the signal aborts the holder through
-  the same unwind order as the timeout path (`abortController.abort();`, `packages/ui-server/src/ws/session-run/admission.ts:55-57`), returning its item
+  the same unwind order as the timeout path (`abortController.abort();`, `packages/ui-server/src/ws/session-run/admission.ts:56-58`), returning its item
   to `ready` and releasing its reservation
 
 Below the threshold nothing yields, so the common case costs nothing. Above it, one autonomous

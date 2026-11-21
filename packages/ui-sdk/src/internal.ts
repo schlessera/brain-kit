@@ -26,10 +26,11 @@ export type { InferenceRelay, InferenceRelayEvent } from "./server/inference-rel
 export { startEgressProxy, canonicalEgressHost, validatedEgressProvenance, egressChargeRefusal, egressAddressRefusal, egressBootstrapEntry, EgressAdmissionRefused, WORKER_EGRESS_DIR, WORKER_EGRESS_TRANSPORT_ENV } from "./server/egress-proxy.js";
 export { startProviderRelay, parseCliProviderOrigins, relayedProviderKeys, heldCustomProviderKeys, PROVIDER_RELAY_KEYS_NAME, FIRST_PARTY_PROVIDER_RECIPIENTS, PROVIDER_RELAY_SOCKET_NAME, type ProviderRelay, type ProviderRelayOptions, type ProviderRelayReceipt, type ProviderRelayRefusal } from "./server/provider-relay.js";
 export { hostProviderCredential, hostComputeCredential } from "./config/env.js";
-export type { EgressDestinationPolicy, EgressRecord, EgressRefusal, EgressChargeResult, EgressChargeFailure, EgressFailureReason } from "./server/egress-proxy.js";
+export type { EgressDestinationPolicy, EgressRecord, EgressRefusal, EgressChargeResult, EgressChargeFailure, EgressFailureReason, InferenceTimingMark } from "./server/egress-proxy.js";
+export type { InferenceUsage } from "./server/inference-usage.js";
 export { restrictedReadPaths } from "./server/worker-launcher.js";
 export { prepareWorkerSandbox, prepareWorkerSandboxAsync } from "./server/worker-launcher.js";
-export { workerProfile, workerSandboxNote, workerSandboxWarnings, mountPointsUnder, BRAIN_SCRATCH_DIR, BRAIN_WORKSPACES_DIR, WORKER_XDG_DIRS } from "./server/worker-sandbox.js";
+export { resolveWorkspacesMount, workerProfile, workerSandboxNote, workerSandboxWarnings, mountPointsUnder, BRAIN_SCRATCH_DIR, BRAIN_WORKSPACES_DIR, WORKER_XDG_DIRS } from "./server/worker-sandbox.js";
 export type { WorkerSandbox, WorkerNoteFacts, WorkerNoteLimit, WorkerProviderMasks, WorkerDataTree } from "./server/worker-sandbox.js";
 export { createLimitTracker, limitFailureMessage, mergeLimitReports, workerLimitsPlan, workerLimitsStatus, workerNoteLimits } from "./server/worker-limits.js";
 export type { WorkerLimitReport, WorkerLimitsPlan, WorkerLimitsStatus } from "./server/worker-limits.js";
@@ -97,8 +98,10 @@ export { acquireHostCredentialExclusion, HostCredentialExclusionError, type Host
 export { combineRemovalOutcomes, createSessionRetirement, ownedNames, removeMetadataFile, removeOwnedArtifact } from "./server/native-history-removal.js";
 export type { RemovalRun, SessionRetirement, SessionRetirementOptions } from "./server/native-history-removal.js";
 export { sessionReplayLocation } from "./server/session-replay.js";
-export { sessionPromptContextLocation } from "./server/session-prompt-context.js";
+export { SESSION_PROMPT_CONTEXT_MAX_BYTES, sessionPromptContextLocation } from "./server/session-prompt-context.js";
 export { nativeObservationIdentity } from "./server/native-observation-storage.js";
 
 export { createCleanupReconciler, processCleanupReconciler, CLEANUP_RETRY_ATTEMPTS, CLEANUP_RETRY_BASE_MS, CLEANUP_RETRY_MAX_MS } from "./server/cleanup-reconciler.js";
 export type { CleanupNotice, CleanupReconciler, CleanupReconcilerOptions, RetainedCleanup } from "./server/cleanup-reconciler.js";
+
+export { workspaceWriteRefusal } from "./server/workspace-refusal.js";

@@ -19,7 +19,7 @@ import { defineProfiles } from "../src/profiles";
 
 mockWorkerHostForSdkStream();
 
-/** A profile with its own key, so no subscription gate runs. */
+/** An API profile: no subscription policy, but native setting qualification still applies. */
 const profiles = defineProfiles([{ id: "api", label: "API", apiKeyEnv: "TURN_CLAIM_TEST_KEY", source: "declared" }]);
 process.env.TURN_CLAIM_TEST_KEY = "sk-ant-api03-test";
 
@@ -34,6 +34,8 @@ test("a probe refusal after the claim rejects, takes the claim back and emits no
   const probe = spyOn(workerHostBoundary, "probeAsync").mockImplementation(() => pending.promise);
   const prompts: string[] = [];
   const queryFn = ((params: { prompt: AsyncIterable<SDKUserMessage> }) => ({
+    initializationResult: async () => ({}),
+    getSettings: async () => ({ effective: { env: { ENABLE_TOOL_SEARCH: "false" } }, sources: [] }),
     async *[Symbol.asyncIterator]() {
       for await (const message of params.prompt) { prompts.push(String(message.message.content)); break; }
       yield { type: "result", subtype: "success", session_id: "voyage", num_turns: 1, duration_ms: 1, total_cost_usd: 0, usage: {}, is_error: false, result: "done" };
@@ -81,6 +83,8 @@ test("a cancel accepted while the probe runs stops the turn before its prompt re
   const probe = spyOn(workerHostBoundary, "probeAsync").mockImplementation(() => pending.promise);
   const prompts: string[] = [];
   const queryFn = ((params: { prompt: AsyncIterable<SDKUserMessage>; options: { abortController: AbortController } }) => ({
+    initializationResult: async () => ({}),
+    getSettings: async () => ({ effective: { env: { ENABLE_TOOL_SEARCH: "false" } }, sources: [] }),
     [Symbol.asyncIterator]: () => ({
       async next(): Promise<IteratorResult<never>> {
         if (params.options.abortController.signal.aborted) throw new Error("aborted before start");

@@ -331,15 +331,29 @@ guards; a governed host invokes it only inside its credential-free maintenance
 boundary. There are no arbitrary roots, commands or expiry options.
 
 The JSON result is `{schema_version: 1, action: "pack", state, packed, reason,
-headroom}`. `state` is `complete`, `refused` or `partial`; exit code is 0 for
+headroom, garbage}`. `state` is `complete`, `refused` or `partial`; exit code is 0 for
 complete and 2 otherwise. `packed` counts loose objects packed by the owner or
 is null when no complete count is known. It is not reclaimed bytes. `reason`
-is null, `no_space`, `not_a_git_worktree` or `git_maintenance_unavailable`.
+is null, `no_space`, `not_a_git_worktree` or `git_maintenance_unavailable`;
+these existing values remain unchanged.
 `headroom` is null before capacity inspection, or `{availableBytes, requiredBytes:
 null, reason}`. Availability is a nullable live statfs observation of the Git
-common store. Required temporary bytes depend on the workload; old/new packs
-can coexist, and this command reserves no space. Known zero availability
-refuses before packing. A failure after maintenance started is partial and
+objects filesystem (resolved by `git rev-parse --git-path objects`, which may
+differ from the common directory when objects are relocated). Additive in #4287/#4288: `headroom.packingRequiredBytes`
+is the conservative preflight need: page-rounded three times the sum of raw Git
+object sizes plus 128 bytes per object, and ref text plus 128 bytes per ref,
+plus 16 MiB. `requiredBytes` retains its
+historical null value. Old/new packs coexist; the standalone CLI reserves no
+space. Unknown availability or availability below the conservative need refuses
+before maintenance and adds optional `skipReason: "packing_headroom"`.
+The existing `reason` remains `no_space` for known insufficient space, or
+`git_maintenance_unavailable` for unknown capacity. Known zero retains `no_space`.
+Optional additive `garbage` is null before Git accounting, otherwise `{count, bytes}` from
+`git count-objects -v`'s `garbage` and `size-garbage` (KiB converted to bytes).
+It reports existing garbage; no existing garbage is deleted. Optional
+`brain storage pack --dry-run --json` returns this inspection without running
+Git maintenance (`state: complete`, `packed: null`, exit 0 when inspection
+succeeds); failure keeps the ordinary refused envelope and exit 2. A failure after maintenance started is partial and
 requires remeasurement; it is never reported as a rollback or success.
 
 ## Storage inventory (additive, #2009)
@@ -1460,3 +1474,17 @@ written. Existing fields and dispositions retain their meanings. Preview-only
 new model pass. Use the explicit `propagation --dry-run` to inspect prospective
 automation. The operation exits 0 after reporting outcomes, including unavailable
 and deferred cases; usage/configuration errors retain exit 1.
+
+
+Hosted routine maintenance selects Git output conservatively: only a zero exit
+and a complete JSON report with one successful Git step permit publication.
+The host requests JSON itself for routine maintain and preserves explicit human
+output using the CLI rendering. It drains at most 1 MiB into its result buffer,
+independently of the caller, and allows five seconds after exit for stdout EOF.
+Failed, skipped, malformed, oversized, unreadable or incomplete reports discard
+all `.git/` output while other validated maintenance areas publish. Cron records
+the host-owned publication result and named discard reason in maintenance
+Activity; missing or unusable reports use the existing error outcome. Ordinary
+non-maintenance commands retain coupled Git/worktree publication on nonzero
+exit.
+The successful-output publisher is unchanged by this selection rule.

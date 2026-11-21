@@ -1,3 +1,4 @@
+import type { InferenceUsage } from "./inference-usage.js";
 import { readReceivedHead } from "./relay-response.js";
 import { chargeReceivedBytes } from "./egress-accounting.js";
 /** Concrete host-owned HTTP/CONNECT transport for one turn; no TLS interception. */
@@ -48,7 +49,9 @@ function terminalFailure(outcome: EgressRecord["outcome"], reason?: string): Egr
   return Object.freeze({ok:false,reason:category});
 }
 export type EgressRecipientAuthority = {kind:"rule";admission:{ruleId:string;policyHash:string;trustRevision:string;collectionRevision:string;instance:string}} | {kind:"approval"|"allowance"};
-export interface EgressRecord {
+export type InferenceTimingMark = "admitMs" | "bodyMs" | "credentialMs" | "dispatchMs" | "headersMs" | "firstChunkMs";
+export interface EgressRecord extends Partial<Record<InferenceTimingMark | "loopLagMaxMs", number>>, InferenceUsage {
+
   /** Host identity, shared with admission and terminal observation; never a tool correlation. */
   connectionId?: string;
   /** Only the server's concrete inference-relay admission supplies this tag. */
@@ -295,12 +298,27 @@ export async function startEgressProxy(options: EgressProxyOptions) {
    * `relay` names the host relay that sent this operation; worker HTTP and
    * CONNECT traffic has none and cannot claim one, whatever its destination.
    */
+  const inferenceControllers = new Set<AbortController>();
   function operation(method: string, url: URL, relay?: "inference" | "provider" | "reference") {
     const inference = relay === "inference", provider = relay === "provider", managedReference = relay === "reference";
     const connectionId = crypto.randomUUID();
     let snapshot: AdmissionSafetySnapshot | undefined;
     const started = performance.now();
+    const marks: Partial<Record<InferenceTimingMark | "loopLagMaxMs", number>> = {};
+    let lagExpected = started + 50;
+    const sampleLag = () => { const at = performance.now(); marks.loopLagMaxMs = Math.max(marks.loopLagMaxMs ?? 0, at - lagExpected); lagExpected = at + 50; };
+    let lagTimer = inference ? setInterval(sampleLag, 50) : undefined;
+    lagTimer?.unref();
+    const stopLag = () => { if (lagTimer) { sampleLag(); clearInterval(lagTimer); lagTimer = undefined; } };
+    const mark = (name: InferenceTimingMark) => {
+      if (!inference || finished || marks[name] !== undefined) return;
+      if (name === "dispatchMs") stopLag();
+      marks[name] = Math.max(0, performance.now() - started);
+    };
     const controller = new AbortController(); controllers.add(controller);
+    if (inference) inferenceControllers.add(controller);
+    let finished = false, firstAdmissionPending = false, firstAdmissionStarted = false;
+    const usage: InferenceUsage = {};
     // Matching may ignore a DNS root dot; resolution must preserve it.
     const dialHost = url.hostname.startsWith("[") ? url.hostname.slice(1, -1) : url.hostname;
     const host = canonicalEgressHost(dialHost), port = Number(url.port || (url.protocol === "https:" ? "443" : "80"));
@@ -311,6 +329,8 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     let failure: EgressChargeFailure | undefined;
     const lifecycle = createEgressOperation({
       decide(terminal) {
+        if (firstAdmissionPending && terminal.outcome !== "cancelled") mark("admitMs");
+        stopLag(); finished = true; inferenceControllers.delete(controller);
         finalOutcome=terminal.outcome;finalReason=terminal.reason;failure=terminalFailure(terminal.outcome,terminal.reason);
         controllers.delete(controller);inputs.delete(connectionId);
       },
@@ -320,7 +340,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
         // Records never contain request headers, content, credentials or query strings.
         try { options.observe({connectionId,...(inference?{inference:true}:{}),...(provider?{provider:true}:{}),...(managedReference?{managedReference:true}:{}),method,host,port,dispatched,
           ...(failure?{failureReason:failure.reason}:{}),...(dispatched&&granted?{recipientApproved:true}:{}),...(method==="CONNECT"?{}:{path:url.pathname}),bytes,
-          accounting:method==="CONNECT"?"opaque_bytes":"http_wire_bound",durationMs:performance.now()-started,outcome,...(reason?{reason}:{})}); } catch { /* A recorder cannot keep a connection alive. */ }
+          accounting:method==="CONNECT"?"opaque_bytes":"http_wire_bound",...(inference ? { ...marks, ...usage } : {}),durationMs:performance.now()-started,outcome,...(reason?{reason}:{})}); } catch { /* A recorder cannot keep a connection alive. */ }
       },
     });
     lifecycles.add(lifecycle);
@@ -399,7 +419,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (!reason) return false;
       finish("denied",egressChargeRefusal({ok:false,reason},"Network").reason); return true;
     };
-    const admit = () => lifecycle.admit(async () => {
+    const admitDestination = () => lifecycle.admit(async () => {
       if (!lifecycle.active()) return false;
       try { snapshot = readSafety(); }
       catch { finish("denied","egress_unavailable");return false; }
@@ -436,6 +456,18 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (stopped || controller.signal.aborted) { finish("cancelled", "turn_cancelled"); return false; }
       return true;
     });
+    const admit = !inference ? admitDestination : async () => {
+      const first = !firstAdmissionStarted;
+      if (first) { firstAdmissionStarted = true; firstAdmissionPending = true; }
+      try { return await admitDestination(); }
+      finally {
+        if (first) {
+          marks.admitMs = Math.max(0, performance.now() - started);
+          firstAdmissionPending = false;
+        }
+      }
+    };
+    const observeUsage = (reported: InferenceUsage) => { if (inference && !finished) Object.assign(usage, reported); };
     // No await may intervene between this check and connect/request/fetch.
     const maySendNow = (count: number): EgressRecipientAuthority | null => {
       try {
@@ -469,7 +501,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (finalReason === "taint_not_allowed") try { cause = options.taint?.cause?.(); } catch { /* The message names no cause. */ }
       return describeRefusal(finalReason, host, matches(host, options.deny), cause);
     };
-    return { host, dialHost, finish, ownCleanup:lifecycle.ownCleanup, charge, receive, receiveHead, admit, prepare, dispatch, refusal, failure:()=>failure, signal: controller.signal, outcome: () => finalOutcome, reason: () => finalReason, pinned: () => pinned };
+    return { observeUsage, mark, host, dialHost, finish, ownCleanup:lifecycle.ownCleanup, charge, receive, receiveHead, admit, prepare, dispatch, refusal, failure:()=>failure, signal: controller.signal, outcome: () => finalOutcome, reason: () => finalReason, pinned: () => pinned };
   }
   server.on("connect", (request, client, head) => {
     client.on("error", () => {});
@@ -604,7 +636,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
   };
   options.signal?.addEventListener("abort", stop, { once: true });
   if (options.signal?.aborted) stop();
-  return { dir, socketPath, stop,
+  return { dir, socketPath, stop, inferenceInFlight: () => inferenceControllers.size > 0,
     async settled() { await Promise.all([...lifecycles].map(operation=>operation.settled())); },
     /** Fence only inputs whose host decision changed; unrelated traffic remains active. */
     invalidateInputs() { for (const [id, revoke] of inputs) if (!inputCurrent(id)) revoke(); },
@@ -634,7 +666,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     signal.addEventListener("abort", abort, { once: true });
     op.ownCleanup(()=>signal.removeEventListener("abort",abort));
     if (signal.aborted) abort();
-    return { charge: op.charge, signal: op.signal, outcome: op.outcome, refusal: op.refusal, reason: op.reason, failure: op.failure,
+    return { observeUsage: op.observeUsage, mark: op.mark, charge: op.charge, signal: op.signal, outcome: op.outcome, refusal: op.refusal, reason: op.reason, failure: op.failure,
       admit: async () => !op.signal.aborted && await op.admit(),
       prepare:op.prepare,dispatch:op.dispatch,
       finish:op.finish,

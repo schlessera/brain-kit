@@ -243,3 +243,32 @@ test("a refused native stage deletion retries before releasing its checkpoint or
     await output.cleanup(); expect(deletes).toBe(2);
   } finally { await output?.cleanup().catch(() => {}); await view.cleanup(); f.cleanup(); }
 });
+
+test("staging configuration refusal releases its retained startup reference",async()=>{
+ const f=fixture(),manager={...f.manager,async prepareStage():Promise<never>{throw Error("unused");},async inspectStage():Promise<never>{throw Error("unused");},async releaseStage():Promise<never>{throw Error("unused");}};
+ const view=await prepareNativeWorkerStartupView(f.brain,manager),limits=await import("../src/server/worker-state-limits.js");
+ const fault=spyOn(limits,"hostOutputStagingLimits").mockImplementation(()=>{throw Error("Ithaca staging configuration fault");});
+ try{
+  await expect(prepareNativeWorkerOutput(f.brain,{startupView:view})).rejects.toThrow("staging configuration fault");
+  await view.cleanup();expect(f.releases,"CONFIGURATION_PREFLIGHT_RELEASES_RETAINED_CHECKPOINT").toHaveLength(1);
+ }finally{fault.mockRestore();await view.cleanup();f.cleanup();}
+});
+
+test("inactive module storage cannot block startup or bypass the in-brain dependency guard", async () => {
+  const f = fixture();
+  try {
+    const store = join(f.brain, "..", "modules"); fs.mkdirSync(store);
+    fs.writeFileSync(join(store, "current.json"), "Odysseus damaged inactive receipt");
+    fs.mkdirSync(join(f.brain, "node_modules"));
+    fs.symlinkSync("/missing", join(f.brain, "node_modules/escape"));
+    const acquisition = prepareNativeWorkerStartupView(f.brain, f.manager);
+    await expect(acquisition, "INACTIVE_STORE_CANNOT_BLOCK_RECOVERY_MAINTENANCE").resolves.toMatchObject({ brain: f.brain });
+    const view = await acquisition;
+    try {
+      expect(isNativeWorkerStartupRoot(view.root), "INACTIVE_STORE_CANNOT_BLOCK_RECOVERY_MAINTENANCE").toBe(true);
+      expect(resolveWorkerProtection(f.brain, { paths: ["node_modules"] }).reason,
+        "INACTIVE_STORE_CANNOT_BYPASS_PROTECTED_DEPENDENCIES").toBeDefined();
+      expect(fs.readFileSync(join(store, "current.json"), "utf8")).toBe("Odysseus damaged inactive receipt");
+    } finally { await view.cleanup(); }
+  } finally { f.cleanup(); }
+});

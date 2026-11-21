@@ -71,7 +71,7 @@ export function createLocationAndMask(ctx: BridgeContext): BridgeSlice<"getLocat
  * `createLocationAndMask` returned.
  */
 export function createMaskApplicationSlice(ctx: BridgeContext, root: string, applicationPolicy: BrainApplicationPolicy,
-  requestMask: NonNullable<BridgeSlice<"requestMask">["requestMask"]>, options: Pick<MakeBridgeOptions, "protectedPaths" | "turnData">): BridgeSlice<"requestMask" | "applyImageMask"> {
+  requestMask: NonNullable<BridgeSlice<"requestMask">["requestMask"]>, options: Pick<MakeBridgeOptions, "protectedPaths" | "workspaceReadOnly" | "turnData">): BridgeSlice<"requestMask" | "applyImageMask"> {
   const { host, turnId, principalId, signal, work, backendId, recorder, maskGuard, toolName, isAuthorized, hold, afterHolds, assertAuthority, principalIsAuthorized } = ctx;
   const { protectedPaths, turnData } = options;
   // Composed only for a Claude or pi turn.
@@ -79,6 +79,7 @@ export function createMaskApplicationSlice(ctx: BridgeContext, root: string, app
   const pendingMasks = new Map<string, { base: MaskBase; png: Uint8Array }>();
   // The scratch prune that follows a mask never removes a masked folder's files.
   const applyMask = createMaskApplication({ maintenance: host.maintenance, root, backend, principalId, turnId, signal,
+    workspaceReadOnly: options.workspaceReadOnly,
     protectedPaths: maskGuard ? [...(protectedPaths ?? []), ...maskGuard.folders] : protectedPaths,
     lock: applicationPolicy.lock, isAuthorized, hold, isAvailable: () => work?.posture !== "voice",
     ...(turnData ? { turnTree: turnData.tree } : {}),
