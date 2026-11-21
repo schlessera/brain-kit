@@ -1,3 +1,4 @@
+import { watchdogMs } from "../../../../scripts/test-deadlines.js";
 /** The caller confines the SDK, bundled CLI and every tool to loopback. */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -123,7 +124,7 @@ try {
         turnLock: { acquire: () => undefined, release: () => undefined } as never, log() {},
       });
       capture.appends.push(turn.options.systemPrompt);
-      const timer = setTimeout(() => controller.abort(), 30_000);
+      const timer = setTimeout(() => controller.abort(), watchdogMs(30_000));
       try {
         let success = false;
         for await (const message of query({ prompt: turn.prompt, options: turn.options })) {

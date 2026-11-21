@@ -96,7 +96,7 @@ export { acquireHostCredentialExclusion, HostCredentialExclusionError, type Host
 export { combineRemovalOutcomes, createSessionRetirement, ownedNames, removeMetadataFile, removeOwnedArtifact } from "./server/native-history-removal.js";
 export type { RemovalRun, SessionRetirement, SessionRetirementOptions } from "./server/native-history-removal.js";
 export { sessionReplayLocation } from "./server/session-replay.js";
-export { sessionPromptContextLocation } from "./server/session-prompt-context.js";
+export { SESSION_PROMPT_CONTEXT_MAX_BYTES, sessionPromptContextLocation } from "./server/session-prompt-context.js";
 export { nativeObservationIdentity } from "./server/native-observation-storage.js";
 
 export { createCleanupReconciler, processCleanupReconciler, CLEANUP_RETRY_ATTEMPTS, CLEANUP_RETRY_BASE_MS, CLEANUP_RETRY_MAX_MS } from "./server/cleanup-reconciler.js";
