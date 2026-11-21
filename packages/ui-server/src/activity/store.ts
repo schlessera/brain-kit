@@ -1,5 +1,5 @@
 import type { ActivityTurnLifecycle } from "@schlessera/brain-ui-sdk/protocol";
-import { lifecycleTiming } from "./turn-lifecycle.js";
+import { lastLifecycleObservation, lifecycleTiming } from "./turn-lifecycle.js";
 import { settleInboxBudgetRun } from "../inbox/budget.js";
 /**
  * The activity store: the canonical record of agent activity (migration 007).
@@ -351,7 +351,7 @@ export interface ActivityStore {
     limit?: number
   ): Array<{ changeId: number; span: SpanRow }>;
   latestChangeCursor(): number;
-  snapshotRun(runId: string): RunSnapshot | null;
+  snapshotRun(runId: string, rootOnly?: boolean): RunSnapshot | null;
   /** The run's high-water seq — what a full snapshot carries, without the reads. */
   runHighWaterSeq(runId: string): number;
   getSpan(spanId: string): SpanRow | null;
@@ -810,7 +810,7 @@ export function createActivityStore(
       const envelopes = db.query("SELECT record FROM activity_turn_lifecycles WHERE ended_at IS NULL").all() as { record: string }[];
       for (const row of envelopes) {
         const record: ActivityTurnLifecycle = JSON.parse(row.record);
-        this.writeLifecycle({ ...record, endedAt: Date.now(), outcome: "interrupted", reason: "server restarted" });
+        this.writeLifecycle({ ...record, endedAt: lastLifecycleObservation(record), outcome: "interrupted", reason: "server restarted" });
       }
       if (open.length === 0) return envelopes.length;
       getPricing(); // construct outside the write lock; rollup reuses it
@@ -899,18 +899,18 @@ export function createActivityStore(
       return row.hi;
     },
 
-    snapshotRun(runId) {
+    snapshotRun(runId, rootOnly = false) {
       // A read transaction so spans, events, high-water seq, and the global
       // cursor are one consistent picture — the poller baseline is pinned to
       // exactly this moment (no gap between snapshot and first delta).
       return db.transaction(() => {
         const spans = (
           db
-            .query(ACTIVITY_SQL.spansByRun)
+            .query(rootOnly ? "SELECT * FROM activity_spans WHERE run_id = ? AND parent_span_id IS NULL AND outcome IS NULL" : ACTIVITY_SQL.spansByRun)
             .all(runId) as any[]
         ).map(rowToSpan);
         if (spans.length === 0) return null;
-        const events = (
+        const events = rootOnly ? [] : (
           db
             .query(ACTIVITY_SQL.eventsByRun)
             .all(runId) as any[]

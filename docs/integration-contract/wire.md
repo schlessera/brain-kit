@@ -575,7 +575,10 @@ share that basis, so later wall-clock corrections do not reorder them.
 governed/budget/journal phases not configured for this turn. Other null
 milestones mean not reached or unavailable; they never claim zero-duration
 success. A started phase whose completion is null is pending, or incomplete
-when the enclosing record is terminal.
+when the enclosing record is terminal. After a host restart the previous
+monotonic clock is unavailable: interruption closes at the latest persisted
+host observation (milestone, step endpoint or host event), without inventing
+elapsed downtime from the new wall clock.
 
 `totalElapsedMs` measures acceptance to `endedAt`; `timeToFirstFrameMs` measures
 acceptance to the first observed backend frame/Activity event or backend bridge
@@ -714,10 +717,25 @@ Hosts that record agent activity advertise `capabilities.activity` on
 without a matching subscription. Ordering: a snapshot carries per-run
 high-water `seq`, every delta carries its `seq`, and the client discards
 deltas at or below the snapshot's high-water for that run. Snapshots use
-byte-bounded append frames for spans, events and lifecycles; a lifecycle
-watermark travels with its record, read together in one transaction. The
-first frame replaces the view and later frames append under the existing
-equal-watermark rule. Deltas are
+byte-bounded append frames for spans, events and lifecycles. Each frame carries
+only the floors for its own records; row/floor pairs are read consistently,
+including REST lifecycle detail and index roots. Index root reads omit child
+spans/events. The first frame starts the view and later frames append under
+the existing equal-watermark rule. Optional `more: true` means another append
+frame follows; scope eviction waits for the final frame and uses the union
+of delivered identities, rather than an unbounded map in every frame.
+
+If a single record cannot fit, its entire sequence identity is omitted from
+the snapshot and its floor is absent. Instead, optional `refetch: string[]`
+names the run/turn identities whose full `GET /api/activity/runs/:runId?include=payloads`
+detail must be fetched. Oversized deltas also become such an append snapshot
+marker, without a sequence floor. No clipped record claims full delivery.
+Clients apply the complete REST detail and its consistent floors, coalesce
+in-flight requests while retaining a newer marker, repeat reads overtaken by
+a newer delta, and leave failed reads
+unacknowledged for a later marker or reconnect. Older clients may ignore the
+additive marker; they never receive a false acknowledgment of clipped data.
+Deltas are
 append-only increments (a small span row, or exactly one event) — they never
 grow with run length. The `result` frame additionally carries an optional
 `usage` block (token totals + per-model breakdown; absent cost means unknown,

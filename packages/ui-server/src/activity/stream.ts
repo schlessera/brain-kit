@@ -243,7 +243,12 @@ export function createActivityStream(store: AwaitableActivityStore, log?: Logger
           cursor = change.changeId;
           const span = change.kind === "span" ? change.span : undefined;
           if (span) noteSpan(span);
-          const frame = deltaFrame(change);
+          const delta = deltaFrame(change);
+          const frame: ServerActivityDelta | ServerActivitySnapshot = jsonBytes(delta) <= HISTORY_CHUNK_BYTES ? delta : {
+            type: "activity_snapshot", view: "run", runId: change.kind === "lifecycle" ? change.lifecycle.turnId : change.runId,
+            spans: [], events: [], highWaterSeq: {}, append: true,
+            refetch: [change.kind === "lifecycle" ? change.lifecycle.turnId : change.runId],
+          };
           for (const entry of subscriptions.values()) {
             if (change.kind !== "lifecycle" && !entry.compute && isComputeRun(change.runId)) continue;
             if (entry.subscriptions.some((s) => change.kind === "lifecycle"
@@ -293,11 +298,16 @@ export function createActivityStream(store: AwaitableActivityStore, log?: Logger
         highWater[snap.runId] = snap.highWaterSeq;
       }
     } else {
-      // Index view: open roots only — history is the REST activity API's job.
+      // Index view: read every open root in a run with its floor, including
+      // roots added since candidate discovery. History stays in REST.
+      const seen = new Set<string>();
       for (const root of store.openRootSpans()) {
-        if (!shown(root.runId)) continue;
-        spans.push(root);
-        highWater[root.runId] = store.runHighWaterSeq(root.runId);
+        if (!shown(root.runId) || seen.has(root.runId)) continue;
+        seen.add(root.runId);
+        const snap = store.snapshotRun(root.runId, true);
+        if (!snap) continue;
+        spans.push(...snap.spans.filter(span => span.parentSpanId === null && span.outcome === null));
+        highWater[snap.runId] = snap.highWaterSeq;
       }
     }
     for (const span of spans) noteSpan(span);
@@ -312,42 +322,51 @@ export function createActivityStream(store: AwaitableActivityStore, log?: Logger
       ...(sub.runId ? { runId: sub.runId } : {}),
     };
 
-    // Size batches before sendTo's display shrinker can clip whole records.
-    // Root-run floors describe the authoritative scope; lifecycle floors ride
-    // only with the corresponding row. Equal floors allow append chunks.
-    let first = true;
-    const empty = (): ServerActivitySnapshot => ({ ...base, type: "activity_snapshot", spans: [], events: [], lifecycles: [],
-      highWaterSeq: { ...highWater }, ...(first ? {} : { append: true }) });
-    let frame = empty(), bytes = jsonBytes(frame), count = 0;
-    const flush = () => {
-      sendTo(ws, frame); first = false; frame = empty(); bytes = jsonBytes(frame); count = 0;
-    };
-    const add = <K extends "spans" | "events" | "lifecycles">(kind: K, row: NonNullable<ServerActivitySnapshot[K]>[number],
-      floor?: { id: string; seq: number }) => {
-      // Overcount commas/braces conservatively, including escaped identities.
-      const extra = jsonBytes(row) + 1 + (floor ? jsonBytes({ [floor.id]: floor.seq }) : 0);
-      const limit = kind === "events" ? SNAPSHOT_EVENT_CHUNK : SNAPSHOT_SPAN_CHUNK;
-      if (count && (bytes + extra > HISTORY_CHUNK_BYTES || frame[kind]!.length >= limit)) flush();
-      (frame[kind] as Array<typeof row>).push(row);
-      if (floor) frame.highWaterSeq[floor.id] = floor.seq;
-      bytes += extra; count++;
-    };
-    for (const span of spans) add("spans", toWireSpan(span));
-    for (const event of events) add("events", toWireEvent(event));
+    // A row that cannot fit is omitted as a whole. Never let the generic
+    // display shrinker clip evidence while acknowledging its full sequence.
+    type Item = { kind: "spans" | "events" | "lifecycles"; row: unknown; id: string; refetch: string; seq: number };
+    const items: Item[] = spans.map(span => ({ kind: "spans", row: toWireSpan(span), id: span.runId, refetch: span.runId, seq: highWater[span.runId]! }));
+    const spanRuns = new Map(spans.map(span => [span.spanId, span.runId]));
+    for (const event of events) {
+      const runId = spanRuns.get(event.spanId)!;
+      items.push({ kind: "events", row: toWireEvent(event), id: runId, refetch: runId, seq: highWater[runId]! });
+    }
     for (const lifecycle of lifecycles) {
       if (store.lifecycleSnapshot) {
-        const snapshot = store.lifecycleSnapshot(lifecycle.turnId);
-        if (snapshot) add("lifecycles", snapshot.lifecycle,
-          { id: snapshot.lifecycle.lifecycleId, seq: snapshot.highWaterSeq });
+        const snap = store.lifecycleSnapshot(lifecycle.turnId);
+        if (snap) items.push({ kind: "lifecycles", row: snap.lifecycle, id: snap.lifecycle.lifecycleId, refetch: snap.lifecycle.turnId, seq: snap.highWaterSeq });
       } else {
-        // Compatibility with stores implementing the previous public interface:
-        // a floor read before the row can under-acknowledge, never overtake it.
-        const seq = store.runHighWaterSeq(lifecycle.lifecycleId);
-        const row = store.lifecycle(lifecycle.turnId);
-        if (row) add("lifecycles", row, { id: row.lifecycleId, seq });
+        const seq = store.runHighWaterSeq(lifecycle.lifecycleId), row = store.lifecycle(lifecycle.turnId);
+        if (row) items.push({ kind: "lifecycles", row, id: row.lifecycleId, refetch: row.turnId, seq });
       }
     }
-    if (count || first) flush();
+    const empty = (): ServerActivitySnapshot => ({ ...base, type: "activity_snapshot", spans: [], events: [], lifecycles: [],
+      highWaterSeq: {}, append: true, more: true });
+    const rowBytes = (item: Item) => jsonBytes(item.row) + jsonBytes({ [item.id]: item.seq }) + 2;
+    const overhead = jsonBytes(empty());
+    const omitted = new Set(items.filter(item => overhead + rowBytes(item) > HISTORY_CHUNK_BYTES).map(item => item.id));
+    const refetch = new Set(items.filter(item => omitted.has(item.id)).map(item => item.refetch));
+    let frame = empty(), bytes = overhead, first = true;
+    const occupied = () => frame.spans.length + frame.events.length + (frame.lifecycles?.length ?? 0) + (frame.refetch?.length ?? 0);
+    const flush = (more: boolean) => {
+      frame.more = more;
+      if (first) delete frame.append;
+      sendTo(ws, frame); first = false; frame = empty(); bytes = overhead;
+    };
+    for (const item of items) {
+      if (omitted.has(item.id)) continue;
+      const extra = rowBytes(item), limit = item.kind === "events" ? SNAPSHOT_EVENT_CHUNK : SNAPSHOT_SPAN_CHUNK;
+      if (occupied() && (bytes + extra > HISTORY_CHUNK_BYTES || frame[item.kind]!.length >= limit)) flush(true);
+      (frame[item.kind] as unknown[]).push(item.row);
+      frame.highWaterSeq[item.id] = item.seq;
+      bytes += extra;
+    }
+    for (const runId of refetch) {
+      const extra = jsonBytes(runId) + 20;
+      if (occupied() && bytes + extra > HISTORY_CHUNK_BYTES) flush(true);
+      (frame.refetch ??= []).push(runId); bytes += extra;
+    }
+    if (occupied() || first) flush(false);
   }
 
   return {

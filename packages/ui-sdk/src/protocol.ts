@@ -3819,6 +3819,10 @@ export interface ActivitySpanEvent {
  * carries open root spans only — history comes from the REST activity API.
  */
 export interface ServerActivitySnapshot {
+  /** More append frames follow; scope eviction waits for the last frame. */
+  more?: boolean;
+  /** Records omitted for size. Fetch full run detail over REST; no floor acknowledges them. */
+  refetch?: string[];
   lifecycles?: ActivityTurnLifecycle[];
   type: "activity_snapshot";
   view: ActivityView;

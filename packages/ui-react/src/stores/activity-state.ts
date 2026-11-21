@@ -56,6 +56,9 @@ export function createActivityStore(env: StoreEnvironment) {
   const { api } = env;
   let disposed = false;
   let generation = 0;
+  const snapshotScopes = new Map<string, Set<string>>();
+  const refetching = new Set<string>();
+  const refetchAgain = new Set<string>();
   const store = createStore<ActivityState>((set, get) => ({
     supported: false,
     lifecycles: {},
@@ -103,7 +106,7 @@ export function createActivityStore(env: StoreEnvironment) {
       else stopInboxPolling();
     },
 
-    resetSubscriptions: () => set({ subscribed: {} }),
+    resetSubscriptions: () => { snapshotScopes.clear(); set({ subscribed: {} }); },
 
     bumpConnectionEpoch: () => set((s) => ({ connectionEpoch: s.connectionEpoch + 1 })),
 
@@ -111,6 +114,10 @@ export function createActivityStore(env: StoreEnvironment) {
       set((s) => ({ subscribed: { ...s.subscribed, [sessionId]: true } })),
 
     applySnapshot: (msg) => {
+      const key = `${msg.view}:${msg.sessionId ?? ""}:${msg.runId ?? ""}`;
+      if (!msg.append) snapshotScopes.set(key, new Set());
+      const scope = snapshotScopes.get(key);
+      for (const id of [...Object.keys(msg.highWaterSeq), ...(msg.refetch ?? [])]) scope?.add(id);
       set((s) => {
         const maps: MirrorMaps = {
           spans: { ...s.spans },
@@ -143,9 +150,9 @@ export function createActivityStore(env: StoreEnvironment) {
         // its scope. A held run that still looks live but is absent from the
         // frame's high-water map is a ghost — the server says it is not
         // running any more (its REST history remains fetchable).
-        if (!msg.append && (msg.view === "session" || msg.view === "index")) {
+        if (!msg.more && scope && (msg.view === "session" || msg.view === "index")) {
           for (const [runId, byId] of Object.entries(maps.spans)) {
-            if (runId in msg.highWaterSeq) continue;
+            if (scope.has(runId)) continue;
             const root = rootSpanOf(byId);
             if (!root || root.outcome !== undefined) continue;
             const inScope = msg.view === "index" || root.sessionId === msg.sessionId;
@@ -159,6 +166,8 @@ export function createActivityStore(env: StoreEnvironment) {
         }
         return { ...maps, lifecycles: boundLifecycles(lifecycles, maps.highWater, maps.deltaSeq) };
       });
+      if (!msg.more) snapshotScopes.delete(key);
+      for (const runId of msg.refetch ?? []) void refetchRun(runId);
     },
 
     applyDelta: (msg) => {
@@ -217,10 +226,35 @@ export function createActivityStore(env: StoreEnvironment) {
 
     clear: () => {
       generation++;
-      loadedHistorySessions.clear(); payloadLoadedRuns.clear();
+      loadedHistorySessions.clear(); payloadLoadedRuns.clear(); snapshotScopes.clear(); refetching.clear(); refetchAgain.clear();
       set({ lifecycles: {}, spans: {}, events: {}, highWater: {}, deltaSeq: {}, spanRun: {} });
     },
   }));
+
+  async function refetchRun(runId: string): Promise<void> {
+    if (disposed) return;
+    if (refetching.has(runId)) { refetchAgain.add(runId); return; }
+    const epoch = generation;
+    refetching.add(runId);
+    try {
+      const detail = await api.activityRun(runId, { includePayloads: true });
+      if (disposed || epoch !== generation) return;
+      const highWaterSeq: Record<string, number> = {};
+      if (detail.highWaterSeq !== undefined) highWaterSeq[detail.runId] = detail.highWaterSeq;
+      if (detail.lifecycle && detail.lifecycleSeq !== undefined) highWaterSeq[detail.lifecycle.lifecycleId] = detail.lifecycleSeq;
+      const current = store.getState();
+      if (Object.entries(highWaterSeq).some(([id, seq]) => seq < Math.max(current.highWater[id] ?? 0, current.deltaSeq[id] ?? 0))) refetchAgain.add(runId);
+      store.getState().applySnapshot({ type: "activity_snapshot", view: "run", runId, append: true,
+        spans: detail.spans ?? [], events: detail.events ?? [], lifecycles: detail.lifecycle ? [detail.lifecycle] : [], highWaterSeq });
+    } catch {
+      // No floor was advanced: the next marker or reconnect can retry.
+    } finally {
+      if (epoch === generation) {
+        refetching.delete(runId);
+        if (refetchAgain.delete(runId)) void refetchRun(runId);
+      }
+    }
+  }
 
   /** One badge poller per page lifetime — the inbox is cheap and the badge
    *  must be honest even when the Activity surface never opens. */
@@ -316,6 +350,6 @@ export function createActivityStore(env: StoreEnvironment) {
   }
   return Object.assign(store, {
     loadSessionActivityHistory, loadSpanPayloads,
-    dispose() { disposed = true; stopInboxPolling(); loadedHistorySessions.clear(); payloadLoadedRuns.clear(); },
+    dispose() { disposed = true; stopInboxPolling(); loadedHistorySessions.clear(); payloadLoadedRuns.clear(); snapshotScopes.clear(); refetching.clear(); refetchAgain.clear(); },
   });
 }

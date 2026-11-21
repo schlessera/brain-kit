@@ -143,3 +143,28 @@ for (const mode of ["governed refusal","backend failure","revoked","budget refus
     expect(entered).toBe(mode === "backend failure");
   }finally{monotonic.mockRestore();clock.mockRestore();host.close();stream.close();db.close();}
 });
+
+test("REST lifecycle detail cannot pair an older row with a newer floor", async () => {
+  const db = createUiDb(":memory:"), store = createActivityStore(db);
+  const life = createTurnLifecycle(store, "ithaca-rest-race", "ithaca", 1000, () => {}, () => 1200);
+  const view = { ...store, lifecycle(id: string) { const row = store.lifecycle(id); life.finish("success"); return row; },
+    lifecycleSnapshot(id: string) { life.finish("success"); return store.lifecycleSnapshot!(id); } };
+  try {
+    const response = await createActivityRoutes({ db, store: view }).request("/activity/runs/ithaca-rest-race");
+    const detail = await response.json();
+    expect(detail.lifecycle, "REST_LIFECYCLE_ROW_AND_FLOOR_ARE_CONSISTENT").toEqual(store.lifecycle("ithaca-rest-race"));
+    expect(detail.lifecycleSeq).toBe(store.runHighWaterSeq("lifecycle:ithaca-rest-race"));
+  } finally { db.close(); }
+});
+
+test("restart lifecycle close uses persisted observations after a backward wall-clock correction", async () => {
+  const { spyOn } = await import("bun:test");
+  const db = createUiDb(":memory:"), store = createActivityStore(db);
+  let now = 1000; const life = createTurnLifecycle(store, "ithaca-restart-clock", "ithaca", now, () => {}, () => now);
+  life.mark("backendInvokedAt"); now = 1200; life.startupTiming.start("host_probe")(); now = 1300; life.firstFrame(null);
+  const clock = spyOn(Date, "now").mockReturnValue(900);
+  try {
+    store.sweepOwnOrphans();
+    expect(store.lifecycle("ithaca-restart-clock"), "RECOVERY_CLOSE_USES_PERSISTED_CLOCK_BASIS").toMatchObject({ endedAt: 1300, totalElapsedMs: 300, outcome: "interrupted" });
+  } finally { clock.mockRestore(); db.close(); }
+});

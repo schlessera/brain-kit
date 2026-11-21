@@ -79,8 +79,10 @@ The Pi fixture runs its real SDK and must provide all seven startup steps
 `session`, `initialize`) plus a relay receipt. Every required step must be
 complete on the first sample and each warm sample. A receipt alone cannot
 qualify a startup breakdown.
-Admission qualification separately requires finite governed/journal milestone
-durations and observed steps in both `governed` and `journal`. Backend or
+Admission qualification separately requires finite, ordered, explicit start and
+completion milestones plus explicitly completed steps with the exact phase
+`governed` and `journal` in `subPhases`. Terminal-fallback durations, open
+phases with those prefixes, and unfinished steps cannot supply that proof. Backend or
 future open-phase entries cannot satisfy that assertion; observed zero-duration
 admission steps remain valid.
 Pi must also carry its `first_relay_request` step matching the observed relay

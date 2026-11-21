@@ -1652,6 +1652,8 @@ const activityTurnLifecycleSchema = z.looseObject({
 });
 
 export const serverActivitySnapshotSchema = z.looseObject({
+  more: z.boolean().optional(),
+  refetch: z.array(id).optional(),
   type: z.literal("activity_snapshot"),
   lifecycles: z.array(activityTurnLifecycleSchema).optional(),
   view: activityView,

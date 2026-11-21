@@ -5297,6 +5297,11 @@ The optional `ActivityStore.lifecycleSnapshot(turnId)` returns a lifecycle and
 its `highWaterSeq` from one read transaction, or null when absent. The built-in
 store provides it. Streams accepting an older store capture a conservative
 floor before reading its lifecycle, so they never acknowledge unseen data.
+REST detail uses the same atomic read, with a read transaction for legacy
+stores. `ActivityStore.snapshotRun(runId, rootOnly?)` optionally reads only
+the root and its floor in one transaction, omitting child spans and events;
+index snapshots use this bounded read. The optional parameter is additive to
+previous store implementations, whose full run snapshot also remains valid.
 
 ### Late Activity session association
 

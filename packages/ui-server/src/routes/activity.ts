@@ -252,8 +252,12 @@ export function createActivityRoutes(deps: {
         const row = db
           .query("SELECT * FROM activity_run_rollups WHERE run_id = ?")
           .get(runId) as any;
-        const lifecycle = store.lifecycle(runId) ?? undefined;
-        const lifecycleSeq = lifecycle ? store.runHighWaterSeq(lifecycle.lifecycleId) : undefined;
+        const lifecycleSnapshot = store.lifecycleSnapshot ? store.lifecycleSnapshot(runId) : db.transaction(() => {
+          const lifecycle = store.lifecycle(runId);
+          return lifecycle ? { lifecycle, highWaterSeq: store.runHighWaterSeq(lifecycle.lifecycleId) } : null;
+        })();
+        const lifecycle = lifecycleSnapshot?.lifecycle;
+        const lifecycleSeq = lifecycleSnapshot?.highWaterSeq;
         if (snapshot) {
           // Tool payload events (up to 16 KB each) dominate a run's byte
           // size, and the history list opens details eagerly — so the REST

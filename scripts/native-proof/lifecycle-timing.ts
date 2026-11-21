@@ -5,11 +5,14 @@ const UNOBSERVED_CLAUDE_STEPS: readonly string[] = ["runtime_to_sdk_init", "mcp_
 /** Admission proof is independent of any later backend startup evidence. */
 export function requireAdmissionSteps(sample: ReturnType<typeof lifecycleTimingSample>, name: string): void {
   const fail = () => { throw Error(`OBSERVATION_TIMING_ADMISSION_STEPS_RECORDED ${name}`); };
-  if (!sample || sample.governedAdmissionMs === null || !Number.isFinite(sample.governedAdmissionMs) || sample.governedAdmissionMs < 0
-    || sample.journalBeginMs === null || !Number.isFinite(sample.journalBeginMs) || sample.journalBeginMs < 0) fail();
+  if (!sample) return fail();
+  if ([sample.governedAdmissionMs, sample.journalBeginMs].some(value => value === null || !Number.isFinite(value) || value < 0)) fail();
+  for (const [start, end] of [[sample.governedStartedAt, sample.governedAcquiredAt], [sample.journalStartedAt, sample.journalBeganAt]]) {
+    if (start === null || end === null || !Number.isFinite(start) || !Number.isFinite(end) || end < start) fail();
+  }
   for (const phase of ["governed", "journal"]) {
-    if (!Object.entries(sample!.steps).some(([key, elapsed]) => key.startsWith(`${phase}.`)
-      && elapsed !== null && Number.isFinite(elapsed) && elapsed >= 0)) fail();
+    if (!sample.admissionSteps.some(step => step.phase === phase && Number.isFinite(step.startedAt)
+      && step.endedAt !== null && Number.isFinite(step.endedAt) && step.endedAt >= step.startedAt)) fail();
   }
 }
 
@@ -30,7 +33,9 @@ export function lifecycleTimingSample(record: ActivityTurnLifecycle | undefined,
     steps[key] = elapsedMs === null ? steps[key] ?? null : (steps[key] ?? 0) + elapsedMs;
     return { ...step, elapsedMs };
   });
-  return { turnId: record.turnId, backendInvokedAt: record.backendInvokedAt, firstFrameAt: record.firstFrameAt, endedAt: record.endedAt, firstRelayRequestAt: record.firstRelayRequestAt ?? null,
+  return { governedStartedAt: record.governedStartedAt, governedAcquiredAt: record.governedAcquiredAt,
+    journalStartedAt: record.journalStartedAt, journalBeganAt: record.journalBeganAt,
+    admissionSteps: record.subPhases ?? [], turnId: record.turnId, backendInvokedAt: record.backendInvokedAt, firstFrameAt: record.firstFrameAt, endedAt: record.endedAt, firstRelayRequestAt: record.firstRelayRequestAt ?? null,
     queueWaitMs: span(record.acceptedAt, record.dequeuedAt),
     governedAdmissionMs: span(record.governedStartedAt, record.governedAcquiredAt),
     budgetAdmissionMs: span(record.budgetStartedAt, record.budgetAdmittedAt), journalBeginMs: span(record.journalStartedAt, record.journalBeganAt),

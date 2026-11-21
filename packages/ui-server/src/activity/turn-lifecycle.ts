@@ -10,6 +10,16 @@ import { orderedWrites } from "./store-writes.js";
  */
 export type PhaseTimer = (name: string) => () => void;
 
+/** A restarted host cannot recover elapsed downtime from a prior monotonic clock. */
+export function lastLifecycleObservation(record: ActivityTurnLifecycle): number {
+  const marks = [record.acceptedAt, record.dequeuedAt, record.governedStartedAt, record.governedAcquiredAt,
+    record.budgetStartedAt, record.budgetAdmittedAt, record.journalStartedAt, record.journalBeganAt,
+    record.backendInvokedAt, record.firstFrameAt, record.firstRelayRequestAt, record.failureObservedAt,
+    ...(record.hostEvents ?? []).map(event => event.observedAt),
+    ...[...(record.subPhases ?? []), ...(record.openSubPhases ?? [])].flatMap(step => [step.startedAt, step.endedAt])];
+  return marks.reduce<number>((latest, at) => typeof at === "number" && Number.isFinite(at) ? Math.max(latest, at) : latest, record.acceptedAt);
+}
+
 type LifecycleMilestone = "dequeuedAt" | "governedStartedAt" | "governedAcquiredAt" | "budgetStartedAt" | "budgetAdmittedAt" | "journalStartedAt" | "journalBeganAt" | "backendInvokedAt" | "firstFrameAt" | "failureObservedAt";
 
 export function createTurnLifecycle(store: AwaitableActivityStore, turnId: string, sessionId: string | null,

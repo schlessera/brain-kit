@@ -263,3 +263,15 @@ test("native timing never infers relay receipt from failure or backfills histori
   expect(lifecycleTimingSample(historical)).toMatchObject({ invocationToRelayMs: null, backendSteps: [], backendMissingEvidence: null });
   expect(lifecycleTimingSample(undefined)).toBeNull();
 });
+
+for (const defect of ["phase-prefix", "missing-milestones", "unfinished-steps"] as const) test(`native admission rejects ${defect} as completion evidence`, () => {
+  const source = record(); source.journalStartedAt = 1100; source.journalBeganAt = 1200;
+  source.subPhases!.push({ phase: "journal", name: "begin", startedAt: 1100, endedAt: 1200, elapsedMs: null });
+  expect(() => requireAdmissionSteps(lifecycleTimingSample(source), "ithaca-control")).not.toThrow();
+  if (defect === "phase-prefix") {
+    source.openSubPhases!.push(...source.subPhases!.map(step => ({ ...step, phase: `${step.phase}.future` }))); source.subPhases = [];
+  } else if (defect === "missing-milestones") { source.governedAcquiredAt = null; source.journalBeganAt = null; }
+  else source.subPhases = source.subPhases!.map(step => ({ ...step, endedAt: null }));
+  expect(() => requireAdmissionSteps(lifecycleTimingSample(source), "ithaca-invalid"), "NATIVE_ADMISSION_REQUIRES_EXACT_COMPLETED_EVIDENCE")
+    .toThrow("OBSERVATION_TIMING_ADMISSION_STEPS_RECORDED");
+});
