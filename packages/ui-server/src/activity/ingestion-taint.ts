@@ -220,6 +220,24 @@ function completeSearchFields(prefix:string):unknown {
     else if(c==='}'||c===']'){if(depth===1){keep(i);break;}depth--;}
     else if(c===','&&depth===1){keep(i);start=i+1;}
   }
+  // The last top-level field may be an unfinished filenames array. Its
+  // independently closed string elements remain identifiable before the cut.
+  const tail=prefix.slice(start),key=/^\s*("(?:[^"\\]|\\.)*")\s*:\s*\[/.exec(tail);
+  let filenameKey=false;try{filenameKey=!!key&&JSON.parse(key[1]!)==='filenames';}catch{/* Invalid keys cannot identify an array. */}
+  if(key&&filenameKey){
+    const paths:string[]=[];let level=1,inString=false,escape=false,token=-1;
+    for(let i=key[0].length;i<tail.length&&level>0;i++){
+      const c=tail[i];
+      if(inString){
+        if(escape)escape=false;else if(c==='\\')escape=true;else if(c==='"'){
+          inString=false;if(token>=0){try{paths.push(JSON.parse(tail.slice(token,i+1)));}catch{/* Malformed strings cannot identify a path. */}token=-1;}
+        }
+      }else if(c==='"'){inString=true;token=level===1?i:-1;}
+      else if(c==='['||c==='{')level++;
+      else if(c===']'||c==='}')level--;
+    }
+    fields.filenames=[...(Array.isArray(fields.filenames)?fields.filenames:[]),...paths];
+  }
   return fields;
 }
 

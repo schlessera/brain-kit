@@ -160,3 +160,16 @@ test('oversized structured content retains complete filename fields inside the p
  const signals=outputTaintSignals('Grep',output,undefined,path=>path==='notes/loom.md',searchOutputContext('Grep',{output_mode:'content'}));
  expect(signals.map(signal=>signal.source).sort()).toEqual(['legacy_unknown','user_marked']);
 });
+
+test('byte cutoff at every array position retains every complete filename element',()=>{
+ const paths=['workspaces/voyage/raft.md','notes/lo"om.md','notes/a\nb.md'],array=JSON.stringify(paths);
+ let end=1;const ends=paths.map(path=>{end+=JSON.stringify(path).length;const result=end;end++;return result;});
+ for(let cut=0;cut<=array.length;cut++){
+  const before='{"padding":"',after='","filenames":',padding=1048576-before.length-after.length-cut;
+  const output=before+' '.repeat(padding)+after+array+',"content":"'+ 's'.repeat(100)+'"}';
+  const signals=outputTaintSignals('Grep',output,undefined,path=>paths.includes(path),searchOutputContext('Grep',{head_limit:0}));
+  const expected=paths.filter((_,index)=>ends[index]!<=cut).flatMap(path=>[...(path.startsWith('workspaces/')?['workspace_read:'+path]:[]),'user_marked:'+path]);
+  expected.push('legacy_unknown:unknown_remainder');
+  expect(signals.map(signal=>signal.source+':'+signal.key).sort(),'ARRAY_BYTE_CUT_'+cut).toEqual(expected.sort());
+ }
+});
