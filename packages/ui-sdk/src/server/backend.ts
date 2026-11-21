@@ -620,7 +620,8 @@ export interface StartTurnRequest {
     start(name: string): () => void;
     /** Duration from the worker's own clock, timestamped at host receipt. */
     worker(name: string, durationMs: number): void;
-    missing(name: string): void;
+    /** A positive omitted count reports observations not retained by the SDK sampler. */
+    missing(name: string, omitted?: number): void;
     /** First authorized inference route received, before admission and upstream dispatch. */
     received(): void;
   };

@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { createUiDb } from "../src/db/client.js";
 import { createActivityStore } from "../src/activity/store.js";
 import { createTurnLifecycle } from "../src/activity/turn-lifecycle.js";
@@ -10,6 +10,30 @@ import { z } from "zod";
 const previousStep = z.looseObject({ phase: z.enum(["governed", "journal"]), name: z.string(), startedAt: z.number(),
   endedAt: z.number().nullable(), elapsedMs: z.number().nullable() });
 const previousLifecycle = z.looseObject({ subPhases: z.array(previousStep).optional() });
+
+test("lifecycle observations retain elapsed time and startup ordering across wall-clock corrections", () => {
+  const db = createUiDb(":memory:"); let wall = 1000, mono = 0;
+  const date = spyOn(Date, "now").mockImplementation(() => wall);
+  const tick = spyOn(performance, "now").mockImplementation(() => mono);
+  try {
+    const store = createActivityStore(db), life = createTurnLifecycle(store, "ithaca-clock", "ithaca", 1000, () => {});
+    life.mark("governedStartedAt"); mono = 10; wall = 1010; const governed = life.timer("governed")("gate");
+    mono = 40; wall = 920; governed(); life.mark("governedAcquiredAt");
+    mono = 50; wall = 930; life.mark("backendInvokedAt");
+    mono = 100; wall = 1100; const probe = life.startupTiming.start("host_probe");
+    mono = 150; wall = 1020; probe();
+    mono = 160; wall = 1030; life.startupTiming.worker("resources", 9);
+    mono = 165; wall = 1_000_000; life.firstFrame("ithaca-clock");
+    mono = 170; wall = 1040; life.startupTiming.received();
+    mono = 200; wall = 900; life.finish("success");
+    const record = store.lifecycle("ithaca-clock")!;
+    expect(record, "LIFECYCLE_USES_ONE_MONOTONIC_EPOCH_BASIS").toMatchObject({ backendInvokedAt: 1050, firstFrameAt: 1165,
+      firstRelayRequestAt: 1170, endedAt: 1200, totalElapsedMs: 200, governedAdmissionMs: 40 });
+    expect(record.subPhases).toEqual([{ phase: "governed", name: "gate", startedAt: 1010, endedAt: 1040, elapsedMs: 30 }]);
+    expect(record.openSubPhases!.find(step => step.name === "host_probe")).toMatchObject({ startedAt: 1100, endedAt: 1150, elapsedMs: 50 });
+    expect(record.openSubPhases!.find(step => step.name === "resources")).toMatchObject({ startedAt: 1160, endedAt: 1160, elapsedMs: 9 });
+  } finally { tick.mockRestore(); date.mockRestore(); db.close(); }
+});
 
 test("missing startup evidence stays bounded by count and UTF-8 bytes, including late reports", () => {
   const db = createUiDb(":memory:");
@@ -23,12 +47,11 @@ test("missing startup evidence stays bounded by count and UTF-8 bytes, including
     life.startupTiming.received();
     for (let i = 3000; i < 6000; i++) life.startupTiming.missing(`mcp_connect:ithaca-server-${i}`);
     life.finish("success");
-    const names = store.lifecycle("turn-ithaca")!.backendMissingEvidence!;
-    expect(names, "MISSING_EVIDENCE_COUNT_IS_BOUNDED").toHaveLength(64);
-    expect(new Set(names).size).toBe(64);
+    const record = store.lifecycle("turn-ithaca")!, names = record.backendMissingEvidence!;
+    expect(names.length, "MISSING_EVIDENCE_COUNT_IS_BOUNDED").toBeLessThanOrEqual(8);
+    expect(Buffer.byteLength(JSON.stringify(names)), "MISSING_EVIDENCE_BYTES_ARE_BOUNDED").toBeLessThanOrEqual(256);
     expect(names[0]).toBe("first_enqueue");
-    expect(names).toContain("additional_missing_evidence_omitted");
-    expect(names.filter(name => Buffer.byteLength(name) > 256), "MISSING_EVIDENCE_BYTES_ARE_BOUNDED").toEqual([]);
+    expect(record.backendEvidenceOmitted! + names.length, "OMITTED_DIAGNOSTIC_COUNT_IS_EXACT").toBe(6003);
   } finally { db.close(); }
 });
 
@@ -160,5 +183,72 @@ for (const outcome of ["error", "cancelled", "denied", "interrupted"] as const) 
     expect(record.openSubPhases).toEqual([
       { phase: "backend", name: "worker_launch", startedAt: 1000, endedAt: null, elapsedMs: outcome === "interrupted" ? 300 : 200 },
     ]);
+  } finally { db.close(); }
+});
+
+test("backend steps have independent count and encoded-byte caps with exact omitted observations", () => {
+  const db = createUiDb(":memory:"), store = createActivityStore(db);
+  try {
+    const life = createTurnLifecycle(store, "ithaca-bounded-steps", "ithaca", 1000, () => {}, () => 1100);
+    life.mark("backendInvokedAt");
+    for (let i = 0; i < 1000; i++) life.startupTiming.start(`worker-${i}`)();
+    life.startupTiming.start("帆".repeat(100))();
+    life.startupTiming.missing("mcp_connect:additional_servers_omitted", 100);
+    life.finish("success");
+    const record = store.lifecycle("ithaca-bounded-steps")!, steps = record.openSubPhases!.filter(step => step.phase === "backend");
+    expect(steps.length, "BACKEND_STEP_COUNT_IS_BOUNDED").toBeLessThanOrEqual(16);
+    expect(Buffer.byteLength(JSON.stringify(steps)), "BACKEND_STEP_BYTES_ARE_BOUNDED").toBeLessThanOrEqual(2048);
+    expect(record.backendEvidenceOmitted! + steps.length, "OMITTED_BACKEND_COUNT_IS_EXACT").toBe(1101);
+    expect(record.backendMissingEvidence, "COUNTS_PRESERVE_MISSING_EVIDENCE_NOTE").toContain("mcp_connect:additional_servers_omitted");
+  } finally { db.close(); }
+});
+
+test("backend byte limits apply independently before their count limits", () => {
+  const db = createUiDb(":memory:"), store = createActivityStore(db), pinned = Date.UTC(2026, 6, 12);
+  try {
+    const life = createTurnLifecycle(store, "ithaca-bounded-bytes", "ithaca", pinned, () => {}, () => pinned);
+    life.mark("backendInvokedAt");
+    for (let i = 0; i < 8; i++) life.startupTiming.missing(`mcp_connect:${i}-${"x".repeat(70)}`);
+    for (let i = 0; i < 16; i++) life.startupTiming.start(`probe-${i}-${"x".repeat(80)}`)();
+    life.finish("success");
+    const record = store.lifecycle("ithaca-bounded-bytes")!, steps = record.openSubPhases!, names = record.backendMissingEvidence!;
+    expect(Buffer.byteLength(JSON.stringify(names)), "DIAGNOSTIC_BYTE_LIMIT_IS_INDEPENDENT").toBeLessThanOrEqual(256);
+    expect(Buffer.byteLength(JSON.stringify(steps)), "BACKEND_STEP_BYTE_LIMIT_IS_INDEPENDENT").toBeLessThanOrEqual(2048);
+    expect(names.length).toBeLessThan(8); expect(steps.length).toBeLessThan(16);
+    expect(record.backendEvidenceOmitted! + names.length + steps.length).toBe(24);
+  } finally { db.close(); }
+});
+
+test("reading pre-cap backend records bounds additions without changing admission or other open phases", () => {
+  const db = createUiDb(":memory:"), store = createActivityStore(db);
+  try {
+    const life = createTurnLifecycle(store, "ithaca-pre-cap", "ithaca", 1000, () => {}, () => 1100); life.finish("success");
+    const old = store.lifecycle("ithaca-pre-cap")!; delete old.backendEvidenceOmitted;
+    old.subPhases = [{ phase: "journal", name: "begin", startedAt: 1000, endedAt: 1100, elapsedMs: 100 }];
+    const closing = { phase: "closing", name: "finish", startedAt: 1100, endedAt: 1100, elapsedMs: 0 };
+    old.openSubPhases = [closing, ...Array.from({ length: 100 }, (_, i) => ({ phase: "backend", name: `worker-${i}`, startedAt: 1000, endedAt: 1100, elapsedMs: 100 }))];
+    old.backendMissingEvidence = Array.from({ length: 100 }, (_, i) => `mcp_connect:${i}-${"x".repeat(190)}`);
+    db.query("UPDATE activity_turn_lifecycles SET record = ? WHERE turn_id = ?").run(JSON.stringify(old), old.turnId);
+    const current = store.lifecycle(old.turnId)!;
+    expect(current.subPhases).toEqual(old.subPhases);
+    expect(current.openSubPhases!.find(step => step.phase === "closing")).toEqual(closing);
+    const backend = current.openSubPhases!.filter(step => step.phase === "backend");
+    expect(backend.length, "HISTORICAL_BACKEND_EVIDENCE_IS_BOUNDED").toBeLessThanOrEqual(16);
+    expect(current.backendMissingEvidence).toEqual([]);
+    expect(current.backendEvidenceOmitted! + backend.length).toBe(200);
+    expect(store.lifecycle(old.turnId)).toEqual(current);
+  } finally { db.close(); }
+});
+
+test("diagnostic count limits apply independently before the byte limit", () => {
+  const db = createUiDb(":memory:"), store = createActivityStore(db);
+  try {
+    const life = createTurnLifecycle(store, "ithaca-diagnostic-count", "ithaca", 1000, () => {}, () => 1100);
+    life.mark("backendInvokedAt");
+    for (let i = 0; i < 50; i++) life.startupTiming.missing(`d${i}`);
+    life.finish("success");
+    const record = store.lifecycle("ithaca-diagnostic-count")!;
+    expect(record.backendMissingEvidence, "DIAGNOSTIC_COUNT_LIMIT_IS_INDEPENDENT").toHaveLength(8);
+    expect(record.backendEvidenceOmitted).toBe(42);
   } finally { db.close(); }
 });

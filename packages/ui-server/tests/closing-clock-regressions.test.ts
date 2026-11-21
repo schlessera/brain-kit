@@ -79,6 +79,7 @@ test("backend failure attributes the first pending egress settlement on the erro
   const entry = await import("../src/ws/session-run/backend-entry");
   const db = createUiDb(":memory:"), store = createActivityStore(db), stream = createActivityStream(store); let now = 1000;
   const clock = spyOn(Date, "now").mockImplementation(() => now); let settled = false;
+  const monotonic = spyOn(performance, "now").mockImplementation(() => now);
   const prepare = spyOn(entry, "prepareRelayedEgress").mockImplementation(async run => {
     run.held.turnEgress = { async settled() { if (!settled) { now += 500; settled = true; } }, stop() {}, recordingFailure() {} } as unknown as NonNullable<TurnRun["held"]["turnEgress"]>;
   });
@@ -87,7 +88,7 @@ test("backend failure attributes the first pending egress settlement on the erro
   try {
     await runSession(host, { authorization: testAuthorization("odysseus"), text: "Plan Ithaca", attachments: [] });
     expect(store.lifecycles()[0]!.openSubPhases?.filter(step => step.name === "egress_settle").map(step => step.elapsedMs), "ERROR_PATH_KEEPS_FIRST_EGRESS_WAIT").toEqual([500, 0]);
-  } finally { prepare.mockRestore(); clock.mockRestore(); host.close(); stream.close(); db.close(); }
+  } finally { prepare.mockRestore(); monotonic.mockRestore(); clock.mockRestore(); host.close(); stream.close(); db.close(); }
 });
 
 test("failed scope writes and absent scope admission never report scope completion", async () => {
@@ -285,6 +286,7 @@ test("backend exit confirmation uses one clock read even across a ticking millis
   const { makeFakeBackend } = await import("./helpers/fake-backend");
   const { testAuthorization } = await import("./helpers/principal");
   let now = 1000; const clock = spyOn(Date, "now").mockImplementation(() => ++now);
+  const monotonic = spyOn(performance, "now").mockImplementation(() => ++now);
   const db = createUiDb(":memory:"), store = createActivityStore(db), stream = createActivityStream(store);
   const host = new WsHost({ registry: createStaticBackendRegistry([makeFakeBackend({ id: "pi" })], "pi"), catalog: createSessionCatalog(() => db), activity: { store, stream } });
   try {
@@ -292,7 +294,7 @@ test("backend exit confirmation uses one clock read even across a ticking millis
     const step = store.lifecycles()[0]!.openSubPhases?.find(step => step.name === "backend_exit");
     expect(step, "BACKEND_EXIT_IS_ONE_ZERO_WIDTH_OBSERVATION").toBeDefined();
     expect(step!.endedAt, "BACKEND_EXIT_IS_ONE_ZERO_WIDTH_OBSERVATION").toBe(step!.startedAt); expect(step!.elapsedMs).toBe(0);
-  } finally { clock.mockRestore(); host.close(); stream.close(); db.close(); }
+  } finally { monotonic.mockRestore(); clock.mockRestore(); host.close(); stream.close(); db.close(); }
 });
 
 test("failed egress recording leaves settlement incomplete on success and backend-error paths", async () => {

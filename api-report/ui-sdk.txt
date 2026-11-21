@@ -4543,6 +4543,7 @@ signatures (every public export and the types it is made of)
         backendInvokedAt: number | null;
         firstRelayRequestAt?: number | null;
         backendMissingEvidence?: string[];
+        backendEvidenceOmitted?: number;
         firstFrameAt: number | null;
         failureObservedAt: number | null;
         endedAt: number | null;
@@ -22148,6 +22149,7 @@ signatures (every public export and the types it is made of)
         }, z.core.$loose>>;
         lifecycle: z.ZodOptional<z.ZodObject<{
             acceptedAt: z.ZodNumber;
+            backendEvidenceOmitted: z.ZodOptional<z.ZodNumber>;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
             backendMissingEvidence: z.ZodOptional<z.ZodArray<z.ZodString>>;
             backendRunId: z.ZodNullable<z.ZodString>;
@@ -22314,6 +22316,7 @@ signatures (every public export and the types it is made of)
         highWaterSeq: z.ZodRecord<z.ZodString, z.ZodNumber>;
         lifecycles: z.ZodOptional<z.ZodArray<z.ZodObject<{
             acceptedAt: z.ZodNumber;
+            backendEvidenceOmitted: z.ZodOptional<z.ZodNumber>;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
             backendMissingEvidence: z.ZodOptional<z.ZodArray<z.ZodString>>;
             backendRunId: z.ZodNullable<z.ZodString>;
@@ -25369,6 +25372,7 @@ signatures (every public export and the types it is made of)
         highWaterSeq: z.ZodRecord<z.ZodString, z.ZodNumber>;
         lifecycles: z.ZodOptional<z.ZodArray<z.ZodObject<{
             acceptedAt: z.ZodNumber;
+            backendEvidenceOmitted: z.ZodOptional<z.ZodNumber>;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
             backendMissingEvidence: z.ZodOptional<z.ZodArray<z.ZodString>>;
             backendRunId: z.ZodNullable<z.ZodString>;
@@ -25536,6 +25540,7 @@ signatures (every public export and the types it is made of)
         }, z.core.$loose>>;
         lifecycle: z.ZodOptional<z.ZodObject<{
             acceptedAt: z.ZodNumber;
+            backendEvidenceOmitted: z.ZodOptional<z.ZodNumber>;
             backendInvokedAt: z.ZodNullable<z.ZodNumber>;
             backendMissingEvidence: z.ZodOptional<z.ZodArray<z.ZodString>>;
             backendRunId: z.ZodNullable<z.ZodString>;

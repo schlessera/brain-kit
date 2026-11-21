@@ -125,6 +125,10 @@ signatures (every public export and the types it is made of)
             lifecycle: ActivityTurnLifecycle;
         }>;
         lifecycle(turnId: string): ActivityTurnLifecycle | null;
+        lifecycleSnapshot?(turnId: string): {
+            lifecycle: ActivityTurnLifecycle;
+            highWaterSeq: number;
+        } | null;
         lifecycles(sessionId?: string, limit?: number): ActivityTurnLifecycle[];
         snapshotLifecycles?(scope: {
             turnId?: string;
@@ -156,7 +160,7 @@ signatures (every public export and the types it is made of)
             span: SpanRow;
         }>;
         latestChangeCursor(): number;
-        snapshotRun(runId: string): RunSnapshot | null;
+        snapshotRun(runId: string, rootOnly?: boolean): RunSnapshot | null;
         runHighWaterSeq(runId: string): number;
         getSpan(spanId: string): SpanRow | null;
         previousSessionRoot?(spanId: string, sessionId: string): SpanRow | null;

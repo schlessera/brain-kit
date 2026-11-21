@@ -10,7 +10,7 @@ import { createUiDb } from "../src/db/client.js";
 import { openSqliteWriter } from "../src/db/write-worker.js";
 import * as probe from "./fixtures/client-turn-writer-probe.js";
 
-for (const reader of ["empty pump", "single lifecycle", "lifecycle list", "lifecycle snapshot", "lifecycle deltas", "span snapshot"] as const) {
+for (const reader of ["empty pump", "single lifecycle", "lifecycle list", "lifecycle snapshot", "single paired lifecycle snapshot", "lifecycle deltas", "span snapshot"] as const) {
   test(`${reader} reads its snapshot while the file-backed writer remains held`, async () => {
     const folder = mkdtempSync(join(tmpdir(), "client-turn-ithaca-read-"));
     const db = createUiDb(join(folder, "ui.db")), writer = openSqliteWriter(db);
@@ -43,6 +43,12 @@ for (const reader of ["empty pump", "single lifecycle", "lifecycle list", "lifec
           const snapshot = store.snapshotLifecycles!({ turnId: "turn-ithaca" });
           expect(snapshot.lifecycles[0]?.clientTiming).toEqual(timing);
           expect(snapshot.highWaterSeq["lifecycle:turn-ithaca"]).toBeGreaterThan(0);
+          break;
+        }
+        case "single paired lifecycle snapshot": {
+          const snapshot = store.lifecycleSnapshot!("turn-ithaca")!;
+          expect(snapshot.lifecycle.clientTiming).toEqual(timing);
+          expect(snapshot.highWaterSeq).toBeGreaterThan(0);
           break;
         }
         case "lifecycle deltas": expect(store.lifecycleChangesSince(0).at(-1)?.lifecycle.clientTiming).toEqual(timing); break;

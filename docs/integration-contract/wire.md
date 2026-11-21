@@ -646,11 +646,29 @@ Queued requests retain their observed queue acceptance and `dequeuedAt`;
 `queueWaitMs` is null when no queue interval was observed. Milestones are
 `governedStartedAt`/`governedAcquiredAt`, `budgetStartedAt`/`budgetAdmittedAt`,
 `journalStartedAt`/`journalBeganAt`, `backendInvokedAt` and `firstFrameAt`.
-All timestamps are epoch milliseconds. `skippedPhases` explicitly identifies
+All timestamps are epoch milliseconds. Each new lifecycle anchors its host
+observations to one wall-clock reading plus elapsed monotonic time. Its
+admission/backend steps, milestones, receipt points and terminal boundary
+share that basis, so later wall-clock corrections do not reorder them.
+`acceptedAt` retains the observed acceptance time. `skippedPhases` explicitly identifies
 governed/budget/journal phases not configured for this turn. Other null
 milestones mean not reached or unavailable; they never claim zero-duration
 success. A started phase whose completion is null is pending, or incomplete
-when the enclosing record is terminal.
+when the enclosing record is terminal. After a host restart the previous
+monotonic clock is unavailable: interruption closes at the latest persisted
+host observation (milestone, step endpoint or host event), without inventing
+elapsed downtime from the new wall clock.
+
+Backend additions are bounded independently of the original admission steps:
+at most 16 backend steps and 2,048 encoded JSON bytes, plus 8 missing-evidence
+diagnostics and 256 encoded bytes; individual names are at most 96 UTF-8 bytes.
+These bounds also apply when reading earlier backend records. Optional
+`backendEvidenceOmitted` counts step/diagnostic observations removed by those
+limits, including the SDK sampler's omitted observations. Absence on historical
+records means unknown. The Claude sampler reads at most 8 MCP entries and
+retains at most 192 encoded bytes of names, with a counted remainder. No mark
+is invented for an omitted observation, and original governed/journal steps
+and other open phases remain intact.
 
 `totalElapsedMs` measures acceptance to `endedAt`; `timeToFirstFrameMs` measures
 acceptance to the first observed backend frame/Activity event or backend bridge
@@ -764,13 +782,15 @@ system/init. The installed SDK exposes connection state without per-server
 start/end marks. Unknown marks have no timed step; an empty list does not
 claim complete runtime coverage. These observations stay in host storage and
 never enter provider history.
-Names are sampled from the first Claude system/init frame only: at most 32
-server names, each at most 240 UTF-8 bytes, with
-`mcp_connect:additional_servers_omitted` when that sample is incomplete.
-The lifecycle retains at most 63 distinct missing-evidence names of at most
-256 UTF-8 bytes each, plus `additional_missing_evidence_omitted` on overflow.
-Omitted names are not retained for deduplication. Continuation init frames do
-not expand the sample; missing evidence remains explicit when a limit is hit.
+Names are sampled from the first Claude system/init frame only: at most 8
+server names, each at most 48 UTF-8 bytes, within the 192-byte encoded sample
+budget. An incomplete sample reports `mcp_connect:additional_servers_omitted`
+when that summary label fits the lifecycle's diagnostic budget. The lifecycle
+retains at most 8 diagnostic names within 256 encoded bytes; individual
+lifecycle names are at most 96 UTF-8 bytes. `backendEvidenceOmitted` replaces
+the dropped `additional_missing_evidence_omitted` marker and counts omitted
+observations. Omitted names are not retained for deduplication. Continuation
+init frames do not expand the sample; limits keep missing evidence explicit.
 Malformed MCP diagnostic lists or entries also mark the sample incomplete.
 Null or absent lists are unavailable evidence; an explicit empty array is an
 observed empty list. These diagnostics cannot fail an otherwise usable stream.
@@ -862,7 +882,25 @@ Hosts that record agent activity advertise `capabilities.activity` on
 `activity_delta` frames; a server never sends activity frames to a connection
 without a matching subscription. Ordering: a snapshot carries per-run
 high-water `seq`, every delta carries its `seq`, and the client discards
-deltas at or below the snapshot's high-water for that run. Deltas are
+deltas at or below the snapshot's high-water for that run. Snapshots use
+the existing count-based span/event chunks, with the complete scope watermark
+map in every append frame. There are no pagination or refetch marker fields.
+Lifecycle/floor pairs and index roots come from consistent store reads. An
+index floor is the full run sequence unless a run change is still above the
+shared pump cursor; then it stops immediately before that pending change.
+Previously delivered live deltas therefore do not make a reconnect discard a
+current root. Legacy lifecycle stores read the sequence before the row, so
+concurrent writes can advance the row without acknowledging unseen data.
+REST also returns that conservative `lifecycleSeq` when a legacy store lacks
+both atomic lifecycle readers, reading the sequence before the row.
+
+If a lifecycle survives intact in no snapshot chunk, that lifecycle's floor
+is lowered to its paired sequence minus one (not below zero), and its own
+`activity_delta` follows the snapshot on the subscribing socket only. Snapshot
+handling never rewinds the shared pump cursor or scans prior pump history.
+Span/event display shrinking retains its existing behavior. This preserves
+existing client scope and append behavior.
+Deltas are
 append-only increments (a small span row, or exactly one event) — they never
 grow with run length. The `result` frame additionally carries an optional
 `usage` block (token totals + per-model breakdown; absent cost means unknown,

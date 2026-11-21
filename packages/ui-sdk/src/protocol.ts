@@ -3973,6 +3973,8 @@ export interface ActivityTurnLifecycle {
   firstRelayRequestAt?: number | null;
   /** SDK stages unavailable to the host; never inferred from another mark. */
   backendMissingEvidence?: string[];
+  /** Backend step/diagnostic observations omitted by count or encoded-byte limits. */
+  backendEvidenceOmitted?: number;
   firstFrameAt: number | null;
   failureObservedAt: number | null;
   endedAt: number | null;

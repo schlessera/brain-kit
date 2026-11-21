@@ -5308,6 +5308,23 @@ settle after their commit. An `ActivityStore`, whose writes all commit before
 they return, satisfies it. Refusal classes and transaction order are
 unchanged. These shapes change at a pre-1.0 minor under that ruling.
 
+The optional `ActivityStore.lifecycleSnapshot(turnId)` returns a lifecycle and
+its `highWaterSeq` from one read transaction, or null when absent. The built-in
+store provides it. Without either atomic lifecycle reader, REST and the stream
+read the sequence through the store before its lifecycle row; REST still returns
+that conservative `lifecycleSeq` for prior store implementations.
+`ActivityStore.snapshotRun(runId, rootOnly?)` optionally reads only open roots
+with the full run sequence from the same transaction. The index stream lowers
+that floor only before a run change above the shared pump cursor, whose normal
+delta will reach that socket. It keeps the full floor for already-passed
+changes, including reconnects. Older stores returning full run snapshots
+remain supported.
+
+The internal startup observer's `missing(name, omitted?)` accepts an optional
+positive omitted observation count. The safe observer wrapper forwards that
+count without allowing diagnostics to fail a turn. This supports bounded SDK
+sampling and the lifecycle's additive `backendEvidenceOmitted` count.
+
 ### Consistent Activity lifecycle snapshots
 
 `ActivityStore` adds optional `snapshotLifecycles({ turnId?, sessionId?, limit? })`,
