@@ -1,11 +1,19 @@
 import { chargeReceivedBytes } from "./egress-accounting.js";
 import type { EgressChargeFailure } from './egress-proxy.js';
 
-/** Observable HTTP framing shared by both concrete host relays. */
-export function relayHeaderBytes(first:string,headers:Headers):number {
- let bytes=Buffer.byteLength(first)+1028;
- for(const [name,value] of headers)bytes+=Buffer.byteLength(name)+Buffer.byteLength(value)+4;
+/** Counts every peer-supplied pair before any forwarding policy removes fields. */
+function receivedHeadBytes(first:string,rawHeaders:readonly string[],allowance:number):number {
+ let bytes=Buffer.byteLength(first+"\r\n")+2+allowance;
+ for(let i=0;i<rawHeaders.length;i+=2)bytes+=Buffer.byteLength(`${rawHeaders[i]}: ${rawHeaders[i+1]??""}\r\n`);
  return bytes;
+}
+/** Parsed fetch headers retain all observable fields; reserve runtime framing too. */
+export function relayHeaderBytes(first:string,headers:Headers):number {
+ return receivedHeadBytes(first,[...headers].flat(),1024);
+}
+/** Node supplies raw pairs (including duplicate and hop-by-hop fields); fetch supplies its unfiltered observable pairs. */
+export function readReceivedHead(first:string,rawHeaders:readonly string[],options:Parameters<typeof chargeReceivedBytes>[1],allowance=64) {
+ return chargeReceivedBytes(receivedHeadBytes(first,rawHeaders,allowance),options);
 }
 export class RelayResponseRefused extends Error {
  constructor(readonly failure:EgressChargeFailure){super('Relay response refused');}
@@ -14,7 +22,7 @@ export class RelayResponseRefused extends Error {
 export function readRelayResponse(response:Response,options:{charge(count:number):EgressChargeFailure|undefined;remaining():number;maxBytes?:number}) {
  let reader:ReadableStreamDefaultReader<Uint8Array>|undefined,size=0;
  const received=(count:number)=>chargeReceivedBytes(count,options);
- const headerFailure=received(relayHeaderBytes(`HTTP/1.1 ${response.status} ${response.statusText}`,response.headers));
+ const headerFailure=readReceivedHead(`HTTP/1.1 ${response.status} ${response.statusText}`,[...response.headers].flat(),options,1024);
  const fence=()=>options.charge(0);
  const deliver=(send:()=>void)=>{const failure=fence();if(failure)return failure;send();return undefined;};
  return {

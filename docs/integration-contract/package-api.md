@@ -6084,3 +6084,13 @@ that transport error. Both report failed upstream attempts (502 before response
 headers), with provider receipt status 0 when no upstream response was seen.
 The final fence and transport invocation remain synchronous. Proxy HTTP and
 CONNECT use their ordinary upstream-failure handler for either failure order.
+
+Received HTTP heads are metered by the shared reader before forwarding filters.
+The Node proxy supplies the actual HTTP version/status or request line and every
+`rawHeaders` pair, including duplicate and Connection-nominated fields. Fetch
+relays supply every unfiltered header pair exposed by Fetch, including repeated
+Set-Cookie entries in the installed runtime. Counts cover all exposed name/value
+bytes and CRLF framing plus the existing runtime allowance. `http_wire_bound`
+is conservative application-level accounting: it does not claim exact TLS,
+transport wire bytes, or original header formatting discarded by Fetch. This
+clarifies the existing bound; forwarding policy never determines received cost.

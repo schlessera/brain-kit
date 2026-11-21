@@ -1411,3 +1411,9 @@ cancellation caused by the proxy closing its own signal. Before response
 headers it reports 502; cancellation reports 499 and existing admission
 refusals retain their typed cause. Provider receipts keep 0 when no upstream
 HTTP status was observed, or the observed status for interrupted responses.
+
+`egress_connection.accounting: "http_wire_bound"` counts received headers before
+hop-by-hop filtering. The Node proxy meters `rawHeaders`, its actual HTTP start
+line and framing; Fetch relays meter all unfiltered header pairs exposed by
+Fetch with a runtime framing allowance. The bound is not an exact TLS/wire-byte
+measurement and does not reconstruct formatting that Fetch does not expose.

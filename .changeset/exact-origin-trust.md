@@ -51,3 +51,5 @@ Fence upstream HTTP request construction and prove in-place selector edits retir
 Require remaining allowance on every governed web/relay route and debit received overflow consistently across proxy and relay traffic.
 
 Preserve ordinary upstream-failure classification for synchronous transport handoff errors.
+
+Meter raw proxy header pairs and all observable Fetch headers before forwarding filters; clarify the conservative HTTP wire bound.

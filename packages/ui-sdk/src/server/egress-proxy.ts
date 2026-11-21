@@ -1,3 +1,4 @@
+import { readReceivedHead } from "./relay-response.js";
 import { chargeReceivedBytes } from "./egress-accounting.js";
 /** Concrete host-owned HTTP/CONNECT transport for one turn; no TLS interception. */
 import { createServer, request as httpRequest, type IncomingMessage } from "node:http";
@@ -335,6 +336,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       return maySendNow(count) ? { ok: true } : failure ?? {ok:false,reason:"cancelled"};
     };
     const receive=(count:number):EgressChargeResult=>chargeReceivedBytes(count,{remaining:()=>Math.max(0,options.maxBytes-usedBytes),charge:bytes=>{const result=charge(bytes);return result.ok?undefined:result;}})??{ok:true};
+    const receiveHead=(first:string,rawHeaders:readonly string[]):EgressChargeResult=>readReceivedHead(first,rawHeaders,{remaining:()=>Math.max(0,options.maxBytes-usedBytes),charge:bytes=>{const result=charge(bytes);return result.ok?undefined:result;}})??{ok:true};
     /** One approval wait; cancelling this connection or the turn resolves it as refused. */
     const approval = async (ask: ((destination: { host: string; port: number; method: string; protocol: string; managedReference: boolean }, signal: AbortSignal) => Promise<boolean>) | undefined) => {
       if (!ask || !lifecycle.active()) return false;
@@ -445,7 +447,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (finalReason === "taint_not_allowed") try { cause = options.taint?.cause?.(); } catch { /* The message names no cause. */ }
       return describeRefusal(finalReason, host, matches(host, options.deny), cause);
     };
-    return { host, dialHost, finish, ownCleanup:lifecycle.ownCleanup, charge, receive, admit, prepare, dispatch, refusal, failure:()=>failure, signal: controller.signal, outcome: () => finalOutcome, reason: () => finalReason, pinned: () => pinned };
+    return { host, dialHost, finish, ownCleanup:lifecycle.ownCleanup, charge, receive, receiveHead, admit, prepare, dispatch, refusal, failure:()=>failure, signal: controller.signal, outcome: () => finalOutcome, reason: () => finalReason, pinned: () => pinned };
   }
   server.on("connect", (request, client, head) => {
     client.on("error", () => {});
@@ -510,16 +512,8 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     };
     void (async () => {
       if (!await op.admit() || response.destroyed) { refuse(); return; }
+      if(!op.receiveHead(`${request.method} ${request.url} HTTP/${request.httpVersion}`,request.rawHeaders).ok){refuse();return;}
       const outgoingHeaders = { ...headers(request), host: target.host, connection: "close" };
-      // Include the complete observable target and headers: a body-only cap
-      // would allow uncharged exfiltration in query strings or header values.
-      // The fixed allowance covers runtime-generated framing fields. Chunk
-      // accounting below additionally covers each HTTP chunk's framing.
-      const headerBytes = (first: string, values: Record<string, string | string[]>) => Buffer.byteLength(first + "\r\n"
-        + Object.entries(values).flatMap(([name, value]) => (Array.isArray(value) ? value : [value]).map(item => `${name}: ${item}\r\n`)).join("") + "\r\n") + 64;
-      if (!op.receive(headerBytes(`${request.method} ${target.pathname}${target.search} HTTP/1.1`, outgoingHeaders)).ok) {
-        refuse(); return;
-      }
       const address = op.pinned();
       // Under a destination policy the request goes to the checked address; Host keeps the name.
       const upstreamTarget = new URL(target);
@@ -533,7 +527,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
         outgoing?.destroy();if(!response.headersSent)refuse();else response.destroy();return false;
       };
       const dispatched=sendUpstream(()=>{outgoing=httpRequest(upstreamTarget, { method: request.method, headers: outgoingHeaders,signal:op.signal }, incoming => {
-        if (!op.receive(headerBytes(`HTTP/1.1 ${incoming.statusCode} ${incoming.statusMessage}`, headers(incoming))).ok) {
+        if (!op.receiveHead(`HTTP/${incoming.httpVersion} ${incoming.statusCode} ${incoming.statusMessage}`,incoming.rawHeaders).ok) {
           refuse(); incoming.destroy(); outgoing.destroy(); return;
         }
         const writeHeaders = () => { if (!response.headersSent) response.writeHead(incoming.statusCode ?? 502, headers(incoming)); };
