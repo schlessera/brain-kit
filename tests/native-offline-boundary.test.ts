@@ -33,6 +33,35 @@ test("a harmless fixture named claude runs without native admission", async () =
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 });
 
+test("native identity classifies explicit interpreter targets but not argument data", () => {
+  expect(isNativeClaude(process.execPath, [runtime!])).toBe(true);
+  expect(isNativeClaude(process.execPath, ["--preload", "fixture.ts", runtime!])).toBe(true);
+  expect(isNativeClaude("/usr/bin/true", [runtime!])).toBe(false);
+  expect(isNativeClaude(process.execPath, ["-e", runtime!])).toBe(false);
+});
+
+test("status-pipe worker launches treat descriptor arguments as data", async () => {
+  const scratch = mkdtempSync(join(tmpdir(), "odysseus-status-pipe-"));
+  try {
+    const result = await probe(`${imports}
+      import {nativeWorkerBoundary,isNativeClaude} from ${JSON.stringify(join(ROOT,"scripts/test-native-guard.ts"))};
+      import {openSync,closeSync} from "node:fs";
+      const fifo=process.env.HOME+"/status";
+      if(Bun.spawnSync(["/usr/bin/mkfifo",fifo]).exitCode!==0)throw Error("fixture FIFO failed");
+      const fd=openSync(fifo,"r+");
+      if(isNativeClaude("/usr/bin/true",[\`/proc/\${process.pid}/fd/1\`]))throw Error("pipe data classified as native");
+      const status=["/bin/sh","-c",'exec 3>"$1"; exec 4<"$2"; shift 2; exec "$@"',"brain-worker-status",
+        \`/proc/\${process.pid}/fd/\${fd}\`,\`/proc/\${process.pid}/fd/\${fd}\`,"/usr/bin/true"];
+      if(isNativeClaude(status[0],status.slice(1)))throw Error("status descriptors classified as native");
+      const plan=nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify({command:["/usr/bin/true"],argv:status})});
+      const child=Bun.spawn(status,{env:plan.env,stdout:"pipe",stderr:"pipe"});
+      if(await child.exited!==0)throw Error(await new Response(child.stderr).text());
+      plan.dispose();closeSync(fd);`, scratch);
+    expect(result.code, result.output).toBe(0);
+    expect(result.output).not.toContain("native executable metadata is unavailable");
+  } finally { rmSync(scratch, { recursive: true, force: true }); }
+});
+
 test("worker exec payload refuses before its synthetic bootstrap starts", async () => {
   const scratch = mkdtempSync(join(tmpdir(), "odysseus-worker-refusal-"));
   try {

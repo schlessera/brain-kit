@@ -111,16 +111,40 @@ function resolveExecutable(command: string, options: SpawnContext): string {
   return realpathSync(command.includes("/") ? resolve(cwd, command) : Bun.which(command, { cwd, PATH: path }) ?? resolve(cwd, command));
 }
 
+// Only the program and a concrete JS interpreter target are executable
+// candidates. Worker status descriptors and all other argv values are data.
+function executableCandidates(command: string, args: readonly unknown[], options: SpawnContext): string[] {
+  const candidates = [command];
+  let executable: string;
+  try { executable = resolveExecutable(command, options); } catch { return candidates; }
+  if (/^(?:node|nodejs|bun)$/.test(basename(executable))) {
+    let at = args[0] === "run" && basename(executable) === "bun" ? 1 : 0;
+    // These switches consume values, not the script target. Inline evaluation
+    // and shell programs have no explicit file target to classify here.
+    while (typeof args[at] === "string" && (args[at] as string).startsWith("-")) {
+      const flag = args[at++] as string;
+      if (["-e", "--eval", "-p", "--print", "-c", "--check"].includes(flag)) return candidates;
+      if (flag === "--") break;
+      if (["--preload", "--import", "--require", "-r", "--loader"].includes(flag)) at++;
+    }
+    const target = args[at];
+    if (typeof target === "string" && !target.startsWith("-")) candidates.push(target);
+  }
+  return candidates;
+}
+
 export function isNativeClaude(command: string, args: readonly unknown[] = [], options: SpawnContext = {}): boolean {
   if (discoveryFailed) refuse("installed SDK runtime discovery failed");
-  for (const value of [command, ...args]) {
+  for (const value of executableCandidates(command, args, options)) {
     if (typeof value !== "string" || value.startsWith("-")) continue;
     let path: string;
     try { path = resolveExecutable(value, options); } catch { continue; }
     if (installedRuntimes.some(runtime => runtime.path === path)) return true;
     // Size eliminates ordinary fixture scripts and interpreters before hashing.
     try {
-      const size = statSync(path).size;
+      const metadata = statSync(path);
+      if (!metadata.isFile()) continue;
+      const size = metadata.size;
       const candidates = installedRuntimes.filter(runtime => runtime.size === size);
       if (candidates.length && candidates.some(runtime => fileHash(runtime.path) === fileHash(path))) return true;
     } catch { refuse("native executable metadata is unavailable"); }
@@ -365,7 +389,7 @@ export function startNativeTestRelay(upstream: string | undefined) {
 }
 
 function expectedNativeExec(command: string, args: readonly string[], options: SpawnContext): string[] {
-  const native = [command, ...args].filter(value => isNativeClaude(value, [], options));
+  const native = executableCandidates(command, args, options).filter(value => isNativeClaude(value, [], options));
   return [...new Set((native.length ? native : [command]).flatMap(value => [resolve(options.cwd ?? process.cwd(), value), resolveExecutable(value, options)]))];
 }
 
@@ -815,7 +839,7 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
   try { agrees = tail.length === command.length && resolveExecutable(tail[0]!, context) === resolveExecutable(command[0]!, context)
     && tail.slice(1).every((value, index) => value === command[index + 1]); } catch { /* Unknown executable refuses. */ }
   if (!agrees) refuse("worker command and executable argv disagree");
-  const actualNative = isNativeClaude(argv[0]!, argv.slice(1), context) || isNativeClaude(workerArgv[0]!, workerArgv.slice(1), context);
+  const actualNative = isNativeClaude(command[0]!, command.slice(1), context) || isNativeClaude(argv[0]!, [], context) || isNativeClaude(workerArgv[0]!, [], context);
   if (!actualNative) {
     if (supervisor) argv[5] = JSON.stringify(supervisor);
     launch.argv = argv;

@@ -1199,8 +1199,7 @@ and the one permitted scripted service; the child silently swallows denied
 connections, so the audit count comes from the boundary rather than child output.
 The baseline retention fixture keeps its tool wrapper and runtime-rg alias
 together in a read-only tool directory and its invocation witness in HOME.
-PR #4312 changes that existing suite; its complete changed-head qualification
-remains with #4274. Run installed-native backend and
+Run installed-native backend and
 provider-history cells only in hosted CI; a temporary HOME and SDK options
 alone do not establish isolation.
 
