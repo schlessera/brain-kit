@@ -25,7 +25,7 @@ for (const readerLimit of [8, 1000]) test(`private changed-file batches respect 
     let sent = false, ended = false;
     const finish = () => { if (!ended) { ended = true; readers--; completed.resolve({ bytes: data.length, workerUid }); } };
     const stream = new ReadableStream<Uint8Array>({ async pull(controller) { await new Promise<void>(resolve => setImmediate(resolve)); if (!sent) { sent = true; controller.enqueue(data); } else { controller.close(); finish(); } }, cancel() { finish(); } });
-    expect(data.length).toBeLessThanOrEqual(maximum); return { stream, completed: completed.promise };
+    expect(data.length).toBeLessThanOrEqual(maximum); return { stream, workerUid, completed: completed.promise };
   };
   const db = createUiDb(dbPath), accounting = createJournalAccounting(db, dbPath, { capBytes: 46 * 1024 * 1024 }), objects = createJournalObjects(objectsRoot, accounting);
   const helper = spyOn(identity, "workerIdentityHelper").mockReturnValue("/odysseus/identity");
