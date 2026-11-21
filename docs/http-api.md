@@ -2468,7 +2468,9 @@ They use the same authenticated identity and principal-scoped draft binding as
 profile preferences. PUT accepts exactly `{ enabled: boolean }`; all replies
 are `Cache-Control: no-store`. Existing sessions default to false. Saves
 survive resume and apply only to the next admission; enabled sessions retain
-the existing writable-workspace protections and per-file journal.
+the existing writable-workspace protections. Ordinary workspace files keep
+per-file journaling; covered Git checkouts retain one endpoint receipt per
+checkout, as defined by the [history contract](integration-contract/http.md#checkout-change-receipts-4297).
 
 ### Combined selected-trigger and future-source review
 

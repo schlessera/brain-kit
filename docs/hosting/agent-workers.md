@@ -471,7 +471,9 @@ write verified scratch/workspace copies through the aliases below.
   worker's note names both alternatives. The preference is per session,
   survives resume and applies at the next admission, leaving a running
   worker unchanged. When enabled, the existing real directory gets the
-  previous writable mount, alias scan, per-file journal and byte accounting:
+  previous writable mount, alias scan and byte bounds. Ordinary workspace files
+  keep per-file journaling; covered Git checkouts retain one endpoint receipt
+  per checkout (see the [history contract](../integration-contract/http.md#checkout-change-receipts-4297)):
   governed uses its canonical path; strict uses a private copy at
   `/tmp/brain-worker-areas/workspaces` with validated publication after exit.
   Writable qualification still refuses outside hard links, mount points,
