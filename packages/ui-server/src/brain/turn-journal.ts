@@ -111,7 +111,7 @@ export interface TurnJournalOptions {
 /** Internal shared interval; scope records each turn's control acknowledgements. */
 export interface JournalHold {
   /** @internal Control receipt required for speculative inference dispatch; never diagnostic. */
-  requireConfirmedStop?: boolean;
+  stopReceipt?: { turnId: string; count: number; total: number };
   records: Map<string, ActivityTurnHold>;
   stoppedTurns: Set<string>;
   paths: Map<string, Set<string>>;
@@ -310,29 +310,40 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   const calls = new Map<string, { turnId: string; name: string | null; started: boolean; path?: ToolExecutionPath }>();
   const lasting = new Set<string>();
   const callKey = (turnId: string, toolUseId: string) => JSON.stringify([turnId, toolUseId]);
-  const relays = new Map<string, { messages: boolean; generation: number; operations: Set<object>; eligible(): boolean; allowed(): boolean }>();
+  type Gate = { required: number; committed: number; denied: Set<number>; failed: boolean;
+    armed?: { gen: number; observation: ReturnType<typeof deferredObservation> } };
+  const gates = new Map<string, Gate>();
+  const gateWaiters = new Map<Gate, Set<() => void>>();
+  const relays = new Map<string, { messages: boolean; generation: number; armedAt: number; toolUseId: string;
+    operations: Set<object>; eligible(): boolean; allowed(): boolean }>();
   const immediateOnly = new Set<string>();
-  type Boundary = { turnId: string; toolUseId: string; generation: number; claimed: boolean; settled: boolean; allowed: boolean; observation: ReturnType<typeof deferredObservation>; verdict: Promise<boolean> };
-  const claimed = new Map<string, Boundary>();
-  let deferred: Boundary | undefined;
+  function gateFor(turnId: string): Gate {
+    let gate = gates.get(turnId);
+    if (!gate) { gate = { required: 0, committed: 0, denied: new Set(), failed: false }; gates.set(turnId, gate); }
+    return gate;
+  }
+  function wakeGate(gate: Gate): void {
+    const waiters = gateWaiters.get(gate); gateWaiters.delete(gate);
+    for (const wake of waiters ?? []) wake();
+  }
+  function claimGate(gate: Gate, confirmed?: { stopped: boolean }): Promise<void> {
+    const armed = gate.armed;
+    if (!armed) return Promise.resolve();
+    // Clear before entering held(), which flushes other armed results too.
+    gate.armed = undefined;
+    return armed.observation.claim(confirmed);
+  }
   /** @internal */
   function flushDeferred(): Promise<void> {
-    const pending = deferred;
-    if (!pending) return Promise.resolve();
-    return claimBoundary(pending);
-  }
-  function claimBoundary(boundary: Boundary, confirmed?: { stopped: boolean }): Promise<void> {
-    if (deferred === boundary) deferred = undefined;
-    if (!boundary.claimed) { boundary.claimed = true; claimed.set(boundary.turnId, boundary); }
-    return boundary.observation.claim(confirmed);
+    return Promise.all([...gates.values()].map(gate => claimGate(gate))).then(() => {});
   }
   /** One control predicate, used at arming and at the synchronous dispatch boundary. */
-  function mayDefer(turnId: string, boundary?: Boundary, operation?: object): boolean {
+  function mayDefer(turnId: string, armed?: Gate["armed"], operation?: object): boolean {
     try {
       const relay = relays.get(turnId);
       if (failures.has(turnId) || summary(turnId).state !== "recording") immediateOnly.add(turnId);
       if (!relay || !relay.messages || immediateOnly.has(turnId)) return false;
-      if (boundary && (boundary.observation.expired() || relay.generation !== boundary.generation + 1)) {
+      if (armed && (armed.observation.expired() || relay.generation !== relay.armedAt + 1)) {
         immediateOnly.add(turnId); return false;
       }
       return !closing && !holds && active.size === 1 && active.has(turnId) && !calls.size
@@ -349,7 +360,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     cause: { kind: ActivityTurnHold["cause"]; turnId: string | null; toolUseId?: string; hold?: ActivityTurnHold } = { kind: "scope", turnId: null }, confirmed?: { stopped: boolean }): Promise<T> {
     void flushDeferred().catch(() => {});
     const holdId = cause.hold?.holdId ?? crypto.randomUUID(), requestedAt = Date.now();
-    const interval: JournalHold = { ...(confirmed ? { requireConfirmedStop: true } : {}), records: new Map(), stoppedTurns: new Set(), paths: new Map(),
+    const interval: JournalHold = { ...(confirmed && cause.turnId ? { stopReceipt: { turnId: cause.turnId, count: 0, total: 0 } } : {}), records: new Map(), stoppedTurns: new Set(), paths: new Map(),
       inferenceInFlight: id => diagnostic(() => evidence.get(id)?.inference() ?? false) ?? null,
       participant(id) {
         const previous = interval.records.get(id); if (previous) return previous;
@@ -371,7 +382,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     let acquired = 0;
     try { for (const holder of holders) { acquired++; holder.before(interval); } }
     catch (error) { holds--; for (const holder of holders.slice(0, acquired)) holder.after(false, interval); return Promise.reject(error); }
-    if (confirmed) confirmed.stopped = holders.length > 0 && interval.requireConfirmedStop === true;
+    if (confirmed) confirmed.stopped = !!interval.stopReceipt && interval.stopReceipt.count >= 1 && interval.stopReceipt.count === interval.stopReceipt.total;
     return serialize(async () => {
       waited?.();
       currentHold = interval;
@@ -629,7 +640,8 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   const inference: Parameters<typeof retainJournalInference>[1] = {
     relayStarted(turnId, transport, signal) {
       void flushDeferred().catch(() => {});
-      const relay = { ...transport, messages: false, generation: 0, operations: new Set<object>() };
+      gateFor(turnId);
+      const relay = { ...transport, messages: false, generation: 0, armedAt: 0, toolUseId: "", operations: new Set<object>() };
       relays.set(turnId, relay);
       const abort = () => { void flushDeferred().catch(() => {}); if (relays.get(turnId) === relay) relays.delete(turnId); };
       signal.addEventListener("abort", abort, { once: true });
@@ -643,39 +655,51 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     },
     flushDeferred,
     requestStarted(turnId) {
-      const relay = relays.get(turnId), operation = {};
-      const boundary = deferred?.turnId === turnId ? deferred : claimed.get(turnId);
+      const gate = gateFor(turnId), relay = relays.get(turnId), operation = {};
+      // Only generations pending at arrival bind their committed verdict to this request.
+      const bound = { after: gate.committed, through: gate.required };
+      const denied = () => [...gate.denied].some(gen => gen > bound.after && gen <= bound.through);
+      const allowed = () => { try { return relay?.allowed() === true; } catch { return false; } };
       if (relay) {
         relay.operations.add(operation); relay.generation++;
-        if (boundary && relay.generation > boundary.generation + 1) {
-          immediateOnly.add(turnId); void claimBoundary(boundary).catch(() => {});
+        if (relay.operations.size > 1 || gate.armed && relay.generation > relay.armedAt + 1) {
+          immediateOnly.add(turnId); void claimGate(gate).catch(() => {});
         }
       }
       let matched = false;
+      const responseReady = async (): Promise<boolean> => {
+        for (;;) {
+          void claimGate(gate).catch(() => {});
+          if (gate.failed) return false;
+          if (gate.committed === gate.required) return !denied();
+          await new Promise<void>(resolve => {
+            const waiters = gateWaiters.get(gate) ?? new Set();
+            waiters.add(resolve); gateWaiters.set(gate, waiters);
+          });
+        }
+      };
       return {
         async prepare(path, body) {
-          matched = !!boundary && mayDefer(turnId, boundary, operation) && followsToolResult(path, body, boundary.toolUseId);
-          if (matched && !boundary!.claimed) return true;
-          // Join only this request's result boundary, never unrelated journal work.
-          if (boundary) await claimBoundary(boundary);
+          const armed = gate.armed;
+          matched = !!armed && mayDefer(turnId, armed, operation) && followsToolResult(path, body, relay!.toolUseId);
+          if (matched) return true;
+          // Join only this turn's required results, never unrelated journal work.
+          await responseReady();
           return true;
         },
         dispatch() {
-          if (!boundary) return true;
-          if (boundary.claimed) return boundary.settled && boundary.allowed;
-          if (!matched || !mayDefer(turnId, boundary, operation)) {
-            void claimBoundary(boundary).catch(() => {}); return false;
+          if (gate.failed) return false;
+          if (gate.committed === gate.required) return !denied() && allowed();
+          const armed = gate.armed;
+          if (armed?.gen === gate.required && gate.committed === gate.required - 1 && matched && mayDefer(turnId, armed, operation)) {
+            const confirmed = { stopped: false };
+            void claimGate(gate, confirmed).catch(() => {});
+            if (!confirmed.stopped) immediateOnly.add(turnId);
+            return confirmed.stopped;
           }
-          const confirmed = { stopped: false };
-          void claimBoundary(boundary, confirmed).catch(() => {});
-          if (!confirmed.stopped) immediateOnly.add(turnId);
-          return confirmed.stopped;
+          void claimGate(gate).catch(() => {}); return false;
         },
-        async responseReady() {
-          if (!boundary) return true;
-          try { await claimBoundary(boundary); return await boundary.verdict; }
-          catch { return false; }
-        },
+        responseReady,
         close() { relay?.operations.delete(operation); },
       };
     },
@@ -790,23 +814,36 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       void flushDeferred().catch(() => {});
       const key = callKey(turnId, toolUseId), call = calls.get(key);
       calls.delete(key);
-      const effect = call ? toolObservation(call.name, call.path) : "unproven";
-      if (effect === "unproven" && active.has(turnId)) lasting.add(turnId);
-      if (effect === "read" && !lasting.size && !calls.size) return Promise.resolve();
-      const start = (confirmed?: { stopped: boolean }) => held(timing => observe(false, timing), false,
-        traceFor("tool", turnId, toolUseId), undefined, { kind: "tool", turnId, toolUseId }, confirmed);
-      if (call?.started && call.name !== null && mayDefer(turnId)) {
-        const pending: Boundary = { turnId, toolUseId, generation: relays.get(turnId)!.generation, claimed: false, settled: false, allowed: false,
-          observation: deferredObservation(confirmed => {
-            if (deferred === pending) deferred = undefined;
-            pending.claimed = true; claimed.set(turnId, pending);
+      const gate = gateFor(turnId);
+      let required = true;
+      try {
+        const effect = call ? toolObservation(call.name, call.path) : "unproven";
+        if (effect === "unproven" && active.has(turnId)) lasting.add(turnId);
+        required = effect !== "read" || !!lasting.size || !!calls.size;
+      } catch { immediateOnly.add(turnId); }
+      if (!required) return Promise.resolve();
+      const gen = ++gate.required;
+      const relay = relays.get(turnId);
+      const commit = (work: Promise<void>): Promise<void> => work.then(() => {
+        if (relay?.allowed() !== true) gate.denied.add(gen);
+        gate.committed = gen; wakeGate(gate);
+      }).catch(error => { gate.failed = true; wakeGate(gate); throw error; });
+      const start = (confirmed?: { stopped: boolean }) => {
+        try { return commit(held(timing => observe(false, timing), false,
+          traceFor("tool", turnId, toolUseId), undefined, { kind: "tool", turnId, toolUseId }, confirmed)); }
+        catch (error) { gate.failed = true; wakeGate(gate); return Promise.reject(error); }
+      };
+      try {
+        if (call?.started && call.name !== null && mayDefer(turnId)) {
+          relay!.armedAt = relay!.generation; relay!.toolUseId = toolUseId;
+          const observation = deferredObservation(confirmed => {
+            if (gate.armed?.gen === gen) gate.armed = undefined;
             return start(confirmed);
-          }), verdict: Promise.resolve(false) };
-        pending.verdict = pending.observation.done.then(() => { pending.allowed = relays.get(turnId)?.allowed() === true; pending.settled = true; return pending.allowed; });
-        void pending.verdict.finally(() => { if (claimed.get(turnId) === pending) claimed.delete(turnId); }).catch(() => {});
-        deferred = pending;
-        return pending.observation.done;
-      }
+          });
+          gate.armed = { gen, observation };
+          return observation.done;
+        }
+      } catch { immediateOnly.add(turnId); }
       return start();
     },
     /**

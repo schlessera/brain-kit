@@ -258,13 +258,14 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
       if (observationHolds++ > 0) { timing(() => recordStops(hold)); return; }
       observationFailed = false;
       for (const [turnId, turn] of active) {
+        const receipt = hold?.stopReceipt?.turnId === turnId ? hold.stopReceipt : undefined;
+        if (receipt) receipt.total = turn.workers.size;
         if (!turn.current() || turn.summary.receipts.some(receipt => receipt.state === "paused")) continue;
         const held: Worker[] = []; periodicHeld.set(turnId, { turn, workers: held });
-        if (hold?.requireConfirmedStop && !turn.workers.size) hold.requireConfirmedStop = false;
         for (const worker of turn.workers) {
           held.push(worker);
           freeze(worker);
-          if (hold?.requireConfirmedStop && !confirmed(worker)) hold.requireConfirmedStop = false;
+          if (receipt && confirmed(worker)) receipt.count++;
         }
         if (hold) timing(() => recordStop(hold, turnId, held.filter(confirmed)));
       }

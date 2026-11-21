@@ -1,7 +1,7 @@
 import { journalInference } from "./journal-inference.js";
 /** One admitted turn's concrete proxy, approval surface and durable records. */
 import type { EffectiveGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
-import { startEgressProxy, type EgressRecord } from "@schlessera/brain-ui-sdk/internal";
+import { startEgressProxy, type EgressRecord, type InferenceArrival } from "@schlessera/brain-ui-sdk/internal";
 import { requestToolPermission, type BackendActivityEvent, type BackendBridge } from "@schlessera/brain-ui-sdk/server";
 import type { Database } from "bun:sqlite";
 import { occurrence, type Occurrence } from "../governance/occurrence.js";
@@ -287,24 +287,24 @@ export async function prepareTurnEgress(options: {
       },
       set: (value: BackendBridge["inputSafety"]) => { original.inputSafety = value; } });
   }
-  const relayOperation = (kind: "inference" | "relayed", method: string, target: URL, signal: AbortSignal) => {
+  const relayOperation = (kind: "inference" | "relayed", method: string, target: URL, signal: AbortSignal, arrival?: InferenceArrival) => {
     const operation = proxy[kind](method, target, signal);
     const settledOperation = settleOperation(operation);
     if (kind !== "inference" || !inference || !options.scope) return settledOperation;
-    const boundary = inference.requestStarted(options.turnId);
-    operation.signal.addEventListener("abort", boundary.close, { once: true });
-    if (operation.signal.aborted) boundary.close();
+    const gate = arrival ?? inferenceArrival(target.pathname)!;
+    operation.signal.addEventListener("abort", gate.close, { once: true });
+    if (operation.signal.aborted) gate.close();
     return { ...settledOperation,
       async prepareDispatch(body: Uint8Array) {
-        try { return await boundary.prepare(target.pathname, body); }
+        try { return await gate.prepareDispatch(body); }
         catch { return false; }
       },
       dispatch() {
         if (!operation.commit()) return false;
-        return boundary.dispatch();
+        return gate.dispatch();
       },
       async responseReady() {
-        return boundary.responseReady();
+        return gate.responseReady();
       },
     };
   };
@@ -327,9 +327,14 @@ export async function prepareTurnEgress(options: {
       } finally { if (abort) operation.signal.removeEventListener("abort", abort); }
     } };
   };
-  return { ...proxy, inferenceRoutes(paths: readonly string[]) { inference?.routes(options.turnId, paths); }, bridge, recordingFailure: () => recordingFailure, settled,
+  const inferenceArrival = (path: string): InferenceArrival | undefined => {
+    if (!inference || !options.scope) return;
+    const request = inference.requestStarted(options.turnId);
+    return { ...request, prepareDispatch: body => request.prepare(path, body) };
+  };
+  return { ...proxy, inferenceArrival, inferenceRoutes(paths: readonly string[]) { inference?.routes(options.turnId, paths); }, bridge, recordingFailure: () => recordingFailure, settled,
     stop() { releaseJournalRelay?.(); proxy.stop(); },
-    inference: (method: string, target: URL, signal: AbortSignal) => relayOperation("inference", method, target, signal),
+    inference: (method: string, target: URL, signal: AbortSignal, arrival?: InferenceArrival) => relayOperation("inference", method, target, signal, arrival),
     relayed: (method: string, target: URL, signal: AbortSignal) => relayOperation("relayed", method, target, signal),
     managedReference: (target: URL, signal: AbortSignal) => settleOperation(proxy.managedReference(target, signal)) };
 }

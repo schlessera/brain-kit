@@ -1671,12 +1671,26 @@ Only a confirmed deferred stop waits for the scope writes to commit. Immediate,
 periodic, finish and admission holds keep their existing schedule, and an
 ordinary inference never joins unrelated work on the global journal queue.
 
-Every answer for a request associated with an armed or claimed result boundary
-passes one observation gate, including admission, size, byte-cap and credential
-refusals. Its observation verdict is latched for that request when the
-observation commits. A cap discards the in-flight upstream response even if the
-owner chooses Continue before upstream headers arrive; later requests use their
-own verdict. The existing cap receipt and authorized continuation remain.
+Each turn with a relay keeps a monotonic result gate: every required result
+increments its required generation before eligibility is read, and only that
+result's observation advances its committed generation. Rejection keeps that
+turn's gate failed. Periodic, begin and scope observations never advance it.
+Every arrival records the generations pending at that instant, before method
+or route checks. Dispatch requires all generations committed and current scope
+authority, except for the one eligible latest result with a confirmed stop.
+The stop receipt counts acknowledged workers for the cause turn; it must be
+nonzero and equal the turn's worker count.
+
+Every relay answer crosses the same gate, including wrong methods and routes,
+admission errors and exceptions, size, byte-cap and credential refusals. The
+inner handler returns a branded value that only the gated exit can produce.
+The exit claims any armed observation and waits for the required generations
+to commit or fail, checking again after each wait. A denied generation pending
+at arrival remains bound to that request even after Continue. A cap therefore
+discards the in-flight upstream response even if the owner chooses Continue
+before upstream headers arrive. A straggler arriving on a paused turn receives
+403 until Continue authorizes dispatch. The existing cap receipt and authorized
+continuation remain.
 Files changed, observed turn bytes, index capacity, wall minutes and free space
 may be discovered after one request has left. The tool-call cap stays checked at
 launch. No existing egress, credential, recording or authority fence is removed.

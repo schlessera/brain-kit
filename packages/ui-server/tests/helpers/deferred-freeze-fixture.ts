@@ -25,6 +25,7 @@ export async function fixture(cap = 100, realWorker?: Parameters<ReturnType<type
   let nativeCommitted = () => {};
   const journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath: path, objectsRoot: join(root, "objects"), observationTrace: () => name => () => { if (name === "observe_commit") nativeCommitted(); }, ...(writer ? { writer } : {}) });
   let beforeScope = () => {};
+  let authority = true;
   journal.onObservation(() => beforeScope());
   const scope = createTurnScope(db, { brainPath: brain, journal, ...(writer ? { writer } : {}), connected: () => true, changed() {}, space: () => ({ total: 100e9, free: 90e9 }) });
   db.query("INSERT INTO sessions(id,title,created_at,last_active_at) VALUES ('ithaca','Voyage',0,0)").run();
@@ -32,7 +33,7 @@ export async function fixture(cap = 100, realWorker?: Parameters<ReturnType<type
   const interval = registeredInterval();
   await journal.begin("voyage", { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null }, error => controller.abort(error));
   interval.finishRegistration();
-  await scope.begin("voyage", { sessionId: "ithaca", principalId: "captain", origin: "interactive", profile: "governed", policy, source: "policy", hardTimeoutMs: 1e6, current: () => !controller.signal.aborted, stop: reason => controller.abort(new Error(reason)) });
+  await scope.begin("voyage", { sessionId: "ithaca", principalId: "captain", origin: "interactive", profile: "governed", policy, source: "policy", hardTimeoutMs: 1e6, current: () => authority && !controller.signal.aborted, stop: reason => controller.abort(new Error(reason)) });
   await journal.observe();
   let frozen = false, stops = 0, resumes = 0, ack: boolean | void = true;
   const worker = { freeze() { frozen = true; stops++; return ack; }, resume() { frozen = false; resumes++; return true; }, kill() { frozen = true; return true; }, exited: new Promise<number>(() => {}) };
@@ -59,12 +60,13 @@ export async function fixture(cap = 100, realWorker?: Parameters<ReturnType<type
   } });
   const restore = () => { if (performanceDescriptor) Object.defineProperty(performance, "now", performanceDescriptor); else delete (performance as unknown as { now?: () => number }).now; interval.restore(); Object.defineProperty(globalThis, "setTimeout", descriptor); Object.defineProperty(globalThis, "clearTimeout", clearDescriptor); };
   const result = (id = "loom") => { journal.toolStarted("voyage", id, "Write", true); return journal.toolEnded("voyage", id); };
-  return { afterNativeCommit(fn: () => void) { nativeCommitted = fn; }, elapseDeadline(ms: number) { deadlineClock += ms; }, writer, beforeScope(fn: () => void) { beforeScope = fn; }, tick() { interval.advanceTo(15000); }, deadlines, fireDeadline() { const item = deadlines.find(item => !item.cancelled)!; item.cancelled = true; item.callback(); }, root, brain, db, native, journal, scope, proxy, controller, result, get frozen() { return frozen; }, get stops() { return stops; }, get resumes() { return resumes; }, ack(value: boolean | void) { ack = value; },
+  return { authority(value: boolean) { authority = value; }, afterNativeCommit(fn: () => void) { nativeCommitted = fn; }, elapseDeadline(ms: number) { deadlineClock += ms; }, writer, beforeScope(fn: () => void) { beforeScope = fn; }, tick() { interval.advanceTo(15000); }, deadlines, fireDeadline() { const item = deadlines.find(item => !item.cancelled)!; item.cancelled = true; item.callback(); }, root, brain, db, native, journal, scope, proxy, controller, result, get frozen() { return frozen; }, get stops() { return stops; }, get resumes() { return resumes; }, ack(value: boolean | void) { ack = value; },
     async close() { try { controller.abort(); proxy.stop(); await proxy.settled(); await journal.idle(); scope.close(); await journal.close(); await writer?.close(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); } finally { restore(); } } };
 }
-export function send(socketPath: string, content = body(), path = "/v1/messages", headers: Record<string, string> = {}) {
+export function send(socketPath: string, content = body(), path = "/v1/messages", headers: Record<string, string> = {}, method = "POST", received?: () => void) {
   return new Promise<{ status: number; bytes: number }>((resolve, reject) => {
-    const outgoing = request({ socketPath, path, method: "POST", headers: { "content-type": "application/json", ...headers } }, incoming => {
+    const outgoing = request({ socketPath, path, method, headers: { "content-type": "application/json", ...headers } }, incoming => {
+      received?.();
       let bytes = 0; incoming.on("data", chunk => { bytes += chunk.length; }); incoming.on("end", () => resolve({ status: incoming.statusCode!, bytes })); incoming.on("error", reject);
     }); outgoing.on("error", reject); outgoing.end(content);
   });
