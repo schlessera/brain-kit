@@ -38,6 +38,7 @@ import type { LivePersonaService } from "../voice/personas.js";
 
 /** The activity record and its live stream, when the host records activity. */
 export interface ActivityRuntime {
+  buildRevision?: string;
   store: AwaitableActivityStore;
   stream: ActivityStream;
   /** Push bindings invalidated through the same principal-revocation boundary. */

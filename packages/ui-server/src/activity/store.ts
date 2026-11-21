@@ -727,7 +727,15 @@ export function createActivityStore(
     writeLifecycle(record, principalId) {
       inWrite(() => {
         const previous = lifecycle(record.turnId);
-        if (previous?.endedAt !== null && previous !== null) return;
+        // A terminal stays immutable. Only its two trailing host receipts may
+        // fill an unknown timestamp; an orphan sweep cannot be reopened.
+        if (previous?.endedAt != null) {
+          if (previous.outcome === "interrupted" || previous.endedAt !== record.endedAt || previous.outcome !== record.outcome) return;
+          if (!(previous.recorderSettledAt == null && record.recorderSettledAt != null)
+            && !(previous.idleEmittedAt == null && record.idleEmittedAt != null)) return;
+          record = { ...previous, recorderSettledAt: previous.recorderSettledAt ?? record.recorderSettledAt,
+            idleEmittedAt: previous.idleEmittedAt ?? record.idleEmittedAt };
+        }
         // Client data is never part of the completed host envelope.
         const { clientTiming: _clientTiming, clientTimingUnavailable: _unavailable, ...hostRecord } = record;
         const value = lifecycleTiming(hostRecord);
