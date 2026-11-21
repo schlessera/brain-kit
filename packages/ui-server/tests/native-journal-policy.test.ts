@@ -49,3 +49,9 @@ test("inspect workspace policy reads no checkout ignore files and cannot be cove
   expect(policy.excluded("workspaces/ithaca/note.md")).toBe(true);
   expect(policy.excluded("workspaces-old/note.md")).toBe(false);
 });
+
+test("absent-area workspace names use ordinary root scope before Git exclusions",async()=>{
+ const policy=await freezeNativeJournalPolicy([],async()=>Buffer.alloc(0),[],{ordinaryWorkspaces:true});
+ for(const path of ["workspaces/ithaca/.git/HEAD","notes/ithaca/.git/HEAD"])expect(policy.location(path),"ORDINARY_NESTED_GIT_HAS_NO_CHECKOUT_EXEMPTION").toBeNull();
+ expect(policy.location("workspaces/ithaca/source.md"),"ORDINARY_WORKSPACE_ROWS_USE_ROOT_SCOPE").toEqual({scope:"",local:"workspaces/ithaca/source.md",refs:false});
+});

@@ -213,7 +213,7 @@ export async function launchPiWorker(request: PiWorkerLaunchRequest): Promise<La
     // and one its resource limits and the note's limits section (#1660).
     sandbox = envelope ? { ...prepareWorkerSandbox(backend.brainPath, { restricted: true, maintenance: backend.maintenance }),
       ...(workerProviderMasks ? { providerMasks: workerProviderMasks } : {}), ...(workerDataTree ? { dataTree: workerDataTree } : {}) }
-      : workerSandbox ?? await prepareWorkerSandboxAsync(backend.brainPath, { home: workerEnv.HOME, maintenance: backend.maintenance });
+      : workerSandbox ?? await prepareWorkerSandboxAsync(backend.brainPath, { home: workerEnv.HOME, maintenance: backend.maintenance, codeChanges: false, legacyWorkspaceNote: env.autonomous?.persistence === "none" && !env.autonomous.containment && env.autonomous.allowedTools.every(name => ["read_file", "grep", "find", "ls"].includes(name)) });
     if (hostInference) sandbox = { ...sandbox, maskPaths: [...sandbox.maskPaths ?? [], ...hostInference.maskPaths] };
     if (cachedNpmModules) {
       if (sandbox.maskPaths?.some(path => { try { const actual = realpathSync(path); return isWithin(cachedNpmModules, actual); } catch { return false; } })) {

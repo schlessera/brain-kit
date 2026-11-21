@@ -87,3 +87,9 @@ test("prepared handoff rendering never prepares the worker synchronously again",
  const preparation=spyOn(worker,"prepareWorkerSandbox");
  try{const snapshot=await sdkOptionsSnapshot("autonomous-summary",{populatedWorkspace:true,prepareSandbox:true});expect(JSON.stringify(snapshot.systemPrompt)).toContain("is writable: clone, fetch and commit");expect(preparation,"HANDOFF_REUSES_THE_PREPARED_SANDBOX").not.toHaveBeenCalled();}finally{preparation.mockRestore();}
 });
+
+
+test("Claude handoff retains an actually refused legacy workspace qualification",async()=>{
+ const snapshot=await sdkOptionsSnapshot("autonomous-summary",{populatedWorkspace:true,aliasWorkspace:true,prepareSandbox:true});
+ expect(JSON.stringify(snapshot.systemPrompt),"HANDOFF_PRESERVES_LEGACY_ALIAS_REFUSAL").toContain("hard-linked to files outside workspaces/");expect(JSON.stringify(snapshot.systemPrompt)).not.toContain("is writable: clone, fetch and commit");
+});

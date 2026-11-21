@@ -24,6 +24,15 @@ This is internal compatibility wiring under the internal-entry classification
 below. It changes no ordinary package signature, CLI/MCP/HTTP envelope,
 frontmatter meaning or credential authority, and requires a patch changeset.
 
+
+Workspace inspection adds optional `legacyWorkspaceNote` preparation and
+`WorkerNoteFacts.legacyWorkspaces` qualification facts for first-party read-only
+handoffs (#4295). The historical note retains refused alias/scan-limit results;
+it never fabricates a writable mount or grants authority. Asynchronous
+preparation resolves this compatibility scan off the host event loop, within
+its existing preparation, and ordinary callers explicitly default to inspection.
+These are internal rendering facts, not provider input or a new extension seam.
+
 ## Native maintenance preparation (internal #2300 / #2343)
 
 The SDK's `/internal` entry adds `prepareMaintenanceWorker` and

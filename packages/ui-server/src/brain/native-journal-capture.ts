@@ -1,7 +1,7 @@
 /** Changed versions only; checkpoint advancement follows the journal commit. */
 import { JournalObjectQuarantined } from "./journal-accounting.js";
 import { createNativeJournalObserver, type NativeJournalManager, type NativeJournalMetadata, type NativeJournalUnreadable } from "./native-journal-observer.js";
-import { freezeNativeJournalPolicy, journalMetadataOnlyPath, journalPathScope } from "./native-journal-policy.js";
+import { freezeNativeJournalPolicy, journalMetadataOnlyPath } from "./native-journal-policy.js";
 import { nativeJournalPermissionDenied, readNativeJournalFile, withNativeJournalFile, type NativeJournalReadContext } from "./native-journal-read.js";
 import { verifiedWorkerIdentity, workerIdentityHelper } from "@schlessera/brain-ui-sdk/internal";
 import { isJournalSteeringPath, nativeJournalSteeringInputs, type JournalSteeringOptions } from "./journal-steering.js";
@@ -32,7 +32,7 @@ export function createNativeJournalCapture(manager: NativeJournalManager, retain
   };
   const observer = createNativeJournalObserver(manager, workerUid, releaseFailed);
   const entry = (metadata: NativeJournalMetadata, policy: NativeJournalPolicy): JournalSnapshotEntry | undefined => {
-    const scope = journalPathScope(metadata.path);
+    const scope = policy.location(metadata.path);
     if (policy.excluded(metadata.path) || !scope || metadata.kind === "directory") return undefined;
     return { ...metadata, kind: metadata.kind, scope: scope.scope, ignored: policy.ignored(metadata.path),
       ...(rootScope.index && journalMetadataOnlyPath(metadata.path) ? { metadataOnly: true as const } : {}) };
@@ -44,12 +44,12 @@ export function createNativeJournalCapture(manager: NativeJournalManager, retain
     async policy(covered: readonly string[] = [], options: { workspaces?: boolean; ordinaryWorkspaces?: boolean } = {}, signal?: AbortSignal): Promise<NativeJournalPolicy> {
       if (options.workspaces !== false) await observer.includeWorkspaces(signal);
       const root = observer.currentRoot();
-      return freezeNativeJournalPolicy(observer.ignoreEntries(), (path, maximum) => readNativeJournalFile(root.path, path, maximum, context(root, signal)), covered, { ...options, signal });
+      return freezeNativeJournalPolicy(observer.ignoreEntries(), (path, maximum) => readNativeJournalFile(root.path, path, maximum, context(root, signal)), covered, { ordinaryWorkspaces: !rootScope.index, ...options, signal });
     },
-    allowed(path: string, policy: NativeJournalPolicy): boolean { return !policy.excluded(path) && !!journalPathScope(path) && !policy.ignored(path) && !(rootScope.index && journalMetadataOnlyPath(path)); },
+    allowed(path: string, policy: NativeJournalPolicy): boolean { return !policy.excluded(path) && !!policy.location(path) && !policy.ignored(path) && !(rootScope.index && journalMetadataOnlyPath(path)); },
     eligible(path: string, policy: NativeJournalPolicy): boolean {
       const metadata = observer.get(path);
-      return !policy.excluded(path) && !!metadata && metadata.kind === "file" && metadata.bytes <= 64 * 1024 * 1024 && !policy.ignored(path) && !!journalPathScope(path) && !(rootScope.index && journalMetadataOnlyPath(path));
+      return !policy.excluded(path) && !!metadata && metadata.kind === "file" && metadata.bytes <= 64 * 1024 * 1024 && !policy.ignored(path) && !!policy.location(path) && !(rootScope.index && journalMetadataOnlyPath(path));
     },
     /** Exact current sealed before-version; the caller keeps the ordinary policy and storage owner. */
     async retainBefore(path: string, policy: NativeJournalPolicy, signal?: AbortSignal): Promise<JournalSnapshotEntry | undefined> {
@@ -110,46 +110,49 @@ export function createNativeJournalCapture(manager: NativeJournalManager, retain
         // Classification retains no unchanged bytes. Its metadata inventory is
         // shared; bounded configuration reads come from the two pinned roots.
         const changed = new Map(observation.changes.map(change => [change.path, change.after]));
-        const snapshots: { entries: JournalSnapshotEntry[]; missing: never[] }[] = [];
-        const roots = new Map<string, { id: string; path: string }>();
-        const included = { excluded(path: string) { return [...policies.values()].every(policy => policy.excluded(path)); }, ignored(path: string) { return [...policies.values()].every(policy => policy.excluded(path) || policy.ignored(path)); } } as NativeJournalPolicy;
-        const classified = (metadata: NativeJournalMetadata, root: typeof observation.beforeRoot) => {
-          const value = entry(metadata, included);
-          if (!value) return undefined;
-          const stamp = `${root.id}:${value.stamp}`;
-          roots.set(stamp, root);
-          return { ...value, stamp };
-        };
-        if (rootScope.steering && policies.size && observation.changes.length) {
-          for (const [root, after] of [[observation.beforeRoot, false], [observation.afterRoot, true]] as const) {
-            const entries: JournalSnapshotEntry[] = [];
-            const append = (metadata: NativeJournalMetadata) => {
-              const value = classified(metadata, root); if (value) entries.push(value);
-            };
-            for (const metadata of observer.steeringEntries()) {
-              const replacement = after && changed.has(metadata.path) ? changed.get(metadata.path) : metadata;
-              if (replacement) append(replacement);
+        const steering = new Map<string, Awaited<ReturnType<typeof nativeJournalSteeringInputs>> & { inventoried: boolean }>();
+        for (const [turnId, policy] of policies) {
+          const snapshots: { entries: JournalSnapshotEntry[]; missing: never[] }[] = [];
+          const roots = new Map<string, { id: string; path: string }>();
+          const classified = (metadata: NativeJournalMetadata, root: typeof observation.beforeRoot) => {
+            const value = entry(metadata, policy);
+            if (!value) return undefined;
+            const stamp = `${root.id}:${value.stamp}`;
+            roots.set(stamp, root);
+            return { ...value, stamp };
+          };
+          if (rootScope.steering && observation.changes.length) {
+            for (const [root, after] of [[observation.beforeRoot, false], [observation.afterRoot, true]] as const) {
+              const entries: JournalSnapshotEntry[] = [];
+              const append = (metadata: NativeJournalMetadata) => {
+                const value = classified(metadata, root); if (value) entries.push(value);
+              };
+              for (const metadata of observer.steeringEntries()) {
+                const replacement = after && changed.has(metadata.path) ? changed.get(metadata.path) : metadata;
+                if (replacement) append(replacement);
+              }
+              if (after) for (const change of observation.changes)
+                if (!change.before && change.after && isJournalSteeringPath(change.path)) append(change.after);
+              snapshots.push({ entries, missing: [] });
             }
-            if (after) for (const change of observation.changes)
-              if (!change.before && change.after && isJournalSteeringPath(change.path)) append(change.after);
-            snapshots.push({ entries, missing: [] });
           }
+          const classifiedSteering = await nativeJournalSteeringInputs(snapshots,
+            (item, maximum) => { const root = roots.get(item.stamp)!; return readNativeJournalFile(root.path, item.path, maximum, context(root, signal)); },
+            path => {
+              // Match the before/after inventory union without cloning the full
+              // metadata map. Deleted references remain classifiable from before.
+              const after = changed.get(path);
+              if (after) return classified(after, observation.afterRoot);
+              const before = observer.get(path);
+              return before ? classified(before, changed.has(path) ? observation.beforeRoot : observation.afterRoot) : undefined;
+            }, steeringOptions);
+          for (const item of unreadable.values()) if (item.kind === "directory" || item.bytes === null) classifiedSteering.unavailable.push(item.path);
+          steering.set(turnId, { ...classifiedSteering, inventoried: snapshots.length > 0 });
         }
-        const steering = await nativeJournalSteeringInputs(snapshots,
-          (item, maximum) => { const root = roots.get(item.stamp)!; return readNativeJournalFile(root.path, item.path, maximum, context(root, signal)); },
-          path => {
-            // Match the before/after inventory union without cloning the full
-            // metadata map. Deleted references remain classifiable from before.
-            const after = changed.get(path);
-            if (after) return classified(after, observation.afterRoot);
-            const before = observer.get(path);
-            return before ? classified(before, changed.has(path) ? observation.beforeRoot : observation.afterRoot) : undefined;
-          }, steeringOptions);
-        for (const item of unreadable.values()) if (item.kind === "directory" || item.bytes === null) steering.unavailable.push(item.path);
         end?.();
         // Without a change the inventory is not taken: an empty set then says
         // nothing about the brain's configuration (#3257).
-        return { changes, steering: { ...steering, inventoried: snapshots.length > 0 }, unreadable: [...unreadable.values()], stats: observation.stats, commit: observation.commit, abort: observation.abort };
+        return { changes, steering, unreadable: [...unreadable.values()], stats: observation.stats, commit: observation.commit, abort: observation.abort };
       } catch (error) { await observation.abort().catch(() => {}); throw error; }
     },
     releases() { return observer.releases(); },

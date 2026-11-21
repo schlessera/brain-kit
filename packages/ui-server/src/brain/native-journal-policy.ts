@@ -38,9 +38,9 @@ type Rule = { directory: string; matcher: Ignore };
 const prefix = (path: string, directory: string) => !directory || isWithin(directory, path, { includeRoot: false });
 
 /** Git internals are excluded except the existing raw HEAD/refs coverage. */
-export function journalPathScope(path: string): { scope: string; local: string; refs: boolean } | null {
+export function journalPathScope(path: string, ordinaryWorkspaces = false): { scope: string; local: string; refs: boolean } | null {
   const segments = path.split("/");
-  const scope = segments[0] === "workspaces" && segments.length > 1 ? segments.slice(0, 2).join("/") : "";
+  const scope = !ordinaryWorkspaces && segments[0] === "workspaces" && segments.length > 1 ? segments.slice(0, 2).join("/") : "";
   const local = scope ? segments.slice(2).join("/") : path;
   const parts = local.split("/");
   const git = parts.indexOf(".git");
@@ -55,10 +55,7 @@ export async function freezeNativeJournalPolicy(entries: Iterable<Entry>, read: 
   const admitted = new Set(covered);
   // Metadata is already indexed. Only ignore files are read here; no baseline
   // content, object hashes or per-turn content manifest is produced.
-  const locationOf = (path: string) => {
-    const location = journalPathScope(path);
-    return location && options.ordinaryWorkspaces && isWithin("workspaces", path) ? { ...location, scope: "", local: path, refs: false } : location;
-  };
+  const locationOf = (path: string) => journalPathScope(path, options.ordinaryWorkspaces);
   for (const entry of entries) {
     options.signal?.throwIfAborted();
     if (excluded(entry.path)) continue;
@@ -94,5 +91,5 @@ export async function freezeNativeJournalPolicy(entries: Iterable<Entry>, read: 
     }
     return false;
   }
-  return { ignored, excluded, cover(paths: readonly string[]) { for (const path of paths) admitted.add(path); } };
+  return { ignored, excluded, location: locationOf, cover(paths: readonly string[]) { for (const path of paths) admitted.add(path); } };
 }

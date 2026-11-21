@@ -468,8 +468,8 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         if (identity(item.before) === identity(item.after)) continue;
         changedPaths.add(item.path);
       }
-      const steering = observation.steering;
       for (const [turnId, turn] of active) {
+        const steering = observation.steering.get(turnId)!;
         const worktree = separate.filter(root => root.turnId === turnId).flatMap(root => (root.observation.changes.get(turnId) ?? [])
           .filter(change => identity(change.before) !== identity(change.after))
           .map(change => ({ path: referenceWorktreeJournalPath(root.worktreeId, change.path), scope: REFERENCE_WORKTREE_JOURNAL_SCOPE, before: version(change.before), after: version(change.after) })));

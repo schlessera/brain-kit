@@ -16,3 +16,6 @@ Preserve ordinary note history when Btrfs reports an update through an inspected
 
 
 Keep overlapping turns’ retained versions separate, and charge retained checkpoints independently of journal exclusions. Restore strict Pi repo-relative checkout reads through a sealed source overlay with provider masks. Preserve explicit owner symlink protections and guard privileged application routes even without governed admission. Keep both backends’ handoff prompts stable using the resolved sandbox, append workspace remedies only after filesystem permission failures, and make status protection inspection read-only.
+
+
+Reapply secret symlink-target masks to strict checkout read aliases, qualify the actual checkpoint source and preserve scratch-cleanup ordering for writable scans. Keep steering classification and ordinary journal scope per turn, including retained predecessors across excluded directory renames. Align private metadata transport and fixed-reader request bounds for escaped long paths. Distinguish markup source reads from destination writes, explain failed mask writes, attribute tool remedies only to the reported checkout failure, and recognize Pi bash exit codes. Preserve historically refused handoff notes and report unresolved status type qualification without guessing or writing live paths.

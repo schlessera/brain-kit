@@ -69,9 +69,10 @@ export function installPiToolSafety(agent:Agent,safety:PiToolSafety,hasUnqualifi
   // replace this content with an error; do not qualify the original read.
   // Structured payloads are programmatic output, outside this text-only wire.
   const structured=final?.structuredContent??(final?.content?undefined:context.result.structuredContent);
-  const complete=!failure&&!(final?.isError??context.isError)&&structured===undefined;
+  const failed = (final?.isError ?? context.isError) || (context.toolCall.name === "bash" && typeof context.result.details?.exitCode === "number" && context.result.details.exitCode !== 0);
+  const complete=!failure&&!failed&&structured===undefined;
   let workspaceNote: void | string;
-  try{workspaceNote=await safety.result(context.toolCall.name,context.toolCall.id,final?.content??context.result.content,complete,final?.isError??context.isError);}
+  try{workspaceNote=await safety.result(context.toolCall.name,context.toolCall.id,final?.content??context.result.content,complete,failed);}
   catch(error){stop();throw error;}
   if(failure){stop();throw failure.error;}
   return workspaceNote ? { ...final, content: [...(final?.content??context.result.content), {type:"text" as const,text:workspaceNote}] } : final;

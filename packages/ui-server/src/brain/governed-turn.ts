@@ -241,7 +241,7 @@ export function createGovernedTurns(options: {
           protectedPaths: protectedPaths(policy.policy), folderPaths,
           maskPaths: options.maskPaths, maintenance: { ...options.execution.boundary.maintenance, startupView } });
         let resolved = await step("sandbox_resolve", resolveSandbox);
-        const missingWritableRoot = () => resolved.areas.find(area => area.mount.writable
+        const missingWritableRoot = () => resolved.areas.find(area => (area.mount.writable || area.mount.readOnlyPath)
           && !lstatSync(join(startupView!.root, area.rel), { throwIfNoEntry: false })?.isDirectory());
         // Host setup may create scratch after the initial admission checkpoint.
         // Refresh only those first-turn sealed consumers, then validate against
@@ -251,7 +251,7 @@ export function createGovernedTurns(options: {
           startupView = await step("startup_checkpoint_refresh", () => prepareNativeWorkerStartupView(options.brainPath, options.nativeManager, signal));
           signal.throwIfAborted(); resolved = await step("sandbox_resolve_refresh", resolveSandbox);
           const missing = missingWritableRoot();
-          if (missing) throw new Error(`The immutable worker checkpoint does not include writable ${missing.rel} after host setup; retry admission once concurrent setup has settled.`);
+          if (missing) throw new Error(`The immutable worker checkpoint does not include qualified ${missing.rel} after host setup; retry admission once concurrent setup has settled.`);
           // The turn runs on this newer checkpoint, so its types are judged
           // again there; retention was planned for the first translation.
           if (types.length) {

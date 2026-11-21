@@ -83,7 +83,7 @@ on the transcript persist path and is not part of this record.
 
 **One resolution, two consumers.** `prepareWorkerSandbox` resolves the
 areas and per-turn XDG layout once per worker
-(`export function prepareWorkerSandbox`, `packages/ui-sdk/src/server/worker-launcher.ts:981-1048`).
+(`export function prepareWorkerSandbox`, `packages/ui-sdk/src/server/worker-launcher.ts:1006-1073`).
 The backend passes the result both to the launcher, which turns it into
 bubblewrap arguments, and to `workerSandboxNote`, which renders the agent's
 note (`export function workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:625-690`).
@@ -91,7 +91,7 @@ The launcher re-checks the resolved layout against the actual launch: the
 same brain and envelope, each writable area still a real directory at its
 own path in the brain. The backend selects runtime HOME separately.
 A mismatch refuses the launch instead of binding something the note does not
-describe (`function sandboxMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:884-925`).
+describe (`function sandboxMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:907-948`).
 A launch without a resolved layout keeps the 0.41 view: only the per-turn
 scratch is writable.
 
@@ -158,7 +158,7 @@ through the roadblock path. This is a worker write boundary, not an immutable
 view: host-side changes to that directory remain visible. A backend may select a different runtime HOME
 as described below; it does not make the host home writable. `prepareWorkerSandbox` resolves this same XDG mode on every eligible
 host (`export function prepareWorkerSandbox`,
-`packages/ui-sdk/src/server/worker-launcher.ts:981-1048`). Host-backed overlay
+`packages/ui-sdk/src/server/worker-launcher.ts:1006-1073`). Host-backed overlay
 uppers cannot live on the worker's private tmpfs; keeping them would leave
 an unbounded write area. Tools reading XDG config see the per-turn directory,
 while direct reads of real HOME retain the read-only host view.
@@ -419,7 +419,8 @@ still count while a superseded checkpoint remains retained.
 is absent at launch, keep the ordinary governed writable brain. Create no
 live mountpoint and install no workspace overlay. Exclusion is not in force
 for that turn: anything it creates beneath `workspaces/` is ordinary brain
-content, using the brain's frozen root ignore rules and journaled with retained
+content, using root scope, ordinary Git-internal exclusions and the brain's
+frozen root ignore rules, and journaled with retained
 versions and charged bytes and paths. The
 next default turn sees the directory and binds it read-only. The switch alone
 permits a writable existing workspace. Journal exclusion keys the qualified
@@ -447,19 +448,30 @@ it retains the existing alias scan and per-file journaling; the Git receipt
 transition is separate work. The worker's sandbox note names the mode and both
 ways to obtain writable checkout access: the session's code-changes switch or
 a managed worktree. Arbitrary tools still return the kernel's read-only error;
-failed tool results add both remedies after an actual `EROFS` or `EACCES`.
+failed tool results add both remedies after an actual `EROFS` or `EACCES`
+whose reported failing path is inside the inspected checkout. A checkout read
+operand or earlier directory visit does not attribute an outside failure.
+Pi bash failures use the tool's actual nonzero exit-code details.
 No package command is refused pre-emptively: verification and dry runs may
 succeed without writes. The kernel enforces the mount. Inspecting source never writes,
 including dependency installation and builds. This information travels once
 in new-turn context when it first applies or changes, using the existing
 append-only prompt context; tools, fixed system append and earlier messages
 are never rewritten. Nonpersistent read-only handoffs retain legacy prompt
-rendering using the already resolved sandbox, without preparing it again or
-granting writes. Strict data trees omit checkout copies and overlay the sealed
-source at the repo-relative read path, then repeat provider masks. Explicit
+rendering from separately qualified historical facts, including a refused
+alias or bounded-scan qualification, without preparing the sandbox twice or
+granting writes. Async preparation resolves those legacy facts off the host
+event loop. Writable qualification follows scratch alias cleanup. Strict data
+trees omit checkout copies, qualify the actual sealed source and overlay it
+at the repo-relative read path. Every read alias repeats secret targets and
+provider masks; a second mount cannot restore anything excluded from the copy. Explicit
 owner protections keep both their configured names and symlink destinations;
 the implicit inspection guard covers only its namespace. Status inspection
-never prepares or creates paths on the live brain.
+never prepares or creates paths on the live brain. It includes required literal
+provider roots and leaves its optional profile/view fields unknown while type
+folder qualification requires checkpoint taxonomy. Image markup may read an
+inspected checkout source while publishing its layer under scratch; image mask
+and markup restrictions apply to write destinations independently of source reads.
 
 ## State boundaries and root dependencies — 2026-11-20
 

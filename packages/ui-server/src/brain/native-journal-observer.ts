@@ -433,15 +433,19 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
       const job = await native.delta(before.id, after.id, active);
       // Observe an early transport failure without an unhandled rejection.
       void job.completed.catch(() => {});
-      const paths = new Set<string>(), prefixes = new Set<string>(), excludedAliases = new Set<string>();
+      const paths = new Set<string>(), prefixes = new Set<string>();
+      const excludedAliases = new Map<string, {path: string; at: number}>();
+      const renames: { from: string; to: string }[] = [];
       try {
         for await (const candidate of parseNativeBrainDelta(job.stream, {
           before: { uuid: before.uuid, transaction: BigInt(before.transaction) },
           after: { uuid: after.uuid, transaction: BigInt(after.transaction) }, signal: active,
         })) {
           for (const path of candidate.paths) {
-            if (workspaces || !isWithin("workspaces", path)) paths.add(path); else excludedAliases.add(path);
+            if (workspaces || !isWithin("workspaces", path)) paths.add(path);
+            else { const at = renames.length + (candidate.rename?.to === path ? 1 : 0); excludedAliases.set(`${at}:${path}`, {path, at}); }
           }
+          if (candidate.rename) renames.push(candidate.rename);
           if (candidate.rename) for (const path of [candidate.rename.from, candidate.rename.to]) if (workspaces || !isWithin("workspaces", path)) prefixes.add(path);
         }
         const outcome = await job.completed;
@@ -459,10 +463,16 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
       if (excludedAliases.size) for (const checkpoint of [before, after]) {
         const aliases = await RootMetadataReader.create(checkpoint, active, native, workerUid);
         try {
-          for (const path of excludedAliases) {
-            const entry = await aliases.get(path, true);
+          for (const {path, at} of excludedAliases.values()) {
+            // Each name belongs to its stream operation's namespace, not the
+            // final tree. Preserve that point across reused names and cycles.
+            let original = path;
+            if (checkpoint === before) {
+              for (const rename of renames.slice(0, at).reverse()) if (isWithin(rename.to, original)) original = rename.from + original.slice(rename.to.length);
+            } else for (const rename of renames.slice(at)) if (isWithin(rename.from, original)) original = rename.to + original.slice(rename.from.length);
+            const entry = await aliases.get(original, true);
             if (entry === undefined) unavailable("Excluded alias metadata is unavailable for note attribution.");
-            if (entry?.kind === "file") (checkpoint === before ? excludedBefore : excludedAfter).set(path, entry);
+            if (entry?.kind === "file") (checkpoint === before ? excludedBefore : excludedAfter).set(original, entry);
             if (entry?.kind === "file") for (const alias of index.inodes.get(entry.inode) ?? [])
               if (!isWithin("workspaces", alias)) paths.add(alias);
           }
@@ -524,7 +534,8 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
       const next = after;
       // Content the previous root alone keeps once this observation commits.
       const replaced = new Map<string, number>();
-      for (const [path, entry] of excludedBefore) if (entry.stamp !== excludedAfter.get(path)?.stamp) replaced.set(entry.inode, entry.bytes);
+      const excludedCurrentInodes = new Map([...excludedAfter.values()].map(entry => [entry.inode, entry]));
+      for (const entry of excludedBefore.values()) if (entry.stamp !== excludedCurrentInodes.get(entry.inode)?.stamp) replaced.set(entry.inode, entry.bytes);
       for (const change of changes) if (change.before?.kind === "file" && change.before.stamp !== change.after?.stamp) replaced.set(change.before.inode, change.before.bytes);
       const replacedBytes = [...replaced.values()].reduce((sum, bytes) => sum + bytes, 0);
       let state: "pending" | "committed" | "aborted" = "pending";

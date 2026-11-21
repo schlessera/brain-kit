@@ -233,13 +233,18 @@ test.each([false,true])("inspection commands run before filesystem failures rece
   for(const command of ["npm install --dry-run","bun test","npm help install","npm ls build","npm install","npm i","npm ci","npm clean-install","pnpm add ithaca","yarn run build","bun run build"]){
     const tool_input={command:`cd workspaces/ithaca && ${command}`};
     expect(await enforcementHookFor(ctx)(...hookCall("Bash",tool_input)),`EXECUTION_REACHES_KERNEL_${command}`).toEqual({continue:true});
-    const failure={hook_event_name:"PostToolUseFailure",tool_name:"Bash",tool_input,tool_use_id:"oar-1",cwd:"/srv/odysseus-brain",error:"EROFS: Read-only file system"};
+    const failure={hook_event_name:"PostToolUseFailure",tool_name:"Bash",tool_input,tool_use_id:"oar-1",cwd:"/srv/odysseus-brain",error:"EROFS: Read-only file system, open '/srv/odysseus-brain/workspaces/ithaca/package-lock.json'"};
     const answer=await post(failure as never,undefined,{signal:new AbortController().signal});
     expect(JSON.stringify(answer),`FAILED_CHECKOUT_NAMES_REMEDIES_${command}`).toContain("code-changes switch");
     expect(JSON.stringify(answer)).toContain("managed worktree");
     expect(await post({...failure,error:"test assertion failed"} as never,undefined,{signal:new AbortController().signal}),"ORDINARY_TEST_FAILURE_HAS_NO_PERMISSION_NOTE").toEqual({continue:true});
   }
+  expect(JSON.stringify(await post({hook_event_name:"PostToolUseFailure",tool_name:"Bash",tool_use_id:"npm",tool_input:{command:"npm ci"},error:"npm error code EROFS\nnpm error path /srv/odysseus-brain/workspaces/ithaca/package-lock.json"} as never,undefined,{signal:new AbortController().signal})),"NPM_DIAGNOSTIC_PATH_HAS_PERMISSION_CONTEXT").toContain("code-changes switch");
+  expect(JSON.stringify(await post({hook_event_name:"PostToolUseFailure",tool_name:"Bash",tool_use_id:"touch",tool_input:{command:"touch workspaces/ithaca/raft.md"},error:"touch: cannot touch '/srv/odysseus-brain/workspaces/ithaca/raft.md': Read-only file system"} as never,undefined,{signal:new AbortController().signal})),"TOUCH_DIAGNOSTIC_OWNS_THE_INSPECTED_DESTINATION").toContain("code-changes switch");
+  for(const command of ["cat workspaces/ithaca/README.md > /tmp/readonly/raft.md","cd workspaces/ithaca && cat README.md > /tmp/readonly/raft.md","cd workspaces/ithaca && touch /tmp/readonly/raft.md"]){
+    expect(await post({hook_event_name:"PostToolUseFailure",tool_name:"Bash",tool_use_id:"outside",tool_input:{command},cwd:"/srv/odysseus-brain",error:"open '/srv/odysseus-brain/workspaces/ithaca/README.md'\n/bin/bash: /tmp/readonly/raft.md: Permission denied"} as never,undefined,{signal:new AbortController().signal}),"CHECKOUT_READ_CANNOT_ATTRIBUTE_AN_OUTSIDE_WRITE_FAILURE").toEqual({continue:true});
+  }
   const success=hooks!.PostToolUse!.flatMap(group=>group.hooks).at(-1)!;
   expect(await success({hook_event_name:"PostToolUse",tool_name:"Bash",tool_use_id:"oar-1",tool_input:{command:"cd workspaces/ithaca && bun test"},tool_response:{stdout:"pass",exitCode:0}} as never,undefined,{signal:new AbortController().signal})).toEqual({continue:true});
-  expect(await post({hook_event_name:"PostToolUseFailure",tool_name:"Bash",tool_use_id:"oar-1",tool_input:{command:"cd /tmp/brain-reference/public/ithaca && npm install"},error:"EACCES",cwd:"/srv/odysseus-brain"} as never,undefined,{signal:new AbortController().signal})).toMatchObject({hookSpecificOutput:{additionalContext:expect.stringContaining("managed worktree")}});
+  expect(await post({hook_event_name:"PostToolUseFailure",tool_name:"Bash",tool_use_id:"oar-1",tool_input:{command:"cd /tmp/brain-reference/public/ithaca && npm install"},error:"EACCES: permission denied, open '/tmp/brain-reference/public/ithaca/package-lock.json'",cwd:"/srv/odysseus-brain"} as never,undefined,{signal:new AbortController().signal})).toMatchObject({hookSpecificOutput:{additionalContext:expect.stringContaining("managed worktree")}});
 });

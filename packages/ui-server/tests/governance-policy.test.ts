@@ -1,3 +1,5 @@
+import * as startupViews from "../../ui-sdk/src/server/worker-startup-view.js";
+import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import { frontmatterEngineSentinel } from "../../../tests/helpers/frontmatter-engine-sentinel.js";
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
 import { installFixtureNativeStartupViews } from "./helpers/fixture-native-startup.js";
@@ -715,4 +717,11 @@ test("a host without governedTurns still seals privileged checkout applications"
  backend.brainApplicationPolicy=()=>({autoAllowed:["write"],available:["write"],lock:createKeyedLock()});
  const host=new WsHost({brainPath:f.brain,catalog,isPrincipalAuthorized:id=>id===principal.id,registry:createStaticBackendRegistry([backend],backend.id)});host.clients.add({send(){}},principal.id);
  try{await runSession(host,{authorization:testAuthorization(principal.id),sessionId:"hostless-source",text:"Inspect the raft.",attachments:[]});expect(results[0],"HOSTLESS_NOTES_STAY_USABLE").toMatchObject({ok:true});expect(results[1],"HOSTLESS_APPLICATION_CANNOT_BYPASS_INSPECTION").toMatchObject({ok:false,code:"policy_denied",message:expect.stringContaining("code-changes switch")});expect(existsSync(join(f.brain,"workspaces/ithaca/source.md"))).toBe(false);}finally{host.close();}
+});
+
+
+test.each(["absent","symlink"])("admission refreshes an inspected %s checkpoint source",async state=>{
+ const f=fixture();f.write("profiles: {interactive: strict}");mkdirSync(join(f.brain,"workspaces/ithaca"),{recursive:true});mkdirSync(join(f.brain,"notes"));mkdirSync(join(f.brain,".brain/scratch"),{recursive:true});let checkpoints=0;
+ const acquisition=spyOn(startupViews,"prepareNativeWorkerStartupView").mockImplementation(async brain=>{const view=createFixtureWorkerStartupView(brain);if(++checkpoints===1){rmSync(join(view.root,"workspaces"),{recursive:true});if(state==="symlink")symlinkSync(join(view.root,"notes"),join(view.root,"workspaces"));}return view;});
+ try{const hold=await f.turns.begin("stale-inspection",new AbortController().signal);try{expect(checkpoints,"INSPECTION_REFRESHES_THE_SOURCE_IT_ACTUALLY_MOUNTS").toBe(2);expect(hold.startupView).toBeDefined();expect(hold.sandbox.areas.find(area=>area.name==="workspaces")!.mount.writable).toBe(false);}finally{await hold.end();}}finally{acquisition.mockRestore();}
 });

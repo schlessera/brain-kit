@@ -50,13 +50,19 @@ remains readable with its existing routes and shapes. If the optional area
 is absent at launch, governed note writes stay live, no mountpoint is created,
 and workspace exclusion does not apply: new content under that name is
 retained and charged as ordinary brain content for that turn, including the
-brain's frozen root ignore rules. The next default
+brain's frozen root ignore rules, root journal scope and ordinary Git-internal
+exclusions. Steering references and unavailable markers also remain per turn;
+an overlapping writer cannot donate its ignore policy. The next default
 turn binds the new directory read-only. Status describes the same default
 qualification, including an unqualified workspace root or unenforceable policy-protected
 parent selecting strict. An unqualified workspace symlink protects only its
 namespace; it never makes unrelated note destinations protected. Explicit
 owner protections still cover their symlink destinations. Status inspection
-never creates protection prerequisites on the live brain. Captured versions
+never creates protection prerequisites on the live brain. It includes literal
+provider folder pins. When provider type folders still require checkpoint taxonomy
+qualification, the optional `profile` and `configurationView` are omitted and the
+existing `profileFallback` explains the uncertainty; status does not execute
+brain configuration or report a guessed profile. Captured versions
 remain per turn through storage, so one participant’s retained hash never
 replaces another participant’s ignored metadata. Superseded checkpoint
 accounting includes excluded checkout bytes until release succeeds.

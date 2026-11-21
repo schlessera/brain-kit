@@ -37,7 +37,10 @@ that separate Git receipt transition. A default turn's read-only note names
 both routes to writable checkout access. Commands run against the read-only
 mount, so verification and dry runs that leave it unchanged remain usable. A
 filesystem permission failure inside the inspected checkout receives these
-remedies after execution; command names alone do not deny a call.
+remedies after execution; command names alone do not deny a call. The reported
+failing destination must be inside that checkout: reading a checkout file while
+a write fails elsewhere supplies no workspace advice. Reading a source image
+for a scratch markup layer likewise requires no workspace write grant.
 
 ## Authority and credential isolation
 

@@ -86,13 +86,13 @@ test("an inspect overlap does not unignore a writer's checkout steering files", 
     const writer = await capture.policy([], { workspaces: true }), inspect = await capture.policy([], { workspaces: false });
     writeFileSync(join(brain, "workspaces/ithaca/AGENTS.md"), "@guide.md\n");
     const alone = await capture.observe(new Map([["writer", writer]]));
-    expect(alone.steering.paths.has("workspaces/ithaca/guide.md"), "WRITER_ALONE_DOES_NOT_FOLLOW_IGNORED_INPUT").toBe(false);
+    expect(alone.steering.get("writer")!.paths.has("workspaces/ithaca/guide.md"), "WRITER_ALONE_DOES_NOT_FOLLOW_IGNORED_INPUT").toBe(false);
     await alone.commit();
     writeFileSync(join(brain, "workspaces/ithaca/AGENTS.md"), "@guide.md\nThe voyage continues.\n");
     const observation = await capture.observe(new Map([["writer", writer], ["inspect", inspect]]));
-    expect(observation.steering.unavailable, "INSPECT_DOES_NOT_OVERRIDE_WRITER_IGNORE").toContain("workspaces/ithaca/AGENTS.md");
-    expect(observation.steering.paths.has("workspaces/ithaca/guide.md"), "INSPECT_DOES_NOT_FOLLOW_IGNORED_REFERENCE").toBe(false);
-    expect(observation.steering.unavailable, "IGNORED_STEERING_REFERENCE_NOT_FOLLOWED").not.toContain("workspaces/ithaca/guide.md");
+    expect(observation.steering.get("writer")!.unavailable, "INSPECT_DOES_NOT_OVERRIDE_WRITER_IGNORE").toContain("workspaces/ithaca/AGENTS.md");
+    expect(observation.steering.get("writer")!.paths.has("workspaces/ithaca/guide.md"), "INSPECT_DOES_NOT_FOLLOW_IGNORED_REFERENCE").toBe(false);
+    expect(observation.steering.get("writer")!.unavailable, "IGNORED_STEERING_REFERENCE_NOT_FOLLOWED").not.toContain("workspaces/ithaca/guide.md");
     expect(captured).toEqual([]);
     await observation.commit();
   } finally { await capture.close(); await native.close(); rmSync(root, { recursive: true, force: true }); }
@@ -146,4 +146,45 @@ test("cancelled writer inventory releases inspection to observe its next note", 
     writeFileSync(join(brain,"notes/voyage.md"),"After");const result=await capture.observe(new Map([["inspect",inspect]]));
     expect(result.changes.get("inspect")!.map(change=>change.path),"CANCELLED_WRITER_DOES_NOT_BLOCK_INSPECTION").toEqual(["notes/voyage.md"]);await result.commit();
   }finally{await capture.close();await native.close();rmSync(root,{recursive:true,force:true});}
+});
+
+test("overlapping ordinary and checkout policies keep independent steering references",async()=>{
+ const root=mkdtempSync(join(tmpdir(),"odysseus-steering-owner-")),brain=join(root,"brain");mkdirSync(brain);writeFileSync(join(brain,".gitignore"),"AGENTS.md\n");
+ const native=createNativeJournalFixture(brain,root),capture=createNativeJournalCapture(native.manager,async()=>"retained");
+ try{
+  await capture.initialize();const ordinary=await capture.policy([],{ordinaryWorkspaces:true});
+  mkdirSync(join(brain,"workspaces/ithaca"),{recursive:true});writeFileSync(join(brain,"workspaces/ithaca/AGENTS.md"),"@guide.md\n");writeFileSync(join(brain,"workspaces/ithaca/guide.md"),"Athena guides Ithaca.");
+  await (await capture.observe(new Map([["ordinary",ordinary]]))).commit();const writer=await capture.policy();
+  writeFileSync(join(brain,"workspaces/ithaca/AGENTS.md"),"@guide.md\nOdysseus follows.\n");const observation=await capture.observe(new Map([["ordinary",ordinary],["writer",writer]]));
+  expect(observation.steering.get("ordinary")!.paths.has("workspaces/ithaca/guide.md"),"PEER_CANNOT_PROMOTE_IGNORED_REFERENCE").toBe(false);
+  expect(observation.steering.get("ordinary")!.unavailable).toContain("workspaces/ithaca/AGENTS.md");
+  expect(observation.steering.get("writer")!.paths.has("workspaces/ithaca/guide.md"),"WRITER_KEEPS_OWN_REFERENCE_CLASSIFICATION").toBe(true);await observation.commit();
+ }finally{await capture.close();await native.close();rmSync(root,{recursive:true,force:true});}
+});
+
+
+test("absent-area content captures root scope and ordinary Git exclusions",async()=>{
+ const root=mkdtempSync(join(tmpdir(),"odysseus-ordinary-scope-")),brain=join(root,"brain");mkdirSync(brain);
+ const native=createNativeJournalFixture(brain,root),retained:string[]=[],capture=createNativeJournalCapture(native.manager,async fd=>{const bytes=readFileSync(fd,"utf8");retained.push(bytes);return "retained";});
+ try{
+  await capture.initialize(undefined,{workspaces:false});const ordinary=await capture.policy([],{ordinaryWorkspaces:true});
+  mkdirSync(join(brain,"workspaces/ithaca/.git"),{recursive:true});writeFileSync(join(brain,"workspaces/ithaca/.git/HEAD"),"ref: refs/heads/main\n");writeFileSync(join(brain,"workspaces/ithaca/source.md"),"Athena writes ordinary content.");
+  const observation=await capture.observe(new Map([["ordinary",ordinary]]));
+  const rows=observation.changes.get("ordinary")!;
+  expect(rows.map(row=>row.path),"ORDINARY_CHECKOUT_GIT_INTERNALS_ARE_EXCLUDED").toEqual(["workspaces/ithaca/source.md"]);
+  expect(rows[0]!.after?.scope,"ORDINARY_CHECKOUT_ROW_USES_ROOT_SCOPE").toBe("");expect(retained).toEqual(["Athena writes ordinary content."]);await observation.commit();
+ }finally{await capture.close();await native.close();rmSync(root,{recursive:true,force:true});}
+});
+
+
+test("overlapping frozen root ignore policies keep independent steering references",async()=>{
+ const root=mkdtempSync(join(tmpdir(),"odysseus-root-steering-owner-")),brain=join(root,"brain");mkdirSync(brain);writeFileSync(join(brain,".gitignore"),"AGENTS.md\n");writeFileSync(join(brain,"AGENTS.md"),"@guide.md\n");writeFileSync(join(brain,"guide.md"),"Athena guides Ithaca.");
+ const native=createNativeJournalFixture(brain,root),capture=createNativeJournalCapture(native.manager,async()=>"retained");
+ try{
+  await capture.initialize();const ordinary=await capture.policy();writeFileSync(join(brain,".gitignore"),"");await(await capture.observe(new Map([["ordinary",ordinary]]))).commit();const writer=await capture.policy();
+  writeFileSync(join(brain,"AGENTS.md"),"@guide.md\nOdysseus follows.\n");const observation=await capture.observe(new Map([["ordinary",ordinary],["writer",writer]]));
+  expect(observation.steering.get("ordinary")!.paths.has("guide.md"),"PEER_CANNOT_PROMOTE_IGNORED_ROOT_REFERENCE").toBe(false);
+  expect(observation.steering.get("ordinary")!.unavailable,"IGNORED_ROOT_REFERENCE_STAYS_UNAVAILABLE").toContain("AGENTS.md");
+  expect(observation.steering.get("writer")!.paths.has("guide.md"),"WRITER_KEEPS_OWN_ROOT_REFERENCE_CLASSIFICATION").toBe(true);await observation.commit();
+ }finally{await capture.close();await native.close();rmSync(root,{recursive:true,force:true});}
 });

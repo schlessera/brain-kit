@@ -551,6 +551,8 @@ export interface WorkerNoteLimit {
 
 /** Facts resolved outside the mount list that the note states with it. */
 export interface WorkerNoteFacts {
+  /** Historical qualification only; never mount or write authority. */
+  readonly legacyWorkspaces?: WorkerMount;
   /** Actual successful host qualification, never a configured helper path alone. */
   readonly identity?: { readonly kind: "separate_uid"; readonly workerUid: number };
   readonly limits?: readonly WorkerNoteLimit[];
@@ -625,8 +627,9 @@ function turnTempPlaces(): string {
  * variant is the envelope's own and keeps its wording.
  */
 export function workerSandboxNote(sandbox: WorkerSandbox, facts: WorkerNoteFacts = {}, legacyWorkspace = false): string {
-  if (legacyWorkspace) sandbox = { ...sandbox, codeChanges: undefined, areas: sandbox.areas.map(area => area.name === "workspaces" && !area.mount.writable && area.mount.readOnlyPath
-    ? { ...area, mount: { writable: true, path: area.mount.readOnlyPath } } : area) };
+  if (!legacyWorkspace && sandbox.codeChanges === undefined) sandbox = { ...sandbox, codeChanges: false };
+  if (legacyWorkspace) sandbox = { ...sandbox, codeChanges: undefined, areas: sandbox.areas.map(area => area.name === "workspaces" && sandbox.noteFacts?.legacyWorkspaces
+    ? { ...area, mount: sandbox.noteFacts.legacyWorkspaces } : area) };
   const lines: string[] = [];
   const resolvedFacts = { ...sandbox.noteFacts, ...facts };
   const profile = workerProfile(sandbox);

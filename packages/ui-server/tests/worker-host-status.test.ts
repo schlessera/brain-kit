@@ -373,3 +373,15 @@ test.each(["governed","strict"] as const)("status reads never create protected p
   expect(existsSync(join(t.brainPath,"uncreated")),"STATUS_IS_A_PURE_READ_OF_LIVE_CONTENT").toBe(false);
  }finally{await t.teardown();}
 });
+
+
+test("status includes required provider folder pins without preparing live paths",async()=>{
+ probeAnswers({ok:true});const t=await createTestApp({prepare(brain){mkdirSync(join(brain,"workspaces"));mkdirSync(join(brain,"context/policies"),{recursive:true});writeFileSync(join(brain,"context/policies/governance.md"),"---\nschema_version: 1\nproviders: [{paths: [workspaces/ithaca/**], allow: [anthropic]}]\n---\nAthena protects source.\n");}});
+ try{const admitted=prepareWorkerSandbox(t.brainPath,{profile:"governed",codeChanges:false,folderPaths:["workspaces/ithaca"]});expect(admitted.profile).toBe("strict");const status=(await workerHostOf(await t.fetch("/api/status")))?.governed;expect(status,"STATUS_CANNOT_OMIT_REQUIRED_PROVIDER_PINS").toMatchObject({profile:"strict",configurationView:"startup"});expect(existsSync(join(t.brainPath,"workspaces/ithaca"))).toBe(false);}finally{await t.teardown();}
+});
+
+
+test("status leaves a type-dependent profile unknown until checkpoint taxonomy qualification",async()=>{
+ probeAnswers({ok:true});const t=await createTestApp({prepare(brain){mkdirSync(join(brain,"context/policies"),{recursive:true});writeFileSync(join(brain,"context/policies/governance.md"),"---\nschema_version: 1\nproviders: [{types: [identity], allow: [anthropic]}]\n---\nAthena protects identity.\n");}});
+ try{const status=(await workerHostOf(await t.fetch("/api/status")))?.governed;expect(status,"STATUS_DOES_NOT_INVENT_TYPE_QUALIFICATION").toBeDefined();expect(status?.profile).toBeUndefined();expect(status?.configurationView).toBeUndefined();expect(status?.profileFallback).toContain("unresolved");}finally{await t.teardown();}
+});

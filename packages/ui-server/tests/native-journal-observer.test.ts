@@ -1,9 +1,9 @@
 import { expect, spyOn, test } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, linkSync, rmSync, symlinkSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, linkSync, renameSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createNativeJournalObserver, NativeJournalObservationError, NATIVE_RELEASE_BACKLOG, type NativeJournalManager } from "../src/brain/native-journal-observer.js";
-import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
+import { createNativeJournalFixture, fixtureDelta, inventory } from "./helpers/native-journal-fixture.js";
 
 import { cleanupTimers } from "./helpers/cleanup-timers.js";
 
@@ -377,4 +377,12 @@ test("inspection excludes journal rows but charges superseded checkout checkpoin
   await observation.commit();(await f.next()).settle(new Error("Odysseus checkpoint remains pinned"));await f.observer.releasesSettled();
   expect(f.observer.releases(),"CHECKPOINT_BYTES_ARE_INDEPENDENT_OF_JOURNAL_COVERAGE").toEqual({pending:0,failed:1,retainedBytes:8192});
  }finally{await f.close();}
+});
+
+
+test("renamed excluded checkout predecessors remain charged after failed release",async()=>{
+ const f=releaseFixture();mkdirSync(join(f.brain,"workspaces/ithaca"),{recursive:true});writeFileSync(join(f.brain,"workspaces/ithaca/source.ts"),"x".repeat(8192));
+ const checkpoints=new Map<string,any>(),checkpoint=f.native.manager.checkpoint.bind(f.native.manager);f.native.manager.checkpoint=async(id,signal)=>{const root=await checkpoint(id,signal);checkpoints.set(id,{...root,entries:inventory(root.path)});return root;};
+ f.native.manager.delta=async(from,to)=>fixtureDelta(checkpoints.get(from),checkpoints.get(to),to,[{from:"workspaces/ithaca",to:"workspaces/scheria"}]);
+ try{await f.observer.initialize(undefined,{workspaces:false});renameSync(join(f.brain,"workspaces/ithaca"),join(f.brain,"workspaces/scheria"));writeFileSync(join(f.brain,"workspaces/scheria/source.ts"),"Athena after");const observation=await f.observer.observe(undefined,undefined,{workspaces:false});await observation.commit();(await f.next()).settle(new Error("checkpoint held"));await f.observer.releasesSettled();expect(f.observer.releases().retainedBytes,"RENAMED_EXCLUDED_PREDECESSOR_IS_STILL_RETAINED").toBe(8192);}finally{await f.close();}
 });

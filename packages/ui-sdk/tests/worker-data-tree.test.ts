@@ -5,7 +5,7 @@
  * configuration stays at the frozen brain path.
  */
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { dataTreeMounts } from "../src/server/worker-protection";
@@ -100,4 +100,12 @@ test("strict data-tree launch overlays inspected source before its provider mask
   expect(text,"PI_REPO_RELATIVE_READS_REACH_THE_SEALED_CHECKOUT").toContain(overlay);
   expect(text.indexOf(mask),"PROVIDER_MASKS_OVERRIDE_THE_INSPECTION_OVERLAY").toBeGreaterThan(text.indexOf(overlay));
  }finally{view.cleanup();}
+});
+
+
+test.each(["absent","symlink"])("strict overlay refuses an unqualified %s checkpoint source",state=>{
+ const {brain,tree,index}=layout();const view=createFixtureWorkerStartupView(brain);
+ mkdirSync(join(brain,"workspaces/ithaca"),{recursive:true});mkdirSync(join(tree,"workspaces"));
+ if(state==="symlink")symlinkSync(join(view.root,"notes"),join(view.root,"workspaces"));
+ try{const sandbox={...prepareWorkerSandbox(brain,{profile:"strict",codeChanges:false}),dataTree:{root:tree,index}};expect(()=>workerCommand({brainPath:brain,startupView:view,sandbox,env:{},command:["/bin/true"]}),"LIVE_QUALIFICATION_CANNOT_AUTHORIZE_A_STALE_SOURCE").toThrow("immutable workspace source");}finally{view.cleanup();}
 });

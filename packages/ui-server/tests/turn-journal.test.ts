@@ -763,8 +763,8 @@ test("native capture excludes an alternate trusted index identity without a publ
     const observed = await capture.observe(new Map([["alternate",policy]]));
     try {
       expect(observed.changes.get("alternate")!.map(change=>change.path).sort()).toEqual(indexes.sort());
-      for (const path of indexes) expect(observed.steering.paths.has(path),"NATIVE_ALTERNATE_INDEX_IDENTITY_EXCLUDED").toBe(false);
-      expect(observed.steering.paths.has("resources/brain.db"),"NATIVE_UNRELATED_BASENAME_REMAINS_INPUT").toBe(true);
+      for (const path of indexes) expect(observed.steering.get("alternate")!.paths.has(path),"NATIVE_ALTERNATE_INDEX_IDENTITY_EXCLUDED").toBe(false);
+      expect(observed.steering.get("alternate")!.paths.has("resources/brain.db"),"NATIVE_UNRELATED_BASENAME_REMAINS_INPUT").toBe(true);
       await observed.commit();
     } catch (error) { await observed.abort(); throw error; }
   } finally { await capture.close(); await f.close(); }

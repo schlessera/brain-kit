@@ -9,7 +9,7 @@
  * session id are replaced by placeholders before comparison.
  */
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { linkSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -69,7 +69,7 @@ function hooksShape(hooks: Options["hooks"]): Record<string, { matcher: string |
 const PINNED_WORKER_LIMITS = "data=4GiB,memory=4GiB";
 
 /** The normalised snapshot for one mode; the worker is finished before it returns. */
-export async function sdkOptionsSnapshot(mode: SnapshotMode, inputs: { populatedWorkspace?: boolean; prepareSandbox?: boolean; withoutHostSandbox?: boolean } = {}): Promise<Record<string, unknown>> {
+export async function sdkOptionsSnapshot(mode: SnapshotMode, inputs: { populatedWorkspace?: boolean; prepareSandbox?: boolean; withoutHostSandbox?: boolean; aliasWorkspace?: boolean } = {}): Promise<Record<string, unknown>> {
   const previous = process.env.BRAIN_UI_WORKER_LIMITS;
   process.env.BRAIN_UI_WORKER_LIMITS = PINNED_WORKER_LIMITS;
   try { return await snapshotOnce(mode, inputs); } finally {
@@ -78,9 +78,10 @@ export async function sdkOptionsSnapshot(mode: SnapshotMode, inputs: { populated
   }
 }
 
-async function snapshotOnce(mode: SnapshotMode, inputs: { populatedWorkspace?: boolean; prepareSandbox?: boolean; withoutHostSandbox?: boolean }): Promise<Record<string, unknown>> {
+async function snapshotOnce(mode: SnapshotMode, inputs: { populatedWorkspace?: boolean; prepareSandbox?: boolean; withoutHostSandbox?: boolean; aliasWorkspace?: boolean }): Promise<Record<string, unknown>> {
   const brain = mkdtempSync(join(tmpdir(), "odysseus-sdk-options-"));
   if (inputs.populatedWorkspace) mkdirSync(join(brain, "workspaces/ithaca"), { recursive: true });
+  if(inputs.aliasWorkspace){mkdirSync(join(brain,"notes"));writeFileSync(join(brain,"notes/raft.md"),"Athena");linkSync(join(brain,"notes/raft.md"),join(brain,"workspaces/ithaca/alias.md"));}
   const restricted = mode === "restricted";
   const request=requestFor(mode,brain);
   if(inputs.withoutHostSandbox)delete request.workerSandbox;

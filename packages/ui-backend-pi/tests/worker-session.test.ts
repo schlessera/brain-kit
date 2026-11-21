@@ -1,6 +1,6 @@
 import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
-import { mkdtempSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, linkSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { PassThrough, Readable, Writable } from "node:stream";
@@ -607,4 +607,15 @@ test("Pi handoff preparation keeps its legacy provider append without granting c
  const caps=receivedInit.env.caps,resources=createSessionResources({backend:{brainPath:brain,loadExtensions:false},brain:createBrainAccess(brain),lock:toolLockFromKeyed(createKeyedLock()),allowedTools:new Set(),confirmPatterns:[],loadExtensions:false,sandboxNote:receivedInit.sandboxNote});
  const {loader}=await resources.build(resources.buildToolkit(caps),{caps,autonomous});
  expect(loader.getAppendSystemPrompt(),"PI_REAL_RESOURCE_LOADER_KEEPS_HANDOFF_PROMPT").toContain(`${autonomous.systemPromptAppend}\n\n${receivedInit.sandboxNote}`);
+});
+
+
+test("ordinary hostless Pi describes absent workspaces as inspection in later turns",async()=>{
+ await turn(null);expect(receivedInit.sandboxNote,"HOSTLESS_PI_NEVER_PROMISES_FUTURE_CODE_WRITES").not.toContain("makes it writable in later turns");expect(receivedInit.sandboxNote).toContain("ordinary retained and charged brain content");expect(receivedInit.sandboxNote).toContain("code-changes switch");
+});
+
+test("Pi handoff keeps legacy alias refusal without inventing a writable area",async()=>{
+ mkdirSync(join(brain,"workspaces/ithaca"),{recursive:true});writeFileSync(join(brain,"raft.md"),"Athena");linkSync(join(brain,"raft.md"),join(brain,"workspaces/ithaca/alias.md"));
+ await createPiBackend({brainPath:brain,sessionDir,loadExtensions:false}).startTurn({prompt:"Summarise Ithaca.",signal:new AbortController().signal,enforceAllowedTools:true,noGrantSurface:true,autonomous:{origin:"autonomous",persistence:"none",allowedTools:[],systemPromptAppend:"Summarise the voyage."},bridge:{emit(){},checkpointPermission(){},requestPermission:async()=>({behavior:"deny",message:"no tools"})}});
+ expect(receivedInit.sandboxNote,"PI_HANDOFF_PRESERVES_ACTUAL_LEGACY_REFUSAL").toContain("hard-linked to files outside workspaces/");expect(receivedInit.sandboxNote).not.toContain("is writable: clone, fetch and commit");
 });

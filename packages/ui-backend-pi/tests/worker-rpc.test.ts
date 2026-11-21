@@ -4,7 +4,7 @@
  * End-to-end refusals from a real worker stay in tests/pi-worker-runtime.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { NativeFileVersions } from "@schlessera/brain-ui-sdk/internal";
@@ -257,9 +257,10 @@ test.each([true,false])("post-failure remedies use the resolved Pi sandbox (host
   for(const command of ["npm install --dry-run","bun test","npm help install","npm ls build","npm install","npm i","npm ci","npm clean-install","pnpm add ithaca","yarn run build","bun run build"]){
     const id=command;
     expect(await dispatch(rpc("permission","bash",{command:`cd workspaces/ithaca && ${command}`},id)),"PI_VERIFICATION_RUNS_BEFORE_ANY_REFUSAL").toMatchObject({behavior:"allow"});
-    const answer=await dispatch(rpc("safetyResult","bash",{output:"EROFS: Read-only file system",failed:true},id));
+    const answer=await dispatch(rpc("safetyResult","bash",{output:`EROFS: Read-only file system, open '${root}/workspaces/ithaca/package-lock.json'`,failed:true},id));
     expect(answer,"SELF_RESOLVED_SANDBOX_HAS_BOTH_REMEDIES").toMatchObject({workspaceNote:expect.stringContaining("managed worktree")});
     expect(recorded.at(-1),"NOTE_RECORDED_BEFORE_DELIVERY").toContain("code-changes switch");
+    expect(await dispatch(rpc("safetyResult","bash",{output:`open '${root}/workspaces/ithaca/README.md'\n/bin/bash: /tmp/readonly/raft.md: Permission denied`,failed:true},id)),"PI_OUTSIDE_DESTINATION_HAS_NO_CHECKOUT_REMEDY").toEqual({ok:true});
     expect(await dispatch(rpc("safetyResult","bash",{output:"all tests passed"},id)),"SUCCESSFUL_VERIFICATION_HAS_NO_REFUSAL").toEqual({ok:true});
     expect(await dispatch(rpc("safetyResult","bash",{output:"assertion failed",failed:true},id)),"NORMAL_TEST_FAILURE_HAS_NO_REFUSAL").toEqual({ok:true});
   }
@@ -272,9 +273,15 @@ test("Pi's installed Agent hook appends and records the post-failure remedy once
  const recorded:string[]=[];const {dispatch}=harness({sandbox},{inputSafety:{begin:async()=>{},allowed:async()=>{},result:async(_id:string,_name:string,output:string)=>{recorded.push(output);}} as never});
  const agent=new Agent({streamFn:()=>{throw new Error("No inference in this hook test");}});
  installPiToolSafety(agent,{permission:(name,id,input)=>dispatch(rpc("permission",name,input,id)) as never,result:async(name,id,content,complete,failed)=>{const answer=await dispatch(rpc("safetyResult",name,safetyResultInput(name,content,complete,failed),id)) as {workspaceNote?:string};return answer.workspaceNote;},stop(){}},()=>false);
- const context={toolCall:{id:"verify",name:"bash"},args:{command:"cd workspaces/ithaca && bun test"},result:{content:[{type:"text",text:"EACCES: permission denied"}]},isError:true} as never;
+ const {createBrainToolKit}=await import("../src/tool-kit.js"),{createBrainAccess}=await import("../src/brain-access.js"),{bashTool}=await import("../src/file-tools.js"),{toolLockFromKeyed}=await import("../src/tools.js"),{createKeyedLock}=await import("@schlessera/brain-ui-sdk/server");
+ mkdirSync(join(root,"workspaces/ithaca"),{recursive:true});
+ const kit=createBrainToolKit({brain:createBrainAccess(root),turn:createTurnContext(),lock:toolLockFromKeyed(createKeyedLock()),exec:{}});
+ const args={command:`cd workspaces/ithaca && printf 'EROFS: Read-only file system, open "${root}/workspaces/ithaca/package-lock.json"' >&2; exit 1`};
+ const result=await bashTool(kit).execute("verify",args,undefined,undefined,{} as never);
+ expect((result.details as {exitCode: number}).exitCode,"REAL_BASH_USES_EXIT_CODE_DETAILS").toBe(1);
+ const context={toolCall:{id:"verify",name:"bash"},args,result,isError:false} as never;
  expect(await agent.beforeToolCall!(context),"INSTALLED_AGENT_ADMITS_VERIFICATION").toBeUndefined();
  const answer=await agent.afterToolCall!(context);
- expect(answer!.content,"INSTALLED_AGENT_DELIVERS_REMEDY_AFTER_KERNEL_FAILURE").toEqual([{type:"text",text:"EACCES: permission denied"},{type:"text",text:expect.stringContaining("code-changes switch")}]);
+ expect(answer!.content,"INSTALLED_AGENT_DELIVERS_REMEDY_AFTER_BASH_EXIT_FAILURE").toEqual([...result.content,{type:"text",text:expect.stringContaining("code-changes switch")}]);
  expect(recorded).toHaveLength(1);expect(recorded[0]).toContain("managed worktree");
 });

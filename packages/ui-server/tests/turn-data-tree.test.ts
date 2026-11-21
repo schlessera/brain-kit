@@ -574,13 +574,13 @@ test.each([true,false])("inspection data-tree copy omits deep source with strict
 
 
 test.each([false,true])("strict Pi file tools and shell read the inspected checkout through the mounted data root (masked=%s)",async masked=>{
- const root=mkdtempSync(join(tmpdir(),"odysseus-pi-checkout-read-")),brain=join(root,"brain");mkdirSync(join(brain,".brain-index"),{recursive:true});mkdirSync(join(brain,"workspaces/ithaca"),{recursive:true});writeFileSync(join(brain,"workspaces/ithaca/README.md"),"Athena inspects Ithaca.");
+ const root=mkdtempSync(join(tmpdir(),"odysseus-pi-checkout-read-")),brain=join(root,"brain");mkdirSync(join(brain,".brain-index"),{recursive:true});mkdirSync(join(brain,"workspaces/ithaca"),{recursive:true});writeFileSync(join(brain,"workspaces/ithaca/README.md"),"Athena inspects Ithaca.");writeFileSync(join(brain,"workspaces/ithaca/secret.txt"),"ATHENA_SECRET_MASK_CONTROL");symlinkSync("workspaces/ithaca/secret.txt",join(brain,".env.ithaca"));mkdirSync(join(brain,"workspaces/ithaca/secret-dir"));writeFileSync(join(brain,"workspaces/ithaca/secret-dir/value.txt"),"ATHENA_SECRET_DIRECTORY_CONTROL");symlinkSync("workspaces/ithaca/secret-dir",join(brain,".env.directory"));
  const view=createFixtureWorkerStartupView(brain);
  try{
   const tree=await createTurnDataTree({brainPath:brain,view,maskPaths:[],mount:true,inspectWorkspaces:true,update:async()=>{}});
   try{
    const {prepareWorkerSandbox}=await import("../../ui-sdk/src/server/worker-launcher.js");
-   const sandbox={...prepareWorkerSandbox(brain,{profile:"strict",codeChanges:false}),dataTree:{...tree.mount!,masked:masked?["workspaces/ithaca"]:[]},...(masked?{providerMasks:{folders:["workspaces/ithaca"],index:tree.index}}:{}),readPaths:[REPO,process.execPath]};
+   const sandbox={...prepareWorkerSandbox(brain,{profile:"strict",codeChanges:false}),dataTree:{...tree.mount!,masked:[]},...(masked?{providerMasks:{folders:["workspaces/ithaca"],index:tree.index}}:{}),readPaths:[REPO,process.execPath]};
    const program=`import {createBrainAccess} from ${JSON.stringify(join(REPO,"packages/ui-backend-pi/src/brain-access.ts"))};
 import {createBrainToolKit} from ${JSON.stringify(join(REPO,"packages/ui-backend-pi/src/tool-kit.ts"))};
 import {readFileTool,grepTool} from ${JSON.stringify(join(REPO,"packages/ui-backend-pi/src/file-tools.ts"))};
@@ -589,6 +589,8 @@ import {toolLockFromKeyed} from ${JSON.stringify(join(REPO,"packages/ui-backend-
 import {createKeyedLock} from ${JSON.stringify(join(REPO,"packages/ui-sdk/src/server/keyed-lock.ts"))};
 import {readFileSync} from "node:fs";
 const kit=createBrainToolKit({brain:createBrainAccess(process.env.BRAIN_ROOT),turn:createTurnContext(),lock:toolLockFromKeyed(createKeyedLock())});
+let secret="";try{secret=readFileSync(process.env.BRAIN_ROOT+"/workspaces/ithaca/secret.txt","utf8");}catch{}if(secret.includes("ATHENA_SECRET_MASK_CONTROL"))throw Error("SECOND_MOUNT_PRESERVES_SECRET_TARGET_MASK");
+let secretDirectory="";try{secretDirectory=readFileSync(process.env.BRAIN_ROOT+"/workspaces/ithaca/secret-dir/value.txt","utf8");}catch{}if(secretDirectory.includes("ATHENA_SECRET_DIRECTORY_CONTROL"))throw Error("SECOND_MOUNT_PRESERVES_SECRET_DIRECTORY_MASK");
 if(${masked}){let blocked=0;try{await readFileTool(kit).execute("read",{path:"workspaces/ithaca/README.md"});}catch{blocked++;}process.chdir(process.env.BRAIN_ROOT);try{readFileSync("workspaces/ithaca/README.md","utf8");}catch{blocked++;}if(blocked!==2)throw Error("INSPECTION_OVERLAY_LEAKED_PROVIDER_MASK");console.log("MASKED_CHECKOUT_STAYS_HIDDEN");process.exit(0);}
 const read=await readFileTool(kit).execute("read",{path:"workspaces/ithaca/README.md"});
 const grep=await grepTool(kit).execute("grep",{pattern:"Athena",path:"workspaces/ithaca"});

@@ -1392,6 +1392,16 @@ writer's frozen ignores or participate in workspace conflict attribution.
 Installing or building requires the switch or a managed worktree
 ([the install ruling](reference-worktrees.md)).
 
+
+Workspace inspection keeps source-read and destination-write authority separate.
+Strict data roots overlay only a qualified sealed source and reapply every secret
+and provider mask; the copied data tree's exclusions cannot be restored through
+that alias. Status qualifies literal provider folder pins without creating paths.
+If type folder translation still requires checkpoint configuration, its optional
+profile and configuration-view fields remain unknown with an explanatory fallback.
+Each turn keeps its own ignore-based steering classification and journal scope,
+including ordinary root scope for content created beneath an absent workspace.
+
 **Snapshots.** At turn start and at turn end, the server snapshots the brain's
 working tree itself. It runs no git and imports no repository code:
 
@@ -2769,9 +2779,9 @@ and subdirectories through retained aliases. It does not restore unrelated
 host-temp siblings or make runtime bytes writable.
 
 The concrete checks and mounts are in (`validateRuntimePlacement`,
-`packages/ui-sdk/src/server/worker-launcher.ts:656-662`),
-(`temporaryRuntimeMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:683-722`)
-and (`runtimeMaskOverlays`, `packages/ui-sdk/src/server/worker-launcher.ts:684-702`).
+`packages/ui-sdk/src/server/worker-launcher.ts:667-673`),
+(`temporaryRuntimeMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:694-733`)
+and (`runtimeMaskOverlays`, `packages/ui-sdk/src/server/worker-launcher.ts:695-713`).
 Alias restoration recognizes names already supplied by a read-only bind or an
 explicit system-view symlink. It does not mount a canonical executable over an
 existing alias such as `/bin/sh`; missing owned temporary paths still receive

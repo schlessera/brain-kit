@@ -1,6 +1,9 @@
 /** Concrete host-only protocol. No request accepts host paths, commands, caller-selected UIDs or mount authority. */
 import { z } from "zod";
 
+/** Worst-case JSON escaping of the longest accepted metadata path plus fixed identities. */
+export const NATIVE_REQUEST_BYTES = 512 * 1024;
+
 export const nativeCheckpointId = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
 /** One published entry in a view: a plain lowercase name that can never be a root identity or a hidden or relative entry. */
 export const nativePoolName = z.string().regex(/^[a-z0-9][a-z0-9._@+-]{0,127}$/).refine(name => !nativeCheckpointId.safeParse(name).success);
@@ -279,7 +282,7 @@ export interface NativePoolGrowth {
 }
 /** The privileged helper inspects only its bounded upper layer after the worker exits. */
 export interface NativeStageChange { pathHex: string; kind: "entry" | "whiteout" | "opaque" }
-export const NATIVE_CONTROL_BYTES = 64 * 1024;
+export const NATIVE_CONTROL_BYTES = NATIVE_REQUEST_BYTES;
 export const NATIVE_DATA_CHUNK_BYTES = 64 * 1024;
 /** Transport work bounds, configurable; neither is a history/object/change quota. */
 export const NATIVE_MANAGER_OPERATION_TIMEOUT_MS = 30_000;

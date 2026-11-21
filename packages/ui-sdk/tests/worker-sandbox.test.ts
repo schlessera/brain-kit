@@ -4,7 +4,7 @@ import * as fs from "node:fs";
 import { chmodSync, existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { workerCommand } from "../src/server/worker-launcher";
-import { resolveScratchMount, WORKER_XDG_DIRS, workerSandboxNote, workerSandboxWarnings, type WorkerSandbox } from "../src/server/worker-sandbox";
+import { resolveScratchMount, resolveWorkspacesMount, WORKER_XDG_DIRS, workerSandboxNote, workerSandboxWarnings, type WorkerSandbox } from "../src/server/worker-sandbox";
 
 // The historical writable-area cases exercise the explicit code-changes mode.
 const prepareCodeChangesSandbox = (brain: string, options: Parameters<typeof prepareFixtureWorkerSandbox>[1] = {}) =>
@@ -708,4 +708,17 @@ test("a saved code-change switch cannot create its missing workspace prerequisit
     expect(existsSync(join(f.brain,"workspaces")),"PROTECTION_NEVER_MINTS_A_WORKSPACE").toBe(false);
     expect(sandbox.areas.find(area=>area.name==="workspaces")!.mount.writable,"MISSING_WORKSPACE_NEVER_BECOMES_WRITABLE").toBe(false);
   }finally{f.cleanup();}
+});
+
+
+test("writer qualification follows scratch alias cleanup",()=>{
+ const f=fixture();try{mkdirSync(join(f.brain,".brain/scratch"),{recursive:true});writeFileSync(join(f.brain,".gitignore"),".brain/scratch/\n");writeFileSync(join(f.brain,"workspaces/ithaca/source.ts"),"Athena");linkSync(join(f.brain,"workspaces/ithaca/source.ts"),join(f.brain,".brain/scratch/alias.ts"));
+ const plan=prepareCodeChangesSandbox(f.brain);expect(plan.scratchAliasesRemoved).toContain(".brain/scratch/alias.ts");expect(plan.areas.find(area=>area.name==="workspaces")!.mount.writable,"WRITER_RETAINS_PRE_INSPECTION_ALIAS_ORDER").toBe(true);
+ }finally{f.cleanup();}
+});
+
+test("legacy handoff rendering preserves an over-limit qualification without a write grant",()=>{
+ const f=fixture();try{const plan=prepareFixtureWorkerSandbox(f.brain,{codeChanges:false,areas:["workspaces"]});const legacy=resolveWorkspacesMount(f.brain,1,true);expect(legacy.writable).toBe(false);
+ const note=workerSandboxNote({...plan,noteFacts:{legacyWorkspaces:legacy}},{},true);expect(note,"LEGACY_REFUSAL_IS_NOT_FABRICATED_AS_WRITABLE").toContain("more than 1 entries");expect(note).not.toContain("is writable: clone, fetch and commit");expect(plan.areas[0]!.mount.writable).toBe(false);
+ }finally{f.cleanup();}
 });
