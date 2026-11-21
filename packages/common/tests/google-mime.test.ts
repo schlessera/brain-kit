@@ -482,6 +482,29 @@ describe("parseGmailRawDraft: only parameters and encodings the parser understan
   }
 });
 
+describe("parseGmailRawDraft: quoted-printable trailing whitespace", () => {
+  const qp = async (text: string) => {
+    const draft = await parseGmailRawDraft(message("To: penelope@example.com", "Content-Type: text/plain; charset=utf-8", "Content-Transfer-Encoding: quoted-printable", "", text));
+    return [draft.body_text, flags(draft)];
+  };
+
+  test("unencoded trailing whitespace on a line is deleted (RFC 2045 6.7)", async () => {
+    expect(await qp("Weave. \t\r\nRest.")).toEqual(["Weave.\nRest.", CLEAN]);
+  });
+
+  test("unencoded trailing whitespace on the last line is deleted", async () => {
+    expect(await qp("Rest.  \t")).toEqual(["Rest.", CLEAN]);
+  });
+
+  test("encoded trailing whitespace survives", async () => {
+    expect(await qp("Weave.=20\r\nRest.=09")).toEqual(["Weave. \nRest.\t", CLEAN]);
+  });
+
+  test("whitespace after a soft line break marker is padding, not text", async () => {
+    expect(await qp("Weave by =  \r\nday.")).toEqual(["Weave by day.", CLEAN]);
+  });
+});
+
 describe("parseGmailRawDraft: adjacent encoded words", () => {
   test("whitespace between adjacent encoded words in a display name is dropped", async () => {
     const parsed = await parseGmailRawDraft(message("To: =?utf-8?Q?Pene?= =?utf-8?Q?lope?= <penelope@example.com>", "", ""));

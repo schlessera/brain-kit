@@ -62,31 +62,31 @@ export function decodeBase64(text: string): string | null {
 }
 
 /**
- * A quoted-printable body decode (RFC 2045 §6.7) to a binary string. Soft line
- * breaks are removed; `=` must start a hex pair or a soft break.
+ * A quoted-printable body decode (RFC 2045 section 6.7) to a binary string.
+ * Unencoded whitespace at the end of a line is transport padding and is
+ * deleted (rule 3); encoded whitespace (`=20`, `=09`) is kept. A line ending
+ * in `=` is a soft line break and joins the next one. Any other `=` must
+ * start a hex pair.
  */
 export function decodeQuotedPrintable(text: string): string | null {
   let out = "";
-  for (let at = 0; at < text.length; at++) {
-    const char = text[at]!;
-    if (char !== "=") {
-      out += char;
-      continue;
-    }
-    const pair = text.slice(at + 1, at + 3);
-    if (/^[0-9A-Fa-f]{2}$/.test(pair)) {
+  const pieces = text.split(/(\r?\n)/);
+  for (let index = 0; index < pieces.length; index += 2) {
+    let line = pieces[index]!.replace(/[\t ]+$/, "");
+    const soft = line.endsWith("=");
+    if (soft) line = line.slice(0, -1);
+    for (let at = 0; at < line.length; at++) {
+      const char = line[at]!;
+      if (char !== "=") {
+        out += char;
+        continue;
+      }
+      const pair = line.slice(at + 1, at + 3);
+      if (!/^[0-9A-Fa-f]{2}$/.test(pair)) return null;
       out += String.fromCharCode(parseInt(pair, 16));
       at += 2;
-      continue;
     }
-    // A soft line break, optionally after transport padding.
-    const soft = /^[ \t]*\r?\n/.exec(text.slice(at + 1));
-    if (soft) {
-      at += soft[0].length;
-      continue;
-    }
-    if (at + 1 === text.length) continue; // a trailing "=" at the very end is a soft break
-    return null;
+    if (!soft) out += pieces[index + 1] ?? "";
   }
   return out;
 }
