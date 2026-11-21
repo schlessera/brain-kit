@@ -3,6 +3,7 @@ import { createUiDb } from "../src/db/client.js";
 import { createActivityStore } from "../src/activity/store.js";
 import { createTurnLifecycle } from "../src/activity/turn-lifecycle.js";
 import { createActivityStream } from "../src/activity/stream.js";
+import { runActivityQuery } from "../src/activity/query.js";
 import { WsHost } from "../src/ws/host.js";
 import { createWsHandlers } from "../src/ws/connection.js";
 import { FrameRateLimiter } from "../src/ws/rate-limit.js";
@@ -43,6 +44,38 @@ test("one malformed client receipt leaves host records, other receipts and Activ
     expect(store.lifecycle("turn-troy")?.clientTiming).toEqual(timing);
   } finally { stream.close(); db.close(); }
 });
+
+for (const stage of ["lifecycle-only", "snapshot", "pruned"] as const) {
+  test(`client receipt never enters provider-facing ${stage} Activity tool results`, () => {
+    const db = createUiDb(":memory:");
+    const store = createActivityStore(db);
+    const descriptor = Object.getOwnPropertyDescriptor(Date, "now")!;
+    const at = Date.UTC(2026, 6, 12);
+    Object.defineProperty(Date, "now", { ...descriptor, value: () => at + 1000 });
+    try {
+      completed(store, "turn-ithaca", at);
+      if (stage !== "lifecycle-only") {
+        store.startSpan({ spanId: "root", runId: "turn-ithaca", name: "invoke_agent", kind: "turn", origin: "session", startedAt: at });
+        store.endSpan("root", { outcome: "success", endedAt: at + 100 }); store.rollupRun("turn-ithaca");
+      }
+      if (stage === "pruned") store.prune({ digestFloorAt: at + 1000, detailRetentionMs: 0, hardCeilingMs: 0, now: at + 1000 });
+      const read = () => JSON.stringify([
+        runActivityQuery(db, store, { scope: "run", runId: "turn-ithaca" }),
+        runActivityQuery(db, store, { scope: "recent" }),
+      ]);
+      const before = read();
+      expect(store.writeClientReceipt!("turn-ithaca", "odysseus", timing)).toBe(true);
+      expect(store.lifecycle("turn-ithaca")?.clientTiming).toEqual(timing);
+      expect(read()).toBe(before);
+      expect(read()).not.toContain("clientTiming");
+      db.query("UPDATE activity_turn_clients SET receipt = ? WHERE turn_id = ?").run("{broken", "turn-ithaca");
+      expect(store.lifecycle("turn-ithaca")?.clientTimingUnavailable).toBe("invalid_receipt");
+      expect(read()).toBe(before);
+      expect(read()).not.toContain("clientTimingUnavailable");
+    } finally { Object.defineProperty(Date, "now", descriptor); db.close(); }
+  });
+}
+
 
 for (const invalid of [false, true]) {
   test(`${invalid ? "schema-invalid" : "rate-limited"} receipt never interrupts voice or emits a draft-affecting error`, async () => {
