@@ -5631,7 +5631,34 @@ capability, HTTP endpoint, history DTO or provider conversation changes here.
 
 ### Human trust Settings publication
 
-The optional owner-only `/api/trust-settings` HTTP surface is a policy-publication
+Security Settings now consumes the protected trust publication surface. The
+list GET is available to authenticated callers and adds `mutationAllowed`;
+this reflects a live password/passkey owner at read time, never grants commit
+authority. It exposes only the current served brain's trust policy facts, not
+operation identities, review bytes, private grants or history. Prepare, commit
+and per-request receipt reads retain the live owner checks. Mixed-version hosts
+that omit `mutationAllowed` are read-only in the UI. List reads recheck live
+principal usability after the brain-lock wait: a revoked or expired caller gets
+no policy facts. Losing owner availability invalidates private review bytes and
+pending mutation replies; a failed list refresh disables writes until a fresh
+successful read. Expired, uncommitted prepared reviews can be discarded without
+republishing, while unknown publication remains uncertain. The list's optional `instances` maps each rule ID to an observation-only source
+incarnation token captured with that policy. It grants no publication authority.
+An edit/remove draft can refresh across unrelated trust revisions only when its
+selected rule bytes and incarnation are unchanged. A changed/missing incarnation
+or selected rule requires explicit re-selection; older hosts without tokens keep
+the conservative same-revision requirement. A denied read clears every protected
+draft field. Missing retained receipts can be left as outcome unknown, without
+replay or a success claim. Required enforcement capabilities are rechecked for
+both Review and Save; removing a rule remains available when enforcement is
+unavailable. Enforcing policy facts refresh with list reads and after Save; old
+facts during refresh are labeled last-read, never current enforcing facts. Missing runtime capabilities
+never imply active trust; repository rows remain disabled/unverified while
+repository enforcement is unavailable. Settings edits are prospective and never
+commit historical safety verdicts. The SDK schemas entry point exposes the
+existing canonical trust parsers and rule/list validators for browser inputs.
+
+The optional `/api/trust-settings` HTTP surface is a policy-publication
 building block. `GET /api/trust-settings` reads the current trust-only revision,
 exact policy hash, `origins`, `repositories`, repository-identity availability,
 and independently advertised runtime enforcement capabilities. The composed host enables origin/recipient enforcement; repository enforcement remains unavailable.

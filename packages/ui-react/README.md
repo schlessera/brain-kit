@@ -841,7 +841,13 @@ its groups each own their route and state, so the live-conversation service can
 join the same pane without sharing a revision.
 Theme and the single-key shortcut switch apply only on this device and live in
 Appearance & input. Accounts holds provider sign-in and web-search settings;
-Security holds passkeys, always-allowed tool revocation and sign-out.
+Security holds passkeys, source-trust and data-sending rules, always-allowed tool
+revocation and sign-out. Trust rules use exact-byte protected owner review and
+apply only to future input; historical safety events stay unchanged. Origin and
+opaque-tunnel rules have separate incoming-trust and recipient controls, with
+sending permission off by default. Repository/organization scopes remain
+explicitly disabled and unverified until the host advertises enforcement.
+Non-owner callers and older hosts without mutation availability remain read-only.
 
 Below 900px the tab strip scrolls horizontally; desktop groups the section
 column by This device, This brain and Access. Arrow keys and Home/End move focus

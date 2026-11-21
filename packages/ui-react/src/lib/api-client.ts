@@ -1,5 +1,6 @@
 import { safetyFuturePreparedSchema, safetyFutureResultSchema } from "@schlessera/brain-ui-sdk/schemas";
 import type { SafetyFuturePrepare, SafetyFutureCommit } from "@schlessera/brain-ui-sdk/protocol";
+import type { TrustSettingsRead, TrustOperation, TrustChange } from "./trust-settings.js";
 import type { AgentPolicyRead, ApifyPolicyChange, ApifyPolicyProposalRead, ApifySettingsRead } from "@schlessera/brain-ui-sdk/protocol";
 import { POLICY_CHANGE_REVIEW_SCHEMA } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { apiBase } from "./backend.js";
@@ -348,7 +349,7 @@ export function createBrainApi(
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({ error: res.statusText }));
-      throw new ApiRequestError(body.error || `HTTP ${res.status}`, res.status, body.errors ?? []);
+      throw new ApiRequestError(body.error || body.reason || body.code || `HTTP ${res.status}`, res.status, body.errors ?? []);
     }
     return res;
   }
@@ -373,6 +374,10 @@ export function createBrainApi(
     safetyCommit: (requestId:string,body:SafetyReviewBody,signal:AbortSignal)=>safetyReview(body,requestId,signal),
     turnJournal: (sessionId: string, turnId: string, signal?: AbortSignal) => fetchJson<import("@schlessera/brain-ui-sdk/protocol").TurnJournalDetails>(`/sessions/${encodeURIComponent(sessionId)}/turns/${encodeURIComponent(turnId)}/journal`, { signal }),
     turnJournalPreview: (sessionId: string, turnId: string, sequence: number, signal?: AbortSignal) => fetchJson<{ inline: boolean; before?: string; after?: string; reason?: string; beforeBytes?: number; afterBytes?: number }>(`/sessions/${encodeURIComponent(sessionId)}/turns/${encodeURIComponent(turnId)}/journal/${sequence}/preview`, { signal }),
+    trustSettings: (signal?: AbortSignal) => fetchJson<TrustSettingsRead>("/trust-settings", { cache: "no-store", signal }),
+    trustPrepare: (change: TrustChange, expectedTrustRevision: string, expectedPolicyHash: string | null, signal?: AbortSignal) => fetchJson<TrustOperation>("/trust-settings/prepare", { method: "POST", body: JSON.stringify({ version: 1, change, expectedTrustRevision, expectedPolicyHash }), signal }),
+    trustCommit: (operation: TrustOperation, signal?: AbortSignal) => fetchJson<TrustOperation>("/trust-settings/commit", { method: "POST", body: JSON.stringify({ version: 1, requestId: operation.receipt.requestId, reviewId: operation.review.reviewId, reviewedBytesHash: operation.review.reviewedBytesHash }), signal }),
+    trustReceipt: (requestId: string, signal?: AbortSignal) => fetchJson<TrustOperation>(`/trust-settings/${encodeURIComponent(requestId)}`, { cache: "no-store", signal }),
     agentPolicy: (signal?: AbortSignal) => fetchJson<AgentPolicyRead>("/agent-policy", { cache: "no-store", ...(signal ? { signal } : {}) }),
     policyProposal: async (turnId: string, requestId: string, sessionId: string | null, signal?: AbortSignal) =>
       POLICY_CHANGE_REVIEW_SCHEMA.parse(await fetchJson(`/policy-proposals/${encodeURIComponent(turnId)}/${encodeURIComponent(requestId)}${sessionId ? `?session=${encodeURIComponent(sessionId)}` : ""}`, { cache: "no-store", ...(signal ? { signal } : {}) })),

@@ -158,7 +158,7 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/journal/configuration-coverage` | S | Read the brain's current untraced configuration-input set | Latest complete inventoried turn only; explicit `unknown`, never an empty list. |
 | GET | `/api/agent-policy` | I | Read shared admission policy and reported enforcing limits | Read-only Devices & agents facts; no editor or duplicate policy cache. |
 | GET | `/api/policy-proposals/:turnId/:requestId` | I | Read one principal-owned policy request receipt | Same-request reconciliation only; never writes or reactivates approval. |
-| GET | `/api/trust-settings` | I | Read trust policy data and publication availability | Paired Security settings transport (#3608); live password-mode human owners only; exact origin/tunnel enforcement is advertised independently from unavailable repository enforcement. |
+| GET | `/api/trust-settings` | I | Read trust policy data and publication availability | Paired Security settings transport; authenticated sanitized reads expose mutationAllowed, while only live password/passkey owners mutate; origin/tunnel enforcement is independent from unavailable repository enforcement. |
 | GET | `/api/trust-settings/:request` | I | Read one owner-bound trust publication receipt and review | Same-request reconciliation only; never republishes or resolves a taint trigger. |
 | POST | `/api/trust-settings/prepare` | I | Prepare one exact-base trust change | Paired Security settings transport; same-origin JSON and live owner authority; repository create/edit independently verifies host metadata. |
 | POST | `/api/trust-settings/commit` | I | Publish the exact owner-reviewed trust change | Shared descriptor-bound publisher; bounded durable receipt; enforced origin/tunnel publication joins live admission fences, while repository publication remains unavailable. |
@@ -2426,20 +2426,23 @@ separately. It is never part of public `/health`.
 The four `/api/trust-settings` operations are internal paired Security settings
 transport. Their exact review/receipt shapes and limits are described in the
 [publication contract](integration-contract/package-api.md#human-trust-settings-publication).
-They require a live password-mode human owner; mutation additionally requires a
-present exact same-origin Origin and bounded JSON. Principal, voice and channel
+The list GET exposes sanitized policy facts to authenticated callers, with
+`mutationAllowed` reporting live owner availability. Prepare, commit and
+per-request receipt reads require a live password/passkey owner; mutation also
+requires a present exact same-origin Origin and bounded JSON. Principal, voice and channel
 claims in a body supply no authority. Receipts are private, no-store, scoped to
 the served brain and requesting owner, and readback never repeats a write.
 
 Publication reuses the protected policy writer without an agent turn. Prepared
 state, reviewed bytes/base, publication proof and partial/unknown completion
-survive restart. Saved origin/tunnel rules do not enable unbuilt trust admission;
+survive restart. Saved rules alone do not establish runtime capability;
 repository create/edit independently verifies fixed-endpoint metadata at review
 and again inside the publication observation window. Browser IDs cannot
 self-verify; unknown or changed identity withholds the write. Approved owner
 boundaries derive from this operation's durable publication proof and are not
 inferred from matching policy bytes. Owner-scope review explicitly covers
-future repositories currently in that namespace. Runtime trust remains disabled.
+future repositories currently in that namespace. Repository runtime trust remains
+unavailable; origin/tunnel capabilities are independently advertised.
 Removal/readback remain available for existing rules. Revision exhaustion refuses
 before protected publication. No historical trigger is resolved by these routes.
 
