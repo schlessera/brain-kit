@@ -473,3 +473,9 @@ log records `brain_bridge_fallback_module_tools` or
 provider conversation. This adds one sandboxed inventory command for a new
 session; resumes use their retained selection. The extra command is not a
 `brain mcp` process. Pi keeps its existing in-worker reads.
+
+The pinned runtime can start a project stdio server even when an SDK server
+uses the same name. Bridge sessions therefore reject only the project `brain`
+entry with `disabledMcpjsonServers: ["brain"]` in flag settings. The prompt gate
+checks that rejection in effective native settings before releasing input;
+other project MCP servers retain their existing startup behavior.

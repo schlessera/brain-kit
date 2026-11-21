@@ -16,7 +16,9 @@ Their visible names remain `mcp__brain__brain_search`, `mcp__brain__brain_contex
 and `mcp__brain__brain_graph`. The first five are always loaded; graph is
 eligible for deferral. Existing host application, compute and Apify tools keep
 their names and authority routes. The runtime's project `brain` stdio entry is
-overridden by the SDK bridge, so it does not launch a second brain server.
+rejected through flag settings (`disabledMcpjsonServers: ["brain"]`) while the
+SDK bridge keeps that namespace. The effective-setting gate verifies the
+rejection before releasing a prompt, preventing a second brain server.
 
 The host forwards each read to one `brain mcp` worker started alongside runtime
 startup with the turn's sandbox, startup view, data tree and provider masks.
