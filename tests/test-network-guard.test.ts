@@ -11,7 +11,7 @@ const sentinel = join(import.meta.dir, "helpers/network-sentinels.ts");
 const probe = join(import.meta.dir, "helpers/network-probe.ts");
 const shellQuote = (s: string) => "'" + s.replaceAll("'", "'\\''") + "'";
 
-async function run(scenario: string, entry: "direct" | "targeted" | "full" | "package" | "experiments" = "direct", packageDir = ROOT) {
+async function run(scenario: string, entry: "direct" | "targeted" | "full" | "package" | "experiments" = "direct", packageDir = ROOT, extraEnv: Record<string, string> = {}) {
   const dir = mkdtempSync(join(tmpdir(), "network-guard-"));
   try {
     // An explicit offline harness: this alias is intentionally outside the
@@ -51,7 +51,7 @@ async function run(scenario: string, entry: "direct" | "targeted" | "full" | "pa
       writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "fixture", scripts: { test: manifest.scripts.test } }));
     }
     const child = spawn(probeRuntime, args, { cwd: dir,
-      env: { PATH: process.env.PATH!, PROBE_BUN: fixtureBun, PROBE_DIR: dir }, stdio: ["ignore", "pipe", "pipe"] });
+      env: { ...extraEnv, PATH: process.env.PATH!, PROBE_BUN: fixtureBun, PROBE_DIR: dir }, stdio: ["ignore", "pipe", "pipe"] });
     let output = "";
     child.stdout.on("data", (data) => { output += data; });
     child.stderr.on("data", (data) => { output += data; });
@@ -83,8 +83,31 @@ describe("offline test guard", () => {
       expect(result.output).toContain("Offline test guard");
       expect(result.output).toContain(scenario === "curl-forms" ? "curl" : scenario === "gog-forms" ? "gog version" : "escape.example.invalid");
       if (scenario === "mock-files") expect(result.output).toContain("(pass) restore mocks in another file");
+      if (scenario === "gog-forms") {
+        expect(result.output).toContain("GOG_REGISTRATION=stand-in:refused");
+        expect(result.output).toContain("GOG_REGISTRATION=true:refused");
+      }
     });
   }
+  test("a gog form the guard cannot see still finds no account: no inherited GOG_* name, an empty private GOG_HOME, the file keyring", async () => {
+    const planted = {
+      GOG_ACCESS_TOKEN: "ya29.suitor-probe", GOG_ACCOUNT: "suitor@example.com", GOG_CLIENT: "suitors", GOG_KEYRING_PASSWORD: "suitors-feast",
+      GOG_KEYRING_BACKEND: "auto", GOG_AUTH_MODE: "adc", GOG_HOME: "/srv/ithaca/gog", GOG_CONFIG_DIR: "/srv/ithaca/gog-config", GOG_DATA_DIR: "/srv/ithaca/gog-data",
+    };
+    const result = await run("gog-environment", "direct", ROOT, planted);
+    const report = /GOG_ENV=(\{[^\n]*\})/.exec(result.output);
+    expect(report, result.output).not.toBeNull();
+    const seen = JSON.parse(report![1]!) as { gog: Record<string, string>; home: unknown };
+    // The stand-in ran: shell quoting is outside token matching. It got nothing it could use.
+    expect(result.output).toContain("GOG_ENV_EXIT=0");
+    expect(Object.keys(seen.gog).sort(), result.output).toEqual(["GOG_HOME", "GOG_KEYRING_BACKEND"]);
+    expect(seen.gog.GOG_KEYRING_BACKEND).toBe("file");
+    expect(seen.gog.GOG_HOME).not.toBe(planted.GOG_HOME);
+    expect(seen.home).toEqual({ dir: true, entries: 0, mode: "700", uid: process.getuid!() });
+    // The test process made that home and removed it when it ended.
+    expect(existsSync(seen.gog.GOG_HOME!)).toBe(false);
+    expect(result.code, result.output).toBe(0);
+  });
   for (const scenario of ["local-sockets", "local-tls", "local", "local-unix", "manual", "redirect-error"]) {
     test(`${scenario} retains real loopback fixture behavior`, async () => {
       const result = await run(scenario);

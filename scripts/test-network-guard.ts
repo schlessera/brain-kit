@@ -1,26 +1,99 @@
 /** Test-only subprocess and transport safeguards; never imported by a published package. */
-import { realpathSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { lstatSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, dirname, join, resolve } from "node:path";
 import { isIP, Socket } from "node:net";
 import { inheritWorkspaceLease } from "./workspace-lease.mjs";
 
-/**
- * Fakes a test wrote and may run although they are named `gog`. Kept on a
- * global so every copy of this module in a process shares one registry.
+/*
+ * No test may run a real gog (plan §11): its home holds a Google credential.
+ * Three layers keep it so.
+ *
+ * 1. Only a fake the fake-gog helper made is registered, and only while its
+ *    file is still that fake ({@link registerFakeGog}).
+ * 2. Every spawn is refused when a word names a gog that is not a
+ *    registered fake ({@link unregisteredGog}): the executable, resolved
+ *    through PATH and symlinks; through `env` and a shell's `-c` script,
+ *    nested to any depth, every word, each resolved the same way; and every
+ *    word of a Bun Shell command.
+ * 3. Whatever the first two miss finds no account: the guard drops every
+ *    inherited `GOG_*` name and points `GOG_HOME` at an empty private home
+ *    with the file keyring ({@link isolateGogEnvironment}).
+ *
+ * Token matching cannot read a shell: quoting (`go""g`), expansion
+ * (`$(printf gog)`, variables), functions, aliases, a script on disk that
+ * calls gog, an exec wrapper other than `env` (`timeout`, `xargs`, `nohup`)
+ * or an interpreter (`python3 -c`) all pass layer 2. Those are left to layer
+ * 3, not chased with more patterns.
  */
-const FAKE_GOGS = Symbol.for("brain-kit.test-network-guard.fake-gogs");
-const fakeGogs = (): Set<string> => ((globalThis as Record<symbol, Set<string>>)[FAKE_GOGS] ??= new Set());
 
 /**
- * Lets this process spawn `path`, a fake gog the test itself wrote (plan
- * §11). Any other executable named `gog` is refused, so a test can never run
- * the real one, whose home holds a Google credential. Returns the undo.
+ * Fakes a test made and may run although they are named `gog`, each with the
+ * exact bytes it must still hold. Kept on a global so every copy of this
+ * module in a process shares one registry.
+ */
+const FAKE_GOGS = Symbol.for("brain-kit.test-network-guard.fake-gogs");
+const fakeGogs = (): Map<string, string> => ((globalThis as Record<symbol, Map<string, string>>)[FAKE_GOGS] ??= new Map());
+
+/** The module every fake gog runs (packages/common/tests/support/fake-gog-child.ts). */
+const FAKE_GOG_CHILD = resolve(import.meta.dir, "../packages/common/tests/support/fake-gog-child.ts");
+const FAKE_GOG_DIR = /^fake-gog-[A-Za-z0-9]{6}$/;
+
+/**
+ * The only bytes a fake gog may hold: Bun running {@link FAKE_GOG_CHILD} with
+ * the scenario and call log of the fake's own directory. `executable` is
+ * where the fake-gog helper puts it, `<tmpdir>/fake-gog-XXXXXX/bin/gog`.
+ */
+export function fakeGogShim(executable: string): string {
+  const dir = dirname(dirname(executable));
+  return `#!${process.execPath}\n// brain-kit fake gog: packages/common/tests/support/fake-gog.ts\n` +
+    `import { runFakeGog } from ${JSON.stringify(FAKE_GOG_CHILD)};\n` +
+    `await runFakeGog(${JSON.stringify({ scenario: join(dir, "scenario.json"), calls: join(dir, "calls") })});\n`;
+}
+
+function lstatOrNull(path: string) {
+  try {
+    return lstatSync(path);
+  } catch {
+    return null;
+  }
+}
+
+/** Whether `path` is a regular file holding exactly `shim`. */
+function holdsShim(path: string, shim: string): boolean {
+  const stats = lstatOrNull(path);
+  if (!stats?.isFile() || stats.size !== Buffer.byteLength(shim)) return false;
+  try {
+    return readFileSync(path, "utf8") === shim;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Lets this process spawn `path`, a fake gog the fake-gog helper made (plan
+ * §11): a regular file this user owns at `<tmpdir>/fake-gog-XXXXXX/bin/gog`
+ * holding exactly {@link fakeGogShim}. Anything else throws, a real gog or
+ * `/bin/true` included. A spawn checks the bytes again, so a fake whose file
+ * was replaced afterwards is refused. Returns the undo.
  */
 export function registerFakeGog(path: string): () => void {
+  const dir = dirname(dirname(path));
+  const placed = basename(path) === "gog" && basename(dirname(path)) === "bin" && FAKE_GOG_DIR.test(basename(dir)) && dirname(dir) === resolve(tmpdir());
+  const stats = placed ? lstatOrNull(path) : null;
+  const shim = fakeGogShim(path);
+  if (!stats?.isFile() || (process.getuid && stats.uid !== process.getuid()) || !holdsShim(path, shim)) {
+    throw new Error("Offline test guard: only a fake gog made by packages/common/tests/support/fake-gog.ts can be registered");
+  }
   const real = realpathSync(path);
-  fakeGogs().add(real);
+  fakeGogs().set(real, shim);
   return () => fakeGogs().delete(real);
 }
+
+const isRegisteredFake = (real: string) => {
+  const shim = fakeGogs().get(real);
+  return shim !== undefined && holdsShim(real, shim);
+};
 
 const SHELLS = new Set(["sh", "bash", "dash", "zsh", "ksh", "mksh", "ash", "busybox"]);
 const unquote = (word: string) => word.replace(/^['"]+|['"]+$/g, "");
@@ -28,8 +101,75 @@ const unquote = (word: string) => word.replace(/^['"]+|['"]+$/g, "");
 /** Every word of a shell script, split on blanks and operators: a coarse superset of the commands it runs. */
 const shellWords = (script: string) => script.split(/[\s;&|()<>`$]+/).map(unquote).filter(Boolean);
 
-/** The file a command word runs, or null when it names nothing that exists. */
+/** Where `execvp` looks with no PATH set, as after `env -i`. */
+const EXECVP_DEFAULT_PATH = "/bin:/usr/bin";
+
+/** GNU env's long options that take the next word as their value. */
+const ENV_VALUE_OPTIONS = new Set(["--unset", "--chdir", "--argv0"]);
+
+/**
+ * What `env [options] [NAME=value…] command …` runs: the command, with
+ * `-S`'s string split into words, and the PATH it is looked up on when an
+ * assignment or `-i` changes it (`undefined` when neither does).
+ */
+function envCommand(args: readonly string[]): { command: string[]; path?: string } {
+  let path: string | undefined;
+  for (let at = 0; at < args.length; at++) {
+    const arg = args[at]!;
+    let split: string | undefined;
+    if (arg === "--") return { command: args.slice(at + 1), path };
+    if (arg.startsWith("--split-string=")) split = arg.slice("--split-string=".length);
+    else if (arg === "--split-string") split = args[++at] ?? "";
+    else if (arg === "--ignore-environment") path = EXECVP_DEFAULT_PATH;
+    else if (arg.startsWith("--")) {
+      if (ENV_VALUE_OPTIONS.has(arg)) at++;
+    } else if (/^-[^-]/.test(arg)) {
+      // A cluster such as `-iS'gog version'` or `-uHOME`: an option's value is the rest of it, or the next word.
+      const valueAt = arg.search(/[uCaS]/);
+      if (arg.slice(1, valueAt === -1 ? undefined : valueAt).includes("i")) path = EXECVP_DEFAULT_PATH;
+      if (valueAt !== -1) {
+        const value = arg.length > valueAt + 1 ? arg.slice(valueAt + 1) : args[++at] ?? "";
+        if (arg[valueAt] === "S") split = value;
+      }
+    } else if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(arg)) {
+      if (arg.startsWith("PATH=")) path = arg.slice("PATH=".length);
+    } else {
+      return { command: args.slice(at), path };
+    }
+    if (split !== undefined) return { command: [...split.split(/\s+/).map(unquote).filter(Boolean), ...args.slice(at + 1)], path };
+  }
+  return { command: [], path };
+}
+
+/** A word that may name a gog: `resolve` words are followed through `path` (else the spawn's PATH) and symlinks, the rest only by name. */
+interface GogWord { word: string; resolve: boolean; path?: string }
+
+const MAX_WRAPPERS = 16;
+
+/** The words of one command that may run a program, through `env` and shell `-c` scripts nested to any depth; null past {@link MAX_WRAPPERS}. */
+function commandWords(cmd: readonly string[], path?: string, depth = 0): GogWord[] | null {
+  if (cmd.length === 0) return [];
+  if (depth > MAX_WRAPPERS) return null;
+  const [first, ...args] = cmd.map(String);
+  const words: GogWord[] = [{ word: first!, resolve: true, path }];
+  const program = basename(first!);
+  if (program === "env") {
+    words.push(...args.map(word => ({ word, resolve: false })));
+    const inner = envCommand(args);
+    const nested = commandWords(inner.command, inner.path ?? path, depth + 1);
+    if (nested === null) return null;
+    words.push(...nested);
+  } else if (SHELLS.has(program)) {
+    const flag = args.findIndex(arg => /^-[A-Za-z]*c[A-Za-z]*$/.test(arg));
+    // Every word of the script, nested scripts included, is a command it may run.
+    if (flag >= 0 && args[flag + 1] !== undefined) words.push(...shellWords(args[flag + 1]!).map(word => ({ word, resolve: true, path })));
+  }
+  return words;
+}
+
+/** The file a word runs, or null when it names nothing that exists. */
 function resolveExecutable(word: string, path: string | undefined, cwd: string | undefined): string | null {
+  if (word.length === 0 || word.length > 4096) return null;
   const found = word.includes("/") ? resolve(cwd ?? process.cwd(), word) : Bun.which(word, { PATH: path ?? "", cwd });
   if (!found) return null;
   try {
@@ -39,37 +179,67 @@ function resolveExecutable(word: string, path: string | undefined, cwd: string |
   }
 }
 
-/**
- * The first word naming a gog that is not a registered fake, among the
- * executable, the words `env` runs, and every word of a shell's `-c` script.
- * The executable counts when it or the file it resolves to is named `gog`;
- * any other word when it is named `gog`, which may over-match an argument
- * (`echo gog`) but never misses a command.
- */
-export function unregisteredGog(cmd: readonly string[], env: Readonly<Record<string, string | undefined>>, cwd?: string): string | null {
-  const words = [String(cmd[0])];
-  const program = basename(words[0]!);
-  // `env [options] [NAME=value…] command …`: a gog anywhere among its words.
-  if (program === "env") words.push(...cmd.slice(1).filter(arg => !arg.startsWith("-") && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(arg)).map(String));
-  if (SHELLS.has(program)) {
-    const flag = cmd.findIndex((arg, index) => index > 0 && /^-[A-Za-z]*c[A-Za-z]*$/.test(arg));
-    if (flag > 0 && cmd[flag + 1] !== undefined) words.push(...shellWords(cmd[flag + 1]!));
-  }
-  for (const [index, word] of words.entries()) {
+/** The first of `words` that names a gog that is not a registered fake. */
+function firstUnregistered(words: readonly GogWord[], env: Readonly<Record<string, string | undefined>>, cwd?: string): string | null {
+  for (const { word, resolve: follow, path } of words) {
     const named = basename(word) === "gog";
-    // Only the executable itself is resolved to find a gog under another name.
-    if (!named && index > 0) continue;
-    const real = resolveExecutable(word, env.PATH ?? process.env.PATH, cwd);
-    if (!named && (real === null || basename(real) !== "gog")) continue;
-    if (real === null || !fakeGogs().has(real)) return word;
+    if (!named && !follow) continue;
+    const real = resolveExecutable(word, path ?? env.PATH ?? process.env.PATH, cwd);
+    // A word under another name counts only when it is a file whose real name is gog.
+    if (!named && (real === null || basename(real) !== "gog" || !lstatOrNull(real)?.isFile())) continue;
+    if (real === null || !isRegisteredFake(real)) return word;
   }
   return null;
+}
+
+/**
+ * The first word of a spawn naming a gog that is not a registered fake (see
+ * layer 2 above). Any word named `gog` counts, which may over-match an
+ * argument (`echo gog`) but never misses one; a word under another name
+ * counts when it resolves to a file named `gog`.
+ */
+export function unregisteredGog(cmd: readonly string[], env: Readonly<Record<string, string | undefined>>, cwd?: string): string | null {
+  const words = commandWords(cmd);
+  if (words === null) return String(cmd[0]);
+  return firstUnregistered(words, env, cwd);
+}
+
+/** A home this guard made for gog: `brain-test-gog-home-XXXXXX`, a private directory this user owns, still empty. */
+function guardGogHome(path: string | undefined): boolean {
+  if (!path || !/^brain-test-gog-home-[A-Za-z0-9]{6}$/.test(basename(path))) return false;
+  try {
+    const stats = lstatSync(path);
+    return stats.isDirectory() && (stats.mode & 0o777) === 0o700 && (!process.getuid || stats.uid === process.getuid()) && readdirSync(path).length === 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Layer 3: drops every `GOG_*` name from `env` (gog reads its home, config,
+ * data, state and cache directories, account, OAuth client, access token,
+ * auth mode, keyring backend, password and service, API endpoints and keys
+ * from them), then points `GOG_HOME` at an empty 0700 directory and sets
+ * `GOG_KEYRING_BACKEND=file`. `GOG_HOME` outranks `HOME` and `XDG_*` for
+ * every gog directory, and the file keyring opens no desktop keyring, so a
+ * gog that slips past layer 2 finds no credential. A child that inherits
+ * such a home keeps it; otherwise a new one is made under `parent`, which
+ * `dispose` removes.
+ */
+export function isolateGogEnvironment(env: Record<string, string | undefined>, parent: string): { home: string; dispose(): void } {
+  const inherited = env.GOG_HOME;
+  for (const name of Object.keys(env)) if (name.startsWith("GOG_")) delete env[name];
+  const reuse = guardGogHome(inherited);
+  const home = reuse ? inherited! : mkdtempSync(join(parent, "brain-test-gog-home-"));
+  env.GOG_HOME = home;
+  env.GOG_KEYRING_BACKEND = "file";
+  return { home, dispose: () => { if (!reuse) rmSync(home, { recursive: true, force: true }); } };
 }
 
 const LOOPBACK = new Set(["127.0.0.1", "[::1]", "localhost"]);
 const REDIRECTS = new Set([301, 302, 303, 307, 308]);
 const socketLoopback = (host: string) => host === "localhost" || host === "::1" || isIP(host) === 4 && host.startsWith("127.");
-let installed: { assertNoEscapes(): void } | undefined;
+let installed: { assertNoEscapes(): void; disposeGogHome(): void } | undefined;
 
 /** Test-owned repositories must not acquire detached writers behind a fixture. */
 function testGitEnvironment(env: Record<string, string | undefined>): Record<string, string | undefined> {
@@ -91,10 +261,12 @@ function testGitEnvironment(env: Record<string, string | undefined>): Record<str
 /** Set while the guard is installed, so maintainer-only scripts can refuse to run under it. */
 export const NETWORK_GUARD_INSTALLED = Symbol.for("brain-kit.test-network-guard.installed");
 
-export function installNetworkGuard(): { assertNoEscapes(): void } {
+export function installNetworkGuard(): { assertNoEscapes(): void; disposeGogHome(): void } {
   if (installed) return installed;
   (globalThis as Record<symbol, unknown>)[NETWORK_GUARD_INSTALLED] = true;
   Object.assign(process.env, testGitEnvironment(process.env));
+  // A launcher-owned resource root outlives this process and is removed with the run.
+  const gogHome = isolateGogEnvironment(process.env, process.env.BRAIN_TEST_RESOURCE_ROOT ?? tmpdir());
   const escapes: string[] = [];
   let reported = 0;
   const message = () => `Offline test guard: attempted real network access\n${escapes.join("\n")}`;
@@ -231,22 +403,53 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
   }
 
   // Bun Shell does not go through Bun.spawn. Its template words and
-  // interpolated values are checked the same way before it runs anything.
+  // interpolated values are checked the same way before it runs anything,
+  // and again whenever `.env()` or `.cwd()` changes where a word resolves:
+  // on one command, or as `Bun.$`'s defaults, which hand back the guarded
+  // `Bun.$` so a chain through them stays guarded.
+  type Shell = ReturnType<typeof Bun.$>;
+  type Env = Record<string, string | undefined>;
   const nativeShell = Bun.$;
-  Object.defineProperty(Bun, "$", {
-    ...Object.getOwnPropertyDescriptor(Bun, "$"),
-    value: new Proxy(nativeShell, {
-      apply(target, self, args: unknown[]) {
-        const [strings, ...values] = args as [TemplateStringsArray | string, ...unknown[]];
-        const words = [...(typeof strings === "string" ? [strings] : strings.raw).flatMap(shellWords),
-          ...values.flat(2).filter((value): value is string => typeof value === "string")];
-        for (const word of words) {
-          if (basename(word) === "gog" && unregisteredGog([word], process.env)) refuse(`Bun.$ ${word}`);
-        }
-        return Reflect.apply(target, self, args);
-      },
-    }),
+  const defaults: { env?: Env; cwd?: string } = {};
+  const guardedShell: typeof Bun.$ = new Proxy(nativeShell, {
+    apply(target, self, args: unknown[]) {
+      const [strings, ...values] = args as [TemplateStringsArray | string, ...unknown[]];
+      const words = [...(typeof strings === "string" ? [strings] : strings.raw).flatMap(shellWords),
+        ...values.flat(2).filter((value): value is string => typeof value === "string")].map(word => ({ word, resolve: true }));
+      const state = { env: defaults.env ?? process.env, cwd: defaults.cwd };
+      const check = () => {
+        const found = firstUnregistered(words, state.env, state.cwd);
+        if (found !== null) refuse(`Bun.$ ${found}`);
+      };
+      check();
+      const shell = Reflect.apply(target, self, args) as Shell;
+      for (const key of ["env", "cwd"] as const) {
+        const native = shell[key] as (value: unknown) => Shell;
+        Object.defineProperty(shell, key, {
+          configurable: true, writable: true,
+          value(this: Shell, value: unknown) {
+            if (key === "env") state.env = (value as Env | undefined) ?? process.env;
+            else state.cwd = value as string | undefined;
+            check();
+            return Reflect.apply(native, this, [value]);
+          },
+        });
+      }
+      return shell;
+    },
+    get(target, key, receiver) {
+      if (key === "env" || key === "cwd" || key === "nothrow" || key === "throws") {
+        return (...args: unknown[]) => {
+          if (key === "env") defaults.env = args[0] as Env | undefined;
+          if (key === "cwd") defaults.cwd = args[0] as string | undefined;
+          Reflect.apply(target[key] as (...rest: unknown[]) => unknown, target, args);
+          return guardedShell;
+        };
+      }
+      return Reflect.get(target, key, receiver);
+    },
   });
+  Object.defineProperty(Bun, "$", { ...Object.getOwnPropertyDescriptor(Bun, "$"), value: guardedShell });
 
   installed = {
     assertNoEscapes() {
@@ -255,10 +458,12 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
         throw new Error(message());
       }
     },
+    disposeGogHome: gogHome.dispose,
   };
   // Ordinary Bun children have no test hooks. A caught error, including one
   // followed by process.exit(0), must still make that process unsuccessful.
   process.on("exit", () => {
+    gogHome.dispose();
     if (escapes.length) {
       console.error(message());
       process.exit(1);

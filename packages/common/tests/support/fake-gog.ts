@@ -4,7 +4,8 @@
  * every call. Hand `fake.binary` to `createGogTransport`; that parameter is
  * the only way in, and it skips the pin. It is registered with the offline
  * test guard (scripts/test-network-guard.ts), which refuses to spawn any
- * other executable named `gog`.
+ * other executable named `gog`, and refuses this one too once its file no
+ * longer holds the shim the guard expects.
  *
  *   const fake = createFakeGog({ "gmail.labels.list": { stdout: labels } });
  *   const transport = createGogTransport({ binary: fake.binary, account: "ithaca", environment: fake.environment });
@@ -14,7 +15,7 @@
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { registerFakeGog } from "../../../../scripts/test-network-guard";
+import { fakeGogShim, registerFakeGog } from "../../../../scripts/test-network-guard";
 import type { GogBinary, GogEnvironmentConfig } from "../../src/google/gog/index.ts";
 import type { FakeGogCall, FakeGogScenario } from "./fake-gog-child.ts";
 
@@ -37,8 +38,6 @@ export interface FakeGog {
   dispose(): void;
 }
 
-const CHILD = join(import.meta.dir, "fake-gog-child.ts");
-
 export function createFakeGog(scenario: FakeGogScenario = {}): FakeGog {
   const dir = mkdtempSync(join(tmpdir(), "fake-gog-"));
   const bin = join(dir, "bin");
@@ -48,7 +47,8 @@ export function createFakeGog(scenario: FakeGogScenario = {}): FakeGog {
   const scenarioPath = join(dir, "scenario.json");
   const executable = join(bin, "gog");
   writeFileSync(scenarioPath, JSON.stringify(scenario));
-  writeFileSync(executable, `#!${process.execPath}\nimport { runFakeGog } from ${JSON.stringify(CHILD)};\nawait runFakeGog(${JSON.stringify({ scenario: scenarioPath, calls })});\n`);
+  // The guard's own shim: Bun running fake-gog-child.ts with this directory's scenario and call log.
+  writeFileSync(executable, fakeGogShim(executable));
   chmodSync(executable, 0o700);
   const unregister = registerFakeGog(executable);
   const all = (): FakeGogCall[] => readdirSync(calls).filter(name => name.endsWith(".json")).flatMap(name => {
