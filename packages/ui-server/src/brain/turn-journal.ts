@@ -147,7 +147,21 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   const ledger = writer.channel<JournalStoreOptions>(journalStore, { dbPath: options.dbPath, objectsRoot: options.objectsRoot, ...(options.capBytes !== undefined ? { capBytes: options.capBytes } : {}) }, reviveJournalError);
   if (writer.offloop) installEscapeGuard(db);
   let recoveryStatus: JournalRecoveryStatus = { unresolvedRecords: 0, firstCause: null };
-  /** Startup recovery commits before any later write; `ready` reports its refusal. */
+  const recoverAtOpen = async (step: string, recover: () => Promise<unknown>, context: { turnId?: string; checkout?: string } = {}): Promise<boolean> => {
+    try { await recover(); return true; }
+    catch (error) {
+      if (!(error instanceof JournalCapacityError || error instanceof JournalStorageUnavailable)) throw error;
+      // Recovery cannot make an uncertain historical row clean. Keep it for
+      // the next open while serving other history and the durable diagnosis.
+      const notice = { kind: "journal_recovery_deferred", scope: "journal_recovery", step, ...context,
+        at: now(), errorClass: error.constructor.name, cause: error.message.slice(0, 2000), callSite: "turn-journal.ready", retrying: true };
+      await createSettingsWrites(db, writer).setSetting("journal.cleanup.lastFailure", notice);
+      diagnostic(() => options.log?.emit({ severityText: "WARN", body: "Journal startup recovery deferred until the next open",
+        attributes: { "journal.recovery.step": step, "error.type": notice.errorClass, "error.message": notice.cause } }));
+      return false;
+    }
+  };
+  /** Startup recovery settles before later writes; deferred storage work retries on the next open. */
   const ready = (async () => {
     await ledger.ready;
     if (writer.offloop) installEscapeGuard(db);
@@ -157,41 +171,46 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     await createGovernanceWrites(db, writer).replaySteering();
     const interrupted = (db.query("SELECT turn_id,pid,pid_start,missing FROM turn_journal_turns WHERE ended_at IS NULL").all() as { turn_id: string; pid: number; pid_start: string; missing: string }[])
       .filter(row => !processAlive(row.pid, row.pid_start));
-    for (const row of interrupted) await ledger.call("statements", [statement("UPDATE turn_journal_turns SET state='partial',ended_at=?,missing=? WHERE turn_id=?", now(), JSON.stringify([...JSON.parse(row.missing), { path: ".", reason: "interrupted_observation" }]), row.turn_id)]);
+    for (const row of interrupted) await recoverAtOpen("interrupted_turn", () => ledger.call("statements", [statement("UPDATE turn_journal_turns SET state='partial',ended_at=?,missing=? WHERE turn_id=?", now(), JSON.stringify([...JSON.parse(row.missing), { path: ".", reason: "interrupted_observation" }]), row.turn_id)]), { turnId: row.turn_id });
     const invalidReceipts = db.query(`SELECT c.turn_id,c.checkout FROM turn_journal_code_receipts c JOIN turn_journal_turns t USING(turn_id)
       WHERE t.ended_at IS NOT NULL AND NOT (${USABLE_CODE_RECEIPT}) ORDER BY c.turn_id,c.checkout`).all() as { turn_id: string; checkout: string }[];
     if (invalidReceipts.length) {
       // Each quarantine atomically replaces the unusable endpoint with its
       // durable checkout-specific cause; no later reader sees damaged JSON.
-      await ledger.call("statements", invalidReceipts.flatMap(row => [
+      const row = invalidReceipts[invalidReceipts.length - 1]!;
+      const quarantined = await recoverAtOpen("receipt_quarantine", () => ledger.call("statements", invalidReceipts.flatMap(row => [
         statement("INSERT INTO turn_journal_code_failures VALUES (?,?,?) ON CONFLICT(turn_id,checkout) DO UPDATE SET cause=excluded.cause", row.turn_id, row.checkout,
           JSON.stringify({ checkout: row.checkout, at: now(), callSite: "turn-journal.ready", errorClass: "code_receipt_malformed", message: "Retained checkout receipt is unusable." })),
         statement("DELETE FROM turn_journal_code_receipts WHERE turn_id=? AND checkout=?", row.turn_id, row.checkout),
         statement("UPDATE turn_journal_turns SET state='partial',failure=CASE WHEN trim(failure)='' THEN 'code_receipt_malformed' ELSE failure END WHERE turn_id=?", row.turn_id),
-      ]));
-      const row = invalidReceipts[invalidReceipts.length - 1]!;
-      const notice = { kind: "code_receipt_invalid", scope: "retained_code_receipt", turnId: row.turn_id, checkout: row.checkout,
-        at: now(), errorClass: "code_receipt_malformed", cause: "Retained checkout receipt is unusable.", callSite: "turn-journal.ready", invalidReceipts: invalidReceipts.length, retrying: false };
-      await createSettingsWrites(db, writer).setSetting("journal.cleanup.lastFailure", notice);
-      diagnostic(() => options.log?.emit({ severityText: "ERROR", body: "Malformed retained checkout receipt skipped during startup", attributes: { "turn.id": row.turn_id, "checkout": row.checkout, "error.type": notice.errorClass } }));
+      ])), { turnId: row.turn_id, checkout: row.checkout });
+      if (quarantined) {
+        const notice = { kind: "code_receipt_invalid", scope: "retained_code_receipt", turnId: row.turn_id, checkout: row.checkout,
+          at: now(), errorClass: "code_receipt_malformed", cause: "Retained checkout receipt is unusable.", callSite: "turn-journal.ready", invalidReceipts: invalidReceipts.length, retrying: false };
+        await createSettingsWrites(db, writer).setSetting("journal.cleanup.lastFailure", notice);
+        diagnostic(() => options.log?.emit({ severityText: "ERROR", body: "Malformed retained checkout receipt skipped during startup", attributes: { "turn.id": row.turn_id, "checkout": row.checkout, "error.type": notice.errorClass } }));
+      }
     }
-    await ledger.call("statements", [statement(`UPDATE turn_journal_code_receipts SET receipt=json_set(receipt,'$.state','partial')
-      WHERE CASE WHEN (${USABLE_CODE_RECEIPT}) THEN json_extract(receipt,'$.state') END='recording' AND turn_id IN (SELECT turn_id FROM turn_journal_turns WHERE ended_at IS NOT NULL)`)]);
-    for (const row of db.query("SELECT id,pid,pid_start FROM turn_journal_code_reverts WHERE state='applying'").all() as { id: string; pid: number; pid_start: string }[]) {
+    const recordingReceipt = `CASE WHEN (${USABLE_CODE_RECEIPT}) THEN json_extract(receipt,'$.state') END='recording'
+      AND turn_id IN (SELECT turn_id FROM turn_journal_turns WHERE ended_at IS NOT NULL)`;
+    if (db.query(`SELECT 1 FROM turn_journal_code_receipts WHERE ${recordingReceipt} LIMIT 1`).get()) {
+      await recoverAtOpen("recording_receipts", () => ledger.call("statements", [statement(`UPDATE turn_journal_code_receipts SET receipt=json_set(receipt,'$.state','partial') WHERE ${recordingReceipt}`)]));
+    }
+    for (const row of db.query("SELECT id,turn_id,pid,pid_start FROM turn_journal_code_reverts WHERE state='applying'").all() as { id: string; turn_id: string; pid: number; pid_start: string }[]) {
       if (processAlive(row.pid, row.pid_start)) continue;
-      await ledger.call("statements", [statement("UPDATE turn_journal_code_reverts SET state='unknown',result=? WHERE id=? AND state='applying'", JSON.stringify({ id: row.id, status: "unknown", error: "Interrupted checkout restoration; review partial work before another action.", at: now(), callSite: "turn-journal.recover" }), row.id)]);
+      await recoverAtOpen("interrupted_code_revert", () => ledger.call("statements", [statement("UPDATE turn_journal_code_reverts SET state='unknown',result=? WHERE id=? AND state='applying'", JSON.stringify({ id: row.id, status: "unknown", error: "Interrupted checkout restoration; review partial work before another action.", at: now(), callSite: "turn-journal.recover" }), row.id)]), { turnId: row.turn_id });
     }
     // Index bytes earlier releases retained are purged once, a step per
     // commit, after interrupted turns have ended (#2903). A refused step is
     // left for the next open; until then history already presents them as
     // metadata-only.
-    try { while (await ledger.call<IndexPurgeResult | null>("purgeIndexVersions")); }
-    catch (error) { if (!(error instanceof JournalCapacityError || error instanceof JournalStorageUnavailable)) throw error; }
+    await recoverAtOpen("purge_index_versions", async () => { while (await ledger.call<IndexPurgeResult | null>("purgeIndexVersions")); });
     // Per-turn configuration arrays recorded before #3257 move into stored
     // sets, a batch per commit. A refused step is left for the next open;
     // readers understand the arrays until then.
-    try { while (await ledger.call<number>("migrateConfigurationSets")); }
-    catch (error) { if (!(error instanceof JournalCapacityError || error instanceof JournalStorageUnavailable)) throw error; }
+    await recoverAtOpen("configuration_sets", async () => {
+      while (db.query("SELECT 1 FROM turn_journal_turns WHERE steering_inventory_missing!='[]' LIMIT 1").get()) await ledger.call<number>("migrateConfigurationSets");
+    });
   })();
   ready.catch(() => {});
   // Every later call passes through `ready` the same way, so calls reach the
