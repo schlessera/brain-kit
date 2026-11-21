@@ -2,4 +2,4 @@
 "@schlessera/brain": minor
 ---
 
-Mark the five common brain read tools as always loaded for Claude tool search, so using them does not require discovery first.
+Advertise the five common brain read tools with Claude's always-load metadata hint. Inline availability still depends on the client loading the server before its provider request.

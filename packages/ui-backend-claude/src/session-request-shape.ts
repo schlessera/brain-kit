@@ -12,7 +12,9 @@ export const HOST_UNUSED_BUILTINS = Object.freeze([
   "SendMessage", "ListAgents",
 ]);
 export interface ClaudeSessionRequestShape {
-  version: 2;
+  version: 3;
+  /** The original legacy SDK env value; null means it was absent. */
+  inheritedToolSearch: string | null;
   rosterDigest: string;
   disallowedTools: string[];
   /** null retains the pre-upgrade SDK input: no host tool-search pin. */
@@ -27,7 +29,7 @@ const digest = (roster: string[]) => createHash("sha256").update(JSON.stringify(
  * these internal fields; neither field is sent to the provider.
  */
 export function retainSessionRequestShape(brain: string, session: string, resumed: boolean, candidate: string[], legacy: string[],
-  env: Readonly<Record<string, string | undefined>> = envSnapshot(), toolSearch: "true" | "false" | null = null): ClaudeSessionRequestShape {
+  env: Readonly<Record<string, string | undefined>> = envSnapshot(), toolSearch: "true" | "false" | null = null, inheritedToolSearch?: string): ClaudeSessionRequestShape {
   const root = env.CLAUDE_CONFIG_DIR || join(env.HOME || homedir(), ".claude");
   const { dir, name } = sessionPromptContextLocation(root, brain, session);
   if (realpathSync(dir) !== dir) throw new Error("Session request storage must not contain directory aliases");
@@ -36,13 +38,14 @@ export function retainSessionRequestShape(brain: string, session: string, resume
   if (!state || Array.isArray(state) || typeof state.append !== "string") throw invalid();
   const validate = (value: unknown): ClaudeSessionRequestShape => {
     const shape = value as ClaudeSessionRequestShape | undefined;
-    if (!shape || typeof shape !== "object" || Array.isArray(shape) || shape.version !== 2
-      || Object.keys(shape).sort().join(",") !== "disallowedTools,rosterDigest,toolSearch,version"
+    if (!shape || typeof shape !== "object" || Array.isArray(shape) || shape.version !== 3
+      || Object.keys(shape).sort().join(",") !== "disallowedTools,inheritedToolSearch,rosterDigest,toolSearch,version"
       || !Array.isArray(shape.disallowedTools) || shape.disallowedTools.length === 0
       || !shape.disallowedTools.every(name => typeof name === "string" && name.length > 0)
       || new Set(shape.disallowedTools).size !== shape.disallowedTools.length
       || !shape.disallowedTools.includes("AskUserQuestion")
       || shape.rosterDigest !== digest(shape.disallowedTools)
+      || !(shape.inheritedToolSearch === null || typeof shape.inheritedToolSearch === "string")
       || ![null, "true", "false"].includes(shape.toolSearch)) throw invalid();
     return shape;
   };
@@ -53,7 +56,7 @@ export function retainSessionRequestShape(brain: string, session: string, resume
   if (state.claudeRequestShape !== undefined) throw invalid();
   const selectedRoster = resumed ? legacy : candidate;
   if (!legacy.every(name => selectedRoster.includes(name))) throw invalid();
-  const selected = validate({ version: 2, rosterDigest: digest(selectedRoster), disallowedTools: selectedRoster, toolSearch: resumed ? null : toolSearch });
+  const selected = validate({ version: 3, inheritedToolSearch: resumed ? inheritedToolSearch ?? null : null, rosterDigest: digest(selectedRoster), disallowedTools: selectedRoster, toolSearch: resumed ? null : toolSearch });
   state.claudeRequestShapeInitialized = true;
   state.claudeRequestShape = selected;
   const temp = `${path}.${crypto.randomUUID()}.tmp`;

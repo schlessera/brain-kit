@@ -1580,3 +1580,24 @@ resume is a provider-history violation (#4324), not an approved normalization.
 Fast-mode product work (#4310) waits for that fix. The qualification capture
 records this exact failure without weakening the strict earlier-message guard;
 no user-facing mode, pricing or budget change ships here.
+
+### 2026-11-21 — Off-state retention and mandatory authority
+
+Interactive turns always pass the production prompt gate, including direct API
+turns without a runtime minimum. A legacy selection records its inherited
+tool-search environment value once (including absence); later configuration
+changes cannot replace it. Selection and route validation precede persistence
+of a pending prompt, so a refused retry leaves the original context bytes
+unchanged.
+
+The stored roster records historical optional membership. Current mandatory
+exclusions still apply on top, including the three project MCP writers when a
+direct session resumes under server application authority. The historical
+snapshot is not rewritten to manufacture a matching digest.
+
+Non-blocking tool-search qualification also observes the newly loaded group of
+six intact core definitions changing order on the first resume: the selected
+graph moves before the other five, after the SDK bridge definitions.
+Qualification asserts that exact ordering and every definition's bytes; the
+strict tool guard rejects the reorder. This remains evidence against enablement, not a guard
+exception. Tool search stays off pending the maintainer's startup ruling.

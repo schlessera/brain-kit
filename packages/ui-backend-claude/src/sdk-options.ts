@@ -369,7 +369,8 @@ export function assemblePromptContext(
   req: StartTurnRequest,
   roster: ClaudeToolRoster,
   sandbox: NonNullable<StartTurnRequest["workerSandbox"]>,
-  sandboxNote: string
+  sandboxNote: string,
+  beforePrepare?: (contextId: string) => void
 ) {
   const { askUser, askUserList, askUserRank, askUserForm, getLocation, requestMask, requestImageMarkup, proposePolicyChange, queryActivity, turnTempTool } = roster;
   const brief = req.autonomous?.systemPromptAppend ?? buildAppend(
@@ -396,15 +397,12 @@ export function assemblePromptContext(
   );
   const candidate = brief ? `${brief}\n\n${sandboxNote}` : sandboxNote;
   const contextId = req.sessionId ?? crypto.randomUUID();
-  const context = req.autonomous ? undefined : claudePromptContext(backend.brainPath, contextId);
-  // Absence cannot distinguish a lost current session from a genuine older
-  // context. Never recreate an existing session's cache inputs before checking.
-  if (context && req.sessionId !== undefined && typeof context.append() !== "string")
-    throw new Error("Saved Claude session prompt context is missing; resume refused.");
+  const context = req.autonomous ? undefined : claudePromptContext(backend.brainPath, contextId, undefined, req.sessionId !== undefined);
   const append = context ? context.retainAppend([buildAppend(backend, undefined, {
     policyChange: true, askUser: true, askUserList: true, askUserRank: true, askUserForm: true,
     location: true, mask: true, markup: true, activity: true, inbox: true, block: true, turnTemp: true, reference: true, compute: true, github: true,
   }, undefined), req.sessionBudgetLimits].filter(Boolean).join("\n\n"), req.sessionBudgetLimits ? { limits: req.sessionBudgetLimits } : {}) : candidate;
+  if (context) beforePrepare?.(contextId);
   const available = (name: string) => toolAvailabilityRefusal({ ...req, workerSandbox: sandbox }, name) === undefined;
   const owned = context?.prepare(req.prompt, {
     device: req.client ? describeClient(req.client) : "Device unknown; hardware probe results are withheld until known.",
@@ -432,7 +430,21 @@ function assembleClaudeSdkTurn(
   const { turnTempTool, hosted, allowed } = roster;
   const { inferenceEnv, inheritedEnv, childEnv, credentialEnv, providerKeys } = turnChildEnvironment(options, envelope);
   const { sandbox, limits, stateLimits, turnTempLimits, sandboxNote } = prepareSandboxNote(options, envelope, providerKeys, turnTempTool);
-  const { contextId, context, append, owned } = assemblePromptContext(backend, req, roster, sandbox, sandboxNote);
+  const mandatory = ["AskUserQuestion", ...IN_WORKER_COMPUTE_TOOLS, ...IN_WORKER_APIFY_TOOLS, ...((hosted || req.autonomous) ? [
+      "mcp__brain__brain_add", "mcp__brain__brain_update", "mcp__brain__brain_archive",
+    ] : []), ...(hosted && req.autonomous && (sandbox.profile !== "governed" || req.posture === "voice") ? ["Write", "Edit", "NotebookEdit"] : [])];
+  let retained: ReturnType<typeof retainSessionRequestShape> | undefined;
+  const { contextId, context, append, owned } = assemblePromptContext(backend, req, roster, sandbox, sandboxNote, id => {
+    // Validate before prepare() persists this turn. Refused retries must leave
+    // the saved prompt and pending-turn journal byte-identical.
+    retained = retainSessionRequestShape(backend.brainPath, id, req.sessionId !== undefined,
+      [...mandatory, ...(hosted ? HOST_UNUSED_BUILTINS : [])], mandatory, undefined, "false", inheritedEnv.ENABLE_TOOL_SEARCH);
+    if (retained.toolSearch === "true") {
+      if (!firstPartyInferenceUpstream(inheritedEnv))
+        throw new Error("This session's tool search requires its qualified first-party inference upstream.");
+      throw new Error("This session's tool search is not qualified for production MCP startup (#4306).");
+    }
+  });
   const subscriptionOnly = profile.billing !== "api";
   const sdkOptions: Options = {
     ...(req.autonomous ? { persistSession: false } : {}),
@@ -467,9 +479,7 @@ function assembleClaudeSdkTurn(
     allowedTools: allowed,
     // The built-in AskUserQuestion picker needs a TTY; keep it disabled even
     // when no ask-user handler is present.
-    disallowedTools: ["AskUserQuestion", ...IN_WORKER_COMPUTE_TOOLS, ...IN_WORKER_APIFY_TOOLS, ...((hosted || req.autonomous) ? [
-      "mcp__brain__brain_add", "mcp__brain__brain_update", "mcp__brain__brain_archive",
-    ] : []), ...(hosted && req.autonomous && (sandbox.profile !== "governed" || req.posture === "voice") ? ["Write", "Edit", "NotebookEdit"] : [])],
+    disallowedTools: mandatory,
     ...createPermissionWiring({
       req: { ...req, workerSandbox: sandbox },
       denyNativeWrites: hosted && !req.autonomous && (sandbox.profile !== "governed" || req.posture === "voice"),
@@ -527,24 +537,17 @@ function assembleClaudeSdkTurn(
   let assembledTools: unknown[] | undefined;
   sdkOptions.mcpServers = { "brain-ui": turnMcpServer(backend, req, roster, turnTemp, tools => { assembledTools = tools; }) };
   let selectionPin: string | undefined;
-  if (context) {
-    const retained = retainSessionRequestShape(backend.brainPath, contextId, req.sessionId !== undefined,
-      [...sdkOptions.disallowedTools ?? [], ...(hosted ? HOST_UNUSED_BUILTINS : [])], sdkOptions.disallowedTools ?? [], undefined, "false");
-    sdkOptions.disallowedTools = retained.disallowedTools;
-    // This applies with or without the host relay. An old enabled selection
-    // must never silently become an unpinned direct-gateway session.
-    if (retained.toolSearch === "true") {
-      if (!firstPartyInferenceUpstream(inheritedEnv))
-        throw new Error("This session's tool search requires its qualified first-party inference upstream.");
-      throw new Error("This session's tool search is not qualified for production MCP startup (#4306).");
-    }
+  if (retained) {
+    // Safety exclusions are current authority, layered over the recorded roster.
+    // The historical snapshot itself remains untouched for validation/replay.
+    sdkOptions.disallowedTools = [...new Set([...retained.disallowedTools, ...mandatory])];
     selectionPin = retained.toolSearch ?? undefined;
     if (selectionPin === undefined) {
       // No host pin existed for genuine legacy sessions. Preserve the inherited
       // SDK environment, including true/false/auto values, and add no flag pin.
       if (inferenceEnv) delete (inferenceEnv as Record<string, string>).ENABLE_TOOL_SEARCH;
-      if (inheritedEnv.ENABLE_TOOL_SEARCH === undefined) delete childEnv.ENABLE_TOOL_SEARCH;
-      else childEnv.ENABLE_TOOL_SEARCH = inheritedEnv.ENABLE_TOOL_SEARCH;
+      if (retained.inheritedToolSearch === null) delete childEnv.ENABLE_TOOL_SEARCH;
+      else childEnv.ENABLE_TOOL_SEARCH = retained.inheritedToolSearch;
     } else {
       childEnv.ENABLE_TOOL_SEARCH = selectionPin;
       if (inferenceEnv) inferenceEnv.ENABLE_TOOL_SEARCH = selectionPin;

@@ -10,6 +10,7 @@ import * as workerRtk from "../../../ui-sdk/src/server/worker-rtk.js";
 import { rtkRewriteCommand } from "../../../ui-sdk/src/server/rtk.js";
 import { workerHostBoundary } from "@schlessera/brain-ui-sdk/internal";
 const retainSelection = shape.retainSessionRequestShape;
+const ownedPromptContext = context.claudePromptContext;
 export function mockWorkerHostForSdkStream() {
   let probe: ReturnType<typeof spyOn>;
   let root: string;
@@ -25,20 +26,19 @@ export function mockWorkerHostForSdkStream() {
     const brain = join(root, "ithaca"); mkdirSync(brain);
     // Hand-driven SDK streams have no native transcript or real /brain directory.
     // Keep their newly persistent host context in this test's own storage.
-    prompt = spyOn(context, "claudePromptContext").mockImplementation((_brain, id) => {
+    prompt = spyOn(context, "claudePromptContext").mockImplementation((_brain, id, _env, existing = false) => {
       const saved = sessionPromptContext(join(root, "host"), brain, id);
-      // Hand-driven streams invent native IDs instead of returning the SDK's
-      // generated UUID. Seed those synthetic resumed sessions explicitly;
-      // real UUIDs and the missing-context guard use production storage tests.
-      if (!/^[a-f0-9-]{36}$/.test(id) && saved.append() === undefined)
+      // The caller explicitly identifies a resume. Hand-driven SDK streams
+      // have synthetic native sessions, regardless of how their IDs look.
+      if (existing && saved.append() === undefined)
         saved.retainAppend("Odysseus retains the fixture session brief.");
-      return saved;
+      return ownedPromptContext(brain, id, { CLAUDE_CONFIG_DIR: join(root, "host") }, existing);
     });
     acknowledgement = spyOn(context, "acknowledgeClaudeContext").mockImplementation(() => {});
     // Match the existing fake brain/config context while exercising the real
     // selection reader and writer; permission-only streams have no /brain.
-    selection = spyOn(shape, "retainSessionRequestShape").mockImplementation((_brain, id, resumed, candidate, legacy, _env, toolSearch) =>
-      retainSelection(brain, id, resumed, candidate, legacy, { CLAUDE_CONFIG_DIR: join(root, "host") }, toolSearch));
+    selection = spyOn(shape, "retainSessionRequestShape").mockImplementation((_brain, id, resumed, candidate, legacy, _env, toolSearch, inheritedToolSearch) =>
+      retainSelection(brain, id, resumed, candidate, legacy, { CLAUDE_CONFIG_DIR: join(root, "host") }, toolSearch, inheritedToolSearch));
   });
   afterEach(() => {
     selection.mockRestore(); prompt.mockRestore(); acknowledgement.mockRestore(); probe.mockRestore(); rewrite.mockRestore();

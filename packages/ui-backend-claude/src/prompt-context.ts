@@ -5,8 +5,11 @@ import { join } from "node:path";
 import { sessionPromptContext } from "@schlessera/brain-ui-sdk/internal";
 import { envSnapshot } from "./config/env.js";
 /** Uses host native storage; profile overrides cannot change replay ownership. */
-export function claudePromptContext(brainPath: string, sessionId: string, env = envSnapshot()) {
-  return sessionPromptContext(env.CLAUDE_CONFIG_DIR || join(env.HOME || homedir(), ".claude"), brainPath, sessionId);
+export function claudePromptContext(brainPath: string, sessionId: string, env = envSnapshot(), existing = false) {
+  const context = sessionPromptContext(env.CLAUDE_CONFIG_DIR || join(env.HOME || homedir(), ".claude"), brainPath, sessionId);
+  if (existing && typeof context.append() !== "string")
+    throw new Error("Saved Claude session prompt context is missing; resume refused.");
+  return context;
 }
 
 /** A successful send becomes delivered only after its exact UUID/bytes survive native copy-out. */

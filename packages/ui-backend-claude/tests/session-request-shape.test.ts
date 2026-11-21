@@ -14,7 +14,7 @@ afterEach(() => { rmSync(brain, { recursive: true, force: true }); home.dispose(
 const legacy = ["AskUserQuestion", "mcp__brain__brain_add", "mcp__brain__brain_update", "mcp__brain__brain_archive"];
 const current = [...legacy, ...HOST_UNUSED_BUILTINS];
 const rosterDigest = (tools: string[]) => createHash("sha256").update(JSON.stringify(tools)).digest("hex");
-const expected = { version: 2, rosterDigest: rosterDigest(current), disallowedTools: current, toolSearch: "true" } satisfies ClaudeSessionRequestShape;
+const expected = { version: 3, inheritedToolSearch: null, rosterDigest: rosterDigest(current), disallowedTools: current, toolSearch: "true" } satisfies ClaudeSessionRequestShape;
 function session() { const id = crypto.randomUUID(); claudePromptContext(brain, id).retainAppend("Odysseus checks Ithaca."); return id; }
 function path(id: string) { const { dir, name } = sessionPromptContextLocation(process.env.CLAUDE_CONFIG_DIR!, brain, id); return join(dir, name); }
 const retain = (id: string, resumed = false, candidate = current) => retainSessionRequestShape(brain, id, resumed, candidate, legacy, undefined, "true");
@@ -27,7 +27,7 @@ test("new sessions retain the exact native selection and tool-search pin across 
 test("a genuine legacy prompt snapshot gains the exact legacy roster and no new SDK pin", () => {
   const id = session(), before = readFileSync(path(id), "utf8");
   expect(before).not.toContain("claudeRequestShape");
-  expect(retain(id, true), "LEGACY_BUILTIN_SELECTION_RETAINED").toEqual({ version: 2, rosterDigest: rosterDigest(legacy), disallowedTools: legacy, toolSearch: null });
+  expect(retain(id, true), "LEGACY_BUILTIN_SELECTION_RETAINED").toEqual({ version: 3, inheritedToolSearch: null, rosterDigest: rosterDigest(legacy), disallowedTools: legacy, toolSearch: null });
 });
 test("empty, arbitrary and incomplete snapshots cannot drop mandatory exclusions", () => {
   const other = session();
@@ -64,9 +64,9 @@ test("a dangling context alias is refused rather than replaced with a legacy ros
 });
 
 test("production assembly retains a gateway pin and confines a changed-upstream refusal to its session", async () => {
-  const assemble = (route: string, sessionId?: string, relay = true, inherited?: string) => createClaudeSdkTurn({
+  const assemble = (route: string, sessionId?: string, relay = true, inherited?: string, hosted = true) => createClaudeSdkTurn({
     backend: { brainPath: brain },
-    req: { prompt: "Odysseus checks Ithaca.", sessionId, bridge: { emit() {} }, applicationAuthority: "server",
+    req: { prompt: "Odysseus checks Ithaca.", sessionId, bridge: { emit() {} }, applicationAuthority: hosted ? "server" : undefined,
       signal: new AbortController().signal,
       workerSandbox: { brain, profile: "governed", restricted: false, areas: [], scratchAliasesRemoved: [] } } as never,
     profile: { id: "fixture", label: "Fixture", billing: "api", requiredEnvKeys: [], buildEnv: () => ({}) },
@@ -91,10 +91,37 @@ test("production assembly retains a gateway pin and confines a changed-upstream 
     const legacyTurn = assemble("https://api.anthropic.com", legacyId, true, "true");
     try { expect(legacyTurn.options.env!.ENABLE_TOOL_SEARCH, "INHERITED_LEGACY_SELECTION_PRESERVED").toBe("true"); expect((legacyTurn.options.settings as any).env.ENABLE_TOOL_SEARCH).toBeUndefined(); }
     finally { await legacyTurn.finishWorker(); }
+    const drift = assemble("https://api.anthropic.com", legacyId, true, "false");
+    try { expect(drift.options.env!.ENABLE_TOOL_SEARCH, "RECORDED_LEGACY_ENV_DOES_NOT_DRIFT").toBe("true"); }
+    finally { await drift.finishWorker(); }
+    const absentId = session();
+    const absent = assemble("https://api.anthropic.com", absentId);
+    await absent.finishWorker();
+    const laterEnv = assemble("https://api.anthropic.com", absentId, true, "true");
+    try { expect(laterEnv.options.env!.ENABLE_TOOL_SEARCH, "ABSENT_LEGACY_ENV_STAYS_ABSENT").toBeUndefined(); }
+    finally { await laterEnv.finishWorker(); }
     const missingId = firstParty.options.sessionId!;
     rmSync(path(missingId));
     expect(() => assemble("https://api.anthropic.com", missingId), "MISSING_WHOLE_CONTEXT_IS_NOT_LEGACY").toThrow("prompt context is missing");
     expect(() => readFileSync(path(missingId))).toThrow();
+    const unhosted = assemble("https://api.anthropic.com", undefined, false, undefined, false);
+    const unhostedId = unhosted.options.sessionId!;
+    await unhosted.finishWorker();
+    const savedRoster = JSON.parse(readFileSync(path(unhostedId), "utf8")).claudeRequestShape.disallowedTools;
+    expect(savedRoster).not.toContain("mcp__brain__brain_add");
+    const hosted = assemble("https://api.anthropic.com", unhostedId, false);
+    try { for (const name of ["brain_add", "brain_update", "brain_archive"]) expect(hosted.options.disallowedTools, "CURRENT_MANDATORY_EXCLUSIONS_ALWAYS_APPLY").toContain(`mcp__brain__${name}`); }
+    finally { await hosted.finishWorker(); }
+    expect(JSON.parse(readFileSync(path(unhostedId), "utf8")).claudeRequestShape.disallowedTools).toEqual(savedRoster);
+    const corrupt = assemble("https://api.anthropic.com");
+    const corruptId = corrupt.options.sessionId!; await corrupt.finishWorker();
+    const corruptState = JSON.parse(readFileSync(path(corruptId), "utf8"));
+    corruptState.claudeRequestShape.rosterDigest = "invalid";
+    const corruptBytes = JSON.stringify(corruptState); writeFileSync(path(corruptId), corruptBytes);
+    for (let retry = 0; retry < 2; retry++) {
+      expect(() => assemble("https://api.anthropic.com", corruptId)).toThrow("Invalid saved Claude session request shape");
+      expect(readFileSync(path(corruptId), "utf8"), "REFUSED_RETRY_NEVER_PERSISTS_PROMPT").toBe(corruptBytes);
+    }
     const other = assemble("https://gateway.example.com");
     try { expect(other.options.env!.ENABLE_TOOL_SEARCH).toBe("false"); }
     finally { await other.finishWorker(); }

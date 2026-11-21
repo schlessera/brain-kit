@@ -272,10 +272,10 @@ async function runAdmittedTurn(runner: TurnRunnerState, claim: ClaimedTurn): Pro
     const queryHandle = new Promise<Query>((resolve) => {
       resolveQuery = resolve;
     });
-    const prompt = sdkTurn.subscriptionOnly || relay.egress || runtimeRequirements.length > 0
-      ? gatedPrompt(input.messages, promptGateCheck({ queryHandle, initialize, sdkTurn, relay, terminal, runtimeRequirements,
-          phase, abortController, profileId: profile.id, log: options.log, reportActivity, reportRuntime }))
-      : input.messages;
+    // Every interactive input passes the gate. The gate owns which native
+    // checks are required, including retained pins on direct API turns.
+    const prompt = gatedPrompt(input.messages, promptGateCheck({ queryHandle, initialize, sdkTurn, relay, terminal, runtimeRequirements,
+      phase, abortController, profileId: profile.id, log: options.log, reportActivity, reportRuntime }));
     relay.routeInputs = relay.egress ? await retainNativeRouteInputs(req.workerSandbox?.profile === "governed"
       ? options.backend.brainPath : req.workerStartupView ?? options.backend.brainPath) : undefined;
     const result = runner.queryFn({ prompt, options: { ...sdkTurn.options, ...(req.maxBudgetUsd !== undefined ? { maxBudgetUsd: req.maxBudgetUsd } : {}) } });

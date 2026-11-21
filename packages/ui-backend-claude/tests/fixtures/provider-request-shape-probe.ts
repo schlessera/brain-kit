@@ -55,7 +55,7 @@ const proxy = Bun.serve({ unix: join(relay.dir, "proxy.sock"), fetch() { return 
 chmodSync(join(relay.dir, "proxy.sock"), 0o600);
 const restore = replaceNativeStartupAcquisitionForFixture();
 try {
- for (scenario of (process.env.REQUEST_SHAPE_MANAGED_GATEWAY ? ["managed-gateway"] : ["discovery", "legacy", "legacy-inherited", "gateway", "removed", "builtins", "fast-api", "fast-subscription", "fast-disabled", "fast-thirdparty"])) {
+ for (scenario of (process.env.REQUEST_SHAPE_MANAGED_GATEWAY ? ["managed-gateway"] : ["discovery", "legacy", "legacy-inherited", "gateway", "project-on", "authority-upgrade", "removed", "builtins", "fast-api", "fast-subscription", "fast-disabled", "fast-thirdparty"])) {
   const brain = fixtureBrain(scratch, scenario), home = join(scratch, `home-${scenario}`);
   mkdirSync(join(home, ".claude"), { recursive: true });
   writeFileSync(join(brain, "ithaca.ipynb"), JSON.stringify({ nbformat: 4, nbformat_minor: 5, metadata: {},
@@ -64,7 +64,7 @@ try {
   mcpReady = scenario === "discovery" ? join(brain, "mcp-ready") : undefined;
   if (scenario.startsWith("legacy")) writeFileSync(marker, "Odysseus keeps the old roster.");
   mkdirSync(join(brain, ".claude"), { recursive: true });
-  writeFileSync(join(brain, ".claude/settings.json"), JSON.stringify({ enableAllProjectMcpServers: true, env: scenario === "legacy-inherited" ? {} : { ENABLE_TOOL_SEARCH: "false" } }));
+  writeFileSync(join(brain, ".claude/settings.json"), JSON.stringify({ enableAllProjectMcpServers: true, env: scenario === "legacy-inherited" ? {} : { ENABLE_TOOL_SEARCH: scenario === "project-on" ? "true" : "false" } }));
   if (!scenario.startsWith("legacy") && scenario !== "builtins") writeFileSync(join(brain, ".mcp.json"), JSON.stringify({ mcpServers: {
     brain: { command: process.execPath, args: [resolve(import.meta.dir, "request-shape-mcp.ts"), marker, ...(mcpReady ? [mcpReady] : [])] },
   } }));
@@ -79,6 +79,9 @@ try {
   }
   for (turnIndex = 0; turnIndex < (scenario === "builtins" ? 2 : scenario === "fast-thirdparty" || scenario === "managed-gateway" ? 1 : 3); turnIndex++) {
     if (turnIndex) rmSync(marker, { force: true });
+    // Each diagnostic process starts before its project MCP server is ready.
+    // Reset the event latch on resume too, so qualification is not a CPU race.
+    if (mcpReady) rmSync(mcpReady, { force: true });
     queue = scenario === "discovery" && turnIndex === 0 ? [{ name: "ToolSearch", input: { query: "select:mcp__brain__brain_graph", max_results: 1 } }]
       : scenario === "removed" && turnIndex === 0 ? [{ name: "SendMessage", input: { to: "athena", message: "Odysseus checks Ithaca." } }]
       : scenario === "builtins" && turnIndex === 1 ? [
@@ -97,11 +100,11 @@ try {
     const view = createFixtureWorkerStartupView(brain);
     const turnLock = createTurnLockBinding({ turn: { pendingReleases: new Map(), ended: false }, writeLock: createKeyedLock(), lockWaitMs: 1000, log() {} });
     const environment: Record<string, string> = { GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", HOME: home, CLAUDE_CONFIG_DIR: join(home, ".claude"), CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
-      ...(legacy ? { MCP_CONNECTION_NONBLOCKING: "0" } : {}),
-      ...(scenario === "legacy-inherited" ? { ENABLE_TOOL_SEARCH: "true" } : {}),
+      ...(legacy || scenario === "authority-upgrade" ? { MCP_CONNECTION_NONBLOCKING: "0" } : {}),
+      ...(scenario === "legacy-inherited" ? { ENABLE_TOOL_SEARCH: turnIndex === 2 ? "false" : "true" } : {}),
       ...(scenario.endsWith("gateway") ? { ANTHROPIC_BASE_URL: "https://gateway.example.com" } : {}) };
     const turn = legacy && turnIndex === 0 ? legacySdkTurn(brain, sessionId!, environment, relay.socketPath, controller) : createClaudeSdkTurn({ backend: { brainPath: brain }, req: { prompt: `Odysseus checks Ithaca step ${turnIndex}.`, sessionId,
-      applicationAuthority: "server", signal: controller.signal, turnId: `ithaca-${turnIndex}`, workerStartupView: view,
+      applicationAuthority: scenario === "authority-upgrade" && turnIndex === 0 ? undefined : "server", signal: controller.signal, turnId: `ithaca-${turnIndex}`, workerStartupView: view,
       workerSandbox: prepareFixtureWorkerSandbox(brain, { home, profile: "strict", areas: [] }),
       bridge: { emit() {}, checkpointPermission() {}, async requestPermission() { return { behavior: "allow" }; } },
     }, profile: { id: "fixture", label: "Fixture", model: "claude-opus-5-5", billing: "api", requiredEnvKeys: [], buildEnv: () => ({}) },
@@ -118,6 +121,7 @@ try {
     const initialized = JSON.parse(readFileSync(join(contextFile.dir, contextFile.name), "utf8")).claudeRequestShapeInitialized === true;
     capture.qualification ??= {};
     capture.qualification.watchdogMs = watchdogMs(45_000);
+    capture.qualification.projectToolSearch = JSON.parse(readFileSync(join(brain, ".claude/settings.json"), "utf8")).env.ENABLE_TOOL_SEARCH;
     if (legacy && turnIndex === 0) capture.qualification.baseline = { source: baseline.source, initialized };
     if (legacy) turn.options.mcpServers = { ...turn.options.mcpServers, brain: { command: process.execPath, args: [resolve(import.meta.dir, "request-shape-mcp.ts"), marker] } };
     if (scenario === "discovery") {
@@ -149,7 +153,7 @@ try {
     capture.appends.push(turn.options.systemPrompt);
     capture.budgets!.push({ disallowed: turn.options.disallowedTools, allowed: turn.options.allowedTools,
       env: turn.options.env?.ENABLE_TOOL_SEARCH, settings: (turn.options.settings as any)?.env?.ENABLE_TOOL_SEARCH,
-      flagSettings: turn.options.settings, mcp: Object.keys(turn.options.mcpServers ?? {}), requestedFast: (turn.options.settings as any)?.fastMode });
+      inheritedRequested: environment.ENABLE_TOOL_SEARCH, flagSettings: turn.options.settings, mcp: Object.keys(turn.options.mcpServers ?? {}), requestedFast: (turn.options.settings as any)?.fastMode });
     const timer = setTimeout(() => controller.abort(), watchdogMs(45_000));
     try {
       let success = false;

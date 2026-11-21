@@ -1,6 +1,6 @@
 import { beforeAll, expect, test } from "bun:test";
 import { join } from "node:path";
-import { body, captureOffline, discoveredToolNames, identical, main, pairs, history, messages, providerTools, system, type Captures } from "../../../tests/helpers/provider-history.js";
+import { body, bytes, captureOffline, discoveredToolNames, identical, main, pairs, history, messages, providerTools, system, type Captures } from "../../../tests/helpers/provider-history.js";
 import { HOST_UNUSED_BUILTINS } from "../src/session-request-shape.js";
 import { watchdogMs } from "../../../scripts/test-deadlines.js";
 import baseline from "./fixtures/legacy-sdk-inputs.json" with { type: "json" };
@@ -67,30 +67,66 @@ test("legacy sessions retain SDK inputs and wire tools after metadata and append
 
 // Qualification evidence for #4306, deliberately separate from the strict
 // provider-history guard: production non-blocking project MCP startup is red.
-test("#4306 qualification: project MCP startup fails inline reads and referenced-only discovery", () => {
+test("#4306 qualification: non-blocking project startup and resume violate strict tool history", () => {
   const capture = captures.discovery!, first = body(main(capture)[0]!), next = body(main(capture)[1]!);
   expect(capture.qualification!.mcpStartup).toBe("project .mcp.json, production non-blocking");
   expect(first.tools.some((tool: any) => tool.name === "ToolSearch")).toBe(true);
   const prior = new Set(first.tools.map((tool: any) => tool.name));
   const added = next.tools.filter((tool: any) => !prior.has(tool.name));
-  console.log("PRODUCTION_STARTUP_DISCOVERY_QUALIFICATION", JSON.stringify({ initialCore: first.tools.filter((tool: any) => tool.name.startsWith("mcp__brain__")).map((tool: any) => tool.name), added: added.map((tool: any) => tool.name) }));
+  console.log("PRODUCTION_STARTUP_DISCOVERY_QUALIFICATION", JSON.stringify({ initialCore: first.tools.filter((tool: any) => tool.name.startsWith("mcp__brain__")).map((tool: any) => tool.name), added: added.map((tool: any) => ({ name: tool.name, defer_loading: tool.defer_loading })) }));
   expect(first.tools.filter((tool: any) => tool.name.startsWith("mcp__brain__"))).toHaveLength(0);
   expect(added).toHaveLength(6);
   expect(discoveredToolNames(main(capture)[0]!, main(capture)[1]!)).toEqual(["mcp__brain__brain_graph"]);
-  expect(() => providerTools(main(capture)[0]!, main(capture)[1]!, "production discovery"), "UNREFERENCED_DEFINITIONS_REMAIN_A_VIOLATION").toThrow();
+  // Assert every retained definition before examining the known violation;
+  // arbitrary corruption must not satisfy an expected failure.
+  identical(first.tools, next.tools.filter((tool: any) => prior.has(tool.name)), "DISCOVERY_PRESERVES_EARLIER_DEFINITIONS_AND_ORDER");
+  expect(new Set(next.tools.map((tool: any) => tool.name)).size).toBe(next.tools.length);
+  expect(added.map((tool: any) => tool.name)).toEqual(["brain_context", "brain_graph", "brain_list", "brain_read", "brain_read_many", "brain_search"].map(name => `mcp__brain__${name}`));
+  expect(added.find((tool: any) => tool.name === "mcp__brain__brain_graph").defer_loading).toBe(true);
+  expect(added.every((tool: any) => tool.defer_loading === true)).toBe(true);
+  expect(() => providerTools(main(capture)[0]!, main(capture)[1]!, "production discovery"), "UNREFERENCED_DEFINITIONS_REMAIN_A_VIOLATION").toThrow("production discovery: definition was actually referenced by this ToolSearch");
+  // The pinned client moves the six intact definitions on first resume:
+  // selected graph first, then the other five, before its deferred placeholder.
+  // Assert that exact invalid ordering and every definition's bytes so it
+  // cannot mask a lost discovery, edited schema, or another reordered tool.
+  const [loaded, resumed] = pairs(capture)[1]!;
+  const split = first.tools.findIndex((tool: any) => tool.name === "DeferredToolPlaceholder");
+  expect(split).toBeGreaterThan(0);
+  const graph = added.find((tool: any) => tool.name === "mcp__brain__brain_graph");
+  const expectedResume = [...first.tools.slice(0, split), graph,
+    ...added.filter((tool: any) => tool.name !== graph.name), ...first.tools.slice(split)];
+  identical(expectedResume, body(resumed).tools, "EXACT_NATIVE_RESUME_ORDER_AND_DEFINITIONS");
+  expect(() => providerTools(loaded, resumed, "production resume")).toThrow("production resume: first differing byte");
+  for (const [a, b] of pairs(capture).slice(2)) providerTools(a, b, "SUBSEQUENT_RESUME_ROSTER_EXACT");
   for (const [a, b] of pairs(capture)) identical(system(a), system(b), "qualification system");
 });
 
 test("#4324 qualification evidence: strict history rejects the native earlier-message rewrite", () => {
-  const [a, b] = pairs(captures["fast-api"]!).find(([a, b]) => a.turn !== b.turn)!;
-  const expected = [...messages(a), a.answer], observed = messages(b).slice(0, expected.length);
-  const index = expected.findIndex((message, i) => message.role === "system" && Array.isArray(message.content) && typeof observed[i]?.content === "string");
-  expect(index).toBeGreaterThanOrEqual(0);
-  expect(() => history(a, b), "4324_IS_NOT_A_STRICT_GUARD_EXCEPTION").toThrow();
+  let violations = 0;
+  // This is evidence of invalid native history, not a passing strict guard.
+  // Check the complete prefix, including a successor, on every transition.
+  for (const capture of Object.values(captures)) for (const [a, b] of pairs(capture)) {
+    const expected = [...messages(a), a.answer], actual = messages(b);
+    expect(actual.length, "EVERY_TRANSITION_HAS_A_SUCCESSOR").toBeGreaterThan(expected.length);
+    const observed = actual.slice(0, expected.length);
+    let knownRewrite = false;
+    for (const [index, message] of expected.entries()) {
+      if (bytes(message) === bytes(observed[index])) continue;
+      expect(message.role, "ONLY_THE_RECORDED_4324_VIOLATION_IS_EVIDENCE").toBe("system");
+      expect(Array.isArray(message.content)).toBe(true);
+      identical(message.content, message.content.map((part: any) => ({ type: "text", text: part.text })), "4324 original text blocks");
+      identical({ ...message, content: message.content.map((part: any) => part.text).join("") }, observed[index], "EXACT_4324_REWRITE_ONLY");
+      knownRewrite = true;
+    }
+    if (knownRewrite) { expect(() => history(a, b), "4324_IS_NOT_A_STRICT_GUARD_EXCEPTION").toThrow(`messages turn ${a.turn} -> ${b.turn}`); violations++; }
+    else history(a, b);
+  }
+  expect(violations).toBeGreaterThan(0);
 });
 
 test("legacy inherited tool search retains original SDK input and provider roster", () => {
   const capture = captures["legacy-inherited"]!;
+  expect((capture.budgets as any[]).map(input => input.inheritedRequested)).toEqual(["true", "true", "false"]);
   for (const input of capture.budgets as any[]) { expect(input.env).toBe("true"); expect(input.settings).toBeUndefined(); }
   for (const [a, b] of pairs(capture)) identical(body(a).tools, body(b).tools, "INHERITED_LEGACY_WIRE_ROSTER");
 });
@@ -167,3 +203,23 @@ test("native managed policy overriding a gateway selection is refused before pro
   expect(capture.qualification!.refusal).toMatchObject({ message: expect.stringContaining("retained tool-search selection") });
   expect(capture.exchanges, "MANAGED_OVERRIDE_RELEASES_NO_PROVIDER_REQUEST").toHaveLength(0);
 }, 180_000);
+
+test("project settings alone cannot turn on a host-pinned-off session", () => {
+  const capture = captures["project-on"]!;
+  expect(capture.qualification!.projectToolSearch, "PROJECT_CASE_REQUESTS_TRUE").toBe("true");
+  for (const input of capture.budgets as any[]) {
+    expect(input.env, "PROJECT_TRUE_CANNOT_OVERRIDE_OFF_ENV").toBe("false");
+    expect(input.settings, "PROJECT_TRUE_CANNOT_OVERRIDE_OFF_FLAGS").toBe("false");
+  }
+  for (const exchange of main(capture)) expect(body(exchange).tools.some((tool: any) => tool.name === "ToolSearch"), "PROJECT_TRUE_CANNOT_ENABLE_WIRE_DISCOVERY").toBe(false);
+});
+
+test("current server exclusions remove previously loaded project writers on authority upgrade", () => {
+  const capture = captures["authority-upgrade"]!, exchanges = main(capture);
+  for (const name of ["brain_add", "brain_update", "brain_archive"]) {
+    const tool = `mcp__brain__${name}`;
+    expect(body(exchanges[0]!).tools.map((item: any) => item.name), "WRITER_WAS_REGISTERED_BEFORE_AUTHORITY_UPGRADE").toContain(tool);
+    for (const exchange of exchanges.slice(1)) expect(body(exchange).tools.map((item: any) => item.name), "MANDATORY_SERVER_EXCLUSION_REACHES_WIRE").not.toContain(tool);
+    for (const input of (capture.budgets as any[]).slice(1)) expect(input.disallowed).toContain(tool);
+  }
+});
