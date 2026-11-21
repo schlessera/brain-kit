@@ -20,12 +20,12 @@ test("new native literal timer, spawn, polling and aliased options cannot bypass
  import {setTimeout as schedule} from "node:timers";
  schedule(()=>abort.abort(),25000); globalThis.AbortSignal.timeout(6000);
  setTimeout(()=>abort.abort(),20000); AbortSignal.timeout(5000); const options={"timeout":30000}; Bun.spawn(["fixture"],options);
- expect.poll(()=>ready,{timeout:5000}); const deadline=Date.now()+5000;
+ expect.poll(()=>ready,{timeout:5000}); prewarm({initializeTimeoutMs:30000}); const deadline=Date.now()+5000;
  test("outer",()=>{},90000); test("outer options",{timeout:90000},()=>{});
  setTimeout(()=>{},watchdogMs(5000));
  setTimeout(()=>{},/* native-product-timing: Fixed measured application budget. */ 1000);
  const receipt={timeout:false};`,ts.ScriptTarget.Latest,true);
- expect(unscaledNativeDeadlines("new-native.ts",source).map(item=>item.expression.getText(source))).toEqual(["25000","6000","20000","5000","30000","5000","5000"]);
+ expect(unscaledNativeDeadlines("new-native.ts",source).map(item=>item.expression.getText(source))).toEqual(["25000","6000","20000","5000","30000","5000","30000","5000"]);
  expect(nativeDeadlines("new-native.ts",source).filter(item=>item.kind==="registrar")).toHaveLength(2);
 });
 test("native repetitions actually load the outer registrar scaling preload",async()=>{

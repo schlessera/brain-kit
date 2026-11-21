@@ -19,7 +19,7 @@ export function scopeFixture(overrides: { max_tool_calls?: number; max_files_cha
   const policy = resolveGovernancePolicy({ schema_version: 1, scope: overrides });
   async function begin(origin: "interactive" | "voice" = "interactive") {
     await journal.begin("voyage", { sessionId: "ithaca", actor: origin, model: null, profile: "governed", policyHash: null }, error => { current = false; stopped = error.message; });
-    scope.begin("voyage", { sessionId: "ithaca", principalId: "athena", origin, profile: "governed", policy, source: "policy", hardTimeoutMs: 60 * 60_000,
+    scope.begin("voyage", { sessionId: "ithaca", principalId: "athena", origin, profile: "governed", policy, source: "policy", hardTimeoutMs: /* native-product-timing: Governance scope grants a one-hour lease, beyond the suite cap; scope.begin fixtures do not reach expiry. */ 60 * 60_000,
       current: () => current, stop: reason => { current = false; stopped = reason; } });
   }
   const receipt = (): ScopeCapReceipt => journal.summary("voyage").scope!.receipts.at(-1)!;

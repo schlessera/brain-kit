@@ -33,7 +33,7 @@ const subvolUuid = (path: string) => command(["/usr/bin/python3", "-I", "-S", "-
 mkdirSync("/native-runtime", { mode: 0o755 });
 const config: NativeBrainManagerConfig = {
   storePath: "/brain-fixture", devicePath: "/dev/brain-store-loop", fsid: fsid("/brain-fixture"), brainUuid: subvolUuid("/brain-fixture/brain"),
-  socketPath: "/native-runtime/pool.sock", appGid: 1000, capacityBytes: 1024 ** 3, recoveryReserveBytes: 8 * MIB, operationTimeoutMs: 20_000,
+  socketPath: "/native-runtime/pool.sock", appGid: 1000, capacityBytes: 1024 ** 3, recoveryReserveBytes: 8 * MIB, operationTimeoutMs: /* native-hang-guard: Successful reference pool operations; the held-deletion deadline has a separate fixed budget. */ watchdogMs(20_000),
   referencePool: { storePath: POOL, devicePath: "/dev/brain-pool-loop", fsid: fsid(POOL), combinedLimitBytes: 256 * MIB, operationLimitBytes: 32 * MIB,
     emergencyBytes: 4 * MIB, physicalFloorBytes: 64 * MIB, headroomLedgerPath: LEDGER, maxIdentities: 256 },
 };
@@ -262,7 +262,7 @@ const shapes = await create("staging", 32 * MIB);
 
 // 9. Deletion with an open hold stays charged through its deadline.
 {
-  manager = await restart({ operationTimeoutMs: 4_000 });
+  manager = await restart({ operationTimeoutMs: /* native-product-timing: Fixed deletion timeout exercised by REFERENCE_POOL_HOLD_UNKNOWN_OUTCOME and REFERENCE_POOL_HOLD_STAYS_CHARGED. */ 4_000 });
   const held = await create("worktree", 8 * MIB);
   fill(join(held.path!, "rope.bin"), 4 * MIB);
   const holder = Bun.spawn(["/usr/bin/python3", "-I", "-S", "-c", "import os,sys,time\nfd=os.open(sys.argv[1],os.O_RDONLY)\nprint('held',flush=True)\ntime.sleep(60)", join(held.path!, "rope.bin")], { stdout: "pipe" });

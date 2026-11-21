@@ -137,7 +137,7 @@ const staging = hostOutputStagingLimits({});
 const socket = "/native-runtime/manager.sock";
 const service = await serveNativeBrainManager({ storePath: "/brain-fixture", devicePath: "/dev/brain-store-loop", fsid: fsid("/brain-fixture"), brainUuid: subvolUuid(brain),
   socketPath: socket, appUid: APP_UID, appGid: APP_UID, stageAllowanceBytes: staging.allowanceBytes, stageBudgetBytes: staging.budgetBytes,
-  capacityBytes: 4 * 1024 ** 3, recoveryReserveBytes: 16 * MIB, operationTimeoutMs: 20_000,
+  capacityBytes: 4 * 1024 ** 3, recoveryReserveBytes: 16 * MIB, operationTimeoutMs: /* native-hang-guard: Successful native manager integration operations; timeout outcome is not exercised. */ watchdogMs(20_000),
   referencePool: { storePath: POOL, devicePath: "/dev/brain-pool-loop", fsid: fsid(POOL), combinedLimitBytes: 256 * MIB, operationLimitBytes: 32 * MIB,
     emergencyBytes: 4 * MIB, physicalFloorBytes: 64 * MIB, headroomLedgerPath: "/native-backing/ledger/headroom.json", maxIdentities: 256 } });
 const manager = createNativeBrainManagerClient({ socketPath: socket, timeoutMs: watchdogMs(20_000) });

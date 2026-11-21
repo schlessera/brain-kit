@@ -38,7 +38,7 @@ export function nativeDeadlines(file:string,source:ts.SourceFile):NativeDeadline
    const parent=node.parent;
    if(ts.isVariableDeclaration(parent)&&/(?:deadline|until|end)/i.test(parent.name.getText(source))||ts.isCallExpression(parent)&&/(?:readLine|ready|readySteps|childPid|verifyWorkerFolderMounts)/.test(parent.expression.getText(source)))emit("poll",node.right);
   }
-  if(ts.isPropertyAssignment(node)&&["timeout","timeoutMs"].includes(ts.isIdentifier(node.name)||ts.isStringLiteral(node.name)?node.name.text:ts.isComputedPropertyName(node.name)&&ts.isStringLiteral(node.name.expression)?node.name.expression.text:node.name.getText(source))&&![ts.SyntaxKind.TrueKeyword,ts.SyntaxKind.FalseKeyword,ts.SyntaxKind.NullKeyword].includes(node.initializer.kind)){
+  if(ts.isPropertyAssignment(node)&&/^(?:timeout(?:Ms)?|[A-Za-z_$][\w$]*Timeout(?:Ms)?)$/.test(ts.isIdentifier(node.name)||ts.isStringLiteral(node.name)?node.name.text:ts.isComputedPropertyName(node.name)&&ts.isStringLiteral(node.name.expression)?node.name.expression.text:node.name.getText(source))&&![ts.SyntaxKind.TrueKeyword,ts.SyntaxKind.FalseKeyword,ts.SyntaxKind.NullKeyword].includes(node.initializer.kind)){
    let parent:ts.Node=node.parent;while(parent&&!ts.isCallExpression(parent)&&!ts.isStatement(parent))parent=parent.parent;
    if(parent&&ts.isCallExpression(parent)){
     const name=parent.expression.getText(source),root=name.split(/[.(]/)[0]!;

@@ -477,7 +477,7 @@ async function server(): Promise<void> {
   const nativeHost = createFixtureTurnHost(brainPath, db, scenario.startsWith("governed") ? "governed" : "strict");
   const { governedTurns, applicationPlanner } = nativeHost;
   const host = new WsHost({ ...nativeHost, governedTurns, applicationPlanner, brainPath, registry: createStaticBackendRegistry([selected as typeof backend], adapter),
-    catalog: createSessionCatalog(() => db), isPrincipalAuthorized: () => true, activity: { store, stream, governance: event => recordGovernanceEvent(db, event) }, turnTimeoutMs: 90_000 });
+    catalog: createSessionCatalog(() => db), isPrincipalAuthorized: () => true, activity: { store, stream, governance: event => recordGovernanceEvent(db, event) }, turnTimeoutMs: /* native-hang-guard: Successful policy-boundary turns; this probe does not assert deadline expiry. */ watchdogMs(90_000) });
   const frames: Frame[] = [];
   let maskRequests = 0, askRequests = 0;
   const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);

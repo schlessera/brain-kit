@@ -23,7 +23,7 @@ export function nativeStartupOpenStages(trace:string,expected:readonly string[],
   const exec=/^\s*(\d+)\s+execve\(("(?:\\.|[^"\\])*"),/.exec(line);
   if(exec){try{pendingExec.set(Number(exec[1]),JSON.parse(exec[2]!));}catch{continue;}}
   const resumed=/^\s*(\d+)\s+<\.\.\. execve resumed>/.exec(line),pid=exec?Number(exec[1]):resumed?Number(resumed[1]):undefined;
-  if(pid!==undefined&&/= 0$/.test(line)){const path=pendingExec.get(pid);if(path){const previous=states.get(pid);states.set(pid,{stage:expected.includes(path)?"payload":path===wrapper?"wrapper":"bootstrap",execPosition:(previous?.execPosition??0)+1});}pendingExec.delete(pid);}
+  if(pid!==undefined&&line.endsWith("= 0")){const path=pendingExec.get(pid);if(path){const previous=states.get(pid);states.set(pid,{stage:expected.includes(path)?"payload":path===wrapper?"wrapper":"bootstrap",execPosition:(previous?.execPosition??0)+1});}pendingExec.delete(pid);}
   const fork=/^\s*(\d+)\s+(?:clone3?|fork|vfork)\(.*\)\s+= (\d+)$/.exec(line);
   if(fork){const state=states.get(Number(fork[1]));if(state)states.set(Number(fork[2]),{...state});}
   const failed=/^\s*(\d+)\s+open(?:at2?)?\(.*?"(\/dev\/(?:stdin|stdout|stderr|null|urandom|tty|fd\/\d+|pts\/\d+|shm\/[^"/]+))".*= -1 (EACCES|EPERM)\b/.exec(line);

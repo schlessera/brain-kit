@@ -126,7 +126,7 @@ if (scenario === "abort") backend.startTurn = request => startTurn({ ...request,
   request.workerStarted?.(worker);
 } });
 const nativeHost = createFixtureTurnHost(brainPath, db);
-host = new WsHost({ ...nativeHost, brainPath, registry: createStaticBackendRegistry([backend], "claude"), catalog: createSessionCatalog(() => db), isPrincipalAuthorized: () => true, activity: { store, stream }, turnTimeoutMs: 25000 });
+host = new WsHost({ ...nativeHost, brainPath, registry: createStaticBackendRegistry([backend], "claude"), catalog: createSessionCatalog(() => db), isPrincipalAuthorized: () => true, activity: { store, stream }, turnTimeoutMs: /* native-hang-guard: Successful native worker turns; this probe does not assert deadline expiry. */ watchdogMs(25000) });
 // Simulate only the browser mask response, preserving the actual server bridge.
 host.clients.add({ send(text: string) {
   const frame = JSON.parse(text); frames.push(frame);
