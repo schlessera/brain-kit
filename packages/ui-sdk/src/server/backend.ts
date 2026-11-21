@@ -617,7 +617,7 @@ export type { SubscriptionAuthAction } from "../protocol.js";
 export interface StartTurnRequest {
   /** @internal Host-only startup observations; never serialized or sent to the provider. */
   startupTiming?: {
-    start(name: string): () => void;
+    start(name: string, attributes?: { cached?: boolean }): () => void;
     /** Duration from the worker's own clock, timestamped at host receipt. */
     worker(name: string, durationMs: number): void;
     missing(name: string): void;

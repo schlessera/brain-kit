@@ -16,12 +16,13 @@ import { createBrainToolForwarder, startBrainToolWorker, probeBrainBridgeInvento
 
 
 function inventoryTiming(kind: string) {
-  const spans: Array<{ name: string; durationMs: number }> = [];
-  const timing = { start(name: string) { const started = performance.now(); return () => spans.push({ name, durationMs: performance.now() - started }); },
+  const spans: Array<{ name: string; durationMs: number; cached?: boolean }> = [];
+  const timing = { start(name: string, attributes?: { cached?: boolean }) { const started = performance.now(); return () => spans.push({ name, ...attributes, durationMs: performance.now() - started }); },
     worker() {}, missing() {}, received() {} };
-  return { timing, verify() {
+  return { timing, verify(cached = false) {
     expect(spans.map(span => span.name), "INVENTORY_HAS_ITS_OWN_STARTUP_SPAN").toEqual(["brain_tool_inventory"]);
-    console.log("BRAIN_TOOL_INVENTORY_WALL", JSON.stringify({ kind, serialBeforeRuntime: true, ...spans[0] }));
+    expect(spans[0]!.cached, "INVENTORY_CACHE_STATUS_STAYS_IN_HOST_TIMING").toBe(cached);
+    console.log("BRAIN_TOOL_INVENTORY_WALL", JSON.stringify({ kind, ...spans[0] }));
   } };
 }
 
@@ -63,6 +64,9 @@ test("forwarded core reads use the immutable worker view and refuse provider-mas
     const measured = inventoryTiming("core-only");
     expect(await probeBrainBridgeInventory({ ...input, req: { bridge: {}, startupTiming: measured.timing } as never }, controller.signal), "CORE_ONLY_INVENTORY_QUALIFIES").toBe("core-only");
     measured.verify();
+    const hit = inventoryTiming("core-only-hit");
+    expect(await probeBrainBridgeInventory({ ...input, req: { bridge: {}, startupTiming: hit.timing } as never }, controller.signal)).toBe("core-only");
+    hit.verify(true);
     await forward.server.instance.connect(serverTransport); await client.connect(clientTransport);
     forward.start();
     const visible = await client.callTool({ name: "brain_read", arguments: { path: "notes/raft.md" } });
@@ -104,6 +108,9 @@ test("a sandbox-resolved module MCP inventory keeps its original stdio tool reac
     const inventory = await probeBrainBridgeInventory({ ...input, req: { bridge: {}, startupTiming: measured.timing } as never }, controller.signal);
     expect(inventory, "MODULE_TOOLS_MUST_DISABLE_STATIC_BRIDGE").toBe("module-tools");
     measured.verify();
+    const hit = inventoryTiming("module-tools-hit");
+    expect(await probeBrainBridgeInventory({ ...input, req: { bridge: {}, startupTiming: hit.timing } as never }, controller.signal)).toBe("module-tools");
+    hit.verify(true);
     const diagnostics: string[] = [];
     turn = createClaudeSdkTurn({ backend: { brainPath: brain }, brainBridgeInventory: inventory,
       req: { prompt: "Odysseus checks the route.", applicationAuthority: "server", workerSandbox: sandbox,

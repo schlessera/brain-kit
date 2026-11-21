@@ -8,7 +8,7 @@ import { orderedWrites } from "./store-writes.js";
  * Steps ride on the record's next persisted milestone or terminal, so timing
  * adds no write to the turn path.
  */
-export type PhaseTimer = (name: string) => () => void;
+export type PhaseTimer = (name: string, attributes?: { cached?: boolean }) => () => void;
 
 type LifecycleMilestone = "dequeuedAt" | "governedStartedAt" | "governedAcquiredAt" | "budgetStartedAt" | "budgetAdmittedAt" | "journalStartedAt" | "journalBeganAt" | "backendInvokedAt" | "firstFrameAt" | "failureObservedAt";
 
@@ -45,9 +45,9 @@ export function createTurnLifecycle(store: AwaitableActivityStore, turnId: strin
     const next = steps.findIndex(other => other.startedAt > step.startedAt);
     steps.splice(next < 0 ? steps.length : next, 0, step);
   };
-  const phaseTimer = (phase: string): PhaseTimer => name => {
+  const phaseTimer = (phase: string): PhaseTimer => (name, attributes) => {
     if (record.endedAt !== null || phase === "backend" && !backendOpen()) return () => {};
-    const step = { phase, name, startedAt: clock(), endedAt: null as number | null, elapsedMs: null };
+    const step = { phase, name, startedAt: clock(), endedAt: null as number | null, elapsedMs: null, ...(attributes ? { attributes } : {}) };
     if (phase === "governed" || phase === "journal") (record.subPhases ??= []).push(step as ActivityTurnSubPhase);
     else addOpenStep(step);
     return () => { if (record.endedAt === null && step.endedAt === null && (phase !== "backend" || backendOpen())) step.endedAt = clock(); };

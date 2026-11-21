@@ -141,3 +141,18 @@ for (const mode of ["governed refusal","backend failure","revoked","budget refus
     expect(entered).toBe(mode === "backend failure");
   }finally{clock.mockRestore();host.close();stream.close();db.close();}
 });
+
+test("inventory cache status persists only as an internal startup span attribute", async () => {
+  const db = createUiDb(":memory:");
+  try {
+    const store = createActivityStore(db); let now = 1000;
+    const lifecycle = createTurnLifecycle(store, "turn-ithaca-cache", null, now, () => {}, () => now);
+    lifecycle.mark("backendInvokedAt");
+    const attributes = { cached: false };
+    const finish = lifecycle.startupTiming.start("brain_tool_inventory", attributes);
+    attributes.cached = true; now = 1001; finish();
+    lifecycle.startupTiming.received(); lifecycle.finish("success"); await lifecycle.settled();
+    expect(store.lifecycle("turn-ithaca-cache")!.openSubPhases!.find(span => span.name === "brain_tool_inventory"))
+      .toEqual({ phase: "backend", name: "brain_tool_inventory", startedAt: 1000, endedAt: 1001, elapsedMs: 1, attributes: { cached: true } });
+  } finally { db.close(); }
+});

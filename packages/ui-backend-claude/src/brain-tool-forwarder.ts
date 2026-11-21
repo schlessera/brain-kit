@@ -1,3 +1,4 @@
+import { createBrainInventoryCache, type BrainInventoryResolution } from "./brain-tool-inventory.js";
 /** Per-turn MCP relay. This module never opens brain content on the host. */
 import type { ZodRawShape } from "zod";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -10,7 +11,7 @@ import { launchAgentWorkerAsync, retainWorkerStartupView, prepareNativeWorkerOut
   workerCleanupUnconfirmed, processCleanupReconciler, reportStrandedWorkerCleanup, WORKER_EMPTY_HOME,
   type LaunchedWorker, type WorkerSandbox, type WorkerStartupView, type WorkerLimitsPlan, type WorkerStateLimits,
 } from "@schlessera/brain-ui-sdk/internal";
-import { safeStartupTiming, type StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
+import type { StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
 import { join } from "node:path";
 
 /** Product bound for readiness and individual calls, independent of test watchdogs. */
@@ -169,8 +170,7 @@ export function startBrainToolWorker(input: BrainToolWorkerInput, args: readonly
  * Resolve configuration only in a sandbox, once before a new session's roster
  * is retained. Never infer that an unknown or failed inventory is core-only.
  */
-export async function probeBrainBridgeInventory(input: BrainToolWorkerInput, signal: AbortSignal): Promise<"core-only" | "module-tools" | "unavailable"> {
-  const observed = safeStartupTiming(input.req.startupTiming)?.start("brain_tool_inventory");
+async function readBrainBridgeInventory(input: BrainToolWorkerInput, signal: AbortSignal): Promise<BrainInventoryResolution> {
   const controller = new AbortController();
   const ownedSignal = AbortSignal.any([signal, controller.signal]);
   let resource: Awaited<ReturnType<ReturnType<typeof startBrainToolWorker>>> | undefined;
@@ -183,13 +183,19 @@ export async function probeBrainBridgeInventory(input: BrainToolWorkerInput, sig
       if (Buffer.byteLength(text) > 1024 * 1024) throw new Error("brain_bridge_inventory_oversized");
     }
     const code = await resource.worker.exited;
-    if (code !== 0 || ownedSignal.aborted) return "unavailable";
+    if (code !== 0 || ownedSignal.aborted) return { inventory: "unavailable", modules: [] };
     const result = JSON.parse(text);
-    if (!Array.isArray(result.enabled) || !Array.isArray(result.available)) return "unavailable";
+    if (!Array.isArray(result.enabled) || !Array.isArray(result.available)) return { inventory: "unavailable", modules: [] };
     if (result.enabled.some((module: unknown) => !module || typeof module !== "object"
       || !Array.isArray((module as { tools?: unknown }).tools)
-      || !(module as { tools: unknown[] }).tools.every(name => typeof name === "string" && name.length > 0))) return "unavailable";
-    return result.enabled.some((module: { tools: string[] }) => module.tools.length > 0) ? "module-tools" : "core-only";
-  } catch { return "unavailable"; }
-  finally { clearTimeout(timer); controller.abort(); try { await resource?.close(); } finally { observed?.(); } }
+      || !(module as { tools: unknown[] }).tools.every(name => typeof name === "string" && name.length > 0))) return { inventory: "unavailable", modules: [] };
+    const modules = result.enabled.map((module: { key?: unknown; name?: unknown }) => {
+      if (typeof module.key !== "string" || typeof module.name !== "string") throw new Error("Invalid module identity");
+      return { key: module.key, name: module.name };
+    });
+    return { inventory: result.enabled.some((module: { tools: string[] }) => module.tools.length > 0) ? "module-tools" : "core-only", modules };
+  } catch { return { inventory: "unavailable", modules: [] }; }
+  finally { clearTimeout(timer); controller.abort(); await resource?.close(); }
 }
+
+export const probeBrainBridgeInventory = createBrainInventoryCache(readBrainBridgeInventory);
