@@ -7,6 +7,7 @@ import { parseFrontmatter } from "./frontmatter-parse.js";
 import { TrustedSourcesSchema, type TrustRule } from "./taint-trust.js";
 export * from "./taint-trust.js";
 import { PROTECTED_TIER_B } from "./protected-paths.js";
+import { GooglePolicySchema, resolveGooglePolicy, type GooglePolicyInput } from "./google/policy.js";
 
 export const GOVERNANCE_POLICY_PATH = "context/policies/governance.md";
 /** Bound the data-only host read, including the ignored prose body. */
@@ -174,6 +175,13 @@ export const GovernancePolicySchema = z.strictObject({
     actor_grants: z.array(apifyActorGrant).max(APIFY_MAX_ACTOR_GRANTS).optional(),
     limits: apifyLimits.optional(),
   }).optional(),
+  /**
+   * Additive (#4204): the Google block (plan §5), strict at every depth.
+   * Absent, or without `enabled: true`, Google is disabled. Its schema lives
+   * with the decision function in `./google/policy.ts`, which the pure
+   * Google operations module shares with the browser.
+   */
+  google: GooglePolicySchema.optional(),
 });
 export type GovernancePolicyInput = z.input<typeof GovernancePolicySchema>;
 
@@ -195,6 +203,7 @@ export const BUILTIN_GOVERNANCE_POLICY = {
     judge: { mode: "off" as "off" | "jev", floor: 0.9 } }, providers: [] as Array<{ paths: string[]; types?: string[]; allow: string[] }>,
   apify: { enabled: false as boolean, discovery: "ask" as "deny" | "ask" | "allow", actors: "ask" as "deny" | "ask" | "allow",
     actor_grants: [] as Array<z.output<typeof apifyActorGrant>>, limits: null as ApifyLimits | null },
+  google: resolveGooglePolicy(),
 };
 
 export function resolveGovernancePolicy(policy: GovernancePolicyInput) {
@@ -209,6 +218,7 @@ export function resolveGovernancePolicy(policy: GovernancePolicyInput) {
       classifier: policy.taint?.classifier ?? defaults.taint.classifier, judge: { ...defaults.taint.judge, ...policy.taint?.judge } },
     // Callers pass parsed output, whose grant instants are already ISO strings.
     apify: { ...defaults.apify, ...(policy.apify as Partial<typeof defaults.apify> | undefined) },
+    google: resolveGooglePolicy(policy.google as GooglePolicyInput | undefined),
   };
 }
 export type EffectiveGovernancePolicy = ReturnType<typeof resolveGovernancePolicy>;

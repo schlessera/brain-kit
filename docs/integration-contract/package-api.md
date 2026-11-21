@@ -5714,6 +5714,17 @@ provider conversation changes: the judge's answers stay host state, and a call
 it leaves on the card or refuses uses the existing permission request and
 tool-result text.
 
+## Google policy block (additive, 0.45.0, #4204)
+
+The governance policy types reachable through ui-server's public signatures
+accept an optional `google` block and resolve it to a complete
+`EffectiveGovernancePolicy["google"]`, disabled by default. The
+[supported input](../supported-inputs.md#governance-policy) describes its
+fields. The same-commit API report records this additive type change. The
+schema and the pure decision function that reads the block are internal
+(`@schlessera/brain-common/internal/google-operations`); no SDK type, HTTP
+endpoint, card field, tool or provider conversation changes.
+
 ## Live brain orientation and task status (additive, #3623)
 
 `LiveConversationOpenOptions.orientation?: ConversationOrientation` supplies an

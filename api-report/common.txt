@@ -229,9 +229,11 @@ export "./internal/google-operations" (./src/google/index.ts)
   GMAIL_TOOL_NAMES
   GMAIL_TRASH_INPUT
   GMAIL_USER_LABEL_ID_PATTERN
+  GOOGLE_ACCOUNT_ALIAS_PATTERN
   GOOGLE_ADDRESS_LIST_MAX_CHARS
   GOOGLE_ADDRESS_REFUSALS
   GOOGLE_APPROVAL_ENTITIES
+  GOOGLE_CLASS_MODES
   GOOGLE_DIGEST_PATTERN
   GOOGLE_EFFECT_CLASSES
   GOOGLE_ERROR_CODES
@@ -239,9 +241,18 @@ export "./internal/google-operations" (./src/google/index.ts)
   GOOGLE_HOST_CURSOR_PREFIX
   GOOGLE_INPUT_SCHEMAS
   GOOGLE_MAILBOX_MAX_CHARS
+  GOOGLE_NOT_FOUND_MESSAGE
   GOOGLE_OPERATIONS
   GOOGLE_OPERATION_SPECS
+  GOOGLE_POLICY_BOUNDS
+  GOOGLE_POLICY_DEFAULTS
+  GOOGLE_POLICY_MODES
+  GOOGLE_POSTURES
+  GOOGLE_PRINCIPAL_KINDS
+  GOOGLE_REFUSAL_CAUSES
+  GOOGLE_ROUTING_VERDICTS
   GOOGLE_SERVICES
+  GOOGLE_SESSION_ALLOWANCE_LIMITS
   GOOGLE_TOOL_NAMES
   GOOGLE_VIEWS
   type GmailAttachmentRecord
@@ -291,21 +302,42 @@ export "./internal/google-operations" (./src/google/index.ts)
   type GmailUntrustedMessage
   type GmailUntrustedSearchHit
   type GoogleAddressRefusal
+  type GoogleAdmission
   type GoogleAllowListEntry
   type GoogleAllowListEntryResult
   type GoogleAllowListMatch
   type GoogleApprovalEntity
   type GoogleCallFacts
+  type GoogleCardCause
+  type GoogleCardOffers
+  type GoogleDecision
+  type GoogleDecisionCall
+  type GoogleDecisionFacts
+  type GoogleDecisionStep
   type GoogleDomainResult
   type GoogleEffectClass
   type GoogleError
   type GoogleErrorCode
+  type GoogleIrreversibleMode
   type GoogleMailbox
   type GoogleMailboxListResult
   type GoogleMailboxResult
+  type GoogleModeSource
   type GoogleOperation
   type GoogleOperationSpec
+  type GooglePolicy
+  type GooglePolicyInput
+  type GooglePolicyMode
+  GooglePolicySchema
+  type GooglePosture
+  type GooglePrincipalKind
+  type GoogleReadMode
+  type GoogleRefusalCause
+  type GoogleReversibleMode
+  type GoogleRoutingVerdict
   type GoogleService
+  type GoogleSessionAllowance
+  type GoogleStandingApproval
   type GoogleToolCall
   type GoogleToolCallResult
   type GoogleToolInput
@@ -317,6 +349,8 @@ export "./internal/google-operations" (./src/google/index.ts)
   contentGmailMessageResult
   contentGmailSearch
   contentGmailThread
+  decideGoogleCall
+  effectiveGoogleMode
   escalateGoogleEffect
   escapeGmailLabelName
   gmailLabelDirectory
@@ -343,6 +377,7 @@ export "./internal/google-operations" (./src/google/index.ts)
   parseGoogleMailbox
   parseGoogleMailboxList
   parseGoogleToolCall
+  resolveGooglePolicy
   structuredGmailDraft
   structuredGmailLabels
   structuredGmailMessage
