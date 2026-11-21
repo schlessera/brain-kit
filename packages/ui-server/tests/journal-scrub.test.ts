@@ -62,7 +62,7 @@ test("scrub lists at most 64 entries and resumes the next batch",()=>{
  const f=fixture();try{
   for(let n=0;n<140;n++)writeFileSync(join(f.objects,sha(`Ithaca ${n}`)),`Ithaca ${n}`);
   let total=0;
-  for(let n=0;n<4;n++){const result=f.store.scrubObjects!() as {listed:number;quarantined:number};expect(result.listed).toBeLessThanOrEqual(64);total+=result.quarantined;}
+  for(let n=0;n<6;n++){const result=f.store.scrubObjects!() as {listed:number;quarantined:number};expect(result.listed).toBeLessThanOrEqual(64);total+=result.quarantined;}
   expect(total,"SCRUB_RESUMES_TO_COMPLETION").toBe(140);
  }finally{f.close();}
 });
@@ -157,11 +157,11 @@ test("a corrupt pending quarantine copy cannot hide a recreated valid source",()
  }finally{f.close();}
 });
 
-test("accounting replay reserves the same frozen scrub batch without advancing its cursor twice",async()=>{
- const {createJournalScrub}=await import("../src/brain/journal-scrub.js"),f=fixture();let replay=true;
+for(const replayPhase of [1,2])test(`accounting replay in phase ${replayPhase} preserves the frozen batch and counters`,async()=>{
+ const {createJournalScrub}=await import("../src/brain/journal-scrub.js"),f=fixture();let writeCalls=0;
  const rollback=Symbol("accounted rollback"),accounting=createJournalAccounting(f.db,f.path);
  const scrub=createJournalScrub(f.db,f.objects,operation=>{
-  if(replay){replay=false;try{accounting.write(()=>{operation();throw rollback;})}catch(error){if(error!==rollback)throw error;}}
+  if(++writeCalls===replayPhase){try{accounting.write(()=>{operation();throw rollback;})}catch(error){if(error!==rollback)throw error;}}
   return accounting.write(operation);
  });
  try{

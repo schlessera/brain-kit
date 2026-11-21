@@ -952,11 +952,11 @@ owner operation. The CLI's standalone packing preflight uses the same conservati
 need and skips when it cannot establish enough space, without reserving it.
 
 The existing idle host-maintenance schedule also scrubs the journal object
-store, never admission or finish. Each pass lists at most 64 directory entries
+store, never admission or finish. Each pass lists at most 32 new directory entries
 and resumes its held directory iterator on the next pass (a process restart
 starts a fresh sweep). A full batch remains partial until the iterator reaches
 its end. Up to 32 pending reservations are retried separately with a rotating
-cursor, sharing the combined 64-entry/row work bound and leaving at least half
+cursor, sharing the combined 64-entry/row work bound and leaving half
 for new entries; missing old candidates cannot starve newly discovered files. Each
 physical copy gets a separate destination name and durable byte charge. Under the journal writer lock it excludes hashes with
 any object row, reference or reservation, verifies remaining bytes against the
