@@ -1,4 +1,4 @@
-import { createTurnClock } from "./ws-client/turn-clock.js";
+import { bindTurnClock, createTurnClock } from "./ws-client/turn-clock.js";
 import { attachTranscriptTimeline } from "./lib/transcript-timeline.js";
 import { createConversationClient } from "./voice/conversation-client.js";
 import { takeComposerTextAsAnswer } from "./lib/ask-user-typed.js";
@@ -32,6 +32,7 @@ export function createWebSocketClient(root: BrainUiServices) {
   const isActive = () => root.authLock.state.getState().phase === "active";
 
   const turnClock = createTurnClock(send);
+  const unbindTurnClock = bindTurnClock(root.stores, turnClock);
 
   const lease = createSocketLease({
     url: () => root.wsUrl(),
@@ -64,7 +65,7 @@ export function createWebSocketClient(root: BrainUiServices) {
     loadDialogue: (sessionId) => conversation.loadDialogue(sessionId),
     restoration,
   });
-  const services = createAccountServices(root, { send, socket: lease.client });
+  const services = createAccountServices(root, { send, socket: lease.client, noteTurnSend: requestId => turnClock.started(requestId) });
   const conversation = createConversationClient(root, send, (sessionId, text) =>
     takeComposerTextAsAnswer(root.stores.chat.getState(), sessionId, text, (answer) => {
       void services.answers.submit(answer).then((result) => {
@@ -177,6 +178,7 @@ export function createWebSocketClient(root: BrainUiServices) {
       inbound.resetTurns();
       if (disposed) return;
       disposed = true;
+      unbindTurnClock();
       timeline.dispose();
       conversation.dispose();
       retries.clearTimers();

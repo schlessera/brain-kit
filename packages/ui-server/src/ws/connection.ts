@@ -229,7 +229,7 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
       // underlying POOLED ArrayBuffer (byteOffset/byteLength discarded), so a
       // binary frame cannot be decoded correctly here. The protocol is JSON
       // text; reject anything else rather than parse a slab.
-      // Full payload/schema parsing stays metered. A bounded 4 KiB JSON
+      // Full payload/schema parsing stays metered. A bounded 4 KiB lexical
       // discriminator probe puts optional receipts on a separate bucket;
       // they cannot consume voice/chat credit or trigger voice gap handling.
       const receipt = isClientReceipt(evt.data);
@@ -374,6 +374,23 @@ export function createWsUpgrade(host: WsHost): MiddlewareHandler<AppEnv> {
  * Unidentifiable/oversized frames retain the conservative general guard. */
 function isClientReceipt(raw: unknown): boolean {
   if (typeof raw !== "string" || raw.length > MAX_CLIENT_TURN_RECEIPT_BYTES) return false;
-  try { return (JSON.parse(raw) as { type?: unknown } | null)?.type === "client_turn_receipt"; }
-  catch { return false; }
+  // Scan only top-level string tokens. Never JSON-decode unmetered input;
+  // nested or quoted type text cannot borrow the receipt bucket. The full
+  // parser alone decides whether the frame is valid, after metering.
+  const tokens = raw.matchAll(/"(?:\\.|[^"\\])*"|[{}\[\]:,]|[^\s{}\[\]:,"]+/g);
+  let depth = 0, key = "", expectsKey = false, expectsValue = false, receipt = false;
+  const ascii = (token: string) => token.slice(1, -1).replace(/\\u([0-9a-fA-F]{4})/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)));
+  for (const [token] of tokens) {
+    if (token === "{" || token === "[") { depth++; if (depth === 1) expectsKey = token === "{"; continue; }
+    if (token === "}" || token === "]") { depth--; continue; }
+    if (depth !== 1) continue;
+    if (token === ",") { expectsKey = true; expectsValue = false; continue; }
+    if (token === ":") { expectsValue = true; continue; }
+    if (expectsKey) { key = token.startsWith('"') ? ascii(token) : ""; expectsKey = false; continue; }
+    if (expectsValue) {
+      if (key === "type") receipt = token.startsWith('"') && ascii(token) === "client_turn_receipt";
+      expectsValue = false;
+    }
+  }
+  return receipt;
 }

@@ -568,13 +568,16 @@ Negotiation resets with each socket. After receiving the host's final
 `status: idle` with optional `hostTurnComplete: true`, the initiating client may
 send exactly one best-effort `{ type: "client_turn_receipt", turnId, timing }` frame.
 Backend idle frames do not carry this marker; the host strips any backend-supplied
-marker and sets it only after teardown and the lifecycle commit. Initial thinking
+marker and sets it only after teardown and a read confirms the lifecycle terminal commit.
+A rejected terminal write leaves the marker absent without blocking the turn. Initial thinking
 and accepted retry acknowledgements correlate by `requestId` before the new turn
 identity is known. `timing` contains non-negative finite millisecond pairs measured entirely on
 the client's monotonic clock:
 
 - `sendToFirstHostFrameMs`: send to the first received host frame for this turn
-  (including its queued acknowledgement).
+  (including its queued acknowledgement and lifecycle Activity frames received before
+  request-to-turn correlation). Send begins at the composer action, before snapshot
+  persistence or upload waits, and stays on that same monotonic clock until dispatch.
 - Optional `sendToFirstContentFrameMs`: send to the first non-empty
   `thinking_delta` or `text_delta` frame received.
 - Optional `lastContentFrameToIdleMs`: last such content frame received to
@@ -591,7 +594,8 @@ at 256 entries each. If eviction loses a possible first arrival, affected pendin
 requests lose their measurement rather than reporting a later frame as first. A failed/lost report is never retried and never affects the turn.
 
 Receipt frames are capped at 4096 encoded bytes and have an independent rate
-bucket. A bounded routing probe identifies their message kind; a rejected or
+bucket. A bounded lexical routing probe identifies their message kind before
+JSON decoding; only metered frames are decoded. A rejected or
 schema-invalid receipt is recorded in diagnostics without a chat error or a voice
 capture gap. Unidentifiable or oversized transport input retains the general
 transport guard. Only `turnId` and `timing` are accepted; unknown envelope/timing fields and
@@ -601,13 +605,16 @@ missing, unfinished, unowned or differently owned turn is refused. The first
 accepted report wins atomically; all later reports, even identical ones, are
 refused without changing it. The host records refusals in its inbound-frame
 rejection diagnostics; this telemetry message has no reply or turn-control effect.
+Server-read `clientTiming` objects preserve unknown optional keys, while incoming
+receipt timing remains strict.
 
 The receipt is separate from the host envelope, keyed by turn id, and joined
 as optional `ActivityTurnLifecycle.clientTiming` on single, list and stream
 reads. Receipt acceptance advances the lifecycle's stream sequence without
 changing its completed host record. Its owner binding and receipt are deleted
 with the lifecycle record. Older records without an owner binding accept no
-report and remain readable. A malformed stored receipt remains retained, omits its
+report and remain readable. Stored receipts are bounded by bytes, including bytes
+after any embedded NUL. A malformed stored receipt remains retained, omits its
 pairs and exposes optional `clientTimingUnavailable: "invalid_receipt"` on that
 record; the host envelope and other records remain readable. Client pairs and
 receipt diagnostics never enter provider history, inference usage or cost accounting.

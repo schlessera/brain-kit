@@ -641,7 +641,7 @@ export function createActivityStore(
   }
 
   const joinClient = (record: ActivityTurnLifecycle): ActivityTurnLifecycle => {
-    const row = db.query("SELECT substr(receipt, 1, 4097) AS receipt FROM activity_turn_clients WHERE turn_id = ?").get(record.turnId) as { receipt: string | null } | null;
+    const row = db.query("SELECT CAST(substr(CAST(receipt AS BLOB), 1, 4097) AS TEXT) AS receipt FROM activity_turn_clients WHERE turn_id = ?").get(record.turnId) as { receipt: string | null } | null;
     const { clientTiming: _timing, clientTimingUnavailable: _unavailable, ...hostRecord } = record;
     const host = lifecycleTiming(hostRecord);
     if (!row || row.receipt === null) return host;

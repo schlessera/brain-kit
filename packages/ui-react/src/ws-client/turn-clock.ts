@@ -15,11 +15,15 @@ export function createTurnClock(report: (message: ClientMessage) => boolean, clo
   const requests = new Map<string, Observation>();
   const arrivals = new Map<string, Omit<Observation, "sentAt">>();
   return {
+    started(requestId: string, sentAt = clock()) {
+      if (requests.has(requestId)) return;
+      if (requests.size >= 256) requests.delete(requests.keys().next().value!);
+      requests.set(requestId, { sentAt });
+    },
     sent(message: ClientMessage, sentAt: number) {
       if ((message.type !== "chat_message" && message.type !== "retry_turn") || !message.requestId) return;
-      // Telemetry has a fixed memory bound, even against an unresponsive peer.
-      if (requests.size >= 256) requests.delete(requests.keys().next().value!);
-      requests.set(message.requestId, { sentAt });
+      // Preserve the Send boundary captured before snapshot persistence.
+      this.started(message.requestId, sentAt);
     },
     now: clock,
     disconnected() { supported = false; requests.clear(); arrivals.clear(); },
@@ -28,6 +32,12 @@ export function createTurnClock(report: (message: ClientMessage) => boolean, clo
       if (!requests.size) return;
       const at = clock();
       const { turnId, requestId } = message as { turnId?: string; requestId?: string };
+      // Activity can announce acceptance before session_info identifies the
+      // initiating request. Only retain arrivals; never infer ownership.
+      const lifecycleIds = message.type === "activity_delta" ? [message.lifecycle?.turnId]
+        : message.type === "activity_snapshot" ? message.lifecycles?.map(value => value.turnId) ?? [] : [];
+      for (const id of lifecycleIds) if (id) remember(id, at);
+
       // A backend may emit a turn-scoped frame before session_info supplies
       // its request correlation. Retain that arrival, never infer by session.
       const arrival = turnId ? arrivals.get(turnId) ?? { firstHostAt: at } : undefined;
@@ -35,7 +45,10 @@ export function createTurnClock(report: (message: ClientMessage) => boolean, clo
         arrival.firstContentAt ??= at; arrival.lastContentAt = at;
       }
       if (turnId && arrival) {
-        if (!arrivals.has(turnId) && arrivals.size >= 256) {
+        remember(turnId, at, arrival);
+      }
+      function remember(id: string, at: number, value = arrivals.get(id) ?? { firstHostAt: at }) {
+        if (!arrivals.has(id) && arrivals.size >= 256) {
           const evicted = arrivals.keys().next().value!;
           const lost = arrivals.get(evicted)!;
           arrivals.delete(evicted);
@@ -43,7 +56,7 @@ export function createTurnClock(report: (message: ClientMessage) => boolean, clo
           // requests whose complete evidence is still provably retained.
           for (const [id, pending] of requests) if ((!pending.turnId && lost.firstHostAt! >= pending.sentAt) || pending.turnId === evicted) requests.delete(id);
         }
-        arrivals.set(turnId, arrival);
+        arrivals.set(id, value);
       }
       const correlates = message.type === "session_info" || message.type === "status" || message.type === "error" || (message.type === "retry_receipt" && message.state === "accepted");
       let observation = correlates && requestId ? requests.get(requestId) : undefined;
@@ -71,4 +84,16 @@ export function createTurnClock(report: (message: ClientMessage) => boolean, clo
       catch { /* A transport exception must not interrupt idle handling. */ }
     },
   };
+}
+
+
+// Like the connection's account lifecycle registry, this stays private to
+// the concrete root. Composer timing never enters a draft or wire message.
+const rootClocks = new WeakMap<object, ReturnType<typeof createTurnClock>>();
+export function bindTurnClock(owner: object, clock: ReturnType<typeof createTurnClock>): () => void {
+  rootClocks.set(owner, clock);
+  return () => { if (rootClocks.get(owner) === clock) rootClocks.delete(owner); };
+}
+export function noteTurnSend(owner: object, requestId: string, at: number): void {
+  rootClocks.get(owner)?.started(requestId, at);
 }

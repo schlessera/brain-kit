@@ -126,3 +126,28 @@ test("initial thinking acknowledgement is correlated before an existing session'
   s.frame(1200, { type: "status", status: "idle", hostTurnComplete: true, turnId: "turn-ithaca" });
   expect(s.reports).toEqual([{ type: "client_turn_receipt", turnId: "turn-ithaca", timing: { sendToFirstHostFrameMs: 10 } }]);
 });
+
+test("lifecycle arrivals before identity count as first host frames for deltas and snapshots", () => {
+  for (const type of ["activity_delta", "activity_snapshot"] as const) {
+    const s = scene(); s.send();
+    const lifecycle = { turnId: "turn-ithaca" } as import("@schlessera/brain-ui-sdk/protocol").ActivityTurnLifecycle;
+    s.frame(1005, type === "activity_delta"
+      ? { type, runId: "lifecycle:turn-ithaca", seq: 1, lifecycle }
+      : { type, view: "index", spans: [], events: [], highWaterSeq: {}, lifecycles: [lifecycle] });
+    s.frame(1080, { type: "session_info", isNew: true, requestId: "voyage", turnId: "turn-ithaca", sessionId: "ithaca" });
+    s.frame(1100, { type: "status", status: "idle", hostTurnComplete: true, turnId: "turn-ithaca" });
+    expect(s.reports).toEqual([{ type: "client_turn_receipt", turnId: "turn-ithaca", timing: { sendToFirstHostFrameMs: 5 } }]);
+  }
+});
+
+test("a Send boundary survives snapshot persistence and is not reset by socket dispatch", () => {
+  const s = scene();
+  s.clock.started("voyage", 500);
+  s.send();
+  s.frame(1010, { type: "session_info", isNew: true, requestId: "voyage", turnId: "turn-ithaca", sessionId: "ithaca" });
+  s.frame(1200, { type: "text_delta", text: "Sail at dawn", turnId: "turn-ithaca" });
+  s.frame(1220, { type: "status", status: "idle", hostTurnComplete: true, turnId: "turn-ithaca" });
+  expect(s.reports).toEqual([{ type: "client_turn_receipt", turnId: "turn-ithaca", timing: {
+    sendToFirstHostFrameMs: 510, sendToFirstContentFrameMs: 700, lastContentFrameToIdleMs: 20,
+  } }]);
+});
