@@ -40,12 +40,12 @@ for (const unreadable of ["proc", "members"]) test(`unreadable ${unreadable} tim
     return Reflect.apply(original, fs, [path, ...args]);
   }) as typeof fs.readFileSync);
   try {
-    let freezeResult: boolean | void;
+    let freezeResult: boolean | void = undefined;
     expect(() => { freezeResult = group.freeze(); }, "UNREADABLE_EVIDENCE_CANNOT_FAIL_CONFIRMED_FREEZE").not.toThrow();
     expect(freezeResult).toBeUndefined();
     expect(group.frozen()).toBeUndefined();
     writeFileSync(join(group.path, "cgroup.events"), "frozen 0\n");
-    let resumeResult: boolean | void;
+    let resumeResult: boolean | void = undefined;
     expect(() => { resumeResult = group.resume(); }, "UNREADABLE_EVIDENCE_CANNOT_BLOCK_THAW").not.toThrow();
     expect(resumeResult).toBeUndefined();
     expect(original(join(group.path, "cgroup.freeze"), "utf8")).toBe("0");
