@@ -30,7 +30,7 @@ import { prepareWorkerOutput } from "./worker-output.js";
 import { createWorkerStartupView, isNativeWorkerStartupRoot, type WorkerStartupView } from "./worker-startup-view.js";
 import { consumeNativeMaintenanceMasks, transferNativeMaintenanceMasks, bindNativeMaintenanceExit, bindPreparedWorkerOutputExit, type PreparedWorkerOutput, type WorkerOutputStorage } from "./worker-native-output.js";
 import { workerFilesystemFilter, workerFilesystemFilterRefusal } from "./worker-filesystem-filter.js";
-import { HOST_GIT_CREDENTIAL_ENV, WORKER_PROVIDER_CREDENTIAL_ENV, workerProviderCredentials } from "./subprocess-env.js";
+import { HOST_GIT_CREDENTIAL_ENV, WORKER_PROVIDER_CREDENTIAL_ENV, isHostOnlyEnv, workerProviderCredentials } from "./subprocess-env.js";
 import { INFERENCE_RELAY_PLACEHOLDER, WITHHELD_KEYS_ENV } from "@schlessera/brain-common/internal/provider-unavailable";
 import { PROVIDER_RELAY_SOCKET_ENV } from "@schlessera/brain-common/internal/provider-relay";
 import { PROVIDER_RELAY_KEYS_NAME, PROVIDER_RELAY_SOCKET_NAME, WORKER_PROVIDER_RELAY_SOCKET } from "./provider-relay.js";
@@ -735,6 +735,9 @@ export function workerCommand(input: WorkerLaunch): string[] {
     if (credentials && (key === WITHHELD_KEYS_ENV || WORKER_PROVIDER_CREDENTIAL_ENV.includes(key) && !(input.credentialEnv ?? []).includes(key))) continue;
     // Only the server's own relay may name the socket: never a value carried from the host environment.
     if (key === PROVIDER_RELAY_SOCKET_ENV) continue;
+    // No worker of any kind, transports included, holds a host-only secret or a
+    // GOG_*, BRAIN_UI_GOOGLE_* or BRAIN_GOOGLE_* name (#4206), whatever its caller passed.
+    if (isHostOnlyEnv(key)) continue;
     if (transport || !HOST_GIT_CREDENTIAL_ENV.includes(key)) argv.push("--setenv", key, value);
   }
   // Names only: what the host or this launch had that the worker does not.

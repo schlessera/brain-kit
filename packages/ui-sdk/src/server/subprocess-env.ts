@@ -30,11 +30,39 @@ const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
  * descriptor entry, neither the operator escape hatch nor a per-spawn
  * addition can admit one: the host makes every request that needs it.
  *
+ * The Google credential home, its keyring password and the Google ledger
+ * (#4206) are host-only the same way: the host runs gog itself, and a
+ * worker's own `gog` or `brain google` finds no home, no keyring and no
+ * ledger.
+ *
  * @internal First-party implementation; no compatibility guarantee.
  */
-export const HOST_ONLY_SECRET_ENV: readonly string[] = Object.freeze(["APIFY_TOKEN", "BRAIN_APIFY_LEDGER", "BRAIN_UI_GITHUB_TOOLS_TOKEN", "BRAIN_UI_MODULE_GITHUB_TOKEN"]);
+export const HOST_ONLY_SECRET_ENV: readonly string[] = Object.freeze([
+  "APIFY_TOKEN", "BRAIN_APIFY_LEDGER", "BRAIN_UI_GITHUB_TOOLS_TOKEN", "BRAIN_UI_MODULE_GITHUB_TOKEN",
+  "BRAIN_UI_GOOGLE_HOME", "BRAIN_UI_GOOGLE_KEYRING_PASSWORD", "BRAIN_GOOGLE_LEDGER",
+]);
+/**
+ * Name prefixes no subprocess may receive (#4206, plan
+ * `docs/plans/google-workspace.md` §10): every `GOG_*` name, which gog reads
+ * its home, keyring, account, OAuth client and access token from, and every
+ * `BRAIN_UI_GOOGLE_*` and `BRAIN_GOOGLE_*` name. A `GOG_*` variable set on
+ * the host never reaches a worker, whatever the operator extra says. The
+ * host's own gog process gets an allow-listed environment of its own.
+ *
+ * @internal First-party implementation; no compatibility guarantee.
+ */
+export const HOST_ONLY_ENV_PREFIXES: readonly string[] = Object.freeze(["GOG_", "BRAIN_UI_GOOGLE_", "BRAIN_GOOGLE_"]);
+/**
+ * Whether no subprocess may receive `name`: a host-only secret or a name with
+ * a host-only prefix. Every launch path drops these from what it hands a child.
+ *
+ * @internal First-party implementation; no compatibility guarantee.
+ */
+export function isHostOnlyEnv(name: string): boolean {
+  return HOST_ONLY_SECRET_ENV.includes(name) || HOST_ONLY_ENV_PREFIXES.some(prefix => name.startsWith(prefix));
+}
 const admissible = (name: string) =>
-  ENV_NAME.test(name) && name !== SUBPROCESS_ENV_EXTRA_NAME && !HOST_ONLY_SECRET_ENV.includes(name);
+  ENV_NAME.test(name) && name !== SUBPROCESS_ENV_EXTRA_NAME && !isHostOnlyEnv(name);
 
 /**
  * Environment variables known to the UI server and its agent backends,
@@ -113,6 +141,13 @@ export const SUBPROCESS_ENV = Object.freeze({
   // Host-only: the host GitHub tools' own credential (#3797). The host makes
   // every GitHub tool request; no audience or operator extra admits it.
   BRAIN_UI_GITHUB_TOOLS_TOKEN: NONE,
+  // Host-only: the Google credential home, its keyring password and the
+  // Google ledger (#4206). The host runs gog itself; see HOST_ONLY_SECRET_ENV.
+  BRAIN_UI_GOOGLE_HOME: NONE,
+  BRAIN_UI_GOOGLE_KEYRING_PASSWORD: NONE,
+  BRAIN_GOOGLE_LEDGER: NONE,
+  // The pinned gog binary the host runs (#4206). Not a secret, and no worker needs it.
+  BRAIN_UI_GOG_PATH: NONE,
 
   // Claude profile overrides built by the backend.
   ANTHROPIC_BASE_URL: AGENT,

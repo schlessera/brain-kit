@@ -746,7 +746,7 @@ users, which suits a personal instance. A Google Workspace owner can use an
   with a status reason; it never fails the boot.
 - `BRAIN_UI_GOOGLE_KEYRING_PASSWORD`: host-only. It, the home and
   `BRAIN_GOOGLE_LEDGER` join the host-only list
-  (`HOST_ONLY_SECRET_ENV`, `packages/ui-sdk/src/server/subprocess-env.ts:35`), so
+  (`HOST_ONLY_SECRET_ENV`, `packages/ui-sdk/src/server/subprocess-env.ts:40-43`), so
   no audience or operator extra can admit them.
 - `BRAIN_UI_GOG_PATH`: the pinned binary, which no worker can write.
 - Every `GOG_*` name is stripped from every subprocess audience, so a `GOG_*`
