@@ -47,7 +47,7 @@ test("an isolated preload without receipt libraries never prints raw diagnostic 
  const root=mkdtempSync(join(tmpdir(),"odysseus-isolated-diagnostic-"));
  try{
   mkdirSync(join(root,"scripts"));mkdirSync(join(root,"packages"));
-  writeFileSync(join(root,"package.json"),JSON.stringify({private:true}));copyFileSync(guard,join(root,"scripts/test-native-guard.ts"));copyFileSync(join(import.meta.dir,"../scripts/native-test-receipts.ts"),join(root,"scripts/native-test-receipts.ts"));
+  writeFileSync(join(root,"package.json"),JSON.stringify({private:true}));copyFileSync(guard,join(root,"scripts/test-native-guard.ts"));copyFileSync(join(import.meta.dir,"../scripts/native-test-receipts.ts"),join(root,"scripts/native-test-receipts.ts"));copyFileSync(join(import.meta.dir,"../scripts/native-device-diagnostics.ts"),join(root,"scripts/native-device-diagnostics.ts"));
   const script=join(root,"probe.ts"),secret="odysseus-private-diagnostic-material";
   writeFileSync(script,`const original=Bun.spawnSync;
    Bun.spawnSync=((argv,options)=>argv[0]==="cc"?{exitCode:1,stdout:Buffer.alloc(0),stderr:Buffer.from(process.env.TEST_DIAGNOSTIC_SECRET)}:Reflect.apply(original,Bun,[argv,options]));

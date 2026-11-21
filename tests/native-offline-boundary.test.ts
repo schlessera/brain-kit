@@ -599,6 +599,7 @@ test("workspace SDK discovery works without root resolution and fails closed for
     writeFileSync(join(scratch, "packages/native/package.json"), JSON.stringify({ name: "odysseus-native", dependencies: { "@anthropic-ai/claude-agent-sdk": "*" } }));
     copyFileSync(join(ROOT, "scripts/test-native-guard.ts"), join(scratch, "scripts/test-native-guard.ts"));
     copyFileSync(join(ROOT,"scripts/native-test-receipts.ts"),join(scratch,"scripts/native-test-receipts.ts"));
+    copyFileSync(join(ROOT,"scripts/native-device-diagnostics.ts"),join(scratch,"scripts/native-device-diagnostics.ts"));
     const link = join(scratch, "packages/native/node_modules/@anthropic-ai/claude-agent-sdk");
     symlinkSync(dirname(sdk), link);
     const module = join(scratch, "scripts/test-native-guard.ts");
