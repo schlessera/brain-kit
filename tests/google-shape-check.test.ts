@@ -8,7 +8,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
-  codecVerdict, diffKeyPaths, FIXTURE_DIR, fixtureKeyPaths, keyPaths, liveRead, operationReport, parseShapeCheckArgs, SHAPE_FIXTURES, shapeCheckEnvironment,
+  codecVerdict, diffKeyPaths, FIXTURE_DIR, fixtureKeyPaths, fixturePositions, keyPaths, liveRead, operationReport, parseShapeCheckArgs, SHAPE_FIXTURES, shapeCheckEnvironment,
   shapeCheckRefusal, shapePath, type ShapeOperation,
 } from "../scripts/google-shape-check";
 import { createFakeGog, type FakeGog } from "../packages/common/tests/support/fake-gog";
@@ -218,6 +218,28 @@ describe("the codec's verdict", () => {
     expect((await operationReport("gmail.message.get", { exit: 0, end: "exit", json: { ...json, unsubscribe: 7 } })).codec)
       .toEqual({ refused: "transport_incompatible", at: "$.unsubscribe" });
     expect(await operationReport("gmail.thread.get", { exit: 5, end: "exit", json: null })).toEqual({ exit: 5, end: "exit" });
+  });
+
+  test("a live answer names a key only inside an object the fixtures have at that place, accepted or refused", async () => {
+    // Label names as keys where the fixtures have an array: refused, and no key shown, though `draft` and `subject` are structural names elsewhere.
+    const refused = await operationReport("gmail.labels.list", { exit: 0, end: "exit", json: { labels: { draft: 3, subject: 1, Penelope: 2 } } });
+    expect(refused).toMatchObject({ live: ["$.labels.<key>: number"], codec: { refused: "transport_incompatible", at: "$.labels" } });
+    // A Gmail resource's unknown field is accepted and ignored, so an accepted answer can hold a map too: none of its keys is shown.
+    const labels = fixture("labels-list.json");
+    labels.labels[0].counts = { draft: 3, subject: 1 };
+    labels.labels[1].messagesTotal = 4;
+    const accepted = await operationReport("gmail.labels.list", { exit: 0, end: "exit", json: labels });
+    expect(accepted.codec).toBe("accepted");
+    // A new structural field where the fixtures have an object is still named: the difference the check exists to show.
+    expect(accepted.only_live).toEqual(["$.labels[].<key>.<key>: number", "$.labels[].messagesTotal: number"]);
+    for (const report of [refused, accepted]) {
+      const shown = JSON.stringify(report);
+      for (const key of ["draft", "subject", "Penelope"]) expect(shown, key).not.toContain(key);
+    }
+    // An answer shaped like the fixtures loses no name: every place it has an object, they have one.
+    for (const [operation, names] of Object.entries(SHAPE_FIXTURES) as [ShapeOperation, readonly string[]][]) {
+      for (const name of names) expect(keyPaths(fixture(name), fixturePositions(operation)), name).toEqual(keyPaths(fixture(name)));
+    }
   });
 });
 

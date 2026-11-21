@@ -8,8 +8,19 @@
  * transport's own codec's verdict on the answer: `codec: "accepted"`, or
  * `codec: {refused: <code>, at: <key path>}`. No value, no id and no stderr
  * is ever printed, and a key is printed only when it is one of the
- * structural names gog and Gmail use (`GOG_KEY_NAMES`, codecs.ts), so the
- * output can be pasted into a PR after `bun scripts/check-leakage.ts`.
+ * structural names gog and Gmail use (`GOG_KEY_NAMES`, codecs.ts) and sits
+ * in an object where the fixtures have an object too, so the output can be
+ * pasted into a PR after `bun scripts/check-leakage.ts`.
+ *
+ * The second condition is what keeps data out. A map's keys are data (a
+ * label's name, say), and some will be structural words: a label named
+ * `draft`. A map sits where the fixtures have something else (an array, a
+ * number, nothing), so its keys are `<key>`, whether the codec refuses the
+ * answer or accepts it, as it does a map under a field it ignores inside a
+ * Gmail resource. A new field where the fixtures have an object is still
+ * named, which is the difference the check exists to show. The codec's own
+ * error path names a key only in an envelope it reads, which is such an
+ * object by construction.
  *
  *   bun scripts/google-shape-check.ts --gog <gog binary> --account <alias> [--home <gog home>] [--query <gmail query>]
  *
@@ -45,15 +56,21 @@ export type ShapeOperation = keyof typeof SHAPE_FIXTURES;
 
 const typeOf = (value: unknown) => value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
 
+/** A path in key-path form: a MIME part tree's nesting collapses to `parts[]*`. */
+const collapse = (at: string) => at.replace(/(?:\.parts\[\])+/g, ".parts[]*");
+
 /**
  * Every key path of a JSON value with its leaf type, sorted and unique:
  * `$.thread.messages[].payload.parts[]*.body.data: string`. Arrays collapse
- * to `[]`, a MIME part tree's nesting to `parts[]*`, and a key that is not
- * one of `GOG_KEY_NAMES` (so could be data) to `<key>`. Never a value.
+ * to `[]` and a MIME part tree's nesting to `parts[]*`. A key is named only
+ * when it is one of `GOG_KEY_NAMES` and, given `positions`, only in an object
+ * at one of them; any other key is `<key>`, and so is every key below it.
+ * Never a value. A live answer is always read with the fixtures' positions
+ * ({@link fixturePositions}); the fixtures themselves are read without.
  */
-export function keyPaths(value: unknown, path = "$"): string[] {
+export function keyPaths(value: unknown, positions?: ReadonlySet<string>): string[] {
   const out = new Set<string>();
-  const add = (at: string, type: string) => out.add(`${at.replace(/(?:\.parts\[\])+/g, ".parts[]*")}: ${type}`);
+  const add = (at: string, type: string) => out.add(`${collapse(at)}: ${type}`);
   const visit = (node: unknown, at: string) => {
     if (Array.isArray(node)) {
       if (node.length === 0) add(at, "[]");
@@ -61,17 +78,35 @@ export function keyPaths(value: unknown, path = "$"): string[] {
     } else if (node !== null && typeof node === "object") {
       const entries = Object.entries(node);
       if (entries.length === 0) add(at, "{}");
-      for (const [key, child] of entries) visit(child, `${at}.${GOG_KEY_NAMES.has(key) ? key : "<key>"}`);
+      const known = !positions || positions.has(collapse(at));
+      for (const [key, child] of entries) visit(child, `${at}.${known && GOG_KEY_NAMES.has(key) ? key : "<key>"}`);
     } else {
       add(at, typeOf(node));
     }
   };
-  visit(value, path);
+  visit(value, "$");
   return [...out].sort();
 }
 
+const readFixture = (dir: string, name: string): unknown => JSON.parse(readFileSync(join(dir, name), "utf8"));
+
 export function fixtureKeyPaths(operation: ShapeOperation, dir = FIXTURE_DIR): string[] {
-  return [...new Set(SHAPE_FIXTURES[operation].flatMap(name => keyPaths(JSON.parse(readFileSync(join(dir, name), "utf8")))))].sort();
+  return [...new Set(SHAPE_FIXTURES[operation].flatMap(name => keyPaths(readFixture(dir, name))))].sort();
+}
+
+/** Every place the fixtures have an object, reached through structural names only, in key-path form: where a live answer's keys may be named. */
+export function fixturePositions(operation: ShapeOperation, dir = FIXTURE_DIR): Set<string> {
+  const out = new Set<string>();
+  const visit = (node: unknown, at: string) => {
+    if (Array.isArray(node)) {
+      for (const item of node) visit(item, `${at}[]`);
+    } else if (node !== null && typeof node === "object") {
+      out.add(collapse(at));
+      for (const [key, child] of Object.entries(node)) if (GOG_KEY_NAMES.has(key)) visit(child, `${at}.${key}`);
+    }
+  };
+  for (const name of SHAPE_FIXTURES[operation]) visit(readFixture(dir, name), "$");
+  return out;
 }
 
 export function diffKeyPaths(live: readonly string[], fixtures: readonly string[]): { only_live: string[]; only_fixtures: string[] } {
@@ -128,7 +163,7 @@ export interface ShapeAnswer {
 /** One operation's report: the key paths, their difference from the fixtures', and the codec's verdict. */
 export async function operationReport(operation: ShapeOperation, answer: ShapeAnswer, dir = FIXTURE_DIR): Promise<Record<string, unknown>> {
   if (answer.json === null) return { exit: answer.exit, end: answer.end };
-  const live = keyPaths(answer.json);
+  const live = keyPaths(answer.json, fixturePositions(operation, dir));
   return { exit: answer.exit, live, ...diffKeyPaths(live, fixtureKeyPaths(operation, dir)), codec: await codecVerdict(operation, answer.json) };
 }
 
