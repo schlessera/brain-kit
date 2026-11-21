@@ -1,3 +1,4 @@
+import { routineMaintenanceRequest, maintenanceResult, captureMaintenanceStdout, type MaintenanceGitPublication } from "./maintenance-git-publication.js";
 import { protectedPaths } from "@schlessera/brain-common/internal/protected-paths";
 /**
  * The host execution boundary (#1648; docs/decisions/governed-writable-workers.md,
@@ -120,6 +121,8 @@ export interface ExecutionResult {
   exitCode: number;
   /** A maintenance worker killed at its deadline (an abort throws instead). */
   timedOut?: boolean;
+  /** Host-owned routine-maintenance publication result; independent of output mode. */
+  gitPublication?: MaintenanceGitPublication;
 }
 
 export interface StreamingExecution {
@@ -134,6 +137,8 @@ export interface StreamingExecution {
    */
   settled?: Promise<void>;
   readonly signalCode: string | null;
+  /** Settled before exited; cron records this optional result in Activity. */
+  readonly gitPublication?: MaintenanceGitPublication;
   kill(signal?: NodeJS.Signals): void;
 }
 
@@ -360,7 +365,7 @@ function retainExecutionAdmission(execution: StreamingExecution,
   // Settled once this admission is released too, and whatever the launch itself still held.
   const settled = Promise.allSettled([released, execution.settled]).then(() => {});
   return { stdout: stdout.stream, stderr: stderr.stream, exited: execution.exited, settled,
-    get signalCode() { return execution.signalCode; }, kill: execution.kill };
+    get signalCode() { return execution.signalCode; }, get gitPublication(){return execution.gitPublication;}, kill: execution.kill };
 }
 /**
  * The server's own installation, read-only: this package with the
@@ -685,18 +690,23 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
               execution.signal?.throwIfAborted();
               outputs = await prepareMaintenanceOutput(brain, { startupView: view, folderPaths: hold?.folderPaths, signal: execution.signal, areas: execution.outputAreas });
               relay = providerRelayFor(execution);
-              const launch = command(execution, undefined, relay);
+              const routine = routineMaintenanceRequest(execution.argv);
+              const launch = command(routine ? {...execution,argv:routine.argv} : execution, undefined, relay);
               const git = await prepareMaintenanceGit(launch, outputs, execution.signal, options.log);
               execution.signal?.throwIfAborted(); execution.assertAuthorized?.();
               const result = await runMaintenanceWorker({ ...launch, startupView: outputs.view, output: outputs.output, ...(git ? { git } : {}), stdin: execution.stdin,
                 ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}), ...(execution.outputBytes ? { outputBytes: execution.outputBytes } : {}) },
               () => { execution.assertAuthorized?.(); execution.onExecute?.(); });
+              const report=routine?maintenanceResult(result.exitCode,result.stdout,routine.human):undefined;
+              const reason=result.killed?"maintenance_interrupted":execution.publish===false?"publication_disabled":report?.reason??null;
+              if (report ? reason!==null : execution.maintenanceKind === "git" && result.exitCode !== 0) outputs.discardGit();
               if (!result.killed && execution.publish !== false) {
                 execution.assertAuthorized?.();
                 if (execution.lock) await outputs.publishLocked(execution.lock.keyed);
                 else await outputs.publish();
               }
-              return { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode, ...(result.killed ? { timedOut: true } : {}) };
+              return { stdout: report?.stdout??result.stdout, stderr: result.stderr, exitCode: result.exitCode, ...(result.killed ? { timedOut: true } : {}),
+                ...(report?{gitPublication:{state:reason?"discarded" as const:"published" as const,reason}}:{}) };
             } finally { await relay?.stop(); try { await outputs?.cleanup(); } finally { await view.cleanup(); } }
           };
           return outputLock.withLock(brain, () => execution.lock
@@ -764,6 +774,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
             kill(signal: NodeJS.Signals = "SIGTERM") { signalCode = signal; abort.abort(new Error(`sync killed by ${signal}`)); } };
         } catch (error) { try { releaseOutput(); } finally { try { credential?.release(); } finally { hold?.release(); } } throw error; }
       }
+      const routine = routineMaintenanceRequest(execution.argv);
       let worker: Awaited<ReturnType<typeof launchMaintenanceWorkerAsync>>;
       let outputs: Awaited<ReturnType<typeof prepareMaintenanceOutput>> | undefined;
       let view: WorkerStartupView | undefined;
@@ -774,7 +785,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         execution.signal?.throwIfAborted();
         outputs = await prepareMaintenanceOutput(brain, { startupView: view, folderPaths: hold?.folderPaths, signal: execution.signal, areas: execution.outputAreas });
         relay = providerRelayFor(execution);
-        const launch = command(execution, undefined, relay);
+        const launch = command(routine ? {...execution,argv:routine.argv} : execution, undefined, relay);
         const git = await prepareMaintenanceGit(launch, outputs, execution.signal, options.log);
         execution.signal?.throwIfAborted();
         const maintenance = { ...launch, startupView: outputs.view, output: outputs.output, ...(git ? { git } : {}) };
@@ -786,14 +797,20 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       catch (error) { await relay?.stop(); try { await outputs?.cleanup(); } finally { try { await view?.cleanup(); } finally { try { releaseOutput(); } finally { try { credential?.release(); } finally { hold?.release(); } } } } throw error; }
       void worker.input(execution.stdin ?? "");
       let signalCode: string | null = null;
+      const report = routine ? captureMaintenanceStdout(worker.stdout) : undefined;
+      let gitPublication:MaintenanceGitPublication|undefined;
       const exited = worker.exited.then(async code => {
+        const completed=await report?.finish(code,routine!.human);
+        const reason=signalCode?"maintenance_interrupted":execution.publish===false?"publication_disabled":completed?.reason??null;
+        if (completed ? reason!==null : execution.maintenanceKind === "git" && code !== 0) outputs!.discardGit();
         if (!signalCode && execution.publish !== false) {
           if (execution.lock) await outputs!.publishLocked(execution.lock.keyed);
           else await outputs!.publish();
         }
+        if(completed){gitPublication={state:reason?"discarded":"published",reason};report!.send(completed.stdout);}
         return code;
-      })
-        .finally(async () => { await relay?.stop(); try { await outputs!.cleanup(); } finally { await view!.cleanup(); } });
+      }).catch(error=>{report?.fail(error);throw error;})
+        .finally(async () => { report?.cancel(); await relay?.stop(); try { await outputs!.cleanup(); } finally { await view!.cleanup(); } });
       // The launch settles, freeing its output slot and gate hold, only once no
       // descriptor on the worker's stdio is open here, Bun's own duplicates
       // included (#2863). That waits behind `exited`, never inside it: a caller
@@ -805,7 +822,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       execution.signal?.addEventListener("abort", () => kill("SIGKILL"), { once: true });
       // An abort accepted while the launch was awaited still stops the worker.
       if (execution.signal?.aborted) kill("SIGKILL");
-      return retainExecutionAdmission({ stdout: worker.stdout, stderr: worker.stderr, exited, settled, get signalCode() { return signalCode; }, kill }, credential);
+      return retainExecutionAdmission({ stdout: report?.stream ?? worker.stdout, stderr: worker.stderr, exited, settled, get signalCode() { return signalCode; }, get gitPublication(){return gitPublication;}, kill }, credential);
     },
     async runSync(execution) {
       if (execution.credentials) throw new Error("Credentialed maintenance requires asynchronous execution.");

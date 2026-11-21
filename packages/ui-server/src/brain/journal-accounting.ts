@@ -2,7 +2,7 @@ import type { JournalRecoveryStatus } from "@schlessera/brain-ui-sdk/protocol";
 import type { Database } from "bun:sqlite";
 import { realpathSync, statSync } from "node:fs";
 import { resolve } from "node:path";
-import { attachJournalDatabase, JOURNAL_CHANGE_PATH_INDEX, JOURNAL_CONFLICT_TABLES, JOURNAL_CONFLICT_GUARDS, JOURNAL_MIGRATIONS_TABLE, JOURNAL_OBJECT_REFS_INDEX, JOURNAL_SCHEMA, journalDatabasePath } from "../db/journal-database.js";
+import { attachJournalDatabase, JOURNAL_CHANGE_PATH_INDEX, JOURNAL_CONFLICT_TABLES, JOURNAL_CONFLICT_GUARDS, JOURNAL_MIGRATIONS_TABLE, JOURNAL_OBJECT_REFS_INDEX, JOURNAL_SCRUB_QUARANTINE, JOURNAL_SCRUB_GUARDS, JOURNAL_SCHEMA, journalDatabasePath } from "../db/journal-database.js";
 import { JournalCapacityError, type JournalObjectAccounting } from "./journal-objects.js";
 import { processAlive, SELF } from "./writer-gate.js";
 
@@ -44,6 +44,7 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
   usage(): number;
   /** Admitted, retryable schema upgrade; false leaves integrity-checked collection usable. */
   ensureObjectRefIndex(): boolean;
+  ensureScrubQuarantine(): boolean;
   ensureChangePathIndex(): boolean;
   ensureConflictTables(): boolean;
   openRead(hash: string, assertOwner?: () => void): string;
@@ -75,6 +76,7 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
    * pages it released and page 1. So the measurement is the file's extent,
    * read without walking anything.
    */
+  const scrubSchemaExists=()=>Boolean(db.query(`SELECT 1 FROM ${JOURNAL_SCHEMA}.sqlite_schema WHERE type='table' AND name=?`).get(JOURNAL_SCRUB_QUARANTINE.name));
   function measure(additionalPages = 0) {
     const logicalPages = (db.query(`PRAGMA ${JOURNAL_SCHEMA}.page_count`).get() as { page_count: number }).page_count;
     const free = (db.query(`PRAGMA ${JOURNAL_SCHEMA}.freelist_count`).get() as { freelist_count: number }).freelist_count;
@@ -86,8 +88,9 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
     const walCapacity = memory ? 0 : 32 + (pages + Math.ceil(pages / (pageSize / 4 - 2))) * (pageSize + 24);
     const physical = memory ? 0 : pages * pageSize;
     const objects = (db.query("SELECT coalesce(sum(bytes),0) AS bytes FROM turn_journal_objects WHERE state='present'").get() as { bytes: number }).bytes;
+    const quarantined = scrubSchemaExists() ? (db.query("SELECT coalesce(sum(bytes),0) AS bytes FROM turn_journal_scrub_quarantine").get() as { bytes: number }).bytes : 0;
     const pending = (db.query("SELECT coalesce(sum(bytes),0) AS bytes FROM turn_journal_reservations").get() as { bytes: number }).bytes;
-    return { pages, free, walCapacity, bytes: physical + walCapacity + objects + pending };
+    return { pages, free, walCapacity, bytes: physical + walCapacity + objects + pending + quarantined };
   }
   class CheckpointRace extends Error {}
   class WalDebt extends Error {}
@@ -223,6 +226,30 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
       return false;
     }
   }
+  /** Like the reference index, optional scrub DDL is quota-admitted, not a
+   * boot migration. Eight pages cover the table, primary-key index, schema and
+   * pointer maps; reserve their FULL WAL too, then verify before commit.
+   */
+  const scrubSchemaReady=()=>scrubSchemaExists()&&(db.query("SELECT count(*) AS n FROM journal.sqlite_schema WHERE type='trigger' AND name IN (SELECT value FROM json_each(?))").get(JSON.stringify(JOURNAL_SCRUB_GUARDS.map(guard=>guard.name))) as {n:number}).n===JOURNAL_SCRUB_GUARDS.length;
+  function ensureScrubQuarantine(): boolean {
+    if(scrubSchemaReady())return true;
+    try {
+      write(()=>{
+        if(scrubSchemaReady())return;
+        const pages=8,before=measure(),projected=measure(pages),debt=wal();
+        if(projected.bytes+debt>cap){if(debt>0)throw new WalDebt();throw new JournalCapacityError();}
+        if(!scrubSchemaExists())db.exec(JOURNAL_SCRUB_QUARANTINE.sql);
+        for(const guard of JOURNAL_SCRUB_GUARDS)if(!db.query("SELECT 1 FROM journal.sqlite_schema WHERE type='trigger' AND name=?").get(guard.name))
+          db.exec(guard.sql.replace("CREATE TRIGGER ","CREATE TRIGGER journal."));
+        installEscapeGuard(db);
+        if(measure().pages>before.pages+pages)throw new JournalCapacityError("The scrub schema exceeded its admitted page allowance.");
+      });
+      return true;
+    }catch(error){
+      if(!(error instanceof JournalCapacityError||error instanceof JournalStorageUnavailable))throw error;
+      return false;
+    }
+  }
   // While the server starts, truncate and return the pages released before
   // the last stop to the file system, as one admitted FULL write. A pinned
   // WAL or an over-cap store leaves this to the first write, which refuses
@@ -233,7 +260,7 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
     if (!memory) db.query(`PRAGMA ${JOURNAL_SCHEMA}.wal_checkpoint(TRUNCATE)`).get();
   } catch (error) { if (!(error instanceof JournalStorageUnavailable || error instanceof JournalCapacityError)) throw error; }
   return {
-    write, usage,
+    write, usage, ensureScrubQuarantine,
     ensureConflictTables() {
       const row = db.query("SELECT count(*) AS n FROM journal.sqlite_schema WHERE type='table' AND name IN ('turn_journal_path_peers','turn_journal_path_conflicts')").get() as { n: number };
       const guards = db.query("SELECT count(*) AS n FROM journal.sqlite_schema WHERE type='trigger' AND name IN (SELECT value FROM json_each(?))").get(JSON.stringify(JOURNAL_CONFLICT_GUARDS.map(guard => guard.name))) as { n: number };
@@ -272,33 +299,11 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
     recover(objects) {
       const report: JournalRecoveryStatus = { unresolvedRecords: 0, firstCause: null };
       const rows = db.query("SELECT * FROM turn_journal_reservations").all() as { id: string; hash: string; bytes: number; pid: number; pid_start: string; kind: string; recovery_failure: string | null }[];
-      for (const row of rows) {
-        if (processAlive(row.pid, row.pid_start)) continue;
-        if (row.kind === "read") { write(() => db.query("DELETE FROM turn_journal_reservations WHERE id=?").run(row.id)); continue; }
-        if (row.kind === "temporary") {
-          write(() => {
-            const current = db.query("SELECT pid,pid_start FROM turn_journal_reservations WHERE id=? AND kind='temporary'").get(row.id) as { pid: number; pid_start: string } | null;
-            if (!current || processAlive(current.pid, current.pid_start)) return;
-            objects.discardPending(row.id);
-            db.query("DELETE FROM turn_journal_reservations WHERE id=? AND kind='temporary'").run(row.id);
-          });
-          continue;
-        }
-        let published = false, corrupt: unknown;
-        try {
-          // Retire the dead reservation's exact temporary name before checking
-          // the digest: a crash may have left these as two links to one inode.
-          // This is physical cleanup of the dead owner's temporary name, not
-          // a ledger commit. Releasing its charge and publishing its durable
-          // state below must be one admission, even when that charge is over cap.
-          objects.discardPending(row.id);
-          published = objects.has(row.hash);
-          if (published && !objects.verify(row.hash, row.bytes)) corrupt = new Error("Published interrupted object failed integrity verification");
-        } catch (error) {
+      const recordFailure=(row:typeof rows[number],error:unknown)=>{
           // An I/O refusal proves neither existence nor corruption. Keep the
           // reservation and its state untouched for the next recovery pass.
           const fresh: NonNullable<JournalRecoveryStatus["firstCause"]> = {
-            reservationId: row.id, hash: row.hash, site: "journal-accounting.recover", at: Date.now(),
+            reservationId: row.id, hash: row.hash ?? "", site: "journal-accounting.recover", at: Date.now(),
             errorClass: error instanceof Error ? error.name : "Error", message: (error instanceof Error ? error.message : String(error)).slice(0, 2000) };
           // A damaged stored cause is a diagnostic, never a boot refusal.
           let stored: unknown;
@@ -318,7 +323,30 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
           if (!report.firstCause || cause.at < report.firstCause.at) report.firstCause = cause;
           process.stderr.write(JSON.stringify({ kind: "journal_object_recovery_pending", ...cause,
             ...(cause !== fresh ? { currentErrorClass: fresh.errorClass, currentError: fresh.message } : {}), ...(diagnosticError ? { diagnosticError } : {}) }) + "\n");
+      };
+      for (const row of rows) {
+        try {
+        if (processAlive(row.pid, row.pid_start)) continue;
+        if (row.kind === "read") { write(() => db.query("DELETE FROM turn_journal_reservations WHERE id=?").run(row.id)); continue; }
+        if (row.kind === "temporary") {
+          write(() => {
+            const current = db.query("SELECT pid,pid_start FROM turn_journal_reservations WHERE id=? AND kind='temporary'").get(row.id) as { pid: number; pid_start: string } | null;
+            if (!current || processAlive(current.pid, current.pid_start)) return;
+            objects.discardPending(row.id);
+            db.query("DELETE FROM turn_journal_reservations WHERE id=? AND kind='temporary'").run(row.id);
+          });
           continue;
+        }
+        let published = false, corrupt: unknown;
+        {
+          // Retire the dead reservation's exact temporary name before checking
+          // the digest: a crash may have left these as two links to one inode.
+          // This is physical cleanup of the dead owner's temporary name, not
+          // a ledger commit. Releasing its charge and publishing its durable
+          // state below must be one admission, even when that charge is over cap.
+          objects.discardPending(row.id);
+          published = objects.has(row.hash);
+          if (published && !objects.verify(row.hash, row.bytes)) corrupt = new Error("Published interrupted object failed integrity verification");
         }
         let quarantined = false;
         write(() => {
@@ -356,6 +384,7 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
         });
         if (quarantined) process.stderr.write(JSON.stringify({ kind: "journal_object_quarantined", hash: row.hash, site: "journal-accounting.recover", at: Date.now(),
           errorClass: corrupt instanceof Error ? corrupt.name : "Error", message: corrupt instanceof Error ? corrupt.message : String(corrupt) }) + "\n");
+        }catch(error){recordFailure(row,error);}
       }
       return report;
     },

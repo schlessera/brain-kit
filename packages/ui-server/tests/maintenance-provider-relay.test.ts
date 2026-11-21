@@ -6,7 +6,7 @@
  * key, and each request is metered against the turn that started the run, or
  * its day. The upstream is a fictional loopback Gemini endpoint the operator lists.
  */
-import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createNativeBrainManagerClient, type ProviderRelayReceipt } from "@schlessera/brain-ui-sdk/internal";
@@ -71,7 +71,7 @@ async function execute(host: ReturnType<typeof createHostBoundary>, method: "run
   return { stdout, stderr, exitCode };
 }
 
-const hostEnv = () => ({ PATH: "/usr/bin:/bin", BRAIN_ROOT: brain, ...HOST_KEYS });
+const hostEnv = () => ({ PATH: "/usr/bin:/bin", BRAIN_ROOT: brain, ...HOST_KEYS, GOOGLE_GEMINI_BASE_URL: upstream.url.origin });
 const search = (turnId?: string): BrainExecution => ({ argv: [process.execPath, BRAIN_CLI, "search", "Ithaca harbour", "--json"],
   env: { ...hostEnv(), GOOGLE_GEMINI_BASE_URL: upstream.url.origin }, credentials: true, gate: "shared", purpose: "Odysseus maintenance search",
   ...(turnId ? { turnId } : {}) });
@@ -138,3 +138,90 @@ test("a built-in key outside the run's own environment is neither released nor n
     expect(result.stdout.trim(), "MAINTENANCE_AUDIENCE_BOUNDS_RELAYED_KEYS").toBe("GEMINI_API_KEY,OPENAI_API_KEY");
   } finally { if (saved) Object.defineProperty(process.env, "ANTHROPIC_API_KEY", saved); else delete process.env.ANTHROPIC_API_KEY; }
 });
+
+// Force Git to write two temporary outputs before refusing, so the publication
+// assertion remains meaningful even after conservative headroom was added.
+test("failed hosted packing publishes no Git files while ordinary index output publishes",async()=>{
+  const {readdirSync,readFileSync,statSync}=await import("node:fs");
+  const realGit=Bun.which("git")!;
+  const git=(...args:string[])=>{
+    const child=Bun.spawnSync([realGit,"-C",brain,...args],{stdout:"pipe",stderr:"pipe"});
+    expect(child.exitCode,child.stderr.toString()).toBe(0);return child.stdout.toString();
+  };
+  git("init","-q");
+  const pack=join(brain,".git/objects/pack");
+  const before=readdirSync(pack).sort();
+  const note=join(brain,"notes/ithaca.md");
+  writeFileSync(note,readFileSync(note,"utf8")+"\nAthena reviews the departure.\n");
+  const index=join(brain,".brain-index/brain.db");
+  const indexBefore=statSync(index).mtimeMs;
+  const bin=join(ROOT,"tmp/failed-pack-bin-"+crypto.randomUUID());mkdirSync(bin);
+  writeFileSync(join(bin,"git"),`#!/bin/sh
+for arg in "$@"; do
+ if [ "$arg" = maintenance ]; then
+   data=""; next=""
+   for part in "$@"; do
+     if [ "$next" = yes ]; then data="$part"; next=""; fi
+     if [ "$part" = -C ]; then next=yes; fi
+   done
+   printf partial > "$data/.git/objects/pack/tmp_pack_Ithaca"
+   printf companion > "$data/.git/objects/pack/tmp_pack_Athena"
+   printf completed-first-task > "$data/.git/objects/pack/pack-0000000000000000000000000000000000000000.pack"
+   echo 'fatal: Out of diskspace (ITHACA_PACK_REFUSAL_INJECTED)' >&2
+   exit 128
+ fi
+done
+exec '${realGit}' "$@"
+`,{mode:0o755});
+  const which=Bun.which;
+  const selectedGit=spyOn(Bun,"which").mockImplementation((name,options)=>name==="git"?join(bin,"git"):which(name,options));
+  try {
+    const {host}=boundary();
+    const result=await host.run({argv:[process.execPath,BRAIN_CLI,"maintain","--json"],env:hostEnv(),credentials:true,gate:"exclusive",purpose:"Odysseus failed packing"});
+    expect(JSON.parse(result.stdout).find((row:{step:string})=>row.step==="git").result,"PACK_REFUSAL_INJECTION_EXECUTED").toStartWith("FAILED — no space: git packing ran out of space");
+    expect(readdirSync(pack).sort(),"FAILED_PACK_PUBLISHES_NO_GIT_FILES").toEqual(before);
+    expect(JSON.parse(result.stdout).find((row:{step:string})=>row.step==="index").result,"FAILED_PACK_INDEX_PUBLISHED").toContain("ok —");
+    expect(statSync(index).mtimeMs,"FAILED_PACK_INDEX_BYTES_PUBLISHED").toBeGreaterThan(indexBefore);
+    expect(result.exitCode).toBe(2);
+  }finally{selectedGit.mockRestore();rmSync(bin,{recursive:true,force:true});}
+});
+
+for(const method of ["run","launch"] as const) {
+ test(`a nonzero maintain ${method} conservatively discards Git while publishing index output`,async()=>{
+  const {existsSync,readFileSync,statSync}=await import("node:fs");
+  const git=(...args:string[])=>Bun.spawnSync(["git","-C",brain,...args],{stdout:"pipe",stderr:"pipe"});
+  expect(git("init","-q").exitCode).toBe(0);
+  const blob=Bun.spawnSync(["git","-C",brain,"hash-object","-w","--stdin"],{stdin:Buffer.from(`Athena ${method}`),stdout:"pipe",stderr:"pipe"});expect(blob.exitCode).toBe(0);
+  const hash=blob.stdout.toString().trim(),loose=join(brain,".git/objects",hash.slice(0,2),hash.slice(2));
+  expect(git("update-ref",`refs/athena/${method}`,hash).exitCode).toBe(0);
+  const index=join(brain,".brain-index/brain.db"),indexBefore=statSync(index).mtimeMs;
+  const note=join(brain,"notes/ithaca.md");writeFileSync(note,readFileSync(note,"utf8")+`\nAthena checks ${method}.\n`);
+  rmSync(join(brain,".brain"),{recursive:true,force:true});writeFileSync(join(brain,".brain"),"Scratch cannot be a file.");
+  try {
+   mkdirSync(join(brain,"scripts"),{recursive:true});writeFileSync(join(brain,"scripts/brain-cli.ts"),`await import(${JSON.stringify(BRAIN_CLI)});`);
+   const {host}=boundary();
+   const argv=method==="launch"?["bun","scripts/brain-cli.ts","maintain","--json"]:[process.execPath,BRAIN_CLI,"maintain","--json"];
+   const result=await execute(host,method,{argv,env:hostEnv(),credentials:true,gate:"exclusive",purpose:"Odysseus independent maintenance"});
+   const report=JSON.parse(result.stdout);expect(report.find((row:{step:string})=>row.step==="git").result,"GIT_SUCCEEDS_DESPITE_SCRATCH").toStartWith("ok — packed ");
+   expect(report.find((row:{step:string})=>row.step==="scratch").result).toStartWith("FAILED");expect(result.exitCode).toBe(2);
+   expect(existsSync(loose),"NONZERO_MAINTAIN_DISCARDS_GIT").toBe(true);
+   expect(git("cat-file","-e",hash).exitCode).toBe(0);expect(statSync(index).mtimeMs,"NONZERO_MAINTAIN_PUBLISHES_INDEX").toBeGreaterThan(indexBefore);
+  }finally{rmSync(join(brain,".brain"),{recursive:true,force:true});}
+ });
+ test(`headroom skip ${method} publishes no frozen Git objects`,async()=>{
+  const {readFileSync,readdirSync}=await import("node:fs");
+  const snapshot=(prefix=""):string[]=>readdirSync(join(brain,".git",prefix),{withFileTypes:true}).flatMap(entry=>entry.isDirectory()?snapshot(prefix+entry.name+"/"):[prefix+entry.name+":"+readFileSync(join(brain,".git",prefix,entry.name)).toString("hex")]).sort();
+  expect(Bun.spawnSync(["git","-C",brain,"init","-q"]).exitCode).toBe(0);
+  // Force a new frozen attribute blob even if an earlier successful pack
+  // already published the empty attributes tree.
+  const attributes=`notes/ithaca.md -diff\n# Ithaca ${method}\n`;writeFileSync(join(brain,".gitattributes"),attributes);
+  const blob=Bun.spawnSync(["git","-C",brain,"hash-object","--stdin"],{stdin:Buffer.from(attributes),stdout:"pipe",stderr:"pipe"});expect(blob.exitCode).toBe(0);
+  expect(Bun.spawnSync(["git","-C",brain,"cat-file","-e",blob.stdout.toString().trim()],{stdout:"pipe",stderr:"pipe"}).exitCode,"SKIP_FIXTURE_LACKS_FROZEN_ATTRIBUTE_BLOB").not.toBe(0);
+  const before=snapshot(),saved=process.env.BRAIN_UI_OUTPUT_STAGING_BYTES;process.env.BRAIN_UI_OUTPUT_STAGING_BYTES=String(4*1024*1024);
+  try {
+   const {host}=boundary();const result=await execute(host,method,{argv:[process.execPath,BRAIN_CLI,"maintain","--json"],env:hostEnv(),credentials:true,gate:"exclusive",purpose:"Odysseus skipped packing"});
+   expect(JSON.parse(result.stdout).find((row:{step:string})=>row.step==="git").result,"HOSTED_HEADROOM_SKIP_EXECUTED").toStartWith("skipped — packing_headroom");
+   expect(snapshot(),"SKIPPED_GIT_PUBLISHES_NO_SCAFFOLD_OBJECTS").toEqual(before);
+  }finally{if(saved===undefined)delete process.env.BRAIN_UI_OUTPUT_STAGING_BYTES;else process.env.BRAIN_UI_OUTPUT_STAGING_BYTES=saved;rmSync(join(brain,".gitattributes"),{force:true});}
+ });
+}

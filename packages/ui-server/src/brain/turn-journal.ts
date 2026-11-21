@@ -1,3 +1,6 @@
+import { startCronSpan } from "../cron/activity.js";
+import type { JournalScrubResult } from "./journal-scrub.js";
+import { FINISH_REFERENCE_CLEANUP } from "./journal-reference-cleanup.js";
 import type { ActivityTurnHold } from "@schlessera/brain-ui-sdk/protocol";
 /** Concrete host journal: observations, durable ownership and completed-turn collection. */
 import type { CodeChangeReceipt, JournalRecoveryStatus } from "@schlessera/brain-ui-sdk/protocol";
@@ -583,10 +586,36 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   let maintaining: Promise<void> | undefined, idleTimer: ReturnType<typeof setInterval> | undefined, closing = false;
   // Closing abandons an idle pass rather than waiting for its native work.
   const shutdown = new AbortController();
+  async function scrub(): Promise<JournalScrubResult> {
+    const span = startCronSpan(db, cleanupActivity, "journal-scrub");
+    try {
+      const result = active.size || holds
+        ? { state: "skipped" as const, reason: "journal_busy" as const, listed: 0, unaccounted: 0, unaccountedBytes: 0, corrupt: 0, corruptBytes: 0, quarantined: 0, quarantinedBytes: 0, pending: 0, pendingBytes: 0 }
+        : await call<JournalScrubResult>("scrubObjects");
+      await cleanupActivity.appendEvent(span.rootSpanId, "journal_scrub", result);
+      await cleanupActivity.endSpan(span.rootSpanId, { outcome: "success", attrs: { "maintenance.journal_scrub": JSON.stringify(result) } });
+      await cleanupActivity.rollupRun(span.runId);
+      options.log?.emit({ severityText: result.corrupt || result.pending ? "WARN" : "INFO", body: "Journal maintenance scrub", attributes: { "maintenance.journal_scrub": JSON.stringify(result) } });
+      return result;
+    } catch (error) {
+      const cause = { site: "journal.scrub", at: now(), errorClass: error instanceof Error ? error.name : "Error", message: String(error).slice(0,2000) };
+      await cleanupActivity.appendEvent(span.rootSpanId, "journal_scrub_failed", cause);
+      await cleanupActivity.endSpan(span.rootSpanId, { outcome: "error", reason: cause.message });
+      await cleanupActivity.rollupRun(span.runId);
+      options.log?.emit({ severityText: "WARN", body: "Journal maintenance scrub failed", attributes: cause });
+      throw error;
+    }
+  }
   function maintain(): Promise<void> {
-    if (closing || active.size || holds) return Promise.resolve();
+    if (closing) return Promise.resolve();
+    if (active.size || holds) return maintaining ??= scrub().then(() => {}).catch(() => {}).finally(() => { maintaining = undefined; });
     return maintaining ??= serialize(async () => {
       if (closing || active.size) return;
+      // Retry unresolved dead-producer barriers while idle, not on admission.
+      // Refresh the authenticated status once the existing recovery path settles.
+      recoveryStatus=await call<JournalRecoveryStatus>("recover");
+      await scrub().catch(() => {});
+      if (active.size) return;
       await capture.initialize(shutdown.signal, { workspaces: false });
       await observe(false, undefined, shutdown.signal);
       await expireBacklog();
@@ -889,7 +918,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     /** Worktrees an active turn's journal observes. */
     worktrees(turnId: string): string[] { return [...worktrees].filter(([, root]) => root.turnId === turnId).map(([id]) => id).concat([...checkouts.values()].filter(root => root.turnId === turnId && !root.relative).map(root => root.checkout.split("/")[2]!)); },
     isHeld(): boolean { return holds > 0; },
-    /** Unresolved object verification from the most recent boot recovery pass. */
+    /** Unresolved object verification from the most recent startup or idle recovery pass. */
     recoveryStatus(): JournalRecoveryStatus { return recoveryStatus; },
     /** Current retained charges, plus the durable historical cause even before any turn existed. */
     cleanupStatus() {
@@ -985,7 +1014,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
           ...(failures.has(turnId) ? [statement("UPDATE turn_journal_turns SET state='partial',failure=? WHERE turn_id=?", failures.get(turnId)!.padEnd(64), turnId)] : []),
           statement("UPDATE turn_journal_turns SET ended_at=?,failure=trim(failure),state=CASE WHEN state='partial' OR missing!='[]' THEN 'partial' ELSE 'complete' END WHERE turn_id=?", now(), turnId),
           statement("DELETE FROM turn_journal_manifests WHERE turn_id=?", turnId),
-          statement("DELETE FROM turn_journal_object_refs WHERE turn_id=? AND NOT EXISTS (SELECT 1 FROM turn_journal_changes c WHERE c.turn_id=? AND (json_extract(c.before_json,'$.hash')=turn_journal_object_refs.hash OR json_extract(c.after_json,'$.hash')=turn_journal_object_refs.hash)) AND NOT EXISTS (SELECT 1 FROM turn_journal_code_receipts c WHERE c.turn_id=turn_journal_object_refs.turn_id AND c.pack_hash=turn_journal_object_refs.hash) AND NOT EXISTS (SELECT 1 FROM turn_journal_claude_memory m WHERE m.turn_id=? AND m.state!='saved' AND (json_extract(m.before_json,'$.hash')=turn_journal_object_refs.hash OR json_extract(m.after_json,'$.hash')=turn_journal_object_refs.hash))", turnId, turnId, turnId),
+          statement(FINISH_REFERENCE_CLEANUP, turnId),
         ]);
         step?.(); step = timing?.("finish_collect");
         await collectObjects();
@@ -1188,7 +1217,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       clearTimeout(worktreeRetryTimer); worktreeRetryTimer = undefined;
       clearInterval(scopeTimer);
       try {
-        await tail; await worktreeRetry; await Promise.allSettled([...unserialized]); await dropWorktrees();
+        await maintaining; await tail; await worktreeRetry; await Promise.allSettled([...unserialized]); await dropWorktrees();
         const failures: unknown[] = [];
         for (const [id, { manager }] of [...pendingCodeCheckpoints]) {
           try { await manager.release(id); pendingCodeCheckpoints.delete(id); }

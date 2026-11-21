@@ -1974,14 +1974,15 @@ export type GovernedStatus = {
 }
   & ({ available: true } | { available: false; reason: GovernedUnavailableReason; detail: string });
 
-/** Unresolved object verification at journal boot; charges remain reserved. */
+/** Unresolved journal reservations after startup or the latest idle recovery; charges remain reserved. */
 export interface JournalRecoveryStatus {
   unresolvedRecords: number;
+  /** Temporary reservations have no content identity and carry hash: "". */
   firstCause: { reservationId: string; hash: string; at: number; errorClass: string; message: string; site: string } | null;
 }
 
 export interface SystemStatus {
-  /** Journal I/O recovery at server boot; only on authenticated status. */
+  /** Journal I/O recovery refreshed at startup and by idle maintenance; only on authenticated status. */
   journalRecovery?: JournalRecoveryStatus;
   /** Native quarantine reported at server boot; only on authenticated status. */
   nativeRecovery?: { quarantinedIntents: number; stagingChargedBytes: number | null; stagingRefusal?: string; diagnosticsPath: string };

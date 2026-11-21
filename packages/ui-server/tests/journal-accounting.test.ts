@@ -264,6 +264,53 @@ test("a damaged stored recovery cause is replaced by the current cause instead o
   } finally {db.close();rmSync(root,{recursive:true,force:true});}
 });
 
+for(const kind of ["copy","temporary"])test(`pending-file fsync failure in ${kind} recovery is local, durable and retryable`,async()=>{
+ const fs=await import("node:fs"),{spyOn}=await import("bun:test");
+ const root=mkdtempSync(join(tmpdir(),"odysseus-recovery-sync-")),db=createUiDb(":memory:"),ledger=createJournalAccounting(db,":memory:"),objects=createJournalObjects(join(root,"objects"),ledger);
+ try {
+  const hash="a".repeat(64),held=kind==="copy"?await ledger.reserve(8,hash):ledger.reserveTemporary(8);
+  ledger.write(()=>db.query("UPDATE turn_journal_reservations SET pid_start='gone' WHERE id=?").run(held.id!));
+  writeFileSync(join(root,"objects",`pending-${held.id}`),"Odysseus");
+  const sync=spyOn(fs,"fsyncSync").mockImplementation(()=>{throw Error("Ithaca recovery directory sync refused");});
+  let report!:ReturnType<typeof ledger.recover>;
+  try {
+   expect(()=>{report=ledger.recover(objects);},"RECOVERY_SYNC_FAILURE_IS_LOCAL").not.toThrow();
+   expect(report,"RECOVERY_SYNC_FAILURE_IS_LOCAL").toMatchObject({unresolvedRecords:1,firstCause:{reservationId:held.id,errorClass:"Error",message:"Ithaca recovery directory sync refused",hash:kind==="copy"?hash:""}});
+   const row=db.query("SELECT recovery_failure FROM turn_journal_reservations WHERE id=?").get(held.id!) as {recovery_failure:string};expect(JSON.parse(row.recovery_failure),"RECOVERY_SYNC_CAUSE_IS_DURABLE").toEqual(report.firstCause);
+   const other=await ledger.reserve(2,"b".repeat(64));other.cancel();
+   expect(ledger.recover(objects),"RECOVERY_RETRIES_MISSING_PENDING_BARRIER").toEqual(report);
+  }finally{sync.mockRestore();}
+  expect(ledger.recover(objects),"RECOVERY_SYNC_TRANSIENT_RESOLVES").toEqual({unresolvedRecords:0,firstCause:null});
+ }finally{objects.close();db.close();rmSync(root,{recursive:true,force:true});}
+});
+
+test("recovery removes the dead producer's pending hardlink before validating the published inode",()=>{
+ const root=mkdtempSync(join(tmpdir(),"odysseus-recovery-hardlink-")),path=join(root,"ui.db"),db=createUiDb(path);
+ const modules=["../src/db/client.ts","../src/brain/journal-accounting.ts"].map(path=>new URL(path,import.meta.url).pathname);
+ const child=`
+ import {createUiDb} from ${JSON.stringify(modules[0])};import {createJournalAccounting} from ${JSON.stringify(modules[1])};
+ import {createHash} from "node:crypto";import {mkdirSync,writeFileSync,linkSync,openSync,fsyncSync,closeSync} from "node:fs";
+ const root=process.argv[1],db=createUiDb(root+"/ui.db"),ledger=createJournalAccounting(db,root+"/ui.db");
+ const bytes=Buffer.from("Ithaca"),hash=createHash("sha256").update(bytes).digest("hex"),held=ledger.reserve(bytes.length,hash);
+ mkdirSync(root+"/objects",{mode:0o700});const pending=root+"/objects/pending-"+held.id;
+ writeFileSync(pending,bytes);const fd=openSync(pending,"r");fsyncSync(fd);closeSync(fd);
+ linkSync(pending,root+"/objects/"+hash);
+ // This is the publication crash window: durable charge and two names for
+ // one valid inode, before the normal pending unlink and finish transaction.
+ process.kill(process.pid,"SIGKILL");`;
+ let objects:ReturnType<typeof createJournalObjects>|undefined;
+ try {
+  const killed=Bun.spawnSync([process.execPath,"--no-env-file","-e",child,root],{env:{PATH:"/usr/bin:/bin"},stdout:"pipe",stderr:"pipe"});
+  expect(killed.signalCode,killed.stderr.toString()).toBe("SIGKILL");
+  const row=db.query("SELECT id,hash FROM turn_journal_reservations").get() as {id:string;hash:string};
+  expect(statSync(join(root,"objects",row.hash)).nlink).toBe(2);
+  const ledger=createJournalAccounting(db,path);objects=createJournalObjects(join(root,"objects"),ledger);
+  expect(ledger.recover(objects),"RECOVERY_PENDING_ALIAS_RESOLVES").toEqual({unresolvedRecords:0,firstCause:null});
+  expect(statSync(join(root,"objects",row.hash)).nlink).toBe(1);
+  expect(db.query("SELECT count(*) AS n FROM turn_journal_reservations").get()).toEqual({n:0});
+  expect(objects.read(row.hash,6),"RECOVERY_HARDLINK_WINDOW_PRESERVES_BYTES").toEqual(Buffer.from("Ithaca"));
+ }finally{objects?.close();db.close();rmSync(root,{recursive:true,force:true});}
+});
 
 test("recovery releases a dead over-cap copy charge and intent pins before boot", async () => {
   const root = mkdtempSync(join(tmpdir(), "odysseus-recovery-charge-")), path = join(root, "ui.db"), db = createUiDb(path);

@@ -119,6 +119,17 @@ export const JOURNAL_OBJECT_REFS_INDEX = {
   sql: "CREATE INDEX turn_journal_object_refs_hash ON turn_journal_object_refs(hash)",
 } as const;
 
+
+/** Optional scrub state is created only through admitted journal writes. */
+export const JOURNAL_SCRUB_QUARANTINE = {
+  name: "turn_journal_scrub_quarantine",
+  sql: `CREATE TABLE journal.turn_journal_scrub_quarantine (
+    hash TEXT PRIMARY KEY,
+    bytes INTEGER NOT NULL CHECK (bytes >= 0),
+    state TEXT NOT NULL CHECK (state IN ('reserved','quarantined'))
+  )`,
+} as const;
+
 /** Admitted journal state; backups preserve rows and validate these exact definitions when present. */
 export const JOURNAL_CONFLICT_TABLES = [
   { name: "turn_journal_path_peers", sql: "CREATE TABLE turn_journal_path_peers (turn_id TEXT NOT NULL REFERENCES turn_journal_turns(turn_id) ON DELETE CASCADE, path TEXT NOT NULL, peer_id TEXT NOT NULL, first_sequence INTEGER NOT NULL, after_json TEXT NOT NULL, PRIMARY KEY(turn_id,path,peer_id))" },
@@ -132,3 +143,11 @@ export const JOURNAL_CONFLICT_GUARDS = JOURNAL_CONFLICT_TABLES.flatMap(table => 
     WHEN (SELECT writing FROM turn_journal_allocation WHERE id=1) IS NOT 1
     BEGIN SELECT RAISE(ABORT, 'journal storage write outside capacity accounting'); END`,
 })));
+
+/** Protect writers whose connection predates the admitted scrub schema. */
+export const JOURNAL_SCRUB_GUARDS = ["INSERT", "UPDATE", "DELETE"].map(event => ({
+  name: `${JOURNAL_SCRUB_QUARANTINE.name}_capacity_${event.toLowerCase()}`,
+  sql: `CREATE TRIGGER ${JOURNAL_SCRUB_QUARANTINE.name}_capacity_${event.toLowerCase()} BEFORE ${event} ON ${JOURNAL_SCRUB_QUARANTINE.name}
+    WHEN (SELECT writing FROM turn_journal_allocation WHERE id=1) IS NOT 1
+    BEGIN SELECT RAISE(ABORT, 'journal storage write outside capacity accounting'); END`,
+}));

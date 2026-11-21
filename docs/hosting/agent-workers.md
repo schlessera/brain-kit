@@ -942,29 +942,92 @@ bytes. Deleting a lower-only baseline file does not free writable capacity.
 No host-backed output overflow fallback exists. The agent's limits note states
 the same resolved output allowance.
 
-Maintenance Git packing is bounded by the same allowance. Hosted `brain
-maintain` runs git's incremental `loose-objects`, `incremental-repack` and
-`pack-refs` tasks inside its maintenance worker, so each new pack is written into
-that worker's output stage, never directly into the brain's `.git`. The
-launcher declares the stage's size and setting to the worker in
-`BRAIN_WORKER_OUTPUT_ALLOWANCE`. A pack larger than the space left fails the `git`
-step with a named refusal instead of git's bare `Out of diskspace`:
+Git packing preflights the raw object/ref sizing rule
+`roundUpTo4096(3 * (sum(raw object bytes + 128 per object) + ref text bytes + 128 per ref) + 16 MiB)`.
+Insufficient or unknown capacity produces the named `packing_headroom` skip
+before Git maintenance starts. Hosted maintenance keeps its existing bounded
+output stage; dedicated disk-backed packing is tracked separately in #4288.
+Routine maintain uses the existing `--json` flag for its host-side result;
+other commands retain their existing execution and publication behavior.
 
-```text
-FAILED — no space: git packing ran out of space in the maintenance worker's output stage (allowance 268435456 bytes, set by BRAIN_UI_OUTPUT_STAGING_BYTES; 264241152 bytes available when the step started). git: fatal: sha1 file '.git/objects/pack/tmp_pack_…' write error. Out of diskspace
-```
+A failed or incomplete pack publishes **nothing under `.git`**. Newly created
+temporary pack files are removed from the failed stage; outside a declared
+private stage, new names are conservatively left alone because another Git
+writer may own them. Historical garbage is
+never removed. For routine `brain maintain`, the host selects Git output only
+when the command exits zero and its complete JSON result contains a successful
+Git step. The host explicitly requests machine output, preserving JSON callers
+and reproducing the CLI formatter for explicit `--human` callers. The shipped
+`brain maintain` cron argv therefore needs no flag change. Streaming launch
+drains stdout independently of its caller into one fixed 1 MiB buffer. It waits
+for EOF after process exit, allowing up to five seconds for that barrier; neither
+exit-time scheduling nor an unread display stream decides publication. Oversized,
+unreadable, malformed, incomplete, skipped or nonzero reports discard the whole
+Git portion while other validated output publishes. Cron durably records the
+host-owned `git_publication` event and `maintenance.git_publication` span
+attribute. Discards carry a named reason; a missing/unusable report also marks
+the maintenance Activity result as error and prints the named diagnostic, while
+the command exit code stays unchanged. No report body or new enum value is put
+in an existing parsed field.
+Successful output uses the existing publisher; this guard adds no pack exchange,
+transaction directory or writable-stage receipt. Pack/index/loose ordering and
+crash safety of successful publication are separate follow-up work.
+`brain maintain`'s git result and
+`brain storage pack --json` report existing garbage count and bytes from
+`git count-objects -v`. Cleanup of existing garbage requires a separate backed-up
+owner operation. The CLI's standalone packing preflight uses the same conservative
+need and skips when it cannot establish enough space, without reserving it.
 
-The available figure is the stage's free space when the step started, measured
-the way `brain storage pack --json` reports `headroom`. To let the pack through,
-raise `BRAIN_UI_OUTPUT_STAGING_BYTES` above the largest pack the step writes (a
-multiple of 4096) and restart the server. Unset, the budget follows it as
-allowance × `MAX_CONCURRENT_SESSIONS`; an explicit
-`BRAIN_UI_OUTPUT_STAGING_BUDGET_BYTES` must be raised to at least the new
-allowance too. The cost: every consumer, each agent turn as well as each
-maintenance run, then reserves the larger allowance, so the admitted total grows
-with it, or fewer consumers fit at once under an explicit budget. A
-`brain maintain` run outside a hosted worker reports the same shortfall against
-the filesystem holding `.git`, without a hosted setting.
+The existing idle host-maintenance schedule also scrubs the journal object
+store, never admission or finish. Its optional quarantine schema is created on
+first scrub through an accounted FULL write, rather than by a boot migration.
+Admission reserves eight additional pages plus their WAL allowance and checks
+the actual allocation before commit. Table and permanent capacity guards commit
+together, protecting connections that predate the schema; backups retain its
+canonical definitions and all quarantine charges. A near-cap journal keeps its existing
+writes usable and skips before listing or quarantine-directory work: `state: "skipped"`, existing
+`reason: "quarantine_pending"`, and optional
+`schemaSkipReason: "quarantine_schema_not_admitted"`. A later idle pass retries
+when capacity is available; missing schema contributes zero quarantine bytes.
+Each pass lists at most 32 new directory entries
+and reads at most 4 KiB of directory records per pass through Linux `getdents64`
+(the qualified Linux host libc), retaining only a fixed 4 KiB buffer and its
+directory descriptor across passes. Bun 1.4.4 eagerly enumerates a whole
+directory through `Dir.readSync`, so it cannot supply this I/O bound. A process
+restart starts a fresh sweep. A full batch remains partial until the cursor reaches
+its end. Up to 32 pending reservations are retried separately with a rotating
+cursor, sharing the combined 64-entry/row work bound and leaving half
+for new entries; missing old candidates cannot starve newly discovered files. Each
+physical copy gets a separate destination name and durable byte charge. Under the journal writer lock it excludes hashes with
+any object row, reference or reservation, verifies remaining bytes against the
+SHA-256 filename, commits their quota charge, then moves verified orphans to
+`<objects-root>/quarantine`. Quarantined bytes stay charged until an explicit
+owner action removes them. Interrupted moves retain their charge and reconcile
+on the next pass, retrying both directory fsyncs even when the move already
+exists. Collection syncs each unlink before deleting its accounting row,
+including retries after a prior unlink. Persisted reservation names are validated
+before path use; nonregular entries stay in place without starving valid files.
+Unresolved reservations report `quarantine_pending` with
+pending counts and bytes rather than a clean pass. A quota-refused batch retries
+its bounded candidates individually, so an oversized orphan cannot block small
+siblings. Optional `capacityBlocked` counts candidates left for a future sweep; their
+verified counts and bytes still appear in `unaccounted` / `unaccountedBytes`
+for that pass. Individual stat/open/read errors stay local, retain the file,
+and produce optional `readFailures` diagnostics (relative path, error class
+and message), with `partial` / `quarantine_pending`; an I/O refusal is not
+proof of corruption. Corrupt files stay in place and are reported separately.
+Idle maintenance also retries interrupted-producer recovery and refreshes its
+status, including directory sync barriers previously refused at startup. A
+crash between content link and pending unlink is recovered by removing and
+syncing the dead producer’s pending alias before validating the hash inode.
+A busy journal records `journal_busy` without waiting for the turn to end.
+Counts, bytes, skips and failure causes appear in the existing maintenance
+Activity record as `journal_scrub` / `journal_scrub_failed` events under the
+`journal-scrub` host-maintenance job. Its results cannot reset the scheduled
+`maintain` job's failure streak. A scrub failure records its cause and still
+allows independent idle observation and retention expiry to run. Quarantine
+is inside the registered private journal root and ephemeral shutdown removes it
+with that root.
 
 A fixed trusted helper uses util-linux `unshare` and `mount` to create a
 copy-on-write overlay with immutable input as its lower layer and upper/work
