@@ -25,6 +25,42 @@ const APPLY_TIMING = process.env.BRAIN_NATIVE_PROOF_APPLY_TIMING === "1";
 // #2834 measurement: pi's per-call journal observation cost by tool, and journal begin + finish for both backends.
 const OBSERVATION_TIMING = process.env.BRAIN_NATIVE_PROOF_OBSERVATION_TIMING === "1";
 const releaseObservations = nativeReleaseObservations(ARTIFACTS);
+/**
+ * #4206: the host's gog home, and the two default homes a worker's own gog or
+ * `brain google` would look in, each holding a canary file; the canary is
+ * also the keyring password a running host gog holds in its environment.
+ */
+const GOOGLE_FIXTURE = "/google-fixture";
+const GOOGLE_CANARY = `odysseus-keyring-canary-${randomUUID()}`;
+function googleFixture(dir: string) {
+  mkdirSync(GOOGLE_FIXTURE, { mode: 0o755 });
+  const home = join(GOOGLE_FIXTURE, "gog-home");
+  const homes = { googleHome: home, gogDefault: join(dir, "home/.config/gogcli"), standalone: join(dir, "home/.local/share/brain/google") };
+  mkdirSync(join(home, "keyring"), { recursive: true, mode: 0o700 }); chmodSync(home, 0o700);
+  for (const path of [homes.gogDefault, homes.standalone]) mkdirSync(path, { recursive: true, mode: 0o700 });
+  const files = { googleConfig: join(home, "config.json"), googleKeyring: join(home, "keyring/token-ithaca"),
+    gogDefault: join(homes.gogDefault, "config.json"), standalone: join(homes.standalone, "config.json") };
+  for (const path of Object.values(files)) writeFileSync(path, JSON.stringify({ account: "ithaca", canary: GOOGLE_CANARY }), { mode: 0o600 });
+  const identities = Object.fromEntries(Object.entries(homes).map(([name, path]) => { const info = statSync(path); return [name, [info.dev, info.ino]]; }));
+  const witness = { homes, identities, files, canary: GOOGLE_CANARY };
+  // Every name a worker must never hold, and the operator escape hatch asking for each of them.
+  const names = { BRAIN_UI_GOOGLE_HOME: home, BRAIN_UI_GOOGLE_KEYRING_PASSWORD: GOOGLE_CANARY, BRAIN_UI_GOG_PATH: join(GOOGLE_FIXTURE, "absent-gog"),
+    BRAIN_GOOGLE_LEDGER: join(GOOGLE_FIXTURE, "ledger.sqlite"), BRAIN_GOOGLE_HOME: homes.standalone, BRAIN_UI_GOOGLE_ITHACA: GOOGLE_CANARY,
+    GOG_ACCESS_TOKEN: GOOGLE_CANARY, GOG_ACCOUNT: "ithaca", GOG_KEYRING_PASSWORD: GOOGLE_CANARY };
+  const env = { ...names, BRAIN_UI_SUBPROCESS_ENV_EXTRA: Object.keys(names).join(",") };
+  const settings = join(dir, "google-proof.json");
+  writeFileSync(settings, JSON.stringify({ env, witness, home, canary: GOOGLE_CANARY }));
+  return { home, witness, settings };
+}
+/** A worker's Google witness output that shows any credential, home, variable or host environment. */
+function googleExposure(witness: any) {
+  return {
+    canaries: Object.entries(witness.files).filter(([, read]) => read).map(([name]) => name),
+    homes: Object.entries(witness.homes).filter(([, seen]: [string, any]) => seen.stat === "ok" && (seen.hostInode || (Array.isArray(seen.entries) && seen.entries.length > 0))).map(([name]) => name),
+    variables: [...witness.envNames, ...(witness.envCanary ? ["<canary value>"] : [])],
+    environ: witness.procEnvironCanary,
+  };
+}
 let releasePinnedNamespace: (() => void) | undefined;
 const recordedSpawn = Bun.spawn;
 Bun.spawn = ((...args: any[]) => { const argv = Array.isArray(args[0]) ? args[0] : args[0].cmd; const native = argv[0]?.endsWith("/btrfs") || argv[0]?.endsWith("/python3"); const observeRelease = releaseObservations.prepare(argv); const start = performance.now(), child = Reflect.apply(recordedSpawn, Bun, args); observeRelease?.(child); if (native) { const command = argv[0].endsWith("/btrfs") ? argv.slice(1) : ["identity-inspect"]; appendFileSync(join(ARTIFACTS, "native-operations.jsonl"), JSON.stringify({ stage: "start", at: start, wallAt: Date.now(), command }) + "\n"); void child.exited.then((code: number) => { if (code !== 0 && argv[1] === "subvolume" && argv[2] === "sync") releasePinnedNamespace?.(); return appendFileSync(join(ARTIFACTS, "native-operations.jsonl"), JSON.stringify({ stage: "end", at: performance.now(), wallAt: Date.now(), ms: performance.now() - start, code, command }) + "\n"); }); } return child; }) as typeof Bun.spawn;
@@ -43,6 +79,8 @@ test(`native hosted ${BACKEND} uid ${APP_UID} first/warm admission, health, WebS
   const brain = "/brain-fixture/brain";
   for (const path of ["notes", "node_modules/.bin", ".brain/scratch", "context/policies"]) mkdirSync(join(brain, path), { recursive: true });
   for (const path of ["home", "agent", "pi"]) mkdirSync(join(dir, path));
+  const google = googleFixture(dir);
+  const googleWitnessProgram = readFileSync(join(import.meta.dir, "google-witness.py"), "utf8");
   writeFileSync(join(dir, "agent/settings.json"), "{}");
   writeFileSync(join(brain, ".gitignore"), "node_modules/\n.brain/\n");
   writeFileSync(join(brain, "brain.config.ts"), 'export default {profile:{name:"Odysseus",cliTitle:"Odysseus notebook"}};\n');
@@ -55,7 +93,7 @@ try:
 except OSError as e: result={"denied":e.errno,"uid":os.getuid()}
 print(json.dumps(result))`;
   // The fixed witness runs inside the actual automatic index maintenance worker.
-  writeFileSync(cli, `#!/usr/bin/env bun\nif(Bun.argv[2]==="index"){const backing=Bun.spawnSync(["/usr/bin/python3","-I","-S","-c",${JSON.stringify(backingProgram)}],{stdout:"pipe",stderr:"pipe"});if(backing.exitCode!==0)throw Error(backing.stderr.toString());await Bun.write((process.env.BRAIN_WORKER_DATA_ROOT??".")+"/.brain/maintenance-backing.json",backing.stdout);const probe=Bun.spawnSync(["/usr/bin/python3","-I","-S","-c",${JSON.stringify(authorityProgram)},${JSON.stringify(String(APP_UID))},"maintenance",${JSON.stringify(DESCENDANT_CONTROL ? "cwd-descendant" : "")}],{stdout:"pipe",stderr:"pipe"});if(probe.exitCode!==0)throw Error(probe.stderr.toString());await Bun.write((process.env.BRAIN_WORKER_DATA_ROOT??".")+"/.brain/maintenance-authority.json",probe.stdout);}await import(${JSON.stringify(join(SOURCE, "packages/core/src/cli/brain.ts"))});\n`); chmodSync(cli, 0o755);
+  writeFileSync(cli, `#!/usr/bin/env bun\nif(Bun.argv[2]==="index"){const backing=Bun.spawnSync(["/usr/bin/python3","-I","-S","-c",${JSON.stringify(backingProgram)}],{stdout:"pipe",stderr:"pipe"});if(backing.exitCode!==0)throw Error(backing.stderr.toString());await Bun.write((process.env.BRAIN_WORKER_DATA_ROOT??".")+"/.brain/maintenance-backing.json",backing.stdout);const probe=Bun.spawnSync(["/usr/bin/python3","-I","-S","-c",${JSON.stringify(authorityProgram)},${JSON.stringify(String(APP_UID))},"maintenance",${JSON.stringify(DESCENDANT_CONTROL ? "cwd-descendant" : "")}],{stdout:"pipe",stderr:"pipe"});if(probe.exitCode!==0)throw Error(probe.stderr.toString());await Bun.write((process.env.BRAIN_WORKER_DATA_ROOT??".")+"/.brain/maintenance-authority.json",probe.stdout);const google=Bun.spawnSync(["/usr/bin/python3","-I","-S","-c",${JSON.stringify(googleWitnessProgram)},${JSON.stringify(JSON.stringify(google.witness))}],{stdout:"pipe",stderr:"pipe"});if(google.exitCode!==0)throw Error(google.stderr.toString());await Bun.write((process.env.BRAIN_WORKER_DATA_ROOT??".")+"/.brain/maintenance-google.json",google.stdout);}await import(${JSON.stringify(join(SOURCE, "packages/core/src/cli/brain.ts"))});\n`); chmodSync(cli, 0o755);
   const FILES = 2000, BYTES = 16384;
   for (let i = 0;i < FILES;i++) {
     const header = `---\ntype: note\ntitle: Odysseus voyage ${i}\nupdated: 2026-07-12\n---\nOdysseus charts Ithaca ${i}.\n`;
@@ -84,10 +122,10 @@ print(json.dumps(result))`;
   const admitted = await createNativeBrainManagerClient({ socketPath: socket }).ready();
   expect(admitted.privatePaths, "NATIVE_ADMITTED_EXACT_BACKING_PRIVATE_PATH").toContain("/native-backing/fixture.img");
   writeFileSync(join(ARTIFACTS, "native-ready.json"), JSON.stringify(admitted, null, 2));
-  const permissions = Bun.spawnSync(["chown", "-R", `${APP_UID}:${APP_UID}`, dir, brain]); expect(permissions.exitCode).toBe(0);
+  const permissions = Bun.spawnSync(["chown", "-R", `${APP_UID}:${APP_UID}`, dir, brain, GOOGLE_FIXTURE]); expect(permissions.exitCode).toBe(0);
   const child = Bun.spawn(["/usr/bin/setpriv", `--reuid=${APP_UID}`, `--regid=${APP_UID}`, "--clear-groups", "--inh-caps=-all", "--ambient-caps=-all", "--no-new-privs", process.execPath, "--preload", join(SOURCE, "scripts/test-network-child-preload.ts"), join(import.meta.dir, "hosted-app-child.ts"), SOURCE, dir, brain, socket, BACKEND], {
     cwd: SOURCE,
-    env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: join(dir, "home"), PI_CODING_AGENT_DIR: join(dir, "pi"), NODE_ENV: "test",
+    env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: join(dir, "home"), PI_CODING_AGENT_DIR: join(dir, "pi"), NODE_ENV: "test", BRAIN_NATIVE_PROOF_GOOGLE: google.settings,
       ...(APPLY_TIMING ? { BRAIN_NATIVE_PROOF_APPLY_TIMING: "1" } : {}), ...(OBSERVATION_TIMING ? { BRAIN_NATIVE_PROOF_OBSERVATION_TIMING: "1" } : {}) }, stdout: "pipe", stderr: "pipe"
   });
   const descendants = DESCENDANT_CONTROL ? observeIndexDescendants(ARTIFACTS, { retainMountNamespace: RETAIN_INDEX_NAMESPACE }) : undefined;
@@ -207,6 +245,25 @@ print(json.dumps(result))`;
       expect(authority.namespaceUid, "NATIVE_AGENT_NAMESPACE_UID").toBe(APP_UID);
       expect(authority.ioctlsDenied).toHaveLength(7);
     }
+    // #4206: the actual first and warm workers, while a host gog holding the
+    // canary keyring password ran, saw no Google credential, home, variable or environment.
+    const googleWitnesses = [1, 2].map(attempt => JSON.parse(readFileSync(join(brain, `.brain/google-witness-${attempt}.json`), "utf8")));
+    writeFileSync(join(ARTIFACTS, "google-witness.json"), JSON.stringify({ ready: ready.google, agents: googleWitnesses }, null, 2));
+    for (const witness of googleWitnesses) {
+      const exposed = googleExposure(witness);
+      expect(exposed.canaries, "NATIVE_WORKER_READS_NO_GOOGLE_CANARY").toEqual([]);
+      expect(exposed.homes, "NATIVE_WORKER_CANNOT_STAT_A_GOOGLE_HOME").toEqual([]);
+      expect(exposed.variables, "NATIVE_WORKER_HOLDS_NO_GOOGLE_VARIABLE").toEqual([]);
+      expect(exposed.environ, "NATIVE_WORKER_CANNOT_READ_HOST_GOG_ENVIRON").toEqual([]);
+      expect(witness.procEnvironScanned, "NATIVE_WORKER_SCANNED_ITS_PROC").toBeGreaterThan(0);
+    }
+    // The controls: the host reads its home, its gog's environment holds the
+    // canary, and that gog was still running after both workers had looked.
+    expect(ready.google.hostReadsHome, "NATIVE_HOST_READS_ITS_GOG_HOME").toBe(true);
+    expect(ready.google.holder.hostReadsCanary, "NATIVE_HOST_GOG_ENVIRON_HOLDS_CANARY").toBe(true);
+    expect(readFileSync(`/proc/${ready.google.holder.pid}/environ`).includes(GOOGLE_CANARY), "NATIVE_HOST_GOG_RAN_THROUGH_BOTH_WORKERS").toBe(true);
+    expect(ready.google.masked, "NATIVE_APP_MASKS_THE_GOG_HOME").toBe(true);
+    expect(ready.google.status, "NATIVE_GOG_HOME_PASSES_ITS_CHECKS").toMatchObject({ state: "unavailable", reason: "binary_refused", cause: "binary_missing" });
     // Each governed turn's connections are durable per-connection governance records (#1665).
     const egressDb = new Database(join(dir, "ui.db"), { readonly: true });
     try {
@@ -557,6 +614,10 @@ print(json.dumps(result))`;
         expect(maintenanceAuthority.nestedUsernsDenied, "NATIVE_MAINTENANCE_NESTED_USERNS_DENIED").toBe(true);
         expect(maintenanceAuthority.quotaWriteDenied, "NATIVE_MAINTENANCE_QUOTA_WRITE_DENIED").toBe(true);
         expect(maintenanceAuthority.siblingWriteDenied, "NATIVE_MAINTENANCE_SIBLING_SYSCTL_WRITE_DENIED").toBe(true);
+        // #4206: the automatic index's maintenance worker sees no Google credential either.
+        const maintenanceGoogle = JSON.parse(readFileSync(join(brain, ".brain/maintenance-google.json"), "utf8"));
+        writeFileSync(join(ARTIFACTS, "maintenance-google-witness.json"), JSON.stringify(maintenanceGoogle, null, 2));
+        expect(googleExposure(maintenanceGoogle), "NATIVE_MAINTENANCE_SEES_NO_GOOGLE_CREDENTIAL").toEqual({ canaries: [], homes: [], variables: [], environ: [] });
         const workerLaunches = finalEvents.filter(row=>row.kind==="app_spawn_start"&&row.tail.some((value:string)=>value.endsWith("/ui-sdk/src/server/worker-entry.ts")));
         expect(workerLaunches.length, "NATIVE_REAL_AGENT_AND_MAINTENANCE_WORKERS_LAUNCHED").toBeGreaterThanOrEqual(3);
         expect(workerLaunches.every(row=>row.kernelUid===APP_UID), "NATIVE_WORKERS_KEEP_FIXED_KERNEL_UID").toBe(true);
