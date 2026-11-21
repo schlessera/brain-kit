@@ -6015,8 +6015,11 @@ current accounting and historical diagnostic record exposed as
 the configured allowance. The manager tests each stage's actual allowance
 before classifying its refusal. `JournalRecoveryStatus` and optional
 `SystemStatus.journalRecovery` expose the count and first cause of unresolved
-object reservations from boot. The journal host adds `recoveryStatus()` returning
-that summary. Fields and recovery semantics are in the
+reservations after startup or the latest idle-maintenance recovery. Temporary
+reservations carry `hash: ""` because they have no content identity. Idle
+maintenance refreshes both the summary and its contribution to `healthy`
+without a restart. The journal host adds `recoveryStatus()` returning that
+latest summary. Fields and recovery semantics are in the
 [HTTP contract](http.md#staging-refusal-and-unresolved-journal-recovery-additive-3826).
 
 ## GitHub tools system brief (additive, 0.45.0, #3799)

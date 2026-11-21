@@ -9,7 +9,7 @@ import { z } from "zod";
 import { brainApplicationInput } from "@schlessera/brain-ui-sdk/server";
 import { COMPLETE_SHARE_INPUT_SCHEMA } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { SHARE_STAGING_DIR } from "@schlessera/brain-ui-sdk/protocol";
-import { JOURNAL_CHANGE_PATH_INDEX, JOURNAL_CONFLICT_TABLES, JOURNAL_CONFLICT_GUARDS, JOURNAL_OBJECT_REFS_INDEX, JOURNAL_SCHEMA, journalDatabasePath } from "../db/journal-database.js";
+import { JOURNAL_CHANGE_PATH_INDEX, JOURNAL_CONFLICT_TABLES, JOURNAL_CONFLICT_GUARDS, JOURNAL_OBJECT_REFS_INDEX, JOURNAL_SCRUB_QUARANTINE, JOURNAL_SCRUB_GUARDS, JOURNAL_SCHEMA, journalDatabasePath } from "../db/journal-database.js";
 import type { InboxQueueItem } from "@schlessera/brain-ui-sdk/protocol";
 import { pauseRestoredSchedules, validateScheduleRelations } from "../schedules/recovery.js";
 import { invalidateRestoredStorage, parseStoredHistory } from "../storage/history-store.js";
@@ -112,6 +112,11 @@ function validateDatabase(db: Database): void {
     const guards = JOURNAL_CONFLICT_GUARDS.filter(guard => actual.some(row => row.type === "trigger" && row.name === guard.name));
     if (guards.length && (admitted.length !== JOURNAL_CONFLICT_TABLES.length || guards.length !== JOURNAL_CONFLICT_GUARDS.length)) throw new Error("inbox_snapshot_schema");
     for (const guard of guards) expected.exec(guard.sql.replace("CREATE TRIGGER ", "CREATE TRIGGER journal."));
+    const scrub=actual.some(row=>row.type==="table"&&row.name===JOURNAL_SCRUB_QUARANTINE.name);
+    if(scrub)expected.exec(JOURNAL_SCRUB_QUARANTINE.sql);
+    const scrubGuards=JOURNAL_SCRUB_GUARDS.filter(guard=>actual.some(row=>row.type==="trigger"&&row.name===guard.name));
+    if(scrubGuards.length&&(!scrub||scrubGuards.length!==JOURNAL_SCRUB_GUARDS.length))throw new Error("inbox_snapshot_schema");
+    for(const guard of scrubGuards)expected.exec(guard.sql.replace("CREATE TRIGGER ","CREATE TRIGGER journal."));
     if (JSON.stringify(actual) !== JSON.stringify(schema(expected, true)) ||
         JSON.stringify(db.query("SELECT filename FROM _migrations ORDER BY filename").all()) !==
         JSON.stringify(expected.query("SELECT filename FROM _migrations ORDER BY filename").all()))

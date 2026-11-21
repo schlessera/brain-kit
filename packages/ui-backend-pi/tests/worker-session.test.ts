@@ -333,7 +333,7 @@ for (const profile of ["governed", "strict"] as const) test(`throwing workerStar
   let exited: Promise<number> | undefined;
   const view = { brain, root: brain, storage: { root: brain, retain() {}, release() {} }, cleanup() {} };
   const prepared = { view, output: { source: brain, storage: { root: brain, mount: brain, namespacePid: 1, allowanceBytes: MiB, retain() {}, release() {} } },
-    async cleanup() { events.push("native-cleanup"); await exited; }, async publish() {}, async publishLocked() {} };
+    async cleanup() { events.push("native-cleanup"); await exited; }, discardGit() {}, async publish() {}, async publishLocked() {} };
   const native = spyOn(worker, "prepareNativeWorkerOutput").mockResolvedValue(prepared);
   launch.mockImplementation(() => {
     process = Bun.spawn(["/bin/cat"], { cwd: root, env: {}, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
@@ -526,7 +526,7 @@ for (const refused of ["turn-temp", "native-output"] as const) test(`post-launch
   const native = spyOn(worker, "prepareNativeWorkerOutput").mockResolvedValue({ view,
     output: { source: brain, storage: { root: brain, mount: brain, namespacePid: 1, allowanceBytes: MiB, retain() {}, release() {} } },
     async cleanup() { if (++outputs <= 7 && refused === "native-output") throw new Error("native deletion unconfirmed"); },
-    async publish() {}, async publishLocked() {} });
+    discardGit() {}, async publish() {}, async publishLocked() {} });
   launch.mockImplementation(async (...args: unknown[]) => {
     const child = await base(...args) as worker.LaunchedWorker;
     return !failedChild ? child : { ...child, turnTemp: { root, space: () => ({ total: MiB, free: MiB }), close() {},

@@ -223,6 +223,7 @@ export async function prepareFixtureNativeWorkerOutput(brain: string, options: {
   catch (error) { await view.cleanup(); throw error; }
   let cleanup: Promise<void> | undefined;
   return { view, output: publication.output,
+    discardGit() { publication.discardGit(); },
     async publish() { publication.publish(); },
     async publishLocked(lock) { await publication.publishLocked(lock); },
     cleanup() { return cleanup ??= (async () => { try { await publication.cleanup(); } finally { await view.cleanup(); } })(); },
