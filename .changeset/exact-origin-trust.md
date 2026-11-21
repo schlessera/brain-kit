@@ -69,3 +69,5 @@ Keep an approved connection valid across the occurrence and initial collection w
 Preserve a committed explicit session recipient grant across later input without relaxing the first-dispatch fence. Keep outward callback payloads compatible and align peer-loss audit/status assertions and received-header byte-cap expectations with their contract.
 
 Keep shared-card peer admissions usable with the real governance writer: exclude only their exact owned local/durable pending reservations from approval freshness and recording-availability fences. Independent pending input, recorder failures and capacity remain enforced; global safety projections and history remain unchanged.
+
+Preserve typed refusal causes through session-binding settlement: revoked authority answers 403 safety_changed, an aborted wait is cancelled, and genuinely pending/failed/missing binding remains 503 unavailable. Native Pi credential-error assertions follow the existing 502 failed-attempt contract without changing the relay.

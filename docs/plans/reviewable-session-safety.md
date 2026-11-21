@@ -39,7 +39,7 @@ public design or its fixtures. Fictional examples use the Odysseus world.
   `packages/ui-server/src/brain/turn-egress.ts:94-389`). Relay admissions join
   this proxy's submitted terminal observations and its own announced session
   binding before reading fresh safety (`settleTurnSessionBinding`,
-  `packages/ui-server/src/ws/bridge-session-binding.ts:14-28`), without excluding
+  `packages/ui-server/src/ws/bridge-session-binding.ts:15-32`), without excluding
   independent pending input. A raw CONNECT reveals
   only an authority and opaque bytes, not a repository path or inner protocol
   (`startEgressProxy`, `packages/ui-sdk/src/server/egress-proxy.ts:264-608`).

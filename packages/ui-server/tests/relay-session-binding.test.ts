@@ -183,10 +183,10 @@ for (const kind of ["inference", "provider"] as const) {
         else if (mode === "deadline") Object.defineProperty(Date, "now", { ...clock, value: () => now() + 10001 });
         else held.release();
         const result = await response;
-        // docs/integration-contract/http.md:1405-1406: an unverifiable binding is unavailable, not a policy denial.
-        expect(result.status, "FAILED_BINDING_NEVER_DISPATCHES").toBe(mode === "cancelled" ? 499 : 503);
+        // A revoked authority is403; an actually failed or unsettled binding stays503.
+        expect(result.status, "FAILED_BINDING_NEVER_DISPATCHES").toBe(mode === "cancelled" ? 499 : mode === "authority-revoked" ? 403 : 503);
         if(kind === "inference") expect(JSON.parse(result.body).error.message).toBe(mode === "cancelled" ? "Inference request cancelled" : "Inference network admission refused");
-        else expect(result.body).toContain(mode === "cancelled" ? "cancelled" : "unavailable");
+        else expect(result.body).toContain(mode === "cancelled" ? "cancelled" : mode === "authority-revoked" ? "safety_changed" : "unavailable");
         expect(f.requests(), "FAILED_BINDING_HAS_ZERO_PROVIDER_REQUESTS").toBe(0);
         expect(f.reads, "FAILED_BINDING_NEVER_MINTS_ADMISSION_AUTHORITY").toHaveLength(0);
       } finally { Object.defineProperty(Date, "now", clock); await f.close(); }

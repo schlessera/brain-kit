@@ -10,7 +10,7 @@ import { contactedHosts, recordFirstTaint, sessionTaint, type TaintSource } from
 import type { GovernanceWrites } from "../governance/event-writes.js";
 import { safetyQueue, safetyReadVersion } from "../governance/safety-queue.js";
 import { safetyProjection, safetyEvidenceSequence } from "../governance/safety-store.js";
-import { settleTurnSessionBinding } from "../ws/bridge-session-binding.js";
+import { settleTurnSessionBinding, type SessionBindingRefusal } from "../ws/bridge-session-binding.js";
 import { isMarkedUntrusted } from "../files/untrusted-marks.js";
 import { createTurnExtraction } from "./turn-extraction.js";
 import type { ExtractionJudge } from "../governance/extraction-judge.js";
@@ -424,12 +424,12 @@ export async function prepareTurnEgress(options: {
       if (operation.signal.aborted) return false;
       let abort: (() => void) | undefined;
       try {
-        const ready = await Promise.race([settled().then(() => settleTurnSessionBinding(original, operation.signal)).catch(() => false), new Promise<false>(resolve => {
-          abort = () => resolve(false);
+        const refusal = await Promise.race([settled().then(() => settleTurnSessionBinding(original, operation.signal)).catch(() => "session_binding_unavailable" as const), new Promise<SessionBindingRefusal>(resolve => {
+          abort = () => resolve("turn_cancelled");
           operation.signal.addEventListener("abort", abort, { once: true });
-          if (operation.signal.aborted) resolve(false);
+          if (operation.signal.aborted) resolve("turn_cancelled");
         })]);
-        if (!ready) { operation.finish("denied", "session_binding_unavailable"); return false; }
+        if (refusal !== null) { operation.finish(refusal === "turn_cancelled" ? "cancelled" : "denied", refusal); return false; }
         return !operation.signal.aborted && await operation.admit();
       } finally { if (abort) operation.signal.removeEventListener("abort", abort); }
     } };

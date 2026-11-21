@@ -1435,8 +1435,10 @@ even across a durable occurrence write.
 
 Malformed proxy destination fields return HTTP 400 before recording input
 evidence. They cannot poison a safety-history page or stop later valid
-requests in the turn. Failed session binding remains 503 `egress_unavailable`
-on both initial and repeated inference admission. A cancelled cleanup cannot
+requests in the turn. Authority loss while settling a binding reports 403
+`safety_changed`; an aborted wait reports 499/cancelled. Only pending, failed
+or missing session binding reports 503 `egress_unavailable`, on both initial
+and repeated inference admission. A cancelled cleanup cannot
 send its credentialed DELETE, and cancellation interrupts an in-flight DELETE.
 
 A credential resolver or upstream transport failure is a failed attempt, not
