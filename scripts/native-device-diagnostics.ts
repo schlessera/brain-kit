@@ -17,10 +17,13 @@ export function nativeDeviceMetadata(trace:string):Array<Record<string,string|nu
 
 /** Exec positions and /dev basenames only; never retain executable or host paths. */
 export function nativeStartupOpenStages(trace:string,expected:readonly string[],wrapper:string):Array<{stage:string;execPosition:number;device:string;error:string}> {
+ const pendingExec=new Map<number,string>();
  const states=new Map<number,{stage:string;execPosition:number}>();const records:Array<{stage:string;execPosition:number;device:string;error:string}>=[];
  for(const line of trace.split("\n")){
   const exec=/^\s*(\d+)\s+execve\(("(?:\\.|[^"\\])*"),/.exec(line);
-  if(exec&&/= 0$/.test(line)){let path:string;try{path=JSON.parse(exec[2]!);}catch{continue;}const previous=states.get(Number(exec[1]));states.set(Number(exec[1]),{stage:expected.includes(path)?"payload":path===wrapper?"wrapper":"bootstrap",execPosition:(previous?.execPosition??0)+1});}
+  if(exec){try{pendingExec.set(Number(exec[1]),JSON.parse(exec[2]!));}catch{continue;}}
+  const resumed=/^\s*(\d+)\s+<\.\.\. execve resumed>/.exec(line),pid=exec?Number(exec[1]):resumed?Number(resumed[1]):undefined;
+  if(pid!==undefined&&/= 0$/.test(line)){const path=pendingExec.get(pid);if(path){const previous=states.get(pid);states.set(pid,{stage:expected.includes(path)?"payload":path===wrapper?"wrapper":"bootstrap",execPosition:(previous?.execPosition??0)+1});}pendingExec.delete(pid);}
   const fork=/^\s*(\d+)\s+(?:clone3?|fork|vfork)\(.*\)\s+= (\d+)$/.exec(line);
   if(fork){const state=states.get(Number(fork[1]));if(state)states.set(Number(fork[2]),{...state});}
   const failed=/^\s*(\d+)\s+open(?:at2?)?\(.*?"(\/dev\/(?:stdin|stdout|stderr|null|urandom|tty|fd\/\d+|pts\/\d+|shm\/[^"/]+))".*= -1 (EACCES|EPERM)\b/.exec(line);

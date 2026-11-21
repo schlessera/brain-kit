@@ -24,6 +24,8 @@ test("device metadata cannot retain host paths or arbitrary syscall content",()=
 test("startup open evidence distinguishes wrapper and native payload without paths",()=>{
  const trace='4 execve("/runtime/bun", ["bun"], 0x0) = 0\n4 openat(AT_FDCWD, "/dev/urandom", O_RDONLY) = -1 EACCES (Permission denied)\n4 clone(child_stack=NULL, flags=SIGCHLD) = 5\n5 execve("/runtime/claude", ["claude"], 0x0) = 0\n5 openat(AT_FDCWD, "/dev/fd/2", O_RDONLY) = -1 EPERM (Operation not permitted)';
  expect(nativeStartupOpenStages(trace,["/runtime/claude"],"/runtime/bun"),"STARTUP_OPEN_EXEC_STAGE").toEqual([{stage:"wrapper",execPosition:1,device:"urandom",error:"EACCES"},{stage:"payload",execPosition:2,device:"fd/2",error:"EPERM"}]);
+ const resumed=trace.replace('4 execve("/runtime/bun", ["bun"], 0x0) = 0','4 execve("/runtime/bun", ["bun"], 0x0 <unfinished ...>\n4 <... execve resumed>) = 0');
+ expect(nativeStartupOpenStages(resumed,["/runtime/claude"],"/runtime/bun"),"RESUMED_EXEC_STAGE_IS_RETAINED").toEqual(nativeStartupOpenStages(trace,["/runtime/claude"],"/runtime/bun"));
 });
 test("real worker diagnostic plan stats devices before the trusted Bun wrapper starts",async()=>{
  const {nativeDiagnosticWorkerPayload,nativeWorkerPayloadCommand}=await import("../scripts/test-native-guard");
