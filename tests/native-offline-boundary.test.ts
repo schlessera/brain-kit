@@ -855,6 +855,28 @@ test("worker admission classifies executable argv and refuses missing or disagre
  }finally{rmSync(scratch,{recursive:true,force:true});}
 });
 
+test("unregistered keeper namespace temporary sources still refuse before native launch",async()=>{
+ const scratch=mkdtempSync(join(tmpdir(),"odysseus-keeper-refusal-")),keeper=mkdtempSync(join(tmpdir(),"odysseus-output-keeper-"));
+ try{
+  const missing=join(keeper,"merged/.brain/scratch");
+  const result=await probe(`${imports}
+   import {nativeWorkerBoundary} from ${JSON.stringify(join(ROOT,"scripts/test-native-guard.ts"))};import {writeFileSync} from "node:fs";
+   const spawnSync=Bun.spawnSync,which=Bun.which;
+   Bun.which=((command,options)=>command==="strace"?"/synthetic/strace":which(command,options));
+   Bun.spawnSync=((argv,options)=>(["bwrap","strace"].includes(argv[0])||argv[0]?.endsWith("/native-connect"))?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
+   process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";registerScriptedService("http://127.0.0.1:1");
+   const plan=nativeWorkerBoundary({BRAIN_WORKER_LAUNCH:JSON.stringify({command:[${JSON.stringify(runtime)}],brainPath:${JSON.stringify(scratch)},env:{HOME:${JSON.stringify(scratch)}},argv:["bwrap","--bind",${JSON.stringify(missing)},"/tmp/odysseus-worker-area","--",${JSON.stringify(runtime)}]})});
+   const argv=JSON.parse(plan.env.BRAIN_WORKER_LAUNCH).argv;
+   writeFileSync(argv[argv.indexOf("-o")+1],${JSON.stringify(`1 execve(${JSON.stringify(runtime)}, [], 0x1) = 0`)});plan.dispose();`,scratch);
+  expect(result.code).not.toBe(0);
+  expect(result.output).toContain("worker bind source is unavailable");
+  expect(result.output).toContain('"sourceKind":"unregistered-source"');
+  expect(result.output).toContain('"targetKind":"fixture-temporary"');
+  expect(result.output).toContain('"metadataError":"ENOENT"');
+  expect(result.output).toContain('"nativeLaunched":false');
+ }finally{rmSync(scratch,{recursive:true,force:true});rmSync(keeper,{recursive:true,force:true});}
+});
+
 test("worker outside-HOME regular files require explicit fixture snapshots",async()=>{
  const scratch=mkdtempSync(join(tmpdir(),"odysseus-worker-files-")),outside=mkdtempSync(join(tmpdir(),"odysseus-outside-file-"));
  const sentinel=join(outside,"credential-like"),home=join(scratch,"home");mkdirSync(home);writeFileSync(sentinel,"odysseus-synthetic-sentinel");
