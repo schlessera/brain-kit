@@ -12,10 +12,16 @@ type Edit = { phase: "draft" | "preparing"; draft: Draft; operation: null }
   | { phase: "review" | "committing" | "uncertain" | "receipt-lost"; draft: Draft; operation: TrustOperation };
 type Session = { edit: Edit | null; unknownOutcomes: number };
 const sessions = new WeakMap<object, { epoch: number; store: StoreApi<Session> }>();
+const unresolvedSave = (edit: Edit | null) => edit && ["committing", "uncertain", "receipt-lost"].includes(edit.phase) ? 1 : 0;
 const draftEdit = (draft: Draft): Edit => ({ phase: "draft", draft, operation: null });
 function sessionFor(root: object, epoch: number) {
   let session = sessions.get(root);
-  if (!session || session.epoch !== epoch) { session = { epoch, store: createStore<Session>(() => ({ edit: null, unknownOutcomes: 0 })) }; sessions.set(root, session); }
+  if (!session || session.epoch !== epoch) {
+    // Auth changes discard private editor state, but an unresolved write stays unknown.
+    const previous = session?.store.getState();
+    const unknownOutcomes = previous ? previous.unknownOutcomes + unresolvedSave(previous.edit) : 0;
+    session = { epoch, store: createStore<Session>(() => ({ edit: null, unknownOutcomes })) }; sessions.set(root, session);
+  }
   return session.store;
 }
 const instanceAt = (read: TrustSettingsRead, id: string) => typeof read.instances?.[id] === "string" ? read.instances[id]! : null;
@@ -60,7 +66,7 @@ export function TrustSettingsSection({ active }: { active: boolean }) {
   const invalidatePrivate = useCallback((readDenied: boolean) => {
     generation.current++; session.setState(state => ({
       edit: readDenied || !state.edit ? null : draftEdit(state.edit.draft),
-      unknownOutcomes: readDenied ? 0 : state.unknownOutcomes + (state.edit && ["committing", "uncertain", "receipt-lost"].includes(state.edit.phase) ? 1 : 0),
+      unknownOutcomes: state.unknownOutcomes + unresolvedSave(state.edit),
     }));
     setChecking(false); setError(""); setNotice("");
   }, [session]);

@@ -17,8 +17,8 @@ import { BrainUiProvider } from "../../src/root-context.js";
  * | T08 | uncertain | unknown receipt, including expired | uncertain |
  * | T09 | uncertain | receipt permanently 404 | receipt-lost |
  * | T10 | uncertain/receipt-lost | Leave as outcome unknown | idle + unknown notice |
- * | T11 | draft/review/uncertain/receipt-lost | read denied (401/403) | idle, no protected draft/bytes |
- * | T12 | any | auth epoch/root replaced | idle, no prior-owner state |
+ * | T11 | draft/review/uncertain/receipt-lost | read denied (401/403) | idle, no protected draft/bytes; dispatched saves stay unknown |
+ * | T12 | any | auth epoch/root replaced | idle, no protected state; same-root unknown count retained |
  * | T13 | preparing/review | readable but owner unavailable | draft, no private/late review |
  * | T14 | any edit | read unavailable then recovers | suspended writes -> same edit; preparing -> draft, committing -> uncertain |
  * | T15 | draft/review | required enforcement withdrawn | same edit, writes disabled |
@@ -329,25 +329,47 @@ test("T12 F2 auth loss during a pending list read cannot restore private review 
   await expect.element(button("Save rule")).not.toBeInTheDocument();
 });
 
-test("F2 a denied owner commit immediately removes private bytes and stale write authority", async ctx => {
-  const s = await prepared(ctx); s.rejectCommit(403); await button("Save rule").click();
+for (const status of [401, 403]) test(`F2 a denied owner commit ${status} immediately removes private bytes and stale write authority`, async ctx => {
+  const s = await prepared(ctx); s.rejectCommit(status); await button("Save rule").click();
   await expect.poll(() => s.host.querySelectorAll("input, pre").length).toBe(0);
   await expect.element(button("Review change")).not.toBeInTheDocument();
   expect(s.calls.filter(c => c.path.endsWith("/commit"))).toHaveLength(1);
+  expect(s.host.textContent).toContain("outcome remains unknown");
 });
 
-for (const phase of ["draft", "review", "uncertain", "receipt-lost"] as const) test(`T11 F1 denied read clears protected ${phase} data across remount`, async ctx => {
+for (const status of [401, 403]) for (const phase of ["draft", "review", "uncertain", "receipt-lost"] as const) test(`T11 F1 denied read ${status} clears protected ${phase} data across remount`, async ctx => {
   const s = await scene(ctx, 320, "dark", [rule]);
   await button("Edit https://example.org:443").click();
   await page.getByLabelText("Label", { exact: true }).fill("Protected harbor draft");
   if (phase !== "draft") { await button("Review change").click(); await expect.element(button("Save rule")).toBeVisible(); }
   if (phase === "uncertain" || phase === "receipt-lost") { s.loseBeforeCommit(); await button("Save rule").click(); await expect.element(button("Check save receipt")).toBeVisible(); }
   if (phase === "receipt-lost") { s.failReceipt(404); await button("Check save receipt").click(); }
-  s.failList(403); window.dispatchEvent(new Event("focus"));
+  s.failList(status); window.dispatchEvent(new Event("focus"));
   await expect.poll(() => s.host.querySelector('[aria-label="Trust rule editor"]')).toBeNull();
   expect(s.host.textContent).not.toContain("example.org");
+  if (phase === "uncertain" || phase === "receipt-lost") expect(s.host.textContent).toContain("outcome remains unknown");
   s.draw(null); s.draw(<TrustSettingsSection active />);
   await expect.poll(() => s.host.querySelectorAll("input, pre").length).toBe(0);
+  if (phase === "uncertain" || phase === "receipt-lost") expect(s.host.textContent).toContain("outcome remains unknown");
+});
+
+for (const status of [401, 403]) test(`F5 denied receipt ${status} retains the unknown outcome after clearing private data`, async ctx => {
+  const s = await prepared(ctx); s.loseBeforeCommit(); await button("Save rule").click();
+  await expect.element(button("Check save receipt")).toBeVisible();
+  s.failReceipt(status); await button("Check save receipt").click();
+  await expect.poll(() => s.host.querySelectorAll("input, pre").length).toBe(0);
+  expect(s.host.textContent).toContain("outcome remains unknown");
+  expect(s.calls.filter(c => c.path.endsWith("/commit"))).toHaveLength(1);
+});
+
+for (const status of [401, 403]) test(`F5 denied read ${status} retains an already abandoned unknown outcome without counting twice`, async ctx => {
+  const s = await prepared(ctx); s.loseBeforeCommit(); await button("Save rule").click();
+  await expect.element(button("Check save receipt")).toBeVisible(); await button("Leave as outcome unknown").click();
+  await expect.element(button("Add origin")).toBeEnabled(); await button("Add origin").click();
+  s.failList(status); window.dispatchEvent(new Event("focus"));
+  await expect.poll(() => s.host.querySelectorAll("input, pre").length).toBe(0);
+  expect(s.host.textContent).toContain("A previous save outcome remains unknown");
+  expect(s.host.textContent).not.toContain("2 save outcomes");
 });
 
 for (const lost of [false, true]) test(`T09 T10 F2 leaving ${lost ? "receipt-lost" : "uncertain"} retains outcome unknown without replay`, async ctx => {
