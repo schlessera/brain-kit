@@ -24,8 +24,9 @@ const publicationCopy = new RegExp(`^${INDEX_PUBLICATION_COPY.replaceAll(".", "\
  * The brain root's disposable index family (#2873): the database, its SQLite
  * sidecars, the embeddings lock database and its sidecars (#2903) and an index
  * publication copy, by exact journal-relative path.
- * The journal records their path, size and change stamp and never retains,
- * serves or restores their bytes; `brain index --force` rebuilds them from
+ * New root observations exclude them entirely (#4302). Historical rows are
+ * still presented as metadata only; the journal never serves or restores
+ * their bytes. `brain index --force` rebuilds them from
  * Markdown. Any other name, inside `.brain-index/` or elsewhere, is ordinary
  * content. The caller decides whether a path is relative to the brain root.
  */

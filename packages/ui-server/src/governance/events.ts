@@ -179,6 +179,8 @@ export const GOVERNANCE_EVENT_SCHEMAS = {
   })),
   /** A per-turn scope cap or the free-space floor reached, and how it ended (#1670). */
   scope_cap: kind(1, z.strictObject({
+    result: z.literal("index_capacity").optional(),
+    measurement: z.literal("unknown").optional(),
     cap: z.enum(["files_changed", "minutes", "tool_calls", "free_space_floor", "turn_bytes"]),
     limit: amount,
     observed: amount,

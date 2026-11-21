@@ -1024,6 +1024,7 @@ signatures (every public export and the types it is made of)
                 }>;
                 frozen: z.ZodBoolean;
                 limit: z.ZodNumber;
+                measurement: z.ZodOptional<z.ZodLiteral<"unknown">>;
                 observed: z.ZodNumber;
                 outcome: z.ZodEnum<{
                     continued: "continued";
@@ -1033,6 +1034,7 @@ signatures (every public export and the types it is made of)
                     voice_stopped: "voice_stopped";
                 }>;
                 overshoot: z.ZodNumber;
+                result: z.ZodOptional<z.ZodLiteral<"index_capacity">>;
                 source: z.ZodEnum<{
                     default: "default";
                     policy: "policy";
@@ -1409,7 +1411,7 @@ signatures (every public export and the types it is made of)
             policyProfile: "governed" | "strict";
             policy: TurnGovernancePolicy;
         };
-        refresh(lock: KeyedLock): void;
+        refresh(lock: KeyedLock, turnId?: string): void;
         close(): Promise<void>;
     }
   HostChatStore (packages/ui-server/src/ws/chat-store-cleanup.ts)
@@ -2687,6 +2689,7 @@ signatures (every public export and the types it is made of)
         observeUserPolicy(turnId: string, approvedWrite: () => void): Promise<void>;
         onObservation(observer: (turnId: string, facts: {
             changedPaths: number;
+            indexBytes?: null | number;
             observedBytes: number;
             partial: boolean;
             workspacePaths: number;

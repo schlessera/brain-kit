@@ -245,6 +245,7 @@ async function beginTurnScope(run: TurnRun): Promise<void> {
   const governedHold = run.held.governedHold!;
   const work = current.work;
   await host.scope!.begin(scopeTurnId, { sessionId: turn.sessionId ?? null, principalId: turn.principalId,
+    liveIndexWritable: heldProfile(run) === "governed" && !governedHold.sandbox.providerMasks?.index && !governedHold.sandbox.dataTree,
     origin, model: () => run.mainModel, profile: heldProfile(run), policy: governedHold.policy.policy,
     source: governedHold.policy.source === "default" ? "default" : "policy", hardTimeoutMs: host.turnTimeoutMs,
     current: () => turn.turnId === scopeTurnId && !abortController.signal.aborted && current.authorization.valid && current.authorization.expiresAt > Date.now() && host.isPrincipalAuthorized(current.principalId),

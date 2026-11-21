@@ -1,3 +1,4 @@
+import { recordingCursors, recordedWindows } from "./observation-recording.js";
 import { appendFileSync, existsSync, readFileSync, renameSync, writeFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
@@ -88,15 +89,21 @@ if (OBSERVATION_TIMING) {
   const createTurnJournal = journals.createTurnJournal, backdated = join(dir!, "journal-backdated");
   // #2915: every step of every held observation, on the clock the fixture's manager stamps its spans with.
   const clock = () => performance.timeOrigin + performance.now();
-  const observationTrace = (traceKind: string, turnId: string | null, toolUseId?: string) => {
+  const observationTrace = (db: Parameters<typeof recordingCursors>[0]) => (traceKind: string, turnId: string | null, toolUseId?: string) => {
+    const observations: ReturnType<typeof recordedWindows> = [];
     const steps: { name: string; startedAt: number; endedAt: number | null }[] = [];
     return (name: string) => {
+      const before = name === "observe_record" ? recordingCursors(db) : undefined;
       const step = { name, startedAt: clock(), endedAt: null as number | null }; steps.push(step);
-      return () => { step.endedAt = clock(); if (name === "hold") event("observation_trace", { traceKind, turnId, toolUseId: toolUseId ?? null, steps }); };
+      return () => {
+        step.endedAt = clock();
+        if (before) observations.push(...recordedWindows(db, before, step.startedAt, step.endedAt));
+        if (name === "hold") event("observation_trace", { traceKind, turnId, toolUseId: toolUseId ?? null, steps, observations });
+      };
     };
   };
   spyOn(journals, "createTurnJournal").mockImplementation((...args: Parameters<typeof createTurnJournal>) =>
-    createTurnJournal(args[0], { ...(args[1] as object), now: () => Date.now() - (existsSync(backdated) ? 31 * 24 * 60 * 60 * 1000 : 0), observationTrace }));
+    createTurnJournal(args[0], { ...(args[1] as object), now: () => Date.now() - (existsSync(backdated) ? 31 * 24 * 60 * 60 * 1000 : 0), observationTrace: observationTrace(args[0] as Parameters<typeof recordingCursors>[0]) }));
   const bridges = await import(join(source!, "packages/ui-server/src/ws/bridge.ts"));
   const makeBridge = bridges.makeBridge;
   spyOn(bridges, "makeBridge").mockImplementation(async (...args: Parameters<typeof makeBridge>) => {
@@ -322,7 +329,17 @@ try {
   const replayBegin = app.wsHost.failureReplay.begin.bind(app.wsHost.failureReplay);
   app.wsHost.failureReplay.begin = async (...args: any[]) => { const answer = await replayBegin(...args), finish = answer.finish.bind(answer); answer.finish = async (...values: any[]) => { const start = performance.now(); event("failure_replay_finish_start"); try { return await finish(...values); } finally { event("failure_replay_finish_end", { elapsedMs: performance.now() - start }); } }; return answer; };
   const principal = createPrincipal(app.db, { authMethod: "password", label: "Odysseus admission", ttlSeconds: 3600 });
-  server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: app.fetch, websocket: app.websocket });
+  let pathMatrix: Promise<unknown> | undefined;
+  server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request: Request, server: any) {
+    // Fixture-only endpoint; no product route or provider request is added.
+    if (OBSERVATION_TIMING && new URL(request.url).pathname === "/__native_observation_path_matrix") {
+      const { observationPathMatrix } = await import("./observation-path-matrix.js");
+      pathMatrix ??= observationPathMatrix(brain!, app.wsHost.journal, app.wsHost.governedTurns, event, app.wsHost.scope, principal.id, app.db);
+      const { observationMatrixResponse } = await import("./observation-hold.js");
+      try { return await observationMatrixResponse(request, server, () => pathMatrix!); } catch (error) { return Response.json({ error: String(error) }, { status: 500 }); }
+    }
+    return app.fetch(request, server);
+  }, websocket: app.websocket });
   // Published by rename: the parent polls for ready.json and then parses it.
   writeFileSync(join(dir!, "ready.json.tmp"), JSON.stringify({
     rootWarnings: observability.logs.find({severity:"WARN"}).filter((log:any)=>String(log.body).includes("runs as root")).map((log:any)=>String(log.body)),
@@ -334,7 +351,7 @@ try {
   let closing = false;
   process.on("SIGTERM", async () => {
     if (closing) return; closing = true;
-    try { server.stop(true); await app.close(); inference?.close(); egressOrigin.stop(true); event("fixture_warnings",{messages:observability.logs.records().map((log:any)=>({severity:log.severityText,body:log.body}))}); event("closed"); process.exit(0); }
+    try { server.stop(true); await pathMatrix; await app.close(); inference?.close(); egressOrigin.stop(true); event("fixture_warnings",{messages:observability.logs.records().map((log:any)=>({severity:log.severityText,body:log.body}))}); event("closed"); process.exit(0); }
     catch (error) { event("close_error", { error: String(error) }); process.exit(1); }
   });
 } catch (error) {

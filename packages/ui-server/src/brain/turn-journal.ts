@@ -2,7 +2,7 @@
 import type { CodeChangeReceipt, JournalRecoveryStatus } from "@schlessera/brain-ui-sdk/protocol";
 import type { Logger } from "@opentelemetry/api-logs";
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
-import { BRAIN_WORKSPACES_DIR } from "@schlessera/brain-common/internal/worker-areas";
+import { JournalObservationCounters } from "./journal-observation-counters.js";
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import type { ConfigurationCoverageRead, JournalVersion, TurnJournalDetails, TurnJournalSummary, JournalOutwardAction, JournalObservationReference } from "@schlessera/brain-ui-sdk/protocol";
 import { captureCodeChanges, listCodeCheckouts, previewCodeChanges, CODE_CHECKOUT_BYTES, CODE_EVIDENCE_BYTES } from "./code-change-worker.js";
@@ -11,9 +11,11 @@ import { randomUUID } from "node:crypto";
 import { recordedConfigurationSet } from "./journal-configuration-sets.js";
 import { openSqliteWriter, type SqliteWriter } from "../db/write-worker.js";
 import { JOURNAL_SCHEMA, journalDatabasePath } from "../db/journal-database.js";
-import { installEscapeGuard, JournalStorageUnavailable } from "./journal-accounting.js";
+import { installEscapeGuard, JournalObjectQuarantined, JournalStorageUnavailable } from "./journal-accounting.js";
 import { createGovernanceWrites } from "../governance/event-writes.js";
 import { createJournalObjects, JournalCapacityError } from "./journal-objects.js";
+import { journalReservationBatch } from "./journal-reservation-batch.js";
+import { journalWriteBatch } from "./journal-write-batch.js";
 import * as journalStore from "./journal-store.js";
 import { reviveJournalError, type IndexPurgeResult, type JournalStatement, type JournalStoreOptions } from "./journal-store.js";
 import type { JournalSnapshotEntry } from "./journal-snapshot.js";
@@ -36,16 +38,7 @@ import { createOffloopActivityStore } from "../activity/store-writes.js";
 import { queryGovernanceEvents } from "../governance/events.js";
 
 const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
-/**
- * The brain root's index database, its sidecars and the embeddings lock
- * database beside it (#2903). Every host index refresh rewrites the index
- * whole, so summing each observed version would charge a turn the index's
- * full size per refresh (#2831). Inside the index directory a
- * publication copy (`INDEX_PUBLICATION_COPY`) is that refresh itself, already
- * counted at its target. Only a copy a later observation saw removed is
- * excluded: one that stays, whoever wrote it, counts like any other
- * metadata-only file.
- */
+/** Historical index-family rows keep their existing summary semantics (#4302). */
 const DISPOSABLE_INDEX_PATHS = JSON.stringify(INDEX_FAMILY_PATHS);
 /**
  * One change row the turn retained as a reviewable change: neither version is
@@ -135,6 +128,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   /** Startup recovery commits before any later write; `ready` reports its refusal. */
   const ready = (async () => {
     await ledger.ready;
+    if (writer.offloop) installEscapeGuard(db);
     recoveryStatus = await ledger.call<JournalRecoveryStatus>("recover");
     // Governance events live in the UI database; a commit split between the
     // two files is completed from the journal's rows (#2789).
@@ -165,9 +159,16 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   // worker, and commit, in the order they were made.
   const call = <T>(name: string, ...args: unknown[]): Promise<T> => ready.then(() => ledger.call<T>(name, ...args));
   const write = (statements: JournalStatement[]) => call<number[]>("statements", statements);
-  const objects = createJournalObjects(options.objectsRoot, { async reserve(bytes, hash) {
-    const id = await call<string>("reserve", bytes, hash);
-    return { id, finish: (actual: string, size: number, duplicate: boolean) => call<void>("finishReservation", id, actual, size, duplicate), cancel: () => call<void>("cancelReservation", id) };
+  const reservations = journalReservationBatch(entries => call("reserveBatch", entries));
+  const finishObjects = journalWriteBatch<{ id: string; hash: string; bytes: number; turnIds: readonly string[] }, void>(async entries => {
+    try { await call("finishBatch", entries, []); }
+    finally { reservations.settled(entries.map(entry => entry.id)); }
+    return entries.map(() => undefined);
+  });
+  const objects = createJournalObjects(options.objectsRoot, { async reserve(bytes, hash, turnIds = []) {
+    const id = await reservations.reserve({ bytes, hash, turnIds });
+    if (id === null) throw new JournalObjectQuarantined();
+    return { id, finish: (actual: string, size: number) => finishObjects({ id, hash: actual, bytes: size, turnIds }), settled: () => reservations.settled([id]), cancel: async () => { try { await call<void>("cancelBatchReservation", id); } finally { reservations.settled([id]); } } };
   } });
   /** Writes no admission awaits; `idle()` waits for them too. */
   const unserialized = new Set<Promise<unknown>>();
@@ -177,12 +178,10 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   }
   /** Active turns; `sessionId` is the binding their record holds once earlier writes commit. */
   const active = new Map<string, { policy: NativeJournalPolicy; stop: (error: Error) => void; sequence: number; sessionId: string | null; ordinaryWorkspaces: boolean }>();
-  const retainVersion = async (source: number, bytes: number, signal?: AbortSignal) => {
-    const hash = await retain(() => objects.putFileAsync(source, bytes, signal));
-    // Pin the shared observation before another admission can collect objects.
-    await retain(() => write([...active.keys()].map(turnId => statement("INSERT OR IGNORE INTO turn_journal_object_refs VALUES (?,?)", turnId, hash))));
-    return hash;
-  };
+  // The reservation durably pins actual owners before publication: shared
+  // observations pin their window, private memory only its turn.
+  const retainVersion = (source: number, bytes: number, signal?: AbortSignal) =>
+    retain(() => objects.putFileAsync(source, bytes, signal, [...active.keys()]));
   const readIdentity = { brainPath: options.brainPath, async createTemporary(maximum: number) {
     const id = await retain(() => call<string>("reserveTemporary", maximum));
     const reservation = { id, release: () => call<void>("releaseTemporary", id) };
@@ -354,7 +353,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     }
   }
   const periodicObservers = new Set<{ before(): void; after(completed: boolean): void }>();
-  const observers = new Set<(turnId: string, facts: { changedPaths: number; observedBytes: number; workspacePaths: number; partial: boolean }) => void>();
+  const observers = new Set<(turnId: string, facts: { changedPaths: number; observedBytes: number; workspacePaths: number; indexBytes?: number | null; partial: boolean }) => void>();
   const pendingReadReleases = new Set<string>();
   const failures = new Map<string, string>();
   const failedAdmissions = new Set<string>();
@@ -414,11 +413,20 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   };
   const configurationOf = (row: TurnRow) => recordedConfigurationSet(row, configurationPaths);
 
+  // Only active turns use a cache. Historical reads retain the existing SQL
+  // semantics; restart never trusts an in-memory aggregate.
+  const counters = new Map<string, JournalObservationCounters>();
+  function advanceCounters(turnId: string): JournalObservationCounters {
+    let value = counters.get(turnId);
+    if (!value) { value = new JournalObservationCounters(); counters.set(turnId, value); }
+    value.append(db.query("SELECT sequence,path,before_json,after_json,class,overlaps FROM turn_journal_changes WHERE turn_id=? AND sequence>? ORDER BY sequence").all(turnId, value.sequence) as ChangeRow[]);
+    return value;
+  }
   function summary(turnId: string): TurnJournalSummary {
     const row = db.query("SELECT * FROM turn_journal_turns WHERE turn_id=?").get(turnId) as TurnRow | null;
     if (!row) return { state: "unknown", changedFiles: null, steeringFiles: null, keptFiles: null, costUsd: null, costIsEstimate: null, profile: null, actor: null, model: null, policyHash: null, sharedAttribution: false, observedAt: null };
     const retained = row.summary ? JSON.parse(row.summary) as { changedFiles: number; steeringFiles: number; keptFiles?: number | null; sharedAttribution: boolean } : undefined;
-    const counts = db.query(`SELECT count(DISTINCT path) AS changedFiles,count(DISTINCT CASE WHEN class='steering' THEN path END) AS steeringFiles,
+    const counts = (active.has(turnId) ? advanceCounters(turnId).counts : undefined) ?? db.query(`SELECT count(DISTINCT path) AS changedFiles,count(DISTINCT CASE WHEN class='steering' THEN path END) AS steeringFiles,
       count(DISTINCT CASE WHEN ${KEPT_CHANGE} THEN path END) AS keptFiles,max(overlaps!='[]') AS sharedAttribution FROM turn_journal_changes WHERE turn_id=?`)
       .get(DISPOSABLE_INDEX_PATHS, INDEX_PUBLICATION_COPY, turnId) as { changedFiles: number; steeringFiles: number; keptFiles: number; sharedAttribution: number };
     const codeCount = (db.query("SELECT coalesce(sum(json_array_length(receipt,'$.paths')),0) AS n FROM turn_journal_code_receipts WHERE turn_id=?").get(turnId) as { n: number }).n;
@@ -453,6 +461,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     await write([
       statement("DELETE FROM turn_journal_code_failures WHERE turn_id=?", turnId),
       statement("DELETE FROM turn_journal_code_receipts WHERE turn_id=?", turnId),
+      ...(db.query("SELECT 1 FROM journal.sqlite_schema WHERE name='turn_journal_path_peers'").get() ? [statement("DELETE FROM turn_journal_path_peers WHERE turn_id=?", turnId), statement("DELETE FROM turn_journal_path_conflicts WHERE turn_id=?", turnId)] : []),
       statement("DELETE FROM turn_journal_changes WHERE turn_id=?", turnId),
       statement("DELETE FROM turn_journal_claude_memory WHERE turn_id=?", turnId),
       statement("DELETE FROM turn_journal_manifests WHERE turn_id=?", turnId),
@@ -460,7 +469,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       removeSummary ? statement("DELETE FROM turn_journal_turns WHERE turn_id=? AND ended_at IS NOT NULL", turnId)
         : statement("UPDATE turn_journal_turns SET state='expired',summary=? WHERE turn_id=? AND ended_at IS NOT NULL", JSON.stringify({ changedFiles: before.changedFiles, steeringFiles: before.steeringFiles, keptFiles: before.keptFiles, sharedAttribution: before.sharedAttribution }), turnId),
     ]);
-    failures.delete(turnId); await collectObjects(); publish(turnId);
+    failures.delete(turnId); counters.delete(turnId); await collectObjects(); publish(turnId);
   }
   /** Turns that ended more than the retention period ago. */
   async function expireBacklog() {
@@ -571,30 +580,11 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         step?.(); step = timing?.("observe_publish");
         publish(turnId);
         step?.(); step = timing?.("observe_facts");
-        // Ignored and metadata-only versions have no content hash: count their
-        // largest observed size once per path, independently of hashed changed
-        // versions. The disposable index is counted the same way, ignored or not,
-        // including history recorded before it became metadata-only (#2873). A
-        // host publication copy of it is no turn write once it is gone (#2831).
-        // Workspace paths are counted separately so the scope monitor can leave
-        // reference clones out of files_changed (#3793). GLOB only narrows the
-        // candidates; containment is isWithin's, so `workspaces-old/` stays out.
-        const facts = db.query(`SELECT count(*) AS changedPaths,coalesce(sum(hashedBytes+ignoredBytes),0) AS observedBytes,
-          json_group_array(path) FILTER (WHERE path GLOB ?) AS workspaceCandidates FROM (
-          SELECT path,sum(CASE WHEN json_extract(after_json,'$.kind')='file' AND coalesce(json_extract(after_json,'$.ignored'),0)!=1 AND NOT disposable
-            AND json_extract(after_json,'$.hash') IS NOT json_extract(before_json,'$.hash')
-            THEN json_extract(after_json,'$.bytes') ELSE 0 END) AS hashedBytes,
-          max(CASE WHEN json_extract(after_json,'$.kind')='file' AND (json_extract(after_json,'$.ignored')=1 OR disposable)
-            THEN json_extract(after_json,'$.bytes') ELSE 0 END) AS ignoredBytes
-          FROM (SELECT *,(path IN (SELECT value FROM json_each(?)) OR coalesce(json_extract(after_json,'$.metadataOnly'),0)=1) AS disposable FROM turn_journal_changes AS change
-            WHERE turn_id=? AND NOT (path GLOB ? AND (SELECT after_json FROM turn_journal_changes WHERE turn_id=change.turn_id
-              AND path=change.path ORDER BY sequence DESC LIMIT 1) IS NULL)) GROUP BY path
-        )`).get(`${BRAIN_WORKSPACES_DIR}*`, DISPOSABLE_INDEX_PATHS, turnId, INDEX_PUBLICATION_COPY) as { changedPaths: number; observedBytes: number; workspaceCandidates: string };
-        const codeFacts = (db.query("SELECT checkout,json_array_length(receipt,'$.paths') AS paths FROM turn_journal_code_receipts WHERE turn_id=?").all(turnId) as { checkout: string; paths: number }[]);
+        const facts = { ...advanceCounters(turnId).facts };
+        const codeFacts = db.query("SELECT checkout,json_array_length(receipt,'$.paths') AS paths FROM turn_journal_code_receipts WHERE turn_id=?").all(turnId) as { checkout: string; paths: number }[];
         facts.changedPaths += codeFacts.reduce((sum, receipt) => sum + receipt.paths, 0);
-        const workspacePaths = turn.ordinaryWorkspaces ? 0 : (JSON.parse(facts.workspaceCandidates) as string[]).filter(path => isWithin(BRAIN_WORKSPACES_DIR, path, { includeRoot: false })).length
-          + codeFacts.filter(receipt => isWithin(BRAIN_WORKSPACES_DIR, receipt.checkout)).reduce((sum, receipt) => sum + receipt.paths, 0);
-        for (const observer of observers) observer(turnId, { changedPaths: facts.changedPaths, observedBytes: facts.observedBytes, workspacePaths, partial: summary(turnId).state === "partial" });
+        facts.workspacePaths += codeFacts.filter(receipt => isWithin(BRAIN_WORKSPACES_DIR, receipt.checkout)).reduce((sum, receipt) => sum + receipt.paths, 0);
+        for (const observer of observers) observer(turnId, { ...facts, workspacePaths: turn.ordinaryWorkspaces ? 0 : facts.workspacePaths, indexBytes: observation.indexBytes, partial: summary(turnId).state === "partial" });
         step?.();
       }
       const committed = timing?.("observe_commit");
@@ -617,7 +607,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
      * exempted as an admitted workspace (#3793). Content created beneath an
      * absent optional area is ordinary content, so it receives no exemption.
      */
-    onObservation(observer: (turnId: string, facts: { changedPaths: number; observedBytes: number; workspacePaths: number; partial: boolean }) => void, periodic?: { before(): void; after(completed: boolean): void }) {
+    onObservation(observer: (turnId: string, facts: { changedPaths: number; observedBytes: number; workspacePaths: number; indexBytes?: number | null; partial: boolean }) => void, periodic?: { before(): void; after(completed: boolean): void }) {
       observers.add(observer); if (periodic) periodicObservers.add(periodic);
       return () => { if (periodic) periodicObservers.delete(periodic); return observers.delete(observer); };
     },
@@ -730,7 +720,8 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         await captureCheckout(turnId, referenceWorktreeJournalPath(worktreeId, ""), manager, "", signal);
         return;
       }
-      const root = createNativeJournalCapture(referenceWorktreeJournalManager(options.referencePool, worktreeId, options.referenceCheckpoints), retainVersion, {}, readIdentity, { steering: false, index: false }, releaseFailed);
+      const root = createNativeJournalCapture(referenceWorktreeJournalManager(options.referencePool, worktreeId, options.referenceCheckpoints),
+        (source, bytes, signal) => retain(() => objects.putFileAsync(source, bytes, signal, [turnId])), {}, readIdentity, { steering: false, index: false }, releaseFailed);
       try {
         await root.initialize(signal);
         const policy = await root.policy([], {}, signal);
@@ -835,7 +826,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       finally {
         for (const [key, root] of checkouts) if (root.turnId === turnId) checkouts.delete(key);
         await write([statement("UPDATE turn_journal_code_receipts SET receipt=json_set(receipt,'$.state','partial') WHERE turn_id=? AND json_extract(receipt,'$.state')='recording'", turnId)]);
-        active.delete(turnId); lasting.delete(turnId);
+        active.delete(turnId); counters.delete(turnId); lasting.delete(turnId);
         for (const [key, call] of calls) if (call.turnId === turnId) calls.delete(key);
         let step = worktrees.size ? timing?.("finish_worktrees") : undefined;
         await dropWorktrees(turnId);
@@ -893,7 +884,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         const directory = realpathSync(change.directory), info = lstatSync(directory);
         if (directory !== change.directory || !info.isDirectory() || isWithin(options.brainPath, directory)) throw new Error("invalid external memory store");
         const retained = async (bytes: Uint8Array | null, mode: number): Promise<JournalVersion | null> => bytes === null ? null : {
-          kind: "file", mode, bytes: bytes.length, hash: await retain(() => objects.putBytes(bytes)), ignored: false,
+          kind: "file", mode, bytes: bytes.length, hash: await retain(() => objects.putBytes(bytes, [turnId])), ignored: false,
         };
         const before = await retained(change.before, change.beforeMode);
         // Pin the first object before a second admission can collect under pressure.
@@ -927,7 +918,19 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       return serialize(() => recordClaudeMemory(turnId, path, target, before, after));
     },
     /** All operation metadata uses the journal's existing physical allocation owner: one accounted write of these statements. */
-    writeOperation(statements: readonly JournalStatement[]): Promise<number[]> { return write([...statements]); },
+    async writeOperation(statements: readonly JournalStatement[]): Promise<number[]> {
+      const result = await call<{ changes: number[]; turns: { turn_id: string; reset: number }[] }>("operationStatements", [...statements]);
+      for (const row of result.turns) {
+        if (row.reset) counters.delete(row.turn_id);
+        const turn = active.get(row.turn_id);
+        if (turn) {
+          const last = db.query("SELECT coalesce(max(sequence),0) AS sequence FROM turn_journal_changes WHERE turn_id=?").get(row.turn_id) as { sequence: number };
+          turn.sequence = Math.max(turn.sequence, last.sequence);
+          advanceCounters(row.turn_id);
+        }
+      }
+      return result.changes;
+    },
     async reserveRevert(turnId: string, sourceTurnId: string, versions: readonly (JournalVersion | null)[]): Promise<void> {
       const source = db.query("SELECT * FROM turn_journal_turns WHERE turn_id=? AND ended_at IS NOT NULL AND state IN ('complete','partial')").get(sourceTurnId) as TurnRow | null;
       if (!source) throw new JournalStorageUnavailable("source journal is unavailable");
@@ -987,10 +990,27 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     details(sessionId: string, turnId: string): TurnJournalDetails | null {
       const row = db.query("SELECT * FROM turn_journal_turns WHERE turn_id=? AND session_id=?").get(turnId, sessionId) as TurnRow | null;
       if (!row) return null;
-      const changes = (db.query("SELECT * FROM turn_journal_changes WHERE turn_id=? ORDER BY sequence,path").all(turnId) as ChangeRow[]).map(item => ({ sequence: item.sequence, path: item.path, scope: item.scope, class: item.class, actor: item.actor,
-        before: presented(item.path, item.before_json), after: presented(item.path, item.after_json), overlappingTurnIds: JSON.parse(item.overlaps) as string[], ...(item.effective_taint === 1 || item.taint_source_event_id ? { tainted: true as const } : {}), ...(item.taint_source_event_id ? { taintSourceEventId: item.taint_source_event_id } : {}),
-        ...(JSON.parse(item.conflict_observations).length && !journalMetadataOnlyPath(item.path) ? { conflict: { versions: JSON.parse(item.conflict_observations) as JournalObservationReference[],
-          latest: { turnId, sequence: (db.query("SELECT max(sequence) AS sequence FROM turn_journal_changes WHERE turn_id=? AND path=?").get(turnId,item.path) as {sequence:number}).sequence, side:"after" as const } } } : {}) }));
+      const recorded = db.query("SELECT * FROM turn_journal_changes WHERE turn_id=? ORDER BY sequence,path").all(turnId) as ChangeRow[];
+      const hasConflicts = db.query("SELECT 1 FROM journal.sqlite_schema WHERE type='table' AND name='turn_journal_path_conflicts'").get();
+      const boundaries = new Map((hasConflicts ? db.query("SELECT path,first_sequence FROM turn_journal_path_conflicts WHERE turn_id=?").all(turnId) as {path:string;first_sequence:number}[] : []).map(item => [item.path,item.first_sequence]));
+      const newRowsFrom = new Map((hasConflicts ? db.query("SELECT path,first_sequence FROM turn_journal_path_peers WHERE turn_id=? AND peer_id=?").all(turnId, turnId) as {path:string;first_sequence:number}[] : []).map(item => [item.path,item.first_sequence]));
+      const conflicts = new Map<string, JournalObservationReference[]>(), latest = new Map<string, number>();
+      for (const item of recorded) {
+        latest.set(item.path, item.sequence);
+        const first = boundaries.get(item.path);
+        if (first !== undefined && item.sequence >= first) {
+          let refs = conflicts.get(item.path); if (!refs) { refs = []; conflicts.set(item.path, refs); }
+          refs.push({ turnId, sequence: item.sequence, side: "after" });
+        }
+      }
+      const changes = recorded.map(item => {
+        const stored = JSON.parse(item.conflict_observations) as JournalObservationReference[];
+        const refs = item.sequence >= (newRowsFrom.get(item.path) ?? Infinity) && !stored.length ? conflicts.get(item.path) ?? stored : stored;
+        return { sequence: item.sequence, path: item.path, scope: item.scope, class: item.class, actor: item.actor,
+          before: presented(item.path, item.before_json), after: presented(item.path, item.after_json), overlappingTurnIds: JSON.parse(item.overlaps) as string[], ...(item.effective_taint === 1 || item.taint_source_event_id ? { tainted: true as const } : {}), ...(item.taint_source_event_id ? { taintSourceEventId: item.taint_source_event_id } : {}),
+          ...(refs.length && !journalMetadataOnlyPath(item.path) ? { conflict: { versions: refs,
+            latest: { turnId, sequence: latest.get(item.path)!, side:"after" as const } } } : {}) };
+      });
       const failure = failures.get(turnId) ?? row.failure.trim();
       const outward = queryGovernanceEvents(db, { sessionId, turnId, kinds: ["outward_action"], limit: 1001 });
       const outwardActions: JournalOutwardAction[] = outward.slice(0, 1000).map(event => ({ id: event.id, at: event.at,

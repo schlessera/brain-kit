@@ -8,8 +8,12 @@ export interface NativeJournalReadContext {
   workerUid: number;
   manager: Pick<ReturnType<typeof createNativeBrainManagerClient>, "readCheckpoint">;
   signal?: AbortSignal;
+  /** Batch probing defers fixed readers until direct copies have settled. */
+  deferPrivate?: boolean;
   createTemporary(maximum: number): Promise<{ file: FileHandle; release(): void }>;
 }
+
+export class NativeJournalPrivateRead extends Error {}
 
 export const nativeJournalPermissionDenied = (error: unknown): boolean =>
   ["EACCES", "EPERM"].includes((error as NodeJS.ErrnoException)?.code ?? "");
@@ -39,6 +43,7 @@ export async function withNativeJournalFile<T>(root: string, path: string, maxim
   try { direct = await openNativeJournalFile(root, path); }
   catch (error) {
     if (!context || !nativeJournalPermissionDenied(error)) throw error;
+    if (context.deferPrivate) throw new NativeJournalPrivateRead();
     context.signal?.throwIfAborted();
     const temporary = await context.createTemporary(maximum);
     try {
@@ -63,7 +68,7 @@ export async function withNativeJournalFile<T>(root: string, path: string, maxim
       } finally { await reader.cancel(); await copy.completed.catch(() => {}); }
       context.signal?.throwIfAborted();
       return await consume(temporary.file);
-    } finally { await temporary.file.close(); temporary.release(); }
+    } finally { await temporary.file.close(); await temporary.release(); }
   }
   try { return await consume(direct); } finally { await direct.close(); }
 }

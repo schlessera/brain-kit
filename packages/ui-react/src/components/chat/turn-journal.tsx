@@ -81,12 +81,14 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
     ["Ignored paths · bytes not kept", details.changes.filter(change => !change.before?.metadataOnly && !change.after?.metadataOnly && (change.before?.ignored || change.after?.ignored))],
     ["Other entries · bytes not kept", details.changes.filter(change => !change.before?.metadataOnly && !change.after?.metadataOnly && !change.before?.ignored && !change.after?.ignored && (change.before?.kind ?? change.after?.kind) === "other")],
   ] as const : [];
-  const selectedObservation=selected?.conflict?.versions.find(ref=>ref.sequence===selected.sequence);
-  const otherObservations=selected?.conflict?.versions.filter(ref=>ref.sequence!==selectedObservation?.sequence)??[];
+  const selectedConflict = selected?.conflict;
+  const selectedObservation=selectedConflict?.versions.find(ref=>ref.sequence===selected?.sequence);
+  const otherObservations=selectedConflict?.versions.filter(ref=>ref.sequence!==selectedObservation?.sequence)??[];
   const otherObservation=otherObservations.find(ref=>ref.sequence===otherSequence)??otherObservations[0];
+  const lastPause = summary?.scope?.receipts.findLast(receipt => receipt.state === "paused");
   return <div ref={wrapper} className="mt-3 min-w-0" data-turn-journal={turnId ?? "unrecorded"}>
     {live && <span className="sr-only" role="status" aria-live="polite">{announcement}</span>}
-    {turnId && cardSession && summary?.scope?.receipts.map(receipt => receipt.state === "paused" && summary.actor === "voice" ? null : <ScopeCapCard key={receipt.eventId} receipt={receipt} turnId={turnId} sessionId={cardSession} blockedBy={receipt.state === "paused" && receipt.eventId !== summary.scope?.receipts.at(-1)?.eventId ? summary.scope?.receipts.at(-1) : undefined} />)}
+    {turnId && cardSession && summary?.scope?.receipts.map(receipt => receipt.state === "paused" && summary.actor === "voice" ? null : <ScopeCapCard key={receipt.eventId} receipt={receipt} turnId={turnId} sessionId={cardSession} blockedBy={receipt.state === "paused" && receipt.eventId !== lastPause?.eventId ? lastPause : undefined} />)}
     <ApifyTurnNotice state={apify} />
     <Disclosure label={label} badge={summary?.configurationCoverage === "incomplete" ? { icon: "unproven", label: "configuration coverage incomplete" } : undefined} open={open} onOpenChange={setOpen}>
       <div className="grid gap-3 text-sm min-w-0" style={{ gridTemplateColumns: "minmax(0, 1fr)", overflowWrap: "anywhere" }}>
@@ -105,7 +107,7 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
         <ApifyTurnCost state={apify} />
         {summary?.scope ? <section className="grid gap-2"><h3>Scope limits</h3><p>{summary.scope.calls} tool calls · {Number(summary.scope.minutes.toFixed(3))} min · {summary.scope.changedPaths ?? "Unknown"} distinct changed paths · {summary.scope.observedBytes ?? "Unknown"} observed bytes.</p>
           <p>Ceilings: {summary.scope.limits.tool_calls} calls · {summary.scope.limits.minutes} min · {summary.scope.limits.files_changed} paths · {summary.scope.limits.turn_bytes} bytes. Independent hard timeout: {summary.scope.hardTimeoutMs / 60_000} min. Host resource and storage limits also remain binding.</p>
-          <ul className="grid gap-2">{summary.scope.receipts.map(receipt => <li key={receipt.eventId} className="break-words">{scopeReceiptText(receipt)}. Cap: {scopeNumber(receipt.dimension, receipt.cap)}; observed overshoot: {scopeNumber(receipt.dimension, receipt.overshoot)}.</li>)}</ul>
+          <ul className="grid gap-2">{summary.scope.receipts.map(receipt => <li key={receipt.eventId} className="break-words">{scopeReceiptText(receipt)}. Cap: {scopeNumber(receipt.dimension, receipt.cap)}; observed overshoot: {receipt.measurement === "unknown" ? "unknown" : scopeNumber(receipt.dimension, receipt.overshoot)}.</li>)}</ul>
           <p>Coverage: {summary.scope.coverage === "partial" ? "Incomplete observation; missing counts are unknown." : "Observed versions in brain, scratch and workspaces; writes overwritten between observations are not captured."} Distinct paths and bytes may include overlapping writers. Free-space floor: max(5%, 2 GiB), Stop only.</p></section> : <p>Scope limits: unknown.</p>}
         </div>}
         {summary?.sharedAttribution && <p>Overlapping turns shared this writable window. These observations do not identify an exclusive writer.</p>}
@@ -143,18 +145,18 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
         <h2 ref={heading} tabIndex={-1} className="font-medium break-all">{selected?.path}</h2>
         <p className="text-sm text-muted-foreground">Observed raw version · {selected?.before?.bytes ?? 0} → {selected?.after?.bytes ?? 0} bytes</p>
         {selected?.tainted === true && selected.taintSourceEventId && <p className="text-sm">Review recommended: this steering observation follows recorded untrusted input (source event {selected.taintSourceEventId}).</p>}
-        {selected?.conflict && <section className="grid gap-3 min-w-0" aria-label="Observed conflict versions">
+        {selected && selectedConflict && <section className="grid gap-3 min-w-0" aria-label="Observed conflict versions">
           <p className="text-sm">Distinct versions were observed while turns overlapped. These links do not identify an exclusive writer. Versions overwritten between observations cannot be recovered.</p>
-          <div className="flex flex-wrap gap-2 any-pointer-coarse:gap-y-4">{selected.conflict.versions.map(ref=><Button key={ref.sequence} label={`Review observation ${ref.sequence}`} tone="quiet" block={false} reach onClick={()=>{
+          <div className="flex flex-wrap gap-2 any-pointer-coarse:gap-y-4">{selectedConflict.versions.map(ref=><Button key={ref.sequence} label={`Review observation ${ref.sequence}`} tone="quiet" block={false} reach onClick={()=>{
             const change=details?.changes.find(change=>change.path===selected.path&&change.sequence===ref.sequence);
             if(change)setSelected(change);
           }} />)}</div>
           {selectedObservation && revert.canResolve && <div className="grid gap-3">
-            <p className="text-sm">Selected: retained after observation {selectedObservation.sequence}. Current file must still match reviewed observation {selected.conflict.latest.sequence}; later changes are skipped.</p>
-            <Button label={`Keep observation ${selectedObservation.sequence}`} reach disabled={revert.resolutionPending} onClick={()=>revert.resolve(selected.path,"keep_version",selectedObservation,selected.conflict!.latest)} />
+            <p className="text-sm">Selected: retained after observation {selectedObservation.sequence}. Current file must still match reviewed observation {selectedConflict.latest.sequence}; later changes are skipped.</p>
+            <Button label={`Keep observation ${selectedObservation.sequence}`} reach disabled={revert.resolutionPending} onClick={()=>revert.resolve(selected.path,"keep_version",selectedObservation,selectedConflict.latest)} />
             {otherObservation && <>
               <label className="grid gap-2 text-sm">Other observed version<select aria-label="Other observed version" className="min-h-11 min-w-0 rounded border bg-background px-3 text-foreground" value={otherObservation.sequence} onChange={event=>setOtherSequence(Number(event.target.value))}>{otherObservations.map(ref=><option key={ref.sequence} value={ref.sequence}>After observation {ref.sequence}</option>)}</select></label>
-              <Button label={`Keep both observations ${selectedObservation.sequence} and ${otherObservation.sequence}`} reach disabled={revert.resolutionPending} onClick={()=>revert.resolve(selected.path,"keep_both",selectedObservation,selected.conflict!.latest,otherObservation)} />
+              <Button label={`Keep both observations ${selectedObservation.sequence} and ${otherObservation.sequence}`} reach disabled={revert.resolutionPending} onClick={()=>revert.resolve(selected.path,"keep_both",selectedObservation,selectedConflict.latest,otherObservation)} />
             </>}
           </div>}
         </section>}

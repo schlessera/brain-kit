@@ -1,0 +1,159 @@
+import { expect, test } from "bun:test";
+import { createUiDb } from "../src/db/client.js";
+import { createTurnScope, INDEX_OBSERVATION_CAP_BYTES } from "../src/brain/turn-scope.js";
+import { resolveGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
+import type { TurnJournal } from "../src/brain/turn-journal.js";
+import { previousScopeSummarySchema } from "./helpers/activity-schema-0-44.js";
+import { turnScopeSummarySchema } from "@schlessera/brain-ui-sdk/schemas";
+
+test("live index size pauses independently of retained bytes, with one finite index grant", async () => {
+  const db = createUiDb(":memory:");
+  db.query("INSERT INTO sessions(id,title,created_at,last_active_at) VALUES ('ithaca','Voyage',0,0)").run();
+  let observe!: Parameters<TurnJournal["onObservation"]>[0];
+  let held!: NonNullable<Parameters<TurnJournal["onObservation"]>[1]>;
+  const journal = { onObservation(callback: typeof observe, control: typeof held) { observe = callback; held = control; return () => true; } } as TurnJournal;
+  const scope = createTurnScope(db, { brainPath: "/odysseus", journal, connected: () => true, changed() {}, space: () => ({ total: 100 * 1024 ** 3, free: 50 * 1024 ** 3 }) });
+  const state = { frozen: false, resumes: 0, killed: false };
+  const worker = { exited: new Promise(() => {}), freeze() { state.frozen = true; }, resume() { state.frozen = false; state.resumes++; }, kill() { state.killed = true; } };
+  const facts = (indexBytes: number | null) => {
+    held.before(); observe("voyage", { changedPaths: 0, observedBytes: 0, workspacePaths: 0, partial: false, indexBytes }); held.after(true);
+  };
+  const saved = () => JSON.parse((db.query("SELECT summary FROM turn_scope WHERE turn_id='voyage'").get() as { summary: string }).summary);
+  try {
+    await scope.begin("voyage", { sessionId: "ithaca", principalId: "athena", origin: "interactive", profile: "governed", policy: resolveGovernancePolicy({ schema_version: 1 }), source: "default", hardTimeoutMs: 3600000, current: () => true, stop() {} });
+    scope.workerStarted("voyage", worker as never);
+    facts(INDEX_OBSERVATION_CAP_BYTES - 1); expect(scope.isPaused("voyage"), "INDEX_UNDER_CAP_CONTINUES").toBe(false); expect(state.frozen).toBe(false);
+    facts(INDEX_OBSERVATION_CAP_BYTES); expect(scope.isPaused("voyage"), "INDEX_EXACT_BOUND_FITS").toBe(false);
+    facts(INDEX_OBSERVATION_CAP_BYTES + 1);
+    expect(scope.isPaused("voyage"), "INDEX_OVER_CAP_PAUSES").toBe(true); expect(state.frozen, "INDEX_CAP_REMAINS_HELD").toBe(true);
+    let summary = saved();
+    expect(summary.observedBytes, "INDEX_NEVER_CHARGED_AS_RETAINED_TURN_BYTES").toBe(0);
+    expect(summary.receipts, "INDEX_CAP_HAS_NAMED_RESULT").toMatchObject([{ dimension: "turn_bytes", result: "index_capacity", count: INDEX_OBSERVATION_CAP_BYTES + 1, cap: INDEX_OBSERVATION_CAP_BYTES, state: "paused", newCap: 2 * INDEX_OBSERVATION_CAP_BYTES }]);
+    expect(previousScopeSummarySchema.safeParse(summary).success, "PREVIOUS_SCOPE_PARSER_ACCEPTS_INDEX_CAP").toBe(true);
+    expect(turnScopeSummarySchema.safeParse(summary).success).toBe(true);
+    const unknownDimension = structuredClone(summary); unknownDimension.receipts[0].dimension = "index_bytes";
+    expect(previousScopeSummarySchema.safeParse(unknownDimension).success, "CLOSED_DIMENSION_NEGATIVE_CONTROL").toBe(false);
+    facts(null); expect(saved().receipts[0].newCap, "UNKNOWN_INDEX_SIZE_WITHHOLDS_CONTINUATION").toBeUndefined();
+    facts(INDEX_OBSERVATION_CAP_BYTES + 1);
+    const receipt = summary.receipts[0];
+    const answer = await scope.decide({ type: "scope_decision", sessionId: "ithaca", turnId: "voyage", eventId: receipt.eventId, submissionId: "athena", action: "continue" }, true);
+    expect(answer.state).toBe("accepted"); expect(state.frozen).toBe(false);
+    summary = saved(); expect(summary.indexLimitBytes).toBe(2 * INDEX_OBSERVATION_CAP_BYTES);
+    expect(summary.limits.turn_bytes, "INDEX_GRANT_DOES_NOT_RAISE_CONTENT_ALLOWANCE").toBe(INDEX_OBSERVATION_CAP_BYTES);
+    facts(2 * INDEX_OBSERVATION_CAP_BYTES + 1); expect(scope.isPaused("voyage")).toBe(true);
+    expect(saved().receipts.at(-1).newCap, "INDEX_SECOND_HIT_HAS_NO_MORE_GRANT").toBeUndefined();
+    await scope.finish("voyage");
+  } finally { scope.close(); db.close(); }
+});
+
+for (const indexBytes of [INDEX_OBSERVATION_CAP_BYTES + 1, null]) test(`a content grant cannot bypass independent index state ${indexBytes}`, async () => {
+  const db = createUiDb(":memory:"); db.query("INSERT INTO sessions(id,title,created_at,last_active_at) VALUES ('ithaca','Voyage',0,0)").run();
+  let observed!: Parameters<TurnJournal["onObservation"]>[0], periodic!: NonNullable<Parameters<TurnJournal["onObservation"]>[1]>;
+  const journal = { onObservation(callback: typeof observed, hold: typeof periodic) { observed = callback; periodic = hold; return () => true; } } as TurnJournal;
+  const scope = createTurnScope(db, { brainPath: "/odysseus", journal, connected: () => true, changed() {}, space: () => ({ total: 100 * 1024 ** 3, free: 50 * 1024 ** 3 }) });
+  let frozen = false;
+  const saved = () => JSON.parse((db.query("SELECT summary FROM turn_scope WHERE turn_id='voyage'").get() as { summary: string }).summary);
+  try {
+    await scope.begin("voyage", { sessionId: "ithaca", principalId: "athena", origin: "interactive", profile: "governed", policy: resolveGovernancePolicy({ schema_version: 1, scope: { max_bytes_written: 10 } }), source: "policy", hardTimeoutMs: 3600000, current: () => true, stop() {} });
+    scope.workerStarted("voyage", { exited: new Promise(() => {}), freeze() { frozen = true; }, resume() { frozen = false; }, kill() {} } as never);
+    periodic.before(); observed("voyage", { changedPaths: 1, observedBytes: 11, workspacePaths: 0, indexBytes, partial: false }); periodic.after(true);
+    const content = saved().receipts[0];
+    const result = await scope.decide({ type: "scope_decision", sessionId: "ithaca", turnId: "voyage", eventId: content.eventId, submissionId: "content-grant", action: "continue" }, true);
+    expect(result.state, "CONTENT_GRANT_REFUSES_INDEX_BYPASS").toBe("refused");
+    expect(frozen, "INDEPENDENT_INDEX_BREACH_STAYS_FROZEN").toBe(true);
+    const index = saved().receipts.at(-1);
+    expect(index.result).toBe("index_capacity");
+    if (indexBytes !== null) {
+      const reply = await scope.decide({ type: "scope_decision", sessionId: "ithaca", turnId: "voyage", eventId: index.eventId, submissionId: "index-grant", action: "continue" }, true);
+      expect(reply.state).toBe("accepted"); expect(frozen, "INDEX_GRANT_STILL_RESPECTS_PENDING_CONTENT_CAP").toBe(true);
+      const older = await scope.decide({ type: "scope_decision", sessionId: "ithaca", turnId: "voyage", eventId: content.eventId, submissionId: "older-content-grant", action: "continue" }, true);
+      expect(older.state, "OLDER_OPEN_PAUSE_IS_STILL_ANSWERABLE").toBe("accepted"); expect(frozen).toBe(false);
+    } else expect(index.newCap).toBeUndefined();
+    await scope.finish("voyage");
+  } finally { scope.close(); db.close(); }
+});
+
+test("an index grant cannot bypass shared content added while its worker is paused", async () => {
+  const db = createUiDb(":memory:"); db.query("INSERT INTO sessions(id,title,created_at,last_active_at) VALUES ('ithaca','Voyage',0,0)").run();
+  let observed!: Parameters<TurnJournal["onObservation"]>[0], periodic!: NonNullable<Parameters<TurnJournal["onObservation"]>[1]>;
+  const journal = { onObservation(callback: typeof observed, hold: typeof periodic) { observed = callback; periodic = hold; return () => true; } } as TurnJournal;
+  const scope = createTurnScope(db, { brainPath: "/odysseus", journal, connected: () => true, changed() {}, space: () => ({ total: 100 * 1024 ** 3, free: 50 * 1024 ** 3 }) });
+  let frozen = false;
+  const saved = () => JSON.parse((db.query("SELECT summary FROM turn_scope WHERE turn_id='voyage'").get() as { summary: string }).summary);
+  const facts = (observedBytes: number) => { periodic.before(); observed("voyage", { changedPaths: 1, observedBytes, workspacePaths: 0, indexBytes: INDEX_OBSERVATION_CAP_BYTES + 1, partial: false }); periodic.after(true); };
+  const decide = (eventId: string) => scope.decide({ type: "scope_decision", sessionId: "ithaca", turnId: "voyage", eventId, submissionId: eventId, action: "continue" }, true);
+  try {
+    await scope.begin("voyage", { sessionId: "ithaca", principalId: "athena", origin: "interactive", profile: "governed", policy: resolveGovernancePolicy({ schema_version: 1, scope: { max_bytes_written: 10 } }), source: "policy", hardTimeoutMs: 3600000, current: () => true, stop() {} });
+    scope.workerStarted("voyage", { exited: new Promise(() => {}), freeze() { frozen = true; }, resume() { frozen = false; }, kill() {} } as never);
+    facts(0); const index = saved().receipts[0]; expect(index.result).toBe("index_capacity");
+    facts(11);
+    expect((await decide(index.eventId)).state, "INDEX_GRANT_REFUSES_LATER_CONTENT_BYPASS").toBe("refused");
+    expect(frozen).toBe(true);
+    const content = saved().receipts.at(-1); expect(content, "SHARED_CONTENT_PAUSE_REMAINS_DISTINCT_FROM_INDEX").toMatchObject({ dimension: "turn_bytes", count: 11 }); expect(content.result).toBeUndefined();
+    expect((await decide(content.eventId)).state, "CONTENT_GRANT_DOES_NOT_CREATE_DUPLICATE_INDEX_PAUSE").toBe("accepted"); expect(frozen).toBe(true);
+    expect(saved().receipts).toHaveLength(2);
+    expect((await decide(index.eventId)).state).toBe("accepted"); expect(frozen, "BOTH_INDEPENDENT_GRANTS_RESUME_WORKER").toBe(false);
+    await scope.finish("voyage");
+  } finally { scope.close(); db.close(); }
+});
+
+for (const [contentPaused, origin] of [[false, "interactive"], [true, "interactive"], [false, "voice"]] as const) test(`unknown index measurement stays unknown in durable compatible receipts: pending=${contentPaused}, origin=${origin}`, async () => {
+  const db = createUiDb(":memory:"); db.query("INSERT INTO sessions(id,title,created_at,last_active_at) VALUES ('ithaca','Voyage',0,0)").run();
+  let observed!: Parameters<TurnJournal["onObservation"]>[0], periodic!: NonNullable<Parameters<TurnJournal["onObservation"]>[1]>;
+  const journal = { onObservation(callback: typeof observed, hold: typeof periodic) { observed = callback; periodic = hold; return () => true; } } as TurnJournal;
+  const scope = createTurnScope(db, { brainPath: "/odysseus", journal, connected: () => true, changed() {}, space: () => ({ total: 100 * 1024 ** 3, free: 50 * 1024 ** 3 }) });
+  const saved = () => JSON.parse((db.query("SELECT summary FROM turn_scope WHERE turn_id='voyage'").get() as { summary: string }).summary);
+  try {
+    await scope.begin("voyage", { sessionId: "ithaca", principalId: "athena", origin, profile: "governed", policy: resolveGovernancePolicy({ schema_version: 1, scope: { max_bytes_written: 10 } }), source: "policy", hardTimeoutMs: 3600000, current: () => true, stop() {} });
+    scope.workerStarted("voyage", { exited: new Promise(() => {}), freeze() {}, resume() {}, kill() {} } as never);
+    periodic.before(); observed("voyage", { changedPaths: 1, observedBytes: contentPaused ? 11 : 0, workspacePaths: 0, indexBytes: null, partial: false }); periodic.after(true);
+    if (contentPaused) await scope.decide({ type: "scope_decision", sessionId: "ithaca", turnId: "voyage", eventId: saved().receipts[0].eventId, submissionId: "grant", action: "continue" }, true);
+    const receipt = saved().receipts.at(-1);
+    expect(receipt, "UNREADABLE_INDEX_IS_NOT_AN_EXACT_CAP_MEASUREMENT").toMatchObject({ result: "index_capacity", measurement: "unknown", count: 0, overshoot: 0 });
+    expect(receipt.newCap).toBeUndefined();
+    if (origin === "voice") expect(receipt.reason, "VOICE_STOP_DOES_NOT_CLAIM_A_MEASURED_BREACH").toContain("could not be measured");
+    expect(previousScopeSummarySchema.safeParse(saved()).success, "OLD_SCOPE_PARSER_ACCEPTS_UNKNOWN_MEASUREMENT_FIELD").toBe(true);
+    expect(turnScopeSummarySchema.safeParse(saved()).success).toBe(true);
+    const invalid = saved(); invalid.receipts.at(-1).measurement = "unverified"; expect(turnScopeSummarySchema.safeParse(invalid).success).toBe(false);
+    const event = db.query("SELECT payload FROM governance_events WHERE kind='scope_cap' ORDER BY id DESC LIMIT 1").get() as { payload: string };
+    expect(JSON.parse(event.payload), "DURABLE_SCOPE_EVENT_LABELS_UNKNOWN_MEASUREMENT").toMatchObject({ observed: 0, measurement: "unknown" });
+    await scope.finish("voyage");
+  } finally { scope.close(); db.close(); }
+});
+
+
+for (const [profile, liveIndexWritable] of [["strict", undefined], ["governed", false]] as const) test(`a ${profile} turn with a private read-only index ignores the live index`, async () => {
+  const db = createUiDb(":memory:"); let observe!: Parameters<TurnJournal["onObservation"]>[0], held!: NonNullable<Parameters<TurnJournal["onObservation"]>[1]>;
+  const journal = { onObservation(callback: typeof observe, control: typeof held) { observe = callback; held = control; return () => true; } } as TurnJournal;
+  const scope = createTurnScope(db, { brainPath: "/odysseus", journal, connected: () => true, changed() {}, space: () => ({ total: 100 * 1024 ** 3, free: 50 * 1024 ** 3 }) });
+  let stopped = false;
+  try {
+    await scope.begin("voyage", { sessionId: null, principalId: "athena", origin: "interactive", profile, ...(liveIndexWritable === undefined ? {} : { liveIndexWritable }), policy: resolveGovernancePolicy({ schema_version: 1 }), source: "default", hardTimeoutMs: 3600000, current: () => true, stop() { stopped = true; } });
+    scope.workerStarted("voyage", { exited: new Promise(() => {}), freeze() {}, resume() {}, kill() {} } as never);
+    for (const indexBytes of [INDEX_OBSERVATION_CAP_BYTES + 1, null]) {
+      held.before(); observe("voyage", { changedPaths: 0, observedBytes: 0, workspacePaths: 0, partial: false, indexBytes }); held.after(true);
+      expect(scope.isPaused("voyage"), "READ_ONLY_INDEX_TURN_CANNOT_PAUSE_ON_UNWRITABLE_LIVE_INDEX").toBe(false); expect(stopped).toBe(false);
+      const saved = JSON.parse((db.query("SELECT summary FROM turn_scope WHERE turn_id='voyage'").get() as { summary: string }).summary);
+      expect(saved.indexBytes, "PRIVATE_READER_NEVER_REPORTS_UNRELATED_LIVE_INDEX_BYTES").toBeUndefined();
+      expect(saved.indexLimitBytes).toBeUndefined();
+    }
+    await scope.finish("voyage");
+  } finally { scope.close(); db.close(); }
+});
+
+for (const pending of [false, true]) test(`the index guard identifies its host-default source under a custom policy: pending=${pending}`, async () => {
+  const db = createUiDb(":memory:"); let observe!: Parameters<TurnJournal["onObservation"]>[0], held!: NonNullable<Parameters<TurnJournal["onObservation"]>[1]>;
+  const journal = { onObservation(callback: typeof observe, control: typeof held) { observe = callback; held = control; return () => true; } } as TurnJournal;
+  const scope = createTurnScope(db, { brainPath: "/odysseus", journal, connected: () => true, changed() {}, space: () => ({ total: 100 * 1024 ** 3, free: 50 * 1024 ** 3 }) });
+  try {
+    await scope.begin("voyage", { sessionId: null, principalId: "athena", origin: "interactive", profile: "governed", policy: resolveGovernancePolicy({ schema_version: 1, scope: { max_bytes_written: 10 } }), source: "policy", hardTimeoutMs: 3600000, current: () => true, stop() {} });
+    scope.workerStarted("voyage", { exited: new Promise(() => {}), freeze() {}, resume() {}, kill() {} } as never);
+    const observed = (bytes: number, indexBytes: number) => { held.before(); observe("voyage", { changedPaths: 1, observedBytes: bytes, workspacePaths: 0, partial: false, indexBytes }); held.after(true); };
+    if (pending) observed(11, 0);
+    observed(pending ? 11 : 0, INDEX_OBSERVATION_CAP_BYTES + 1);
+    const events = (db.query("SELECT payload FROM governance_events WHERE kind='scope_cap' ORDER BY id").all() as { payload: string }[]).map(row => JSON.parse(row.payload));
+    expect(events.at(-1), "INDEX_CAP_EVENT_NAMES_HOST_DEFAULT_NOT_CONTENT_POLICY").toMatchObject({ cap: "turn_bytes", result: "index_capacity", source: "default", limit: INDEX_OBSERVATION_CAP_BYTES });
+    if (pending) expect(events[0]).toMatchObject({ source: "policy", limit: 10 });
+    await scope.finish("voyage");
+  } finally { scope.close(); db.close(); }
+});
