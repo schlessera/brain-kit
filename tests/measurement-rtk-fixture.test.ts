@@ -42,3 +42,24 @@ for(const mode of ["hosted","local","self-hosted"] as const) test(`cleared-env R
   }
  }finally{rmSync(scratch,{recursive:true,force:true});}
 });
+
+test("RTK plan carries the outer compiled policy read-only without compiler mounts", async()=>{
+ const scratch=mkdtempSync(join(tmpdir(),"odysseus-rtk-policy-"));
+ try {
+  const file=join(scratch,"plan.json"),script=join(scratch,"parent.ts");
+  writeFileSync(script,`import {writeFileSync,readFileSync} from "node:fs";
+   import {createHash} from "node:crypto";
+   const {enterMeasurementRtkView}=await import(${JSON.stringify(join(ROOT,"scripts/measurement-rtk-fixture.ts"))});
+   Bun.spawnSync=(()=>({exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}));
+   Bun.spawn=((argv)=>{const target=argv.indexOf("/usr/local/bin/brain-native-connect"),source=argv[target-1];
+    writeFileSync(${JSON.stringify(file)},JSON.stringify({argv,source,digest:createHash("sha256").update(readFileSync(source)).digest("hex")}));return {exited:Promise.resolve(0)};});
+   await enterMeasurementRtkView();`);
+  const child=Bun.spawn([process.execPath,script],{stdout:"pipe",stderr:"pipe"});
+  const [code,errors]=await Promise.all([child.exited,new Response(child.stderr).text()]);expect(code,errors).toBe(0);
+  const {argv,source,digest}=JSON.parse(readFileSync(file,"utf8"));
+  expect(source).toMatch(/odysseus-native-policy-[^/]+\/native-connect$/);
+  const at=argv.indexOf("/usr/local/bin/brain-native-connect");expect(argv.slice(at-2,at+1)).toEqual(["--ro-bind",source,"/usr/local/bin/brain-native-connect"]);
+  expect(argv).toContain("--native-socket-policy-sha256="+digest);
+  expect(argv).not.toContain("/usr/include");expect(argv).not.toContain("/usr/libexec");
+ }finally{rmSync(scratch,{recursive:true,force:true});}
+});

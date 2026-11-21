@@ -5,6 +5,9 @@ import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
+import { redactCredentials } from "../packages/ui-server/src/activity/runtime-status";
+import { redactProviderMessage } from "../packages/ui-react/src/lib/turn-failure";
+import { createRedactor } from "../packages/compute-boat/src/redact";
 import type { query as sdkQuery } from "@anthropic-ai/claude-agent-sdk";
 
 const ROOT = resolve(import.meta.dir, "..");
@@ -139,11 +142,11 @@ export function isNativeClaude(command: string, args: readonly unknown[] = [], o
   return false;
 }
 
-function refuse(reason: string, mountEvidence?: Record<string, unknown>): never {
+function refuse(reason: string, mountEvidence?: Record<string, unknown>, compilerStderr?: string): never {
   denied++;
-  // Fixed classifications only: arguments, settings, credentials and addresses
-  // never enter a denial receipt.
-  console.error(JSON.stringify({ kind: "native-offline-boundary", success: false, nativeLaunched: false, reason, head: nativeTestHead(), ...(mountEvidence ? { mountEvidence } : {}) }));
+  // Classifications and mount evidence omit arguments/settings/credentials.
+  // Compiler diagnostics are bounded and scrubbed before reaching this receipt.
+  console.error(JSON.stringify({ kind: "native-offline-boundary", success: false, nativeLaunched: false, reason, head: nativeTestHead(), ...(mountEvidence ? { mountEvidence } : {}), ...(compilerStderr !== undefined ? { compilerStderr } : {}) }));
   throw new Error(`Offline native Claude refused before launch: ${reason}`);
 }
 
@@ -179,16 +182,33 @@ function qualify(): void {
   qualified = true;
 }
 
-function compileSocketPolicy(): string {
+export const RTK_SOCKET_POLICY = "/usr/local/bin/brain-native-connect";
+function compilerDiagnostic(value: string): string {
+  const redactor = createRedactor(undefined);
+  for (const [key, secret] of Object.entries(process.env)) if (/secret|token|password|credential|api.?key/i.test(key) && secret) redactor.add(secret);
+  let text = Buffer.from(value).subarray(0, 4096).toString("utf8");
+  if (Buffer.byteLength(value) > 4096) text = text.slice(0, Math.max(0, text.lastIndexOf("\n")));
+  return redactProviderMessage(redactCredentials(redactor.text(text))).slice(0, 4096);
+}
+/** Compile in the outer test process; RTK re-entry receives only this artifact. */
+export function compileSocketPolicy(): string {
   if (socketPolicyExecutable) return socketPolicyExecutable;
+  if (process.argv.includes("--native-rtk-view")) {
+    const digest = process.argv.find(value => value.startsWith("--native-socket-policy-sha256="))?.split("=")[1];
+    try {
+      const info = lstatSync(RTK_SOCKET_POLICY);
+      if (!/^[0-9a-f]{64}$/.test(digest ?? "") || !info.isFile() || (info.mode & 0o222) || fileHash(RTK_SOCKET_POLICY) !== digest) throw Error("invalid artifact");
+    } catch { return refuse("native socket policy artifact is unavailable or changed"); }
+    return socketPolicyExecutable = RTK_SOCKET_POLICY;
+  }
   const directory = mkdtempSync(join(tmpdir(), "odysseus-native-policy-"));
   const executable = join(directory, "native-connect");
   let compiled: ReturnType<typeof Bun.spawnSync>;
   try { compiled = metadataSpawnSync(["cc", "-O2", "-std=c11", "-Wall", "-Wextra", "-Werror",
     join(import.meta.dir, "native-proof/native-connect.c"), "-o", executable],
     { env: { PATH: "/usr/bin:/bin", LANG: "C" }, stdout: "pipe", stderr: "pipe", timeout: 30000 }); }
-  catch { rmSync(directory, { recursive: true, force: true }); return refuse("native socket policy compiler unavailable"); }
-  if (compiled.exitCode !== 0) { rmSync(directory, { recursive: true, force: true }); return refuse("native socket policy compilation failed"); }
+  catch (error) { rmSync(directory, { recursive: true, force: true }); return refuse("native socket policy compiler unavailable", undefined, compilerDiagnostic(String(error))); }
+  if (compiled.exitCode !== 0) { rmSync(directory, { recursive: true, force: true }); return refuse("native socket policy compilation failed", undefined, compilerDiagnostic(compiled.stderr?.toString() ?? "(no compiler stderr)")); }
   chmodSync(executable, 0o555); chmodSync(directory, 0o555);
   socketPolicyExecutable = executable;
   process.on("exit", () => { chmodSync(directory, 0o700); rmSync(directory, { recursive: true, force: true }); });

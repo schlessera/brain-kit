@@ -1,5 +1,7 @@
 /** Private installed-native oracle for the production enforcement measurement. */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { compileSocketPolicy, RTK_SOCKET_POLICY } from "./test-native-guard";
+import { readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 // Capture the outer invocation before a measurement changes its environment.
@@ -11,6 +13,8 @@ const hostedEnvironment = hostedRunner ? ["--setenv", "GITHUB_ACTIONS", "true", 
 /** Re-enter a disposable system view; never install an oracle on the host. */
 export async function enterMeasurementRtkView(): Promise<void> {
   if (process.argv.includes("--native-rtk-view")) return;
+  const policy = compileSocketPolicy();
+  const policyDigest = createHash("sha256").update(readFileSync(policy)).digest("hex");
   const root = resolve(import.meta.dir, "..");
   mkdirSync(join(root, "tmp"), { recursive: true });
   const fixture = mkdtempSync(join(root, "tmp/enforcement-rtk-"));
@@ -42,11 +46,11 @@ int main(int argc,char **argv) {
       ...["/usr/bin", "/usr/lib", "/usr/lib64", "/usr/share", "/etc"].flatMap(path => ["--ro-bind", path, path]),
       "--symlink", "usr/bin", "/bin", "--symlink", "usr/lib", "/lib", "--symlink", "usr/lib64", "/lib64",
       "--proc", "/proc", "--dev", "/dev", "--bind", "/tmp", "/tmp",
-      "--dir", "/usr/local/bin", "--ro-bind", binary, "/usr/local/bin/rtk",
+      "--dir", "/usr/local/bin", "--ro-bind", binary, "/usr/local/bin/rtk", "--ro-bind", policy, RTK_SOCKET_POLICY,
       "--ro-bind", root, root, "--bind", join(root, "tmp"), join(root, "tmp"),
       "--ro-bind", process.execPath, process.execPath, "--clearenv",
       "--setenv", "PATH", "/usr/local/bin:/usr/bin:/bin", "--setenv", "HOME", "/nonexistent", ...hostedEnvironment,
-      "--chdir", root, "--", process.execPath, ...process.argv.slice(1), "--native-rtk-view"],
+      "--chdir", root, "--", process.execPath, ...process.argv.slice(1), "--native-rtk-view", `--native-socket-policy-sha256=${policyDigest}`],
     { env: {}, stdout: "inherit", stderr: "inherit" });
     process.exitCode = await child.exited;
   } finally { rmSync(fixture, { recursive: true, force: true }); }
