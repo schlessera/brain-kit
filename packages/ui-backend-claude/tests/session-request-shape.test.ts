@@ -64,7 +64,7 @@ test("a dangling context alias is refused rather than replaced with a legacy ros
 });
 
 test("production assembly retains a gateway pin and confines a changed-upstream refusal to its session", async () => {
-  const assemble = (route: string, sessionId?: string, relay = true, inherited?: string, hosted = true, inventory: "core-only" | "module-tools" | "unavailable" = "core-only") => createClaudeSdkTurn({
+  const assemble = (route: string, sessionId?: string, relay = true, inherited?: string, hosted = true, inventory: "core-only" | "module-tools" | "unavailable" = "core-only", diagnosticsThrow = false) => createClaudeSdkTurn({
     backend: { brainPath: brain }, brainBridgeInventory: inventory,
     req: { prompt: "Odysseus checks Ithaca.", sessionId, bridge: { emit() {} }, applicationAuthority: hosted ? "server" : undefined,
       signal: new AbortController().signal,
@@ -72,7 +72,7 @@ test("production assembly retains a gateway pin and confines a changed-upstream 
     profile: { id: "fixture", label: "Fixture", billing: "api", requiredEnvKeys: [], buildEnv: () => ({}) },
     turnEnvironment: { ANTHROPIC_BASE_URL: route, ENABLE_TOOL_SEARCH: inherited }, ...(relay ? { hostInference: { proxyDir: brain, placeholders: { ANTHROPIC_API_KEY: INFERENCE_PLACEHOLDER } } } : {}),
     abortController: new AbortController(), allowedTools: ["Read"], confirmPatterns: [],
-    turnLock: { acquireForTool: async () => ({ ok: true }), releaseForTool() {} } as never, log() {},
+    turnLock: { acquireForTool: async () => ({ ok: true }), releaseForTool() {} } as never, log() { if (diagnosticsThrow) throw new Error("The owner log is unavailable."); },
   });
   const gateway = assemble("https://gateway.example.com");
   const firstParty = assemble("https://api.anthropic.com");
@@ -96,6 +96,11 @@ test("production assembly retains a gateway pin and confines a changed-upstream 
         expect(fallback.options.env!.ENABLE_TOOL_SEARCH, "UNKNOWN_INVENTORY_IS_NEVER_CORE_ONLY").toBe("false");
       } finally { await fallback.finishWorker(); }
     }
+    let observerFailure: ReturnType<typeof assemble> | undefined;
+    expect(() => { observerFailure = assemble("https://api.anthropic.com", undefined, true, undefined, true, "unavailable", true); },
+      "OWNER_DIAGNOSTICS_CANNOT_DISABLE_STDIO_FALLBACK").not.toThrow();
+    try { expect(observerFailure!.options.env!.ENABLE_TOOL_SEARCH).toBe("false"); }
+    finally { await observerFailure?.finishWorker(); }
     const previous = assemble("https://api.anthropic.com");
     const previousId = previous.options.sessionId!;
     await previous.finishWorker();

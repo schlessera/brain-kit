@@ -449,7 +449,8 @@ function assembleClaudeSdkTurn(
   if (hosted && req.sessionId === undefined && !bridgeEligible) {
     // #4381 supplies the future static module inventory. Until then retain the
     // original stdio server; this owner diagnostic never enters model inputs.
-    log("warn", `brain_bridge_fallback_${options.brainBridgeInventory === "module-tools" ? "module_tools" : "inventory_unavailable"}: keeping the project brain stdio entry and tool search off.`);
+    try { log("warn", `brain_bridge_fallback_${options.brainBridgeInventory === "module-tools" ? "module_tools" : "inventory_unavailable"}: keeping the project brain stdio entry and tool search off.`); }
+    catch { /* Owner diagnostics never change the selected execution path. */ }
   }
   let retained: ReturnType<typeof retainSessionRequestShape> | undefined;
   const { contextId, context, append, prepare } = assemblePromptContext(backend, req, roster, sandbox, sandboxNote, id => {
