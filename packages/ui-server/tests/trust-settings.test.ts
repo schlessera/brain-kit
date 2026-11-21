@@ -492,7 +492,7 @@ test('review5: malformed live policy reports an error before any refresh',async(
 for(const refreshing of [false,true])test(`review5: removal during anchored verification fences ${refreshing?'refresh':'read'}`,async()=>{
  const f=await fixture({originEnforcement:true});await f.commit(await f.prepare());writeFileSync(f.path,readFileSync(f.path,'utf8')+'\n');const read=fs.readSync;let swapped=false;
  const spy=spyOn(fs,'readSync').mockImplementation(((...args:Parameters<typeof fs.readSync>)=>{const n=Reflect.apply(read,fs,args);if(n>0&&!swapped){swapped=true;renameSync(f.path,f.path+'.old');writeFileSync(f.path,initial);}return n;}) as typeof fs.readSync);
- try{if(refreshing)await expect(f.settings.live.refresh(),'CHANGED_DURING_VERIFICATION_NEVER_RETAINS_RULE').rejects.toThrow();else expect(()=>f.settings.live.read(),'CHANGED_DURING_VERIFICATION_NEVER_RETAINS_RULE').toThrow();expect(swapped).toBe(true);}finally{spy.mockRestore();}
+ try{if(refreshing){const current=await f.settings.live.refresh();expect(current.rules,'LOCKED_RETRY_NEVER_RETAINS_REMOVED_RULE').toEqual([]);expect(current.revision).toBe('2');}else expect(()=>f.settings.live.read(),'CHANGED_DURING_VERIFICATION_NEVER_RETAINS_RULE').toThrow();expect(swapped).toBe(true);}finally{spy.mockRestore();}
 });
 test('review5: unchanged large policy uses a cheap per-chunk revision fence',async()=>{
  const f=await fixture({originEnforcement:true});await f.commit(await f.prepare());writeFileSync(f.path,readFileSync(f.path,'utf8')+'\n'+ 'Ithaca. '.repeat(12000));const p=f.settings.live.read();const read=fs.readSync;let reads=0;
@@ -516,8 +516,74 @@ test('review7: a second reader recovers after the writer commits the same file g
  expect(second.live.read().rules,'SECOND_READER_RECOVERS_WITHOUT_EXPLICIT_REFRESH').toEqual([]);expect(second.live.revision()).toBe('2');
 });
 
+test("unchanged durable trust refresh does not queue the held brain lock", async () => {
+  const f = await fixture({ originEnforcement: true });
+  await f.commit(await f.prepare());
+  const committed = f.settings.live.read();
+  const release = await f.lock.acquire(BRAIN_LOCK_KEY);
+  const original = f.lock.withLock.bind(f.lock);
+  let calls = 0;
+  f.lock.withLock = (key, fn, options) => { if (key === BRAIN_LOCK_KEY) calls++; return original(key, fn, options); };
+  let pending: ReturnType<typeof f.settings.live.refresh> | undefined;
+  try {
+    pending = f.settings.live.refresh();
+    expect(calls, "UNCHANGED_REFRESH_NEVER_QUEUES_BRAIN_LOCK").toBe(0);
+    expect(await pending).toEqual(committed);
+    expect(f.lock.heldKeys).toContain(BRAIN_LOCK_KEY);
+  } finally { release(); await pending; }
+});
+
+test("diverged trust refresh queues the held brain lock and publishes a new revision after release", async () => {
+  const f = await fixture({ originEnforcement: true });
+  await f.commit(await f.prepare());
+  const before = f.settings.live.read();
+  writeFileSync(f.path, initial);
+  const release = await f.lock.acquire(BRAIN_LOCK_KEY);
+  const original = f.lock.withLock.bind(f.lock);
+  let calls = 0, completed = false;
+  f.lock.withLock = (key, fn, options) => { if (key === BRAIN_LOCK_KEY) calls++; return original(key, fn, options); };
+  const pending = f.settings.live.refresh().then(value => { completed = true; return value; });
+  try {
+    expect(calls, "CHANGED_POLICY_STILL_QUEUES_BRAIN_LOCK").toBe(1);
+    await Promise.resolve();
+    expect(completed).toBe(false);
+    expect(f.lock.heldKeys).toContain(BRAIN_LOCK_KEY);
+  } finally { release(); }
+  const after = await pending;
+  expect(after.rules).toEqual([]);
+  expect(BigInt(after.revision)).toBe(BigInt(before.revision) + 1n);
+});
+
+test("ADMISSION_NEVER_WAITS_ON_HELD_INDEX_LOCK", async () => {
+  const f = await fixture({ originEnforcement: true });
+  await f.commit(await f.prepare());
+  const { WsHost } = await import("../src/ws/host");
+  const { runSession } = await import("../src/ws/run-session");
+  const { createSessionCatalog } = await import("../src/ws/session-catalog");
+  const { createStaticBackendRegistry } = await import("../src/agent/backend");
+  const { makeFakeBackend } = await import("./helpers/fake-backend");
+  const { testAuthorization } = await import("./helpers/principal");
+  let started = 0, queued!: () => void;
+  const blocked = new Promise<void>(resolve => { queued = resolve; });
+  const original = f.lock.withLock.bind(f.lock);
+  f.lock.withLock = (key, fn, options) => { if (key === BRAIN_LOCK_KEY) queued(); return original(key, fn, options); };
+  const policy = createGovernancePolicyReader(f.root).load();
+  const backend = makeFakeBackend({ id: "pi", async startTurn() { started++; } });
+  const host = new WsHost({ registry: createStaticBackendRegistry([backend], "pi"), catalog: createSessionCatalog(() => f.db), originTrust: f.settings.live,
+    governedTurns: { async begin() { return { sandbox: { profile: "strict", noteFacts: {} }, policy, async end() { return null; } }; }, refresh() {}, async close() {}, async bindSession() {}, async exposures() { return []; }, facts() { return { policyProfile: "strict", policy }; } } as never });
+  const release = await f.lock.acquire(BRAIN_LOCK_KEY);
+  const running = runSession(host, { authorization: testAuthorization(), text: "Plan Ithaca", attachments: [] });
+  try {
+    const finished = await Promise.race([running.then(() => true), blocked.then(() => false)]);
+    expect(started, "ADMISSION_NEVER_WAITS_ON_HELD_INDEX_LOCK").toBe(1);
+    expect(finished, "SESSION_FINISHES_BEFORE_INDEX_LOCK_RELEASE").toBe(true);
+    expect(f.lock.heldKeys).toContain(BRAIN_LOCK_KEY);
+  } finally { release(); await running; host.close(); }
+});
+
 for(const timeout of [false,true])test(`review10: turn trust refresh releases governed resources before the lock holder on ${timeout?'timeout':'cancel'}`,async()=>{
  const f=await fixture({originEnforcement:true});const {WsHost}=await import('../src/ws/host');const {runSession}=await import('../src/ws/run-session');const {createSessionCatalog}=await import('../src/ws/session-catalog');const {createStaticBackendRegistry}=await import('../src/agent/backend');const {makeFakeBackend}=await import('./helpers/fake-backend');const {testAuthorization}=await import('./helpers/principal');
+ await f.commit(await f.prepare());writeFileSync(f.path,initial);
  let held=0,entered!:()=>void,started=0;const reached=new Promise<void>(r=>{entered=r;});const original=f.lock.withLock.bind(f.lock);f.lock.withLock=(key,fn,opts)=>{if(key===BRAIN_LOCK_KEY)entered();return original(key,fn,opts);};
  const policy=createGovernancePolicyReader(f.root).load();const backend=makeFakeBackend({id:'pi',async startTurn(){started++;}});const host=new WsHost({registry:createStaticBackendRegistry([backend],'pi'),catalog:createSessionCatalog(()=>f.db),turnTimeoutMs:5000,originTrust:f.settings.live,governedTurns:{async begin(){held++;return {sandbox:{profile:'strict',noteFacts:{}},policy,async end(){held--;return null;}};},refresh(){},async close(){},async bindSession(){},async exposures(){return [];},facts(){return {policyProfile:'strict',policy};}} as never});
  const release=await f.lock.acquire(BRAIN_LOCK_KEY);let running:Promise<void>|undefined;
