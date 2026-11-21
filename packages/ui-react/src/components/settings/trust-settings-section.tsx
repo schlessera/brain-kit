@@ -77,7 +77,15 @@ export function TrustSettingsSection({ active }: { active: boolean }) {
   const load = useCallback(async () => {
     const token = generation.current, request = ++readRequest.current;
     try {
-      const next = await api.trustSettings(controller.current.signal);
+      const data = await api.trustSettings(controller.current.signal);
+      // Mixed-version hosts may omit enforcement advertisements; only true supports a capability.
+      const next = { ...data, capabilities: {
+        originRules: data.capabilities?.originRules === true,
+        recipientRules: data.capabilities?.recipientRules === true,
+        repositoryRules: data.capabilities?.repositoryRules === true,
+        repositoryIdentity: data.capabilities?.repositoryIdentity === true,
+        readOnlyReason: data.capabilities?.readOnlyReason ?? null,
+      } };
       if (current(token) && request === readRequest.current) {
         const pending = session.getState().edit;
         if (next.mutationAllowed !== true) invalidatePrivate(false);
