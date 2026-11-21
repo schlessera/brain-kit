@@ -1,10 +1,11 @@
 /** Real isolated test/runtime processes, with native sentinels under the guard. */
 import { describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { experimentRunArgv } from "../scripts/test-experiments";
+import { isolateGogEnvironment } from "../scripts/test-network-guard";
 
 const ROOT = join(import.meta.dir, "..");
 const sentinel = join(import.meta.dir, "helpers/network-sentinels.ts");
@@ -107,6 +108,28 @@ describe("offline test guard", () => {
     expect(existsSync(seen.gog.GOG_HOME!)).toBe(false);
     expect(result.code, result.output).toBe(0);
   });
+  test("a guarded child reuses its test process's gog home, so one killed with SIGKILL leaves no home behind", async () => {
+    const temp = mkdtempSync(join(tmpdir(), "network-guard-tmp-"));
+    try {
+      const result = await run("gog-home-descendants", "direct", ROOT, { TMPDIR: temp });
+      const report = /GOG_HOMES=(\{[^\n]*\})/.exec(result.output);
+      expect(report, result.output).not.toBeNull();
+      const seen = JSON.parse(report![1]!) as { own: string; children: unknown[]; own_after: boolean };
+      expect(seen.own.startsWith(`${temp}/`), seen.own).toBe(true);
+      // Inherited or replaced environment, killed or not: one home, the test process's own.
+      expect(seen.children).toEqual([
+        { home: seen.own, signal: "SIGKILL", exit: null },
+        { home: seen.own, signal: "SIGKILL", exit: null },
+        { home: seen.own, signal: null, exit: 0 },
+      ]);
+      // A child that ends normally leaves it to its maker, which removed it when it ended.
+      expect(seen.own_after).toBe(true);
+      expect(readdirSync(temp).filter(name => name.startsWith("brain-test-gog-"))).toEqual([]);
+      expect(result.code, result.output).toBe(0);
+    } finally {
+      rmSync(temp, { recursive: true, force: true });
+    }
+  });
   for (const scenario of ["local-sockets", "local-tls", "local", "local-unix", "manual", "redirect-error"]) {
     test(`${scenario} retains real loopback fixture behavior`, async () => {
       const result = await run(scenario);
@@ -167,4 +190,57 @@ describe("offline test guard", () => {
       expect(result.code).not.toBe(0);
     });
   }
+});
+
+describe("the guard's gog home", () => {
+  test("a descendant's guard reuses the home its test process made, and only the maker removes it", () => {
+    const parent = mkdtempSync(join(tmpdir(), "network-guard-home-"));
+    try {
+      const made = isolateGogEnvironment({ GOG_ACCOUNT: "suitor@example.com" }, parent);
+      const env: Record<string, string | undefined> = { GOG_HOME: made.home, GOG_ACCESS_TOKEN: "ya29.suitor-probe" };
+      const reused = isolateGogEnvironment(env, parent);
+      expect(reused.home).toBe(made.home);
+      expect(env).toEqual({ GOG_HOME: made.home, GOG_KEYRING_BACKEND: "file" });
+      reused.dispose();
+      expect(existsSync(made.home)).toBe(true);
+      made.dispose();
+      expect(readdirSync(parent)).toEqual([]);
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
+  });
+
+  test("a GOG_HOME the guard did not make is never reused, however like one it looks", () => {
+    const parent = mkdtempSync(join(tmpdir(), "network-guard-home-"));
+    try {
+      const made = isolateGogEnvironment({}, parent);
+      const marker = readFileSync(join(dirname(made.home), "guard"), "utf8");
+      // The guard's layout, `<dir>/guard` beside `<dir>/home`, with one thing changed.
+      const forge = (prefix: string, text: string | null, name = "home", home = (path: string) => mkdirSync(path, { mode: 0o700 })) => {
+        const dir = mkdtempSync(join(parent, prefix));
+        if (text !== null) writeFileSync(join(dir, "guard"), text, { mode: 0o600 });
+        home(join(dir, name));
+        return join(dir, name);
+      };
+      const cases: [string, string][] = [
+        ["no marker", forge("brain-test-gog-", null)],
+        ["another marker", forge("brain-test-gog-", "brain-kit offline test guard\n")],
+        ["another place", forge("ithaca-gog-", marker)],
+        ["another name", forge("brain-test-gog-", marker, "elsewhere")],
+        ["a home others can read", forge("brain-test-gog-", marker, "home", path => { mkdirSync(path); chmodSync(path, 0o750); })],
+        ["a symlink to a private home", forge("brain-test-gog-", marker, "home", path => symlinkSync(made.home, path))],
+        ["a maintainer's gog home", "/srv/ithaca/gog"],
+      ];
+      for (const [label, home] of cases) {
+        const env: Record<string, string | undefined> = { GOG_HOME: home };
+        const got = isolateGogEnvironment(env, parent);
+        expect(got.home, label).not.toBe(home);
+        expect(env.GOG_HOME, label).toBe(got.home);
+        got.dispose();
+      }
+      made.dispose();
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
+  });
 });

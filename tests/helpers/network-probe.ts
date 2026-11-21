@@ -226,6 +226,22 @@ writeFileSync(${JSON.stringify(report)}, JSON.stringify({ gog: Object.fromEntrie
     const child = Bun.spawnSync(["/bin/sh", "-c", "go\"\"g version"], { env: { ...process.env, PATH: bin }, stdout: "pipe", stderr: "pipe" });
     console.log(`GOG_ENV_EXIT=${child.exitCode}`);
     console.log(`GOG_ENV=${readFileSync(report, "utf8")}`);
+  } else if (scenario === "gog-home-descendants") {
+    // Children the guard starts, given this process's environment or another,
+    // report the gog home they were given. Two are killed with SIGKILL, which
+    // runs no exit hook; the last exits normally.
+    const { existsSync } = await import("node:fs");
+    const own = process.env.GOG_HOME!;
+    const children = [
+      [undefined, 'process.kill(process.pid, "SIGKILL")'],
+      [{ PATH: process.env.PATH!, TMPDIR: process.env.TMPDIR! }, 'process.kill(process.pid, "SIGKILL")'],
+      [undefined, "process.exit(0)"],
+    ].map(([env, exit]) => {
+      const program = `require("node:fs").writeSync(1, process.env.GOG_HOME ?? ""); ${exit}`;
+      const child = Bun.spawnSync([process.execPath, "-e", program], { ...(env ? { env: env as Record<string, string> } : {}), stdout: "pipe", stderr: "pipe" });
+      return { home: child.stdout.toString(), signal: child.signalCode ?? null, exit: child.exitCode };
+    });
+    console.log(`GOG_HOMES=${JSON.stringify({ own, children, own_after: existsSync(own) })}`);
   } else if (scenario === "hosts") {
     for (const input of [external, new URL(external), new Request(external),
       "https://localhost.example.invalid/", "http://127.0.0.2/", "http://0.0.0.0/", "file:///etc/hosts"]) {

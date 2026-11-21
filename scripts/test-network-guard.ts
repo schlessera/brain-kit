@@ -1,5 +1,5 @@
 /** Test-only subprocess and transport safeguards; never imported by a published package. */
-import { lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { isIP, Socket } from "node:net";
@@ -18,7 +18,8 @@ import { inheritWorkspaceLease } from "./workspace-lease.mjs";
  *    word of a Bun Shell command.
  * 3. Whatever the first two miss finds no account: the guard drops every
  *    inherited `GOG_*` name and points `GOG_HOME` at an empty private home
- *    with the file keyring ({@link isolateGogEnvironment}).
+ *    with the file keyring, one per test process, which its descendants
+ *    share ({@link isolateGogEnvironment}).
  *
  * Token matching cannot read a shell: quoting (`go""g`), expansion
  * (`$(printf gog)`, variables), functions, aliases, a script on disk that
@@ -59,12 +60,12 @@ function lstatOrNull(path: string) {
   }
 }
 
-/** Whether `path` is a regular file holding exactly `shim`. */
-function holdsShim(path: string, shim: string): boolean {
+/** Whether `path` is a regular file holding exactly `text`. */
+function holdsExactly(path: string, text: string): boolean {
   const stats = lstatOrNull(path);
-  if (!stats?.isFile() || stats.size !== Buffer.byteLength(shim)) return false;
+  if (!stats?.isFile() || stats.size !== Buffer.byteLength(text)) return false;
   try {
-    return readFileSync(path, "utf8") === shim;
+    return readFileSync(path, "utf8") === text;
   } catch {
     return false;
   }
@@ -81,7 +82,7 @@ export function registerFakeGog(path: string): () => void {
   const dir = dirname(dirname(path));
   const placed = basename(path) === "gog" && basename(dirname(path)) === "bin" && FAKE_GOG_DIR.test(basename(dir)) && dirname(dir) === resolve(tmpdir());
   const shim = fakeGogShim(path);
-  if (!placed || !holdsShim(path, shim)) {
+  if (!placed || !holdsExactly(path, shim)) {
     throw new Error("Offline test guard: only a fake gog made by packages/common/tests/support/fake-gog.ts can be registered");
   }
   const real = realpathSync(path);
@@ -91,7 +92,7 @@ export function registerFakeGog(path: string): () => void {
 
 const isRegisteredFake = (real: string) => {
   const shim = fakeGogs().get(real);
-  return shim !== undefined && holdsShim(real, shim);
+  return shim !== undefined && holdsExactly(real, shim);
 };
 
 const SHELLS = new Set(["sh", "bash", "dash", "zsh", "ksh", "mksh", "ash", "busybox"]);
@@ -197,6 +198,27 @@ export function unregisteredGog(cmd: readonly string[], env: Readonly<Record<str
   return firstUnregistered(commandWords(cmd), env, cwd);
 }
 
+/** Where a guard keeps a gog home: `<parent>/brain-test-gog-XXXXXX/home`, beside a file `guard` holding exactly the marker. */
+const GOG_HOME_DIR = /^brain-test-gog-[A-Za-z0-9]{6}$/;
+const GOG_HOME_MARKER = "brain-kit offline test guard: the empty gog home beside this file belongs to the test process that made it\n";
+
+/**
+ * Whether `home` is a gog home a guard made: `home` in a
+ * `brain-test-gog-XXXXXX` directory that holds the marker, both of them
+ * directories, not symlinks, owned by this user, mode 0700. A gog home of
+ * anyone else's never has that layout.
+ */
+function isGuardGogHome(home: string | undefined): home is string {
+  if (!home) return false;
+  const dir = dirname(home);
+  if (basename(home) !== "home" || !GOG_HOME_DIR.test(basename(dir))) return false;
+  for (const path of [dir, home]) {
+    const stats = lstatOrNull(path);
+    if (!stats?.isDirectory() || (stats.mode & 0o777) !== 0o700 || stats.uid !== process.getuid?.()) return false;
+  }
+  return holdsExactly(join(dir, "guard"), GOG_HOME_MARKER);
+}
+
 /**
  * Layer 3: drops every `GOG_*` name from `env` (gog reads its home, config,
  * data, state and cache directories, account, OAuth client, access token,
@@ -204,16 +226,35 @@ export function unregisteredGog(cmd: readonly string[], env: Readonly<Record<str
  * from them), then points `GOG_HOME` at an empty 0700 directory and sets
  * `GOG_KEYRING_BACKEND=file`. `GOG_HOME` outranks `HOME` and `XDG_*` for
  * every gog directory, and the file keyring opens no desktop keyring, so a
- * gog that slips past layer 2 finds no credential. Each guarded process
- * makes its own home under `parent`, which `dispose` removes.
+ * gog that slips past layer 2 finds no credential.
+ *
+ * A test process makes the home under `parent`; its descendants share it.
+ * A `GOG_HOME` that is a home a guard made ({@link isGuardGogHome}) is kept,
+ * and the spawn wrapper hands this process's home to every guarded Bun
+ * child, even one started with another environment. Only the maker's
+ * `dispose` removes it, so a descendant killed with SIGKILL, which runs no
+ * exit hook, leaves nothing behind.
  */
 export function isolateGogEnvironment(env: Record<string, string | undefined>, parent: string): { home: string; dispose(): void } {
+  const inherited = env.GOG_HOME;
   for (const name of Object.keys(env)) if (name.startsWith("GOG_")) delete env[name];
-  // mkdtemp makes it 0700.
-  const home = mkdtempSync(join(parent, "brain-test-gog-home-"));
+  let home: string;
+  let dispose = () => {};
+  if (isGuardGogHome(inherited)) {
+    home = inherited;
+  } else {
+    const dir = mkdtempSync(join(parent, "brain-test-gog-"));
+    home = join(dir, "home");
+    mkdirSync(home);
+    // Both 0700 whatever the umask: a descendant checks the mode before it shares them.
+    chmodSync(dir, 0o700);
+    chmodSync(home, 0o700);
+    writeFileSync(join(dir, "guard"), GOG_HOME_MARKER, { mode: 0o600 });
+    dispose = () => rmSync(dir, { recursive: true, force: true });
+  }
   env.GOG_HOME = home;
   env.GOG_KEYRING_BACKEND = "file";
-  return { home, dispose: () => rmSync(home, { recursive: true, force: true }) };
+  return { home, dispose };
 }
 
 const LOOPBACK = new Set(["127.0.0.1", "[::1]", "localhost"]);
@@ -357,7 +398,8 @@ export function installNetworkGuard(): { assertNoEscapes(): void; disposeGogHome
       if (basename(executable) === "curl") refuse(`${key} ${cmd.join(" ")}`);
       const spawnOptions = (Array.isArray(first) ? args[1] ?? {} : first) as { env?: Record<string, string | undefined>; cwd?: string };
       if (unregisteredGog(cmd, spawnOptions.env ?? process.env, spawnOptions.cwd)) refuse(`${key} ${cmd.join(" ")}`);
-      if (basename(executable) === "bun" || executable === process.execPath) {
+      const guardedBun = basename(executable) === "bun" || executable === process.execPath;
+      if (guardedBun) {
         // Bun treats `bun --preload FILE test` as a package script. Keep the
         // builtin/subcommand first so child tests remain child tests.
         const index = ["test", "run"].includes(cmd[1] ?? "") ? 2 : 1;
@@ -374,7 +416,11 @@ export function installNetworkGuard(): { assertNoEscapes(): void; disposeGogHome
       const options = (Array.isArray(first) ? args[1] ?? {} : args[0]) as { env?: Record<string, string | undefined> };
       // Fixture helpers often replace env completely, including provider-history
       // probes. Carry test Git policy through those children as well as shells.
-      const inherited = inheritWorkspaceLease({ ...options, env: testGitEnvironment(options.env ?? process.env) }, defaultStderr, pipeOnly);
+      const childEnv = testGitEnvironment(options.env ?? process.env);
+      // A guarded Bun child's own guard drops every GOG_* name it is given;
+      // this one makes it keep this process's gog home rather than make one.
+      if (guardedBun) childEnv.GOG_HOME = gogHome.home;
+      const inherited = inheritWorkspaceLease({ ...options, env: childEnv }, defaultStderr, pipeOnly);
       if (Array.isArray(first)) args[1] = inherited;
       else args[0] = inherited;
       const result = Reflect.apply(native, Bun, args);
