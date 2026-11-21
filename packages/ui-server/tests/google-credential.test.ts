@@ -213,7 +213,9 @@ describe("google availability probe", () => {
     ];
     for (const [name, google, account, reason] of rows) {
       const probe = createGoogleCredential({ env: google, layout: f.homeLayout, ...(name === "no gog path" ? {} : { binary: fake.binary }) });
-      expect(reasonOf(await probe.status(account)), `CONFIGURATION: ${name}`).toBe(reason);
+      // The probe answers; it never throws, whatever the configuration lacks.
+      const got: string = await probe.status(account).then(reasonOf, (error: unknown) => `threw: ${String(error)}`);
+      expect(got, `CONFIGURATION: ${name}`).toBe(reason);
     }
     expect(fake.calls(), "NO_GOG_FOR_CONFIGURATION").toEqual([]);
   });
