@@ -81,8 +81,16 @@ complete on the first sample and each warm sample. A receipt alone cannot
 qualify a startup breakdown.
 Pi must also carry its `first_relay_request` step matching the observed relay
 milestone. Both fixtures require `first_backend_frame` when the observed frame
-is inside the startup bracket, with the step's timestamps matching that
-milestone. A frame observed after relay receipt remains outside the bracket.
+is strictly before relay receipt (or no receipt was exercised), with the
+step's timestamps matching that milestone. Equal millisecond timestamps do not
+establish callback order: a frame step may be absent when receipt ran first,
+and a present frame step must still match the milestone. A frame observed
+after relay receipt remains outside the bracket.
+Every backend entry's host start/end observations must be contained between
+invocation and relay receipt. Worker durations keep their independent clock;
+only their host observation point is bounded. Claude's worker-only fixture
+uses the observed first frame as its qualification boundary, without claiming
+a model request. Required host stages must use the host clock.
 
 Its `phases` section (#2915) attributes each observed writer's worker hold and
 each harbour turn's journal begin and finish to their steps: the queue for the

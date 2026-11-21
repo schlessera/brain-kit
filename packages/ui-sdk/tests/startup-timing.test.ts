@@ -1,5 +1,24 @@
 import { expect, test } from "bun:test";
 import { safeStartupTiming } from "../src/server/startup-timing.js";
+import { watchdogMs } from "../../../scripts/test-deadlines.js";
+
+for (const mode of ["startup", "relay"]) {
+  test(`asynchronous ${mode} diagnostics cannot reject the process or block observed work`, async () => {
+    const child = Bun.spawn([process.execPath, "--no-env-file", new URL("./fixtures/async-startup-observer.ts", import.meta.url).pathname, mode],
+      { stdin: "ignore", stdout: "pipe", stderr: "pipe", timeout: watchdogMs(10000) });
+    try {
+      const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+      expect({ exit, stderr }, "ASYNC_STARTUP_DIAGNOSTICS_ARE_CONTAINED").toEqual({ exit: 0, stderr: "" });
+      const result = JSON.parse(stdout);
+      if (mode === "startup") expect(result).toEqual(["completion", "worker", "missing", "received", "pending", "thenable"]);
+      else {
+        expect(result.responses.map((response: { status: number }) => response.status)).toEqual([200, 200, 405]);
+        expect(result.responses.slice(0, 2).map((response: { body: string }) => response.body)).toEqual(["Ithaca model response", "Ithaca model response"]);
+        expect(result.events).toEqual(["receipt", "credentials", "upstream", "forwarded", "pending receipt", "credentials", "upstream", "forwarded", "refused"]);
+      }
+    } finally { child.kill(); await child.exited; }
+  });
+}
 
 test("startup observer failures never escape any diagnostic method or returned completion", () => {
   const events: string[] = [];

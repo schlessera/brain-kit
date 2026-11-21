@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test";
 import type { ActivityTurnLifecycle } from "@schlessera/brain-ui-sdk/protocol";
 import { backendStartupSamples, lifecycleTimingSample } from "../scripts/native-proof/lifecycle-timing.js";
+import { createUiDb } from "../packages/ui-server/src/db/client.js";
+import { createActivityStore } from "../packages/ui-server/src/activity/store.js";
+import { createTurnLifecycle } from "../packages/ui-server/src/activity/turn-lifecycle.js";
 
 function record(): ActivityTurnLifecycle {
   return { hostEvents: [], skippedPhases: [], lifecycleId: "lifecycle:ithaca", turnId: "ithaca", sessionId: "odysseus", backendRunId: "ithaca",
@@ -46,6 +49,74 @@ function piStartup(firstFrameAt = 1600) {
   return lifecycleTimingSample(source)!;
 }
 
+function claudeStartup() {
+  const source = record(); source.firstRelayRequestAt = null;
+  source.openSubPhases = ["host_probe", "worker_host_probe", "worker_launch"].map(name => ({
+    phase: "backend", name, startedAt: 1100, endedAt: 1500, elapsedMs: null,
+  }));
+  source.openSubPhases.push({ phase: "backend", name: "first_backend_frame", startedAt: 1100, endedAt: 1600, elapsedMs: null });
+  return lifecycleTimingSample(source, "claude_worker_fixture")!;
+}
+
+test("native startup host stages cannot be relabelled as worker-clock durations", () => {
+  const valid = piStartup();
+  const invalid = { ...valid, backendSteps: valid.backendSteps.map(step => step.name === "host_probe"
+    ? { ...step, timeBase: "worker" as const, workerElapsedMs: step.elapsedMs! } : step) };
+  expect(() => backendStartupSamples("pi", invalid, Array(5).fill(valid)), "NATIVE_HOST_STEPS_KEEP_HOST_CLOCK")
+    .toThrow("BACKEND_TIMING_MISSING_STEPS host_probe");
+});
+
+test("native Claude worker qualification contains host steps before its observed first frame", () => {
+  const valid = claudeStartup();
+  const invalid = { ...valid, backendSteps: valid.backendSteps.map(step => step.name === "host_probe"
+    ? { ...step, startedAt: 1800, endedAt: 1900, elapsedMs: 100 } : step) };
+  expect(() => backendStartupSamples("claude", invalid, Array(5).fill(valid)), "CLAUDE_FIXTURE_STEPS_STAY_INSIDE_OBSERVED_STARTUP")
+    .toThrow("BACKEND_TIMING_OUTSIDE_STARTUP host_probe");
+});
+
+for (const [name, start, end] of [
+  ["host_probe", 1000, 1200], ["host_probe", 1800, 1900], ["host_probe", 1600, 1800],
+  ["host_probe", 1600, 1500], ["resources", 1800, 1800], ["ithaca_extra", 1800, 1900],
+] as const) {
+  test(`native startup rejects ${name} outside its interval (${start}, ${end})`, () => {
+    const valid = piStartup();
+    const steps = valid.backendSteps.filter(step => step.name !== name);
+    const replacement = { phase: "backend", name, startedAt: start, endedAt: end, elapsedMs: Math.max(0, end - start),
+      ...(name === "resources" ? { timeBase: "worker" as const, workerElapsedMs: 0 } : {}) };
+    const invalid = { ...valid, backendSteps: [...steps, replacement] };
+    expect(() => backendStartupSamples("pi", invalid, Array(5).fill(valid)), "NATIVE_STEPS_STAY_INSIDE_STARTUP_INTERVAL")
+      .toThrow(`BACKEND_TIMING_OUTSIDE_STARTUP ${name}`);
+  });
+}
+
+for (const receiptFirst of [true, false]) {
+  test(`equal-millisecond frame/relay observations preserve actual order (receipt first=${receiptFirst})`, () => {
+    const db = createUiDb(":memory:");
+    try {
+      const store = createActivityStore(db); let now = 1100;
+      const life = createTurnLifecycle(store, "turn-ithaca", "ithaca", 1000, () => {}, () => now);
+      life.mark("backendInvokedAt");
+      for (const name of ["preparation", "host_probe", "worker_spawn"]) life.startupTiming.start(name)();
+      for (const name of ["bootstrap_imports", "resources", "session", "initialize"]) life.startupTiming.worker(name, 31);
+      now = 1700;
+      if (receiptFirst) { life.startupTiming.received(); life.firstFrame("turn-ithaca"); }
+      else { life.firstFrame("turn-ithaca"); life.startupTiming.received(); }
+      life.finish("success");
+      const sample = lifecycleTimingSample(store.lifecycle("turn-ithaca")!)!;
+      expect(sample.backendSteps.filter(step => step.name === "first_backend_frame")).toHaveLength(receiptFirst ? 0 : 1);
+      let output: ReturnType<typeof backendStartupSamples> | undefined;
+      expect(() => { output = backendStartupSamples("pi", sample, Array(5).fill(sample)); },
+        "EQUAL_MILLISECONDS_DO_NOT_PROVE_EVENT_ORDER").not.toThrow();
+      expect(output!.firstAfterStart?.invocationToRelayMs).toBe(600);
+      if (!receiptFirst) {
+        const malformed = { ...sample, backendSteps: sample.backendSteps.map(step => step.name === "first_backend_frame" ? { ...step, startedAt: 1101 } : step) };
+        expect(() => backendStartupSamples("pi", malformed, Array(5).fill(sample)), "EQUAL_MILLISECOND_PRESENT_FRAME_IS_VALIDATED")
+          .toThrow("BACKEND_TIMING_MISSING_STEPS first_backend_frame");
+      }
+    } finally { db.close(); }
+  });
+}
+
 test("the Claude worker-fixture projection never publishes inferred SDK-init durations", () => {
   const source = record(); source.firstRelayRequestAt = null;
   source.openSubPhases = [
@@ -84,12 +155,7 @@ test("a Pi first frame observed after the relay has no startup-bracket step", ()
 });
 
 test("the native Claude worker fixture preserves absent relay and SDK evidence", () => {
-  const source = record(); source.firstRelayRequestAt = null;
-  source.openSubPhases = ["host_probe", "worker_host_probe", "worker_launch"].map(name => ({
-    phase: "backend", name, startedAt: 1100, endedAt: 1500, elapsedMs: null,
-  }));
-  source.openSubPhases.push({ phase: "backend", name: "first_backend_frame", startedAt: 1100, endedAt: 1600, elapsedMs: null });
-  const sample = lifecycleTimingSample(source)!;
+  const sample = claudeStartup();
   const output = backendStartupSamples("claude", sample, Array(5).fill(sample));
   expect(output.firstAfterStart?.invocationToRelayMs).toBeNull();
   expect(output.warm.map(row => row?.invocationToRelayMs)).toEqual([null, null, null, null, null]);

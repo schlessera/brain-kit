@@ -1,19 +1,28 @@
 import type { StartTurnRequest } from "./backend.js";
 
+/** Internal diagnostic boundary: never wait for a sink or leave its rejection unhandled. */
+export function observeDiagnostic(operation: () => unknown): void {
+  try {
+    const result = operation();
+    if (result !== null && (typeof result === "object" || typeof result === "function"))
+      void Promise.resolve(result).catch(() => {});
+  } catch { /* Missing observability never fails the observed work. */ }
+}
+
 /**
  * Best-effort diagnostics must not change a turn's work or resource ownership.
  * @experimental Backend toolkit; timing callbacks supply no authority.
  */
 export function safeStartupTiming(timing: StartTurnRequest["startupTiming"]): StartTurnRequest["startupTiming"] {
   if (!timing) return undefined;
-  const observe = (operation: () => unknown) => { try { operation(); } catch { /* Missing observability never fails the observed turn. */ } };
   return {
     start(name) {
-      try { const end = timing.start(name); return () => observe(end); }
-      catch { return () => {}; }
+      let end: unknown;
+      observeDiagnostic(() => end = timing.start(name));
+      return () => observeDiagnostic(() => typeof end === "function" ? end() : undefined);
     },
-    worker: (name, durationMs) => observe(() => timing.worker(name, durationMs)),
-    missing: name => observe(() => timing.missing(name)),
-    received: () => observe(() => timing.received()),
+    worker: (name, durationMs) => observeDiagnostic(() => timing.worker(name, durationMs)),
+    missing: name => observeDiagnostic(() => timing.missing(name)),
+    received: () => observeDiagnostic(() => timing.received()),
   };
 }

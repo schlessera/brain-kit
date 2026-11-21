@@ -60,7 +60,10 @@ fields, clocks and missing-evidence semantics. New phases are persisted in
 
 The experimental toolkit helper `safeStartupTiming(observer)` preserves an
 optional observer's arguments and method receivers while suppressing exceptions
-from every method and returned step completion. Both first-party backends use
+from every method and returned step completion, including rejected promises
+and thenables. Diagnostic promises are consumed without awaiting them, so a
+pending sink cannot hold up observed work. Relay receipt and request-event
+diagnostics have the same boundary. Both first-party backends use
 it so unavailable diagnostics cannot refuse work or escape a worker's cleanup
 ownership. An initialization response observed before the deferred worker
 launch cannot start a later `runtime_to_sdk_init` interval; that stage is

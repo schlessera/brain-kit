@@ -236,7 +236,7 @@ export async function launchPiWorker(request: PiWorkerLaunchRequest): Promise<La
     }
     workerSignal?.throwIfAborted();
     const spawning = performance.now();
-    try { request.prepared?.(); } catch { /* Observability cannot refuse the prepared worker. */ }
+    try { void Promise.resolve(request.prepared?.()).catch(() => {}); } catch { /* Observability cannot refuse the prepared worker. */ }
     const spawned = startupTiming?.start("worker_spawn");
     backend.log?.("debug", "Pi startup phase", { phase: "preparation", durationMs: spawning - startupStarted, elapsedMs: spawning - startupStarted });
     child = await launchAgentWorkerAsync({ brainPath: backend.brainPath, turnTempBytes: reservation.turnTempBytes,

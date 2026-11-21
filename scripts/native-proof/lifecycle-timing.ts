@@ -45,16 +45,28 @@ export function backendStartupSamples(backend: "claude" | "pi", firstAfterStart:
     if (backend === "claude" && sample.invocationToRelayMs !== null) throw Error("CLAUDE_WORKER_FIXTURE_MUST_NOT_CLAIM_RELAY_RECEIPT");
     const missing = required.filter(name => !sample.backendSteps.some(step => step.name === name && step.endedAt !== null
       && step.elapsedMs !== null && Number.isFinite(step.elapsedMs) && step.elapsedMs >= 0
-      && (!workerNames.includes(name) || step.timeBase === "worker" && step.workerElapsedMs === step.elapsedMs)));
+      && (workerNames.includes(name) ? step.timeBase === "worker" && step.workerElapsedMs === step.elapsedMs : step.timeBase === undefined)));
     const milestones: Array<[string, number]> = [];
     if (backend === "pi" && sample.firstRelayRequestAt !== null) milestones.push(["first_relay_request", sample.firstRelayRequestAt]);
-    if (sample.firstFrameAt >= sample.backendInvokedAt && (sample.firstRelayRequestAt === null || sample.firstFrameAt <= sample.firstRelayRequestAt))
+    // Equal milliseconds do not reveal which callback ran first. The lifecycle
+    // may legitimately omit the frame step when relay receipt won that race.
+    if (sample.firstRelayRequestAt === null || sample.firstFrameAt < sample.firstRelayRequestAt
+      || sample.backendSteps.some(step => step.name === "first_backend_frame"))
       milestones.push(["first_backend_frame", sample.firstFrameAt]);
     for (const [name, at] of milestones) {
       if (!sample.backendSteps.some(step => step.name === name && step.timeBase === undefined && step.startedAt === sample.backendInvokedAt
         && step.endedAt === at && step.elapsedMs === Math.max(0, at - sample.backendInvokedAt!))) missing.push(name);
     }
     if (missing.length) throw Error(`BACKEND_TIMING_MISSING_STEPS ${missing.join(",")}`);
+    // Worker durations keep their own clock; only their host observation point
+    // belongs in this bracket. Claude's shell fixture qualifies up to its first
+    // frame, since it exercises no model request or relay receipt.
+    const boundary = sample.firstRelayRequestAt ?? sample.firstFrameAt;
+    for (const step of sample.backendSteps) {
+      if (!Number.isFinite(step.startedAt) || step.startedAt < sample.backendInvokedAt || step.startedAt > boundary
+        || step.endedAt !== null && (!Number.isFinite(step.endedAt) || step.endedAt < step.startedAt || step.endedAt > boundary))
+        throw Error(`BACKEND_TIMING_OUTSIDE_STARTUP ${step.name}`);
+    }
   }
   return { clock: "host epoch timestamps; timeBase=worker uses workerElapsedMs, never subtracted from host time", backend,
     coverage: backend === "claude" ? { worker: "native", sdk: "mock_query", firstRelayRequest: "not_exercised" }

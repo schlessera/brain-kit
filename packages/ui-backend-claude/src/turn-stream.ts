@@ -85,16 +85,26 @@ export async function runTurnStream(inputs: TurnStreamInputs): Promise<void> {
   let carried: CarriedResult | null = null;
   try {
     for await (const msg of inputs.stream) {
-      if (msg.type === "system" && msg.subtype === "init" && !mcpInitObserved) {
+      if (startupTiming && msg.type === "system" && msg.subtype === "init" && !mcpInitObserved) {
         mcpInitObserved = true;
-        const servers = msg.mcp_servers ?? [];
-        let omitted = servers.length > 32;
-        for (const server of servers.slice(0, 32)) {
-          const name = server.name;
-          if (typeof name !== "string" || name.length > 240 || Buffer.byteLength(name) > 240) { omitted = true; continue; }
-          startupTiming?.missing(`mcp_connect:${name}`);
-        }
-        if (omitted) startupTiming?.missing("mcp_connect:additional_servers_omitted");
+        let omitted = false;
+        // Diagnostic metadata has no authority over an otherwise usable frame.
+        // Both list/property reads and individual entries may be malformed.
+        try {
+          const servers = msg.mcp_servers ?? [];
+          if (!Array.isArray(servers)) omitted = true;
+          else {
+            omitted = servers.length > 32;
+            for (const server of servers.slice(0, 32)) {
+              try {
+                const name = server?.name;
+                if (typeof name !== "string" || name.length > 240 || Buffer.byteLength(name) > 240) { omitted = true; continue; }
+                startupTiming.missing(`mcp_connect:${name}`);
+              } catch { omitted = true; }
+            }
+          }
+        } catch { omitted = true; }
+        if (omitted) startupTiming.missing("mcp_connect:additional_servers_omitted");
       }
       input.observe(msg);
       if (carried && CarriedResult.continues(msg)) carried.continued = true;
