@@ -3395,7 +3395,16 @@ These host sidecars never enter provider history.
 POST `/future/status` with `{ version: 1, session, occurrenceId }` reads the
 retained combined operation selected by completion/publication evidence,
 without publishing or committing a verdict.
-It returns the same result envelope, or null when no receipt is retained. The
+It returns the same result envelope, or null when no receipt is retained. Commit and status derive
+completion from the exact operation's durable verdict decision, including after
+a lost acknowledgement or a retry refused by the pending-review quota. A retained
+noncommitted verdict receipt has its internal request/operation IDs redacted on
+both endpoints. Missing verdict receipts do not erase a durable decision.
+Clients correlate prepared and committed responses with the originally requested
+session and occurrence before using a handle or acknowledging completion.
+A failed status read (including a mismatched target) displays explicit
+could-not-verify uncertainty; successful JSON null clears the receipt display.
+Only the newest overlapping status read can update that display. The
 owner UI reads this after reload and on focus to show partial/unknown completion
 and current rule presence separately from the remaining-trigger projection.
 

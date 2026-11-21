@@ -131,9 +131,10 @@ function SafetyTrigger({entry}:{entry:SafetyEvidence}) {
       void root.api.safetyFutureStatus({version:1,session,occurrenceId:r.id},controller.signal).then(result=>{
         if(controller.signal.aborted||request!==sequence)return;
         if(!result){setSavedRule(null);return;}
+        if(result.occurrenceId!==r.id||JSON.stringify(result.session)!==sessionKey)throw new Error("Different future review status");
         const presence=result.rule.currentRule;
         setSavedRule(`${result.stage==="prepared"?"Future rule prepared but not published; fresh review is required. ":result.stage==="partial"?"Rule publication proved; this operation's verdict is incomplete. ":result.stage==="unknown"?"Rule publication is unknown; fresh review is required. ":""}Future rule: ${presence}.`);
-      }).catch(()=>{if(!controller.signal.aborted&&request===sequence)setSavedRule(previous=>previous?"Current future rule presence is unavailable.":null);});
+      }).catch(()=>{if(!controller.signal.aborted&&request===sequence)setSavedRule("Could not verify future rule publication or current presence. Refresh evidence to try again.");});
     };
     read();window.addEventListener("focus",read);
     return()=>{controller.abort();window.removeEventListener("focus",read);};

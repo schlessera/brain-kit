@@ -7,40 +7,42 @@ export type SafetyReviewProgress={stage:"pending"|"review"|"committed"|"partial"
 export function createSafetyReviewer(root:BrainUiServices,changed:(value:SafetyReviewProgress)=>void) {
   let controller:AbortController|null=null,disposed=false,committing=false;
   const cancel=()=>{
-    if(!controller||controller.signal.aborted)return;
-    controller.abort();prepared=null;
+    if(!controller&&!prepared)return;
+    controller?.abort();prepared=null;
     if(!disposed)changed({stage:committing?"unknown":"refused",message:committing?"Review cancelled; the result is unknown. Refresh evidence to check. No decision will be sent again.":"Review cancelled because its owner or evidence changed. No decision was sent."});
   };
   const offSafety=root.stores.safety.subscribe((s,old)=>{
-    if(s.status!=="ready"||s.requestId!==old.requestId||JSON.stringify(s.identity)!==JSON.stringify(old.identity)||!s.capabilities?.review)cancel();
+    if(s.status!=="ready"||s.requestId!==old.requestId||s.revision!==old.revision||JSON.stringify(s.identity)!==JSON.stringify(old.identity)||!s.capabilities?.review)cancel();
   });
   const offChat=root.stores.chat.subscribe((s,old)=>{if(s.activeSessionId!==old.activeSessionId)cancel();});
   const offAuth=root.authLock.state.subscribe(s=>{if(s.phase!=="active")cancel();});
-  let prepared:SafetyFuturePrepared|null=null,preparedEpoch:number|null=null;
+  let prepared:SafetyFuturePrepared|null=null,preparedEpoch:number|null=null,preparedRevision:string|null=null,preparedTarget:{session:SafetyReviewBody["session"];occurrenceId:string}|null=null;
   return {
     async prepareFuture(occurrenceId:string,recipientWhileRestricted:boolean):Promise<SafetyFuturePrepared|null>{
       const s=root.stores.safety.getState(),identity=s.identity,epoch=root.authLock.epoch();
-      if(disposed||controller||s.status!=="ready"||!s.capabilities?.originRules||!identity||!("sessionId" in identity)||root.authLock.state.getState().phase!=="active")return null;
+      if(disposed||controller||s.status!=="ready"||!s.capabilities?.review||!s.capabilities?.originRules||!identity||!("sessionId" in identity)||root.stores.chat.getState().activeSessionId!==identity.sessionId||root.authLock.state.getState().phase!=="active")return null;
+      prepared=null;
+      const target={session:{...identity},occurrenceId};
       const owned=controller=new AbortController();
       changed({stage:"pending",message:"Preparing the exact future rule…"});
       try{
         const result=await root.api.safetyFuturePrepare({version:1,session:identity,occurrenceId,expectedEvidenceRevision:s.revision,verdict:"safe",future:{incomingContent:true,recipientWhileRestricted}},owned.signal);
         if(disposed||owned.signal.aborted||root.authLock.epoch()!==epoch)return null;
-        if(root.stores.safety.getState().revision!==s.revision){changed({stage:"refused",message:"The evidence changed. Read current evidence before reviewing again."});return null;}
-        prepared=result;preparedEpoch=epoch;changed({stage:"review",message:"Review the exact policy change before saving."});return result;
+        if(result.occurrenceId!==target.occurrenceId||JSON.stringify(result.session)!==JSON.stringify(target.session)||result.rule.requestId!==result.requestId||!root.stores.safety.getState().capabilities?.originRules||root.stores.safety.getState().requestId!==s.requestId||root.stores.safety.getState().revision!==s.revision){changed({stage:"refused",message:"The evidence changed. Read current evidence before reviewing again."});return null;}
+        prepared=result;preparedTarget=target;preparedEpoch=epoch;preparedRevision=s.revision;changed({stage:"review",message:"Review the exact policy change before saving."});return result;
       }catch{if(!owned.signal.aborted)changed({stage:"refused",message:"Could not prepare future trust. Refresh evidence before trying again."});return null;}
       finally{if(controller===owned)controller=null;}
     },
     async commitFuture():Promise<void>{
-      const p=prepared;if(disposed||controller||!p)return;
+      const p=prepared,target=preparedTarget;if(disposed||controller||!p||!target)return;
       const s=root.stores.safety.getState();
-      if(root.authLock.epoch()!==preparedEpoch||root.authLock.state.getState().phase!=="active"||s.status!=="ready"||!s.capabilities?.originRules||JSON.stringify(s.identity)!==JSON.stringify(p.session)||root.stores.chat.getState().activeSessionId!==p.session.sessionId){prepared=null;return;}
+      if(s.revision!==preparedRevision||root.authLock.epoch()!==preparedEpoch||root.authLock.state.getState().phase!=="active"||s.status!=="ready"||!s.capabilities?.originRules||JSON.stringify(s.identity)!==JSON.stringify(target.session)||root.stores.chat.getState().activeSessionId!==target.session.sessionId){prepared=null;return;}
       const owned=controller=new AbortController();committing=true;prepared=null;
       changed({stage:"pending",message:"Saving the reviewed rule, then recording this trigger's verdict…"});
       try{
-        const result=await root.api.safetyFutureCommit(p.session.sessionId,{version:1,requestId:p.requestId,reviewId:p.review.reviewId,reviewedBytesHash:p.review.reviewedBytesHash},owned.signal);
+        const result=await root.api.safetyFutureCommit(target.session.sessionId,{version:1,requestId:p.requestId,reviewId:p.review.reviewId,reviewedBytesHash:p.review.reviewedBytesHash},owned.signal);
         if(disposed||owned.signal.aborted)return;
-        if(result.requestId!==p.requestId||result.occurrenceId!==p.occurrenceId||JSON.stringify(result.session)!==JSON.stringify(p.session))throw new Error("Different future review receipt");
+        if(result.requestId!==p.requestId||result.occurrenceId!==target.occurrenceId||JSON.stringify(result.session)!==JSON.stringify(target.session)||result.verdict&&(result.verdict.occurrenceId!==target.occurrenceId||JSON.stringify(result.verdict.session)!==JSON.stringify(target.session)))throw new Error("Different future review receipt");
         // Completion is a historical operation fact. Only refreshed status
         // reports current rule presence; only live evidence reports the verdict.
         changed({stage:result.stage==="verdict_committed"?"committed":result.stage==="partial"?"partial":result.stage==="unknown"?"unknown":"refused",message:result.stage==="verdict_committed"?"This operation recorded a safe verdict. Reading current restrictions…":result.rule.publication==="proved"?"The rule was saved; this operation did not complete its verdict. Reading current restrictions…":`Publication was ${result.rule.publication==="unknown"?"not confirmed":"refused"}. This operation did not record a verdict. Fresh review is required.`});

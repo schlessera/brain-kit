@@ -75,7 +75,7 @@ test("unproved rename crash requires fresh review and never commits the verdict 
  const input={version:1 as const,requestId:p.requestId,reviewId:p.review.reviewId,reviewedBytesHash:p.review.reviewedBytesHash};
  for(let i=0;i<2;i++){
  const result=await new CombinedSafetyReviews(f.db,f.reviews!,createTrustSettings(f.options)).commit(f.principal,input);
- expect(result.stage,"COMBINED_UNKNOWN_PUBLICATION_NEVER_BLESSED_BY_EQUAL_BYTES").toBe("unknown");expect(result.verdict).toBeNull();
+ expect(result.stage,"COMBINED_UNKNOWN_PUBLICATION_NEVER_BLESSED_BY_EQUAL_BYTES").toBe("unknown");expect(result.verdict?.verdict).toBe("unresolved");expect(result.verdict?.requestId).toBeNull();expect(result.verdict?.operationId).toBeNull();
  }
  expect(publications).toBe(1);expect(f.writes.safety(null,"ithaca").unresolvedCount).toBe(1);
  }finally{await f.close();}
@@ -249,5 +249,127 @@ test('round 2 F1: a current unknown publication is not hidden by an older remove
  const status=await f.combined.status(f.principal,{version:1,session:body.session,occurrenceId:a.id});
  expect(status?.requestId,'R2F1_CURRENT_RULE_KEEPS_ITS_UNKNOWN_RECEIPT_VISIBLE').toBe(newer.requestId);
  expect(status?.stage).toBe('unknown');expect(status?.rule.currentRule).toBe('present');expect(f.writes.safety(null,'ithaca').unresolvedCount).toBe(1);
+ }finally{await f.close();}
+});
+
+test('matrix SV-L committed: pending limit cannot downgrade the durable verdict (round 3 F1)',async()=>{
+ const {holdOwnerReviews}=await import('./helpers/held-owner-reviews');const f=await fixture();let pressure:Awaited<ReturnType<typeof holdOwnerReviews>>|undefined;try{
+ const a=await f.add('A'),{future,...body}=f.body(a.id),p=await f.combined.prepare(f.principal,{...body,future});
+ const input={version:1 as const,requestId:p.requestId,reviewId:p.review.reviewId,reviewedBytesHash:p.review.reviewedBytesHash};
+ expect((await f.combined.commit(f.principal,input)).stage).toBe('verdict_committed');
+ pressure=await holdOwnerReviews({reviews:f.reviews!,writes:f.writes,principal:f.principal},body);
+ const replay=await f.combined.commit(f.principal,input),status=await f.combined.status(f.principal,{version:1,session:body.session,occurrenceId:a.id});
+ expect(replay.stage,'R3F1_LIMIT_CANNOT_DOWNGRADE_COMMITTED_FACT').toBe('verdict_committed');expect(replay.stage).toBe(status!.stage);
+ expect(f.db.query('SELECT count(*) n FROM safety_decisions').get()).toEqual({n:1});
+ }finally{await pressure?.close();await f.close();}
+});
+test('matrix SV-F after: lost acknowledgement still reports the durable committed verdict',async()=>{
+ const f=await fixture();try{
+ const a=await f.add('A'),body=f.body(a.id),p=await f.combined.prepare(f.principal,body),original=f.writes.safetyCommitReview;
+ f.writes.safetyCommitReview=async(...args)=>{await original(...args);throw new Error('Lost worker acknowledgement');};
+ const result=await f.combined.commit(f.principal,{version:1,requestId:p.requestId,reviewId:p.review.reviewId,reviewedBytesHash:p.review.reviewedBytesHash});
+ expect(result.stage,'R3F1_ACK_LOSS_DOES_NOT_ERASE_COMMIT').toBe('verdict_committed');
+ expect(result.stage).toBe((await f.combined.status(f.principal,{version:1,session:body.session,occurrenceId:a.id}))!.stage);
+ }finally{await f.close();}
+});
+
+// The full boundary matrix is recorded in #4428 before the round-3 patches.
+async function matrixOperation(f:Awaited<ReturnType<typeof fixture>>){
+ const a=await f.add('A'),{future,...body}=f.body(a.id),prepared=await f.combined.prepare(f.principal,{...body,future});
+ const input={version:1 as const,requestId:prepared.requestId,reviewId:prepared.review.reviewId,reviewedBytesHash:prepared.review.reviewedBytesHash};
+ return {a,body,prepared,input};
+}
+const rejected=async(p:Promise<unknown>)=>p.then(()=>"accepted",error=>error.code??error.message);
+for(const id of ['SP-L','SP-E','SP-M','SP-F'] as const)test(`matrix ${id}: preparation cannot create authority through a failed boundary`,async()=>{
+ const {holdOwnerReviews}=await import('./helpers/held-owner-reviews');const f=await fixture();let pressure:Awaited<ReturnType<typeof holdOwnerReviews>>|undefined;try{
+ const a=await f.add('A'),{future,...body}=f.body(a.id);
+ let expected:string;
+ if(id==='SP-L'){pressure=await holdOwnerReviews({reviews:f.reviews!,writes:f.writes,principal:f.principal},body);expected='capacity';}
+ else if(id==='SP-E'){f.db.query('UPDATE principals SET expires_at=0 WHERE id=?').run(f.principal.id);expected='unauthorized';}
+ else if(id==='SP-M'){body.session={...body.session,historyGeneration:'999'};expected='unavailable';}
+ else{f.writes.safetyPrepareReview=async()=>{throw new Error('Controlled prepare read failure');};expected='Controlled prepare read failure';}
+ expect(await rejected(f.combined.prepare(f.principal,{...body,future}))).toBe(expected);
+ expect(f.db.query('SELECT count(*) n FROM trust_settings_operations').get()).toEqual({n:0});expect(f.db.query('SELECT count(*) n FROM safety_decisions').get()).toEqual({n:0});
+ }finally{await pressure?.close();await f.close();}
+});
+for(const id of ['SB-L','SV-L partial','SS-L'] as const)test(`matrix ${id}: pending quota does not invent a verdict or block status`,async()=>{
+ const {holdOwnerReviews}=await import('./helpers/held-owner-reviews');const f=await fixture();let pressure:Awaited<ReturnType<typeof holdOwnerReviews>>|undefined;try{
+ const op=await matrixOperation(f);
+ if(id!=='SB-L'){const original=f.writes.safetyCommitReview;f.writes.safetyCommitReview=async()=>{throw new Error('Before verdict');};expect((await f.combined.commit(f.principal,op.input)).stage).toBe('partial');f.writes.safetyCommitReview=original;}
+ pressure=await holdOwnerReviews({reviews:f.reviews!,writes:f.writes,principal:f.principal},op.body);
+ const result=id==='SS-L'?await f.combined.status(f.principal,{version:1,session:op.body.session,occurrenceId:op.a.id}):await f.combined.commit(f.principal,op.input);
+ expect(result?.stage).toBe('partial');expect(result?.rule.publication).toBe('proved');expect(f.db.query('SELECT count(*) n FROM safety_decisions').get()).toEqual({n:0});
+ }finally{await pressure?.close();await f.close();}
+});
+test('matrix SB-E: an expired publication review cannot publish',async()=>{
+ const f=await fixture();try{const op=await matrixOperation(f);f.db.query('UPDATE trust_settings_operations SET expires_at=0 WHERE request_id=?').run(op.input.requestId);
+ expect(await rejected(f.combined.commit(f.principal,op.input))).toBe('request_expired');expect((await f.settings.list(f.principal.id)).rules).toEqual([]);expect(f.writes.safety(null,'ithaca').unresolvedCount).toBe(1);
+ }finally{await f.close();}
+});
+for(const mismatch of ['hash','review','session'] as const)test(`matrix SB-M ${mismatch}: publication is bound to its exact review`,async()=>{
+ const f=await fixture();try{const op=await matrixOperation(f),input={...op.input};
+ if(mismatch==='hash')input.reviewedBytesHash=(input.reviewedBytesHash[0]==='a'?'b':'a')+input.reviewedBytesHash.slice(1);
+ if(mismatch==='review')input.reviewId='wrong_review';
+ expect(await rejected(f.combined.commit(f.principal,input,undefined,mismatch==='session'?'troy':undefined))).toBe('request_conflict');
+ expect((await f.settings.list(f.principal.id)).rules).toEqual([]);expect(f.db.query('SELECT count(*) n FROM safety_decisions').get()).toEqual({n:0});
+ }finally{await f.close();}
+});
+for(const boundary of ['before','rename','proof'] as const)test(`matrix SB-F ${boundary}: publication failure reports only proved facts`,async()=>{
+ const f=await fixture();try{const op=await matrixOperation(f);
+ if(boundary==='before')f.options.observe=async()=>{throw new Error('Observation read failed');};
+ else f.options.checkpoint=stage=>{if(stage===(boundary==='rename'?'renamed':'file_published'))throw new Error('Controlled publication interruption');};
+ const result=await f.combined.commit(f.principal,op.input);
+ expect(result.rule.publication).toBe(boundary==='before'?'not_published':boundary==='rename'?'unknown':'proved');
+ expect(result.stage).toBe(boundary==='before'?'refused':boundary==='rename'?'unknown':'verdict_committed');
+ expect(f.writes.safety(null,'ithaca').unresolvedCount).toBe(boundary==='proof'?0:1);
+ }finally{await f.close();}
+});
+test('matrix SV-E: an expired original verdict cannot become a fresh request',async()=>{
+ const f=await fixture();try{const op=await matrixOperation(f),original=f.writes.safetyCommitReview;
+ f.writes.safetyCommitReview=async()=>{throw new Error('Verdict unavailable');};expect((await f.combined.commit(f.principal,op.input)).stage).toBe('partial');f.writes.safetyCommitReview=original;
+ const {commitSafetyReview}=await import('../src/governance/safety-reviews');
+ f.writes.safetyCommitReview=async(id,body,actor)=>commitSafetyReview(f.db,id,body,actor,false,false,()=>Date.now()+900001);
+ const result=await f.combined.commit(f.principal,op.input);expect(result.stage).toBe('partial');expect(result.verdict?.reason).toBe('request_expired');expect(f.db.query('SELECT count(*) n FROM safety_decisions').get()).toEqual({n:0});
+ }finally{await f.close();}
+});
+test('matrix SV-M: evidence added after publication prevents the selected verdict',async()=>{
+ const f=await fixture();try{const op=await matrixOperation(f);f.options.checkpoint=async stage=>{if(stage==='committed')await f.add('B');};
+ const result=await f.combined.commit(f.principal,op.input);expect(result.rule.publication).toBe('proved');expect(result.stage).toBe('partial');expect(result.verdict?.reason).toBe('stale_revision');expect(result.currentProjection.unresolvedCount).toBe(2);
+ }finally{await f.close();}
+});
+test('matrix SV-F before: failed verdict call leaves a durable partial operation',async()=>{
+ const f=await fixture();try{const op=await matrixOperation(f);f.writes.safetyCommitReview=async()=>{throw new Error('Worker read unavailable');};
+ const result=await f.combined.commit(f.principal,op.input),status=await f.combined.status(f.principal,{version:1,session:op.body.session,occurrenceId:op.a.id});
+ expect(result.stage).toBe('partial');expect(status?.stage).toBe(result.stage);expect(f.db.query('SELECT count(*) n FROM safety_decisions').get()).toEqual({n:0});
+ }finally{await f.close();}
+});
+for(const stage of ['prepared','unknown','partial','verdict_committed'] as const)test(`matrix SS-R ${stage}: status retries are read-only durable views`,async()=>{
+ const f=await fixture();try{const op=await matrixOperation(f);
+ if(stage==='unknown')f.options.checkpoint=value=>{if(value==='renamed')throw new Error('Unproved rename');};
+ if(stage==='partial')f.writes.safetyCommitReview=async()=>{throw new Error('No verdict');};
+ if(stage!=='prepared')await f.combined.commit(f.principal,op.input);
+ const body={version:1,session:op.body.session,occurrenceId:op.a.id},one=await f.combined.status(f.principal,body),two=await f.combined.status(f.principal,body);
+ expect(one?.stage).toBe(stage);expect(two?.stage).toBe(stage);expect(one?.requestId).toBe(two?.requestId);
+ if(stage!=='verdict_committed')expect(two?.verdict?.requestId??null).toBeNull();
+ expect(f.db.query('SELECT count(*) n FROM safety_decisions').get()).toEqual({n:stage==='verdict_committed'?1:0});
+ }finally{await f.close();}
+});
+test('matrix SS-M: status cannot read another history generation',async()=>{
+ const f=await fixture();try{const op=await matrixOperation(f);
+ expect(await rejected(f.combined.status(f.principal,{version:1,session:{...op.body.session,historyGeneration:'999'},occurrenceId:op.a.id}))).toBe('unavailable');
+ }finally{await f.close();}
+});
+test('matrix SS-F: a storage read failure is not a null receipt',async()=>{
+ const {spyOn}=await import('bun:test');const f=await fixture();let spy:ReturnType<typeof spyOn>|undefined;try{const op=await matrixOperation(f),query=f.db.query.bind(f.db);
+ spy=spyOn(f.db,'query').mockImplementation(((sql:string)=>{if(sql.includes('FROM trust_settings_operations o'))throw new Error('Controlled status storage read failure');return query(sql);}) as typeof f.db.query);
+ expect(await rejected(f.combined.status(f.principal,{version:1,session:op.body.session,occurrenceId:op.a.id}))).toBe('Controlled status storage read failure');
+ }finally{spy?.mockRestore();await f.close();}
+});
+
+test('matrix SS-R retained operation: pruning its verdict receipt cannot erase the durable decision',async()=>{
+ const f=await fixture();try{const op=await matrixOperation(f);await f.combined.commit(f.principal,op.input);
+ const binding=f.settings.safetyReview(f.principal.id,op.input.requestId)!;f.db.query('DELETE FROM safety_review_requests WHERE id=?').run(binding.requestId);
+ const status=await f.combined.status(f.principal,{version:1,session:op.body.session,occurrenceId:op.a.id});
+ expect(status?.stage).toBe('verdict_committed');expect(status?.verdict).toBeNull();expect((await f.combined.commit(f.principal,op.input)).stage).toBe('verdict_committed');expect(f.db.query('SELECT count(*) n FROM safety_decisions').get()).toEqual({n:1});
  }finally{await f.close();}
 });

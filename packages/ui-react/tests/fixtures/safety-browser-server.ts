@@ -42,6 +42,7 @@ app.post('/fixture',async c=>{
   const response=input.path.includes('/future/')?await futureApp.request(inner+input.path,{method:'POST',headers:{origin:inner,'content-type':'application/json'},body:input.body}):await fetch(inner+input.path,{method:'POST',headers:{cookie:f.cookie,origin:inner,'content-type':'application/json'},body:input.body});
   return c.json({status:response.status,body:await response.json()});
  }
+ if(input.action==='expire_future_receipts')f.db.query('UPDATE trust_settings_operations SET retain_until=0').run();
  if(input.action==='fail_combined_verdict')failVerdict=true;
  if(input.action==='remove_future_rule'){
  const p=await trust.list(f.principal.id),rule=p.rules[0];if(!rule)throw new Error('Missing future rule');

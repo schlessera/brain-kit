@@ -41,30 +41,33 @@ export class CombinedSafetyReviews {
   const selected=await this.settings.safetyStatus(principal.id,input.session,input.occurrenceId);
   if(!selected){this.reviews.delivery(principal,body);return null;}
   const {binding}=selected,rule:Receipt=selected.receipt;
-  const stored=this.db.query("SELECT receipt FROM safety_review_requests WHERE id=?").get(binding.requestId) as {receipt:string}|null;
-  const verdict=stored?JSON.parse(stored.receipt):null;
-  const currentProjection=this.reviews.delivery(principal,body);
-  return {version:1 as const,requestId:selected.requestId,session:input.session,occurrenceId:input.occurrenceId,
-    stage:verdict?.verdict==="committed"?"verdict_committed":rule.publication==="proved"?"partial":rule.publication==="unknown"?"unknown":rule.stage==="prepared"?"prepared":"refused",
-    rule,verdict:verdict&&verdict.verdict!=="committed"?{...verdict,requestId:null,operationId:null}:verdict,currentProjection};
+  return this.response(principal,selected.requestId,binding,rule);
  }
+ private committed(binding:NonNullable<ReturnType<TrustSettings["safetyReview"]>>){
+  const {body}=binding;
+  return !!this.db.query("SELECT 1 FROM safety_decisions WHERE request_id=? AND occurrence_id=? AND session_id=? AND history_owner_id=? AND generation=?").get(binding.requestId,body.occurrenceId,body.session.sessionId,body.session.historyOwnerId,body.session.historyGeneration);
+ }
+ private response(principal:Principal,requestId:string,binding:NonNullable<ReturnType<TrustSettings["safetyReview"]>>,rule:Receipt){
+  const stored=this.db.query("SELECT receipt FROM safety_review_requests WHERE id=?").get(binding.requestId) as {receipt:string}|null;
+  const verdict=stored?JSON.parse(stored.receipt):null,committed=this.committed(binding);
+  const currentProjection=this.reviews.delivery(principal,binding.body);
+  return {version:1 as const,requestId,session:binding.body.session,occurrenceId:binding.body.occurrenceId,
+    stage:committed?"verdict_committed":rule.publication==="proved"?"partial":rule.publication==="unknown"?"unknown":rule.stage==="prepared"?"prepared":"refused",
+    rule,verdict:verdict&&!committed?{...verdict,requestId:null,operationId:null}:verdict,currentProjection};
+ }
+
  async commit(principal:Principal,raw:unknown,signal?:AbortSignal,sessionId?:string){
   const input=combinedCommitSchema.parse(raw),binding=this.settings.safetyReview(principal.id,input.requestId);
   if(!binding || sessionId !== undefined && binding.body.session.sessionId !== sessionId)throw new TrustSettingsError("request_conflict");
   this.reviews.delivery(principal,binding.body);
   const published=await this.settings.commit(principal.id,input,signal,{binding,check:()=>this.check(principal,binding.body)});
-  let verdict:Awaited<ReturnType<OwnerSafetyReviews["review"]>>|null=null;
-  if(published.receipt.publication==="proved"){
+  if(published.receipt.publication==="proved"&&!this.committed(binding)){
    // A retry uses the ORIGINAL verdict handle. Already-committed replay is
    // immutable; a refused/expired request never becomes a fresh clear.
-   try { verdict=await this.reviews.review(principal,binding.body,binding.requestId); }
+   try { await this.reviews.review(principal,binding.body,binding.requestId); }
    catch { /* Publication remains proved; delivery below still fences revoked authority. */ }
   }
   const current=await this.settings.read(principal.id,input.requestId);
-  const currentProjection=this.reviews.delivery(principal,binding.body);
-  const committed=verdict?.receipt.verdict==="committed";
-  return {version:1 as const,requestId:input.requestId,session:binding.body.session,occurrenceId:binding.body.occurrenceId,
-   stage:committed?"verdict_committed":current.receipt.publication==="proved"?"partial":current.receipt.publication==="unknown"?"unknown":"refused",
-   rule:current.receipt,verdict:verdict?.receipt??null,currentProjection};
+  return this.response(principal,input.requestId,binding,current.receipt);
  }
 }

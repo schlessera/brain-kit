@@ -23,13 +23,13 @@ const noop=()=>{};
 const message:ChatMessage={id:'odysseus-answer',turnId:'voyage',role:'assistant',content:'Voyage notes retained.',isStreaming:false,timestamp:Date.UTC(2026,6,12,10),
  toolCalls:[{id:'tool_a',name:'WebFetch',inputJson:'{}',input:{url:'https://example.com/odyssey'},output:'Odysseus voyage notes',status:'complete'},{id:'tool_c',name:'Read',inputJson:'{}',input:{file_path:'workspaces/ithaca/voyage.md'},output:'Penelope voyage notes',status:'complete'}],
  parts:[{kind:'tool',toolIndex:0},{kind:'tool',toolIndex:1},{kind:'text',text:'Voyage notes retained.'}]};
-let statusBarrier:((body:Record<string,unknown>)=>Promise<void>)|undefined;
+let statusBarrier:((body:Record<string,unknown>,result:{status:number;body:unknown})=>Promise<void>)|undefined;
 async function view(independentSocket=false){
  const f=fixture!;
  ui=createBrainUiRoot({storage:null,config:{backendUrl:f.url},request:async(url,init)=>{
   if(!String(url).includes('/safety/reviews/'))return Response.json({providers:[]});
   const result=await patch({action:'request',path:new URL(url).pathname,body:init?.body}) as unknown as {status:number;body:unknown};
-  if(String(url).endsWith('/future/status')&&statusBarrier)await statusBarrier(JSON.parse(String(init?.body)));
+  if(String(url).endsWith('/future/status')&&statusBarrier)await statusBarrier(JSON.parse(String(init?.body)),result);
   if(init?.signal?.aborted)throw new DOMException('Aborted','AbortError');return Response.json(result.body,{status:result.status});
  }});
  const frames:unknown[]=[],sent:unknown[]=[];const current=ui;current.stores.chat.setState({activeSessionId:'ithaca',buffers:{ithaca:{messages:[message],isStreaming:false,askUser:null,lastTouched:message.timestamp}}});
@@ -284,12 +284,12 @@ for(const width of [320,1280])test(`${width} review F4: partial operation is dis
  expect(section().textContent).not.toContain('this trigger remains unresolved');
 });
 
-for(const width of [320,1280])test(`${width} round 2 F2: an older focus response cannot overwrite newer revocation`,async()=>{
+for(const width of [320,1280])for(const older of ['success','error'] as const)test(`${width} matrix CS-O ${older}: an older focus response cannot overwrite newer revocation`,async()=>{
  const section=await futureReviewScene(width);
  await expect.poll(()=>section().textContent).toContain('Future rule: present');
  const entered=Promise.withResolvers<void>(),release=Promise.withResolvers<void>(),returned=Promise.withResolvers<void>();let held=false;
  const occurrenceId=section().dataset.safetyTrigger;
- statusBarrier=async body=>{if(!held&&body.occurrenceId===occurrenceId){held=true;entered.resolve();await release.promise;returned.resolve();}};
+ statusBarrier=async body=>{if(!held&&body.occurrenceId===occurrenceId){held=true;entered.resolve();await release.promise;returned.resolve();if(older==='error')throw new Error('Older status read failed');}};
  try{
  window.dispatchEvent(new Event('focus'));await entered.promise;
  await patch({action:'remove_future_rule'});window.dispatchEvent(new Event('focus'));
@@ -301,4 +301,33 @@ for(const width of [320,1280])test(`${width} round 2 F2: an older focus response
  expect(section().textContent,'R2F2_LATE_PRESENT_CANNOT_OVERWRITE_REMOVED').toContain('Future rule: removed');
  expect(section().textContent).not.toContain('Future rule: present');
  }finally{release.resolve();statusBarrier=undefined;}
+});
+
+for(const width of [320,1280])test(`${width} matrix CS-F initial / CS-R recovery: failed first read of a partial operation is not JSON null (round 3 F3)`,async()=>{
+ const old=await futureReviewScene(width,true);await expect.poll(()=>old().textContent).toContain('Rule publication proved');
+ const target=old().dataset.safetyTrigger;await disposeView();await view();
+ const entered=Promise.withResolvers<void>();statusBarrier=async body=>{if(body.occurrenceId===target){entered.resolve();throw new Error('Controlled first status-read loss');}};
+ await userEvent.click(host!.querySelector<HTMLButtonElement>('[data-safety-turn-event] button')!);await entered.promise;
+ const section=()=>document.querySelector<HTMLElement>(`[data-safety-trigger="${target}"]`)!;
+ await expect.poll(()=>section().textContent).toContain('Could not verify');
+ expect(section().textContent).not.toContain('Future rule: present');expect(ui!.stores.safety.getState().projection?.unresolvedCount).toBe(4);
+ statusBarrier=undefined;window.dispatchEvent(new Event('focus'));
+ await expect.poll(()=>section().textContent).toContain('Future rule: present');expect(section().textContent).not.toContain('Could not verify');
+});
+for(const width of [320,1280])test(`${width} matrix CS-M: a status response for another target cannot set presence`,async()=>{
+ const old=await futureReviewScene(width,true);await expect.poll(()=>old().textContent).toContain('Rule publication proved');
+ const target=old().dataset.safetyTrigger;await disposeView();await view();
+ statusBarrier=async(body,result)=>{if(body.occurrenceId===target)result.body={...(result.body as Record<string,unknown>),occurrenceId:'wrong_occurrence'};};
+ await userEvent.click(host!.querySelector<HTMLButtonElement>('[data-safety-turn-event] button')!);
+ const section=()=>document.querySelector<HTMLElement>(`[data-safety-trigger="${target}"]`)!;
+ await expect.poll(()=>section().textContent).toContain('Could not verify');expect(section().textContent).not.toContain('Future rule: present');
+});
+
+for(const width of [320,1280])test(`${width} matrix CS-F later / CS-E: expired receipt null clears display without hiding read failure`,async()=>{
+ const section=await futureReviewScene(width,true);await expect.poll(()=>section().textContent).toContain('Future rule: present');
+ const target=section().dataset.safetyTrigger;
+ statusBarrier=async body=>{if(body.occurrenceId===target)throw new Error('Later read failed');};window.dispatchEvent(new Event('focus'));
+ await expect.poll(()=>section().textContent).toContain('Could not verify');
+ await patch({action:'expire_future_receipts'});statusBarrier=undefined;window.dispatchEvent(new Event('focus'));
+ await expect.poll(()=>section().textContent).not.toContain('Could not verify');expect(section().textContent).not.toContain('Future rule:');expect(ui!.stores.safety.getState().projection?.unresolvedCount).toBe(4);
 });
