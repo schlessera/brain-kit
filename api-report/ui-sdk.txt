@@ -1438,6 +1438,7 @@ export "./internal" (./src/internal.ts)
   type RemovalRun
   type Reservation
   type RetainedCleanup
+  SESSION_PROMPT_CONTEXT_MAX_BYTES
   STALE_SAFETY_ADMISSION
   SUBPROCESS_ENV
   type SessionPromptFacts
