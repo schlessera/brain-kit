@@ -13,7 +13,13 @@ export type PhaseTimer = (name: string) => () => void;
 type LifecycleMilestone = "dequeuedAt" | "governedStartedAt" | "governedAcquiredAt" | "budgetStartedAt" | "budgetAdmittedAt" | "journalStartedAt" | "journalBeganAt" | "backendInvokedAt" | "firstFrameAt" | "failureObservedAt";
 
 export function createTurnLifecycle(store: AwaitableActivityStore, turnId: string, sessionId: string | null,
-  acceptedAt: number, onWrite: () => void, clock: () => number = Date.now) {
+  acceptedAt: number, onWrite: () => void, clock?: () => number) {
+  // Keep one epoch anchor for the whole lifecycle. Wall-clock corrections must
+  // not reorder admission, backend observations or terminal boundaries.
+  if (!clock) {
+    const epoch = Date.now(), started = performance.now();
+    clock = () => epoch + (performance.now() - started);
+  }
   const record: ActivityTurnLifecycle = {
     hostEvents: [], skippedPhases: [], lifecycleId: `lifecycle:${turnId}`, turnId, sessionId, backendRunId: null, acceptedAt, dequeuedAt: null,
     governedStartedAt: null, governedAcquiredAt: null, budgetStartedAt: null, budgetAdmittedAt: null,

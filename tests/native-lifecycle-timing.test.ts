@@ -1,6 +1,6 @@
 import { expect, spyOn, test } from "bun:test";
 import type { ActivityTurnLifecycle } from "@schlessera/brain-ui-sdk/protocol";
-import { backendStartupSamples, lifecycleTimingSample } from "../scripts/native-proof/lifecycle-timing.js";
+import { backendStartupSamples, lifecycleTimingSample, requireAdmissionSteps } from "../scripts/native-proof/lifecycle-timing.js";
 import { createUiDb } from "../packages/ui-server/src/db/client.js";
 import { createActivityStore } from "../packages/ui-server/src/activity/store.js";
 import { createTurnLifecycle } from "../packages/ui-server/src/activity/turn-lifecycle.js";
@@ -24,6 +24,34 @@ function record(): ActivityTurnLifecycle {
       { phase: "backend", name: "resources", startedAt: 1500, endedAt: 1500, elapsedMs: null, timeBase: "worker", workerElapsedMs: 340 },
     ] };
 }
+
+for (const missing of ["governed", "journal", "both"]) {
+  test(`native admission proof rejects missing ${missing} steps even with complete milestones and backend evidence`, () => {
+    const source = record(); source.journalStartedAt = 1100; source.journalBeganAt = 1200;
+    source.subPhases!.push({ phase: "journal", name: "begin", startedAt: 1100, endedAt: 1200, elapsedMs: null });
+    const valid = lifecycleTimingSample(source)!;
+    expect(() => requireAdmissionSteps(valid, "ithaca-positive")).not.toThrow();
+    source.subPhases = source.subPhases!.filter(step => missing !== "both" && step.phase !== missing);
+    const invalid = lifecycleTimingSample(source)!;
+    expect(invalid.backendSteps.length).toBeGreaterThan(0);
+    expect(() => requireAdmissionSteps(invalid, "ithaca-negative"), "BACKEND_STEPS_CANNOT_REPLACE_ADMISSION_PROOF")
+      .toThrow("OBSERVATION_TIMING_ADMISSION_STEPS_RECORDED");
+  });
+}
+
+test("native admission accepts observed zero-duration steps in both admission phases", () => {
+  const source = record();
+  source.governedAcquiredAt = source.governedStartedAt;
+  source.journalStartedAt = 1100; source.journalBeganAt = 1100;
+  source.subPhases = [
+    { phase: "governed", name: "gate", startedAt: 1000, endedAt: 1000, elapsedMs: null },
+    { phase: "journal", name: "begin", startedAt: 1100, endedAt: 1100, elapsedMs: null },
+  ];
+  const sample = lifecycleTimingSample(source)!;
+  expect(sample.steps["governed.gate"]).toBe(0);
+  expect(sample.steps["journal.begin"]).toBe(0);
+  expect(() => requireAdmissionSteps(sample, "ithaca-zero")).not.toThrow();
+});
 
 test("native observation timing projects backend host steps, worker durations and missing SDK evidence", () => {
   const sample = lifecycleTimingSample(record())!;

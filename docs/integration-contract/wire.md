@@ -567,7 +567,11 @@ Queued requests retain their observed queue acceptance and `dequeuedAt`;
 `queueWaitMs` is null when no queue interval was observed. Milestones are
 `governedStartedAt`/`governedAcquiredAt`, `budgetStartedAt`/`budgetAdmittedAt`,
 `journalStartedAt`/`journalBeganAt`, `backendInvokedAt` and `firstFrameAt`.
-All timestamps are epoch milliseconds. `skippedPhases` explicitly identifies
+All timestamps are epoch milliseconds. Each new lifecycle anchors its host
+observations to one wall-clock reading plus elapsed monotonic time. Its
+admission/backend steps, milestones, receipt points and terminal boundary
+share that basis, so later wall-clock corrections do not reorder them.
+`acceptedAt` retains the observed acceptance time. `skippedPhases` explicitly identifies
 governed/budget/journal phases not configured for this turn. Other null
 milestones mean not reached or unavailable; they never claim zero-duration
 success. A started phase whose completion is null is pending, or incomplete
@@ -709,7 +713,11 @@ Hosts that record agent activity advertise `capabilities.activity` on
 `activity_delta` frames; a server never sends activity frames to a connection
 without a matching subscription. Ordering: a snapshot carries per-run
 high-water `seq`, every delta carries its `seq`, and the client discards
-deltas at or below the snapshot's high-water for that run. Deltas are
+deltas at or below the snapshot's high-water for that run. Snapshots use
+byte-bounded append frames for spans, events and lifecycles; a lifecycle
+watermark travels with its record, read together in one transaction. The
+first frame replaces the view and later frames append under the existing
+equal-watermark rule. Deltas are
 append-only increments (a small span row, or exactly one event) — they never
 grow with run length. The `result` frame additionally carries an optional
 `usage` block (token totals + per-model breakdown; absent cost means unknown,

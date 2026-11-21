@@ -292,6 +292,8 @@ export interface ActivityStore {
   writeLifecycle(record: ActivityTurnLifecycle): void;
   lifecycleChangesSince(cursor: number, limit?: number): Array<{ changeId: number; runId: string; seq: number; kind: "lifecycle"; lifecycle: ActivityTurnLifecycle }>;
   lifecycle(turnId: string): ActivityTurnLifecycle | null;
+  /** A lifecycle and its snapshot floor from one SQLite read transaction. */
+  lifecycleSnapshot?(turnId: string): { lifecycle: ActivityTurnLifecycle; highWaterSeq: number } | null;
   lifecycles(sessionId?: string, limit?: number): ActivityTurnLifecycle[];
 
   readonly writer: string;
@@ -656,6 +658,12 @@ export function createActivityStore(
       return gap ? null : prior;
     },
     lifecycle,
+    lifecycleSnapshot(turnId) {
+      return db.transaction(() => {
+        const record = lifecycle(turnId);
+        return record ? { lifecycle: record, highWaterSeq: runHighWaterSeqRaw(record.lifecycleId) } : null;
+      })();
+    },
     lifecycles(sessionId, limit = 100) {
       const rows = sessionId === undefined
         ? db.query("SELECT record FROM activity_turn_lifecycles ORDER BY accepted_at DESC LIMIT ?").all(limit)

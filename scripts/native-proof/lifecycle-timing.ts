@@ -2,6 +2,17 @@ import type { ActivityTurnLifecycle, ActivityTurnOpenSubPhase } from "@schlesser
 
 const UNOBSERVED_CLAUDE_STEPS: readonly string[] = ["runtime_to_sdk_init", "mcp_connect:*", "first_enqueue", "prompt_recorded", "first_relay_request"];
 
+/** Admission proof is independent of any later backend startup evidence. */
+export function requireAdmissionSteps(sample: ReturnType<typeof lifecycleTimingSample>, name: string): void {
+  const fail = () => { throw Error(`OBSERVATION_TIMING_ADMISSION_STEPS_RECORDED ${name}`); };
+  if (!sample || sample.governedAdmissionMs === null || !Number.isFinite(sample.governedAdmissionMs) || sample.governedAdmissionMs < 0
+    || sample.journalBeginMs === null || !Number.isFinite(sample.journalBeginMs) || sample.journalBeginMs < 0) fail();
+  for (const phase of ["governed", "journal"]) {
+    if (!Object.entries(sample!.steps).some(([key, elapsed]) => key.startsWith(`${phase}.`)
+      && elapsed !== null && Number.isFinite(elapsed) && elapsed >= 0)) fail();
+  }
+}
+
 /** Project the persisted raw record for --observation-timing, without joining clock origins. */
 export function lifecycleTimingSample(record: ActivityTurnLifecycle | undefined, coverage: "native" | "claude_worker_fixture" = "native") {
   if (!record) return null;

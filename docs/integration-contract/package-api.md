@@ -5293,6 +5293,11 @@ settle after their commit. An `ActivityStore`, whose writes all commit before
 they return, satisfies it. Refusal classes and transaction order are
 unchanged. These shapes change at a pre-1.0 minor under that ruling.
 
+The optional `ActivityStore.lifecycleSnapshot(turnId)` returns a lifecycle and
+its `highWaterSeq` from one read transaction, or null when absent. The built-in
+store provides it. Streams accepting an older store capture a conservative
+floor before reading its lifecycle, so they never acknowledge unseen data.
+
 ### Late Activity session association
 
 `ActivityStore.patchSpan` accepts an optional `sessionId` to bind an unnamed

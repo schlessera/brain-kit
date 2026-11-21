@@ -1,4 +1,4 @@
-import { backendStartupSamples, lifecycleTimingSample } from "./lifecycle-timing.js";
+import { backendStartupSamples, lifecycleTimingSample, requireAdmissionSteps } from "./lifecycle-timing.js";
 import { afterAll, expect, test } from "bun:test";
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -471,7 +471,7 @@ print(json.dumps(result))`;
       for (const [name, summary] of Object.entries({ writer: observationSteps.writer.all, begin, finish }))
         expect([name, summary.clock.unpaired, (summary.clock.minEndSlackMs ?? 0) >= 0], "OBSERVATION_TIMING_ONE_CLOCK").toEqual([name, [], true]);
       for (const [name, row] of Object.entries({ ...admission.scenarios, ...Object.fromEntries(warm.map((row, i) => [`warm-${i}`, row])) }))
-        expect(row?.journalBeginMs !== null && row?.governedAdmissionMs !== null && Object.keys(row?.steps ?? {}).length > 0, `OBSERVATION_TIMING_ADMISSION_STEPS_RECORDED ${name}`).toBe(true);
+        requireAdmissionSteps(row, name);
       if (timeline) {
         for (const [tool, cell] of Object.entries(timeline.tools)) {
           expect([tool, cell.calls, cell.errors], "OBSERVATION_TIMING_20_SUCCESSFUL_CALLS_PER_TOOL").toEqual([tool, 20, 0]);

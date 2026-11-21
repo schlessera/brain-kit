@@ -82,6 +82,7 @@ test("real dispatch records delayed governed admission and first frame, and link
   const { spyOn } = await import("bun:test");
   const db=createUiDb(":memory:"), store=createActivityStore(db), stream=createActivityStream(store);
   let now=1000; const clock=spyOn(Date,"now").mockImplementation(()=>now);
+  const monotonic=spyOn(performance,"now").mockImplementation(()=>now);
   const policy=createGovernancePolicyReader("/nonexistent-odysseus-fixture").load();
   const backend=makeFakeBackend({id:"pi",async startTurn(request){
     const end = request.startupTiming?.start("host_probe"); now=1500; end?.();
@@ -108,7 +109,7 @@ test("real dispatch records delayed governed admission and first frame, and link
       firstFrameAt:1700,endedAt:2000,sessionId:"ithaca",totalElapsedMs:1000,timeToFirstFrameMs:700,backendStartupMs:300,outcome:"success"});
     expect(record.backendRunId).toBe(record.turnId);
     expect(store.runRollup!(record.turnId)!.durationMs).toBe(200);
-  }finally{clock.mockRestore();host.close();stream.close();db.close();}
+  }finally{monotonic.mockRestore();clock.mockRestore();host.close();stream.close();db.close();}
 });
 
 
@@ -125,6 +126,7 @@ for (const mode of ["governed refusal","backend failure","revoked","budget refus
   const { spyOn } = await import("bun:test");
   const db=createUiDb(":memory:"),store=createActivityStore(db),stream=createActivityStream(store);
   let now=1000,entered=false;const clock=spyOn(Date,"now").mockImplementation(()=>now);
+  const monotonic=spyOn(performance,"now").mockImplementation(()=>now);
   const authorization=testAuthorization("odysseus"),policy=createGovernancePolicyReader("/nonexistent-odysseus-fixture").load();
   const backend=makeFakeBackend({id:"pi",async startTurn(){entered=true;now=1600;throw Error("Backend startup failed");}});
   const observation: import("@schlessera/brain-ui-sdk/protocol").BudgetObservation = {scope:"turn",costUsd:200,blockUsd:200,warnUsd:100,tokens:null,blockTokens:512000000,unknownRuns:0,warning:true,blocked:true};
@@ -139,5 +141,5 @@ for (const mode of ["governed refusal","backend failure","revoked","budget refus
     expect(record.totalElapsedMs).toBe(mode === "backend failure" ? 600 : mode === "budget refusal" ? 500 : 400);
     expect(record.outcome).toBe(mode === "revoked" ? "cancelled" : mode === "budget refusal" ? "denied" : "error");
     expect(entered).toBe(mode === "backend failure");
-  }finally{clock.mockRestore();host.close();stream.close();db.close();}
+  }finally{monotonic.mockRestore();clock.mockRestore();host.close();stream.close();db.close();}
 });

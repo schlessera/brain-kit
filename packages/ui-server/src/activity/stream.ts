@@ -9,10 +9,9 @@
  * out as an `activity_delta` to matching subscribers, so ordering is the
  * change log's and a delta can never precede its commit (persist-then-emit).
  *
- * The subscribe handler answers with a snapshot whose per-run high-water seq
- * and pump baseline come from ONE store read transaction — there is no gap
- * window between snapshot and first delta, and no duplication the client's
- * seq-discard rule cannot handle.
+ * The built-in store pairs snapshot data and high-water seq in one read
+ * transaction. Older stores use a conservative floor read before the row.
+ * Byte-bounded append frames preserve every selected record.
  *
  * This is deliberately the only place broadcast is per-connection filtered;
  * every other frame keeps the host's broadcast-to-all semantics.
@@ -31,6 +30,7 @@ import type { Logger } from "@opentelemetry/api-logs";
 
 import type { WSContext } from "../ws/clients.js";
 import { sendTo } from "../ws/clients.js";
+import { HISTORY_CHUNK_BYTES, jsonBytes } from "../ws/shrink.js";
 import type {
   ActivityChange,
   AwaitableActivityStore,
@@ -305,40 +305,49 @@ export function createActivityStream(store: AwaitableActivityStore, log?: Logger
     const lifecycles = sub.view === "run" && sub.runId
       ? [store.lifecycle(sub.runId)].filter((x): x is NonNullable<typeof x> => x !== null)
       : store.lifecycles(sub.view === "session" ? sub.sessionId : undefined);
-    for (const lifecycle of lifecycles) highWater[lifecycle.lifecycleId] = store.runHighWaterSeq(lifecycle.lifecycleId);
-    const base: Omit<ServerActivitySnapshot, "spans" | "events"> = {
-      lifecycles,
+    const base = {
       type: "activity_snapshot",
       view: sub.view,
       ...(sub.sessionId ? { sessionId: sub.sessionId } : {}),
       ...(sub.runId ? { runId: sub.runId } : {}),
-      highWaterSeq: highWater,
     };
 
-    // Chunk: first span/event batch in the base frame, then append frames
-    // for the rest (the client's applySnapshot merges append frames).
-    const wireSpans = spans.map(toWireSpan);
-    sendTo(ws, {
-      ...base,
-      spans: wireSpans.slice(0, SNAPSHOT_SPAN_CHUNK),
-      events: events.slice(0, SNAPSHOT_EVENT_CHUNK).map(toWireEvent),
-    });
-    for (let i = SNAPSHOT_SPAN_CHUNK; i < wireSpans.length; i += SNAPSHOT_SPAN_CHUNK) {
-      sendTo(ws, {
-        ...base,
-        spans: wireSpans.slice(i, i + SNAPSHOT_SPAN_CHUNK),
-        events: [],
-        append: true,
-      });
+    // Size batches before sendTo's display shrinker can clip whole records.
+    // Root-run floors describe the authoritative scope; lifecycle floors ride
+    // only with the corresponding row. Equal floors allow append chunks.
+    let first = true;
+    const empty = (): ServerActivitySnapshot => ({ ...base, type: "activity_snapshot", spans: [], events: [], lifecycles: [],
+      highWaterSeq: { ...highWater }, ...(first ? {} : { append: true }) });
+    let frame = empty(), bytes = jsonBytes(frame), count = 0;
+    const flush = () => {
+      sendTo(ws, frame); first = false; frame = empty(); bytes = jsonBytes(frame); count = 0;
+    };
+    const add = <K extends "spans" | "events" | "lifecycles">(kind: K, row: NonNullable<ServerActivitySnapshot[K]>[number],
+      floor?: { id: string; seq: number }) => {
+      // Overcount commas/braces conservatively, including escaped identities.
+      const extra = jsonBytes(row) + 1 + (floor ? jsonBytes({ [floor.id]: floor.seq }) : 0);
+      const limit = kind === "events" ? SNAPSHOT_EVENT_CHUNK : SNAPSHOT_SPAN_CHUNK;
+      if (count && (bytes + extra > HISTORY_CHUNK_BYTES || frame[kind]!.length >= limit)) flush();
+      (frame[kind] as Array<typeof row>).push(row);
+      if (floor) frame.highWaterSeq[floor.id] = floor.seq;
+      bytes += extra; count++;
+    };
+    for (const span of spans) add("spans", toWireSpan(span));
+    for (const event of events) add("events", toWireEvent(event));
+    for (const lifecycle of lifecycles) {
+      if (store.lifecycleSnapshot) {
+        const snapshot = store.lifecycleSnapshot(lifecycle.turnId);
+        if (snapshot) add("lifecycles", snapshot.lifecycle,
+          { id: snapshot.lifecycle.lifecycleId, seq: snapshot.highWaterSeq });
+      } else {
+        // Compatibility with stores implementing the previous public interface:
+        // a floor read before the row can under-acknowledge, never overtake it.
+        const seq = store.runHighWaterSeq(lifecycle.lifecycleId);
+        const row = store.lifecycle(lifecycle.turnId);
+        if (row) add("lifecycles", row, { id: row.lifecycleId, seq });
+      }
     }
-    for (let i = SNAPSHOT_EVENT_CHUNK; i < events.length; i += SNAPSHOT_EVENT_CHUNK) {
-      sendTo(ws, {
-        ...base,
-        spans: [],
-        events: events.slice(i, i + SNAPSHOT_EVENT_CHUNK).map(toWireEvent),
-        append: true,
-      });
-    }
+    if (count || first) flush();
   }
 
   return {

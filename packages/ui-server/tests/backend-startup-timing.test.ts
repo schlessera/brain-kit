@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { createUiDb } from "../src/db/client.js";
 import { createActivityStore } from "../src/activity/store.js";
 import { createTurnLifecycle } from "../src/activity/turn-lifecycle.js";
@@ -10,6 +10,30 @@ import { z } from "zod";
 const previousStep = z.looseObject({ phase: z.enum(["governed", "journal"]), name: z.string(), startedAt: z.number(),
   endedAt: z.number().nullable(), elapsedMs: z.number().nullable() });
 const previousLifecycle = z.looseObject({ subPhases: z.array(previousStep).optional() });
+
+test("lifecycle observations retain elapsed time and startup ordering across wall-clock corrections", () => {
+  const db = createUiDb(":memory:"); let wall = 1000, mono = 0;
+  const date = spyOn(Date, "now").mockImplementation(() => wall);
+  const tick = spyOn(performance, "now").mockImplementation(() => mono);
+  try {
+    const store = createActivityStore(db), life = createTurnLifecycle(store, "ithaca-clock", "ithaca", 1000, () => {});
+    life.mark("governedStartedAt"); mono = 10; wall = 1010; const governed = life.timer("governed")("gate");
+    mono = 40; wall = 920; governed(); life.mark("governedAcquiredAt");
+    mono = 50; wall = 930; life.mark("backendInvokedAt");
+    mono = 100; wall = 1100; const probe = life.startupTiming.start("host_probe");
+    mono = 150; wall = 1020; probe();
+    mono = 160; wall = 1030; life.startupTiming.worker("resources", 9);
+    mono = 165; wall = 1_000_000; life.firstFrame("ithaca-clock");
+    mono = 170; wall = 1040; life.startupTiming.received();
+    mono = 200; wall = 900; life.finish("success");
+    const record = store.lifecycle("ithaca-clock")!;
+    expect(record, "LIFECYCLE_USES_ONE_MONOTONIC_EPOCH_BASIS").toMatchObject({ backendInvokedAt: 1050, firstFrameAt: 1165,
+      firstRelayRequestAt: 1170, endedAt: 1200, totalElapsedMs: 200, governedAdmissionMs: 40 });
+    expect(record.subPhases).toEqual([{ phase: "governed", name: "gate", startedAt: 1010, endedAt: 1040, elapsedMs: 30 }]);
+    expect(record.openSubPhases!.find(step => step.name === "host_probe")).toMatchObject({ startedAt: 1100, endedAt: 1150, elapsedMs: 50 });
+    expect(record.openSubPhases!.find(step => step.name === "resources")).toMatchObject({ startedAt: 1160, endedAt: 1160, elapsedMs: 9 });
+  } finally { tick.mockRestore(); date.mockRestore(); db.close(); }
+});
 
 test("missing startup evidence stays bounded by count and UTF-8 bytes, including late reports", () => {
   const db = createUiDb(":memory:");
