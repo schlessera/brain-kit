@@ -460,7 +460,7 @@ test("standalone native SDK entries install the guard before importing their run
   const entries = [
     "scripts/measure-claude-capability.ts", "scripts/measure-claude-runtime.ts", "scripts/measure-claude-usage.ts",
     "scripts/measure-claude-haiku.ts", "scripts/measure-claude-enforcement.ts", "scripts/measure-claude-delegation.ts",
-    "scripts/measure-show-block.ts", "scripts/measure-show-block-server.ts", "scripts/measure-real-provider-dispatch.ts",
+    "scripts/measure-show-block.ts", "scripts/measure-show-block-server.ts",
     "scripts/measure-turn-surface-live.ts", "scripts/measure-turn-surface-tokens.ts", "scripts/show-block-schema-forms.ts",
     "scripts/capture-turn-surface.ts", "scripts/turn-surface-overlap.ts", "scripts/fixtures/claude-core-default-probe.ts",
     "scripts/native-proof/hosted-app-child.ts", "scripts/native-proof/reference-integration-child.ts",
@@ -475,4 +475,16 @@ test("standalone native SDK entries install the guard before importing their run
   const preload = readFileSync(join(ROOT, "scripts/test-network-child-preload.ts"), "utf8");
   expect(preload).toContain("const guard = installNetworkGuard();");
   expect(preload.indexOf("installNetworkGuard();")).toBeLessThan(preload.indexOf('await import("bun:test")'));
+});
+
+
+test("paid provider measurement requires explicit admission before runtime imports", () => {
+  const source = readFileSync(join(ROOT, "scripts/measure-real-provider-dispatch.ts"), "utf8");
+  const admission = source.indexOf('if (!process.argv.includes("--allow-real-provider"))');
+  expect(admission).toBeGreaterThanOrEqual(0);
+  expect(source.slice(admission, source.indexOf("/**"))).toContain("process.exit(2)");
+  expect(admission).toBeLessThan(source.indexOf("await import("));
+  expect(source).not.toContain('import "./test-network-child-preload.ts"');
+  expect(source).toContain('String(prior), "--allow-real-provider"');
+  expect(source).toContain("Opt-in, paid, never run by tests or CI");
 });

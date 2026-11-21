@@ -1,4 +1,8 @@
-import "./test-network-child-preload.ts";
+// Explicit paid-operation admission precedes all runtime dependency imports.
+if (!process.argv.includes("--allow-real-provider")) {
+  console.error("Real-provider measurement refused: explicit --allow-real-provider opt-in required");
+  process.exit(2);
+}
 /**
  * Real-provider verification of the restricted inference relay and the gated
  * dispatcher (#1548). Opt-in, paid, never run by tests or CI.
@@ -9,7 +13,7 @@ import "./test-network-child-preload.ts";
  * set to the real provider. T1 classification stays the keyless fixture; only
  * the agent tier reaches the provider, and only through the server's relay.
  *
- *   bun scripts/measure-real-provider-dispatch.ts <profile> --out <dir> [--spent-before <usd>] [--dry-run]
+ *   bun scripts/measure-real-provider-dispatch.ts <profile> --allow-real-provider --out <dir> [--spent-before <usd>] [--dry-run]
  *
  * Profiles: `claude-api` (needs ANTHROPIC_API_KEY), `claude-subscription`
  * (needs CLAUDE_CODE_OAUTH_TOKEN), `pi-api` (needs ANTHROPIC_API_KEY). The
@@ -62,7 +66,7 @@ const GUARD = { input: SONNET55_USD_PER_MTOK.input / 1e6, output: SONNET55_USD_P
   cacheRead: 0.2 / 1e6, cacheWrite: SONNET55_USD_PER_MTOK.cacheWrite1h / 1e6 };
 
 function usage(message: string): never {
-  console.error(`${message}\nusage: bun scripts/measure-real-provider-dispatch.ts <${Object.keys(PROFILES).join("|")}> --out <dir> [--spent-before <usd>] [--dry-run]`);
+  console.error(`${message}\nusage: bun scripts/measure-real-provider-dispatch.ts <${Object.keys(PROFILES).join("|")}> --allow-real-provider --out <dir> [--spent-before <usd>] [--dry-run]`);
   process.exit(2);
 }
 
@@ -84,7 +88,7 @@ async function parent(): Promise<void> {
   for (const dir of ["home", "claude", "pi", "run"]) mkdirSync(join(root, dir), { recursive: true });
   // One attempt: pi retries nothing, compacts nothing and warms no cache.
   writeFileSync(join(root, "pi/settings.json"), JSON.stringify({ retry: { enabled: false }, compaction: { enabled: false }, cacheWarming: "off" }));
-  const child = Bun.spawn([process.execPath, import.meta.path, "--server", name, root, dry ? "dry" : "live", String(prior)], {
+  const child = Bun.spawn([process.execPath, import.meta.path, "--server", name, root, dry ? "dry" : "live", String(prior), "--allow-real-provider"], {
     cwd: REPO, stdio: ["ignore", "pipe", "pipe"],
     env: { PATH: process.env.PATH!, LANG: "C.UTF-8", HOME: join(root, "home"), TMPDIR: tmpdir(),
       CLAUDE_CONFIG_DIR: join(root, "claude"), PI_CODING_AGENT_DIR: join(root, "pi"),

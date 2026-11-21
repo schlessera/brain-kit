@@ -228,6 +228,9 @@ test("separate-UID plans trace the broker payload outside its hidden native audi
       import {dirname} from "node:path";
       import {nativeWorkerBoundary,nativeScriptedService} from ${JSON.stringify(join(ROOT, "scripts/test-native-guard.ts"))};
       import {WORKER_IDENTITY_SUPERVISOR} from ${JSON.stringify(join(ROOT, "packages/ui-sdk/src/server/worker-identity-program.ts"))};
+      import {spyOn} from "bun:test";
+      import * as launcher from ${JSON.stringify(join(ROOT, "packages/ui-sdk/src/server/worker-launcher.ts"))};
+      spyOn(launcher,"verifiedWorkerIdentity").mockReturnValue({identity:"separate_uid",workerUid:(process.getuid()||21000)+1});
       const spawnSync=Bun.spawnSync,which=Bun.which;
       Bun.which=((command,options)=>command==="strace"?"/synthetic/strace":which(command,options));
       Bun.spawnSync=((argv,options)=>["bwrap","strace"].includes(argv[0])?{exitCode:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:Reflect.apply(spawnSync,Bun,[argv,options]));
@@ -523,10 +526,10 @@ test("registered same-origin Unix relays forward successfully", async () => {
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 });
 
-test("direct fixture mounts reject unowned sockets in HOME, cwd and a late launch recheck", async () => {
+test("all direct bind sources reject unowned sockets, including PATH, managed settings and late additions", async () => {
   const scratch = mkdtempSync(join(tmpdir(), "odysseus-mounted-socket-"));
   try {
-    for (const mode of ["home", "cwd", "late"]) {
+    for (const mode of ["home", "cwd", "late", "path", "managed"]) {
       const result = await probe(`${imports}
         import {mkdirSync,writeFileSync} from "node:fs";
         const spawnSync=Bun.spawnSync,which=Bun.which;
@@ -535,16 +538,38 @@ test("direct fixture mounts reject unowned sockets in HOME, cwd and a late launc
         process.env.GITHUB_ACTIONS="true";process.env.RUNNER_ENVIRONMENT="github-hosted";
         const home=${JSON.stringify(join(scratch, "home"))},cwd=${JSON.stringify(join(scratch, "brain"))};
         mkdirSync(home,{recursive:true});mkdirSync(cwd,{recursive:true});
-        const socket=(${JSON.stringify(mode)}==="cwd"?cwd:home)+"/foreign.sock";
+        const bin=${JSON.stringify(join(scratch, "bin"))},managed=${JSON.stringify(join(scratch,"managed"))};
+        mkdirSync(bin,{recursive:true});mkdirSync(managed,{recursive:true});
+        const socket=(${JSON.stringify(mode)}==="cwd"?cwd:${JSON.stringify(mode)}==="path"?bin:${JSON.stringify(mode)}==="managed"?managed:home)+"/foreign.sock";
         let foreign,plan;
         if(${JSON.stringify(mode)}!=="late")foreign=Bun.serve({unix:socket,fetch:()=>new Response("foreign")});
         const leave=registerScriptedService("http://127.0.0.1:1");
-        try{plan=nativeClaudeBoundary(${JSON.stringify(runtime)},[],{cwd,env:{HOME:home}});
+        try{plan=nativeClaudeBoundary(${JSON.stringify(runtime)},[],{cwd,env:{HOME:home,PATH:bin},managedSettings:managed});
           if(${JSON.stringify(mode)}==="late"){leave();foreign=Bun.serve({unix:socket,fetch:()=>new Response("late")});}
           plan.beforeLaunch();
         }finally{foreign?.stop(true);if(plan){writeFileSync(plan.argv[plan.argv.indexOf("-o")+1],${JSON.stringify(`1 execve(${JSON.stringify(runtime)}, [], 0x1) = 0`)});plan.dispose();}}`, scratch);
       expect(result.code).not.toBe(0);
       expect(result.output).toContain('"reason":"fixture storage contains an unowned Unix socket or directory alias"');
+    }
+  } finally { rmSync(scratch, { recursive: true, force: true }); }
+});
+
+test("audit receipts reject writable evidence and replaced trace inodes", async () => {
+  const scratch = mkdtempSync(join(tmpdir(), "odysseus-audit-integrity-"));
+  try {
+    for (const damage of ["mode", "inode"]) {
+      const result = await probe(`${imports}
+        import {auditNativeLaunch} from ${JSON.stringify(join(ROOT, "scripts/test-native-guard.ts"))};
+        import {chmodSync,unlinkSync,writeFileSync,statSync} from "node:fs";
+        const workerUid=(process.getuid()||21000)+1;
+        const audit=auditNativeLaunch(["/usr/bin/true"],["/synthetic/native"],()=>{},workerUid);
+        const log=audit.argv[audit.argv.indexOf("-o")+1],dir=log.slice(0,log.lastIndexOf("/"));
+        if((statSync(dir).mode&7)||(statSync(log).mode&7))throw Error("audit evidence permits unrelated accounts");
+        if(${JSON.stringify(damage)}==="mode")chmodSync(log,0o666);else{unlinkSync(log);writeFileSync(log,'1 execve("/synthetic/native", [], 0x1) = 0',{mode:0o600});}
+        audit.dispose();`, scratch);
+      expect(result.code).not.toBe(0);
+      expect(result.output).toContain('"reason":"native audit storage integrity failed"');
+      expect(result.output).toContain('"nativeLaunched":false,"success":false');
     }
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 });

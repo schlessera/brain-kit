@@ -185,7 +185,7 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
       if (Array.isArray(first)) args[1] = inherited;
       else args[0] = { ...inherited, cmd: (args[0] as { cmd: string[] }).cmd };
       try {
-        boundary?.beforeLaunch();
+        boundary?.beforeLaunch(); workerBoundary?.beforeLaunch();
         const result = Reflect.apply(native, Bun, args);
         if (key === "spawn") void result.exited.finally(() => { boundary?.dispose(); workerBoundary?.dispose(); });
         else workerBoundary?.dispose();

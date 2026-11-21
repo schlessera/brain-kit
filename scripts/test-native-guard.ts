@@ -235,14 +235,47 @@ export function nativeExecObserved(trace: string, paths: readonly string[]): boo
   return trace.split("\n").some(line => paths.some(path => line.includes(`execve(${JSON.stringify(path)},`)) && /\)\s+= 0$/.test(line.trim()));
 }
 
-export function auditNativeLaunch(argv: string[], expected: readonly string[], cleanup: () => void) {
+const AUDIT_ACL = `import os,struct,sys
+operation,uid,directory,log=sys.argv[1:]
+uid=int(uid)
+def acl(owner,worker):
+ return struct.pack('<I',2)+b''.join(struct.pack('<HHI',tag,perms,identity) for tag,perms,identity in [(1,owner,0xffffffff),(2,worker,uid),(4,0,0xffffffff),(16,worker,0xffffffff),(32,0,0xffffffff)])
+for path,value in [(directory,acl(7,3)),(log,acl(6,2))]:
+ if operation=='set': os.setxattr(path,'system.posix_acl_access',value,follow_symlinks=False)
+ else: assert os.getxattr(path,'system.posix_acl_access',follow_symlinks=False)==value
+`;
+function auditAcl(operation: "set" | "check", uid: number, directory: string, log: string): boolean {
+  try { return metadataSpawnSync(["/usr/bin/python3", "-I", "-S", "-c", AUDIT_ACL, operation, String(uid), directory, log], { stdout: "pipe", stderr: "pipe" }).exitCode === 0; }
+  catch { return false; }
+}
+
+export function auditNativeLaunch(argv: string[], expected: readonly string[], cleanup: () => void, workerUid?: number) {
   const directory = mkdtempSync(join(tmpdir(), "odysseus-native-audit-"));
   const log = join(directory, "connect.log");
   writeFileSync(log, "", { mode: 0o600 });
+  if (workerUid !== undefined && !auditAcl("set", workerUid, directory, log)) {
+    cleanup(); rmSync(directory, { recursive: true, force: true }); refuse("native audit access isolation is unavailable");
+  }
+  const owner = process.getuid?.(), directoryStamp = lstatSync(directory, { bigint: true }), logStamp = lstatSync(log, { bigint: true });
+  const storageIntact = () => {
+    try {
+      const folder = lstatSync(directory, { bigint: true }), file = lstatSync(log, { bigint: true });
+      return folder.isDirectory() && file.isFile() && folder.uid === BigInt(owner!) && file.uid === BigInt(owner!)
+        && folder.dev === directoryStamp.dev && folder.ino === directoryStamp.ino && file.dev === logStamp.dev && file.ino === logStamp.ino
+        && (folder.mode & 0o7777n) === (workerUid === undefined ? 0o700n : 0o730n)
+        && (file.mode & 0o7777n) === (workerUid === undefined ? 0o600n : 0o620n)
+        && (workerUid === undefined || auditAcl("check", workerUid, directory, log));
+    } catch { return false; }
+  };
   let receipt: AuditReceipt | undefined;
   const finish = (): AuditReceipt => {
     if (receipt) return receipt;
     try {
+      if (!storageIntact()) {
+        denied++;
+        receipt = { kind: "native-offline-audit", head: nativeTestHead(), nativeLaunched: false, success: false, reason: "native audit storage integrity failed", deniedConnects: 0 };
+        console.error(JSON.stringify(receipt)); return receipt;
+      }
       let trace = "";
       try { trace = readFileSync(log, "utf8"); } catch { /* Missing evidence is a failed receipt. */ }
       const nativeLaunched = nativeExecObserved(trace, expected);
@@ -311,18 +344,12 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
   const inheritedOrigin = inheritedSocket ? ownedSocketOrigin(inheritedSocket) : undefined;
   if (inheritedSocket && !inheritedOrigin) refuse("pre-existing native relay is not guard-owned");
   if (inheritedOrigin && (!scriptedRoute.getStore() || normalizedOrigin(inheritedOrigin) !== normalizedOrigin(scriptedRoute.getStore()!.origin))) refuse("native relay did not match scripted authority");
-  const beforeLaunch = () => {
-    for (const path of [home, cwd]) {
-      if (!fixtureSocketViewOwned(path, route.origin)) refuse("fixture storage contains an unowned Unix socket or directory alias");
-    }
-  };
-  beforeLaunch();
   const bridge = startNativeTestRelay(route.origin);
   try {
     const tools = fixtureToolView(env, cwd, home);
     command = resolveExecutable(command, options);
     const executable = realpathSync(command);
-    const argv = [bwrapExecutable, "--unshare-all", "--die-with-parent", "--new-session", "--cap-drop", "ALL", ...systemMounts(),
+    const mounts = [...systemMounts(),
       "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", ...testRuntimeMounts(),
       "--ro-bind", executable, command, "--ro-bind", process.execPath, process.execPath, "--bind", home, home,
       ...(cwd === ROOT || within(ROOT, cwd) || within(home, cwd) ? [] : ["--bind", cwd, cwd]),
@@ -330,7 +357,10 @@ export function nativeClaudeBoundary(command: string, args: string[], options: {
       "--ro-bind", bridge.directory, "/tmp/native-relay",
       "--ro-bind", join(bridge.directory, "passwd"), "/etc/passwd", "--ro-bind", join(bridge.directory, "group"), "/etc/group",
       ...(inheritedSocket && inheritedOrigin ? ["--ro-bind", inheritedSocket, "/tmp/native-relay/relay.sock", "--ro-bind", inheritedSocket, inheritedSocket] : []),
-      ...(options.managedSettings ? ["--ro-bind", options.managedSettings, "/etc/claude-code"] : []), "--clearenv"];
+      ...(options.managedSettings ? ["--ro-bind", options.managedSettings, "/etc/claude-code"] : []),];
+    const beforeLaunch = () => assertNativeMountSockets(mounts, route.origin);
+    beforeLaunch();
+    const argv = [bwrapExecutable, "--unshare-all", "--die-with-parent", "--new-session", "--cap-drop", "ALL", ...mounts, "--clearenv"];
     const childEnv: Record<string, string> = { HOME: home, CLAUDE_CONFIG_DIR: versionHome ?? env.CLAUDE_CONFIG_DIR ?? home,
       PATH: tools.path, LANG: "C.UTF-8",
       ANTHROPIC_BASE_URL: "http://localhost", ANTHROPIC_UNIX_SOCKET: "/tmp/native-relay/relay.sock",
@@ -485,23 +515,37 @@ function admittedRelay(argv: string[], socket: string): string | undefined {
   }
 }
 
-/** Metadata only: no fixture file contents or outside directory trees are read. */
-function fixtureSocketViewOwned(directory: string, origin: string): boolean {
-  const root = realpathSync(directory), visited = new Set<string>();
+/** Validate the same bind-source inventory used to construct the native view. */
+function assertNativeMountSockets(mounts: readonly string[], origin: string): void {
+  const roots: string[] = [];
+  for (let i = 0; i < mounts.length - 2; i++) {
+    if (["--bind", "--ro-bind"].includes(mounts[i]!)) {
+      try { const source = realpathSync(mounts[i + 1]!); if (source === "/") refuse("native mount exposes the host root"); roots.push(source); } catch { refuse("native mount source is unavailable"); }
+      i += 2;
+    }
+  }
+  const visited = new Set<string>();
   const visit = (path: string): boolean => {
-    const real = realpathSync(path), info = lstatSync(real, { bigint: true });
+    let real: string;
+    try { real = realpathSync(path); } catch {
+      // A dangling symlink cannot expose a socket in the mounted view.
+      return lstatSync(path).isSymbolicLink();
+    }
+    // An absolute alias into unmounted storage is inaccessible in the child.
+    if (!roots.some(root => within(root, real))) return true;
+    const info = lstatSync(real, { bigint: true });
     if (info.isSocket()) {
       const peer = ownedSocketOrigin(real);
       return Boolean(peer && normalizedOrigin(peer) === normalizedOrigin(origin));
     }
     if (!info.isDirectory()) return true;
-    if (!within(root, real)) return false;
     const key = socketIdentity(info);
     if (visited.has(key)) return true;
     visited.add(key);
     return readdirSync(real).every(name => visit(join(real, name)));
   };
-  try { return visit(root); } catch { return false; }
+  try { if (roots.every(visit)) return; } catch { /* Unknown view refuses. */ }
+  refuse("fixture storage contains an unowned Unix socket or directory alias");
 }
 
 function relaySubtreeOwned(directory: string, origin: string): boolean {
@@ -524,8 +568,8 @@ function relaySubtreeOwned(directory: string, origin: string): boolean {
 }
 
 /** Inspect the concrete existing worker bootstrap, including its exec payload. */
-export function nativeWorkerBoundary(env: Record<string, string | undefined>): { env: Record<string, string | undefined>; dispose(): void } {
-  const unchanged = { env, dispose() {} };
+export function nativeWorkerBoundary(env: Record<string, string | undefined>): { env: Record<string, string | undefined>; dispose(): void; beforeLaunch(): void } {
+  const unchanged = { env, dispose() {}, beforeLaunch() {} };
   if (!env.BRAIN_WORKER_LAUNCH) return unchanged;
   let launch: { command?: string[]; argv?: string[]; env?: Record<string, string>; brainPath?: string; hostHome?: string } | null;
   try { launch = JSON.parse(env.BRAIN_WORKER_LAUNCH); } catch { return unchanged; }
@@ -559,6 +603,7 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
   const bridge = startNativeTestRelay(route.origin);
   try {
     const tools = fixtureToolView(launch.env ?? {}, launch.brainPath ?? ROOT, launch.hostHome ?? launch.env?.HOME);
+    assertNativeMountSockets(tools.mounts, route.origin);
     for (let i = bwrap + 1; i < workerArgv.indexOf("--", bwrap); i++) {
       if (workerArgv[i] === "--ro-bind" && workerArgv[i + 1] === "/" && workerArgv[i + 2] === "/") workerArgv.splice(i--, 3);
       else if (workerArgv[i] === "--setenv" && !WORKER_RUNTIME_ENV.has(workerArgv[i + 1]!)) workerArgv.splice(i--, 3);
@@ -573,6 +618,9 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
     workerArgv.splice(separator, 0, "--ro-bind", bridge.directory, "/tmp/native-relay",
       "--ro-bind", join(bridge.directory, "passwd"), "/etc/passwd", "--ro-bind", join(bridge.directory, "group"), "/etc/group",
       ...Object.entries(pinned).flatMap(([key, value]) => ["--setenv", key, value]));
+    const nativeMounts = workerArgv.slice(bwrap + 1, workerArgv.indexOf("--", bwrap));
+    const beforeLaunch = () => assertNativeMountSockets(nativeMounts, route.origin);
+    beforeLaunch();
     const expected = expectedNativeExec(launch.command[0], launch.command.slice(1), { cwd: launch.brainPath, env: launch.env });
     let audited: ReturnType<typeof auditNativeLaunch>;
     if (supervisor) {
@@ -580,12 +628,14 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
       // The tracer runs after the UID handoff, outside the native PID and mount
       // view. The inner boundary preserves fixture writable mounts but hides
       // the audit storage and drops namespace capabilities from descendants.
+      const { verifiedWorkerIdentity } = createRequire(import.meta.url)("../packages/ui-sdk/src/server/worker-launcher.ts") as typeof import("../packages/ui-sdk/src/server/worker-launcher");
+      const identity = launch.brainPath && verifiedWorkerIdentity(launch.brainPath);
+      if (!identity || identity.workerUid === process.getuid?.()) refuse("native worker audit lacks a verified separate UID");
       audited = auditNativeLaunch([bwrapExecutable, "--die-with-parent", "--unshare-user", "--unshare-pid", "--unshare-net", "--cap-drop", "ALL",
-        "--bind", "/", "/", "--proc", "/proc", "--tmpfs", "AUDIT_STORAGE", "--", ...payload], expected, bridge.dispose);
+        "--bind", "/", "/", "--proc", "/proc", "--tmpfs", "AUDIT_STORAGE", "--", ...payload], expected, bridge.dispose, identity.workerUid);
       const log = audited.argv[audited.argv.indexOf("-o") + 1]!, directory = dirname(log);
       audited.argv[audited.argv.indexOf("AUDIT_STORAGE")] = directory;
       // Only the outer tracer sees this mount; the native process sees tmpfs.
-      chmodSync(directory, 0o777); chmodSync(log, 0o666);
       chmodSync(bridge.directory, 0o755); chmodSync(join(bridge.directory, "relay.sock"), 0o666);
       workerArgv.splice(workerArgv.indexOf("--", bwrap), 0, "--bind", directory, directory);
       workerArgv.push(...audited.argv);
@@ -595,6 +645,6 @@ export function nativeWorkerBoundary(env: Record<string, string | undefined>): {
       audited = auditNativeLaunch(workerArgv, expected, bridge.dispose);
       launch.argv = audited.argv;
     }
-    return { env: { ...env, BRAIN_WORKER_LAUNCH: JSON.stringify(launch) }, dispose: audited.dispose };
+    return { env: { ...env, BRAIN_WORKER_LAUNCH: JSON.stringify(launch) }, dispose: audited.dispose, beforeLaunch };
   } catch (error) { bridge.dispose(); throw error; }
 }

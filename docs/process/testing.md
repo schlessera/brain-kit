@@ -1171,9 +1171,14 @@ credential precedence.
 No production authentication or managed-policy behavior changes.
 
 Standalone native measurement and experiment entries import the subprocess guard
-before their SDK or backend dependencies. Direct fixture HOME and cwd mounts
-reject unowned Unix sockets, including nested aliases, and recheck immediately
-before launch. The hostile-settings proof always registers; outside hosted CI it
+before their SDK or backend dependencies. Direct and worker bind inventories reject unowned Unix sockets across every
+source, including fixture PATH directories, settings and nested mounted aliases,
+and recheck immediately before launch. Separate-UID trace storage remains
+guard-owned with a named-user POSIX ACL granting only the verified worker UID
+write access; receipt reads verify ownership, inode identity, modes and ACLs.
+The opt-in paid real-provider dispatch measurement is outside the offline test
+path: its documented `--allow-real-provider` admission is required before runtime
+imports, and its live-provider and spending warnings remain in the script. The hostile-settings proof always registers; outside hosted CI it
 fails with an explicit isolation-unavailable receipt rather than disappearing.
 
 `tests/native-offline-boundary.test.ts` proves local refusal with harmless
