@@ -13,6 +13,8 @@ test("admission measurement retains both fences and every hold/delay cell with r
       ["removed", 10, 20, 2], ["removed", 50, 20, 2], ["removed", 500, 20, 2],
     ]);
     for (const row of measured.rows) {
+      expect(row.admissionFencesMs).toHaveLength(2);
+      expect(row.requestAfterResultMs).toBeGreaterThanOrEqual(0);
       expect(row.admitMs).toBeGreaterThanOrEqual(0);
       expect(row.credentialToDispatchMs).toBeGreaterThanOrEqual(0);
     }

@@ -13,24 +13,32 @@ import { request } from "node:http";
 export async function measureAdmissionJoin(directory: string, samples = 5) {
   const root = mkdtempSync(join(directory, "admission-join-")), db = createUiDb(join(root, "ui.db"));
   const writer = openSqliteWriter(db), writes = createGovernanceWrites(db, writer);
-  const rows: { hold: "drained" | "removed"; delayMs: number; sample: number; queuedCommits: number; admitMs: number; credentialToDispatchMs: number; fences: number }[] = [];
+  const rows: { hold: "drained" | "removed"; delayMs: number; sample: number; queuedCommits: number; admitMs: number; credentialToDispatchMs: number; fences: number; admissionFencesMs: number[]; requestAfterResultMs: number }[] = [];
   const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(req) { await req.arrayBuffer(); return new Response("Ithaca"); } });
   try {
     for (const hold of ["drained", "removed"] as const) for (const delayMs of [10, 50, 500]) for (let sample = 0; sample < samples; sample++) {
       const controller = new AbortController(), records: EgressRecord[] = [];
-      let fences = 0;
+      let fences = 0, resultAt = 0, requestReceivedAt = 0;
+      const admissionFencesMs: number[] = [];
       const proxy = await prepareTurnEgress({ policy: resolveGovernancePolicy({ schema_version: 1 }), controller,
         turnId: `voyage-${hold}-${delayMs}-${sample}`, sessionId: () => null, model: () => "odysseus", origin: "interactive", profile: "governed",
         bridge: { emit() {}, requestPermission: async () => ({ behavior: "deny" }) } as unknown as BackendBridge,
         record(event) { if (event.kind === "egress_connection") records.push(event.payload); return writes.record(event); } });
       const relay = startInferenceRelay({ upstream: origin.url.origin, routes: ["/v1/messages"], credentials: {}, egress: {
-        inference(...args) { const operation = proxy.inference(...args); return { ...operation, async admit() { fences++; return operation.admit(); } }; },
+        inference(...args) {
+          requestReceivedAt = performance.now();
+          const operation = proxy.inference(...args);
+          return { ...operation, async admit() {
+            fences++; const start = performance.now();
+            try { return await operation.admit(); } finally { admissionFencesMs.push(performance.now() - start); }
+          } };
+        },
       } });
       try {
         // Twenty prior completed inference audit rows queue twenty separate
         // FULL commits. No fake writer latency or durability setting is used.
         for (let i = 0; i < 20; i++) proxy.inference("POST", new URL("/v1/messages", origin.url), controller.signal).finish("completed");
-        const resultAt = performance.now();
+        resultAt = performance.now();
         if (hold === "drained") await proxy.settled();
         await Bun.sleep(Math.max(0, delayMs - (performance.now() - resultAt)));
         const status = await new Promise<number>((resolve, reject) => {
@@ -41,7 +49,7 @@ export async function measureAdmissionJoin(directory: string, samples = 5) {
         await proxy.settled();
         const measured = records.at(-1)!;
         if (status !== 200 || fences !== 2 || measured.admitMs === undefined || measured.dispatchMs === undefined || measured.credentialMs === undefined) throw Error("Admission join measurement missing a successful request, two fences or marks");
-        rows.push({ hold, delayMs, sample, queuedCommits: 20, admitMs: measured.admitMs, credentialToDispatchMs: measured.dispatchMs - measured.credentialMs, fences });
+        rows.push({ hold, delayMs, sample, queuedCommits: 20, admitMs: measured.admitMs, credentialToDispatchMs: measured.dispatchMs - measured.credentialMs, fences, admissionFencesMs, requestAfterResultMs: requestReceivedAt - resultAt });
       } finally { relay.stop(); controller.abort(); proxy.stop(); await proxy.settled(); }
     }
     return { coverage: "real FULL writer and Unix relay; synthetic twenty-record queue; no native worker or runtime assembly claim", rows };
