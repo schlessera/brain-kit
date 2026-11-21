@@ -103,7 +103,7 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
   // Refusing this optional migration must never prevent recovery/expiry.
   accounting.ensureObjectRefIndex();
   const objects = createJournalObjects(options.objectsRoot, accounting);
-  const scrub = createJournalScrub(db, options.objectsRoot, accounting.write);
+  const scrub = createJournalScrub(db, options.objectsRoot, accounting);
   const reservations = new Map<string, JournalObjectReservation>();
   const temporary = new Map<string, { release(): void }>();
   const pin = (turnId: string, entry: JournalVersion | null) => {

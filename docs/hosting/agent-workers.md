@@ -966,7 +966,15 @@ owner operation. The CLI's standalone packing preflight uses the same conservati
 need and skips when it cannot establish enough space, without reserving it.
 
 The existing idle host-maintenance schedule also scrubs the journal object
-store, never admission or finish. Each pass lists at most 32 new directory entries
+store, never admission or finish. Its optional quarantine schema is created on
+first scrub through an accounted FULL write, rather than by a boot migration.
+Admission reserves eight additional pages plus their WAL allowance and checks
+the actual allocation before commit. A near-cap journal keeps its existing
+writes usable and skips before filesystem work: `state: "skipped"`, existing
+`reason: "quarantine_pending"`, and optional
+`schemaSkipReason: "quarantine_schema_not_admitted"`. A later idle pass retries
+when capacity is available; missing schema contributes zero quarantine bytes.
+Each pass lists at most 32 new directory entries
 and reads at most 4 KiB of directory records per pass through Linux `getdents64`
 (the qualified Linux host libc), retaining only a fixed 4 KiB buffer and its
 directory descriptor across passes. Bun 1.4.4 eagerly enumerates a whole

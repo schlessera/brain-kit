@@ -3508,7 +3508,12 @@ individual stat/open/read refusals; paths are relative to the private object
 root (with `quarantine/` when applicable), and messages are bounded to 2000
 characters. Either condition leaves the result `partial` with the existing
 `quarantine_pending` reason. Read refusals do not assert corruption. No existing
-event, outcome or reason discriminator changes.
+event, outcome or reason discriminator changes. The optional
+`schemaSkipReason: "quarantine_schema_not_admitted"` names a skipped pass whose
+quarantine schema could not be admitted within quota. That result uses existing
+`state: "skipped"` and `reason: "quarantine_pending"`, lists no files, and retries
+on a later idle pass. Ordinary journal writes remain available. This optional
+metadata ships in a minor.
 
 
 Routine-maintenance cron Activity adds a `git_publication` event and the optional

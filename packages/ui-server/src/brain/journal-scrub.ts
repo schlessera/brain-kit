@@ -3,6 +3,7 @@ import {journalDirectory} from "./journal-directory.js";
 import { createHash, randomUUID } from "node:crypto";
 import { closeSync, constants, fstatSync, fsyncSync, mkdirSync, lstatSync, openSync, readSync, renameSync } from "node:fs";
 import {JournalCapacityError} from "./journal-objects.js";
+import type { createJournalAccounting } from "./journal-accounting.js";
 import type { Database } from "bun:sqlite";
 
 const JOURNAL_SCRUB_FILES = 64;
@@ -16,8 +17,10 @@ export interface JournalScrubResult {
   pending: number; pendingBytes: number;
   capacityBlocked?: number;
   readFailures?: ReadFailure[];
+  schemaSkipReason?: "quarantine_schema_not_admitted";
 }
-export function createJournalScrub(db: Database, root: string, write: <T>(operation: () => T) => T) {
+export function createJournalScrub(db: Database, root: string, accounting: Pick<ReturnType<typeof createJournalAccounting>, "write" | "ensureScrubQuarantine">) {
+  const {write,ensureScrubQuarantine}=accounting;
   const directory=journalDirectory(root);let more=false;
   let batch: readonly {name:string;alternate:string}[] | undefined, retryAfter="";
   const quarantine=`${root}/quarantine`;
@@ -30,6 +33,7 @@ export function createJournalScrub(db: Database, root: string, write: <T>(operat
       const result:JournalScrubResult={state:"complete",reason:null,listed:0,unaccounted:0,unaccountedBytes:0,corrupt:0,corruptBytes:0,quarantined:0,quarantinedBytes:0,pending:0,pendingBytes:0};
       const skip=()=>{result.state="skipped";result.reason="journal_busy";return result;};
       if(busy())return skip();
+      if(!ensureScrubQuarantine()){result.state="skipped";result.reason="quarantine_pending";result.schemaSkipReason="quarantine_schema_not_admitted";return result;}
       mkdirSync(quarantine,{mode:0o700,recursive:true});
       const source=openSync(root,constants.O_RDONLY|constants.O_DIRECTORY|constants.O_NOFOLLOW);
       let target:number;

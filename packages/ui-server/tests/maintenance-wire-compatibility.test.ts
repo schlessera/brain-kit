@@ -48,3 +48,12 @@ test("the previous schema parses actual host scrub Activity records",async()=>{
   }
  }finally{await journal.close();await native.close();db.close();rmSync(root,{recursive:true,force:true});}
 });
+
+test("previous scrub and Activity schemas accept optional schema-admission skips",()=>{
+ const previousResult=z.looseObject({state:z.enum(["complete","partial","skipped"]),reason:z.enum(["journal_busy","quarantine_pending"]).nullable(),listed:z.number()});
+ const payload={state:"skipped",reason:"quarantine_pending",schemaSkipReason:"quarantine_schema_not_admitted",listed:0};
+ expect(previousResult.safeParse(payload).success,"PREVIOUS_SCRUB_REASON_ENUM_ACCEPTS_SCHEMA_SKIP").toBe(true);
+ const frame={type:"activity_delta",runId:"maintenance",seq:1,event:{spanId:"maintenance:root",eventIndex:0,ts:1,eventType:"journal_scrub",payload}};
+ expect(previousDelta.safeParse(frame).success).toBe(true);expect(parseServerMessage(JSON.stringify(frame)).ok).toBe(true);
+ expect(previousResult.safeParse({...payload,reason:"quarantine_schema_not_admitted"}).success,"SCHEMA_SKIP_ENUM_NEGATIVE_CONTROL").toBe(false);
+});

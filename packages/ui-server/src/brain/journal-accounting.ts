@@ -2,7 +2,7 @@ import type { JournalRecoveryStatus } from "@schlessera/brain-ui-sdk/protocol";
 import type { Database } from "bun:sqlite";
 import { realpathSync, statSync } from "node:fs";
 import { resolve } from "node:path";
-import { attachJournalDatabase, JOURNAL_MIGRATIONS_TABLE, JOURNAL_OBJECT_REFS_INDEX, JOURNAL_SCHEMA, journalDatabasePath } from "../db/journal-database.js";
+import { attachJournalDatabase, JOURNAL_MIGRATIONS_TABLE, JOURNAL_OBJECT_REFS_INDEX, JOURNAL_SCRUB_QUARANTINE, JOURNAL_SCHEMA, journalDatabasePath } from "../db/journal-database.js";
 import { JournalCapacityError, type JournalObjectAccounting } from "./journal-objects.js";
 import { processAlive, SELF } from "./writer-gate.js";
 
@@ -41,6 +41,8 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
   usage(): number;
   /** Admitted, retryable schema upgrade; false leaves integrity-checked collection usable. */
   ensureObjectRefIndex(): boolean;
+  /** Optional scrub state; refusal leaves all existing journal writes usable. */
+  ensureScrubQuarantine(): boolean;
   openRead(hash: string, assertOwner?: () => void): string;
   releaseRead(id: string): void;
   reserveTemporary(bytes: number): { id: string; release(): void };
@@ -70,6 +72,7 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
    * pages it released and page 1. So the measurement is the file's extent,
    * read without walking anything.
    */
+  const scrubSchemaExists=()=>Boolean(db.query(`SELECT 1 FROM ${JOURNAL_SCHEMA}.sqlite_schema WHERE type='table' AND name=?`).get(JOURNAL_SCRUB_QUARANTINE.name));
   function measure(additionalPages = 0) {
     const logicalPages = (db.query(`PRAGMA ${JOURNAL_SCHEMA}.page_count`).get() as { page_count: number }).page_count;
     const free = (db.query(`PRAGMA ${JOURNAL_SCHEMA}.freelist_count`).get() as { freelist_count: number }).freelist_count;
@@ -81,7 +84,7 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
     const walCapacity = memory ? 0 : 32 + (pages + Math.ceil(pages / (pageSize / 4 - 2))) * (pageSize + 24);
     const physical = memory ? 0 : pages * pageSize;
     const objects = (db.query("SELECT coalesce(sum(bytes),0) AS bytes FROM turn_journal_objects WHERE state='present'").get() as { bytes: number }).bytes;
-    const quarantined = (db.query("SELECT coalesce(sum(bytes),0) AS bytes FROM turn_journal_scrub_quarantine").get() as { bytes: number }).bytes;
+    const quarantined = scrubSchemaExists() ? (db.query("SELECT coalesce(sum(bytes),0) AS bytes FROM turn_journal_scrub_quarantine").get() as { bytes: number }).bytes : 0;
     const pending = (db.query("SELECT coalesce(sum(bytes),0) AS bytes FROM turn_journal_reservations").get() as { bytes: number }).bytes;
     return { pages, free, walCapacity, bytes: physical + walCapacity + objects + pending + quarantined };
   }
@@ -198,6 +201,27 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
       return false;
     }
   }
+  /** Like the reference index, optional scrub DDL is quota-admitted, not a
+   * boot migration. Eight pages cover the table, primary-key index, schema and
+   * pointer maps; reserve their FULL WAL too, then verify before commit.
+   */
+  function ensureScrubQuarantine(): boolean {
+    if(scrubSchemaExists()){installEscapeGuard(db);return true;}
+    try {
+      write(()=>{
+        if(scrubSchemaExists()){installEscapeGuard(db);return;}
+        const pages=8,before=measure(),projected=measure(pages),debt=wal();
+        if(projected.bytes+debt>cap){if(debt>0)throw new WalDebt();throw new JournalCapacityError();}
+        db.exec(JOURNAL_SCRUB_QUARANTINE.sql);
+        installEscapeGuard(db);
+        if(measure().pages>before.pages+pages)throw new JournalCapacityError("The scrub schema exceeded its admitted page allowance.");
+      });
+      return true;
+    }catch(error){
+      if(!(error instanceof JournalCapacityError||error instanceof JournalStorageUnavailable))throw error;
+      return false;
+    }
+  }
   // While the server starts, truncate and return the pages released before
   // the last stop to the file system, as one admitted FULL write. A pinned
   // WAL or an over-cap store leaves this to the first write, which refuses
@@ -208,7 +232,7 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
     if (!memory) db.query(`PRAGMA ${JOURNAL_SCHEMA}.wal_checkpoint(TRUNCATE)`).get();
   } catch (error) { if (!(error instanceof JournalStorageUnavailable || error instanceof JournalCapacityError)) throw error; }
   return {
-    write, usage, ensureObjectRefIndex,
+    write, usage, ensureObjectRefIndex, ensureScrubQuarantine,
     openRead(hash, assertOwner) {
       const id = crypto.randomUUID();
       write(() => {

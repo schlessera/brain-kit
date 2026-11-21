@@ -13,6 +13,8 @@ import { SELF } from "../src/brain/writer-gate.js";
 const sha=(s:string)=>createHash("sha256").update(s).digest("hex");
 function fixture() {
  const root=mkdtempSync(join(tmpdir(),"odysseus-scrub-")),path=join(root,"ui.db"),objects=join(root,"objects"),db=createUiDb(path);
+ // Fixtures seed reserved rows directly, so explicitly admit their optional schema.
+ createJournalAccounting(db,path).ensureScrubQuarantine();
  const store=journalStore.setup(db,{dbPath:path,objectsRoot:objects}) as unknown as {statements(list:journalStore.JournalStatement[]):number[];reserve(bytes:number,hash:string):string;collectObjects():void;scrubObjects():import("../src/brain/journal-scrub.js").JournalScrubResult;usage():number;close():void};
  return {root,path,objects,db,store,close(){store.close!();db.close();rmSync(root,{recursive:true,force:true});}};
 }
@@ -161,10 +163,10 @@ test("a corrupt pending quarantine copy cannot hide a recreated valid source",()
 for(const replayPhase of [1,2])test(`accounting replay in phase ${replayPhase} preserves the frozen batch and counters`,async()=>{
  const {createJournalScrub}=await import("../src/brain/journal-scrub.js"),f=fixture();let writeCalls=0;
  const rollback=Symbol("accounted rollback"),accounting=createJournalAccounting(f.db,f.path);
- const scrub=createJournalScrub(f.db,f.objects,operation=>{
+ const scrub=createJournalScrub(f.db,f.objects,{...accounting,write:operation=>{
   if(++writeCalls===replayPhase){try{accounting.write(()=>{operation();throw rollback;})}catch(error){if(error!==rollback)throw error;}}
   return accounting.write(operation);
- });
+ }});
  try{
   for(let n=0;n<65;n++)writeFileSync(join(f.objects,sha(`Ithaca ${n}`)),`Ithaca ${n}`);
   const first=scrub.run();
