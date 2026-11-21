@@ -4,9 +4,11 @@
  * transport's argv (`--readonly`, `--no-input`, `--gmail-no-send` and the
  * per-operation `--enable-commands-exact`), and prints only the JSON key
  * paths of each answer beside the fixtures' key paths
- * (packages/common/tests/fixtures/gog), with the difference. No value, no
- * id and no stderr is ever printed, so the output can be pasted into a PR
- * after `bun scripts/check-leakage.ts`.
+ * (packages/common/tests/fixtures/gog), with the difference, and the
+ * transport's own codec's verdict on the answer: `codec: "accepted"`, or
+ * `codec: {refused: <code>, at: <key path>}`. No value, no id and no stderr
+ * is ever printed, so the output can be pasted into a PR after
+ * `bun scripts/check-leakage.ts`.
  *
  *   bun scripts/google-shape-check.ts --gog <gog binary> --account <alias> [--home <gog home>] [--query <gmail query>]
  *
@@ -18,6 +20,7 @@
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { GOG_OPERATION_INPUTS, gogArgv, gogInvocation, isGogAccountAlias, type GogInvocation } from "../packages/common/src/google/gog/argv.ts";
+import { GOG_READ_CODECS, GogShapeError } from "../packages/common/src/google/gog/codecs.ts";
 import { GOG_PINS } from "../packages/common/src/google/gog/pins.ts";
 import { runGogProcess } from "../packages/common/src/google/gog/runner.ts";
 
@@ -27,8 +30,8 @@ export const FIXTURE_DIR = resolve(import.meta.dir, "../packages/common/tests/fi
 export const SHAPE_FIXTURES = Object.freeze({
   "gmail.labels.list": ["labels-list.json"],
   "gmail.search": ["search-ids.json", "search-empty.json"],
-  "gmail.thread.get": ["thread-hall.json", "thread-swine.json"],
-  "gmail.message.get": ["message-get.json"],
+  "gmail.thread.get": ["thread-hall.json", "thread-swine.json", "thread-pylos.json"],
+  "gmail.message.get": ["message-get.json", "message-herald.json", "message-ledger.json"],
   "gmail.draft.get": ["draft-raw.json"],
 } as const);
 export type ShapeOperation = keyof typeof SHAPE_FIXTURES;
@@ -69,6 +72,50 @@ export function diffKeyPaths(live: readonly string[], fixtures: readonly string[
   const known = new Set(fixtures);
   const seen = new Set(live);
   return { only_live: live.filter(path => !known.has(path)), only_fixtures: fixtures.filter(path => !seen.has(path)) };
+}
+
+/**
+ * What the transport's own codec (`GOG_READ_CODECS`) makes of one answer:
+ * accepted, or refused with the code the transport would answer and where,
+ * as a key path. A codec that throws anything but a shape error is
+ * `codec_error`; its message is never carried.
+ */
+export type CodecVerdict = "accepted" | { refused: "transport_incompatible"; at: string } | { refused: "codec_error" };
+
+const SHAPE_PATH = /^\$(?:\.(?:[A-Za-z_][A-Za-z0-9_]{0,63}|<key>)(?:\[\]\*?)*)*$/;
+
+/**
+ * A codec error path in key-path form: indexes collapse to `[]` and a MIME
+ * part tree's nesting to `parts[]*`, as {@link keyPaths} writes them. A path
+ * that is not key names and indexes alone is `<path>`.
+ */
+export function shapePath(path: string): string {
+  const collapsed = path.replace(/\[\d+\]/g, "[]").replace(/(?:\.parts\[\])+/g, ".parts[]*");
+  return SHAPE_PATH.test(collapsed) ? collapsed : "<path>";
+}
+
+export async function codecVerdict(operation: ShapeOperation, json: unknown): Promise<CodecVerdict> {
+  try {
+    await GOG_READ_CODECS[operation](json);
+    return "accepted";
+  } catch (error) {
+    if (error instanceof GogShapeError) return { refused: "transport_incompatible", at: shapePath(error.path) };
+    return { refused: "codec_error" };
+  }
+}
+
+/** One operation's answer as the script saw it: gog's exit, how it ended, and its JSON (null when there was none). */
+export interface ShapeAnswer {
+  exit: number | null;
+  end: string;
+  json: unknown;
+}
+
+/** One operation's report: the key paths, their difference from the fixtures', and the codec's verdict. */
+export async function operationReport(operation: ShapeOperation, answer: ShapeAnswer, dir = FIXTURE_DIR): Promise<Record<string, unknown>> {
+  if (answer.json === null) return { exit: answer.exit, end: answer.end };
+  const live = keyPaths(answer.json);
+  return { exit: answer.exit, live, ...diffKeyPaths(live, fixtureKeyPaths(operation, dir)), codec: await codecVerdict(operation, answer.json) };
 }
 
 /** Why it must not run here, or null. */
@@ -133,14 +180,6 @@ async function main(): Promise<number> {
     operations: {} as Record<string, unknown>,
   };
   const operations = report.operations as Record<string, unknown>;
-  const record = (operation: ShapeOperation, answer: { exit: number | null; end: string; json: unknown }) => {
-    if (answer.json === null) {
-      operations[operation] = { exit: answer.exit, end: answer.end };
-      return;
-    }
-    const live = keyPaths(answer.json);
-    operations[operation] = { exit: answer.exit, live, ...diffKeyPaths(live, fixtureKeyPaths(operation)) };
-  };
 
   // A live id goes back into argv only through the transport's own input
   // schema; one that does not have the catalog's id shape is reported, never printed.
@@ -151,7 +190,7 @@ async function main(): Promise<number> {
       return null;
     }
     const answer = await run(gogInvocation(operation, parsed.data as never));
-    record(operation, answer);
+    operations[operation] = await operationReport(operation, answer);
     return answer.json;
   };
   await read("gmail.labels.list", {});

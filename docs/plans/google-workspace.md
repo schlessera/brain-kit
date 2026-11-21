@@ -834,10 +834,11 @@ Keyless, offline and deterministic.
 - **Live shape check (maintainer-run, read-only).**
   `scripts/google-shape-check.ts` runs each read operation against a real account
   with `--readonly` and the exact command allow-list, and prints only the JSON key
-  paths per operation compared with the fixtures'. Its output holds no values and
-  is safe to paste into a PR after the leakage gate. It gates every gog upgrade and
-  every landing. Live writes are proven on a disposable account only, as a
-  `needs: human` step.
+  paths per operation compared with the fixtures', and the transport codec's
+  verdict on each answer: accepted, or the refusal's code and key path. Its
+  output holds no values and is safe to paste into a PR after the leakage gate.
+  It gates every gog upgrade and every landing. Live writes are proven on a
+  disposable account only, as a `needs: human` step.
 
 ## 12. Delivery
 
