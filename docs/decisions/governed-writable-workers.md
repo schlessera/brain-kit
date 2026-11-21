@@ -1816,7 +1816,7 @@ worker does:
   evaluates `brain.config.ts` and its modules, opens `brain.db`, registers
   module tools, and advances compute jobs it started for as long as it lives
   (`export async function startMcpServer`,
-  `packages/core/src/mcp-server.ts:723-795`). That is the Claude counterpart of
+  `packages/core/src/mcp-server.ts:555-627`). That is the Claude counterpart of
   a pi worker with extensions loaded, which reports nothing.
 - **The CLI reloads configuration during the session.** The bundled CLI has
   a settings change detector that watches the settings files for additions,

@@ -16,8 +16,8 @@ test("new Claude sessions retain their removal selection and fixed batching brie
   for (const input of capture.budgets as any[]) {
     for (const name of HOST_UNUSED_BUILTINS) expect(input.disallowed, "PRODUCTION_REMOVAL_SELECTION").toContain(name);
     expect(input.disallowed).not.toContain("NotebookEdit");
-    expect(input.env).toBe("false");
-    expect(input.settings).toBe("false");
+    expect(input.env).toBe("true");
+    expect(input.settings).toBe("true");
   }
   for (const exchange of main(capture)) {
     const names = body(exchange).tools.map((tool: { name: string }) => tool.name);
@@ -65,40 +65,44 @@ test("legacy sessions retain SDK inputs and wire tools after metadata and append
   for (const [a, b] of pairs(capture)) { identical(body(a).tools, body(b).tools, "LEGACY_TOOLS_SURVIVE_METADATA_UPGRADE"); identical(system(a), system(b), "LEGACY_SYSTEM_WIRE"); }
 });
 
-// Qualification evidence for #4306, deliberately separate from the strict
-// provider-history guard: production non-blocking project MCP startup is red.
-test("#4306 qualification: non-blocking project startup and resume violate strict tool history", () => {
-  const capture = captures.discovery!, first = body(main(capture)[0]!), next = body(main(capture)[1]!);
+test("#4325: static core reads survive non-blocking startup and graph discovery adds exactly one definition", () => {
+  const capture = captures.discovery!, exchanges = main(capture), first = body(exchanges[0]!), next = body(exchanges[1]!);
   expect(capture.qualification!.mcpStartup).toBe("project .mcp.json, production non-blocking");
+  expect(capture.qualification!.effectiveDisabledMcpjsonServers).toContain("brain");
+  expect(capture.qualification!.promptReleased).toBe(true);
+  expect(capture.qualification!.firstRequestBeforeMcpRelease, "FIRST_REQUEST_PRECEDES_SLOW_MCP_READINESS").toBe(true);
+  expect(capture.qualification!.brainProcessStarts, "ONLY_ONE_BRAIN_MCP_PER_HOSTED_TURN").toEqual([1, 1, 1]);
   expect(first.tools.some((tool: any) => tool.name === "ToolSearch")).toBe(true);
+  expect(first.tools.filter((tool: any) => tool.name.startsWith("mcp__brain__")).map((tool: any) => tool.name).sort(), "FIVE_CORE_READS_IN_FIRST_NONBLOCKING_REQUEST")
+    .toEqual(["brain_context", "brain_list", "brain_read", "brain_read_many", "brain_search"].map(name => `mcp__brain__${name}`));
+  // Independent explicit roster: omitting or deferring any host bridge tool
+  // must fail qualification even when all five core reads remain inline.
+  const hostTools = [
+    "show_block", "propose_policy_change", "get_current_location", "ask_user", "ask_user_list",
+    "ask_user_rank", "ask_user_form", "request_image_mask", "request_image_markup", "query_activity",
+    "turn_temp", "inbox_list", "inbox_get", "inbox_add", "resolve_action",
+    "complete_share", "reference_source", "reference_worktree", "reference_read", "brain_compute_health",
+    "brain_compute_plan", "brain_compute_run", "brain_compute_status", "brain_compute_cancel", "brain_compute_collect",
+    "brain_apify_availability", "brain_apify_approvals", "brain_apify_revoke", "brain_apify_discover", "brain_apify_inspect",
+    "brain_apify_prepare", "brain_apify_run", "brain_apify_status", "brain_apify_results", "brain_apify_abort",
+    "brain_github_issue_read", "brain_github_issue_search", "brain_github_issue_create", "brain_github_issue_comment", "read_attachment",
+    "brain_add", "brain_update", "brain_archive", "write_file", "edit_file",
+    "apply_staged_changes", "brain_read_base",
+  ];
+  expect(first.tools.filter((tool: any) => tool.name.startsWith("mcp__brain-ui__")).map((tool: any) => tool.name).sort(), "EVERY_HOST_BRIDGE_TOOL_IN_FIRST_REQUEST")
+    .toEqual(hostTools.map(name => `mcp__brain-ui__${name}`).sort());
+  for (const name of [...hostTools.map(name => `mcp__brain-ui__${name}`),
+    ...["brain_context", "brain_list", "brain_read", "brain_read_many", "brain_search"].map(name => `mcp__brain__${name}`)]) {
+    const definition = first.tools.find((tool: any) => tool.name === name);
+    expect(definition, `INLINE_BRIDGE_DEFINITION_${name}`).toBeDefined();
+    expect(definition.defer_loading, `BRIDGE_TOOL_IS_INLINE_${name}`).not.toBe(true);
+  }
   const prior = new Set(first.tools.map((tool: any) => tool.name));
   const added = next.tools.filter((tool: any) => !prior.has(tool.name));
-  console.log("PRODUCTION_STARTUP_DISCOVERY_QUALIFICATION", JSON.stringify({ initialCore: first.tools.filter((tool: any) => tool.name.startsWith("mcp__brain__")).map((tool: any) => tool.name), added: added.map((tool: any) => ({ name: tool.name, defer_loading: tool.defer_loading })) }));
-  expect(first.tools.filter((tool: any) => tool.name.startsWith("mcp__brain__"))).toHaveLength(0);
-  expect(added).toHaveLength(6);
-  expect(discoveredToolNames(main(capture)[0]!, main(capture)[1]!)).toEqual(["mcp__brain__brain_graph"]);
-  // Assert every retained definition before examining the known violation;
-  // arbitrary corruption must not satisfy an expected failure.
-  identical(first.tools, next.tools.filter((tool: any) => prior.has(tool.name)), "DISCOVERY_PRESERVES_EARLIER_DEFINITIONS_AND_ORDER");
-  expect(new Set(next.tools.map((tool: any) => tool.name)).size).toBe(next.tools.length);
-  expect(added.map((tool: any) => tool.name)).toEqual(["brain_context", "brain_graph", "brain_list", "brain_read", "brain_read_many", "brain_search"].map(name => `mcp__brain__${name}`));
-  expect(added.find((tool: any) => tool.name === "mcp__brain__brain_graph").defer_loading).toBe(true);
-  expect(added.every((tool: any) => tool.defer_loading === true)).toBe(true);
-  expect(() => providerTools(main(capture)[0]!, main(capture)[1]!, "production discovery"), "UNREFERENCED_DEFINITIONS_REMAIN_A_VIOLATION").toThrow("production discovery: definition was actually referenced by this ToolSearch");
-  // The pinned client moves the six intact definitions on first resume:
-  // selected graph first, then the other five, before its deferred placeholder.
-  // Assert that exact invalid ordering and every definition's bytes so it
-  // cannot mask a lost discovery, edited schema, or another reordered tool.
-  const [loaded, resumed] = pairs(capture)[1]!;
-  const split = first.tools.findIndex((tool: any) => tool.name === "DeferredToolPlaceholder");
-  expect(split).toBeGreaterThan(0);
-  const graph = added.find((tool: any) => tool.name === "mcp__brain__brain_graph");
-  const expectedResume = [...first.tools.slice(0, split), graph,
-    ...added.filter((tool: any) => tool.name !== graph.name), ...first.tools.slice(split)];
-  identical(expectedResume, body(resumed).tools, "EXACT_NATIVE_RESUME_ORDER_AND_DEFINITIONS");
-  expect(() => providerTools(loaded, resumed, "production resume")).toThrow("production resume: first differing byte");
-  for (const [a, b] of pairs(capture).slice(2)) providerTools(a, b, "SUBSEQUENT_RESUME_ROSTER_EXACT");
-  for (const [a, b] of pairs(capture)) identical(system(a), system(b), "qualification system");
+  expect(added.map((tool: any) => ({ name: tool.name, defer_loading: tool.defer_loading })), "ONLY_REFERENCED_GRAPH_DEFINITION_ADDED")
+    .toEqual([{ name: "mcp__brain__brain_graph", defer_loading: true }]);
+  expect(discoveredToolNames(exchanges[0]!, exchanges[1]!)).toEqual(["mcp__brain__brain_graph"]);
+  for (const [a, b] of pairs(capture)) { providerTools(a, b, "BRIDGED_DISCOVERY_AND_RESUME"); identical(system(a), system(b), "bridged system"); }
 });
 
 test.each(["same-turn", "resume"] as const)("#4324 %s qualification records exact earlier-message outcomes", scope => {
@@ -219,14 +223,14 @@ test("native managed policy overriding a gateway selection is refused before pro
   expect(capture.exchanges, "MANAGED_OVERRIDE_RELEASES_NO_PROVIDER_REQUEST").toHaveLength(0);
 }, 180_000);
 
-test("project settings alone cannot turn on a host-pinned-off session", () => {
+test("project settings alone cannot turn off a first-party bridge session", () => {
   const capture = captures["project-on"]!;
   expect(capture.qualification!.projectToolSearch, "PROJECT_CASE_REQUESTS_TRUE").toBe("true");
   for (const input of capture.budgets as any[]) {
-    expect(input.env, "PROJECT_TRUE_CANNOT_OVERRIDE_OFF_ENV").toBe("false");
-    expect(input.settings, "PROJECT_TRUE_CANNOT_OVERRIDE_OFF_FLAGS").toBe("false");
+    expect(input.env, "PROJECT_CANNOT_OVERRIDE_ENV_PIN").toBe("true");
+    expect(input.settings, "PROJECT_CANNOT_OVERRIDE_FLAG_PIN").toBe("true");
   }
-  for (const exchange of main(capture)) expect(body(exchange).tools.some((tool: any) => tool.name === "ToolSearch"), "PROJECT_TRUE_CANNOT_ENABLE_WIRE_DISCOVERY").toBe(false);
+  for (const exchange of main(capture)) expect(body(exchange).tools.some((tool: any) => tool.name === "ToolSearch"), "PROJECT_CANNOT_DISABLE_WIRE_DISCOVERY").toBe(true);
 });
 
 test("incompatible authority refuses before inference and compatible resume preserves every writer definition", () => {

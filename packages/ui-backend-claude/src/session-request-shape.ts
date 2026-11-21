@@ -19,15 +19,17 @@ export const HOST_UNUSED_BUILTINS = Object.freeze([
   "SendMessage", "ListAgents",
 ]);
 export interface ClaudeSessionRequestShape {
-  version: 4;
+  version: 4 | 5;
+  /** Present only on sessions created with the static hosted read bridge. */
+  brainBridge?: 1;
   selectionDigest: string;
   disallowedTools: string[];
   /** null means the original setting is unknown: retain legacy unpinned behavior. */
   toolSearch: "true" | "false" | null;
 }
 const invalid = () => new Error("Invalid saved Claude session request shape");
-const digest = (roster: string[], toolSearch: ClaudeSessionRequestShape["toolSearch"]) =>
-  createHash("sha256").update(JSON.stringify({ version: 4, disallowedTools: roster, toolSearch })).digest("hex");
+const digest = (roster: string[], toolSearch: ClaudeSessionRequestShape["toolSearch"], brainBridge?: 1) =>
+  createHash("sha256").update(JSON.stringify({ version: brainBridge ? 5 : 4, disallowedTools: roster, toolSearch, ...(brainBridge ? { brainBridge } : {}) })).digest("hex");
 
 /**
  * The selection and its presence marker live atomically beside the retained
@@ -35,7 +37,7 @@ const digest = (roster: string[], toolSearch: ClaudeSessionRequestShape["toolSea
  * these internal fields; neither field is sent to the provider.
  */
 export function retainSessionRequestShape(brain: string, session: string, resumed: boolean, candidate: string[], legacy: string[],
-  env: Readonly<Record<string, string | undefined>> = envSnapshot(), toolSearch: "true" | "false" | null = null): ClaudeSessionRequestShape {
+  env: Readonly<Record<string, string | undefined>> = envSnapshot(), toolSearch: "true" | "false" | null = null, brainBridge?: 1): ClaudeSessionRequestShape {
   const root = env.CLAUDE_CONFIG_DIR || join(env.HOME || homedir(), ".claude");
   const { dir, name } = sessionPromptContextLocation(root, brain, session);
   if (realpathSync(dir) !== dir) throw new Error("Session request storage must not contain directory aliases");
@@ -44,13 +46,14 @@ export function retainSessionRequestShape(brain: string, session: string, resume
   if (!state || Array.isArray(state) || typeof state.append !== "string") throw invalid();
   const validate = (value: unknown): ClaudeSessionRequestShape => {
     const shape = value as ClaudeSessionRequestShape | undefined;
-    if (!shape || typeof shape !== "object" || Array.isArray(shape) || shape.version !== 4
-      || Object.keys(shape).sort().join(",") !== "disallowedTools,selectionDigest,toolSearch,version"
+    if (!shape || typeof shape !== "object" || Array.isArray(shape) || ![4, 5].includes(shape.version)
+      || Object.keys(shape).sort().join(",") !== (shape.version === 5 ? "brainBridge,disallowedTools,selectionDigest,toolSearch,version" : "disallowedTools,selectionDigest,toolSearch,version")
+      || (shape.version === 5 && shape.brainBridge !== 1)
       || !Array.isArray(shape.disallowedTools) || shape.disallowedTools.length === 0
       || !shape.disallowedTools.every(name => typeof name === "string" && name.length > 0)
       || new Set(shape.disallowedTools).size !== shape.disallowedTools.length
       || !shape.disallowedTools.includes("AskUserQuestion")
-      || shape.selectionDigest !== digest(shape.disallowedTools, shape.toolSearch)
+      || shape.selectionDigest !== digest(shape.disallowedTools, shape.toolSearch, shape.brainBridge)
       || ![null, "true", "false"].includes(shape.toolSearch)) throw invalid();
     return shape;
   };
@@ -64,7 +67,8 @@ export function retainSessionRequestShape(brain: string, session: string, resume
   const selectedRoster = resumed ? legacy : candidate;
   if (!legacy.every(name => selectedRoster.includes(name))) throw invalid();
   const selectedPin = resumed ? null : toolSearch;
-  const selected = validate({ version: 4, selectionDigest: digest(selectedRoster, selectedPin), disallowedTools: selectedRoster, toolSearch: selectedPin });
+  const bridge = resumed ? undefined : brainBridge;
+  const selected = validate({ version: bridge ? 5 : 4, selectionDigest: digest(selectedRoster, selectedPin, bridge), disallowedTools: selectedRoster, toolSearch: selectedPin, ...(bridge ? { brainBridge: bridge } : {}) });
   state.claudeRequestShapeInitialized = true;
   state.claudeRequestShape = selected;
   const encoded = JSON.stringify(state);

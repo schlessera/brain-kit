@@ -74,7 +74,7 @@ folder, an include folder with an excluded file, and an excluded folder.
 through:
 
 - the real core MCP server (`brain mcp` over stdio, keyless), whose
-  registration is (`"brain_search"`, `packages/core/src/mcp-server.ts:217-279`).
+  registration is (`"brain_search"`, `packages/core/src/mcp-server.ts:171-201`).
   A recording wrapper on the client transport logs every JSON-RPC message;
 - Pi's real agent loop (`runAgentLoop` with pi-ai's faux provider), executing
   the curated tool (`brainSearchTool`, `packages/ui-backend-pi/src/brain-tools.ts:103-164`)
@@ -133,7 +133,7 @@ What the numbers say:
 - **Parallel calls already overlap.** They still send one JSON-RPC request
   per query and save wall time, nothing else. The server sends each result
   twice, as text and as `structuredContent`
-  (`structuredResult`, `packages/core/src/mcp-server.ts:164-167`), so the wire
+  (`structuredResult`, `packages/core/src/mcp-server.ts:154-157`), so the wire
   is about twice the payload either way.
 - **The envelope is 95 characters a call**, and the keyless degraded-lane
   warning (81 characters) rides on every result. A batch carries both once:

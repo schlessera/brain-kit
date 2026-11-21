@@ -1,3 +1,5 @@
+import { probeBrainBridgeInventory } from "./brain-tool-forwarder.js";
+import { launchLimits, resolveTurnTempLimits } from "@schlessera/brain-ui-sdk/internal";
 import { retainNativeRouteInputs } from "./native-route-inputs.js";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { AccountInfo, Query, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
@@ -9,7 +11,7 @@ import type { ClaudeBackendOptions, BackendLogFn } from "./options.js";
 import { getProfile, type InferenceProfile } from "./profiles.js";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { createClaudeSdkTurn, prepareClaudeTurnSandbox, turnEnv } from "./sdk-options.js";
+import { createClaudeSdkTurn, prepareClaudeTurnSandbox, turnEnv, turnChildEnvironment, computeToolRoster } from "./sdk-options.js";
 import { StreamAdapter } from "./stream-adapter.js";
 import { probeClaudeRuntime } from "./runtime-probe.js";
 import type { ActiveTurn, TurnLockBinding } from "./turn-lock.js";
@@ -244,29 +246,54 @@ async function runAdmittedTurn(runner: TurnRunnerState, claim: ClaimedTurn): Pro
     // A host without governed turns supplies no sandbox: Claude's own is
     // awaited here, from the inputs its options would have used (#2796).
     const own = await prepareClaudeTurnSandbox({ backend: options.backend, req, profile, turnEnvironment: claim.turnEnvironment });
-    const sdkTurn = buildSdkTurn(runner, claim, relay, own);
-    terminal.worker = { finishWorker: sdkTurn.finishWorker, workerFailure: sdkTurn.workerFailure,
-      workerStartFailure: sdkTurn.workerStartFailure };
+    // The inventory gates the roster decision, not independent runtime or
+    // route-input preparation. Join every owner before propagating a failure.
+    const sdkPreparation = buildSdkTurn(runner, claim, relay, own).then(turn => {
+      terminal.worker = { finishWorker: turn.finishWorker, workerFailure: turn.workerFailure,
+        workerStartFailure: turn.workerStartFailure };
+      // Once the roster decision is known, overlap brain startup with the
+      // remaining independent preparation too; cleanup already owns it.
+      turn.startBrainTools?.();
+      return turn;
+    });
+    const runtimePreparation = (async () => {
+      if (runtimeRequirements.length) {
+        // Replaceable overrides are probed anew for BOTH new and resumed turns,
+        // before query() sees any user input. Capture uses the SDK's resolver.
+        const probeEnv = req.autonomous?.containment === "restricted"
+          ? (await sdkPreparation).options.env!
+          : turnChildEnvironment({ profile, turnEnvironment: own?.turnEnvironment ?? claim.turnEnvironment,
+            ...(relay!.egress ? { hostInference: { proxyDir: relay!.egress.dir, baseUrl: relay!.baseUrl,
+              ...(relay!.apiCredential ? { placeholders: relay!.apiCredential.placeholders } : {}) } } : {}) }, undefined).childEnv;
+        const report = await probeClaudeRuntime({
+          brainPath: options.backend.brainPath,
+          ...(options.backend.claudeCodePath !== undefined ? { claudeCodePath: options.backend.claudeCodePath } : {}),
+          env: probeEnv, exec: options.backend.exec ?? ambientExecConfig(),
+          versionRequirements: options.backend.versionRequirements, phase,
+          signal: abortController.signal, log: options.log,
+        });
+        const version = report.runtime.version;
+        assertClaudeRuntime(version, runtimeRequirements, phase);
+        abortController.signal.throwIfAborted();
+        return version;
+      }
+      return undefined;
+    })();
+    const routePreparation = (async () => {
+      relay!.routeInputs = relay!.egress ? await retainNativeRouteInputs(req.workerSandbox?.profile === "governed"
+        ? options.backend.brainPath : req.workerStartupView ?? options.backend.brainPath) : undefined;
+    })();
+    const [sdkResult, runtimeResult, routeResult] = await Promise.allSettled([sdkPreparation, runtimePreparation, routePreparation]);
+    if (sdkResult.status === "rejected") throw sdkResult.reason;
+    if (runtimeResult.status === "rejected") throw runtimeResult.reason;
+    if (routeResult.status === "rejected") throw routeResult.reason;
+    const sdkTurn = sdkResult.value, probedVersion = runtimeResult.value;
+
     frames.stateRoom = sdkTurn.workerStateRoom;
     archiveEnv = sdkTurn.options.env;
     limits.limits = sdkTurn.workerLimits;
     // Always a stream that stays open, so follow-ups can join the turn.
     claim.prompt.value = sdkTurn.prompt;
-    let probedVersion: string | undefined;
-    if (runtimeRequirements.length) {
-      // Replaceable overrides are probed anew for BOTH new and resumed turns,
-      // before query() sees any user input. Capture uses the SDK's resolver.
-      const report = await probeClaudeRuntime({
-        brainPath: options.backend.brainPath,
-        ...(options.backend.claudeCodePath !== undefined ? { claudeCodePath: options.backend.claudeCodePath } : {}),
-        env: sdkTurn.options.env ?? {}, exec: options.backend.exec ?? ambientExecConfig(),
-        versionRequirements: options.backend.versionRequirements, phase,
-        signal: abortController.signal, log: options.log,
-      });
-      probedVersion = report.runtime.version;
-      assertClaudeRuntime(probedVersion, runtimeRequirements, phase);
-      abortController.signal.throwIfAborted();
-    }
     let initialization: ReturnType<Query["initializationResult"]> | undefined;
     const initialize = (cli: Query) => initialization ??= Promise.resolve().then(() => cli.initializationResult());
     // Subscription policy and constrained runtime startup are checked INSIDE
@@ -279,8 +306,6 @@ async function runAdmittedTurn(runner: TurnRunnerState, claim: ClaimedTurn): Pro
     // checks are required, including retained pins on direct API turns.
     const prompt = gatedPrompt(input.messages, promptGateCheck({ queryHandle, initialize, sdkTurn, relay, terminal, runtimeRequirements,
       phase, abortController, profileId: profile.id, log: options.log, reportActivity, reportRuntime }));
-    relay.routeInputs = relay.egress ? await retainNativeRouteInputs(req.workerSandbox?.profile === "governed"
-      ? options.backend.brainPath : req.workerStartupView ?? options.backend.brainPath) : undefined;
     const result = runner.queryFn({ prompt, options: { ...sdkTurn.options, ...(req.maxBudgetUsd !== undefined ? { maxBudgetUsd: req.maxBudgetUsd } : {}) } });
     // Neither the handshake nor system/init reports these durations. Never
     // substitute prompt handoff or relay receipt for an internal runtime mark.
@@ -308,8 +333,8 @@ async function runAdmittedTurn(runner: TurnRunnerState, claim: ClaimedTurn): Pro
 }
 
 /** The SDK turn, from the claimed turn and its relay. */
-function buildSdkTurn(runner: TurnRunnerState, claim: ClaimedTurn, relay: TurnInferenceRelay,
-  own: Awaited<ReturnType<typeof prepareClaudeTurnSandbox>>): ReturnType<typeof createClaudeSdkTurn> {
+async function buildSdkTurn(runner: TurnRunnerState, claim: ClaimedTurn, relay: TurnInferenceRelay,
+  own: Awaited<ReturnType<typeof prepareClaudeTurnSandbox>>): Promise<ReturnType<typeof createClaudeSdkTurn>> {
   const { options } = runner;
   const { req, profile, workerHost } = claim;
   const egress = relay.egress;
@@ -319,16 +344,29 @@ function buildSdkTurn(runner: TurnRunnerState, claim: ClaimedTurn, relay: TurnIn
     req.autonomous?.allowedTools ??
     (req.posture === "voice" ? VOICE_ALLOWED_TOOLS : undefined) ??
     profile.allowedTools ?? options.backend.allowedTools ?? DEFAULT_ALLOWED_TOOLS;
+  const turnReq: StartTurnRequest = { ...req, signal: claim.abortController.signal, ...(own ? { workerSandbox: own.workerSandbox } : {}), ...(egress && req.workerSandbox ? { workerSandbox: { ...req.workerSandbox,
+      // The relay holds the login: hide the host's file wherever the host masks do not.
+      maskPaths: [...req.workerSandbox.maskPaths ?? [], ...relay.hostLogin?.mask ?? []] } } : {}) };
+  const hostInference = egress ? { proxyDir: egress.dir, baseUrl: relay.baseUrl,
+    ...(relay.apiCredential ? { placeholders: relay.apiCredential.placeholders } : {}) } : undefined;
+  const turnEnvironment = own?.turnEnvironment ?? claim.turnEnvironment;
+  let brainBridgeInventory: "core-only" | "module-tools" | "unavailable" | undefined;
+  if (!req.sessionId && !req.autonomous && computeToolRoster(turnReq, allowedTools).hosted && turnReq.workerSandbox) {
+    const environment = turnChildEnvironment({ profile, turnEnvironment, hostInference }, undefined);
+    brainBridgeInventory = await probeBrainBridgeInventory({ brainPath: options.backend.brainPath, exec: options.backend.exec ?? ambientExecConfig(),
+      sandbox: turnReq.workerSandbox, startupView: req.workerStartupView, env: environment.childEnv,
+      limits: launchLimits({}), turnTempLimits: resolveTurnTempLimits(options.backend.turnTemp ?? {}),
+      req: turnReq, egress: hostInference, credentialEnv: environment.credentialEnv }, claim.abortController.signal);
+  }
   return createClaudeSdkTurn({
     ...(egress ? { hostInference: { proxyDir: egress.dir, baseUrl: relay.baseUrl,
       ...(relay.apiCredential ? { placeholders: relay.apiCredential.placeholders } : {}) } } : {}),
     backend: options.backend,
+    brainBridgeInventory,
     ...(workerHost?.identity === "separate_uid" && workerHost.workerUid !== undefined ? { identity: { kind: "separate_uid" as const, workerUid: workerHost.workerUid } } : {}),
     turnEnvironment: own?.turnEnvironment ?? claim.turnEnvironment,
     fileVersions: claim.fileVersions,
-    req: { ...req, signal: claim.abortController.signal, ...(own ? { workerSandbox: own.workerSandbox } : {}), ...(egress && req.workerSandbox ? { workerSandbox: { ...req.workerSandbox,
-      // The relay holds the login: hide the host's file wherever the host masks do not.
-      maskPaths: [...req.workerSandbox.maskPaths ?? [], ...relay.hostLogin?.mask ?? []] } } : {}) },
+    req: turnReq,
     profile,
     abortController: claim.abortController,
     allowedTools,

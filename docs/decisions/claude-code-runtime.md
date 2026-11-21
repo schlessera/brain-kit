@@ -1619,3 +1619,93 @@ strict tool guard rejects the reorder. This remains evidence against enablement,
 exception. The maintainer keeps tool search off in #4319. Follow-up #4325
 registers static host bridge definitions and forwards execution to a per-turn
 sandboxed `brain mcp` process; enablement waits for that path's qualification.
+
+## 2026-11-21 — Static hosted brain read bridge (#4325)
+
+New hosted Claude sessions override the project `brain` MCP entry with an
+in-process SDK server. Its six read definitions come from core's static,
+versioned definitions, shared with the standalone server without loading a
+brain or its configuration. Five common reads carry `anthropic/alwaysLoad`;
+`brain_graph` remains deferred. Existing host application, compute and Apify
+tools keep their own authority routes.
+
+The forwarder starts one `brain mcp` process at backend invocation, alongside
+runtime startup, using the same sandbox, immutable startup view, data tree,
+provider masks and limits as the turn. Host code relays MCP requests and
+results only. Readiness is awaited only by an early call, for at most 30
+seconds; each forwarded request also has a 30-second bound. Failure is a named
+tool result, never a host content read. The process and its reservation are
+owned until turn cleanup confirms release. It is not retained between turns.
+
+Both the inventory helper and the forwarder share the runtime's ordinary
+launch construction, including the operator exec wrapper, worker PATH and
+shell-startup variable filtering. The forwarder and runtime share one atomic
+runtime-state/turn-temp admission. Each gets half the configured turn-temp
+allowance, rounded to whole pages, with any extra page going to the runtime;
+the two mount sizes add up to the admitted allowance. The runtime's note and
+`turn_temp` tool report its own mount size. New sessions below two pages keep
+stdio with `brain_bridge_fallback_temp_allowance`. The reservation remains
+charged until both cleanup owners release it, including reconciliation after
+a refused storage close. A rejected exit observer still disposes pipes and
+attempts storage cleanup in `finally`.
+
+Independent runtime-version preparation stays parallel for ordinary turns.
+Restricted autonomous turns first assemble their envelope, then probe with the
+SDK turn's exact environment, so version probes receive inference placeholders
+and never the profile credential.
+
+The internal session snapshot records bridge version 1 for new hosted
+sessions. Previous snapshots, including version 4 selection records, keep the
+stdio path and their search pin unchanged. New first-party-origin relayed
+sessions pin tool search on in environment and flag settings; other routes
+keep it off, and the effective-setting gate remains mandatory. The approved
+sorted insertion rule still requires exact earlier definitions and relative
+order. Provider cache hits and cost require live provider measurements.
+
+Pi retains its current in-worker reads. Its bridge carries host tool RPCs,
+but its native tool contract has no MCP transport or deferred-definition/tool
+reference discovery mechanism. Its existing sandboxed reads have no project
+MCP startup race; switching their schemas and execution to a second process
+would be a separate session-roster change.
+
+Module MCP tools have no static inventory yet (#4381). Every new hosted
+session runs `brain module list --json` in a credential-filtered sandbox worker
+with the same turn view, before retaining its roster. The host neither reads
+brain bytes nor resolves brain paths for this inventory, and keeps no cache.
+The maintainer's 2026-11-21 ruling rejects host-side hashing: its input set
+cannot safely prove that executable configuration selects the same modules,
+and reading those inputs on the host bypasses the worker boundary.
+
+A proven empty module-tool inventory permits the bridge. Config-selected
+module tools, helper failure, timeout or malformed output retain the original
+project stdio entry and pin search off. Owner logs record
+`brain_bridge_fallback_module_tools` or
+`brain_bridge_fallback_inventory_unavailable`; these diagnostics never enter
+the provider conversation. Resumes use their retained selection and skip the
+helper. The extra command is not a `brain mcp` process. Pi keeps its existing
+in-worker reads.
+
+The pinned runtime can start a project stdio server even when an SDK server
+uses the same name. Bridge sessions therefore reject only the project `brain`
+entry with `disabledMcpjsonServers: ["brain"]` in flag settings. The prompt gate
+checks that rejection in effective native settings before releasing input;
+other project MCP servers retain their existing startup behavior.
+
+The new-session inventory has its own `backend` startup span,
+`brain_tool_inventory`, covering the sandboxed command and its cleanup, without
+cache attributes. The command overlaps only independent runtime-version and
+route-input preparation before `query()`. Its verdict fixes `mcpServers.brain`,
+`disabledMcpjsonServers` and `ENABLE_TOOL_SEARCH`, so query dispatch waits for
+it. All preparation owners settle before a failure propagates.
+
+Three fresh-process offline component runs measured core-only checks at
+252.4, 253.3 and 243.4 ms (median 252.4 ms). Concurrent pinned CLI version and
+route-input preparation hid 17.1, 16.5 and 15.4 ms (median 16.5 ms), leaving
+235.2, 236.9 and 228.0 ms unhidden (median 235.2 ms). Module-tool checks cost
+248.0, 250.0 and 238.7 ms. These measurements include worker cleanup and use
+copied immutable fixture storage on a shared host with version probing enabled;
+turns without that probe cannot claim its overlap. This per-new-session check
+roughly offsets the first-turn stdio discovery saving until #4381 supplies a
+static module inventory. Component overlap does
+not establish the net change of a native hosted turn. The native observation
+attempt could not open `/dev/loop-control` in its proof container.
