@@ -127,7 +127,14 @@ export function packRepository(root: string, headroom = gitPackingHeadroom(root)
   if (!common.ok) throw new GitStorageError("Git common store unavailable");
   const pack = `${common.stdout}/objects/pack`;
   const packNames = () => {
-    try { return readdirSync(pack); }
+    try {
+      const entries=readdirSync(pack,{withFileTypes:true}),names=entries.map(entry=>entry.name);
+      // Incremental MIDX writes its temporary companion in this Git-owned
+      // child directory. Never follow an arbitrary directory or symlink.
+      if(entries.some(entry=>entry.name==="multi-pack-index.d"&&entry.isDirectory()))
+        names.push(...readdirSync(`${pack}/multi-pack-index.d`).map(name=>`multi-pack-index.d/${name}`));
+      return names;
+    }
     catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return []; throw error; }
   };
   const previous = new Set(packNames());
@@ -141,7 +148,7 @@ export function packRepository(root: string, headroom = gitPackingHeadroom(root)
     // Only a private output stage proves these new names belong to this
     // execution. A standalone Git writer may be racing another pack process.
     if (workerOutputAllowance()) for (const name of packNames())
-      if (!previous.has(name) && /^(tmp_(?:pack|idx|rev|bitmap|mtimes)_|\.tmp-)/.test(name)) unlinkSync(`${pack}/${name}`);
+      if (!previous.has(name) && /^(tmp_|\.tmp-)/.test(name.split("/").at(-1)!)) unlinkSync(`${pack}/${name}`);
     throw error;
   }
 }

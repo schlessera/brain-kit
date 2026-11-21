@@ -159,6 +159,8 @@ for arg in "$@"; do
   if [ "$arg" = maintenance ]; then
     printf incomplete > '${root}/.git/objects/pack/tmp_pack_Attempt'
     printf companion > '${root}/.git/objects/pack/.tmp-Attempt'
+    mkdir -p '${root}/.git/objects/pack/multi-pack-index.d'
+    printf companion > '${root}/.git/objects/pack/multi-pack-index.d/tmp_midx_Attempt'
     for kind in idx rev bitmap mtimes; do
       printf companion > '${root}/.git/objects/pack/tmp_'"$kind"'_Attempt'
     done
@@ -418,11 +420,14 @@ test("a failed pack removes its new temporary outputs and preserves historical g
   const { readdirSync }=await import("node:fs");
   const root=tempBrain();initRepo(root);
   const pack=join(root,".git/objects/pack");
+  const {mkdirSync}=await import("node:fs");mkdirSync(join(pack,"multi-pack-index.d"));
+  writeFileSync(join(pack,"multi-pack-index.d/tmp_midx_Previous"),"historical companion");
   writeFileSync(join(pack,"tmp_pack_Previous"),"historical garbage");
   const before=readdirSync(pack).sort();
   const result=await maintain(root,[],{PATH:gitOutOfSpace(root),BRAIN_WORKER_OUTPUT_ALLOWANCE:JSON.stringify({bytes:64*1024**2,setting:"ODYSSEUS_STAGE_BYTES"})});
   expect(result.code).toBe(2);
   expect(readdirSync(pack).sort(),"FAILED_PACK_REMOVES_ONLY_NEW_TEMPORARIES").toEqual(before);
+  expect(readdirSync(join(pack,"multi-pack-index.d")),"FAILED_PACK_REMOVES_MIDX_TEMPORARIES").toEqual(["tmp_midx_Previous"]);
 });
 
 
