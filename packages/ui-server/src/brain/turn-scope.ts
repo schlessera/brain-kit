@@ -134,7 +134,7 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
     if ((turn.checkoutBytes ?? 0) > CODE_CHECKOUT_BYTES) {
       if (!turn.checkoutReceipt) {
         let frozen = false;
-        try { for (const worker of turn.workers) worker.freeze(); frozen = turn.workers.size > 0; }
+        try { frozen = [...turn.workers].map(worker => freeze(worker)).some(Boolean); }
         catch { for (const worker of turn.workers) worker.kill("SIGKILL"); }
         const receipt: ScopeCapReceipt = { eventId: randomUUID(), dimension: "turn_bytes", count: turn.checkoutBytes!, cap: CODE_CHECKOUT_BYTES,
           overshoot: turn.checkoutBytes! - CODE_CHECKOUT_BYTES, frozen, observedAt: now(), state: "paused" };

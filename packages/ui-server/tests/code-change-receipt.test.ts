@@ -664,8 +664,8 @@ test("startup skips malformed ended receipts, records their cause and lets reten
     const error = await journal.ready.then(() => undefined, error => error);
     expect(error, "MALFORMED_HISTORICAL_RECEIPT_DOES_NOT_BLOCK_READY").toBeUndefined();
     expect(journal.cleanupStatus().lastFailure, "MALFORMED_RECEIPT_CAUSE_IS_DURABLE_AND_OWNER_VISIBLE").toMatchObject({
-      kind: "code_receipt_invalid", scope: "retained_code_receipt", turnId: "damaged", checkout: "workspaces/argo", errorClass: "SyntaxError",
-      cause: "Retained checkout receipt contains malformed JSON.", callSite: "turn-journal.ready", invalidReceipts: 1, retrying: false,
+      kind: "code_receipt_invalid", scope: "retained_code_receipt", turnId: "damaged", checkout: "workspaces/argo", errorClass: "code_receipt_malformed",
+      cause: "Retained checkout receipt is unusable.", callSite: "turn-journal.ready", invalidReceipts: 1, retrying: false,
     });
     expect(f.db.query("SELECT state,failure FROM turn_journal_turns WHERE turn_id='damaged'").get()).toEqual({ state: "partial", failure: "code_receipt_malformed" });
     expect(journal.details("ithaca", "healthy")!.summary.state).toBe("complete");
@@ -675,5 +675,88 @@ test("startup skips malformed ended receipts, records their cause and lets reten
     expect(journal.cleanupStatus().lastFailure).toMatchObject({ turnId: "damaged", kind: "code_receipt_invalid" });
     await journal.begin("notes", { ...codeMetadata, workspaceReadOnly: true, workspacesWritable: false }, () => {}); await journal.finish("notes");
     expect(journal.summary("notes").state, "RECOVERY_LEAVES_OTHER_TURNS_USABLE").toBe("complete");
+  } finally { await journal.close(); f.maintenance.cleanup(); await f.native.close(); f.db.close(); rmSync(f.root, { recursive: true, force: true }); }
+});
+
+
+import { openSqliteWriter } from "../src/db/write-worker.js";
+import { journalDatabasePath } from "../src/db/journal-database.js";
+import { JournalCapacityError } from "../src/brain/journal-objects.js";
+for (const stage of ["startup", "history", "capacity", "admission"] as const) test(`unusable receipt quarantine protects ${stage}`, async () => {
+  const f = inBrainCodeJournal(); let journal = f.journal;
+  const invalid = ["{", "null", "[]", '{"paths":null}', '{"paths":null,"state":"complete","checkout":"workspaces/argo"}', '{"paths":[],"state":1,"checkout":"workspaces/argo"}', '{"paths":[],"state":"complete","checkout":null}'];
+  let writer: ReturnType<typeof openSqliteWriter> | undefined, intercepted: ReturnType<typeof spyOn> | undefined, pressure = 0, refused = false;
+  try {
+    for (let index = 0; index < invalid.length; index++) {
+      const turn = `damaged-${index}`;
+      await journal.begin(turn, codeMetadata, () => {}); await journal.finish(turn);
+    }
+    await journal.writeOperation(invalid.map((receipt, index) => ({ sql: "UPDATE turn_journal_code_receipts SET receipt=? WHERE turn_id=?", params: [receipt, `damaged-${index}`] })));
+    await journal.close();
+    writer = openSqliteWriter(f.db, { attach: [{ schema: "journal", path: journalDatabasePath(f.dbPath) }] });
+    const channel = writer.channel.bind(writer);
+    intercepted = spyOn(writer, "channel").mockImplementation((module, options, revive) => {
+      const real = channel(module, options, revive);
+      return { ...real, call<T>(name: string, ...args: unknown[]): Promise<T> {
+        if (pressure > 0 && name === "reserveBatch") { pressure--; refused = true; return Promise.reject(new JournalCapacityError()); }
+        return real.call<T>(name, ...args);
+      } };
+    });
+    journal = createTurnJournal(f.db, { nativeManager: f.native.manager, brainPath: f.brain, dbPath: f.dbPath, objectsRoot: join(f.root, "objects"), codeChanges: { maintenance: f.maintenance }, writer });
+    expect(await journal.ready.then(() => undefined, error => String(error)), "UNUSABLE_RECEIPTS_ALLOW_READY").toBeUndefined();
+    if (stage === "startup") {
+      expect(f.db.query("SELECT count(*) AS n FROM turn_journal_code_receipts").get(), "STARTUP_QUARANTINES_EVERY_UNUSABLE_RECEIPT").toEqual({ n: 0 });
+      for (const row of f.db.query("SELECT cause FROM turn_journal_code_failures").all() as { cause: string }[]) expect(JSON.parse(row.cause)).toMatchObject({ checkout: "workspaces/argo", callSite: "turn-journal.ready", errorClass: "code_receipt_malformed", message: "Retained checkout receipt is unusable." });
+      expect(f.db.query("SELECT count(*) AS n FROM turn_journal_code_failures").get()).toEqual({ n: invalid.length });
+    } else if (stage === "history") {
+      for (let index = 0; index < invalid.length; index++) {
+        const history = (() => { try { return { summary: journal.summary(`damaged-${index}`), details: journal.details("ithaca", `damaged-${index}`) }; } catch (error) { return String(error); } })();
+        expect(history, "QUARANTINED_RECEIPT_SUMMARY_AND_DETAILS_STAY_READABLE").toMatchObject({ summary: { state: "partial" }, details: { summary: { state: "partial" }, missing: expect.arrayContaining([{ path: "workspaces/argo", reason: "code_capture_failed: Retained checkout receipt is unusable." }]) } });
+        expect(typeof history === "object" && history.details?.codeChanges, "QUARANTINED_RECEIPTS_NEVER_REACH_HISTORY_UI").toBeUndefined();
+      }
+      for (const cause of ["{", "null", "[]", '{"message":null}']) {
+        await journal.writeOperation([{ sql: "UPDATE turn_journal_code_failures SET cause=? WHERE turn_id='damaged-0'", params: [cause] }]);
+        const missing = (() => { try { return journal.details("ithaca", "damaged-0")!.missing; } catch (error) { return String(error); } })();
+        expect(missing, "UNUSABLE_FAILURE_CAUSE_IS_READ_DEFENSIVELY").toContainEqual({ path: "workspaces/argo", reason: "code_capture_failed: Retained checkout failure cause is unavailable." });
+      }
+    } else if (stage === "capacity") {
+      await journal.begin("notes", { ...codeMetadata, workspaceReadOnly: true, workspacesWritable: false }, () => {});
+      pressure = 2; writeFileSync(join(f.brain, "note.md"), "Return to Ithaca\n"); await journal.observe();
+      expect(refused, "CAPACITY_TEST_REACHES_REAL_RESERVATION_RETRY").toBe(true);
+      const collected = (() => { try { return journal.summary("damaged-0").state; } catch (error) { return String(error); } })();
+      expect(collected, "QUARANTINED_RECEIPT_DOES_NOT_BLOCK_CAPACITY_COLLECTION").toBe("expired");
+      expect(journal.summary("notes").state, "CAPACITY_RETRY_ACCEPTS_UNRELATED_NOTE_WRITE").toBe("recording");
+      await journal.finish("notes");
+    } else {
+      const error = await journal.begin("later", codeMetadata, () => {}).then(() => undefined, error => String(error));
+      expect(error, "QUARANTINED_PREVIOUS_ENDPOINT_ALLOWS_CODE_ADMISSION").toBeUndefined();
+      expect(journal.details("ithaca", "later")!.codeChanges![0]).toMatchObject({ checkout: "workspaces/argo", state: "recording" });
+      await journal.finish("later");
+    }
+  } finally { await journal.close(); intercepted?.mockRestore(); await writer?.close(); f.maintenance.cleanup(); await f.native.close(); f.db.close(); rmSync(f.root, { recursive: true, force: true }); }
+});
+
+test("checkout ceiling stops when its worker cannot be frozen", async () => {
+  const f = inBrainCodeJournal(), exited = Promise.withResolvers<number>(); let stopped = "", current = true, killed = 0;
+  const scope = createTurnScope(f.db, { brainPath: f.brain, journal: f.journal, connected: () => true, changed: () => {}, space: () => ({ total: 1e12, free: 1e12 }) });
+  try {
+    await f.journal.begin("sail", codeMetadata, () => {});
+    await scope.begin("sail", { sessionId: "ithaca", principalId: "athena", origin: "interactive", profile: "governed", policy: resolveGovernancePolicy({ schema_version: 1 }), source: "policy", hardTimeoutMs: 3600_000, current: () => current, stop: reason => { stopped = reason; current = false; } });
+    scope.workerStarted("sail", { exited: exited.promise, freeze: () => false, resume: () => {}, kill: () => { killed++; } } as Parameters<typeof scope.workerStarted>[1]);
+    writeFileSync(join(f.checkout, "cargo.bin"), Buffer.alloc(17 * 1024 * 1024, 65)); await f.journal.observe();
+    expect(stopped, "UNCONFIRMED_CHECKOUT_FREEZE_STOPS_TURN").not.toBe("");
+    expect(killed, "UNCONFIRMED_CHECKOUT_FREEZE_KILLS_WORKER").toBeGreaterThan(0);
+    expect(f.journal.summary("sail").scope!.receipts[0], "UNCONFIRMED_CHECKOUT_FREEZE_NEVER_CLAIMS_PAUSE").toMatchObject({ frozen: false, state: "stopped" });
+  } finally { exited.resolve(0); await scope.finish("sail"); scope.close(); await f.close(); }
+});
+
+test("a throwing capture diagnostic cannot erase the durable checkout cause", async () => {
+  const f = inBrainCodeJournal(); await f.journal.close();
+  const journal = createTurnJournal(f.db, { nativeManager: f.native.manager, brainPath: f.brain, dbPath: f.dbPath, objectsRoot: join(f.root, "objects"), codeChanges: { maintenance: f.maintenance }, log: { emit() { throw Error("Diagnostic sink unavailable"); }, enabled: () => true } });
+  try {
+    await journal.begin("sail", codeMetadata, () => {});
+    writeFileSync(join(f.checkout, ".gitmodules"), "unsupported"); await journal.finish("sail");
+    expect(journal.details("ithaca", "sail")!.missing, "THROWING_CAPTURE_LOG_PRESERVES_CHECKOUT_CAUSE").toContainEqual({ path: "workspaces/argo", reason: expect.stringContaining("Submodule receipts are unsupported") });
+    expect(journal.summary("sail").state).toBe("partial");
   } finally { await journal.close(); f.maintenance.cleanup(); await f.native.close(); f.db.close(); rmSync(f.root, { recursive: true, force: true }); }
 });

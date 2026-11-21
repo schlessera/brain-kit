@@ -40,6 +40,12 @@ import { createOffloopActivityStore } from "../activity/store-writes.js";
 import { queryGovernanceEvents } from "../governance/events.js";
 
 const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+/** CASE prevents SQLite evaluating JSON accessors on malformed historical text. */
+const USABLE_CODE_RECEIPT = `CASE WHEN json_valid(receipt) THEN
+  json_type(receipt) IS 'object' AND json_type(receipt,'$.paths') IS 'array'
+  AND json_type(receipt,'$.state') IS 'text' AND json_type(receipt,'$.checkout') IS 'text'
+  ELSE 0 END`;
+
 /** Historical index-family rows keep their existing summary semantics (#4302). */
 const DISPOSABLE_INDEX_PATHS = JSON.stringify(INDEX_FAMILY_PATHS);
 /**
@@ -150,17 +156,24 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       .filter(row => !processAlive(row.pid, row.pid_start));
     for (const row of interrupted) await ledger.call("statements", [statement("UPDATE turn_journal_turns SET state='partial',ended_at=?,missing=? WHERE turn_id=?", now(), JSON.stringify([...JSON.parse(row.missing), { path: ".", reason: "interrupted_observation" }]), row.turn_id)]);
     const invalidReceipts = db.query(`SELECT c.turn_id,c.checkout FROM turn_journal_code_receipts c JOIN turn_journal_turns t USING(turn_id)
-      WHERE t.ended_at IS NOT NULL AND NOT json_valid(c.receipt) ORDER BY c.turn_id,c.checkout`).all() as { turn_id: string; checkout: string }[];
+      WHERE t.ended_at IS NOT NULL AND NOT (${USABLE_CODE_RECEIPT}) ORDER BY c.turn_id,c.checkout`).all() as { turn_id: string; checkout: string }[];
     if (invalidReceipts.length) {
-      await ledger.call("statements", invalidReceipts.map(row => statement("UPDATE turn_journal_turns SET state='partial',failure=CASE WHEN trim(failure)='' THEN 'code_receipt_malformed' ELSE failure END WHERE turn_id=?", row.turn_id)));
+      // Each quarantine atomically replaces the unusable endpoint with its
+      // durable checkout-specific cause; no later reader sees damaged JSON.
+      await ledger.call("statements", invalidReceipts.flatMap(row => [
+        statement("INSERT INTO turn_journal_code_failures VALUES (?,?,?) ON CONFLICT(turn_id,checkout) DO UPDATE SET cause=excluded.cause", row.turn_id, row.checkout,
+          JSON.stringify({ checkout: row.checkout, at: now(), callSite: "turn-journal.ready", errorClass: "code_receipt_malformed", message: "Retained checkout receipt is unusable." })),
+        statement("DELETE FROM turn_journal_code_receipts WHERE turn_id=? AND checkout=?", row.turn_id, row.checkout),
+        statement("UPDATE turn_journal_turns SET state='partial',failure=CASE WHEN trim(failure)='' THEN 'code_receipt_malformed' ELSE failure END WHERE turn_id=?", row.turn_id),
+      ]));
       const row = invalidReceipts[invalidReceipts.length - 1]!;
       const notice = { kind: "code_receipt_invalid", scope: "retained_code_receipt", turnId: row.turn_id, checkout: row.checkout,
-        at: now(), errorClass: "SyntaxError", cause: "Retained checkout receipt contains malformed JSON.", callSite: "turn-journal.ready", invalidReceipts: invalidReceipts.length, retrying: false };
+        at: now(), errorClass: "code_receipt_malformed", cause: "Retained checkout receipt is unusable.", callSite: "turn-journal.ready", invalidReceipts: invalidReceipts.length, retrying: false };
       await createSettingsWrites(db, writer).setSetting("journal.cleanup.lastFailure", notice);
       diagnostic(() => options.log?.emit({ severityText: "ERROR", body: "Malformed retained checkout receipt skipped during startup", attributes: { "turn.id": row.turn_id, "checkout": row.checkout, "error.type": notice.errorClass } }));
     }
     await ledger.call("statements", [statement(`UPDATE turn_journal_code_receipts SET receipt=json_set(receipt,'$.state','partial')
-      WHERE CASE WHEN json_valid(receipt) THEN json_extract(receipt,'$.state') END='recording' AND turn_id IN (SELECT turn_id FROM turn_journal_turns WHERE ended_at IS NOT NULL)`)]);
+      WHERE CASE WHEN (${USABLE_CODE_RECEIPT}) THEN json_extract(receipt,'$.state') END='recording' AND turn_id IN (SELECT turn_id FROM turn_journal_turns WHERE ended_at IS NOT NULL)`)]);
     for (const row of db.query("SELECT id,pid,pid_start FROM turn_journal_code_reverts WHERE state='applying'").all() as { id: string; pid: number; pid_start: string }[]) {
       if (processAlive(row.pid, row.pid_start)) continue;
       await ledger.call("statements", [statement("UPDATE turn_journal_code_reverts SET state='unknown',result=? WHERE id=? AND state='applying'", JSON.stringify({ id: row.id, status: "unknown", error: "Interrupted checkout restoration; review partial work before another action.", at: now(), callSite: "turn-journal.recover" }), row.id)]);
@@ -327,7 +340,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       publish(turnId);
     } catch (error) {
       const cause = { checkout, at: now(), callSite: "captureCheckout", errorClass: error instanceof Error ? error.name : "UnknownError", message: String(error).slice(0, 2000) };
-      options.log?.emit({ severityText: "ERROR", body: "Checkout receipt capture failed", attributes: { "turn.id": turnId, "checkout": checkout, "error.type": cause.errorClass } });
+      diagnostic(() => options.log?.emit({ severityText: "ERROR", body: "Checkout receipt capture failed", attributes: { "turn.id": turnId, "checkout": checkout, "error.type": cause.errorClass } }));
       try { await write([
         statement("INSERT INTO turn_journal_code_failures VALUES (?,?,?) ON CONFLICT(turn_id,checkout) DO UPDATE SET cause=excluded.cause", turnId, checkout, JSON.stringify(cause)),
         statement("UPDATE turn_journal_code_receipts SET receipt=json_set(receipt,'$.state','partial') WHERE turn_id=? AND checkout=?", turnId, checkout),
@@ -1152,7 +1165,10 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         tool: String(event.payload.tool), action: event.payload.action as JournalOutwardAction["action"], target: event.payload.target as string | null,
         decision: event.payload.decision as JournalOutwardAction["decision"], historyRewrite: event.payload.historyRewrite === true, revertible: false }));
       const codeChanges = (db.query("SELECT receipt FROM turn_journal_code_receipts WHERE turn_id=? ORDER BY checkout").all(turnId) as { receipt: string }[]).map(item => JSON.parse(item.receipt) as CodeChangeReceipt);
-      return { turnId, sessionId, summary: summary(turnId), changes, ...(codeChanges.length ? { codeChanges } : {}), ...(outwardActions.length ? { outwardActions, outwardActionsTruncated: outward.length > 1000 } : {}), missing: [...(db.query("SELECT checkout,cause FROM turn_journal_code_failures WHERE turn_id=?").all(turnId) as { checkout: string; cause: string }[]).map(item => ({ path: item.checkout, reason: `code_capture_failed: ${JSON.parse(item.cause).message}` })), ...JSON.parse(row.missing), ...(db.query("SELECT path FROM turn_journal_claude_memory WHERE turn_id=? AND state!='saved'").all(turnId) as {path:string}[]).filter(item => !(JSON.parse(row.missing) as {path:string}[]).some(missing => missing.path === item.path)).map(item => ({path:item.path,reason:"memory_persistence_unconfirmed"})), ...configurationOf(row).paths.map(path => ({ path, reason: "configuration_inputs_not_fully_identified" })), ...(failure ? [{ path: ".", reason: failure }] : [])] };
+      return { turnId, sessionId, summary: summary(turnId), changes, ...(codeChanges.length ? { codeChanges } : {}), ...(outwardActions.length ? { outwardActions, outwardActionsTruncated: outward.length > 1000 } : {}), missing: [...(db.query("SELECT checkout,cause FROM turn_journal_code_failures WHERE turn_id=?").all(turnId) as { checkout: string; cause: string }[]).map(item => {
+        const cause = diagnostic(() => JSON.parse(item.cause) as { message?: unknown } | null);
+        return { path: item.checkout, reason: `code_capture_failed: ${typeof cause?.message === "string" ? cause.message : "Retained checkout failure cause is unavailable."}` };
+      }), ...JSON.parse(row.missing), ...(db.query("SELECT path FROM turn_journal_claude_memory WHERE turn_id=? AND state!='saved'").all(turnId) as {path:string}[]).filter(item => !(JSON.parse(row.missing) as {path:string}[]).some(missing => missing.path === item.path)).map(item => ({path:item.path,reason:"memory_persistence_unconfirmed"})), ...configurationOf(row).paths.map(path => ({ path, reason: "configuration_inputs_not_fully_identified" })), ...(failure ? [{ path: ".", reason: failure }] : [])] };
     },
     version(sessionId: string, turnId: string, sequence: number, side: "before" | "after") {
       const details = this.details(sessionId, turnId), change = details?.changes.find(item => item.sequence === sequence);
